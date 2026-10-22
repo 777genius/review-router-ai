@@ -151,8 +151,6 @@ export const providerInvocationManifestV1CanonicalizerDescriptor =
     }),
   });
 
-const prDescriptionTaskKind = "pr_description" as const;
-
 /** Optional parent-stage language; the published review V1 descriptor is immutable. */
 export const prDescriptionInvocationManifestV1CanonicalizerDescriptor =
   Object.freeze({
@@ -165,7 +163,7 @@ export const prDescriptionInvocationManifestV1CanonicalizerDescriptor =
         field.name === "taskKindSet"
           ? Object.freeze({
               ...field,
-              values: Object.freeze([prDescriptionTaskKind]),
+              values: Object.freeze([ReviewTaskKind.PrDescription]),
               minItems: 1,
               maxItems: 1,
             })
@@ -177,10 +175,17 @@ export const prDescriptionInvocationManifestV1CanonicalizerDescriptor =
       input: Object.freeze({
         ...providerInvocationManifestV1CanonicalizerDescriptor.goldenVector
           .input,
-        taskKindSet: Object.freeze([prDescriptionTaskKind]),
+        taskKindSet: Object.freeze([ReviewTaskKind.PrDescription]),
       }),
     }),
   });
+
+function manifestDescriptor(candidate: Readonly<Record<string, unknown>>) {
+  return Array.isArray(candidate.taskKindSet) &&
+    candidate.taskKindSet.includes(ReviewTaskKind.PrDescription)
+    ? prDescriptionInvocationManifestV1CanonicalizerDescriptor
+    : providerInvocationManifestV1CanonicalizerDescriptor;
+}
 
 const maxRequestMessages = 128;
 const maxRequestMessageBytes = 2 * 1024 * 1024;
@@ -308,7 +313,7 @@ export function normalizeProviderInvocationManifest(
   if (!isRecord(candidate)) {
     throw new Error("provider_invocation_manifest_invalid");
   }
-  const fields = providerInvocationManifestV1CanonicalizerDescriptor.fields;
+  const fields = manifestDescriptor(candidate).fields;
   const fieldNames = new Set(fields.map((field) => field.name));
   const unknownField = Object.keys(candidate)
     .sort()
@@ -337,7 +342,9 @@ export function canonicalizeProviderInvocationManifest(
       (field) => manifest[field.name as keyof ProviderInvocationManifest],
     ) as readonly CanonicalJsonValue[],
   );
-  return utf8Bytes(`${providerInvocationManifestDomain}${body}`);
+  return utf8Bytes(
+    `${manifestDescriptor(manifest).canonicalPreimageDomain}${body}`,
+  );
 }
 
 export function serializeProviderInvocationManifestCanonicalWireJson(
@@ -397,7 +404,9 @@ function utf8Bytes(value: string): Uint8Array {
 }
 
 function normalizeManifestField(
-  field: (typeof providerInvocationManifestV1CanonicalizerDescriptor.fields)[number],
+  field:
+    | (typeof providerInvocationManifestV1CanonicalizerDescriptor.fields)[number]
+    | (typeof prDescriptionInvocationManifestV1CanonicalizerDescriptor.fields)[number],
   value: unknown,
 ): unknown {
   if (field.kind === "literal_integer") {

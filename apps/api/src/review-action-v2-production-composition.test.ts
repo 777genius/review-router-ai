@@ -5,6 +5,7 @@ import {
   reviewActionV2PublishedSchemaDigest,
   reviewInvestigationExtensionV1,
 } from "@reviewrouter/protocol-review-action-v2";
+import { ProducerReleaseState } from "@reviewrouter/features-review-run-control";
 import { describe, expect, it, vi } from "vitest";
 import { createApiApp } from "./app.js";
 import {
@@ -827,6 +828,7 @@ describe("Review Action v2 production composition", () => {
 
     await materializer.ensureRegistered({
       producerReleaseId: "release-1",
+      state: ProducerReleaseState.Registered,
       distributionKind: "public_reusable",
       actionCommitSha: "1".repeat(40),
       runtimeCommitSha: "2".repeat(40),

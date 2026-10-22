@@ -6,7 +6,7 @@ import {
 import { execFile } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { cpus, freemem, totalmem } from "node:os";
-import { statfs } from "node:fs/promises";
+import { statfs, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -137,7 +137,7 @@ async function main(): Promise<void> {
       fixtureBoundary,
     };
     await writeJson(join(options.workDir, "runtime.json"), descriptor);
-    const boot = await verifyBoot(app.url, viewer.header);
+    const boot = await verifyBoot(app.url, viewer.header, options.workDir);
     await writeJson(join(options.workDir, "boot-report.json"), boot);
     if (options.runBrowserTests) {
       summary = await runPlaywright({
@@ -203,6 +203,7 @@ async function main(): Promise<void> {
 async function verifyBoot(
   appUrl: string,
   viewerCookie: string,
+  workDir: string,
 ): Promise<{ readonly ok: true; readonly checks: readonly string[] }> {
   const checks: string[] = [];
   const health = await fetch(`${appUrl}/api/health`);
@@ -238,9 +239,18 @@ async function verifyBoot(
   if (!viewer.ok)
     throw new Error(`accounts_reference_e2e_viewer_status_${viewer.status}`);
   const viewerHtml = await viewer.text();
+  await writeFile(join(workDir, "boot-viewer.html"), viewerHtml, {
+    mode: 0o600,
+  });
+  // Section content may stream only after browser hydration. The authorized
+  // shell proves the generated identity here; browser tests assert inventory.
+  const visibleShell = viewerHtml
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, " ");
   if (
     viewerHtml.includes("NEXT_REDIRECT") ||
-    !viewerHtml.includes(FIXTURES.sourceLabels.viewerPrimary)
+    !visibleShell.includes(FIXTURES.workspaceNames.personalViewer) ||
+    !visibleShell.includes(FIXTURES.workspaceNames.orgAlpha)
   )
     throw new Error("accounts_reference_e2e_generated_session_not_authorized");
   checks.push("generated-session-ok");
@@ -268,6 +278,11 @@ async function runPlaywright(input: {
           ...process.env,
           ACCOUNTS_REFERENCE_E2E_BASE_URL: input.appUrl,
           ACCOUNTS_REFERENCE_E2E_GATEWAY_URL: input.gatewayUrl,
+          ACCOUNTS_REFERENCE_E2E_CATALOG: process.argv.includes(
+            "--catalog-fixture",
+          )
+            ? "1"
+            : "0",
           ACCOUNTS_REFERENCE_E2E_PROBE: process.argv.includes("--probe-fixture")
             ? "1"
             : "0",

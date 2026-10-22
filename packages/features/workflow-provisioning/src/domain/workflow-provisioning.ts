@@ -10,6 +10,8 @@ import type {
   CodexRotatingT0WorkflowSchemaVersion,
   VersionedProviderSecretNamespace,
 } from "@reviewrouter/features-codex-oauth-rotating";
+import type { ReviewRouterMcpSecrets } from "@reviewrouter/protocol-review-workflow";
+export type { ReviewRouterMcpSecrets } from "@reviewrouter/protocol-review-workflow";
 import {
   parseReviewConfigurationStrict,
   type ReviewConfiguration,
@@ -86,6 +88,7 @@ export type ProvisionWorkflowInput = {
   readonly apiUrl: string;
   readonly runtimeConfigMode: "oidc" | "static";
   readonly codexSessionMode?: "account-gateway";
+  readonly mcpSecrets?: ReviewRouterMcpSecrets;
   readonly providerApiAuthMode?: "openrouter-api";
   readonly staticRuntimeEnv?: Readonly<Record<string, string>>;
   readonly workflowStyle?: ReviewRouterWorkflowStyle;

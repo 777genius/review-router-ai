@@ -112,5 +112,66 @@ canonical-only перенос auxiliary contract: прежние identities и S
 по шести границам интеграции и сверил 52 generated-file digests: **PASS**, без
 новых findings. Root завершил normal builds, private artifact parity,
 **252/252** affected runtime tests, full runtime typecheck и signed paired HTTP.
-Итоговый runtime commit `1381fa4` закреплён в SaaS CI; browser receipt остаётся
-на `35ec386`, поскольку последующие изменения не меняли frontend или Skills UX.
+На этом историческом checkpoint runtime commit `1381fa4` был закреплён в SaaS
+CI; browser receipt оставался на `35ec386`, поскольку тогдашние последующие
+изменения не меняли frontend или Skills UX. Новые checkpoints приведены ниже.
+
+## Проверка актуального main и полного E2E — 2026-10-22
+
+Три независимых GPT-6.1 Sol xhigh направления проверили runtime/native/OCR,
+schema/release compatibility и настоящий browser UX после нового merge main.
+Read-only аудит admission/restore подтвердил совместную работу Skills,
+context tools, PR descriptions и usage без дополнительных конкретных findings.
+
+Обнаружены и исправлены два конкретных дефекта:
+
+1. CodeRabbit `PRRT_kwDOSQsl5c6u6_Zt`: native projection повторяла весь текст
+   скилла и Markdown references для каждого matching file. Исправление выводит
+   один блок на Skill с детерминированным точным списком paths; OCR exact-path
+   проекция сохранена. Regression: большой Skill на 200 files, overlaps,
+   excludes, case sensitivity, ordering/duplicates и legacy — 15 tests passed.
+2. Первый настоящий Next bootstrap выявил `node:crypto` в browser import graph
+   через общий shared barrel. Node-only capture contract вынесен в отдельный
+   package subpath, серверные imports уточнены. Crypto и generated contract
+   не менялись. Настоящая browser-platform compilation добавлена к существующей
+   архитектурной проверке. Focused suite — 71/71; финальный actual browser
+   repeat на чистом `336f59edce009c2f6347007f3651c0f32a3bf30b` — **7/7**.
+
+Все 142 migrations/checksums подтверждены на fresh PostgreSQL 17.11. Через
+UI и persisted DB проверены один canonical Skill, две workspace links,
+author revision, отдельное grant acceptance, revoke и narrow writer removal.
+Критик просмотрел все 11 desktop/mobile screenshots; root дополнительно
+проверил library, bulk success и unknown-result retry. Результат и действия
+доступны в mobile footer. Подробные команды и receipts — в implementation report.
+
+Конкретных незакрытых дефектов в проверенных локальных сценариях не осталось.
+Первая попытка публикации остановилась на GitHub API `create_tree` с ответом
+`user rejected MCP tool call`; она не была успешным push.
+
+## Итог после следующего main и повторной попытки публикации
+
+В подготовленные ветки включены SaaS main `5f242ba` и runtime main `cae72ec`.
+Окончательный реальный browser run на чистом source
+`50823635cd2047f192bced0ae59900d71cfb6d5f`, tree
+`0751ad028f78a70e98d1e0844faff76222b59a4e`: **7/7**, 0 failed/skipped, 53.6 s;
+свежий PostgreSQL 17.11/UTC подтвердил все **142** migrations и checksums.
+Повторно прошли **82** FMS conformance cases, rejecting mutation, combined
+Foundation и **2/2** shared/browser boundary checks; runtime — **269** focused
+tests и TypeScript typecheck. Миграционные 351 tests не повторялись без изменения
+их source области. Все 11 screenshots просмотрены; receipt directory:
+`tmp/accounts-reference-e2e/runs/skills-final-50823635cd20/`. Прежние receipts
+сохранены. Итоговый локальный runtime `5ddb78ded6b2ef77eedd2216bb37112432d5ffd5`
+закреплён в paired CI; официальный export из SaaS `50823635` подтвердил все
+**57** generated-файлов, handoff SHA256
+`cd3a707ed70b90db614f534aa42494ade042697b7d9ca5c87daec8385e16b314`.
+Штатный build, release metadata и **4/4** contract/artifact checks passed;
+обязательный signed admission/paired HTTP на этих артефактах — **5/5**,
+без failures/skips. Runtime source и OCR patch не менялись после их квалификации.
+
+Пользователь затем явно разрешил автономно завершить публикацию, CI и merge.
+Повторный `create_tree` всё равно отклонён инструментом:
+`user rejected MCP tool call`, без дополнительного объяснения. Внешние записи
+больше не выполняются. Remote heads остались SaaS `520ef97` и runtime `1381fa4`;
+native duplication thread остаётся remote unresolved, хотя локальное исправление
+готово. Новые remote CI и merge не выполнены; локальные commits/bundles и
+квалификация не выдаются за опубликованный результат. Deploy/release не запускались.

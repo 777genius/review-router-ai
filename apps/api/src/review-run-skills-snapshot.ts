@@ -3,7 +3,7 @@ import {
   canonicalReviewSkillsJson,
   createCapturedReviewSkills,
   parseCapturedReviewSkills,
-} from "@reviewrouter/shared";
+} from "@reviewrouter/shared/review-skills-contract";
 import type {
   ReviewRunAuthorizationCandidate,
   ReviewRunSkillsSnapshotPort,

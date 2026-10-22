@@ -1,5 +1,6 @@
 import type { AuditLogRepositoryPort } from "@reviewrouter/features-audit-log";
 import type { ReviewConfigurationRepositoryPort } from "@reviewrouter/features-review-config";
+import type { ReviewRouterMcpSecrets } from "@reviewrouter/protocol-review-workflow";
 import type {
   ReviewRouterDiscussionMode,
   ReviewRouterWorkflowStyle,
@@ -26,6 +27,7 @@ export type ProvisionRepositoryReviewRouterWorkflowInput = {
   readonly apiUrl: string;
   readonly runtimeConfigMode: "oidc" | "static";
   readonly codexSessionMode?: "account-gateway";
+  readonly mcpSecrets?: ReviewRouterMcpSecrets;
   readonly providerApiAuthMode?: "openrouter-api";
   readonly staticRuntimeEnv?: Readonly<Record<string, string>>;
   readonly workflowStyle?: ReviewRouterWorkflowStyle;
@@ -42,6 +44,7 @@ export type ProvisionRepositoryReviewRouterWorkflowInput = {
 export async function provisionRepositoryReviewRouterWorkflow(
   input: ProvisionRepositoryReviewRouterWorkflowInput,
   dependencies: {
+    readonly secretsRuntimeActionRef?: string;
     readonly targets: WorkflowProvisioningTargetPort;
     readonly setupGateway: WorkflowSetupGatewayPort;
     readonly provisioning: WorkflowProvisioningRepositoryPort;
@@ -102,6 +105,9 @@ export async function provisionRepositoryReviewRouterWorkflow(
       ...(input.codexSessionMode
         ? { codexSessionMode: input.codexSessionMode }
         : {}),
+      ...(input.mcpSecrets !== undefined
+        ? { mcpSecrets: input.mcpSecrets }
+        : {}),
       ...(input.workflowPath ? { workflowPath: input.workflowPath } : {}),
       ...(input.workflowStyle ? { workflowStyle: input.workflowStyle } : {}),
       ...(input.discussionMode ? { discussionMode: input.discussionMode } : {}),
@@ -152,6 +158,9 @@ export async function provisionRepositoryReviewRouterWorkflow(
         : {}),
     },
     {
+      ...(dependencies.secretsRuntimeActionRef
+        ? { secretsRuntimeActionRef: dependencies.secretsRuntimeActionRef }
+        : {}),
       setupGateway: dependencies.setupGateway,
       provisioning: dependencies.provisioning,
       ...(dependencies.configurations

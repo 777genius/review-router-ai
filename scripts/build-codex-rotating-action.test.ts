@@ -13,6 +13,46 @@ import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("Codex rotating Action bundle reproducibility", () => {
+  it("normalizes generated wrapper labels without changing source strings or template contents", () => {
+    const source = [
+      "var require_real = __commonJS({",
+      '  "pinned-dependency:real@1.0.0/node_modules/real/index.js"(exports) {',
+      '    exports.path = "node_modules/parent/node_modules/real/source.js";',
+      "  }",
+      "});",
+      "var init_other = __esm({",
+      '  "node_modules/parent/node_modules/other/index.js"() {}',
+      "});",
+      "var template = `",
+      "var require_fake = __commonJS({",
+      '  "pinned-dependency:fake@1.0.0/node_modules/fake/index.js"(exports) {',
+      '    exports.path = "pinned-dependency:fake@1.0.0/node_modules/fake/source.js";',
+      "  }",
+      "});",
+      "`;",
+    ].join("\n");
+    const normalized = execFileSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        'import { readFileSync } from "node:fs"; import { normalizeDependencyWrapperLabels } from "./scripts/lib/codex-rotating-action-build.mjs"; process.stdout.write(normalizeDependencyWrapperLabels(readFileSync(0, "utf8")));',
+      ],
+      { input: source, encoding: "utf8" },
+    );
+    expect(normalized).toBe(
+      source
+        .replace(
+          '"pinned-dependency:real@1.0.0/node_modules/real/index.js"',
+          '"node_modules/real/index.js"',
+        )
+        .replace(
+          '"node_modules/parent/node_modules/other/index.js"',
+          '"node_modules/other/index.js"',
+        ),
+    );
+  });
+
   it("is byte-identical across clean hoisted and linked-store checkouts without path leakage", () => {
     const sourceRoot = process.cwd();
     const tempRoot = mkdtempSync(
@@ -66,7 +106,11 @@ describe("Codex rotating Action bundle reproducibility", () => {
         expect(bundle.equals(committedBundle)).toBe(true);
       }
 
-      const bundleText = bundles[0].toString("utf8");
+      const firstBundle = bundles[0];
+      if (!firstBundle) {
+        throw new Error("No Action bundles were produced");
+      }
+      const bundleText = firstBundle.toString("utf8");
       for (const forbidden of [
         "/var/data",
         "/tmp",
@@ -93,6 +137,7 @@ function copyBuildInputs(sourceRoot: string, checkoutRoot: string) {
       "-z",
       "--",
       "packages/features/codex-oauth-rotating",
+      "packages/protocol-review-action-v2",
       "packages/shared",
       "vendor/account-gateway",
     ],

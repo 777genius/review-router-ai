@@ -1,6 +1,6 @@
 schemaVersion: 1
 project:
-  id: reviewrouter-review-skills
+  id: reviewrouter-provider-seams
 capabilities:
   architecture.source-dependencies:
-    configPath: architecture/review-skills/source-dependencies.yaml
+    configPath: architecture/foundation/provider-seams.yaml

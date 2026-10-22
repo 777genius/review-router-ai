@@ -8,13 +8,23 @@
       "types": "./src/index.ts",
       "production": "./dist/index.js",
       "default": "./src/index.ts"
+    },
+    "./composition": {
+      "types": "./src/composition/index.ts",
+      "production": "./dist/composition/index.js",
+      "default": "./src/composition/index.ts"
     }
   },
   "dependencies": {
-    "zod": "^4.4.2"
+    "zod": "^4.4.2",
+    "@get-modular/core": "0.2.0",
+    "@get-modular/assembly": "0.2.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "vitest": "4.1.10"
   }
 }

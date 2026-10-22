@@ -1,7 +1,7 @@
 import {
   parseReviewSkillScope,
   reviewSkillsLimits,
-} from "@reviewrouter/shared";
+} from "@reviewrouter/shared/review-skills-contract";
 import {
   ReviewSkillsError,
   ReviewSkillsErrorCode as Code,

@@ -1,3 +1,9 @@
+import { prDescriptionContract } from "@reviewrouter/shared";
+import {
+  renderReviewPrDescription,
+  reviewPrDescriptionStartMarker,
+  type ReviewPrDescriptionSource,
+} from "./review-pr-description";
 import {
   ReviewPublicationInlineReviewDelivery,
   ReviewPublicationLifecycleSemantic,
@@ -54,6 +60,7 @@ export enum ReviewPublicationOccurrenceState {
 }
 
 export type ReviewPublicationRenderingSource = {
+  readonly prDescription?: ReviewPrDescriptionSource;
   readonly summary: {
     readonly marker: string;
     readonly body: string;
@@ -92,6 +99,7 @@ type RenderedPayloadIdentity = CanonicalReviewPublicationBodyFacts & {
 };
 
 export type CanonicalReviewPublicationRendering = {
+  readonly prDescription?: RenderedPayloadIdentity;
   readonly summary: RenderedPayloadIdentity & {
     readonly semantic: ReviewPublicationSummarySemantic;
   };
@@ -201,6 +209,13 @@ export function renderCanonicalReviewPublication(
     };
   }
 
+  if (
+    input.source.prDescription !== undefined &&
+    primitives.utf8ByteLength(input.source.prDescription.generatedMarkdown) >
+      prDescriptionContract.maxGeneratedMarkdownBytes
+  ) {
+    throw new Error("publication_pr_description_markdown_invalid");
+  }
   const checkSummary = withMarker(
     input.source.check.summary,
     input.source.check.marker,
@@ -287,6 +302,17 @@ export function renderCanonicalReviewPublication(
     });
 
   return {
+    ...(input.source.prDescription === undefined
+      ? {}
+      : {
+          prDescription: payload(
+            reviewPrDescriptionStartMarker,
+            renderReviewPrDescription(
+              input.source.prDescription.generatedMarkdown,
+            ),
+            primitives,
+          ),
+        }),
     summary: {
       ...summary,
       semantic: input.source.summary.allClear

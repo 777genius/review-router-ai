@@ -30,7 +30,7 @@
 
 Применён существующий feature-first DDD/Clean Architecture из ADR-005. Get Modular используется для двух borrowed host inputs и одного application module. Пользовательские скиллы остаются данными. Нет generic transaction framework, нового plugin runtime, service locator или миграции всего проекта на GM. DRY обеспечивается общими assignment/capture/scope операциями и официальным генератором опубликованного контракта.
 
-Production build сохраняет штатный TypeScript 6.0.3. Дополнительный gate явно устанавливает isolated TypeScript 7.0.2 и запускает `typecheck:native`; production Docker не зависит от локального opt-in install. Foundation tooling имеет отдельные pnpm 11.25.0/lock и использует существующие четыре точных version exceptions; root pnpm 10.33.0/lock не изменяются этой установкой.
+Production build сохраняет штатный TypeScript 6.0.3. Дополнительный gate явно устанавливает isolated TypeScript 7.0.2 и запускает `typecheck:native`; production Docker не зависит от локального opt-in install. Foundation tooling имеет отдельные pnpm 11.25.0/lock и использует существующие четыре точных version exceptions. Текущий root pin — pnpm 11.28.7; isolated native compiler package отдельно сохраняет pnpm 10.33.0. Установка nested tooling не подменяет root lockfile.
 
 ## 3. Инварианты, проверенные в реализации
 
@@ -104,11 +104,13 @@ pnpm protocol:check
 pnpm action:artifact:check:smoke
 ```
 
-`SKILLS_PG_URL`/`ADMISSION_PG_URL` должны указывать на отдельные disposable PostgreSQL 17+ fixtures; не на production. Миграции применяются до тестов. Полные setup/commands браузера — в `scripts/accounts-reference-e2e/README.md`, opt-in `--skills-fixture`. Для первого `pnpm` здесь используется repository pin 10.33.0; nested tooling сам выбирает 11.25.0.
+`SKILLS_PG_URL`/`ADMISSION_PG_URL` должны указывать на отдельные disposable PostgreSQL 17+ fixtures; не на production. Миграции применяются до тестов. Полные setup/commands браузера — в `scripts/accounts-reference-e2e/README.md`, opt-in `--skills-fixture`. Для root-команд используется текущий repository pin 11.28.7; Skills tooling выбирает собственный pin 11.25.0, а isolated native compiler package — 10.33.0.
 
 В runtime actual CLI gate требует собранный binary и `REVIEWROUTER_OCR_REQUIRED=1`; точная команда есть в `docs/review-skills.md`. Отсутствие fixture при required flags вызывает failure, а не успешный skip.
 
-## 5. Commit identities и CI
+## 5. Исторический checkpoint identities и CI
+
+Следующие identities относятся к checkpoint до последующих merge main. Актуальная локальная квалификация и границы публикации приведены в заключительном разделе; исторические receipts сохраняют исходные SHA.
 
 - SaaS functional integration checkpoint после повторного ревью: `35ec3863c62b13095efdcc0083a180cea7ad6eba`. Историческая квалификация выше выполнена на `03c94f32ce4a5147336681502742e4385c1827d5`; новый receipt приведён ниже.
 - Paired runtime checkout: `1381fa481bfba3755bf9135b243486505b5c2563`; этот immutable SHA установлен только в paired CI lane. Published hosted-pool baseline и stable tags не перемещены.
@@ -127,7 +129,7 @@ CI теперь содержит отдельную Skills PostgreSQL fixture, s
 
 Формат v1 — текст и ограниченные Markdown references. Нет запуска scripts, установки dependencies, новых tool permissions, transitive sharing, marketplace, ручного Publish/semver или двусторонней Git/web sync. Provenance подтверждает передачу инструкций, но не доказывает соблюдение каждой инструкции моделью.
 
-Production deployment, публикация release assets и регистрация новых qualified producer profiles выполняются существующим release process после review. Правильный порядок: additive DB/server → новый qualified runtime/profile → включение назначений для поддерживаемых репозиториев. Эти PR не выполняют merge/deploy и не изменяют production credentials.
+Production deployment, публикация release assets и регистрация новых qualified producer profiles выполняются существующим release process после review. Правильный порядок: additive DB/server → новый qualified runtime/profile → включение назначений для поддерживаемых репозиториев. Слияние PR само по себе не выполняет production deploy, публикацию release assets или регистрацию producer. Production credentials в этой работе не изменялись.
 
 ## 7. Повторное ревью, авторство и финальная визуальная квалификация
 
@@ -253,3 +255,138 @@ generation и control-plane adapter. Full typecheck, normal build и diff checks
 `tmp/skills-unified-main-paired-http.log` и runtime
 `tmp/skills-unified-main-{build,typecheck,tests}.log`. Paired CI pin обновлён
 на этот immutable merge commit; новый remote CI оценивается отдельно.
+
+## Промежуточная E2E-квалификация 2026-10-22
+
+Для зафиксированной ниже квалификации main `debd50e6a5b940cdbebb253f4483da5b81d71a7a` объединён с
+Skills. Сохранены новые provider usage, context tools, полная реализация
+PR description и все их migrations. Более ранний раздел про contract-only
+изоляцию описывает исторический checkpoint, до принятия этих фич в main.
+Текущий полный каталог содержит **142 неизменённых SQL migrations**; его digest
+`sha256:8c53b7407b5f4b53a92c5554c8024f24792f67ed993016b4f585564a110a03f7`.
+Два различных имени `000136_*` сохранены. Классификатор Skills проверяет точную
+пару имён/checksums и известный predecessor, затем использует существующие
+проверки main; неизвестный tail не принимается.
+
+Первый запуск настоящего Next на `35d79c78b5c8a35d70d4f5e78999390ffa0c8878`
+обнаружил ошибку browser/server boundary: новый клиент context tools импортировал
+общий shared barrel, а тот реэкспортировал Node-only Skills hashing с
+`node:crypto`. Исправление выделяет явный package subpath
+`@reviewrouter/shared/review-skills-contract` для серверных потребителей и
+оставляет общий barrel совместимым с браузером. Канонический контракт и его
+байты не изменены; полифилл, новая зависимость или изменение crypto не добавлены.
+Регрессия проверяется настоящей esbuild browser compilation общего entrypoint.
+
+Повторная полная квалификация выполнена на чистом committed source
+`336f59edce009c2f6347007f3651c0f32a3bf30b`, tree
+`ccef621791bd726b7e00691e379cb22671b8d21a`:
+
+| Проверка                                                         | Наблюдаемый результат                                                                                              |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Real Next/session/actions + PostgreSQL + Chromium                | **7/7**, 0 failed, 0 skipped, 48.5 s                                                                               |
+| Свежий PostgreSQL 17.11 / UTC                                    | Все **142** migrations завершены; каждый checksum совпадает с SQL в checkout                                       |
+| Ссылочная модель                                                 | Один canonical Skill, две ссылки из других workspace; revision 2 автора сохранена на оригинале                     |
+| Grants и отзыв                                                   | Отдельное принятие grant version 1; revoke переводит другой grant в version 2; последующий private head не раскрыт |
+| Repository-only writer                                           | Удалена только выбранная revoked binding; соседняя binding сохранена                                               |
+| GitHub App HTTP fixture                                          | 5 signed installation-token POST и 5 collaborator-permission GET                                                   |
+| Desktop/mobile UX                                                | Проверены 11 screenshots; summary, результат, exact retry и действия доступны в footer                             |
+| Browser-boundary / Skills / admission / generated-contract tests | **71/71**                                                                                                          |
+| Migration/release/handoff tests                                  | **351/351**; дополнительно реальный PostgreSQL gateway test passed                                                 |
+| Signed admission и HTTP companion → public runtime               | **5/5**, без пропусков                                                                                             |
+| Engineering Foundation / FMS                                     | 82 shared conformance cases, rejecting mutation и все scoped checks passed                                         |
+| API и web typecheck                                              | Passed на Node 26.11.1; web потребовал штатный увеличенный Node heap                                               |
+| Shared/private Action build и artifact parity                    | Passed; оба private bundles byte-identical соответствующим public runtime bundles                                  |
+
+Семь браузерных сценариев включают Create/Save/CAS/nonauthor denial,
+text-only import/export, 125 repository targets с pagination и mixed counts,
+предел 1001 выбранного ID, потерю ответа после commit с exact retry, canonical
+sharing/author edit и repository-only remove после revoke. Это настоящий
+application/database/browser путь с изолированным внешним HTTP fixture;
+production OAuth/SCM/provider/model traffic не запускался.
+
+Receipt directory:
+`tmp/accounts-reference-e2e/runs/skills-merge-336f59edce00/`.
+Сохранены `qualification-receipt.json`, `result.json`, `playwright-result.json`,
+`migration-receipt.json`, `sharing-db-receipt.json`,
+`skills-github-requests.json`, 11 screenshots и полный synthetic DB dump.
+Source delta при запуске пустой, SHA256
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+Неуспешный первый bootstrap и его dump сохранены отдельно, а не заменены
+успешным receipt. Сгенерированный harness-файл `next-env.d.ts` возвращён к baseline.
+
+Paired runtime candidate этого checkpoint:
+`260ae157d9dcce6fa8603e5140676510fb98f176`. Он объединяет тогдашний main
+`1fd5503e4e1104ff3898a05cdcae80070251a951` со Skills и исправляет новое
+CodeRabbit замечание о многократном повторении native Skill body. Каждый Skill
+теперь передаётся один раз с отсортированным списком точных matching paths;
+OCR сохраняет отдельную exact-path проекцию. Passed: **221** focused runtime
+tests, production entrypoint artifact **1/1**, full typecheck, normal build и
+**10/10** required actual OCR rr.4 CLI tests. Два отдельно gated historical
+rr.3/MCP tests остаются явно пропущенными, не засчитываются в эти результаты.
+
+Официальный combined export содержит 57 файлов и ссылается на reachable-in-branch
+local source `35d79c78b5c8a35d70d4f5e78999390ffa0c8878`; все file digests и
+байты сверены с этим commit. Handoff digest:
+`de0c5a57101aac450d7bb9e4c7c3acc2452490509ebca4e5ca6cd44d70c19863`.
+Более позднее исправление package boundary не меняет generated contract.
+
+Commit `8e8e5ac` после этого checkpoint изменил только отчёт, журнал замечаний
+и paired CI pin. Первая попытка публикации остановилась на GitHub API
+`create_tree` с ответом `user rejected MCP tool call` без дополнительной причины.
+Это историческая попытка; последующая интеграция и итоговый статус приведены ниже.
+
+## Финальная локальная квалификация и статус публикации — 2026-10-22
+
+SaaS main `5f242ba2187b7085c3f5f4b5466e90029dce909a` и runtime main
+`cae72ec70b84cb20a93021d51f1c8a3e0426b17a` включены в подготовленные ветки.
+Сохранены account dialog, usage redrive, shared dialog feedback, incomplete-review
+summary и deadline-bounded provider-lane waiting. Новые изменения main не меняют
+каталог из 142 migrations или канонические contract bytes.
+
+Окончательный browser run выполнен на чистом committed SaaS source
+`50823635cd2047f192bced0ae59900d71cfb6d5f`, tree
+`0751ad028f78a70e98d1e0844faff76222b59a4e`:
+
+| Проверка                                              | Результат                                                                        |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Real Next/session/actions + PostgreSQL + Chromium     | **7/7**, 0 failed, 0 skipped, 53.6 s                                             |
+| Свежий PostgreSQL 17.11 / UTC                         | Все **142** migrations завершены, все SQL checksums совпадают, rolled back — 0   |
+| Engineering Foundation / FMS                          | **82** conformance cases, rejecting mutation и combined scoped checks passed     |
+| Shared boundary / browser compilation                 | **2/2**                                                                          |
+| Runtime после интеграции нового main                  | **269** focused tests и TypeScript typecheck passed                              |
+| Итоговые runtime contract / production artifact       | **4/4**, штатный build и release metadata check passed                           |
+| Signed admission и paired HTTP на итоговых артефактах | **5/5**, 0 failed/skipped, оба required flags включены                           |
+| GitHub App fixture / визуальная проверка              | 5 signed token POST, 5 permission GET; просмотрены 11 desktop/mobile screenshots |
+
+Receipts и synthetic DB dump сохранены в
+`tmp/accounts-reference-e2e/runs/skills-final-50823635cd20/`.
+`qualification-receipt.json`, `result.json` и `migration-receipt.json`
+подтверждают source SHA, пустой source delta и результаты выше. Сохраняются также
+sharing DB receipt, HTTP trace, screenshots и прежние успешные/неуспешные runs.
+Во время screenshot зафиксирован один hydration warning с единственным отличием
+`caret-color:transparent`, временно добавленным установленным Playwright
+screenshotter; наблюдение и Next log сохранены, продуктовый input этого атрибута
+не задаёт. Прежние 351 migration/release tests повторно не запускались, поскольку
+последний main не менял проверяемую schema/classification область.
+
+Окончательный локальный runtime commit —
+`5ddb78ded6b2ef77eedd2216bb37112432d5ffd5`; он закреплён в paired CI pin.
+Официальный export использует SaaS source `50823635cd2047f192bced0ae59900d71cfb6d5f`
+и published runtime base `1381fa481bfba3755bf9135b243486505b5c2563`.
+Все **57** generated-файлов побайтно совпадают с canonical source; handoff SHA256
+`cd3a707ed70b90db614f534aa42494ade042697b7d9ca5c87daec8385e16b314`.
+Обязательный final HTTP suite сохранён в `tmp/final-new-main-http.log` и
+`tmp/final-new-main-http-results.json`. Прежний runtime `260ae157` и export
+из `35d79c78` остаются историческими checkpoints. После browser checkpoint
+изменены только этот отчёт, журнал замечаний и paired CI pin; продуктовые
+исходники соответствуют проверенному `50823635`.
+
+После явного разрешения пользователя автономно закончить публикацию, CI и merge
+повторный GitHub API `create_tree` снова вернул `user rejected MCP tool call`.
+Причина сверх этого сообщения инструментом не сообщена. Дальнейшие внешние
+записи прекращены; завершение ограничено локальными commits и готовыми bundles.
+Remote SaaS head остаётся `520ef97b2ec0328769a270deee15351155110293`, runtime —
+`1381fa481bfba3755bf9135b243486505b5c2563`. Новый remote CI, ответ/resolve native
+review thread и merge обоих PR не выполнены. Успешные проверки старых remote
+heads не выдаются за CI подготовленных commits. Production deploy и release
+операции не запускались.

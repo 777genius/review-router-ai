@@ -29,6 +29,7 @@ import type { WorkflowProvisioningRepositoryPort } from "../ports/workflow-provi
 import type { WorkflowSetupGatewayPort } from "../ports/workflow-setup-gateway-port";
 
 export type ProvisionReviewRouterWorkflowDependencies = {
+  readonly secretsRuntimeActionRef?: string;
   readonly setupGateway: WorkflowSetupGatewayPort;
   readonly provisioning: WorkflowProvisioningRepositoryPort;
   readonly auditLog?: AuditLogRepositoryPort;
@@ -59,6 +60,12 @@ export async function provisionReviewRouterWorkflow(
   const providerApiSelected = saved
     ? isOpenRouterDirectConfiguration(saved.config)
     : false;
+  if (
+    !gatewaySelected &&
+    input.mcpSecrets &&
+    Object.keys(input.mcpSecrets).length
+  )
+    throw new Error("mcp_secrets_gateway_workflow_required");
   if (input.providerApiAuthMode && !providerApiSelected)
     throw new Error("openrouter_direct_requires_single_provider");
   if (
@@ -120,6 +127,9 @@ export async function provisionReviewRouterWorkflow(
         actionRef: input.actionRef,
         apiUrl: input.apiUrl,
         githubRepositoryId: dependencies.trustedGithubRepositoryId!,
+        ...(input.mcpSecrets !== undefined
+          ? { mcpSecrets: input.mcpSecrets }
+          : {}),
       })
     : providerApiSelected
       ? renderProviderApiWorkflow({
@@ -221,6 +231,14 @@ export async function provisionReviewRouterWorkflow(
           managedFile,
         ]
       : renderReviewRouterWorkflowFiles({
+          ...(!plan.codexRotatingProviderInstanceId &&
+          !plan.conflictReviewFallbackEnabled &&
+          !plan.forkAgenticSandboxEnabled &&
+          plan.runtimeConfigMode === "oidc" &&
+          (plan.workflowStyle ?? "reusable") === "reusable" &&
+          dependencies.secretsRuntimeActionRef
+            ? { secretsRuntimeActionRef: dependencies.secretsRuntimeActionRef }
+            : {}),
           actionRef: plan.actionRef,
           apiUrl: plan.apiUrl,
           runtimeConfigMode: plan.runtimeConfigMode,

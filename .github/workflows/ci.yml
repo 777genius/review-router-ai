@@ -61,7 +61,7 @@ env:
   REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: ci_database_recovery_witness_not_for_production_000000000000
   REVIEW_ROUTER_DEFAULT_MODEL: gpt-5.5
   REVIEW_ROUTER_DEFAULT_EFFORT: xhigh
-  REVIEW_ROUTER_PAIRED_ACTION_REF: 1381fa481bfba3755bf9135b243486505b5c2563
+  REVIEW_ROUTER_PAIRED_ACTION_REF: 5ddb78ded6b2ef77eedd2216bb37112432d5ffd5
   REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG: v1.0.171
   REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA: 66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff
   REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: 2a65907ac8474f805dcb23358618c9c673e6a903bf1c3c26fcdf4cfe02debe2a
@@ -109,7 +109,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Install pnpm
-        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - name: Generate Prisma client
@@ -154,7 +154,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Install pnpm
-        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - name: Generate Prisma client
@@ -238,7 +238,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install pnpm
-        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
 
       - name: Assert native lock implementation
         shell: bash
@@ -278,7 +278,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install pnpm
-        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
 
       - name: Run disposable self-hosted E2E
         run: pnpm self-hosted:e2e
@@ -420,7 +420,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install pnpm
-        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
 
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
@@ -498,7 +498,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install pnpm
-        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
 
       - name: Install PostgreSQL client
         run: |
@@ -580,6 +580,8 @@ jobs:
           pnpm local:check
 
       - name: Unit tests
+        env:
+          USAGE_REDRIVE_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
         run: pnpm test
 
       - name: Architecture boundaries
@@ -665,7 +667,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install pnpm
-        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
 
       - name: Install PostgreSQL client
         run: |
@@ -965,7 +967,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install pnpm
-        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
 
       - name: Install PostgreSQL client
         run: |

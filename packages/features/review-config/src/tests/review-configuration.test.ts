@@ -13,6 +13,7 @@ import {
   parseReviewConfigurationStrict,
   PrismaReviewConfigurationRepository,
   resolveReviewConfiguration,
+  resolveReviewPolicy,
   resolveReviewRuntimeEnv,
   reviewAgentProfileAgenticContextSaveIssue,
   saveReviewConfiguration,
@@ -57,6 +58,39 @@ describe("review configuration", () => {
     });
     expect(Object.keys(env).join("\n")).not.toMatch(/SECRET|KEY/);
   });
+
+  it.each([
+    [undefined, undefined, undefined, "true"],
+    [false, undefined, false, "false"],
+    [true, undefined, true, "true"],
+    [undefined, false, false, "false"],
+    [undefined, true, true, "true"],
+    [false, true, true, "true"],
+    [true, false, false, "false"],
+  ] as const)(
+    "resolves PR description workspace=%s override=%s without materializing defaults",
+    (workspaceValue, repositoryValue, resolvedValue, runtimeValue) => {
+      const workspace = parseReviewConfigurationStrict({
+        ...workspacePolicyFixture,
+        ...(workspaceValue === undefined
+          ? {}
+          : { updatePrDescription: workspaceValue }),
+      });
+      const resolved = resolveReviewPolicy(workspace, {
+        schemaVersion: 3,
+        ...(repositoryValue === undefined
+          ? {}
+          : { updatePrDescription: repositoryValue }),
+      });
+      expect(resolved.updatePrDescription).toBe(resolvedValue);
+      expect(Object.hasOwn(resolved, "updatePrDescription")).toBe(
+        resolvedValue !== undefined,
+      );
+      expect(mapConfigToRuntimeEnv(resolved).UPDATE_PR_DESCRIPTION).toBe(
+        runtimeValue,
+      );
+    },
+  );
 
   it.each([0, 5, 12])(
     "preserves explicit inline cap %s",
@@ -1004,9 +1038,13 @@ const legacyGatewayPolicyInput = {
   investigationRollout: disabledInvestigationRollout,
 };
 
-it("keeps legacy canonical policy JSON and digest byte-identical without agentProfileRef", async () => {
+it("keeps legacy canonical policy JSON and digest byte-identical without optional features", async () => {
   const parsed = parseReviewConfigurationStrict(legacyGatewayPolicyInput);
   expect(Object.keys(parsed.providers[0]!)).not.toContain("agentProfileRef");
+  expect(Object.hasOwn(parsed, "updatePrDescription")).toBe(false);
+  expect(canonicalJson(resolveReviewPolicy(parsed, { schemaVersion: 3 }))).toBe(
+    canonicalJson(parsed),
+  );
   expect(canonicalJson(parsed)).toBe(
     '{"blockingPolicy":{"failOnSeverity":"critical"},"execution":{"inlineMinAgreement":1,"providerLimit":1,"providerMaxParallel":1},"investigationRollout":{"contextCriticEnabled":false,"crossRevisionReplayEnabled":false,"productionEffectsEnabled":false,"recordingEnabled":false,"shadowEnabled":false,"verifiedCleanEnabled":false},"limits":{"inlineMaxComments":50,"targetTokensPerBatch":50000},"providers":[{"agenticContext":true,"authMode":"codex_account_gateway","fastMode":true,"gatewayBindingId":"binding-safe","gatewayProfileRef":"profile-mimo","kind":"codex","model":"mimo-v2-pro","reasoningEffort":"high","requiredHealthy":false}],"reviewLanguage":null,"schemaVersion":3}',
   );
@@ -1139,4 +1177,27 @@ it.each([
       }),
     ),
   ).toThrow();
+});
+
+// Public discovery cannot widen the runtime fast-mode compatibility policy.
+it("requires explicit fast-mode correction for an unverified public Codex model", () => {
+  const provider = {
+    ...workspaceProviderFixture,
+    kind: "codex",
+    model: "public-new-model",
+    reasoningEffort: "high",
+    fastMode: true,
+  };
+  expect(() =>
+    parseReviewConfigurationStrict({
+      ...workspacePolicyFixture,
+      providers: [provider],
+    }),
+  ).toThrow("Fast mode is not verified");
+  expect(
+    parseReviewConfigurationStrict({
+      ...workspacePolicyFixture,
+      providers: [{ ...provider, fastMode: false }],
+    }).providers[0],
+  ).toMatchObject({ model: "public-new-model", fastMode: false });
 });

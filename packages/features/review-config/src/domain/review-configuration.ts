@@ -1,5 +1,7 @@
+import { contextToolsSelectionSchema } from "@reviewrouter/features-review-context-tools/selection";
 import {
   codexModelSupportsReasoningEffort,
+  codexModelSupportsFastMode,
   defaultProviderReasoningEffort,
   gatewayModelSchema,
   gatewayReferenceSchema,
@@ -66,6 +68,19 @@ export const reviewProviderConfigurationSchema = z
         code: "custom",
         path: ["reasoningEffort"],
         message: "review reasoning effort is unsupported for model",
+      });
+    }
+    if (
+      provider.kind === "codex" &&
+      provider.authMode !== "codex_account_gateway" &&
+      provider.fastMode &&
+      !codexModelSupportsFastMode(provider.model)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["fastMode"],
+        message:
+          "Fast mode is not verified for this model. Disable fast mode before saving.",
       });
     }
   });
@@ -169,7 +184,10 @@ export const reviewConfigurationSchema = z
     blockingPolicy: blockingPolicySchema,
     limits: limitsSchema,
     reviewLanguage: reviewLanguageSchema,
+    // Absence keeps historical policy bytes stable; runtime defaults to enabled.
+    updatePrDescription: z.boolean().optional(),
     investigationRollout: reviewInvestigationRolloutConfigurationSchema,
+    contextTools: contextToolsSelectionSchema.optional(),
   })
   .strict()
   .superRefine((configuration, context) => {
@@ -202,9 +220,11 @@ export const reviewRepositoryPolicyOverrideSchema = z
     blockingPolicy: blockingPolicySchema.partial().optional(),
     limits: limitsSchema.partial().optional(),
     reviewLanguage: reviewLanguageSchema.optional(),
+    updatePrDescription: z.boolean().optional(),
     investigationRollout: reviewInvestigationRolloutConfigurationSchema
       .partial()
       .optional(),
+    contextTools: contextToolsSelectionSchema.optional(),
   })
   .strict()
   .superRefine((override, context) => {
@@ -267,7 +287,11 @@ export function resolveReviewPolicy(
     : null;
   if (!parsedOverride) return parsedWorkspace;
 
+  const updatePrDescription =
+    parsedOverride.updatePrDescription ?? parsedWorkspace.updatePrDescription;
+
   return parseReviewConfiguration({
+    ...(updatePrDescription === undefined ? {} : { updatePrDescription }),
     schemaVersion: REVIEW_POLICY_SCHEMA_VERSION,
     providers: parsedOverride.providers ?? parsedWorkspace.providers,
     execution: {
@@ -286,6 +310,13 @@ export function resolveReviewPolicy(
       parsedOverride.reviewLanguage !== undefined
         ? parsedOverride.reviewLanguage
         : parsedWorkspace.reviewLanguage,
+    ...((parsedOverride.contextTools ?? parsedWorkspace.contextTools) !==
+    undefined
+      ? {
+          contextTools:
+            parsedOverride.contextTools ?? parsedWorkspace.contextTools,
+        }
+      : {}),
     investigationRollout: {
       ...parsedWorkspace.investigationRollout,
       ...definedOnly(parsedOverride.investigationRollout),

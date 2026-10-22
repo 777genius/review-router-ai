@@ -17,6 +17,7 @@ export const PUBLIC_CONTEXT_GATEWAY_RELEASE_METADATA =
   "dist/context-gateway.release.json";
 export const LEGACY_CONTEXT_GATEWAY_RELEASE_METADATA_VERSION = 1;
 export const CONTEXT_GATEWAY_RELEASE_METADATA_VERSION = 2;
+export const PR_DESCRIPTION_RELEASE_EXTENSION_ID = "pr-description.v1";
 export const REVIEW_INVESTIGATION_RELEASE_CAPABILITY =
   "review_investigation_v1";
 
@@ -260,7 +261,30 @@ export function parseProtocolGenerationManifest(raw) {
       `${PROTOCOL_GENERATION_MANIFEST_FILE}.canonicalizerDigest`,
     );
   }
+  let prDescriptionProfile;
+  if (Object.hasOwn(value, "auxiliaryExtensions")) {
+    const extensions = value.auxiliaryExtensions;
+    if (!Array.isArray(extensions) || extensions.length > 1) {
+      throw new Error(
+        "manifest.json.auxiliaryExtensions must be a bounded extension array",
+      );
+    }
+    if (extensions.length === 1) {
+      prDescriptionProfile = parsePrDescriptionReleaseProfile(
+        extensions[0],
+        "manifest.json.auxiliaryExtensions[0]",
+      );
+    }
+  }
+  const contextToolsProfile = Object.hasOwn(value, "contextToolsProfile")
+    ? parseContextToolsReleaseProfile(
+        value.contextToolsProfile,
+        "manifest.json.contextToolsProfile",
+      )
+    : undefined;
   return Object.freeze({
+    ...(contextToolsProfile === undefined ? {} : { contextToolsProfile }),
+    ...(prDescriptionProfile === undefined ? {} : { prDescriptionProfile }),
     protocolVersion: value.protocolVersion,
     schemaDigest: value.schemaDigest,
     goldenFixtureDigest: value.goldenFixtureDigest,
@@ -343,6 +367,22 @@ export function buildReleaseManifest(input) {
   );
   const contextGateway = resolveReleaseContextGateway(input);
   const base = {
+    ...(input.contextToolsProfile === undefined
+      ? {}
+      : {
+          contextToolsProfile: parseContextToolsReleaseProfile(
+            input.contextToolsProfile,
+            "contextToolsProfile",
+          ),
+        }),
+    ...(input.prDescriptionProfile === undefined
+      ? {}
+      : {
+          prDescriptionProfile: parsePrDescriptionReleaseProfile(
+            input.prDescriptionProfile,
+            "prDescriptionProfile",
+          ),
+        }),
     releaseManifestVersion:
       contextGateway.metadataVersion ===
       CONTEXT_GATEWAY_RELEASE_METADATA_VERSION
@@ -428,6 +468,12 @@ export function parseReleaseManifest(raw) {
       "runtimeEntrypointPath",
       "saasSourceCommit",
       "schemaDigest",
+      ...(Object.hasOwn(value, "contextToolsProfile")
+        ? ["contextToolsProfile"]
+        : []),
+      ...(Object.hasOwn(value, "prDescriptionProfile")
+        ? ["prDescriptionProfile"]
+        : []),
       ...(investigation
         ? [
             "agentProfiles",
@@ -489,6 +535,22 @@ export function parseReleaseManifest(raw) {
     );
   }
   const base = {
+    ...(Object.hasOwn(value, "contextToolsProfile")
+      ? {
+          contextToolsProfile: parseContextToolsReleaseProfile(
+            value.contextToolsProfile,
+            `${label}.contextToolsProfile`,
+          ),
+        }
+      : {}),
+    ...(Object.hasOwn(value, "prDescriptionProfile")
+      ? {
+          prDescriptionProfile: parsePrDescriptionReleaseProfile(
+            value.prDescriptionProfile,
+            `${label}.prDescriptionProfile`,
+          ),
+        }
+      : {}),
     releaseManifestVersion: value.releaseManifestVersion,
     distributionKind: value.distributionKind,
     saasSourceCommit: handoff.saasSourceCommit,
@@ -568,6 +630,12 @@ export function parseReleaseManifest(raw) {
 export function buildReleaseRegistrationCandidateFields(input) {
   const manifest = parseReleaseManifest(canonicalJson(input));
   return Object.freeze({
+    ...(manifest.contextToolsProfile === undefined
+      ? {}
+      : { contextToolsProfile: manifest.contextToolsProfile }),
+    ...(manifest.prDescriptionProfile == null
+      ? {}
+      : { prDescriptionProfile: manifest.prDescriptionProfile }),
     distributionKind: "public_reusable",
     agentProfiles: manifest.agentProfiles ?? null,
     actionCommitSha: manifest.actionCommitSha,
@@ -587,6 +655,37 @@ export function buildReleaseRegistrationCandidateFields(input) {
         : null,
     schemaDigest: manifest.schemaDigest,
     canonicalizerDigest: manifest.canonicalizerDigest,
+  });
+}
+
+function parseContextToolsReleaseProfile(value, label) {
+  assertExactKeys(value, ["extensionId", "descriptorDigest"], label);
+  if (
+    value.extensionId !== "context-tools.v1" ||
+    typeof value.descriptorDigest !== "string" ||
+    !/^sha256:[a-f0-9]{64}$/.test(value.descriptorDigest)
+  ) {
+    throw new Error(
+      `${label} must be an immutable context-tools.v1 descriptor`,
+    );
+  }
+  return Object.freeze({
+    extensionId: value.extensionId,
+    descriptorDigest: value.descriptorDigest,
+  });
+}
+
+function parsePrDescriptionReleaseProfile(value, label) {
+  assertExactKeys(value, ["extensionId", "canonicalizerDigest"], label);
+  if (value.extensionId !== PR_DESCRIPTION_RELEASE_EXTENSION_ID) {
+    throw new Error(`${label}.extensionId is unsupported`);
+  }
+  return Object.freeze({
+    extensionId: value.extensionId,
+    canonicalizerDigest: assertSha256Digest(
+      value.canonicalizerDigest,
+      `${label}.canonicalizerDigest`,
+    ),
   });
 }
 

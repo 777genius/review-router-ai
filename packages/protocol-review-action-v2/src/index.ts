@@ -9,3 +9,4 @@ export {
   prDescriptionInvocationManifestV1CanonicalizerDescriptor,
   prDescriptionExtensionV1,
 } from "./generated/pr-description-invocation-manifest-v1.js";
+export * from "./generated/usage-v1.js";

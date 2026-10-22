@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createCapturedReviewSkills,
   canonicalReviewSkillsJson,
-} from "@reviewrouter/shared";
+} from "@reviewrouter/shared/review-skills-contract";
 import {
   canonicalJson,
   ReviewRunAuthorizationTokenResolutionStatus,

@@ -291,28 +291,102 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
-  if (
-    catalog.some((row) =>
-      renderReviewSkillsCheckoutExtension.some(
-        (skill) => skill.migrationName === row.migrationName,
-      ),
-    )
-  ) {
-    const base = catalog.slice(0, -renderReviewSkillsCheckoutExtension.length);
-    const tail = catalog.slice(-renderReviewSkillsCheckoutExtension.length);
+  // Skills can accompany the original checkout136 or the complete main140.
+  // Match both named rows: other additive migrations now sort around this pair.
+  const skills = catalog.filter((row) =>
+    renderReviewSkillsCheckoutExtension.some(
+      (skill) => skill.migrationName === row.migrationName,
+    ),
+  );
+  if (skills.length > 0) {
+    const base = catalog.filter((row) => !skills.includes(row));
     if (
-      base.length !== 136 ||
-      manifest(base) !==
-        "sha256:7a00ae60d98ffe6bdaf3bbb74a50eefed8ac60b94e55a443251cb480a47d48a8" ||
-      tail.some(
+      skills.length !== renderReviewSkillsCheckoutExtension.length ||
+      skills.some(
         (row, index) =>
           row.migrationName !==
             renderReviewSkillsCheckoutExtension[index].migrationName ||
           row.checksum !== renderReviewSkillsCheckoutExtension[index].checksum,
-      )
+      ) ||
+      ![
+        "136:sha256:7a00ae60d98ffe6bdaf3bbb74a50eefed8ac60b94e55a443251cb480a47d48a8",
+        "140:sha256:12ec2343e5de125175e4fc8946a9ab177034f60af43883b7c4ec8ac91a26ce48",
+      ].includes(`${base.length}:${manifest(base)}`)
     )
       fail("checkout_extension");
     return partitionRenderSchemaHandoffCheckout(base);
+  }
+  // Device sign-in adds only immutable enrollment method metadata. Admit the
+  // exact extension before reducing to the previously qualified checkout.
+  const oauthMethodMigration = catalog.find(
+    (row) => row.migrationName === "000140_personal_oauth_method",
+  );
+  if (oauthMethodMigration) {
+    if (
+      oauthMethodMigration.checksum !==
+        "aa1f8fb0d3bd5dffdcf7dd5435552f8aa846c6295d02fb2189b4e0e7356f0454" ||
+      manifest(catalog) !==
+        "sha256:12ec2343e5de125175e4fc8946a9ab177034f60af43883b7c4ec8ac91a26ce48"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== oauthMethodMigration),
+    );
+  }
+  // MCP connection custody and its optional producer descriptor are checkout-only.
+  // Admit exact SQL and the reviewed pre-usage or merged union before reducing it.
+  const contextToolsMigration = catalog.find(
+    (row) => row.migrationName === "000139_review_context_tools",
+  );
+  if (contextToolsMigration) {
+    if (
+      contextToolsMigration.checksum !==
+        "b2ac7d2121b0869dcfa77ee37ff85a86fe3947dad4a88ed595d73492a5eafed4" ||
+      ![
+        "sha256:22d2cb47f5ec96e2b154ac07a375a19682243b7378df7a00f891a4713408b56b",
+        "sha256:ecbb9d456aa70c06abbc301950005378b53afb25f2382f06d608589a4935a9dc",
+      ].includes(manifest(catalog))
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== contextToolsMigration),
+    );
+  }
+  // Optional PR-description enum/profile storage is checkout-only. Admit its
+  // exact SQL and pre-usage or merged union; historical managed SQL stays unchanged.
+  const prDescriptionMigration = catalog.find(
+    (row) => row.migrationName === "000138_pr_description",
+  );
+  if (prDescriptionMigration) {
+    if (
+      prDescriptionMigration.checksum !==
+        "4b41af195d5dd00df952d25d6c4999a64abf6cbc36351c2bd14d41f114cfe4e4" ||
+      ![
+        "sha256:af9bf892b5ec0e5817c9b1707869b8023ae5ce740af6e60b08c5aba328ec2694",
+        "sha256:c9fd4bb76d56166a80ec52fd9f54156d5951d375d47ed57bd02fd7dd40f7ccd0",
+      ].includes(manifest(catalog))
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== prDescriptionMigration),
+    );
+  }
+  // Usage is an additive checkout-only extension. Preserve the managed92
+  // authority and admit only this exact reviewed SQL and complete checkout137.
+  const usageMigration = catalog.find(
+    (row) => row.migrationName === "000136_provider_usage",
+  );
+  if (usageMigration) {
+    if (
+      usageMigration.checksum !==
+        "1f59f95079c29b0da051e0e67b965336107eee63c7bb921e626cd656ce696c48" ||
+      manifest(catalog) !==
+        "sha256:ed3d27f7417f66b56acf823358933d67ef6c3fae0cbcc88ed89a79cb4a1e27b5"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== usageMigration),
+    );
   }
   // The merged checkout136 retains both independently released134 extensions
   // and the scoped lock135. Only this exact union may reduce to checkout135.

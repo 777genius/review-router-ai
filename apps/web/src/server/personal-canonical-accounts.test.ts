@@ -12,6 +12,12 @@ import {
   type PersonalCanonicalReceipt,
 } from "@reviewrouter/features-provider-accounts/synchronization";
 import { createPersonalCanonicalAccounts } from "./personal-canonical-accounts";
+import type { createDisabledPersonalAccountsAdapter } from "./account-gateway-accounts";
+type ConnectReceipt = Awaited<
+  ReturnType<
+    ReturnType<typeof createDisabledPersonalAccountsAdapter>["operation"]
+  >
+>;
 
 const nonce = "9874b2bc-e987-4456-9212-7f94f58932da";
 function fixture() {
@@ -188,18 +194,22 @@ function fixture() {
     })),
     connect: vi.fn<
       (
-        request: { nonce: string; profileId: string; label: string },
+        request: {
+          nonce: string;
+          profileId: string;
+          label: string;
+          method?: "device_code" | "browser";
+        },
         credential?: string,
       ) => Promise<{
-        operation: {
-          operationId: string;
-          phase: "submitted";
-          sourceId: null;
-          bindingId: null;
-          available: false;
-          state: "pending";
-        };
+        operation: ConnectReceipt;
         authorizationURL?: string;
+        deviceAuthorization?: {
+          userCode: string;
+          verificationURL: "https://auth.openai.com/codex/device";
+          expiresAt: string;
+          intervalSeconds: number;
+        };
       }>
     >(async (request) => ({
       operation: {
@@ -209,12 +219,24 @@ function fixture() {
         bindingId: null,
         available: false,
         state: "pending" as const,
+        ...(request.method === "device_code"
+          ? { oauthMethod: "device_code" as const }
+          : {}),
       },
       ...(request.profileId === "profile-oauth"
-        ? { authorizationURL: "https://auth.example.test/one-off-secret" }
+        ? request.method === "device_code"
+          ? {
+              deviceAuthorization: {
+                userCode: "ABCD-EFGH",
+                verificationURL: "https://auth.openai.com/codex/device",
+                expiresAt: "2099-01-01T00:00:00Z",
+                intervalSeconds: 5,
+              },
+            }
+          : { authorizationURL: "https://auth.example.test/one-off-secret" }
         : {}),
     })),
-    operation: vi.fn(async () => ({
+    operation: vi.fn<() => Promise<ConnectReceipt>>(async () => ({
       operationId: "connect",
       phase: "submitted" as "submitted" | "unknown",
       sourceId: null,
@@ -222,7 +244,16 @@ function fixture() {
       available: false,
       state: "pending" as const,
     })),
-    completeOAuth: vi.fn(async () => ({
+    pollOAuth: vi.fn<() => Promise<ConnectReceipt>>(async () => ({
+      operationId: "connect",
+      phase: "submitted" as const,
+      sourceId: null,
+      bindingId: null,
+      available: false,
+      state: "pending" as const,
+      oauthMethod: "device_code" as const,
+    })),
+    completeOAuth: vi.fn<() => Promise<ConnectReceipt>>(async () => ({
       operationId: "connect",
       phase: "submitted" as const,
       sourceId: null,
@@ -286,6 +317,18 @@ function fixture() {
         ...source,
         state: "pending",
         pendingSourceOperationId: "existing-pending",
+      };
+    },
+    oauthIdentity: () => {
+      source = {
+        ...source,
+        profileRef: "profile-oauth",
+        displayName: "Codex Alice",
+      };
+      account = {
+        ...account,
+        profileId: "profile-oauth",
+        displayName: "Codex Alice",
       };
     },
     foreignGateway: () => {
@@ -352,6 +395,14 @@ describe("personal canonical UI server boundary", () => {
       expect(
         await submit({ nonce, profileId, label: "Changed payload" }),
       ).toEqual({ status: "conflict" });
+      if (authKind === "oauth")
+        expect(
+          await f.api.beginGatewayOAuth("", {
+            nonce,
+            profileId,
+            method: "device_code",
+          }),
+        ).toEqual({ status: "conflict" });
       expect(
         await submit({ nonce, profileId: "changed-profile", label }),
       ).toEqual({ status: "conflict" });
@@ -490,6 +541,168 @@ describe("personal canonical UI server boundary", () => {
     f.foreignGateway();
     const foreign = await f.api.listGatewayAccounts("", null);
     expect(foreign.status === "ok" && foreign.value.accounts).toEqual([]);
+  });
+
+  const appliedConnectFixture = () => {
+    const f = fixture();
+    f.oauthIdentity();
+    const result: ConnectReceipt = {
+      operationId: "connect",
+      phase: "applied",
+      sourceId: "own-source",
+      bindingId: null,
+      available: true,
+      state: "active",
+      oauthMethod: "device_code",
+    };
+    vi.spyOn(f.store, "readOperation").mockResolvedValue({
+      id: "connect",
+      intent: {
+        action: "connect",
+        actorUserId: "user-u",
+        personalWorkspaceId: "personal-u",
+        clientOperationId: nonce,
+        proposedSourceId: "own-source",
+        profileId: "profile-oauth",
+        displayName: "Codex Alice",
+        ingress: "oauth-begin",
+        method: "device_code",
+      },
+      phase: "applied",
+      source: null,
+      binding: null,
+      available: true,
+    });
+    f.delegate.operation.mockResolvedValue(result);
+    f.delegate.pollOAuth.mockResolvedValue(result);
+    f.delegate.completeOAuth.mockResolvedValue(result);
+    f.delegate.connect.mockResolvedValue({ operation: result });
+    return f;
+  };
+  const callback = {
+    nonce,
+    callbackURL:
+      "http://localhost:1455/auth/callback?code=synthetic-code&state=" +
+      "b".repeat(64),
+  };
+
+  it.each(["read", "poll", "complete", "begin"] as const)(
+    "projects the verified applied connection identity on %s",
+    async (kind) => {
+      const f = appliedConnectFixture();
+      const response =
+        kind === "read"
+          ? await f.api.readGatewayOperation("", nonce)
+          : kind === "poll"
+            ? await f.api.pollGatewayOAuth("", nonce)
+            : kind === "complete"
+              ? await f.api.completeGatewayOAuth("", callback)
+              : await f.api.beginGatewayOAuth("", {
+                  nonce,
+                  profileId: "profile-oauth",
+                  method: "device_code",
+                });
+      expect(response.status).toBe("ok");
+      if (response.status !== "ok") throw new Error("expected receipt");
+      const receipt =
+        "operation" in response.value
+          ? response.value.operation
+          : response.value;
+      expect(receipt).toMatchObject({
+        nonce,
+        state: "applied",
+        oauthMethod: "device_code",
+        account: {
+          connectionId: "own-source",
+          label: "Codex Alice",
+          profileId: "profile-oauth",
+          profileLabel: "Codex",
+          authKind: "oauth",
+          origin: "personal",
+          isOwnedByViewer: true,
+        },
+      });
+      expect(f.store.findOwnedSource).toHaveBeenCalledWith(
+        "user-u",
+        "own-source",
+      );
+      expect(JSON.stringify(response)).not.toMatch(
+        /private-account|ownerRef|synthetic-code/,
+      );
+    },
+  );
+
+  it("keeps an applied receipt when optional identity metadata is temporarily unavailable", async () => {
+    const f = appliedConnectFixture();
+    f.control.get.mockRejectedValue(new Error("metadata_outage"));
+    expect(await f.api.pollGatewayOAuth("", nonce)).toEqual({
+      status: "ok",
+      value: {
+        nonce,
+        state: "applied",
+        oauthMethod: "device_code",
+        cleanup: "unresolved",
+      },
+    });
+  });
+
+  it("does not expose applied identity for a foreign account or a changed session", async () => {
+    const f = appliedConnectFixture();
+    f.foreignGateway();
+    expect(await f.api.readGatewayOperation("", nonce)).toEqual({
+      status: "denied",
+    });
+    const changed = appliedConnectFixture();
+    changed.control.get.mockImplementationOnce(async () => {
+      changed.changeActor();
+      throw new Error("metadata_outage_after_session_change");
+    });
+    const result = await changed.api.pollGatewayOAuth("", nonce);
+    expect(result).toEqual({
+      status: "ok",
+      value: { nonce, state: "unknown", cleanup: "unresolved" },
+    });
+    expect(JSON.stringify(result)).not.toMatch(
+      /Codex Alice|own-source|profile-oauth/,
+    );
+  });
+
+  it("passes device handoff only from fresh enrollment and delegates original-nonce polling", async () => {
+    const f = fixture();
+    const begin = await f.api.beginGatewayOAuth("ignored", {
+      nonce,
+      profileId: "profile-oauth",
+      label: "Own Codex",
+      method: "device_code",
+    });
+    expect(begin).toMatchObject({
+      status: "ok",
+      value: {
+        operation: { nonce, state: "pending", oauthMethod: "device_code" },
+        deviceAuthorization: { userCode: "ABCD-EFGH" },
+      },
+    });
+    expect(f.delegate.connect).toHaveBeenCalledWith(
+      {
+        nonce,
+        profileId: "profile-oauth",
+        label: "Own Codex",
+        method: "device_code",
+      },
+      undefined,
+    );
+    const result = await f.api.pollGatewayOAuth("ignored", nonce);
+    expect(result).toEqual({
+      status: "ok",
+      value: {
+        nonce,
+        state: "pending",
+        oauthMethod: "device_code",
+        cleanup: "unresolved",
+      },
+    });
+    expect(f.delegate.pollOAuth).toHaveBeenCalledWith(nonce);
+    expect(JSON.stringify(result)).not.toMatch(/ABCD-EFGH|deviceAuthorization/);
   });
 
   it("delegates fresh OAuth/callback only and keeps auth URLs outside ordinary readback", async () => {

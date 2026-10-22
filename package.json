@@ -2,13 +2,13 @@
   "name": "review-router",
   "private": true,
   "engines": {
-    "node": ">=24"
+    "node": ">=24.21.0 <25 || >=26.10.0 <27"
   },
   "bin": {
     "reviewrouter": "./apps/api/dist/reviewrouter-operator-cli.js"
   },
   "type": "module",
-  "packageManager": "pnpm@10.33.0",
+  "packageManager": "pnpm@11.28.7",
   "scripts": {
     "dev": "node scripts/run-with-env.mjs turbo run dev --parallel",
     "web:dev": "node scripts/run-with-env.mjs pnpm --filter @reviewrouter/web dev",
@@ -30,7 +30,7 @@
     "test": "vitest run",
     "lint": "eslint .",
     "format:check": "prettier --check .",
-    "postinstall": "pnpm db:generate",
+    "postinstall": "node scripts/prepare-pinned-subscription-runtime.ts && pnpm db:generate",
     "local:bootstrap": "bash scripts/bootstrap-local.sh",
     "local:check": "bash scripts/check-local-readiness.sh",
     "hosted:check": "node scripts/check-hosted-readiness.mjs",
@@ -98,7 +98,7 @@
     "codex-rotating:secret-write-boundary": "node scripts/check-codex-secret-write-boundary.mjs",
     "review-v2:e2e": "REVIEW_ROUTER_REVIEW_V2_E2E=1 vitest run scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts",
     "review-investigation:e2e": "bash scripts/review-investigation-production-e2e/support/run-ci.fixture.sh",
-    "review-investigation:paired-e2e": "REVIEW_ROUTER_REVIEW_INVESTIGATION_PAIRED_E2E=1 vitest run --no-file-parallelism scripts/review-investigation-paired-e2e/review-investigation-paired.e2e.test.ts scripts/review-investigation-paired-e2e/openrouter-direct-paired.e2e.test.ts",
+    "review-investigation:paired-e2e": "REVIEW_ROUTER_REVIEW_INVESTIGATION_PAIRED_E2E=1 vitest run --no-file-parallelism scripts/review-investigation-paired-e2e/review-investigation-paired.e2e.test.ts scripts/review-investigation-paired-e2e/openrouter-direct-paired.e2e.test.ts scripts/review-investigation-paired-e2e/pr-description-paired.e2e.test.ts",
     "review-v2:admin": "node scripts/run-with-env.mjs node --conditions=production apps/api/dist/review-action-v2-operator-cli.js",
     "reviewrouter": "node scripts/run-with-env.mjs node --conditions=production apps/api/dist/reviewrouter-operator-cli.js",
     "reviewrouter:install": "node scripts/install-reviewrouter-cli.mjs",
@@ -128,7 +128,7 @@
     "subscription-runtime:check": "node scripts/check-external-subscription-runtime.mjs && pnpm action:artifact:check:smoke && pnpm subscription-runtime:live-e2e:smoke",
     "subscription-runtime:release-gate": "pnpm subscription-runtime:check && pnpm codex-rotating:secret-write-boundary && pnpm action:artifact:check && pnpm exec vitest run packages/features/codex-oauth-rotating/src/tests/codex-oauth-rotating.test.ts packages/features/codex-oauth-rotating/src/tests/github-action.test.ts && pnpm architecture:check && pnpm typecheck && git diff --check",
     "architecture:web-host-cms": "tsx scripts/check-web-host-cms-profile-cli.ts",
-    "architecture:check": "node scripts/check-architecture-boundaries.mjs && pnpm architecture:web-host-cms",
+    "architecture:check": "node scripts/check-architecture-boundaries.mjs && pnpm architecture:web-host-cms && pnpm foundation:check && pnpm foundation:assert-dev-only && pnpm foundation:assert-registry",
     "github-app:check": "node scripts/run-with-env.mjs node scripts/check-github-app-readiness.mjs",
     "github-app:create": "node scripts/create-github-app-manifest.mjs",
     "github-app:manifest:smoke": "node scripts/check-github-app-manifest-smoke.mjs",
@@ -144,7 +144,12 @@
     "lint:native:files": "node scripts/local-checks/lint-format-lint.mts",
     "typecheck:lint-format": "tsc --noEmit -p tsconfig.lint-format.json",
     "compiler:pilot": "node scripts/local-checks/compiler-cli.ts --legacy --noEmit -p tsconfig.tooling.json && vitest run --config scripts/local-checks/compiler-vitest.config.ts",
-    "compiler:prepare": "pnpm --dir scripts/local-checks/native install --ignore-workspace --ignore-scripts --frozen-lockfile"
+    "compiler:prepare": "pnpm --dir scripts/local-checks/native install --ignore-workspace --ignore-scripts --frozen-lockfile",
+    "foundation:check": "agent-teams-foundation check",
+    "foundation:assert-dev-only": "agent-teams-foundation assert-dev-only",
+    "foundation:assert-registry": "agent-teams-foundation assert-registry",
+    "foundation:qualify": "node scripts/provider-foundation/qualify-packed.ts && tsc -p scripts/provider-foundation/tsconfig.json && node --import tsx scripts/provider-foundation/qualify-boundaries.ts",
+    "subscription-runtime:prepare": "node scripts/prepare-pinned-subscription-runtime.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
@@ -171,7 +176,9 @@
     "tailwind-variants": "^3.2.2",
     "tailwindcss": "^4.2.4",
     "zod": "^4.4.2",
-    "zustand": "^5.0.12"
+    "zustand": "^5.0.12",
+    "@get-modular/core": "0.2.0",
+    "@get-modular/assembly": "0.2.0"
   },
   "optionalDependencies": {
     "@777genius/subscription-runtime": "git+https://github.com/777genius/ar.git#83a7329f4383b05ac5c39356b79f82f029182d42"
@@ -197,19 +204,7 @@
     "vitest": "^4.1.10",
     "yaml": "^2.9.0",
     "oxlint": "1.87.0",
-    "oxfmt": "0.72.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "@hono/node-server": "2.0.11",
-      "brace-expansion@>=3.0.0 <5.0.7": "5.0.8",
-      "esbuild@>=0.27.3 <0.28.1": "0.28.1",
-      "fast-uri@>=3.0.0 <4.0.0": "3.1.4",
-      "hono": "4.12.32",
-      "postcss": "8.5.14",
-      "sharp": "0.35.3",
-      "undici@>=7.0.0 <8.0.0": "7.29.0",
-      "vite@>=8.0.0 <9.0.0": "8.1.5"
-    }
+    "oxfmt": "0.72.0",
+    "@agent-teams/engineering-foundation": "2.1.0"
   }
 }

@@ -110,6 +110,7 @@ export async function AccountGatewayAccountsSection({
           submitGatewayApiKey: personalActions.submitPersonalGatewayKey,
           readGatewayOperation: personalActions.readPersonalGatewayOperation,
           beginGatewayOAuth: personalActions.beginPersonalGatewayOAuth,
+          pollGatewayOAuth: personalActions.pollPersonalGatewayOAuth,
           completeGatewayOAuth: personalActions.completePersonalGatewayOAuth,
         }}
       />
@@ -164,6 +165,7 @@ export async function AccountGatewayAccountsSection({
         submitGatewayApiKey: personalActions.submitPersonalGatewayKey,
         readGatewayOperation: personalActions.readPersonalGatewayOperation,
         beginGatewayOAuth: personalActions.beginPersonalGatewayOAuth,
+        pollGatewayOAuth: personalActions.pollPersonalGatewayOAuth,
         completeGatewayOAuth: personalActions.completePersonalGatewayOAuth,
       }}
     />

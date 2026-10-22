@@ -240,9 +240,12 @@ async function checkReviewActionV2ProtocolBoundaries(violations) {
     const repositoryPath = relative(root, file).replaceAll("\\", "/");
     for (const imported of extractImportSpecifiers(source)) {
       if (
-        imported === "@reviewrouter/protocol-review-action-v2" &&
+        /^@reviewrouter\/protocol-review-action-v2(?:\/.*)?$/.test(imported) &&
         // These exact adapters/fixtures attest the canonical transport contract.
         ![
+          "packages/features/codex-oauth-rotating/src/action/provider-usage-delivery.ts",
+          "packages/features/codex-oauth-rotating/src/action/provider-usage-responses.ts",
+          "packages/features/codex-oauth-rotating/src/tests/provider-usage-bootstrap.test.ts",
           "packages/features/workflow-provisioning/src/infrastructure/review-v2-mutation-proof-facts.ts",
           "packages/features/workflow-provisioning/src/tests/gateway-review-v2-provisioning.test.ts",
         ].includes(repositoryPath) &&

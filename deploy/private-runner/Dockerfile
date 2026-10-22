@@ -2,7 +2,7 @@ FROM node:26.11.1-bookworm-slim@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda2
 WORKDIR /build
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages/features/release-rollout/package.json ./packages/features/release-rollout/package.json
-RUN npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0 \
+RUN npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7 \
   && pnpm install --frozen-lockfile --filter @reviewrouter/features-release-rollout...
 COPY packages/features/release-rollout ./packages/features/release-rollout
 RUN pnpm --filter @reviewrouter/features-release-rollout build
@@ -25,7 +25,7 @@ RUN test -n "$GITHUB_ACTIONS_RUNNER_VERSION" && test -n "$GITHUB_ACTIONS_RUNNER_
   && tar --extract --gzip --file /tmp/runner.tgz --directory /runner \
   && rm /tmp/runner.tgz \
   && chown -R runner:runner /runner
-RUN npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+RUN npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
 WORKDIR /app
 COPY --from=builder /build/packages/features/release-rollout/dist ./packages/features/release-rollout/dist
 COPY --from=builder /build/node_modules ./node_modules

@@ -56,6 +56,7 @@ import {
   ReviewExecutionStartResultStatus,
   ReviewInvocationLeaseResultStatus,
   canonicalizeReviewActionV2Request,
+  prDescriptionExtensionV1,
   reviewActionV2CanonicalizerDigest,
   reviewActionV2PublishedProtocolVersion,
   reviewActionV2PublishedSchemaDigest,
@@ -71,6 +72,7 @@ import {
   type ReviewRunAuthorizeResult,
   type ReviewRunRenewRequest,
 } from "../../../packages/protocol-review-action-v2/src/index.js";
+import type { GeneratedPrDescription } from "../../../packages/protocol-review-action-v2/src/generated/companion-contracts.js";
 import { exportJWK, SignJWT } from "jose";
 import {
   reviewActionV2ContextReplayActiveKeyIdEnv,
@@ -170,6 +172,7 @@ export type ReviewActionV2E2EHarnessOptions = Readonly<{
   investigationProductionEffects?: boolean;
   beforeFakeGitHubRead?: (request: Request) => Promise<void>;
   protocolMaxAttemptsPerSlot?: number;
+  prDescriptionProfile?: boolean;
 }>;
 
 export class ReviewActionV2E2EHarness {
@@ -257,6 +260,7 @@ export class ReviewActionV2E2EHarness {
       repo,
       pullRequestNumber,
       sourceRunId,
+      repositoryId: githubRepositoryId,
       installationId: githubInstallationId,
       appSlug: "reviewrouter-e2e",
       oidcKeyId,
@@ -282,6 +286,7 @@ export class ReviewActionV2E2EHarness {
         producerReleaseId,
         protocolLimitsProfileId,
         operationalSloProfileId,
+        ...(options.prDescriptionProfile ? { prDescriptionProfile: true } : {}),
         ...(options.investigationProfile
           ? { investigationProfile: options.investigationProfile }
           : {}),
@@ -332,6 +337,7 @@ export class ReviewActionV2E2EHarness {
         producerReleaseId,
         protocolLimitsProfileId,
         operationalSloProfileId,
+        ...(options.prDescriptionProfile ? { prDescriptionProfile: true } : {}),
         ...(options.investigationProfile
           ? { investigationProfile: options.investigationProfile }
           : {}),
@@ -397,6 +403,7 @@ export class ReviewActionV2E2EHarness {
     } = {},
   ): Promise<ReviewActionV2E2EAuthorization> {
     const runAttempt = input.sourceRunAttempt ?? "1";
+    this.fakeGitHub.sourceRunAttempt = runAttempt;
     const oidcExpiresAt =
       Math.floor(Date.now() / 1000) + this.oidcLifetimeSeconds;
     const oidcToken = await this.signOidcToken(
@@ -470,6 +477,7 @@ export class ReviewActionV2E2EHarness {
       readonly attachSlotCount?: number;
       readonly attemptBudget?: number;
       readonly authorization?: ReviewActionV2E2EAuthorization;
+      readonly prDescription?: boolean;
     } = {},
   ): Promise<ReviewActionV2E2EFlow> {
     const authorized = input.authorization ?? (await this.authorize());
@@ -491,6 +499,17 @@ export class ReviewActionV2E2EHarness {
         input.workSlotId?.(executionId, index) ??
         progressSlotId(executionId, index),
     }));
+    if (input.prDescription)
+      workSlots.push({
+        attemptBudget: 1,
+        providerKind: ReviewExecutionProviderKind.Codex,
+        providerVoteIdentityHash,
+        required: false,
+        retryPolicyVersion: "pr-description-no-replay.v1",
+        shardKey: "description",
+        taskKind: ExecutionTaskKind.PrDescription,
+        workSlotId: `${executionId}-slot-description`,
+      });
     const compatibilityKey = sha256(`${executionId}-compatibility`);
     const eligiblePaths = Array.from(
       { length: input.eligibleFileCount ?? slotCount },
@@ -872,6 +891,7 @@ export class ReviewActionV2E2EHarness {
     flow: ReviewActionV2E2EFlow,
     options: {
       readonly allowPartial?: boolean;
+      readonly prDescription?: GeneratedPrDescription;
       readonly investigation?: {
         readonly observationId: string;
         readonly findings: ReviewObservationPayload["normalizedFindings"];
@@ -912,6 +932,9 @@ export class ReviewActionV2E2EHarness {
       })),
       projectionPolicyVersion: reviewActionV2ProjectionPolicyVersion,
       publishing: {
+        ...(options.prDescription
+          ? { prDescription: options.prDescription }
+          : {}),
         check: {
           conclusion: hasFindings ? "failure" : "success",
           marker: `<!-- ${flow.executionId}:check -->`,
@@ -1598,6 +1621,7 @@ async function seedProductionControlPlane(
     investigationProfile?: ReviewActionV2E2EInvestigationProfile;
     protocolMaxAttemptsPerSlot?: number;
     agentProfiles?: readonly ReviewAgentProfile[];
+    prDescriptionProfile?: boolean;
   }>,
 ): Promise<void> {
   const now = new Date();
@@ -1663,6 +1687,9 @@ async function seedProductionControlPlane(
       agentProfilesJson: JSON.stringify(
         ids.agentProfiles ?? approvedAgentProfilesFixture,
       ),
+      ...(ids.prDescriptionProfile
+        ? { prDescriptionProfile: { ...prDescriptionExtensionV1 } }
+        : {}),
       contextGatewayPolicyVersion:
         ids.investigationProfile?.gatewayPolicyVersion ??
         "e2e-gateway-policy-v1",
@@ -1797,6 +1824,7 @@ function productionEnv(input: {
   readonly protocolLimitsProfileId: string;
   readonly operationalSloProfileId: string;
   readonly investigationProfile?: ReviewActionV2E2EInvestigationProfile;
+  readonly prDescriptionProfile?: boolean;
 }): Readonly<Record<string, string>> {
   const contextReplayKeyId = "review-v2-e2e-context-key";
   const signingKeys = JSON.stringify([
@@ -1826,6 +1854,9 @@ function productionEnv(input: {
         wrapperEntrypointDigest: null,
         runtimeEntrypointDigest: sha256("runtime-entrypoint"),
         agentProfiles: input.agentProfiles ?? approvedAgentProfilesFixture,
+        ...(input.prDescriptionProfile
+          ? { prDescriptionProfile: prDescriptionExtensionV1 }
+          : {}),
         reviewInvestigationCapability: input.investigationProfile
           ? reviewInvestigationCapabilityV1
           : null,

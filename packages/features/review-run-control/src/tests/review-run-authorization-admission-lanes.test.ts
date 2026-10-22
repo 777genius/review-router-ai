@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   canonicalReviewSkillsJson,
   createCapturedReviewSkills,
-} from "@reviewrouter/shared";
+} from "@reviewrouter/shared/review-skills-contract";
 import type { ReviewRunSkillsSnapshotPort } from "../application/ports/review-run-skills-snapshot-port";
 import {
   ManageReviewRunAuthorizations,

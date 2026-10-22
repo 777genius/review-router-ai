@@ -3,7 +3,7 @@ import {
   parseCapturedReviewSkills,
   reviewSkillsCompanionContract,
   type CapturedReviewSkills,
-} from "@reviewrouter/shared";
+} from "@reviewrouter/shared/review-skills-contract";
 import {
   parseReviewRunRuntimeSnapshot,
   type ManageReviewRunAuthorizations,

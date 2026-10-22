@@ -36,7 +36,7 @@ import {
 
 type PersonalAdapter = Pick<
   ReturnType<typeof createDisabledPersonalAccountsAdapter>,
-  "list" | "connect" | "operation" | "completeOAuth"
+  "list" | "connect" | "operation" | "completeOAuth" | "pollOAuth"
 >;
 export type PersonalCanonicalOperationView = AccountOperationView & {
   resume?: {
@@ -105,6 +105,7 @@ const fresh = z.strictObject({
   profileId: c.reference,
   label: label.optional(),
   baseURL: z.string().max(2048).optional(),
+  method: z.enum(["device_code", "browser"]).optional(),
 });
 const existing = z.strictObject({
   kind: z.enum(["rename", "reconnect", "disable"]),
@@ -551,7 +552,8 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         intent.profileId !== request.profileId ||
         (request.label !== undefined && intent.displayName !== request.label) ||
         intent.ingress !==
-          (credential === undefined ? "oauth-begin" : "api-key-create")
+          (credential === undefined ? "oauth-begin" : "api-key-create") ||
+        (intent.method ?? "browser") !== (request.method ?? "browser")
       )
         throw new ProviderAccountError("operation_conflict");
       if (
@@ -587,9 +589,44 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         nonce: request.nonce,
         profileId: profile.id,
         label: request.label ?? suggestedAccountLabel(profile.label),
+        ...(request.method ? { method: request.method } : {}),
       },
       credential,
     );
+  }
+  async function projectConnectResult(
+    scope: Session,
+    value: string,
+    result: Awaited<ReturnType<PersonalAdapter["operation"]>>,
+  ): Promise<AccountOperationView> {
+    const receipt: AccountOperationView = {
+      nonce: value,
+      state: operationState(result.phase),
+      ...(result.oauthMethod ? { oauthMethod: result.oauthMethod } : {}),
+      cleanup: "unresolved",
+    };
+    const sourceId = result.sourceId;
+    if (result.phase !== "applied" || !sourceId) return receipt;
+    try {
+      const source = await scope.checked(() =>
+        input.store.findOwnedSource(scope.actor, sourceId),
+      );
+      if (source.id !== sourceId) throw new Denied();
+      const account = await scope.project(source);
+      await scope.authorize();
+      return { ...receipt, account };
+    } catch (error) {
+      // Optional identity metadata cannot undo an already applied operation.
+      // A current owner/session denial must still escape without reflecting it.
+      await scope.authorize();
+      if (
+        error instanceof Denied ||
+        (error instanceof ProviderAccountError &&
+          error.code === "workspace_forbidden")
+      )
+        throw error;
+      return receipt;
+    }
   }
   return {
     async listGatewayAccounts(
@@ -722,14 +759,11 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         async (scope, retain) =>
           "kind" in request
             ? mutation(scope, request, credential, retain)
-            : {
-                nonce: request.nonce,
-                state: operationState(
-                  (await connect(scope, request, credential, retain)).operation
-                    .phase,
-                ),
-                cleanup: "unresolved" as const,
-              },
+            : projectConnectResult(
+                scope,
+                request.nonce,
+                (await connect(scope, request, credential, retain)).operation,
+              ),
         () => unknown(request.nonce),
       );
     },
@@ -748,11 +782,7 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
           return scope.view(await scope.readCanonical(value));
         if (operation.intent.action !== "connect") throw new Denied();
         const result = await scope.personal.operation(value);
-        return {
-          nonce: value,
-          state: operationState(result.phase),
-          cleanup: "unresolved" as const,
-        };
+        return projectConnectResult(scope, value, result);
       });
     },
     async beginGatewayOAuth(
@@ -769,13 +799,16 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         async (scope, retain) => {
           const result = await connect(scope, request, undefined, retain);
           return {
-            operation: {
-              nonce: request.nonce,
-              state: operationState(result.operation.phase),
-              cleanup: "unresolved" as const,
-            },
+            operation: await projectConnectResult(
+              scope,
+              request.nonce,
+              result.operation,
+            ),
             ...(result.authorizationURL !== undefined
               ? { authorizationURL: result.authorizationURL }
+              : {}),
+            ...(result.deviceAuthorization !== undefined
+              ? { deviceAuthorization: result.deviceAuthorization }
               : {}),
           };
         },
@@ -793,13 +826,25 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         async (scope, retain) => {
           retain();
           const result = await scope.personal.completeOAuth(request);
-          return {
-            nonce: request.nonce,
-            state: operationState(result.phase),
-            cleanup: "unresolved" as const,
-          };
+          return projectConnectResult(scope, request.nonce, result);
         },
         () => unknown(request.nonce),
+      );
+    },
+    async pollGatewayOAuth(_context: string, rawNonce: string) {
+      let value: string;
+      try {
+        value = nonce.parse(rawNonce);
+      } catch {
+        return { status: "invalid" as const };
+      }
+      return safe(
+        async (scope, retain) => {
+          retain();
+          const result = await scope.personal.pollOAuth(value);
+          return projectConnectResult(scope, value, result);
+        },
+        () => unknown(value),
       );
     },
   };

@@ -7,6 +7,7 @@ export function mapConfigToRuntimeEnv(
   const investigation = config.investigationRollout;
   const runtimeEnv: Record<string, string> = {
     ...buildProviderRuntimePlan(config).runtimeEnv,
+    UPDATE_PR_DESCRIPTION: String(config.updatePrDescription !== false),
     REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED: runtimeToggle(
       investigation.recordingEnabled,
     ),

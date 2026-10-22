@@ -1,5 +1,10 @@
 "use server";
 
+import {
+  assertDashboardContextSelectionAllowed,
+  contextToolsWorkflowSecrets,
+} from "../../src/server/context-tools";
+
 import { readReviewPolicyHeadVersions } from "../../src/server/review-policy-heads";
 
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
@@ -50,6 +55,7 @@ import {
 } from "@reviewrouter/features-memory";
 import type { ProviderKind } from "@reviewrouter/features-review-providers";
 import type { PrismaClient } from "@reviewrouter/platform-db";
+import { resolveApprovedSecretsRuntimeActionRef } from "../../src/server/workflow-provisioning/approved-secrets-action-ref";
 import {
   CodexDeviceAuthGateway,
   PrismaHostedCodexDeviceLoginStore,
@@ -1246,6 +1252,12 @@ async function createSetupPullRequestMutation(
     const accountGateway = isAccountGatewayConfiguration(
       resolvedRuntime.config,
     );
+    const mcpSecrets = accountGateway
+      ? await contextToolsWorkflowSecrets(
+          workspaceId,
+          resolvedRuntime.config.contextTools,
+        )
+      : undefined;
     const openRouterDirect = isOpenRouterDirectConfiguration(
       resolvedRuntime.config,
     );
@@ -1338,6 +1350,43 @@ async function createSetupPullRequestMutation(
       managedReview || codexRotatingProviderInstanceId
         ? false
         : isConflictReviewFallbackAllowedForRepository(repository.fullName);
+    const secretsRuntimeActionRef =
+      !managedReview &&
+      !codexRotatingProviderInstanceId &&
+      !conflictReviewFallbackAllowed &&
+      workflowStyle === "reusable"
+        ? await resolveApprovedSecretsRuntimeActionRef(actionRef, {
+            isRegistered: async (commitSha) =>
+              !!(await prisma.producerRelease.findFirst({
+                where: {
+                  actionCommitSha: commitSha,
+                  distributionKind: "public_reusable",
+                  state: "registered",
+                  revokedAt: null,
+                },
+                select: { producerReleaseId: true },
+              })),
+            hasSecretsRuntime: async (commitSha) => {
+              try {
+                const result = await octokit.request(
+                  "GET /repos/{owner}/{repo}/contents/{path}",
+                  {
+                    owner: "777genius",
+                    repo: "review-router",
+                    path: ".github/workflows/reviewrouter-secrets-runtime.yml",
+                    ref: commitSha,
+                    request: { timeout: 15000 },
+                  },
+                );
+                return (
+                  !Array.isArray(result.data) && result.data.type === "file"
+                );
+              } catch {
+                return false;
+              }
+            },
+          })
+        : undefined;
     const workflowPath = managedReview
       ? reviewRouterWorkflowContract.callerPath
       : codexRotatingProviderInstanceId
@@ -1348,6 +1397,7 @@ async function createSetupPullRequestMutation(
         : defaultWorkflowPath;
     const workflowReady = await isWorkflowSetupAlreadyCurrent(
       {
+        ...(secretsRuntimeActionRef ? { secretsRuntimeActionRef } : {}),
         githubInstallationId:
           githubRepository.installation.githubInstallationId.toString(),
         githubRepositoryId: githubRepository.githubRepositoryId.toString(),
@@ -1358,7 +1408,10 @@ async function createSetupPullRequestMutation(
         actionRef,
         discussionMode,
         ...(accountGateway
-          ? { codexSessionMode: "account-gateway" as const }
+          ? {
+              codexSessionMode: "account-gateway" as const,
+              ...(mcpSecrets ? { mcpSecrets } : {}),
+            }
           : openRouterDirect
             ? { providerApiAuthMode: "openrouter-api" as const }
             : {}),
@@ -1451,7 +1504,10 @@ async function createSetupPullRequestMutation(
               apiUrl: resolveWorkflowPublicApiUrl(),
               runtimeConfigMode: "oidc",
               ...(accountGateway
-                ? { codexSessionMode: "account-gateway" as const }
+                ? {
+                    codexSessionMode: "account-gateway" as const,
+                    ...(mcpSecrets ? { mcpSecrets } : {}),
+                  }
                 : openRouterDirect
                   ? { providerApiAuthMode: "openrouter-api" as const }
                   : { staticRuntimeEnv: resolvedRuntime.runtimeEnv }),
@@ -1471,6 +1527,7 @@ async function createSetupPullRequestMutation(
             },
             {
               targets: new PrismaWorkflowProvisioningTarget(prisma),
+              ...(secretsRuntimeActionRef ? { secretsRuntimeActionRef } : {}),
               configurations: new PrismaReviewConfigurationRepository(prisma),
               trustedGithubRepositoryId:
                 githubRepository.githubRepositoryId.toString(),
@@ -1702,6 +1759,12 @@ async function confirmSetupPullRequestMergedMutation(
     const accountGateway = isAccountGatewayConfiguration(
       resolvedRuntime.config,
     );
+    const mcpSecrets = accountGateway
+      ? await contextToolsWorkflowSecrets(
+          workspaceId,
+          resolvedRuntime.config.contextTools,
+        )
+      : undefined;
     const openRouterDirect = isOpenRouterDirectConfiguration(
       resolvedRuntime.config,
     );
@@ -1973,7 +2036,10 @@ async function confirmSetupPullRequestMergedMutation(
             defaultBranch: setupBaseBranch,
             actionRef: verifiedWorkflowActionRef,
             ...(accountGateway
-              ? { codexSessionMode: "account-gateway" as const }
+              ? {
+                  codexSessionMode: "account-gateway" as const,
+                  ...(mcpSecrets ? { mcpSecrets } : {}),
+                }
               : openRouterDirect
                 ? { providerApiAuthMode: "openrouter-api" as const }
                 : {}),
@@ -2960,6 +3026,10 @@ async function saveWorkspaceReviewConfigMutation(
       workspaceId,
     });
     const config = readReviewConfigurationForm(formData);
+    await assertDashboardContextSelectionAllowed(
+      workspaceId,
+      config.contextTools,
+    );
     isOpenRouterDirectConfiguration(config);
     assertGatewayReviewAgentProfileContextAllowed(
       config,
@@ -3096,6 +3166,10 @@ async function saveRepositoryReviewConfigMutation(
       );
     const policy = readRepositoryReviewPolicyForm(formData);
     const config = resolveReviewPolicy(workspace.config, policy);
+    await assertDashboardContextSelectionAllowed(
+      workspaceId,
+      config.contextTools,
+    );
     isOpenRouterDirectConfiguration(config);
     assertGatewayReviewAgentProfileContextAllowed(
       config,

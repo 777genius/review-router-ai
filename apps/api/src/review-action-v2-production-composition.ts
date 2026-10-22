@@ -1,3 +1,22 @@
+import { createProviderUsageActionSessionIssuer } from "./provider-usage-action-session.js";
+import { createProviderUsageRunCompletion } from "./provider-usage-run-completion.js";
+import { createProviderUsageBootstrapIssuer } from "./provider-usage-bootstrap.js";
+import { createProviderUsageActorResolver } from "./provider-usage-actor.js";
+import { createProviderUsageGatewayReconciliation } from "./provider-usage-gateway-reconciliation.js";
+import { createProviderUsageArtifactRecovery } from "./provider-usage-artifact-recovery-store.js";
+import { ProviderUsageArtifactReader } from "./provider-usage-artifact-recovery.js";
+import { createGatewayUsageRecorder } from "./provider-usage-gateway-recorder.js";
+import {
+  createProviderUsageApi,
+  type ProviderUsageApi,
+} from "./provider-usage-routes.js";
+import { decryptServerToken } from "@reviewrouter/features-auth";
+import {
+  PrismaContextConnectionStore,
+  deliverContextCredentials,
+} from "@reviewrouter/features-review-context-tools";
+import { createContextIssueReader } from "./github/context-issue-read.js";
+import type { ContextToolsRunAccess } from "./review-context-tools.js";
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
 export { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
@@ -130,6 +149,7 @@ import {
   ReviewMutationLaneKind,
   ReviewMutationMode,
   ReviewRunAuthorizationState as RunAuthorizationState,
+  ReviewRunAuthorizationTokenResolutionStatus,
   ReviewSafetyDecisionKind,
   ReviewSafetyPolicyScope,
   ResolveReviewSafetyPolicy,
@@ -283,6 +303,20 @@ type ReviewActionV2RouteRuntime = Pick<
 
 export type ReviewActionV2ProductionRoutes = Readonly<{
   reviewSkills?: ReturnType<typeof createReviewRunSkillsReader>;
+  providerUsage?: ProviderUsageApi;
+  providerUsageActionSession?: ReturnType<
+    typeof createProviderUsageActionSessionIssuer
+  >;
+  providerUsageBootstrap?: ReturnType<
+    typeof createProviderUsageBootstrapIssuer
+  >;
+  providerUsageNative?: ReturnType<
+    typeof createProviderUsageGatewayReconciliation
+  >;
+  providerUsageRecovery?: ReturnType<
+    typeof createProviderUsageArtifactRecovery
+  >;
+  contextTools?: ContextToolsRunAccess;
   accountGatewayRelay?: ReviewRunGatewayRelay;
   accountGatewayCheckout?: ReviewRunGatewayCheckout;
   providerApiCheckout?: ReviewRunGatewayCheckout;
@@ -1228,6 +1262,15 @@ export function composeReviewActionV2ProductionRoutes(input: {
   const accountGatewayRelay = accountGatewayRelayPolicy
     ? createReviewRunGatewayRelay({
         policy: accountGatewayRelayPolicy,
+        usage: createGatewayUsageRecorder(prisma, async (auth) => {
+          const target = await resolveCheckoutRepository(auth);
+          return target
+            ? createProviderUsageActorResolver(prisma, {
+                appId: githubAppId,
+                privateKey: githubAppPrivateKey,
+              })(auth, target)
+            : null;
+        }),
         runAccess: {
           ...(accountGatewayControlOrigin === undefined
             ? {}
@@ -1279,6 +1322,53 @@ export function composeReviewActionV2ProductionRoutes(input: {
       return null;
     return target;
   };
+  const issueReader = createContextIssueReader({
+    appId: githubAppId,
+    privateKey: githubAppPrivateKey,
+    resolveRepository: resolveCheckoutRepository,
+  });
+  const contextTools: ContextToolsRunAccess = {
+    authorize: async (token) => {
+      try {
+        const resolved =
+          await runControl.authorizations.resolveReviewRunAuthorizationToken({
+            token,
+          });
+        if (
+          resolved.status !== ReviewRunAuthorizationTokenResolutionStatus.Valid
+        )
+          return null;
+        const authorization = resolved.authorization;
+        if (
+          authorization.state !== RunAuthorizationState.Active ||
+          authorization.expiresAt <= clock.now() ||
+          authorization.maxExpiresAt <= clock.now()
+        )
+          return null;
+        const target = await resolveCheckoutRepository(authorization);
+        return target &&
+          (await confirmAccountGatewayAuthority(token, authorization, target))
+          ? authorization
+          : null;
+      } catch {
+        return null;
+      }
+    },
+    deliver: (workspaceId, plan) =>
+      deliverContextCredentials(workspaceId, plan, {
+        store: new PrismaContextConnectionStore(prisma),
+        crypto: {
+          encrypt: () => {
+            throw new Error("context_encrypt_not_allowed");
+          },
+          decrypt: (value) => decryptServerToken(value, input.env),
+        },
+      }),
+    assertIssueAccess: (authorization) =>
+      issueReader.assertAvailable(authorization),
+    readIssue: (authorization, issueNumber) =>
+      issueReader.read(authorization, issueNumber),
+  };
   const providerApiCheckout = createReviewRunProviderApiCheckout({
     lifecycleObservationAuthors: [
       ...trustedReviewCommandLedgerAuthorsFromEnv(input.env),
@@ -1304,9 +1394,50 @@ export function composeReviewActionV2ProductionRoutes(input: {
         resolveRepository: resolveCheckoutRepository,
       })
     : undefined;
+  const providerUsage = createProviderUsageApi({
+    prisma,
+    resolveRunClosedAt: createProviderUsageRunCompletion({
+      appId: githubAppId,
+      privateKey: githubAppPrivateKey,
+    }),
+    resolveActor: createProviderUsageActorResolver(prisma, {
+      appId: githubAppId,
+      privateKey: githubAppPrivateKey,
+    }),
+    authorizations: runControl.authorizations,
+    resolveRepository: resolveCheckoutRepository,
+    confirmAuthority: confirmAccountGatewayAuthority,
+  });
+  const providerUsageRecovery = createProviderUsageArtifactRecovery({
+    prisma,
+    api: providerUsage,
+    reader: new ProviderUsageArtifactReader({
+      appId: githubAppId,
+      privateKey: githubAppPrivateKey,
+    }),
+  });
   return Object.freeze({
+    providerUsage,
+    providerUsageNative: createProviderUsageGatewayReconciliation(
+      prisma,
+      input.env,
+    ),
+    providerUsageRecovery,
+    providerUsageActionSession: createProviderUsageActionSessionIssuer({
+      prisma,
+      api: providerUsage,
+      appId: githubAppId,
+      privateKey: githubAppPrivateKey,
+    }),
+    providerUsageBootstrap: createProviderUsageBootstrapIssuer({
+      prisma,
+      api: providerUsage,
+      appId: githubAppId,
+      privateKey: githubAppPrivateKey,
+    }),
     providerApiCheckout,
     reviewSkills: createReviewRunSkillsReader(runControl.authorizations),
+    contextTools,
     ...(accountGatewayRelay ? { accountGatewayRelay } : {}),
     ...(accountGatewayCheckout ? { accountGatewayCheckout } : {}),
     hostedV4,
@@ -2429,9 +2560,11 @@ function executionProviderTask(
   return {
     providerKind: provider as unknown as ReviewProviderKind,
     taskKind:
-      task === ExecutionTaskKind.FindingDiscovery
-        ? ReviewTaskKind.CodeReview
-        : ReviewTaskKind.FindingRevalidation,
+      task === ExecutionTaskKind.PrDescription
+        ? ReviewTaskKind.PrDescription
+        : task === ExecutionTaskKind.FindingDiscovery
+          ? ReviewTaskKind.CodeReview
+          : ReviewTaskKind.FindingRevalidation,
   };
 }
 
@@ -2456,6 +2589,8 @@ function evidenceTask(task: EvidenceTaskKind): ReviewTaskKind {
       return ReviewTaskKind.CodeReview;
     case EvidenceTaskKind.LifecycleRevalidation:
       return ReviewTaskKind.FindingRevalidation;
+    case EvidenceTaskKind.PrDescription:
+      throw new Error("review_action_v2_auxiliary_task_is_not_evidence");
     case EvidenceTaskKind.Unknown:
       throw new Error("review_action_v2_evidence_task_unknown");
   }
@@ -2482,6 +2617,8 @@ function executionEvidenceTask(task: ExecutionTaskKind): EvidenceTaskKind {
       return EvidenceTaskKind.FindingDiscovery;
     case ExecutionTaskKind.LifecycleRevalidation:
       return EvidenceTaskKind.LifecycleRevalidation;
+    case ExecutionTaskKind.PrDescription:
+      return EvidenceTaskKind.PrDescription;
   }
 }
 

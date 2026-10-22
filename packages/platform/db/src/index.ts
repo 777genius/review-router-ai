@@ -40,8 +40,14 @@ export function createPrismaClient(
   const poolMax =
     options.poolMax ??
     parseOptionalPositiveInteger("REVIEW_ROUTER_DB_POOL_MAX");
+  // adapter-pg normalizes timestamptz text assuming UTC. Enforce that session
+  // contract even when a caller supplies PostgreSQL startup options in the URL.
+  const connectionUrl = new URL(databaseUrl);
+  const startupOptions = connectionUrl.searchParams.get("options") ?? "";
+  connectionUrl.searchParams.delete("options");
   const adapterConfig = {
-    connectionString: databaseUrl,
+    connectionString: connectionUrl.toString(),
+    options: `${startupOptions} -c timezone=UTC`,
     ...(typeof poolMax === "number" ? { max: poolMax } : {}),
     ...(typeof options.poolMaxLifetimeSeconds === "number"
       ? { maxLifetimeSeconds: options.poolMaxLifetimeSeconds }

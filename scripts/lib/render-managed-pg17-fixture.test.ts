@@ -315,6 +315,50 @@ describe("recovery fixture bounded diagnostics", () => {
     );
   });
 
+  it.each(["valid", "wrong-base", "missing-libatomic"] as const)(
+    "qualifies a parallel build winner (%s)",
+    (outcome) => {
+      const calls: string[][] = [];
+      let buildAttempted = false;
+      const run = (args: string[]) => {
+        calls.push(args);
+        if (args[0] === "build") {
+          buildAttempted = true;
+          return { status: 1, stdout: "", stderr: "image already exists" };
+        }
+        if (args[0] === "image" && args[2] === pg17FixtureImage)
+          return { status: buildAttempted ? 0 : 1, stdout: "", stderr: "" };
+        if (args[0] === "image" && args[2] === "--format")
+          return {
+            status: 0,
+            stdout: outcome === "wrong-base" ? "wrong-base" : pg17BaseImage,
+            stderr: "",
+          };
+        if (args[0] === "run" && outcome === "missing-libatomic")
+          return { status: 1, stdout: "", stderr: "libatomic1 missing" };
+        return { status: 0, stdout: "ii", stderr: "" };
+      };
+      if (outcome === "valid")
+        expect(() => ensurePg17FixtureImage(run)).not.toThrow();
+      else
+        expect(() => ensurePg17FixtureImage(run)).toThrow(
+          outcome === "wrong-base"
+            ? "managed_pg17_fixture_image:base_label"
+            : "managed_pg17_fixture_image:libatomic1",
+        );
+      expect(calls.filter((args) => args[0] === "build")).toHaveLength(1);
+      expect(calls).toContainEqual([
+        "image",
+        "inspect",
+        "--format",
+        '{{ index .Config.Labels "reviewrouter.fixture.base" }}',
+        pg17FixtureImage,
+      ]);
+      if (outcome !== "wrong-base")
+        expect(calls.find((args) => args[0] === "run")).toContain("libatomic1");
+    },
+  );
+
   it("rejects a fixture image without libatomic1 with a bounded diagnostic", () => {
     const run = (args: string[]) =>
       args[0] === "run"

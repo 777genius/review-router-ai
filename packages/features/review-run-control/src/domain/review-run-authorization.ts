@@ -21,7 +21,7 @@ import { parseReviewRunRuntimeSnapshot } from "./review-run-runtime-snapshot";
 import {
   canonicalReviewSkillsJson,
   parseCapturedReviewSkills,
-} from "@reviewrouter/shared";
+} from "@reviewrouter/shared/review-skills-contract";
 
 export type ReviewRunRevision = {
   readonly baseSha: string;

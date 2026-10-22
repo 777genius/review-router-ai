@@ -1,6 +1,8 @@
 import type { ReviewAgentProfile } from "../../domain/review-agent-profile";
 import type {
   ProducerRelease,
+  ProducerContextToolsProfile,
+  ProducerPrDescriptionProfile,
   ProducerReviewInvestigationProfile,
 } from "../../domain/producer-release";
 import type {
@@ -9,6 +11,7 @@ import type {
 } from "../../domain/review-run-control-types";
 
 export type TrustedProducerReleaseAttestation = {
+  readonly contextToolsProfile?: ProducerContextToolsProfile;
   readonly producerReleaseId: string;
   readonly distributionKind: ProducerDistributionKind;
   readonly actionCommitSha: string;
@@ -17,6 +20,7 @@ export type TrustedProducerReleaseAttestation = {
   readonly runtimeEntrypointDigest: string;
   readonly contextGatewayPolicyVersion: string | null;
   readonly contextGatewayEntrypointDigest: string | null;
+  readonly prDescriptionProfile?: ProducerPrDescriptionProfile | null;
   readonly agentProfiles?: readonly ReviewAgentProfile[] | null;
   readonly reviewInvestigationProfile?: ProducerReviewInvestigationProfile | null;
   readonly schemaDigest: string;

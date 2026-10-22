@@ -100,13 +100,16 @@ describe.skipIf(!enabled)(
         const names = (await readdir(migrations))
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
-        // Replay the complete current checkout while keeping its reviewed
-        // checkout135 boundary and the additive Skills tail explicit.
-        expect(names).toHaveLength(138);
-        expect(names.slice(-3)).toEqual([
+        // Replay every current migration, including both additive Skills rows.
+        expect(names).toHaveLength(142);
+        expect(names.slice(-7)).toEqual([
           "000135_review_run_checkout_repository_lock",
+          "000136_provider_usage",
           "000136_review_skills",
           "000137_review_skills_capture",
+          "000138_pr_description",
+          "000139_review_context_tools",
+          "000140_personal_oauth_method",
         ]);
         let legacyBefore: unknown;
         for (const name of names) {

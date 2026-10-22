@@ -1,5 +1,9 @@
 import { ReviewSkillsSection } from "./review-skills-section";
 import { RepositorySkillsDialog } from "./repository-skills-dialog";
+import { listDashboardContextConnections } from "../../src/server/context-tools";
+import type { ContextConnectionMetadata } from "@reviewrouter/features-review-context-tools";
+import { loadProviderUsage } from "../../src/server/provider-usage-report";
+import { ProviderUsageView } from "./provider-usage-view";
 import { readReviewPolicyHeadVersions } from "../../src/server/review-policy-heads";
 import { Badge, LinkButton, SelectField } from "@reviewrouter/ui";
 import {
@@ -12,6 +16,7 @@ import {
   type GatewayAgentProfileOption,
 } from "../../src/server/gateway-agent-profile-options";
 import { AccountGatewayAccountsSection } from "./account-gateway-accounts-section";
+import { ProviderModelCatalogProvider } from "./provider-model-catalog";
 import { GatewayModelAccountsProvider } from "./gateway-model-account-options";
 import { productionPersonalAccounts } from "../../src/server/personal-account-composition";
 import {
@@ -146,6 +151,7 @@ import { deriveDashboardProviderSetupReadiness } from "../../src/server/dashboar
 import { PrismaCodexRotatingSetupReadiness } from "../../src/server/prisma-codex-rotating-setup-readiness";
 import {
   getReviewModelOptions,
+  getProviderModelCatalogs,
   type ReviewModelOption,
 } from "../../src/server/openrouter-model-catalog";
 import { FormSubmitButton } from "../form-submit-button";
@@ -1410,7 +1416,13 @@ async function DashboardSectionContent({
         .workspaceAccess(selectedWorkspace.workspace.id)
         .catch(() => null)
     : null;
-  const [data, modelOptions, accountsBootstrap] = await Promise.all([
+  const [
+    data,
+    modelOptions,
+    accountsBootstrap,
+    contextConnections,
+    modelCatalogSnapshots,
+  ] = await Promise.all([
     loadDashboardSectionData(
       selectedWorkspace,
       selectedSection,
@@ -1433,6 +1445,14 @@ async function DashboardSectionContent({
             .catch(() => ({ page: { status: "unavailable" as const } }))
         : loadAccountsBootstrap(selectedWorkspace.workspace.id)
       : Promise.resolve(null),
+    selectedSection === "repositories" || selectedSection === "policy"
+      ? listDashboardContextConnections(selectedWorkspace.workspace.id).catch(
+          () => [],
+        )
+      : Promise.resolve([]),
+    selectedSection === "repositories" || selectedSection === "policy"
+      ? getProviderModelCatalogs()
+      : Promise.resolve([]),
   ]);
   // Approved engine profiles for the Account Gateway provider row; derived
   // from the producer-release approved profile authority, never user input.
@@ -1449,29 +1469,36 @@ async function DashboardSectionContent({
       modelOptions={modelOptions}
       gatewayAccounts={accountsBootstrap?.page}
       agentProfileOptions={agentProfileOptions}
+      contextConnections={contextConnections}
       claudeCodeProviderEnabled={isClaudeCodeProviderEnabled()}
     />
   );
-  return personal && personalAccess ? (
-    <GatewayModelAccountsProvider
-      scope={`${personal.scope}:workspace:${selectedWorkspace.workspace.id}`}
-      api={{
-        list: listPersonalModelAccounts.bind(
-          null,
-          personal.scope,
-          selectedWorkspace.workspace.id,
-        ),
-        get: getPersonalModelAccount.bind(
-          null,
-          personal.scope,
-          selectedWorkspace.workspace.id,
-        ),
-      }}
-    >
-      {content}
-    </GatewayModelAccountsProvider>
-  ) : (
-    content
+  const wrappedContent =
+    personal && personalAccess ? (
+      <GatewayModelAccountsProvider
+        scope={`${personal.scope}:workspace:${selectedWorkspace.workspace.id}`}
+        api={{
+          list: listPersonalModelAccounts.bind(
+            null,
+            personal.scope,
+            selectedWorkspace.workspace.id,
+          ),
+          get: getPersonalModelAccount.bind(
+            null,
+            personal.scope,
+            selectedWorkspace.workspace.id,
+          ),
+        }}
+      >
+        {content}
+      </GatewayModelAccountsProvider>
+    ) : (
+      content
+    );
+  return (
+    <ProviderModelCatalogProvider snapshots={modelCatalogSnapshots}>
+      {wrappedContent}
+    </ProviderModelCatalogProvider>
   );
 }
 
@@ -1768,6 +1795,7 @@ export function WorkspaceCard({
   modelOptions,
   gatewayAccounts,
   agentProfileOptions = [],
+  contextConnections = [],
   claudeCodeProviderEnabled,
 }: {
   readonly data: DashboardWorkspaceData;
@@ -1779,6 +1807,9 @@ export function WorkspaceCard({
   readonly appInstallUrl: string | null;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
+  readonly contextConnections?:
+    | readonly ContextConnectionMetadata[]
+    | undefined;
   readonly agentProfileOptions?:
     | readonly GatewayAgentProfileOption[]
     | undefined;
@@ -1857,6 +1888,12 @@ export function WorkspaceCard({
         )}
       </div>
     );
+  if (selectedSection === "usage")
+    return (
+      <div id="dashboard-section-content" className="min-w-0 space-y-5">
+        <ProviderUsageSection workspaceId={workspace.id} />
+      </div>
+    );
   const activeConfig = data.reviewConfig?.config;
   if (!activeConfig) {
     const draft = hasWorkspaceWideAccess
@@ -1927,6 +1964,7 @@ export function WorkspaceCard({
             modelOptions={modelOptions}
             gatewayAccounts={gatewayAccounts}
             agentProfileOptions={agentProfileOptions}
+            contextConnections={contextConnections}
             codexRotatingOAuthEnabled={isCodexRotatingOAuthAllowedForWorkspaceDefault()}
             claudeCodeProviderEnabled={claudeCodeProviderEnabled}
             mutationsEnabled={mutationsEnabled}
@@ -2049,6 +2087,15 @@ export function WorkspaceCard({
           />
         ) : null}
         <WorkspaceActionNotice params={params} orgRuleset={orgRuleset} />
+        {hasWorkspaceWideAccess &&
+        (selectedSection === "policy" || selectedSection === "repositories") ? (
+          <a
+            className="inline-block text-sm text-cyan-200 underline"
+            href={`/dashboard/context-tools?workspaceId=${encodeURIComponent(workspace.id)}`}
+          >
+            Manage HTTPS MCP context connections
+          </a>
+        ) : null}
 
         {selectedSection === "repositories" ? (
           <>
@@ -2072,6 +2119,7 @@ export function WorkspaceCard({
               modelOptions={modelOptions}
               gatewayAccounts={gatewayAccounts}
               agentProfileOptions={agentProfileOptions}
+              contextConnections={contextConnections}
               claudeCodeProviderEnabled={claudeCodeProviderEnabled}
               mutationsEnabled={mutationsEnabled}
               workspaceKey={workspaceKey}
@@ -2153,6 +2201,7 @@ export function WorkspaceCard({
                   modelOptions={modelOptions}
                   gatewayAccounts={gatewayAccounts}
                   agentProfileOptions={agentProfileOptions}
+                  contextConnections={contextConnections}
                   codexRotatingOAuthEnabled={isCodexRotatingOAuthAllowedForWorkspaceDefault()}
                   claudeCodeProviderEnabled={claudeCodeProviderEnabled}
                   mutationsEnabled={mutationsEnabled}
@@ -2245,6 +2294,7 @@ export function WorkspaceCard({
                         modelOptions={modelOptions}
                         gatewayAccounts={gatewayAccounts}
                         agentProfileOptions={agentProfileOptions}
+                        contextConnections={contextConnections}
                         codexRotatingOAuthEnabled={isCodexRotatingOAuthEnabledForRepository(
                           repository,
                         )}
@@ -2804,6 +2854,7 @@ function RepositoryTable({
   modelOptions,
   gatewayAccounts,
   agentProfileOptions = [],
+  contextConnections = [],
   claudeCodeProviderEnabled,
   mutationsEnabled,
   workspaceKey,
@@ -2829,6 +2880,9 @@ function RepositoryTable({
     | readonly GatewayAgentProfileOption[]
     | undefined;
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
+  readonly contextConnections?:
+    | readonly ContextConnectionMetadata[]
+    | undefined;
   readonly claudeCodeProviderEnabled: boolean;
   readonly mutationsEnabled: boolean;
   readonly workspaceKey: string;
@@ -3232,6 +3286,7 @@ function RepositoryTable({
                         modelOptions={modelOptions}
                         gatewayAccounts={gatewayAccounts}
                         agentProfileOptions={agentProfileOptions}
+                        contextConnections={contextConnections}
                         codexRotatingOAuthEnabled={isCodexRotatingOAuthEnabledForRepository(
                           repository,
                         )}
@@ -4080,4 +4135,27 @@ function dashboardMemoryModeHref(
   });
   if (workspaceKey) query.set("workspace", workspaceKey);
   return `/dashboard?${query.toString()}#dashboard-section-content`;
+}
+
+async function ProviderUsageSection({ workspaceId }: { workspaceId: string }) {
+  let report;
+  try {
+    report = await loadProviderUsage(workspaceId);
+  } catch (error) {
+    if (error instanceof Error && error.message === "usage_access_denied")
+      return (
+        <p>
+          Usage reports require workspace membership. Repository access alone
+          does not grant access to workspace usage.
+        </p>
+      );
+    throw error;
+  }
+  return (
+    <ProviderUsageView
+      key={workspaceId}
+      workspaceId={workspaceId}
+      initialReport={report}
+    />
+  );
 }

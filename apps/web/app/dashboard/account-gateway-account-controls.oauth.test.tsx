@@ -33,6 +33,7 @@ import {
   submitGatewayApiKey,
   mutateGatewayAccount,
 } from "./account-gateway-account-actions";
+import { AccountsAddDialog } from "./accounts-add-dialog";
 import {
   AccountGatewayControls,
   type AccountGatewayManagementApi,
@@ -43,6 +44,7 @@ import {
 vi.mock("./account-gateway-account-actions", () => ({
   beginGatewayOAuth: vi.fn(),
   completeGatewayOAuth: vi.fn(),
+  pollGatewayOAuth: vi.fn(),
   bindGatewayAccount: vi.fn(),
   listGatewayAccounts: vi.fn(),
   readGatewayOperation: vi.fn(),
@@ -157,12 +159,23 @@ async function mount(
   await screen.findByRole("menuitem", { name: "Connect Codex OAuth" });
   return view;
 }
+async function chooseBrowser(dialog: HTMLElement) {
+  fireEvent.click(
+    within(dialog).getByRole("combobox", { name: "Sign-in method" }),
+  );
+  const option = await screen.findByRole("option", {
+    name: /Browser callback/,
+  });
+  fireEvent.mouseMove(option);
+  fireEvent.click(option);
+}
 async function startEnrollment() {
   fireEvent.click(
     screen.getByRole("menuitem", { name: "Connect Codex OAuth" }),
   );
   const dialog = await screen.findByRole("dialog");
   expect(within(dialog).queryByLabelText("API key")).toBeNull();
+  await chooseBrowser(dialog);
   fireEvent.change(within(dialog).getByLabelText("Connection name"), {
     target: { value: "New Codex" },
   });
@@ -663,6 +676,98 @@ test("late fence permits key reentry only after an explicit fresh ready check on
   expect(retained).not.toContain("synthetic-after-ack-key");
 });
 
+test("key continuation reports an unconfirmed submission instead of silently dropping the entered key", async () => {
+  const personalStorage = "rr-c3-account-operations:personal:workspace-user";
+  sessionStorage.setItem(personalStorage, JSON.stringify([savedNonce]));
+  const resume = {
+    kind: "reconnect" as const,
+    connectionId: "own-source",
+    profileId: "mimo",
+    gatewayRevision: 17,
+    mirrorRevision: 4,
+  };
+  const api = personalApi();
+  api.readGatewayOperation.mockResolvedValue({
+    status: "ok",
+    value: {
+      nonce: savedNonce,
+      state: "pending",
+      cleanup: "unresolved",
+      resume,
+    },
+  });
+  api.submitGatewayApiKey.mockRejectedValue(new Error("synthetic_lost_ack"));
+  await mount({ api, managementScope: "personal" });
+  fireEvent.click(screen.getByRole("button", { name: "Continue key update" }));
+  const dialog = await screen.findByRole("dialog", {
+    name: "Continue key update",
+  });
+  const secret = "synthetic-unconfirmed-continuation-key";
+  fireEvent.change(within(dialog).getByLabelText("API key"), {
+    target: { value: secret },
+  });
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Continue update" }),
+  );
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toMatch(/not confirmed as saved/i);
+  expect(alert.textContent).not.toContain(secret);
+  expect(alert.textContent).not.toContain("synthetic_lost_ack");
+  const client = [...clients][0]!;
+  await waitFor(() =>
+    expect(
+      client.getQueryData([
+        "gateway-accounts",
+        "personal:workspace-user",
+        "operation",
+        savedNonce,
+      ]),
+    ).toMatchObject({
+      status: "ok",
+      value: { nonce: savedNonce, state: "unknown" },
+    }),
+  );
+});
+test("key continuation reports the server rejection reason for an unsaved key", async () => {
+  const personalStorage = "rr-c3-account-operations:personal:workspace-user";
+  sessionStorage.setItem(personalStorage, JSON.stringify([savedNonce]));
+  const resume = {
+    kind: "reconnect" as const,
+    connectionId: "own-source",
+    profileId: "mimo",
+    gatewayRevision: 17,
+    mirrorRevision: 4,
+  };
+  const api = personalApi();
+  api.readGatewayOperation.mockResolvedValue({
+    status: "ok",
+    value: {
+      nonce: savedNonce,
+      state: "pending",
+      cleanup: "unresolved",
+      resume,
+    },
+  });
+  api.submitGatewayApiKey.mockResolvedValue({ status: "conflict" });
+  await mount({ api, managementScope: "personal" });
+  fireEvent.click(screen.getByRole("button", { name: "Continue key update" }));
+  const dialog = await screen.findByRole("dialog", {
+    name: "Continue key update",
+  });
+  const secret = "synthetic-conflict-continuation-key";
+  fireEvent.change(within(dialog).getByLabelText("API key"), {
+    target: { value: secret },
+  });
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Continue update" }),
+  );
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("The key was not saved.");
+  expect(alert.textContent).toContain(
+    "The account changed. Refresh Accounts before trying again.",
+  );
+  expect(document.body.innerHTML).not.toContain(secret);
+});
 afterEach(() => {
   cleanup();
   for (const client of clients) client.clear();
@@ -696,7 +801,9 @@ test("MiMo uses its enabled URL and optional default label once, keeping the key
   fireEvent.change(within(dialog).getByLabelText("API key"), {
     target: { value: key },
   });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Confirm" }));
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Connect account" }),
+  );
   await waitFor(() => expect(submitGatewayApiKey).toHaveBeenCalledTimes(1));
   const intent = vi.mocked(submitGatewayApiKey).mock.calls[0]![1];
   expect(intent).toEqual({
@@ -754,7 +861,7 @@ test("manual MiMo URL rejects unenabled regions and provider changes preserve an
   expect(
     (
       within(dialog).getByRole("button", {
-        name: "Confirm",
+        name: "Connect account",
       }) as HTMLButtonElement
     ).disabled,
   ).toBe(true);
@@ -812,6 +919,7 @@ test("fresh OAuth handoff bypasses caches/storage and pending readback never reo
     nonce: expect.any(String),
     profileId: oauthProfileId,
     label: "New Codex",
+    method: "browser",
   });
   const nonce = request[1].nonce;
   await act(async () =>
@@ -840,7 +948,7 @@ test("fresh OAuth handoff bypasses caches/storage and pending readback never reo
       );
     }),
   ).toBe(true);
-  await screen.findByText("Connection 1 · Waiting for completion");
+  await screen.findByText("Waiting for completion");
   const completionDialog = await screen.findByRole("dialog", {
     name: "Complete Codex authorization",
   });
@@ -874,7 +982,7 @@ test("fresh OAuth handoff bypasses caches/storage and pending readback never reo
   expect(screen.queryByRole("dialog")).toBeNull();
   view.unmount();
   await mount(); // UUID survives a reload; the capability does not.
-  await screen.findByText("Connection 1 · Waiting for completion");
+  await screen.findByText("Waiting for completion");
   expect(beginGatewayOAuth).toHaveBeenCalledTimes(1);
   expect(handoff).toHaveBeenCalledTimes(1);
   expect(reserved.location.replace).toHaveBeenCalledTimes(1);
@@ -934,7 +1042,7 @@ test("pending OAuth callback is cleared before ingress and lost ACK retains only
   });
   await mount();
   await startEnrollment();
-  await screen.findByText("Connection 1 · Waiting for completion");
+  await screen.findByText("Waiting for completion");
   const nonce = vi.mocked(beginGatewayOAuth).mock.calls[0]![1].nonce;
   const autoDialog = await screen.findByRole("dialog", {
     name: "Complete Codex authorization",
@@ -965,7 +1073,7 @@ test("pending OAuth callback is cleared before ingress and lost ACK retains only
   });
   assertNoCallback();
   await act(async () => rejectComplete(new Error(callbackURL)));
-  await screen.findByText("Connection 1 · Status unavailable");
+  await screen.findByText("Status unavailable");
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(
     screen.queryByRole("button", { name: "Resume Codex authorization" }),
@@ -1001,7 +1109,7 @@ test("stale pending readback cannot rearm completion after a lost ACK", async ()
   });
   await mount();
   await startEnrollment();
-  await screen.findByText("Connection 1 · Waiting for completion");
+  await screen.findByText("Waiting for completion");
   const nonce = vi.mocked(beginGatewayOAuth).mock.calls[0]![1].nonce;
   const autoDialog = await screen.findByRole("dialog");
   fireEvent.keyDown(document.activeElement!, { key: "Escape" });
@@ -1041,15 +1149,13 @@ test("stale pending readback cannot rearm completion after a lost ACK", async ()
   ).toBe(true);
   assertNoCallback();
   await act(async () => rejectComplete(new Error(callbackURL)));
-  await screen.findByText("Connection 1 · Status unavailable");
+  await screen.findByText("Status unavailable");
   expect(screen.queryByRole("dialog")).toBeNull();
   await act(async () => releaseStatus(safeOperation(nonce, "pending")));
   // Completion cancels the older status request before publishing its unknown
   // acknowledgment. A late pending response cannot rearm or even replace it.
-  expect(screen.getByText("Connection 1 · Status unavailable")).toBeTruthy();
-  expect(
-    screen.queryByText("Connection 1 · Waiting for completion"),
-  ).toBeNull();
+  expect(screen.getByText("Status unavailable")).toBeTruthy();
+  expect(screen.queryByText("Waiting for completion")).toBeNull();
   expect(
     screen.queryByRole("button", { name: "Resume Codex authorization" }),
   ).toBeNull();
@@ -1068,7 +1174,7 @@ test("callback completion uses the saved nonce and stores only the safe acknowle
     },
   );
   await mount();
-  await screen.findByText("Connection 1 · Waiting for completion");
+  await screen.findByText("Waiting for completion");
   fireEvent.click(
     screen.getByRole("button", { name: "Resume Codex authorization" }),
   );
@@ -1082,7 +1188,7 @@ test("callback completion uses the saved nonce and stores only the safe acknowle
   fireEvent.click(
     within(dialog).getByRole("button", { name: "Complete authorization" }),
   );
-  await screen.findByText("Connection 1 · Completed");
+  await screen.findByText("Completed");
   expect(completeGatewayOAuth).toHaveBeenCalledExactlyOnceWith(context, {
     nonce: savedNonce,
     callbackURL,
@@ -1107,7 +1213,7 @@ test("lost Begin ACK retains unknown nonce and reconciles only through safe read
   );
   await mount();
   await startEnrollment();
-  await screen.findByText("Connection 1 · Status unavailable");
+  await screen.findByText("Status unavailable");
   expect(screen.queryByRole("dialog")).toBeNull();
   const nonce = vi.mocked(beginGatewayOAuth).mock.calls[0]![1].nonce;
   expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual([nonce]);
@@ -1118,7 +1224,7 @@ test("lost Begin ACK retains unknown nonce and reconciles only through safe read
     safeOperation(nonce),
   );
   fireEvent.click(screen.getByRole("button", { name: "Check status" }));
-  await screen.findByText("Connection 1 · Waiting for completion");
+  await screen.findByText("Waiting for completion");
   expect(readGatewayOperation).toHaveBeenCalledWith(context, nonce);
   expect(beginGatewayOAuth).toHaveBeenCalledTimes(1);
   expect(handoff).toHaveBeenCalledTimes(1);
@@ -1210,7 +1316,7 @@ test("missing fresh URL closes the blank and retains pending readback without re
   );
   await mount();
   await startEnrollment();
-  await screen.findByText("Connection 1 · Waiting for completion");
+  await screen.findByText("Waiting for completion");
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(reserved.close).toHaveBeenCalledTimes(1);
   expect(reserved.location.replace).not.toHaveBeenCalled();
@@ -1236,7 +1342,7 @@ test("failed fresh navigation closes the tab and retains unknown readback withou
   );
   await mount();
   await startEnrollment();
-  await screen.findByText("Connection 1 · Status unavailable");
+  await screen.findByText("Status unavailable");
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(reserved.close).toHaveBeenCalledTimes(1);
   expect(reserved.location.replace).toHaveBeenCalledExactlyOnceWith(capability);
@@ -1266,7 +1372,7 @@ test("OAuth rows hide API-key reconnect and become selectable only after an acti
     authKind: "api_key",
   });
   await mount();
-  await screen.findByText("Connection 1 · Waiting for completion");
+  await screen.findByText("Waiting for completion");
   const oauthRow = screen
     .getByText("Workspace Codex")
     .closest("div.flex")! as HTMLElement;
@@ -1350,6 +1456,7 @@ test("OAuth reconnect reuses the ordinary handoff and original account revisions
     name: "Refresh Codex sign-in · Workspace Codex",
   });
   expect(within(dialog).queryByLabelText("Connection name")).toBeNull();
+  await chooseBrowser(dialog);
   fireEvent.click(
     within(dialog).getByRole("button", { name: "Sign in to Codex" }),
   );
@@ -1361,6 +1468,7 @@ test("OAuth reconnect reuses the ordinary handoff and original account revisions
       connectionId: "codex-connection",
       gatewayRevision: 1,
       mirrorRevision: 1,
+      method: "browser",
     },
   ]);
   await waitFor(() =>
@@ -1378,3 +1486,194 @@ vi.mock("./account-lifecycle-actions", () => ({
   mutateAccountLifecycle: vi.fn(),
   readAccountLifecycleOperation: vi.fn(),
 }));
+
+// Regression boundary: Begin may run once only, the fresh code survives hiding
+// the modal, and a successful operation must be able to retry a failed list read.
+test("an expired device code stops being offered without starting another sign-in", async () => {
+  const api = personalApi();
+  api.beginGatewayOAuth.mockImplementation(async (_scope, intent) => ({
+    status: "ok",
+    value: {
+      operation: {
+        nonce: intent.nonce,
+        state: "pending",
+        oauthMethod: "device_code",
+        cleanup: "unresolved",
+      },
+      deviceAuthorization: {
+        userCode: "EXPI-RING",
+        verificationURL: "https://auth.openai.com/codex/device",
+        expiresAt: new Date(Date.now() + 500).toISOString(),
+        intervalSeconds: 3,
+      },
+    },
+  }));
+  render(
+    <AccountGatewayControls
+      bootstrap={{ context, page: { status: "ok", value: page } }}
+      api={api}
+      connectOnly
+    />,
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Sign in to Codex" }),
+  );
+  await screen.findByText("EXPI-RING");
+  await screen.findByText(/This code has expired/, {}, { timeout: 3000 });
+  expect(screen.queryByText("EXPI-RING")).toBeNull();
+  expect(screen.queryByRole("link", { name: "Open OpenAI" })).toBeNull();
+  expect(api.beginGatewayOAuth).toHaveBeenCalledTimes(1);
+});
+
+test("device sign-in stays in one dialog, polls through promotion and recovers unavailable account details without replay", async () => {
+  const code = "ABCD-EFGH";
+  const poll = vi
+    .fn<NonNullable<AccountGatewayManagementApi["pollGatewayOAuth"]>>()
+    .mockImplementation(async (_context, nonce) => {
+      const account = { ...row("active"), label: "Device Codex" };
+      vi.mocked(readGatewayOperation).mockResolvedValue({
+        status: "ok",
+        value: {
+          nonce,
+          state: "applied",
+          oauthMethod: "device_code",
+          account,
+          cleanup: "unresolved",
+        },
+      });
+      return {
+        status: "ok",
+        value: {
+          nonce,
+          state: "applied",
+          oauthMethod: "device_code",
+          account,
+          cleanup: "unresolved",
+        },
+      };
+    });
+  vi.mocked(beginGatewayOAuth).mockImplementation(async (_context, intent) => {
+    expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toContain(
+      intent.nonce,
+    );
+    vi.mocked(listGatewayAccounts).mockResolvedValue({ status: "unavailable" });
+    return {
+      status: "ok",
+      value: {
+        operation: {
+          nonce: intent.nonce,
+          state: "pending",
+          oauthMethod: "device_code",
+          cleanup: "unresolved",
+        },
+        deviceAuthorization: {
+          userCode: code,
+          verificationURL: "https://auth.openai.com/codex/device",
+          expiresAt: new Date(Date.now() + 60000).toISOString(),
+          intervalSeconds: 1,
+        },
+      },
+    };
+  });
+  const api = {
+    listGatewayAccounts,
+    mutateGatewayAccount,
+    submitGatewayApiKey,
+    readGatewayOperation,
+    beginGatewayOAuth,
+    completeGatewayOAuth,
+    pollGatewayOAuth: poll,
+  };
+  render(
+    <AccountsAddDialog
+      workspaceName="Test workspace"
+      own={<p>My existing connections</p>}
+      personalConnect={
+        <AccountGatewayControls
+          bootstrap={{ context, page: { status: "ok", value: page } }}
+          api={api}
+          connectOnly
+        />
+      }
+      organizationConnect={<p>Organization account</p>}
+    />,
+  );
+  expect(beginGatewayOAuth).not.toHaveBeenCalled();
+  expect(poll).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Add account" }));
+  let dialog = await screen.findByRole("dialog", { name: "Add account" });
+  const start = within(dialog).getByRole("button", {
+    name: "Sign in to Codex",
+  });
+  await waitFor(() =>
+    expect((start as HTMLButtonElement).disabled).toBe(false),
+  );
+  expect(
+    within(dialog).getByRole("combobox", { name: "Sign-in method" })
+      .textContent,
+  ).toContain("Device code");
+  expect(
+    within(dialog)
+      .getByRole("link", { name: "ChatGPT Settings → Security" })
+      .getAttribute("href"),
+  ).toBe("https://chatgpt.com/settings/security");
+  fireEvent.click(start);
+  await within(dialog).findByText(code);
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  expect(handoff).not.toHaveBeenCalled();
+  expect(beginGatewayOAuth).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(beginGatewayOAuth).mock.calls[0]![1]).toMatchObject({
+    method: "device_code",
+  });
+  expect(
+    within(dialog).queryByText(/could not confirm this connection/),
+  ).toBeNull();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  fireEvent.click(screen.getByRole("button", { name: "Add account" }));
+  dialog = await screen.findByRole("dialog", { name: "Add account" });
+  expect(within(dialog).getByText(code)).toBeTruthy();
+  await waitFor(() => expect(poll).toHaveBeenCalledTimes(1), { timeout: 5000 });
+  await within(dialog).findByText("Completed");
+  expect(within(dialog).queryByText(code)).toBeNull();
+  expect(
+    within(dialog).queryByRole("button", { name: "Check status" }),
+  ).toBeNull();
+  expect(within(dialog).getByText("Device Codex")).toBeTruthy();
+  const retry = await within(dialog).findByRole("button", {
+    name: "Refresh account details",
+  });
+  vi.mocked(listGatewayAccounts).mockResolvedValue({
+    status: "ok",
+    value: { ...page, accounts: [{ ...row("active"), label: "Device Codex" }] },
+  });
+  fireEvent.click(retry);
+  await waitFor(() =>
+    expect(
+      within(dialog).queryByRole("button", { name: "Refresh account details" }),
+    ).toBeNull(),
+  );
+  expect(beginGatewayOAuth).toHaveBeenCalledTimes(1);
+  expect(completeGatewayOAuth).not.toHaveBeenCalled();
+  const cache = [...clients].map(caches).join("\n");
+  expect(cache).not.toContain(code);
+  expect(cache).not.toContain("deviceAuthorization");
+  expect(JSON.stringify(storageWrites.mock.calls)).not.toContain(code);
+});
+
+test("unavailable management refresh retains safe rows with disabled actions while denied clears them", async () => {
+  page.accounts = [row("active")];
+  await mount();
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  vi.mocked(listGatewayAccounts).mockResolvedValue({ status: "unavailable" });
+  fireEvent.click(screen.getByRole("button", { name: "Refresh connections" }));
+  await screen.findByText(/Connection details could not be refreshed/);
+  expect(screen.getByText("Workspace Codex")).toBeTruthy();
+  expect(
+    (screen.getByRole("button", { name: "Rename" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  vi.mocked(listGatewayAccounts).mockResolvedValue({ status: "denied" });
+  fireEvent.click(screen.getByRole("button", { name: "Refresh connections" }));
+  await waitFor(() => expect(screen.queryByText("Workspace Codex")).toBeNull());
+});

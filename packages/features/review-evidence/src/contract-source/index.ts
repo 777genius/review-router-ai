@@ -28,6 +28,7 @@ export const reviewEvidenceContractDescriptor = Object.freeze({
   taskKinds: Object.freeze([
     ReviewTaskKind.FindingDiscovery,
     ReviewTaskKind.LifecycleRevalidation,
+    ReviewTaskKind.PrDescription,
   ]),
   executionProfiles: Object.freeze([
     ProviderExecutionProfile.PromptOnlyEnvelopeV1,

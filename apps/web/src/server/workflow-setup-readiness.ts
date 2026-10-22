@@ -21,8 +21,10 @@ import {
   codexWorkflowPathForRepository,
   isolatedQualityWorkflowPath,
   type ReviewRouterDiscussionMode,
+  type ReviewRouterMcpSecrets,
   renderAccountGatewayWorkflow,
   renderProviderApiWorkflow,
+  renderReviewRouterSecretsCaller,
   readManagedReviewRouterCallerSource,
   readReviewRouterCallerSource,
   reviewRouterWorkflowContract,
@@ -30,6 +32,7 @@ import {
 import { resolveWorkflowPublicApiUrl } from "./workflow-public-api-url";
 
 export type WorkflowSetupReadinessInput = {
+  readonly secretsRuntimeActionRef?: string;
   readonly githubInstallationId: string;
   readonly githubRepositoryId: string;
   readonly repositoryFullName: string;
@@ -38,6 +41,7 @@ export type WorkflowSetupReadinessInput = {
   readonly defaultBranch: string;
   readonly actionRef: string;
   readonly codexSessionMode?: "account-gateway";
+  readonly mcpSecrets?: ReviewRouterMcpSecrets;
   readonly providerApiAuthMode?: "openrouter-api";
   readonly providerKind?: ProviderKind;
   readonly discussionMode?: ReviewRouterDiscussionMode;
@@ -59,8 +63,46 @@ export async function isWorkflowSetupAlreadyCurrent(
     readonly resolvePublicApiUrl?: () => string;
   },
 ): Promise<boolean> {
+  if (
+    input.codexSessionMode !== "account-gateway" &&
+    input.mcpSecrets &&
+    Object.keys(input.mcpSecrets).length
+  )
+    return false;
   if (input.discussionMode === "suggest") {
     return false;
+  }
+  if (
+    input.secretsRuntimeActionRef &&
+    !input.codexSessionMode &&
+    !input.providerApiAuthMode &&
+    !input.codexRotatingProviderInstanceId &&
+    !input.conflictReviewFallbackEnabled &&
+    !input.forkAgenticSandboxEnabled
+  ) {
+    const expected = renderReviewRouterSecretsCaller({
+      actionRef: input.secretsRuntimeActionRef,
+      apiUrl:
+        dependencies.resolvePublicApiUrl?.() ?? resolveWorkflowPublicApiUrl(),
+    });
+    const check = await dependencies.workflowProbe.probeWorkflow({
+      githubInstallationId: input.githubInstallationId,
+      owner: input.owner,
+      name: input.name,
+      defaultBranch: input.defaultBranch,
+      workflowPath: defaultWorkflowPath,
+      expectedActionRef: input.secretsRuntimeActionRef.replace(
+        "@",
+        "/.github/workflows/reviewrouter-secrets-runtime.yml@",
+      ),
+      expectedContentValidator: (workflow) =>
+        areWorkflowDocumentsSemanticallyEqual(workflow, expected),
+    });
+    return (
+      check.status === "present" &&
+      check.expectedActionRefFound &&
+      check.expectedContentMarkersFound === true
+    );
   }
 
   if (
@@ -96,6 +138,9 @@ export async function isWorkflowSetupAlreadyCurrent(
                 dependencies.resolvePublicApiUrl?.() ??
                 resolveWorkflowPublicApiUrl(),
               githubRepositoryId: input.githubRepositoryId,
+              ...(input.mcpSecrets !== undefined
+                ? { mcpSecrets: input.mcpSecrets }
+                : {}),
             });
     } catch {
       return false;

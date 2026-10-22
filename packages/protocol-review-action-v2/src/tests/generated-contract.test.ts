@@ -37,10 +37,8 @@ import {
   ReviewInvestigationRestoreResultStatus,
   serializeProviderInvocationManifestV1CanonicalWireJson,
 } from "../index.js";
-import {
-  createCapturedReviewSkills,
-  prDescriptionContract,
-} from "../../../shared/src/index.js";
+import { prDescriptionContract } from "../../../shared/src/index.js";
+import { createCapturedReviewSkills } from "../../../shared/src/review-skills-contract.js";
 import { createCapturedReviewSkills as createGeneratedCapturedReviewSkills } from "../generated/review-skills-contract.js";
 import {
   canonicalizeProviderInvocationManifest,
@@ -107,8 +105,8 @@ describe("generated Review Action v2 negotiation contract", () => {
     );
   });
 
-  it("does not enable the auxiliary task in existing SaaS review normalization", async () => {
-    expect(Object.values(DomainReviewTaskKind)).not.toContain("pr_description");
+  it("keeps auxiliary normalization separate from the published review V1 language", async () => {
+    expect(Object.values(DomainReviewTaskKind)).toContain("pr_description");
     const fixture = JSON.parse(
       await readFile(
         new URL(
@@ -118,8 +116,11 @@ describe("generated Review Action v2 negotiation contract", () => {
         "utf8",
       ),
     );
-    expect(() => normalizeProviderInvocationManifest(fixture.input)).toThrow(
-      "review_evidence_task_kind_invalid",
+    expect(normalizeProviderInvocationManifest(fixture.input)).toEqual(
+      fixture.normalized,
+    );
+    expect(canonicalizeProviderInvocationManifest(fixture.input)).toEqual(
+      canonicalizePrDescriptionInvocationManifestV1(fixture.input),
     );
     expect(() => normalizeProviderInvocationManifestV1(fixture.input)).toThrow(
       "review_evidence_task_kind_invalid",

@@ -28,6 +28,7 @@ describe("openrouter model catalog", () => {
           id: "vendor/paid",
           name: "Vendor Paid",
           context_length: 128000,
+          supported_parameters: ["tools"],
           architecture: {
             input_modalities: ["text"],
             output_modalities: ["text"],
@@ -38,6 +39,7 @@ describe("openrouter model catalog", () => {
           id: "vendor/free:free",
           name: "Vendor Free",
           context_length: 64000,
+          supported_parameters: ["tools"],
           architecture: {
             input_modalities: ["text"],
             output_modalities: ["text"],
@@ -71,6 +73,7 @@ describe("openrouter model catalog", () => {
             id: "vendor/paid",
             name: "Vendor Paid",
             context_length: 128000,
+            supported_parameters: ["tools"],
             architecture: {
               input_modalities: ["text"],
               output_modalities: ["text"],
@@ -81,6 +84,7 @@ describe("openrouter model catalog", () => {
             id: "vendor/free:free",
             name: "Vendor Free",
             context_length: 64000,
+            supported_parameters: ["tools"],
             architecture: {
               input_modalities: ["text"],
               output_modalities: ["text"],
@@ -91,6 +95,7 @@ describe("openrouter model catalog", () => {
             id: "openai/gpt-oss-120b:free",
             name: "OpenAI: gpt-oss-120b (free)",
             context_length: 131072,
+            supported_parameters: ["tools"],
             architecture: {
               input_modalities: ["text"],
               output_modalities: ["text"],
@@ -101,6 +106,7 @@ describe("openrouter model catalog", () => {
             id: "nvidia/nemotron-3-super-120b-a12b:free",
             name: "NVIDIA: Nemotron 3 Super (free)",
             context_length: 262144,
+            supported_parameters: ["tools"],
             architecture: {
               input_modalities: ["text"],
               output_modalities: ["text"],
@@ -111,6 +117,7 @@ describe("openrouter model catalog", () => {
             id: "openrouter/free",
             name: "OpenRouter Free Router",
             context_length: 200000,
+            supported_parameters: ["tools"],
             architecture: {
               input_modalities: ["text"],
               output_modalities: ["text"],
@@ -121,6 +128,7 @@ describe("openrouter model catalog", () => {
             id: "vendor/audio-output",
             name: "Vendor Audio Output",
             context_length: 64000,
+            supported_parameters: ["tools"],
             architecture: {
               input_modalities: ["text"],
               output_modalities: ["text", "audio"],

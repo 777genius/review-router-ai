@@ -47,6 +47,52 @@ afterEach(() => {
 });
 
 describe("public Review Action v2 contract handoff", () => {
+  it("hands off the canonical usage v1 validator and dependency as managed digest-bound artifacts", async () => {
+    const fixture = createRepositories();
+    for (const file of [
+      "usage-v1.ts",
+      "usage-price-v1.ts",
+      "usage-producer-v1.ts",
+      "usage-responses-v1.ts",
+    ]) {
+      write(
+        join(fixture.saasRepo, sourceDirectory, file),
+        readFileSync(
+          join(
+            process.cwd(),
+            "packages/protocol-review-action-v2/src/generated",
+            file,
+          ),
+          "utf8",
+        ),
+      );
+    }
+    git(fixture.saasRepo, ["add", sourceDirectory]);
+    git(fixture.saasRepo, [
+      "commit",
+      "-m",
+      "test: add generated usage contract",
+    ]);
+    fixture.saasHead = head(fixture.saasRepo);
+    const result = await exportFixture(fixture, { write: true });
+    for (const file of [
+      "usage-v1.ts",
+      "usage-price-v1.ts",
+      "usage-producer-v1.ts",
+      "usage-responses-v1.ts",
+    ]) {
+      const contents = readFileSync(
+        join(fixture.actionRepo, PUBLIC_GENERATED_DIRECTORY, file),
+      );
+      expect(
+        contents.equals(
+          readFileSync(join(fixture.saasRepo, sourceDirectory, file)),
+        ),
+      ).toBe(true);
+      expect(JSON.stringify(result.handoff)).toContain(sha256Digest(contents));
+    }
+  });
+
   it("exports, commits, generates, and verifies one immutable release", async () => {
     const fixture = createRepositories();
     const exported = await exportFixture(fixture, { write: true });
@@ -144,6 +190,85 @@ describe("public Review Action v2 contract handoff", () => {
         output: releasePath,
       }),
     ).toThrow("refusing to overwrite a different release manifest");
+  });
+
+  it("qualifies PR description approval from committed generated metadata and rejects a rewritten claim", async () => {
+    const fixture = createRepositories();
+    const profile = {
+      extensionId: "pr-description.v1",
+      canonicalizerDigest:
+        "aa043184eb0a1a0cf230d8fbb03c6a63a05b950c82c0107bee7d2533c386eed0",
+    };
+    const sourceManifestPath = join(
+      fixture.saasRepo,
+      sourceDirectory,
+      "manifest.json",
+    );
+    write(
+      sourceManifestPath,
+      canonicalJson({
+        ...JSON.parse(readFileSync(sourceManifestPath, "utf8")),
+        auxiliaryExtensions: [profile],
+      }),
+    );
+    git(fixture.saasRepo, ["add", sourceDirectory]);
+    git(fixture.saasRepo, [
+      "commit",
+      "-m",
+      "test: approve PR description extension",
+    ]);
+    fixture.saasHead = head(fixture.saasRepo);
+    await exportFixture(fixture, { write: true });
+    write(join(fixture.actionRepo, "dist/index.js"), "fresh bundle\n");
+    write(
+      join(fixture.actionRepo, "dist/context-gateway.js"),
+      "fresh context gateway\n",
+    );
+    writeContextGatewayReleaseMetadata(fixture.actionRepo);
+    git(fixture.actionRepo, [
+      "add",
+      PUBLIC_GENERATED_DIRECTORY,
+      "dist/index.js",
+      "dist/context-gateway.js",
+      PUBLIC_CONTEXT_GATEWAY_RELEASE_METADATA,
+    ]);
+    git(fixture.actionRepo, [
+      "commit",
+      "-m",
+      "test: bind approved extension release",
+    ]);
+    const releasePath = join(fixture.root, "description-release.json");
+    const release = generateReleaseManifest({
+      actionRepo: fixture.actionRepo,
+      targetBranch,
+      expectedHead: head(fixture.actionRepo),
+      runtimeEntrypointPath: "dist/index.js",
+      contextGatewayEntrypointPath: "dist/context-gateway.js",
+      output: releasePath,
+    });
+    expect(release.manifest.prDescriptionProfile).toEqual(profile);
+    const checkInput = {
+      manifest: releasePath,
+      saasRepo: fixture.saasRepo,
+      actionRepo: fixture.actionRepo,
+      sourceDirectory,
+    };
+    expect(checkReleaseManifest(checkInput).prDescriptionProfile).toEqual(
+      profile,
+    );
+    write(
+      releasePath,
+      canonicalJson({
+        ...release.manifest,
+        prDescriptionProfile: {
+          ...profile,
+          canonicalizerDigest: "f".repeat(64),
+        },
+      }),
+    );
+    expect(() => checkReleaseManifest(checkInput)).toThrow(
+      "release manifest does not match committed source",
+    );
   });
 
   it("generates and verifies an immutable investigation registration candidate", async () => {

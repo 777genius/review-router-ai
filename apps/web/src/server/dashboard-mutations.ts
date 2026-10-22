@@ -274,8 +274,13 @@ export async function assertDashboardRepositoryConfigMutationAllowed(
   return withRepositoryAccess(actor, repositoryAccess);
 }
 
-export async function getDashboardSignedInActor(): Promise<DashboardMutationActor | null> {
-  if (!getAuthEnvironmentStatus().configured || !dashboardMutationsEnabled()) {
+export async function getDashboardSignedInActor(options?: {
+  readonly readOnly?: boolean;
+}): Promise<DashboardMutationActor | null> {
+  if (
+    !getAuthEnvironmentStatus().configured ||
+    (!options?.readOnly && !dashboardMutationsEnabled())
+  ) {
     return null;
   }
 

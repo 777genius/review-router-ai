@@ -45,6 +45,59 @@ describe("review publication operation planning", () => {
     ]);
   });
 
+  it("plans an optional generated description as a bounded mutable singleton and withholds it for partial coverage", async () => {
+    const prDescription = body("c", "d", 40);
+    const operations = await plan(envelope({ prDescription }));
+    expect(operations).toHaveLength(2);
+    expect(operations[1]).toMatchObject({
+      publicationKind: ReviewPublicationKind.PrDescription,
+      effectStrategy: ReviewPublicationEffectStrategy.MutableSingleton,
+      role: ReviewPublicationOperationRole.Standalone,
+      bodyHash: hash("d"),
+      chunkIndex: 0,
+      required: false,
+    });
+    await expect(
+      plan(
+        envelope({
+          prDescription,
+          coverage: ReviewPublicationProjectionCoverage.Partial,
+          summary: {
+            ...body("a", "b", 10),
+            semantic: ReviewPublicationSummarySemantic.PartialCoverage,
+          },
+        }),
+      ),
+    ).rejects.toEqual(
+      planningError(
+        ReviewPublicationPlanningErrorCode.PartialCoverageViolation,
+      ),
+    );
+  });
+
+  it.each<Partial<ReviewPublicationPlanningLimits>>([
+    { maxPublicationOperations: 2 },
+    { maxPublicationChunks: 2 },
+    { maxPublicationBodyBytes: 30 },
+  ])(
+    "omits optional prose when required publication fills its capacity: %o",
+    async (capacity) => {
+      const required = envelope({ managedCheck: body("c", "d", 20) });
+      const profile = limits(capacity);
+      const requiredPlan = await plan(required, profile);
+      expect(requiredPlan).toHaveLength(2);
+      await expect(
+        plan(
+          envelope({
+            managedCheck: required.managedCheck,
+            prDescription: body("e", "f", 40),
+          }),
+          profile,
+        ),
+      ).resolves.toEqual(requiredPlan);
+    },
+  );
+
   it("accepts Git SHA-1 and SHA-256 object IDs but rejects digest-shaped impostors", async () => {
     await expect(
       plan(envelope({ targetCommitId: "2".repeat(40) })),

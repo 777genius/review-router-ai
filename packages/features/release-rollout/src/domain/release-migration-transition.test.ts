@@ -94,7 +94,7 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps checkout135 source admission separate from historical96 and managed92 authority", () => {
+  it("keeps checkout142 source admission separate from historical96 and managed92 authority", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
     const current = names.map((migrationName) => ({
@@ -103,8 +103,14 @@ describe("canonical release migration transition", () => {
         readFileSync(`${migrationRoot}/${migrationName}/migration.sql`),
       ).slice(7),
     }));
-    expect(current).toHaveLength(138);
-    expect(current.slice(-2)).toEqual(renderReviewSkillsCheckoutExtension);
+    expect(current).toHaveLength(142);
+    expect(
+      current.filter((row) =>
+        renderReviewSkillsCheckoutExtension.some(
+          (skill) => row.migrationName === skill.migrationName,
+        ),
+      ),
+    ).toEqual(renderReviewSkillsCheckoutExtension);
     const full = current.filter(
       (row) =>
         !renderReviewSkillsCheckoutExtension.some(
@@ -116,9 +122,12 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(136);
+    expect(manifest(current)).toBe(
+      "sha256:8c53b7407b5f4b53a92c5554c8024f24792f67ed993016b4f585564a110a03f7",
+    );
+    expect(full).toHaveLength(140);
     expect(manifest(full)).toBe(
-      "sha256:7a00ae60d98ffe6bdaf3bbb74a50eefed8ac60b94e55a443251cb480a47d48a8",
+      "sha256:12ec2343e5de125175e4fc8946a9ab177034f60af43883b7c4ec8ac91a26ce48",
     );
     const old125 = full
       .filter(
@@ -132,7 +141,11 @@ describe("canonical release migration transition", () => {
           row.migrationName !== "000132_review_policy_schema_v3" &&
           row.migrationName !== "000134_account_lifecycle" &&
           row.migrationName !== "000134_review_provider_kind_v2_ocr" &&
+          row.migrationName !== "000136_provider_usage" &&
           row.migrationName !== "000135_review_run_checkout_repository_lock" &&
+          row.migrationName !== "000138_pr_description" &&
+          row.migrationName !== "000139_review_context_tools" &&
+          row.migrationName !== "000140_personal_oauth_method" &&
           row.migrationName !== "000133_allow_first_time_scm_identity_bind",
         "000132_review_policy_schema_v3",
       )
@@ -156,7 +169,7 @@ describe("canonical release migration transition", () => {
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
     expect(current).toEqual(readRenderManagedCheckoutInventory());
-    expect(full.slice(-28).map((row) => row.migrationName)).toEqual([
+    expect(full.slice(-32).map((row) => row.migrationName)).toEqual([
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",
       "000111_sdk_growth_source_binding",
@@ -185,6 +198,10 @@ describe("canonical release migration transition", () => {
       "000134_account_lifecycle",
       "000134_review_provider_kind_v2_ocr",
       "000135_review_run_checkout_repository_lock",
+      "000136_provider_usage",
+      "000138_pr_description",
+      "000139_review_context_tools",
+      "000140_personal_oauth_method",
     ]);
     const withoutProviderKey = historicalFull.filter(
       (row) =>
