@@ -22,6 +22,7 @@ import {
 } from "@tanstack/react-query";
 import { Badge, Button, Checkbox, Dialog } from "@reviewrouter/ui";
 import { AccountIdentity } from "./account-identity";
+import { readAccountResult } from "./account-read-result";
 import { AccountActionsMenu } from "./account-actions-menu";
 import { accountsGridColumns } from "./accounts-grid";
 import {
@@ -261,19 +262,26 @@ function PersonalControls({
     queryKey: keys.sources(bootstrap.scope),
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) =>
-      api.listSources({
-        ...(pageParam ? { afterSourceId: pageParam } : {}),
-        limit: 25,
-      }),
+      readAccountResult(
+        api.listSources({
+          ...(pageParam ? { afterSourceId: pageParam } : {}),
+          limit: 25,
+        }),
+      ),
     initialData: { pages: [bootstrap.page], pageParams: [null] },
     getNextPageParam: (page) =>
       page.status === "ok" ? page.value.nextCursor : null,
     staleTime: 15000,
     retry: false,
   });
-  const sourceRows = sources.data.pages.flatMap((page) =>
-    page.status === "ok" ? page.value.sources : [],
+  const sourceDenied = sources.data.pages.some(
+    (page) => page.status !== "ok" && page.status !== "unavailable",
   );
+  const sourceRows = sourceDenied
+    ? []
+    : sources.data.pages.flatMap((page) =>
+        page.status === "ok" ? page.value.sources : [],
+      );
   const sourceFailure = sources.data.pages.find((page) => page.status !== "ok");
   const sourceIds = [
     ...new Set(sourceRows.map((source) => source.sourceId)),
@@ -700,10 +708,11 @@ function PersonalControls({
               source.profileId !== null &&
               !source.sourceOperationPending &&
               !lifecycleActivities.has(id);
-            const status: AccountStatusInfo =
-              lifecycleActivities.get(id) === "delete" ||
-              (account?.lifecycle?.status === "pending" &&
-                account.lifecycle.action === "delete")
+            const status: AccountStatusInfo = sources.isError
+              ? { kind: "unknown", text: "Details could not be refreshed" }
+              : lifecycleActivities.get(id) === "delete" ||
+                  (account?.lifecycle?.status === "pending" &&
+                    account.lifecycle.action === "delete")
                 ? { kind: "removing", text: pendingStatusCopy.removing }
                 : lifecycleActivities.has(id) || source?.sourceOperationPending
                   ? { kind: "confirming", text: pendingStatusCopy.confirming }
@@ -1230,7 +1239,7 @@ function WorkspaceAccess({
       }}
     >
       <Dialog.Trigger
-        render={<Button variant="outline" size="sm" />}
+        render={<Button variant="outline" size="sm" disabled={disabled} />}
         aria-label={`Access: ${source.label}`}
       >
         {accountsCopy.access}
