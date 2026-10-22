@@ -114,11 +114,9 @@ export class ExecuteReviewV2PublicationOperation {
     ) {
       return retryable("pr_description_awaiting_required_publication");
     }
-    const riskOperations = externalEffectRiskOperations(view).filter(
-      (operation) =>
-        !isOptionalPrDescriptionOperation(requestedOperation) ||
-        operation.publicationOperationId ===
-          requestedOperation.publicationOperationId,
+    const riskOperations = reconciliationRiskOperations(
+      view,
+      requestedOperation,
     );
     const requestedOperationHasRisk = riskOperations.some(
       (candidate) =>
@@ -1117,7 +1115,7 @@ export class ExecuteReviewV2PublicationOperation {
       view.attempt.permit,
     );
     if (freshness.status !== "current") {
-      if (externalEffectRiskOperations(view).length > 1) {
+      if (reconciliationRiskOperations(view, input.operation).length > 1) {
         return this.terminalizeKnownAmbiguity({
           command: input.command,
           operation: input.operation,
@@ -1233,7 +1231,7 @@ export class ExecuteReviewV2PublicationOperation {
       view.attempt.permit,
     );
     if (finalFreshness.status !== "current") {
-      if (externalEffectRiskOperations(view).length > 1) {
+      if (reconciliationRiskOperations(view, input.operation).length > 1) {
         return this.terminalizeKnownAmbiguity({
           command: input.command,
           operation: input.operation,
@@ -2351,6 +2349,25 @@ function mayHaveExternalEffect(
     (candidate) =>
       candidate.publicationOperationId === operation.publicationOperationId,
   );
+}
+
+function reconciliationRiskOperations(
+  view: ReviewPublicationAttemptView,
+  operation: ReviewPublicationOperation,
+): readonly ReviewPublicationOperation[] {
+  const risks = externalEffectRiskOperations(view);
+  if (
+    isOptionalPrDescriptionOperation(operation) &&
+    hasEveryRequiredCanonicalReceipt({
+      operations: view.attempt.operations,
+      receipts: view.receipts,
+    })
+  ) {
+    // Required canonical receipts are settled independently of optional body
+    // reconciliation. Retain every optional risk, including unresolved siblings.
+    return risks.filter((candidate) => !candidate.required);
+  }
+  return risks;
 }
 
 function externalEffectRiskOperations(
