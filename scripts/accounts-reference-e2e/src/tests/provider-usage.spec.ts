@@ -36,7 +36,8 @@ test("provider usage overview keeps complete period totals, charts, models and r
     return date.toISOString().slice(0, 10);
   });
   const [firstDay, secondDay, lastDay] = days as [string, string, string];
-  const sharedRun = "rr-e2e-overview-run-crossday";
+  const sharedRun =
+    "rr-e2e-overview-run-crossday-long-identity-for-accessible-disclosure-2026-10";
   try {
     await db.query(
       `UPDATE "WorkspaceMember" SET role='member' WHERE "workspaceId"=$1 AND "userId"=$2`,
@@ -132,17 +133,13 @@ test("provider usage overview keeps complete period totals, charts, models and r
     });
     await installLoopbackOnlyNetworkGuard(page, violations);
     await useViewerSession(context);
+    await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto("/dashboard?section=usage&workspace=rr-e2e-org-alpha");
     const usage = page.getByRole("region", {
       name: "Provider usage",
       exact: true,
     });
-    const kpi = (name: string) =>
-      usage
-        .locator("dt")
-        .filter({ hasText: new RegExp(`^${name}$`) })
-        .locator("..")
-        .locator("dd");
+    const kpi = (name: string) => usageKpi(usage, name);
     await expect(kpi("Known tokens")).toContainText("858");
     await expect(kpi("Provider requests")).toContainText("111");
     await expect(kpi("Review runs")).toContainText("107");
@@ -153,6 +150,11 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await expect(kpi("Known cost")).toContainText("0.3 USD");
     await expect(kpi("Known cost")).not.toContainText("EUR");
     await expect(kpi("Known cost")).not.toContainText("0.25");
+    await expect(
+      usage.getByText(
+        /^Updated [A-Z][a-z]{2} \d{1,2}, \d{4}, \d{2}:\d{2} UTC$/,
+      ),
+    ).toBeVisible();
     const query = new URLSearchParams({
       workspace: FIXTURES.workspaces.orgAlpha,
       purpose: "review",
@@ -302,10 +304,7 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await expect(
       usage.getByRole("table", { name: "Requested model usage", exact: true }),
     ).toContainText("Unknown requested model");
-    const models = usage.getByRole("table", {
-      name: "Requested model usage",
-      exact: true,
-    });
+    const models = usageBreakdown(usage, "models");
     await expect(models).not.toContainText(/\bEUR\b/);
     await expect(models).toContainText("No USD amount");
     const requestsBeforeCurrency = reportRequests.length;
@@ -315,7 +314,7 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await expect(models).toContainText("0.05 EUR");
     await expect(models).toContainText("0.2 EUR");
     await expect(models).not.toContainText(/\bUSD\b/);
-    await expect(models.getByRole("row")).toHaveCount(7);
+    await expectBreakdownCount(usage, "models", 6);
     await expect(kpi("Known tokens")).toContainText("858");
     await expect(kpi("Provider requests")).toContainText("111");
     await expect(kpi("Review runs")).toContainText("107");
@@ -357,8 +356,27 @@ test("provider usage overview keeps complete period totals, charts, models and r
       [1440, 1000],
       [1024, 768],
       [390, 844],
+      [320, 844],
     ] as const) {
       await page.setViewportSize({ width, height });
+      await expectBreakdownCount(usage, "models", 6);
+      if (width <= 1024) await expectSummaryMetrics(usage, "models");
+      if (width === 390) {
+        const fullModel = usage
+          .getByRole("region", { name: "Model usage summaries", exact: true })
+          .locator("summary")
+          .filter({ hasText: /^Full requested model$/ });
+        await fullModel.focus();
+        await fullModel.press("Enter");
+        await expect(
+          fullModel
+            .locator("..")
+            .getByText(`gemini / ${LONG_MODEL}`, { exact: true }),
+        ).toBeVisible();
+        await fullModel.press("Space");
+        await expect(fullModel.locator("..")).not.toHaveAttribute("open");
+      }
+      await expectCompactDashboardFooter(page);
       await expect
         .poll(() =>
           page.evaluate(
@@ -394,6 +412,7 @@ test("provider usage overview keeps complete period totals, charts, models and r
     const zoomContext = await browser.newContext({
       viewport: { width: 640, height: 400 },
       deviceScaleFactor: 2,
+      hasTouch: true,
       baseURL: process.env.ACCOUNTS_REFERENCE_E2E_BASE_URL!,
     });
     try {
@@ -403,10 +422,22 @@ test("provider usage overview keeps complete period totals, charts, models and r
       await installLoopbackOnlyNetworkGuard(zoom, violations);
       await zoom.goto("/dashboard?section=usage&workspace=rr-e2e-org-alpha");
       await expect(
-        zoom
-          .getByRole("region", { name: "Provider usage", exact: true })
-          .getByRole("table", { name: "Requested model usage", exact: true }),
+        usageBreakdown(
+          zoom.getByRole("region", { name: "Provider usage", exact: true }),
+          "models",
+        ),
       ).toBeVisible();
+      const touchModel = zoom
+        .getByRole("region", { name: "Model usage summaries", exact: true })
+        .locator("summary")
+        .filter({ hasText: /^Full requested model$/ });
+      await touchModel.tap();
+      await expect(
+        touchModel
+          .locator("..")
+          .getByText(`gemini / ${LONG_MODEL}`, { exact: true }),
+      ).toBeVisible();
+      await touchModel.tap();
       await expect
         .poll(() =>
           zoom.evaluate(
@@ -421,6 +452,33 @@ test("provider usage overview keeps complete period totals, charts, models and r
         path: info.outputPath("usage-tokens-640-dpr2.png"),
         fullPage: true,
       });
+      const zoomUsage = zoom.getByRole("region", {
+        name: "Provider usage",
+        exact: true,
+      });
+      await zoomUsage.getByRole("tab", { name: "Runs", exact: true }).tap();
+      await expectBreakdownCount(zoomUsage, "runs", 100);
+      await zoomUsage
+        .getByRole("button", { name: "Next run page", exact: true })
+        .tap();
+      await expectBreakdownCount(zoomUsage, "runs", 7);
+      const touchRun = usageBreakdown(zoomUsage, "runs")
+        .getByRole("listitem")
+        .filter({ hasText: sharedRun });
+      await touchRun
+        .locator("summary")
+        .filter({ hasText: /^Run details$/ })
+        .tap();
+      await zoomContext.grantPermissions(["clipboard-read", "clipboard-write"]);
+      await touchRun
+        .getByRole("button", { name: "Copy run ID", exact: true })
+        .tap();
+      await expect(
+        touchRun.getByText("Run ID copied", { exact: true }),
+      ).toBeVisible();
+      expect(await zoom.evaluate(() => navigator.clipboard.readText())).toBe(
+        sharedRun,
+      );
     } finally {
       await zoomContext.close();
     }
@@ -434,16 +492,16 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await costBasis.click();
     await expect(page.getByRole("option")).toHaveCount(2);
     await expect(
-      page.getByRole("option", { name: "estimated", exact: true }),
+      page.getByRole("option", { name: "Estimated", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("option", { name: "source reported", exact: true }),
+      page.getByRole("option", { name: "Reported", exact: true }),
     ).toBeVisible();
     await expect(page.getByRole("option", { name: /EUR/ })).toHaveCount(0);
-    await page.getByRole("option", { name: "estimated", exact: true }).click();
+    await page.getByRole("option", { name: "Estimated", exact: true }).click();
     await expect(
       usage.getByLabel("Requested models chart", { exact: true }),
-    ).toContainText("0.3 USD (estimated)");
+    ).toContainText("0.3 USD Estimated");
     for (const currency of ["USD", "EUR"] as const) {
       if (currency === "EUR")
         await chooseUsageOption(page, "Cost currency", currency);
@@ -460,7 +518,7 @@ test("provider usage overview keeps complete period totals, charts, models and r
         await expect(costBasis).toHaveCount(0);
         await expect(
           usage.getByLabel("Requested models chart", { exact: true }),
-        ).toContainText("0.25 EUR (source reported)");
+        ).toContainText("0.25 EUR Reported");
         await dailyChart.focus();
         for (let index = 0; index < 30; index++)
           await dailyChart.press("ArrowRight");
@@ -477,6 +535,14 @@ test("provider usage overview keeps complete period totals, charts, models and r
         [390, 844],
       ] as const) {
         await page.setViewportSize({ width, height });
+        await expectBreakdownCount(usage, "models", 6);
+        await expect(models).not.toContainText(
+          currency === "USD" ? /\bEUR\b/ : /\bUSD\b/,
+        );
+        await expect(models).toContainText(
+          currency === "USD" ? "0.3 USD" : "0.2 EUR",
+        );
+        if (width === 390) await expectSummaryMetrics(usage, "models");
         await expect
           .poll(() =>
             page.evaluate(
@@ -494,24 +560,13 @@ test("provider usage overview keeps complete period totals, charts, models and r
       }
     }
     await usage.getByRole("tab", { name: "Runs", exact: true }).click();
-    await expect(
-      usage
-        .getByRole("table", { name: "Review run usage", exact: true })
-        .getByRole("row"),
-    ).toHaveCount(101);
+    await expectBreakdownCount(usage, "runs", 100);
     await usage
       .getByRole("button", { name: "Next run page", exact: true })
       .click();
-    await expect(
-      usage
-        .getByRole("table", { name: "Review run usage", exact: true })
-        .getByRole("row"),
-    ).toHaveCount(8);
+    await expectBreakdownCount(usage, "runs", 7);
     await expect(kpi("Known tokens")).toContainText("858");
-    const runs = usage.getByRole("table", {
-      name: "Review run usage",
-      exact: true,
-    });
+    const runs = usageBreakdown(usage, "runs");
     await expect(runs).toContainText("0.2 EUR");
     await expect(runs).toContainText("0.05 EUR");
     await expect(runs).not.toContainText(/\bUSD\b/);
@@ -520,12 +575,46 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await expect(runs).toContainText("0.1 USD");
     await expect(runs).toContainText("0.3 USD");
     await expect(runs).not.toContainText(/\bEUR\b/);
-    await expect(runs.getByRole("row")).toHaveCount(8);
+    await expectBreakdownCount(usage, "runs", 7);
     await chooseUsageOption(page, "Cost currency", "EUR");
     await expect(runs).toContainText("0.2 EUR");
     await settleCurrencyPresentation(page);
     expect(reportRequests).toHaveLength(requestsBeforeRunCurrency);
     await page.setViewportSize({ width: 390, height: 844 });
+    await expectSummaryMetrics(usage, "runs");
+    const sharedRunSummary = runs
+      .getByRole("listitem")
+      .filter({ hasText: sharedRun });
+    const runDetails = sharedRunSummary
+      .locator("summary")
+      .filter({ hasText: /^Run details$/ });
+    await expect(sharedRunSummary.locator("p").first()).toContainText("…");
+    await runDetails.focus();
+    await runDetails.press("Enter");
+    await expect(runDetails.locator("..").locator("code")).toBeVisible();
+    await expect(runDetails.locator("..").locator("code")).toHaveText(
+      sharedRun,
+    );
+    await expect(sharedRunSummary).toContainText(
+      /\b[A-Z][a-z]{2} \d{1,2}, \d{4}.*UTC/,
+    );
+    await expect(sharedRunSummary).not.toContainText(
+      /T\d{2}:\d{2}:\d{2}\.\d{3}Z/,
+    );
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    const copyRun = sharedRunSummary.getByRole("button", {
+      name: "Copy run ID",
+      exact: true,
+    });
+    await copyRun.focus();
+    await copyRun.press("Enter");
+    await expect(
+      sharedRunSummary.getByText("Run ID copied", { exact: true }),
+    ).toBeVisible();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      sharedRun,
+    );
+    await runDetails.press("Enter");
     await page.evaluate(() =>
       window.scrollTo({ top: 0, left: 0, behavior: "instant" }),
     );
@@ -541,6 +630,32 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await expect(
       usage.getByText("No measured observations", { exact: false }),
     ).toBeVisible();
+    await expect(
+      usage.getByLabel("Daily usage chart", { exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      usage.getByRole("region", { name: "Daily provider usage", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      usage.getByLabel("Requested models chart", { exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      usage.getByRole("list", {
+        name: "Requested provider legend",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await expect(
+      usage.getByText(
+        /^Updated [A-Z][a-z]{2} \d{1,2}, \d{4}, \d{2}:\d{2} UTC$/,
+      ),
+    ).toBeVisible();
+    expect(
+      await usage
+        .getByText("No measured observations", { exact: false })
+        .evaluate((element) => element.getBoundingClientRect().height),
+    ).toBeLessThanOrEqual(120);
+    await expectCompactDashboardFooter(page);
     await page.evaluate(() =>
       window.scrollTo({ top: 0, left: 0, behavior: "instant" }),
     );
@@ -683,6 +798,21 @@ test("provider usage overview keeps complete period totals, charts, models and r
     ).toBe(403);
     await page.reload();
     await expect(kpi("Known tokens")).toContainText("50");
+    await page
+      .getByRole("contentinfo", { name: "Dashboard footer", exact: true })
+      .getByRole("link", { name: "Support", exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/support$/);
+    await expect(
+      page.getByRole("contentinfo", { name: "Dashboard footer", exact: true }),
+    ).toHaveCount(0);
+    const publicFooter = page.getByRole("contentinfo");
+    await expect(
+      publicFooter.getByText("Product", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      publicFooter.getByText("Trust", { exact: true }),
+    ).toBeVisible();
     expect(violations).toEqual([]);
     expect(pageErrors).toEqual([]);
     for (const url of reportRequests) {
@@ -777,7 +907,7 @@ test("provider usage isolates workspace navigation and reloads stable known tota
     ).toBeVisible();
     await expect(
       usageKpi(usage, "Known cost").filter({
-        hasText: /0\.02 USD.*source reported/,
+        hasText: /0\.02 USD.*Reported/,
       }),
     ).toBeVisible();
     expect(violations).toEqual([]);
@@ -832,10 +962,10 @@ test("provider usage renders native lag and partial producer coverage truthfully
       usage.getByText(/Source lag: [\d.]+s \(native reconciliation\)/),
     ).toBeVisible();
     await expect(usage.getByLabel("Usage source coverage")).toContainText(
-      `Native source coverage from ${coveredFrom}; as of ${asOf}`,
+      `Native source coverage from ${expectedHumanUtc(coveredFrom)}; as of ${expectedHumanUtc(asOf)}`,
     );
     await expect(usage.getByLabel("Usage source coverage")).toContainText(
-      `retry at ${retryAt}`,
+      `retry at ${expectedHumanUtc(retryAt)}`,
     );
     await expect(usage.getByLabel("Usage source coverage")).toContainText(
       "last source error: gateway_unavailable",
@@ -931,6 +1061,81 @@ test("provider usage operator report permits administrators and denies members a
     await db.end();
   }
 });
+
+type Breakdown = "models" | "runs";
+function usageBreakdown(usage: Locator, kind: Breakdown): Locator {
+  return usage
+    .getByRole("table", {
+      name: kind === "models" ? "Requested model usage" : "Review run usage",
+      exact: true,
+    })
+    .or(
+      usage.getByRole("region", {
+        name:
+          kind === "models" ? "Model usage summaries" : "Run usage summaries",
+        exact: true,
+      }),
+    );
+}
+async function expectBreakdownCount(
+  usage: Locator,
+  kind: Breakdown,
+  count: number,
+) {
+  const breakdown = usageBreakdown(usage, kind);
+  await expect(breakdown).toBeVisible();
+  if (await breakdown.getByRole("row").count()) {
+    await expect(breakdown.getByRole("row")).toHaveCount(count + 1);
+  } else {
+    await expect(breakdown.getByRole("listitem")).toHaveCount(count);
+  }
+}
+async function expectSummaryMetrics(usage: Locator, kind: Breakdown) {
+  const summary = usage.getByRole("region", {
+    name: kind === "models" ? "Model usage summaries" : "Run usage summaries",
+    exact: true,
+  });
+  await expect(summary).toBeVisible();
+  for (const item of await summary.getByRole("listitem").all()) {
+    for (const label of ["Requests", "Known tokens", "Known cost"]) {
+      const term = item
+        .locator("dt")
+        .filter({ hasText: new RegExp(`^${label}$`) });
+      const value = term.locator("..").locator("dd");
+      await expect(term).toBeVisible();
+      await expect(value).toBeVisible();
+      expect(
+        await value.evaluate((element) => {
+          const box = element.getBoundingClientRect();
+          return (
+            box.left >= 0 &&
+            box.right <= window.innerWidth &&
+            Number.parseFloat(getComputedStyle(element).fontSize) >= 12
+          );
+        }),
+        `${kind} ${label} is readable without horizontal scrolling`,
+      ).toBe(true);
+    }
+  }
+}
+async function expectCompactDashboardFooter(page: Page) {
+  const footer = page.getByRole("contentinfo", {
+    name: "Dashboard footer",
+    exact: true,
+  });
+  await expect(footer).toBeVisible();
+  if ((page.viewportSize()?.width ?? 0) >= 390)
+    expect(
+      await footer.evaluate(
+        (element) => element.getBoundingClientRect().height,
+      ),
+    ).toBeLessThanOrEqual(140);
+  await expect(footer).not.toContainText(/Product|Trust/);
+  for (const link of await footer.getByRole("link").all())
+    expect(
+      await link.evaluate((element) => element.getBoundingClientRect().height),
+    ).toBeGreaterThanOrEqual(44);
+}
 
 async function seedKnownCall(
   db: pg.Client,
@@ -1103,6 +1308,7 @@ async function seedOverviewCall(db: pg.Client, input: OverviewCall) {
 
 function usageKpi(usage: Locator, name: string) {
   return usage
+    .getByLabel("Period usage summary", { exact: true })
     .locator("dt")
     .filter({ hasText: new RegExp(`^${name}$`) })
     .locator("..")
@@ -1115,8 +1321,20 @@ async function chooseUsageOption(page: Page, label: string, option: string) {
 }
 
 async function openUsageDetails(usage: Locator) {
-  if ((await usage.locator("details").getAttribute("open")) === null)
-    await usage.getByLabel("Details", { exact: true }).click();
+  const summary = usage.getByLabel("Details", { exact: true });
+  if ((await summary.locator("..").getAttribute("open")) === null)
+    await summary.click();
+}
+
+function expectedHumanUtc(value: string): string {
+  const date = new Date(value);
+  const day = new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+  return `${day}, ${date.getUTCHours().toString().padStart(2, "0")}:${date.getUTCMinutes().toString().padStart(2, "0")} UTC`;
 }
 
 async function settleCurrencyPresentation(page: Page) {

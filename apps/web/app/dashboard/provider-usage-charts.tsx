@@ -9,18 +9,19 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { UsageCosts } from "./provider-usage-tables";
 import type { ProviderUsageReport } from "./provider-usage-model";
 import {
   chartNumber,
   compact,
   costKey,
-  costsLabel,
   dayLabel,
   metricLabel,
   metricValue,
   providerColor,
   requestedModelLabel,
   utcDays,
+  shortIdentity,
   type CostBucket,
   type UsageMetric,
 } from "./provider-usage-format";
@@ -34,6 +35,14 @@ const tooltipClass =
   "max-w-80 rounded-lg border border-cyan-200/20 bg-[var(--rr-surface-menu)] p-3 text-xs text-slate-200 shadow-xl";
 
 export function UsageCharts({ report, metric, bucket }: Props) {
+  if (!report.overview.daily.length) return null;
+  if (metric === "cost" && !bucket)
+    return (
+      <p className="py-3 text-sm text-slate-400">
+        No known costs for this period. Missing cost measurements do not mean
+        zero cost.
+      </p>
+    );
   const providers = [
     ...new Set(report.overview.daily.map((row) => row.provider)),
   ].sort();
@@ -63,7 +72,28 @@ export function UsageCharts({ report, metric, bucket }: Props) {
         (row) => chartNumber(metricValue(row.totals, metric, bucket)) ?? 0,
       ),
     ) || 1;
-  const costUnavailable = metric === "cost" && !bucket;
+  const knownValues = report.overview.daily
+    .map((row) => chartNumber(metricValue(row.totals, metric, bucket)))
+    .filter((value): value is number => value !== null);
+  if (!knownValues.length)
+    return (
+      <p className="py-3 text-sm text-slate-400">
+        No known{" "}
+        {metric === "tokens"
+          ? "token"
+          : metric === "requests"
+            ? "request"
+            : "cost"}{" "}
+        values for this period. Measurements are unavailable, not zero.
+      </p>
+    );
+  if (knownValues.every((value) => value === 0))
+    return (
+      <p className="py-3 text-sm text-slate-400">
+        Known {metric} values are zero for reported observations; other usage
+        may be unknown.
+      </p>
+    );
   return (
     <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,2.4fr)_minmax(0,1fr)]">
       <section className="min-w-0" aria-label="Daily provider usage">
@@ -73,110 +103,102 @@ export function UsageCharts({ report, metric, bucket }: Props) {
           values. Circles mark missing or unknown values. Daily data is also
           available in Details.
         </p>
-        {costUnavailable ? (
-          <p className="flex h-64 items-center text-sm text-slate-400">
-            No known costs for this period.
-          </p>
-        ) : (
-          <div className="h-64 w-full min-w-0 sm:h-72">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-              <BarChart
-                data={calendar}
-                accessibilityLayer
-                aria-label="Daily usage chart"
-                aria-describedby="usage-chart-help"
-                margin={{ top: 14, right: 9, bottom: 5, left: 0 }}
-              >
-                <CartesianGrid
-                  vertical={false}
-                  stroke="var(--rr-color-border)"
-                  strokeDasharray="3 3"
+        <div className="h-64 w-full min-w-0 sm:h-72">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+            <BarChart
+              data={calendar}
+              accessibilityLayer
+              aria-label="Daily usage chart"
+              aria-describedby="usage-chart-help"
+              margin={{ top: 14, right: 9, bottom: 5, left: 0 }}
+            >
+              <CartesianGrid
+                vertical={false}
+                stroke="var(--rr-color-border)"
+                strokeDasharray="3 3"
+              />
+              <XAxis
+                dataKey="day"
+                tickFormatter={dayLabel}
+                minTickGap={28}
+                tick={{ fill: "var(--rr-color-text-subtle)", fontSize: 12 }}
+                axisLine={{ stroke: "var(--rr-color-border-strong)" }}
+                tickLine={false}
+              />
+              <YAxis
+                tickFormatter={compact}
+                width={48}
+                tick={{ fill: "var(--rr-color-text-subtle)", fontSize: 12 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip
+                filterNull={false}
+                cursor={{ fill: "rgba(148,163,184,0.07)" }}
+                content={({ active, label }) => {
+                  const day = calendar.find((row) => row.day === label);
+                  if (!active || !day) return null;
+                  return (
+                    <div
+                      className={tooltipClass}
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <p className="mb-2 font-medium">
+                        {day.day} UTC{day.partial ? " · partial day" : ""}
+                      </p>
+                      {day.rows.length ? (
+                        day.rows.map((row) => (
+                          <p key={row.provider}>
+                            {row.provider}:{" "}
+                            {metricLabel(row.totals, metric, bucket)}
+                            {row.totals.unknownCount || row.totals.partialCount
+                              ? " · unknown or partial observations"
+                              : ""}
+                            {metric === "cost" && row.totals.unknownCostCount
+                              ? " · some cost unknown"
+                              : ""}
+                          </p>
+                        ))
+                      ) : (
+                        <p>No observations; coverage unknown</p>
+                      )}
+                    </div>
+                  );
+                }}
+              />
+              {providers.map((provider, i) => (
+                <Bar
+                  key={provider}
+                  dataKey={`provider${i}`}
+                  name={provider}
+                  stackId="providers"
+                  fill={providerColor(provider)}
+                  maxBarSize={24}
+                  isAnimationActive={false}
                 />
-                <XAxis
-                  dataKey="day"
-                  tickFormatter={dayLabel}
-                  minTickGap={28}
-                  tick={{ fill: "var(--rr-color-text-subtle)", fontSize: 11 }}
-                  axisLine={{ stroke: "var(--rr-color-border-strong)" }}
-                  tickLine={false}
-                />
-                <YAxis
-                  tickFormatter={compact}
-                  width={48}
-                  tick={{ fill: "var(--rr-color-text-subtle)", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip
-                  filterNull={false}
-                  cursor={{ fill: "rgba(148,163,184,0.07)" }}
-                  content={({ active, label }) => {
-                    const day = calendar.find((row) => row.day === label);
-                    if (!active || !day) return null;
-                    return (
-                      <div
-                        className={tooltipClass}
-                        role="status"
-                        aria-live="polite"
-                      >
-                        <p className="mb-2 font-medium">
-                          {day.day} UTC{day.partial ? " · partial day" : ""}
-                        </p>
-                        {day.rows.length ? (
-                          day.rows.map((row) => (
-                            <p key={row.provider}>
-                              {row.provider}:{" "}
-                              {metricLabel(row.totals, metric, bucket)}
-                              {row.totals.unknownCount ||
-                              row.totals.partialCount
-                                ? " · unknown or partial observations"
-                                : ""}
-                              {metric === "cost" && row.totals.unknownCostCount
-                                ? " · some cost unknown"
-                                : ""}
-                            </p>
-                          ))
-                        ) : (
-                          <p>No observations; coverage unknown</p>
-                        )}
-                      </div>
-                    );
-                  }}
-                />
-                {providers.map((provider, i) => (
-                  <Bar
-                    key={provider}
-                    dataKey={`provider${i}`}
-                    name={provider}
-                    stackId="providers"
-                    fill={providerColor(provider)}
-                    maxBarSize={24}
-                    isAnimationActive={false}
+              ))}
+              {calendar
+                .filter(
+                  (day) =>
+                    !day.rows.length ||
+                    day.rows.some(
+                      (row) => metricValue(row.totals, metric, bucket) === null,
+                    ),
+                )
+                .map((day) => (
+                  <ReferenceDot
+                    key={day.day}
+                    x={day.day}
+                    y={0}
+                    r={3}
+                    fill="var(--rr-color-void)"
+                    stroke="var(--rr-color-text-subtle)"
                   />
                 ))}
-                {calendar
-                  .filter(
-                    (day) =>
-                      !day.rows.length ||
-                      day.rows.some(
-                        (row) =>
-                          metricValue(row.totals, metric, bucket) === null,
-                      ),
-                  )
-                  .map((day) => (
-                    <ReferenceDot
-                      key={day.day}
-                      x={day.day}
-                      y={0}
-                      r={3}
-                      fill="var(--rr-color-void)"
-                      stroke="var(--rr-color-text-subtle)"
-                    />
-                  ))}
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
         <ul
           className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-300"
           aria-label="Requested provider legend"
@@ -191,7 +213,7 @@ export function UsageCharts({ report, metric, bucket }: Props) {
             </li>
           ))}
         </ul>
-        <p className="mt-2 text-[11px] text-slate-500">
+        <p className="mt-2 text-xs text-slate-500">
           UTC days · ○ No observations or unknown value · Partial days at period
           boundaries
         </p>
@@ -208,7 +230,7 @@ export function UsageCharts({ report, metric, bucket }: Props) {
               : "Known cost"}{" "}
           by requested model <span className="text-slate-400">(top 3)</span>
         </h3>
-        {top.length && !costUnavailable ? (
+        {top.length ? (
           <div className="space-y-5">
             {top.map((row) => {
               const value = chartNumber(
@@ -219,17 +241,26 @@ export function UsageCharts({ report, metric, bucket }: Props) {
                   key={JSON.stringify([row.provider, row.requestedModel])}
                   className="min-w-0"
                 >
-                  <p
-                    className="truncate text-sm text-slate-200"
-                    title={requestedModelLabel(row.requestedModel)}
-                  >
-                    {requestedModelLabel(row.requestedModel)}
-                  </p>
-                  <p className="mb-1 text-[11px] text-slate-500">
-                    {row.provider}
-                  </p>
-                  <div className="flex items-center gap-3">
-                    <div className="h-6 min-w-0 flex-1 bg-slate-800/30">
+                  {requestedModelLabel(row.requestedModel).length > 56 ? (
+                    <details className="text-sm text-slate-200">
+                      <summary className="cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300">
+                        {shortIdentity(
+                          requestedModelLabel(row.requestedModel),
+                          48,
+                        )}
+                      </summary>
+                      <p className="break-all py-2">
+                        {requestedModelLabel(row.requestedModel)}
+                      </p>
+                    </details>
+                  ) : (
+                    <p className="break-words text-sm text-slate-200">
+                      {requestedModelLabel(row.requestedModel)}
+                    </p>
+                  )}
+                  <p className="mb-1 text-xs text-slate-500">{row.provider}</p>
+                  <div>
+                    <div className="h-6 w-full min-w-0 bg-slate-800/30">
                       <ResponsiveContainer
                         width="100%"
                         height="100%"
@@ -273,14 +304,20 @@ export function UsageCharts({ report, metric, bucket }: Props) {
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
-                    <span
-                      className="shrink-0 text-right text-sm tabular-nums text-slate-100"
+                    <div
+                      className="mt-2 block break-words text-right text-sm tabular-nums text-slate-100"
                       title={metricLabel(row.totals, metric, bucket)}
                     >
-                      {metric === "cost"
-                        ? metricLabel(row.totals, metric, bucket)
-                        : compact(value)}
-                    </span>
+                      {metric === "cost" ? (
+                        <UsageCosts
+                          costs={row.totals.costs}
+                          selectedCurrency={bucket?.currency}
+                          basis={bucket?.basis}
+                        />
+                      ) : (
+                        compact(value)
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -288,9 +325,7 @@ export function UsageCharts({ report, metric, bucket }: Props) {
           </div>
         ) : (
           <p className="text-sm text-slate-400">
-            {costUnavailable
-              ? "No known costs for this period."
-              : "No measured model values for this period."}
+            No measured model values for this period.
           </p>
         )}
       </section>
@@ -355,7 +390,11 @@ export function DailyUsageTable({
                     <td>{metricLabel(row.totals, "tokens", undefined)}</td>
                     <td>{row.totals.providerAttempts}</td>
                     <td>
-                      {costsLabel(row.totals, selectedCurrency, bucket?.basis)}
+                      <UsageCosts
+                        costs={row.totals.costs}
+                        selectedCurrency={selectedCurrency}
+                        basis={bucket?.basis}
+                      />
                     </td>
                     <td>
                       {row.totals.unknownCount} unknown /{" "}

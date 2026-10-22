@@ -5,6 +5,8 @@ import {
   customInterval,
   costsLabel,
   intervalLabel,
+  humanUtc,
+  humanUtcRange,
   metricLabel,
   utcDays,
 } from "./provider-usage-format";
@@ -92,5 +94,13 @@ describe("usage presentation invariants", () => {
     expect(
       intervalLabel("2026-09-22T12:00:00.000Z", "2026-10-22T12:00:00.000Z"),
     ).toBe("Sep 22 – Oct 22, 2026 UTC");
+  });
+  it("formats run timestamps in UTC without browser locale or ISO noise", () => {
+    expect(humanUtc("2026-10-22T15:12:33.999Z")).toBe(
+      "Oct 22, 2026, 15:12 UTC",
+    );
+    expect(
+      humanUtcRange("2026-10-22T15:12:33.999Z", "2026-10-22T16:20:00.000Z"),
+    ).toBe("Oct 22, 2026, 15:12 - 16:20 UTC");
   });
 });

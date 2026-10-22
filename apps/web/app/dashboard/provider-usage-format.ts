@@ -21,11 +21,7 @@ export function currencyCostsLabel(
   currency?: string,
   basis?: string,
 ): string {
-  const selected = costs.filter(
-    (cost) =>
-      (!currency || cost.currency === currency) &&
-      (!basis || cost.basis === basis),
-  );
+  const selected = selectedCosts(costs, currency, basis);
   if (selected.length) return selected.map(costLabel).join(" · ");
   if (!costs.length) return "Unknown";
   if (currency && !costs.some((cost) => cost.currency === currency))
@@ -164,4 +160,41 @@ export function intervalLabel(
     .formatRange(new Date(from), new Date(Date.parse(to) - 1))
     .replace(/\s+/gu, " ");
   return `${range} UTC`;
+}
+
+export const valuationLabel = (basis: string) =>
+  basis === "source_reported" ? "Reported" : "Estimated";
+export function selectedCosts<T extends CostBucket>(
+  costs: readonly T[],
+  currency?: string,
+  basis?: string,
+): T[] {
+  return costs.filter(
+    (cost) =>
+      (!currency || cost.currency === currency) &&
+      (!basis || cost.basis === basis),
+  );
+}
+export const shortIdentity = (value: string, limit = 28) =>
+  value.length > limit
+    ? `${value.slice(0, limit - 9)}…${value.slice(-8)}`
+    : value;
+const utcParts = (value: string) => {
+  const date = new Date(value);
+  return {
+    day: `${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][date.getUTCMonth()]} ${date.getUTCDate()}, ${date.getUTCFullYear()}`,
+    time: `${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`,
+  };
+};
+export function humanUtc(value: string): string {
+  const date = utcParts(value);
+  return `${date.day}, ${date.time} UTC`;
+}
+export function humanUtcRange(first: string, last: string): string {
+  const start = utcParts(first),
+    end = utcParts(last);
+  if (first === last) return `${start.day}, ${start.time} UTC`;
+  return start.day === end.day
+    ? `${start.day}, ${start.time} - ${end.time} UTC`
+    : `${start.day}, ${start.time} - ${end.day}, ${end.time} UTC`;
 }

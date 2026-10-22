@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { ProviderUsageReport } from "./provider-usage-model";
 import { DailyUsageTable } from "./provider-usage-charts";
 import { ObservationTable } from "./provider-usage-tables";
+import { humanUtc } from "./provider-usage-format";
 import type { CostBucket } from "./provider-usage-format";
 
 export function UsageDetails({
@@ -51,13 +52,13 @@ export function UsageDetails({
       <ul aria-label="Usage source coverage" className="space-y-1">
         {report.sources.map((source) => (
           <li key={source.sourceInstance}>
-            Native source coverage from {source.coveredFrom}; as of{" "}
-            {source.asOf ?? "unknown"}; lag{" "}
+            Native source coverage from {humanUtc(source.coveredFrom)}; as of{" "}
+            {source.asOf ? humanUtc(source.asOf) : "unavailable"}; lag{" "}
             {source.lagMs === null ? "unknown" : `${source.lagMs}ms`} ·{" "}
             {source.deadLetteredAt
-              ? `dead letter since ${source.deadLetteredAt}`
+              ? `dead letter since ${humanUtc(source.deadLetteredAt)}`
               : source.nextAttemptAt
-                ? `retry at ${source.nextAttemptAt}`
+                ? `retry at ${humanUtc(source.nextAttemptAt)}`
                 : "reconciled"}
             {source.lastErrorCode
               ? ` · last source error: ${source.lastErrorCode}`

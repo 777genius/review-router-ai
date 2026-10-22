@@ -14,7 +14,8 @@ import { UsageCharts } from "./provider-usage-charts";
 import { ModelUsageTable, RunUsageTable } from "./provider-usage-tables";
 import { UsageDetails } from "./provider-usage-details";
 import {
-  basisLabel,
+  valuationLabel,
+  humanUtc,
   compact,
   costKey,
   costLabel,
@@ -376,7 +377,10 @@ function ProviderUsageContext({
               interval.
             </p>
           ) : null}
-          <dl className="grid grid-cols-2 gap-y-6 md:grid-cols-4">
+          <dl
+            aria-label="Period usage summary"
+            className="grid grid-cols-2 gap-y-6 md:grid-cols-4"
+          >
             <Kpi
               label="Known tokens"
               value={compact(data.totals.tokens.total)}
@@ -414,8 +418,8 @@ function ProviderUsageContext({
                         <span>
                           {cost.amount} {cost.currency}
                         </span>
-                        <span className="ml-1 text-[10px] font-normal text-slate-400">
-                          {basisLabel(cost.basis)}
+                        <span className="ml-1 text-xs font-normal text-slate-400">
+                          {valuationLabel(cost.basis)}
                         </span>
                       </div>
                     ))
@@ -429,6 +433,13 @@ function ProviderUsageContext({
               </p>
             </div>
           </dl>
+          {buckets.length ? (
+            <p className="text-xs text-slate-400">
+              Reported is a provider-supplied valuation; Estimated is a
+              calculated valuation. Neither is an invoice. Bases stay separate;
+              no currency conversion.
+            </p>
+          ) : null}
           {!data.overview.daily.length ? (
             <p className="text-sm text-slate-400">
               No measured observations for this interval. Telemetry and coverage
@@ -467,7 +478,7 @@ function ProviderUsageContext({
                     value={bucket ? costKey(bucket) : ""}
                     options={buckets.map((cost) => ({
                       value: costKey(cost),
-                      label: basisLabel(cost.basis),
+                      label: valuationLabel(cost.basis),
                     }))}
                     onValueChange={setCostSelection}
                   />
@@ -555,8 +566,10 @@ function ProviderUsageContext({
                   ? "△ Some usage is unknown or partial"
                   : "Reported observations; coverage is not guaranteed"}
               </span>
-              <span className="ml-auto text-slate-500">
-                Updated {data.asOf ?? "unknown"} UTC
+              <span className="ml-auto text-slate-400">
+                {data.asOf
+                  ? `Updated ${humanUtc(data.asOf)}`
+                  : "Freshness unavailable"}
               </span>
               <span className="text-cyan-200">Details ⌄</span>
             </summary>
