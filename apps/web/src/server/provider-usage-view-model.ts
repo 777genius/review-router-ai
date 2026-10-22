@@ -10,6 +10,8 @@ export interface UsageFilters {
   bindingId?: string | undefined;
   runId?: string | undefined;
   provider?: string | undefined;
+  model?: string | undefined;
+  runAfter?: string | undefined;
   after?: string | undefined;
 }
 export interface UsageReportRow {
@@ -33,6 +35,7 @@ export interface UsageReportRow {
   ttftMs: number | null;
 }
 export interface ProviderUsageReport {
+  overview: UsagePeriodReport["overview"];
   totals: UsageTotals;
   deliveryCoverage: UsagePeriodReport["deliveryCoverage"];
   groups: UsagePeriodReport["groups"];
@@ -83,6 +86,7 @@ export function buildUsageReport(
     ttftMs: p.usage?.ttftMs ?? null,
   }));
   return {
+    overview: report.overview,
     from: report.from,
     to: report.to,
     asOf:

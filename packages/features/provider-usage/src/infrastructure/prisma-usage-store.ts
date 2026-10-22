@@ -303,7 +303,12 @@ export class PrismaUsageReportReader implements UsageReportReader {
     if (q.bindingId) filters.push(Prisma.sql`"bindingId"=${q.bindingId}`);
     if (q.runId) filters.push(Prisma.sql`"runId"=${q.runId}`);
     if (q.purpose) filters.push(Prisma.sql`"purpose"=${q.purpose}`);
-    if (q.provider) filters.push(Prisma.sql`"provider"=${q.provider}`);
+    if (paginate && q.provider)
+      filters.push(Prisma.sql`"provider"=${q.provider}`);
+    if (paginate && q.model)
+      filters.push(
+        Prisma.sql`"projection"->'identity'->>'requestedModel'=${q.model}`,
+      );
     if (paginate && q.after) filters.push(Prisma.sql`"callId">${q.after}`);
     const rows = await this.prisma.$queryRaw<{ projection: UsageProjection }[]>(
       Prisma.sql`SELECT "projection" FROM "UsageCall" WHERE ${Prisma.join(filters, " AND ")} ORDER BY "callId" ${paginate ? Prisma.sql`LIMIT ${q.limit ?? 100}` : Prisma.empty}`,
