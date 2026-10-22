@@ -1,3 +1,4 @@
+import type { AccountLimitsService } from "./account-limits-service";
 import { lifecycleProjection } from "./account-lifecycle";
 import type { AccountLifecycleRead } from "./account-lifecycle-reader";
 import {
@@ -50,6 +51,7 @@ async function workspaceOwnerAvatar(
 // Inventory deliberately includes unavailable sources. Models keeps its separate,
 // executable-only selector. Authorization is repeated after all remote reads.
 export function createAccountsOverview(input: {
+  limits?: AccountLimitsService;
   prisma: PrismaClient;
   cursorSecret: string;
   gateway: { get(accountRef: string): Promise<AccountLifecycleRead> };
@@ -403,6 +405,9 @@ export function createAccountsOverview(input: {
             if (facts) account.usage = facts;
           }
         }
+        const limited = input.limits
+          ? await input.limits.page(accounts)
+          : accounts;
         const current = await input.authorize();
         if (
           current.userId !== who.userId ||
@@ -412,7 +417,7 @@ export function createAccountsOverview(input: {
         return {
           status: "ok",
           value: {
-            accounts,
+            accounts: limited,
             profiles: [],
             nextCursor:
               candidates.length > limit

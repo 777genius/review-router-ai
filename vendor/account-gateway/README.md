@@ -1,6 +1,23 @@
-# Accounts lifecycle SDK checkpoint
+# Account Gateway SDK artifacts
 
-The current local Accounts candidate uses
+The current Accounts SDK is
+`agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz`.
+`account-limits-provenance.json` binds it to committed Gateway source
+`b36a5400b6747d2569ca236d868cd494ea0bd6a1` and native source
+`14383534b0b0cb3161f0b806270a65810d51dc4a` (migration 252), both retained in
+merged main ancestry. It adds `account-limits/v1` cached reads for qualified
+Codex observations. Quota-only refresh is unavailable. Profiles without qualified
+principal provenance, including Claude, do not receive invented quota values.
+
+Independent installed consumers and actual native/Gateway/SDK/RR acceptance
+passed with controlled provider fixtures. Cached reads made zero provider calls.
+Gateway CI passed on Node 24/26; native GitHub Actions was unavailable (422),
+with exact-source hosted tests recorded separately. This archive is private,
+not an npm publication or evidence of production activation.
+
+## Historical lifecycle SDK checkpoint
+
+The historical local Accounts candidate used
 `agent-teams-account-gateway-0.1.0-lifecycle-f9e0d304.tgz`.
 `lifecycle-provenance.json` binds the archive to exact SDK source-file hashes
 on Gateway base `ae96a3218cdaffad87ec11fd340c890596af1cc7`.
@@ -13,7 +30,7 @@ Historical SDK provenance and archives below retain their original identities.
 
 ## Previous private Account Gateway SDK artifact
 
-The current private SDK0.1.0 archive is
+The earlier private SDK0.1.0 archive is
 `agent-teams-account-gateway-0.1.0-28d6da0.tgz` (17155 bytes), packed from normal
 Gateway main `28d6da0539fc7b879e3c2b9a955b7ef91ba4ecd1`, tree
 `fe29e0e880f46fbbbbf2abfeba5309ac2d0d0b46`. Reviewed source is

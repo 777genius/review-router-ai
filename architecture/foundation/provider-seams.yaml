@@ -5,7 +5,74 @@ workspace:
 governedRoots:
   - packages/features/review-providers/src
   - packages/features/provider-usage/src
+  # Adopt only the new limits seam; existing account/lifecycle code stays outside this scope.
+  - packages/features/provider-accounts/src/account-limits
 boundaries:
+  - id: account-limits.domain
+    roots:
+      - packages/features/provider-accounts/src/account-limits/domain/account-limits.ts
+    entrypoints:
+      - packages/features/provider-accounts/src/account-limits/domain/account-limits.ts
+    allow:
+      boundaries: []
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: account-limits.application
+    roots:
+      - packages/features/provider-accounts/src/account-limits/application/ports/account-limits-reader.ts
+      - packages/features/provider-accounts/src/account-limits/application/use-cases/read-account-limits.ts
+    entrypoints:
+      - packages/features/provider-accounts/src/account-limits/application/ports/account-limits-reader.ts
+      - packages/features/provider-accounts/src/account-limits/application/use-cases/read-account-limits.ts
+    allow:
+      boundaries:
+        - account-limits.domain
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: account-limits.infrastructure
+    roots:
+      - packages/features/provider-accounts/src/account-limits/infrastructure/gateway/gateway-account-limits-reader.ts
+    entrypoints:
+      - packages/features/provider-accounts/src/account-limits/infrastructure/gateway/gateway-account-limits-reader.ts
+    allow:
+      boundaries:
+        - account-limits.domain
+        - account-limits.application
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: account-limits.composition
+    roots:
+      - packages/features/provider-accounts/src/account-limits/composition.ts
+    entrypoints:
+      - packages/features/provider-accounts/src/account-limits/composition.ts
+    allow:
+      boundaries:
+        - account-limits.application
+      packages:
+        - "@get-modular/core"
+        - "@get-modular/assembly"
+      builtins: []
+      runtimeReferences: []
+  - id: account-limits.tests
+    roots:
+      - packages/features/provider-accounts/src/account-limits/domain/account-limits.test.ts
+      - packages/features/provider-accounts/src/account-limits/infrastructure/gateway/gateway-account-limits-reader.test.ts
+      - packages/features/provider-accounts/src/account-limits/composition.test.ts
+    entrypoints: []
+    allow:
+      boundaries:
+        - account-limits.domain
+        - account-limits.application
+        - account-limits.infrastructure
+        - account-limits.composition
+      packages:
+        - vitest
+      builtins: []
+      runtimeReferences: []
+    dependencyMode: development
   - id: catalog.domain
     roots:
       - packages/features/review-providers/src/domain
