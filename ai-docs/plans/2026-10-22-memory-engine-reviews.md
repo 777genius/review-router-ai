@@ -25,3 +25,20 @@ Foundation and the actual released Infinity SDK. Changes requested and accepted:
 
 No implementation was started before this round. Package/toolchain preparation
 and source inspection were performed in the isolated checkout.
+
+## Plan round 2 — revision 2
+
+All three critics confirmed the first-round fixes. Accepted remaining changes:
+
+| Finding | Disposition in revision 3 |
+| --- | --- |
+| Startup-only backend guard races across processes | Serialize backend admission/reservation/send in PostgreSQL; test two independent connections |
+| Cancelled never-sent receipt can dispatch late | Conditional reserved-to-sent transition checks delete intent and current canonical revision |
+| Cascade/pruning can remove original cleanup events | Noncascading receipt metadata and bounded existing-worker reconciliation of orphan/terminal exports |
+| Permanent unknown receipt can starve cleanup | Due-time ordering/backoff across bounded batches |
+| Immediate backend switch overpromised | Explicit drain restriction and service-disable rollback; startup requires no Infinity HTTP |
+| Prisma default lacks the same new contract qualification | Small parameterized consumer tests for both adapters |
+| Error privacy rule not observed by tests | Unique provider-error sentinels must stay out of metadata, logs and surfaced errors |
+| Retry fingerprint can change | Stable whole ingest payload and fresh projection generation after drain |
+
+No new platform, generic job runner or automatic topology provisioning is added.

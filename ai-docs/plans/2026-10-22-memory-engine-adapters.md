@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-Implementation plan, revision 2, prepared for three sequential independent
+Implementation plan, revision 3, prepared for three sequential independent
 critique/fix rounds before implementation. Owner request: replace the Memory
 dashboard with an honest under-development message, make the memory engine
 replaceable, integrate the first Infinity Context SDK adapter, test the complete
@@ -94,6 +94,11 @@ sequence ordinal, remote document ID when observed, and reconciliation state.
   projection generation without credentials. A different identity, including
   switching to Prisma, is rejected at startup while nondeleted/unknown Infinity
   receipts remain. There is one configured backend identity in this slice.
+- Startup validation is not a concurrency fence. Reservation and send admission
+  recheck identity under the same PostgreSQL transaction advisory lock, so two
+  fresh workers configured for different endpoints cannot both export. A
+  reserved-to-sent CAS also rechecks current active canonical revision and delete
+  intent; a cancelled never-sent receipt can never dispatch later.
 - Distinguish reserved, sent/unknown, accepted/indexed and deletion debt. A
   response may settle the remote document ID without clearing concurrent delete
   intent. No body or credentials are stored in the table.
@@ -107,6 +112,11 @@ sequence ordinal, remote document ID when observed, and reconciliation state.
   bounded per attempt and reuses the existing outbox retry/dead-letter mechanism.
 - Preserve receipt metadata across canonical terminal-record pruning. Backend
   rotation/rollback must retain access to outstanding cleanup generations.
+- Receipt identity columns have no cascading foreign key to canonical records.
+  A bounded step in the existing worker maintenance loop reconciles missing,
+  terminal, expired and superseded canonical items, even when their workspace,
+  repository and original outbox rows have already been removed. Due-time
+  ordering/backoff prevents permanent unknown debt starving later cleanup.
 
 Provide a narrow operator command for backfill/drain. Backfill uses bounded
 canonical pages and generation-specific idempotent existing reindex events; it
@@ -122,10 +132,20 @@ bounded batches. Report remaining debt and fail if any write is still unknown;
 retry count or elapsed time never proves absence. Only a successful empty-debt
 check permits configuration rotation. Existing memory service disable is the
 immediate review rollback while preserving the configured cleanup path.
+This deliberately pauses runtime memory during an outage; it is not instantaneous
+engine hot switching. Startup with retained valid config and memory disabled
+must perform no Infinity network call, so an unavailable engine cannot prevent
+normal reviews from starting. Backfill events carry an opaque target index
+identity and are rejected by a differently configured writer instead of being
+silently acknowledged by the Prisma adapter. After drain, re-enabling Infinity
+requires a fresh projection generation rather than replaying tombstoned keys.
 
 This bookkeeping is projection lifecycle state, not a second memory store or a
 generic workflow engine. Concurrency and actual SQL constraints receive real
 PostgreSQL tests.
+An exact export retry preserves every fingerprinted input, including title,
+ordinal, projection metadata and idempotency key. Do not substitute current time
+or mutable canonical update timestamps into the payload.
 
 ## Infinity adapter
 
@@ -190,8 +210,9 @@ coverage with the actual memory boundaries, preserving all existing roots.
 Permit the SDK only inside its
 adapter and Get Modular only inside composition. Add executable rejecting
 fixtures for SDK value/type/reexport leakage, outward application imports and
-unclassified files. Keep the current consumer pins, source universe and accepted
-profiles; no workspace-wide toolchain migration is part of this feature.
+unclassified files. Keep the current consumer pins and accepted profiles,
+preserve existing governed roots and explicitly add memory; no workspace-wide
+toolchain migration is part of this feature.
 
 ## Delivery sequence
 
@@ -234,6 +255,19 @@ and restart the adapter: reject the old hit, preserve the current revision,
 exclude deleted text and retain/retry unresolved cleanup debt. Include existing
 already-indexed canonical rows when enabling the new backend to prove backfill
 and partial-coverage fallback. The loopback server is explicitly a test fixture.
+
+Run a small parameterized consumer contract against both the Prisma adapter and
+Infinity adapter through the same application seam. Cover canonical revision and
+scope identity, duplicate retry, stale rejection, exact cleanup isolation and
+fallback. Prisma's direct canonical view has no separate remote lifecycle; test
+that real guarantee without manufacturing external state.
+
+Include a privacy sentinel error from the provider containing unique body/query/
+token strings. Public errors, logger output, outbox/audit metadata and receipt
+rows must not contain those strings. Foreign generated response text is never
+returned as the bundle body. Test two concurrent backend identities, cancellation
+before send, canonical/workspace cascade cleanup without outbox, fair retry of
+permanently unknown debt and byte-stable retry payload after restart.
 
 Tests must exercise the published SDK's real wire protocol, not a hand-written
 SDK mock. A loopback service proves consumer protocol handling, not Infinity's
