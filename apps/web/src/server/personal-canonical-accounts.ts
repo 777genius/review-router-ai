@@ -1,3 +1,4 @@
+import type { AccountLimitsService } from "./account-limits-service";
 import { lifecycleProjection } from "./account-lifecycle";
 import type { AccountLifecycleRead } from "./account-lifecycle-reader";
 import * as c from "@agent-teams/account-gateway/contracts";
@@ -48,6 +49,7 @@ export type PersonalCanonicalOperationView = AccountOperationView & {
   };
 };
 type Dependencies = {
+  limits?: AccountLimitsService;
   authorizeUser(): Promise<string>;
   lifecycleReader?: {
     get(accountRef: string): Promise<AccountLifecycleRead>;
@@ -708,7 +710,9 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
           }),
         );
         return {
-          accounts: rows.filter((row) => row !== null),
+          accounts: input.limits
+            ? await input.limits.page(rows.filter((row) => row !== null))
+            : rows.filter((row) => row !== null),
           profiles,
           nextCursor: page.nextCursor,
         };

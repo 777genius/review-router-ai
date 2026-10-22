@@ -1,0 +1,87 @@
+{
+  "kind": "private_sdk_committed_source_pack",
+  "sourceRepository": "https://github.com/agent-teams-ai/account-gateway",
+  "sourceCommit": "b36a5400b6747d2569ca236d868cd494ea0bd6a1",
+  "sourceTree": "e1cef1f9d0833a2de1a87bb262c2bfe947706f8d",
+  "uncommittedSource": false,
+  "sourceFiles": {
+    "packages/account-gateway/src/contracts/index.ts": "f6c2a57eaac1aba40ac7f540d2583b10f0939ec3f110135e699ce7abf8db517b",
+    "packages/account-gateway/src/http/index.ts": "f3b19f5b8597915c712fcf3063b20862d2a4a2b458aaea62a84143041686871c",
+    "packages/account-gateway/src/index.ts": "e67d4430eba1decac66beb54ba2090b9b1b75165d7ed31ceff6a47709ad723b0",
+    "packages/account-gateway/src/features/facade-client/contracts/index.ts": "09421079a5d32e97c0b506757d2f39960f931f3ec82145cb0cc4a8dadfdcb4a9",
+    "packages/account-gateway/src/features/facade-client/http/index.ts": "73a6cbce28aa50e53b3da9065cc56edd3f7881bc53ebe72f44a9e714d2aac643"
+  },
+  "vendoredArchive": "vendor/account-gateway/agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz",
+  "sha256": "c41b9e7d3de44c1b25f8f2e3202092db1371bc55bd39d927e384a9f44a876b57",
+  "integrity": "sha512-O1KJh9UJ+XCvNCO8XKTK6/ABBp3HeOkZi2LlhycW/RqK11z6rwk26FCjDMvxbPCnSEsZN3i0lUqUxJs5LP16jA==",
+  "bytes": 22988,
+  "published": false,
+  "nativeDependency": {
+    "repository": "https://github.com/agent-teams-ai/sub2api",
+    "commit": "14383534b0b0cb3161f0b806270a65810d51dc4a",
+    "mainMerge": "d874803ae5127524adbb21aaf28fdab88d9c2072",
+    "pullRequest": "https://github.com/agent-teams-ai/sub2api/pull/61",
+    "migration": 252,
+    "treeSHA1": "10224481da2e4148758ea35b3441a7400a1b870b",
+    "sourceFileSHA256": {
+      "backend/internal/gatewaybootstrap/native_account_limits.go": "e157f64d2cab76d27c6f0799cd9e551826d8d8577f673cefb4dfa44f3ffe05c6",
+      "backend/internal/gatewaybootstrap/native_account_limits_test.go": "097dd57de8b6d9dd53c08e47be2348dcead384a02cb26fbbb7ac3bbd4ee5a95a",
+      "backend/internal/gatewaybootstrap/server_linux.go": "8b9f8e0af89cce9d24c02cfd0eac1e3d1b9b7ba23cbf0632b88000875a56442c",
+      "backend/internal/handler/admin/native_gateway_account_limits.go": "df6661e0a0ec62f5029c8eb5d1ca6b3e013e0b6d5d0d12234c024b6721b69272",
+      "backend/internal/handler/admin/native_gateway_account_limits_test.go": "8691de02eaf2ec16132ac6f362e607b92eee4aaed6c33b665cb78b8eeec32c77",
+      "backend/internal/repository/native_gateway_account_limits.go": "0ba1c621777eb0047924be771c63e0da93aeb79dfe71651832fe87dc2c2e3360",
+      "backend/internal/repository/native_gateway_account_limits_postgres_test.go": "d07d8b92392c9ae2ccfcab02fc4d692c7a9338790f05bdca42300e617995ac5e",
+      "backend/internal/repository/native_gateway_oauth_dispatch_postgres_test.go": "78a5f43e9cdd432e049f3a604742bf73c7c6aa3e3f85dc487d4ff59f58ceda10",
+      "backend/internal/service/native_gateway_account_limits.go": "bec985708f3a8fd4244f0a0a6a69ebaff4f6ee06b6b55209120328bb4de6f374",
+      "backend/internal/service/native_gateway_account_limits_test.go": "361640a8e0d75e23bf5f4978d9bc604c28534af4e4e2dc2a6d79fb6c151460d1",
+      "backend/internal/service/native_gateway_oauth_dispatch_test.go": "42a2d0b4691e0f48e47bed5e76beb4fe357bbb37274e9668362699f332efe76d",
+      "backend/internal/service/native_gateway_responses.go": "dd55af28e7f6323f4ef3136bff477b44100069f21e1c869fbe4a29020035acc4",
+      "backend/migrations/252_gateway_account_limits.sql": "1921c36ffc5c2e05cdeedd88649dae1a4e5f1f8535d096309551b6659562a531"
+    }
+  },
+  "capabilities": {
+    "cachedRead": true,
+    "quotaOnlyRefresh": false,
+    "qualifiedFamily": "codex",
+    "claude": "unsupported_missing_qualified_principal_lifecycle"
+  },
+  "qualification": {
+    "gatewayCI": {
+      "head": "b36a5400b6747d2569ca236d868cd494ea0bd6a1",
+      "conclusion": "success",
+      "runs": [39785120815, 39785120835],
+      "nodeLanes": ["24.21.0", "26.11.1"],
+      "checkCount": 6
+    },
+    "nativeGitHubActions": {
+      "status": "unavailable",
+      "httpStatus": 422,
+      "reason": "Actions has been disabled for this repository",
+      "branchProtection": false,
+      "effectiveBranchRules": [],
+      "rulesets": []
+    },
+    "nativeHosted": [
+      "source service/normalization and private HTTP tests",
+      "strict actual owner callback HTTP",
+      "real PostgreSQL migration252, passive producer, revision, token rotation and erasure",
+      "independent source review"
+    ],
+    "installedIndependentConsumers": 2,
+    "joined": {
+      "nativeHead": "14383534b0b0cb3161f0b806270a65810d51dc4a",
+      "gatewayHead": "b36a5400b6747d2569ca236d868cd494ea0bd6a1",
+      "nativeBinarySHA256": "8d375e31a2ad10e2087081830055c0d343dcf66a738a5cd9a7099c7b7839f6de",
+      "sdkHTTP_SHA256": "a490e8c6281d94da18b0b4ca44d749894d298e2f33c561ddf7e39bc44f0f9255",
+      "rrAcceptance": true,
+      "usedPercent": 37.5,
+      "remainingPercent": 62.5,
+      "cachedReadProviderRequests": 0,
+      "inferenceRequests": 0,
+      "sourceReceiptSHA256": "2783a4d7a217a58faad24afe8458e175aa28fcd46cd335e9398d19bd42a26afd",
+      "sdkHTTPEntryPoint": "package/dist/http/index.js",
+      "sdkHTTPImplementationSHA256": "96e8fd19e6eb84722c75575c8c35a26b46b67c77fdf69373c9a37f14a34373e3"
+    },
+    "scope": "Controlled local provider fixtures and disposable PostgreSQL. No production migration, activation, live login or live provider request."
+  }
+}
