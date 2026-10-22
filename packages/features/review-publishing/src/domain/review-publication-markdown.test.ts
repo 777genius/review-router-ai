@@ -525,15 +525,21 @@ describe("compact summary contracts", () => {
     });
     expect(markdown).toContain("<picture>");
     expect(markdown).toContain(
-      'srcset="https://public.example/review-banner/v1.svg?state=complete&amp;critical=0&amp;major=1&amp;minor=0&amp;info=0&amp;lang=en&amp;theme=dark"',
+      'srcset="https://public.example/review-banner/v2.svg?state=complete&amp;variant=first&amp;critical=0&amp;major=1&amp;minor=0&amp;info=0&amp;theme=dark&amp;layout=wide"',
     );
     expect(markdown).toContain(
-      '<img src="https://public.example/review-banner/v1.svg?',
+      '<img src="https://public.example/review-banner/v2.svg?',
     );
     expect(markdown.split("<picture>")[1]!.split("</picture>")[0]).not.toMatch(
       /private-name|owner|repo|src%|headSha/,
     );
     expect(markdown).toContain("**1 major finding**");
+    expect(markdown).toContain('width="100%"');
+    expect(markdown).toContain('alt="Review complete"');
+    expect(markdown).toContain("(max-width: 600px)");
+    expect(markdown).toContain("layout=compact");
+    expect(markdown).not.toContain('height="110"');
+    expect(markdown).not.toContain('alt="ReviewRouter"');
   });
 
   it.each([

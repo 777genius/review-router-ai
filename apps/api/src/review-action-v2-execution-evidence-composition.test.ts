@@ -1,3 +1,5 @@
+import Fastify from "fastify";
+import { registerReviewExecutionV2Routes } from "@reviewrouter/features-action-control-plane/v2";
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -60,6 +62,7 @@ import {
 } from "@reviewrouter/features-review-run-control";
 import {
   canonicalizeReviewActionV2Request,
+  reviewActionV2LegacySlot,
   ReviewActionV2OperationId,
   ReviewActionV2ProtocolErrorCode,
   ReviewEvidenceLookupResultStatus,
@@ -109,6 +112,57 @@ describe("Review Action v2 execution/evidence composition", () => {
     expect(() =>
       composeReviewActionV2ExecutionRoutes({ enabled: true, runtime }),
     ).toThrow("review_action_v2_execution_dependencies_unavailable");
+  });
+
+  it("accepts a frozen historical client request at the hashed native execution seam", async () => {
+    const base = executionDependencies();
+    const d = {
+      ...base,
+      authorizations: {
+        resolveReviewRunAuthorizationToken: async () => ({
+          status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+          authorization: {
+            ...authorization,
+            schemaDigest:
+              reviewActionV2LegacySlot.reviewActionV2PublishedSchemaDigest,
+          },
+        }),
+      },
+    };
+    const request = {
+      ...(await startRequest()),
+      schemaDigest:
+        reviewActionV2LegacySlot.reviewActionV2PublishedSchemaDigest,
+    };
+    const hashed = {
+      ...request,
+      requestBodyHash: await digest.digestUtf8(
+        reviewActionV2LegacySlot.canonicalizeReviewActionV2Request(
+          reviewActionV2LegacySlot.ReviewActionV2OperationId
+            .ReviewExecutionStart,
+          request,
+        ),
+      ),
+    };
+    const app = Fastify({ logger: false });
+    await registerReviewExecutionV2Routes(app, {
+      ...createReviewActionV2ExecutionHandlers(d),
+      readServerTime: async () => now,
+      createRequestId: () => "old-start",
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/action/v2/review-executions/start",
+      payload: hashed,
+    });
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({
+      schemaDigest:
+        reviewActionV2LegacySlot.reviewActionV2PublishedSchemaDigest,
+      result: { status: "admitted" },
+    });
+    await app.close();
+    expect(d.executions.startReviewExecution.execute).toHaveBeenCalledOnce();
   });
 
   it("rejects authorization and revision mismatches before starting", async () => {
