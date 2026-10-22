@@ -2,6 +2,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { Script } from "node:vm";
 
 const root = resolve(import.meta.dirname, "..");
 const sourceRoots = [
@@ -66,7 +67,7 @@ export function checkCodexSecretWriteBoundary(checkoutRoot = root) {
       failures.push(`${path}: conflicting V namespace contract`);
     }
     if (
-      source.includes("createOrUpdateRepoSecret") &&
+      hasExecutableOctokitSecretReference(path, source) &&
       path !== runtimeOneShotTransport &&
       !path.endsWith(".test.ts")
     ) {
@@ -206,6 +207,43 @@ export function checkCodexSecretWriteBoundary(checkoutRoot = root) {
       setupLedger,
     ],
   };
+}
+
+function hasExecutableOctokitSecretReference(path, source) {
+  const methodName = "createOrUpdateRepoSecret";
+  if (!source.includes(methodName)) return false;
+  if (!parsesAsScript(path, source)) return true;
+
+  // Bundled Octokit catalogues declare routes without dispatching them. Exempt
+  // only the name of an exact static descriptor, never its uses or surrounding
+  // SDK code. This is a bounded syntax check, not a full callgraph analysis.
+  const descriptorNames = new Set();
+  const descriptors = source.matchAll(
+    /(?:^|[{,])\s*(createOrUpdateRepoSecret|"createOrUpdateRepoSecret"|'createOrUpdateRepoSecret')\s*:\s*\[\s*(["'])PUT \/repos\/\{owner\}\/\{repo\}\/(?:actions|codespaces|dependabot)\/secrets\/\{secret_name\}\2\s*\]\s*(?=[,}])/gu,
+  );
+  for (const match of descriptors) {
+    const keyStart = match.index + match[0].indexOf(match[1]);
+    // A regex alone could mistake catalogue-looking string/comment content for
+    // code. Replacing the key with @ must invalidate the previously valid script:
+    // @ is harmless in literal/comment content, but invalid as a property name.
+    // Script compiles without executing and keeps the pre-install gate dependency-free.
+    const probe = `${source.slice(0, keyStart)}@${source.slice(keyStart + match[1].length)}`;
+    if (!parsesAsScript(path, probe))
+      descriptorNames.add(keyStart + match[1].indexOf(methodName));
+  }
+  return [...source.matchAll(/createOrUpdateRepoSecret/gu)].some(
+    (match) => !descriptorNames.has(match.index),
+  );
+}
+
+function parsesAsScript(path, source) {
+  try {
+    new Script(source, { filename: path });
+    return true;
+  } catch (error) {
+    if (error instanceof SyntaxError) return false;
+    throw error;
+  }
 }
 
 function requireOneShotTransportAudit(path, source, failures) {
