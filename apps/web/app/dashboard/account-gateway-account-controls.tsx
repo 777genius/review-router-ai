@@ -117,6 +117,8 @@ type OAuthFormIntent =
   | Omit<AccountOAuthReconnectIntent, "nonce">;
 const inputClass =
   "min-h-11 rounded-lg border border-cyan-200/20 bg-slate-950 px-3 text-cyan-50";
+const keyUnconfirmedText =
+  "The key was not confirmed as saved. Use Check status to see the current state before entering it again.";
 function statusText(
   status: AccountsResult<unknown>["status"],
   managementScope: ManagementScope = "workspace",
@@ -1184,6 +1186,7 @@ function OperationReadback({
   const keyStatusCheckInFlight = useRef(false);
   const originalKeyResume = useRef<AccountOperationView["resume"]>(undefined);
   const [keyContinuationBusy, setKeyContinuationBusy] = useState(false);
+  const [keySubmitFailure, setKeySubmitFailure] = useState("");
   const operation = useQuery({
     queryKey: operationKey(scope, nonce),
     queryFn: () => {
@@ -1233,6 +1236,7 @@ function OperationReadback({
     keyContinuationInFlight.current = true;
     keyContinuationGeneration.current++;
     originalKeyResume.current = selectedResume;
+    setKeySubmitFailure("");
     setKeyContinuationBusy(true);
     setKeyContinuationSpent(true);
     const queryKey = operationKey(scope, nonce);
@@ -1251,8 +1255,15 @@ function OperationReadback({
         );
         if (returned.status === "ok" && returned.value.nonce === nonce)
           result = returned;
+        else
+          setKeySubmitFailure(
+            returned.status === "ok"
+              ? keyUnconfirmedText
+              : `The key was not saved. ${statusText(returned.status, managementScope)}`,
+          );
       } catch {
         // Any uncertain submission is readback-only under this original nonce.
+        setKeySubmitFailure(keyUnconfirmedText);
       }
       // A ready read may have started during the direct request. Cancel it before publish.
       await client.cancelQueries({ queryKey, exact: true });
@@ -1375,6 +1386,11 @@ function OperationReadback({
         >
           {state === "applied" ? "Refresh account details" : "Check status"}
         </Button>
+      ) : null}
+      {keySubmitFailure ? (
+        <p role="alert" className="text-sm text-amber-200">
+          {keySubmitFailure}
+        </p>
       ) : null}
       {state === "pending" && keyResume && !keyContinuationSpent ? (
         <KeyUpdateContinuation submit={continueKeyUpdate} />
