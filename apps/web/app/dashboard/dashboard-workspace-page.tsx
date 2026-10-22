@@ -3830,9 +3830,15 @@ function DashboardActionToast({
 }
 
 async function ProviderUsageSection({ workspaceId }: { workspaceId: string }) {
+  const now = new Date();
+  const initialFilters = {
+    purpose: "review" as const,
+    from: new Date(now.getTime() - 30 * 86_400_000).toISOString(),
+    to: now.toISOString(),
+  };
   let report;
   try {
-    report = await loadProviderUsage(workspaceId);
+    report = await loadProviderUsage(workspaceId, initialFilters);
   } catch (error) {
     if (error instanceof Error && error.message === "usage_access_denied")
       return (
@@ -3848,6 +3854,7 @@ async function ProviderUsageSection({ workspaceId }: { workspaceId: string }) {
       key={workspaceId}
       workspaceId={workspaceId}
       initialReport={report}
+      initialFilters={initialFilters}
     />
   );
 }

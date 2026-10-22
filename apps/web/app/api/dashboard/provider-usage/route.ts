@@ -1,12 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { loadProviderUsage } from "../../../../src/server/provider-usage-report";
-import type { UsageFilters } from "../../../dashboard/provider-usage-model";
+import type { UsageFilters } from "../../../../src/server/provider-usage-view-model";
 export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const workspace = params.get("workspace");
   if (!workspace)
-    return NextResponse.json({ error: "workspace_required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "workspace_required" },
+      { status: 400, headers: { "cache-control": "private, no-store" } },
+    );
   const filters: UsageFilters = {};
   for (const key of [
     "from",
@@ -16,10 +19,12 @@ export async function GET(request: NextRequest) {
     "bindingId",
     "runId",
     "provider",
+    "model",
+    "runAfter",
     "after",
   ] as const) {
     const value = params.get(key);
-    if (value) Object.assign(filters, { [key]: value });
+    if (value !== null) Object.assign(filters, { [key]: value });
   }
   try {
     return NextResponse.json(await loadProviderUsage(workspace, filters), {
@@ -37,7 +42,7 @@ export async function GET(request: NextRequest) {
             : 500;
     return NextResponse.json(
       { error: status === 500 ? "usage_report_unavailable" : code },
-      { status },
+      { status, headers: { "cache-control": "private, no-store" } },
     );
   }
 }
