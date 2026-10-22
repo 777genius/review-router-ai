@@ -627,18 +627,19 @@ function queryFixture() {
   const rateKeys: unknown[] = [];
   const state = { rateLimitCount: 1 };
   const queryRaw = vi.fn(
-    async (query: TemplateStringsArray, ...values: unknown[]) => {
-      const sql = query.join("?");
+    async (query: TemplateStringsArray | Prisma.Sql, ...values: unknown[]) => {
+      const sql = "sql" in query ? query.sql : query.join("?");
+      const parameters = "sql" in query ? query.values : values;
       if (sql.includes('FROM "ScmRepositoryIdentity"'))
         return [{ version: 1, boundAt }];
       if (sql.includes('INSERT INTO "ActionOidcReplayNonce"')) {
-        const key = String(values[0]);
+        const key = String(parameters[0]);
         if (nonceKeys.has(key)) return [];
         nonceKeys.add(key);
         return [{ key }];
       }
       if (sql.includes('INSERT INTO "RateLimitBucket"')) {
-        rateKeys.push(values[0]);
+        rateKeys.push(parameters[0]);
         return [
           {
             count: state.rateLimitCount,
@@ -709,7 +710,37 @@ function queryFixture() {
     reviewSnapshot: { findUnique: snapshotFind },
     reviewExecutionCheckpoint: { findUnique: checkpointFind },
   };
-  const transactionBoundary = new Proxy(queries, {
+  const transactionQueries = {
+    ...queries,
+    $queryRaw: async (
+      query: TemplateStringsArray | Prisma.Sql,
+      ...values: unknown[]
+    ) => {
+      const sql = ("sql" in query ? query.sql : query.join("?"))
+        .replace(/\s+/gu, " ")
+        .trim();
+      const parameters = "sql" in query ? query.values : values;
+      // Exercise the production memory startup guard against an empty ledger.
+      // Keep its transaction-only reads separate from the action-session query
+      // spy, which asserts that denied requests do not access legacy authority.
+      if (
+        sql === "SELECT pg_advisory_xact_lock(1802399085, 1)::text" &&
+        parameters.length === 0
+      ) {
+        return [{ pg_advisory_xact_lock: "" }];
+      }
+      if (
+        sql ===
+          'SELECT EXISTS (SELECT 1 FROM "MemoryProjectionReceipt" WHERE "state" <> \'deleted\' AND "indexIdentity" <> ?) AS conflict, EXISTS (SELECT 1 FROM "MemoryProjectionReceipt" WHERE "indexIdentity" = ? AND "retiredAt" IS NOT NULL) AS retired' &&
+        parameters.length === 2 &&
+        parameters.every((value) => value === "prisma")
+      ) {
+        return [{ conflict: false, retired: false }];
+      }
+      return queryRaw(query, ...values);
+    },
+  };
+  const transactionBoundary = new Proxy(transactionQueries, {
     get(target, key) {
       if (key in target) return Reflect.get(target, key);
       unexpectedAccess.push(String(key));
@@ -722,8 +753,9 @@ function queryFixture() {
     {
       ...queries,
       $transaction: vi.fn(
-        async <T>(effect: (transaction: typeof queries) => Promise<T>) =>
-          effect(transactionBoundary),
+        async <T>(
+          effect: (transaction: typeof transactionQueries) => Promise<T>,
+        ) => effect(transactionBoundary),
       ),
     },
     {

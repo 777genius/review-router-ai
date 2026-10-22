@@ -93,7 +93,7 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps checkout140 source admission separate from historical96 and managed92 authority", () => {
+  it("keeps checkout141 source admission separate from historical96 and managed92 authority", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
     const full = names.map((migrationName) => ({
@@ -107,9 +107,9 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(140);
+    expect(full).toHaveLength(141);
     expect(manifest(full)).toBe(
-      "sha256:12ec2343e5de125175e4fc8946a9ab177034f60af43883b7c4ec8ac91a26ce48",
+      "sha256:f57efc9ec8fd5f1efcd8f9cea07586957e5bd4bf983f02f252b30dc474a67ec8",
     );
     const old125 = full
       .filter(
@@ -128,6 +128,7 @@ describe("canonical release migration transition", () => {
           row.migrationName !== "000138_pr_description" &&
           row.migrationName !== "000139_review_context_tools" &&
           row.migrationName !== "000140_personal_oauth_method" &&
+          row.migrationName !== "000141_memory_search_projections" &&
           row.migrationName !== "000133_allow_first_time_scm_identity_bind",
         "000132_review_policy_schema_v3",
       )
@@ -151,7 +152,7 @@ describe("canonical release migration transition", () => {
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
     expect(full).toEqual(readRenderManagedCheckoutInventory());
-    expect(full.slice(-32).map((row) => row.migrationName)).toEqual([
+    expect(full.slice(-33).map((row) => row.migrationName)).toEqual([
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",
       "000111_sdk_growth_source_binding",
@@ -184,6 +185,7 @@ describe("canonical release migration transition", () => {
       "000138_pr_description",
       "000139_review_context_tools",
       "000140_personal_oauth_method",
+      "000141_memory_search_projections",
     ]);
     const withoutProviderKey = historicalFull.filter(
       (row) =>
