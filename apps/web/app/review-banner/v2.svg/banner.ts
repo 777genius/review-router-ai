@@ -154,7 +154,7 @@ function headline(input: ReviewBannerInput): Headline {
 
 function renderBanner(input: ReviewBannerInput): string {
   const compact = input.layout === "compact";
-  const width = compact ? 600 : 1200;
+  const width = compact ? 480 : 1200;
   const height = compact ? 360 : 280;
   const dark = input.theme === "dark";
   const action = input.variant === "first";
@@ -229,15 +229,29 @@ function renderBanner(input: ReviewBannerInput): string {
           .map((key) => `${input.counts[key]} ${key}`);
   const left = compact ? 28 : 36;
   const headlineFirst =
-    action && input.state === "complete" && title.second && !compact
-      ? `${title.first} ${title.second}`
-      : title.first;
+    compact && input.state === "incomplete" && input.variant === "update"
+      ? "Update not finished"
+      : action && input.state === "complete" && title.second && !compact
+        ? `${title.first} ${title.second}`
+        : title.first;
   const headlineSecond =
-    action && input.state === "complete" && !compact ? undefined : title.second;
+    compact &&
+    input.variant === "update" &&
+    input.update.resolved > 0 &&
+    input.update.open > 0 &&
+    input.update.unverified > 0
+      ? `${input.update.open} open; ${input.update.unverified} unverified.`
+      : action && input.state === "complete" && !compact
+        ? undefined
+        : title.second;
+  const note =
+    compact && input.variant === "update" && input.state === "incomplete"
+      ? "Open issues await confirmation."
+      : title.note;
   const svgTitle = [status, headlineFirst, headlineSecond, coverage, ...metrics]
     .filter(Boolean)
     .join(" · ");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="title"><title id="title">${escapeXml(svgTitle)}</title><defs><linearGradient id="background"><stop stop-color="${tint}"/><stop offset="1" stop-color="${background}"/></linearGradient></defs><rect width="${width}" height="${height}" rx="8" fill="url(#background)"/>${action ? `<path d="M2 8V${height - 8}" stroke="${accent}" stroke-width="4"/>` : ""}<g font-family="Arial,Helvetica,sans-serif">${text(left, compact ? 38 : 43, status, 22, muted, ' font-weight="600" letter-spacing="2"')}${coverage ? text(compact ? left : width - left, compact ? 73 : 43, coverage, compact ? 22 : 20, muted, compact ? "" : ' text-anchor="end"') : ""}${text(left, compact ? 126 : 112, headlineFirst, compact ? 34 : 40, ink, ' font-weight="600" letter-spacing="-0.6"')}${headlineSecond ? text(left, compact ? 168 : 159, headlineSecond, compact ? 34 : 40, ink, ' font-weight="600" letter-spacing="-0.6"') : ""}${text(left, compact ? 211 : 195, title.note, compact ? 21 : 22, muted)}${metrics.length > 0 ? `<path d="M${left} ${compact ? 236 : 216}H${width - left}" stroke="${line}"/>` : ""}${metrics.map((metric, index) => text(left + (compact ? (index % 2) * 280 : index * 282), compact ? 277 + Math.floor(index / 2) * 48 : 255, metric, compact ? 26 : 25, input.variant === "update" && index === 1 ? (dark ? "#7ee787" : "#1a7f37") : accent, ' font-weight="600"')).join("")}</g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="title"><title id="title">${escapeXml(svgTitle)}</title><defs><linearGradient id="background"><stop stop-color="${tint}"/><stop offset="1" stop-color="${background}"/></linearGradient></defs><rect width="${width}" height="${height}" rx="8" fill="url(#background)"/>${action ? `<path d="M2 8V${height - 8}" stroke="${accent}" stroke-width="4"/>` : ""}<g font-family="Arial,Helvetica,sans-serif">${text(left, compact ? 38 : 43, status, 22, muted, ' font-weight="600" letter-spacing="2"')}${coverage ? text(compact ? left : width - left, compact ? 73 : 43, coverage, compact ? 22 : 20, muted, compact ? "" : ' text-anchor="end"') : ""}${text(left, compact ? 126 : 112, headlineFirst, compact ? 32 : 40, ink, ' font-weight="600" letter-spacing="-0.6"')}${headlineSecond ? text(left, compact ? 168 : 159, headlineSecond, compact ? 28 : 40, ink, ' font-weight="600" letter-spacing="-0.6"') : ""}${text(left, compact ? 211 : 195, note, 22, muted)}${metrics.length > 0 ? `<path d="M${left} ${compact ? 236 : 216}H${width - left}" stroke="${line}"/>` : ""}${metrics.map((metric, index) => text(left + (compact ? (index % 2) * ((width - left * 2) / 2) : index * 282), compact ? 277 + Math.floor(index / 2) * 48 : 255, metric, compact ? 26 : 25, input.variant === "update" && index === 1 ? (dark ? "#7ee787" : "#1a7f37") : accent, ' font-weight="600"')).join("")}</g></svg>`;
 }
 
 export function reviewBannerResponse(request: Request): Response {

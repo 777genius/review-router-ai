@@ -138,7 +138,7 @@ describe("review banner v2", () => {
         expect(svg).toContain(
           layout === "wide"
             ? 'viewBox="0 0 1200 280"'
-            : 'viewBox="0 0 600 360"',
+            : 'viewBox="0 0 480 360"',
         );
         expect(svg).toContain("9999 unverified");
       }
