@@ -174,12 +174,9 @@ importers:
 
   apps/api:
     dependencies:
-      '@reviewrouter/features-review-context-tools':
-        specifier: workspace:*
-        version: link:../../packages/features/review-context-tools
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-usage-78e6d53e.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-usage-78e6d53e.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-device-sign-in.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-device-sign-in.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -243,6 +240,9 @@ importers:
       '@reviewrouter/features-review-context-attestation':
         specifier: workspace:*
         version: link:../../packages/features/review-context-attestation
+      '@reviewrouter/features-review-context-tools':
+        specifier: workspace:*
+        version: link:../../packages/features/review-context-tools
       '@reviewrouter/features-review-evidence':
         specifier: workspace:*
         version: link:../../packages/features/review-evidence
@@ -318,12 +318,9 @@ importers:
 
   apps/web:
     dependencies:
-      '@reviewrouter/features-review-context-tools':
-        specifier: workspace:*
-        version: link:../../packages/features/review-context-tools
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-usage-78e6d53e.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-usage-78e6d53e.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-device-sign-in.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-device-sign-in.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -366,12 +363,12 @@ importers:
       '@reviewrouter/features-provider-accounts':
         specifier: workspace:*
         version: link:../../packages/features/provider-accounts
-      '@reviewrouter/features-provider-usage':
-        specifier: workspace:*
-        version: link:../../packages/features/provider-usage
       '@reviewrouter/features-provider-setup':
         specifier: workspace:*
         version: link:../../packages/features/provider-setup
+      '@reviewrouter/features-provider-usage':
+        specifier: workspace:*
+        version: link:../../packages/features/provider-usage
       '@reviewrouter/features-rate-limits':
         specifier: workspace:*
         version: link:../../packages/features/rate-limits
@@ -384,6 +381,9 @@ importers:
       '@reviewrouter/features-review-config':
         specifier: workspace:*
         version: link:../../packages/features/review-config
+      '@reviewrouter/features-review-context-tools':
+        specifier: workspace:*
+        version: link:../../packages/features/review-context-tools
       '@reviewrouter/features-review-providers':
         specifier: workspace:*
         version: link:../../packages/features/review-providers
@@ -910,15 +910,15 @@ importers:
 
   packages/features/review-config:
     dependencies:
-      '@reviewrouter/features-review-context-tools':
-        specifier: workspace:*
-        version: link:../review-context-tools
       '@prisma/client':
         specifier: ^7.8.0
         version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
       '@reviewrouter/features-provider-accounts':
         specifier: workspace:*
         version: link:../provider-accounts
+      '@reviewrouter/features-review-context-tools':
+        specifier: workspace:*
+        version: link:../review-context-tools
       '@reviewrouter/features-review-providers':
         specifier: workspace:*
         version: link:../review-providers
@@ -942,6 +942,15 @@ importers:
         specifier: 8.23.0
         version: 8.23.0
 
+  packages/features/review-context-attestation:
+    dependencies:
+      '@prisma/client':
+        specifier: 7.8.0
+        version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
+      '@reviewrouter/platform-db':
+        specifier: workspace:*
+        version: link:../../platform/db
+
   packages/features/review-context-tools:
     dependencies:
       '@prisma/client':
@@ -956,15 +965,6 @@ importers:
       zod:
         specifier: ^4.4.2
         version: 4.4.2
-
-  packages/features/review-context-attestation:
-    dependencies:
-      '@prisma/client':
-        specifier: 7.8.0
-        version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
-      '@reviewrouter/platform-db':
-        specifier: workspace:*
-        version: link:../../platform/db
 
   packages/features/review-evidence:
     dependencies:
@@ -1257,8 +1257,8 @@ packages:
   '@actions/io@3.0.2':
     resolution: {integrity: sha512-nRBchcMM+QK1pdjO7/idu86rbJI5YHUKCvKs0KxnSYbVe3F51UfGxuZX4Qy/fWlp6l7gWFwIkrOzN+oUK03kfw==}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-usage-78e6d53e.tgz':
-    resolution: {integrity: sha512-nAxIxByo7tEyiKDvG5i3bI27qur7UONOUqtYlBCZFyrB2qFPdAsoDmoMKG2HqrOeqOECQiIGNFsMCY7F5Jq0Mw==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-usage-78e6d53e.tgz}
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-device-sign-in.tgz':
+    resolution: {integrity: sha512-hsQNdnjXY3TkW20Ki+l6whiuj/SLXzRxShhLD8sWPyg8awzNbOAJzh/HqExrnrXOpU0mUTUbUIP9n2mqUeosRg==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-device-sign-in.tgz}
     version: 0.1.0
     engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
 
@@ -6236,7 +6236,7 @@ snapshots:
 
   '@actions/io@3.0.2': {}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-usage-78e6d53e.tgz':
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-device-sign-in.tgz':
     dependencies:
       '@get-modular/assembly': 0.2.0
       '@get-modular/core': 0.2.0

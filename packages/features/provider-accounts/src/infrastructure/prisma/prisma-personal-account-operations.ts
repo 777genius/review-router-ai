@@ -51,14 +51,20 @@ function toIntent(row: OperationRow): PersonalAccountIntent {
   // non-intent column. Gateway counters alone need bigint->safe-number mapping.
   return snapshotPersonalIntent({
     ...row,
+    ...(row.oauthMethod !== null ? { method: row.oauthMethod } : {}),
     expectedGatewayRevision: Number(row.expectedGatewayRevision),
     expectedAuthorizationEpoch: Number(row.expectedAuthorizationEpoch),
   } as PersonalAccountIntent);
 }
 function operationData(input: PersonalAccountIntent) {
   const intent = snapshotPersonalIntent(input);
-  return {
+  const { method, ...columns } = {
     ...intent,
+    method: intent.action === "connect" ? intent.method : undefined,
+  };
+  return {
+    ...columns,
+    ...(method === "device_code" ? { oauthMethod: method } : {}),
     id: personalOperationId(intent.actorUserId, intent.clientOperationId),
     normalizedIntentHash: personalIntentDigest(intent),
     expectedGatewayRevision:

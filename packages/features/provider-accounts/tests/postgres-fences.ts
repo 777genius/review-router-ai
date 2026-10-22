@@ -19,6 +19,7 @@ import type { PrismaClient } from "@prisma/client";
 import { PrismaPersonalAccountOperations } from "../src/infrastructure/prisma/prisma-personal-account-operations";
 import {
   personalOperationId,
+  personalIntentDigest,
   type PersonalAccountIntent,
 } from "../src/application/use-cases/personal-account-operations";
 import { selectBinding } from "../src/domain/provider-account";
@@ -486,6 +487,100 @@ export async function runBindingFencePostgresTests(
         actor,
       });
     }
+
+    // A persisted method switch would make a recovered nonce enter the wrong OAuth ingress.
+    await t.test(
+      "personal OAuth method persists without changing legacy browser hashes",
+      async () => {
+        const suffix = randomUUID();
+        const userId = `device-owner-${suffix}`;
+        await db.user.create({ data: { id: userId } });
+        const store = new PrismaPersonalAccountOperations(db);
+        const personalWorkspaceId =
+          await store.resolvePersonalWorkspace(userId);
+        const intent: PersonalAccountIntent & { action: "connect" } = {
+          action: "connect",
+          actorUserId: userId,
+          clientOperationId: randomUUID(),
+          personalWorkspaceId,
+          proposedSourceId: `device-source-${suffix}`,
+          profileId: "codex-device",
+          displayName: "Codex",
+          ingress: "oauth-begin",
+        };
+        const legacy = await store.reserveConnect(intent);
+        {
+          const row = await db.personalAccountOperation.findUniqueOrThrow({
+            where: { id: legacy.id },
+          });
+          assert.equal(row.oauthMethod, null);
+          assert.equal(row.normalizedIntentHash, personalIntentDigest(intent));
+          assert.equal(
+            (await store.reserveConnect({ ...intent, method: "browser" })).id,
+            legacy.id,
+          );
+        }
+        const deviceIntent = {
+          ...intent,
+          clientOperationId: randomUUID(),
+          proposedSourceId: `device-source-new-${suffix}`,
+          method: "device_code" as const,
+        };
+        const device = await store.reserveConnect(deviceIntent);
+        const row = await db.personalAccountOperation.findUniqueOrThrow({
+          where: { id: device.id },
+        });
+        assert.equal(row.oauthMethod, "device_code");
+        assert.equal(
+          row.normalizedIntentHash,
+          personalIntentDigest(deviceIntent),
+        );
+        const recovered = await new PrismaPersonalAccountOperations(
+          secondDb,
+        ).readOperation(userId, deviceIntent.clientOperationId);
+        assert.equal(
+          recovered.intent.action === "connect" && recovered.intent.method,
+          "device_code",
+        );
+        await assert.rejects(
+          store.reserveConnect({ ...deviceIntent, method: "browser" }),
+          denied("operation_conflict"),
+        );
+        for (const [id, method] of [
+          [legacy.id, "device_code"],
+          [device.id, null],
+        ] as const)
+          await assert.rejects(
+            sql.query(
+              `UPDATE "PersonalAccountOperation" SET "oauthMethod"=$1 WHERE "id"=$2`,
+              [method, id],
+            ),
+            sqlCode("23514"),
+          );
+        for (const [ingress, method] of [
+          ["oauth-begin", "browser"],
+          ["api-key-create", "device_code"],
+        ] as const) {
+          const invalidId = randomUUID();
+          await assert.rejects(
+            sql.query(
+              `INSERT INTO "PersonalAccountOperation"
+          ("id","actorUserId","clientOperationId","action","personalWorkspaceId","proposedSourceId","profileId","displayName","ingress","oauthMethod","normalizedIntentHash","phase","updatedAt")
+          VALUES ($1,$2,$1,'connect',$3,$1,'codex-device','Codex',$4,$5,$6,'reserved',now())`,
+              [
+                invalidId,
+                userId,
+                personalWorkspaceId,
+                ingress,
+                method,
+                "a".repeat(64),
+              ],
+            ),
+            sqlCode("23514"),
+          );
+        }
+      },
+    );
 
     // RED: pair/history races, terminal resurrection, old FK adoption, stale
     // lineage reuse or role loss leaves personal authority alive in this real DB.
@@ -1871,7 +1966,8 @@ export async function runBindingFencePostgresTests(
         const restartedProcess = spawnSync(
           process.execPath,
           [
-            "--experimental-transform-types",
+            "--import",
+            "tsx",
             "--import",
             fileURLToPath(
               new URL("./register-source-loader.mjs", import.meta.url),

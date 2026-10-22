@@ -38,6 +38,6 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.tests.json",
     "test": "node --import ./tests/register-source-loader.mjs --test tests/use-cases.test.mts tests/database-target.test.mts tests/fences.test.mts tests/binding-policy.test.mts tests/account-lifecycle.test.mts",
-    "test:postgres": "node --experimental-transform-types --import ./tests/register-source-loader.mjs --test tests/postgres.test.mts"
+    "test:postgres": "node --import tsx --import ./tests/register-source-loader.mjs --test tests/postgres.test.mts"
   }
 }

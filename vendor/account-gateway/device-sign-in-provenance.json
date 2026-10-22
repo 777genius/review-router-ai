@@ -1,0 +1,42 @@
+{
+  "kind": "private_sdk_committed_source_pack",
+  "sourceRepository": "https://github.com/agent-teams-ai/account-gateway",
+  "sourceCommit": "c8b94471db85e7ba2a2d94b267f91a07a12d3a96",
+  "sourceTree": "ee5f68cd8f945c53e9a60be62048c9587bc1eda5",
+  "uncommittedSource": false,
+  "sourceFiles": {
+    "packages/account-gateway/src/contracts/index.ts": "6a7f18eb565255bc9480639cda936006188884e224aaef1e0b931e833375d8fd",
+    "packages/account-gateway/src/features/facade-client/contracts/index.ts": "809374e22e6f1941f02995504bf7e586d3dcef75ce3e2e22fc8457a2ea84d639",
+    "packages/account-gateway/src/features/facade-client/http/index.ts": "e22f82d5e3c646842d31bb5194cd47034f7115c5917987893a767a1ed6b4b616",
+    "packages/account-gateway/src/features/facade-client/http/ingress.ts": "7968c9f0fbc5b290d0fe8d7aeb8b62e5a45187fcda30e5d4fd96e964816f14e2",
+    "packages/account-gateway/src/get-modular/index.ts": "e6ea38b7b03cab7ef80bfa19e8027c579908eaaf695f3e576e6189c1ee69c614",
+    "packages/account-gateway/src/http/index.ts": "490488b684d0fb7cd3a7bc16e85eed4c30aa066e68b9693ae1d307c3ae253959"
+  },
+  "vendoredArchive": "vendor/account-gateway/agent-teams-account-gateway-0.1.0-device-sign-in.tgz",
+  "sha256": "f17d5038fa6398e088e99960a72b2e5b09b9c0575884c94282522b2596b9c7ab",
+  "bytes": 21616,
+  "published": false,
+  "nativeDependency": {
+    "sourceRepository": "https://github.com/agent-teams-ai/sub2api",
+    "sourceCommit": "3d4f90515eb6cb87c59992aa121c17e01ad575a3",
+    "migration": "251_gateway_oauth_device_connect.sql"
+  },
+  "qualification": {
+    "gatewayOAuthPostgres": {
+      "passed": 74,
+      "postgres": "17.10"
+    },
+    "gatewayDomain": {
+      "passed": 59
+    },
+    "sdkNativeHttp": {
+      "passed": 18,
+      "existingConditionalSkipped": 1
+    },
+    "saasProviderPostgres": {
+      "passed": 26,
+      "postgres": "17.10"
+    },
+    "scope": "Controlled provider fixtures and disposable databases. No real OpenAI sign-in or production deployment."
+  }
+}
