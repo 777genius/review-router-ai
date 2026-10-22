@@ -91,18 +91,13 @@
   "capabilities": {
     "cachedRead": true,
     "quotaOnlyRefresh": false,
-    "supportedFamilies": [
-      "codex",
-      "claude"
-    ],
+    "supportedFamilies": ["codex", "claude"],
     "claude": {
       "profileId": "anthropic-claude-oauth-messages-v1",
       "modelId": "claude-sonnet-4-6",
       "catalogProtocol": "openai-responses",
       "nativeProviderProtocol": "anthropic-messages",
-      "oauthMethods": [
-        "browser"
-      ]
+      "oauthMethods": ["browser"]
     }
   },
   "qualification": {
@@ -111,18 +106,12 @@
       "head": "36027f164c149a4fff4a2eff16c557f360650853",
       "status": "completed",
       "conclusion": "success",
-      "runs": [
-        39842019099,
-        39842019296
-      ],
+      "runs": [39842019099, 39842019296],
       "runURLs": [
         "https://github.com/agent-teams-ai/account-gateway/actions/runs/39842019099",
         "https://github.com/agent-teams-ai/account-gateway/actions/runs/39842019296"
       ],
-      "nodeLanes": [
-        "24.21.0",
-        "26.11.1"
-      ],
+      "nodeLanes": ["24.21.0", "26.11.1"],
       "checkCount": 6,
       "checks": [
         "kernel",
@@ -369,14 +358,8 @@
         "gatewayCI": {
           "head": "b36a5400b6747d2569ca236d868cd494ea0bd6a1",
           "conclusion": "success",
-          "runs": [
-            39785120815,
-            39785120835
-          ],
-          "nodeLanes": [
-            "24.21.0",
-            "26.11.1"
-          ],
+          "runs": [39785120815, 39785120835],
+          "nodeLanes": ["24.21.0", "26.11.1"],
           "checkCount": 6
         },
         "installedIndependentConsumers": 2,

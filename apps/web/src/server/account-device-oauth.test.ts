@@ -499,24 +499,20 @@ test("workspace device polling uses the original owner operation and never polls
 test("Claude personal browser completion is bound to the saved profile and owner without persisting its code", async () => {
   const f = await fixture(claudeProfileId);
   const nonce = randomUUID();
-  const fresh = await f
-    .personal()
-    .connect({
-      nonce,
-      profileId: claudeProfileId,
-      label: "My Claude",
-      method: "browser",
-    });
+  const fresh = await f.personal().connect({
+    nonce,
+    profileId: claudeProfileId,
+    label: "My Claude",
+    method: "browser",
+  });
   expect(fresh.authorizationURL).toContain(
     "https://claude.com/cai/oauth/authorize?",
   );
   await expect(
-    f
-      .personal()
-      .completeOAuth({
-        nonce,
-        callbackURL: `http://localhost:1455/auth/callback?code=synthetic&state=${"c".repeat(64)}`,
-      }),
+    f.personal().completeOAuth({
+      nonce,
+      callbackURL: `http://localhost:1455/auth/callback?code=synthetic&state=${"c".repeat(64)}`,
+    }),
   ).rejects.toMatchObject({ code: "connection_unavailable" });
   expect(f.completions).toHaveLength(0);
   f.actor("foreign-owner");
