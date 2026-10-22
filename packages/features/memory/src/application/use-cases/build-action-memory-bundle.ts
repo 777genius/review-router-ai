@@ -155,6 +155,9 @@ async function searchBundleCandidates(
         ...selection,
         activeAt: currentTime(dependencies),
       };
+      // Queryability belongs to this adapter. Legacy canonical index flags can
+      // describe a previous engine or be overwritten by a concurrent same-body
+      // edit; exact canonical revision and policy remain the authority here.
       const selected = new Map<string, MemoryItemSnapshot>();
       for (const hit of boundedHits) {
         const item = byId.get(hit.memoryItemId);
@@ -163,9 +166,7 @@ async function searchBundleCandidates(
           isAuthorizedCurrentItem(item, finalSelection) &&
           item.scope === hit.scope &&
           item.bodyVersion === hit.bodyVersion &&
-          item.bodyHash === hit.bodyHash &&
-          item.indexState === "indexed" &&
-          item.indexVersion === item.bodyVersion
+          item.bodyHash === hit.bodyHash
         )
           selected.set(item.id, item);
       }

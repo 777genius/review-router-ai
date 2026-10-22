@@ -24,7 +24,9 @@ const usage = [
   "Backfill enqueues one page; continue with nextCursor until null.",
   "Drain performs one bounded pass using the retained old configuration.",
   "Stop API/worker writers before asserting --writers-stopped.",
-  "Exit 2 means drain debt remains; repeat without changing configuration.",
+  "Exit 2 means drain debt or blocked backfill events remain.",
+  "Retry backfill dead-letter events through the workspace Outbox action.",
+  "Repeat drain without changing configuration while debt remains.",
   "After a successful drain, use a fresh projection generation.",
 ].join("\n");
 
@@ -123,10 +125,16 @@ async function main(): Promise<number> {
     });
     if (command.kind === "backfill") {
       const result = await runtime.backfill(command);
+      const blocked = result.deadLetterEventIds.length > 0;
       process.stdout.write(
-        JSON.stringify({ command: command.kind, ...result }) + "\n",
+        JSON.stringify({
+          command: command.kind,
+          ...result,
+          deadLetterCount: result.deadLetterEventIds.length,
+          ...(blocked ? { code: "memory_projection_backfill_blocked" } : {}),
+        }) + "\n",
       );
-      return 0;
+      return blocked ? 2 : 0;
     }
     const result = await runtime.drain(command);
     const pending = result.pending > 0;

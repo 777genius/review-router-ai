@@ -17,7 +17,7 @@ const admissionLock = Prisma.sql`SELECT pg_advisory_xact_lock(1802399085, 1)::te
 const isCurrent = Prisma.sql`EXISTS (
   SELECT 1 FROM "MemoryItem" m WHERE m."id" = p."memoryItemId"
     AND m."workspaceId" = p."workspaceId" AND m."status" = 'active'
-    AND (m."expiresAt" IS NULL OR m."expiresAt" > CURRENT_TIMESTAMP)
+    AND (m."expiresAt" IS NULL OR m."expiresAt" > clock_timestamp())
     AND m."bodyVersion" = p."bodyVersion" AND m."bodyHash" = p."bodyHash"
     AND m."scope"::text = p."scope"
     AND m."repositoryId" IS NOT DISTINCT FROM p."repositoryId"
@@ -172,7 +172,7 @@ export class PrismaInfinityMemoryProjectionStore implements MemoryProjectionRece
     >(Prisma.sql`
       SELECT NOT EXISTS (
         SELECT 1 FROM "MemoryItem" m WHERE m."workspaceId" = ${scope.workspaceId}
-          AND m."status" = 'active' AND (m."expiresAt" IS NULL OR m."expiresAt" > CURRENT_TIMESTAMP)
+          AND m."status" = 'active' AND (m."expiresAt" IS NULL OR m."expiresAt" > clock_timestamp())
           AND (${Prisma.join(scopes, " OR ")}) AND NOT EXISTS (
             SELECT 1 FROM "MemoryProjectionReceipt" p WHERE p."indexIdentity" = ${input.indexIdentity}
               AND p."workspaceId" = m."workspaceId" AND p."memoryItemId" = m."id"
@@ -276,11 +276,17 @@ export class PrismaInfinityMemoryProjectionStore implements MemoryProjectionRece
   ): Promise<boolean> {
     const items = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
       SELECT m."id" FROM "MemoryItem" m WHERE m."id" = ${revision.memoryItemId} AND m."workspaceId" = ${revision.workspaceId}
-        AND m."status" = 'active' AND (m."expiresAt" IS NULL OR m."expiresAt" > CURRENT_TIMESTAMP)
+        AND m."status" = 'active'
         AND m."bodyVersion" = ${revision.bodyVersion} AND m."bodyHash" = ${revision.bodyHash}
         AND m."scope"::text = ${revision.scope} AND m."repositoryId" IS NOT DISTINCT FROM ${revision.repositoryId}
         AND m."userId" IS NOT DISTINCT FROM ${revision.userId} FOR UPDATE`);
-    return items.length === 1;
+    if (items.length !== 1) return false;
+    // A transaction/statement timestamp or a predicate evaluated before waiting
+    // for FOR UPDATE can outlive the TTL. Recheck only after owning the row.
+    const [current] = await tx.$queryRaw<{ active: boolean }[]>(Prisma.sql`
+      SELECT ("expiresAt" IS NULL OR "expiresAt" > clock_timestamp()) AS active
+      FROM "MemoryItem" WHERE "id" = ${revision.memoryItemId}`);
+    return current?.active === true;
   }
 
   private async findOne(

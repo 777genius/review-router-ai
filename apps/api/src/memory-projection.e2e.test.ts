@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import type { PrismaClient } from "@prisma/client";
 import {
   defaultActionOidcAudience,
@@ -28,6 +30,7 @@ import { createMemoryOutboxHandlers } from "@reviewrouter/features-memory/outbox
 import {
   PrismaOutboxEventRepository,
   processOutboxBatch,
+  retryDeadLetterOutboxEvent,
 } from "@reviewrouter/features-outbox";
 import { createPrismaClient } from "@reviewrouter/platform-db";
 import { SystemClock } from "@reviewrouter/shared";
@@ -360,11 +363,13 @@ describe
         scanned: 1,
         enqueued: 1,
         nextCursor: null,
+        deadLetterEventIds: [],
       });
       expect(await runtime.backfill({ limit: 1 })).toEqual({
         scanned: 1,
         enqueued: 0,
         nextCursor: null,
+        deadLetterEventIds: [],
       });
       const backfillEvent = await prisma.outboxEvent.findFirstOrThrow({
         where: {
@@ -377,6 +382,37 @@ describe
         bodyHash: oldCanonical.bodyHash,
         targetIndexIdentity: runtime.searchIndex.indexIdentity,
       });
+      await prisma.outboxEvent.update({
+        where: { id: backfillEvent.id },
+        data: { status: "dead_letter", deadLetteredAt: clock.now() },
+      });
+      expect(await runtime.backfill({ limit: 1 })).toEqual({
+        scanned: 1,
+        enqueued: 0,
+        nextCursor: null,
+        deadLetterEventIds: [backfillEvent.id],
+      });
+      const blocked = await runBackfillOperator(fixture, databaseUrl!);
+      expect(blocked.exitCode).toBe(2);
+      expect(JSON.parse(blocked.stdout)).toMatchObject({
+        command: "backfill",
+        enqueued: 0,
+        deadLetterEventIds: [backfillEvent.id],
+        deadLetterCount: 1,
+        code: "memory_projection_backfill_blocked",
+      });
+      expect(blocked.stderr).toBe("");
+      expect(
+        await prisma.outboxEvent.findUniqueOrThrow({
+          where: { id: backfillEvent.id },
+        }),
+      ).toMatchObject({ status: "dead_letter" });
+      expect(
+        await retryDeadLetterOutboxEvent(
+          { workspaceId, eventId: backfillEvent.id },
+          { outbox: new PrismaOutboxEventRepository(prisma), clock },
+        ),
+      ).toEqual({ status: "queued" });
       expect(await processBatch()).toMatchObject({
         processed: 1,
         retried: 0,
@@ -412,7 +448,7 @@ describe
       ).toHaveLength(1);
       expect(fixture.requests).toHaveLength(beforeUnsafe);
       await assertPrivateMetadata(body);
-    });
+    }, 20_000);
 
     it("pages backfill by stable canonical ID and excludes expired or unconfirmed records", async () => {
       const active = [
@@ -431,12 +467,14 @@ describe
         scanned: 1,
         enqueued: 1,
         nextCursor: active[0],
+        deadLetterEventIds: [],
       });
       expect(await runtime.backfill({ limit: 1, afterId: active[0]! })).toEqual(
         {
           scanned: 1,
           enqueued: 1,
           nextCursor: null,
+          deadLetterEventIds: [],
         },
       );
       const events = await prisma.outboxEvent.findMany({
@@ -567,6 +605,50 @@ describe
       ).rejects.toThrow("memory_index_generation_retired");
     });
   });
+
+function runBackfillOperator(
+  fixture: InfinityProtocolFixture,
+  databaseUrl: string,
+): Promise<{
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        fileURLToPath(
+          new URL(
+            "../../worker/src/memory-projection-operator.ts",
+            import.meta.url,
+          ),
+        ),
+        "backfill",
+        "--limit",
+        "1",
+      ],
+      {
+        env: {
+          ...process.env,
+          ...fixtureEnvironment(fixture),
+          DATABASE_URL: databaseUrl,
+        },
+        timeout: 15_000,
+        maxBuffer: 16_384,
+      },
+      (error, stdout, stderr) => {
+        if (error && typeof error.code !== "number") {
+          reject(error);
+          return;
+        }
+        resolve({ exitCode: error?.code ?? 0, stdout, stderr });
+      },
+    );
+  });
+}
 
 function fixtureEnvironment(
   fixture: InfinityProtocolFixture,

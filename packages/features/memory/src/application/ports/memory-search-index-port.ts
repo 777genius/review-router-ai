@@ -34,6 +34,7 @@ export type MemorySearchIndexScoreParts = {
   readonly riskPenalty: number;
 };
 
+/** Every hit certifies a queryable exact revision in this configured index. */
 export type MemorySearchIndexResult = {
   readonly memoryItemId: string;
   readonly bodyVersion: number;

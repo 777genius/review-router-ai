@@ -12,6 +12,7 @@ export type MemoryProjectionBackfillResult = {
   readonly scanned: number;
   readonly enqueued: number;
   readonly nextCursor: string | null;
+  readonly deadLetterEventIds: readonly string[];
 };
 
 type BackfillRevision = {
@@ -52,6 +53,7 @@ export async function enqueueMemoryProjectionBackfill(
   const page = records.slice(0, limit);
   const outbox = new PrismaMemoryOutbox(prisma);
   let enqueued = 0;
+  const deadLetterEventIds: string[] = [];
   for (const revision of page) {
     const identity = createHash("sha256")
       .update(
@@ -64,10 +66,11 @@ export async function enqueueMemoryProjectionBackfill(
         ]),
       )
       .digest("hex");
+    const idempotencyKey = "memory.embedding.backfill:" + identity;
     const result = await outbox.enqueue({
       type: "memory.embedding.reindex.requested",
       version: 1,
-      idempotencyKey: "memory.embedding.backfill:" + identity,
+      idempotencyKey,
       workspaceId: revision.workspaceId,
       repositoryId: revision.repositoryId,
       aggregateId: revision.id,
@@ -78,11 +81,22 @@ export async function enqueueMemoryProjectionBackfill(
         targetIndexIdentity: indexIdentity,
       },
     });
-    if (result.created) enqueued += 1;
+    if (result.created) {
+      enqueued += 1;
+    } else {
+      const existing = await prisma.outboxEvent.findUnique({
+        where: { idempotencyKey },
+        select: { id: true, status: true },
+      });
+      if (existing?.status === "dead_letter") {
+        deadLetterEventIds.push(existing.id);
+      }
+    }
   }
   return {
     scanned: page.length,
     enqueued,
     nextCursor: records.length > limit ? page.at(-1)!.id : null,
+    deadLetterEventIds,
   };
 }

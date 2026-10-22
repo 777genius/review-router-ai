@@ -323,7 +323,7 @@ export class PrismaMemoryItemRepository implements MemoryItemRepositoryPort {
         AND "status" = 'active'::"MemoryItemStatus"
         AND "bodyHash" = ${input.bodyHash}
         AND "bodyVersion" = ${input.bodyVersion}
-        AND ("expiresAt" IS NULL OR "expiresAt" > CURRENT_TIMESTAMP)
+        AND ("expiresAt" IS NULL OR "expiresAt" > clock_timestamp())
       RETURNING "id"
     `;
     return { updatedCount: updated.length };

@@ -21,9 +21,16 @@ images. See [the implementation plan](../../plans/2026-10-22-memory-engine-adapt
   protected backend export remain available. This is a dashboard pause, not a
   runtime memory service flag or a deletion of existing records.
 - Current browser QA covers the actual dashboard, old query parameters and the
-  guarded preview at 1440x1000, 900x1100 and 390x844. The notice must have no
-  controls or clipped content. Captures belong in ignored
-  `tmp/design-verification/memory/`; record actual results in delivery evidence.
+  guarded preview at 1440x1000, 900x1100 and 390x844. On 2026-10-22,
+  `pnpm memory:qualify-browser` passed all 15 route/viewport cases with a signed
+  test session and real database membership authorization. The application's
+  temporary read-only role had no privileges on any of the four Memory tables.
+  There were no memory API requests, browser errors, forms or horizontal page
+  overflow. The six desktop/tablet/mobile dashboard and preview captures were
+  visually checked: the notice is readable without clipped content or controls.
+  See [the reproducible browser harness](../../../scripts/memory-e2e/browser-README.md)
+  for commands, artifact locations and the development-server/schema-preparation
+  limits of this evidence.
 
 The manager layout and verification matrix below describe the retained design,
 not the currently available UI.

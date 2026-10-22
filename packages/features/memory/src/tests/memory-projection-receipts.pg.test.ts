@@ -493,6 +493,152 @@ describe.skipIf(!databaseUrl)(
       ).not.toBeNull();
     });
 
+    it.each(["advisory", "canonical-row"] as const)(
+      "checks fresh expiry after waiting for the %s lock",
+      async (kind) => {
+        const { revision } = await seed(`expiry-lock-${kind}`);
+        const receipt = (await receipts.reserve({
+          ...revision,
+          indexIdentity,
+        }))!;
+        await prisma.$executeRaw(
+          Prisma.sql`UPDATE "MemoryItem" SET "expiresAt" = clock_timestamp() + interval '1500 milliseconds' WHERE "id" = ${revision.memoryItemId}`,
+        );
+        let release = () => undefined as void;
+        let acquired = () => undefined as void;
+        const releaseLock = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const locked = new Promise<void>((resolve) => {
+          acquired = resolve;
+        });
+        const blocker = otherConnection.$transaction(
+          async (tx) => {
+            if (kind === "advisory")
+              await tx.$queryRaw`SELECT pg_advisory_xact_lock(1802399085, 1)::text`;
+            else
+              await tx.$queryRaw(
+                Prisma.sql`SELECT "id" FROM "MemoryItem" WHERE "id" = ${revision.memoryItemId} FOR UPDATE`,
+              );
+            acquired();
+            await releaseLock;
+          },
+          { timeout: 10_000 },
+        );
+        await locked;
+        const admission = receipts.admitSend({
+          indexIdentity,
+          receiptId: receipt.id,
+        });
+        try {
+          await expect
+            .poll(
+              async () => {
+                const [waiting] = await prisma.$queryRaw<
+                  { count: number }[]
+                >(Prisma.sql`
+            SELECT count(*)::int AS count FROM pg_stat_activity
+            WHERE datname = current_database() AND pid <> pg_backend_pid() AND wait_event_type = 'Lock'
+              AND query LIKE ${kind === "advisory" ? "%pg_advisory_xact_lock%" : "%MemoryItem%FOR UPDATE%"}`);
+                return waiting?.count ?? 0;
+              },
+              { interval: 10, timeout: 2_000 },
+            )
+            .toBeGreaterThan(0);
+          await prisma.$queryRaw(
+            Prisma.sql`SELECT pg_sleep(GREATEST(0, EXTRACT(EPOCH FROM ("expiresAt" - clock_timestamp())))::double precision + 0.03)::text FROM "MemoryItem" WHERE "id" = ${revision.memoryItemId}`,
+          );
+          release();
+          await blocker;
+          expect(await admission).toBeNull();
+          expect(
+            await receipts.findByReceiptIds({
+              indexIdentity,
+              receiptIds: [receipt.id],
+            }),
+          ).toMatchObject([{ state: "reserved", isCurrent: false }]);
+        } finally {
+          release();
+          await blocker;
+          await admission;
+        }
+      },
+    );
+
+    it("recovers indexed receipt readiness without replaying an outbox event or trusting legacy flags", async () => {
+      const { snapshot } = await seed("maintenance-ready");
+      const peer = await InfinityProtocolFixture.start();
+      try {
+        peer.autoIndex = false;
+        const engine = new InfinityMemorySearchIndex({
+          config: peer.config,
+          receipts,
+        });
+        await expect(
+          engine.upsertDocument({ ...snapshot, memoryItemId: snapshot.id }),
+        ).rejects.toMatchObject({ code: "memory_index_pending" });
+        const stored = (await prisma.memoryProjectionReceipt.findFirst({
+          where: { memoryItemId: snapshot.id },
+        }))!;
+        expect(stored.state).toBe("accepted");
+        for (const document of peer.documents.values()) document.indexed = true;
+        await receipts.defer({
+          indexIdentity: peer.config.indexIdentity,
+          receiptId: stored.id,
+          nextAttemptAt: new Date(0),
+          reasonCode: "memory_index_pending",
+        });
+        const restarted = new InfinityMemorySearchIndex({
+          config: peer.config,
+          receipts: new PrismaInfinityMemoryProjectionStore(otherConnection),
+        });
+        expect(await restarted.reconcilePending()).toMatchObject({
+          processed: 1,
+          pending: 0,
+        });
+        expect(await prisma.outboxEvent.count({ where: { workspaceId } })).toBe(
+          0,
+        );
+        expect(
+          (await memoryItems.findById({ workspaceId, itemId: snapshot.id }))
+            ?.indexState,
+        ).toBe("index_pending");
+        const input = {
+          workspaceId,
+          repositoryId,
+          userId: null,
+          safeRetrievalQuery: "Approved memory",
+        };
+        const dependencies = {
+          memoryItems,
+          memoryPolicyConfig: new StaticMemoryPolicyConfig(),
+          memorySearchIndex: restarted,
+        };
+        expect(
+          await buildActionMemoryBundle(input, dependencies),
+        ).toMatchObject({
+          degraded: false,
+          items: [{ id: snapshot.id, body: snapshot.body }],
+        });
+        await memoryItems.markIndexingSucceeded({
+          workspaceId,
+          itemId: snapshot.id,
+          bodyHash: snapshot.bodyHash,
+          bodyVersion: snapshot.bodyVersion,
+        });
+        // Model a same-body edit whose earlier snapshot overwrites diagnostic flags.
+        await memoryItems.save(MemoryItem.fromSnapshot(snapshot));
+        expect(
+          await buildActionMemoryBundle(input, dependencies),
+        ).toMatchObject({
+          degraded: false,
+          items: [{ id: snapshot.id, body: snapshot.body }],
+        });
+      } finally {
+        await peer.close();
+      }
+    });
+
     describe.each(["prisma", "infinity"] as const)(
       "shared search consumer contract: %s",
       (kind) => {
@@ -575,7 +721,7 @@ describe.skipIf(!databaseUrl)(
           });
         });
 
-        it("falls back for a changed revision and isolates exact cleanup from the new revision", async () => {
+        it("returns the changed canonical revision safely and isolates exact cleanup", async () => {
           const { snapshot } = await seed("shared-edited");
           await withEngine(async (engine) => {
             await engine.upsertDocument({
@@ -608,7 +754,7 @@ describe.skipIf(!databaseUrl)(
             expect(
               await buildActionMemoryBundle(input, dependencies),
             ).toMatchObject({
-              degraded: true,
+              degraded: kind === "infinity",
               items: [{ id: snapshot.id, body }],
             });
             const current = (await memoryItems.findById({

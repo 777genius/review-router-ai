@@ -60,7 +60,11 @@ Search hits identify the canonical item plus `bodyVersion` and `bodyHash`.
 Scores are ordered within an adapter; provider scores are never mixed across
 engines. Score breakdowns are optional diagnostics, not invented numbers.
 Canonical reload verifies workspace/repository/user, active status, allowed
-scope, expiry and the exact revision before accepting a hit. Apply policy before
+scope, expiry and the exact revision before accepting a hit. Queryability belongs
+to the selected adapter; legacy canonical `indexState/indexVersion` are diagnostic
+outbox fields, not a second read admission gate. Implementation review proved
+that recovery and a concurrent same-body edit can leave these fields stale even
+when the exact provider revision is queryable. Apply policy before
 declaring search successful, so disallowed-only results cannot suppress fallback.
 Allowed scopes are derived from trusted policy and actor context before external
 IO and passed to canonical retrieval before its limit, so forbidden records
