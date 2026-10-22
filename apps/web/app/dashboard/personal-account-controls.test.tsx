@@ -951,3 +951,48 @@ vi.mock("./account-lifecycle-actions", () => ({
   mutateAccountLifecycle: vi.fn(),
   readAccountLifecycleOperation: vi.fn(),
 }));
+
+// A temporary source read must retain its safe name but disable sharing; denied
+// reads remove the source instead of treating the retained page as authority.
+test("retains personal sources without sharing authority on outage and clears denied sources", async () => {
+  const { bootstrap, api } = fixture();
+  render(
+    <PersonalAccountControls
+      bootstrap={{
+        ...bootstrap,
+        page: {
+          status: "ok",
+          value: { sources: [source("source-0")], nextCursor: null },
+        },
+      }}
+      api={api}
+    />,
+  );
+  expect(
+    await screen.findByRole("article", { name: "Personal source-0" }),
+  ).toBeTruthy();
+  api.listSources.mockResolvedValue({ status: "unavailable" });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Refresh personal accounts" }),
+  );
+  await screen.findByText("Details could not be refreshed");
+  expect(
+    screen.getByRole("article", { name: "Personal source-0" }),
+  ).toBeTruthy();
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "Access: Personal source-0",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  api.listSources.mockResolvedValue({ status: "denied" });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Refresh personal accounts" }),
+  );
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("article", { name: "Personal source-0" }),
+    ).toBeNull(),
+  );
+});
