@@ -344,7 +344,8 @@ test("personal polling reconciles the original device operation once and blocks 
   });
   const original = await f.store.readOperation("device-owner", request.nonce);
   if (original.intent.action !== "connect") throw new Error("fixture_intent");
-  const { method: _method, ...browserIntent } = original.intent;
+  const browserIntent = { ...original.intent };
+  delete browserIntent.method;
   f.rows.set(`device-owner/${request.nonce}`, {
     ...original,
     intent: browserIntent,
