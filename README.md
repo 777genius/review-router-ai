@@ -1,6 +1,6 @@
 # ReviewRouter
 
-AI code review in your CI, powered by **open-code-review**.
+AI code review in your CI, powered by **[open-code-review](https://github.com/alibaba/open-code-review)**.
 Supports multiple coding providers using your own subscriptions or API keys.
 Get inline feedback on pull requests and manage models, review rules and
 repository health from one dashboard.
