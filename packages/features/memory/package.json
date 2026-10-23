@@ -29,6 +29,7 @@
     "@get-modular/core": "0.2.0",
     "@get-modular/assembly": "0.2.0",
     "@infinity-context/sdk": "https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz",
+    "@vectorize-io/hindsight-client": "https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz",
     "@prisma/client": "^7.8.0",
     "@reviewrouter/features-entitlements": "workspace:*",
     "@reviewrouter/features-outbox": "workspace:*",

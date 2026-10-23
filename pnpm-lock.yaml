@@ -769,6 +769,9 @@ importers:
       '@infinity-context/sdk':
         specifier: https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz
         version: https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz
+      '@vectorize-io/hindsight-client':
+        specifier: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz
+        version: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz
       '@prisma/client':
         specifier: ^7.8.0
         version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
@@ -1272,6 +1275,10 @@ importers:
         version: 3.2.2(tailwind-merge@3.5.0)(tailwindcss@4.2.4)
 
 packages:
+
+  '@vectorize-io/hindsight-client@https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz':
+    resolution: {integrity: sha512-Tqx7SKEbKZnf9L1tnla3vIDNt83eKFCneHe8GsSQJbmAn0rY8U13fT9Jg5ZP8G/phns5Fk5tZWmagaUlVTzpCA==, tarball: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz}
+    version: 1.1.0
 
   '@actions/artifact@6.3.1':
     resolution: {integrity: sha512-DBXgdB9T4yj2KSe0tFg+MTi9T5se+16bdrFQh+3Y6Nq1lZ3gYQk1BjHoTof+7Zf36bEAlfVMf+8ifRKeyGJugQ==}
@@ -6373,6 +6380,8 @@ packages:
         optional: true
 
 snapshots:
+
+  '@vectorize-io/hindsight-client@https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz': {}
 
   '@actions/artifact@6.3.1(supports-color@8.1.1)':
     dependencies:
