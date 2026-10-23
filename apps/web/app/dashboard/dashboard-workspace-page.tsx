@@ -1,3 +1,4 @@
+import { ReviewStatisticsSection } from "./review-statistics-section";
 import { listDashboardContextConnections } from "../../src/server/context-tools";
 import type { ContextConnectionMetadata } from "@reviewrouter/features-review-context-tools";
 import { loadProviderUsage } from "../../src/server/provider-usage-report";
@@ -1163,6 +1164,11 @@ export async function DashboardSectionContent({
 }): Promise<React.ReactElement> {
   if (selectedSection === "memory") {
     return <MemoryDevelopmentNotice />;
+  }
+  if (selectedSection === "statistics") {
+    return (
+      <ReviewStatisticsSection workspaceId={selectedWorkspace.workspace.id} />
+    );
   }
   const { workspaceScope, mutationStatus, repositoryAccess } = context;
   const supportAudit =

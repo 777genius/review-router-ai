@@ -1,6 +1,10 @@
 // Server-only entrypoint: consumers must never import this surface into a browser.
 import { compileComposition, defineModule, required } from "@get-modular/core";
-import { assemblyFor, type CapabilityContract } from "@get-modular/assembly";
+import {
+  assemblyFor,
+  implement,
+  type CapabilityContract,
+} from "@get-modular/assembly";
 import type { ProviderModelCatalogPort } from "../application/ports/provider-model-catalog-port";
 import { OpenRouterModelCatalogAdapter } from "../infrastructure/openrouter/openrouter-model-catalog";
 import {
@@ -96,24 +100,30 @@ export async function createProviderModelCatalog(dependencies: {
   )
     throw new Error("catalog_composition_binding_invalid");
   const assembly = assemblyFor<CatalogCapabilities>();
-  const host = assembly.bindFactory(dependenciesModule, async () => ({
-    instance: dependencies,
-    capabilities: {
-      "reviewrouter/catalog-http": dependencies.fetchImpl,
-      "reviewrouter/catalog-clock": dependencies.now,
-      "reviewrouter/catalog-policy": dependencies.policy,
-      "reviewrouter/catalog-source": normalizePublicCatalog,
-    },
-  }));
-  const root = assembly.bindFactory(catalogModule, async (deps) => ({
-    instance: new OpenRouterModelCatalogAdapter({
-      fetchImpl: deps.http,
-      now: deps.clock,
-      policy: deps.policy,
-      normalize: deps.source,
+  const host = implement<CatalogCapabilities>()(
+    dependenciesModule,
+    async () => ({
+      instance: dependencies,
+      capabilities: {
+        "reviewrouter/catalog-http": dependencies.fetchImpl,
+        "reviewrouter/catalog-clock": dependencies.now,
+        "reviewrouter/catalog-policy": dependencies.policy,
+        "reviewrouter/catalog-source": normalizePublicCatalog,
+      },
     }),
-    capabilities: {},
-  }));
+  );
+  const root = implement<CatalogCapabilities>()(
+    catalogModule,
+    async (deps) => ({
+      instance: new OpenRouterModelCatalogAdapter({
+        fetchImpl: deps.http,
+        now: deps.clock,
+        policy: deps.policy,
+        normalize: deps.source,
+      }),
+      capabilities: {},
+    }),
+  );
   const composition = await compileComposition({
     declarations: [dependenciesModule, catalogModule],
     profile: {
@@ -135,7 +145,7 @@ export async function createProviderModelCatalog(dependencies: {
   if (!composition.ok) throw new Error("catalog_composition_invalid");
   const preparation = await assembly.prepare({
     composition,
-    factories: [host, root],
+    modules: [host, root],
     roots: { catalog: root },
   });
   if (preparation.status !== "prepared")

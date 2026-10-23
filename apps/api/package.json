@@ -56,7 +56,7 @@
     "dev": "tsx watch src/server.ts",
     "release-control:start": "node --conditions=production dist/release-control-server.js",
     "release-witness:start": "node --conditions=production dist/release-witness-server.js",
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "build": "node ../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",
+    "typecheck": "node ../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json"
   }
 }

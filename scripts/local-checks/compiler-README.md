@@ -53,3 +53,12 @@ Turbo dependency ordering/output keys, Next build and plugin/API resolution,
 generated Next types, production exports, offline Prisma preparation and all
 workflow routes remain independent integration obligations. Native noEmit
 success does not qualify a Next production build.
+
+## Required Get Modular consumer path
+
+The five feature packages using Get Modular 0.7.0 explicitly invoke this helper
+with `--native` for their normal build/typecheck scripts. Root postinstall prepares
+the isolated compiler, so its `tsc` bin never competes with the root TS6 bin.
+`pnpm modular:qualify` checks the real feature compositions, statistics adapters
+and host consumers with `skipLibCheck: false`, then runs their runtime suites.
+The root compiler API and explicit legacy tooling check remain TypeScript 6.0.3.

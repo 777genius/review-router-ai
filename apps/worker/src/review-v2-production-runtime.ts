@@ -38,6 +38,7 @@ import {
   PrismaReviewCompletionProcessRepository,
   PrismaReviewCompletionRecoveryFeed,
   composeReviewCompletionProcesses,
+  type ReviewCompletionSettlementHook,
 } from "@reviewrouter/features-review-processes/composition";
 import {
   CurrentMutationAuthorityStatus,
@@ -200,6 +201,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly githubAppId: string;
   readonly githubPrivateKey: string;
+  readonly settlementHook: ReviewCompletionSettlementHook;
 }): ProductionReviewV2WorkerRuntime {
   const capabilityKeyRing = readCapabilityKeyRing(input.env);
   const executions = new PrismaReviewExecutionStore(
@@ -334,7 +336,10 @@ export function createProductionReviewV2WorkerRuntime(input: {
     "review_v2_completion_claim_ms_invalid",
   );
   const completion = composeReviewCompletionProcesses({
-    processes: new PrismaReviewCompletionProcessRepository(input.prisma),
+    processes: new PrismaReviewCompletionProcessRepository(
+      input.prisma,
+      input.settlementHook,
+    ),
     executions: executionContext,
     publications: publicationContext,
     snapshots: snapshotContext,

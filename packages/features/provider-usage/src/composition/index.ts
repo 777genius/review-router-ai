@@ -1,6 +1,10 @@
 // Server composition surface. Host owns and shuts down its borrowed DB/source resources.
 import { compileComposition, defineModule, required } from "@get-modular/core";
-import { assemblyFor, type CapabilityContract } from "@get-modular/assembly";
+import {
+  assemblyFor,
+  implement,
+  type CapabilityContract,
+} from "@get-modular/assembly";
 import type {
   UsageReportReader,
   UsagePriceSnapshotReader,
@@ -109,7 +113,7 @@ export async function createProviderUsage(dependencies: {
   )
     throw new Error("usage_composition_binding_invalid");
   const assembly = assemblyFor<Capabilities>();
-  const adapterHandle = assembly.bindFactory(adapters, async () => ({
+  const adapterHandle = implement<Capabilities>()(adapters, async () => ({
     instance: dependencies,
     capabilities: {
       "reviewrouter/usage-store": dependencies.store,
@@ -118,7 +122,7 @@ export async function createProviderUsage(dependencies: {
       "reviewrouter/usage-prices": dependencies.prices ?? null,
     },
   }));
-  const root = assembly.bindFactory(feature, async (deps) => ({
+  const root = implement<Capabilities>()(feature, async (deps) => ({
     instance: {
       ingestUsage: new IngestUsage(deps.store),
       reports: deps.reports,
@@ -149,7 +153,7 @@ export async function createProviderUsage(dependencies: {
   if (!composition.ok) throw new Error("usage_composition_invalid");
   const preparation = await assembly.prepare({
     composition,
-    factories: [adapterHandle, root],
+    modules: [adapterHandle, root],
     roots: { usage: root },
   });
   if (preparation.status !== "prepared")

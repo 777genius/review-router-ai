@@ -885,4 +885,35 @@ describe("dashboard server loading boundaries", () => {
     expect(spies.outbox).not.toHaveBeenCalled();
     expect(spies.audit).not.toHaveBeenCalled();
   });
+  it("returns the isolated Statistics section before unrelated section IO", async () => {
+    const content = await DashboardSectionContent({
+      context: {
+        mutationStatus: {
+          enabled: true,
+          signedIn: true,
+          sourceProvider: "github",
+          externalUserId: "github-user-a",
+          sourceLogin: "owner",
+          sourceAvatarUrl: null,
+          githubUserId: "github-user-a",
+          githubLogin: "owner",
+          githubAvatarUrl: null,
+          reason: "ready",
+        },
+        workspaceScope: {
+          kind: "workspace_ids",
+          workspaceIds: ["workspace-a"],
+        },
+        signedInActor: null,
+        repositoryAccess: access,
+        workspaces: [workspace],
+      },
+      selectedWorkspace: workspace,
+      selectedSection: "statistics",
+      params: {},
+      workspaceKey: "acme",
+    });
+    expect(content.props).toEqual({ workspaceId: "workspace-a" });
+    for (const spy of Object.values(spies)) expect(spy).not.toHaveBeenCalled();
+  });
 });

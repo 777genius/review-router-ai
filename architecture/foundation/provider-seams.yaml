@@ -3,6 +3,7 @@ workspace:
   kind: pnpm
   manifest: pnpm-workspace.yaml
 governedRoots:
+  - packages/features/review-statistics/src
   - packages/features/review-providers/src
   - packages/features/provider-usage/src
   # Adopt only the new limits seam; existing account/lifecycle code stays outside this scope.
@@ -520,3 +521,114 @@ boundaries:
         - node:url
       runtimeReferences: []
     dependencyMode: development
+  - id: statistics.domain
+    roots:
+      - packages/features/review-statistics/src/domain
+    entrypoints:
+      - packages/features/review-statistics/src/domain/statistics.ts
+      - packages/features/review-statistics/src/domain/statistics-policy.ts
+    allow:
+      boundaries: []
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: statistics.application
+    roots:
+      - packages/features/review-statistics/src/application
+    entrypoints:
+      - packages/features/review-statistics/src/application/ports.ts
+    allow:
+      boundaries:
+        - "statistics.domain"
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: statistics.infrastructure
+    roots:
+      - packages/features/review-statistics/src/infrastructure
+    entrypoints:
+      - packages/features/review-statistics/src/infrastructure/prisma-statistics-reader.ts
+      - packages/features/review-statistics/src/infrastructure/prisma-statistics-projector.ts
+      - packages/features/review-statistics/src/infrastructure/prisma-statistics-outbox.ts
+      - packages/features/review-statistics/src/infrastructure/statistics-hash.ts
+    allow:
+      boundaries:
+        - "statistics.domain"
+        - "statistics.application"
+      packages:
+        - "@prisma/client"
+      builtins:
+        - "node:crypto"
+        - "node:buffer"
+      runtimeReferences: []
+  - id: statistics.composition
+    roots:
+      - packages/features/review-statistics/src/composition/index.ts
+    entrypoints:
+      - packages/features/review-statistics/src/composition/index.ts
+    allow:
+      boundaries:
+        - "statistics.domain"
+        - "statistics.application"
+        - "statistics.infrastructure"
+      packages:
+        - "@get-modular/core"
+        - "@get-modular/assembly"
+        - "@prisma/client"
+      builtins: []
+      runtimeReferences: []
+  - id: statistics.public
+    roots:
+      - packages/features/review-statistics/src/index.ts
+    entrypoints:
+      - packages/features/review-statistics/src/index.ts
+    allow:
+      boundaries:
+        - "statistics.domain"
+        - "statistics.application"
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: statistics.tests
+    roots:
+      - packages/features/review-statistics/src/tests
+      - packages/features/review-statistics/src/composition/index.test.ts
+    entrypoints: []
+    allow:
+      boundaries:
+        - "statistics.domain"
+        - "statistics.application"
+        - "statistics.infrastructure"
+        - "statistics.composition"
+        - "statistics.public"
+        - "statistics.testing"
+      packages:
+        - "vitest"
+        - "@prisma/client"
+        - "@prisma/adapter-pg"
+        - "@reviewrouter/platform-db"
+        - "@get-modular/core"
+        - "@get-modular/assembly"
+        - "pg"
+      builtins:
+        - "node:crypto"
+        - "node:buffer"
+        - "node:assert/strict"
+        - "node:fs"
+        - "node:fs/promises"
+        - "node:perf_hooks"
+        - "node:path"
+        - "node:url"
+      runtimeReferences: []
+    dependencyMode: development
+  - id: statistics.testing
+    roots:
+      - packages/features/review-statistics/src/testing
+    entrypoints:
+      - packages/features/review-statistics/src/testing/index.ts
+    allow:
+      boundaries:
+        - statistics.domain
+      packages: []
+      builtins: []
+      runtimeReferences: []

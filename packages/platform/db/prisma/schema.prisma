@@ -401,6 +401,8 @@ model RepositoryConnection {
   codexOAuthSetupPayloadClaims CodexOAuthSetupPayloadClaim[]
   reviewSnapshots              ReviewSnapshot[]
   reviewExecutionCheckpoints   ReviewExecutionCheckpoint[]
+  statisticsReviews           ReviewStatisticsReviewFact[]
+  statisticsIssues            ReviewStatisticsIssueFact[]
   hostedCodexBindings          HostedCodexRepositoryBinding[]
   providerApiKeyLinks          ProviderApiKeyRepositoryLink[]
 
@@ -4618,4 +4620,44 @@ model UsageUnattributedObservation {
   @@id([sourceInstance,eventId,revision])
   @@index([receivedAt])
   @@index([resolvedAt,nextResolutionAt])
+}
+
+
+// Durable compact statistics; deliberately independent of operational retention.
+model ReviewStatisticsCoverage {
+  id String @id
+  activatedAt DateTime @db.Timestamp(3)
+}
+
+model ReviewStatisticsReviewFact {
+  executionId String @id
+  workspaceId String
+  repositoryConnectionId String
+  scmRepositoryIdentityId String
+  pullRequestNumber Int
+  settledAt DateTime @db.Timestamp(3)
+  payloadHash String
+  repository RepositoryConnection @relation(fields: [repositoryConnectionId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: Restrict)
+  @@index([workspaceId, settledAt, executionId], map: "statistics_review_workspace_time_idx")
+  @@index([repositoryConnectionId, workspaceId], map: "statistics_review_repository_idx")
+}
+
+model ReviewStatisticsIssueFact {
+  id String @id
+  workspaceId String
+  repositoryConnectionId String
+  scmRepositoryIdentityId String
+  pullRequestNumber Int
+  lineageId String
+  severity String
+  title String
+  caughtAt DateTime @db.Timestamp(3)
+  sourceExecutionId String
+  repository RepositoryConnection @relation(fields: [repositoryConnectionId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: Restrict)
+  @@unique([workspaceId, scmRepositoryIdentityId, pullRequestNumber, lineageId], map: "ReviewStatisticsIssueFact_lineage_key")
+  @@index([workspaceId, caughtAt, id], map: "statistics_issue_workspace_time_idx")
+  @@index([workspaceId, severity, caughtAt, id], map: "statistics_issue_severity_time_idx")
+  @@index([workspaceId, repositoryConnectionId, caughtAt, id], map: "statistics_issue_repository_time_idx")
+  @@index([workspaceId, repositoryConnectionId, severity, caughtAt, id], map: "statistics_issue_repo_severity_time_idx")
+  @@index([repositoryConnectionId, workspaceId], map: "statistics_issue_repository_idx")
 }

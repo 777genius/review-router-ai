@@ -599,8 +599,11 @@ export function operationCapabilityFacts(input: {
 }
 
 export function effectiveReviewPublicationOutcome(input: {
-  readonly attempt: ReviewPublicationAttempt;
-  readonly corrections: readonly ReviewPublicationOutcomeCorrection[];
+  readonly attempt: Pick<ReviewPublicationAttempt, "terminalOutcome">;
+  readonly corrections: readonly Pick<
+    ReviewPublicationOutcomeCorrection,
+    "correctionOrdinal" | "correctedOutcome"
+  >[];
 }): ReviewPublicationTerminalOutcome | null {
   if (
     input.attempt.terminalOutcome !==

@@ -6,10 +6,12 @@ export type DashboardSection =
   | "setup"
   | "policy"
   | "diagnostics"
-  | "usage";
+  | "usage"
+  | "statistics";
 
 export const DASHBOARD_SECTIONS = [
   "repositories",
+  "statistics",
   "setup",
   "policy",
   "diagnostics",
@@ -52,6 +54,13 @@ export const dashboardSectionMeta: Record<
     description:
       "Choose provider auth, model, reasoning effort, context mode, and blocking severity.",
     navDescription: "Provider, model, gates",
+  },
+  statistics: {
+    eyebrow: "Review activity",
+    title: "Statistics",
+    description:
+      "Published reviews, pull requests and issues caught in your workspace.",
+    navDescription: "Reviews and issues caught",
   },
   usage: {
     eyebrow: "Measured consumption",

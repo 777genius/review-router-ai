@@ -1,5 +1,9 @@
 // Server-only composition. Host processes retain ownership of the borrowed DB.
-import { assemblyFor, type CapabilityContract } from "@get-modular/assembly";
+import {
+  assemblyFor,
+  implement,
+  type CapabilityContract,
+} from "@get-modular/assembly";
 import { compileComposition, defineModule, required } from "@get-modular/core";
 import type { PrismaClient } from "@prisma/client";
 import {
@@ -139,7 +143,7 @@ export async function createMemorySearchRuntime(input: {
   const config = parseMemorySearchConfig(input.env);
   const receipts = new PrismaMemoryProjectionReceiptStore(input.prisma);
   const assembly = assemblyFor<MemoryCapabilities>();
-  const host = assembly.bindFactory(hostModule, async () => ({
+  const host = implement<MemoryCapabilities>()(hostModule, async () => ({
     instance: input.prisma,
     capabilities: {
       "reviewrouter/memory-prisma": input.prisma,
@@ -148,18 +152,25 @@ export async function createMemorySearchRuntime(input: {
         config.kind === "infinity" ? config : null,
     },
   }));
-  const prisma = assembly.bindFactory(prismaModule, async (dependencies) => {
-    await dependencies.receipts.assertCompatibleIndexIdentity("prisma");
-    const instance: MemorySearchRuntime = {
-      searchIndex: new PrismaMemorySearchIndex(dependencies.prisma),
-      backfill: (options) =>
-        enqueueMemoryProjectionBackfill(dependencies.prisma, "prisma", options),
-      maintenance: emptyMaintenance,
-      drain: emptyMaintenance,
-    };
-    return { instance, capabilities: {} };
-  });
-  const infinity = assembly.bindFactory(
+  const prisma = implement<MemoryCapabilities>()(
+    prismaModule,
+    async (dependencies) => {
+      await dependencies.receipts.assertCompatibleIndexIdentity("prisma");
+      const instance: MemorySearchRuntime = {
+        searchIndex: new PrismaMemorySearchIndex(dependencies.prisma),
+        backfill: (options) =>
+          enqueueMemoryProjectionBackfill(
+            dependencies.prisma,
+            "prisma",
+            options,
+          ),
+        maintenance: emptyMaintenance,
+        drain: emptyMaintenance,
+      };
+      return { instance, capabilities: {} };
+    },
+  );
+  const infinity = implement<MemoryCapabilities>()(
     infinityModule,
     async (dependencies) => {
       if (!dependencies.config) {
@@ -210,7 +221,7 @@ export async function createMemorySearchRuntime(input: {
   if (!composition.ok) throw new Error("memory_search_composition_invalid");
   const preparation = await assembly.prepare({
     composition,
-    factories: [host, selectedFactory],
+    modules: [host, selectedFactory],
     roots: { memory: selectedFactory },
   });
   if (preparation.status !== "prepared") {

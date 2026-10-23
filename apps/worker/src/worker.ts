@@ -1,3 +1,9 @@
+import { createReviewStatisticsFeature } from "@reviewrouter/features-review-statistics/composition";
+import { createReviewStatisticsSettlementCapture } from "./review-statistics-settlement-capture";
+import {
+  createReviewStatisticsSettledHandler,
+  reviewStatisticsHandlerDefinition,
+} from "./review-statistics-worker-runtime";
 import { createHash, randomUUID } from "node:crypto";
 import { config as loadDotenv } from "dotenv";
 import { App } from "@octokit/app";
@@ -135,6 +141,10 @@ async function main(): Promise<void> {
         reconcile: (input) => memoryRuntime.maintenance(input),
       },
     );
+    const statistics = await createReviewStatisticsFeature({ prisma });
+    const settlementHook = createReviewStatisticsSettlementCapture(
+      statistics.outboxWriter,
+    );
     const reviewV2Worker = createReviewV2WorkerFeature({
       env: process.env,
       createEnabledRuntime: () => {
@@ -149,9 +159,12 @@ async function main(): Promise<void> {
           env: process.env,
           githubAppId,
           githubPrivateKey,
+          settlementHook,
         });
       },
     });
+    // Activation belongs to the validated completion owner, never report-only hosts.
+    if (reviewV2Worker.enabled) await statistics.activateCapture();
     const sdkGrowthPrivateKey = readGitHubAppPrivateKey();
     const sdkGrowthPublication = createSdkGrowthPublicationFeature({
       env: process.env,
@@ -162,6 +175,7 @@ async function main(): Promise<void> {
       ...(sdkGrowthPrivateKey ? { githubPrivateKey: sdkGrowthPrivateKey } : {}),
     });
     const handlers = [
+      createReviewStatisticsSettledHandler(statistics.projector),
       ...createOutboxHandlers(prisma, clock, memoryRuntime.searchIndex),
       ...reviewV2Worker.handlers,
       ...sdkGrowthPublication.handlers,
@@ -276,6 +290,7 @@ async function main(): Promise<void> {
 }
 
 const knownOutboxHandlers = [
+  reviewStatisticsHandlerDefinition,
   {
     type: githubReviewRequestIngressEventType,
     version: githubReviewRequestIngressEventVersion,

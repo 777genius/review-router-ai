@@ -1,0 +1,438 @@
+.root {
+  min-width: 0;
+  color: var(--rr-color-text);
+}
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+.title {
+  margin: 0;
+  font-size: 1.65rem;
+  font-weight: 650;
+  letter-spacing: -0.04em;
+}
+.subtitle {
+  margin-top: 0.4rem;
+  max-width: 38rem;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--rr-color-text-muted);
+}
+.controls {
+  display: flex;
+  align-items: end;
+  gap: 0.6rem;
+  min-width: 0;
+}
+.periodControl {
+  width: 10rem;
+}
+.period {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  margin: 0.6rem 0 1.3rem;
+  font-size: 0.75rem;
+  color: var(--rr-color-text-subtle);
+}
+.notice {
+  margin: 1rem 0;
+  padding: 0.85rem 1rem;
+  border-left: 2px solid var(--rr-chart-amber);
+  background: color-mix(in srgb, var(--rr-chart-amber) 5%, transparent);
+  color: var(--rr-color-text-muted);
+  font-size: 0.8rem;
+  line-height: 1.7;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-block: 1px solid var(--rr-color-border);
+  margin: 1.5rem 0 2rem;
+  padding: 1.35rem 0;
+}
+.metric {
+  min-width: 0;
+  padding: 0.25rem 1.25rem;
+  border-left: 1px solid var(--rr-color-border);
+}
+.metric:first-child {
+  border: 0;
+  padding-left: 0;
+}
+.metric dt {
+  font-size: 0.8rem;
+  color: var(--rr-color-text-muted);
+}
+.metric dd {
+  margin: 0.65rem 0;
+  font-size: clamp(1.7rem, 3vw, 2.35rem);
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: -0.045em;
+  font-variant-numeric: tabular-nums;
+}
+.comparison {
+  min-height: 1.2rem;
+  font-size: 0.75rem;
+  color: var(--rr-color-text-subtle);
+  line-height: 1.6;
+}
+.delta {
+  color: var(--rr-chart-cyan);
+  font-weight: 600;
+  margin-right: 0.35rem;
+}
+.chartGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.4rem;
+}
+.chartSection {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--rr-color-border);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--rr-color-surface) 40%, transparent);
+}
+.chartHeader {
+  min-height: 6.3rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--rr-color-border);
+  padding: 1rem 1.15rem;
+}
+.chartTitle {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.chartSelector {
+  width: 10rem;
+  min-width: 0;
+}
+.chartBody {
+  padding: 1.25rem 0.65rem 0.75rem;
+}
+.chart {
+  width: 100%;
+  height: 15rem;
+  min-width: 0;
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  min-height: 1.8rem;
+  padding: 0.55rem 0.55rem 0;
+  list-style: none;
+  color: var(--rr-color-text-muted);
+  font-size: 0.7rem;
+}
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.ranking {
+  padding: 1.15rem;
+  margin-top: 0.4rem;
+  border-top: 1px solid var(--rr-color-border);
+}
+.rankingTitle {
+  margin: 0 0 1rem;
+  color: var(--rr-color-text-subtle);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.rankingList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.rankingRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+  padding: 0.45rem 0;
+  font-size: 0.8rem;
+}
+.repoName {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  flex: 1;
+}
+.repoName > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.external {
+  display: inline-flex;
+  padding: 0.2rem;
+  color: var(--rr-color-text-subtle);
+  border-radius: 0.25rem;
+}
+.external:hover,
+.external:focus-visible {
+  color: var(--rr-chart-cyan);
+}
+.rankCount {
+  font-variant-numeric: tabular-nums;
+  color: var(--rr-color-text-muted);
+  margin-left: auto;
+}
+.rankAction {
+  display: inline-flex;
+  margin-left: 0.35rem;
+  color: var(--rr-chart-cyan);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.chartFooter {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 1.15rem 1rem;
+}
+.help {
+  color: var(--rr-color-text-subtle);
+  font-size: 0.75rem;
+  line-height: 1.7;
+  margin-top: 1.25rem;
+}
+.tooltip {
+  max-width: 17rem;
+  background: var(--rr-surface-menu);
+  border: 1px solid var(--rr-color-border-strong);
+  border-radius: 0.6rem;
+  padding: 0.75rem;
+  color: var(--rr-color-text);
+  font-size: 0.75rem;
+  line-height: 1.7;
+  box-shadow: var(--rr-shadow-elevated);
+}
+.details {
+  border-top: 1px solid var(--rr-color-border);
+  margin-top: 1.7rem;
+  padding-top: 1rem;
+}
+.details summary {
+  width: fit-content;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--rr-color-text-muted);
+  padding: 0.5rem 0;
+}
+.tableWrap {
+  max-width: 100%;
+  overflow-x: auto;
+  margin-top: 0.6rem;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.75rem;
+}
+.table caption {
+  text-align: left;
+  color: var(--rr-color-text-subtle);
+  padding: 0 0 0.8rem;
+  line-height: 1.7;
+}
+.table th {
+  color: var(--rr-color-text-muted);
+  font-weight: 550;
+}
+.table th,
+.table td {
+  padding: 0.7rem 0.7rem;
+  border-bottom: 1px solid var(--rr-color-border);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.table th:first-child,
+.table td:first-child {
+  padding-left: 0;
+}
+.table td {
+  color: var(--rr-color-text-muted);
+}
+.empty {
+  padding: 1.6rem 0;
+  color: var(--rr-color-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.8;
+}
+.status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.8rem 0;
+  color: var(--rr-color-text-muted);
+  font-size: 0.875rem;
+}
+.issues {
+  scroll-margin-top: 8rem;
+  outline: none;
+  border-top: 1px solid var(--rr-color-border);
+  margin-top: 2rem;
+  padding-top: 1.6rem;
+  min-width: 0;
+}
+.issueHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+.issueHeader h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+}
+.issueScope {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  color: var(--rr-color-text-muted);
+  font-size: 0.75rem;
+  margin-bottom: 1rem;
+  overflow-wrap: anywhere;
+}
+.issueRows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.issueRow {
+  display: grid;
+  grid-template-columns: 5rem minmax(0, 1fr) auto;
+  gap: 0.8rem;
+  padding: 1.15rem 0;
+  border-bottom: 1px solid var(--rr-color-border);
+  align-items: start;
+}
+.severity {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding-top: 0.1rem;
+  font-size: 0.7rem;
+  color: var(--rr-color-text-muted);
+}
+.issueTitle {
+  font-size: 0.85rem;
+  font-weight: 500;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.issueMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.8rem;
+  font-size: 0.75rem;
+  line-height: 1.7;
+  margin-top: 0.4rem;
+  color: var(--rr-color-text-subtle);
+  overflow-wrap: anywhere;
+}
+.issueLink {
+  color: var(--rr-chart-cyan);
+}
+.issueDate {
+  color: var(--rr-color-text-subtle);
+  font-size: 0.7rem;
+  padding-top: 0.2rem;
+  white-space: nowrap;
+}
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-top: 1rem;
+  font-size: 0.75rem;
+  color: var(--rr-color-text-subtle);
+}
+.root a:focus-visible,
+.root summary:focus-visible {
+  outline: 2px solid var(--rr-chart-cyan);
+  outline-offset: 4px;
+}
+@media (min-width: 1100px) {
+  .chartGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .metrics {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0.5rem 0;
+    margin: 1.2rem 0 1.5rem;
+  }
+  .metric,
+  .metric:first-child {
+    border-left: 0;
+    border-bottom: 1px solid var(--rr-color-border);
+    padding: 1rem 0;
+  }
+  .metric:last-child {
+    border-bottom: 0;
+  }
+  .metric dd {
+    font-size: 2rem;
+  }
+  .header {
+    gap: 1rem;
+  }
+  .controls {
+    width: 100%;
+  }
+  .periodControl {
+    flex: 1;
+  }
+  .chartHeader {
+    gap: 0.7rem;
+    padding: 0.9rem;
+  }
+  .chartSelector {
+    width: 9rem;
+  }
+  .chart {
+    height: 14rem;
+  }
+  .ranking {
+    padding: 1rem 0.9rem;
+  }
+  .issueRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.45rem;
+  }
+  .severity {
+    grid-column: 1/-1;
+  }
+  .issueDate {
+    font-size: 0.65rem;
+  }
+}
