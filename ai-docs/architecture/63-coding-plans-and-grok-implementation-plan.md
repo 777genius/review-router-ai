@@ -35,11 +35,12 @@ Image/audio/video, computer use,
 
 ### Минимальный маршрут реализации
 
-Один короткий общий контракт, затем четыре provider lanes и общий UI параллельно.
+Минимальный общий контракт, четыре provider lanes и общий UI параллельно.
 Каждый lane сразу включает свой collector/normalizer лимитов; это не отдельный
 проект после подключения. Расширение SDK и private ports делать только в объёме,
-необходимом первому реальному consumer. Переписывание текущих четырёх providers,
-их записей в БД и всех существующих форм не является prerequisite.
+необходимом первому реальному consumer. Существующие аккаунты, конфиги и формы
+продолжают работать без переноса данных и повторного входа. Отдельной фазы миграции
+перед новыми providers нет; необходимые additive schema changes входят в их PR.
 
 Один существующий joined harness доказывает цепочку, browser E2E - пользовательский
 flow; дополнительные tests нужны только для непокрытых parser/lifecycle рисков.
@@ -79,9 +80,8 @@ flow; дополнительные tests нужны только для непо
 разрешён только personal workspace владельца; organization/operator grants
 не создаются и не принимаются при selection/admission. Ограничение проверить
 сервером при attach, изменении review config и создании execution, а не только
-скрыть кнопку Access. Для существующего исторического execution сохранить штатный
-порядок retirement/fencing, без изменения учтённых effects. Новых GLM подключений
-пока нет, поэтому миграция старых чужих account records не нужна.
+скрыть кнопку Access. Новых GLM подключений пока нет: вводится правило создания
+и использования новых accounts, без миграции старых account records.
 RR application применяет эту profile policy; Gateway не получает полномочий
 решать членство или роли workspace. Team Plan не отменяет правило «один seat -
 один участник»; его расширение не включать в первый slice.
@@ -131,10 +131,11 @@ plan, region, native adapter, точная модель, upstream protocol/origi
 bounds и реальные auth methods. Gateway и native независимо проверяют tuple.
 Не добавлять generic произвольный URL, credential bag или runtime plugins.
 
-В Gateway нормализовать старые `profile`/`secondProfile`/OAuth options в один
-внутренний список. Существующие конфиги остаются допустимыми; новые профили
-принимаются только из закрытого registry. Общие файлы registry/config/wire
-интегрирует один исполнитель; provider lanes отдают отдельные leaf definitions.
+Новые профили добавлять отдельными leaf definitions в закрытый registry.
+Старые `profile`/`secondProfile`/OAuth options не переводить на новый формат:
+для safe projection достаточно локального adapter к существующим определениям.
+Общие файлы registry/config/wire интегрирует один исполнитель; перенос всех
+старых flows на общий registry не входит в этот план.
 
 Точки изменений:
 
@@ -156,16 +157,16 @@ bounds и реальные auth methods. Gateway и native независимо 
 
 Безопасная projection содержит profile ID, provider identity/label, plan label,
 region label, public protocol, qualified model IDs, поддержанные auth methods,
-completion input kind, reconnect и техническую доступность limits.
+completion input kind, reconnect и доступный limits contract (v1/v2 либо none).
 Для qualified модели добавить безопасные разрешённые reasoning/fast/tool settings;
 отсутствующий capability не означает поддержку всех значений.
 В ней нет client secret, token policy, upstream URL, native route или raw claims.
 Она строится из того же registry, а не из второй независимо редактируемой таблицы.
 RR пересекает её с deployment allowlist и живой авторизацией.
 
-Текущие MiMo/OpenRouter/Codex/Claude проходят через совместимый legacy adapter
-без изменения поведения; новые подключаются к versioned projection сразу.
-Не требовать отдельной предварительной миграции всех старых flows или records.
+Текущие MiMo/OpenRouter/Codex/Claude сохраняют рабочие paths; capability projection
+читает их metadata через adapter. Новые подключаются к ней сразу, без предварительного
+перевода старых flows или records.
 Только явный `404/unsupported contract` разрешает legacy discovery для старых
 явно настроенных profiles; `401/403` не превращаются в fallback. Неизвестный
 method/input kind не рекламировать. Новые providers требуют новой capability;
@@ -213,9 +214,10 @@ profiles: UI и server save/admission используют те же qualified s
 
 ### 4.3. Совместимость limits wire
 
-Текущий `account-limits/v1` закрыт на семьи Codex/Claude. Не менять его смысл
-или выдавать новые значения старому strict consumer. Добавить negotiated
-`account-limits/v2` с отдельным typed read и сохранением v1 для старых consumers.
+Текущий `account-limits/v1` закрыт на семьи Codex/Claude. Сохранить этот read
+для них; новые profiles используют отдельный typed `account-limits/v2` read.
+Контракт выбирается по объявленной capability, без отдельного negotiation flow
+и пробных запросов к обоим versions. Старый strict consumer не получает новые enums.
 
 Сохранить generation/principal/revision fences, owner-only authorization,
 наблюдённые `usedPercent`, `observedAt`, `resetAt` и unknown values. В v2 добавить
@@ -226,10 +228,19 @@ allowlisted projection (`5h`, `Week`, `Month`), без эха произволь
 
 Нормализация живёт в native, SDK валидирует wire, RR domain проецирует display.
 Оба wire versions адаптируются в один consumer-facing limits port, без второй
-копии правил авторизации, stale/reset и вычисления процентов.
+копии правил авторизации, stale/reset и вычисления процентов. Расширение wire
+не требует переписывать сохранённые snapshots или одновременно публиковать их в v1/v2.
 Старые Codex/Claude сценарии и labels остаются прежними. Новый snapshot целиком
 заменяет набор окон: исчезнувшее weekly окно нельзя сохранить как свежее.
 Отсутствующее число не равно нулю, а пустой HTTP 200 не является валидной квотой.
+
+Storage расширять только там, где существующая схема действительно мешает:
+например, FK snapshots в migration 252 связан с OAuth qualification, а journals
+245/253 закрепляют Codex client либо Claude principal. Не записывать Grok/keys
+под чужой identity ради reuse. Если нужен новый journal/table или guard, добавить
+его обычной новой migration для новых profiles; прежние SQL migrations не менять.
+Без backfill, массового reconnect/re-encryption, dual-write и нового migration runner.
+Каталог profiles остаётся в коде, отдельные DB-таблицы для него не нужны.
 
 Source-owned collector работает независимо от страницы: ограниченный read-only
 usage/billing request, один in-flight на account generation, timeout/response-byte
@@ -330,10 +341,8 @@ Codex browser flow. Нет локального daemon, инструкции «�
 поля provider URL. Если ни один легитимный browser handoff не подтверждён, профиль
 остаётся disabled; не подменять его cookie import.
 
-Genuine device authorization - отдельный последующий slice, если browser handoff
-неудобен или недоступен. [Discovery xAI](https://auth.x.ai/.well-known/openid-configuration)
-подтверждает RFC8628 endpoints, но source SSO-cookie device converter не является
-готовым публичным begin/poll. В первом UI не рекламировать неподдержанный device method.
+Device authorization в этот slice не входит; source SSO-cookie converter
+не переносить как публичный вход. Первый UI предлагает один browser flow.
 
 ### Что дописать поверх native mechanics
 
@@ -400,10 +409,10 @@ Grok:                 Provider → Continue with Grok → return / one callback 
 
 ## 8. Как делать параллельно
 
-Сначала координатор фиксирует минимальные DTO/ports и leaf registration shape.
-Это короткий общий checkpoint, не ожидание завершения всех adapters. С первого
-дня независимые lanes исследуют entitlement/fixtures и пишут provider leaves на
-согласованных interfaces; UI работает с typed fixture capabilities.
+Координатор фиксирует минимальные DTO/ports и leaf registration shape внутри
+первого provider slice. Остальные lanes сразу пишут свои leaves на согласованных
+interfaces; UI работает с typed fixture capabilities. Отдельный foundation project
+и предварительная миграция старых подключений не требуются.
 
 | Lane / ownership               | Изолированная работа                                                                                               | Зависимость для интеграции                                                                                                    |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -436,6 +445,13 @@ shared fixtures и package versions вносит A из reviewed lane patches, �
 3. **F:** общий UI использует тот же SDK и существующий browser harness. Включение
    profile требует native joined proof и одного controlled live canary, а не
    отдельного повторения одного и того же доказательства на каждом слое.
+
+При поставке сначала native, затем совместимый Gateway/SDK, затем RR.
+Новый profile включается только после готовности всей цепочки; до этого он
+не предлагается в Accounts. Старые profiles продолжают работать на своих contracts.
+При откате активации закрыть новый profile для подключения и execution admission
+штатной deployment policy. Custody и journals сохранить для штатного lifecycle;
+обратный перенос старых данных не нужен.
 
 PR примерно до 2 000 changed LOC; связный инвариант не разрезать ради цифры.
 Основание стека мержить без потери ancestry либо своевременно перестраивать
@@ -513,10 +529,6 @@ live canary preparation и внешнее согласование не вклю
 | MiniMax leaf и его интеграция                                    |        250-450 |     300-550 |        7/10 |
 | Grok browser OAuth/principal/refresh/transport, без shared части |    1 100-1 900 |   600-1 100 |        6/10 |
 | Итого                                                            |    3 000-5 250 | 2 450-4 300 |        6/10 |
-
-Genuine Grok device flow, если понадобится отдельным slice, добавит примерно
-450-900 LOC с тестами. Нельзя маскировать эту неопределённость обещанием простого
-переноса Vue формы или готового hosted redirect.
 
 Первый технический checkpoint готов, когда новый профиль проходит protected
 enrollment, установленный SDK, один model/tool review, safe lifecycle и browser UX.
