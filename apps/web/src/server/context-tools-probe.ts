@@ -142,21 +142,17 @@ export const exchangeContextProbeHttps: ContextProbeExchange = async (
     addresses[0])!;
   return new Promise((resolve, reject) => {
     let settled = false;
+    const lifecycle: { timer?: NodeJS.Timeout } = {};
     const finish = (
       error?: ContextProbeError,
       result?: Awaited<ReturnType<ContextProbeExchange>>,
     ) => {
       if (settled) return;
       settled = true;
-      if (timer) clearTimeout(timer);
+      if (lifecycle.timer) clearTimeout(lifecycle.timer);
       if (error) reject(error);
       else resolve(result!);
     };
-    const timer = setTimeout(() => {
-      finish(new ContextProbeError("context_mcp_timeout"));
-      req.destroy();
-    }, remaining());
-    timer.unref();
     const req = request(
       url,
       {
@@ -286,6 +282,11 @@ export const exchangeContextProbeHttps: ContextProbeExchange = async (
         });
       },
     );
+    lifecycle.timer = setTimeout(() => {
+      finish(new ContextProbeError("context_mcp_timeout"));
+      req.destroy();
+    }, remaining());
+    lifecycle.timer.unref();
     req.on("socket", (socket) => {
       (socket as TLSSocket).once("secureConnect", () => {
         const actual = socket.remoteAddress?.replace(/^::ffff:/, "");
