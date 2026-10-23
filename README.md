@@ -1,18 +1,21 @@
 # ReviewRouter
 
-AI code review in your CI, using your own subscriptions or API keys.
+AI code review in your CI, powered by **open-code-review**.
+Supports multiple coding providers using your own subscriptions or API keys.
 Get inline feedback on pull requests and manage models, review rules and
 repository health from one dashboard.
 
-[Get started](https://reviewrouter.org) · [Self-host](./docs/operations/review-router-self-hosted-end-to-end.md) · [Documentation](./docs/README.md)
+[Set up your reviewer now](https://reviewrouter.org) with a guided setup.
+
+[Self-host](./docs/operations/review-router-self-hosted-end-to-end.md) · [Documentation](./docs/README.md)
 
 <img width="1186" height="735" alt="image" src="https://github.com/user-attachments/assets/6fce13d0-b83d-4ff0-bbd5-66eb588a897f" />
 <img width="916" height="622" alt="ReviewRouter dashboard" src="https://github.com/user-attachments/assets/fc11accd-dbd4-457b-ad6a-a43cccd075d1" />
 
 ## Why ReviewRouter
 
-- **Bring your own AI.** Connect Codex or Claude Code
-  subscriptions, or choose models through OpenRouter with an API key.
+- **Bring your own AI.** Use supported coding providers with your own
+  subscriptions or API keys.
 - **Run reviews in your CI.** Checkout, code reading and review tools run
   in your GitHub Actions runner. You choose the AI provider that receives context.
 - **Get a second opinion.** Run multiple reviewers and require agreement
@@ -43,7 +46,7 @@ still count against your own plan or billing.
 | GitHub            | App installation, setup PRs, inline review and a shared dashboard.                                                                                              |
 | GitLab            | Setup wizard and CI-based merge request review. Setup uses a request-scoped access token.                                                                       |
 | Self-hosted       | Docker Compose deployment on your infrastructure; operator setup required.                                                                                      |
-| Hosted Codex pool | Gated, opt-in account management for a workspace. Entitled workspace admins enroll a ChatGPT session from the dashboard (device sign-in or `auth.json` upload). |
+| Hosted account pool | Gated, opt-in account management for a workspace. Entitled workspace admins enroll an eligible provider account from the dashboard (device sign-in or `auth.json` upload). |
 
 The hosted pool holds encrypted credentials and relays model traffic through
 ReviewRouter, unlike the default repository-secret setup. Advanced investigations
@@ -53,7 +56,7 @@ for availability, privacy boundaries and unfinished work.
 ## Learn more
 
 - [Self-hosting guide](./docs/operations/review-router-self-hosted-end-to-end.md)
-- [Review settings and Codex reconnect](./docs/review-settings.md)
+- [Review settings](./docs/review-settings.md)
 - [Development and checks](./docs/development.md)
 - [All documentation](./docs/README.md)
 
