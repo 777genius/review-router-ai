@@ -712,7 +712,10 @@ export function createAccountsAdapter(input: {
     const profile = expected
       ? catalogue.find((row) => row.id === expected.profileId)
       : undefined;
-    if (profile?.authKind === "oauth")
+    if (
+      profile?.authKind === "oauth" &&
+      operation.oauthMethod !== "device_code"
+    )
       result.completion = operationCompletion(profile);
     if (operation.state !== "applied") return result;
     if (operation.result?.kind !== "account") throw new Denied();
