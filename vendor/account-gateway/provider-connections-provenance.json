@@ -16,8 +16,10 @@
   "qualification": {
     "sdkAndServiceTests": 79,
     "installedConsumers": ["Node26.11.1", "Node24.21.0"],
-    "nativeProviderJoined": false,
-    "liveProviderCanary": false
+    "nativeProviderJoined": true,
+    "liveProviderCanary": false,
+    "rrActualInstalledCaller": true,
+    "controlledJoinedReceipt": "provider-connections-qualification.json"
   },
   "publicPublished": false
 }
