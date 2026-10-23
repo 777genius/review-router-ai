@@ -200,3 +200,80 @@ main. Большой Skill с Markdown resource и 200 paths уменьшает�
 до **44 143** bytes; OCR projection остаётся побайтно прежней. **193/193** focused
 tests и **15/15** финальных Skills tests прошли, TypeScript/ESLint/format passed.
 Официальный export/build и свежий browser/paired/OCR gates выполняются отдельно.
+
+## Итоговая E2E-проверка актуального checkout — 2026-10-23
+
+Проверка выполнена на чистом browser source
+`fe16d1f75f91b042c9ba3a9c77bd130fa93fe394`, tree
+`e655b029dde3c00534e9e321ccbd0a8e39a5cc17`. Опубликованный SaaS API commit
+`7900c92cde056d3f4320beec13c8f7a84cb79d16` имеет тот же точный tree, поэтому
+проверенные bytes соответствуют этому опубликованному checkpoint. Все старые
+142-migration receipts выше остаются историческими, а не доказательством нового
+143-migration source.
+
+Найдены и устранены две причины ложных browser failures:
+
+1. Exact fallback `@sparticuz/chromium@153.0.0` был распакован в owned `/tmp`, но
+   его Lambda-oriented fontconfig искал шрифты по другим путям. Static control
+   доказал zero-height text/failed WOFF2, затем корректный disposable fontconfig
+   восстановил render. Product code и зависимости не менялись.
+2. Library helper допускал fill/click до hydration, ожидая только SSR heading.
+   В trace отсутствовали server-action POST для поиска и Manage access. Четыре
+   строки harness теперь ждут существующий dashboard layout-ready attribute,
+   как repository helper. Исправление включено в `fe16d1f`; bounded regression
+   **1/1**, harness typecheck и diff checks прошли, затем выполнен полный fresh
+   run. Auth, session, feature guards и assertions не ослаблялись.
+
+Итоговый actual Next/session/actions/PostgreSQL/Chromium run: **7/7**, 0 failed,
+0 skipped, 0 flaky, **70.45 s**. Fresh PostgreSQL **17.10/UTC** до старта имел
+0 public tables и не имел migration table; все **143** migrations завершились,
+все SQL checksums совпали, rolled back — 0. Inventory SHA256:
+`036310f316485a0fd3392a72ddb29c79b781d3451b055c506d59f102c136074b`.
+Source delta до run и после возврата generated `next-env.d.ts` пустой.
+Signed loopback GitHub fixture обработал **5** App-token POST и **5**
+collaborator-permission GET. Все **11** desktop/mobile screenshots просмотрены;
+root дополнительно проверил desktop library/mobile bulk result. Конкретных
+продуктовых UX-дефектов в проверенных экранах не найдено; result и exact-retry
+actions доступны в mobile footer.
+
+UI и persisted DB подтверждают один canonical Skill, две ссылки, author revision
+2 на original, отдельный grant/acceptance version 1 и revoke другого grant до
+version 2. Последующий private source head не раскрывается repository-only
+writer; выбранная revoked binding удаляется, соседняя сохраняется. Остальные
+сценарии включают Save/CAS/nonauthor action replay, text-only import/export,
+125 repository IDs с mixed counts/pagination, 1001-target rejection и exact
+retry после commit с потерянным ответом. Это настоящий application/DB/browser
+путь с подписанным внешним HTTP fixture, без production SCM/model traffic.
+
+Final browser receipts, полный synthetic dump и 11 screenshot paths/digests:
+`tmp/accounts-reference-e2e/runs/skills-final-pg17-fe16d1f75f91/`, в частности
+`qualification-receipt.json`, `migration-receipt.json`, `sharing-db-receipt.json`,
+`skills-github-requests.json` и `visual-inspection-receipt.json`. Failed/partial
+runs и bounded follow-up сохранены отдельно; точные пути приведены в последнем
+checkpoint implementation report.
+
+Независимый paired lane на отдельном fresh PostgreSQL 17 cluster применил все
+143 migrations и выполнил **5/5** admission-suite cases, включая actual signed
+captured-snapshot HTTP delivery, без skips при `REVIEW_SKILLS_REQUIRE_ADMISSION_PG=1` и
+`REVIEW_SKILLS_REQUIRE_PAIRED=1`. Evidence:
+`/tmp/review-skills-paired-finish-oct23/paired-all-five.log`,
+`paired-results.json` и `migrations-isolated.log` в той же директории. Qualified
+managed OCR rr.4 выполнил **10** actual CLI + **15** Skills tests = **25/25**;
+отдельный approved rr.3 OCR MCP qualifier — **2/2**. После official export
+прошли четыре contract/artifact suites, **25/25**, full TypeScript typecheck и
+штатный build. Логи в `../review-router-skills/tmp/`:
+`runtime-ocr-required-final-escalated.log`, `runtime-ocr-native-mcp.log`,
+`runtime-final-official-export-artifacts.log` и
+`runtime-final-official-export-typecheck.log`.
+
+Combined export из SaaS `7900c92cde056d3f4320beec13c8f7a84cb79d16` для expected
+published runtime base `1381fa481bfba3755bf9135b243486505b5c2563` содержит **58
+canonical generated files + handoff = 59 files**; handoff SHA256
+`560c6b7986cad36e1c1c57c59e077b7fc6f4bf5bb8c653896afd7271ad5dfe6a`.
+Текущий локальный runtime candidate —
+`c7114856816ae087b66f720b697b0798b0a05af9`, tree
+`e1e2a331338e02c14d8169819db020872b34a489`. Его публикация и новый remote CI
+выполняются отдельно: этот локальный qualification checkpoint не утверждает
+remote pass или merge. Конкретных незакрытых дефектов в проверенных локальных
+сценариях не осталось; окончательные published pins/CI/merge фиксируются после
+наблюдаемого завершения. Production deploy/release не запускались.

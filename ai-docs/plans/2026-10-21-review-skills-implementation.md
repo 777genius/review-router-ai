@@ -430,3 +430,110 @@ companion authority, schema slots, dashboard, Foundation и browser harness.
 Исторические browser receipts выше не являются проверкой нового 143-migration
 checkout. Его свежие browser/paired/real-OCR результаты и окончательные
 опубликованные pins фиксируются следующим checkpoint после исполнения.
+
+## Итоговая квалификация 143-migration checkout — 2026-10-23
+
+Этот checkpoint заменяет прежние локальные результаты только для актуального
+checkout; все предыдущие receipts и остановки публикации выше остаются
+историческими. Настоящий browser run выполнен на чистом committed source
+`fe16d1f75f91b042c9ba3a9c77bd130fa93fe394`, tree
+`e655b029dde3c00534e9e321ccbd0a8e39a5cc17`. Опубликованный SaaS API commit
+`7900c92cde056d3f4320beec13c8f7a84cb79d16` имеет **тот же точный tree**;
+проверенный source и опубликованный checkpoint побайтно совпадают. Harness
+получил `--expected-revision fe16d1f75f91b042c9ba3a9c77bd130fa93fe394`; начальный и
+окончательный source delta после возврата generated `next-env.d.ts` пустые,
+SHA256 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+
+| Проверка                                                   | Наблюдаемый результат                                                                                                                                              |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Actual Next/session/server actions + PostgreSQL + Chromium | **7/7**, 0 failed, 0 skipped, 0 flaky; 70.45 s                                                                                                                     |
+| Fresh PostgreSQL 17.10 / UTC                               | Preflight: 0 public tables, нет migration table, только synthetic bootstrap role; затем **143/143** migrations finished, все checksums совпадают, 0 rolled back    |
+| Migration inventory                                        | `sha256:036310f316485a0fd3392a72ddb29c79b781d3451b055c506d59f102c136074b`                                                                                          |
+| Signed GitHub App HTTP fixture                             | **5** installation-token POST с проверкой App JWT и **5** collaborator-permission GET                                                                              |
+| Визуальная проверка                                        | Все **11** desktop/mobile screenshots просмотрены; root дополнительно проверил desktop library и mobile bulk result; конкретных продуктовых UX-дефектов не найдено |
+| Signed admission + paired HTTP                             | **5/5**, 0 skipped, оба required flags включены; отдельный свежий PostgreSQL 17 cluster, все 143 migrations применены                                              |
+| Required actual managed OCR rr.4 + Skills                  | **10** actual CLI integration cases + **15** Skills cases = **25/25**, 0 skipped                                                                                   |
+| OCR MCP qualifier                                          | **2/2** на отдельно одобренном exact rr.3 binary                                                                                                                   |
+| После официального export                                  | **25/25** в четырёх contract/production-entrypoint/runtime-bundle/release-metadata suites; full TypeScript typecheck и штатный build прошли                        |
+
+Семь browser scenarios подтверждают Create/Save, отмену dirty-close, CAS conflict
+с сохранением draft и явным reconciliation, настоящий replay server action другим
+current source admin, text-only `SKILL.md` import/export, все 125 repository IDs,
+mixed assignment counts, pagination/search selection, additive Add/Remove, отказ
+для 1001 выбранного target и exact retry после потери ответа уже committed Apply.
+Сохранены настоящие session/authorization/DB пути. GitHub transport ограничен
+подписанным loopback fixture; production OAuth/SCM/provider/model traffic и
+production database не использовались. Эта квалификация не является live
+provider или native account-lifecycle доказательством.
+
+Canonical sharing проверен через UI и persisted DB: `rr-e2e-skill-shared`
+остаётся одним original с двумя workspace links; author revision 2 сохранена на
+original и видна из linked workspace. Отдельный grant для `rr-e2e-skill-002`
+принят destination с version 1. Revoke другого grant увеличивает его до version 2;
+последующий private source head revision 3 не раскрыт repository-only writer.
+Этот writer удаляет только выбранную revoked binding; соседняя binding на
+`rr-e2e-repo-rr-e2e-org-alpha-002` сохраняется. Mobile editor Save/Close, summary,
+bulk result, refresh и exact-retry actions читаются и доступны в footer; дополнительные
+колонки таблиц доступны через horizontal scroll.
+
+Квалификация выявила две причины ложных browser failures и сохранила их evidence:
+
+- Disposable Chromium package содержит Lambda-oriented `fonts.conf`, указывающий
+  на отсутствующие каталоги. Static control воспроизвёл zero-height text и failed
+  WOFF2 load; исправление путей только в `/tmp` вернуло шрифты. Product source,
+  dependencies и auth не менялись. Использован exact `@sparticuz/chromium@153.0.0`,
+  Chromium `153.0.8010.0`, Playwright `1.64.1`; pinned browser CDN ранее вернул
+  zero-length invalid ZIP, поэтому применён документированный executable override.
+- `openLibrary` ждал только видимый SSR heading и мог отправить fill/click до
+  hydration: trace показывал отсутствие соответствующих POST. Четыре строки в
+  `skills.spec.ts` теперь ожидают существующий
+  `html[data-dashboard-layout-ready="true"]`, как уже делает repository helper.
+  Это harness-only fix в `fe16d1f`; bounded canonical-link regression прошёл
+  **1/1**, затем выполнен свежий полный **7/7** run выше. Harness typecheck и
+  `git diff --check` прошли; test hooks или ослабление product checks не добавлены.
+
+Основной receipt directory:
+`tmp/accounts-reference-e2e/runs/skills-final-pg17-fe16d1f75f91/`.
+В нём сохранены `qualification-receipt.json`, `result.json`,
+`playwright-result.json`, `runtime.json`, `boot-report.json`,
+`fresh-cluster-preflight.json`, `migration-receipt.json`, `sharing-db-receipt.json`,
+`skills-github-requests.json`, `visual-inspection-receipt.json`,
+`migrations.log`, `next-app.log` и полный `synthetic-post-run.dump`.
+Все 11 screenshot paths и их digests перечислены в visual receipt; среди них:
+
+- `browser-artifacts/skills-Skills-real-Next-an-d9278-nauthor-admin-server-denial/skills-library-desktop.png`,
+  `skills-library-mobile.png` и `skills-editor-mobile.png` в той же директории;
+- `browser-artifacts/skills-Skills-real-Next-an-21b59-kill-pages-and-delta-remove/skills-bulk-result-mobile.png`;
+- `browser-artifacts/skills-Skills-real-Next-an-6cd1b-retries-the-identical-delta/skills-bulk-unknown-mobile.png`;
+- `browser-artifacts/skills-Skills-real-Next-an-2a720--only-and-author-edit-route/skills-linked-edit-saved-desktop.png`.
+
+Неуспешные/частичные attempts и их synthetic dumps сохранены отдельно:
+`tmp/accounts-reference-e2e/runs/skills-fresh-pg17-64ad9b16446c/` и
+`tmp/accounts-reference-e2e/runs/skills-fresh-pg17-fonts-64ad9b16446c/`.
+Bounded follow-up находится в
+`tmp/accounts-reference-e2e/runs/skills-hydration-followup-64ad9b16446c/` и не
+выдаётся за fresh migration proof. Final paired receipts:
+`/tmp/review-skills-paired-finish-oct23/paired-all-five.log`,
+`paired-results.json` и `migrations-isolated.log` в той же директории. Runtime
+receipts в соседнем checkout `../review-router-skills/tmp/`:
+`runtime-ocr-official-build.log`, `runtime-ocr-required-final-escalated.log`,
+`runtime-ocr-native-mcp.log`, `runtime-final-official-export-artifacts.log`,
+`runtime-final-official-export-typecheck.log` и
+`runtime-final-official-export-gateway-check.log`.
+
+Официальный combined export использует опубликованный canonical SaaS source
+`7900c92cde056d3f4320beec13c8f7a84cb79d16` и expected published runtime base
+`1381fa481bfba3755bf9135b243486505b5c2563`. Проверены **58 canonical generated
+files + 1 handoff manifest = 59 files**. Handoff SHA256:
+`560c6b7986cad36e1c1c57c59e077b7fc6f4bf5bb8c653896afd7271ad5dfe6a`.
+Generated output получен штатным exporter, вручную не исправлялся. Ранее
+зафиксированные scoped web/installer/migration/Foundation результаты сохраняют
+свою область проверки и не подменяют свежие E2E receipts этого раздела.
+
+На момент этого checkpoint runtime candidate существует локально как
+`c7114856816ae087b66f720b697b0798b0a05af9`, tree
+`e1e2a331338e02c14d8169819db020872b34a489`; его публикация выполняется отдельно.
+Этот раздел **не утверждает**, что candidate уже опубликован, его remote CI
+прошёл или оба PR merged. Окончательные remote pins/CI/merge должны быть
+зафиксированы после наблюдаемого завершения этих операций. Production
+deploy/release в рамках данной локальной квалификации не запускались.
