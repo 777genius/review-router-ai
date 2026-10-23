@@ -179,16 +179,16 @@ describe("native HTTPS MCP discovery boundary", () => {
     },
   );
   it.each([
-    [{ address: "127.0.0.1", family: 4 }],
-    [
+    { addresses: [{ address: "127.0.0.1", family: 4 }] },
+    { addresses: [
       { address: "93.184.216.34", family: 4 },
       { address: "10.0.0.1", family: 4 },
-    ],
-    [{ address: "::1", family: 6 }],
-    [{ address: "::ffff:127.0.0.1", family: 6 }],
+    ] },
+    { addresses: [{ address: "::1", family: 6 }] },
+    { addresses: [{ address: "::ffff:127.0.0.1", family: 6 }] },
   ])(
     "refuses private and mixed DNS answers before creating a request",
-    async (addresses) => {
+    async ({ addresses }) => {
       mocks.lookup.mockResolvedValue(addresses);
       await expect(
         exchangeContextProbeHttps(exchangeInput()),
