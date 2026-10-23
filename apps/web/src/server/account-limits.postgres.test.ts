@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaAccountLifecycleOperations } from "@reviewrouter/features-provider-accounts/synchronization";
+import {
+  PrismaAccountLifecycleOperations,
+  PrismaPersonalAccountOperations,
+} from "@reviewrouter/features-provider-accounts/synchronization";
 import { PrismaProviderAccountRepository } from "@reviewrouter/features-provider-accounts";
 import { createAccountLimitsService } from "./account-limits-service";
 import type { AccountLimitsSourceResult } from "@reviewrouter/features-provider-accounts";
@@ -169,22 +172,64 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
           });
         }
         // Personal ownership does not bypass the authorized workspace binding.
+        const sharing = new PrismaPersonalAccountOperations(db);
+        const revokedBindingId = bindings[0]!.id;
+        read.mockClear();
         read.mockImplementationOnce(async () => {
-          await db.workspaceAccountBinding.update({
-            where: { id: bindings[0]!.id },
-            data: { state: "revoked" },
+          await sharing.detachRecipientBinding({
+            actorUserId: owner,
+            workspaceId: org,
+            bindingId: revokedBindingId,
+            expectedBindingRevision: bindings[0]!.revision,
           });
           return snapshot;
         });
-        expect(await service.read(bindings[0]!.id)).toEqual({
+        const revokedRead = await service.read(revokedBindingId);
+        expect(read).toHaveBeenCalledOnce();
+        const revokedBinding =
+          await db.workspaceAccountBinding.findUniqueOrThrow({
+            where: { id: revokedBindingId },
+          });
+        expect(revokedBinding).toMatchObject({
+          state: "revoked",
+          revision: 2,
+          policyRevision: 2,
+          pendingFencePolicySubject: revokedBindingId,
+          pendingFencePolicyRevision: 2,
+        });
+        expect(revokedBinding.pendingFenceOperationId).not.toBeNull();
+        expect(revokedRead).toEqual({ status: "denied" });
+        read.mockClear();
+        expect(await service.read(revokedBindingId)).toEqual({
           status: "denied",
         });
-        read.mockClear();
         expect(await service.read(personal.id)).toEqual({ status: "denied" });
         expect(read).not.toHaveBeenCalled();
-        await db.workspaceAccountBinding.update({
-          where: { id: bindings[0]!.id },
-          data: { state: "active" },
+        const accounts = new PrismaProviderAccountRepository(
+          db,
+          operator,
+          true,
+        );
+        // Controlled Gateway ACK fixture: later lifecycle readiness requires
+        // every persisted fence to be acknowledged, including revoked bindings.
+        expect(
+          await accounts.acknowledgeBindingFence({
+            bindingId: revokedBindingId,
+            workspaceId: org,
+            operationId: revokedBinding.pendingFenceOperationId!,
+            policySubject: revokedBindingId,
+            policyRevision: revokedBinding.policyRevision,
+          }),
+        ).toBe(true);
+        // Revoked personal bindings are terminal. Later scenarios use a fresh
+        // disposable binding, leaving the old identity terminal.
+        bindings[0] = await db.workspaceAccountBinding.create({
+          data: {
+            id: `${personal.id}-replacement-binding`,
+            workspaceId: org,
+            connectionId: personal.id,
+            state: "active",
+          },
         });
         scope = { userId: admin };
         read.mockClear();
@@ -274,11 +319,6 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
         });
         // The shared source must drain its exact binding fences before lifecycle
         // completion; these are controlled Gateway ACK fixtures, not native effects.
-        const accounts = new PrismaProviderAccountRepository(
-          db,
-          operator,
-          true,
-        );
         for (const fence of await operations.listFences(owner, deletionId))
           expect(await accounts.acknowledgeBindingFence(fence)).toBe(true);
         expect((await operations.ready(owner, deletionId)).phase).toBe("ready");
