@@ -339,12 +339,20 @@ not an automatic overwrite. A missing source means unavailable provenance, not
 proof a rule is false. Implementation observations record the observed commit;
 commit ancestry/applicability must be checked when the feature relies on it.
 Pass trusted statement time explicitly into native retain `timestamp`; omitted
-timestamps default to ingestion time. For a changed source use the checked source
-revision's statement/update time; for a new manual decision use its authorized
-decision time. Keep observed-code time, approval time and ingestion time distinct.
-Native chunks maps this event time into its fact time; metadata alone does not
-make old evidence temporally old. Validate the authoritative source cursor
-atomically on approval even when two proposals target different entry IDs.
+timestamps default to ingestion time. For newly authored or changed normalized text, use the checked source revision's
+statement/update time; for a new manual statement use its authorized decision
+time. Keep observed-code time, approval time and ingestion time distinct.
+
+In the first profile, unchanged normalized text plus a newer source revision or
+reapproval updates provenance and last-verified metadata but deliberately keeps
+the original statement event time. Native delta retain can update document
+parameters without updating fact temporal columns. Read back actual fact times;
+new document `retain_params` alone is not temporal proof. A request to represent
+the same text as a new temporal observation is unsupported until a bounded
+native update/reprocess sequence is qualified; reject that variant before
+delivery. Do not create a Router temporal reconciliation algorithm. Include the
+same-body/new-source-time case in qualification. Validate the authoritative
+source cursor atomically even when proposals target different entry IDs.
 
 Declared source/path changes may flag observations for revalidation. Arbitrary
 code changes cannot be interpreted as semantic invalidation without evidence.
@@ -359,6 +367,10 @@ implementation: ADR-021 promises repository maintainer authority, but the curren
 Prisma adapter principally allows workspace owner/admin and local admin. The
 new path must qualify authoritative repository-role resolution; ordinary GitHub
 write permission, a PR author and a bot are not sufficient approval authority.
+Resolve approval actors to stable trusted identities before repository-role
+checks. Do not copy the login-only local-admin bypass into the production memory
+authority path. Any required development override belongs to an explicit local
+profile, separate from customer authority, with a rejecting production fixture.
 
 The current Action memory GET does not itself establish fork confidentiality.
 Bind memory reads to a trusted review request, repository, PR and head revision,
@@ -454,8 +466,14 @@ This is not cross-database snapshot isolation and cannot retract text already
 sent to an executing external model request.
 Apply the same current body-digest/content-revision/approval/lifecycle validation
 and final epoch/expiry check to detail, list, evidence and export, not just review
-bundles. Never pair an old native body with a newer approval record. Return only
-settled eligible entries; report unsettled/omitted export entries explicitly.
+bundles. Never pair an old native body with a newer approval record. Eligibility
+is specific to the consumer: runtime admission excludes retired/expired entries,
+while an authorized manager/exporter may inspect their settled retained provider
+body under the declared retention profile, labeled ineligible. Current scope,
+body digest, approved revision and deletion fences still apply. Forget removes
+body visibility on every product read immediately, even during pending cleanup.
+Report unsettled/omitted export entries explicitly; disabled memory does not
+remove authorized cleanup/export access.
 
 For derived observations, validate every returned supporting source identity,
 not only the first citation. `include.source_facts` can be truncated; inspect the
@@ -516,6 +534,19 @@ Expose these as different user actions with honest progress.
 Retire/restore/expiry are not implemented by overloading hard delete. Optional
 restore is exposed only if the provider's qualified profile supports it. Native
 invalidation must cover all facts of the logical entry, not a guessed single ID.
+The first profile uses these lifecycle preconditions:
+
+| State | Review use | Authorized management/export | Content/topic mutation |
+| --- | --- | --- | --- |
+| Settled active | Allowed only after current authority/applicability checks | Current provider body | Ordered command with expected revision |
+| Settled retired/expired | Excluded | Permitted retained body, labeled inactive | Reject until a qualified restore; forget remains available |
+| Unsettled create/replace | Excluded | Safe progress metadata; no mismatched current body | Block another external mutation; allow immediate revocation intent |
+| Forget pending/completed | Excluded | Safe cleanup status only; no body | No restore or old-command replay |
+
+Native retagging updates live facts, not necessarily archived ones. Rejecting
+content/topic edits while retired avoids promising archive synchronization.
+If restore is enabled, qualify exact retained text, topics and source identity
+before publishing the restored revision.
 
 On forget, revoke runtime admission and persist a deletion intent first. Fence
 all new source submissions/retries. Native retain caller UUID can be a parent
@@ -524,6 +555,49 @@ Enumerate relevant children, cancel them and establish execution quiescence;
 cancelled status alone is not drain proof. Then delete the native document,
 remove associated terminal operation payload rows, and verify absence through
 the actual read paths. Do not delete children while their batch parent is active.
+
+**Initial physical-forget profile: an operator memory pause.** Public native
+cancellation has no per-entry execution-drained receipt. Persist the entry fence,
+pause all Router memory submissions/retries, and stop every native executor,
+including API internal workers and old/rolling worker replicas. Require confirmed
+process exit and closure/rollback of their database sessions. A rolling redeploy,
+a sent signal, a failed health probe or `cancelled` status is not that receipt.
+Normal reviews continue without memory during this interval.
+
+Run a private cleanup API from the same qualified image with these supported
+settings; keep ordinary product mutation ingress fenced:
+
+```dotenv
+HINDSIGHT_API_WORKER_ENABLED=false
+HINDSIGHT_API_RUN_MIGRATIONS_ON_STARTUP=false
+HINDSIGHT_API_CONSOLIDATION_RECONCILE_INTERVAL_SECONDS=0
+HINDSIGHT_API_MENTAL_MODEL_REFRESH_TICK_SECONDS=0
+HINDSIGHT_API_RETENTION_SWEEP_INTERVAL_SECONDS=0
+HINDSIGHT_API_OPERATION_CLEANUP_INTERVAL_SECONDS=0
+```
+
+The zero cadence settings disable the native maintenance loop in this profile.
+Enumerate tracked and historical relevant retain parents/children, including
+queued work released by shutdown. Use public operation list/status/cancel/delete
+and document-delete calls: cancel stable queued/requeued leaves, terminalize
+parents, then remove the source document and associated terminal payload rows.
+Record child identities before deleting parents; an absent parent is not proof
+its children are absent. Keep one logical source per retain submission in the
+first profile and qualify paginated bank-operation discovery for older payloads.
+Verify native read/evidence/payload absence, clear the Router delivery envelope,
+then restart processing with fences retained. Verify absence again after restart
+and settlement of remaining native work. Missing evidence remains cleanup_pending.
+
+Slice 0 must prove the exact host stop/exit receipt, including overlapping old
+instances; a managed-service suspend acknowledgment alone is insufficient. The
+same-image fixture must show resolved cleanup configuration, no maintenance loop,
+and a queued sentinel that does not execute. Batch pending physical forget into
+an operator maintenance window initially; unrelated memory writes can wait.
+The UI reports immediate removal from use and pending cleanup until closure.
+Ordinary successful replace/retire stay online: ordered dispatch waits for actual
+successful child completion/readback, and retirement invalidates all source
+facts after any unresolved retain settles. A future online per-entry drain may
+replace this operational limitation only after its mechanism and races pass.
 
 Keep cleanup_pending state and retry evidence through partial failure. A known
 deleted source must never be re-submitted by an old queued command or restored
@@ -548,7 +622,11 @@ this plan does not authorize purchasing or deploying new infrastructure.
 
 Use API-only image `ghcr.io/vectorize-io/hindsight-api:1.1.0`, resolve and verify
 its immutable digest/provenance, and run API and worker from the same reviewed
-image. Do not use floating latest or an embedded development database. Use
+image. Set `HINDSIGHT_API_WORKER_ENABLED=false` on the normal API and
+`HINDSIGHT_API_RUN_MIGRATIONS_ON_STARTUP=false` on long-running services; migrations
+belong to the release job. Use a stable, unique `HINDSIGHT_API_WORKER_ID` per
+standalone executor and a traceable process/generation identity for stop evidence.
+Do not use floating latest or an embedded development database. Use
 native PostgreSQL task processing, pgvector and supported native text search.
 Do not add Redis, Kafka, Kubernetes or another orchestration platform for this slice.
 
@@ -588,7 +666,8 @@ Pinned source contains concrete logging defects relative to our requirements:
 - mission merge can log model response prefixes;
 - standalone worker startup prints the full configured database URL;
 - provider failure logs may include response-body excerpts; native task errors
-  persist raw exception/traceback text in async operation errors and parent copies.
+  persist raw exception/traceback text in async operation errors and parent copies;
+- the shared HTTP exception handler can log raw exceptions and return their text.
 
 Before real credentials or data, use an upstream fixed release or a minimal
 reviewed/pinned hardening patch that removes these payload/credential outputs. Log-level changes
@@ -653,6 +732,10 @@ Current outbox reloads the body from `MemoryItem`; it cannot survive deletion of
 that table unchanged. `MemoryUsageEvent` has an item FK/cascade; adapt it before
 dropping canonical rows. Support diagnostics and the still-live export route
 also read old tables. A paused UI is not a backend write fence.
+Inventory queued, claimed, unknown and dead-letter legacy `memory.*` event
+type/version pairs. Assign each a settled, fenced or explicitly owned cleanup
+disposition before its handler/schema is removed. The current worker registers
+ten version-1 memory event types; do not silently drop delayed old events.
 
 Preserve the existing service/workspace kill switch and logical-entry quota
 meaning. Native fact/observation fan-out is not the number of user knowledge
@@ -703,6 +786,10 @@ format against a second independent fixture reader, not a second production engi
    and user-preference records; do not silently turn pending input into approved facts.
 3. Pause every memory ingress, including Action commands/candidates, dashboard
    mutations and old maintenance writers. Normal review continues without memory.
+   Verify service- and workspace-level disable through `MemoryPolicyConfigPort`:
+   runtime bundles, new writes, proposals, confirmations and edits are blocked;
+   authorized pending-suggestion rejection, retire/forget and export remain
+   available. Deferred provider cleanup reports progress honestly.
 4. Settle or fence old work. Export eligible core knowledge and authority/source
    metadata. Import once with stable IDs/digests and verify counts, samples,
    scope isolation and source completeness. Resolve cleanup debt separately.
@@ -710,13 +797,19 @@ format against a second independent fixture reader, not a second production engi
    source/destination generation and an activation fence. A crashed import resumes
    the same commands; it does not recapture authority or duplicate approved entries.
 5. Switch one configured backend generation and compatible paired runtime.
-   Re-enable memory only after real runtime qualification.
+   Re-enable memory only after real runtime qualification, repeating the
+   disabled-mode cleanup/export checks before removing the activation fence.
 6. Keep a bounded read-only recovery snapshot. After new writes, reverting to
    that old snapshot would lose changes: default rollback disables memory and
    recovers forward, not silent dual-write or stale fallback.
 7. Complete old remote deletion obligations; remove unused adapters/code and
    apply forward schema cleanup. Do not retain parallel legacy variants without
    a recorded removal condition.
+
+Rehearse forward migrations on a disposable representative prior schema/data
+clone, including usage FKs and surviving receipts. The current memory E2E database
+preparer uses `prisma db push` and reports `historicalReplay:false`; it is separate
+current-schema evidence, not proof of a deployed-data upgrade.
 
 Code deletion is authorized. Silent customer-data loss is not. If inventory
 shows no real data/remote work, use the simpler empty-state cutover and document
@@ -793,12 +886,18 @@ Hard acceptance properties:
 - No cross-workspace/repository/private-user or fork disclosure on any read,
   list, evidence, export or error path.
 - No unapproved candidate used as a rule; no bot/PR-author authority escalation.
-- Same command/same content cannot duplicate an effect; changed-content reuse,
+- Same command/same content cannot duplicate a logical publication; changed-content reuse,
   stale edits and old generations are rejected.
 - Unknown outcomes remain visible; older work cannot overwrite a settled newer
   revision or resurrect a retired/deleted entry.
 - Forget hides content immediately and reports cleanup progress honestly;
-  cancel/drain includes children and persisted payload cleanup.
+  paused cleanup includes executor/session exit, children, historical payloads,
+  same-image no-execution evidence and post-restart absence verification.
+- Retired/expired records never enter review but remain available for authorized
+  retained-body inspection/export and forget, including when memory is disabled.
+  Retired content/topic edits are rejected until qualified restore.
+- Same-body source reapproval preserves and reports original native event time;
+  unsupported re-timing fails before delivery and cannot counterfeit freshness.
 - A rule correction is retrieved as the approved current rule; contradictory
   unresolved evidence cannot silently become a confident review requirement.
 - Current-observation claims require the qualified readiness and real-model
@@ -873,8 +972,24 @@ requested precise boundary repairs: urgent revocation during unknown writes;
 all-read consistency and export omissions; trusted native source timestamps;
 feature-local outage behavior and one total deadline; immutable invocation
 snapshots; native persisted-error redaction and final hardened-image identity.
-These changes are incorporated. Three fresh independent critics now review the
-repaired plan in round three; production qualification has not been performed.
+These changes are incorporated. Three fresh independent GPT-6.1 Sol xhigh critics
+reviewed the complete repaired plan in round three. They found no P0 architecture
+blocker. Their remaining precise repairs are recorded below and incorporated;
+targeted closure of the final edits is recorded after verification.
+
+| Round-three finding | Selected repair |
+| --- | --- |
+| Native cancellation has no public execution-drained receipt (P1) | Explicit initial operator memory pause, process/session exit evidence, maintenance-off cleanup API, public payload cleanup and post-restart verification; ordinary successful mutations remain online |
+| Same-body retain may preserve old fact times (P2) | First profile preserves original statement time and separately advances provenance/last-verified metadata; unsupported re-timing rejected until qualified |
+| Runtime eligibility could hide permitted retained management records (P2) | Consumer-specific read policy; retired/expired inspection/export allowed, forget body fenced everywhere |
+| Archived facts may retain old topic tags (P2) | Reject content/topic edits while retired; optional restore requires native readback |
+| Existing local-admin bypass uses login alone (P2) | Stable trusted actor identity; no production login-only override |
+| Legacy events and migration evidence were implicit (P2) | Version/dead-letter disposition and prior-schema forward-migration rehearsal |
+
+This phase used nine distinct GPT-6.1 Sol xhigh agents: three planners, three
+round-one/two critics, and three fresh final critics. Plan review is not native
+production qualification. The separate PR review's disabled-mode cleanup/export
+finding is also incorporated in the cutover acceptance criteria.
 
 ## Primary sources
 
@@ -891,6 +1006,8 @@ repaired plan in round three; production qualification has not been performed.
 - [Native extraction](https://github.com/vectorize-io/hindsight/blob/a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5/hindsight-api-slim/hindsight_api/engine/retain/fact_extraction.py).
 - [Native consolidation](https://github.com/vectorize-io/hindsight/blob/a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5/hindsight-api-slim/hindsight_api/engine/consolidation/consolidator.py).
 - [Native configuration](https://github.com/vectorize-io/hindsight/blob/a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5/hindsight-api-slim/hindsight_api/config.py).
-- [Native worker](https://github.com/vectorize-io/hindsight/blob/a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5/hindsight-api-slim/hindsight_api/worker/main.py).
+- [Native worker](https://github.com/vectorize-io/hindsight/blob/a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5/hindsight-api-slim/hindsight_api/worker/main.py), [shutdown and retries](https://github.com/vectorize-io/hindsight/blob/a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5/hindsight-api-slim/hindsight_api/worker/poller.py), and [maintenance](https://github.com/vectorize-io/hindsight/blob/a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5/hindsight-api-slim/hindsight_api/engine/maintenance.py).
+- [Native delta retain](https://github.com/vectorize-io/hindsight/blob/a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5/hindsight-api-slim/hindsight_api/engine/retain/orchestrator.py).
+- [Router memory E2E database preparation](https://github.com/777genius/review-router-ai/blob/296ddc0327b7dfc762c31b5b1d39e5461a41c12c/scripts/memory-e2e/prepare-database.ts).
 - [Native system tests](https://github.com/vectorize-io/hindsight/blob/a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5/hindsight-system-tests/README.md).
 - [Render private services](https://render.com/docs/private-services) and [health checks](https://render.com/docs/health-checks).
