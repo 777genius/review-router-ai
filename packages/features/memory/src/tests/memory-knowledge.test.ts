@@ -352,4 +352,73 @@ describe("complete provider memory policy", () => {
     store.scopeEpoch.mockResolvedValue("2");
     expect(await service.admitBundle({ actor, bundle }, controls)).toBe(false);
   });
+
+  it("admits a metadata-only frozen receipt without refetching provider bodies and rechecks source access", async () => {
+    const { service, reader, access } = fixture();
+    const bundle = await service.bundle(
+      { actor, scopes: [scope], query: "requests" },
+      controls,
+    );
+    const receipt = service.createBundleReceipt(bundle);
+    expect(JSON.stringify(receipt)).not.toContain(command.body);
+    expect(receipt.scopes[0]?.entries).toEqual([
+      { ref: command.ref, revision: "1", contentApprovalRevision: "1" },
+    ]);
+    reader.read.mockClear();
+    reader.recall.mockClear();
+    expect(await service.admitReceipt({ actor, receipt }, controls)).toBe(true);
+    expect(reader.read).not.toHaveBeenCalled();
+    expect(reader.recall).not.toHaveBeenCalled();
+    access.sourceApplicable.mockResolvedValueOnce(false);
+    expect(await service.admitReceipt({ actor, receipt }, controls)).toBe(
+      false,
+    );
+  });
+
+  it("rechecks repository-specific scope policy during receipt admission", async () => {
+    const { service, policy } = fixture();
+    const bundle = await service.bundle(
+      { actor, scopes: [scope], query: "requests" },
+      controls,
+    );
+    policy.getPolicy.mockResolvedValueOnce({
+      memoryEnabled: true,
+      allowedScopes: { workspace: true, repository: false, user_prefs: true },
+    });
+    expect(
+      await service.admitReceipt(
+        { actor, receipt: service.createBundleReceipt(bundle) },
+        controls,
+      ),
+    ).toBe(false);
+    expect(policy.getPolicy).toHaveBeenLastCalledWith({
+      workspaceId: scope.workspaceId,
+      repositoryId: scope.repositoryId,
+    });
+  });
+
+  it("rejects an exception whose exact authorized shared target is not an active rule", async () => {
+    const { service, store } = fixture();
+    const target = {
+      type: "entry" as const,
+      scope: { kind: "workspace" as const, workspaceId: scope.workspaceId },
+      entryId: "shared_rule",
+    };
+    store.findEntry.mockResolvedValueOnce({
+      ...metadata,
+      ref: target,
+      kind: "observation",
+    });
+    await expect(
+      service.save(
+        {
+          ...command,
+          knowledgeKind: "exception",
+          applicability: { ...command.applicability, exceptionRule: target },
+        },
+        controls,
+      ),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(store.admit).not.toHaveBeenCalled();
+  });
 });

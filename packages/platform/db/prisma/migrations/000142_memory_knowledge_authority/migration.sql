@@ -22,10 +22,10 @@ CREATE INDEX "MemoryKnowledgeEntry_generation_scopeKey_entryId_idx" ON "MemoryKn
 CREATE TABLE "MemoryKnowledgeCommand" (
   "id" TEXT PRIMARY KEY, "generation" TEXT NOT NULL, "scopeKey" TEXT NOT NULL,
   "workspaceId" TEXT NOT NULL, "entryId" TEXT NOT NULL, "revision" INTEGER NOT NULL,
-  "commandKind" TEXT NOT NULL, "digest" TEXT NOT NULL, "envelope" JSONB,
+  "commandKind" TEXT NOT NULL, "digest" TEXT NOT NULL, "approval" JSONB NOT NULL, "envelope" JSONB,
   "state" TEXT NOT NULL, "safeReason" TEXT, "contentApprovalRevision" TEXT NOT NULL,
   "originalStatementAt" TEXT, "deliveryExpiresAt" TIMESTAMP(3) NOT NULL, "resubmitUntil" TIMESTAMP(3) NOT NULL,
-  "claimId" TEXT, "claimUntil" TIMESTAMP(3), "firstDispatchedAt" TIMESTAMP(3),
+  "claimId" TEXT, "claimUntil" TIMESTAMP(3), "firstDispatchedAt" TIMESTAMP(3), "deliveryAttempt" INTEGER NOT NULL DEFAULT 0, "cleanupReceiptId" TEXT,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "MemoryKnowledgeCommand_revision_check" CHECK ("revision" > 0),
@@ -45,6 +45,13 @@ CREATE TABLE "MemoryKnowledgeSourceCursor" (
   "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX "MemoryKnowledgeSourceCursor_workspaceId_idx" ON "MemoryKnowledgeSourceCursor"("workspaceId");
+CREATE TABLE "MemoryKnowledgeBundleReceipt" (
+  "id" TEXT PRIMARY KEY, "authorizationId" TEXT NOT NULL, "bindingDigest" TEXT NOT NULL,
+  "workspaceId" TEXT NOT NULL, "receipt" JSONB NOT NULL, "policyVersion" INTEGER NOT NULL,
+  "eligibilityEpoch" TEXT NOT NULL, "expiresAt" TIMESTAMP(3) NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX "MemoryKnowledgeBundleReceipt_expiresAt_idx" ON "MemoryKnowledgeBundleReceipt"("expiresAt");
 
 -- Prevent changed-payload UUID reuse and accidental content-envelope editing.
 CREATE FUNCTION memory_knowledge_command_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -53,6 +60,9 @@ BEGIN
     OR NEW."scopeKey" IS DISTINCT FROM OLD."scopeKey" OR NEW."entryId" IS DISTINCT FROM OLD."entryId"
     OR NEW."revision" IS DISTINCT FROM OLD."revision" OR NEW."digest" IS DISTINCT FROM OLD."digest"
     OR NEW."commandKind" IS DISTINCT FROM OLD."commandKind"
+    OR NEW."approval" IS DISTINCT FROM OLD."approval" OR NEW."workspaceId" IS DISTINCT FROM OLD."workspaceId"
+    OR NEW."contentApprovalRevision" IS DISTINCT FROM OLD."contentApprovalRevision" OR NEW."originalStatementAt" IS DISTINCT FROM OLD."originalStatementAt"
+    OR NEW."deliveryExpiresAt" IS DISTINCT FROM OLD."deliveryExpiresAt" OR NEW."resubmitUntil" IS DISTINCT FROM OLD."resubmitUntil"
     OR (NEW."envelope" IS DISTINCT FROM OLD."envelope" AND NEW."envelope" IS NOT NULL) THEN
     RAISE EXCEPTION 'memory_command_immutable';
   END IF;

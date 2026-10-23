@@ -1,6 +1,7 @@
 import type {
   MemoryEntryRef,
   MemoryKnowledgeCommand,
+  MemoryKnowledgeApproval,
   MemoryKnowledgeEntryMetadata,
   MemoryKnowledgeErrorCode,
   MemoryKnowledgeOperation,
@@ -16,6 +17,18 @@ export type MemoryStoredCommand = {
   readonly originalStatementAt: string | null;
   readonly deliveryExpiresAt: string;
   readonly resubmitUntil: string;
+  readonly approval: MemoryKnowledgeApproval;
+};
+
+/** Constructed only by a trusted host verifier after execution drain and absence checks. */
+export type MemoryVerifiedCleanupReceipt = {
+  readonly id: string;
+  readonly commandId: string;
+  readonly commandDigest: string;
+  readonly generation: string;
+  readonly ref: MemoryEntryRef;
+  readonly verifiedAt: string;
+  readonly verifiedBy: string;
 };
 
 /** All admission/settlement methods are cross-process database transactions. No in-memory leases. */
@@ -85,4 +98,8 @@ export interface MemoryKnowledgeStore {
     readonly now: Date;
     readonly limit: number;
   }): Promise<number>;
+  completeCleanup(input: {
+    readonly receipt: MemoryVerifiedCleanupReceipt;
+    readonly now: Date;
+  }): Promise<MemoryKnowledgeOperation>;
 }

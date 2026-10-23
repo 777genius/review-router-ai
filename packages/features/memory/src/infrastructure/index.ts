@@ -1,6 +1,7 @@
 /** Concrete server adapters for host composition; keep the core entrypoint neutral. */
 export * from "./crypto-memory-id-generator";
 export * from "./prisma/prisma-memory-knowledge-store";
+export * from "./prisma/prisma-memory-knowledge-access";
 export * from "./config/memory-service-flag";
 export * from "./entitlements/entitlement-memory-policy-config";
 export * from "./entitlements/entitlement-memory-quota-policy";

@@ -26,7 +26,10 @@ import type {
   MemoryProviderRecallItem,
   MemoryRequestControls,
 } from "../ports/memory-knowledge-provider-port";
-import type { MemoryKnowledgeStore } from "../ports/memory-knowledge-store-port";
+import type {
+  MemoryKnowledgeStore,
+  MemoryVerifiedCleanupReceipt,
+} from "../ports/memory-knowledge-store-port";
 import type { MemoryPolicyConfigPort } from "../ports/memory-policy-config-port";
 import type { MemoryQuotaPolicyPort } from "../ports/memory-quota-policy-port";
 
@@ -37,16 +40,38 @@ export type MemoryKnowledgeView = {
   readonly unavailableReason:
     "unsettled" | "provider_unavailable" | "incomplete_evidence" | null;
 };
+export type MemoryKnowledgeBundleItem =
+  | (Extract<MemoryProviderRecallItem, { readonly type: "entry" }> & {
+      readonly metadata: MemoryKnowledgeEntryMetadata;
+    })
+  | (Extract<MemoryProviderRecallItem, { readonly type: "observation" }> & {
+      readonly sourceMetadata: readonly MemoryKnowledgeEntryMetadata[];
+    });
+
 export type MemoryKnowledgeBundle = {
   readonly generation: string;
   readonly scopes: readonly {
     readonly scope: MemoryKnowledgeScope;
     readonly epoch: string;
-    readonly items: readonly MemoryProviderRecallItem[];
+    readonly items: readonly MemoryKnowledgeBundleItem[];
   }[];
   readonly hash: string;
   readonly expiresAt: string;
   readonly degraded: boolean;
+};
+export type MemoryKnowledgeAdmissionReceipt = {
+  readonly generation: string;
+  readonly bundleHash: string;
+  readonly scopes: readonly {
+    readonly scope: MemoryKnowledgeScope;
+    readonly epoch: string;
+    readonly entries: readonly {
+      readonly ref: MemoryEntryRef;
+      readonly revision: string;
+      readonly contentApprovalRevision: string;
+    }[];
+  }[];
+  readonly expiresAt: string;
 };
 export type MemoryCoreExport = {
   readonly format: "memory-core-export/v1";
@@ -179,6 +204,43 @@ export class MemoryKnowledgeService {
       )
         throw new MemoryKnowledgeError("forbidden");
       command = normalizeMemoryKnowledgeCommand({ ...command, source });
+      if (command.kind === "save" && command.applicability.exceptionRule) {
+        const target = command.applicability.exceptionRule;
+        if (
+          command.ref.scope.kind !== "repository" ||
+          target.scope.kind !== "workspace" ||
+          target.scope.workspaceId !== command.ref.scope.workspaceId
+        )
+          throw new MemoryKnowledgeError("forbidden");
+        await this.dependencies.access.authorize(
+          {
+            actor: command.approval.actor,
+            scope: target.scope,
+            action: "read",
+          },
+          controls,
+        );
+        const rule = await this.dependencies.store.findEntry(
+          target,
+          this.dependencies.generation,
+        );
+        if (
+          !rule ||
+          rule.kind !== "rule" ||
+          !memoryKnowledgeBodyVisible(rule, "runtime", this.now()) ||
+          !rule.source ||
+          !(await this.dependencies.access.sourceApplicable(
+            {
+              actor: command.approval.actor,
+              scope: target.scope,
+              source: rule.source,
+              consumer: "runtime",
+            },
+            controls,
+          ))
+        )
+          throw new MemoryKnowledgeError("conflict");
+      }
     }
     const quota = await this.dependencies.quota.getWorkspaceQuota({
       workspaceId: command.ref.scope.workspaceId,
@@ -301,6 +363,18 @@ export class MemoryKnowledgeService {
     return this.dependencies.store.expireDeliveryEnvelopes({
       now: this.now(),
       limit: Math.min(1_000, Math.max(1, limit)),
+    });
+  }
+
+  /** Host operator integration only; receipt verification is a prerequisite. */
+  async settleCleanup(
+    receipt: MemoryVerifiedCleanupReceipt,
+  ): Promise<MemoryKnowledgeOperation> {
+    if (receipt.generation !== this.dependencies.generation)
+      throw new MemoryKnowledgeError("conflict");
+    return this.dependencies.store.completeCleanup({
+      receipt,
+      now: this.now(),
     });
   }
 
@@ -427,6 +501,9 @@ export class MemoryKnowledgeService {
     if (
       input.scopes.length > 2 ||
       input.scopes.some((scope) => scope.kind === "user_preference") ||
+      new Set(input.scopes.map((scope) => memoryKnowledgeDigest(scope)))
+        .size !== input.scopes.length ||
+      new Set(input.scopes.map((scope) => scope.workspaceId)).size > 1 ||
       input.query.length > 1_000 ||
       !input.query.trim()
     )
@@ -434,7 +511,7 @@ export class MemoryKnowledgeService {
     const scopes: {
       scope: MemoryKnowledgeScope;
       epoch: string;
-      items: MemoryProviderRecallItem[];
+      items: MemoryKnowledgeBundleItem[];
     }[] = [];
     let degraded = false;
     try {
@@ -466,19 +543,47 @@ export class MemoryKnowledgeService {
           },
           budget,
         );
-        const items: MemoryProviderRecallItem[] = [];
-        for (const item of recalled)
-          if (await this.recallEligible(item, scope, input.actor, budget))
-            items.push(item);
+        const items: MemoryKnowledgeBundleItem[] = [];
+        for (const item of recalled) {
+          const admitted = await this.admittedRecall(
+            item,
+            scope,
+            input.actor,
+            budget,
+          );
+          if (admitted) items.push(admitted);
+        }
         scopes.push({ scope, epoch, items });
       }
-      for (const section of scopes)
+      for (const section of scopes) {
+        await this.dependencies.access.authorize(
+          { actor: input.actor, scope: section.scope, action: "runtime" },
+          budget,
+        );
         await this.recheck(section.scope, section.epoch, budget);
+      }
     } catch {
       scopes.length = 0;
       degraded = true;
     }
-    const expiresAt = new Date(this.now().getTime() + 30_000).toISOString();
+    const validityBounds = scopes.flatMap((section) =>
+      section.items.flatMap((item) =>
+        (item.type === "entry" ? [item.metadata] : item.sourceMetadata).flatMap(
+          (metadata) =>
+            metadata.applicability.validUntil
+              ? [Date.parse(metadata.applicability.validUntil)]
+              : [],
+        ),
+      ),
+    );
+    const expiry = Math.min(this.now().getTime() + 30_000, ...validityBounds);
+    if (expiry <= this.now().getTime()) {
+      scopes.length = 0;
+      degraded = true;
+    }
+    const expiresAt = new Date(
+      expiry <= this.now().getTime() ? this.now().getTime() + 30_000 : expiry,
+    ).toISOString();
     const snapshot = {
       generation: this.dependencies.generation,
       scopes,
@@ -495,34 +600,129 @@ export class MemoryKnowledgeService {
     },
     controls: MemoryRequestControls,
   ): Promise<boolean> {
+    try {
+      return await this.admitReceipt(
+        { actor: input.actor, receipt: this.createBundleReceipt(input.bundle) },
+        controls,
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  createBundleReceipt(
+    bundle: MemoryKnowledgeBundle,
+  ): MemoryKnowledgeAdmissionReceipt {
+    const { hash, ...snapshot } = bundle;
+    if (memoryKnowledgeDigest(snapshot) !== hash)
+      throw new MemoryKnowledgeError("conflict");
+    return {
+      generation: bundle.generation,
+      bundleHash: hash,
+      expiresAt: bundle.expiresAt,
+      scopes: bundle.scopes.map((section) => {
+        const entries = new Map<
+          string,
+          {
+            ref: MemoryEntryRef;
+            revision: string;
+            contentApprovalRevision: string;
+          }
+        >();
+        for (const item of section.items)
+          for (const metadata of item.type === "entry"
+            ? [item.metadata]
+            : item.sourceMetadata) {
+            if (!metadata.contentApprovalRevision)
+              throw new MemoryKnowledgeError("incomplete_evidence");
+            entries.set(memoryKnowledgeDigest(metadata.ref), {
+              ref: metadata.ref,
+              revision: metadata.revision,
+              contentApprovalRevision: metadata.contentApprovalRevision,
+            });
+          }
+        return {
+          scope: section.scope,
+          epoch: section.epoch,
+          entries: [...entries.values()],
+        };
+      }),
+    };
+  }
+
+  async admitReceipt(
+    input: {
+      readonly actor: MemoryActor;
+      readonly receipt: MemoryKnowledgeAdmissionReceipt;
+    },
+    controls: MemoryRequestControls,
+  ): Promise<boolean> {
+    const receipt = input.receipt;
     if (
-      input.bundle.generation !== this.dependencies.generation ||
-      Date.parse(input.bundle.expiresAt) <= this.now().getTime()
+      receipt.generation !== this.dependencies.generation ||
+      !Number.isFinite(Date.parse(receipt.expiresAt)) ||
+      Date.parse(receipt.expiresAt) <= this.now().getTime() ||
+      receipt.scopes.length > 2 ||
+      receipt.scopes.some(
+        (section) =>
+          section.scope.kind === "user_preference" ||
+          section.entries.length > 1_000,
+      ) ||
+      new Set(receipt.scopes.map((section) => section.scope.workspaceId)).size >
+        1
     )
       return false;
-    const { hash, ...snapshot } = input.bundle;
-    if (memoryKnowledgeDigest(snapshot) !== hash) return false;
     try {
-      for (const section of input.bundle.scopes) {
+      for (const section of receipt.scopes) {
         await this.dependencies.access.authorize(
           { actor: input.actor, scope: section.scope, action: "runtime" },
           controls,
         );
         const policy = await this.dependencies.policy.getPolicy({
           workspaceId: section.scope.workspaceId,
+          repositoryId:
+            section.scope.kind === "repository"
+              ? section.scope.repositoryId
+              : null,
         });
-        if (!policy.memoryEnabled) return false;
+        if (
+          !policy.memoryEnabled ||
+          section.scope.kind === "user_preference" ||
+          !policy.allowedScopes[section.scope.kind]
+        )
+          return false;
         await this.recheck(section.scope, section.epoch, controls);
-        for (const item of section.items)
+        for (const expected of section.entries) {
+          if (!sameMemoryKnowledgeScope(expected.ref.scope, section.scope))
+            return false;
+          const metadata = await this.dependencies.store.findEntry(
+            expected.ref,
+            this.dependencies.generation,
+          );
           if (
-            !(await this.recallEligible(
-              item,
-              section.scope,
-              input.actor,
+            !metadata ||
+            metadata.revision !== expected.revision ||
+            metadata.contentApprovalRevision !==
+              expected.contentApprovalRevision ||
+            !memoryKnowledgeBodyVisible(metadata, "runtime", this.now()) ||
+            !metadata.source ||
+            !(await this.dependencies.access.sourceApplicable(
+              {
+                actor: input.actor,
+                scope: section.scope,
+                source: metadata.source,
+                consumer: "runtime",
+              },
               controls,
             ))
           )
             return false;
+        }
+        await this.dependencies.access.authorize(
+          { actor: input.actor, scope: section.scope, action: "runtime" },
+          controls,
+        );
+        await this.recheck(section.scope, section.epoch, controls);
       }
       return true;
     } catch {
@@ -598,21 +798,20 @@ export class MemoryKnowledgeService {
     );
   }
 
-  private async recallEligible(
+  private async admittedRecall(
     item: MemoryProviderRecallItem,
     scope: MemoryKnowledgeScope,
     actor: MemoryActor,
     controls: MemoryRequestControls,
-  ): Promise<boolean> {
+  ): Promise<MemoryKnowledgeBundleItem | null> {
     this.check(controls);
     if (item.type === "entry") {
-      if (!sameMemoryKnowledgeScope(item.entry.ref.scope, scope)) return false;
+      if (!sameMemoryKnowledgeScope(item.entry.ref.scope, scope)) return null;
       const metadata = await this.dependencies.store.findEntry(
         item.entry.ref,
         this.dependencies.generation,
       );
-      return (
-        metadata !== null &&
+      return metadata &&
         (await this.entryEligible(
           item.entry,
           metadata,
@@ -620,7 +819,8 @@ export class MemoryKnowledgeService {
           "runtime",
           controls,
         ))
-      );
+        ? { type: "entry", entry: item.entry, metadata }
+        : null;
     }
     if (
       !sameMemoryKnowledgeScope(item.ref.scope, scope) ||
@@ -630,9 +830,10 @@ export class MemoryKnowledgeService {
       item.sourceEntries.length > 100 ||
       item.body.length > 4_000
     )
-      return false;
+      return null;
+    const sourceMetadata: MemoryKnowledgeEntryMetadata[] = [];
     for (const ref of item.sourceEntries) {
-      if (!sameMemoryKnowledgeScope(ref.scope, scope)) return false;
+      if (!sameMemoryKnowledgeScope(ref.scope, scope)) return null;
       const metadata = await this.dependencies.store.findEntry(
         ref,
         this.dependencies.generation,
@@ -640,21 +841,26 @@ export class MemoryKnowledgeService {
       if (
         !metadata ||
         !memoryKnowledgeBodyVisible(metadata, "runtime", this.now()) ||
-        !metadata.source ||
-        !(await this.dependencies.access.sourceApplicable(
-          { actor, scope, source: metadata.source, consumer: "runtime" },
-          controls,
-        ))
+        !metadata.source
       )
-        return false;
+        return null;
       const entry = await this.dependencies.reader.read(ref, controls);
       if (
         !entry ||
         !(await this.entryEligible(entry, metadata, actor, "runtime", controls))
       )
-        return false;
+        return null;
+      sourceMetadata.push(metadata);
     }
-    return true;
+    return {
+      type: "observation",
+      ref: item.ref,
+      body: item.body,
+      sourceEntries: item.sourceEntries,
+      evidenceComplete: true,
+      temporalStatus: "historical",
+      sourceMetadata,
+    };
   }
 
   private async recheck(

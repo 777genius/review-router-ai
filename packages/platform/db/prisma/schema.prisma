@@ -3301,6 +3301,7 @@ model MemoryKnowledgeCommand {
   revision                Int
   commandKind             String
   digest                  String
+  approval                Json
   // Immutable approved input while unresolved; never serves any content read.
   envelope                Json?
   state                   String
@@ -3312,12 +3313,28 @@ model MemoryKnowledgeCommand {
   claimId                 String?
   claimUntil              DateTime?
   firstDispatchedAt       DateTime?
+  deliveryAttempt         Int      @default(0)
+  cleanupReceiptId        String?
   createdAt               DateTime @default(now())
   updatedAt               DateTime @default(now()) @updatedAt
 
   @@unique([generation, scopeKey, entryId, revision])
   @@index([generation, scopeKey, entryId, state])
   @@index([state, deliveryExpiresAt])
+}
+
+model MemoryKnowledgeBundleReceipt {
+  id               String   @id
+  authorizationId  String
+  bindingDigest    String
+  workspaceId      String
+  receipt          Json
+  policyVersion    Int
+  eligibilityEpoch String
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+
+  @@index([expiresAt])
 }
 
 model MemoryKnowledgeSourceCursor {

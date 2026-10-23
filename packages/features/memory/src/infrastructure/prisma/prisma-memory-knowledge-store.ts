@@ -11,6 +11,7 @@ import {
   sameMemoryKnowledgeScope,
   type MemoryEntryRef,
   type MemoryKnowledgeCommand,
+  type MemoryKnowledgeApproval,
   type MemoryKnowledgeEntryMetadata,
   type MemoryKnowledgeErrorCode,
   type MemoryKnowledgeOperation,
@@ -19,6 +20,7 @@ import {
 import type {
   MemoryKnowledgeStore,
   MemoryStoredCommand,
+  MemoryVerifiedCleanupReceipt,
 } from "../../application/ports/memory-knowledge-store-port";
 import type { MemoryProviderOperation } from "../../application/ports/memory-knowledge-provider-port";
 
@@ -32,6 +34,7 @@ type CommandRow = {
   revision: number;
   commandKind: MemoryKnowledgeCommand["kind"];
   digest: string;
+  approval: MemoryKnowledgeApproval;
   envelope: MemoryKnowledgeCommand | null;
   state: MemoryKnowledgeOperation["state"];
   safeReason: MemoryKnowledgeErrorCode | null;
@@ -42,6 +45,8 @@ type CommandRow = {
   claimId: string | null;
   claimUntil: Date | null;
   firstDispatchedAt: Date | null;
+  deliveryAttempt: number;
+  cleanupReceiptId: string | null;
 };
 type EntryRow = {
   metadata: MemoryKnowledgeEntryMetadata;
@@ -71,7 +76,7 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
       throw new MemoryKnowledgeError("invalid_input");
     return this.prisma.$transaction(async (tx) => {
       // Quota, source cursors and admission must agree across scopes/processes.
-      await tx.$queryRaw(
+      await tx.$executeRaw(
         Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`memory-admission:${command.ref.scope.workspaceId}`}, 0))`,
       );
       await this.lockScope(tx, command.ref.scope, command.generation);
@@ -118,7 +123,7 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
       const [counts] = await tx.$queryRaw<
         { active: number; pending: number }[]
       >(Prisma.sql`
-        SELECT (SELECT count(*)::int FROM "MemoryKnowledgeEntry" WHERE "workspaceId"=${command.ref.scope.workspaceId} AND "lifecycle"='active') AS active,
+        SELECT (SELECT count(*)::int FROM "MemoryKnowledgeEntry" WHERE "workspaceId"=${command.ref.scope.workspaceId} AND "lifecycle"='active' AND ("pendingCommandId" IS NOT NULL OR "metadata"->>'contentApprovalRevision' IS NOT NULL)) AS active,
           (SELECT count(*)::int FROM "MemoryKnowledgeCommand" WHERE "workspaceId"=${command.ref.scope.workspaceId} AND "state" NOT IN ('published','completed','failed')) AS pending`);
       if (
         !current &&
@@ -188,8 +193,8 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
                 : metadata.lifecycle,
       };
       await tx.$executeRaw(Prisma.sql`
-        INSERT INTO "MemoryKnowledgeCommand" ("id","generation","scopeKey","workspaceId","entryId","revision","commandKind","digest","envelope","state","contentApprovalRevision","originalStatementAt","deliveryExpiresAt","resubmitUntil","createdAt","updatedAt")
-        VALUES (${command.commandId},${command.generation},${memoryKnowledgeScopeKey(command.ref.scope)},${command.ref.scope.workspaceId},${command.ref.entryId},${revision},${command.kind},${input.digest},${JSON.stringify(command)}::jsonb,'queued',${contentApprovalRevision},${originalStatementAt},${input.deliveryExpiresAt},${input.resubmitUntil},${input.now},${input.now})`);
+        INSERT INTO "MemoryKnowledgeCommand" ("id","generation","scopeKey","workspaceId","entryId","revision","commandKind","digest","approval","envelope","state","contentApprovalRevision","originalStatementAt","deliveryExpiresAt","resubmitUntil","createdAt","updatedAt")
+        VALUES (${command.commandId},${command.generation},${memoryKnowledgeScopeKey(command.ref.scope)},${command.ref.scope.workspaceId},${command.ref.entryId},${revision},${command.kind},${input.digest},${JSON.stringify(command.approval)}::jsonb,${JSON.stringify(command)}::jsonb,'queued',${contentApprovalRevision},${originalStatementAt},${input.deliveryExpiresAt},${input.resubmitUntil},${input.now},${input.now})`);
       await this.writeEntry(tx, metadata, input.now);
       await this.bumpEpoch(
         tx,
@@ -406,8 +411,10 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
           ? "incomplete_evidence"
           : (input.result.safeReason ?? null);
       await tx.$executeRaw(
-        Prisma.sql`UPDATE "MemoryKnowledgeCommand" SET "state"=${state},"safeReason"=${safeReason},"envelope"=CASE WHEN ${done} THEN NULL ELSE "envelope" END,"claimId"=NULL,"claimUntil"=NULL,"updatedAt"=${input.now} WHERE "id"=${row.id}`,
+        Prisma.sql`UPDATE "MemoryKnowledgeCommand" SET "state"=${state},"safeReason"=${safeReason},"envelope"=CASE WHEN ${done} THEN NULL ELSE "envelope" END,"claimId"=NULL,"claimUntil"=NULL,"deliveryAttempt"="deliveryAttempt"+1,"updatedAt"=${input.now} WHERE "id"=${row.id}`,
       );
+      if (!done && state !== "cleanup_pending")
+        await this.enqueueObservation(tx, row, input.scope, input.now);
       return {
         ...this.operation(row, input.scope),
         state,
@@ -419,9 +426,126 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
   async recordFailure(
     input: Parameters<MemoryKnowledgeStore["recordFailure"]>[0],
   ): Promise<void> {
-    await this.prisma.$executeRaw(
-      Prisma.sql`UPDATE "MemoryKnowledgeCommand" SET "state"='unknown',"safeReason"=${input.safeReason},"claimId"=NULL,"claimUntil"=NULL,"updatedAt"=${input.now} WHERE "id"=${input.commandId} AND "generation"=${input.generation} AND "scopeKey"=${memoryKnowledgeScopeKey(input.scope)} AND "claimId"=${input.claimId} AND "state" NOT IN ('published','completed','failed')`,
-    );
+    await this.prisma.$transaction(async (tx) => {
+      await this.lockScope(tx, input.scope, input.generation);
+      const row = await this.command(tx, input.commandId);
+      if (
+        !row ||
+        row.generation !== input.generation ||
+        row.scopeKey !== memoryKnowledgeScopeKey(input.scope) ||
+        row.claimId !== input.claimId ||
+        terminal.has(row.state)
+      )
+        return;
+      await tx.$executeRaw(
+        Prisma.sql`UPDATE "MemoryKnowledgeCommand" SET "state"='unknown',"safeReason"=${input.safeReason},"claimId"=NULL,"claimUntil"=NULL,"deliveryAttempt"="deliveryAttempt"+1,"updatedAt"=${input.now} WHERE "id"=${row.id}`,
+      );
+      await this.enqueueObservation(tx, row, input.scope, input.now);
+    });
+  }
+
+  async completeCleanup(input: {
+    readonly receipt: MemoryVerifiedCleanupReceipt;
+    readonly now: Date;
+  }): Promise<MemoryKnowledgeOperation> {
+    const receipt = input.receipt;
+    if (
+      !receipt.id ||
+      !receipt.verifiedBy ||
+      !Number.isFinite(Date.parse(receipt.verifiedAt)) ||
+      Date.parse(receipt.verifiedAt) > input.now.getTime() ||
+      !/^[0-9a-f]{64}$/.test(receipt.commandDigest)
+    )
+      throw new MemoryKnowledgeError("invalid_input");
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockScope(tx, receipt.ref.scope, receipt.generation);
+      const row = await this.command(tx, receipt.commandId);
+      if (
+        !row ||
+        row.commandKind !== "forget" ||
+        row.generation !== receipt.generation ||
+        row.scopeKey !== memoryKnowledgeScopeKey(receipt.ref.scope) ||
+        row.entryId !== receipt.ref.entryId ||
+        row.digest !== receipt.commandDigest
+      )
+        throw new MemoryKnowledgeError("conflict");
+      if (row.state === "completed") {
+        if (row.cleanupReceiptId !== receipt.id)
+          throw new MemoryKnowledgeError("conflict");
+        return this.operation(row, receipt.ref.scope);
+      }
+      const current = await this.entry(tx, receipt.ref, receipt.generation);
+      if (
+        !current ||
+        current.metadata.lifecycle !== "forget_pending" ||
+        current.pendingCommandId !== row.id ||
+        current.revocationCommandId !== row.id ||
+        !["cleanup_pending", "unknown"].includes(row.state) ||
+        (row.claimUntil && row.claimUntil > input.now)
+      )
+        throw new MemoryKnowledgeError("conflict");
+      const metadata: MemoryKnowledgeEntryMetadata = {
+        ...current.metadata,
+        lifecycle: "forgotten",
+        pendingCommandId: null,
+        revocationCommandId: null,
+        bodyDigest: null,
+        contentApprovalRevision: null,
+        topicsDigest: null,
+        approval: null,
+        source: null,
+        originalStatementAt: null,
+        lastVerifiedAt: null,
+        updatedAt: input.now.toISOString(),
+      };
+      await this.writeEntry(tx, metadata, input.now);
+      await this.bumpEpoch(
+        tx,
+        receipt.ref.scope,
+        receipt.generation,
+        input.now,
+      );
+      await tx.$executeRaw(
+        Prisma.sql`UPDATE "MemoryKnowledgeCommand" SET "state"='completed',"safeReason"=NULL,"envelope"=NULL,"claimId"=NULL,"claimUntil"=NULL,"cleanupReceiptId"=${receipt.id},"updatedAt"=${input.now} WHERE "id"=${row.id}`,
+      );
+      await tx.auditEvent.create({
+        data: {
+          workspaceId: receipt.ref.scope.workspaceId,
+          actor: receipt.verifiedBy,
+          action: "memory.knowledge.forget.completed",
+          targetType: "memory_entry",
+          targetId: receipt.ref.entryId,
+          metadata: {
+            commandId: row.id,
+            cleanupReceiptId: receipt.id,
+            commandDigest: row.digest,
+            generation: receipt.generation,
+          },
+        },
+      });
+      return { ...this.operation(row, receipt.ref.scope), state: "completed" };
+    });
+  }
+
+  private async enqueueObservation(
+    tx: Prisma.TransactionClient,
+    row: CommandRow,
+    scope: MemoryKnowledgeScope,
+    now: Date,
+  ): Promise<void> {
+    if (!row.envelope || row.deliveryExpiresAt <= now) return;
+    await tx.outboxEvent.create({
+      data: {
+        type: "memory.knowledge.command.requested",
+        version: 2,
+        idempotencyKey: `memory.knowledge.command.observe:${row.id}:${row.deliveryAttempt + 1}`,
+        workspaceId: scope.workspaceId,
+        aggregateId: row.entryId,
+        payload: { commandId: row.id, generation: row.generation, scope },
+        occurredAt: now,
+        nextAttemptAt: new Date(now.getTime() + 5_000),
+      },
+    });
   }
 
   async expireDeliveryEnvelopes(input: {
@@ -443,6 +567,7 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
       return result.state === "completed" && Boolean(result.cleanupReceiptId);
     if (command.kind === "retire" || command.kind === "expire")
       return result.state === "completed";
+    if (command.kind !== "save" && command.kind !== "topics") return false;
     const entry = result.verifiedEntry;
     if (
       result.state !== "published" ||
@@ -607,6 +732,7 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
       originalStatementAt: row.originalStatementAt,
       deliveryExpiresAt: row.deliveryExpiresAt.toISOString(),
       resubmitUntil: row.resubmitUntil.toISOString(),
+      approval: row.approval,
     };
   }
   private async writeEntry(

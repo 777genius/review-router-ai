@@ -96,18 +96,7 @@ export class PrismaMemoryPermission implements MemoryPermissionPort {
   }
 
   private async resolveUserId(actor: MemoryActor): Promise<string | null> {
-    if (actor.kind === "workspace_user") return actor.id || null;
-    if (
-      actor.kind !== "github_user" ||
-      !actor.githubUserId ||
-      !/^\d+$/.test(actor.githubUserId)
-    )
-      return null;
-    const user = await this.prisma.user.findFirst({
-      where: { githubUserId: BigInt(actor.githubUserId) },
-      select: { id: true },
-    });
-    return user?.id ?? null;
+    return resolveMemoryProductUserId(this.prisma, actor);
   }
 
   private async repositoryAvailable(input: {
@@ -132,18 +121,7 @@ export class PrismaMemoryPermission implements MemoryPermissionPort {
     readonly workspaceId: string;
     readonly actor: MemoryActor;
   }): Promise<"owner" | "admin" | "member" | null> {
-    const actorFilter = workspaceMemberActorFilter(input.actor);
-    if (!actorFilter) return null;
-
-    const member = await this.prisma.workspaceMember.findFirst({
-      where: {
-        workspaceId: input.workspaceId,
-        OR: actorFilter,
-      },
-      select: { role: true },
-    });
-
-    return member?.role ?? null;
+    return resolveMemoryWorkspaceRole(this.prisma, input);
   }
 }
 
@@ -179,4 +157,36 @@ function deny(
   retryable: boolean,
 ): MemoryPermissionDecision {
   return { allowed: false, reason, retryable };
+}
+
+/** Stable identity helpers shared by product management and read authorization. */
+export async function resolveMemoryProductUserId(
+  prisma: PrismaClient | Prisma.TransactionClient,
+  actor: MemoryActor,
+): Promise<string | null> {
+  if (actor.kind === "workspace_user") return actor.id || null;
+  if (
+    actor.kind !== "github_user" ||
+    !actor.githubUserId ||
+    !/^\d+$/.test(actor.githubUserId)
+  )
+    return null;
+  const user = await prisma.user.findFirst({
+    where: { githubUserId: BigInt(actor.githubUserId) },
+    select: { id: true },
+  });
+  return user?.id ?? null;
+}
+
+export async function resolveMemoryWorkspaceRole(
+  prisma: PrismaClient | Prisma.TransactionClient,
+  input: { readonly workspaceId: string; readonly actor: MemoryActor },
+): Promise<"owner" | "admin" | "member" | null> {
+  const actorFilter = workspaceMemberActorFilter(input.actor);
+  if (!actorFilter) return null;
+  const member = await prisma.workspaceMember.findFirst({
+    where: { workspaceId: input.workspaceId, OR: actorFilter },
+    select: { role: true },
+  });
+  return member?.role ?? null;
 }
