@@ -3,7 +3,6 @@ import type { ContextConnectionMetadata } from "@reviewrouter/features-review-co
 import { loadProviderUsage } from "../../src/server/provider-usage-report";
 import { ProviderUsageView } from "./provider-usage-view";
 import { WorkspaceOtherSettings } from "./workspace-other-settings";
-import { readReviewPolicyHeadVersions } from "../../src/server/review-policy-heads";
 import { Badge, LinkButton, SelectField } from "@reviewrouter/ui";
 import {
   RepositoryNameLink,
@@ -69,10 +68,11 @@ import {
 } from "@reviewrouter/features-workflow-provisioning";
 import { redirect } from "next/navigation";
 import {
-  findReviewConfiguration,
-  findRepositoryReviewConfigurations,
-  PrismaReviewConfigurationRepository,
+  PrismaReviewPolicyHeadReader,
   PrismaWorkspaceReviewSettings,
+  readyReviewConfiguration,
+  resolveEffectiveReviewConfigurations,
+  type PersistedReviewConfiguration,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import {
@@ -355,13 +355,13 @@ type DashboardWorkspaceData = {
   }[];
   gatewayReadiness: ReadonlyMap<string, GatewayReviewV2RepositoryReadiness>;
   entitlement: ReturnType<typeof freeBetaEntitlement>;
-  reviewConfig: Awaited<ReturnType<typeof findReviewConfiguration>>;
+  reviewConfig: PersistedReviewConfiguration | null;
   reviewConfigExpectedVersion: number | null;
   reviewDraftPullRequests?: boolean;
   canEditOtherSettings?: boolean;
   repositoryConfigs: readonly {
     readonly repositoryId: string;
-    readonly config: Awaited<ReturnType<typeof findReviewConfiguration>>;
+    readonly config: PersistedReviewConfiguration | null;
     readonly expectedVersion: number | null;
   }[];
   outboxFailures: Awaited<ReturnType<typeof listWorkspaceOutboxFailures>>;
@@ -392,7 +392,6 @@ export async function loadDashboardSectionData(
   const repositoryStore = new PrismaRepositoryConnectionRepository(prisma);
   const healthStore = new PrismaRepositoryHealthRepository(prisma);
   const entitlementStore = new PrismaEntitlementRepository(prisma);
-  const reviewConfigStore = new PrismaReviewConfigurationRepository(prisma);
   const outboxStore = new PrismaOutboxEventRepository(prisma);
   const diagnosticsStore = new PrismaSupportDiagnosticsRepository(prisma);
   const orgRulesetStore = new PrismaOrgRulesetProvisioningRepository(prisma);
@@ -450,11 +449,6 @@ export async function loadDashboardSectionData(
   );
   const entitlement = storedEntitlement ?? freeBetaEntitlement(workspace.id);
   const repositoryIds = visibleRepositories.map((repository) => repository.id);
-  // Capture CAS metadata before parsing policy. An opaque head is still an
-  // existing target; a later metadata read must not authorize a stale draft.
-  const policyHeadVersions = needsConfig
-    ? await readReviewPolicyHeadVersions(prisma, workspace.id, repositoryIds)
-    : new Map<string, number | null>();
   const visibleRepositoryOwners = new Set(
     visibleRepositories.map((repository) => repository.owner.toLowerCase()),
   );
@@ -493,9 +487,8 @@ export async function loadDashboardSectionData(
   const [
     [workspaceHealth, orgRuleset, workspaceWideInstallations],
     [
-      reviewConfig,
+      policies,
       hostedPool,
-      repositoryConfigs,
       outboxFailures,
       provisioning,
       providerSetup,
@@ -504,10 +497,12 @@ export async function loadDashboardSectionData(
   ] = await Promise.all([
     independentReadsPromise,
     Promise.all([
+      // Head versions come from the same read as the parsed policy, so an opaque
+      // head keeps its own CAS revision and never borrows a later one.
       needsConfig
-        ? findReviewConfiguration(
-            { scope: "workspace", workspaceId: workspace.id },
-            { configurations: reviewConfigStore },
+        ? resolveEffectiveReviewConfigurations(
+            { workspaceId: workspace.id, repositoryIds },
+            { policyHeads: new PrismaReviewPolicyHeadReader(prisma) },
           )
         : Promise.resolve(null),
       loadHostedPoolDashboardView({
@@ -527,12 +522,6 @@ export async function loadDashboardSectionData(
         }).allowed,
         queries: new PrismaHostedPoolQuery(prisma),
       }),
-      needsConfig
-        ? findRepositoryReviewConfigurations(
-            { workspaceId: workspace.id, repositoryIds },
-            { configurations: reviewConfigStore },
-          )
-        : Promise.resolve([]),
       section === "diagnostics" && hasWorkspaceWideAccess
         ? listWorkspaceOutboxFailures(
             { workspaceId: workspace.id, limit: 5 },
@@ -578,18 +567,15 @@ export async function loadDashboardSectionData(
         prisma,
         workspaceId: workspace.id,
         repositoryIds: visibleRepositories
-          .filter((repository) =>
-            (
-              repositoryConfigs.find(
-                (item) => item.repositoryId === repository.id,
-              )?.config?.config ??
-              (policyHeadVersions.get(`repo:${repository.id}`) != null
-                ? undefined
-                : reviewConfig?.config)
-            )?.providers.some(
-              (provider) => provider.authMode === "codex_account_gateway",
-            ),
-          )
+          .filter((repository) => {
+            const policy = policies?.repositories.get(repository.id);
+            return (
+              policy?.status === "ready" &&
+              policy.config.providers.some(
+                (provider) => provider.authMode === "codex_account_gateway",
+              )
+            );
+          })
           .map((repository) => repository.id),
       })
     : new Map<string, GatewayReviewV2RepositoryReadiness>();
@@ -651,24 +637,19 @@ export async function loadDashboardSectionData(
     gatewayReadiness,
     entitlement,
     health,
-    reviewConfig,
-    // Parsed values keep their captured revision even if another writer advances
-    // the head. Metadata is only a fallback for an opaque or absent policy.
-    reviewConfigExpectedVersion:
-      reviewConfig?.version ??
-      policyHeadVersions.get("workspace:default") ??
-      null,
+    reviewConfig: policies
+      ? readyReviewConfiguration(policies.workspace)
+      : null,
+    reviewConfigExpectedVersion: policies?.workspace.workspaceVersion ?? null,
     repositoryConfigs: repositoryIds.map((repositoryId) => {
-      const config =
-        repositoryConfigs.find((item) => item.repositoryId === repositoryId)
-          ?.config ?? null;
+      const policy = policies?.repositories.get(repositoryId);
       return {
         repositoryId,
-        config,
-        expectedVersion:
-          config?.repositoryVersion ??
-          policyHeadVersions.get(`repo:${repositoryId}`) ??
-          null,
+        config:
+          policy?.status === "ready" && policy.source === "repository"
+            ? readyReviewConfiguration(policy)
+            : null,
+        expectedVersion: policy?.repositoryVersion ?? null,
       };
     }),
     outboxFailures,

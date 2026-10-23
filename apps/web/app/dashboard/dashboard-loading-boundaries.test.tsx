@@ -9,6 +9,7 @@ import {
   WorkspaceCard,
 } from "./dashboard-workspace-page";
 import type { DashboardWorkspaceSummary } from "./dashboard-workspace-navigation";
+import type { EffectiveReviewConfiguration } from "@reviewrouter/features-review-config";
 
 const fixtures = vi.hoisted(() => {
   const repository = {
@@ -27,26 +28,28 @@ const fixtures = vi.hoisted(() => {
     ]),
     entitlement: vi.fn(async () => ({ flags: { hosted_codex_pool: true } })),
     health: vi.fn(async () => []),
-    config: vi.fn(
-      async (): Promise<{ readonly version: number } | null> => null,
-    ),
-    policyHeads: vi.fn(
-      async (): Promise<
-        readonly {
-          readonly targetKey: string;
-          readonly versions: readonly { readonly version: number }[];
-        }[]
-      > => [],
-    ),
-    batchConfig: vi.fn(
-      async (input: { readonly repositoryIds: readonly string[] }) =>
-        input.repositoryIds.map((repositoryId) => ({
-          repositoryId,
-          config: null as {
-            readonly version: number;
-            readonly repositoryVersion: number | null;
-          } | null,
-        })),
+    policies: vi.fn(
+      async (input: {
+        readonly repositoryIds: readonly string[];
+      }): Promise<{
+        readonly workspace: EffectiveReviewConfiguration;
+        readonly repositories: ReadonlyMap<
+          string,
+          EffectiveReviewConfiguration
+        >;
+      }> => {
+        const missing = {
+          status: "missing",
+          workspaceVersion: null,
+          repositoryVersion: null,
+        } as const;
+        return {
+          workspace: missing,
+          repositories: new Map(
+            input.repositoryIds.map((repositoryId) => [repositoryId, missing]),
+          ),
+        };
+      },
     ),
     outbox: vi.fn(async () => []),
     provisioning: vi.fn(async () => []),
@@ -131,7 +134,6 @@ vi.mock("./actions", () => ({
 vi.mock("../../src/server/prisma", () => ({
   getPrisma: () => ({
     providerSetupState: { findMany: fixtures.spies.providerSetup },
-    reviewConfiguration: { findMany: fixtures.spies.policyHeads },
     workspace: {
       findMany: fixtures.spies.summaries,
       findUnique: fixtures.spies.audit,
@@ -202,9 +204,8 @@ vi.mock("@reviewrouter/features-review-config", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@reviewrouter/features-review-config")
   >()),
-  PrismaReviewConfigurationRepository: fixtures.EmptyStore,
-  findReviewConfiguration: fixtures.spies.config,
-  findRepositoryReviewConfigurations: fixtures.spies.batchConfig,
+  PrismaReviewPolicyHeadReader: fixtures.EmptyStore,
+  resolveEffectiveReviewConfigurations: fixtures.spies.policies,
 }));
 vi.mock("@reviewrouter/features-outbox", () => ({
   PrismaOutboxEventRepository: fixtures.EmptyStore,
@@ -306,13 +307,11 @@ describe("dashboard server loading boundaries", () => {
     try {
       expect(spies.repositories).toHaveBeenCalledOnce();
       expect(spies.health).toHaveBeenCalledOnce();
-      expect(spies.config).not.toHaveBeenCalled();
-      expect(spies.policyHeads).not.toHaveBeenCalled();
+      expect(spies.policies).not.toHaveBeenCalled();
       expect(spies.ruleset).toHaveBeenCalledOnce();
       await vi.waitFor(() =>
         expect(spies.organizationRequest).toHaveBeenCalledOnce(),
       );
-      expect(spies.batchConfig).not.toHaveBeenCalled();
       expect(spies.provisioning).not.toHaveBeenCalled();
       expect(spies.hostedPool).not.toHaveBeenCalled();
     } finally {
@@ -331,47 +330,33 @@ describe("dashboard server loading boundaries", () => {
     }
   });
 
-  it("captures only visible active target revisions before reading opaque policies", async () => {
-    let resolveHeads!: (
-      value: Awaited<ReturnType<typeof spies.policyHeads>>,
-    ) => void;
-    spies.policyHeads.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolveHeads = resolve;
-        }),
-    );
-    const loading = loadDashboardSectionData(
+  it("keeps opaque head revisions of only the visible targets for CAS", async () => {
+    spies.policies.mockResolvedValueOnce({
+      workspace: {
+        status: "resave_required",
+        workspaceVersion: 3,
+        repositoryVersion: null,
+      },
+      repositories: new Map([
+        [
+          "repo-a",
+          {
+            status: "resave_required",
+            workspaceVersion: 3,
+            repositoryVersion: 11,
+          },
+        ],
+      ]),
+    });
+    const data = await loadDashboardSectionData(
       { ...workspace, hasWorkspaceWideAccess: false },
       "policy",
       access,
     );
-    await vi.waitFor(() => expect(spies.policyHeads).toHaveBeenCalledOnce());
-    expect(spies.config).not.toHaveBeenCalled();
-    expect(spies.batchConfig).not.toHaveBeenCalled();
-    expect(spies.policyHeads).toHaveBeenCalledExactlyOnceWith({
-      where: {
-        workspaceId: "workspace-a",
-        active: true,
-        OR: [
-          { targetKey: "workspace:default", repositoryId: null },
-          { targetKey: "repo:repo-a", repositoryId: "repo-a" },
-        ],
-      },
-      select: {
-        targetKey: true,
-        versions: {
-          orderBy: { version: "desc" },
-          take: 1,
-          select: { version: true },
-        },
-      },
-    });
-    resolveHeads([
-      { targetKey: "workspace:default", versions: [{ version: 3 }] },
-      { targetKey: "repo:repo-a", versions: [{ version: 11 }] },
-    ]);
-    const data = await loading;
+    expect(spies.policies).toHaveBeenCalledExactlyOnceWith(
+      { workspaceId: "workspace-a", repositoryIds: ["repo-a"] },
+      expect.anything(),
+    );
     expect(data.reviewConfig).toBeNull();
     expect(data.reviewConfigExpectedVersion).toBe(3);
     expect(data.repositoryConfigs).toEqual([
@@ -379,30 +364,50 @@ describe("dashboard server loading boundaries", () => {
     ]);
   });
 
-  it("keeps the parsed policy revision when a writer advances after metadata capture", async () => {
-    spies.policyHeads.mockResolvedValueOnce([
-      { targetKey: "workspace:default", versions: [{ version: 3 }] },
-      { targetKey: "repo:repo-a", versions: [{ version: 11 }] },
-    ]);
-    spies.config.mockResolvedValueOnce({ version: 4 });
-    spies.batchConfig.mockResolvedValueOnce([
-      {
-        repositoryId: "repo-a",
-        config: { version: 12, repositoryVersion: 12 },
+  it("uses the revisions of the parsed policies for CAS", async () => {
+    const ready = {
+      status: "ready",
+      config: {},
+      policy: { schemaVersion: 3 },
+      effectivePolicyDigest: "sha256:test",
+      revisionToken: "policy:test",
+    } as unknown as Extract<EffectiveReviewConfiguration, { status: "ready" }>;
+    spies.policies.mockResolvedValueOnce({
+      workspace: {
+        ...ready,
+        version: 4,
+        source: "workspace",
+        workspaceVersion: 4,
+        repositoryVersion: null,
       },
-    ]);
+      repositories: new Map([
+        [
+          "repo-a",
+          {
+            ...ready,
+            version: 12,
+            source: "repository",
+            workspaceVersion: 4,
+            repositoryVersion: 12,
+          },
+        ],
+      ]),
+    });
     const data = await loadDashboardSectionData(
       { ...workspace, hasWorkspaceWideAccess: false },
       "policy",
       access,
     );
     expect(data.reviewConfigExpectedVersion).toBe(4);
-    expect(data.repositoryConfigs[0]?.expectedVersion).toBe(12);
+    expect(data.repositoryConfigs[0]).toMatchObject({
+      config: { version: 12, source: "repository" },
+      expectedVersion: 12,
+    });
+    expect(data.repositoryConfigs[0]?.config).not.toHaveProperty("status");
   });
 
   it("sends null CAS for inactive or new targets without borrowing the workspace revision", async () => {
-    // The metadata query excludes inactive configurations, even with retained versions.
-    spies.policyHeads.mockResolvedValueOnce([]);
+    // The head reader excludes inactive configurations, even with retained versions.
     const data = await loadDashboardSectionData(workspace, "policy", access);
     expect(data.reviewConfigExpectedVersion).toBeNull();
     expect(
@@ -755,8 +760,7 @@ describe("dashboard server loading boundaries", () => {
       expect(html.includes("Hosted pool accounts")).toBe(
         hasWorkspaceWideAccess,
       );
-      expect(spies.config).not.toHaveBeenCalled();
-      expect(spies.batchConfig).not.toHaveBeenCalled();
+      expect(spies.policies).not.toHaveBeenCalled();
     },
   );
 
@@ -840,8 +844,7 @@ describe("dashboard server loading boundaries", () => {
     async (section) => {
       await loadDashboardSectionData(workspace, section, access);
       for (const spy of [
-        spies.config,
-        spies.batchConfig,
+        spies.policies,
         spies.health,
         spies.provisioning,
         spies.providerSetup,
@@ -946,7 +949,7 @@ describe("dashboard server loading boundaries", () => {
     expect(data.repositoryConfigs.map((config) => config.repositoryId)).toEqual(
       ["repo-a"],
     );
-    expect(spies.batchConfig).toHaveBeenCalledExactlyOnceWith(
+    expect(spies.policies).toHaveBeenCalledExactlyOnceWith(
       {
         workspaceId: "workspace-a",
         repositoryIds: ["repo-a"],

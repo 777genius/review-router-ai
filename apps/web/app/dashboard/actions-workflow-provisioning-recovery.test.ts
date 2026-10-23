@@ -108,6 +108,10 @@ import {
 const { isWorkflowSetupAlreadyCurrent } = await vi.importActual<
   typeof import("../../src/server/workflow-setup-readiness")
 >("../../src/server/workflow-setup-readiness");
+const { resolveReviewRuntimeEnv: resolveSavedReviewRuntimeEnv } =
+  await vi.importActual<typeof import("@reviewrouter/features-review-config")>(
+    "@reviewrouter/features-review-config",
+  );
 
 function workspacePolicyHeadsFixture() {
   return {
@@ -250,16 +254,34 @@ describe("dashboard setup PR recovery", () => {
           })),
         },
         reviewConfiguration: {
-          findMany: vi.fn(async () => [
-            { targetKey: "repo:repository_1", versions: [{ version: 7 }] },
-            ...(workspacePresent
-              ? [{ targetKey: "workspace:default", versions: [{ version: 1 }] }]
-              : []),
-          ]),
+          findUnique: vi.fn(
+            async ({
+              where,
+            }: {
+              where: { workspaceId_targetKey: { targetKey: string } };
+            }) =>
+              where.workspaceId_targetKey.targetKey === "repo:repository_1"
+                ? {
+                    versions: [
+                      {
+                        version: 7,
+                        schemaVersion: 3,
+                        policyJson: JSON.stringify({ schemaVersion: 3 }),
+                      },
+                    ],
+                  }
+                : workspacePresent
+                  ? {
+                      versions: [
+                        { version: 1, schemaVersion: 2, policyJson: null },
+                      ],
+                    }
+                  : null,
+          ),
         },
       });
-      mocks.resolveReviewRuntimeEnv.mockRejectedValueOnce(
-        new Error("review_workspace_policy_required"),
+      mocks.resolveReviewRuntimeEnv.mockImplementationOnce(
+        resolveSavedReviewRuntimeEnv,
       );
       const form = new FormData();
       form.set("workspaceId", "workspace_1");

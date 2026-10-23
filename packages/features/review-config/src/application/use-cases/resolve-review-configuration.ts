@@ -3,8 +3,10 @@ import type { ReviewConfigurationTarget } from "../../domain/review-configuratio
 import type {
   PersistedReviewConfiguration,
   ReviewConfigurationRepositoryPort,
+  ReviewPolicyHeadReaderPort,
 } from "../ports/review-configuration-repository-port";
 import { mapConfigToRuntimeEnv } from "./map-config-to-runtime-env";
+import { resolveEffectiveReviewConfiguration } from "./resolve-effective-review-configuration";
 
 export type ResolvedReviewConfigurationSource =
   | "repository"
@@ -55,15 +57,19 @@ function toResolvedConfiguration(
 
 export async function resolveReviewRuntimeEnv(
   target: ReviewConfigurationTarget,
-  dependencies: {
-    readonly configurations: ReviewConfigurationRepositoryPort;
-  },
+  dependencies: { readonly policyHeads: ReviewPolicyHeadReaderPort },
 ): Promise<ResolvedReviewRuntimeEnv> {
-  const resolved = await resolveReviewConfiguration(target, dependencies);
-  if (!resolved) throw new Error("review_workspace_policy_required");
+  const resolved = await resolveEffectiveReviewConfiguration(
+    target,
+    dependencies,
+  );
+  if (resolved.status === "resave_required")
+    throw new Error("review_policy_resave_required");
+  if (resolved.status === "missing")
+    throw new Error("review_workspace_policy_required");
 
   return {
-    ...resolved,
+    ...toResolvedConfiguration(resolved),
     runtimeEnv: mapConfigToRuntimeEnv(resolved.config),
   };
 }

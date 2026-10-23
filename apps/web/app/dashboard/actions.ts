@@ -5,8 +5,6 @@ import {
   contextToolsWorkflowSecrets,
 } from "../../src/server/context-tools";
 
-import { readReviewPolicyHeadVersions } from "../../src/server/review-policy-heads";
-
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import { resolveReviewPolicy } from "@reviewrouter/features-review-config";
 
@@ -38,6 +36,8 @@ import {
   clearReviewConfiguration,
   isOpenRouterDirectConfiguration,
   PrismaReviewConfigurationRepository,
+  PrismaReviewPolicyHeadReader,
+  resolveEffectiveReviewConfiguration,
   resolveReviewRuntimeEnv,
   type ResolvedReviewRuntimeEnv,
   saveReviewConfiguration,
@@ -2883,18 +2883,13 @@ async function saveRepositoryReviewConfigMutation(
       workspaceId,
       resourceId: repositoryId,
     });
-    const configurations = new PrismaReviewConfigurationRepository(
-      prisma,
-      process.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
+    const workspace = await resolveEffectiveReviewConfiguration(
+      { scope: "workspace", workspaceId },
+      { policyHeads: new PrismaReviewPolicyHeadReader(prisma) },
     );
-    const heads = await readReviewPolicyHeadVersions(prisma, workspaceId);
-    const workspace = await configurations.findLatest({
-      scope: "workspace",
-      workspaceId,
-    });
-    if (!workspace)
+    if (workspace.status !== "ready")
       throw new Error(
-        heads.get("workspace:default") != null
+        workspace.status === "resave_required"
           ? "review_policy_resave_required"
           : "review_workspace_policy_required",
       );
@@ -3628,30 +3623,14 @@ async function loadResolvedReviewRuntime(input: {
   readonly workspaceId: string;
   readonly repositoryId: string;
 }): Promise<ResolvedReviewRuntimeEnv> {
-  const configurations = new PrismaReviewConfigurationRepository(input.prisma);
-  const heads = await readReviewPolicyHeadVersions(
-    input.prisma,
-    input.workspaceId,
-    [input.repositoryId],
-  );
-  const runtime = await resolveReviewRuntimeEnv(
+  return resolveReviewRuntimeEnv(
     {
       scope: "repository",
       workspaceId: input.workspaceId,
       repositoryId: input.repositoryId,
     },
-    { configurations },
-  ).catch((error: unknown) => {
-    if (
-      error instanceof Error &&
-      error.message === "review_workspace_policy_required" &&
-      heads.get("workspace:default") != null
-    ) {
-      throw new Error("review_policy_resave_required");
-    }
-    throw error;
-  });
-  return runtime;
+    { policyHeads: new PrismaReviewPolicyHeadReader(input.prisma) },
+  );
 }
 
 function workflowReadinessProviderKind(

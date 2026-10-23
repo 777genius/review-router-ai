@@ -1,11 +1,8 @@
-import { createHash } from "node:crypto";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import {
-  canonicalJson,
-  parseRepositoryReviewPolicyOverride,
-  parseReviewConfigurationStrict,
-  resolveReviewPolicy,
-  type ReviewConfiguration,
+  PrismaReviewPolicyHeadReader,
+  resolveEffectiveReviewConfiguration,
+  type ReviewPolicyReader,
 } from "@reviewrouter/features-review-config";
 import type {
   ActionHealthReport,
@@ -144,55 +141,31 @@ export class PrismaActionControlPlaneRepository implements ActionControlPlaneRep
       readonly workspaceId: string;
       readonly repositoryId: string;
     },
-    reader: Pick<PrismaClient, "reviewConfiguration"> = this.prisma,
+    reader: ReviewPolicyReader = this.prisma,
   ): Promise<RuntimeReviewConfigurationRecord | null> {
-    if (reader === this.prisma) {
-      return this.prisma.$transaction(
-        (transaction) =>
-          this.findRuntimeReviewConfiguration(input, transaction),
-        { isolationLevel: "RepeatableRead" },
-      );
-    }
-    const workspace = await this.findLatestPolicyVersion(
-      { workspaceId: input.workspaceId, targetKey: "workspace:default" },
-      reader,
-    );
-    const repository = await this.findLatestPolicyVersion(
+    const resolved = await resolveEffectiveReviewConfiguration(
       {
+        scope: "repository",
         workspaceId: input.workspaceId,
-        targetKey: `repo:${input.repositoryId}`,
+        repositoryId: input.repositoryId,
       },
-      reader,
+      {
+        policyHeads:
+          reader === this.prisma
+            ? PrismaReviewPolicyHeadReader.snapshot(this.prisma)
+            : new PrismaReviewPolicyHeadReader(reader),
+      },
     );
-    if (!workspace) return null;
-    if (
-      workspace.schemaVersion !== 3 ||
-      !workspace.policyJson ||
-      (repository && (repository.schemaVersion !== 3 || !repository.policyJson))
-    )
+    if (resolved.status === "missing") return null;
+    if (resolved.status === "resave_required")
       throw new Error("review_policy_resave_required");
-    let config: ReviewConfiguration;
-    try {
-      const workspacePolicy = parseReviewConfigurationStrict(
-        JSON.parse(workspace.policyJson),
-      );
-      const repositoryPolicy = repository
-        ? parseRepositoryReviewPolicyOverride(
-            JSON.parse(repository.policyJson!),
-          )
-        : null;
-      config = resolveReviewPolicy(workspacePolicy, repositoryPolicy);
-    } catch {
-      throw new Error("review_policy_resave_required");
-    }
-    const digest = `sha256:${createHash("sha256").update(canonicalJson(config)).digest("hex")}`;
     return {
-      source: repository ? "repository" : "workspace",
-      version: repository?.version ?? workspace.version,
-      workspaceVersion: workspace.version,
-      repositoryVersion: repository?.version ?? null,
-      effectivePolicyDigest: digest,
-      config,
+      source: resolved.source,
+      version: resolved.version,
+      workspaceVersion: resolved.workspaceVersion,
+      repositoryVersion: resolved.repositoryVersion,
+      effectivePolicyDigest: resolved.effectivePolicyDigest,
+      config: resolved.config,
     };
   }
 
@@ -287,33 +260,6 @@ export class PrismaActionControlPlaneRepository implements ActionControlPlaneRep
         ...optionalData,
       },
     });
-  }
-
-  private async findLatestPolicyVersion(
-    input: { readonly workspaceId: string; readonly targetKey: string },
-    reader: Pick<PrismaClient, "reviewConfiguration">,
-  ): Promise<{
-    version: number;
-    schemaVersion: number;
-    policyJson: string | null;
-  } | null> {
-    const configuration = await reader.reviewConfiguration.findUnique({
-      where: {
-        workspaceId_targetKey: {
-          workspaceId: input.workspaceId,
-          targetKey: input.targetKey,
-        },
-        active: true,
-      },
-      select: {
-        versions: {
-          orderBy: { version: "desc" },
-          take: 1,
-          select: { version: true, schemaVersion: true, policyJson: true },
-        },
-      },
-    });
-    return configuration?.versions[0] ?? null;
   }
 }
 

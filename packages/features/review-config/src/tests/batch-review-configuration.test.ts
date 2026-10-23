@@ -1,65 +1,12 @@
 import { workspacePolicyFixture } from "./current-policy-fixture";
 import { describe, expect, it, vi } from "vitest";
 import {
-  findRepositoryReviewConfigurations,
-  PrismaReviewConfigurationRepository,
-  type PersistedReviewConfiguration,
-  type ReviewConfigurationBatchReaderPort,
+  PrismaReviewPolicyHeadReader,
+  resolveEffectiveReviewConfigurations,
 } from "../index";
 
-describe("findRepositoryReviewConfigurations", () => {
-  it("preserves requested order and duplicates while representing missing overrides as null", async () => {
-    const saved = {
-      version: 4,
-      revisionToken: "db:version_4",
-      config: workspacePolicyFixture,
-      policy: { schemaVersion: 3 },
-      source: "repository",
-      workspaceVersion: 1,
-      repositoryVersion: 4,
-      effectivePolicyDigest: "a".repeat(64),
-    } satisfies PersistedReviewConfiguration;
-    const findLatestForRepositories = vi.fn(
-      async (): ReturnType<
-        ReviewConfigurationBatchReaderPort["findLatestForRepositories"]
-      > => [{ repositoryId: "repository_2", config: saved }],
-    );
-
-    await expect(
-      findRepositoryReviewConfigurations(
-        {
-          workspaceId: "workspace_1",
-          repositoryIds: ["repository_2", "repository_missing", "repository_2"],
-        },
-        { configurations: { findLatestForRepositories } },
-      ),
-    ).resolves.toEqual([
-      { repositoryId: "repository_2", config: saved },
-      { repositoryId: "repository_missing", config: null },
-      { repositoryId: "repository_2", config: saved },
-    ]);
-    expect(findLatestForRepositories).toHaveBeenCalledOnce();
-    expect(findLatestForRepositories).toHaveBeenCalledWith({
-      workspaceId: "workspace_1",
-      repositoryIds: ["repository_2", "repository_missing"],
-    });
-  });
-
-  it("does not query the port for an empty request", async () => {
-    const findLatestForRepositories = vi.fn(async () => []);
-
-    await expect(
-      findRepositoryReviewConfigurations(
-        { workspaceId: "workspace_1", repositoryIds: [] },
-        { configurations: { findLatestForRepositories } },
-      ),
-    ).resolves.toEqual([]);
-    expect(findLatestForRepositories).not.toHaveBeenCalled();
-  });
-});
-
-describe("PrismaReviewConfigurationRepository batch reads", () => {
-  it("loads latest revisions and provider rows for all unique IDs with one workspace read and one bounded repository query", async () => {
+describe("PrismaReviewPolicyHeadReader batch reads", () => {
+  it("loads latest revisions for all unique IDs with one workspace read and one bounded repository query", async () => {
     const findMany = vi.fn(async () => [
       {
         repositoryId: "repository_2",
@@ -82,8 +29,6 @@ describe("PrismaReviewConfigurationRepository batch reads", () => {
       { repositoryId: "repository_missing", versions: [] },
     ]);
     const findUnique = vi.fn(async () => ({
-      active: true,
-      repositoryId: null,
       versions: [
         {
           version: 1,
@@ -92,33 +37,50 @@ describe("PrismaReviewConfigurationRepository batch reads", () => {
         },
       ],
     }));
-    const repository = new PrismaReviewConfigurationRepository({
-      reviewConfiguration: { findMany, findUnique },
-    } as never);
-
-    await expect(
-      repository.findLatestForRepositories({
+    const resolved = await resolveEffectiveReviewConfigurations(
+      {
         workspaceId: "workspace_1",
         repositoryIds: ["repository_2", "repository_missing", "repository_2"],
+      },
+      {
+        policyHeads: new PrismaReviewPolicyHeadReader({
+          reviewConfiguration: { findMany, findUnique },
+        } as never),
+      },
+    );
+
+    expect(resolved.repositories.get("repository_2")).toMatchObject({
+      status: "ready",
+      source: "repository",
+      version: 7,
+      revisionToken: expect.stringMatching(/^policy:1:7:/),
+      config: expect.objectContaining({
+        providers: [
+          expect.objectContaining({ model: "gpt-5.6-sol" }),
+          expect.objectContaining({ model: "poolside/laguna-m.1:free" }),
+        ],
       }),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        repositoryId: "repository_2",
-        config: expect.objectContaining({
-          version: 7,
-          revisionToken: expect.stringMatching(/^policy:1:7:/),
-          config: expect.objectContaining({
-            providers: [
-              expect.objectContaining({ model: "gpt-5.6-sol" }),
-              expect.objectContaining({
-                model: "poolside/laguna-m.1:free",
-              }),
-            ],
-          }),
-        }),
-      }),
-    ]);
+    });
+    expect(resolved.repositories.get("repository_missing")).toBe(
+      resolved.workspace,
+    );
     expect(findUnique).toHaveBeenCalledOnce();
+    expect(findUnique).toHaveBeenCalledWith({
+      where: {
+        workspaceId_targetKey: {
+          workspaceId: "workspace_1",
+          targetKey: "workspace:default",
+        },
+        active: true,
+      },
+      select: {
+        versions: {
+          orderBy: { version: "desc" },
+          take: 1,
+          select: { version: true, schemaVersion: true, policyJson: true },
+        },
+      },
+    });
     expect(findMany).toHaveBeenCalledOnce();
     expect(findMany).toHaveBeenCalledWith({
       where: {
@@ -131,24 +93,17 @@ describe("PrismaReviewConfigurationRepository batch reads", () => {
       orderBy: { repositoryId: "asc" },
       select: {
         repositoryId: true,
-        versions: expect.objectContaining({
+        versions: {
           orderBy: { version: "desc" },
           take: 1,
-          select: expect.objectContaining({
-            providers: {
-              orderBy: { order: "asc" },
-              select: expect.any(Object),
-            },
-          }),
-        }),
+          select: { version: true, schemaVersion: true, policyJson: true },
+        },
       },
     });
   });
 
   it("keeps database reads bounded for 1000 repositories without creating overrides", async () => {
     const findUnique = vi.fn(async () => ({
-      active: true,
-      repositoryId: null,
       versions: [
         {
           version: 1,
@@ -161,19 +116,24 @@ describe("PrismaReviewConfigurationRepository batch reads", () => {
       expect(input).toBeDefined();
       return [];
     });
-    const repository = new PrismaReviewConfigurationRepository({
-      reviewConfiguration: { findUnique, findMany },
-    } as never);
     const repositoryIds = Array.from(
       { length: 1000 },
       (_, index) => `repository_${index}`,
     );
-    await expect(
-      repository.findLatestForRepositories({
-        workspaceId: "workspace_1",
-        repositoryIds,
-      }),
-    ).resolves.toEqual([]);
+    const resolved = await resolveEffectiveReviewConfigurations(
+      { workspaceId: "workspace_1", repositoryIds },
+      {
+        policyHeads: new PrismaReviewPolicyHeadReader({
+          reviewConfiguration: { findUnique, findMany },
+        } as never),
+      },
+    );
+    expect(resolved.repositories.size).toBe(1000);
+    expect(
+      [...resolved.repositories.values()].every(
+        (policy) => policy === resolved.workspace,
+      ),
+    ).toBe(true);
     expect(findUnique).toHaveBeenCalledOnce();
     expect(findMany).toHaveBeenCalledOnce();
     expect(findMany.mock.calls[0]?.[0]).toMatchObject({
@@ -181,18 +141,21 @@ describe("PrismaReviewConfigurationRepository batch reads", () => {
     });
   });
 
-  it("does not query Prisma for an empty request", async () => {
+  it("does not query repositories for an empty request", async () => {
     const findMany = vi.fn(async () => []);
-    const repository = new PrismaReviewConfigurationRepository({
-      reviewConfiguration: { findMany },
-    } as never);
+    const findUnique = vi.fn(async () => null);
 
-    await expect(
-      repository.findLatestForRepositories({
-        workspaceId: "workspace_1",
-        repositoryIds: [],
-      }),
-    ).resolves.toEqual([]);
+    const resolved = await resolveEffectiveReviewConfigurations(
+      { workspaceId: "workspace_1", repositoryIds: [] },
+      {
+        policyHeads: new PrismaReviewPolicyHeadReader({
+          reviewConfiguration: { findMany, findUnique },
+        } as never),
+      },
+    );
+    expect(resolved.workspace.status).toBe("missing");
+    expect(resolved.repositories.size).toBe(0);
+    expect(findUnique).toHaveBeenCalledOnce();
     expect(findMany).not.toHaveBeenCalled();
   });
 });

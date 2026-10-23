@@ -10,13 +10,12 @@ import {
   ReviewConfigurationWriteConflictError,
   type PersistedReviewConfiguration,
   type ReviewConfigurationRepositoryPort,
-  type ReviewConfigurationBatchReaderPort,
+  type ReviewPolicyHead,
+  type ReviewPolicyHeadReaderPort,
 } from "../application/ports/review-configuration-repository-port";
 
 export class InMemoryReviewConfigurationRepository
-  implements
-    ReviewConfigurationRepositoryPort,
-    ReviewConfigurationBatchReaderPort
+  implements ReviewConfigurationRepositoryPort, ReviewPolicyHeadReaderPort
 {
   readonly versions = new Map<string, PersistedReviewConfiguration[]>();
   readonly inactiveTargets = new Set<string>();
@@ -49,23 +48,44 @@ export class InMemoryReviewConfigurationRepository
     };
   }
 
-  async findLatestForRepositories(input: {
+  async readPolicyHeads(
+    target: Parameters<ReviewPolicyHeadReaderPort["readPolicyHeads"]>[0],
+  ) {
+    return {
+      workspace: this.policyHead("workspace:default"),
+      repository:
+        target.scope === "repository"
+          ? this.policyHead(reviewConfigurationTargetKey(target))
+          : null,
+    };
+  }
+
+  async readRepositoryPolicyHeads(input: {
     readonly workspaceId: string;
     readonly repositoryIds: readonly string[];
   }) {
-    return [...new Set(input.repositoryIds)].flatMap((repositoryId) => {
-      if (this.inactiveTargets.has(`repo:${repositoryId}`)) return [];
-      const config = this.versions
-        .get(
-          reviewConfigurationTargetKey({
-            scope: "repository",
-            workspaceId: input.workspaceId,
-            repositoryId,
-          }),
-        )
-        ?.at(-1);
-      return config ? [{ repositoryId, config }] : [];
-    });
+    return {
+      workspace: this.policyHead("workspace:default"),
+      repositories: new Map(
+        input.repositoryIds.flatMap((repositoryId) => {
+          const head = this.policyHead(`repo:${repositoryId}`);
+          return head ? [[repositoryId, head] as const] : [];
+        }),
+      ),
+    };
+  }
+
+  private policyHead(key: string): ReviewPolicyHead | null {
+    const latest = this.inactiveTargets.has(key)
+      ? undefined
+      : this.versions.get(key)?.at(-1);
+    return latest
+      ? {
+          version: latest.version,
+          schemaVersion: latest.policy.schemaVersion,
+          policyJson: canonicalJson(latest.policy),
+        }
+      : null;
   }
 
   async saveNextVersion(

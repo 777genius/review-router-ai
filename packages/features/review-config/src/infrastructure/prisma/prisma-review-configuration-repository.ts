@@ -23,13 +23,18 @@ import {
 } from "../../domain/review-configuration-target";
 import type {
   PersistedReviewConfiguration,
-  RepositoryReviewConfiguration,
-  ReviewConfigurationBatchReaderPort,
   ReviewConfigurationRepositoryPort,
   ReviewConfigurationOperationInput,
   ReviewConfigurationOperationRepositoryPort,
   ReviewPolicySaveInput,
 } from "../../application/ports/review-configuration-repository-port";
+import {
+  composeEffectiveReviewConfiguration,
+  parseStoredReviewPolicy,
+  persistedReviewConfiguration,
+  readyReviewConfiguration,
+  resolveEffectiveReviewConfiguration,
+} from "../../application/use-cases/resolve-effective-review-configuration";
 import {
   snapshotReviewConfigurationOperation,
   snapshotReviewConfigurationOperationLookup,
@@ -38,12 +43,16 @@ import {
   isReviewConfigurationWriteConflictError,
   ReviewConfigurationWriteConflictError as WriteConflict,
 } from "../../application/ports/review-configuration-repository-port";
+import {
+  PrismaReviewPolicyHeadReader,
+  readActivePolicyHead,
+  type ReviewPolicyReader,
+} from "./prisma-review-policy-head-reader";
 
 export class PrismaReviewConfigurationRepository
   implements
     ReviewConfigurationRepositoryPort,
-    ReviewConfigurationOperationRepositoryPort,
-    ReviewConfigurationBatchReaderPort
+    ReviewConfigurationOperationRepositoryPort
 {
   constructor(
     private readonly prisma: PrismaClient,
@@ -57,13 +66,6 @@ export class PrismaReviewConfigurationRepository
 
   findLatest(target: ReviewConfigurationTarget) {
     return findLatestReviewConfiguration(this.prisma, target);
-  }
-
-  findLatestForRepositories(input: {
-    readonly workspaceId: string;
-    readonly repositoryIds: readonly string[];
-  }) {
-    return findLatestReviewConfigurationsForRepositories(this.prisma, input);
   }
 
   async saveNextVersion(
@@ -124,8 +126,8 @@ export class PrismaReviewConfigurationRepository
     if (!receipt) return null;
     const policy =
       intent.target.scope === "workspace"
-        ? parseStoredPolicy("workspace", receipt.policyJson)
-        : parseStoredPolicy("repository", receipt.policyJson);
+        ? parseStoredReviewPolicy("workspace", receipt.policyJson)
+        : parseStoredReviewPolicy("repository", receipt.policyJson);
     if (receipt.schemaVersion !== 3 || !policy)
       throw new Error("review_configuration_receipt_invalid");
     return matchOperationReceipt(
@@ -188,11 +190,7 @@ export class PrismaReviewConfigurationRepository
   }
 }
 
-export class PrismaReviewConfigurationTransactionRepository
-  implements
-    ReviewConfigurationRepositoryPort,
-    ReviewConfigurationBatchReaderPort
-{
+export class PrismaReviewConfigurationTransactionRepository implements ReviewConfigurationRepositoryPort {
   constructor(
     private readonly prisma: Prisma.TransactionClient,
     private readonly operatorWorkspaceId?: string,
@@ -205,13 +203,6 @@ export class PrismaReviewConfigurationTransactionRepository
 
   findLatest(target: ReviewConfigurationTarget) {
     return findLatestReviewConfiguration(this.prisma, target);
-  }
-
-  findLatestForRepositories(input: {
-    readonly workspaceId: string;
-    readonly repositoryIds: readonly string[];
-  }) {
-    return findLatestReviewConfigurationsForRepositories(this.prisma, input);
   }
 
   saveNextVersion(
@@ -286,89 +277,14 @@ type ReviewConfigurationPrismaClient = Pick<
 >;
 
 async function findLatestReviewConfiguration(
-  prisma: ReviewConfigurationPrismaClient,
+  reader: ReviewPolicyReader,
   target: ReviewConfigurationTarget,
 ): Promise<PersistedReviewConfiguration | null> {
-  const workspace = await findLatestPolicyVersion(prisma, {
-    workspaceId: target.workspaceId,
-    targetKey: "workspace:default",
-  });
-  const repository =
-    target.scope === "repository"
-      ? await findLatestPolicyVersion(prisma, {
-          workspaceId: target.workspaceId,
-          targetKey: `repo:${target.repositoryId}`,
-        })
-      : null;
-  return composePersistedConfiguration(workspace, repository);
-}
-
-async function findLatestReviewConfigurationsForRepositories(
-  prisma: ReviewConfigurationPrismaClient,
-  input: {
-    readonly workspaceId: string;
-    readonly repositoryIds: readonly string[];
-  },
-): Promise<readonly RepositoryReviewConfiguration[]> {
-  const repositoryIds = [...new Set(input.repositoryIds)];
-  if (repositoryIds.length === 0) return [];
-  const workspace = await findLatestPolicyVersion(prisma, {
-    workspaceId: input.workspaceId,
-    targetKey: "workspace:default",
-  });
-  const records = await prisma.reviewConfiguration.findMany({
-    where: {
-      workspaceId: input.workspaceId,
-      repositoryId: { in: repositoryIds },
-      active: true,
-    },
-    orderBy: { repositoryId: "asc" },
-    select: {
-      repositoryId: true,
-      versions: {
-        orderBy: { version: "desc" },
-        take: 1,
-        select: versionSelect,
-      },
-    },
-  });
-  const repositoryByVersion = new Map(
-    records.flatMap((record) =>
-      record.repositoryId && record.versions[0]
-        ? [[record.repositoryId, record.versions[0]] as const]
-        : [],
-    ),
+  return readyReviewConfiguration(
+    await resolveEffectiveReviewConfiguration(target, {
+      policyHeads: new PrismaReviewPolicyHeadReader(reader),
+    }),
   );
-  return repositoryIds.flatMap((repositoryId) => {
-    const repository = repositoryByVersion.get(repositoryId) ?? null;
-    if (!repository) return [];
-    const persisted = composePersistedConfiguration(workspace, repository);
-    return persisted ? [{ repositoryId, config: persisted }] : [];
-  });
-}
-
-async function findLatestPolicyVersion(
-  prisma: ReviewConfigurationPrismaClient,
-  scope: { readonly workspaceId: string; readonly targetKey: string },
-): Promise<VersionRecord | null> {
-  const configuration = await prisma.reviewConfiguration.findUnique({
-    where: {
-      workspaceId_targetKey: {
-        workspaceId: scope.workspaceId,
-        targetKey: scope.targetKey,
-      },
-    },
-    select: {
-      active: true,
-      repositoryId: true,
-      versions: {
-        orderBy: { version: "desc" },
-        take: 1,
-        select: versionSelect,
-      },
-    },
-  });
-  return configuration?.active ? (configuration.versions[0] ?? null) : null;
 }
 
 async function saveNextReviewConfigurationVersion(
@@ -398,15 +314,18 @@ async function saveNextReviewConfigurationVersion(
   const workspaceRecord =
     target.scope === "workspace"
       ? null
-      : await findLatestPolicyVersion(prisma, {
+      : await readActivePolicyHead(prisma, {
           workspaceId: target.workspaceId,
-          targetKey: "workspace:default",
+          targetKey: reviewConfigurationTargetKey({
+            scope: "workspace",
+            workspaceId: target.workspaceId,
+          }),
         });
   const workspacePolicy =
     target.scope === "workspace"
       ? (policy as WorkspaceReviewPolicy)
       : workspaceRecord
-        ? parseStoredPolicy("workspace", workspaceRecord.policyJson)
+        ? parseStoredReviewPolicy("workspace", workspaceRecord.policyJson)
         : null;
   if (!workspacePolicy) throw new Error("review_workspace_policy_required");
   const repositoryPolicy =
@@ -436,7 +355,7 @@ async function saveNextReviewConfigurationVersion(
       if (version) {
         resolveReviewPolicy(
           workspacePolicy,
-          parseStoredPolicy("repository", version.policyJson),
+          parseStoredReviewPolicy("repository", version.policyJson),
         );
       }
     }
@@ -523,10 +442,14 @@ async function saveNextReviewConfigurationVersion(
     },
     select: versionSelect,
   });
-  return composePersistedConfiguration(
-    target.scope === "workspace" ? saved : workspaceRecord,
-    target.scope === "repository" ? saved : null,
-  )!;
+  const persisted = readyReviewConfiguration(
+    composeEffectiveReviewConfiguration({
+      workspace: target.scope === "workspace" ? saved : workspaceRecord,
+      repository: target.scope === "repository" ? saved : null,
+    }),
+  );
+  if (!persisted) throw new Error("review_policy_resave_required");
+  return persisted;
 }
 
 async function deleteReviewConfigurationTarget(
@@ -539,7 +462,7 @@ async function deleteReviewConfigurationTarget(
     workspaceId: target.workspaceId,
     targetKey: reviewConfigurationTargetKey(target),
   };
-  const current = await findLatestPolicyVersion(prisma, scope);
+  const current = await readActivePolicyHead(prisma, scope);
   if (
     expectedVersion !== undefined &&
     (current?.version ?? null) !== expectedVersion
@@ -560,79 +483,6 @@ function parsePolicyForTarget(
   return target.scope === "workspace"
     ? parseReviewConfigurationStrict(policy)
     : parseRepositoryReviewPolicyOverride(policy);
-}
-
-function parseStoredPolicy(
-  scope: "workspace",
-  policyJson: string | null,
-): WorkspaceReviewPolicy | null;
-function parseStoredPolicy(
-  scope: "repository",
-  policyJson: string | null,
-): RepositoryReviewPolicyOverride | null;
-function parseStoredPolicy(
-  scope: "workspace" | "repository",
-  policyJson: string | null,
-): WorkspaceReviewPolicy | RepositoryReviewPolicyOverride | null {
-  if (!policyJson) return null;
-  try {
-    const parsed = JSON.parse(policyJson);
-    return scope === "workspace"
-      ? parseReviewConfigurationStrict(parsed)
-      : parseRepositoryReviewPolicyOverride(parsed);
-  } catch {
-    return null;
-  }
-}
-
-function composePersistedConfiguration(
-  workspace: VersionRecord | null,
-  repository: VersionRecord | null,
-): PersistedReviewConfiguration | null {
-  if (
-    !workspace ||
-    workspace.schemaVersion !== 3 ||
-    (repository && repository.schemaVersion !== 3)
-  )
-    return null;
-  const workspacePolicy = workspace
-    ? parseStoredPolicy("workspace", workspace.policyJson)
-    : null;
-  if (!workspacePolicy || workspacePolicy.schemaVersion !== 3) return null;
-  const repositoryPolicy = repository
-    ? parseStoredPolicy("repository", repository.policyJson)
-    : null;
-  if (repository && !repositoryPolicy) return null;
-  const config = resolveReviewPolicy(workspacePolicy, repositoryPolicy);
-  return persistedPolicyResult(
-    config,
-    repositoryPolicy ?? workspacePolicy,
-    workspace.version,
-    repository?.version ?? null,
-  );
-}
-
-function persistedPolicyResult(
-  config: ReviewConfiguration,
-  policy: WorkspaceReviewPolicy | RepositoryReviewPolicyOverride,
-  workspaceVersion: number,
-  repositoryVersion: number | null,
-): PersistedReviewConfiguration {
-  const digest = policyDigest(config);
-  return {
-    version: repositoryVersion ?? workspaceVersion,
-    config,
-    policy,
-    source: repositoryVersion === null ? "workspace" : "repository",
-    workspaceVersion,
-    repositoryVersion,
-    effectivePolicyDigest: digest,
-    revisionToken: `policy:${workspaceVersion}:${repositoryVersion ?? 0}:${digest}`,
-  };
-}
-
-function policyDigest(config: ReviewConfiguration): string {
-  return `sha256:${createHash("sha256").update(canonicalJson(config)).digest("hex")}`;
 }
 
 function operationIntentHash(
@@ -679,11 +529,11 @@ function matchOperationReceipt(
       throw new Error("invalid_receipt_snapshot");
     const config = parseReviewConfigurationStrict(snapshot.config);
     const policy = original.repositoryId
-      ? parseStoredPolicy("repository", original.policyJson)
-      : parseStoredPolicy("workspace", original.policyJson);
+      ? parseStoredReviewPolicy("repository", original.policyJson)
+      : parseStoredReviewPolicy("workspace", original.policyJson);
     if (!policy || original.schemaVersion !== 3)
       throw new Error("invalid_receipt_policy");
-    return persistedPolicyResult(
+    return persistedReviewConfiguration(
       config,
       policy,
       snapshot.workspaceVersion,

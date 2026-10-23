@@ -1,8 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import {
-  findRepositoryReviewConfigurations,
-  findReviewConfiguration,
-  PrismaReviewConfigurationRepository,
+  PrismaReviewPolicyHeadReader,
+  resolveEffectiveReviewConfigurations,
 } from "@reviewrouter/features-review-config";
 import {
   listWorkspaceRepositoryHealth,
@@ -195,24 +194,30 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         .map((item) => item.repositoryId!),
     ),
   ];
-  const reviewConfigStore = new PrismaReviewConfigurationRepository(prisma);
-  const [reviewConfig, repositoryConfigs] =
+  const policies =
     providerSetupConfigRepositoryIds.length > 0
-      ? await Promise.all([
-          findReviewConfiguration(
-            { scope: "workspace", workspaceId: workspace.id },
-            { configurations: reviewConfigStore },
-          ),
-          findRepositoryReviewConfigurations(
-            {
-              workspaceId: workspace.id,
-              repositoryIds: providerSetupConfigRepositoryIds,
-            },
-            { configurations: reviewConfigStore },
-          ),
-        ])
-      : [null, []];
-  const activeConfig = reviewConfig?.config ?? null;
+      ? await resolveEffectiveReviewConfigurations(
+          {
+            workspaceId: workspace.id,
+            repositoryIds: providerSetupConfigRepositoryIds,
+          },
+          { policyHeads: new PrismaReviewPolicyHeadReader(prisma) },
+        )
+      : null;
+  const activeConfig =
+    policies?.workspace.status === "ready" ? policies.workspace.config : null;
+  const repositoryConfigs = providerSetupConfigRepositoryIds.map(
+    (repositoryId) => {
+      const policy = policies?.repositories.get(repositoryId);
+      return {
+        repositoryId,
+        config:
+          policy?.status === "ready" && policy.source === "repository"
+            ? policy
+            : null,
+      };
+    },
+  );
   const configuredProviderSetupByRepositoryId =
     buildConfiguredProviderSetupByRepositoryId({
       providerSetup,

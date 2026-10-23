@@ -13,6 +13,8 @@ import {
   parseReviewConfigurationStrict,
   PrismaReviewConfigurationRepository,
   PrismaReviewConfigurationTransactionRepository,
+  PrismaReviewPolicyHeadReader,
+  resolveEffectiveReviewConfigurations,
   resolveReviewConfiguration,
   saveReviewConfiguration,
   saveReviewConfigurationWithOperation,
@@ -527,11 +529,13 @@ describe.skipIf(!enabled)(
         });
 
         expect(
-          await configs.findLatestForRepositories({
-            workspaceId: "c2b-w",
-            repositoryIds: ["c2b-repo"],
-          }),
-        ).toEqual([{ repositoryId: "c2b-repo", config: saved }]);
+          (
+            await resolveEffectiveReviewConfigurations(
+              { workspaceId: "c2b-w", repositoryIds: ["c2b-repo"] },
+              { policyHeads: new PrismaReviewPolicyHeadReader(prisma) },
+            )
+          ).repositories.get("c2b-repo"),
+        ).toEqual({ status: "ready", ...saved });
         const firstVersion =
           await prisma.reviewConfigurationVersion.findFirstOrThrow({
             where: {
@@ -1223,11 +1227,20 @@ describe.skipIf(!enabled)(
             config,
           });
           expect(
-            await fresh.findLatestForRepositories({
-              workspaceId: "c2b-w",
-              repositoryIds: [clearedTarget.repositoryId],
-            }),
-          ).toEqual([]);
+            (
+              await resolveEffectiveReviewConfigurations(
+                {
+                  workspaceId: "c2b-w",
+                  repositoryIds: [clearedTarget.repositoryId],
+                },
+                { policyHeads: new PrismaReviewPolicyHeadReader(refetched!) },
+              )
+            ).repositories.get(clearedTarget.repositoryId),
+          ).toMatchObject({
+            status: "ready",
+            source: "workspace",
+            repositoryVersion: null,
+          });
           expect(
             await resolveReviewConfiguration(clearedTarget, receiptDeps),
           ).toMatchObject({ source: "workspace", version: 2, config });

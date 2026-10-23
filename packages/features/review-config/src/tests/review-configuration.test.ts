@@ -776,7 +776,9 @@ describe("review configuration", () => {
     );
 
     await expect(
-      resolveReviewRuntimeEnv(repositoryTarget, { configurations }),
+      resolveReviewRuntimeEnv(repositoryTarget, {
+        policyHeads: configurations,
+      }),
     ).resolves.toMatchObject({
       source: "repository",
       runtimeEnv: {

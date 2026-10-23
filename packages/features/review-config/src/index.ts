@@ -8,16 +8,24 @@ export * from "./application/use-cases/manage-operator-review-configuration";
 export * from "./application/use-cases/map-config-to-runtime-env";
 export * from "./application/use-cases/resolve-review-configuration";
 export {
+  resolveEffectiveReviewConfiguration,
+  resolveEffectiveReviewConfigurations,
+  readyReviewConfiguration,
+  type EffectiveReviewConfiguration,
+  type ReadyReviewConfiguration,
+} from "./application/use-cases/resolve-effective-review-configuration";
+export {
   saveReviewConfiguration,
   findReviewConfiguration,
-  findRepositoryReviewConfigurations,
   clearReviewConfiguration,
   saveReviewConfigurationWithOperation,
   findReviewConfigurationOperation,
-  type RepositoryReviewConfigurationResult,
 } from "./application/use-cases/save-review-configuration";
 export * from "./infrastructure/operator/hashed-review-configuration-operator-authorization";
 export * from "./infrastructure/prisma/prisma-review-configuration-operator-repository";
 export * from "./infrastructure/prisma/prisma-review-configuration-repository";
-
 export * from "./infrastructure/prisma/prisma-workspace-review-settings";
+export {
+  PrismaReviewPolicyHeadReader,
+  type ReviewPolicyReader,
+} from "./infrastructure/prisma/prisma-review-policy-head-reader";

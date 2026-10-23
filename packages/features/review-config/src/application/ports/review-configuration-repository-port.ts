@@ -54,21 +54,35 @@ export interface ReviewConfigurationOperationRepositoryPort {
   }): Promise<PersistedReviewConfiguration | null>;
 }
 
-export type RepositoryReviewConfiguration = Readonly<{
-  repositoryId: string;
-  config: PersistedReviewConfiguration;
+/** Latest version of an active target, read before its document is parsed. */
+export type ReviewPolicyHead = Readonly<{
+  version: number;
+  schemaVersion: number;
+  policyJson: string | null;
 }>;
 
 /**
- * Read-only batch boundary kept separate from the mutable repository port so
- * existing single-target consumers and adapters do not need the dashboard's
- * broader query capability.
+ * Read-only boundary of the effective-configuration resolver, kept separate
+ * from the mutable repository port so readers do not need write capability.
  */
-export interface ReviewConfigurationBatchReaderPort {
-  findLatestForRepositories(input: {
+export interface ReviewPolicyHeadReaderPort {
+  readPolicyHeads(target: ReviewConfigurationTarget): Promise<
+    Readonly<{
+      workspace: ReviewPolicyHead | null;
+      repository: ReviewPolicyHead | null;
+    }>
+  >;
+
+  /** One workspace read and one bounded read for all repository heads. */
+  readRepositoryPolicyHeads(input: {
     readonly workspaceId: string;
     readonly repositoryIds: readonly string[];
-  }): Promise<readonly RepositoryReviewConfiguration[]>;
+  }): Promise<
+    Readonly<{
+      workspace: ReviewPolicyHead | null;
+      repositories: ReadonlyMap<string, ReviewPolicyHead>;
+    }>
+  >;
 }
 
 export class ReviewConfigurationWriteConflictError extends Error {

@@ -5,7 +5,6 @@ import {
 import type { ReviewConfigurationTarget } from "../../domain/review-configuration-target";
 import type {
   PersistedReviewConfiguration,
-  ReviewConfigurationBatchReaderPort,
   ReviewConfigurationRepositoryPort,
   ReviewConfigurationOperationInput,
   ReviewConfigurationOperationRepositoryPort,
@@ -135,11 +134,6 @@ function freezeOperationIntent<T>(value: T): T {
   return value;
 }
 
-export type RepositoryReviewConfigurationResult = Readonly<{
-  repositoryId: string;
-  config: PersistedReviewConfiguration | null;
-}>;
-
 export async function saveReviewConfiguration(
   input: {
     readonly target: ReviewConfigurationTarget;
@@ -177,43 +171,6 @@ export async function findReviewConfiguration(
   },
 ): Promise<PersistedReviewConfiguration | null> {
   return dependencies.configurations.findLatest(target);
-}
-
-/**
- * Returns one entry for every requested repository ID, preserving input order
- * and duplicates. Repositories without an override receive null, matching the
- * single-target findReviewConfiguration semantics.
- */
-export async function findRepositoryReviewConfigurations(
-  input: {
-    readonly workspaceId: string;
-    readonly repositoryIds: readonly string[];
-  },
-  dependencies: {
-    readonly configurations: ReviewConfigurationBatchReaderPort;
-  },
-): Promise<readonly RepositoryReviewConfigurationResult[]> {
-  if (input.repositoryIds.length === 0) {
-    return [];
-  }
-
-  const uniqueRepositoryIds = [...new Set(input.repositoryIds)];
-  const persisted = await dependencies.configurations.findLatestForRepositories(
-    {
-      workspaceId: input.workspaceId,
-      repositoryIds: uniqueRepositoryIds,
-    },
-  );
-  const configByRepositoryId = new Map(
-    persisted.map(
-      ({ repositoryId, config }) => [repositoryId, config] as const,
-    ),
-  );
-
-  return input.repositoryIds.map((repositoryId) => ({
-    repositoryId,
-    config: configByRepositoryId.get(repositoryId) ?? null,
-  }));
 }
 
 export async function clearReviewConfiguration(

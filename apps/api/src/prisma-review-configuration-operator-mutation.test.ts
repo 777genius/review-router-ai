@@ -174,6 +174,7 @@ function createTransactionClient(state: State, events: string[]) {
       async findUnique(input: {
         where: {
           workspaceId_targetKey: { workspaceId: string; targetKey: string };
+          active?: boolean;
         };
       }) {
         events.push("read");
@@ -181,7 +182,9 @@ function createTransactionClient(state: State, events: string[]) {
         const record = state.configurations.get(
           configurationKey(workspaceId, targetKey),
         );
-        return record
+        return record &&
+          (input.where.active === undefined ||
+            record.active === input.where.active)
           ? {
               active: record.active,
               versions: [...record.versions]
