@@ -162,6 +162,8 @@ dashboard functionality.
 
 Research follow-up: [Full memory backend replacement](../spikes/2026-10-23-full-memory-backend-replacement.md) records the source audit, six-agent research/criticism, estimates and qualification conditions.
 
+Selected direction: [Self-hosted Hindsight replacement plan](../plans/2026-10-23-hindsight-memory-replacement.md) specifies the provider boundary, native qualifications, actual Action-runtime integration, safe cutover and removal sequence. Independent critic/fix rounds are recorded in that plan.
+
 ## Provider evaluation context
 
 - Hindsight is now the owner's selected complete backend, hosted on their own
