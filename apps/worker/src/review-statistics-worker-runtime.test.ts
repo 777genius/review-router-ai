@@ -86,8 +86,12 @@ describe("independent statistics worker", () => {
   it("rejects an outer event belonging to a different tenant or repository", async () => {
     const project = vi.fn(async () => ReviewStatisticsProjectionStatus.Applied);
     const handler = createReviewStatisticsSettledHandler({ project });
-    await expect(handler.handle({ ...event, workspaceId: "other" })).rejects.toMatchObject({ retryable: false });
-    await expect(handler.handle({ ...event, repositoryId: "other" })).rejects.toMatchObject({ retryable: false });
+    await expect(
+      handler.handle({ ...event, workspaceId: "other" }),
+    ).rejects.toMatchObject({ retryable: false });
+    await expect(
+      handler.handle({ ...event, repositoryId: "other" }),
+    ).rejects.toMatchObject({ retryable: false });
     expect(project).not.toHaveBeenCalled();
   });
   it("registers both known and available handler outside publisher gates", async () => {

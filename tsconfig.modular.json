@@ -14,9 +14,5 @@
     "apps/worker/src/worker.ts",
     "apps/worker/src/review-v2-production-runtime.ts"
   ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "**/.next"
-  ]
+  "exclude": ["node_modules", "dist", "**/.next"]
 }

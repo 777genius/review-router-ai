@@ -25,11 +25,11 @@ historical reconstruction from run-health summaries, or production deployment.
 
 ## Counting contract
 
-| Metric | Definition |
-| --- | --- |
-| Total reviews | One execution with complete coverage and successful publication, settled as `completed` or `completed_superseded`. Real reruns count; retries and repeated delivery do not. |
-| Pull requests reviewed | Distinct SCM repository identity and PR number in the selected interval, scoped to the workspace. |
-| Issues caught | Unique issue lineages first reported by an eligible review: workspace + SCM identity + PR number + lineage ID. Eligible occurrence states are `new`, `reconfirmed`, `changed`; exclude carried, resolved, uncertain and human-suppressed occurrences. |
+| Metric                 | Definition                                                                                                                                                                                                                                            |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Total reviews          | One execution with complete coverage and successful publication, settled as `completed` or `completed_superseded`. Real reruns count; retries and repeated delivery do not.                                                                           |
+| Pull requests reviewed | Distinct SCM repository identity and PR number in the selected interval, scoped to the workspace.                                                                                                                                                     |
+| Issues caught          | Unique issue lineages first reported by an eligible review: workspace + SCM identity + PR number + lineage ID. Eligible occurrence states are `new`, `reconfirmed`, `changed`; exclude carried, resolved, uncertain and human-suppressed occurrences. |
 
 Findings are reported issues, not a claim that every finding is a verified bug.
 Successful empty reviews count. Partial, failed, unapplied, stale, compensated
@@ -154,15 +154,15 @@ a repository only when its managed review authority is active and its source
 path is supported; missing/unqualified facts mean conservative partial coverage.
 Respect authority activation timestamps when qualifying historical intervals.
 
-| Source | Contract used by statistics | Required local proof |
-| --- | --- | --- |
-| Account Gateway | Canonical neutral caller to V2 producer/completion | Captured identity and artifact reach successful settlement and one event/fact; retry is idempotent. |
-| GitHub Secrets | Canonical schema-v2 reusable execution to V2 completion | Supported identity settles; refresh-only maintenance and pre-review skips do not. Never copy stale schema-v1 examples. |
-| Direct provider API/OpenRouter | Supported immutable API caller to V2 completion | Producer identity and artifact reach the common completion owner. |
-| Ordinary Hosted Pool | Approved full runtime/reusable execution to V2 completion | Captured identity reaches real completion, not only a mocked runtime runner. |
-| Hosted certified-fork/schema 6 | Direct model/comment endpoint outside V2 | Excluded; an applicable Hosted binding has partial-source coverage. |
-| Provisioned GitLab CLI | Direct model/GitLab publication outside V2 | Excluded with partial-source coverage. |
-| Nonactivated/unqualified repository | No established supported V2 source | Excluded until qualified; provider name alone never proves coverage. |
+| Source                              | Contract used by statistics                               | Required local proof                                                                                                   |
+| ----------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Account Gateway                     | Canonical neutral caller to V2 producer/completion        | Captured identity and artifact reach successful settlement and one event/fact; retry is idempotent.                    |
+| GitHub Secrets                      | Canonical schema-v2 reusable execution to V2 completion   | Supported identity settles; refresh-only maintenance and pre-review skips do not. Never copy stale schema-v1 examples. |
+| Direct provider API/OpenRouter      | Supported immutable API caller to V2 completion           | Producer identity and artifact reach the common completion owner.                                                      |
+| Ordinary Hosted Pool                | Approved full runtime/reusable execution to V2 completion | Captured identity reaches real completion, not only a mocked runtime runner.                                           |
+| Hosted certified-fork/schema 6      | Direct model/comment endpoint outside V2                  | Excluded; an applicable Hosted binding has partial-source coverage.                                                    |
+| Provisioned GitLab CLI              | Direct model/GitLab publication outside V2                | Excluded with partial-source coverage.                                                                                 |
+| Nonactivated/unqualified repository | No established supported V2 source                        | Excluded until qualified; provider name alone never proves coverage.                                                   |
 
 Bounded reason codes are `gitlab_direct`, `hosted_certified_fork`, and
 `unqualified_repository`. Detect applicable Hosted bindings conservatively.
@@ -216,32 +216,72 @@ rankings, available-since date and cursor-paginated issue summaries. Freeze the
 following shared framework-free contract before implementation:
 
 ```ts
-enum Severity { Critical = "critical", Major = "major", Minor = "minor",
-  Unknown = "unknown" }
+enum Severity {
+  Critical = "critical",
+  Major = "major",
+  Minor = "minor",
+  Unknown = "unknown",
+}
 type StatisticsFilter = { days: 7 | 30 | 90; severity: Severity | "all" };
-type Totals = { pullRequestsReviewed: number; reviews: number;
-  issuesCaught: number; repositoriesWithIssues: number };
-type RepositoryCount = { repositoryId: string; fullName: string;
-  url: string | null; count: number };
+type Totals = {
+  pullRequestsReviewed: number;
+  reviews: number;
+  issuesCaught: number;
+  repositoriesWithIssues: number;
+};
+type RepositoryCount = {
+  repositoryId: string;
+  fullName: string;
+  url: string | null;
+  count: number;
+};
 type StatisticsReport = {
-  period: { from: string; to: string; previousFrom: string; previousTo: string;
-    days: 7 | 30 | 90; timezone: "UTC"; asOf: string };
+  period: {
+    from: string;
+    to: string;
+    previousFrom: string;
+    previousTo: string;
+    days: 7 | 30 | 90;
+    timezone: "UTC";
+    asOf: string;
+  };
   filter: StatisticsFilter;
-  coverage: { availableSince: string | null; currentComplete: boolean;
-    previousComplete: boolean; uncoveredSources: readonly (
-      "gitlab_direct" | "hosted_certified_fork" | "unqualified_repository")[] };
-  totals: Totals; previousTotals: Totals | null;
-  daily: readonly { day: string; coverage: "complete" | "partial" | "unavailable";
+  coverage: {
+    availableSince: string | null;
+    currentComplete: boolean;
+    previousComplete: boolean;
+    uncoveredSources: readonly (
+      | "gitlab_direct"
+      | "hosted_certified_fork"
+      | "unqualified_repository"
+    )[];
+  };
+  totals: Totals;
+  previousTotals: Totals | null;
+  daily: readonly {
+    day: string;
+    coverage: "complete" | "partial" | "unavailable";
     pullRequestsReviewed: number;
-    reviews: number; issues: Readonly<Record<Severity, number>> }[];
+    reviews: number;
+    issues: Readonly<Record<Severity, number>>;
+  }[];
   topRepositoriesByReviews: readonly RepositoryCount[];
   topRepositoriesByIssues: readonly RepositoryCount[];
 };
-type StatisticsIssue = { id: string; title: string; severity: Severity;
-  repositoryId: string; repositoryFullName: string; pullRequestNumber: number;
-  pullRequestUrl: string | null; caughtAt: string };
-type StatisticsIssuePage = { items: readonly StatisticsIssue[];
-  nextCursor: string | null };
+type StatisticsIssue = {
+  id: string;
+  title: string;
+  severity: Severity;
+  repositoryId: string;
+  repositoryFullName: string;
+  pullRequestNumber: number;
+  pullRequestUrl: string | null;
+  caughtAt: string;
+};
+type StatisticsIssuePage = {
+  items: readonly StatisticsIssue[];
+  nextCursor: string | null;
+};
 ```
 
 Top repository lists have at most five rows. The review ranking always counts

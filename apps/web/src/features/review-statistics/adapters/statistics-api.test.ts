@@ -9,14 +9,12 @@ import {
 afterEach(() => vi.unstubAllGlobals());
 describe("Statistics browser adapter", () => {
   it("sends only workspace filters, uses no-store and forwards cancellation", async () => {
-    const fetch = vi
-      .fn()
-      .mockImplementation(
-        async () =>
-          new Response("{}", {
-            headers: { "content-type": "application/json" },
-          }),
-      );
+    const fetch = vi.fn().mockImplementation(
+      async () =>
+        new Response("{}", {
+          headers: { "content-type": "application/json" },
+        }),
+    );
     vi.stubGlobal("fetch", fetch);
     const signal = new AbortController().signal;
     await fetchStatisticsReport(

@@ -130,7 +130,12 @@ describe("statistics settlement host adapter", () => {
     const fixture = settlementFixture();
     fixture.publication.state = "pending";
     const write = vi.fn(async () => {});
-    await expect(createReviewStatisticsSettlementCapture({ write })(fixture.tx, fixture.settlement)).rejects.toThrow();
+    await expect(
+      createReviewStatisticsSettlementCapture({ write })(
+        fixture.tx,
+        fixture.settlement,
+      ),
+    ).rejects.toThrow();
     expect(write).not.toHaveBeenCalled();
   });
   it("rejects cross-tenant or different-artifact publication without capturing", async () => {
