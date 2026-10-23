@@ -230,6 +230,20 @@ describe("native HTTPS MCP discovery boundary", () => {
       }),
     ).rejects.toMatchObject({ code: "context_mcp_timeout" });
   });
+  it("does not leave a deadline behind when HTTPS request construction throws", async () => {
+    vi.useFakeTimers();
+    mocks.request.mockImplementation(() => {
+      throw new TypeError("invalid header value");
+    });
+    try {
+      await expect(exchangeContextProbeHttps(exchangeInput())).rejects.toThrow(
+        "invalid header value",
+      );
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("redacts reflected credentials and refuses reflected tool identifiers", async () => {
     const original = responseFor;
     responseFor = (method, body) =>
