@@ -1,104 +1,39 @@
-import { createHash } from "node:crypto";
+import { legacyReviewBannerSvg } from "./legacy-banner";
+import { reviewBannerLogo } from "./logo";
+import { reviewBannerSvgResponse } from "./response";
 
-// The v1 URL is immutable. A design change must introduce a new route version.
-const copy = {
-  en: [
-    "Review complete",
-    "Review incomplete",
-    "No findings",
-    "critical",
-    "major",
-    "minor",
-    "info",
-  ],
-  ru: [
-    "Ревью завершено",
-    "Ревью не завершено",
-    "Замечаний нет",
-    "critical",
-    "major",
-    "minor",
-    "info",
-  ],
-  uk: [
-    "Ревʼю завершено",
-    "Ревʼю не завершено",
-    "Зауважень немає",
-    "critical",
-    "major",
-    "minor",
-    "info",
-  ],
-  es: [
-    "Revisión completada",
-    "Revisión incompleta",
-    "Sin hallazgos",
-    "crítico",
-    "grave",
-    "menor",
-    "info",
-  ],
-  pt: [
-    "Revisão concluída",
-    "Revisão incompleta",
-    "Nenhum achado",
-    "crítico",
-    "grave",
-    "menor",
-    "info",
-  ],
-  fr: [
-    "Revue terminée",
-    "Revue incomplète",
-    "Aucune anomalie",
-    "critique",
-    "majeur",
-    "mineur",
-    "info",
-  ],
-  de: [
-    "Review abgeschlossen",
-    "Review unvollständig",
-    "Keine Befunde",
-    "kritisch",
-    "schwer",
-    "gering",
-    "Info",
-  ],
-  it: [
-    "Revisione completata",
-    "Revisione incompleta",
-    "Nessun rilievo",
-    "critico",
-    "grave",
-    "minore",
-    "info",
-  ],
-  zh: ["审查完成", "审查未完成", "无问题", "严重", "主要", "次要", "提示"],
-  ja: [
-    "レビュー完了",
-    "レビュー未完了",
-    "指摘なし",
-    "重大",
-    "主要",
-    "軽微",
-    "情報",
-  ],
-  ko: ["리뷰 완료", "리뷰 미완료", "이슈 없음", "심각", "주요", "경미", "정보"],
-} as const;
-
-type Locale = keyof typeof copy;
 const severities = ["critical", "major", "minor", "info"] as const;
-const allowed = new Set(["state", "lang", "theme", ...severities]);
+const updateKeys = ["new", "resolved", "open", "unverified"] as const;
+const allowed = new Set([
+  "state",
+  "variant",
+  "theme",
+  "layout",
+  "reviewed",
+  "total",
+  ...severities,
+  ...updateKeys,
+]);
+type Severity = (typeof severities)[number];
+type UpdateCounts = Readonly<Record<(typeof updateKeys)[number], number>>;
+export type ReviewBannerInput = {
+  readonly state: "complete" | "incomplete";
+  readonly theme: "light" | "dark";
+  readonly layout: "wide" | "compact";
+  readonly counts: Readonly<Record<Severity, number>>;
+  readonly coverage?: { readonly reviewed: number; readonly total: number };
+} & (
+  | { readonly variant: "first"; readonly update?: never }
+  | { readonly variant: "update"; readonly update: UpdateCounts }
+);
 
-type BannerInput = {
-  state: "complete" | "incomplete";
-  lang: Locale;
-  theme: "light" | "dark";
-  counts: readonly number[];
-};
+function count(value: string | null): number | null {
+  return value !== null && /^(?:0|[1-9][0-9]{0,3})$/.test(value)
+    ? Number(value)
+    : null;
+}
 
-function parseBannerInput(url: URL): BannerInput | null {
+function parseBannerInput(url: URL): ReviewBannerInput | null {
   const params = url.searchParams;
   if (
     [...params.keys()].some(
@@ -107,108 +42,284 @@ function parseBannerInput(url: URL): BannerInput | null {
   )
     return null;
   const state = params.get("state");
-  const lang = params.get("lang") ?? "en";
+  const variant = params.get("variant");
   const theme = params.get("theme") ?? "dark";
-  if (state !== "complete" && state !== "incomplete") return null;
-  if (!Object.hasOwn(copy, lang) || (theme !== "light" && theme !== "dark"))
+  const layout = params.get("layout") ?? "wide";
+  if (
+    (state !== "complete" && state !== "incomplete") ||
+    (variant !== "first" && variant !== "update") ||
+    (theme !== "light" && theme !== "dark") ||
+    (layout !== "wide" && layout !== "compact")
+  )
     return null;
-  const counts = severities.map((severity) => params.get(severity) ?? "0");
-  if (counts.some((count) => !/^(?:0|[1-9][0-9]{0,3})$/.test(count)))
-    return null;
-  return { state, lang: lang as Locale, theme, counts: counts.map(Number) };
+  const severityValues = severities.map((key) => count(params.get(key) ?? "0"));
+  if (severityValues.some((value) => value === null)) return null;
+  let coverage: ReviewBannerInput["coverage"];
+  if (params.has("reviewed") || params.has("total")) {
+    const reviewed = count(params.get("reviewed"));
+    const total = count(params.get("total"));
+    if (reviewed === null || total === null || reviewed > total) return null;
+    coverage = { reviewed, total };
+  }
+  const common = {
+    state,
+    theme,
+    layout,
+    counts: Object.fromEntries(
+      severities.map((key, index) => [key, severityValues[index]!]),
+    ) as Record<Severity, number>,
+    ...(coverage ? { coverage } : {}),
+  } as const;
+  if (variant === "first") {
+    return updateKeys.some((key) => params.has(key))
+      ? null
+      : { ...common, variant };
+  }
+  const updates = updateKeys.map((key) => count(params.get(key)));
+  if (updates.some((value) => value === null)) return null;
+  const update = Object.fromEntries(
+    updateKeys.map((key, index) => [key, updates[index]!]),
+  ) as UpdateCounts;
+  if (update.new > update.open || update.unverified > update.open) return null;
+  return { ...common, variant, update };
 }
 
-const escapeXml = (text: string) =>
-  text
+const escapeXml = (value: string) =>
+  value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&apos;");
+const issue = (n: number) => (n === 1 ? "issue" : "issues");
 
-function renderBanner(input: BannerInput): string {
-  const labels = copy[input.lang];
-  const palette =
-    input.theme === "dark"
+type Headline = {
+  readonly first: string;
+  readonly second?: string;
+  readonly note: string;
+};
+function headline(input: ReviewBannerInput): Headline {
+  const total = severities.reduce((sum, key) => sum + input.counts[key], 0);
+  if (input.state === "incomplete") {
+    return input.variant === "update"
       ? {
-          background: "#151b23",
-          text: "#f0f6fc",
-          muted: "#a0a9b4",
-          colors: ["#ff8b8e", "#e3b341", "#79c0ff", "#a0a9b4"],
+          first: "Review update is incomplete",
+          second:
+            input.update.open > 0
+              ? `${input.update.open} known ${issue(input.update.open)} still open`
+              : "No reliable conclusion yet",
+          note: "Review incomplete. Do not treat this as a pass.",
         }
       : {
-          background: "#f6f8fa",
-          text: "#1f2328",
-          muted: "#59636e",
-          colors: ["#b4232d", "#7d4e00", "#0969da", "#59636e"],
+          first:
+            total > 0
+              ? `${total} preliminary ${issue(total)}`
+              : "Review could not finish",
+          second: "Results remain preliminary.",
+          note: "Do not treat this result as a pass.",
         };
-  const active = input.counts.flatMap((count, index) =>
-    count > 0 ? [{ count, index }] : [],
-  );
+  }
+  if (input.variant === "update") {
+    const { resolved, open, unverified } = input.update;
+    return {
+      first:
+        resolved > 0
+          ? `${resolved} ${issue(resolved)} resolved.`
+          : open > 0
+            ? `${open} ${issue(open)} ${open === 1 ? "remains" : "remain"} open.`
+            : "No open issues",
+      ...(resolved > 0
+        ? {
+            second:
+              open > 0
+                ? unverified > 0
+                  ? `${open} still open; ${unverified} unverified.`
+                  : `${open} still ${open === 1 ? "needs" : "need"} a fix.`
+                : "No open issues.",
+          }
+        : unverified > 0
+          ? {
+              second: `${unverified} ${unverified === 1 ? "needs" : "need"} verification.`,
+            }
+          : {}),
+      note:
+        unverified > 0
+          ? `${unverified} not rechecked · included in open`
+          : "Compared with the previous completed review",
+    };
+  }
+  const severity = severities.find((key) => input.counts[key] > 0);
+  if (!severity) return { first: "No issues found", note: "Review complete." };
+  if (severity === "info")
+    return {
+      first: `${input.counts.info} informational ${input.counts.info === 1 ? "note" : "notes"}`,
+      note: "No critical, major or minor issues found.",
+    };
+  const amount = input.counts[severity];
+  const label = severity;
+  return {
+    first: `${amount} ${label} ${issue(amount)}`,
+    second: `${amount === 1 ? "needs" : "need"} attention`,
+    note:
+      total > amount
+        ? `${total} findings in total · see the details below.`
+        : "Review the findings below.",
+  };
+}
+
+function renderBanner(input: ReviewBannerInput): string {
+  const compact = input.layout === "compact";
+  const width = compact ? 480 : 1200;
+  const height = compact ? 360 : 280;
+  const dark = input.theme === "dark";
+  const action = input.variant === "first";
+  const clean =
+    input.state === "complete" &&
+    severities.every((key) => input.counts[key] === 0) &&
+    (input.variant === "first" || input.update.open === 0);
+  const priority = severities.find((key) => input.counts[key] > 0);
+  const lowPriority =
+    action && input.state === "complete" && !clean && priority !== "critical";
+  const accent = lowPriority
+    ? priority === "major"
+      ? dark
+        ? "#e3b341"
+        : "#7d4e00"
+      : dark
+        ? "#79c0ff"
+        : "#0969da"
+    : input.state === "incomplete"
+      ? dark
+        ? "#e3b341"
+        : "#7d4e00"
+      : clean
+        ? dark
+          ? "#7ee787"
+          : "#1a7f37"
+        : action
+          ? dark
+            ? "#ff8f96"
+            : "#ad2333"
+          : dark
+            ? "#79c0ff"
+            : "#0969da";
+  const ink = dark ? "#f0f3f6" : "#1f2328";
+  const muted = dark ? "#a6b0bc" : "#59636e";
+  const background = dark ? "#151b23" : "#f6f8fa";
+  const tint = lowPriority
+    ? priority === "major"
+      ? dark
+        ? "#292317"
+        : "#fff8e6"
+      : dark
+        ? "#182437"
+        : "#edf3ff"
+    : input.state === "incomplete"
+      ? dark
+        ? "#292317"
+        : "#fff8e6"
+      : clean
+        ? dark
+          ? "#14261c"
+          : "#edf8f0"
+        : action
+          ? dark
+            ? "#27191f"
+            : "#fff2f1"
+          : dark
+            ? "#182437"
+            : "#edf3ff";
+  const line = dark ? "#30363d" : "#d1d9e0";
   const status =
     input.state === "incomplete"
-      ? labels[1]
-      : active.length === 0
-        ? labels[2]
-        : labels[0];
-  const descriptions = active.map(
-    ({ count, index }) => `${count} ${labels[index + 3]}`,
-  );
-  const metrics = active
-    .map(({ count, index }, position) => {
-      const x = 24 + position * 148;
-      return `<text x="${x}" y="88" fill="${palette.colors[index]}" font-size="17" font-weight="600">${count}</text><text x="${x + String(count).length * 11 + 7}" y="88" fill="${palette.text}" font-size="13">${escapeXml(labels[index + 3] ?? "")}</text>`;
-    })
-    .join("");
-  const title = escapeXml(
-    ["ReviewRouter", status, ...descriptions].join(" · "),
-  );
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="110" viewBox="0 0 640 110" role="img" aria-labelledby="title"><title id="title">${title}</title><rect width="640" height="110" rx="6" fill="${palette.background}"/><g font-family="Arial,Helvetica,sans-serif"><text x="24" y="26" fill="${palette.muted}" font-size="13">ReviewRouter</text><text x="24" y="55" fill="${palette.text}" font-size="22" font-weight="600">${escapeXml(status)}</text>${metrics}</g></svg>`;
-}
-
-export function reviewBannerResponse(request: Request): Response {
-  const invalid = () =>
-    new Response("Invalid banner parameters", {
-      status: 400,
-      headers: {
-        "Cache-Control": "no-store",
-        "Content-Type": "text/plain; charset=utf-8",
-        "X-Content-Type-Options": "nosniff",
-      },
-    });
-  if (request.url.length > 2_048) return invalid();
-  const input = parseBannerInput(new URL(request.url));
-  if (!input) return invalid();
-  const svg = renderBanner(input);
-  const etag = `"${createHash("sha256").update(svg).digest("hex")}"`;
-  const headers = {
-    "Content-Type": "image/svg+xml; charset=utf-8",
-    "Cache-Control": "public, max-age=31536000, immutable",
-    "Content-Security-Policy": "default-src 'none'; sandbox",
-    "X-Content-Type-Options": "nosniff",
-    ETag: etag,
+      ? "REVIEW INCOMPLETE"
+      : input.variant === "update"
+        ? "REVIEW UPDATED"
+        : "REVIEW COMPLETE";
+  const text = (
+    x: number,
+    y: number,
+    value: string,
+    size: number,
+    color = ink,
+    extra = "",
+  ) =>
+    `<text x="${x}" y="${y}" font-size="${Math.min(size, Math.floor((width - 56) / Math.max(1, value.length * 0.58)))}" fill="${color}"${extra}>${escapeXml(value)}</text>`;
+  const rawTitle = headline(input);
+  const title = {
+    ...rawTitle,
+    first: rawTitle.first.replace(/\.$/u, ""),
+    ...(rawTitle.second ? { second: rawTitle.second.replace(/\.$/u, "") } : {}),
   };
-  const matches = matchesValidator(request.headers.get("If-None-Match"), etag);
-  return new Response(matches ? null : svg, {
-    status: matches ? 304 : 200,
-    headers,
-  });
+  const coverage = input.coverage
+    ? input.state === "incomplete"
+      ? `Coverage checked: ${input.coverage.reviewed} / ${input.coverage.total} files`
+      : `${input.coverage.reviewed} / ${input.coverage.total} files reviewed`
+    : "";
+  const metrics =
+    input.state === "incomplete" &&
+    input.variant === "update" &&
+    input.update.open === 0 &&
+    input.update.new === 0 &&
+    input.update.resolved === 0
+      ? []
+      : input.variant === "update"
+        ? updateKeys
+            .filter(
+              (key) => key !== "unverified" || input.update.unverified > 0,
+            )
+            .map(
+              (key) =>
+                `${input.update[key]} ${key === "unverified" ? "not rechecked" : key}`,
+            )
+        : severities
+            .filter((key) => input.counts[key] > 0)
+            .map((key) => `${input.counts[key]} ${key}`);
+  const left = compact ? 28 : 36;
+  const headlineFirst =
+    compact && input.state === "incomplete" && input.variant === "update"
+      ? "Update not finished"
+      : action && input.state === "complete" && title.second && !compact
+        ? `${title.first} ${title.second}`
+        : title.first;
+  const headlineSecond =
+    compact &&
+    input.variant === "update" &&
+    input.update.resolved > 0 &&
+    input.update.open > 0 &&
+    input.update.unverified > 0
+      ? `${input.update.open} open; ${input.update.unverified} unverified`
+      : action && input.state === "complete" && !compact
+        ? undefined
+        : title.second;
+  const note =
+    compact && input.variant === "update" && input.state === "incomplete"
+      ? input.update.open > 0
+        ? "Unconfirmed issues remain in the open count."
+        : "Review the remaining files before merging."
+      : title.note;
+  const logoEffect = compact
+    ? ""
+    : `<defs><radialGradient id="logoHalo"><stop stop-color="${accent}" stop-opacity="${dark ? ".14" : ".09"}"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient><filter id="logoGlow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="13"/></filter><g id="brandLogo">${reviewBannerLogo}</g></defs><g aria-hidden="true"><ellipse cx="1050" cy="134" rx="148" ry="110" fill="url(#logoHalo)"/><g opacity="${dark ? ".20" : ".13"}" filter="url(#logoGlow)"><use href="#brandLogo" transform="translate(976 63) scale(.287109375)"/></g><use href="#brandLogo" transform="translate(976 63) scale(.287109375)" opacity="${dark ? ".30" : ".22"}"/></g>`;
+  const svgTitle = [status, headlineFirst, headlineSecond, coverage, ...metrics]
+    .filter(Boolean)
+    .join(" · ");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="title"><title id="title">${escapeXml(svgTitle)}</title><defs><linearGradient id="background"><stop stop-color="${tint}"/><stop offset="1" stop-color="${background}"/></linearGradient></defs><rect width="${width}" height="${height}" rx="8" fill="url(#background)"/>${action ? `<path d="M2 8V${height - 8}" stroke="${accent}" stroke-width="4"/>` : ""}${logoEffect}<g font-family="Arial,Helvetica,sans-serif">${text(left, compact ? 38 : 43, status, 22, muted, ' font-weight="600" letter-spacing="2"')}${coverage ? text(compact ? left : width - left, compact ? 73 : 43, coverage, compact ? 22 : 20, muted, compact ? "" : ' text-anchor="end"') : ""}${text(left, compact ? 126 : 112, headlineFirst, compact ? 32 : 40, ink, ' font-weight="600" letter-spacing="-0.6"')}${headlineSecond ? text(left, compact ? 168 : 159, headlineSecond, compact ? 28 : 40, ink, ' font-weight="600" letter-spacing="-0.6"') : ""}${text(left, compact ? 211 : 195, note, 22, muted)}${metrics.length > 0 ? `<path d="M${left} ${compact ? 236 : 216}H${width - left}" stroke="${line}"/>` : ""}${metrics.map((metric, index) => text(left + (compact ? (index % 2) * ((width - left * 2) / 2) : index * 282), compact ? 277 + Math.floor(index / 2) * 48 : 255, metric, Math.min(compact ? 26 : 25, Math.floor((compact ? 200 : 264) / (metric.length * 0.58))), input.variant === "first" ? (metric.endsWith(" critical") ? (dark ? "#ff8f96" : "#ad2333") : metric.endsWith(" major") ? (dark ? "#e3b341" : "#7d4e00") : metric.endsWith(" info") ? muted : dark ? "#79c0ff" : "#0969da") : metric.endsWith(" resolved") ? (input.update.resolved > 0 ? (dark ? "#7ee787" : "#1a7f37") : muted) : metric.endsWith("not rechecked") ? (dark ? "#e3b341" : "#7d4e00") : accent, ' font-weight="600"')).join("")}</g></svg>`;
 }
 
-function matchesValidator(header: string | null, etag: string): boolean {
-  if (header === null) return false;
-  if (header.trim() === "*") return true;
-  const values: string[] = [];
-  let quoted = false;
-  let start = 0;
-  for (let index = 0; index < header.length; index += 1) {
-    if (header[index] === '"') quoted = !quoted;
-    if (header[index] === "," && !quoted) {
-      values.push(header.slice(start, index));
-      start = index + 1;
-    }
+/** Canonical v1 URL also retains the installed legacy state/lang query. */
+export function reviewBannerResponse(request: Request): Response {
+  if (request.url.length > 2_048) return reviewBannerSvgResponse(request, null);
+  const url = new URL(request.url);
+  if (!url.searchParams.has("variant")) {
+    return reviewBannerSvgResponse(request, legacyReviewBannerSvg(url));
   }
-  if (quoted) return false;
-  values.push(header.slice(start));
-  return values.some((value) => value.trim().replace(/^W\//, "") === etag);
+  return modernReviewBannerResponse(request);
+}
+
+/** The previous v2 URL accepts the same modern query without legacy fallback. */
+export function modernReviewBannerResponse(request: Request): Response {
+  if (request.url.length > 2_048) return reviewBannerSvgResponse(request, null);
+  const input = parseBannerInput(new URL(request.url));
+  return reviewBannerSvgResponse(request, input ? renderBanner(input) : null);
 }

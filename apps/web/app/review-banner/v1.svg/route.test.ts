@@ -16,7 +16,9 @@ describe("public review banner v1", () => {
     expect(response.headers.get("content-type")).toBe(
       "image/svg+xml; charset=utf-8",
     );
-    expect(response.headers.get("cache-control")).toContain("immutable");
+    expect(response.headers.get("cache-control")).toBe(
+      "public, max-age=300, s-maxage=86400",
+    );
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     const svg = await response.text();
     expect(svg).toContain("1 critical · 2 minor");
