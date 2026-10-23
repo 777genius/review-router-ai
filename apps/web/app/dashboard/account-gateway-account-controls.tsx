@@ -201,6 +201,28 @@ export function AccountGatewayControls({
   connectOnly?: boolean;
   workspaceId?: string;
 }) {
+  const bootstrapReadScope = `${managementScope}:${bootstrap.context}:${workspaceId ?? ""}`;
+  const currentBootstrap = useRef({
+    page: bootstrap.page,
+    scope: bootstrapReadScope,
+  });
+  currentBootstrap.current = {
+    page: bootstrap.page,
+    scope: bootstrapReadScope,
+  };
+  const [acceptedBootstrap, setAcceptedBootstrap] = useState(
+    currentBootstrap.current,
+  );
+  const acknowledgeBootstrap = useCallback(
+    (page: AccountsBootstrap["page"], scope: string) => {
+      if (
+        currentBootstrap.current.page === page &&
+        currentBootstrap.current.scope === scope
+      )
+        setAcceptedBootstrap({ page, scope });
+    },
+    [],
+  );
   const priorBootstrap = useRef(bootstrap.page);
   const removed = new Set(
     priorBootstrap.current.status === "ok" && bootstrap.page.status === "ok"
@@ -253,7 +275,9 @@ export function AccountGatewayControls({
               : [],
           ),
           removed,
-          replacingBootstrap: priorBootstrap.current !== bootstrap.page,
+          replacingBootstrap:
+            acceptedBootstrap.page !== bootstrap.page ||
+            acceptedBootstrap.scope !== bootstrapReadScope,
           allowed: new Set(
             bootstrap.page.status === "ok"
               ? bootstrap.page.value.accounts.map((row) => row.connectionId)
@@ -267,6 +291,8 @@ export function AccountGatewayControls({
         <Controls
           key={`${managementScope}:${bootstrap.context.split(".")[0]}`}
           bootstrap={bootstrap}
+          bootstrapReadScope={bootstrapReadScope}
+          acknowledgeBootstrap={acknowledgeBootstrap}
           api={api}
           managementScope={managementScope}
           refreshRelated={refreshRelated}
@@ -282,6 +308,8 @@ export function AccountGatewayControls({
 
 function Controls({
   bootstrap,
+  bootstrapReadScope,
+  acknowledgeBootstrap,
   api,
   managementScope,
   refreshRelated,
@@ -291,6 +319,8 @@ function Controls({
   workspaceId,
 }: {
   bootstrap: AccountsBootstrap;
+  bootstrapReadScope: string;
+  acknowledgeBootstrap(page: AccountsBootstrap["page"], scope: string): void;
   api: AccountGatewayManagementApi;
   managementScope: ManagementScope;
   refreshRelated: (() => Promise<void>) | undefined;
@@ -316,6 +346,7 @@ function Controls({
     [client, limitsScope],
   );
   const hydratedBootstrap = useRef(bootstrap.page);
+  const hydratedScope = useRef<string | null>(null);
   const removedByBootstrap = new Set(
     hydratedBootstrap.current.status === "ok" && bootstrap.page.status === "ok"
       ? hydratedBootstrap.current.value.accounts
@@ -330,25 +361,40 @@ function Controls({
       : [],
   );
   useEffect(() => {
-    if (hydratedBootstrap.current === bootstrap.page) return;
+    if (
+      hydratedBootstrap.current === bootstrap.page &&
+      hydratedScope.current === bootstrapReadScope
+    )
+      return;
     let current = true;
     void (async () => {
       await client.cancelQueries({
         queryKey: pageKey(scope, null),
         exact: true,
       });
+      if (!current) return;
       await removeAccountLimits(client, limitsScope);
       if (!current) return;
       const first = extractAccountLimits(client, limitsScope, bootstrap.page);
       hydratedBootstrap.current = bootstrap.page;
+      hydratedScope.current = bootstrapReadScope;
       client.setQueryData<
         InfiniteData<AccountsResult<AccountsPage>, string | null>
       >(pageKey(scope, null), { pages: [first], pageParams: [null] });
+      // Publish the authorized inventory before clearing the replacement fence.
+      acknowledgeBootstrap(bootstrap.page, bootstrapReadScope);
     })();
     return () => {
       current = false;
     };
-  }, [client, limitsScope, bootstrap.page, scope]);
+  }, [
+    client,
+    limitsScope,
+    bootstrap.page,
+    bootstrapReadScope,
+    acknowledgeBootstrap,
+    scope,
+  ]);
   useEffect(
     () =>
       client.getQueryCache().subscribe((event) => {

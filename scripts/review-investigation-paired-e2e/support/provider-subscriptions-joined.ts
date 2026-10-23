@@ -10,7 +10,6 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -133,7 +132,12 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
     const relayAdapterPath = requiredPath("RR_PROVIDER_JOINED_RELAY_ADAPTER");
     phase = "source-provenance";
     assert.equal(digest(await readFile(archive)), actionArchiveDigest);
-    root = await mkdtemp(path.join(tmpdir(), "reviewrouter-provider-joined-"));
+    root = await mkdtemp(
+      path.join(
+        requiredPath("RR_PROVIDER_JOINED_WORK_ROOT"),
+        "reviewrouter-provider-joined-",
+      ),
+    );
     const source = path.join(root, "action-source");
     await mkdir(source, { mode: 0o700 });
     // Import every Action helper from the verified immutable archive, never
@@ -247,13 +251,30 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
           string,
           unknown
         >;
-        relayPhase = "cli-model-and-reasoning";
+        process.stdout.write(
+          JSON.stringify({
+            phase: "actual-cli-request-shape",
+            profileId: input.profileId,
+            modelMatches: raw.model === input.model,
+            streamTrue: raw.stream === true,
+            reasoningPresent: "reasoning" in raw,
+            reasoningNull: raw.reasoning === null,
+            serviceTierPresent: "service_tier" in raw,
+            textNull: raw.text === null,
+            promptCacheKeyPresent: "prompt_cache_key" in raw,
+            clientMetadataPresent: "client_metadata" in raw,
+          }) + "\n",
+        );
+        relayPhase = "cli-model";
         assert.equal(raw.model, input.model);
+        relayPhase = "cli-stream";
         assert.equal(raw.stream, true);
+        relayPhase = "cli-reasoning";
         assert.ok(
-          !("reasoning" in raw),
+          raw.reasoning === undefined || raw.reasoning === null,
           "unsupported reasoning must not inherit ambient xhigh",
         );
+        relayPhase = "cli-fast";
         assert.ok(
           !("service_tier" in raw),
           "unsupported fast must not enter the provider request",
@@ -313,6 +334,11 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
           input.limits.requestBytes,
           input.limits.tokens,
         );
+        const forwarded = JSON.parse(
+          new TextDecoder().decode(preparedBody),
+        ) as Record<string, unknown>;
+        assert.ok(!("reasoning" in forwarded));
+        assert.equal(forwarded.service_tier, "default");
         relayPhase = "sdk-execution-request";
         const upstream = await selectedExecution.request(
           selectedRef,

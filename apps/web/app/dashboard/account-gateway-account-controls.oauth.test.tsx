@@ -9,6 +9,11 @@ import {
   within,
 } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
+import { useContext } from "react";
+import {
+  AccountLimitsLine,
+  AccountLimitsReadContext,
+} from "./account-limits-line";
 import {
   afterEach,
   beforeEach,
@@ -2097,4 +2102,128 @@ test("delayed Grok reconnect resumes browser enrollment with the same nonce afte
   expect(handoff).toHaveBeenCalledTimes(1);
   await screen.findByLabelText("Authorization result address");
   assertNoCapability();
+});
+
+// The custom row slot is also used by the personal-account list. Render its
+// real limit line so the bootstrap privacy contract is exercised with real caches.
+function BootstrapLimitsRow({ account }: { account: AccountView }) {
+  const read = useContext(AccountLimitsReadContext)!;
+  return (
+    <AccountLimitsLine
+      scope={read.scope}
+      context={read.context}
+      client={read.client}
+      connectionId={account.connectionId}
+      initialData={account.limits}
+      blocked={Boolean(
+        read.denied ||
+        read.removed?.has(account.connectionId) ||
+        (read.replacingBootstrap && !read.allowed?.has(account.connectionId)),
+      )}
+    />
+  );
+}
+
+test("bootstrap replacement blocks removed metrics until publication, then permits newly connected accounts", async () => {
+  const client = new QueryClient();
+  clients.add(client);
+  const limits: NonNullable<AccountView["limits"]> = {
+    status: "snapshot",
+    fetchedAt: "2026-10-22T10:00:00.000Z",
+    displayToken: "bootstrap-regression",
+    refreshAvailable: false,
+    scope: "subscription",
+    windows: [
+      {
+        label: "5h",
+        durationSeconds: 18000,
+        usedPercent: 25,
+        remainingPercent: 75,
+        progressPercent: 25,
+        observedAt: "2026-10-22T10:00:00.000Z",
+        resetAt: null,
+        stale: false,
+        reason: null,
+      },
+    ],
+  };
+  const old = { ...row("active"), limits };
+  const initial = {
+    status: "ok" as const,
+    value: { ...page, accounts: [old] },
+  };
+  const replacement = {
+    status: "ok" as const,
+    value: { ...page, accounts: [] },
+  };
+  const draw = (bootstrapPage: typeof initial) => (
+    <AccountGatewayControls
+      queryClient={client}
+      bootstrap={{ context, page: bootstrapPage }}
+      renderAccounts={(accounts) =>
+        (accounts.length ? accounts : [old]).map((account) => (
+          <BootstrapLimitsRow key={account.connectionId} account={account} />
+        ))
+      }
+    />
+  );
+  const view = render(draw(initial));
+  await screen.findByRole("progressbar");
+  // Finish initial publication before deferring the replacement cleanup.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  let finishLatest!: () => void;
+  const latestPending = new Promise<void>((resolve) => {
+    finishLatest = resolve;
+  });
+  const cancelQueries = client.cancelQueries.bind(client);
+  let replacements = 0;
+  vi.spyOn(client, "cancelQueries").mockImplementation((filters, options) =>
+    filters?.queryKey?.[0] === "gateway-accounts"
+      ? ++replacements === 1
+        ? pending
+        : latestPending
+      : cancelQueries(filters, options),
+  );
+  view.rerender(draw(replacement));
+  expect(screen.queryByRole("progressbar")).toBeNull();
+  // Supersede the pending replacement. Its late completion cannot open the
+  // latest bootstrap fence, even when both pages contain no accounts.
+  view.rerender(draw({ ...replacement, value: { ...replacement.value } }));
+  await act(async () => {
+    client.setQueryData(["gateway-accounts", "workspace-user", "page", null], {
+      pages: [initial],
+      pageParams: [null],
+    });
+    finish();
+    await pending;
+  });
+  expect(screen.queryByRole("progressbar")).toBeNull();
+  await screen.findByText("Limits unavailable while connection changes");
+  await act(async () => {
+    finishLatest();
+    await latestPending;
+  });
+  await waitFor(() =>
+    expect(
+      screen.queryByText("Limits unavailable while connection changes"),
+    ).toBeNull(),
+  );
+  // A later authorized enrollment is absent from the original SSR allowlist.
+  const connected = { ...old, connectionId: "new-subscription" };
+  await act(async () => {
+    client.setQueryData(["gateway-accounts", "workspace-user", "page", null], {
+      pages: [{ status: "ok", value: { ...page, accounts: [connected] } }],
+      pageParams: [null],
+    });
+  });
+  expect(await screen.findByRole("progressbar")).toBeTruthy();
+  expect(
+    screen.queryByText("Limits unavailable while connection changes"),
+  ).toBeNull();
 });
