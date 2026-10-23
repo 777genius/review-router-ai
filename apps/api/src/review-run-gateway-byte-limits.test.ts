@@ -1,5 +1,7 @@
-import { createServer, type Server } from "node:http";
+import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { setImmediate } from "node:timers/promises";
+import Fastify from "fastify";
 import { afterEach, expect, it } from "vitest";
 import type * as c from "@agent-teams/account-gateway/contracts";
 import {
@@ -15,7 +17,9 @@ import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-co
 import { createReviewRunGatewayPreparation } from "./review-run-gateway-preparation";
 import {
   createReviewRunGatewayRelay,
+  createReviewRunGatewayTerminalGate,
   prepareReviewRunGatewayResponses,
+  registerReviewRunGatewayRelayRoutes,
 } from "./review-run-gateway-relay";
 
 const MiB = 1024 * 1024;
@@ -27,7 +31,11 @@ afterEach(async () => {
   }
 });
 
-async function fixture(outputBytes: number, streamBytes = 0) {
+async function fixture(
+  outputBytes: number,
+  streamBytes = 0,
+  controlledStream?: (response: ServerResponse) => Promise<void>,
+) {
   const deadline = new Date(Date.now() + 120_000).toISOString();
   const limits = {
     requests: 128,
@@ -137,6 +145,8 @@ async function fixture(outputBytes: number, streamBytes = 0) {
   const snapshots = { capture: async () => null, isLive: async () => active };
   const intents: c.Prepare[] = [];
   const admissions: c.Admission[] = [];
+  const effects: { requestRef: string; effect: c.RequestStatus["effect"] }[] =
+    [];
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(Buffer.from(chunk));
@@ -181,6 +191,10 @@ async function fixture(outputBytes: number, streamBytes = 0) {
         "content-type": "text/event-stream",
         "x-gateway-request-ref": String(req.headers["x-gateway-request-id"]),
       });
+      if (controlledStream) {
+        await controlledStream(res);
+        return;
+      }
       let remaining = streamBytes;
       while (remaining > 0 && !res.destroyed) {
         const size = Math.min(32768, remaining);
@@ -272,8 +286,14 @@ async function fixture(outputBytes: number, streamBytes = 0) {
     confirmAuthority: async () => active,
     snapshots,
     bindings,
+    usage: {
+      prepare: async () => undefined,
+      outcome: async ({ requestRef, effect }) => {
+        effects.push({ requestRef, effect });
+      },
+    },
   });
-  return { preparation, relay, intents, admissions, limits };
+  return { preparation, relay, intents, admissions, limits, effects };
 }
 
 it.each([
@@ -379,3 +399,215 @@ it("normalizes Codex null reasoning without dropping configured reasoning", () =
     ),
   ).toThrow();
 });
+
+const sseBytes = (value: string) => new TextEncoder().encode(value);
+const concatBytes = (chunks: readonly Uint8Array[]) => Buffer.concat(chunks);
+const progressFrame =
+  'event: response.output_text.delta\r\ndata: {"delta":"Привіт 🌍"}\r\n\r\n';
+const completedFrame =
+  'event: response.completed\r\ndata: {"type":"response.completed","response":{"status":"completed"}}\r\n\r\n';
+
+it("streams complete nonterminal frames while retaining fragmented terminal bytes through SDK EOF", () => {
+  const gate = createReviewRunGatewayTerminalGate(4096);
+  const progress = sseBytes(progressFrame);
+  const terminal = sseBytes(
+    completedFrame + ": trailing transport frame\r\n\r\n",
+  );
+  const visible: Uint8Array[] = [];
+  // One-byte pushes split both multi-byte UTF-8 and every CRLF boundary.
+  for (const byte of progress) visible.push(...gate.push(Uint8Array.of(byte)));
+  expect(concatBytes(visible)).toEqual(Buffer.from(progress));
+  for (const byte of terminal)
+    expect(gate.push(Uint8Array.of(byte))).toEqual([]);
+  const final = gate.finish();
+  expect(concatBytes(final)).toEqual(Buffer.from(terminal));
+  expect(concatBytes([...visible, ...final])).toEqual(
+    Buffer.from(
+      progressFrame + completedFrame + ": trailing transport frame\r\n\r\n",
+    ),
+  );
+});
+
+it.each([
+  'event: response.failed\ndata: {"type":"response.failed"}\n\n',
+  'event: response.incomplete\ndata: {"type":"response.incomplete"}\n\n',
+  'data: {"type":"response.completed"}\n\n',
+  "data: [DONE]\n\n",
+])(
+  "withholds exact terminal frame %j until the caller confirms EOF",
+  (frame) => {
+    const gate = createReviewRunGatewayTerminalGate(4096);
+    const raw = sseBytes(frame + ": tail\n\n");
+    expect(gate.push(raw)).toEqual([]);
+    expect(concatBytes(gate.finish())).toEqual(Buffer.from(raw));
+  },
+);
+
+it("keeps malformed nonterminal bytes intact and never manufactures successful SSE", () => {
+  const gate = createReviewRunGatewayTerminalGate(4096);
+  const raw = sseBytes(
+    'event: response.completed\ndata: {"type":broken}\n\n: partial tail',
+  );
+  const delivered = [...gate.push(raw), ...gate.finish()];
+  expect(concatBytes(delivered)).toEqual(Buffer.from(raw));
+  expect(concatBytes(delivered).toString()).not.toContain(
+    '"type":"response.completed"',
+  );
+});
+
+it("bounds incomplete frames and the retained terminal tail without releasing them", () => {
+  const incomplete = createReviewRunGatewayTerminalGate(32);
+  expect(() => incomplete.push(sseBytes("data: " + "x".repeat(33)))).toThrow();
+  const terminal = createReviewRunGatewayTerminalGate(256);
+  expect(terminal.push(sseBytes(completedFrame))).toEqual([]);
+  expect(() =>
+    terminal.push(sseBytes(":" + "x".repeat(256) + "\n\n")),
+  ).toThrow();
+});
+
+function deferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+async function readExactFrame(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  expected: string,
+) {
+  const chunks: Uint8Array[] = [];
+  const length = Buffer.byteLength(expected);
+  let received = 0;
+  while (received < length) {
+    const part = await reader.read();
+    expect(part.done).toBe(false);
+    chunks.push(part.value!);
+    received += part.value!.byteLength;
+  }
+  expect(concatBytes(chunks).toString()).toBe(expected);
+}
+async function serveRelay(
+  relay: ReturnType<typeof createReviewRunGatewayRelay>,
+) {
+  const app = Fastify();
+  await registerReviewRunGatewayRelayRoutes(app, relay);
+  await app.listen({ host: "127.0.0.1", port: 0 });
+  const origin = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+  const request = () =>
+    fetch(origin + "/api/action/v2/account-gateway/responses", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer local-authorization-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-5.6-sol",
+        input: [],
+        stream: true,
+        max_output_tokens: 100,
+      }),
+    });
+  return { app, request };
+}
+
+it("allows a real client to disconnect on released terminal bytes after SDK completion and start the next tool turn", async () => {
+  const allowEOF = deferred();
+  const terminalWritten = deferred();
+  const upstreamClosures: boolean[] = [];
+  let calls = 0;
+  const f = await fixture(MiB, 0, async (response) => {
+    response.once("close", () => upstreamClosures.push(response.writableEnded));
+    response.write(progressFrame);
+    response.write(completedFrame, () => terminalWritten.resolve());
+    if (++calls === 1) await allowEOF.promise;
+    response.end();
+  });
+  const http = await serveRelay(f.relay);
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  try {
+    const first = await http.request();
+    expect(first.status).toBe(200);
+    reader = first.body!.getReader();
+    await readExactFrame(reader, progressFrame);
+    await terminalWritten.promise;
+    expect(f.effects.map((row) => row.effect)).toEqual(["dispatch_started"]);
+    let terminalReceived = false;
+    const terminalRead = readExactFrame(reader, completedFrame).then(() => {
+      terminalReceived = true;
+    });
+    await setImmediate();
+    expect(terminalReceived).toBe(false);
+    allowEOF.resolve();
+    await terminalRead;
+    // This is the Codex behavior: close as soon as the terminal frame arrives,
+    // without asking the HTTP body reader for its own done=true observation.
+    await reader.cancel();
+    reader.releaseLock();
+    reader = undefined;
+    const second = await http.request();
+    expect(second.status).toBe(200);
+    expect(await second.text()).toBe(progressFrame + completedFrame);
+    expect(f.admissions).toHaveLength(2);
+    expect(f.effects.map((row) => row.effect)).toEqual([
+      "dispatch_started",
+      "completed",
+      "dispatch_started",
+      "completed",
+    ]);
+    expect(upstreamClosures).toEqual([true, true]);
+  } finally {
+    allowEOF.resolve();
+    await reader?.cancel().catch(() => undefined);
+    await http.app.close();
+  }
+}, 10000);
+
+it("cancels the real SDK request when the client disconnects before upstream EOF", async () => {
+  const upstreamClosed = deferred<boolean>();
+  const f = await fixture(MiB, 0, async (response) => {
+    response.once("close", () =>
+      upstreamClosed.resolve(response.writableEnded),
+    );
+    response.write(progressFrame);
+    response.write(completedFrame);
+    await upstreamClosed.promise;
+  });
+  const http = await serveRelay(f.relay);
+  try {
+    const response = await http.request();
+    const reader = response.body!.getReader();
+    await readExactFrame(reader, progressFrame);
+    await reader.cancel();
+    reader.releaseLock();
+    expect(await upstreamClosed.promise).toBe(false);
+    expect(f.effects.map((row) => row.effect)).not.toContain("completed");
+    expect(f.admissions).toHaveLength(1);
+  } finally {
+    await http.app.close();
+  }
+}, 10000);
+
+it("never releases buffered terminal bytes when the real SDK transport fails before EOF", async () => {
+  const failTransport = deferred();
+  const f = await fixture(MiB, 0, async (response) => {
+    response.write(progressFrame);
+    response.write(completedFrame);
+    await failTransport.promise;
+    response.destroy();
+  });
+  const http = await serveRelay(f.relay);
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  try {
+    const response = await http.request();
+    reader = response.body!.getReader();
+    await readExactFrame(reader, progressFrame);
+    failTransport.resolve();
+    await expect(reader.read()).rejects.toBeDefined();
+    expect(f.effects.map((row) => row.effect)).not.toContain("completed");
+  } finally {
+    failTransport.resolve();
+    await reader?.cancel().catch(() => undefined);
+    await http.app.close();
+  }
+}, 10000);

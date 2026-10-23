@@ -49,6 +49,10 @@ type InstalledCodex = {
   };
 };
 type RelayAdapter = {
+  createReviewRunGatewayTerminalGate(maximumBytes: number): {
+    push(bytes: Uint8Array): readonly Uint8Array[];
+    finish(): readonly Uint8Array[];
+  };
   prepareReviewRunGatewayResponses(
     raw: Uint8Array,
     model: string,
@@ -363,12 +367,12 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
         let wire = "";
         const decoder = new TextDecoder();
         relayPhase = "sdk-stream";
-        for (;;) {
-          const part = await reader.read();
-          if (part.done) break;
-          wire += decoder.decode(part.value, { stream: true });
-          // Responses are streamed without rewriting provider events or tool output.
-          if (!response.write(part.value))
+        const terminalGate = relayAdapter.createReviewRunGatewayTerminalGate(
+          input.limits.outputBytes,
+        );
+        const write = async (bytes: Uint8Array) => {
+          if (complete && response.destroyed) return;
+          if (!response.write(bytes))
             await new Promise<void>((resolve, reject) => {
               const drained = () => {
                 response.off("close", closed);
@@ -376,16 +380,26 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
               };
               const closed = () => {
                 response.off("drain", drained);
-                reject(new Error("joined_disconnected"));
+                if (complete) resolve();
+                else reject(new Error("joined_disconnected"));
               };
               response.once("drain", drained);
               response.once("close", closed);
             });
+        };
+        for (;;) {
+          const part = await reader.read();
+          if (part.done) break;
+          wire += decoder.decode(part.value, { stream: true });
+          for (const bytes of terminalGate.push(part.value)) await write(bytes);
         }
         wire += decoder.decode();
         assert.match(wire, /response\.completed/u);
         completions++;
         complete = true;
+        // The same production gate releases the unchanged terminal only after
+        // the SDK has completed its native closure acknowledgement.
+        for (const bytes of terminalGate.finish()) await write(bytes);
         response.end();
       } catch (error) {
         if (error instanceof sdk.GatewayError)
