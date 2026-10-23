@@ -72,7 +72,56 @@ describe("canonical modern review banner", () => {
     expect(unverified).toContain("1 needs verification");
     expect(unverified).toContain("1 not rechecked · included in open");
     expect(unverified).not.toContain("needs a fix");
+    const auto = await GET(request(`${update}&theme=auto`)).text();
+    expect(auto).toContain('fill="var(--resolved,#1a7f37)"');
+    expect(auto).toContain("--resolved:#7ee787");
   });
+
+  it.each(["wide", "compact"])(
+    "adapts the %s auto palette to the embedding page without changing layout",
+    async (layout) => {
+      const query = `${first}&critical=1&major=2&minor=3&info=4&theme=auto&layout=${layout}`;
+      const response = GET(request(query));
+      expect(response.status).toBe(200);
+      const svg = await response.text();
+      expect(svg).toContain('fill="var(--ink,#1f2328)"');
+      expect(svg).toContain('stop-color="var(--background,#f6f8fa)"');
+      expect(svg).toContain("--ink:#1f2328");
+      expect(svg).toContain("--background:#f6f8fa");
+      expect(svg).toContain("@media (prefers-color-scheme: dark){:root{");
+      expect(svg).toContain("--ink:#f0f3f6");
+      expect(svg).toContain("--background:#151b23");
+      expect(svg).toContain("--critical:#ad2333");
+      expect(svg).toContain("--critical:#ff8f96");
+      expect(svg).toContain("--major:#7d4e00");
+      expect(svg).toContain("--major:#e3b341");
+      expect(svg.match(/<svg /g)).toHaveLength(1);
+      expect(svg.match(/<style>/g)).toHaveLength(1);
+      expect(svg).not.toMatch(/@import|<script|<image/);
+      if (layout === "wide") {
+        expect(svg.match(/id="brandLogo"/g)).toHaveLength(1);
+        expect(svg).toContain("--halo-opacity:.09");
+        expect(svg).toContain("--halo-opacity:.14");
+      } else {
+        expect(svg).not.toContain("brandLogo");
+      }
+      const alias = v2GET(
+        new Request(`https://reviewrouter.test/review-banner/v2.svg?${query}`),
+      );
+      expect(alias.status).toBe(200);
+      expect(await alias.text()).toBe(svg);
+      expect(alias.headers.get("etag")).toBe(response.headers.get("etag"));
+      for (const theme of ["light", "dark"]) {
+        const explicit = GET(
+          request(query.replace("theme=auto", `theme=${theme}`)),
+        );
+        expect(await explicit.text()).not.toContain("<style>");
+        expect(explicit.headers.get("etag")).not.toBe(
+          response.headers.get("etag"),
+        );
+      }
+    },
+  );
 
   it.each(["first", "update"])(
     "never calls an incomplete %s review clean or fully covered",
@@ -131,7 +180,7 @@ describe("canonical modern review banner", () => {
   it.each([
     "state=clean&variant=first",
     "state=complete&variant=changed",
-    `${first}&theme=auto`,
+    `${first}&theme=system`,
     `${first}&layout=auto`,
     `${first}&critical=-1`,
     `${first}&critical=10000`,
@@ -166,7 +215,7 @@ describe("canonical modern review banner", () => {
   it("keeps optional zero coverage distinct from absent coverage and handles max counts in both layouts/themes", async () => {
     const zero = await GET(request(`${first}&reviewed=0&total=0`)).text();
     expect(zero).toContain("0 / 0 files reviewed");
-    for (const theme of ["light", "dark"])
+    for (const theme of ["light", "dark", "auto"])
       for (const layout of ["wide", "compact"]) {
         const svg = await GET(
           request(
