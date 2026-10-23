@@ -180,10 +180,12 @@ describe("native HTTPS MCP discovery boundary", () => {
   );
   it.each([
     { addresses: [{ address: "127.0.0.1", family: 4 }] },
-    { addresses: [
-      { address: "93.184.216.34", family: 4 },
-      { address: "10.0.0.1", family: 4 },
-    ] },
+    {
+      addresses: [
+        { address: "93.184.216.34", family: 4 },
+        { address: "10.0.0.1", family: 4 },
+      ],
+    },
     { addresses: [{ address: "::1", family: 6 }] },
     { addresses: [{ address: "::ffff:127.0.0.1", family: 6 }] },
   ])(
@@ -240,7 +242,8 @@ describe("native HTTPS MCP discovery boundary", () => {
                 tools: [
                   {
                     name: "search",
-                    description: "token private-token Bearer private-token",
+                    description:
+                      "token private-token Bearer private-token private\u0001-token",
                     inputSchema: { type: "object" },
                   },
                 ],
@@ -254,7 +257,9 @@ describe("native HTTPS MCP discovery boundary", () => {
         headers: { Authorization: "Bearer private-token" },
         redact: ["private-token", "Bearer private-token"],
       }),
-    ).toEqual([{ name: "search", description: "token [redacted] [redacted]" }]);
+    ).toEqual([
+      { name: "search", description: "token [redacted] [redacted] [redacted]" },
+    ]);
     responseFor = (method, body) =>
       JSON.parse(body).method === "tools/list"
         ? {
