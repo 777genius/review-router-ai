@@ -52,6 +52,10 @@ import {
   type AccountLimitsService,
 } from "./account-limits-service";
 import { accountLimitsReader } from "./account-limits-composition";
+import {
+  configuredSubscriptionProfiles,
+  operationCompletion,
+} from "./account-connection-catalog";
 
 // This module is imported at runtime only by RSC/server actions. Client imports are type-only.
 export type AccountsResult<T> =
@@ -61,10 +65,14 @@ export type AccountsResult<T> =
     };
 
 export type AccountProfileView = {
+  availability?: "enabled" | "deployment_configuration_required" | undefined;
   id: string;
   label: string;
   protocol: c.Profile["protocol"];
   models: string[];
+  connection?:
+    | import("../features/account-gateway/connection-capabilities").AccountConnectionView
+    | undefined;
   // Trusted configured vendor; never derived from an editable account label.
   provider?: import("@reviewrouter/features-review-providers").ProviderKind;
   // Additive display fields; older safe bootstrap consumers may omit them.
@@ -95,6 +103,7 @@ export type AccountOwnerView =
   | { kind: "organization"; label: string; avatarUrl: string | null }
   | { kind: "operator"; label: string };
 export type AccountView = {
+  connection?: AccountProfileView["connection"];
   origin?: "organization" | "personal" | "operator";
   // Display-only identity fact; never permission to manage a shared source.
   isOwnedByViewer?: boolean;
@@ -136,6 +145,11 @@ export type AccountOperationView = {
   nonce: string;
   state: c.Operation["state"];
   oauthMethod?: "device_code" | "browser";
+  completion?: {
+    providerLabel: string;
+    inputKind: "none" | "callback_url" | "authorization_code";
+    personalOnly?: boolean;
+  };
   account?: AccountView;
   // Original safe reconnect fields, present only after durable fences are ready.
   // A continuation re-enters a credential using this same nonce.
@@ -232,25 +246,56 @@ const oauthBeginIntentSchema = z.union([
     method: z.enum(["device_code", "browser"]).optional(),
   }),
 ]);
-// The SDK owns both closed credential grammars. Snapshot before any await;
+// The SDK owns the closed credential grammars. Snapshot before any await;
 // no URL/code/state is retained in an intent or safe view.
-const oauthCompletionSchema = z.union([
+const oauthCredentialCompletionSchema = z.union([
   z.strictObject({
     nonce: uuid,
-    callbackURL: secretSubmission.oauthCallbackURL,
+    callbackURL: z
+      .string()
+      .refine(
+        (value) =>
+          secretSubmission.oauthCallbackURL.safeParse(value).success ||
+          secretSubmission.grokOAuthCallbackURL.safeParse(value).success,
+      ),
   }),
   z.strictObject({
     nonce: uuid,
     authorizationCode: secretSubmission.claudeOAuthAuthorizationCode,
   }),
 ]);
-function oauthCompletionCredential(intent: AccountOAuthCompletion) {
+const oauthCompletionSchema = z.union([
+  oauthCredentialCompletionSchema,
+  z.strictObject({
+    nonce: uuid,
+    authorizationResult: z.string().min(1).max(8257),
+  }),
+]);
+type NormalizedOAuthCompletion = z.infer<
+  typeof oauthCredentialCompletionSchema
+>;
+function oauthCompletionCredential(intent: NormalizedOAuthCompletion) {
   return "authorizationCode" in intent
     ? { authorizationCode: intent.authorizationCode }
     : { callbackURL: intent.callbackURL };
 }
-export function snapshotOAuthCompletion(raw: AccountOAuthCompletion) {
-  return oauthCompletionSchema.parse(raw);
+export function snapshotOAuthCompletion(
+  raw: AccountOAuthCompletion,
+): NormalizedOAuthCompletion {
+  const captured = oauthCompletionSchema.parse(raw);
+  if (!("authorizationResult" in captured)) return captured;
+  // Legacy pending operation DTOs omit profile metadata. Decode only the closed
+  // SDK credential representation; the Gateway still selects the saved profile.
+  const { nonce, authorizationResult } = captured;
+  const callback =
+    secretSubmission.oauthCallbackURL.safeParse(authorizationResult).success ||
+    secretSubmission.grokOAuthCallbackURL.safeParse(authorizationResult)
+      .success;
+  return oauthCredentialCompletionSchema.parse(
+    callback
+      ? { nonce, callbackURL: authorizationResult }
+      : { nonce, authorizationCode: authorizationResult },
+  );
 }
 const intentSchema = z.discriminatedUnion("kind", [
   z.strictObject({
@@ -664,6 +709,14 @@ export function createAccountsAdapter(input: {
       ...(operation.oauthMethod ? { oauthMethod: operation.oauthMethod } : {}),
       cleanup: "unresolved",
     };
+    const profile = expected
+      ? catalogue.find((row) => row.id === expected.profileId)
+      : undefined;
+    if (
+      profile?.authKind === "oauth" &&
+      operation.oauthMethod !== "device_code"
+    )
+      result.completion = operationCompletion(profile);
     if (operation.state !== "applied") return result;
     if (operation.result?.kind !== "account") throw new Denied();
     const returned = operation.result;
@@ -1107,11 +1160,17 @@ export function createAccountsAdapter(input: {
         entered = true;
       });
       const catalogue = await profiles(client);
-      const profileId =
-        "authorizationCode" in intent
-          ? claudeOAuthProfileId
-          : codexOAuthProfileId;
-      if (!catalogue.some((p) => p.id === profileId && p.authKind === "oauth"))
+      // Input grammar is declared by the configured catalog. The Gateway alone
+      // resolves the original durable operation's profile before any exchange.
+      const inputKind =
+        "authorizationCode" in intent ? "authorization_code" : "callback_url";
+      if (
+        !catalogue.some(
+          (profile) =>
+            profile.authKind === "oauth" &&
+            operationCompletion(profile).inputKind === inputKind,
+        )
+      )
         throw new Denied();
       const request = secretSubmission.oauthComplete.parse({
         operationId: operationRef(authority.owner, nonce),
@@ -1133,7 +1192,6 @@ export function createAccountsAdapter(input: {
         returned,
         catalogue,
         client,
-        { profileId },
       );
       await client.reauthorize();
       return { status: "ok", value: result };
@@ -1519,6 +1577,10 @@ export function createDisabledPersonalAccountsAdapter(input: {
   store: PersonalAccountOperationStore;
   control: ConsumerControlConfig;
   profiles: ReadonlyMap<string, "api-key-create" | "oauth-begin">;
+  connectionProfiles?: readonly Pick<
+    AccountProfileView,
+    "id" | "label" | "connection" | "oauthMethods"
+  >[];
 }) {
   const client = createConsumerControlClient(input.control);
   const profiles = new Map(input.profiles);
@@ -1567,12 +1629,26 @@ export function createDisabledPersonalAccountsAdapter(input: {
         throw new ProviderAccountError("connection_unavailable");
     },
   });
+  const completionFor = (result: PersonalOperationResult) => {
+    if (result.intent.action !== "connect" || !input.connectionProfiles)
+      return {};
+    const profileId = result.intent.profileId;
+    const profile = input.connectionProfiles.find(
+      (row) => row.id === profileId,
+    );
+    return {
+      completion: operationCompletion(
+        profile ?? { id: profileId, label: profileId },
+      ),
+    };
+  };
   const view = (result: PersonalOperationResult) => ({
     operationId: result.id,
     phase: result.phase,
     sourceId: result.source?.id ?? null,
     bindingId: result.binding?.id ?? null,
     available: result.available,
+    ...completionFor(result),
     ...(result.intent.action === "connect" &&
     result.intent.method === "device_code"
       ? { oauthMethod: "device_code" as const }
@@ -1599,21 +1675,46 @@ export function createDisabledPersonalAccountsAdapter(input: {
         : { nonce: uuid.parse(rawNonce) };
       const actorUserId = await input.authorizeUser();
       const original = await input.store.readOperation(actorUserId, safe.nonce);
+      if (original.intent.action !== "connect") throw new Denied();
+      const savedIntent = original.intent;
       if (
         original.id !== personalOperationId(actorUserId, safe.nonce) ||
-        original.intent.actorUserId !== actorUserId ||
-        original.intent.clientOperationId !== safe.nonce ||
-        original.intent.action !== "connect" ||
-        original.intent.ingress !== "oauth-begin" ||
-        profiles.get(original.intent.profileId) !== "oauth-begin" ||
+        savedIntent.actorUserId !== actorUserId ||
+        savedIntent.clientOperationId !== safe.nonce ||
+        savedIntent.ingress !== "oauth-begin" ||
+        profiles.get(savedIntent.profileId) !== "oauth-begin" ||
         (completion &&
-          (original.intent.profileId === claudeOAuthProfileId) !==
+          (operationCompletion(
+            input.connectionProfiles?.find(
+              (p) => p.id === savedIntent.profileId,
+            ) ?? {
+              id: savedIntent.profileId,
+              label: savedIntent.profileId,
+            },
+          ).inputKind ===
+            "authorization_code") !==
             "authorizationCode" in safe) ||
         (completion
-          ? original.intent.method === "device_code"
-          : original.intent.method !== "device_code")
+          ? savedIntent.method === "device_code"
+          : savedIntent.method !== "device_code")
       )
         throw new Denied();
+      if (
+        completion &&
+        input.connectionProfiles?.find((p) => p.id === savedIntent.profileId)
+          ?.connection?.completionInputKind === "none"
+      )
+        throw new Denied();
+      if (completion && "callbackURL" in safe) {
+        const profile = input.connectionProfiles?.find(
+          (p) => p.id === savedIntent.profileId,
+        );
+        const grammar =
+          profile?.connection?.provider === "grok"
+            ? secretSubmission.grokOAuthCallbackURL
+            : secretSubmission.oauthCallbackURL;
+        if (!grammar.safeParse(safe.callbackURL).success) throw new Denied();
+      }
       async function reauthorize() {
         if ((await input.authorizeUser()) !== actorUserId) throw new Denied();
         // The store also checks the live original personal ownership scope.
@@ -1651,7 +1752,7 @@ export function createDisabledPersonalAccountsAdapter(input: {
             client.completeOAuth(
               secretSubmission.oauthComplete.parse({
                 ...request,
-                ...oauthCompletionCredential(safe as AccountOAuthCompletion),
+                ...oauthCompletionCredential(safe as NormalizedOAuthCompletion),
               }),
             ),
           );
@@ -1768,9 +1869,24 @@ export function createDisabledPersonalAccountsAdapter(input: {
         throw new ProviderAccountError("invalid_input");
       if (ingress === "oauth-begin" && key !== undefined)
         throw new ProviderAccountError("invalid_input");
+      const completionKind = operationCompletion(
+        input.connectionProfiles?.find((p) => p.id === safe.profileId) ?? {
+          id: safe.profileId,
+          label: safe.profileId,
+        },
+      ).inputKind;
+      const configuredMethods = input.connectionProfiles?.find(
+        (p) => p.id === safe.profileId,
+      )?.oauthMethods;
       if (
         ingress === "oauth-begin" &&
-        safe.profileId === claudeOAuthProfileId &&
+        configuredMethods &&
+        !configuredMethods.includes(safe.method ?? configuredMethods[0]!)
+      )
+        throw new ProviderAccountError("invalid_input");
+      if (
+        ingress === "oauth-begin" &&
+        completionKind === "authorization_code" &&
         safe.method === "device_code"
       )
         throw new ProviderAccountError("invalid_input");
@@ -1905,7 +2021,15 @@ export function accountGatewayProfilesConfiguration() {
     configuredClaude === undefined || configuredClaude === ""
       ? undefined
       : z.literal(claudeOAuthProfileId).parse(configuredClaude);
-  if (!apiKeyProfiles.size && !oauthProfile && !claudeProfile)
+  const subscriptionProfileIds = configuredSubscriptionProfiles(
+    process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_SUBSCRIPTION_PROFILE_IDS,
+  );
+  if (
+    !apiKeyProfiles.size &&
+    !oauthProfile &&
+    !claudeProfile &&
+    !subscriptionProfileIds.length
+  )
     throw new Error("accounts_unavailable");
   // Operator pairs this public URL with the exact fixed Gateway service profile.
   // Missing binding preserves legacy ingress; it cannot advertise a URL option.
@@ -1929,6 +2053,7 @@ export function accountGatewayProfilesConfiguration() {
       : {}),
     apiKeyProfiles,
     apiKeyProfileBaseURLs,
+    subscriptionProfileIds,
     ...(oauthProfile ? { codexOAuthProfileId: oauthProfile } : {}),
     ...(claudeProfile ? { claudeOAuthProfileId: claudeProfile } : {}),
   };

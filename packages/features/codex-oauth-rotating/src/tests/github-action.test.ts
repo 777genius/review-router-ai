@@ -401,6 +401,8 @@ describe("Codex rotating GitHub Action runtime", () => {
         GITHUB_TOKEN: "source-github-token",
         OPENAI_API_KEY: "source-openai-key",
         REVIEW_THREAD_LIFECYCLE_RESOLVE_TOKEN: "source-lifecycle-token",
+        CODEX_REASONING_EFFORT: "xhigh",
+        CODEX_FAST_MODE: "true",
       },
       inputs: {
         mode: "fork-agentic-sandbox",
@@ -430,6 +432,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       runtimeConfigVersion: 7,
       runtimeEnv: {
         REVIEW_PROVIDERS: "codex/gpt-5.5",
+        REVIEW_AUTH_MODE: "codex-account-gateway",
       },
       reviewThreadLifecycleResolveToken: "repo-scoped-lifecycle-token",
       reviewSnapshotInputPath: "/tmp/home/snapshot-input.json",
@@ -452,6 +455,8 @@ describe("Codex rotating GitHub Action runtime", () => {
       "https://api.reviewrouter.org",
     );
     expect(childEnv.OPENAI_API_KEY).toBeUndefined();
+    expect(childEnv.CODEX_REASONING_EFFORT).toBeUndefined();
+    expect(childEnv.CODEX_FAST_MODE).toBeUndefined();
     expect(childEnv.REVIEW_THREAD_LIFECYCLE_RESOLVE_TOKEN).toBe(
       "repo-scoped-lifecycle-token",
     );
@@ -1218,6 +1223,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       expect(config).toContain('model_provider = "reviewrouter_proxy"');
       expect(config).toContain('wire_api = "responses"');
       expect(config).toContain('sandbox_mode = "read-only"');
+      expect(config).toContain('web_search = "disabled"');
       expect(config).not.toContain("refreshed-access-token");
       expect(() =>
         readFileSync(join(input.tempCodexHome, "auth.json"), "utf8"),

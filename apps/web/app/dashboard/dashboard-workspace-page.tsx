@@ -2285,8 +2285,10 @@ function DashboardSectionHeader(
       ? `${props.repositoryCount} synced repositories`
       : selectedSection === "policy"
         ? props.activeConfig.providers
-            .map(
-              (provider) => `${provider.model} / ${provider.reasoningEffort}`,
+            .map((provider) =>
+              provider.reasoningEffort
+                ? `${provider.model} / ${provider.reasoningEffort}`
+                : provider.model,
             )
             .join(", ")
         : selectedSection === "memory"

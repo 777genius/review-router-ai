@@ -27,14 +27,14 @@ or trigger a new semantic engine inside Router.
 
 Evidence inspected:
 
-| Source | Reviewed revision / meaning |
-| --- | --- |
-| ReviewRouter control plane | `296ddc0327b7dfc762c31b5b1d39e5461a41c12c` |
-| Hindsight | `v1.1.0`, commit `a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5`, published 2026-10-21 |
-| TypeScript client | `@vectorize-io/hindsight-client` 1.1.0 source and actual GitHub release artifact; npm registry installation not yet qualified |
-| Organization quality standard | `agent-teams-ai/.github` at `dcdc2838c377e90995eb6e35364a84b6684d376a` |
-| Checked-in paired Action CI target | `777genius/review-router@fca296a56637d369fc5198d4c9d8e95b9607377b` |
-| Checked-in hosted/rotating Action target | `777genius/review-router@66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff` |
+| Source                                   | Reviewed revision / meaning                                                                                                   |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| ReviewRouter control plane               | `296ddc0327b7dfc762c31b5b1d39e5461a41c12c`                                                                                    |
+| Hindsight                                | `v1.1.0`, commit `a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5`, published 2026-10-21                                             |
+| TypeScript client                        | `@vectorize-io/hindsight-client` 1.1.0 source and actual GitHub release artifact; npm registry installation not yet qualified |
+| Organization quality standard            | `agent-teams-ai/.github` at `dcdc2838c377e90995eb6e35364a84b6684d376a`                                                        |
+| Checked-in paired Action CI target       | `777genius/review-router@fca296a56637d369fc5198d4c9d8e95b9607377b`                                                            |
+| Checked-in hosted/rotating Action target | `777genius/review-router@66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff`                                                            |
 
 Action pins above are source/CI contracts, not proof of the currently deployed
 configuration. The live deployment, customer records and remote deletion debt
@@ -80,13 +80,13 @@ container. Browser code uses application DTOs through authenticated product
 interfaces. Hindsight credentials, bank identifiers and operational endpoints
 never become browser or customer Action configuration.
 
-| Owner | Authoritative state / behavior |
-| --- | --- |
-| Hindsight | Current approved knowledge document bodies; native facts, observations, entities, embeddings, graph, ranking, consolidation and native lifecycle |
-| Router product | Workspace/repository/user identity; membership and permission; approval and revocation; source revision/applicability; explicit rule exceptions; review admission and presentation |
-| Router integration | Opaque scope/provider bindings; command identity, expected application revision, ordering, progress, deletion intent and audit metadata |
-| Existing app PostgreSQL | The above product/integration records, plus bounded immutable approved command input while delivery is unresolved |
-| Hindsight PostgreSQL | Provider-owned content, native operations and provider schema; never accessed through Router Prisma |
+| Owner                   | Authoritative state / behavior                                                                                                                                                     |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hindsight               | Current approved knowledge document bodies; native facts, observations, entities, embeddings, graph, ranking, consolidation and native lifecycle                                   |
+| Router product          | Workspace/repository/user identity; membership and permission; approval and revocation; source revision/applicability; explicit rule exceptions; review admission and presentation |
+| Router integration      | Opaque scope/provider bindings; command identity, expected application revision, ordering, progress, deletion intent and audit metadata                                            |
+| Existing app PostgreSQL | The above product/integration records, plus bounded immutable approved command input while delivery is unresolved                                                                  |
+| Hindsight PostgreSQL    | Provider-owned content, native operations and provider schema; never accessed through Router Prisma                                                                                |
 
 The command input is a temporary delivery envelope, not an editable knowledge
 record. It cannot serve list, recall, export or current-body edit requests. No
@@ -111,13 +111,13 @@ policy adapter has one real consumer and stays with its owning feature.
 Separate roles according to actual consumers. The adapter may implement all of
 them, but a bundle builder cannot obtain mutation capabilities accidentally.
 
-| Role | Required operations |
-| --- | --- |
-| Knowledge reader | Scoped recall; source-entry listing; read current entry and evidence |
-| Candidate preview | Extract bounded candidates from permitted input without publishing memory |
-| Knowledge writer | Save approved entry; replace; retire; delete; change topics |
+| Role               | Required operations                                                                            |
+| ------------------ | ---------------------------------------------------------------------------------------------- |
+| Knowledge reader   | Scoped recall; source-entry listing; read current entry and evidence                           |
+| Candidate preview  | Extract bounded candidates from permitted input without publishing memory                      |
+| Knowledge writer   | Save approved entry; replace; retire; delete; change topics                                    |
 | Operation observer | Observe native submission/progress; reconcile uncertain outcomes; qualified cancellation/drain |
-| Portable export | Export approved core entries, scope, identity, provenance and declared history fidelity |
+| Portable export    | Export approved core entries, scope, identity, provenance and declared history fidelity        |
 
 Every write, including topic change, invalidation and deletion, has a command ID,
 an expected application revision, a target scope and an honest operation result.
@@ -138,18 +138,35 @@ type MutationContext = {
 
 type MemoryOperation = {
   id: string;
-  state: "queued" | "submitted" | "processing" | "published" |
-    "failed" | "unknown" | "cleanup_pending" | "completed";
+  state:
+    | "queued"
+    | "submitted"
+    | "processing"
+    | "published"
+    | "failed"
+    | "unknown"
+    | "cleanup_pending"
+    | "completed";
   safeReason?: string;
 };
 
 interface KnowledgeWriter {
-  saveApproved(input: MutationContext & ApprovedKnowledge,
-    controls: RequestControls): Promise<MemoryOperation>;
-  retire(input: MutationContext, controls: RequestControls): Promise<MemoryOperation>;
-  remove(input: MutationContext, controls: RequestControls): Promise<MemoryOperation>;
-  setTopics(input: MutationContext & { topicIds: readonly string[] },
-    controls: RequestControls): Promise<MemoryOperation>;
+  saveApproved(
+    input: MutationContext & ApprovedKnowledge,
+    controls: RequestControls,
+  ): Promise<MemoryOperation>;
+  retire(
+    input: MutationContext,
+    controls: RequestControls,
+  ): Promise<MemoryOperation>;
+  remove(
+    input: MutationContext,
+    controls: RequestControls,
+  ): Promise<MemoryOperation>;
+  setTopics(
+    input: MutationContext & { topicIds: readonly string[] },
+    controls: RequestControls,
+  ): Promise<MemoryOperation>;
 }
 ```
 
@@ -266,17 +283,17 @@ library or private subpath imports are unnecessary.
 
 Prefix below: `/v1/default/banks/{bank_id}`.
 
-| Product operation | Native operation / important qualification |
-| --- | --- |
-| Preview | `POST /memories/dry-run-extract`; transient result, no native approval queue |
-| Save/replace approved entry | `POST /memories`, stable document ID, replace mode, async caller UUID, verified strategy |
-| Review recall | `POST /memories/recall`, explicit kinds/types/budgets and source evidence |
-| Read/list entries | Document API plus scoped memory listing/read; distinguish source entries and derived observations |
-| Exact-source retirement | `PATCH /memories/{id}` invalidation for its source facts; product admission revoked first |
-| Delete entry | `DELETE /documents/{id}` plus operation-payload cleanup and verification |
-| Change groups | Native document tag update, with stable qualified observation scope |
-| Progress/recovery | Native operation status/children/cancel and terminal operation deletion |
-| Portability | Application export built from provider current text and Router authority/source metadata |
+| Product operation           | Native operation / important qualification                                                        |
+| --------------------------- | ------------------------------------------------------------------------------------------------- |
+| Preview                     | `POST /memories/dry-run-extract`; transient result, no native approval queue                      |
+| Save/replace approved entry | `POST /memories`, stable document ID, replace mode, async caller UUID, verified strategy          |
+| Review recall               | `POST /memories/recall`, explicit kinds/types/budgets and source evidence                         |
+| Read/list entries           | Document API plus scoped memory listing/read; distinguish source entries and derived observations |
+| Exact-source retirement     | `PATCH /memories/{id}` invalidation for its source facts; product admission revoked first         |
+| Delete entry                | `DELETE /documents/{id}` plus operation-payload cleanup and verification                          |
+| Change groups               | Native document tag update, with stable qualified observation scope                               |
+| Progress/recovery           | Native operation status/children/cancel and terminal operation deletion                           |
+| Portability                 | Application export built from provider current text and Router authority/source metadata          |
 
 Do not invent `/memories/retain`, external expected-version CAS, a public
 single-memory hard-delete route, a native approval queue, or lossless graph
@@ -437,16 +454,16 @@ must reject reuse with a changed digest. Native per-document serialization helps
 internal consistency but is not external CAS. Keep the UUID through retries;
 never issue a new one merely because an HTTP response timed out.
 
-| Failure point | Required behavior |
-| --- | --- |
-| Crash before native submission | Retry same persisted approved envelope and UUID |
-| Native accepted, response lost | Observe same UUID/children; preserve unknown state until resolved |
-| Changed body with reused UUID | Reject before native I/O |
-| Old native operation has been pruned | Consult terminal app state; absence is not proof of non-execution |
-| Older source/approval arrives later | Reject stale revision or create a new reviewed proposal |
-| Worker lease expires during request | Do not advance a newer mutation until old outcome is resolved |
-| Partial extraction/consolidation failure | Do not mark every capability ready from parent completed status |
-| Backend unavailable | Preserve pending work; reviews use no memory; no hidden Prisma content fallback |
+| Failure point                            | Required behavior                                                               |
+| ---------------------------------------- | ------------------------------------------------------------------------------- |
+| Crash before native submission           | Retry same persisted approved envelope and UUID                                 |
+| Native accepted, response lost           | Observe same UUID/children; preserve unknown state until resolved               |
+| Changed body with reused UUID            | Reject before native I/O                                                        |
+| Old native operation has been pruned     | Consult terminal app state; absence is not proof of non-execution               |
+| Older source/approval arrives later      | Reject stale revision or create a new reviewed proposal                         |
+| Worker lease expires during request      | Do not advance a newer mutation until old outcome is resolved                   |
+| Partial extraction/consolidation failure | Do not mark every capability ready from parent completed status                 |
+| Backend unavailable                      | Preserve pending work; reviews use no memory; no hidden Prisma content fallback |
 
 Use supported native readback/status, not internal `result_metadata`, as the
 product proof of publication. Bound payload retention and unresolved operations;
@@ -524,25 +541,25 @@ Retire means stop using knowledge while retaining allowed history. Forget means
 remove the product entry and tracked body copies from live provider storage.
 Expose these as different user actions with honest progress.
 
-| Lifecycle action | Application postcondition |
-| --- | --- |
-| Retire | Immediately excluded from new review context; native source facts invalidated; permitted audit/source history retained |
-| Restore | Fresh authorized ordered command on the exact retained revision; no automatic replay of a pre-retirement job |
-| Expire | Same runtime exclusion as retire when a declared validity bound ends; no semantic aging algorithm |
-| Forget | Immediate admission revocation, then tracked deletion of native entry and associated live body copies; incomplete cleanup remains visible |
-| Restore from backup | Memory stays disabled until current revocation/deletion/generation metadata is reconciled |
+| Lifecycle action    | Application postcondition                                                                                                                 |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Retire              | Immediately excluded from new review context; native source facts invalidated; permitted audit/source history retained                    |
+| Restore             | Fresh authorized ordered command on the exact retained revision; no automatic replay of a pre-retirement job                              |
+| Expire              | Same runtime exclusion as retire when a declared validity bound ends; no semantic aging algorithm                                         |
+| Forget              | Immediate admission revocation, then tracked deletion of native entry and associated live body copies; incomplete cleanup remains visible |
+| Restore from backup | Memory stays disabled until current revocation/deletion/generation metadata is reconciled                                                 |
 
 Retire/restore/expiry are not implemented by overloading hard delete. Optional
 restore is exposed only if the provider's qualified profile supports it. Native
 invalidation must cover all facts of the logical entry, not a guessed single ID.
 The first profile uses these lifecycle preconditions:
 
-| State | Review use | Authorized management/export | Content/topic mutation |
-| --- | --- | --- | --- |
-| Settled active | Allowed only after current authority/applicability checks | Current provider body | Ordered command with expected revision |
-| Settled retired/expired | Excluded | Permitted retained body, labeled inactive | Reject until a qualified restore; forget remains available |
-| Unsettled create/replace | Excluded | Safe progress metadata; no mismatched current body | Block another external mutation; allow immediate revocation intent |
-| Forget pending/completed | Excluded | Safe cleanup status only; no body | No restore or old-command replay |
+| State                    | Review use                                                | Authorized management/export                       | Content/topic mutation                                             |
+| ------------------------ | --------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------ |
+| Settled active           | Allowed only after current authority/applicability checks | Current provider body                              | Ordered command with expected revision                             |
+| Settled retired/expired  | Excluded                                                  | Permitted retained body, labeled inactive          | Reject until a qualified restore; forget remains available         |
+| Unsettled create/replace | Excluded                                                  | Safe progress metadata; no mismatched current body | Block another external mutation; allow immediate revocation intent |
+| Forget pending/completed | Excluded                                                  | Safe cleanup status only; no body                  | No restore or old-command replay                                   |
 
 Native retagging updates live facts, not necessarily archived ones. Rejecting
 content/topic edits while retired avoids promising archive synchronization.
@@ -711,23 +728,23 @@ evidence and this failure condition; a backup file alone is insufficient.
 
 ## 13. Integration and deletion inventory
 
-| Surface | Planned treatment |
-| --- | --- |
-| `features/memory` domain/application | Keep scope, authority, privacy and bundle policy where valid; replace canonical item/search/transaction assumptions with the small ports and publication workflow |
-| Prisma item/suggestion/search repositories | Remove canonical content/search implementation after data disposition; retain/adapt only actual approval/source/command metadata responsibilities |
-| Infinity search adapter and SDK | Drain known/unknown external obligations, then delete unused projection adapter/config/dependency; no re-inspection of Infinity internals |
-| Projection receipts/backfill/reconcile/operator | Remove only after deletion debt is resolved; receipts deliberately survive canonical deletion |
-| Old memory expiry/prune | Replace source-entry lifecycle with native operations and bounded product policy; do not copy a second engine scheduler |
-| Action API routes | Replace dependencies, authority/review binding, operation responses and versioned contract; reject stale legacy writers |
-| API/web/worker composition | One feature-owned composition contract, adapted for each process; borrowed resources retain host ownership |
-| Dashboard dependencies/export | Remove direct Prisma body reads, use backend reader/export and scoped metadata |
-| Dashboard page | Keep development notice until the new vertical slice and visual checks pass |
-| Old management panel/fixtures | Remove unreachable engine-coupled implementation when the replacement UI lands; retain useful shared UI primitives |
-| Support diagnostics/quotas/usage | Replace canonical row/index counts and item FKs with scoped provider/operation metadata; no bodies in support output |
-| Prisma schema | Add narrow metadata/delivery records, migrate dependent FKs, drop obsolete tables only in forward migrations |
-| SQL migration history | Preserve; never rewrite deployed migration files |
-| Foundation/build/dependency tests | Update explicit owned sources and negative fixtures; remove obsolete SDK permissions without weakening other boundaries |
-| Separate Action repository | T0 memory consumption, candidate/source contract, prompts, operation UX, bundle/cache/attestation identity and paired E2E |
+| Surface                                         | Planned treatment                                                                                                                                                 |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `features/memory` domain/application            | Keep scope, authority, privacy and bundle policy where valid; replace canonical item/search/transaction assumptions with the small ports and publication workflow |
+| Prisma item/suggestion/search repositories      | Remove canonical content/search implementation after data disposition; retain/adapt only actual approval/source/command metadata responsibilities                 |
+| Infinity search adapter and SDK                 | Drain known/unknown external obligations, then delete unused projection adapter/config/dependency; no re-inspection of Infinity internals                         |
+| Projection receipts/backfill/reconcile/operator | Remove only after deletion debt is resolved; receipts deliberately survive canonical deletion                                                                     |
+| Old memory expiry/prune                         | Replace source-entry lifecycle with native operations and bounded product policy; do not copy a second engine scheduler                                           |
+| Action API routes                               | Replace dependencies, authority/review binding, operation responses and versioned contract; reject stale legacy writers                                           |
+| API/web/worker composition                      | One feature-owned composition contract, adapted for each process; borrowed resources retain host ownership                                                        |
+| Dashboard dependencies/export                   | Remove direct Prisma body reads, use backend reader/export and scoped metadata                                                                                    |
+| Dashboard page                                  | Keep development notice until the new vertical slice and visual checks pass                                                                                       |
+| Old management panel/fixtures                   | Remove unreachable engine-coupled implementation when the replacement UI lands; retain useful shared UI primitives                                                |
+| Support diagnostics/quotas/usage                | Replace canonical row/index counts and item FKs with scoped provider/operation metadata; no bodies in support output                                              |
+| Prisma schema                                   | Add narrow metadata/delivery records, migrate dependent FKs, drop obsolete tables only in forward migrations                                                      |
+| SQL migration history                           | Preserve; never rewrite deployed migration files                                                                                                                  |
+| Foundation/build/dependency tests               | Update explicit owned sources and negative fixtures; remove obsolete SDK permissions without weakening other boundaries                                           |
+| Separate Action repository                      | T0 memory consumption, candidate/source contract, prompts, operation UX, bundle/cache/attestation identity and paired E2E                                         |
 
 Current outbox reloads the body from `MemoryItem`; it cannot survive deletion of
 that table unchanged. `MemoryUsageEvent` has an item FK/cascade; adapt it before
@@ -753,16 +770,16 @@ All control-plane paths below are relative to `777genius/review-router-ai`.
 `M` means `packages/features/memory/src`. These are change owners, not whole-file
 deletion instructions.
 
-| Owner | Existing paths |
-| --- | --- |
-| Canonical content | `M/domain/memory-item.ts`, `memory-suggestion.ts`; item/suggestion repository ports and Prisma repositories/mappers |
-| Projections | `M/application/ports/memory-search-index-port.ts`; `M/infrastructure/infinity/`, `projection/`, `outbox/memory-index-outbox-handlers.ts`; Prisma search/receipt/backfill adapters |
-| Host consumers | `M/composition/index.ts`; `apps/api/src/app.ts`, `action-memory-routes.ts`; `apps/worker/src/worker.ts`, `memory-maintenance.ts`, `memory-projection-maintenance.ts`, `memory-projection-operator.ts`; `apps/web/src/server/dashboard-memory.ts` |
-| UI and export | `apps/web/app/dashboard/dashboard-workspace-page.tsx`, `actions.ts`, `memory-management-panel.tsx`, `memory-development-notice.tsx`, `memory-preview/page.tsx`; `apps/web/src/features/memory/application/`; `apps/web/app/api/dashboard/memory/export/route.ts` |
-| Metadata consumers | `packages/platform/db/prisma/schema.prisma`; `packages/features/support-diagnostics/src/`; memory entitlement adapters; `apps/web/app/fair-use/page.tsx` |
-| Gates | `.github/workflows/memory-projections.yml`; `architecture/foundation/provider-seams.yaml`; `scripts/memory-foundation/qualify-boundaries.ts`; `scripts/memory-e2e/`; existing memory/GitHub smoke fixtures |
-| Deployment | `render.yaml`, `.env.example`, `deploy/self-hosted/compose.yml`, `deploy/self-hosted/.env.example`, `deploy/self-hosted/README.md`, self-host readiness checks and release/deployment runbooks |
-| Separate Action | `src/control-plane/memory.ts`, `src/github/memory-interaction.ts`, `src/github/interaction.ts`, `src/main.ts`, `src/review-orchestration/infrastructure/production-t0-review-runner.ts`, invocation/PromptBuilder and manifest/cache/replay owners |
+| Owner              | Existing paths                                                                                                                                                                                                                                                   |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Canonical content  | `M/domain/memory-item.ts`, `memory-suggestion.ts`; item/suggestion repository ports and Prisma repositories/mappers                                                                                                                                              |
+| Projections        | `M/application/ports/memory-search-index-port.ts`; `M/infrastructure/infinity/`, `projection/`, `outbox/memory-index-outbox-handlers.ts`; Prisma search/receipt/backfill adapters                                                                                |
+| Host consumers     | `M/composition/index.ts`; `apps/api/src/app.ts`, `action-memory-routes.ts`; `apps/worker/src/worker.ts`, `memory-maintenance.ts`, `memory-projection-maintenance.ts`, `memory-projection-operator.ts`; `apps/web/src/server/dashboard-memory.ts`                 |
+| UI and export      | `apps/web/app/dashboard/dashboard-workspace-page.tsx`, `actions.ts`, `memory-management-panel.tsx`, `memory-development-notice.tsx`, `memory-preview/page.tsx`; `apps/web/src/features/memory/application/`; `apps/web/app/api/dashboard/memory/export/route.ts` |
+| Metadata consumers | `packages/platform/db/prisma/schema.prisma`; `packages/features/support-diagnostics/src/`; memory entitlement adapters; `apps/web/app/fair-use/page.tsx`                                                                                                         |
+| Gates              | `.github/workflows/memory-projections.yml`; `architecture/foundation/provider-seams.yaml`; `scripts/memory-foundation/qualify-boundaries.ts`; `scripts/memory-e2e/`; existing memory/GitHub smoke fixtures                                                       |
+| Deployment         | `render.yaml`, `.env.example`, `deploy/self-hosted/compose.yml`, `deploy/self-hosted/.env.example`, `deploy/self-hosted/README.md`, self-host readiness checks and release/deployment runbooks                                                                   |
+| Separate Action    | `src/control-plane/memory.ts`, `src/github/memory-interaction.ts`, `src/github/interaction.ts`, `src/main.ts`, `src/review-orchestration/infrastructure/production-t0-review-runner.ts`, invocation/PromptBuilder and manifest/cache/replay owners               |
 
 Regenerate distributed Action bundles/contracts through their owning release
 flow; generated output is excluded from hand-written LOC. Consolidate unused
@@ -822,32 +839,32 @@ Each slice is a coherent pushed PR/checkpoint with relevant tests. Do not deploy
 on every commit. The first two slices establish the concrete native contract
 before deleting the existing production path.
 
-| Slice | Deliverable and exit condition |
-| --- | --- |
-| 0. Qualification and decisions | Exact image/SDK/model profile; logging hardening; native API contract tests; accepted successor ADRs; actual deployment/data inventory |
-| 1. Backend vertical slice | Scoped manual approved entry → native save → read/recall → replace/retire/forget; durable operation handling; no public UI enablement |
-| 2. Scope and authority | Workspace/repo/user scope, maintainer/admin resolution, fork binding, topic grouping, source/applicability and complete evidence tests |
-| 3. Production review integration | Paired T0 runtime uses actual bundle and identity; disabled/unavailable behavior; real disposable-repository review |
-| 4. Simple management and intake | Existing components, list/detail/source/edit/forget/progress; allowed candidate approval; visual/keyboard qualification |
-| 5. Cutover and removal | Data migration or verified empty state; old-client/write fencing; remote cleanup; obsolete code/dependency/schema removal |
-| 6. Expanded learning later | Raw selected discussion preview only after explicit policy/profile; richer derived pages or body-history only after separate qualification |
+| Slice                            | Deliverable and exit condition                                                                                                             |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0. Qualification and decisions   | Exact image/SDK/model profile; logging hardening; native API contract tests; accepted successor ADRs; actual deployment/data inventory     |
+| 1. Backend vertical slice        | Scoped manual approved entry → native save → read/recall → replace/retire/forget; durable operation handling; no public UI enablement      |
+| 2. Scope and authority           | Workspace/repo/user scope, maintainer/admin resolution, fork binding, topic grouping, source/applicability and complete evidence tests     |
+| 3. Production review integration | Paired T0 runtime uses actual bundle and identity; disabled/unavailable behavior; real disposable-repository review                        |
+| 4. Simple management and intake  | Existing components, list/detail/source/edit/forget/progress; allowed candidate approval; visual/keyboard qualification                    |
+| 5. Cutover and removal           | Data migration or verified empty state; old-client/write fencing; remote cleanup; obsolete code/dependency/schema removal                  |
+| 6. Expanded learning later       | Raw selected discussion preview only after explicit policy/profile; richer derived pages or body-history only after separate qualification |
 
 Earlier 2,200–4,800 production LOC estimated a limited control-plane replacement.
 It did not fully include the newly verified T0/runtime integration and native
 operational hardening. Revised added/materially rewritten hand-written estimates:
 
-| Work | Production LOC estimate |
-| --- | ---: |
-| Contracts, authority metadata and durable commands | 900–1,400 |
-| Hindsight adapter, configuration and native operation mapping | 650–1,100 |
-| Router use cases, API/worker, source/fork/auth, export/quota/support | 900–1,500 |
-| Compact frontend and status polling | 600–950 |
-| Forward migration, import and legacy cleanup tooling | 650–1,100 |
-| Deployment and health/hardening glue | 250–450 |
-| Router subtotal | 3,950–6,500 |
-| Separate Action client, source/status/interaction contract | 350–650 |
-| Separate Action production T0/prompt/manifest/cache integration | 650–1,150 |
-| Combined coherent project-memory delivery | 4,950–8,300 |
+| Work                                                                 | Production LOC estimate |
+| -------------------------------------------------------------------- | ----------------------: |
+| Contracts, authority metadata and durable commands                   |               900–1,400 |
+| Hindsight adapter, configuration and native operation mapping        |               650–1,100 |
+| Router use cases, API/worker, source/fork/auth, export/quota/support |               900–1,500 |
+| Compact frontend and status polling                                  |                 600–950 |
+| Forward migration, import and legacy cleanup tooling                 |               650–1,100 |
+| Deployment and health/hardening glue                                 |                 250–450 |
+| Router subtotal                                                      |             3,950–6,500 |
+| Separate Action client, source/status/interaction contract           |                 350–650 |
+| Separate Action production T0/prompt/manifest/cache integration      |               650–1,150 |
+| Combined coherent project-memory delivery                            |             4,950–8,300 |
 
 Tests/fixtures: about 3,700–6,400 added/rewritten LOC across both repositories.
 Actual bounded discussion selection/native-preview wiring, if included after its
@@ -923,16 +940,16 @@ the Memory page.
 
 ## 17. Decision reconciliation
 
-| Existing decision | Required successor treatment |
-| --- | --- |
-| 018 privacy | Preserve no raw durable source/unsafe ingress; explicitly name approved command envelope, provider bodies and derived observation policy; no silent raw-thread expansion |
-| 019 bounded context | Preserve inward dependencies and feature ownership; update exact adapter/port boundaries |
-| 020 canonical storage | Supersede PG-canonical/derived-index model with complete provider-owned current content |
-| 021 authority | Preserve approval invariants, implement promised maintainer path, distinguish derived observation from approved rule |
-| 022 tenancy/residency | Replace PG body rehydration with scoped native access plus authority/evidence validation; explicitly bind region/model egress |
-| 023 disable | Preserve review continuity and authorized cleanup/export; new pending native operations remain visible |
-| 024 search capability | Supersede search-only port and fallback with full lifecycle contract and honest capabilities |
-| 026 transactions/outbox | App transaction reserves metadata/approved delivery intent; provider transaction owns native effect; explicit reconciliation across the two |
+| Existing decision       | Required successor treatment                                                                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 018 privacy             | Preserve no raw durable source/unsafe ingress; explicitly name approved command envelope, provider bodies and derived observation policy; no silent raw-thread expansion |
+| 019 bounded context     | Preserve inward dependencies and feature ownership; update exact adapter/port boundaries                                                                                 |
+| 020 canonical storage   | Supersede PG-canonical/derived-index model with complete provider-owned current content                                                                                  |
+| 021 authority           | Preserve approval invariants, implement promised maintainer path, distinguish derived observation from approved rule                                                     |
+| 022 tenancy/residency   | Replace PG body rehydration with scoped native access plus authority/evidence validation; explicitly bind region/model egress                                            |
+| 023 disable             | Preserve review continuity and authorized cleanup/export; new pending native operations remain visible                                                                   |
+| 024 search capability   | Supersede search-only port and fallback with full lifecycle contract and honest capabilities                                                                             |
+| 026 transactions/outbox | App transaction reserves metadata/approved delivery intent; provider transaction owns native effect; explicit reconciliation across the two                              |
 
 ADR-025 UI design sources remain relevant. Accepted files should be superseded
 through new scoped decisions, not rewritten to erase why the previous design
@@ -947,20 +964,20 @@ and self-hosted operations in parallel. Three independent GPT-6.1 Sol xhigh
 critics completed the first round and re-reviewed the concrete synthesis in a
 second round. The following first-round repairs are incorporated:
 
-| Finding | Repair in this draft |
-| --- | --- |
-| Full provider could remain a renamed search projection | Provider owns current bodies and native lifecycle; no Prisma body fallback |
-| Metadata-only queue loses approved input before native acceptance | Bounded write-once approved delivery envelope, never used as current memory |
-| Mutation ports omitted revision/operation semantics | Every mutation has command identity, expected app revision and honest progress |
-| Complete provenance does not prove current derived truth | Explicit historical status or qualified source-consolidation/epoch barrier |
-| Existing production T0 has no memory injection | Paired Action source/ABI/prompt/hash/replay work is an explicit delivery slice |
-| Existing capture was mistaken for model distillation | Explicit/manual first intake; actual discussion learning separately scoped |
-| Maintainer/fork/freshness protection assumed implemented | Concrete authority/read-binding/source metadata work and rejecting tests |
-| Privacy hardening covered only retain errors | Startup DSN, normal query and malformed model logging included |
-| Parent cancellation was treated as execution drain | Child operation discovery and quiescence required before forget completion |
-| Derived IDs/body history/delete guarantees overclaimed | Writable source references separated; history fidelity bounded; pages deferred |
-| Restoring both old databases can lose deletion fences | Independent newer metadata recovery or continued denial of restored memory |
-| Original LOC estimate omitted production consumers | Cross-repository estimate and separate learning feature range |
+| Finding                                                           | Repair in this draft                                                           |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Full provider could remain a renamed search projection            | Provider owns current bodies and native lifecycle; no Prisma body fallback     |
+| Metadata-only queue loses approved input before native acceptance | Bounded write-once approved delivery envelope, never used as current memory    |
+| Mutation ports omitted revision/operation semantics               | Every mutation has command identity, expected app revision and honest progress |
+| Complete provenance does not prove current derived truth          | Explicit historical status or qualified source-consolidation/epoch barrier     |
+| Existing production T0 has no memory injection                    | Paired Action source/ABI/prompt/hash/replay work is an explicit delivery slice |
+| Existing capture was mistaken for model distillation              | Explicit/manual first intake; actual discussion learning separately scoped     |
+| Maintainer/fork/freshness protection assumed implemented          | Concrete authority/read-binding/source metadata work and rejecting tests       |
+| Privacy hardening covered only retain errors                      | Startup DSN, normal query and malformed model logging included                 |
+| Parent cancellation was treated as execution drain                | Child operation discovery and quiescence required before forget completion     |
+| Derived IDs/body history/delete guarantees overclaimed            | Writable source references separated; history fidelity bounded; pages deferred |
+| Restoring both old databases can lose deletion fences             | Independent newer metadata recovery or continued denial of restored memory     |
+| Original LOC estimate omitted production consumers                | Cross-repository estimate and separate learning feature range                  |
 
 No native API/database/container/paid-model benchmark has run. One critic
 executed only the upstream pure retraction classifier and confirmed the
@@ -980,14 +997,14 @@ Each final critic re-read the affected clauses and confirmed closure: architectu
 product/cutover and operations all pass for planned qualification, with no open
 finding from those reviews. This verdict accepts the plan, not production readiness.
 
-| Round-three finding | Selected repair |
-| --- | --- |
-| Native cancellation has no public execution-drained receipt (P1) | Explicit initial operator memory pause, process/session exit evidence, maintenance-off cleanup API, public payload cleanup and post-restart verification; ordinary successful mutations remain online |
-| Same-body retain may preserve old fact times (P2) | First profile preserves original statement time and separately advances provenance/last-verified metadata; unsupported re-timing rejected until qualified |
-| Runtime eligibility could hide permitted retained management records (P2) | Consumer-specific read policy; retired/expired inspection/export allowed, forget body fenced everywhere |
-| Archived facts may retain old topic tags (P2) | Reject content/topic edits while retired; optional restore requires native readback |
-| Existing local-admin bypass uses login alone (P2) | Stable trusted actor identity; no production login-only override |
-| Legacy events and migration evidence were implicit (P2) | Version/dead-letter disposition and prior-schema forward-migration rehearsal |
+| Round-three finding                                                       | Selected repair                                                                                                                                                                                       |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Native cancellation has no public execution-drained receipt (P1)          | Explicit initial operator memory pause, process/session exit evidence, maintenance-off cleanup API, public payload cleanup and post-restart verification; ordinary successful mutations remain online |
+| Same-body retain may preserve old fact times (P2)                         | First profile preserves original statement time and separately advances provenance/last-verified metadata; unsupported re-timing rejected until qualified                                             |
+| Runtime eligibility could hide permitted retained management records (P2) | Consumer-specific read policy; retired/expired inspection/export allowed, forget body fenced everywhere                                                                                               |
+| Archived facts may retain old topic tags (P2)                             | Reject content/topic edits while retired; optional restore requires native readback                                                                                                                   |
+| Existing local-admin bypass uses login alone (P2)                         | Stable trusted actor identity; no production login-only override                                                                                                                                      |
+| Legacy events and migration evidence were implicit (P2)                   | Version/dead-letter disposition and prior-schema forward-migration rehearsal                                                                                                                          |
 
 This phase used nine distinct GPT-6.1 Sol xhigh agents: three planners, three
 round-one/two critics, and three fresh final critics. Plan review is not native

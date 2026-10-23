@@ -447,7 +447,7 @@ export function createReviewRunGatewayRelay(input: {
         throw new RelayFailure("gateway_unavailable", 403);
       if (gateway.limits.outputBytes > reviewRunGatewayMaxResponseBytes)
         throw new RelayFailure("gateway_unavailable", 403);
-      const body = responsesBytes(
+      const body = prepareReviewRunGatewayResponses(
         bytes,
         provider.model,
         gateway.limits.tokens,
@@ -906,13 +906,20 @@ export async function registerReviewRunGatewayRelayRoutes(
               : {}),
           });
           const reader = upstream.body.getReader();
+          const terminalGate = createReviewRunGatewayTerminalGate(
+            reviewRunGatewayMaxResponseBytes,
+          );
           const source = Readable.from(
             (async function* () {
               try {
                 for (;;) {
                   const chunk = await reader.read();
-                  if (chunk.done) return;
-                  yield chunk.value;
+                  if (chunk.done) {
+                    for (const bytes of terminalGate.finish()) yield bytes;
+                    return;
+                  }
+                  for (const bytes of terminalGate.push(chunk.value))
+                    yield bytes;
                 }
               } finally {
                 reader.releaseLock();
@@ -1144,9 +1151,110 @@ function diagnoseUnknown(
   }
 }
 
+/** Keep the raw terminal frame private until the same SDK stream has reached
+ * EOF and acknowledged closure. Earlier frames remain streamed unchanged. */
+export function createReviewRunGatewayTerminalGate(maximumBytes: number) {
+  if (
+    !Number.isSafeInteger(maximumBytes) ||
+    maximumBytes < 1 ||
+    maximumBytes > reviewRunGatewayMaxResponseBytes
+  )
+    throw new GatewayError("invalid_response", "effect_unknown");
+  let pending = Buffer.alloc(0),
+    scan = 0,
+    line = 0,
+    heldBytes = 0,
+    finished = false;
+  let held: Uint8Array[] | undefined;
+  const bounded = (size: number) => {
+    if (size > maximumBytes)
+      throw new GatewayError("invalid_response", "effect_unknown");
+  };
+  const terminal = (frame: Uint8Array): boolean => {
+    try {
+      const data = new TextDecoder("utf-8", { fatal: true })
+        .decode(frame)
+        .split(/\r\n|\n|\r/u)
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart())
+        .join("\n");
+      if (data === "[DONE]") return true;
+      const event: unknown = JSON.parse(data);
+      return (
+        event !== null &&
+        typeof event === "object" &&
+        !Array.isArray(event) &&
+        [
+          "response.completed",
+          "response.failed",
+          "response.incomplete",
+          "error",
+        ].includes(String((event as Record<string, unknown>).type))
+      );
+    } catch {
+      return false;
+    }
+  };
+  return {
+    push(bytes: Uint8Array): readonly Uint8Array[] {
+      if (finished)
+        throw new GatewayError("invalid_response", "effect_unknown");
+      if (bytes.byteLength === 0) return [];
+      if (held) {
+        bounded(heldBytes + bytes.byteLength);
+        // Bound bookkeeping as well as retained bytes for fragmented tails.
+        if (held.length >= 64) held = [Buffer.concat(held)];
+        held.push(Buffer.from(bytes));
+        heldBytes += bytes.byteLength;
+        return [];
+      }
+      bounded(pending.byteLength + bytes.byteLength);
+      pending = Buffer.concat([pending, bytes]);
+      const ready: Uint8Array[] = [];
+      while (scan < pending.length) {
+        const byte = pending[scan];
+        if (byte !== 10 && byte !== 13) {
+          scan++;
+          continue;
+        }
+        // A trailing CR may be the first half of a split CRLF.
+        if (byte === 13 && scan + 1 === pending.length) break;
+        const width = byte === 13 && pending[scan + 1] === 10 ? 2 : 1;
+        if (scan !== line) {
+          scan += width;
+          line = scan;
+          continue;
+        }
+        const end = scan + width,
+          frame = pending.subarray(0, end);
+        pending = pending.subarray(end);
+        scan = 0;
+        line = 0;
+        if (terminal(frame)) {
+          heldBytes = frame.byteLength + pending.byteLength;
+          bounded(heldBytes);
+          held = pending.length ? [frame, pending] : [frame];
+          pending = Buffer.alloc(0);
+          break;
+        }
+        ready.push(frame);
+      }
+      return ready;
+    },
+    finish(): readonly Uint8Array[] {
+      if (finished) return [];
+      finished = true;
+      const ready = held ?? (pending.length ? [pending] : []);
+      pending = Buffer.alloc(0);
+      held = undefined;
+      return ready;
+    },
+  };
+}
+
 /** Decode complete JSON once, retaining user/tool data. Scan BEFORE JSON.parse
  * to reject duplicate decoded keys, critical aliases, deep/unbounded structure. */
-function responsesBytes(
+export function prepareReviewRunGatewayResponses(
   raw: Uint8Array,
   model: string,
   tokens: number,
@@ -1163,6 +1271,7 @@ function responsesBytes(
       "previous_response_id",
       "service_tier",
       "max_output_tokens",
+      "reasoning",
     ]);
     let at = 0;
     const space = () => {
@@ -1250,6 +1359,9 @@ function responsesBytes(
         cap > qualifiedTokens)
     )
       throw new Error();
+    // Codex serializes an absent optional reasoning value as JSON null.
+    // Normalize only that semantic absence; configured reasoning stays intact.
+    if (payload.reasoning === null) delete payload.reasoning;
     const bytes = new TextEncoder().encode(
       JSON.stringify({
         ...payload,

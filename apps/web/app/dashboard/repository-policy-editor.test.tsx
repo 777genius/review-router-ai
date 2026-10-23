@@ -224,6 +224,72 @@ function gatewayProviderFixture(): ReviewProviderConfiguration {
 }
 
 describe("ReviewConfigForm", () => {
+  it("hides unqualified reasoning and fast controls and saves actual omission", () => {
+    const connection = {
+      provider: "kimi" as const,
+      planLabel: "Kimi Code",
+      regionLabel: "Global",
+      completionInputKind: "none" as const,
+      personalOnly: false,
+      limitsContract: "account-limits/v2" as const,
+      modelSettings: [
+        {
+          modelId: "k3-256k",
+          reasoning: null,
+          fast: null,
+          tools: {
+            allowed: ["function_and_custom" as const],
+            default: "function_and_custom" as const,
+          },
+        },
+      ],
+    };
+    const page: AccountsPage = {
+      ...gatewayPage,
+      profiles: [
+        { ...gatewayPage.profiles[1]!, models: ["k3-256k"], connection },
+      ],
+      accounts: [gatewayPage.accounts[1]!],
+    };
+    render(
+      <ReviewConfigForm
+        action={vi.fn()}
+        config={{
+          ...workspacePolicy,
+          providers: [
+            {
+              ...gatewayProviderFixture(),
+              kind: "codex",
+              authMode: "codex_account_gateway",
+              gatewayProfileRef: "profile-codex",
+              gatewayBindingId: "binding-codex",
+              model: "k3-256k",
+              reasoningEffort: undefined,
+            },
+          ],
+        }}
+        gatewayAccounts={{ status: "ok", value: page }}
+        hiddenFields={[]}
+        modelOptions={modelOptions}
+        mutationsEnabled={true}
+        submitLabel="Save"
+      />,
+    );
+    expect(
+      screen.queryByRole("combobox", { name: "Reasoning effort" }),
+    ).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Fast mode" })).toBeNull();
+    const saved = readReviewConfigurationForm(
+      new FormData(document.querySelector("form")!),
+    );
+    expect(saved.providers[0]).not.toHaveProperty("reasoningEffort");
+    expect(saved.providers[0]!.fastMode).toBe(false);
+    expect(screen.getByRole("button", { name: "Save" })).not.toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
   it("enables PR description updates by default and persists an explicit opt-out", () => {
     const { container } = render(
       <ReviewConfigForm
@@ -1430,6 +1496,7 @@ describe("ReviewConfigForm", () => {
           {
             ...workspacePolicy.providers[0]!,
             authMode: "mimo_token_plan_api_key",
+            reasoningEffort: "high",
             gatewayBindingId: undefined,
             gatewayProfileRef: undefined,
             agentProfileRef: undefined,

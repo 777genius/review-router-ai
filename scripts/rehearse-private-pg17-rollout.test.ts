@@ -1301,6 +1301,7 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000139_review_context_tools" &&
         name !== "000140_personal_oauth_method" &&
         name !== "000141_memory_search_projections" &&
+        name !== "000142_optional_gateway_reasoning" &&
         name !== "000133_allow_first_time_scm_identity_bind",
     );
     const withoutProviderKey = historicalCheckout.filter(
@@ -1355,9 +1356,9 @@ describe("disposable dual-version rehearsal", () => {
     ).toBe(
       "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
     );
-    expect(migrationNames).toHaveLength(141);
+    expect(migrationNames).toHaveLength(142);
     expect(migrationManifestIdentity(migrationNames)).toBe(
-      "sha256:f57efc9ec8fd5f1efcd8f9cea07586957e5bd4bf983f02f252b30dc474a67ec8",
+      "sha256:a0cd29f30a38777a777aad492da123023a0c5258ed093589643655c96ebb5d7f",
     );
     expect(historicalCheckout).toHaveLength(124);
     expect(historicalMigrationManifestIdentity(historicalCheckout)).toBe(
@@ -1469,6 +1470,7 @@ describe("disposable dual-version rehearsal", () => {
       "000139_review_context_tools",
       "000140_personal_oauth_method",
       "000141_memory_search_projections",
+      "000142_optional_gateway_reasoning",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1594,7 +1596,7 @@ describe("disposable dual-version rehearsal", () => {
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
     const exactTail = "000121_review_run_gateway_execution_binding";
-    const currentTail = "000141_memory_search_projections";
+    const currentTail = "000142_optional_gateway_reasoning";
     for (const candidate of [
       names.filter((name) => name !== currentTail),
       names.filter((name) => name !== "000140_personal_oauth_method"),
@@ -1606,7 +1608,7 @@ describe("disposable dual-version rehearsal", () => {
       names.filter((name) => name !== "000127_owner_workspace_deletion"),
       [...names, currentTail],
       [...names, "000140_personal_oauth_method"],
-      names.map((name) => (name === currentTail ? "000141_relabelled" : name)),
+      names.map((name) => (name === currentTail ? "000142_relabelled" : name)),
       names.map((name) =>
         name === "000140_personal_oauth_method" ? "000140_relabelled" : name,
       ),
@@ -1687,6 +1689,7 @@ describe("disposable dual-version rehearsal", () => {
     "000139_review_context_tools",
     "000140_personal_oauth_method",
     "000141_memory_search_projections",
+    "000142_optional_gateway_reasoning",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1758,6 +1761,7 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000139_review_context_tools" &&
                 name !== "000140_personal_oauth_method" &&
                 name !== "000141_memory_search_projections" &&
+                name !== "000142_optional_gateway_reasoning" &&
                 name !== "000133_allow_first_time_scm_identity_bind",
               "000102_sdk_growth_current_authority",
             ),

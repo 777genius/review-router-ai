@@ -39,12 +39,12 @@ The final recommendation incorporates their corrections below.
 
 Pinned source snapshots:
 
-| Project | Checked version / commit |
-| --- | --- |
-| ReviewRouter | main at 296ddc0327b7dfc762c31b5b1d39e5461a41c12c |
-| Hindsight | v1.1.0, a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5 |
-| Mem0 | v2.2.1, 94c3fe9f238f3dbf29c9ce98643bd71eb13077cd |
-| MemOS | v2.0.34, 41bf5c7fa89ee08ebedf3c662638b06fc29aca8d |
+| Project      | Checked version / commit                          |
+| ------------ | ------------------------------------------------- |
+| ReviewRouter | main at 296ddc0327b7dfc762c31b5b1d39e5461a41c12c  |
+| Hindsight    | v1.1.0, a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5  |
+| Mem0         | v2.2.1, 94c3fe9f238f3dbf29c9ce98643bd71eb13077cd  |
+| MemOS        | v2.0.34, 41bf5c7fa89ee08ebedf3c662638b06fc29aca8d |
 
 Hindsight's annotated tag object is df2bbce99a237a85bbcd3abc5eed099c220547f5;
 it resolves to the commit above. Source and documentation were inspected, but no
@@ -73,15 +73,15 @@ Sources: [current adapter plan](../plans/2026-10-22-memory-engine-adapters.md),
 Physical lines include comments and blank lines; the trailing newline is not
 counted as another line. Categories below are not additive deletion estimates.
 
-| Area | Files | Physical LOC |
-| --- | ---: | ---: |
-| Memory feature production source | 72 | 9,365 |
-| Application, included above | 34 | 4,044 |
-| Domain, included above | 12 | 1,047 |
-| Infrastructure, included above | 22 | 3,435 |
-| Composition, included above | 1 | 234 |
-| Interaction interface and public barrel, included above | 3 | 605 |
-| Feature tests and fixtures, separate from production | 12 | 7,846 |
+| Area                                                    | Files | Physical LOC |
+| ------------------------------------------------------- | ----: | -----------: |
+| Memory feature production source                        |    72 |        9,365 |
+| Application, included above                             |    34 |        4,044 |
+| Domain, included above                                  |    12 |        1,047 |
+| Infrastructure, included above                          |    22 |        3,435 |
+| Composition, included above                             |     1 |          234 |
+| Interaction interface and public barrel, included above |     3 |          605 |
+| Feature tests and fixtures, separate from production    |    12 |        7,846 |
 
 A 10-file search/projection-specific subset is 2,464 production LOC. Another
 15-file canonical aggregate/persistence subset is 1,869 LOC, but includes useful
@@ -96,14 +96,14 @@ contain 276 lines; migration history must not be rewritten.
 
 ## Target responsibility boundary
 
-| Ready backend owns | Router owns |
-| --- | --- |
-| Current knowledge and its native revisions/lifecycle | Workspace/repository identity, membership and access |
-| Extraction and native knowledge-selection configuration | Allowed source policy and source revision identity |
-| Semantic matching, consolidation and derived knowledge | Approval authority and user decisions |
-| Embeddings, graph, indexes and retrieval ranking | Scope-to-provider mapping and review applicability |
-| Native edit, invalidation, deletion and export operations | Operation status, retry coordination and relevant audit |
-| Provider administration and storage maintenance | Product UI and future LLM tools through the same use cases |
+| Ready backend owns                                        | Router owns                                                |
+| --------------------------------------------------------- | ---------------------------------------------------------- |
+| Current knowledge and its native revisions/lifecycle      | Workspace/repository identity, membership and access       |
+| Extraction and native knowledge-selection configuration   | Allowed source policy and source revision identity         |
+| Semantic matching, consolidation and derived knowledge    | Approval authority and user decisions                      |
+| Embeddings, graph, indexes and retrieval ranking          | Scope-to-provider mapping and review applicability         |
+| Native edit, invalidation, deletion and export operations | Operation status, retry coordination and relevant audit    |
+| Provider administration and storage maintenance           | Product UI and future LLM tools through the same use cases |
 
 Router may configure the engine and orchestrate native operations. It should not
 gain another embedding store, semantic deduplication service, consolidation
@@ -128,13 +128,13 @@ a directly qualified backend.
 
 ## Backend comparison
 
-| Candidate | Evidence relevant to this product | Main qualification concern |
-| --- | --- | --- |
-| Hindsight | Native extraction, evidence-backed observations, hybrid recall, document updates, curation and source references | Current-rule correctness across separate discussions; approval/version ordering; chosen privacy profile |
-| Mem0 OSS | Native extraction, retrieval, manual update/delete/history and self-host tooling | Current extraction is deliberately ADD-only; automatic semantic replacement would need another mechanism |
-| MemOS | Native feedback correction and optional reorganization, cube-based organization | Destructive conflict fallback, multi-step corrections and disabled-by-default advanced modes |
-| Supermemory managed | Document/memory API with updates, history and managed operation | Current server is non-public; semantics, portability, terms and data policy need qualification |
-| Letta | Active agent runtime and memory work | Current direction is a larger runtime integration; old standalone SDK is experimental |
+| Candidate           | Evidence relevant to this product                                                                                | Main qualification concern                                                                               |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Hindsight           | Native extraction, evidence-backed observations, hybrid recall, document updates, curation and source references | Current-rule correctness across separate discussions; approval/version ordering; chosen privacy profile  |
+| Mem0 OSS            | Native extraction, retrieval, manual update/delete/history and self-host tooling                                 | Current extraction is deliberately ADD-only; automatic semantic replacement would need another mechanism |
+| MemOS               | Native feedback correction and optional reorganization, cube-based organization                                  | Destructive conflict fallback, multi-step corrections and disabled-by-default advanced modes             |
+| Supermemory managed | Document/memory API with updates, history and managed operation                                                  | Current server is non-public; semantics, portability, terms and data policy need qualification           |
+| Letta               | Active agent runtime and memory work                                                                             | Current direction is a larger runtime integration; old standalone SDK is experimental                    |
 
 Fit estimates: Hindsight 8/10, Mem0 OSS 5/10 for this changing-facts scenario,
 MemOS 6/10 as a replacement requiring no engine fixes, Supermemory managed 7/10,
@@ -368,14 +368,14 @@ version, reusing existing auth, GitHub integration, queue and shared UI. They
 exclude changes to upstream engines, new infrastructure platforms, full LLM chat,
 and universal cross-engine migration.
 
-| Work | Estimated production LOC |
-| --- | ---: |
-| Native adapter, configuration and operation handling | 500–1,200 |
-| Small contracts and application admission/approval | 400–900 |
-| Source/revision applicability and mapping | 400–900 |
-| API/worker/export changes and cutover tooling | 400–900 |
-| Simple frontend | 500–900 |
-| Total | 2,200–4,800 |
+| Work                                                 | Estimated production LOC |
+| ---------------------------------------------------- | -----------------------: |
+| Native adapter, configuration and operation handling |                500–1,200 |
+| Small contracts and application admission/approval   |                  400–900 |
+| Source/revision applicability and mapping            |                  400–900 |
+| API/worker/export changes and cutover tooling        |                  400–900 |
+| Simple frontend                                      |                  500–900 |
+| Total                                                |              2,200–4,800 |
 
 Meaningful tests/fixtures: another 1,500–3,500 LOC. Native extraction configuration
 and proposal wiring belong inside these ranges; a new general-purpose extraction
@@ -392,17 +392,17 @@ remain unmeasured until qualification.
 
 ## Critic findings and disposition
 
-| Finding | Disposition |
-| --- | --- |
-| Search-adapter substitution preserves the custom engine | Replace the ownership/read contract, not its name |
-| Native deletion/mental-model support was understated | Corrected against the pinned source; test remaining edge cases |
-| Tags were at risk of becoming an assumed ACL | Banks follow access boundaries; topics remain organizational |
-| Mandatory staging per scope overcomplicates the first version | Preview first; durable drafts only where needed |
-| Approval ledger alone cannot recover an unrecorded payload | Require durable input or an honest resubmission outcome |
-| Changing source and changing project truth were conflated | Separate source revisions, authored rules and derived observations |
-| Paused UI was mistaken for a stopped backend | Inventory and stop routes/workers as part of cutover |
-| LOC could be read as measured savings | Distinguish measured inventory, estimates and gross replacement |
-| Self-hosting was conflated with minimum operations | Evaluate engine choice and hosting choice separately |
+| Finding                                                       | Disposition                                                        |
+| ------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Search-adapter substitution preserves the custom engine       | Replace the ownership/read contract, not its name                  |
+| Native deletion/mental-model support was understated          | Corrected against the pinned source; test remaining edge cases     |
+| Tags were at risk of becoming an assumed ACL                  | Banks follow access boundaries; topics remain organizational       |
+| Mandatory staging per scope overcomplicates the first version | Preview first; durable drafts only where needed                    |
+| Approval ledger alone cannot recover an unrecorded payload    | Require durable input or an honest resubmission outcome            |
+| Changing source and changing project truth were conflated     | Separate source revisions, authored rules and derived observations |
+| Paused UI was mistaken for a stopped backend                  | Inventory and stop routes/workers as part of cutover               |
+| LOC could be read as measured savings                         | Distinguish measured inventory, estimates and gross replacement    |
+| Self-hosting was conflated with minimum operations            | Evaluate engine choice and hosting choice separately               |
 
 Before implementation, the concrete replacement decision must reconcile all
 accepted memory ADRs 018–024 and 026. This research and the owner's clarification
