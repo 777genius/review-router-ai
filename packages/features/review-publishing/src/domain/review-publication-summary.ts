@@ -456,7 +456,7 @@ function renderBanner(
       theme,
       layout,
     });
-    return escapeHtml(`${base}/review-banner/v2.svg?${query}`);
+    return escapeHtml(`${base}/review-banner/v1.svg?${query}`);
   };
   const alt =
     input.reviewState === "complete" ? "Review complete" : "Review incomplete";
