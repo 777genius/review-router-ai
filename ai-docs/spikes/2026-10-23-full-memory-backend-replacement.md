@@ -5,6 +5,12 @@ Status: research recommendation, not an accepted replacement ADR or deployment.
 Owner intent: prefer a ready memory engine and permit removing the custom engine.
 See [Memory product vision](../product/09-memory-product-vision.md).
 
+Subsequent owner decision, 2026-10-23: **self-hosted Hindsight is selected**.
+The [concrete replacement plan](../plans/2026-10-23-hindsight-memory-replacement.md)
+records the later integration research, critic rounds and revised cross-repository
+estimate. This earlier comparison remains a dated research record; its candidate
+language and limited-slice estimate do not override that selection or plan.
+
 ## Recommendation
 
 Stop treating development of the custom memory engine as the default direction.
