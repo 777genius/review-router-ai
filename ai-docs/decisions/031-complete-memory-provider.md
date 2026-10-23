@@ -40,6 +40,31 @@ requires its separately specified source-processing profile. Derived observation
 are historical unless native readiness and selected-model quality are qualified;
 they cannot silently amend an approved project rule.
 
+## Review admission and idempotent source commands
+
+The database transaction that grants a new inference-capable review lease is the
+linearization point for memory eligibility. It checks the exact bodyless receipt,
+current authorization, current repository/source availability, policy, generation,
+maintenance pause and scope epochs before consuming the attempt budget. The check
+has no native provider I/O. A stale receipt returns `input_stale`; the Action drops
+that captured snapshot and prepares the same attempt without memory. It never
+refetches a different memory snapshot midway through an ensemble.
+
+A granted lease may finish with its immutable, already admitted context. A later
+retire, expiry or forget excludes knowledge from subsequent admissions. Do not
+release an issued inference capability and pretend its budget was unspent. Lost
+ACK retries restore the original lease before current-input checks. Cache lookup
+and attachment still check current eligibility. Sample the database clock again
+after admission locks so execution and lease expiry use the actual grant time.
+
+The approved-source profile sends a fixed server-owned retrieval query. Client PR
+titles, paths, diffs and arbitrary query strings are not sent to the memory engine.
+GitHub commands use metadata-only source checks and current stable-identity
+permission checks. Replay retains a hash of the complete normalized wire request
+and its original CAS revision in approval metadata. It returns the original
+operation before fetching current content; changed input with the same UUID is a
+conflict even after the approved delivery envelope has been purged.
+
 ## Reconciliation
 
 - ADR-018: preserve raw-source and diagnostic privacy; explicitly permit the

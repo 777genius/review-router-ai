@@ -1,4 +1,5 @@
 // Server-only composition. Host processes retain ownership of the borrowed DB.
+export { createMemoryKnowledgeRuntime, type MemoryKnowledgeRuntime } from "./memory-knowledge-runtime";
 import { assemblyFor, type CapabilityContract } from "@get-modular/assembly";
 import { compileComposition, defineModule, required } from "@get-modular/core";
 import type { PrismaClient } from "@prisma/client";
