@@ -8,7 +8,7 @@ import { MemoryKnowledgeError, memoryKnowledgeDigest, memoryKnowledgeScopeKey, t
 import type { MemoryKnowledgeWriter } from '../../packages/features/memory/src/application/ports/memory-knowledge-provider-port.ts';
 
 type Delivery = Parameters<MemoryKnowledgeWriter['submit']>[0];
-const config = { kind: 'hindsight' as const, generation: 'native-contract-v1', profileVersion: HINDSIGHT_MEMORY_PROFILE, baseUrl: 'http://native.test', apiKey: 'SYNTHETIC_NATIVE_KEY', namespace: 'contract' };
+const config = { kind: 'hindsight' as const, generation: 'native-contract-v1', profileVersion: HINDSIGHT_MEMORY_PROFILE, baseUrl: 'http://native.test', apiKey: 'SYNTHETIC_NATIVE_KEY', namespace: 'contract', resubmitWindowMs: 0 };
 const scope: MemoryKnowledgeScope = { kind: 'repository', workspaceId: 'workspace-a', repositoryId: 'repo-a' };
 const body = 'Use approved transaction boundaries.';
 const statementAt = '2026-01-02T03:04:05Z';
@@ -122,4 +122,13 @@ test('configuration is local and rejects credential-bearing URLs and unqualified
   assert.equal(parseMemoryProviderConfig(env).kind, 'hindsight');
   assert.throws(() => parseMemoryProviderConfig({ ...env, REVIEW_ROUTER_MEMORY_HINDSIGHT_URL: 'http://user:password@native.test' }));
   assert.throws(() => parseMemoryProviderConfig({ ...env, REVIEW_ROUTER_MEMORY_PROVIDER_PROFILE: 'new-unqualified' }));
+});
+
+test('stable UUID recovery window is explicit, integer-bounded and restricted to the exact Hindsight profile', () => {
+  const env = { REVIEW_ROUTER_MEMORY_PROVIDER: 'hindsight', REVIEW_ROUTER_MEMORY_PROVIDER_PROFILE: HINDSIGHT_MEMORY_PROFILE, REVIEW_ROUTER_MEMORY_HINDSIGHT_URL: 'http://native.test', REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY: 'synthetic-key', REVIEW_ROUTER_MEMORY_NAMESPACE: 'test' };
+  const zero = parseMemoryProviderConfig(env); assert(zero.kind === 'hindsight'); assert.equal(zero.resubmitWindowMs, 0);
+  for (const value of ['1', '120000', '86400000']) { const config = parseMemoryProviderConfig({ ...env, REVIEW_ROUTER_MEMORY_RESUBMIT_WINDOW_MS: value }); assert(config.kind === 'hindsight'); assert.equal(config.resubmitWindowMs, Number(value)); }
+  for (const value of ['-1', '0.5', 'Infinity', 'NaN', '86400001', '999999999999999999999999', '1e3']) assert.throws(() => parseMemoryProviderConfig({ ...env, REVIEW_ROUTER_MEMORY_RESUBMIT_WINDOW_MS: value }), /memory_provider_resubmit_window_invalid/);
+  assert.throws(() => parseMemoryProviderConfig({ REVIEW_ROUTER_MEMORY_RESUBMIT_WINDOW_MS: '1' }), /memory_provider_resubmit_unqualified/);
+  assert.throws(() => parseMemoryProviderConfig({ ...env, REVIEW_ROUTER_MEMORY_PROVIDER_PROFILE: 'new-unqualified', REVIEW_ROUTER_MEMORY_RESUBMIT_WINDOW_MS: '120000' }), /memory_provider_profile_unqualified/);
 });

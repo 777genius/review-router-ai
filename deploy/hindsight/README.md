@@ -73,6 +73,28 @@ operations must exceed the application's bounded unresolved-command horizon.
 The exact horizon is a release configuration gate shared with Router metadata;
 operation absence cannot establish non-execution after retention.
 
+The qualified retry profile sets **both** `HINDSIGHT_API_OPERATION_RETENTION_DAYS=0`
+and `HINDSIGHT_API_OPERATION_CLEANUP_INTERVAL_SECONDS=0` on every API and worker.
+In native 1.1.0 zero disables pruning. This preserves the parent UUID row that is
+the native concurrency/replay authority. The native gate verifies those resolved
+settings for every executor and exercises concurrent identical UUID submissions,
+a committed native request with its HTTP acknowledgment discarded, and one
+ambiguous status 404 followed by exact-UUID replay. It checks that one executable
+child remains and source fact IDs stay stable.
+
+Router's `REVIEW_ROUTER_MEMORY_RESUBMIT_WINDOW_MS` defaults to `0`; explicit
+integer windows up to 24 hours are accepted only with the exact Hindsight profile.
+Enable a positive value only after final-image qualification and verification of
+the deployed no-pruning settings. Delivery retention may be longer than this
+window; its expiry never proves non-execution. Retries keep the original bank,
+generation, UUID and immutable approved payload, and require current application
+permission under its delivery fence. Forget/revocation disables resubmission.
+Native service credentials are private to ordered Router paths; manual operation
+deletion or native pruning outside the paused bound cleanup procedure invalidates
+this retry profile. Keeping terminal UUID rows/payloads indefinitely grows native
+storage; monitor capacity and use the physical-forget operator to purge all
+associated historical payloads when forgetting an entry.
+
 Probe `/health/live` for process liveness and `/health/ready` for DB readiness;
 monitor queue lag, poll age and native metrics privately. Render private service
 provider checks are TCP-only, so internal HTTP/poll monitoring remains necessary.

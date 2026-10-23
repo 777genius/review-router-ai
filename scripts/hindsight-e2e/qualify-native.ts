@@ -44,6 +44,7 @@ export async function qualifyNative() {
     HINDSIGHT_API_TENANT_API_KEY: serviceKey,
     HINDSIGHT_API_WORKER_ENABLED: 'false',
     HINDSIGHT_API_RUN_MIGRATIONS_ON_STARTUP: 'false',
+    HINDSIGHT_API_OPERATION_RETENTION_DAYS: '0', HINDSIGHT_API_OPERATION_CLEANUP_INTERVAL_SECONDS: '0',
     HINDSIGHT_API_LLM_PROVIDER: 'openai', HINDSIGHT_API_LLM_MODEL: 'stub-model',
     HINDSIGHT_API_LLM_API_KEY: `${privacySentinel}_LLM_KEY`, HINDSIGHT_API_LLM_BASE_URL: `${stub.url}/v1`,
     HINDSIGHT_API_EMBEDDINGS_PROVIDER: 'openai', HINDSIGHT_API_EMBEDDINGS_OPENAI_MODEL: 'stub-embeddings',
@@ -130,6 +131,11 @@ export async function qualifyNative() {
     await ready(workerPort);
     await nativeContainer(normal[2], ['hindsight-worker', '--http-host', '127.0.0.1', '--http-port', String(oldWorkerPort)]);
     await ready(oldWorkerPort);
+    for (const name of normal) {
+      const retention = JSON.parse(await command(['exec', name, 'python', '-c', 'import json; from hindsight_api.config import get_config; c=get_config(); print(json.dumps([c.operation_retention_days,c.operation_cleanup_interval_seconds]))']));
+      assert.deepEqual(retention, [0, 0], 'All executors must preserve native operation UUID replay authority');
+    }
+    checkpoints.push('all-native-executors-operation-pruning-disabled-for-bounded-stable-uuid-recovery');
     const adapter = await qualifyProductionAdapter(base, serviceKey, run);
     checkpoints.push(...adapter.checkpoints);
     checkpoints.push(...await qualifyProductionCleanup({ base, serviceKey, imageDigest: imageId, run, output, normalContainerNames: normal, stub }));

@@ -9,6 +9,7 @@ export type MemoryProviderConfig =
       readonly baseUrl: string;
       readonly apiKey: string;
       readonly namespace: string;
+      readonly resubmitWindowMs: number;
     };
 
 /** Parsing is local. An unavailable memory server cannot prevent a host starting. */
@@ -17,10 +18,16 @@ export function parseMemoryProviderConfig(
 ): MemoryProviderConfig {
   const kind = env.REVIEW_ROUTER_MEMORY_PROVIDER?.trim() || "disabled";
   const generation = env.REVIEW_ROUTER_MEMORY_GENERATION?.trim() || "memory-v1";
+  const retryInput = env.REVIEW_ROUTER_MEMORY_RESUBMIT_WINDOW_MS?.trim() || "0";
+  const resubmitWindowMs = /^(0|[1-9][0-9]*)$/.test(retryInput) ? Number(retryInput) : NaN;
+  if (!Number.isSafeInteger(resubmitWindowMs) || resubmitWindowMs < 0 || resubmitWindowMs > 86_400_000) throw new Error("memory_provider_resubmit_window_invalid");
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(generation)) {
     throw new Error("memory_provider_generation_invalid");
   }
-  if (kind === "disabled") return { kind, generation };
+  if (kind === "disabled") {
+    if (resubmitWindowMs !== 0) throw new Error("memory_provider_resubmit_unqualified");
+    return { kind, generation };
+  }
   if (kind !== "hindsight") throw new Error("memory_provider_invalid");
   const baseUrl = env.REVIEW_ROUTER_MEMORY_HINDSIGHT_URL?.trim();
   const apiKey = env.REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY?.trim();
@@ -51,5 +58,6 @@ export function parseMemoryProviderConfig(
     baseUrl: parsed.toString().replace(/\/+$/, ""),
     apiKey,
     namespace,
+    resubmitWindowMs,
   };
 }

@@ -2158,9 +2158,9 @@ export function WorkspaceCard({
                     hint={`${supportDiagnostics.actionRunCounts.criticalFindings} critical / ${supportDiagnostics.actionRunCounts.inlineComments} inline`}
                   />
                   <SupportMetric
-                    label="Memory"
-                    value={`${supportDiagnostics.memoryCounts.items.active}/${supportDiagnostics.memoryCounts.items.total} active`}
-                    hint={`${supportDiagnostics.memoryCounts.suggestions.pending} pending / ${supportDiagnostics.memoryCounts.index.pending} indexing`}
+                    label="Previous memory"
+                    value={`${supportDiagnostics.memoryCounts.items.total} retained records`}
+                    hint="Kept for migration review"
                   />
                 </div>
                 {supportDiagnostics.recentAuditActions.length > 0 ? (

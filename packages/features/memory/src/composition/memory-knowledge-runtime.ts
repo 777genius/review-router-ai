@@ -152,6 +152,7 @@ export async function createMemoryKnowledgeRuntime(input: {
             reader: provider,
             writer: provider,
             observer: provider,
+          resubmitWindowMs: config.kind === "hindsight" ? config.resubmitWindowMs : 0,
             ...(input.now ? { now: input.now } : {}),
           }),
       };

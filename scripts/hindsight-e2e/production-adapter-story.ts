@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { HindsightMemoryProvider } from '../../packages/features/memory/src/infrastructure/hindsight/hindsight-memory-provider.ts';
+import { hindsightMemoryBankId } from '../../packages/features/memory/src/infrastructure/hindsight/hindsight-scope.ts';
 import { HINDSIGHT_MEMORY_PROFILE } from '../../packages/features/memory/src/infrastructure/config/memory-provider-config.ts';
 import { normalizeMemoryBody } from '../../packages/features/memory/src/domain/memory-body.ts';
-import type { MemoryKnowledgeCommand, MemoryKnowledgeScope } from '../../packages/features/memory/src/domain/memory-knowledge.ts';
+import { MemoryKnowledgeError, type MemoryKnowledgeCommand, type MemoryKnowledgeScope } from '../../packages/features/memory/src/domain/memory-knowledge.ts';
 import type { MemoryKnowledgeWriter, MemoryProviderEntry } from '../../packages/features/memory/src/application/ports/memory-knowledge-provider-port.ts';
 import { eventually } from './native-runtime.ts';
 
@@ -12,7 +13,8 @@ type Delivery = Parameters<MemoryKnowledgeWriter['submit']>[0];
 /** Actual production SDK adapter talking to the real native API/worker/PG. */
 export async function qualifyProductionAdapter(baseUrl: string, apiKey: string, run: string) {
   const generation = `${run}-adapter`;
-  const provider = new HindsightMemoryProvider({ kind: 'hindsight', generation, profileVersion: HINDSIGHT_MEMORY_PROFILE, baseUrl, apiKey, namespace: 'native-qualification' });
+  const config = { kind: 'hindsight' as const, generation, profileVersion: HINDSIGHT_MEMORY_PROFILE, baseUrl, apiKey, namespace: 'native-qualification', resubmitWindowMs: 120_000 };
+  const provider = new HindsightMemoryProvider(config);
   const controls = () => ({ deadlineAt: new Date(Date.now() + 20_000) });
   const sourceTime = '2026-01-02T03:04:05Z';
   const workspace: MemoryKnowledgeScope = { kind: 'workspace', workspaceId: `${run}-workspace-a` };
@@ -39,6 +41,44 @@ export async function qualifyProductionAdapter(baseUrl: string, apiKey: string, 
   await provider.submit(initial, controls());
   const repeated = await provider.read(initial.command.ref, controls());
   assert.deepEqual(repeated?.sourceFactIds, entry.sourceFactIds);
+  // The real native API commits, then the transport discards its acknowledgment.
+  // One hidden status response exercises stable-UUID replay despite ambiguous404.
+  let lostAck = false; let hiddenStatus = false; let acceptedPosts = 0;
+  const recovering = new HindsightMemoryProvider(config, { fetch: async (request, init) => {
+    const response = await fetch(request, init);
+    const url = request instanceof Request ? request.url : String(request);
+    const method = init?.method ?? (request instanceof Request ? request.method : 'GET');
+    if (method === 'POST' && url.endsWith('/memories')) {
+      assert(response.ok); acceptedPosts += 1;
+      if (!lostAck) { lostAck = true; throw new TypeError('synthetic_lost_native_ack'); }
+    }
+    if (method === 'GET' && url.includes('/operations/') && !hiddenStatus) {
+      assert(response.ok); hiddenStatus = true; return new Response('{}', { status: 404, headers: { 'Content-Type': 'application/json' } });
+    }
+    return response;
+  } });
+  const ambiguous = save(repository, `${run}-ambiguous-ack`, 'Approved statement survives one lost transport acknowledgment.');
+  await assert.rejects(recovering.submit(ambiguous, controls()), error => error instanceof MemoryKnowledgeError && error.code === 'unavailable');
+  const recovered = await eventually(async () => {
+    const result = await recovering.observe(ambiguous, controls());
+    assert(!['failed', 'unknown'].includes(result.state)); return result.state === 'published' ? result.verifiedEntry : undefined;
+  }, 'actual adapter lost-ACK stable-UUID recovery', 120_000);
+  assert(lostAck && hiddenStatus && acceptedPosts === 2); assert(recovered.sourceFactIds.length > 0);
+  assert.deepEqual((await provider.read(ambiguous.command.ref, controls()))?.sourceFactIds, recovered.sourceFactIds);
+  const nativeChildren = async (delivery: Delivery) => {
+    const response = await fetch(`${baseUrl}/v1/default/banks/${hindsightMemoryBankId(config, delivery.command.ref.scope)}/operations/${delivery.command.commandId}`, { headers: { Authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(10_000) }); assert(response.ok);
+    const operation = await response.json() as { child_operations: { operation_id: string }[] };
+    assert.equal(operation.child_operations.length, 1, 'Repeated UUID created extra executable native children'); return operation.child_operations.map(child => child.operation_id);
+  };
+  await nativeChildren(ambiguous);
+  const concurrent = save(repository, `${run}-concurrent-uuid`, 'Approved statement submitted concurrently with one immutable UUID.');
+  const submissions = await Promise.all(Array.from({ length: 3 }, () => provider.submit(concurrent, controls())));
+  assert(submissions.every(operation => operation.commandId === concurrent.command.commandId && operation.state === 'submitted'));
+  const concurrentEntry = await publish(concurrent);
+  const concurrentChildren = await nativeChildren(concurrent);
+  await provider.submit(concurrent, controls());
+  assert.deepEqual(await nativeChildren(concurrent), concurrentChildren);
+  assert.deepEqual((await provider.read(concurrent.command.ref, controls()))?.sourceFactIds, concurrentEntry.sourceFactIds);
   const listed = await provider.list({ scope: repository, limit: 10 }, controls());
   assert(listed.entries.some(candidate => candidate.ref.entryId === entry.ref.entryId));
   const recalled = await provider.recall({ scope: repository, query: 'transactional writes', limit: 5, includeHistoricalObservations: false }, controls());
@@ -72,5 +112,5 @@ export async function qualifyProductionAdapter(baseUrl: string, apiKey: string, 
   const forget: Delivery = { ...retire, command: { ...retire.command, kind: 'forget', commandId: randomUUID(), expectedRevision: '5' }, revision: '6' };
   assert.equal((await provider.submit(forget, controls())).state, 'cleanup_pending');
   assert.equal((await provider.observe(forget, controls())).state, 'cleanup_pending');
-  return { checkpoints: ['actual-production-adapter-native-save-read-list-recall', 'actual-production-adapter-native-uuid-retry-time-and-replacement', 'actual-production-adapter-native-workspace-repository-private-user-isolation', 'actual-production-adapter-native-topic-retire-retained-management-body', 'actual-production-adapter-forget-honestly-pending-operator-proof'], commands: 11, sdkVersion: '1.1.0' };
+  return { checkpoints: ['actual-production-adapter-native-save-read-list-recall', 'actual-production-adapter-lost-ack-ambiguous-status-stable-uuid-recovery', 'actual-production-adapter-concurrent-same-uuid-single-native-work', 'actual-production-adapter-native-uuid-retry-time-and-replacement', 'actual-production-adapter-native-workspace-repository-private-user-isolation', 'actual-production-adapter-native-topic-retire-retained-management-body', 'actual-production-adapter-forget-honestly-pending-operator-proof'], commands: 13, sdkVersion: '1.1.0' };
 }
