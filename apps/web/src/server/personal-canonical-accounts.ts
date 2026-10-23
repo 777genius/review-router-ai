@@ -985,22 +985,14 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
       }
       return safe(
         async (scope, retain) => {
-          let reconnect = false;
-          try {
-            reconnect =
-              (
-                await scope.checked(() =>
-                  input.canonical.read(scope.actor, request.nonce),
-                )
-              ).intent.action === "reconnect";
-          } catch (error) {
-            if (
-              !(error instanceof ProviderAccountError) ||
-              error.code !== "not_found"
-            )
-              throw error;
-          }
-          if (reconnect) return completeCanonicalOAuth(scope, request, retain);
+          // The shared journal owns the action discriminator. The canonical
+          // reader deliberately rejects connect rows rather than returning absence.
+          const original = await scope.checked(() =>
+            input.store.readOperation(scope.actor, request.nonce),
+          );
+          if (original.intent.action === "reconnect")
+            return completeCanonicalOAuth(scope, request, retain);
+          if (original.intent.action !== "connect") throw new Denied();
           retain();
           const result = await scope.personal.completeOAuth(request);
           return projectConnectResult(scope, request.nonce, result);

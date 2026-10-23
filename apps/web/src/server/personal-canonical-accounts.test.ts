@@ -365,6 +365,7 @@ function fixture(options: { grok?: boolean; disabled?: boolean } = {}) {
   };
   return {
     api,
+    canonical,
     request,
     control,
     store,
@@ -805,6 +806,24 @@ describe("personal canonical UI server boundary", () => {
     const callbackURL =
       "http://localhost:1455/auth/callback?code=synthetic-code&state=" +
       "b".repeat(64);
+    vi.spyOn(f.store, "readOperation").mockResolvedValue({
+      id: "connect",
+      intent: {
+        action: "connect",
+        actorUserId: "user-u",
+        personalWorkspaceId: "personal-u",
+        clientOperationId: nonce,
+        proposedSourceId: "own-source",
+        profileId: "profile-oauth",
+        displayName: "Own Codex",
+        ingress: "oauth-begin",
+        method: "browser",
+      },
+      phase: "submitted",
+      source: null,
+      binding: null,
+      available: false,
+    });
     await f.api.completeGatewayOAuth("ignored", { nonce, callbackURL });
     expect(f.delegate.completeOAuth).toHaveBeenCalledWith({
       nonce,
@@ -920,4 +939,39 @@ it("retains existing account cleanup when its qualified profile is disabled", as
     }),
   ).toMatchObject({ status: "ok" });
   expect(f.control.disable).toHaveBeenCalledTimes(1);
+});
+
+it("routes a saved Grok connect through the shared journal after reload without probing the canonical reconnect reader", async () => {
+  const f = fixture({ grok: true });
+  vi.spyOn(f.store, "readOperation").mockResolvedValue({
+    id: personalOperationId("user-u", nonce),
+    intent: {
+      action: "connect",
+      actorUserId: "user-u",
+      personalWorkspaceId: "personal-u",
+      clientOperationId: nonce,
+      proposedSourceId: "own-source",
+      profileId: "grok-subscription-responses-oauth-v1",
+      displayName: "Own Grok",
+      ingress: "oauth-begin",
+      method: "browser",
+    },
+    phase: "submitted",
+    source: null,
+    binding: null,
+    available: false,
+  });
+  const canonicalRead = vi
+    .spyOn(f.canonical, "read")
+    .mockRejectedValue(new ProviderAccountError("operation_conflict"));
+  const callbackURL =
+    "http://127.0.0.1:56121/callback?code=synthetic&state=" + "a".repeat(64);
+  expect(
+    await f.api.completeGatewayOAuth("", { nonce, callbackURL }),
+  ).toMatchObject({ status: "ok", value: { state: "pending" } });
+  expect(canonicalRead).not.toHaveBeenCalled();
+  expect(f.delegate.completeOAuth).toHaveBeenCalledExactlyOnceWith({
+    nonce,
+    callbackURL,
+  });
 });

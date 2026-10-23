@@ -15,10 +15,7 @@
   },
   "qualification": {
     "sdkAndServiceTests": 79,
-    "installedConsumers": [
-      "Node26.11.1",
-      "Node24.21.0"
-    ],
+    "installedConsumers": ["Node26.11.1", "Node24.21.0"],
     "nativeProviderJoined": false,
     "liveProviderCanary": false
   },
