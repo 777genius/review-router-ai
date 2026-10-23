@@ -43,13 +43,14 @@ export function lifecycleProjection(input: {
   operationReadable?: boolean;
   pendingAction?: "suspend" | "resume" | "delete" | undefined;
 }) {
+  // Disabled is terminal for lifecycle writes: both the store and the
+  // lifecycle_source_cas guard reserve delete only from active/suspended/
+  // quarantined, so advertising any action there would be a dead control.
   const status =
     input.pendingAction === "delete"
       ? ("pending" as const)
       : input.state === "disabled"
-        ? input.owned && !input.pendingOperationId
-          ? ("available" as const)
-          : ("support_required" as const)
+        ? ("support_required" as const)
         : input.pendingOperationId
           ? ("pending" as const)
           : input.compatible && input.synchronized
@@ -63,7 +64,6 @@ export function lifecycleProjection(input: {
       actions.push("delete");
     }
     if (input.state === "quarantined") actions.push("delete");
-    if (input.state === "disabled") actions.push("delete");
   }
   return {
     lifecycle: {
