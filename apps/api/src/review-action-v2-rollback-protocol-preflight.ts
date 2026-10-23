@@ -73,7 +73,10 @@ export function parseWorkflowChannelContract(
       : "";
   const { schemaDigest, canonicalizerDigest } = record;
   if (!WELL_FORMED_PROTOCOL_VERSION.test(protocolVersion)) return null;
-  if (typeof schemaDigest !== "string" || !WELL_FORMED_DIGEST.test(schemaDigest))
+  if (
+    typeof schemaDigest !== "string" ||
+    !WELL_FORMED_DIGEST.test(schemaDigest)
+  )
     return null;
   if (
     typeof canonicalizerDigest !== "string" ||

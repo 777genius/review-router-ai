@@ -290,8 +290,8 @@ async function main() {
       } catch {
         attestations = null;
       }
-      const activeAuthorizations =
-        await prisma.reviewRunAuthorization.findMany({
+      const activeAuthorizations = await prisma.reviewRunAuthorization.findMany(
+        {
           where: { state: "active", expiresAt: { gt: new Date() } },
           select: {
             authorizationId: true,
@@ -299,7 +299,8 @@ async function main() {
             selectedProtocolVersion: true,
             schemaDigest: true,
           },
-        });
+        },
+      );
       const retainedProducerReleases = await prisma.producerRelease.findMany({
         where: { state: "registered" },
         select: { producerReleaseId: true, schemaDigest: true },

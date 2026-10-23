@@ -553,7 +553,7 @@ Inputs:
   currently points to, read via Git
   (`git show <workflow-v1-sha>:src/control-plane/generated/review-action-v2/manifest.json`).
   The channel entry is resolved to `protocolVersion + schemaDigest +
-  canonicalizerDigest`.
+canonicalizerDigest`.
 - **Active runs inventory** comes from the existing operational records:
   active (non-expired) `ReviewRunAuthorization` rows and retained
   (`state=registered`) `ProducerRelease` rows, plus the configured producer
@@ -562,10 +562,10 @@ Inputs:
 
 Outcomes:
 
-| Result | Meaning | Action |
-|---|---|---|
-| `rollback_protocol_preflight_passed` | Target supports the whole required set | Proceed with the rollback |
-| `rollback_protocol_preflight_rejected` | Target lacks a required contract | Stop before replacing the API |
+| Result                                   | Meaning                                                                                                                                 | Action                                   |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `rollback_protocol_preflight_passed`     | Target supports the whole required set                                                                                                  | Proceed with the rollback                |
+| `rollback_protocol_preflight_rejected`   | Target lacks a required contract                                                                                                        | Stop before replacing the API            |
 | `rollback_protocol_preflight_not_proven` | Inventory incomplete (missing channel manifest, unreadable attestations, attestation missing/ambiguous or disagreeing with a DB record) | Stop — a safe rollback is **not proven** |
 
 If the inventory is incomplete, a safe rollback is not considered proven; do not
@@ -573,7 +573,7 @@ replace the API. On incompatibility or an unproven inventory, practical recovery
 paths are: pick a different target build that supports the required set, or ship
 a fixed release forward. The scheduled channel-protocol monitor
 (`monitor-workflow-channel-protocol.yml`) reports any bypass of this procedure;
- it never deploys or rolls back anything by itself.
+it never deploys or rolls back anything by itself.
 
 Schema slots are additive: both compiled slots stay in place, legacy slot bytes
 are never regenerated or edited, and removing or replacing a slot requires a

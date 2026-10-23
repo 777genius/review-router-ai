@@ -96,7 +96,8 @@ describe("assessRollbackProtocolCompatibility", () => {
       targetContracts: [LEGACY],
     });
     expect(result.status).toBe("protocol_incompatible");
-    if (result.status !== "protocol_incompatible") throw new Error("unreachable");
+    if (result.status !== "protocol_incompatible")
+      throw new Error("unreachable");
     expect(result.code).toBe("rollback_protocol_preflight_rejected");
     expect(result.unsupported.map((entry) => entry.source)).toEqual([
       "workflow_channel",
@@ -121,7 +122,10 @@ describe("assessRollbackProtocolCompatibility", () => {
         },
       ],
       retainedProducerReleases: [
-        { producerReleaseId: "release-legacy", schemaDigest: LEGACY.schemaDigest },
+        {
+          producerReleaseId: "release-legacy",
+          schemaDigest: LEGACY.schemaDigest,
+        },
         {
           producerReleaseId: "release-historical",
           schemaDigest: HISTORICAL.schemaDigest,
@@ -129,7 +133,8 @@ describe("assessRollbackProtocolCompatibility", () => {
       ],
     });
     expect(result.status).toBe("protocol_incompatible");
-    if (result.status !== "protocol_incompatible") throw new Error("unreachable");
+    if (result.status !== "protocol_incompatible")
+      throw new Error("unreachable");
     expect(result.unsupported.map((entry) => entry.consumer)).toEqual([
       "release-historical",
     ]);

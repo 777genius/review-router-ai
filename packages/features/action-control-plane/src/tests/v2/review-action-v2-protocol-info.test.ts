@@ -35,7 +35,8 @@ describe("Review Action v2 protocol-info route", () => {
           canonicalizerDigest: reviewActionV2CanonicalizerDigest,
         },
         {
-          protocolVersion: reviewActionV2LegacySlot.reviewActionV2PublishedProtocolVersion,
+          protocolVersion:
+            reviewActionV2LegacySlot.reviewActionV2PublishedProtocolVersion,
           schemaDigest:
             reviewActionV2LegacySlot.reviewActionV2PublishedSchemaDigest,
           canonicalizerDigest:
