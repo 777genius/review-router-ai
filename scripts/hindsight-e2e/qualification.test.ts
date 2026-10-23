@@ -1,0 +1,62 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { dirname, resolve } from 'node:path';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { embedding, dimensions, privacySentinel, startProviderStub } from './provider-stub.ts';
+
+test('deterministic lexical vectors are finite, normalized and multilingual', () => {
+  const vector = embedding('Reviewed transactional правило');
+  assert.equal(vector.length, dimensions);
+  assert(vector.every(Number.isFinite));
+  assert(Math.abs(vector.reduce((sum, value) => sum + value * value, 0) - 1) < 1e-12);
+  assert.deepEqual(vector, embedding('Reviewed transactional правило'));
+  assert.notDeepEqual(vector, embedding('unrelated source'));
+});
+
+test('provider stub fails unscripted calls and supplies intentional private error echoes', async () => {
+  const stub = await startProviderStub();
+  try {
+    const unknown = await fetch(`${stub.url}/v1/chat/completions`, { method: 'POST', body: JSON.stringify({ messages: [{ role: 'user', content: 'An unscripted semantic task' }] }) });
+    assert.equal(unknown.status, 400);
+    assert.equal(stub.calls.unexpected, 1);
+    for (const mode of ['echo400', 'echo500'] as const) {
+      stub.setMode(mode);
+      const response = await fetch(`${stub.url}/v1/embeddings`, { method: 'POST', body: JSON.stringify({ input: [privacySentinel] }) });
+      assert.equal(response.status, mode === 'echo400' ? 400 : 500);
+      assert((await response.text()).includes(privacySentinel));
+    }
+  } finally { await stub.close(); }
+});
+
+test('privacy sink removes fstrings, exception bodies, tracebacks, extras and uncaught errors', () => {
+  const privacy = resolve(dirname(fileURLToPath(import.meta.url)), '../../deploy/hindsight/native-privacy.py');
+  const result = spawnSync('python', ['-c', `
+import importlib.util,logging,sys,types
+spec=importlib.util.spec_from_file_location('native_privacy',sys.argv[1])
+privacy=importlib.util.module_from_spec(spec); spec.loader.exec_module(privacy)
+privacy.install(); privacy.install()
+secret='RR_NATIVE_PRIVATE_5C36E924'
+logging.basicConfig(level=logging.DEBUG)
+try:
+ raise RuntimeError(secret)
+except RuntimeError as error:
+ original=str(error)
+ logging.getLogger('synthetic.native').error(f'query={secret}',extra={'private_payload':secret},exc_info=True)
+ assert str(error)==original
+ record=logging.getLogger('synthetic.native').makeRecord('synthetic.native',40,'fixed.py',123,secret,(),(type(error),error,error.__traceback__),extra={'private_payload':secret})
+ assert 'private_payload' not in record.__dict__
+ assert record.exc_info is None and record.stack_info is None
+ sys.excepthook(type(error),error,error.__traceback__)
+ threading_args=types.SimpleNamespace(exc_type=type(error),exc_value=error,exc_traceback=error.__traceback__)
+ import threading
+ threading.excepthook(threading_args)
+ print('safe_sink_verified')
+`, privacy], { encoding: 'utf8', timeout: 10_000 });
+  assert.equal(result.status, 0, 'Python privacy sink probe did not complete');
+  const output = result.stdout + result.stderr;
+  assert(!output.includes(privacySentinel));
+  assert(output.includes('RuntimeError'));
+  assert(output.includes('native_event='));
+  assert(output.includes('safe_sink_verified'));
+});
