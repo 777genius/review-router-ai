@@ -3154,6 +3154,12 @@ async function getAvailableDiskBytes(path: string): Promise<number> {
   }
 }
 
+/** Protected Responses callers expose local function/custom tools only.
+ * Keep server-side web search out of the transport's qualified tool contract. */
+export function protectedResponsesToolPolicyConfigLines(): readonly string[] {
+  return ['web_search = "disabled"'];
+}
+
 async function writeCodexAuthSnapshot(
   codexHome: string,
   authJson: string,
@@ -3163,7 +3169,7 @@ async function writeCodexAuthSnapshot(
     'cli_auth_credentials_store = "file"',
     'approval_policy = "never"',
     'sandbox_mode = "read-only"',
-    'web_search = "disabled"',
+    ...protectedResponsesToolPolicyConfigLines(),
     "disable_response_storage = true",
     'model_verbosity = "low"',
     "",
@@ -3207,7 +3213,7 @@ async function writeCodexProxySnapshot(input: {
     'model_provider = "reviewrouter_proxy"',
     'approval_policy = "never"',
     'sandbox_mode = "read-only"',
-    'web_search = "disabled"',
+    ...protectedResponsesToolPolicyConfigLines(),
     "disable_response_storage = true",
     'model_verbosity = "low"',
     "",

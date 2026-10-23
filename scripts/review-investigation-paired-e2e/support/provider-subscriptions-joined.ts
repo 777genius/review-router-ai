@@ -14,6 +14,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type * as GatewayHTTP from "@agent-teams/account-gateway/http";
+import { protectedResponsesToolPolicyConfigLines } from "../../../packages/features/codex-oauth-rotating/src/action/github-action";
 
 type JoinedInput = Readonly<{
   origin: string;
@@ -386,7 +387,18 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
         completions++;
         complete = true;
         response.end();
-      } catch {
+      } catch (error) {
+        if (error instanceof sdk.GatewayError)
+          process.stdout.write(
+            JSON.stringify({
+              phase: "actual-cli-sdk-error",
+              profileId: input.profileId,
+              code: error.code,
+              effect: error.effect,
+              diagnosticCode: error.diagnostic?.code,
+              httpStatus: error.httpStatus,
+            }) + "\n",
+          );
         relayFailure = true;
         abort.abort();
         await cancel?.().catch(() => undefined);
@@ -414,6 +426,7 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
     await writeFile(
       path.join(codexHome, "config.toml"),
       [
+        ...protectedResponsesToolPolicyConfigLines(),
         'model_provider = "reviewrouter_joined"',
         "[model_providers.reviewrouter_joined]",
         'name = "reviewrouter_joined"',

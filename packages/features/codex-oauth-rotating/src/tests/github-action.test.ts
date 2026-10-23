@@ -1223,6 +1223,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       expect(config).toContain('model_provider = "reviewrouter_proxy"');
       expect(config).toContain('wire_api = "responses"');
       expect(config).toContain('sandbox_mode = "read-only"');
+      expect(config).toContain('web_search = "disabled"');
       expect(config).not.toContain("refreshed-access-token");
       expect(() =>
         readFileSync(join(input.tempCodexHome, "auth.json"), "utf8"),
