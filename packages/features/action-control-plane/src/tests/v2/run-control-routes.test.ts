@@ -1,8 +1,11 @@
 import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
 import {
+  createReviewActionV2ResultResponse,
   reviewActionV2GoldenFixtures,
+  reviewActionV2LegacySlot as legacy,
   reviewRunAuthorizeNegotiationGoldenFixture,
+  ReviewActionV2OperationId,
   ReviewActionV2ProtocolErrorCode,
   ReviewRunAuthorizationResultStatus,
 } from "@reviewrouter/protocol-review-action-v2";
@@ -168,5 +171,118 @@ describe("Review Action v2 run-control routes", () => {
     });
     expect(unknown.body).not.toContain("raw-secret-bearing-handler-error");
     await app.close();
+  });
+});
+
+describe("Review Action v2 protocol compatibility scenario boundaries", () => {
+  it("current Action to current API succeeds and the response passes the current validator", async () => {
+    const app = Fastify();
+    const execute = vi.fn(async () => ({
+      statusCode: 201,
+      result: { status: ReviewRunAuthorizationResultStatus.Authorized },
+    }));
+    await registerReviewRunControlV2Routes(app, {
+      ...runtime,
+      authorize: { capabilityEnabled: true, execute },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/action/v2/review-runs/authorize",
+      payload: reviewActionV2GoldenFixtures.review_run_authorize.request,
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(201);
+    expect(execute).toHaveBeenCalledTimes(1);
+    const body = response.json();
+    expect(body).toEqual({
+      ...reviewActionV2GoldenFixtures.review_run_authorize.response,
+      serverTime: serverTime.toISOString(),
+    });
+    expect(
+      createReviewActionV2ResultResponse({
+        operationId: ReviewActionV2OperationId.ReviewRunAuthorize,
+        requestId: body.requestId,
+        serverTime: body.serverTime,
+        result: body.result,
+      }),
+    ).toEqual(body);
+  });
+
+  it("legacy Action to the two-slot API gets a real response the historical validator accepts", async () => {
+    const legacyFixture =
+      legacy.reviewActionV2GoldenFixtures.review_run_authorize;
+    const app = Fastify();
+    const execute = vi.fn(async () => ({
+      statusCode: 201,
+      result: { status: ReviewRunAuthorizationResultStatus.Authorized },
+    }));
+    await registerReviewRunControlV2Routes(app, {
+      ...runtime,
+      authorize: { capabilityEnabled: true, execute },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/action/v2/review-runs/authorize",
+      payload: legacyFixture.request,
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(201);
+    expect(execute).toHaveBeenCalledTimes(1);
+    const body = response.json();
+    expect(body.schemaDigest).toBe(legacy.reviewActionV2PublishedSchemaDigest);
+    expect(body).toEqual({
+      ...legacyFixture.response,
+      serverTime: serverTime.toISOString(),
+    });
+    expect(
+      legacy.createReviewActionV2ResultResponse({
+        operationId: legacy.ReviewActionV2OperationId.ReviewRunAuthorize,
+        requestId: body.requestId,
+        serverTime: body.serverTime,
+        result: body.result,
+      }),
+    ).toEqual(body);
+    expect(() =>
+      legacy.createReviewActionV2ResultResponse({
+        operationId: legacy.ReviewActionV2OperationId.ReviewRunAuthorize,
+        requestId: body.requestId,
+        serverTime: body.serverTime,
+        result: {
+          status: "not_a_historical_result_status",
+        } as never,
+      }),
+    ).toThrow("review_action_v2_result_status_invalid");
+  });
+
+  it("a new Action without a compiled slot gets a clear rejection and no mutation runs", async () => {
+    const futureSchemaDigest = "f".repeat(64);
+    const execute = vi.fn();
+    const app = Fastify();
+    await registerReviewRunControlV2Routes(app, {
+      ...runtime,
+      authorize: { capabilityEnabled: true, execute },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/action/v2/review-runs/authorize",
+      payload: {
+        ...reviewActionV2GoldenFixtures.review_run_authorize.request,
+        schemaDigest: futureSchemaDigest,
+      },
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(400);
+    const body = response.json();
+    expect(body.error.errorCode).toBe(
+      ReviewActionV2ProtocolErrorCode.InvalidRequest,
+    );
+    expect(body.error.details.issues).toContain("schema_digest_invalid");
+    expect(execute).not.toHaveBeenCalled();
   });
 });
