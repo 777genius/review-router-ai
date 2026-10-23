@@ -1,3 +1,5 @@
+import type { McpCatalogConnection } from "../../../src/features/context-tools/mcp-catalog";
+
 /** The JSON text is the editable authority; guided controls only patch its fields. */
 export type ConnectionDraft = Record<string, unknown>;
 export type DraftAuth =
@@ -92,4 +94,42 @@ export function draftValidation(
   )
     return "Select at least one approved tool, or enter unique valid tool names manually.";
   return null;
+}
+
+/** Only for a newly chosen preset/auth mode; never rewrite saved/manual bindings. */
+export function namespaceNewDashboardBindings(
+  definition: McpCatalogConnection,
+): McpCatalogConnection {
+  const names = Object.keys(definition.credentials);
+  if (!names.length) return definition;
+  const namespace = crypto
+    .randomUUID()
+    .replaceAll("-", "")
+    .slice(0, 12)
+    .toUpperCase();
+  const renamed = new Map(
+    names.map((name, index) => {
+      const suffix = `_${index + 1}_${namespace}`;
+      const prefix = `MCP_${definition.id}_${name}`
+        .toUpperCase()
+        .replace(/[^A-Z0-9_]/g, "_");
+      return [name, `${prefix.slice(0, 64 - suffix.length)}${suffix}`];
+    }),
+  );
+  return {
+    ...definition,
+    credentials: Object.fromEntries(
+      names.map((name) => [renamed.get(name)!, definition.credentials[name]!]),
+    ),
+    headers: Object.fromEntries(
+      Object.entries(definition.headers).map(([header, template]) => [
+        header,
+        template.replace(
+          /(\$?\{\{\s*secrets\.)([A-Z][A-Z0-9_]{0,63})(\s*\}\})/g,
+          (match: string, start: string, name: string, end: string) =>
+            renamed.has(name) ? `${start}${renamed.get(name)}${end}` : match,
+        ),
+      ]),
+    ),
+  };
 }

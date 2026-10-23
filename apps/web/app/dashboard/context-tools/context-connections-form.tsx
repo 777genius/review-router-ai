@@ -11,6 +11,7 @@ import {
   draftTools,
   draftValidation,
   parseConnectionDraft,
+  namespaceNewDashboardBindings,
   type ConnectionDraft,
 } from "./context-connection-draft";
 import {
@@ -130,11 +131,16 @@ function ConnectionForm({
     if (auth.mode === "advanced") return;
     setAdvancedAuth(false);
     if (mode === "none") patchDefinition({ headers: {}, credentials: {} });
-    else if (auth.mode !== "bearer")
-      patchDefinition({
+    else if (auth.mode !== "bearer") {
+      // Review plans flatten names. Namespace only this newly selected auth mode.
+      const { headers, credentials } = namespaceNewDashboardBindings({
+        id: typeof draft?.id === "string" ? draft.id : "mcp",
+        url: typeof draft?.url === "string" ? draft.url : "",
         headers: { Authorization: "Bearer {{ secrets.API_KEY }}" },
         credentials: { API_KEY: { source: "dashboard-secret" } },
       });
+      patchDefinition({ headers, credentials });
+    }
   }
   function requestInput(requireTools: boolean) {
     const invalid = draftValidation(draft, connection?.id, requireTools);
@@ -291,7 +297,13 @@ function ConnectionForm({
           presets={catalog}
           disabled={saving}
           onSelect={(preset) => {
-            updateDefinition(JSON.stringify({ ...preset, tools: [] }, null, 2));
+            updateDefinition(
+              JSON.stringify(
+                { ...namespaceNewDashboardBindings(preset), tools: [] },
+                null,
+                2,
+              ),
+            );
             setAdvancedAuth(false);
             setManualTools("");
             formRef.current?.reset();
@@ -362,7 +374,9 @@ function ConnectionForm({
         )}
         {secretNames.map((name) => (
           <label key={name} className="grid gap-2 text-sm">
-            {name}{" "}
+            {auth.mode === "bearer" && auth.secretName === name
+              ? "API key"
+              : name}{" "}
             {connection?.credentials.find((item) => item.name === name)?.present
               ? "(stored)"
               : "(required)"}

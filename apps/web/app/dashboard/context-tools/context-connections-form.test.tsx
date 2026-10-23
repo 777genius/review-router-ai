@@ -29,6 +29,7 @@ const connection: ContextConnectionMetadata = {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 function renderForm(saved: ContextConnectionMetadata[] = []) {
   render(
@@ -88,11 +89,10 @@ it("discovers an unsaved anonymous draft and saves only explicitly approved tool
     (
       form.getByRole("checkbox", {
         name: "search",
-        exact: true,
       }) as HTMLInputElement
     ).checked,
   ).toBe(false);
-  fireEvent.click(form.getByRole("checkbox", { name: "search", exact: true }));
+  fireEvent.click(form.getByRole("checkbox", { name: "search" }));
   fireEvent.click(form.getByRole("button", { name: "Save connection" }));
   await waitFor(() =>
     expect(form.getByRole("status").textContent).toBe("Connection saved."),
@@ -180,7 +180,7 @@ it("tests stored secrets without sending them and keeps replacement passwords ou
       "Connection successful",
     ),
   );
-  const password = form.getByLabelText("KEY (stored)") as HTMLInputElement;
+  const password = form.getByLabelText("API key (stored)") as HTMLInputElement;
   fireEvent.change(password, {
     target: { value: "private-replacement-token" },
   });
@@ -323,7 +323,6 @@ it("limits approvals to 20 across discovery, manual entry and Advanced JSON", as
     (
       form.getByRole("checkbox", {
         name: "one_more",
-        exact: true,
       }) as HTMLInputElement
     ).disabled,
   ).toBe(true);
@@ -385,15 +384,17 @@ it("creates Bearer authentication through the selector with a separate password 
   fireEvent.mouseMove(bearerOption);
   fireEvent.click(bearerOption);
   const password = (await form.findByLabelText(
-    "API_KEY (required)",
+    "API key (required)",
   )) as HTMLInputElement;
   expect(password.type).toBe("password");
   fireEvent.change(password, { target: { value: "private-api-token" } });
   const json = form.getByLabelText(
     "New connection definition",
   ) as HTMLTextAreaElement;
+  const secretName = Object.keys(JSON.parse(json.value).credentials)[0]!;
+  expect(secretName).toMatch(/^MCP_DOCS_API_KEY_1_[A-F0-9]{12}$/);
   expect(JSON.parse(json.value).headers).toEqual({
-    Authorization: "Bearer {{ secrets.API_KEY }}",
+    Authorization: `Bearer {{ secrets.${secretName} }}`,
   });
   expect(json.value).not.toContain("private-api-token");
   fireEvent.change(form.getByLabelText("Tool names"), {
@@ -403,11 +404,81 @@ it("creates Bearer authentication through the selector with a separate password 
   fireEvent.click(form.getByRole("button", { name: "Save connection" }));
   await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
   expect(requestBody(request).secrets).toEqual({
-    API_KEY: "private-api-token",
+    [secretName]: "private-api-token",
   });
   await waitFor(() =>
     expect(form.getByRole("status").textContent).toBe("Connection saved."),
   );
-  expect(form.queryByLabelText("API_KEY (required)")).toBeNull();
+  expect(form.queryByLabelText("API key (required)")).toBeNull();
   expect(form.getByRole("combobox").textContent).toContain("No authentication");
+});
+
+it("keeps independently created Bearer connection credentials distinct in a combined review plan", async () => {
+  const uuid = vi
+    .spyOn(crypto, "randomUUID")
+    .mockReturnValueOnce("11111111-1111-4111-8111-111111111111")
+    .mockReturnValueOnce("22222222-2222-4222-8222-222222222222");
+  const request = vi.fn().mockResolvedValue(response({}));
+  vi.stubGlobal("fetch", request);
+  render(
+    <>
+      <ContextConnectionsForm workspaceId="workspace" connections={[]} />
+      <ContextConnectionsForm workspaceId="workspace" connections={[]} />
+    </>,
+  );
+  const forms = screen.getAllByRole("form", { name: "New connection" });
+  for (const [index, element] of forms.entries()) {
+    const form = within(element);
+    fireEvent.change(form.getByLabelText("Connection ID", { exact: false }), {
+      target: { value: `docs_${index}` },
+    });
+    fireEvent.change(form.getByLabelText("HTTPS MCP URL", { exact: false }), {
+      target: { value: `https://mcp${index}.example.test/mcp` },
+    });
+    fireEvent.click(form.getByRole("combobox"));
+    const option = await screen.findByRole("option", {
+      name: "Bearer API key",
+    });
+    fireEvent.mouseMove(option);
+    fireEvent.click(option);
+    fireEvent.change(await form.findByLabelText("API key (required)"), {
+      target: { value: `private-token-${index}` },
+    });
+    fireEvent.change(form.getByLabelText("Tool names"), {
+      target: { value: "search_docs" },
+    });
+    fireEvent.click(form.getByRole("button", { name: "Add tools" }));
+    fireEvent.click(form.getByRole("button", { name: "Save connection" }));
+    await waitFor(() =>
+      expect(form.getByRole("status").textContent).toBe("Connection saved."),
+    );
+  }
+  expect(uuid).toHaveBeenCalledTimes(2);
+  expect(request).toHaveBeenCalledTimes(2);
+  const first = requestBody(request, 0);
+  const second = requestBody(request, 1);
+  expect(first.definition.credentials).toEqual({
+    MCP_DOCS_0_API_KEY_1_111111111111: { source: "dashboard-secret" },
+  });
+  expect(second.definition.credentials).toEqual({
+    MCP_DOCS_1_API_KEY_1_222222222222: { source: "dashboard-secret" },
+  });
+  expect(first.definition.headers).toEqual({
+    Authorization: "Bearer {{ secrets.MCP_DOCS_0_API_KEY_1_111111111111 }}",
+  });
+  expect(second.definition.headers).toEqual({
+    Authorization: "Bearer {{ secrets.MCP_DOCS_1_API_KEY_1_222222222222 }}",
+  });
+  expect(first.secrets).toEqual({
+    MCP_DOCS_0_API_KEY_1_111111111111: "private-token-0",
+  });
+  expect(second.secrets).toEqual({
+    MCP_DOCS_1_API_KEY_1_222222222222: "private-token-1",
+  });
+  expect(
+    new Set([...Object.keys(first.secrets), ...Object.keys(second.secrets)])
+      .size,
+  ).toBe(2);
+  expect(JSON.stringify(first.definition)).not.toContain("private-token-0");
+  expect(JSON.stringify(second.definition)).not.toContain("private-token-1");
 });
