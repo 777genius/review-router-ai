@@ -2227,3 +2227,46 @@ test("bootstrap replacement blocks removed metrics until publication, then permi
     screen.queryByText("Limits unavailable while connection changes"),
   ).toBeNull();
 });
+
+test("personal-only key receipt uses authorized account metadata without offering organization access", async () => {
+  const api = personalApi();
+  const account: AccountView = {
+    ...row("active"),
+    label: "Personal GLM",
+    authKind: "api_key",
+    connection: {
+      provider: "glm",
+      planLabel: "Coding Plan",
+      regionLabel: "Global",
+      completionInputKind: "none",
+      personalOnly: true,
+      limitsContract: "account-limits/v2",
+      modelSettings: [],
+    },
+  };
+  sessionStorage.setItem(
+    "rr-c3-account-operations:personal:workspace-user",
+    JSON.stringify([savedNonce]),
+  );
+  api.readGatewayOperation.mockResolvedValue({
+    status: "ok",
+    value: {
+      nonce: savedNonce,
+      state: "applied",
+      cleanup: "unresolved",
+      account,
+    },
+  });
+  render(
+    <AccountGatewayControls
+      managementScope="personal"
+      api={api}
+      bootstrap={{ context, page: { status: "ok", value: page } }}
+    />,
+  );
+  const receipt = (await screen.findByText("Personal GLM")).closest(
+    '[role="status"]',
+  )!;
+  expect(receipt.textContent).toContain("Personal use.");
+  expect(receipt.textContent).not.toContain("Organization access");
+});

@@ -1777,7 +1777,9 @@ function OperationReadback({
             {data?.status === "ok" && data.value.oauthMethod
               ? "Sign-in complete."
               : "Request completed."}{" "}
-            {completion?.personalOnly
+            {completion?.personalOnly ||
+            (data?.status === "ok" &&
+              data.value.account?.connection?.personalOnly)
               ? "Personal use."
               : managementScope === "personal"
                 ? "Organization access can be granted separately via Access."

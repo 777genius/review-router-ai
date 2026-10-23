@@ -178,6 +178,14 @@ test("subscription connections use real server actions for all four providers an
     reconnectCallback,
     "synthetic-browser-grok-reconnect-code",
   ]);
+  await expect(grokRow).toContainText("Ready");
+  await expect(grokRow.getByRole("progressbar")).toHaveCount(2);
+  const glmReceipt = page.getByRole("status").filter({
+    hasText: "Browser GLM subscription",
+  });
+  await expect(glmReceipt).toContainText("Personal use.");
+  await expect(glmReceipt).not.toContainText("Organization access");
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({
     path: testInfo.outputPath("subscriptions-desktop.png"),
     fullPage: true,
@@ -188,6 +196,7 @@ test("subscription connections use real server actions for all four providers an
       page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
     )
     .toBe(true);
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({
     path: testInfo.outputPath("subscriptions-mobile.png"),
     fullPage: true,
