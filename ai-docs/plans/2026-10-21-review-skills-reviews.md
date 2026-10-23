@@ -277,3 +277,23 @@ canonical generated files + handoff = 59 files**; handoff SHA256
 remote pass или merge. Конкретных незакрытых дефектов в проверенных локальных
 сценариях не осталось; окончательные published pins/CI/merge фиксируются после
 наблюдаемого завершения. Production deploy/release не запускались.
+
+## Опубликованный runtime и закрытие последнего finding — 2026-10-23
+
+Runtime `ce30aaa2d1d318ac80d15a290b1f4b2dabc45c54` опубликован с точным
+qualified tree `e1e2a331338e02c14d8169819db020872b34a489`; SaaS paired CI pin
+обновлён на этот commit. Product source соответствует проверенным bytes,
+canonical handoff по-прежнему экспортирован из `7900c92`.
+
+Из-за 16 MiB ограничения GitHub connector большой source map воспроизведён
+штатным build в одноразовом Actions job. Job проверил точный reviewed source,
+map blob и reconstructed final tree перед fast-forward push; затем helper
+удалён из финального дерева. [Публикационный run](https://github.com/777genius/review-router/actions/runs/39986618190)
+прошёл, normal required CI не изменялся.
+
+В [native duplication thread](https://github.com/777genius/review-router/pull/297#discussion_r4361967861)
+опубликованы fix SHA, уменьшение 8 032 796 → 44 143 bytes, сохранение OCR bytes
+и результаты regression/actual CLI/artifact gates. Thread resolved владельцем
+`777genius`. PR descriptions и linked checks фиксируют окончательные remote CI
+и merge отдельно от локальных E2E результатов; успешный publication helper не
+подменяет required runtime build и SaaS Quality Gates / dedicated PG17 contract.

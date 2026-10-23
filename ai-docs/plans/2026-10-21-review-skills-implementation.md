@@ -537,3 +537,31 @@ Generated output получен штатным exporter, вручную не и�
 прошёл или оба PR merged. Окончательные remote pins/CI/merge должны быть
 зафиксированы после наблюдаемого завершения этих операций. Production
 deploy/release в рамках данной локальной квалификации не запускались.
+
+## Финальная публикация paired runtime — 2026-10-23
+
+Qualified runtime опубликован как
+`ce30aaa2d1d318ac80d15a290b1f4b2dabc45c54`, exact tree
+`e1e2a331338e02c14d8169819db020872b34a489`. Он побайтно совпадает с локальным
+`c7114856816ae087b66f720b697b0798b0a05af9`, на котором завершены gates выше.
+SaaS CI теперь использует этот опубликованный immutable pin вместо временного
+main pin без Skills transport. Canonical export source остаётся
+`7900c92cde056d3f4320beec13c8f7a84cb79d16`; последующие SaaS commits меняют
+только qualification documentation и paired CI pin, без изменения product code.
+
+GitHub connector ограничивает один запрос 16 MiB, поэтому oversized
+`dist/index.js.map` опубликован через одноразовый content-bound Actions job.
+[Run 39986618190](https://github.com/777genius/review-router/actions/runs/39986618190)
+завершился успешно: штатный build подтвердил точный map blob
+`acecb9e11d4239a573cdfc36b1c8261d7d698871` и полный qualified tree до push.
+Final cleanup commit удалил временный workflow; опубликованный runtime содержит
+ровно проверенное дерево. Required CI и build policy не ослаблялись.
+
+Native duplication замечание получило
+[ответ с fix и evidence](https://github.com/777genius/review-router/pull/297#discussion_r4361967861)
+и закрыто через owner account `777genius`. Commit author/committer также
+соответствуют owner identity. Окончательные remote required checks и merge
+отслеживаются в [runtime PR #297](https://github.com/777genius/review-router/pull/297)
+и [SaaS PR #635](https://github.com/777genius/review-router-ai/pull/635), отдельно
+от локальных qualification receipts. Production deploy/release не входят в эту
+публикацию feature branches.
