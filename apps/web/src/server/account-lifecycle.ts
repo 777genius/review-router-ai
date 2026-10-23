@@ -47,7 +47,9 @@ export function lifecycleProjection(input: {
     input.pendingAction === "delete"
       ? ("pending" as const)
       : input.state === "disabled"
-        ? ("support_required" as const)
+        ? input.owned && !input.pendingOperationId
+          ? ("available" as const)
+          : ("support_required" as const)
         : input.pendingOperationId
           ? ("pending" as const)
           : input.compatible && input.synchronized
@@ -61,6 +63,7 @@ export function lifecycleProjection(input: {
       actions.push("delete");
     }
     if (input.state === "quarantined") actions.push("delete");
+    if (input.state === "disabled") actions.push("delete");
   }
   return {
     lifecycle: {
@@ -95,7 +98,6 @@ export function createAccountLifecycleService(input: {
     | { personalWorkspaceId: string; owningWorkspaceId: null }
     | { personalWorkspaceId: null; owningWorkspaceId: string }
   >;
-  enabled(): boolean;
   compatible(
     workspaceId: string,
     scope: { readonly personalWorkspaceId: string | null },
@@ -142,8 +144,6 @@ export function createAccountLifecycleService(input: {
     async mutate(workspaceId: string, raw: AccountLifecycleRequest) {
       const request = accountLifecycleRequest.parse(raw);
       const actor = await scope(workspaceId);
-      if (!input.enabled())
-        throw new ProviderAccountError("connection_unavailable");
       await checkedScope(workspaceId, actor.userId);
       const ownership = await input.scopeForSource(request.connectionId);
       // Suspend/resume never reserve while the write gate is closed or
@@ -179,10 +179,7 @@ export function createAccountLifecycleService(input: {
       const receipt = await input.deps.store.read(actor.userId, operationId);
       if (!["fencing", "ready"].includes(receipt.phase))
         return reconcile(workspaceId, actor.userId, receipt, false);
-      if (
-        !input.enabled() ||
-        !(await input.compatible(workspaceId, receipt.intent))
-      )
+      if (!(await input.compatible(workspaceId, receipt.intent)))
         throw new ProviderAccountError("connection_unavailable");
       return reconcile(workspaceId, actor.userId, receipt, true);
     },

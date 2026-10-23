@@ -56,7 +56,6 @@ type Dependencies = {
     compatible(): Promise<boolean>;
     writable(): Promise<boolean>;
   };
-  lifecycleEnabled?: () => boolean;
   readLifecycleAction?: (
     sourceId: string,
     operationId: string,
@@ -272,9 +271,7 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
       const lifecycle = lifecycleProjection({
         pendingAction: pendingAction ?? undefined,
         owned: true,
-        compatible:
-          !!input.lifecycleEnabled?.() &&
-          !!(await input.lifecycleReader?.writable()),
+        compatible: !!(await input.lifecycleReader?.writable()),
         state: account.state,
         pendingOperationId: current.pendingSourceOperationId ?? null,
         synchronized,

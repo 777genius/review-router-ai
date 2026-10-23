@@ -279,8 +279,6 @@ export async function productionPersonalAccounts() {
     canonical: canonicalStore,
     control,
     lifecycleReader,
-    lifecycleEnabled: () =>
-      process.env.REVIEW_ROUTER_ACCOUNT_LIFECYCLE_ENABLED === "1",
     readLifecycleAction: async (sourceId, operationId) => {
       const operation = await checked(() =>
         prisma.personalAccountOperation.findFirst({
@@ -455,8 +453,6 @@ export async function productionPersonalAccounts() {
       cursorSecret: controlSettings.token,
       gateway: overviewReader,
       visibleRepositoryIds: () => usageRepositoryVisibility(workspaceId),
-      lifecycleEnabled: () =>
-        process.env.REVIEW_ROUTER_ACCOUNT_LIFECYCLE_ENABLED === "1",
       lifecycleCompatible: overviewReader.writable,
       profiles,
       ...(settings.operatorWorkspaceId

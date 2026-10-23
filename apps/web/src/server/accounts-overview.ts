@@ -55,7 +55,6 @@ export function createAccountsOverview(input: {
   prisma: PrismaClient;
   cursorSecret: string;
   gateway: { get(accountRef: string): Promise<AccountLifecycleRead> };
-  lifecycleEnabled?: () => boolean;
   lifecycleCompatible?: () => Promise<boolean>;
   profiles: readonly (Pick<AccountProfileView, "id" | "label" | "authKind"> &
     Partial<AccountProfileView>)[];
@@ -192,9 +191,9 @@ export function createAccountsOverview(input: {
         });
         // One capability read per inventory page; per-row repetition only adds
         // sequential Gateway timeouts to a server render.
-        const compatible =
-          !!input.lifecycleEnabled?.() &&
-          !!(await input.lifecycleCompatible?.().catch(() => false));
+        const compatible = !!(
+          await input.lifecycleCompatible?.().catch(() => false)
+        );
         const remotes = await Promise.all(
           visible.map(({ source }) =>
             input.gateway.get(source.gatewayAccountRef).catch(() => null),
