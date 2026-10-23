@@ -142,7 +142,6 @@ export const exchangeContextProbeHttps: ContextProbeExchange = async (
     addresses[0])!;
   return new Promise((resolve, reject) => {
     let settled = false;
-    let timer: NodeJS.Timeout | undefined;
     const finish = (
       error?: ContextProbeError,
       result?: Awaited<ReturnType<ContextProbeExchange>>,
@@ -153,6 +152,11 @@ export const exchangeContextProbeHttps: ContextProbeExchange = async (
       if (error) reject(error);
       else resolve(result!);
     };
+    const timer = setTimeout(() => {
+      finish(new ContextProbeError("context_mcp_timeout"));
+      req.destroy();
+    }, remaining());
+    timer.unref();
     const req = request(
       url,
       {
@@ -282,11 +286,6 @@ export const exchangeContextProbeHttps: ContextProbeExchange = async (
         });
       },
     );
-    timer = setTimeout(() => {
-      finish(new ContextProbeError("context_mcp_timeout"));
-      req.destroy();
-    }, remaining());
-    timer.unref();
     req.on("socket", (socket) => {
       (socket as TLSSocket).once("secureConnect", () => {
         const actual = socket.remoteAddress?.replace(/^::ffff:/, "");
@@ -404,12 +403,26 @@ export async function probeContextTools(
       discovered.data.tools.length
     )
       fail("context_mcp_protocol_invalid");
+    const stripControls = (value: string) =>
+      [...value]
+        .filter((character) => {
+          const code = character.charCodeAt(0);
+          return (
+            code === 9 ||
+            code === 10 ||
+            code === 13 ||
+            (code >= 32 && code !== 127)
+          );
+        })
+        .join("");
     const redact = (value: string) =>
       input.redact
         .filter(Boolean)
         .sort((a, b) => b.length - a.length)
-        .reduce((text, secret) => text.split(secret).join("[redacted]"), value)
-        .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
+        .reduce(
+          (text, secret) => text.split(secret).join("[redacted]"),
+          stripControls(value),
+        );
     return discovered.data.tools.map((tool) => {
       // Reflected credentials must not become selectable tool identifiers either.
       if (input.redact.some((secret) => secret && tool.name.includes(secret)))
