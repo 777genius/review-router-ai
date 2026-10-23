@@ -96,6 +96,7 @@ const fixtures = vi.hoisted(() => {
       accounts: [],
       repositories: [],
     })),
+    workspaceAdmin: vi.fn(async () => false),
   };
   return { spies, EmptyStore: class {} };
 });
@@ -156,6 +157,7 @@ vi.mock("../../src/server/dashboard-mutations", () => ({
   }),
   getDashboardSignedInActor: async () => null,
   asDashboardGitHubActor: (actor: unknown) => actor,
+  canDashboardActorAdminWorkspace: fixtures.spies.workspaceAdmin,
 }));
 vi.mock("../../src/server/github-app-install-url", () => ({
   getGitHubAppInstallUrl: () => null,
@@ -786,6 +788,40 @@ describe("dashboard server loading boundaries", () => {
     expect(spies.config).not.toHaveBeenCalled();
     expect(spies.health).not.toHaveBeenCalled();
   });
+
+  it.each([true, false])(
+    "loads Other from the workspace and the admin mutation gate (admin=%s)",
+    async (admin) => {
+      const actor = {
+        userId: "user-a",
+        sourceProvider: "github" as const,
+        externalUserId: "1",
+        sourceLogin: "member",
+        githubUserId: "1",
+        githubLogin: "member",
+        actor: "user:github:member",
+      };
+      spies.audit.mockResolvedValueOnce({
+        reviewDraftPullRequests: true,
+      } as never);
+      spies.workspaceAdmin.mockResolvedValueOnce(admin);
+      const data = await loadDashboardSectionData(
+        workspace,
+        "other",
+        access,
+        undefined,
+        actor,
+      );
+      expect(data.reviewDraftPullRequests).toBe(true);
+      expect(data.canEditOtherSettings).toBe(admin);
+      expect(spies.workspaceAdmin).toHaveBeenCalledWith({
+        actor,
+        workspaceId: "workspace-a",
+      });
+      expect(spies.config).not.toHaveBeenCalled();
+      expect(spies.health).not.toHaveBeenCalled();
+    },
+  );
 
   it("loads account summaries without reading per-repository hosted bindings", async () => {
     const data = await loadDashboardSectionData(workspace, "setup", access);

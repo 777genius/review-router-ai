@@ -2,10 +2,6 @@ import { listDashboardContextConnections } from "../../src/server/context-tools"
 import type { ContextConnectionMetadata } from "@reviewrouter/features-review-context-tools";
 import { loadProviderUsage } from "../../src/server/provider-usage-report";
 import { ProviderUsageView } from "./provider-usage-view";
-import {
-  canMutateWorkspace,
-  PrismaWorkspaceAccessRepository,
-} from "@reviewrouter/features-auth";
 import { WorkspaceOtherSettings } from "./workspace-other-settings";
 import { readReviewPolicyHeadVersions } from "../../src/server/review-policy-heads";
 import { Badge, LinkButton, SelectField } from "@reviewrouter/ui";
@@ -84,6 +80,7 @@ import {
   PrismaSupportDiagnosticsRepository,
 } from "@reviewrouter/features-support-diagnostics";
 import {
+  canDashboardActorAdminWorkspace,
   canDashboardActorConfigureRepository,
   canDashboardActorMutateRepository,
   asDashboardGitHubActor,
@@ -385,6 +382,7 @@ export async function loadDashboardSectionData(
     readonly actor: string;
     readonly reason: "local_admin_override" | "workspace_admin";
   },
+  signedInActor: DashboardMutationActor | null = null,
 ): Promise<DashboardWorkspaceData> {
   const prisma = getPrisma();
   const workspace = selectedWorkspace.workspace;
@@ -622,20 +620,10 @@ export async function loadDashboardSectionData(
           reviewDraftPullRequests: await new PrismaWorkspaceReviewSettings(
             prisma,
           ).reviewDrafts(workspace.id),
-          canEditOtherSettings: currentActor
-            ? canMutateWorkspace({
-                role: await new PrismaWorkspaceAccessRepository(
-                  prisma,
-                ).findWorkspaceRoleByUserId({
-                  workspaceId: workspace.id,
-                  userId: currentActor.userId,
-                }),
-                githubLogin: currentActor.githubLogin ?? "",
-                localAdminGithubLogins: readCsvEnv(
-                  "REVIEW_ROUTER_LOCAL_ADMIN_GITHUB_LOGINS",
-                ),
-              }).allowed
-            : false,
+          canEditOtherSettings: await canDashboardActorAdminWorkspace({
+            actor: signedInActor,
+            workspaceId: workspace.id,
+          }),
         }
       : {};
   return {
@@ -1231,6 +1219,7 @@ export async function DashboardSectionContent({
       selectedSection,
       repositoryAccess,
       supportAudit,
+      context.signedInActor,
     ),
     selectedSection === "repositories" || selectedSection === "policy"
       ? getReviewModelOptions()
