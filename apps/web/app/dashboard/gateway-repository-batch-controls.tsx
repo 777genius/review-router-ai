@@ -2,7 +2,8 @@
 
 import { Button, Checkbox } from "@reviewrouter/ui";
 import {
-  defaultGatewayMiMoReasoningEffort,
+  gatewayModelDefaultReasoningEffort,
+  gatewayModelSupportsFastMode,
   gatewayModelSupportsReasoningEffort,
 } from "../../src/features/account-gateway/review-reasoning-capabilities";
 import * as Select from "@radix-ui/react-select";
@@ -313,6 +314,7 @@ export function GatewayRepositoryBatchContent({
         page.profiles.some(
           (profile) =>
             profile.id === account.profileId &&
+            profile.availability !== "deployment_configuration_required" &&
             profile.protocol === "openai-responses" &&
             profile.models.length > 0,
         ),
@@ -320,13 +322,25 @@ export function GatewayRepositoryBatchContent({
   const account = eligibleAccounts.find(
     (item) => item.binding?.id === bindingId && item.profileId === profileId,
   );
-  const models =
-    page?.profiles.find((profile) => profile.id === account?.profileId)
-      ?.models ?? [];
+  const profile = page?.profiles.find(
+    (profile) => profile.id === account?.profileId,
+  );
+  const models = profile?.models ?? [];
+  const qualifiedSettings = profile?.connection?.modelSettings.find(
+    (row) => row.modelId === model,
+  );
+  const showReasoning =
+    !profile?.connection || qualifiedSettings?.reasoning != null;
+  const showFast = gatewayModelSupportsFastMode(model, profile?.connection);
   const selectionValid = Boolean(
     account &&
     models.includes(model) &&
-    gatewayModelSupportsReasoningEffort(model, reasoningEffort),
+    gatewayModelSupportsReasoningEffort(
+      model,
+      reasoningEffort,
+      profile?.connection,
+    ) &&
+    (!fastMode || showFast),
   );
   const unknown = results.some((result) => result.status === "unknown");
   const unavailableCount = selected.filter(
@@ -485,6 +499,7 @@ export function GatewayRepositoryBatchContent({
             setBindingId(value);
             setProfileId(chosen.profileId);
             setModel("");
+            setFastMode(false);
           }}
         />
         <Choice
@@ -493,32 +508,54 @@ export function GatewayRepositoryBatchContent({
           disabled={locked || !enabled || !account}
           options={models.map((value) => ({ value, label: value }))}
           onChange={(value) => {
-            if (!gatewayModelSupportsReasoningEffort(value, reasoningEffort))
-              setReasoningEffort(defaultGatewayMiMoReasoningEffort);
+            if (
+              !gatewayModelSupportsReasoningEffort(
+                value,
+                reasoningEffort,
+                profile?.connection,
+              )
+            )
+              setReasoningEffort(
+                gatewayModelDefaultReasoningEffort(value, profile?.connection),
+              );
+            if (!gatewayModelSupportsFastMode(value, profile?.connection))
+              setFastMode(false);
             setModel(value);
           }}
         />
-        <Choice
-          label="Reasoning effort"
-          value={reasoningEffort}
-          disabled={locked || !enabled}
-          options={(["low", "medium", "high", "xhigh", "max", "ultra"] as const)
-            .filter((value) =>
-              gatewayModelSupportsReasoningEffort(model, value),
+        {showReasoning ? (
+          <Choice
+            label="Reasoning effort"
+            value={reasoningEffort ?? ""}
+            disabled={locked || !enabled}
+            options={(
+              ["low", "medium", "high", "xhigh", "max", "ultra"] as const
             )
-            .map((value) => ({ value, label: value }))}
-          onChange={(value) => {
-            if (
-              ["low", "medium", "high", "xhigh", "max", "ultra"].includes(
-                value,
-              ) &&
-              gatewayModelSupportsReasoningEffort(model, value)
-            )
-              setReasoningEffort(
-                value as GatewayBatchSelection["reasoningEffort"],
-              );
-          }}
-        />
+              .filter((value) =>
+                gatewayModelSupportsReasoningEffort(
+                  model,
+                  value,
+                  profile?.connection,
+                ),
+              )
+              .map((value) => ({ value, label: value }))}
+            onChange={(value) => {
+              if (
+                ["low", "medium", "high", "xhigh", "max", "ultra"].includes(
+                  value,
+                ) &&
+                gatewayModelSupportsReasoningEffort(
+                  model,
+                  value,
+                  profile?.connection,
+                )
+              )
+                setReasoningEffort(
+                  value as GatewayBatchSelection["reasoningEffort"],
+                );
+            }}
+          />
+        ) : null}
       </div>
       <div className="flex flex-wrap gap-4 text-sm text-slate-300">
         <label>
@@ -530,15 +567,17 @@ export function GatewayRepositoryBatchContent({
           />{" "}
           Agentic context
         </label>
-        <label>
-          <Checkbox
-            checked={fastMode}
-            disabled={locked || !enabled}
-            onChange={(event) => setFastMode(event.target.checked)}
-            className="align-middle"
-          />{" "}
-          Fast mode
-        </label>
+        {showFast ? (
+          <label>
+            <Checkbox
+              checked={fastMode}
+              disabled={locked || !enabled}
+              onChange={(event) => setFastMode(event.target.checked)}
+              className="align-middle"
+            />{" "}
+            Fast mode
+          </label>
+        ) : null}
         <span>Required healthy: on</span>
       </div>
       {!page ? (

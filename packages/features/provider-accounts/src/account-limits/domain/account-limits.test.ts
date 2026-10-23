@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   projectAccountLimits,
   type AccountLimitsSnapshot,
+  type AccountLimitsSourceWindow,
   type AccountLimitsWindowView,
+  type SubscriptionLimitsWindow,
 } from "./account-limits";
 import {
   readAccountLimits,
@@ -15,7 +17,12 @@ const context = {
   fetchedAt: now.toISOString(),
   displayToken: "opaque-scope",
 };
-const snapshot = (): AccountLimitsSnapshot => ({
+const snapshot = (): AccountLimitsSnapshot & {
+  windows: readonly Extract<
+    AccountLimitsSourceWindow,
+    { family: "codex" | "claude" }
+  >[];
+} => ({
   status: "snapshot",
   physicalGeneration: "private-generation",
   principalVersion: "private-principal",
@@ -32,6 +39,195 @@ const snapshot = (): AccountLimitsSnapshot => ({
       basis: "duration",
     },
   ],
+});
+
+describe("subscription quota display", () => {
+  const subscription = (
+    overrides: Partial<SubscriptionLimitsWindow> = {},
+  ): SubscriptionLimitsWindow => ({
+    id: "five_hour",
+    family: "kimi",
+    dimension: "plan_quota",
+    unit: "requests",
+    basis: "duration",
+    durationSeconds: 18000,
+    usedPercent: 0,
+    observedAt: "2026-10-22T11:59:00Z",
+    resetAt: "2026-10-22T13:00:00Z",
+    ...overrides,
+  });
+  const project = (windows: readonly SubscriptionLimitsWindow[]) =>
+    projectAccountLimits({ ...snapshot(), windows }, context);
+
+  it("keeps credits and tokens in the same GLM window distinct", () => {
+    expect(
+      project([
+        subscription({ family: "glm", unit: "credits", usedPercent: 10 }),
+        subscription({ family: "glm", unit: "tokens", usedPercent: 20 }),
+      ]),
+    ).toMatchObject({
+      status: "snapshot",
+      windows: [
+        { label: "5h credits", usedPercent: 10, unit: "credits" },
+        { label: "5h tokens", usedPercent: 20, unit: "tokens" },
+      ],
+    });
+  });
+
+  it("keeps an actual monthly billing cycle separate from duration and a missing monthly percentage from zero", () => {
+    const result = project([
+      subscription(),
+      subscription({
+        id: "monthly",
+        basis: "billing_cycle",
+        durationSeconds: null,
+        usedPercent: null,
+        resetAt: "2026-11-03T12:00:00Z",
+      }),
+    ]);
+    expect(result).toMatchObject({
+      status: "snapshot",
+      windows: [
+        {
+          label: "5h",
+          usedPercent: 0,
+          remainingPercent: 100,
+          progressPercent: 0,
+          stale: false,
+        },
+        {
+          label: "Month",
+          durationSeconds: null,
+          usedPercent: null,
+          remainingPercent: null,
+          progressPercent: null,
+          resetAt: "2026-11-03T12:00:00.000Z",
+        },
+      ],
+    });
+    expect(JSON.stringify(result)).not.toMatch(
+      /private-generation|private-principal|kimi/,
+    );
+  });
+
+  it("does not present Grok request/token rate observations as subscription allowance", () => {
+    const result = project([
+      subscription({
+        family: "grok",
+        id: "weekly",
+        durationSeconds: 604800,
+        unit: "credits",
+        usedPercent: 45,
+      }),
+      subscription({
+        family: "grok",
+        id: "request_rate",
+        dimension: "rate_limit",
+        basis: "unknown",
+        durationSeconds: null,
+        unit: "requests",
+        usedPercent: 20,
+      }),
+      subscription({
+        family: "grok",
+        id: "token_rate",
+        dimension: "rate_limit",
+        basis: "unknown",
+        durationSeconds: null,
+        unit: "tokens",
+        usedPercent: null,
+      }),
+    ]);
+    expect(result).toMatchObject({
+      status: "snapshot",
+      windows: [
+        { label: "Week", dimension: "plan_quota", unit: "credits" },
+        {
+          label: "Request rate",
+          dimension: "rate_limit",
+          unit: "requests",
+          resetAt: "2026-10-22T13:00:00.000Z",
+        },
+        {
+          label: "Token rate",
+          dimension: "rate_limit",
+          unit: "tokens",
+          progressPercent: null,
+        },
+      ],
+    });
+  });
+
+  it("keeps the healthy five-hour observation when the monthly observation expires", () => {
+    expect(
+      project([
+        subscription({ family: "minimax" }),
+        subscription({
+          family: "minimax",
+          id: "monthly",
+          basis: "billing_cycle",
+          durationSeconds: null,
+          observedAt: "2026-10-22T10:00:00Z",
+        }),
+      ]),
+    ).toMatchObject({
+      status: "snapshot",
+      windows: [
+        { label: "5h", stale: false },
+        { label: "Month", stale: true, reason: "observation_expired" },
+      ],
+    });
+  });
+
+  it("never manufactures a unit or period for a valid unknown source window", () => {
+    expect(
+      project([
+        subscription({
+          id: "unknown",
+          family: "glm",
+          unit: "unknown",
+          basis: "unknown",
+          durationSeconds: null,
+          usedPercent: null,
+        }),
+      ]),
+    ).toMatchObject({
+      status: "snapshot",
+      windows: [
+        {
+          label: "Usage",
+          unit: "unknown",
+          durationSeconds: null,
+          usedPercent: null,
+        },
+      ],
+    });
+  });
+
+  it("rejects mismatched providers, repeated observations and fabricated window identities without reflecting them", () => {
+    for (const windows of [
+      [
+        subscription(),
+        subscription({ family: "glm", id: "weekly", durationSeconds: 604800 }),
+      ],
+      [subscription(), subscription()],
+      [subscription({ id: "private-untrusted-bucket" })],
+      [
+        subscription({
+          id: "monthly",
+          basis: "billing_cycle",
+          durationSeconds: 2592000,
+        }),
+      ],
+    ]) {
+      const result = project(windows);
+      expect(result).toMatchObject({
+        status: "unavailable",
+        reason: "invalid_snapshot",
+      });
+      expect(JSON.stringify(result)).not.toContain("private-untrusted-bucket");
+    }
+  });
 });
 function window(
   overrides: Record<string, unknown> = {},

@@ -1,3 +1,4 @@
+import { connectionProfiles } from "./account-connection-catalog";
 import { createAccountLimitsService } from "./account-limits-service";
 import { accountLimitsReader } from "./account-limits-composition";
 import { createAccountLifecycleReader } from "./account-lifecycle-reader";
@@ -94,7 +95,7 @@ export async function productionPersonalAccounts() {
     settings.operatorWorkspaceId,
     true,
   );
-  const profiles: Array<
+  const legacyProfiles: Array<
     Parameters<typeof createPersonalCanonicalAccounts>[0]["profiles"][number]
   > = [...settings.apiKeyProfiles].map(([id, name]) => ({
     id,
@@ -107,7 +108,7 @@ export async function productionPersonalAccounts() {
       : {}),
   }));
   if (settings.codexOAuthProfileId)
-    profiles.push({
+    legacyProfiles.push({
       id: settings.codexOAuthProfileId,
       label: "Codex",
       provider: "codex",
@@ -116,7 +117,7 @@ export async function productionPersonalAccounts() {
       oauthMethods: ["device_code", "browser"],
     });
   if (settings.claudeOAuthProfileId)
-    profiles.push({
+    legacyProfiles.push({
       id: settings.claudeOAuthProfileId,
       label: "Claude",
       provider: "claude",
@@ -124,6 +125,33 @@ export async function productionPersonalAccounts() {
       canReconnect: false,
       oauthMethods: ["browser"],
     });
+  const profiles = [...legacyProfiles];
+  if (
+    settings.subscriptionProfileIds !== undefined &&
+    (settings.subscriptionProfileIds.length > 0 ||
+      (process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN &&
+        process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN))
+  ) {
+    const management = createManagementClient({
+      role: "management",
+      origin: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
+      token: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "",
+      timeoutMs: 10000,
+      responseBytes: 65536,
+    });
+    const subscriptions = await checked(() =>
+      connectionProfiles({
+        legacy: [],
+        subscriptionProfileIds: settings.subscriptionProfileIds,
+        capabilities: () => management.getProviderConnectionCapabilities(),
+      }),
+    );
+    profiles.push(
+      ...subscriptions.flatMap((profile) =>
+        profile.authKind ? [{ ...profile, authKind: profile.authKind }] : [],
+      ),
+    );
+  }
   const ingress = new Map(
     profiles.map((profile) => [
       profile.id,
@@ -138,6 +166,7 @@ export async function productionPersonalAccounts() {
       store,
       control: controlSettings,
       profiles: ingress,
+      connectionProfiles: profiles,
     });
   const gateway = {
     async get(actorUserId: string, accountRef: string, profileId: string) {
@@ -298,11 +327,16 @@ export async function productionPersonalAccounts() {
         : null;
     },
     profiles,
-    personalAdapterFactory: ({ authorizeUser: authorize, profiles: allowed }) =>
+    personalAdapterFactory: ({
+      authorizeUser: authorize,
+      profiles: allowed,
+      connectionProfiles: safeProfiles,
+    }) =>
       createDisabledPersonalAccountsAdapter({
         authorizeUser: authorize,
         store,
         profiles: allowed,
+        ...(safeProfiles ? { connectionProfiles: safeProfiles } : {}),
         control: controlSettings,
       }),
     async deliverFences(actorUserId, clientOperationId) {
@@ -355,6 +389,7 @@ export async function productionPersonalAccounts() {
       const configured = profiles.find(
         (profile) =>
           profile.id === wire.profileId &&
+          profile.availability !== "deployment_configuration_required" &&
           wire.authKinds.includes(profile.authKind),
       );
       return configured
@@ -364,9 +399,17 @@ export async function productionPersonalAccounts() {
               label: configured.label,
               ...(configured.provider ? { provider: configured.provider } : {}),
               authKind: configured.authKind,
+              connection: configured.connection,
+              availability: configured.availability,
               canReconnect: false,
               protocol: wire.protocol,
-              models: [...wire.modelIds],
+              models: configured.connection
+                ? wire.modelIds.filter((model) =>
+                    configured.connection!.modelSettings.some(
+                      (setting) => setting.modelId === model,
+                    ),
+                  )
+                : [...wire.modelIds],
             },
           ]
         : [];

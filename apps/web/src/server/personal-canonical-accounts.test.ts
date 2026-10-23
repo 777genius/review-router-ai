@@ -20,7 +20,9 @@ type ConnectReceipt = Awaited<
 >;
 
 const nonce = "9874b2bc-e987-4456-9212-7f94f58932da";
-function fixture() {
+function fixture(options: { grok?: boolean; disabled?: boolean } = {}) {
+  const grokProfileId = "grok-subscription-responses-oauth-v1";
+  let oauthBegun = false;
   let actor = "user-u",
     acknowledged = false,
     showApplied = false;
@@ -29,7 +31,7 @@ function fixture() {
     owner: { kind: "user", userId: actor },
     gatewayAccountRef: "private-account",
     gatewayOperationRef: null,
-    profileRef: "profile-mimo",
+    profileRef: options.grok ? grokProfileId : "profile-mimo",
     displayName: "Personal",
     state: "active",
     metadataRevision: 10,
@@ -39,7 +41,7 @@ function fixture() {
   let account = {
     accountRef: source.gatewayAccountRef,
     ownerRef: `rru_${createHash("sha256").update(`rr-user-owner-v1\0${actor}`).digest("hex")}`,
-    profileId: "profile-mimo",
+    profileId: options.grok ? grokProfileId : "profile-mimo",
     displayName: "Personal",
     state: "active" as const,
     metadataRevision: 23,
@@ -134,6 +136,16 @@ function fixture() {
   const control = {
     profiles: vi.fn(async () => ({
       profiles: [
+        ...(options.grok
+          ? [
+              {
+                profileId: grokProfileId,
+                protocol: "openai-responses" as const,
+                modelIds: ["grok-4.3"],
+                authKinds: ["oauth" as const],
+              },
+            ]
+          : []),
         {
           profileId: "profile-mimo",
           protocol: "openai-responses" as const,
@@ -161,8 +173,44 @@ function fixture() {
               authorizationEpoch: account.authorizationEpoch,
             },
           }
-        : { operationRef: id, state: "unknown" as const },
+        : oauthBegun
+          ? {
+              operationRef: id,
+              state: "pending" as const,
+              oauthMethod: "browser" as const,
+            }
+          : { operationRef: id, state: "unknown" as const },
     ),
+    beginOAuthReconnect: vi.fn(
+      async (_ref: string, request: { operationId: string }) => {
+        expect(acknowledged).toBe(true);
+        expect(operation?.phase).toBe("submitted");
+        oauthBegun = true;
+        return {
+          operation: {
+            operationRef: request.operationId,
+            state: "pending" as const,
+            oauthMethod: "browser" as const,
+          },
+          authorizationURL:
+            "https://auth.x.ai/oauth2/authorize?one-off-handoff",
+        };
+      },
+    ),
+    completeOAuth: vi.fn(async (request: { operationId: string }) => {
+      account = { ...account, metadataRevision: 24, authorizationEpoch: 5 };
+      showApplied = true;
+      return {
+        operationRef: request.operationId,
+        state: "applied" as const,
+        result: {
+          kind: "account" as const,
+          accountRef: account.accountRef,
+          metadataRevision: 24,
+          authorizationEpoch: 5,
+        },
+      };
+    }),
     reconnect: vi.fn(async () => {
       expect(acknowledged).toBe(true);
       expect(operation?.phase).toBe("submitted");
@@ -269,6 +317,29 @@ function fixture() {
     canonical,
     control,
     profiles: [
+      ...(options.grok
+        ? [
+            {
+              id: grokProfileId,
+              availability: options.disabled
+                ? ("deployment_configuration_required" as const)
+                : ("enabled" as const),
+              label: "Grok",
+              authKind: "oauth" as const,
+              canReconnect: true,
+              oauthMethods: ["browser"] as const,
+              connection: {
+                provider: "grok" as const,
+                planLabel: "Subscription",
+                regionLabel: "Global",
+                completionInputKind: "callback_url" as const,
+                personalOnly: false,
+                limitsContract: "account-limits/v2" as const,
+                modelSettings: [],
+              },
+            },
+          ]
+        : []),
       {
         id: "profile-mimo",
         label: "MiMo",
@@ -294,6 +365,7 @@ function fixture() {
   };
   return {
     api,
+    canonical,
     request,
     control,
     store,
@@ -734,6 +806,24 @@ describe("personal canonical UI server boundary", () => {
     const callbackURL =
       "http://localhost:1455/auth/callback?code=synthetic-code&state=" +
       "b".repeat(64);
+    vi.spyOn(f.store, "readOperation").mockResolvedValue({
+      id: "connect",
+      intent: {
+        action: "connect",
+        actorUserId: "user-u",
+        personalWorkspaceId: "personal-u",
+        clientOperationId: nonce,
+        proposedSourceId: "own-source",
+        profileId: "profile-oauth",
+        displayName: "Own Codex",
+        ingress: "oauth-begin",
+        method: "browser",
+      },
+      phase: "submitted",
+      source: null,
+      binding: null,
+      available: false,
+    });
     await f.api.completeGatewayOAuth("ignored", { nonce, callbackURL });
     expect(f.delegate.completeOAuth).toHaveBeenCalledWith({
       nonce,
@@ -742,5 +832,146 @@ describe("personal canonical UI server boundary", () => {
     expect(JSON.stringify(f.intents)).not.toMatch(
       /synthetic-code|one-off-secret|callbackURL/,
     );
+  });
+});
+
+describe("qualified personal OAuth reconnect", () => {
+  it("fences once, recovers the saved Grok grammar and never repeats begin during readback", async () => {
+    const f = fixture({ grok: true });
+    const request = {
+      nonce,
+      connectionId: "own-source",
+      mirrorRevision: 10,
+      gatewayRevision: 23,
+      method: "browser" as const,
+    };
+    const pending = await f.api.beginGatewayOAuth("", request);
+    expect(pending.status).toBe("ok");
+    expect(f.control.beginOAuthReconnect).not.toHaveBeenCalled();
+    f.ack();
+    const begun = await f.api.beginGatewayOAuth("", request);
+    expect(begun).toMatchObject({
+      status: "ok",
+      value: {
+        operation: {
+          completion: { providerLabel: "Grok", inputKind: "callback_url" },
+        },
+        authorizationURL: "https://auth.x.ai/oauth2/authorize?one-off-handoff",
+      },
+    });
+    expect(f.control.beginOAuthReconnect).toHaveBeenCalledTimes(1);
+    const readback = await f.api.readGatewayOperation("", nonce);
+    expect(readback).toMatchObject({
+      status: "ok",
+      value: {
+        completion: { providerLabel: "Grok", inputKind: "callback_url" },
+      },
+    });
+    await f.api.beginGatewayOAuth("", request);
+    expect(f.control.beginOAuthReconnect).toHaveBeenCalledTimes(1);
+    const wrong = await f.api.completeGatewayOAuth("", {
+      nonce,
+      callbackURL:
+        "http://localhost:1455/auth/callback?code=synthetic-code&state=" +
+        "b".repeat(64),
+    });
+    expect(wrong.status).toBe("denied");
+    expect(f.control.completeOAuth).not.toHaveBeenCalled();
+    const completed = await f.api.completeGatewayOAuth("", {
+      nonce,
+      callbackURL:
+        "http://127.0.0.1:56121/callback?code=synthetic-code&state=" +
+        "b".repeat(64),
+    });
+    expect(completed).toMatchObject({
+      status: "ok",
+      value: { state: "applied" },
+    });
+    expect(f.control.completeOAuth).toHaveBeenCalledTimes(1);
+    await f.api.completeGatewayOAuth("", {
+      nonce,
+      callbackURL:
+        "http://127.0.0.1:56121/callback?code=synthetic-code&state=" +
+        "b".repeat(64),
+    });
+    expect(f.control.completeOAuth).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(f.intents)).not.toMatch(
+      /synthetic-code|callbackURL|one-off-handoff/,
+    );
+  });
+});
+
+it("retains existing account cleanup when its qualified profile is disabled", async () => {
+  const f = fixture({ grok: true, disabled: true });
+  const page = await f.api.listGatewayAccounts("", null);
+  expect(page).toMatchObject({
+    status: "ok",
+    value: {
+      accounts: [
+        {
+          profileId: "grok-subscription-responses-oauth-v1",
+          connection: { provider: "grok" },
+        },
+      ],
+    },
+  });
+  if (page.status === "ok")
+    expect(
+      page.value.profiles.some(
+        (profile) => profile.id === "grok-subscription-responses-oauth-v1",
+      ),
+    ).toBe(false);
+  expect(
+    await f.api.beginGatewayOAuth("", {
+      nonce,
+      profileId: "grok-subscription-responses-oauth-v1",
+    }),
+  ).toEqual({ status: "denied" });
+  expect(f.delegate.connect).not.toHaveBeenCalled();
+  f.ack();
+  expect(
+    await f.api.mutateGatewayAccount("", {
+      nonce,
+      kind: "disable",
+      connectionId: "own-source",
+      mirrorRevision: 10,
+      gatewayRevision: 23,
+    }),
+  ).toMatchObject({ status: "ok" });
+  expect(f.control.disable).toHaveBeenCalledTimes(1);
+});
+
+it("routes a saved Grok connect through the shared journal after reload without probing the canonical reconnect reader", async () => {
+  const f = fixture({ grok: true });
+  vi.spyOn(f.store, "readOperation").mockResolvedValue({
+    id: personalOperationId("user-u", nonce),
+    intent: {
+      action: "connect",
+      actorUserId: "user-u",
+      personalWorkspaceId: "personal-u",
+      clientOperationId: nonce,
+      proposedSourceId: "own-source",
+      profileId: "grok-subscription-responses-oauth-v1",
+      displayName: "Own Grok",
+      ingress: "oauth-begin",
+      method: "browser",
+    },
+    phase: "submitted",
+    source: null,
+    binding: null,
+    available: false,
+  });
+  const canonicalRead = vi
+    .spyOn(f.canonical, "read")
+    .mockRejectedValue(new ProviderAccountError("operation_conflict"));
+  const callbackURL =
+    "http://127.0.0.1:56121/callback?code=synthetic&state=" + "a".repeat(64);
+  expect(
+    await f.api.completeGatewayOAuth("", { nonce, callbackURL }),
+  ).toMatchObject({ status: "ok", value: { state: "pending" } });
+  expect(canonicalRead).not.toHaveBeenCalled();
+  expect(f.delegate.completeOAuth).toHaveBeenCalledExactlyOnceWith({
+    nonce,
+    callbackURL,
   });
 });

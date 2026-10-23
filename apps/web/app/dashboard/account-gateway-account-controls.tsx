@@ -49,7 +49,12 @@ import {
   canonicalMimoBaseURL,
   mimoTokenPlanEndpoints,
   suggestedAccountLabel,
+  subscriptionKeyURL,
 } from "../../src/features/account-gateway/connection-options";
+import {
+  oauthCompletionPresentation,
+  type OAuthCompletionPresentation,
+} from "./account-connection-presentation";
 import type {
   AccountIntent,
   AccountOAuthIntent,
@@ -196,6 +201,44 @@ export function AccountGatewayControls({
   connectOnly?: boolean;
   workspaceId?: string;
 }) {
+  const optionsCache = useCurrentGatewayModelAccountsCache();
+  const [fallback] = useState(() => new QueryClient());
+  const client = queryClient ?? optionsCache?.client ?? fallback;
+  const bootstrapReadScope = `${managementScope}:${bootstrap.context}:${workspaceId ?? ""}`;
+  const currentBootstrap = useRef({
+    page: bootstrap.page,
+    scope: bootstrapReadScope,
+  });
+  currentBootstrap.current = {
+    page: bootstrap.page,
+    scope: bootstrapReadScope,
+  };
+  const [acceptedBootstrap, setAcceptedBootstrap] = useState<{
+    page: AccountsBootstrap["page"] | null;
+    scope: string;
+  }>(() => {
+    const viewerScope = bootstrap.context.split(".")[0] ?? "";
+    const scope =
+      managementScope === "personal" ? `personal:${viewerScope}` : viewerScope;
+    return {
+      ...currentBootstrap.current,
+      // A remounted view must reauthorize any existing interactive inventory.
+      page: client.getQueryData(pageKey(scope, null)) ? null : bootstrap.page,
+    };
+  });
+  const acknowledgeBootstrap = useCallback(
+    (page: AccountsBootstrap["page"], scope: string) => {
+      if (
+        currentBootstrap.current.page === page &&
+        currentBootstrap.current.scope === scope
+      )
+        setAcceptedBootstrap({ page, scope });
+    },
+    [],
+  );
+  const replacingBootstrap =
+    acceptedBootstrap.page !== bootstrap.page ||
+    acceptedBootstrap.scope !== bootstrapReadScope;
   const priorBootstrap = useRef(bootstrap.page);
   const removed = new Set(
     priorBootstrap.current.status === "ok" && bootstrap.page.status === "ok"
@@ -213,9 +256,7 @@ export function AccountGatewayControls({
   useEffect(() => {
     priorBootstrap.current = bootstrap.page;
   }, [bootstrap.page]);
-  const optionsCache = useCurrentGatewayModelAccountsCache();
-  const [fallback] = useState(() => new QueryClient());
-  const client = queryClient ?? optionsCache?.client ?? fallback;
+
   if (managementScope === "personal" && api === defaultManagementApi)
     return <p role="status">Personal account management is unavailable.</p>;
   return (
@@ -248,7 +289,7 @@ export function AccountGatewayControls({
               : [],
           ),
           removed,
-          replacingBootstrap: priorBootstrap.current !== bootstrap.page,
+          replacingBootstrap,
           allowed: new Set(
             bootstrap.page.status === "ok"
               ? bootstrap.page.value.accounts.map((row) => row.connectionId)
@@ -262,6 +303,9 @@ export function AccountGatewayControls({
         <Controls
           key={`${managementScope}:${bootstrap.context.split(".")[0]}`}
           bootstrap={bootstrap}
+          bootstrapReadScope={bootstrapReadScope}
+          replacingBootstrap={replacingBootstrap}
+          acknowledgeBootstrap={acknowledgeBootstrap}
           api={api}
           managementScope={managementScope}
           refreshRelated={refreshRelated}
@@ -277,6 +321,9 @@ export function AccountGatewayControls({
 
 function Controls({
   bootstrap,
+  bootstrapReadScope,
+  replacingBootstrap,
+  acknowledgeBootstrap,
   api,
   managementScope,
   refreshRelated,
@@ -286,6 +333,9 @@ function Controls({
   workspaceId,
 }: {
   bootstrap: AccountsBootstrap;
+  bootstrapReadScope: string;
+  replacingBootstrap: boolean;
+  acknowledgeBootstrap(page: AccountsBootstrap["page"], scope: string): void;
   api: AccountGatewayManagementApi;
   managementScope: ManagementScope;
   refreshRelated: (() => Promise<void>) | undefined;
@@ -311,6 +361,12 @@ function Controls({
     [client, limitsScope],
   );
   const hydratedBootstrap = useRef(bootstrap.page);
+  // Initial SSR data is already authorized and installed by useInfiniteQuery.
+  // Only a replacement needs asynchronous eviction/publication; resetting the
+  // accepted first page on mount can discard pagination started immediately.
+  const hydratedScope = useRef<string | null>(
+    replacingBootstrap ? null : bootstrapReadScope,
+  );
   const removedByBootstrap = new Set(
     hydratedBootstrap.current.status === "ok" && bootstrap.page.status === "ok"
       ? hydratedBootstrap.current.value.accounts
@@ -325,25 +381,40 @@ function Controls({
       : [],
   );
   useEffect(() => {
-    if (hydratedBootstrap.current === bootstrap.page) return;
+    if (
+      hydratedBootstrap.current === bootstrap.page &&
+      hydratedScope.current === bootstrapReadScope
+    )
+      return;
     let current = true;
     void (async () => {
       await client.cancelQueries({
         queryKey: pageKey(scope, null),
         exact: true,
       });
+      if (!current) return;
       await removeAccountLimits(client, limitsScope);
       if (!current) return;
       const first = extractAccountLimits(client, limitsScope, bootstrap.page);
       hydratedBootstrap.current = bootstrap.page;
+      hydratedScope.current = bootstrapReadScope;
       client.setQueryData<
         InfiniteData<AccountsResult<AccountsPage>, string | null>
       >(pageKey(scope, null), { pages: [first], pageParams: [null] });
+      // Publish the authorized inventory before clearing the replacement fence.
+      acknowledgeBootstrap(bootstrap.page, bootstrapReadScope);
     })();
     return () => {
       current = false;
     };
-  }, [client, limitsScope, bootstrap.page, scope]);
+  }, [
+    client,
+    limitsScope,
+    bootstrap.page,
+    bootstrapReadScope,
+    acknowledgeBootstrap,
+    scope,
+  ]);
   useEffect(
     () =>
       client.getQueryCache().subscribe((event) => {
@@ -395,7 +466,7 @@ function Controls({
     Record<string, DeviceAuthorization>
   >({});
   const [completionProviders, setCompletionProviders] = useState<
-    Record<string, "Claude" | "Codex">
+    Record<string, OAuthCompletionPresentation>
   >({});
   const lifecycleActivities = useAccountLifecycleActivities(client);
   const [completionHandoff, setCompletionHandoff] = useState<string | null>(
@@ -513,7 +584,7 @@ function Controls({
     );
     await refresh();
   }
-  async function beginOAuth(intent: OAuthFormIntent) {
+  async function beginOAuth(intent: OAuthFormIntent, existingNonce?: string) {
     if (submitting.current) return;
     const method = intent.method ?? "device_code";
     let tab: Window | null = null;
@@ -528,7 +599,11 @@ function Controls({
         referrer.content = "no-referrer";
         tab.document.head.append(referrer);
       }
-      nonce = reserveNonce();
+      nonce = existingNonce
+        ? nonces.includes(existingNonce)
+          ? existingNonce
+          : null
+        : reserveNonce();
     } catch {
       tab?.close();
       setMessage(
@@ -547,13 +622,14 @@ function Controls({
           : data.value.accounts.find(
               (account) => account.connectionId === intent.connectionId,
             )?.profileId;
-      const label = data.value.profiles.find(
+      const profile = data.value.profiles.find(
         (profile) => profile.id === profileId,
-      )?.label;
-      if (label === "Claude" || label === "Codex")
+      );
+      const presentation = oauthCompletionPresentation(profile);
+      if (presentation)
         setCompletionProviders((previous) => ({
           ...previous,
-          [nonce!]: label,
+          [nonce!]: presentation,
         }));
     }
     submitting.current = true;
@@ -773,7 +849,9 @@ function Controls({
           <AccountForm
             account={account}
             mode="rename"
-            profiles={data.value.profiles}
+            profiles={data.value.profiles.filter(
+              (p) => personal || !p.connection?.personalOnly,
+            )}
             disabled={sourceBusy || account.canManage !== true}
             disabledReason={manageReason}
             managementScope={managementScope}
@@ -788,7 +866,9 @@ function Controls({
           <AccountForm
             account={account}
             mode="reconnect"
-            profiles={data.value.profiles}
+            profiles={data.value.profiles.filter(
+              (p) => personal || !p.connection?.personalOnly,
+            )}
             disabled={sourceBusy || account.canManage !== true}
             disabledReason={manageReason}
             submit={submit}
@@ -853,7 +933,9 @@ function Controls({
     <div className="space-y-4">
       {connectOnly && data?.status === "ok" && !activeNonce ? (
         <ConnectionForm
-          profiles={data.value.profiles}
+          profiles={data.value.profiles.filter(
+            (p) => personal || !p.connection?.personalOnly,
+          )}
           accounts={data.value.accounts}
           disabled={disabled}
           managementScope={managementScope}
@@ -866,7 +948,9 @@ function Controls({
         !hideConnect &&
         data?.status === "ok" &&
         data.value.profiles.some(
-          (p) => p.authKind === "api_key" || p.authKind === "oauth",
+          (p) =>
+            (p.authKind === "api_key" || p.authKind === "oauth") &&
+            (personal || !p.connection?.personalOnly),
         ) ? (
           <AccountActionsMenu
             label={personal ? accountsCopy.connect : accountsCopy.add}
@@ -877,11 +961,17 @@ function Controls({
               </>
             }
           >
-            {data.value.profiles.some((p) => p.authKind === "api_key") ? (
+            {data.value.profiles.some(
+              (p) =>
+                p.authKind === "api_key" &&
+                (personal || !p.connection?.personalOnly),
+            ) ? (
               <AccountForm
                 accounts={data.value.accounts}
                 profiles={data.value.profiles.filter(
-                  (p) => p.authKind === "api_key",
+                  (p) =>
+                    p.authKind === "api_key" &&
+                    (personal || !p.connection?.personalOnly),
                 )}
                 disabled={disabled}
                 disabledReason={
@@ -893,11 +983,17 @@ function Controls({
                 submit={submit}
               />
             ) : null}
-            {data.value.profiles.some((p) => p.authKind === "oauth") ? (
+            {data.value.profiles.some(
+              (p) =>
+                p.authKind === "oauth" &&
+                (personal || !p.connection?.personalOnly),
+            ) ? (
               <OAuthForm
                 accounts={data.value.accounts}
                 profiles={data.value.profiles.filter(
-                  (p) => p.authKind === "oauth",
+                  (p) =>
+                    p.authKind === "oauth" &&
+                    (personal || !p.connection?.personalOnly),
                 )}
                 disabled={disabled}
                 disabledReason={
@@ -970,14 +1066,12 @@ function Controls({
               className="flex flex-wrap items-center justify-between gap-4 py-4"
             >
               <div className="min-w-0">
-                <p className="font-medium text-cyan-50">{account.label}</p>
-                <p className="mt-1 text-sm text-slate-400">
-                  {account.profileLabel} ·{" "}
-                  {
-                    data.value.profiles.find((p) => p.id === account.profileId)
-                      ?.protocol
-                  }
-                </p>
+                <AccountIdentity
+                  label={account.label}
+                  profileLabel={account.profileLabel}
+                  authKind={account.authKind}
+                  connection={account.connection}
+                />
                 <AccountLimitsLine
                   scope={limitsScope}
                   context={context}
@@ -1065,8 +1159,10 @@ function Controls({
         <Button
           variant="outline"
           size="sm"
-          disabled={page.isFetching}
-          onClick={() => void page.fetchNextPage()}
+          disabled={page.isFetching || replacingBootstrap}
+          onClick={() => {
+            if (!replacingBootstrap) void page.fetchNextPage();
+          }}
         >
           Load more connection details
         </Button>
@@ -1100,13 +1196,18 @@ function Controls({
                 listFailed={page.isError || Boolean(failure)}
                 deviceAuthorization={deviceHandoffs[nonce]}
                 completionProvider={completionProviders[nonce]}
+                beginContinuation={(intent) => beginOAuth(intent, nonce)}
                 inline={connectOnly}
                 startAnother={() => setActiveNonce(null)}
                 autoOpenCompletion={completionHandoff === nonce}
                 consumeCompletionHandoff={() => consumeCompletionHandoff(nonce)}
                 oauthEnabled={
                   data?.status === "ok" &&
-                  data.value.profiles.some((p) => p.authKind === "oauth")
+                  data.value.profiles.some(
+                    (p) =>
+                      p.authKind === "oauth" &&
+                      (personal || !p.connection?.personalOnly),
+                  )
                 }
                 api={api}
                 managementScope={managementScope}
@@ -1155,9 +1256,15 @@ function ConnectionForm({
         onValueChange={setProfileId}
         options={ordered.map((row) => ({
           value: row.id,
-          label: `${row.label} · ${row.authKind === "oauth" ? "Sign in" : "API key"}`,
+          label: row.label,
+          description:
+            row.connection?.planLabel ??
+            (row.authKind === "oauth" ? "Sign in" : "API key"),
         }))}
       />
+      {profile?.connection?.personalOnly ? (
+        <p className="text-xs text-slate-400">Personal use</p>
+      ) : null}
       {profile?.authKind === "oauth" ? (
         <OAuthForm
           key={profile.id}
@@ -1211,9 +1318,9 @@ function OAuthForm({
     profiles.find((candidate) => candidate.id === profileId) ?? profiles[0];
   const methods: readonly ("device_code" | "browser")[] =
     profile?.oauthMethods ??
-    (profile?.provider === "claude"
-      ? (["browser"] as const)
-      : (["device_code", "browser"] as const));
+    (profile?.id === "openai-codex-oauth-responses-v1" && !profile?.connection
+      ? (["device_code", "browser"] as const)
+      : (["browser"] as const));
   const [chosenMethod, setMethod] = useState<"device_code" | "browser">(
     methods[0] ?? "browser",
   );
@@ -1259,7 +1366,11 @@ function OAuthForm({
         key={profile?.id}
         method={method}
         methods={methods}
-        claude={profile?.provider === "claude"}
+        completionKind={
+          profile?.connection?.completionInputKind ??
+          oauthCompletionPresentation(profile)?.inputKind ??
+          "callback_url"
+        }
         change={setMethod}
       />
       {!account ? (
@@ -1276,15 +1387,18 @@ function OAuthForm({
                 );
                 setMethod(
                   selected?.oauthMethods?.[0] ??
-                    (selected?.provider === "claude"
-                      ? "browser"
-                      : "device_code"),
+                    (selected?.id === "openai-codex-oauth-responses-v1" &&
+                    !selected?.connection
+                      ? "device_code"
+                      : "browser"),
                 );
               }}
               options={profiles.map((p) => ({
                 value: p.id,
-                label: `${p.label} · ${p.protocol}`,
-                description: p.models.join(", "),
+                label: p.label,
+                ...(p.connection?.planLabel
+                  ? { description: p.connection.planLabel }
+                  : {}),
               }))}
             />
           ) : (
@@ -1341,9 +1455,7 @@ function OAuthForm({
             {account ? `${reconnectText} · ${account.label}` : connectText}
           </Dialog.Title>
           <Dialog.Description>
-            {profile?.provider === "claude"
-              ? "Sign in with your Claude account. A browser tab opens; paste the authorization code shown after sign-in. No API key is needed."
-              : "Sign in with your OpenAI account. No API key is needed. Device code is recommended; browser callback is available as a fallback."}
+            {`Sign in with your ${providerLabel} account. No API key is needed.`}
             {account
               ? " Your existing connection is kept until sign-in is confirmed."
               : ""}
@@ -1361,40 +1473,48 @@ function OAuthForm({
 function OAuthMethodChoice({
   method,
   methods,
-  claude,
+  completionKind,
   change,
 }: {
   method: "device_code" | "browser";
   methods: readonly ("device_code" | "browser")[];
-  claude: boolean;
+  completionKind: "none" | OAuthCompletionPresentation["inputKind"];
   change(value: "device_code" | "browser"): void;
 }) {
   return (
     <div className="space-y-3">
-      <SelectField
-        name="oauthMethod"
-        label="Sign-in method"
-        defaultValue={method}
-        onValueChange={(value) => change(value as "device_code" | "browser")}
-        options={[
-          ...(methods.includes("device_code")
-            ? [
-                {
-                  value: "device_code",
-                  label: "Device code",
-                  description: "Recommended · enter a short code at OpenAI",
-                },
-              ]
-            : []),
-          {
-            value: "browser",
-            label: claude ? "Browser sign-in" : "Browser callback",
-            description: claude
-              ? "Paste the authorization code after sign-in"
-              : "Fallback · paste the authorization result address",
-          },
-        ]}
-      />
+      {methods.length > 1 ? (
+        <SelectField
+          name="oauthMethod"
+          label="Sign-in method"
+          defaultValue={method}
+          onValueChange={(value) => change(value as "device_code" | "browser")}
+          options={[
+            ...(methods.includes("device_code")
+              ? [
+                  {
+                    value: "device_code",
+                    label: "Device code",
+                    description: "Recommended · enter a short code at OpenAI",
+                  },
+                ]
+              : []),
+            {
+              value: "browser",
+              label:
+                completionKind === "authorization_code"
+                  ? "Browser sign-in"
+                  : "Browser callback",
+              description:
+                completionKind === "authorization_code"
+                  ? "Paste the authorization code after sign-in"
+                  : "Fallback · paste the authorization result address",
+            },
+          ]}
+        />
+      ) : (
+        <p className="text-sm text-slate-400">Browser sign-in</p>
+      )}
       {method === "device_code" ? (
         <p className="text-sm text-slate-400">
           First enable device code login at{" "}
@@ -1410,9 +1530,11 @@ function OAuthMethodChoice({
         </p>
       ) : (
         <p className="text-sm text-slate-400">
-          {claude
-            ? "A browser tab opens for sign-in. Paste the full authorization code (code#state) shown by Claude here to finish."
-            : "A browser tab opens for sign-in. Paste its final address here to finish."}
+          {completionKind === "none"
+            ? "A browser tab opens for sign-in. Return here when you finish."
+            : completionKind === "authorization_code"
+              ? "Paste the full authorization code shown after sign-in to finish."
+              : "A browser tab opens for sign-in. Paste its final address here to finish."}
         </p>
       )}
     </div>
@@ -1426,6 +1548,7 @@ function OperationReadback({
   listFailed,
   deviceAuthorization,
   completionProvider,
+  beginContinuation,
   inline = false,
   startAnother,
   dismiss,
@@ -1442,7 +1565,8 @@ function OperationReadback({
   listFailed: boolean;
   startAnother(): void;
   deviceAuthorization?: DeviceAuthorization | undefined;
-  completionProvider?: "Claude" | "Codex" | undefined;
+  completionProvider?: OAuthCompletionPresentation | undefined;
+  beginContinuation(intent: OAuthFormIntent): Promise<void>;
   inline?: boolean;
   dismiss(): void;
   refresh(): Promise<void>;
@@ -1502,10 +1626,44 @@ function OperationReadback({
       void refresh();
     }
   }, [state, refresh]); // refresh exact account pages after promotion
-  const keyResume =
+  const resume =
     managementScope === "personal" && data?.status === "ok"
       ? data.value.resume
       : undefined;
+  const oauthResume =
+    resume &&
+    data?.status === "ok" &&
+    data.value.completion &&
+    data.value.completion.inputKind !== "none"
+      ? resume
+      : undefined;
+  const keyResume = oauthResume ? undefined : resume;
+  async function continueOAuth() {
+    if (keyContinuationEntered.current || !oauthResume || state !== "pending")
+      return;
+    const selectedResume = { ...oauthResume };
+    keyContinuationEntered.current = true;
+    keyContinuationInFlight.current = true;
+    keyContinuationGeneration.current++;
+    originalKeyResume.current = selectedResume;
+    setKeyContinuationSpent(true);
+    setKeyContinuationBusy(true);
+    try {
+      await client.cancelQueries({
+        queryKey: operationKey(scope, nonce),
+        exact: true,
+      });
+      await beginContinuation({
+        connectionId: selectedResume.connectionId,
+        gatewayRevision: selectedResume.gatewayRevision,
+        mirrorRevision: selectedResume.mirrorRevision,
+        method: "browser",
+      });
+    } finally {
+      keyContinuationInFlight.current = false;
+      setKeyContinuationBusy(false);
+    }
+  }
   async function continueKeyUpdate(credential: string) {
     if (keyContinuationEntered.current || !keyResume || state !== "pending")
       return;
@@ -1592,6 +1750,17 @@ function OperationReadback({
       keyStatusCheckInFlight.current = false;
     }
   }
+  const savedCompletion =
+    data?.status === "ok" ? data.value.completion : undefined;
+  const completion = savedCompletion
+    ? savedCompletion.inputKind === "none"
+      ? undefined
+      : {
+          label: savedCompletion.providerLabel,
+          inputKind: savedCompletion.inputKind,
+          personalOnly: savedCompletion.personalOnly,
+        }
+    : completionProvider;
   const terminal = state === "applied" || state === "rejected";
   return (
     <div className="space-y-4 text-sm text-slate-300">
@@ -1601,11 +1770,12 @@ function OperationReadback({
             label={data.value.account.label}
             profileLabel={data.value.account.profileLabel}
             authKind={data.value.account.authKind}
+            connection={data.value.account.connection}
           />
         ) : data?.status === "ok" && data.value.oauthMethod ? (
           <div className="flex items-center gap-3 font-medium text-cyan-50">
-            <AccountProviderLogo profileLabel="OpenAI Codex" />
-            <span>Codex sign-in</span>
+            <AccountProviderLogo profileLabel={completion?.label} />
+            <span>{completion?.label ?? "Provider"} sign-in</span>
           </div>
         ) : (
           <p className="font-medium text-cyan-50">Account connection</p>
@@ -1629,9 +1799,13 @@ function OperationReadback({
             {data?.status === "ok" && data.value.oauthMethod
               ? "Sign-in complete."
               : "Request completed."}{" "}
-            {managementScope === "personal"
-              ? "Organization access can be granted separately via Access."
-              : "Availability for reviews depends on workspace access and model selection."}
+            {completion?.personalOnly ||
+            (data?.status === "ok" &&
+              data.value.account?.connection?.personalOnly)
+              ? "Personal use."
+              : managementScope === "personal"
+                ? "Organization access can be granted separately via Access."
+                : "Availability for reviews depends on workspace access and model selection."}
           </p>
         ) : state === "pending" ? (
           <p className="text-sm text-slate-400">
@@ -1670,17 +1844,28 @@ function OperationReadback({
           {keySubmitFailure}
         </p>
       ) : null}
+      {state === "pending" && oauthResume && !keyContinuationSpent ? (
+        <Button
+          type="button"
+          disabled={keyContinuationBusy}
+          onClick={() => void continueOAuth()}
+        >
+          Continue sign-in
+        </Button>
+      ) : null}
       {state === "pending" && keyResume && !keyContinuationSpent ? (
         <KeyUpdateContinuation submit={continueKeyUpdate} />
       ) : null}
       {state === "pending" &&
       !keyResume &&
+      (!oauthResume || keyContinuationSpent) &&
       !(data?.status === "ok" && data.value.oauthMethod === "device_code") &&
+      (completion || !savedCompletion) &&
       (oauthEnabled || autoOpenCompletion || completionOffered) ? (
         <OAuthCompletionForm
           inline={inline}
           completeOAuth={api.completeGatewayOAuth}
-          provider={completionProvider}
+          provider={completion}
           managementScope={managementScope}
           context={context}
           nonce={nonce}
@@ -1879,7 +2064,7 @@ function OAuthCompletionForm({
   managementScope,
 }: {
   inline?: boolean;
-  provider?: "Claude" | "Codex" | undefined;
+  provider?: OAuthCompletionPresentation | undefined;
   context: string;
   nonce: string;
   autoOpen: boolean;
@@ -1907,13 +2092,15 @@ function OAuthCompletionForm({
     setBusy(true);
     setMessage("");
     try {
-      // Syntax selects the credential shape; the Gateway validates its original
-      // saved profile and state. Neither credential enters a cache or storage.
+      // Grammar belongs to the original operation's profile, never to the
+      // contents of a pasted secret. Neither credential enters cache/storage.
       const result = await completeOAuth(context, {
         nonce,
-        ...(/^[^#]+#[0-9a-f]{64}$/.test(authorizationResult)
-          ? { authorizationCode: authorizationResult }
-          : { callbackURL: authorizationResult }),
+        ...(!provider
+          ? { authorizationResult }
+          : provider.inputKind === "authorization_code"
+            ? { authorizationCode: authorizationResult }
+            : { callbackURL: authorizationResult }),
       });
       if (result.status !== "ok") {
         // The server returns ok/unknown after sensitive ingress has entered.
@@ -1951,11 +2138,11 @@ function OAuthCompletionForm({
       }}
     >
       <label className="grid gap-2 text-sm">
-        {provider === "Claude"
-          ? "Authorization code"
-          : provider === "Codex"
-            ? "Authorization result address"
-            : "Authorization result address or code"}
+        {!provider
+          ? "Callback URL or authorization code"
+          : provider.inputKind === "authorization_code"
+            ? "Authorization code"
+            : "Authorization result address"}
         <input
           className={inputClass}
           type="text"
@@ -2002,11 +2189,11 @@ function OAuthCompletionForm({
         <Dialog.Popup>
           <Dialog.Title>Complete authorization</Dialog.Title>
           <Dialog.Description>
-            {provider === "Claude"
-              ? "Finish sign-in in the browser tab and paste the full authorization code shown by Claude (code#state)."
-              : provider === "Codex"
-                ? "Finish sign-in in the browser tab. If the page cannot return here, copy its final address and paste it below."
-                : "Finish sign-in in the browser tab. Paste the full Claude authorization code (code#state), or the final address for Codex."}{" "}
+            {!provider
+              ? "Paste the full callback URL or authorization code shown after sign-in."
+              : provider.inputKind === "authorization_code"
+                ? `Finish sign-in and paste the full authorization code shown by ${provider.label}.`
+                : "Finish sign-in in the browser tab. If it cannot return here, paste its final address below."}{" "}
             The value is cleared as soon as you submit it.
           </Dialog.Description>
           {fields}
@@ -2042,8 +2229,14 @@ function AccountForm({
 }) {
   const menuReturnFocus = useAccountMenuReturnFocus();
   const [open, setOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState(profiles[0]?.id ?? "");
+  const [selectedId, setSelectedId] = useState(
+    account?.profileId ?? profiles[0]?.id ?? "",
+  );
   const selected = profiles.find((p) => p.id === selectedId);
+  const keyURL = selected?.connection
+    ? subscriptionKeyURL(selected.connection.provider)
+    : undefined;
+  const subscription = !!keyURL;
   const [labelValue, setLabelValue] = useState(account?.label ?? "");
   const [automaticLabel, setAutomaticLabel] = useState(!account);
   const [manualURL, setManualURL] = useState(false);
@@ -2064,8 +2257,10 @@ function AccountForm({
       : mode === "reconnect"
         ? accountsCopy.reconnectKey
         : accountsCopy.connectKey;
+  const credentialForm = useRef<HTMLFormElement>(null);
   const fields = (
     <form
+      ref={credentialForm}
       className="mt-4 grid gap-4"
       onSubmit={(event) => {
         event.preventDefault();
@@ -2106,6 +2301,11 @@ function AccountForm({
           defaultValue={profiles[0]?.id ?? ""}
           onValueChange={(value) => {
             const profile = profiles.find((p) => p.id === value);
+            const credential =
+              credentialForm.current?.querySelector<HTMLInputElement>(
+                'input[name="credential"]',
+              );
+            if (credential) credential.value = "";
             setSelectedId(value);
             setBaseURL(profile?.dedicatedBaseURL ?? "");
             setManualURL(false);
@@ -2113,8 +2313,10 @@ function AccountForm({
           }}
           options={profiles.map((p) => ({
             value: p.id,
-            label: `${p.label} · ${p.protocol}`,
-            description: p.models.join(", "),
+            label: p.label,
+            ...(p.connection?.planLabel
+              ? { description: p.connection.planLabel }
+              : {}),
           }))}
         />
       ) : null}
@@ -2198,7 +2400,19 @@ function AccountForm({
       ) : null}
       {mode !== "rename" ? (
         <label className="grid gap-2 text-sm">
-          API key
+          <span className="flex items-center justify-between gap-3">
+            {subscription ? "Subscription key" : "API key"}
+            {keyURL ? (
+              <a
+                className="text-xs text-cyan-200 underline"
+                href={keyURL}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Get key
+              </a>
+            ) : null}
+          </span>
           <input
             className={inputClass}
             name="credential"
@@ -2210,6 +2424,13 @@ function AccountForm({
           />
         </label>
       ) : null}
+      {mode !== "rename" && subscription ? (
+        <p className="text-xs text-slate-400">
+          {selected?.connection?.provider === "kimi"
+            ? "Use your Kimi Code key."
+            : "Use your subscription key."}
+        </p>
+      ) : null}
       <Button type="submit" disabled={disabled || !endpointValid}>
         {mode === "connect" ? "Connect account" : "Confirm"}
       </Button>
@@ -2220,6 +2441,13 @@ function AccountForm({
     <Dialog.Root
       open={open}
       onOpenChange={(next) => {
+        if (!next) {
+          const credential =
+            credentialForm.current?.querySelector<HTMLInputElement>(
+              'input[name="credential"]',
+            );
+          if (credential) credential.value = "";
+        }
         if (next && mode !== "connect") setLabelValue(account?.label ?? "");
         if (next && mode === "connect") {
           setSelectedId(profiles[0]?.id ?? "");
