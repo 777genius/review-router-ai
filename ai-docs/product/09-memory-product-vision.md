@@ -155,6 +155,8 @@ capability contract and transaction/outbox decisions linked above or in the
 does not amend them, enable automatic capture, change configuration or restore
 dashboard functionality.
 
+Research follow-up: [Full memory backend replacement](../spikes/2026-10-23-full-memory-backend-replacement.md) records the source audit, six-agent research/criticism, estimates and qualification conditions.
+
 ## Provider evaluation context
 
 - Evaluate Hindsight as a candidate for a complete memory provider. An
