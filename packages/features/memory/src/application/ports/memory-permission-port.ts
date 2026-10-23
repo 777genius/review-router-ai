@@ -23,3 +23,12 @@ export interface MemoryPermissionPort {
     readonly actor: MemoryActor;
   }): Promise<MemoryPermissionDecision>;
 }
+
+/** A trusted adapter resolves role for a stable identity, never for a supplied login alone. */
+export interface MemoryRepositoryMaintainerPort {
+  isMaintainer(input: {
+    readonly workspaceId: string;
+    readonly repositoryId: string;
+    readonly actor: MemoryActor;
+  }): Promise<"maintainer" | "not_maintainer" | "unavailable">;
+}

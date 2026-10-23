@@ -1,0 +1,621 @@
+import { Prisma, type PrismaClient } from "@prisma/client";
+import { createMemoryBodyHash } from "../../domain/memory-body";
+import { memoryActorRef } from "../../domain/memory-actor";
+import {
+  MemoryKnowledgeError,
+  memoryKnowledgeCommandDigest,
+  memoryKnowledgeDigest,
+  memoryKnowledgeScopeKey,
+  memoryKnowledgeTopicsDigest,
+  normalizeMemoryKnowledgeCommand,
+  sameMemoryKnowledgeScope,
+  type MemoryEntryRef,
+  type MemoryKnowledgeCommand,
+  type MemoryKnowledgeEntryMetadata,
+  type MemoryKnowledgeErrorCode,
+  type MemoryKnowledgeOperation,
+  type MemoryKnowledgeScope,
+} from "../../domain/memory-knowledge";
+import type {
+  MemoryKnowledgeStore,
+  MemoryStoredCommand,
+} from "../../application/ports/memory-knowledge-store-port";
+import type { MemoryProviderOperation } from "../../application/ports/memory-knowledge-provider-port";
+
+type Database = PrismaClient | Prisma.TransactionClient;
+type CommandRow = {
+  id: string;
+  generation: string;
+  scopeKey: string;
+  workspaceId: string;
+  entryId: string;
+  revision: number;
+  commandKind: MemoryKnowledgeCommand["kind"];
+  digest: string;
+  envelope: MemoryKnowledgeCommand | null;
+  state: MemoryKnowledgeOperation["state"];
+  safeReason: MemoryKnowledgeErrorCode | null;
+  contentApprovalRevision: string;
+  originalStatementAt: string | null;
+  deliveryExpiresAt: Date;
+  resubmitUntil: Date;
+  claimId: string | null;
+  claimUntil: Date | null;
+  firstDispatchedAt: Date | null;
+};
+type EntryRow = {
+  metadata: MemoryKnowledgeEntryMetadata;
+  revision: number;
+  pendingCommandId: string | null;
+  revocationCommandId: string | null;
+};
+const terminal = new Set(["published", "completed", "failed"]);
+
+/** SQL is intentionally scoped to authority/delivery tables, never provider content. */
+export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
+  constructor(private readonly prisma: PrismaClient) {}
+
+  async admit(
+    input: Parameters<MemoryKnowledgeStore["admit"]>[0],
+  ): Promise<MemoryKnowledgeOperation> {
+    const command = normalizeMemoryKnowledgeCommand(input.command);
+    if (
+      memoryKnowledgeCommandDigest(command) !== input.digest ||
+      input.deliveryExpiresAt <= input.now ||
+      input.resubmitUntil > input.deliveryExpiresAt ||
+      input.resubmitUntil < input.now ||
+      input.deliveryExpiresAt.getTime() - input.now.getTime() >
+        30 * 86_400_000 ||
+      JSON.stringify(command).length > 16_000
+    )
+      throw new MemoryKnowledgeError("invalid_input");
+    return this.prisma.$transaction(async (tx) => {
+      // Quota, source cursors and admission must agree across scopes/processes.
+      await tx.$queryRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`memory-admission:${command.ref.scope.workspaceId}`}, 0))`,
+      );
+      await this.lockScope(tx, command.ref.scope, command.generation);
+      const existingCommand = await this.command(tx, command.commandId);
+      if (existingCommand) {
+        if (
+          existingCommand.digest !== input.digest ||
+          existingCommand.generation !== command.generation ||
+          existingCommand.scopeKey !==
+            memoryKnowledgeScopeKey(command.ref.scope)
+        )
+          throw new MemoryKnowledgeError("conflict");
+        return this.operation(existingCommand, command.ref.scope);
+      }
+      const current = await this.entry(tx, command.ref, command.generation);
+      if (
+        !current &&
+        (command.kind !== "save" || command.expectedRevision !== null)
+      )
+        throw new MemoryKnowledgeError("not_found");
+      if (current && command.expectedRevision !== String(current.revision))
+        throw new MemoryKnowledgeError("conflict");
+      const urgent =
+        command.kind === "retire" ||
+        command.kind === "expire" ||
+        command.kind === "forget";
+      if (current) {
+        if (
+          current.metadata.lifecycle === "forgotten" ||
+          current.metadata.lifecycle === "forget_pending" ||
+          current.revocationCommandId
+        )
+          throw new MemoryKnowledgeError("conflict");
+        if (
+          !urgent &&
+          (current.pendingCommandId ||
+            current.metadata.lifecycle !== "active" ||
+            (current.metadata.applicability.validUntil &&
+              Date.parse(current.metadata.applicability.validUntil) <=
+                input.now.getTime()))
+        )
+          throw new MemoryKnowledgeError("conflict");
+      }
+      const [counts] = await tx.$queryRaw<
+        { active: number; pending: number }[]
+      >(Prisma.sql`
+        SELECT (SELECT count(*)::int FROM "MemoryKnowledgeEntry" WHERE "workspaceId"=${command.ref.scope.workspaceId} AND "lifecycle"='active') AS active,
+          (SELECT count(*)::int FROM "MemoryKnowledgeCommand" WHERE "workspaceId"=${command.ref.scope.workspaceId} AND "state" NOT IN ('published','completed','failed')) AS pending`);
+      if (
+        !current &&
+        input.activeEntryLimit !== null &&
+        (counts?.active ?? 0) >= input.activeEntryLimit
+      )
+        throw new MemoryKnowledgeError("quota_exceeded");
+      if (!urgent && (counts?.pending ?? 0) >= input.pendingCommandLimit)
+        throw new MemoryKnowledgeError("quota_exceeded");
+      if (command.kind === "save")
+        await this.reserveSource(tx, command, input.now);
+      const revision = (current?.revision ?? 0) + 1;
+      const isSameBody =
+        command.kind === "save" &&
+        current?.metadata.bodyDigest === createMemoryBodyHash(command.body);
+      const originalStatementAt =
+        command.kind === "save"
+          ? isSameBody
+            ? current!.metadata.originalStatementAt
+            : command.source.statementAt
+          : current!.metadata.originalStatementAt;
+      const contentApprovalRevision =
+        command.kind === "save"
+          ? String(revision)
+          : (current!.metadata.contentApprovalRevision ?? String(revision));
+      const timestamp = input.now.toISOString();
+      let metadata: MemoryKnowledgeEntryMetadata = current?.metadata ?? {
+        ref: command.ref,
+        generation: command.generation,
+        revision: String(revision),
+        contentApprovalRevision: null,
+        bodyDigest: null,
+        topicsDigest: null,
+        kind: command.kind === "save" ? command.knowledgeKind : "rule",
+        lifecycle: "active",
+        approval: null,
+        source: null,
+        applicability:
+          command.kind === "save"
+            ? command.applicability
+            : {
+                validUntil: null,
+                observedCommitSha: null,
+                exceptionRule: null,
+              },
+        originalStatementAt: null,
+        lastVerifiedAt: null,
+        pendingCommandId: null,
+        revocationCommandId: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      const blockedByPrior = Boolean(current?.pendingCommandId);
+      metadata = {
+        ...metadata,
+        revision: String(revision),
+        updatedAt: timestamp,
+        pendingCommandId: current?.pendingCommandId ?? command.commandId,
+        revocationCommandId: urgent ? command.commandId : null,
+        lifecycle:
+          command.kind === "forget"
+            ? "forget_pending"
+            : command.kind === "retire"
+              ? "retired"
+              : command.kind === "expire"
+                ? "expired"
+                : metadata.lifecycle,
+      };
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO "MemoryKnowledgeCommand" ("id","generation","scopeKey","workspaceId","entryId","revision","commandKind","digest","envelope","state","contentApprovalRevision","originalStatementAt","deliveryExpiresAt","resubmitUntil","createdAt","updatedAt")
+        VALUES (${command.commandId},${command.generation},${memoryKnowledgeScopeKey(command.ref.scope)},${command.ref.scope.workspaceId},${command.ref.entryId},${revision},${command.kind},${input.digest},${JSON.stringify(command)}::jsonb,'queued',${contentApprovalRevision},${originalStatementAt},${input.deliveryExpiresAt},${input.resubmitUntil},${input.now},${input.now})`);
+      await this.writeEntry(tx, metadata, input.now);
+      await this.bumpEpoch(
+        tx,
+        command.ref.scope,
+        command.generation,
+        input.now,
+      );
+      await tx.outboxEvent.create({
+        data: {
+          type: "memory.knowledge.command.requested",
+          version: 2,
+          idempotencyKey: `memory.knowledge.command:${command.commandId}`,
+          workspaceId: command.ref.scope.workspaceId,
+          repositoryId:
+            command.ref.scope.kind === "repository"
+              ? command.ref.scope.repositoryId
+              : null,
+          aggregateId: command.ref.entryId,
+          payload: {
+            commandId: command.commandId,
+            generation: command.generation,
+            scope: command.ref.scope,
+            blockedByPrior,
+          },
+          occurredAt: input.now,
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          workspaceId: command.ref.scope.workspaceId,
+          actor: memoryActorRef(command.approval.actor),
+          action: `memory.knowledge.${command.kind}.admitted`,
+          targetType: "memory_entry",
+          targetId: command.ref.entryId,
+          metadata: {
+            commandId: command.commandId,
+            digest: input.digest,
+            revision,
+            generation: command.generation,
+          },
+        },
+      });
+      return {
+        id: command.commandId,
+        ref: command.ref,
+        revision: String(revision),
+        state: "queued",
+      };
+    });
+  }
+
+  async findEntry(
+    ref: MemoryEntryRef,
+    generation: string,
+  ): Promise<MemoryKnowledgeEntryMetadata | null> {
+    return (await this.entry(this.prisma, ref, generation))?.metadata ?? null;
+  }
+  async findEntries(
+    refs: readonly MemoryEntryRef[],
+    generation: string,
+  ): Promise<readonly MemoryKnowledgeEntryMetadata[]> {
+    const rows: MemoryKnowledgeEntryMetadata[] = [];
+    for (const ref of refs) {
+      const row = await this.findEntry(ref, generation);
+      if (row) rows.push(row);
+    }
+    return rows;
+  }
+  async listEntries(input: Parameters<MemoryKnowledgeStore["listEntries"]>[0]) {
+    const rows = await this.prisma.$queryRaw<
+      { metadata: MemoryKnowledgeEntryMetadata }[]
+    >(
+      Prisma.sql`SELECT "metadata" FROM "MemoryKnowledgeEntry" WHERE "generation"=${input.generation} AND "scopeKey"=${memoryKnowledgeScopeKey(input.scope)} AND "entryId">${input.cursor ?? ""} ORDER BY "entryId" LIMIT ${input.limit + 1}`,
+    );
+    return {
+      entries: rows.slice(0, input.limit).map((row) => row.metadata),
+      nextCursor:
+        rows.length > input.limit
+          ? rows[input.limit - 1]!.metadata.ref.entryId
+          : null,
+    };
+  }
+  async scopeEpoch(
+    scope: MemoryKnowledgeScope,
+    generation: string,
+  ): Promise<string> {
+    const [row] = await this.prisma.$queryRaw<{ epoch: bigint }[]>(
+      Prisma.sql`SELECT "epoch" FROM "MemoryKnowledgeScopeState" WHERE "generation"=${generation} AND "scopeKey"=${memoryKnowledgeScopeKey(scope)}`,
+    );
+    return String(row?.epoch ?? 0);
+  }
+  async findCommand(
+    input: Parameters<MemoryKnowledgeStore["findCommand"]>[0],
+  ): Promise<MemoryStoredCommand | null> {
+    const row = await this.command(this.prisma, input.commandId);
+    return row &&
+      row.scopeKey === memoryKnowledgeScopeKey(input.scope) &&
+      row.generation === input.generation
+      ? this.stored(row, input.scope)
+      : null;
+  }
+
+  async claim(input: Parameters<MemoryKnowledgeStore["claim"]>[0]) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockScope(tx, input.scope, input.generation);
+      const row = await this.command(tx, input.commandId);
+      if (
+        !row ||
+        row.scopeKey !== memoryKnowledgeScopeKey(input.scope) ||
+        row.generation !== input.generation ||
+        terminal.has(row.state) ||
+        (row.claimUntil && row.claimUntil > input.now)
+      )
+        return null;
+      const ref: MemoryEntryRef = {
+        type: "entry",
+        scope: input.scope,
+        entryId: row.entryId,
+      };
+      const current = await this.entry(tx, ref, input.generation);
+      if (!current || current.pendingCommandId !== row.id) return null;
+      // Unknown execution is observed, never reset to queued by lease expiry.
+      const mode = row.firstDispatchedAt
+        ? ("observe" as const)
+        : ("submit" as const);
+      if (!row.envelope || row.deliveryExpiresAt <= input.now) {
+        await tx.$executeRaw(
+          Prisma.sql`UPDATE "MemoryKnowledgeCommand" SET "envelope"=NULL,"state"='unknown',"safeReason"='input_required',"updatedAt"=${input.now} WHERE "id"=${row.id}`,
+        );
+        return null;
+      }
+      await tx.$executeRaw(
+        Prisma.sql`UPDATE "MemoryKnowledgeCommand" SET "state"='unknown',"claimId"=${input.claimId},"claimUntil"=${input.claimUntil},"firstDispatchedAt"=COALESCE("firstDispatchedAt",${input.now}),"updatedAt"=${input.now} WHERE "id"=${row.id}`,
+      );
+      return {
+        command: this.stored(row, input.scope),
+        claimId: input.claimId,
+        mode,
+      };
+    });
+  }
+
+  async settle(
+    input: Parameters<MemoryKnowledgeStore["settle"]>[0],
+  ): Promise<MemoryKnowledgeOperation> {
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockScope(tx, input.scope, input.generation);
+      const row = await this.command(tx, input.commandId);
+      if (
+        !row ||
+        row.generation !== input.generation ||
+        row.scopeKey !== memoryKnowledgeScopeKey(input.scope)
+      )
+        throw new MemoryKnowledgeError("not_found");
+      if (terminal.has(row.state)) return this.operation(row, input.scope);
+      if (
+        row.claimId !== input.claimId ||
+        input.result.commandId !== row.id ||
+        !row.envelope
+      )
+        throw new MemoryKnowledgeError("conflict");
+      const command = row.envelope;
+      const current = await this.entry(tx, command.ref, input.generation);
+      if (!current || current.pendingCommandId !== row.id)
+        throw new MemoryKnowledgeError("conflict");
+      let state = input.result.state;
+      if (state === "failed" && !input.result.executionSettled)
+        state = "unknown";
+      if (
+        (state === "published" || state === "completed") &&
+        !this.verifiedPublication(row, current.metadata, input.result)
+      )
+        state = command.kind === "forget" ? "cleanup_pending" : "unknown";
+      const done = terminal.has(state);
+      if (done) {
+        let metadata = current.metadata;
+        if (state !== "failed")
+          metadata = this.applyPublished(metadata, row, input.now);
+        // An older acknowledgement cannot remove a newer revocation fence.
+        const nextPending =
+          current.revocationCommandId && current.revocationCommandId !== row.id
+            ? current.revocationCommandId
+            : null;
+        metadata = {
+          ...metadata,
+          pendingCommandId: nextPending,
+          revocationCommandId:
+            current.revocationCommandId === row.id
+              ? null
+              : current.revocationCommandId,
+          updatedAt: input.now.toISOString(),
+        };
+        await this.writeEntry(tx, metadata, input.now);
+        await this.bumpEpoch(tx, input.scope, input.generation, input.now);
+        if (nextPending)
+          await tx.outboxEvent.create({
+            data: {
+              type: "memory.knowledge.command.requested",
+              version: 2,
+              idempotencyKey: `memory.knowledge.command.unblocked:${nextPending}:${row.id}`,
+              workspaceId: input.scope.workspaceId,
+              aggregateId: row.entryId,
+              payload: {
+                commandId: nextPending,
+                generation: input.generation,
+                scope: input.scope,
+              },
+              occurredAt: input.now,
+            },
+          });
+      }
+      const safeReason =
+        state === "unknown" && input.result.state !== "unknown"
+          ? "incomplete_evidence"
+          : (input.result.safeReason ?? null);
+      await tx.$executeRaw(
+        Prisma.sql`UPDATE "MemoryKnowledgeCommand" SET "state"=${state},"safeReason"=${safeReason},"envelope"=CASE WHEN ${done} THEN NULL ELSE "envelope" END,"claimId"=NULL,"claimUntil"=NULL,"updatedAt"=${input.now} WHERE "id"=${row.id}`,
+      );
+      return {
+        ...this.operation(row, input.scope),
+        state,
+        ...(safeReason ? { safeReason } : {}),
+      };
+    });
+  }
+
+  async recordFailure(
+    input: Parameters<MemoryKnowledgeStore["recordFailure"]>[0],
+  ): Promise<void> {
+    await this.prisma.$executeRaw(
+      Prisma.sql`UPDATE "MemoryKnowledgeCommand" SET "state"='unknown',"safeReason"=${input.safeReason},"claimId"=NULL,"claimUntil"=NULL,"updatedAt"=${input.now} WHERE "id"=${input.commandId} AND "generation"=${input.generation} AND "scopeKey"=${memoryKnowledgeScopeKey(input.scope)} AND "claimId"=${input.claimId} AND "state" NOT IN ('published','completed','failed')`,
+    );
+  }
+
+  async expireDeliveryEnvelopes(input: {
+    readonly now: Date;
+    readonly limit: number;
+  }): Promise<number> {
+    return this.prisma.$executeRaw(
+      Prisma.sql`WITH expired AS (SELECT "id" FROM "MemoryKnowledgeCommand" WHERE "envelope" IS NOT NULL AND "deliveryExpiresAt"<=${input.now} AND ("claimUntil" IS NULL OR "claimUntil"<=${input.now}) ORDER BY "deliveryExpiresAt" LIMIT ${input.limit} FOR UPDATE SKIP LOCKED) UPDATE "MemoryKnowledgeCommand" c SET "envelope"=NULL,"state"='unknown',"safeReason"='input_required',"claimId"=NULL,"claimUntil"=NULL,"updatedAt"=${input.now} FROM expired WHERE c."id"=expired."id"`,
+    );
+  }
+
+  private verifiedPublication(
+    row: CommandRow,
+    metadata: MemoryKnowledgeEntryMetadata,
+    result: MemoryProviderOperation,
+  ): boolean {
+    const command = row.envelope!;
+    if (command.kind === "forget")
+      return result.state === "completed" && Boolean(result.cleanupReceiptId);
+    if (command.kind === "retire" || command.kind === "expire")
+      return result.state === "completed";
+    const entry = result.verifiedEntry;
+    if (
+      result.state !== "published" ||
+      !entry ||
+      !sameMemoryKnowledgeScope(entry.ref.scope, command.ref.scope) ||
+      entry.ref.entryId !== command.ref.entryId ||
+      entry.contentApprovalRevision !== row.contentApprovalRevision ||
+      entry.statementAt !== row.originalStatementAt
+    )
+      return false;
+    if (
+      command.kind === "save" &&
+      (entry.bodyDigest !== createMemoryBodyHash(command.body) ||
+        createMemoryBodyHash(entry.body) !==
+          createMemoryBodyHash(command.body) ||
+        entry.kind !== command.knowledgeKind)
+    )
+      return false;
+    if (
+      command.kind === "topics" &&
+      (entry.bodyDigest !== metadata.bodyDigest ||
+        createMemoryBodyHash(entry.body) !== metadata.bodyDigest ||
+        entry.kind !== metadata.kind)
+    )
+      return false;
+    return (
+      memoryKnowledgeTopicsDigest(entry.topicIds) ===
+      memoryKnowledgeTopicsDigest(command.topicIds)
+    );
+  }
+
+  private applyPublished(
+    metadata: MemoryKnowledgeEntryMetadata,
+    row: CommandRow,
+    now: Date,
+  ): MemoryKnowledgeEntryMetadata {
+    const command = row.envelope!;
+    if (command.kind === "save")
+      return {
+        ...metadata,
+        contentApprovalRevision: row.contentApprovalRevision,
+        bodyDigest: createMemoryBodyHash(command.body),
+        topicsDigest: memoryKnowledgeTopicsDigest(command.topicIds),
+        kind: command.knowledgeKind,
+        approval: command.approval,
+        source: command.source,
+        applicability: command.applicability,
+        originalStatementAt: row.originalStatementAt,
+        lastVerifiedAt: now.toISOString(),
+      };
+    if (command.kind === "topics")
+      return {
+        ...metadata,
+        topicsDigest: memoryKnowledgeTopicsDigest(command.topicIds),
+      };
+    if (command.kind === "forget")
+      return {
+        ...metadata,
+        lifecycle: "forgotten",
+        bodyDigest: null,
+        contentApprovalRevision: null,
+        topicsDigest: null,
+        approval: null,
+        source: null,
+        originalStatementAt: null,
+        lastVerifiedAt: null,
+      };
+    return metadata;
+  }
+
+  private async reserveSource(
+    tx: Database,
+    command: Extract<MemoryKnowledgeCommand, { kind: "save" }>,
+    now: Date,
+  ): Promise<void> {
+    const source = command.source;
+    const key = memoryKnowledgeDigest([
+      command.generation,
+      command.ref.scope.workspaceId,
+      source.type,
+      source.repositoryId,
+      source.sourceId,
+    ]);
+    const [cursor] = await tx.$queryRaw<{ revision: string; sourceAt: Date }[]>(
+      Prisma.sql`SELECT "revision","sourceAt" FROM "MemoryKnowledgeSourceCursor" WHERE "key"=${key} FOR UPDATE`,
+    );
+    const sourceAt = new Date(source.updatedAt);
+    if (
+      cursor &&
+      (cursor.sourceAt > sourceAt ||
+        (cursor.sourceAt.getTime() === sourceAt.getTime() &&
+          cursor.revision !== source.revision))
+    )
+      throw new MemoryKnowledgeError("conflict");
+    await tx.$executeRaw(
+      Prisma.sql`INSERT INTO "MemoryKnowledgeSourceCursor" ("key","generation","workspaceId","revision","sourceAt","updatedAt") VALUES (${key},${command.generation},${command.ref.scope.workspaceId},${source.revision},${sourceAt},${now}) ON CONFLICT ("key") DO UPDATE SET "revision"=EXCLUDED."revision","sourceAt"=EXCLUDED."sourceAt","updatedAt"=EXCLUDED."updatedAt"`,
+    );
+  }
+  private async lockScope(
+    tx: Database,
+    scope: MemoryKnowledgeScope,
+    generation: string,
+  ): Promise<void> {
+    const scopeKey = memoryKnowledgeScopeKey(scope);
+    await tx.$executeRaw(
+      Prisma.sql`INSERT INTO "MemoryKnowledgeScopeState" ("generation","scopeKey","workspaceId") VALUES (${generation},${scopeKey},${scope.workspaceId}) ON CONFLICT DO NOTHING`,
+    );
+    await tx.$queryRaw(
+      Prisma.sql`SELECT "epoch" FROM "MemoryKnowledgeScopeState" WHERE "generation"=${generation} AND "scopeKey"=${scopeKey} FOR UPDATE`,
+    );
+  }
+  private async bumpEpoch(
+    tx: Database,
+    scope: MemoryKnowledgeScope,
+    generation: string,
+    now: Date,
+  ): Promise<void> {
+    await tx.$executeRaw(
+      Prisma.sql`UPDATE "MemoryKnowledgeScopeState" SET "epoch"="epoch"+1,"updatedAt"=${now} WHERE "generation"=${generation} AND "scopeKey"=${memoryKnowledgeScopeKey(scope)}`,
+    );
+  }
+  private async command(
+    tx: Database,
+    commandId: string,
+  ): Promise<CommandRow | null> {
+    const [row] = await tx.$queryRaw<CommandRow[]>(
+      Prisma.sql`SELECT * FROM "MemoryKnowledgeCommand" WHERE "id"=${commandId}`,
+    );
+    return row ?? null;
+  }
+  private async entry(
+    tx: Database,
+    ref: MemoryEntryRef,
+    generation: string,
+  ): Promise<EntryRow | null> {
+    const [row] = await tx.$queryRaw<EntryRow[]>(
+      Prisma.sql`SELECT "metadata","revision","pendingCommandId","revocationCommandId" FROM "MemoryKnowledgeEntry" WHERE "generation"=${generation} AND "scopeKey"=${memoryKnowledgeScopeKey(ref.scope)} AND "entryId"=${ref.entryId}`,
+    );
+    return row ?? null;
+  }
+  private operation(
+    row: CommandRow,
+    scope: MemoryKnowledgeScope,
+  ): MemoryKnowledgeOperation {
+    return {
+      id: row.id,
+      ref: { type: "entry", scope, entryId: row.entryId },
+      revision: String(row.revision),
+      state: row.state,
+      ...(row.safeReason ? { safeReason: row.safeReason } : {}),
+    };
+  }
+  private stored(
+    row: CommandRow,
+    scope: MemoryKnowledgeScope,
+  ): MemoryStoredCommand {
+    return {
+      operation: this.operation(row, scope),
+      digest: row.digest,
+      envelope: row.envelope,
+      contentApprovalRevision: row.contentApprovalRevision,
+      originalStatementAt: row.originalStatementAt,
+      deliveryExpiresAt: row.deliveryExpiresAt.toISOString(),
+      resubmitUntil: row.resubmitUntil.toISOString(),
+    };
+  }
+  private async writeEntry(
+    tx: Database,
+    metadata: MemoryKnowledgeEntryMetadata,
+    now: Date,
+  ): Promise<void> {
+    await tx.$executeRaw(
+      Prisma.sql`INSERT INTO "MemoryKnowledgeEntry" ("generation","scopeKey","entryId","workspaceId","revision","lifecycle","metadata","pendingCommandId","revocationCommandId","createdAt","updatedAt") VALUES (${metadata.generation},${memoryKnowledgeScopeKey(metadata.ref.scope)},${metadata.ref.entryId},${metadata.ref.scope.workspaceId},${Number(metadata.revision)},${metadata.lifecycle},${JSON.stringify(metadata)}::jsonb,${metadata.pendingCommandId},${metadata.revocationCommandId},${new Date(metadata.createdAt)},${now}) ON CONFLICT ("generation","scopeKey","entryId") DO UPDATE SET "revision"=EXCLUDED."revision","lifecycle"=EXCLUDED."lifecycle","metadata"=EXCLUDED."metadata","pendingCommandId"=EXCLUDED."pendingCommandId","revocationCommandId"=EXCLUDED."revocationCommandId","updatedAt"=EXCLUDED."updatedAt"`,
+    );
+  }
+}

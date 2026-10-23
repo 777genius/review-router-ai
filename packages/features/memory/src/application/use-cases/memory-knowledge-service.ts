@@ -1,0 +1,675 @@
+import { randomUUID } from "node:crypto";
+import type { MemoryActor } from "../../domain/memory-actor";
+import { createMemoryBodyHash } from "../../domain/memory-body";
+import { evaluateMemorySafety } from "../../domain/memory-safety-policy";
+import {
+  MemoryKnowledgeError,
+  memoryKnowledgeBodyMatches,
+  memoryKnowledgeBodyVisible,
+  memoryKnowledgeCommandDigest,
+  memoryKnowledgeDigest,
+  memoryKnowledgeTopicsDigest,
+  normalizeMemoryKnowledgeCommand,
+  sameMemoryKnowledgeScope,
+  type MemoryEntryRef,
+  type MemoryKnowledgeCommand,
+  type MemoryKnowledgeEntryMetadata,
+  type MemoryKnowledgeOperation,
+  type MemoryKnowledgeScope,
+} from "../../domain/memory-knowledge";
+import type { MemoryKnowledgeAccessPort } from "../ports/memory-knowledge-access-port";
+import type {
+  MemoryKnowledgeReader,
+  MemoryKnowledgeWriter,
+  MemoryOperationObserver,
+  MemoryProviderEntry,
+  MemoryProviderRecallItem,
+  MemoryRequestControls,
+} from "../ports/memory-knowledge-provider-port";
+import type { MemoryKnowledgeStore } from "../ports/memory-knowledge-store-port";
+import type { MemoryPolicyConfigPort } from "../ports/memory-policy-config-port";
+import type { MemoryQuotaPolicyPort } from "../ports/memory-quota-policy-port";
+
+export type MemoryKnowledgeView = {
+  readonly metadata: MemoryKnowledgeEntryMetadata;
+  readonly body: string | null;
+  readonly topicIds: readonly string[];
+  readonly unavailableReason:
+    "unsettled" | "provider_unavailable" | "incomplete_evidence" | null;
+};
+export type MemoryKnowledgeBundle = {
+  readonly generation: string;
+  readonly scopes: readonly {
+    readonly scope: MemoryKnowledgeScope;
+    readonly epoch: string;
+    readonly items: readonly MemoryProviderRecallItem[];
+  }[];
+  readonly hash: string;
+  readonly expiresAt: string;
+  readonly degraded: boolean;
+};
+export type MemoryCoreExport = {
+  readonly format: "memory-core-export/v1";
+  readonly historyFidelity: "metadata_only";
+  readonly generatedAt: string;
+  readonly entries: readonly {
+    readonly metadata: MemoryKnowledgeEntryMetadata;
+    readonly body: string;
+    readonly topicIds: readonly string[];
+  }[];
+  readonly omitted: readonly {
+    readonly entryId: string;
+    readonly reason: string;
+  }[];
+  readonly nextCursor: string | null;
+};
+
+export class MemoryKnowledgeService {
+  constructor(
+    private readonly dependencies: {
+      readonly generation: string;
+      readonly providerProfileVersion: string;
+      readonly store: MemoryKnowledgeStore;
+      readonly reader: MemoryKnowledgeReader;
+      readonly writer: MemoryKnowledgeWriter;
+      readonly observer: MemoryOperationObserver;
+      readonly access: MemoryKnowledgeAccessPort;
+      readonly policy: MemoryPolicyConfigPort;
+      readonly quota: MemoryQuotaPolicyPort;
+      readonly now?: () => Date;
+      readonly deliveryRetentionMs?: number;
+      /** Enable only within a qualified native operation-UUID retention/no-prune profile. */
+      readonly resubmitWindowMs?: number;
+    },
+  ) {}
+
+  async save(
+    command: Extract<MemoryKnowledgeCommand, { readonly kind: "save" }>,
+    controls: MemoryRequestControls,
+  ): Promise<MemoryKnowledgeOperation> {
+    return this.mutate(command, controls);
+  }
+  async retire(
+    command: MemoryKnowledgeCommand & { readonly kind: "retire" | "expire" },
+    controls: MemoryRequestControls,
+  ): Promise<MemoryKnowledgeOperation> {
+    return this.mutate(command, controls);
+  }
+  async forget(
+    command: MemoryKnowledgeCommand & { readonly kind: "forget" },
+    controls: MemoryRequestControls,
+  ): Promise<MemoryKnowledgeOperation> {
+    return this.mutate(command, controls);
+  }
+  async setTopics(
+    command: Extract<MemoryKnowledgeCommand, { readonly kind: "topics" }>,
+    controls: MemoryRequestControls,
+  ): Promise<MemoryKnowledgeOperation> {
+    return this.mutate(command, controls);
+  }
+
+  private now(): Date {
+    return this.dependencies.now?.() ?? new Date();
+  }
+  private check(controls: MemoryRequestControls): void {
+    if (
+      controls.signal?.aborted ||
+      this.now().getTime() >= controls.deadlineAt.getTime()
+    )
+      throw new MemoryKnowledgeError("deadline_exceeded", true);
+  }
+
+  private async mutate(
+    input: MemoryKnowledgeCommand,
+    controls: MemoryRequestControls,
+  ): Promise<MemoryKnowledgeOperation> {
+    this.check(controls);
+    let command = normalizeMemoryKnowledgeCommand(input);
+    if (
+      command.generation !== this.dependencies.generation ||
+      command.providerProfileVersion !==
+        this.dependencies.providerProfileVersion
+    )
+      throw new MemoryKnowledgeError("conflict");
+    await this.dependencies.access.authorize(
+      {
+        actor: command.approval.actor,
+        scope: command.ref.scope,
+        action: "manage",
+      },
+      controls,
+    );
+    const policy = await this.dependencies.policy.getPolicy({
+      workspaceId: command.ref.scope.workspaceId,
+      repositoryId:
+        command.ref.scope.kind === "repository"
+          ? command.ref.scope.repositoryId
+          : null,
+    });
+    if (command.kind === "save" || command.kind === "topics") {
+      const scopeKey =
+        command.ref.scope.kind === "user_preference"
+          ? "user_prefs"
+          : command.ref.scope.kind;
+      if (!policy.memoryEnabled || !policy.allowedScopes[scopeKey])
+        throw new MemoryKnowledgeError("disabled");
+    }
+    if (command.kind === "save") {
+      const safety = evaluateMemorySafety({
+        body: command.body,
+        scope:
+          command.ref.scope.kind === "user_preference"
+            ? "user_prefs"
+            : command.ref.scope.kind,
+      });
+      if (safety.severity !== "safe")
+        throw new MemoryKnowledgeError("invalid_input");
+      const source = await this.dependencies.access.verifySource(
+        {
+          actor: command.approval.actor,
+          scope: command.ref.scope,
+          source: command.source,
+        },
+        controls,
+      );
+      if (
+        source.repositoryId &&
+        command.ref.scope.kind === "repository" &&
+        source.repositoryId !== command.ref.scope.repositoryId
+      )
+        throw new MemoryKnowledgeError("forbidden");
+      command = normalizeMemoryKnowledgeCommand({ ...command, source });
+    }
+    const quota = await this.dependencies.quota.getWorkspaceQuota({
+      workspaceId: command.ref.scope.workspaceId,
+    });
+    this.check(controls);
+    const now = this.now();
+    const retentionMs = this.dependencies.deliveryRetentionMs ?? 7 * 86_400_000;
+    const retryMs = this.dependencies.resubmitWindowMs ?? 0;
+    if (retryMs < 0 || retryMs > retentionMs)
+      throw new MemoryKnowledgeError("invalid_input");
+    return this.dependencies.store.admit({
+      command,
+      digest: memoryKnowledgeCommandDigest(command),
+      now,
+      deliveryExpiresAt: new Date(now.getTime() + retentionMs),
+      resubmitUntil: new Date(now.getTime() + retryMs),
+      activeEntryLimit: quota.activeItems.limit,
+      pendingCommandLimit: 100,
+    });
+  }
+
+  async progress(
+    input: {
+      readonly actor: MemoryActor;
+      readonly scope: MemoryKnowledgeScope;
+      readonly commandId: string;
+    },
+    controls: MemoryRequestControls,
+  ): Promise<MemoryKnowledgeOperation> {
+    this.check(controls);
+    await this.dependencies.access.authorize(
+      { actor: input.actor, scope: input.scope, action: "read" },
+      controls,
+    );
+    const command = await this.dependencies.store.findCommand({
+      commandId: input.commandId,
+      scope: input.scope,
+      generation: this.dependencies.generation,
+    });
+    if (!command) throw new MemoryKnowledgeError("not_found");
+    return command.operation;
+  }
+
+  /** Worker entrypoint. Outbox retries retain one UUID and observe uncertain execution. */
+  async deliver(
+    input: { readonly scope: MemoryKnowledgeScope; readonly commandId: string },
+    controls: MemoryRequestControls,
+  ): Promise<MemoryKnowledgeOperation | null> {
+    this.check(controls);
+    const now = this.now();
+    const claim = await this.dependencies.store.claim({
+      ...input,
+      generation: this.dependencies.generation,
+      now,
+      claimId: randomUUID(),
+      claimUntil: new Date(controls.deadlineAt.getTime() + 5_000),
+    });
+    if (!claim) return null;
+    const command = claim.command.envelope;
+    if (!command) throw new MemoryKnowledgeError("input_required");
+    const metadata = await this.dependencies.store.findEntry(
+      command.ref,
+      this.dependencies.generation,
+    );
+    const revoked = Boolean(
+      metadata?.revocationCommandId &&
+      metadata.revocationCommandId !== command.commandId,
+    );
+    const context = {
+      command,
+      revision: claim.command.operation.revision,
+      contentApprovalRevision: claim.command.contentApprovalRevision,
+      originalStatementAt: claim.command.originalStatementAt,
+      allowResubmit:
+        !revoked &&
+        this.now().getTime() < Date.parse(claim.command.resubmitUntil),
+      resubmitUntil: claim.command.resubmitUntil,
+    };
+    try {
+      if (claim.mode === "submit" && revoked)
+        return await this.dependencies.store.settle({
+          ...input,
+          generation: this.dependencies.generation,
+          claimId: claim.claimId,
+          result: {
+            commandId: command.commandId,
+            state: "failed",
+            executionSettled: true,
+            safeReason: "conflict",
+          },
+          now: this.now(),
+        });
+      const result = await (claim.mode === "submit"
+        ? this.dependencies.writer.submit(context, controls)
+        : this.dependencies.observer.observe(context, controls));
+      if (result.commandId !== input.commandId)
+        throw new MemoryKnowledgeError("unknown_write", true);
+      return await this.dependencies.store.settle({
+        ...input,
+        generation: this.dependencies.generation,
+        claimId: claim.claimId,
+        result,
+        now: this.now(),
+      });
+    } catch (error) {
+      const safeReason =
+        error instanceof MemoryKnowledgeError ? error.code : "unknown_write";
+      await this.dependencies.store.recordFailure({
+        ...input,
+        generation: this.dependencies.generation,
+        claimId: claim.claimId,
+        safeReason,
+        now: this.now(),
+      });
+      throw new MemoryKnowledgeError(safeReason, true);
+    }
+  }
+
+  async expireDeliveryEnvelopes(limit = 100): Promise<number> {
+    return this.dependencies.store.expireDeliveryEnvelopes({
+      now: this.now(),
+      limit: Math.min(1_000, Math.max(1, limit)),
+    });
+  }
+
+  async read(
+    input: { readonly actor: MemoryActor; readonly ref: MemoryEntryRef },
+    controls: MemoryRequestControls,
+  ): Promise<MemoryKnowledgeView> {
+    this.check(controls);
+    await this.dependencies.access.authorize(
+      { actor: input.actor, scope: input.ref.scope, action: "read" },
+      controls,
+    );
+    const epoch = await this.dependencies.store.scopeEpoch(
+      input.ref.scope,
+      this.dependencies.generation,
+    );
+    const metadata = await this.dependencies.store.findEntry(
+      input.ref,
+      this.dependencies.generation,
+    );
+    if (!metadata) throw new MemoryKnowledgeError("not_found");
+    const view = await this.view(metadata, input.actor, "management", controls);
+    await this.recheck(input.ref.scope, epoch, controls);
+    return view;
+  }
+
+  async list(
+    input: {
+      readonly actor: MemoryActor;
+      readonly scope: MemoryKnowledgeScope;
+      readonly limit?: number;
+      readonly cursor?: string;
+    },
+    controls: MemoryRequestControls,
+  ): Promise<{
+    readonly entries: readonly MemoryKnowledgeView[];
+    readonly nextCursor: string | null;
+  }> {
+    this.check(controls);
+    await this.dependencies.access.authorize(
+      { actor: input.actor, scope: input.scope, action: "read" },
+      controls,
+    );
+    const epoch = await this.dependencies.store.scopeEpoch(
+      input.scope,
+      this.dependencies.generation,
+    );
+    const page = await this.dependencies.store.listEntries({
+      ...input,
+      generation: this.dependencies.generation,
+      limit: Math.min(100, Math.max(1, input.limit ?? 30)),
+    });
+    const entries: MemoryKnowledgeView[] = [];
+    for (const metadata of page.entries)
+      entries.push(
+        await this.view(metadata, input.actor, "management", controls),
+      );
+    await this.recheck(input.scope, epoch, controls);
+    return { entries, nextCursor: page.nextCursor };
+  }
+
+  async export(
+    input: {
+      readonly actor: MemoryActor;
+      readonly scope: MemoryKnowledgeScope;
+      readonly limit?: number;
+      readonly cursor?: string;
+    },
+    controls: MemoryRequestControls,
+  ): Promise<MemoryCoreExport> {
+    this.check(controls);
+    await this.dependencies.access.authorize(
+      { actor: input.actor, scope: input.scope, action: "export" },
+      controls,
+    );
+    const epoch = await this.dependencies.store.scopeEpoch(
+      input.scope,
+      this.dependencies.generation,
+    );
+    const page = await this.dependencies.store.listEntries({
+      ...input,
+      generation: this.dependencies.generation,
+      limit: Math.min(1_000, Math.max(1, input.limit ?? 100)),
+    });
+    const entries: MemoryCoreExport["entries"][number][] = [];
+    const omitted: { entryId: string; reason: string }[] = [];
+    for (const metadata of page.entries) {
+      const view = await this.view(metadata, input.actor, "export", controls);
+      if (view.body !== null)
+        entries.push({ metadata, body: view.body, topicIds: view.topicIds });
+      else
+        omitted.push({
+          entryId: metadata.ref.entryId,
+          reason: view.unavailableReason ?? "ineligible",
+        });
+    }
+    await this.recheck(input.scope, epoch, controls);
+    return {
+      format: "memory-core-export/v1",
+      historyFidelity: "metadata_only",
+      generatedAt: this.now().toISOString(),
+      entries,
+      omitted,
+      nextCursor: page.nextCursor,
+    };
+  }
+
+  async bundle(
+    input: {
+      readonly actor: MemoryActor;
+      readonly scopes: readonly MemoryKnowledgeScope[];
+      readonly query: string;
+      readonly limitPerScope?: number;
+    },
+    controls: MemoryRequestControls,
+  ): Promise<MemoryKnowledgeBundle> {
+    const budget: MemoryRequestControls = {
+      ...controls,
+      deadlineAt: new Date(
+        Math.min(controls.deadlineAt.getTime(), this.now().getTime() + 2_000),
+      ),
+    };
+    this.check(budget);
+    if (
+      input.scopes.length > 2 ||
+      input.scopes.some((scope) => scope.kind === "user_preference") ||
+      input.query.length > 1_000 ||
+      !input.query.trim()
+    )
+      throw new MemoryKnowledgeError("invalid_input");
+    const scopes: {
+      scope: MemoryKnowledgeScope;
+      epoch: string;
+      items: MemoryProviderRecallItem[];
+    }[] = [];
+    let degraded = false;
+    try {
+      for (const scope of input.scopes) {
+        await this.dependencies.access.authorize(
+          { actor: input.actor, scope, action: "runtime" },
+          budget,
+        );
+        const policy = await this.dependencies.policy.getPolicy({
+          workspaceId: scope.workspaceId,
+          repositoryId: scope.kind === "repository" ? scope.repositoryId : null,
+        });
+        if (
+          !policy.memoryEnabled ||
+          scope.kind === "user_preference" ||
+          !policy.allowedScopes[scope.kind]
+        )
+          continue;
+        const epoch = await this.dependencies.store.scopeEpoch(
+          scope,
+          this.dependencies.generation,
+        );
+        const recalled = await this.dependencies.reader.recall(
+          {
+            scope,
+            query: input.query,
+            limit: Math.min(20, Math.max(1, input.limitPerScope ?? 8)),
+            includeHistoricalObservations: true,
+          },
+          budget,
+        );
+        const items: MemoryProviderRecallItem[] = [];
+        for (const item of recalled)
+          if (await this.recallEligible(item, scope, input.actor, budget))
+            items.push(item);
+        scopes.push({ scope, epoch, items });
+      }
+      for (const section of scopes)
+        await this.recheck(section.scope, section.epoch, budget);
+    } catch {
+      scopes.length = 0;
+      degraded = true;
+    }
+    const expiresAt = new Date(this.now().getTime() + 30_000).toISOString();
+    const snapshot = {
+      generation: this.dependencies.generation,
+      scopes,
+      expiresAt,
+      degraded,
+    };
+    return { ...snapshot, hash: memoryKnowledgeDigest(snapshot) };
+  }
+
+  async admitBundle(
+    input: {
+      readonly actor: MemoryActor;
+      readonly bundle: MemoryKnowledgeBundle;
+    },
+    controls: MemoryRequestControls,
+  ): Promise<boolean> {
+    if (
+      input.bundle.generation !== this.dependencies.generation ||
+      Date.parse(input.bundle.expiresAt) <= this.now().getTime()
+    )
+      return false;
+    const { hash, ...snapshot } = input.bundle;
+    if (memoryKnowledgeDigest(snapshot) !== hash) return false;
+    try {
+      for (const section of input.bundle.scopes) {
+        await this.dependencies.access.authorize(
+          { actor: input.actor, scope: section.scope, action: "runtime" },
+          controls,
+        );
+        const policy = await this.dependencies.policy.getPolicy({
+          workspaceId: section.scope.workspaceId,
+        });
+        if (!policy.memoryEnabled) return false;
+        await this.recheck(section.scope, section.epoch, controls);
+        for (const item of section.items)
+          if (
+            !(await this.recallEligible(
+              item,
+              section.scope,
+              input.actor,
+              controls,
+            ))
+          )
+            return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async view(
+    metadata: MemoryKnowledgeEntryMetadata,
+    actor: MemoryActor,
+    consumer: "management" | "export",
+    controls: MemoryRequestControls,
+  ): Promise<MemoryKnowledgeView> {
+    if (!memoryKnowledgeBodyVisible(metadata, consumer, this.now()))
+      return {
+        metadata,
+        body: null,
+        topicIds: [],
+        unavailableReason: "unsettled",
+      };
+    try {
+      this.check(controls);
+      const entry = await this.dependencies.reader.read(metadata.ref, controls);
+      if (
+        !entry ||
+        !(await this.entryEligible(entry, metadata, actor, consumer, controls))
+      )
+        return {
+          metadata,
+          body: null,
+          topicIds: [],
+          unavailableReason: "incomplete_evidence",
+        };
+      return {
+        metadata,
+        body: entry.body,
+        topicIds: entry.topicIds,
+        unavailableReason: null,
+      };
+    } catch {
+      return {
+        metadata,
+        body: null,
+        topicIds: [],
+        unavailableReason: "provider_unavailable",
+      };
+    }
+  }
+
+  private async entryEligible(
+    entry: MemoryProviderEntry,
+    metadata: MemoryKnowledgeEntryMetadata,
+    actor: MemoryActor,
+    consumer: "runtime" | "management" | "export",
+    controls: MemoryRequestControls,
+  ): Promise<boolean> {
+    if (
+      !sameMemoryKnowledgeScope(entry.ref.scope, metadata.ref.scope) ||
+      entry.ref.entryId !== metadata.ref.entryId ||
+      entry.contentApprovalRevision !== metadata.contentApprovalRevision ||
+      entry.kind !== metadata.kind ||
+      !memoryKnowledgeBodyMatches(entry.body, metadata) ||
+      entry.bodyDigest !== createMemoryBodyHash(entry.body) ||
+      memoryKnowledgeTopicsDigest(entry.topicIds) !== metadata.topicsDigest ||
+      entry.statementAt !== metadata.originalStatementAt ||
+      !metadata.source ||
+      !memoryKnowledgeBodyVisible(metadata, consumer, this.now())
+    )
+      return false;
+    return this.dependencies.access.sourceApplicable(
+      { actor, scope: metadata.ref.scope, source: metadata.source, consumer },
+      controls,
+    );
+  }
+
+  private async recallEligible(
+    item: MemoryProviderRecallItem,
+    scope: MemoryKnowledgeScope,
+    actor: MemoryActor,
+    controls: MemoryRequestControls,
+  ): Promise<boolean> {
+    this.check(controls);
+    if (item.type === "entry") {
+      if (!sameMemoryKnowledgeScope(item.entry.ref.scope, scope)) return false;
+      const metadata = await this.dependencies.store.findEntry(
+        item.entry.ref,
+        this.dependencies.generation,
+      );
+      return (
+        metadata !== null &&
+        (await this.entryEligible(
+          item.entry,
+          metadata,
+          actor,
+          "runtime",
+          controls,
+        ))
+      );
+    }
+    if (
+      !sameMemoryKnowledgeScope(item.ref.scope, scope) ||
+      !item.evidenceComplete ||
+      item.temporalStatus !== "historical" ||
+      item.sourceEntries.length === 0 ||
+      item.sourceEntries.length > 100 ||
+      item.body.length > 4_000
+    )
+      return false;
+    for (const ref of item.sourceEntries) {
+      if (!sameMemoryKnowledgeScope(ref.scope, scope)) return false;
+      const metadata = await this.dependencies.store.findEntry(
+        ref,
+        this.dependencies.generation,
+      );
+      if (
+        !metadata ||
+        !memoryKnowledgeBodyVisible(metadata, "runtime", this.now()) ||
+        !metadata.source ||
+        !(await this.dependencies.access.sourceApplicable(
+          { actor, scope, source: metadata.source, consumer: "runtime" },
+          controls,
+        ))
+      )
+        return false;
+      const entry = await this.dependencies.reader.read(ref, controls);
+      if (
+        !entry ||
+        !(await this.entryEligible(entry, metadata, actor, "runtime", controls))
+      )
+        return false;
+    }
+    return true;
+  }
+
+  private async recheck(
+    scope: MemoryKnowledgeScope,
+    epoch: string,
+    controls: MemoryRequestControls,
+  ): Promise<void> {
+    this.check(controls);
+    if (
+      (await this.dependencies.store.scopeEpoch(
+        scope,
+        this.dependencies.generation,
+      )) !== epoch
+    )
+      throw new MemoryKnowledgeError("conflict", true);
+    this.check(controls);
+  }
+}

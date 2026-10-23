@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import type {
   MemoryPermissionDecision,
   MemoryPermissionPort,
+  MemoryRepositoryMaintainerPort,
 } from "../../application/ports/memory-permission-port";
 import type { MemoryActor } from "../../domain/memory-actor";
 import type { MemoryScope } from "../../domain/memory-scope-policy";
@@ -11,6 +12,9 @@ export class PrismaMemoryPermission implements MemoryPermissionPort {
     private readonly prisma: PrismaClient | Prisma.TransactionClient,
     private readonly options: {
       readonly localAdminGithubLogins?: readonly string[];
+      readonly localDevelopmentProfile?: boolean;
+      readonly localAdminGithubUserIds?: readonly string[];
+      readonly repositoryMaintainers?: MemoryRepositoryMaintainerPort;
     } = {},
   ) {}
 
@@ -26,7 +30,8 @@ export class PrismaMemoryPermission implements MemoryPermissionPort {
     }
 
     if (input.scope === "user_prefs") {
-      return input.userId && input.userId === input.actor.id
+      const userId = await this.resolveUserId(input.actor);
+      return input.userId && input.userId === userId
         ? { allowed: true }
         : deny("not_user_owner", false);
     }
@@ -49,6 +54,27 @@ export class PrismaMemoryPermission implements MemoryPermissionPort {
       return { allowed: true };
     }
 
+    if (
+      input.scope === "repository" &&
+      input.repositoryId &&
+      this.options.repositoryMaintainers
+    ) {
+      if (!trustedActor(input.actor))
+        return deny("not_repository_maintainer", false);
+      try {
+        const resolved = await this.options.repositoryMaintainers.isMaintainer({
+          workspaceId: input.workspaceId,
+          repositoryId: input.repositoryId,
+          actor: input.actor,
+        });
+        if (resolved === "maintainer") return { allowed: true };
+        if (resolved === "unavailable")
+          return deny("permission_service_unavailable", true);
+      } catch {
+        return deny("permission_service_unavailable", true);
+      }
+    }
+
     return deny(
       input.scope === "repository"
         ? "not_repository_maintainer"
@@ -58,13 +84,30 @@ export class PrismaMemoryPermission implements MemoryPermissionPort {
   }
 
   private isLocalAdmin(actor: MemoryActor): boolean {
-    if (actor.kind !== "github_user") return false;
-    if (!actor.login) return false;
     return (
-      this.options.localAdminGithubLogins?.some(
-        (login) => login.toLowerCase() === actor.login?.toLowerCase(),
-      ) === true
+      this.options.localDevelopmentProfile === true &&
+      actor.kind === "github_user" &&
+      Boolean(
+        actor.githubUserId &&
+        /^\d+$/.test(actor.githubUserId) &&
+        this.options.localAdminGithubUserIds?.includes(actor.githubUserId),
+      )
     );
+  }
+
+  private async resolveUserId(actor: MemoryActor): Promise<string | null> {
+    if (actor.kind === "workspace_user") return actor.id || null;
+    if (
+      actor.kind !== "github_user" ||
+      !actor.githubUserId ||
+      !/^\d+$/.test(actor.githubUserId)
+    )
+      return null;
+    const user = await this.prisma.user.findFirst({
+      where: { githubUserId: BigInt(actor.githubUserId) },
+      select: { id: true },
+    });
+    return user?.id ?? null;
   }
 
   private async repositoryAvailable(input: {
@@ -111,18 +154,21 @@ function workspaceMemberActorFilter(
     return [{ userId: actor.id }];
   }
   const filters: Prisma.WorkspaceMemberWhereInput[] = [];
-  if (actor.githubUserId && /^\d+$/.test(actor.githubUserId)) {
+  if (
+    actor.kind === "github_user" &&
+    actor.githubUserId &&
+    /^\d+$/.test(actor.githubUserId)
+  ) {
     filters.push({ user: { githubUserId: BigInt(actor.githubUserId) } });
   }
-  if (actor.login) {
-    filters.push({
-      githubLogin: { equals: actor.login, mode: "insensitive" },
-    });
-    filters.push({
-      user: { githubLogin: { equals: actor.login, mode: "insensitive" } },
-    });
-  }
   return filters.length > 0 ? filters : null;
+}
+
+function trustedActor(actor: MemoryActor): boolean {
+  return actor.kind === "workspace_user"
+    ? Boolean(actor.id)
+    : actor.kind === "github_user" &&
+        Boolean(actor.githubUserId && /^\d+$/.test(actor.githubUserId));
 }
 
 function deny(
