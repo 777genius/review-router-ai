@@ -1077,6 +1077,7 @@ export function prepareReviewRunGatewayResponses(
       "previous_response_id",
       "service_tier",
       "max_output_tokens",
+      "reasoning",
     ]);
     let at = 0;
     const space = () => {
@@ -1164,6 +1165,9 @@ export function prepareReviewRunGatewayResponses(
         cap > qualifiedTokens)
     )
       throw new Error();
+    // Codex serializes an absent optional reasoning value as JSON null.
+    // Normalize only that semantic absence; configured reasoning stays intact.
+    if (payload.reasoning === null) delete payload.reasoning;
     const bytes = new TextEncoder().encode(
       JSON.stringify({
         ...payload,

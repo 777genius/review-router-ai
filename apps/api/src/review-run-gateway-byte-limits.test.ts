@@ -13,7 +13,10 @@ import {
 import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
 import { createReviewRunGatewayPreparation } from "./review-run-gateway-preparation";
-import { createReviewRunGatewayRelay } from "./review-run-gateway-relay";
+import {
+  createReviewRunGatewayRelay,
+  prepareReviewRunGatewayResponses,
+} from "./review-run-gateway-relay";
 
 const MiB = 1024 * 1024;
 const servers: Server[] = [];
@@ -343,4 +346,36 @@ it("rejects unsupported captured output before run-access or inference", async (
   } finally {
     await f.relay.shutdown();
   }
+});
+
+it("normalizes Codex null reasoning without dropping configured reasoning", () => {
+  const prepare = (raw: string) =>
+    JSON.parse(
+      new TextDecoder().decode(
+        prepareReviewRunGatewayResponses(
+          new TextEncoder().encode(raw),
+          "k3-256k",
+          100,
+          4096,
+          32768,
+        ),
+      ),
+    ) as Record<string, unknown>;
+  expect(prepare('{"input":"review","reasoning":null}')).not.toHaveProperty(
+    "reasoning",
+  );
+  expect(prepare('{"input":"review"}')).not.toHaveProperty("reasoning");
+  const configured = { effort: "high", summary: "auto" };
+  expect(
+    prepare(JSON.stringify({ input: "review", reasoning: configured }))
+      .reasoning,
+  ).toEqual(configured);
+  expect(prepare('{"input":"review","reasoning":null}').service_tier).toBe(
+    "default",
+  );
+  expect(() =>
+    prepare(
+      '{"input":"review","reasoning":null,"reasoning":{"effort":"high"}}',
+    ),
+  ).toThrow();
 });
