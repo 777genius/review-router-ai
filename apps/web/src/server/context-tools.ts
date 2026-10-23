@@ -11,6 +11,8 @@ import {
   listContextConnectionMetadata,
   PrismaContextConnectionStore,
   saveContextConnection,
+  prepareContextConnectionProbe,
+  type ContextConnectionProbeInput,
   type ContextToolsSelection,
 } from "@reviewrouter/features-review-context-tools";
 import {
@@ -18,6 +20,7 @@ import {
   createGitHubAppInstallationOctokit,
 } from "./dashboard-mutations";
 import { getPrisma } from "./prisma";
+import { ContextProbeError, probeContextTools } from "./context-tools-probe";
 
 async function authorize(workspaceId: string): Promise<void> {
   const actor = await assertDashboardWorkspaceAdminAllowed(workspaceId);
@@ -74,6 +77,8 @@ export function contextToolsPublicError(error: unknown): {
   error: string;
   status: number;
 } {
+  if (error instanceof ContextProbeError)
+    return { error: error.code, status: 400 };
   if (error instanceof ContextConnectionError) {
     const allowed = [
       "context_connection_invalid",
@@ -81,6 +86,8 @@ export function contextToolsPublicError(error: unknown): {
       "context_secret_invalid",
       "context_secret_unavailable",
       "context_plan_unavailable",
+      "context_github_secret_unavailable",
+      "context_secret_reentry_required",
     ];
     if (allowed.includes(error.code))
       return {
@@ -271,4 +278,16 @@ export async function contextToolsWorkflowSecrets(
   } catch {
     throw new ContextConnectionError("context_connection_invalid");
   }
+}
+
+/** Authorize before storage, decryption, DNS or any remote request. Tests never save a connection. */
+export async function testDashboardContextConnection(
+  input: ContextConnectionProbeInput,
+) {
+  await authorize(input.workspaceId);
+  const prepared = await prepareContextConnectionProbe(input, {
+    store: new PrismaContextConnectionStore(getPrisma()),
+    crypto: { encrypt: encryptServerToken, decrypt: decryptServerToken },
+  });
+  return { ok: true as const, tools: await probeContextTools(prepared) };
 }

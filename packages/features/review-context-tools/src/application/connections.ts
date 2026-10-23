@@ -3,6 +3,8 @@ import {
   canonicalContextJson,
   captureContextToolsPlan,
   contextConnectionDefinitionSchema,
+  contextConnectionProbeDefinitionSchema,
+  referencedContextSecrets,
   parseContextToolsPlan,
   type ContextConnection,
   type ContextConnectionDefinition,
@@ -27,7 +29,9 @@ export type ContextConnectionErrorCode =
   | "context_connection_conflict"
   | "context_secret_invalid"
   | "context_secret_unavailable"
-  | "context_plan_unavailable";
+  | "context_plan_unavailable"
+  | "context_github_secret_unavailable"
+  | "context_secret_reentry_required";
 export class ContextConnectionError extends Error {
   constructor(readonly code: ContextConnectionErrorCode) {
     super(code);
@@ -154,6 +158,8 @@ export async function saveContextConnection(
       !same(names, dashboardNames(current.definition))
     )
       throw new ContextConnectionError("context_secret_invalid");
+    if (!sameCredentialDestination(definition, current.definition))
+      throw new ContextConnectionError("context_secret_reentry_required");
     encryptedSecrets = current.encryptedSecrets;
   }
   const connection: ContextConnection = {
@@ -224,4 +230,92 @@ export async function deliverContextCredentials(
     }
   }
   return delivered;
+}
+
+export type ContextConnectionProbeInput = {
+  workspaceId: string;
+  expectedVersion: number | null;
+  definition: unknown;
+  secrets?: Record<string, string>;
+};
+function sameCredentialDestination(
+  a: ContextConnectionDefinition,
+  b: ContextConnectionDefinition,
+): boolean {
+  return (
+    a.url === b.url &&
+    same(a.headers, b.headers) &&
+    same(a.credentials, b.credentials)
+  );
+}
+/** Caller authorizes workspace admin access first. Resolves only draft-bound Dashboard credentials; never writes. */
+export async function prepareContextConnectionProbe(
+  input: ContextConnectionProbeInput,
+  { store, crypto }: Dependencies,
+): Promise<{ url: string; headers: Record<string, string>; redact: string[] }> {
+  const parsed = contextConnectionProbeDefinitionSchema.safeParse(
+    input.definition,
+  );
+  if (
+    !input.workspaceId ||
+    !parsed.success ||
+    (input.expectedVersion !== null &&
+      (!Number.isSafeInteger(input.expectedVersion) ||
+        input.expectedVersion < 1 ||
+        input.expectedVersion >= 2_147_483_647))
+  )
+    throw new ContextConnectionError("context_connection_invalid");
+  const definition = parsed.data;
+  const current = await store.find(input.workspaceId, definition.id);
+  if (
+    (current?.version ?? null) !== input.expectedVersion ||
+    (current && current.workspaceId !== input.workspaceId)
+  )
+    throw new ContextConnectionError("context_connection_conflict");
+  // GitHub intentionally never returns secret values. Do not substitute empty credentials or try a request.
+  if (
+    Object.values(definition.credentials).some(
+      (binding) => binding.source === "github-secret",
+    )
+  )
+    throw new ContextConnectionError("context_github_secret_unavailable");
+  const names = dashboardNames(definition);
+  let secrets: Record<string, string> = {};
+  if (input.secrets !== undefined)
+    secrets = checkedSecrets(input.secrets, names);
+  else if (names.length) {
+    if (!current?.encryptedSecrets)
+      throw new ContextConnectionError("context_secret_invalid");
+    if (!sameCredentialDestination(definition, current.definition))
+      throw new ContextConnectionError("context_secret_reentry_required");
+    try {
+      secrets = checkedSecrets(
+        JSON.parse(await crypto.decrypt(current.encryptedSecrets)),
+        names,
+      );
+    } catch {
+      throw new ContextConnectionError("context_secret_unavailable");
+    }
+  }
+  const headers = Object.fromEntries(
+    Object.entries(definition.headers).map(([name, template]) => {
+      let value = template;
+      for (const logicalName of referencedContextSecrets(template)) {
+        // Match the exact approved template syntax, including its optional leading dollar.
+        value = value.replace(
+          new RegExp(
+            "\\$?\\{\\{\\s*secrets\\." + logicalName + "\\s*\\}\\}",
+            "g",
+          ),
+          () => secrets[logicalName]!,
+        );
+      }
+      return [name, value];
+    }),
+  );
+  return {
+    url: definition.url,
+    headers,
+    redact: [...Object.values(secrets), ...Object.values(headers)],
+  };
 }
