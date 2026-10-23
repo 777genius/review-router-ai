@@ -15,11 +15,14 @@
   },
   "qualification": {
     "sdkAndServiceTests": 79,
-    "installedConsumers": ["Node26.11.1", "Node24.21.0"],
+    "installedConsumers": [
+      "Node26.11.1",
+      "Node24.21.0"
+    ],
     "nativeProviderJoined": true,
     "liveProviderCanary": false,
     "rrActualInstalledCaller": true,
-    "controlledJoinedReceipt": "provider-connections-qualification.json"
+    "controlledJoinedReceipt": "provider-connections-a9d0c48cb9f8-qualification.json"
   },
   "publicPublished": false
 }

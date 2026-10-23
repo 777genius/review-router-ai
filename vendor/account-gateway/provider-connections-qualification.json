@@ -1,20 +1,20 @@
 {
   "contract": "provider-connections-controlled-qualification/v1",
-  "rrSourceCommit": "60c1f779ab8b15e489ade03233aa027e553827a9",
+  "rrSourceCommit": "b591b38ed30cc4a533082baac737c82245c95d57",
   "rrRelaySHA256": "0b86553a1261b637dc7d6aac85b96c56ee7f414eea36cfcbb6bf84ae6d763ba0",
   "rrHookSHA256": "156b8807bda61acf5bae0c2dc413ac4f1330e06ed4c421f33b763cdc67d292d2",
-  "receiptSHA256": "fd1aa1b3dabb89cb75c2c025562eb473f46e80afe19eaa45a04783c4f772f1ca",
+  "receiptSHA256": "2ceb34d504a34dcf65aba797ff894005defb6e3eb1fb73852c6ebc02ba2c4481",
   "boundary": "Controlled provider-shaped fixtures; actual installed Action/Codex CLI, Gateway, native HTTP and PostgreSQL. No live subscription account or production activation. CLI declared function tools only.",
   "evidence": {
     "phase": "completed",
     "contract": "gateway-native-provider-joined/v1",
-    "nativeBinarySHA256": "c887d692516cec8294ce25c688819bdc45f77a34deaabb866d7a6bee759e8811",
-    "nativeHead": "320c74375d32ded8fad471a22b6fd84a11e810eb",
-    "gatewayBaseHead": "43f155c23d9526a00f2e30c31442c81e76309313",
-    "gatewaySourceArchiveSHA256": "135bed6f4efa9ca46136ac193805ec3c6bc5ff426f6bfb3656243cc44539f4e7",
+    "nativeBinarySHA256": "4c9a386d07412b9a640d1965217b7ee4e6c1aa5276a159eae25536badc391d7a",
+    "nativeHead": "f22f5105a450cc6f0ec950d41f74899976984abc",
+    "gatewayBaseHead": "528ed96293f9f12619bb904856f7bb11de2f384f",
+    "gatewaySourceArchiveSHA256": "c2b062c410222e4c1ddd36c5b130dba5617c35c792ffec84a2e773433a86a4ca",
     "sourceHashes": {
-      "harness": "78e0254a1d604cc5647a50cdb1795798a91fbf50590a41487bc8afaa09a2fbf7",
-      "nativeFixture": "6302b7b095f1be0dd26e2eb59bbc512e76ed3fc4c964d8a832d92813d5a40844",
+      "harness": "1004f99bd3f925b2bef18f403eb5e93e4fd13850f8a912284974e2477e3e4878",
+      "nativeFixture": "87cc6e0c21bc42b6a8503cb88a6c4e3728657b747789c2f03dc13f388fe3a80d",
       "sdkHTTP": "3d6853ce3667533bcc636bfee7b12e78596216f3f23bc7210115b13010f76ce4"
     },
     "nativeHTTP": true,
@@ -93,7 +93,12 @@
     "actualPostgreSQL": true,
     "providerShapedFixture": true,
     "liveProviderAccount": false,
-    "providers": ["kimi", "glm", "minimax", "grok"],
+    "providers": [
+      "kimi",
+      "glm",
+      "minimax",
+      "grok"
+    ],
     "controlledTextAndFunctionToolRoundTrip": true,
     "reconnectRetainsAccount": true,
     "canonicalErasure": true,
@@ -101,5 +106,9 @@
     "inertReadProviderCalls": 0,
     "wrongOwnerDenied": true,
     "nativeDiagnosticBytes": 428
-  }
+  },
+  "sdkArchiveSHA256": "ef8884317a26c10d5c35be27f0ee07bb5103bdd5ce2b238629a025d350c3f2c3",
+  "rrToolPolicyHelperSHA256": "f4aa4e21589b89963ebe8f55d03f1372ad3dc39d817bbe19b8aa12c3aa55d5f3",
+  "strictIssuedContinuation": true,
+  "nativeFunctionOutputCountersAsserted": true
 }

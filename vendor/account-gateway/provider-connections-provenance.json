@@ -23,7 +23,16 @@
       "actionReproducible": true,
       "actionSha256": "f752c5ad2798d95fe7c193dea8dabb834973fb4f23681baae748dc426a95c996",
       "typecheck": true,
-      "controlledJoinedReceipt": "pending"
+      "controlledJoinedReceipt": "provider-connections-qualification.json"
+    },
+    "nativeProviderJoined": true,
+    "rrActualInstalledCaller": true,
+    "liveProviderCanary": false,
+    "browser": {
+      "sourceCommit": "b591b38ed30cc4a533082baac737c82245c95d57",
+      "providers": 4,
+      "outcome": "passed",
+      "desktopMobileVisuallyInspected": true
     }
   },
   "publicPublished": false,
