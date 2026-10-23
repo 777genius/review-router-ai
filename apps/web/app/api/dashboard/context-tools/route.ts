@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { resolveReviewRouterPublicWebUrl } from "../../../../src/server/codex-seed-script-url";
 import {
   contextToolsPublicError,
   listDashboardContextConnections,
@@ -49,11 +50,28 @@ export async function POST(request: Request): Promise<Response> {
   )
     return invalid();
   const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(request.url).origin)
-    return Response.json(
-      { error: "context_admin_required" },
-      { status: 403, headers },
-    );
+  if (origin) {
+    let publicOrigin: string;
+    try {
+      // The request URL can name the internal HTTP server behind a proxy.
+      // Use validated deployment configuration, never forwarded host headers.
+      publicOrigin = resolveReviewRouterPublicWebUrl();
+    } catch {
+      return Response.json(
+        { error: "context_tools_unavailable" },
+        { status: 503, headers },
+      );
+    }
+    if (
+      origin !== publicOrigin &&
+      (process.env.NODE_ENV === "production" ||
+        origin !== new URL(request.url).origin)
+    )
+      return Response.json(
+        { error: "context_admin_required" },
+        { status: 403, headers },
+      );
+  }
   // Enforce the bound on streamed bytes too; Content-Length is untrusted.
   const reader = request.body?.getReader();
   if (!reader) return invalid();
