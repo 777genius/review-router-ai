@@ -26,3 +26,18 @@ export function canonicalizeReviewActionV2RequestForSlot<
   if (!slot) throw new Error("unsupported_review_action_v2_schema_slot");
   return slot.canonicalizeReviewActionV2Request(operation, request);
 }
+
+export interface ReviewActionV2ContractDescriptor {
+  readonly protocolVersion: string;
+  readonly schemaDigest: string;
+  readonly canonicalizerDigest: string;
+}
+
+/** Public identifiers of the compiled slots, derived from the same modules as the slot selection. */
+export function reviewActionV2SupportedContracts(): readonly ReviewActionV2ContractDescriptor[] {
+  return [current, legacy].map((slot) => ({
+    protocolVersion: slot.reviewActionV2PublishedProtocolVersion,
+    schemaDigest: slot.reviewActionV2PublishedSchemaDigest,
+    canonicalizerDigest: slot.reviewActionV2CanonicalizerDigest,
+  }));
+}

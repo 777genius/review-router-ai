@@ -43,6 +43,7 @@ import {
   type RegisterActionControlPlaneRoutesDependencies,
 } from "@reviewrouter/features-action-control-plane";
 import {
+  registerReviewActionV2ProtocolInfoRoute,
   registerReviewContextAttestationV2Routes,
   registerReviewEvidenceV2Routes,
   registerReviewExecutionV2Routes,
@@ -967,6 +968,7 @@ export async function createApiApp(
         })
       : undefined);
 
+  registerReviewActionV2ProtocolInfoRoute(app);
   if (reviewRunControlV2Dependencies) {
     await registerReviewRunControlV2Routes(app, reviewRunControlV2Dependencies);
   }
