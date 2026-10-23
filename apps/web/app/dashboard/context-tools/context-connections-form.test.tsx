@@ -378,12 +378,15 @@ it("creates Bearer authentication through the selector with a separate password 
     target: { value: "https://mcp.example.test/mcp" },
   });
   fireEvent.click(form.getByRole("combobox"));
-  fireEvent.click(
-    await screen.findByRole("option", { name: "Bearer API key" }),
-  );
-  const password = form.getByLabelText(
+  const bearerOption = await screen.findByRole("option", {
+    name: "Bearer API key",
+  });
+  // Base UI selects only the highlighted mouse option, as a real pointer does.
+  fireEvent.mouseMove(bearerOption);
+  fireEvent.click(bearerOption);
+  const password = (await form.findByLabelText(
     "API_KEY (required)",
-  ) as HTMLInputElement;
+  )) as HTMLInputElement;
   expect(password.type).toBe("password");
   fireEvent.change(password, { target: { value: "private-api-token" } });
   const json = form.getByLabelText(
