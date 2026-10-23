@@ -50,15 +50,20 @@ export function createGatewayModelAccountOptions(input: {
     operatorWorkspaceId,
     personalEnabled,
   );
-  const profiles = input.profiles.map((profile) => ({
-    id: profile.id,
-    label: profile.label,
-    ...(profile.provider ? { provider: profile.provider } : {}),
-    protocol: profile.protocol,
-    models: [...profile.models],
-    ...(profile.authKind ? { authKind: profile.authKind } : {}),
-    canReconnect: false,
-  }));
+  const profiles = input.profiles
+    .filter(
+      (profile) => profile.availability !== "deployment_configuration_required",
+    )
+    .map((profile) => ({
+      id: profile.id,
+      label: profile.label,
+      ...(profile.connection ? { connection: profile.connection } : {}),
+      ...(profile.provider ? { provider: profile.provider } : {}),
+      protocol: profile.protocol,
+      models: [...profile.models],
+      ...(profile.authKind ? { authKind: profile.authKind } : {}),
+      canReconnect: false,
+    }));
   const catalogue = new Map(profiles.map((profile) => [profile.id, profile]));
   if (profiles.length > 128 || catalogue.size !== profiles.length)
     throw new Error("model_account_profiles_invalid");
@@ -214,6 +219,7 @@ export function createGatewayModelAccountOptions(input: {
         label: remote.displayName,
         profileId: profile.id,
         profileLabel: profile.label,
+        ...(profile.connection ? { connection: profile.connection } : {}),
         ...(profile.authKind ? { authKind: profile.authKind } : {}),
         state: remote.state,
         gatewayRevision: remote.metadataRevision,

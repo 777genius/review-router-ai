@@ -1170,6 +1170,10 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
       assert.equal(fresh.authorizationURL, authorizationURL);
       observe(fresh.operation); // one-off capability is deliberately outside the safe-data set
       assert.equal(fresh.operation.state, "pending");
+      assert.deepEqual(fresh.operation.completion, {
+        providerLabel: "Codex",
+        inputKind: "callback_url",
+      });
       assert.equal(fresh.operation.account, undefined);
       assert.equal(
         await db.providerAccountConnection.count({
@@ -1253,7 +1257,14 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         data: { role: "admin" },
       });
       assert.equal(
-        ok(observe(await oauthAdapter.completeOAuth("a", completion))).state,
+        ok(
+          observe(
+            await oauthAdapter.completeOAuth("a", {
+              nonce: oauthIntent.nonce,
+              authorizationResult: callbackURL,
+            }),
+          ),
+        ).state,
         "pending",
       );
       assert.equal(oauthCompleteEntries, 1);

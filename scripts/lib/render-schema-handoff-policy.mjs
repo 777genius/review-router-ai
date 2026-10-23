@@ -275,6 +275,22 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Optional reasoning changes only checkout nullability, not managed92 authority.
+  const optionalReasoningMigration = catalog.find(
+    (row) => row.migrationName === "000142_optional_gateway_reasoning",
+  );
+  if (optionalReasoningMigration) {
+    if (
+      optionalReasoningMigration.checksum !==
+        "4414e3473290c6252cc06b9b5a10852cac5a93070c5b59c1b5c260113081b2c0" ||
+      manifest(catalog) !==
+        "sha256:a0cd29f30a38777a777aad492da123023a0c5258ed093589643655c96ebb5d7f"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== optionalReasoningMigration),
+    );
+  }
   // Memory projection receipts are checkout-only. Admit the exact SQL and
   // complete checkout141 before reducing to the previously qualified checkout.
   const memoryProjectionMigration = catalog.find(

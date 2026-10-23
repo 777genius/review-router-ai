@@ -525,7 +525,7 @@ model ReviewConfigurationVersion {
   providerKind                            String
   providerAuthMode                        String
   model                                   String
-  reasoningEffort                         String
+  reasoningEffort                         String?
   agenticContext                          Boolean  @default(true)
   fastMode                                Boolean  @default(false)
   failOnSeverity                          String
@@ -564,7 +564,7 @@ model ReviewConfigurationVersionProvider {
   providerKind           String
   providerAuthMode       String
   model                  String
-  reasoningEffort        String
+  reasoningEffort        String?
   agenticContext         Boolean @default(true)
   fastMode               Boolean @default(false)
   requiredHealthy        Boolean @default(false)

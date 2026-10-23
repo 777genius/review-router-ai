@@ -10,6 +10,7 @@ import {
   BASELINE_REVISION,
   PROBE_FIXTURE_BOUNDARY,
   LIMITS_FIXTURE_BOUNDARY,
+  SUBSCRIPTION_FIXTURE_BOUNDARY,
   FIXTURES,
   type FixtureSecrets,
   type RuntimeDescriptor,
@@ -30,11 +31,13 @@ type TestSummary = {
 };
 
 async function main(): Promise<void> {
-  const fixtureBoundary = process.argv.includes("--limits-fixture")
-    ? LIMITS_FIXTURE_BOUNDARY
-    : process.argv.includes("--probe-fixture")
-      ? PROBE_FIXTURE_BOUNDARY
-      : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
+  const fixtureBoundary = process.argv.includes("--subscription-fixture")
+    ? SUBSCRIPTION_FIXTURE_BOUNDARY
+    : process.argv.includes("--limits-fixture")
+      ? LIMITS_FIXTURE_BOUNDARY
+      : process.argv.includes("--probe-fixture")
+        ? PROBE_FIXTURE_BOUNDARY
+        : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
   const options = parseCliOptions(process.argv);
   await ensureWorkDir(options.workDir);
   const revision = await readRevision(options.repoRoot);
@@ -121,6 +124,7 @@ async function main(): Promise<void> {
         resultJson: join(options.workDir, "playwright-result.json"),
         viewerCookie: viewer.header,
         otherCookie: other.header,
+        browserExecutable: options.browserExecutable,
       });
     }
   } catch (error) {
@@ -228,6 +232,7 @@ async function runPlaywright(input: {
   resultJson: string;
   viewerCookie: string;
   otherCookie: string;
+  browserExecutable: string | null;
 }): Promise<TestSummary> {
   const playwrightBin = join(harnessRoot, "node_modules", ".bin", "playwright");
   await new Promise<void>((resolveRun, rejectRun) => {
@@ -240,6 +245,11 @@ async function runPlaywright(input: {
           ...process.env,
           ACCOUNTS_REFERENCE_E2E_BASE_URL: input.appUrl,
           ACCOUNTS_REFERENCE_E2E_GATEWAY_URL: input.gatewayUrl,
+          ACCOUNTS_REFERENCE_E2E_SUBSCRIPTIONS: process.argv.includes(
+            "--subscription-fixture",
+          )
+            ? "1"
+            : "0",
           ACCOUNTS_REFERENCE_E2E_LIMITS: process.argv.includes(
             "--limits-fixture",
           )
@@ -257,6 +267,12 @@ async function runPlaywright(input: {
           ACCOUNTS_REFERENCE_E2E_RESULT_JSON: input.resultJson,
           ACCOUNTS_REFERENCE_E2E_VIEWER_COOKIE: input.viewerCookie,
           ACCOUNTS_REFERENCE_E2E_OTHER_COOKIE: input.otherCookie,
+          ...(input.browserExecutable
+            ? {
+                ACCOUNTS_REFERENCE_E2E_BROWSER_EXECUTABLE:
+                  input.browserExecutable,
+              }
+            : {}),
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "0",
         },
         maxBuffer: 20 * 1024 * 1024,

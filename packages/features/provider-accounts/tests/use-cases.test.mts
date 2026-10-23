@@ -4,6 +4,7 @@ import type { WorkspaceAccessRepositoryPort } from "@reviewrouter/features-auth"
 import type { ProviderAccountRepositoryPort } from "../src/application/ports/provider-account-repository-port";
 import {
   bindWorkspaceAccount,
+  changeOperatorWorkspaceAccountGrant,
   resolveWorkspaceAccountBinding,
   revokeWorkspaceAccountBinding,
 } from "../src/application/use-cases/workspace-account-bindings";
@@ -644,4 +645,167 @@ test("personal OAuth intent snapshots method and preserves legacy browser identi
       }),
     denied("invalid_input"),
   );
+});
+
+test("GLM rejects forged workspace-owned attachment before writing a binding", async () => {
+  const f = fixture();
+  f.setConnection({
+    ...connection,
+    profileRef: "glm-coding-global-responses-apikey-v1",
+  });
+  await assert.rejects(() => bind(f), denied("workspace_forbidden"));
+  await assert.rejects(() => resolve(f), denied("binding_unavailable"));
+});
+
+test("GLM selection requires the actual personal owner, without login overrides", async () => {
+  const f = fixture();
+  await bind(f);
+  const source: ProviderAccountConnection = {
+    ...connection,
+    profileRef: "glm-coding-global-responses-apikey-v1",
+    owner: { kind: "user", userId: actor.userId },
+    authorizationEpochMirror: 1,
+  };
+  const personalUse = {
+    workspaceId: scope.workspaceId,
+    personalOwnerUserId: actor.userId,
+    donorUserId: actor.userId,
+    donorRole: null,
+  };
+  const existing = await f.dependencies.accounts.findBinding({
+    workspaceId: scope.workspaceId,
+    bindingId: "binding-test",
+  });
+  const dependencies = {
+    ...f.dependencies,
+    accounts: {
+      ...f.dependencies.accounts,
+      async findBinding() {
+        return { binding: existing!.binding, connection: source, personalUse };
+      },
+    },
+    localAdminGithubLogins: [actor.githubLogin],
+  };
+  const request = {
+    workspaceId: scope.workspaceId,
+    bindingId: "binding-test",
+    actor,
+  };
+  assert.equal(
+    (await resolveWorkspaceAccountBinding(request, dependencies))
+      .expectedAuthorizationEpoch,
+    1,
+  );
+  await assert.rejects(
+    () =>
+      resolveWorkspaceAccountBinding(
+        { ...request, actor: { ...actor, userId: "foreign-user" } },
+        dependencies,
+      ),
+    denied("workspace_forbidden"),
+  );
+  await assert.rejects(
+    () =>
+      resolveWorkspaceAccountBinding(
+        {
+          ...request,
+          actor: {
+            githubUserId: actor.githubUserId,
+            githubLogin: actor.githubLogin,
+          },
+        },
+        dependencies,
+      ),
+    denied("workspace_forbidden"),
+  );
+});
+
+test("GLM operator grant is denied before the grant writer", async () => {
+  const f = fixture();
+  f.setConnection({
+    ...connection,
+    profileRef: "glm-coding-global-responses-apikey-v1",
+  });
+  let writes = 0;
+  await assert.rejects(
+    () =>
+      changeOperatorWorkspaceAccountGrant(
+        { ...scope, actor, expectedRevision: 0, state: "active" },
+        {
+          ...f.dependencies,
+          operatorWorkspaceId: scope.workspaceId,
+          operatorGrants: {
+            async compareAndSetOperatorBinding() {
+              writes++;
+              throw new Error("unexpected write");
+            },
+          },
+        },
+      ),
+    denied("workspace_forbidden"),
+  );
+  assert.equal(writes, 0);
+});
+
+test("GLM personal attach refuses organization grants before Gateway reads or store mutation", async () => {
+  const { attachPersonalAccount } =
+    await import("../src/application/use-cases/personal-account-operations");
+  const unexpected = async (): Promise<never> => {
+    throw new Error("unexpected effect");
+  };
+  let gatewayReads = 0;
+  let writes = 0;
+  await assert.rejects(
+    () =>
+      attachPersonalAccount(
+        {
+          action: "attach",
+          actorUserId: actor.userId,
+          clientOperationId: "glm-attach-operation",
+          personalWorkspaceId: "personal-workspace",
+          sourceId: connection.id,
+          targetWorkspaceId: "organization",
+          expectedSourceMetadataRevision: 1,
+          expectedGatewayRevision: 1,
+          predecessorBindingId: null,
+          expectedPredecessorRevision: null,
+        },
+        {
+          store: {
+            listOwnedSources: unexpected,
+            resolvePersonalWorkspace: unexpected,
+            async findOwnedSource() {
+              return {
+                ...connection,
+                profileRef: "glm-coding-global-responses-apikey-v1",
+                owner: { kind: "user", userId: actor.userId },
+              };
+            },
+            reserveConnect: unexpected,
+            claimConnect: unexpected,
+            async readOperation() {
+              throw new ProviderAccountError("not_found");
+            },
+            noteConnectPhase: unexpected,
+            finalizeConnect: unexpected,
+            async attach() {
+              writes++;
+              return unexpected();
+            },
+            revoke: unexpected,
+            changeEligibility: unexpected,
+          },
+          gateway: {
+            async get() {
+              gatewayReads++;
+              return unexpected();
+            },
+            operation: unexpected,
+          },
+        },
+      ),
+    denied("workspace_forbidden"),
+  );
+  assert.equal(gatewayReads, 0);
+  assert.equal(writes, 0);
 });
