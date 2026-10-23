@@ -46,7 +46,11 @@ or staging skipped.
 `scripts/worker-ops/mimo-capacity-clear.mjs` resets the gate record through the
 store API (`tryClaimRecheck` with `Refresh`, then `resolveRecheck` with
 `Available`). `scripts/worker-ops/mimo-capacity-state.mjs` dumps the current
-phase/capacity read-only.
+phase/capacity read-only. Both default to
+`MODEL_BACKEND=xiaomi-mimo-token-plan`, `ACCOUNT_ID=account-q`, and
+`POOL_DIR=/srv/worker-state/account-pools/live-codex-auth` (overridable via
+env); the `mimo-token-plan` name above is the store namespace segment, not a
+valid `MODEL_BACKEND` value.
 
 Clearing the gate record does **not** clear provider-side quota: the first
 provider request writes a fresh limit right back if the quota is truly
@@ -74,8 +78,11 @@ false`, attempt journal `status=blocked reason=quota_limited`. Other projects'
   account (device-auth; it helps only if the limit is account-scoped), or wait
   out an hourly/daily window.
 - `scripts/worker-ops/mimo-quota-window-watch.py` passively scans attempt
-  journals and exits with `WINDOW_OPEN` when any job shows real output — run it
-  under `nohup`, probe once after it fires.
+  journals and exits with `WINDOW_OPEN` when a recent journal change shows
+  observed output (`outputObserved` is serialized as the string `"true"`) or the
+  last attempt status is `completed`/`succeeded`/`running` — any job getting
+  that far means the account has capacity. Run it under `nohup`, probe once
+  after it fires.
 - Never substitute a different model to work around a MiMo quota block.
 
 ## Stopping a job

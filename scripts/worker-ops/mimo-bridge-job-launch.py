@@ -129,21 +129,25 @@ def main():
 
     staged = False
     if launched and file_ok:
-        plan_dest = os.path.join(ws, args.plan_dest)
-        os.makedirs(os.path.dirname(plan_dest), exist_ok=True)
-        with open(args.plan_src, "rb") as f:
-            data = f.read()
-        with open(plan_dest, "wb") as f:
-            f.write(data)
-        for root, dirs, files in os.walk(ws):
-            for name in files:
-                if name.startswith("._"):
-                    try:
-                        os.unlink(os.path.join(root, name))
-                    except OSError:
-                        pass
-        staged = True
-        print("%s STAGED %s (%d bytes)" % (stamp(), plan_dest, len(data)), flush=True)
+        try:
+            plan_dest = os.path.join(ws, args.plan_dest)
+            os.makedirs(os.path.dirname(plan_dest), exist_ok=True)
+            with open(args.plan_src, "rb") as f:
+                data = f.read()
+            with open(plan_dest, "wb") as f:
+                f.write(data)
+        except OSError as exc:
+            print("%s STAGE_FAILED %s" % (stamp(), exc), flush=True)
+        else:
+            for root, dirs, files in os.walk(ws):
+                for name in files:
+                    if name.startswith("._"):
+                        try:
+                            os.unlink(os.path.join(root, name))
+                        except OSError:
+                            pass
+            staged = True
+            print("%s STAGED %s (%d bytes)" % (stamp(), plan_dest, len(data)), flush=True)
     else:
         print("%s NOT_STAGING launched=%s file_ok=%s" % (stamp(), launched, file_ok), flush=True)
 
