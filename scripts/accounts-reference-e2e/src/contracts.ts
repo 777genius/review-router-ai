@@ -10,6 +10,9 @@ export const SKILLS_FIXTURE_BOUNDARY =
 export const PROBE_FIXTURE_BOUNDARY =
   "Real browser and controlled Gateway HTTP inference transport; no live model provider or native lifecycle proof" as const;
 
+export const LIMITS_FIXTURE_BOUNDARY =
+  "Real browser and RR authorization/SSR over controlled Gateway cached-limits HTTP; no live native/provider quota proof" as const;
+
 export const FIXTURES = Object.freeze({
   users: {
     viewer: "rr-e2e-user-viewer-0001",
@@ -49,6 +52,7 @@ export const FIXTURES = Object.freeze({
   },
   sources: {
     viewerPrimary: "rr-e2e-source-viewer-primary",
+    viewerClaude: "rr-e2e-source-viewer-claude",
     viewerLegacyDisabled: "rr-e2e-source-viewer-legacy-disabled",
     viewerSuspendedCapable: "rr-e2e-source-viewer-suspended-capable",
     otherPrimary: "rr-e2e-source-other-primary",
@@ -57,6 +61,7 @@ export const FIXTURES = Object.freeze({
   },
   sourceLabels: {
     viewerPrimary: "RR E2E Viewer Primary",
+    viewerClaude: "RR E2E Claude OAuth",
     viewerLegacyDisabled: "RR E2E Legacy Disabled",
     viewerSuspendedCapable: "RR E2E Suspended Capable",
     otherPrimary: "RR E2E Other Person Primary",
@@ -65,8 +70,10 @@ export const FIXTURES = Object.freeze({
   },
   gateway: {
     profileId: "rr-e2e-profile-mimo",
+    claudeProfileId: "anthropic-claude-oauth-messages-v1",
     accounts: {
       viewerPrimary: "rr-e2e-account-viewer-primary",
+      viewerClaude: "rr-e2e-account-viewer-claude",
       viewerLegacyDisabled: "rr-e2e-account-viewer-legacy-disabled",
       viewerSuspendedCapable: "rr-e2e-account-viewer-suspended-capable",
       otherPrimary: "rr-e2e-account-other-primary",
@@ -76,6 +83,7 @@ export const FIXTURES = Object.freeze({
   },
   bindings: {
     viewerAlpha: "rr-e2e-binding-viewer-alpha",
+    viewerClaudeAlpha: "rr-e2e-binding-viewer-claude-alpha",
     viewerBravo: "rr-e2e-binding-viewer-bravo",
     otherAlpha: "rr-e2e-binding-other-alpha",
     orgAlpha: "rr-e2e-binding-org-alpha",
@@ -122,6 +130,7 @@ export type RuntimeDescriptor = {
   readonly externalNetworkAllowed: false;
   readonly fixtureBoundary:
     | typeof SKILLS_FIXTURE_BOUNDARY
+    | typeof LIMITS_FIXTURE_BOUNDARY
     | typeof PROBE_FIXTURE_BOUNDARY
     | "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof"
     | "not-used";

@@ -8,6 +8,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { FIXTURES, type FixtureSecrets } from "./contracts.ts";
+import { createLimitsFixture } from "./limits-fixture.ts";
 
 type WireAccount = {
   readonly accountRef: string;
@@ -84,7 +85,22 @@ export async function startGatewayFixture(input: {
       "active",
       1,
     ),
+    ...(process.argv.includes("--limits-fixture")
+      ? [
+          wire(
+            FIXTURES.gateway.accounts.viewerClaude,
+            ownerForUser(FIXTURES.users.viewer),
+            FIXTURES.sourceLabels.viewerClaude,
+            "active",
+            1,
+            FIXTURES.gateway.claudeProfileId,
+          ),
+        ]
+      : []),
   ];
+  const limits = process.argv.includes("--limits-fixture")
+    ? createLimitsFixture(accounts)
+    : null;
   const probes = new Map<
     string,
     { admission: Record<string, unknown>; bearer: string }
@@ -183,6 +199,11 @@ export async function startGatewayFixture(input: {
         request.headers["x-reviewrouter-probe-proof"],
       );
       send(response, result.status, result.body);
+      return;
+    }
+    if (limits && requestUrl.pathname === "/__limits-fixture") {
+      if (request.method === "POST") limits.configure(await readJson(request));
+      send(response, 200, limits.stats());
       return;
     }
     // Opt-in synthetic transport contract; never enabled in product code.
@@ -323,6 +344,17 @@ export async function startGatewayFixture(input: {
       send(response, 401, safeError("unauthenticated", "rr-e2e-gateway-auth"));
       return;
     }
+    if (limits) {
+      const result = await limits.handle(
+        request.method ?? "GET",
+        requestUrl.pathname,
+        () => readJson(request),
+      );
+      if (result) {
+        send(response, result.status, result.body);
+        return;
+      }
+    }
     if (
       process.argv.includes("--lifecycle-fixture") &&
       request.method === "GET"
@@ -368,6 +400,16 @@ export async function startGatewayFixture(input: {
             modelIds: ["rr-e2e-model"],
             authKinds: ["api_key"],
           },
+          ...(limits
+            ? [
+                {
+                  profileId: FIXTURES.gateway.claudeProfileId,
+                  protocol: "openai-responses",
+                  modelIds: ["claude-sonnet-4-6"],
+                  authKinds: ["oauth"],
+                },
+              ]
+            : []),
         ],
       });
       return;
@@ -473,11 +515,12 @@ function wire(
   displayName: string,
   state: WireAccount["state"],
   metadataRevision: number,
+  profileId: string = FIXTURES.gateway.profileId,
 ): WireAccount {
   return {
     accountRef,
     ownerRef,
-    profileId: FIXTURES.gateway.profileId,
+    profileId,
     displayName,
     state,
     metadataRevision: state === "suspended" ? 2 : metadataRevision,

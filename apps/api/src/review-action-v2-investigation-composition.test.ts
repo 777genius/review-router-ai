@@ -1273,6 +1273,7 @@ const allowingRollout = {
 const now = new Date("2026-08-02T10:00:00.000Z");
 const revisionHash = sha("revision");
 const authorization = {
+  schemaDigest: reviewActionV2PublishedSchemaDigest,
   authorizationId: "authorization-1",
   mutationEpoch: 1n,
   state: ReviewRunAuthorizationState.Active,

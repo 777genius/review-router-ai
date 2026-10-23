@@ -155,6 +155,9 @@ async function startPgliteFixture(dataDir: string): Promise<{
 }> {
   await mkdir(dataDir, { recursive: true });
   const db = await PGlite.create({ dataDir });
+  // PGlite inherits the host zone and its socket ignores PostgreSQL startup
+  // options. Match the real adapter's UTC session contract before serving it.
+  await db.exec("SET TIME ZONE 'UTC'");
   const socket = new PGLiteSocketServer({
     db,
     host: "127.0.0.1",
@@ -315,6 +318,11 @@ export function applicationEnvironment(input: {
     REVIEW_ROUTER_ENABLE_DASHBOARD_MUTATIONS: "1",
     REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS:
       randomBytes(32).toString("base64url"),
+    // Synthetic operator authority for usage acceptance, including full-suite runs.
+    ...(!process.env.ACCOUNTS_REFERENCE_E2E_GREP ||
+    process.env.ACCOUNTS_REFERENCE_E2E_GREP.includes("provider usage")
+      ? { ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID: FIXTURES.workspaces.orgAlpha }
+      : {}),
     ...(process.argv.includes("--catalog-fixture")
       ? { REVIEW_ROUTER_ENABLE_CODEX_ROTATING_OAUTH: "1" }
       : {}),
@@ -333,6 +341,12 @@ export function applicationEnvironment(input: {
     REVIEW_ROUTER_ACCOUNT_GATEWAY_PERSONAL_CONTROL_TOKEN:
       input.secrets.personalControlToken,
     REVIEW_ROUTER_ACCOUNT_GATEWAY_MIMO_PROFILE_ID: FIXTURES.gateway.profileId,
+    ...(process.argv.includes("--limits-fixture")
+      ? {
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_CLAUDE_OAUTH_PROFILE_ID:
+            FIXTURES.gateway.claudeProfileId,
+        }
+      : {}),
     TMPDIR: input.tmpDir,
   };
 }
@@ -350,6 +364,13 @@ async function seedFixtures(
     await client.query("BEGIN");
     await client.query("SET LOCAL TIME ZONE 'UTC'");
     await client.query(SQL_SEED);
+    if (process.argv.includes("--limits-fixture"))
+      await client.query(`
+      INSERT INTO "ProviderAccountConnection" ("id", "ownerUserId", "ownerWorkspaceId", "gatewayAccountRef", "gatewayOperationRef", "profileRef", "displayName", "state", "metadataRevision", "authorizationEpochMirror", "updatedAt")
+      VALUES ('${FIXTURES.sources.viewerClaude}', '${FIXTURES.users.viewer}', NULL, '${FIXTURES.gateway.accounts.viewerClaude}', NULL, '${FIXTURES.gateway.claudeProfileId}', '${FIXTURES.sourceLabels.viewerClaude}', 'active', 1, 1, CURRENT_TIMESTAMP);
+      INSERT INTO "WorkspaceAccountBinding" ("id", "workspaceId", "connectionId", "state", "revision", "policyRevision", "updatedAt")
+      VALUES ('${FIXTURES.bindings.viewerClaudeAlpha}', '${FIXTURES.workspaces.orgAlpha}', '${FIXTURES.sources.viewerClaude}', 'active', 1, 1, CURRENT_TIMESTAMP);
+    `);
     const policy = (await import(
       pathToFileURL(
         join(
@@ -382,6 +403,17 @@ async function seedFixtures(
         FIXTURES.sources.viewerPrimary,
         FIXTURES.workspaces.orgBravo,
       ],
+      ...(process.argv.includes("--limits-fixture")
+        ? [
+            [
+              FIXTURES.bindings.viewerClaudeAlpha,
+              FIXTURES.users.viewer,
+              FIXTURES.workspaces.personalViewer,
+              FIXTURES.sources.viewerClaude,
+              FIXTURES.workspaces.orgAlpha,
+            ] as const,
+          ]
+        : []),
       [
         FIXTURES.bindings.otherAlpha,
         FIXTURES.users.other,

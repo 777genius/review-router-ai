@@ -24,6 +24,7 @@ import {
   type WorkspaceAccountActor,
   type WorkspaceBindingFenceRepositoryPort,
   type ScopedBindingFence,
+  type SafeBindingTuple,
 } from "@reviewrouter/features-provider-accounts";
 import {
   PrismaProviderAccountSynchronization,
@@ -44,6 +45,13 @@ import {
   suggestedAccountLabel,
 } from "../features/account-gateway/connection-options";
 import type { AccountUsageView } from "./account-usage";
+import type { AccountLimitsView } from "@reviewrouter/features-provider-accounts";
+export type { AccountLimitsView } from "@reviewrouter/features-provider-accounts";
+import {
+  createAccountLimitsService,
+  type AccountLimitsService,
+} from "./account-limits-service";
+import { accountLimitsReader } from "./account-limits-composition";
 
 // This module is imported at runtime only by RSC/server actions. Client imports are type-only.
 export type AccountsResult<T> =
@@ -63,6 +71,7 @@ export type AccountProfileView = {
   // The authorized adapter always supplies both from its configured catalog.
   authKind?: c.Profile["authKinds"][number];
   canReconnect?: boolean;
+  oauthMethods?: readonly ("device_code" | "browser")[];
   // Trusted deployment binding to the Gateway's fixed profile, never a caller override.
   dedicatedBaseURL?: string;
 };
@@ -115,6 +124,7 @@ export type AccountView = {
   } | null;
   // Optional display projection; older safe bootstrap consumers may omit it.
   usage?: AccountUsageView;
+  limits?: AccountLimitsView;
 };
 export type AccountsPage = {
   canGrantOperatorUse?: boolean;
@@ -150,12 +160,7 @@ export type AccountOAuthReconnectIntent = {
   gatewayRevision: number;
   mirrorRevision: number;
 };
-export type AccountOAuthCompletion = Pick<
-  secretSubmission.OAuthComplete,
-  "callbackURL"
-> & {
-  nonce: string;
-};
+export type AccountOAuthCompletion = z.infer<typeof oauthCompletionSchema>;
 // A fresh Begin response is a one-off handoff, never list/operation/cache metadata.
 export type AccountOAuthBeginView = {
   operation: AccountOperationView;
@@ -201,6 +206,16 @@ const existing = {
   mirrorRevision,
 };
 const codexOAuthProfileId = "openai-codex-oauth-responses-v1";
+const claudeOAuthProfileId = "anthropic-claude-oauth-messages-v1";
+function oauthMethodFor(
+  profile: Pick<AccountProfileView, "oauthMethods">,
+  requested?: "device_code" | "browser",
+) {
+  const allowed = profile.oauthMethods ?? ["device_code", "browser"];
+  const method = requested ?? allowed[0];
+  if (!method || !allowed.includes(method)) throw new Denied();
+  return method;
+}
 const oauthIntentSchema = z.strictObject({
   nonce: uuid,
   profileId: c.reference,
@@ -217,12 +232,23 @@ const oauthBeginIntentSchema = z.union([
     method: z.enum(["device_code", "browser"]).optional(),
   }),
 ]);
-// The SDK owns the closed callback URL grammar. Snapshot its sensitive field
-// before any await; no URL/code/state is retained in an intent or safe view.
-const oauthCompletionSchema = z.strictObject({
-  nonce: uuid,
-  callbackURL: secretSubmission.oauthCallbackURL,
-});
+// The SDK owns both closed credential grammars. Snapshot before any await;
+// no URL/code/state is retained in an intent or safe view.
+const oauthCompletionSchema = z.union([
+  z.strictObject({
+    nonce: uuid,
+    callbackURL: secretSubmission.oauthCallbackURL,
+  }),
+  z.strictObject({
+    nonce: uuid,
+    authorizationCode: secretSubmission.claudeOAuthAuthorizationCode,
+  }),
+]);
+function oauthCompletionCredential(intent: AccountOAuthCompletion) {
+  return "authorizationCode" in intent
+    ? { authorizationCode: intent.authorizationCode }
+    : { callbackURL: intent.callbackURL };
+}
 export function snapshotOAuthCompletion(raw: AccountOAuthCompletion) {
   return oauthCompletionSchema.parse(raw);
 }
@@ -278,6 +304,7 @@ function safeFailure(error: unknown): AccountsResult<never> {
  * No credential/intent ledger. Actual HTTP effects are performed only by the pinned SDK.
  */
 export function createAccountsAdapter(input: {
+  limits?(context: string): Promise<AccountLimitsService>;
   authorize(context: string): Promise<Authority>;
   gateway: ManagementClient;
   accounts: ProviderAccountAccountsQueryPort;
@@ -287,6 +314,7 @@ export function createAccountsAdapter(input: {
   apiKeyProfiles: ReadonlyMap<string, "MiMo" | "OpenRouter">;
   apiKeyProfileBaseURLs?: ReadonlyMap<string, string>;
   codexOAuthProfileId?: typeof codexOAuthProfileId;
+  claudeOAuthProfileId?: typeof claudeOAuthProfileId;
 }) {
   const { gateway, accounts, synchronization, bindingDependencies } = input;
   const approved = new Map<
@@ -297,7 +325,7 @@ export function createAccountsAdapter(input: {
         "label" | "authKind" | "canReconnect" | "provider"
       >
     > &
-      Pick<AccountProfileView, "dedicatedBaseURL">
+      Pick<AccountProfileView, "dedicatedBaseURL" | "oauthMethods">
   >(
     [...input.apiKeyProfiles].map(([id, name]) => [
       id,
@@ -325,6 +353,19 @@ export function createAccountsAdapter(input: {
       provider: "codex",
       authKind: "oauth",
       canReconnect: true,
+      oauthMethods: ["device_code", "browser"],
+    });
+  }
+  if (input.claudeOAuthProfileId !== undefined) {
+    z.literal(claudeOAuthProfileId).parse(input.claudeOAuthProfileId);
+    if (approved.has(claudeOAuthProfileId))
+      throw new Error("accounts_unavailable");
+    approved.set(claudeOAuthProfileId, {
+      label: "Claude",
+      provider: "claude",
+      authKind: "oauth",
+      canReconnect: true,
+      oauthMethods: ["browser"],
     });
   }
   async function deliverBindingFence(scope: {
@@ -678,6 +719,7 @@ export function createAccountsAdapter(input: {
       for (const account of page.accounts)
         verified(account, authority, catalogue);
       const rows: AccountView[] = [];
+      const operatorBindings = new Map<string, SafeBindingTuple>();
       for (const listed of page.accounts) {
         const prior = await accounts.findOwnedConnectionByGatewayRef({
           workspaceId: authority.workspaceId,
@@ -727,8 +769,9 @@ export function createAccountsAdapter(input: {
           )
             throw new Denied();
           if (grant.connection.state !== "active") continue;
+          let binding: SafeBindingTuple;
           try {
-            await resolveWorkspaceAccountBinding(
+            binding = await resolveWorkspaceAccountBinding(
               {
                 workspaceId: authority.workspaceId,
                 bindingId: grant.binding.id,
@@ -773,17 +816,53 @@ export function createAccountsAdapter(input: {
           if (
             projected.binding?.state === "active" &&
             !projected.binding.fencePending
-          )
+          ) {
             rows.push(projected);
+            operatorBindings.set(projected.connectionId, binding);
+          }
         }
         if (grants.length === 25)
           nextCursor = `rrgrant_${grants[24]!.binding.id}`;
       }
+      const canGrantOperatorUse = await isOperatorAdmin(authority);
+      const enriched = input.limits
+        ? await (await input.limits(context)).page(rows)
+        : rows;
+      const currentRows: AccountView[] = [];
+      // Limits may await other owned accounts. Recheck each operator grant's
+      // exact binding lifetime before releasing any of its private metadata.
+      for (const row of enriched) {
+        const original = operatorBindings.get(row.connectionId);
+        if (original) {
+          try {
+            const current = await resolveWorkspaceAccountBinding(
+              {
+                workspaceId: authority.workspaceId,
+                bindingId: original.bindingId,
+                actor: authority.actor,
+              },
+              bindingDependencies,
+            );
+            if (JSON.stringify(current) !== JSON.stringify(original)) continue;
+          } catch (error) {
+            if (
+              error instanceof ProviderAccountError &&
+              ["binding_unavailable", "connection_unavailable"].includes(
+                error.code,
+              )
+            )
+              continue;
+            throw error;
+          }
+        }
+        currentRows.push(row);
+      }
+      await client.reauthorize();
       return {
         status: "ok",
         value: {
-          canGrantOperatorUse: await isOperatorAdmin(authority),
-          accounts: rows,
+          canGrantOperatorUse,
+          accounts: currentRows,
           profiles: catalogue,
           nextCursor,
         },
@@ -963,7 +1042,7 @@ export function createAccountsAdapter(input: {
         fresh = await client.beginOAuthReconnect(account.accountRef, {
           operationId: operationRef(authority.owner, intent.nonce),
           expectedMetadataRevision: account.metadataRevision,
-          ...(intent.method ? { method: intent.method } : {}),
+          method: oauthMethodFor(profile, intent.method),
         });
       } else {
         const profile = catalogue.find(
@@ -976,7 +1055,7 @@ export function createAccountsAdapter(input: {
           ownerRef: authority.owner,
           profileId: intent.profileId,
           displayName: intent.label || suggestedAccountLabel(profile.label),
-          ...(intent.method ? { method: intent.method } : {}),
+          method: oauthMethodFor(profile, intent.method),
         });
       }
       const operation = await projectOperation(
@@ -1028,11 +1107,16 @@ export function createAccountsAdapter(input: {
         entered = true;
       });
       const catalogue = await profiles(client);
-      if (!catalogue.some((p) => p.authKind === "oauth")) throw new Denied();
+      const profileId =
+        "authorizationCode" in intent
+          ? claudeOAuthProfileId
+          : codexOAuthProfileId;
+      if (!catalogue.some((p) => p.id === profileId && p.authKind === "oauth"))
+        throw new Denied();
       const request = secretSubmission.oauthComplete.parse({
         operationId: operationRef(authority.owner, nonce),
         ownerRef: authority.owner,
-        callbackURL: intent.callbackURL,
+        ...oauthCompletionCredential(intent),
       });
       const original = await client.operation(request.operationId);
       if (original.operationRef !== request.operationId) throw new Denied();
@@ -1049,7 +1133,7 @@ export function createAccountsAdapter(input: {
         returned,
         catalogue,
         client,
-        { profileId: codexOAuthProfileId },
+        { profileId },
       );
       await client.reauthorize();
       return { status: "ok", value: result };
@@ -1404,6 +1488,18 @@ export function createAccountsAdapter(input: {
     }
   }
   return {
+    async limits(
+      context: string,
+      connectionId: string,
+    ): Promise<AccountsResult<AccountLimitsView>> {
+      try {
+        await authorize(context);
+        if (!input.limits) return { status: "unavailable" };
+        return (await input.limits(context)).read(connectionId);
+      } catch (error) {
+        return safeFailure(error);
+      }
+    },
     list,
     mutate,
     beginOAuth,
@@ -1510,6 +1606,9 @@ export function createDisabledPersonalAccountsAdapter(input: {
         original.intent.action !== "connect" ||
         original.intent.ingress !== "oauth-begin" ||
         profiles.get(original.intent.profileId) !== "oauth-begin" ||
+        (completion &&
+          (original.intent.profileId === claudeOAuthProfileId) !==
+            "authorizationCode" in safe) ||
         (completion
           ? original.intent.method === "device_code"
           : original.intent.method !== "device_code")
@@ -1552,8 +1651,7 @@ export function createDisabledPersonalAccountsAdapter(input: {
             client.completeOAuth(
               secretSubmission.oauthComplete.parse({
                 ...request,
-                callbackURL:
-                  "callbackURL" in safe ? safe.callbackURL : undefined,
+                ...oauthCompletionCredential(safe as AccountOAuthCompletion),
               }),
             ),
           );
@@ -1670,6 +1768,12 @@ export function createDisabledPersonalAccountsAdapter(input: {
         throw new ProviderAccountError("invalid_input");
       if (ingress === "oauth-begin" && key !== undefined)
         throw new ProviderAccountError("invalid_input");
+      if (
+        ingress === "oauth-begin" &&
+        safe.profileId === claudeOAuthProfileId &&
+        safe.method === "device_code"
+      )
+        throw new ProviderAccountError("invalid_input");
       const personalWorkspaceId =
         await input.store.resolvePersonalWorkspace(actorUserId);
       const intent = snapshotPersonalIntent({
@@ -1681,7 +1785,11 @@ export function createDisabledPersonalAccountsAdapter(input: {
         profileId: safe.profileId,
         displayName: safe.label,
         ingress,
-        ...(safe.method ? { method: safe.method } : {}),
+        ...(ingress === "oauth-begin" && safe.profileId === claudeOAuthProfileId
+          ? { method: "browser" as const }
+          : safe.method
+            ? { method: safe.method }
+            : {}),
       }) as PersonalAccountIntent & { action: "connect" };
       let authorizationURL: string | undefined;
       let deviceAuthorization: AccountOAuthBeginView["deviceAuthorization"];
@@ -1791,7 +1899,13 @@ export function accountGatewayProfilesConfiguration() {
     configuredOAuth === undefined || configuredOAuth === ""
       ? undefined
       : z.literal(codexOAuthProfileId).parse(configuredOAuth);
-  if (!apiKeyProfiles.size && !oauthProfile)
+  const configuredClaude =
+    process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_CLAUDE_OAUTH_PROFILE_ID;
+  const claudeProfile =
+    configuredClaude === undefined || configuredClaude === ""
+      ? undefined
+      : z.literal(claudeOAuthProfileId).parse(configuredClaude);
+  if (!apiKeyProfiles.size && !oauthProfile && !claudeProfile)
     throw new Error("accounts_unavailable");
   // Operator pairs this public URL with the exact fixed Gateway service profile.
   // Missing binding preserves legacy ingress; it cannot advertise a URL option.
@@ -1816,6 +1930,7 @@ export function accountGatewayProfilesConfiguration() {
     apiKeyProfiles,
     apiKeyProfileBaseURLs,
     ...(oauthProfile ? { codexOAuthProfileId: oauthProfile } : {}),
+    ...(claudeProfile ? { claudeOAuthProfileId: claudeProfile } : {}),
   };
 }
 function configuration() {
@@ -1847,6 +1962,37 @@ async function production() {
     readPersonalAccountSharingEnabled(process.env),
   );
   const access = new PrismaWorkspaceAccessRepository(prisma);
+  async function authorizeContext(context: string) {
+    const [body, signature, extra] = context.split(".");
+    if (!body || !signature || extra || !/^[A-Za-z0-9_-]+$/.test(body))
+      throw new Denied();
+    const expected = Buffer.from(contextSignature(body, settings.contextKey));
+    const actual = Buffer.from(signature);
+    if (actual.length !== expected.length || !timingSafeEqual(actual, expected))
+      throw new Denied();
+    const saved = z
+      .strictObject({ workspaceId: c.reference, userId: c.reference })
+      .parse(JSON.parse(Buffer.from(body, "base64url").toString("utf8")));
+    const currentActor = await getDashboardSignedInActor();
+    if (!currentActor || currentActor.userId !== saved.userId)
+      throw new Denied();
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: saved.workspaceId },
+      select: { id: true, personalOwnerUserId: true },
+    });
+    if (!workspace || workspace.personalOwnerUserId !== null)
+      throw new Denied();
+    const actor = await assertDashboardWorkspaceAdminAllowed(workspace.id);
+    if (actor.userId !== saved.userId) throw new Denied();
+    return {
+      workspaceId: workspace.id,
+      actor: {
+        userId: actor.userId,
+        githubUserId: actor.githubUserId ?? "",
+        githubLogin: actor.githubLogin ?? "",
+      },
+    };
+  }
   const adapter = createAccountsAdapter({
     ...settings,
     accounts,
@@ -1866,39 +2012,33 @@ async function production() {
         .map((v) => v.trim())
         .filter(Boolean),
     },
-    async authorize(context) {
-      const [body, signature, extra] = context.split(".");
-      if (!body || !signature || extra || !/^[A-Za-z0-9_-]+$/.test(body))
-        throw new Denied();
-      const expected = Buffer.from(contextSignature(body, settings.contextKey));
-      const actual = Buffer.from(signature);
-      if (
-        actual.length !== expected.length ||
-        !timingSafeEqual(actual, expected)
-      )
-        throw new Denied();
-      const saved = z
-        .strictObject({ workspaceId: c.reference, userId: c.reference })
-        .parse(JSON.parse(Buffer.from(body, "base64url").toString("utf8")));
-      const currentActor = await getDashboardSignedInActor();
-      if (!currentActor || currentActor.userId !== saved.userId)
-        throw new Denied();
-      const workspace = await prisma.workspace.findUnique({
-        where: { id: saved.workspaceId },
-        select: { id: true, personalOwnerUserId: true },
-      });
-      if (!workspace || workspace.personalOwnerUserId !== null)
-        throw new Denied();
-      const actor = await assertDashboardWorkspaceAdminAllowed(workspace.id);
-      if (actor.userId !== saved.userId) throw new Denied();
-      return {
-        workspaceId: workspace.id,
-        actor: {
-          userId: actor.userId,
-          githubUserId: actor.githubUserId ?? "",
-          githubLogin: actor.githubLogin ?? "",
+    authorize: authorizeContext,
+    async limits(context) {
+      return createAccountLimitsService({
+        prisma,
+        secret: settings.contextKey,
+        reader: await accountLimitsReader({
+          role: "management",
+          origin:
+            process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
+          token:
+            process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "",
+        }),
+        ...(settings.operatorWorkspaceId
+          ? { operatorWorkspaceId: settings.operatorWorkspaceId }
+          : {}),
+        ownerRef: (owner) =>
+          owner.kind === "user"
+            ? accountGatewayUserOwnerRef(owner.userId)
+            : accountGatewayWorkspaceOwnerRef(owner.workspaceId),
+        authorize: async () => {
+          const current = await authorizeContext(context);
+          return {
+            userId: current.actor.userId,
+            workspaceId: current.workspaceId,
+          };
         },
-      };
+      });
     },
   });
   return { adapter, settings, assertDashboardWorkspaceAdminAllowed, prisma };

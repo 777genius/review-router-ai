@@ -17,6 +17,12 @@
   --rr-color-border: rgba(255, 255, 255, 0.08);
   --rr-color-border-strong: rgba(0, 240, 255, 0.28);
   --rr-color-focus: #00f0ff;
+  --rr-chart-cyan: #36d5eb;
+  --rr-chart-purple: #a078fa;
+  --rr-chart-green: #6de8ae;
+  --rr-chart-amber: #f7bd66;
+  --rr-chart-pink: #e49acd;
+  --rr-chart-neutral: #94a3b8;
   --rr-page-bg: #0a0a0f;
   --rr-page-bg-rgb: 10, 10, 15;
   --rr-page-grid: rgba(0, 240, 255, 0.03);
@@ -62,6 +68,12 @@
   --rr-color-border: rgba(15, 23, 42, 0.12);
   --rr-color-border-strong: rgba(8, 145, 178, 0.32);
   --rr-color-focus: #0891b2;
+  --rr-chart-cyan: #087f96;
+  --rr-chart-purple: #7950bf;
+  --rr-chart-green: #168551;
+  --rr-chart-amber: #a76507;
+  --rr-chart-pink: #a93d7b;
+  --rr-chart-neutral: #64748b;
   --rr-page-bg: #f7fbff;
   --rr-page-bg-rgb: 247, 251, 255;
   --rr-page-grid: rgba(8, 145, 178, 0.08);

@@ -1,0 +1,135 @@
+name: Memory projections
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - apps/api/**
+      - apps/worker/**
+      - packages/features/memory/**
+      - packages/features/outbox/**
+      - packages/features/action-control-plane/**
+      - packages/features/auth/**
+      - packages/features/entitlements/**
+      - packages/platform/db/**
+      - packages/platform/config/**
+      - packages/shared/**
+      - packages/protocol-review-action-v2/**
+      - scripts/memory-e2e/**
+      - scripts/install-private-dependencies.mjs
+      - scripts/generate-prisma-offline.mjs
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - tsconfig.base.json
+      - vitest.config.ts
+      - .github/workflows/memory-projections.yml
+  push:
+    branches: [main]
+    paths:
+      - apps/api/**
+      - apps/worker/**
+      - packages/features/memory/**
+      - packages/features/outbox/**
+      - packages/features/action-control-plane/**
+      - packages/features/auth/**
+      - packages/features/entitlements/**
+      - packages/platform/db/**
+      - packages/platform/config/**
+      - packages/shared/**
+      - packages/protocol-review-action-v2/**
+      - scripts/memory-e2e/**
+      - scripts/install-private-dependencies.mjs
+      - scripts/generate-prisma-offline.mjs
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - tsconfig.base.json
+      - vitest.config.ts
+      - .github/workflows/memory-projections.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: memory-projections-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-contracts:
+    name: Memory PostgreSQL and API contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+        env:
+          POSTGRES_USER: memory_test
+          POSTGRES_PASSWORD: memory_ci_fixture_only
+          POSTGRES_DB: postgres
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U memory_test -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      REVIEW_ROUTER_MEMORY_TEST_DATABASE_URL: postgresql://memory_test:memory_ci_fixture_only@127.0.0.1:5432/reviewrouter_memory_test
+      REVIEW_ROUTER_MEMORY_API_TEST_DATABASE_URL: postgresql://memory_test:memory_ci_fixture_only@127.0.0.1:5432/reviewrouter_memory_api_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.11.1
+      - name: Install pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Install dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+      - name: Generate Prisma client
+        env:
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
+        run: node scripts/generate-prisma-offline.mjs
+      - name: Create separate empty fixture databases
+        env:
+          MEMORY_E2E_POSTGRES_ADMIN_URL: postgresql://memory_test:memory_ci_fixture_only@127.0.0.1:5432/postgres
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const client = new pg.Client({ connectionString: process.env.MEMORY_E2E_POSTGRES_ADMIN_URL });
+          await client.connect();
+          try {
+            for (const name of ['reviewrouter_memory_test', 'reviewrouter_memory_api_test']) {
+              await client.query(`CREATE DATABASE ${pg.escapeIdentifier(name)}`);
+            }
+          } finally {
+            await client.end();
+          }
+          NODE
+      - name: Prepare current schema and affected migration contracts
+        run: |
+          MEMORY_E2E_DATABASE_URL="$REVIEW_ROUTER_MEMORY_TEST_DATABASE_URL" pnpm memory:prepare-test-db
+          MEMORY_E2E_DATABASE_URL="$REVIEW_ROUTER_MEMORY_API_TEST_DATABASE_URL" pnpm memory:prepare-test-db
+      - name: Run real PostgreSQL regression tests
+        run: |
+          test -n "$REVIEW_ROUTER_MEMORY_TEST_DATABASE_URL"
+          test -n "$REVIEW_ROUTER_MEMORY_API_TEST_DATABASE_URL"
+          mkdir -p tmp/memory-e2e
+          pnpm exec vitest run \
+            packages/features/memory/src/tests/memory-projection-receipts.pg.test.ts \
+            apps/api/src/memory-projection.e2e.test.ts \
+            --reporter=default --reporter=json --outputFile=tmp/memory-e2e/ci-vitest.json
+      - name: Require both suites to execute without skipped tests
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const report = JSON.parse(readFileSync('tmp/memory-e2e/ci-vitest.json', 'utf8'));
+          assert.equal(report.success, true);
+          assert.equal(report.testResults.length, 2);
+          assert(report.numTotalTests > 0);
+          assert.equal(report.numPassedTests, report.numTotalTests, 'Memory PostgreSQL tests must execute; skipped or todo tests are not qualification.');
+          NODE

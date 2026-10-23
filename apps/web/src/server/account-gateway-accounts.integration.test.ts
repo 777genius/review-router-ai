@@ -400,6 +400,7 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
           assert.equal(request.method, "POST");
           const input = secretSubmission.oauthComplete.parse(raw);
           assert.equal(input.ownerRef, owner);
+          assert.ok("callbackURL" in input);
           assert.equal(input.callbackURL, callbackURL);
           const receipt = operations.get(input.operationId);
           assert.equal(receipt?.state, "pending");

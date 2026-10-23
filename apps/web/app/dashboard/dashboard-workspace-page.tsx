@@ -76,21 +76,6 @@ import {
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import {
-  listMemoryItemsForDashboard,
-  listMemorySuggestionsForDashboard,
-  EntitlementMemoryPolicyConfig,
-  EntitlementMemoryQuotaPolicy,
-  PrismaMemoryPermission,
-  PrismaMemoryItemRepository,
-  PrismaMemorySuggestionRepository,
-  readMemoryServiceEnabled,
-  simulateMemoryPolicyDecision,
-  type MemoryActor,
-  type MemoryDashboardItemDto,
-  type MemoryDashboardSuggestionDto,
-  type MemoryPolicySimulationDecision,
-} from "@reviewrouter/features-memory";
-import {
   getWorkspaceSupportDiagnostics,
   PrismaSupportDiagnosticsRepository,
 } from "@reviewrouter/features-support-diagnostics";
@@ -104,10 +89,6 @@ import {
   getDashboardWorkspaceScope,
   type DashboardMutationActor,
 } from "../../src/server/dashboard-mutations";
-import {
-  buildDashboardMemoryActor,
-  type DashboardMemoryActorInput,
-} from "../../src/server/dashboard-memory";
 import {
   listGitHubUserRepositoryAccess,
   type GitHubUserRepositoryAccessStatus,
@@ -188,11 +169,7 @@ import {
   WorkspaceReviewConfigForm,
 } from "./repository-policy-editor";
 import { RepositorySetupStatusRefresher } from "./repository-setup-status-refresher";
-import {
-  MemoryManagementPanel,
-  type MemoryManagementMode,
-  type MemoryManagementModeLinks,
-} from "./memory-management-panel";
+import { MemoryDevelopmentNotice } from "./memory-development-notice";
 import { DashboardActionForm } from "./dashboard-action-form";
 import { repositorySourceUrl } from "./repository-source-url";
 import { WorkspaceSourceConnectionPanel } from "./workspace-source-connection";
@@ -214,7 +191,6 @@ import {
   isSetupRecoveryIssue,
   orgRulesetErrorText,
   orgRulesetStatusTone,
-  readCsvEnv,
 } from "./dashboard-copy";
 import {
   SourceProviderLabel,
@@ -392,10 +368,6 @@ type DashboardWorkspaceData = {
   orgRuleset: Awaited<
     ReturnType<PrismaOrgRulesetProvisioningRepository["findByWorkspaceId"]>
   > | null;
-  memoryItems: readonly MemoryDashboardItemDto[];
-  memorySuggestions: readonly MemoryDashboardSuggestionDto[];
-  memoryWritesEnabled: boolean;
-  memoryPolicySimulation: readonly MemoryPolicySimulationDecision[] | null;
   hostedPool: Awaited<ReturnType<typeof loadHostedPoolDashboardView>>;
 };
 
@@ -407,7 +379,6 @@ export async function loadDashboardSectionData(
     readonly actor: string;
     readonly reason: "local_admin_override" | "workspace_admin";
   },
-  currentActor?: DashboardMemoryActorInput | null,
 ): Promise<DashboardWorkspaceData> {
   const prisma = getPrisma();
   const workspace = selectedWorkspace.workspace;
@@ -421,18 +392,6 @@ export async function loadDashboardSectionData(
   const outboxStore = new PrismaOutboxEventRepository(prisma);
   const diagnosticsStore = new PrismaSupportDiagnosticsRepository(prisma);
   const orgRulesetStore = new PrismaOrgRulesetProvisioningRepository(prisma);
-  const memoryItemStore = new PrismaMemoryItemRepository(prisma);
-  const memorySuggestionStore = new PrismaMemorySuggestionRepository(prisma);
-  const memoryPermission = new PrismaMemoryPermission(prisma, {
-    localAdminGithubLogins: readCsvEnv(
-      "REVIEW_ROUTER_LOCAL_ADMIN_GITHUB_LOGINS",
-    ),
-  });
-  const memoryQuotaPolicy = new EntitlementMemoryQuotaPolicy(entitlementStore);
-  const memoryPolicyConfig = new EntitlementMemoryPolicyConfig(
-    entitlementStore,
-    { serviceEnabled: readMemoryServiceEnabled(process.env) },
-  );
 
   const hasWorkspaceWideAccess = selectedWorkspace.hasWorkspaceWideAccess;
   const independentReadsPromise = Promise.all([
@@ -610,56 +569,6 @@ export async function loadDashboardSectionData(
   const health = workspaceHealth.filter((item) =>
     visibleRepositoryIds.has(item.repositoryId),
   );
-  const [memoryItems, memorySuggestions, memoryPolicy] =
-    section === "memory"
-      ? await Promise.all([
-          listMemoryItemsForDashboard(
-            {
-              workspaceId: workspace.id,
-              limit: 25,
-              ...(!hasWorkspaceWideAccess
-                ? {
-                    repositoryIds: visibleRepositories.map(
-                      (repository) => repository.id,
-                    ),
-                  }
-                : {}),
-            },
-            { memoryItems: memoryItemStore },
-          ),
-          listMemorySuggestionsForDashboard(
-            {
-              workspaceId: workspace.id,
-              limit: 25,
-              ...(!hasWorkspaceWideAccess
-                ? {
-                    repositoryIds: visibleRepositories.map(
-                      (repository) => repository.id,
-                    ),
-                  }
-                : {}),
-            },
-            {
-              memorySuggestions: memorySuggestionStore,
-              clock: { now: () => new Date() },
-            },
-          ),
-          memoryPolicyConfig.getPolicy({ workspaceId: workspace.id }),
-        ])
-      : [{ items: [] }, { suggestions: [] }, { memoryEnabled: false }];
-  const memoryPolicySimulation =
-    section === "memory"
-      ? await buildMemoryPolicySimulation({
-          workspaceId: workspace.id,
-          repositories: visibleRepositories,
-          actor: currentActor ?? null,
-          memoryPolicyConfig,
-          memoryPermission,
-          memoryItemStore,
-          memorySuggestionStore,
-          memoryQuotaPolicy,
-        })
-      : null;
   const gatewayReadiness = needsReadiness
     ? await readGatewayReviewV2RepositoryReadiness({
         prisma,
@@ -748,115 +657,8 @@ export async function loadDashboardSectionData(
     outboxFailures,
     supportDiagnostics,
     orgRuleset,
-    memoryItems: memoryItems.items,
-    memorySuggestions: memorySuggestions.suggestions,
-    memoryWritesEnabled: memoryPolicy.memoryEnabled,
-    memoryPolicySimulation,
     hostedPool,
   };
-}
-
-async function buildMemoryPolicySimulation(input: {
-  readonly workspaceId: string;
-  readonly repositories: readonly {
-    readonly id: string;
-    readonly selected: boolean;
-    readonly archived: boolean;
-  }[];
-  readonly actor: {
-    readonly userId: string;
-    readonly sourceProvider: "github" | "gitlab";
-    readonly sourceLogin: string;
-    readonly githubUserId: string | null;
-    readonly githubLogin: string | null;
-  } | null;
-  readonly memoryPolicyConfig: EntitlementMemoryPolicyConfig;
-  readonly memoryPermission: PrismaMemoryPermission;
-  readonly memoryItemStore: PrismaMemoryItemRepository;
-  readonly memorySuggestionStore: PrismaMemorySuggestionRepository;
-  readonly memoryQuotaPolicy: EntitlementMemoryQuotaPolicy;
-}): Promise<readonly MemoryPolicySimulationDecision[] | null> {
-  if (!input.actor) return null;
-
-  const actor: MemoryActor = buildDashboardMemoryActor(input.actor);
-  const adminDecision = await input.memoryPermission.canConfirmMemory({
-    workspaceId: input.workspaceId,
-    repositoryId: null,
-    userId: null,
-    scope: "workspace",
-    actor,
-  });
-  if (!adminDecision.allowed) return null;
-
-  const repository =
-    input.repositories.find(
-      (candidate) => candidate.selected && !candidate.archived,
-    ) ??
-    input.repositories.find((candidate) => !candidate.archived) ??
-    null;
-  const now = new Date();
-  const dependencies = {
-    memoryPolicyConfig: input.memoryPolicyConfig,
-    memoryPermissions: input.memoryPermission,
-    memoryItems: input.memoryItemStore,
-    memorySuggestions: input.memorySuggestionStore,
-    memoryQuotaPolicy: input.memoryQuotaPolicy,
-  };
-
-  return Promise.all([
-    simulateMemoryPolicyDecision(
-      {
-        workspaceId: input.workspaceId,
-        repositoryId: null,
-        userId: null,
-        scope: "workspace",
-        actor,
-        action: "direct_save",
-        safetyFixture: "safe_project_rule",
-        now,
-      },
-      dependencies,
-    ),
-    simulateMemoryPolicyDecision(
-      {
-        workspaceId: input.workspaceId,
-        repositoryId: repository?.id ?? null,
-        userId: null,
-        scope: "repository",
-        actor,
-        action: "direct_save",
-        safetyFixture: "safe_project_rule",
-        now,
-      },
-      dependencies,
-    ),
-    simulateMemoryPolicyDecision(
-      {
-        workspaceId: input.workspaceId,
-        repositoryId: repository?.id ?? null,
-        userId: null,
-        scope: "repository",
-        actor,
-        action: "propose_suggestion",
-        safetyFixture: "prompt_injection",
-        now,
-      },
-      dependencies,
-    ),
-    simulateMemoryPolicyDecision(
-      {
-        workspaceId: input.workspaceId,
-        repositoryId: null,
-        userId: actor.id,
-        scope: "user_prefs",
-        actor,
-        action: "direct_save",
-        safetyFixture: "safe_user_preference",
-        now,
-      },
-      dependencies,
-    ),
-  ]);
 }
 
 const organizationSecretPolicyCache = new Map<
@@ -1348,7 +1150,7 @@ export async function DashboardWorkspacePage({
   );
 }
 
-async function DashboardSectionContent({
+export async function DashboardSectionContent({
   context,
   selectedWorkspace,
   selectedSection,
@@ -1370,29 +1172,9 @@ async function DashboardSectionContent({
       />
     );
   if (selectedSection === "memory") {
-    return (
-      <section
-        id="dashboard-section-content"
-        className="min-w-0 px-1 py-8"
-        aria-labelledby="dashboard-memory-title"
-      >
-        <p className="font-mono text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">
-          In development
-        </p>
-        <h2
-          id="dashboard-memory-title"
-          className="mt-3 text-3xl font-bold tracking-tight text-cyan-50"
-        >
-          Memory
-        </h2>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
-          Workspace memory is being prepared. This section is not available yet.
-        </p>
-      </section>
-    );
+    return <MemoryDevelopmentNotice />;
   }
-  const { workspaceScope, mutationStatus, repositoryAccess, signedInActor } =
-    context;
+  const { workspaceScope, mutationStatus, repositoryAccess } = context;
   const supportAudit =
     workspaceScope.kind === "all" &&
     workspaceScope.reason === "local_admin_override" &&
@@ -1428,7 +1210,6 @@ async function DashboardSectionContent({
       selectedSection,
       repositoryAccess,
       supportAudit,
-      signedInActor ? dashboardMemoryActorInput(signedInActor) : null,
     ),
     selectedSection === "repositories" || selectedSection === "policy"
       ? getReviewModelOptions()
@@ -1500,18 +1281,6 @@ async function DashboardSectionContent({
       {wrappedContent}
     </ProviderModelCatalogProvider>
   );
-}
-
-function dashboardMemoryActorInput(
-  actor: DashboardMutationActor,
-): DashboardMemoryActorInput {
-  return {
-    userId: actor.userId,
-    sourceProvider: actor.sourceProvider,
-    sourceLogin: actor.sourceLogin,
-    githubUserId: actor.githubUserId,
-    githubLogin: actor.githubLogin,
-  };
 }
 
 function DashboardEmptyAccessState({
@@ -1828,10 +1597,6 @@ export function WorkspaceCard({
     outboxFailures,
     supportDiagnostics,
     orgRuleset,
-    memoryItems,
-    memorySuggestions,
-    memoryWritesEnabled,
-    memoryPolicySimulation,
     hostedPool,
   } = data;
   // Setup intentionally does not request policy. Its absent projection says
@@ -1981,7 +1746,6 @@ export function WorkspaceCard({
       : null;
   const repositorySearchQuery = readParam(params.q);
   const repositorySearchFilter = readRepositorySearchFilter(params);
-  const selectedMemoryMode = resolveMemoryManagementMode(params);
   const requestedRepository = requestedRepositoryFullName
     ? repositories.find(
         (repository) => repository.fullName === requestedRepositoryFullName,
@@ -2155,20 +1919,6 @@ export function WorkspaceCard({
               />
             ) : null}
           </>
-        ) : null}
-
-        {selectedSection === "memory" ? (
-          <MemoryManagementPanel
-            workspace={workspace}
-            repositories={repositories}
-            memoryItems={memoryItems}
-            memorySuggestions={memorySuggestions}
-            mutationsEnabled={mutationsEnabled}
-            memoryWritesEnabled={memoryWritesEnabled}
-            policySimulation={memoryPolicySimulation}
-            mode={selectedMemoryMode}
-            modeLinks={dashboardMemoryModeLinks(workspaceKey)}
-          />
         ) : null}
 
         {selectedSection === "policy" ? (
@@ -4100,47 +3850,16 @@ function DashboardActionToast({
   );
 }
 
-function resolveMemoryManagementMode(
-  params: Record<string, string | string[] | undefined>,
-): MemoryManagementMode {
-  const explicit = readParam(params.memory_mode);
-  if (
-    explicit === "knowledge" ||
-    explicit === "suggestions" ||
-    explicit === "table"
-  ) {
-    return explicit;
-  }
-  if (readParam(params.status) === "pending") return "suggestions";
-  return "knowledge";
-}
-
-function dashboardMemoryModeLinks(
-  workspaceKey?: string,
-): MemoryManagementModeLinks {
-  return {
-    knowledge: dashboardMemoryModeHref("knowledge", workspaceKey),
-    suggestions: dashboardMemoryModeHref("suggestions", workspaceKey),
-    table: dashboardMemoryModeHref("table", workspaceKey),
-  };
-}
-
-function dashboardMemoryModeHref(
-  mode: MemoryManagementMode,
-  workspaceKey?: string,
-): string {
-  const query = new URLSearchParams({
-    section: "memory",
-    memory_mode: mode,
-  });
-  if (workspaceKey) query.set("workspace", workspaceKey);
-  return `/dashboard?${query.toString()}#dashboard-section-content`;
-}
-
 async function ProviderUsageSection({ workspaceId }: { workspaceId: string }) {
+  const now = new Date();
+  const initialFilters = {
+    purpose: "review" as const,
+    from: new Date(now.getTime() - 30 * 86_400_000).toISOString(),
+    to: now.toISOString(),
+  };
   let report;
   try {
-    report = await loadProviderUsage(workspaceId);
+    report = await loadProviderUsage(workspaceId, initialFilters);
   } catch (error) {
     if (error instanceof Error && error.message === "usage_access_denied")
       return (
@@ -4156,6 +3875,7 @@ async function ProviderUsageSection({ workspaceId }: { workspaceId: string }) {
       key={workspaceId}
       workspaceId={workspaceId}
       initialReport={report}
+      initialFilters={initialFilters}
     />
   );
 }

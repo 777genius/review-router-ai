@@ -3,7 +3,10 @@ import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import { afterEach, expect, test } from "vitest";
 import * as c from "@agent-teams/account-gateway/contracts";
-import { createManagementClient } from "@agent-teams/account-gateway/http";
+import {
+  createManagementClient,
+  secretSubmission,
+} from "@agent-teams/account-gateway/http";
 import {
   ProviderAccountError,
   type PersonalAccountOperationStore,
@@ -22,6 +25,8 @@ import {
 } from "./account-gateway-accounts";
 
 const profileId = "openai-codex-oauth-responses-v1";
+const claudeProfileId = "anthropic-claude-oauth-messages-v1";
+const authorizationCode = `synthetic-claude-code#${"c".repeat(64)}`;
 const handoff = {
   userCode: "ABCD-EFGH",
   verificationURL: "https://auth.openai.com/codex/device",
@@ -33,7 +38,23 @@ afterEach(async () => {
   for (const close of cleanup.splice(0)) await close();
 });
 
-async function fixture() {
+async function fixture(
+  selectedProfileId: typeof profileId | typeof claudeProfileId = profileId,
+) {
+  const profileId = selectedProfileId;
+  const claude = profileId === claudeProfileId;
+  const claudeAuthorization = new URL("https://claude.com/cai/oauth/authorize");
+  claudeAuthorization.search = new URLSearchParams({
+    code: "true",
+    client_id: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+    response_type: "code",
+    redirect_uri: "https://platform.claude.com/oauth/code/callback",
+    code_challenge_method: "S256",
+    scope:
+      "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload",
+    state: "c".repeat(64),
+    code_challenge: "b".repeat(43),
+  }).toString();
   let actor = "device-owner";
   let beginCount = 0,
     pollCount = 0,
@@ -45,6 +66,7 @@ async function fixture() {
   const rows = new Map<string, PersonalOperationResult>();
   const begins: c.OAuthBegin[] = [];
   const polls: Array<{ operationId: string; ownerRef: string }> = [];
+  const completions: secretSubmission.OAuthComplete[] = [];
   const server = createServer(async (request, response) => {
     response.setHeader("content-type", "application/json");
     if (request.method === "GET") {
@@ -111,7 +133,24 @@ async function fixture() {
         return;
       }
       response.statusCode = 202;
-      response.end(JSON.stringify({ operation, deviceAuthorization: handoff }));
+      response.end(
+        JSON.stringify({
+          operation,
+          ...(claude
+            ? { authorizationURL: claudeAuthorization.href }
+            : { deviceAuthorization: handoff }),
+        }),
+      );
+    } else if (request.url === "/v1/accounts/oauth/complete") {
+      const input = secretSubmission.oauthComplete.parse(raw);
+      completions.push(input);
+      const operation = {
+        operationRef: input.operationId,
+        state: "pending" as const,
+      };
+      operations.set(input.operationId, operation);
+      response.statusCode = 202;
+      response.end(JSON.stringify(operation));
     } else if (request.url === "/v1/accounts/oauth/poll") {
       const input = raw as { operationId: string; ownerRef: string };
       polls.push(input);
@@ -275,7 +314,9 @@ async function fixture() {
     synchronization: unused as WorkspaceInput["synchronization"],
     bindingDependencies: unused as WorkspaceInput["bindingDependencies"],
     apiKeyProfiles: new Map(),
-    codexOAuthProfileId: profileId,
+    ...(claude
+      ? { claudeOAuthProfileId: claudeProfileId }
+      : { codexOAuthProfileId: "openai-codex-oauth-responses-v1" as const }),
   });
   return {
     personal,
@@ -285,6 +326,7 @@ async function fixture() {
     operations,
     begins,
     polls,
+    completions,
     counts: () => ({ beginCount, pollCount, finalized }),
     actor: (value: string) => {
       actor = value;
@@ -450,4 +492,86 @@ test("workspace device polling uses the original owner operation and never polls
     },
   ]);
   expect(f.counts().pollCount).toBe(1);
+});
+
+// A saved personal intent must select the sensitive credential shape. A wrong
+// callback, owner switch, or device method must never enter completion ingress.
+test("Claude personal browser completion is bound to the saved profile and owner without persisting its code", async () => {
+  const f = await fixture(claudeProfileId);
+  const nonce = randomUUID();
+  const fresh = await f.personal().connect({
+    nonce,
+    profileId: claudeProfileId,
+    label: "My Claude",
+    method: "browser",
+  });
+  expect(fresh.authorizationURL).toContain(
+    "https://claude.com/cai/oauth/authorize?",
+  );
+  await expect(
+    f.personal().completeOAuth({
+      nonce,
+      callbackURL: `http://localhost:1455/auth/callback?code=synthetic&state=${"c".repeat(64)}`,
+    }),
+  ).rejects.toMatchObject({ code: "connection_unavailable" });
+  expect(f.completions).toHaveLength(0);
+  f.actor("foreign-owner");
+  await expect(
+    f.personal().completeOAuth({ nonce, authorizationCode }),
+  ).rejects.toMatchObject({ code: "connection_unavailable" });
+  f.actor("device-owner");
+  await expect(f.personal().pollOAuth(nonce)).rejects.toMatchObject({
+    code: "connection_unavailable",
+  });
+  expect(f.polls).toHaveLength(0);
+  expect(
+    (await f.personal().completeOAuth({ nonce, authorizationCode })).phase,
+  ).toBe("submitted");
+  expect(f.completions).toEqual([
+    {
+      operationId: personalOperationId("device-owner", nonce),
+      ownerRef: accountGatewayUserOwnerRef("device-owner"),
+      authorizationCode,
+    },
+  ]);
+  expect(JSON.stringify([...f.rows.values()])).not.toMatch(
+    /synthetic-claude-code|authorizationCode|claude.com|cccccccc/,
+  );
+});
+
+test("Claude workspace enrollment defaults to browser, denies device, and forwards only its explicit code ingress", async () => {
+  const f = await fixture(claudeProfileId);
+  expect(
+    await f.workspace.beginOAuth("workspace", {
+      nonce: randomUUID(),
+      profileId: claudeProfileId,
+      method: "device_code",
+    }),
+  ).toMatchObject({ status: "denied" });
+  expect(f.begins).toHaveLength(0);
+  const nonce = randomUUID();
+  expect(
+    await f.workspace.beginOAuth("workspace", {
+      nonce,
+      profileId: claudeProfileId,
+    }),
+  ).toMatchObject({ status: "ok", value: { operation: { state: "pending" } } });
+  expect(f.begins[0]?.method).toBe("browser");
+  expect(
+    await f.workspace.completeOAuth("workspace", { nonce, authorizationCode }),
+  ).toMatchObject({ status: "ok", value: { nonce, state: "pending" } });
+  expect(f.completions).toEqual([
+    {
+      operationId: f.begins[0]!.operationId,
+      ownerRef: accountGatewayWorkspaceOwnerRef("device-workspace"),
+      authorizationCode,
+    },
+  ]);
+  expect(
+    await f.workspace.completeOAuth("workspace", {
+      nonce,
+      authorizationCode: "invalid#state",
+    }),
+  ).toMatchObject({ status: "invalid" });
+  expect(f.completions).toHaveLength(1);
 });

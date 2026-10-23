@@ -2,8 +2,6 @@ import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-// pg is a runtime dependency; this package intentionally has no @types/pg.
-// @ts-expect-error -- disposable SQL fixture uses the runtime package directly.
 import { Client } from "pg";
 import { describe, expect, it } from "vitest";
 

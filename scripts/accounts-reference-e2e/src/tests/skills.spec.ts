@@ -37,6 +37,10 @@ test.describe("Skills real Next and PostgreSQL", () => {
     await expect(
       page.getByRole("heading", { name: "Skills", exact: true }),
     ).toBeVisible();
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-dashboard-layout-ready",
+      "true",
+    );
   }
   async function openRepoPage(
     page: Page,

@@ -75,7 +75,7 @@ export class ReviewCompletionExecutionContextAdapter
     return {
       executionId: snapshot.execution.executionId,
       finalizedArtifactId: snapshot.artifact.artifactId,
-      coverage: mapCoverage(snapshot.artifact.coverageState),
+      coverage: mapCoverage(reviewSnapshotSourceCoverage(snapshot.artifact)),
     };
   }
 
@@ -578,6 +578,26 @@ function requireFinalizedArtifact(
   return snapshot.artifact;
 }
 
+/** Work-slot completion alone does not prove lifecycle projection coverage. */
+export function reviewSnapshotSourceCoverage(
+  artifact: FinalizedReviewProjectionArtifact,
+): ReviewCoverageState {
+  if (
+    artifact.coverageState !== ReviewCoverageState.Completed ||
+    (artifact.projectionPolicyVersion !== "review-projection-policy.v5-t0" &&
+      artifact.projectionPolicyVersion !==
+        "review-projection-policy.v6-comparison")
+  ) {
+    return artifact.coverageState;
+  }
+  const projection = parseCanonicalObject(artifact.projectionEnvelopeJson);
+  return projection.envelopeVersion === "review_projection.v1" &&
+    isRecord(projection.coverage) &&
+    projection.coverage.state === "complete"
+    ? ReviewCoverageState.Completed
+    : ReviewCoverageState.Partial;
+}
+
 function assertSnapshotEligibleArtifact(
   snapshot: ReviewExecutionSnapshot & {
     readonly artifact: FinalizedReviewProjectionArtifact;
@@ -585,7 +605,8 @@ function assertSnapshotEligibleArtifact(
 ): void {
   if (
     snapshot.execution.state === ReviewExecutionState.Partial ||
-    snapshot.artifact.coverageState === ReviewCoverageState.Partial
+    reviewSnapshotSourceCoverage(snapshot.artifact) ===
+      ReviewCoverageState.Partial
   ) {
     throw new Error("review_completion_snapshot_partial_forbidden");
   }

@@ -3310,6 +3310,33 @@ model MemoryItem {
   @@index([originSuggestionId])
 }
 
+// Derived search lifecycle metadata deliberately survives canonical cascades.
+// Never add memory bodies, queries, credentials or provider errors to this model.
+model MemoryProjectionReceipt {
+  id               String   @id @default(uuid())
+  indexIdentity    String
+  workspaceId      String
+  memoryItemId     String
+  repositoryId     String?
+  userId           String?
+  scope            String
+  bodyVersion      Int
+  bodyHash         String
+  sequenceOrdinal  Int      @unique @default(autoincrement())
+  state            String   @default("reserved")
+  remoteDocumentId String?
+  deleteRequested  Boolean  @default(false)
+  nextAttemptAt    DateTime @default(now())
+  lastErrorCode    String?
+  retiredAt        DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now()) @updatedAt
+
+  @@unique([indexIdentity, workspaceId, memoryItemId, bodyVersion, bodyHash], map: "MemoryProjectionReceipt_revision_key")
+  @@index([indexIdentity, state, nextAttemptAt], map: "MemoryProjectionReceipt_due_idx")
+  @@index([indexIdentity, workspaceId, memoryItemId], map: "MemoryProjectionReceipt_item_idx")
+}
+
 model MemorySuggestion {
   id                         String                 @id @default(cuid())
   schemaVersion              Int                    @default(1)

@@ -1,6 +1,21 @@
+import { createHash } from "node:crypto";
+import * as executionComposition from "./review-action-v2-execution-evidence-composition.js";
+import { PrismaProducerReleaseRepository } from "@reviewrouter/features-review-run-control/composition";
+import {
+  canonicalJson,
+  ResolveReviewSafetyPolicy,
+  ReviewRunAuthorizationState,
+  type ReviewRunAuthorization,
+} from "@reviewrouter/features-review-run-control";
+import {
+  renderCanonicalReviewPublication,
+  resolveReviewPublicationRenderPolicyVersion,
+  ReviewPublicationProjectionCoverage,
+} from "@reviewrouter/features-review-publishing/v2";
 import { Buffer } from "node:buffer";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import {
+  reviewActionV2LegacySlot,
   reviewActionV2CanonicalizerDigest,
   reviewActionV2PublishedSchemaDigest,
   reviewInvestigationExtensionV1,
@@ -493,6 +508,172 @@ describe("Review Action v2 production composition", () => {
     ).not.toThrow();
   });
 
+  it("finalizes and renders both producer policies while the configured server policy remains v5", async () => {
+    const compose = vi.spyOn(
+      executionComposition,
+      "composeReviewActionV2ExecutionRoutes",
+    );
+    const release = vi
+      .spyOn(
+        PrismaProducerReleaseRepository.prototype,
+        "findProducerReleaseById",
+      )
+      .mockResolvedValue({
+        producerReleaseId: "release",
+        state: ProducerReleaseState.Registered,
+      } as never);
+    const safety = vi
+      .spyOn(ResolveReviewSafetyPolicy.prototype, "resolveReviewSafetyPolicy")
+      .mockResolvedValue({
+        effectAllowed: true,
+        safetyDecisionHash: "a".repeat(64),
+      } as never);
+    const sha = (text: string) =>
+      createHash("sha256").update(text).digest("hex");
+    try {
+      composeReviewActionV2ProductionRoutes({
+        enabled: true,
+        env: {
+          ...productionEnv(),
+          [reviewActionV2ProjectionPolicyVersionEnv]:
+            "review-projection-policy.v5-t0",
+        },
+        runtime,
+        prisma: inertPrisma(),
+      });
+      const facts = compose.mock.calls[0]![0].handlers!.finalizationFacts;
+      const now = new Date("2026-10-22T12:00:00.000Z");
+      for (const [schemaDigest, projectionPolicyVersion] of [
+        [
+          reviewActionV2LegacySlot.reviewActionV2PublishedSchemaDigest,
+          "review-projection-policy.v5-t0",
+        ],
+        [
+          reviewActionV2PublishedSchemaDigest,
+          "review-projection-policy.v6-comparison",
+        ],
+      ]) {
+        const authorization = {
+          authorizationId: "authorization",
+          workspaceId: "workspace",
+          repositoryConnectionId: "repository",
+          scmRepositoryIdentityId: "scm",
+          pullRequestNumber: 1,
+          producerReleaseId: "release",
+          state: ReviewRunAuthorizationState.Active,
+          expiresAt: new Date(now.getTime() + 60_000),
+          baseSha: "b".repeat(40),
+          mergeBaseSha: "c".repeat(40),
+          headSha: "d".repeat(40),
+          reviewRevisionHash: "e".repeat(64),
+          schemaDigest,
+        } as ReviewRunAuthorization;
+        const revision = {
+          baseSha: authorization.baseSha,
+          mergeBaseSha: authorization.mergeBaseSha,
+          headSha: authorization.headSha,
+          reviewRevisionHash: authorization.reviewRevisionHash,
+        };
+        const publishing = {
+          summary: {
+            allClear: true,
+            body: "No findings",
+            marker: "summary",
+            occurrenceCounts: {
+              new: 0,
+              reconfirmed: 0,
+              changed: 0,
+              carried_unverified: 0,
+              resolved: 0,
+              uncertain: 0,
+              suppressed_by_human: 0,
+            },
+          },
+          check: {
+            marker: "check",
+            conclusion: "success" as const,
+            name: "ReviewRouter",
+            title: "Review complete",
+            summary: "No findings",
+          },
+          inlineReviewChunks: [],
+          lifecycle: [],
+        };
+        const projection = {
+          envelopeVersion: "review_projection.v1",
+          projectionPolicyVersion,
+          scope: {
+            scmRepositoryIdentityId: authorization.scmRepositoryIdentityId,
+            pullRequestNumber: 1,
+            baseSha: authorization.baseSha,
+            reviewedHeadSha: authorization.headSha,
+            reviewRevisionHash: authorization.reviewRevisionHash,
+          },
+          coverage: { state: "complete" },
+          lifecycleStateHash: "f".repeat(64),
+          commandLedgerWatermark: "0",
+          authoritativeObservationIds: [],
+          occurrences: [],
+          mergeGate: {},
+          publishing,
+          snapshot: { lineageHints: [] },
+        };
+        const projectionCanonicalJson = canonicalJson(projection);
+        const projectionHash = sha(projectionCanonicalJson);
+        const expectedArtifactHash = sha(
+          `rr.review-artifact.v1\0${canonicalJson({ operationsCanonicalJson: canonicalJson(publishing), projectionHash })}`,
+        );
+        const resolved = await facts.resolve({
+          authorization,
+          execution: {
+            ...authorization,
+            revision,
+            workSlots: [],
+            retainUntil: new Date(now.getTime() + 120_000),
+          } as never,
+          observationRefs: [],
+          artifactId: `rr:artifact:${expectedArtifactHash}`,
+          projectionEnvelopeVersion: 1,
+          projectionEnvelope: projection,
+          projectionCanonicalJson,
+          projectionHash,
+          lifecycleStateHash: projection.lifecycleStateHash,
+          commandLedgerWatermark: 0n,
+          allowPartial: false,
+          limits: {
+            maxProjectionBytes: 2_000_000,
+            maxFindingCount: 2000,
+          } as never,
+          maxReconciliationDurationMs: 30_000,
+          now,
+        });
+        expect(resolved.projectionPolicyVersion).toBe(projectionPolicyVersion);
+        expect(resolved.expectedArtifactHash).toBe(expectedArtifactHash);
+        expect(
+          renderCanonicalReviewPublication(
+            {
+              coverage: ReviewPublicationProjectionCoverage.Completed,
+              renderPolicyVersion: resolveReviewPublicationRenderPolicyVersion(
+                resolved.projectionPolicyVersion,
+              ),
+              targetCommitId: authorization.headSha,
+              occurrenceStates: [],
+              source: publishing,
+            },
+            {
+              digestUtf8: sha,
+              utf8ByteLength: (value) => Buffer.byteLength(value),
+            },
+          ).summary.body,
+        ).toContain("No findings");
+      }
+    } finally {
+      compose.mockRestore();
+      release.mockRestore();
+      safety.mockRestore();
+    }
+  });
+
   it("rejects malformed capability rotation config without exposing it", () => {
     const env = {
       ...productionEnv(),
@@ -618,6 +799,7 @@ describe("Review Action v2 production composition", () => {
           providerVoteLanes: [{ providerKind: "codex" }],
         } as never,
         producerRelease: {
+          schemaDigest: reviewActionV2PublishedSchemaDigest,
           reviewInvestigationProfile: {
             capability: "review_investigation_v1",
             coverageProfileHash: "a".repeat(64),
@@ -706,6 +888,7 @@ describe("Review Action v2 production composition", () => {
           providerVoteLanes: testCase.providerVoteLanes,
         } as never,
         producerRelease: {
+          schemaDigest: reviewActionV2PublishedSchemaDigest,
           reviewInvestigationProfile: testCase.profile,
         } as never,
       }),
@@ -736,6 +919,7 @@ describe("Review Action v2 production composition", () => {
           providerVoteLanes: [{ providerKind: "codex" }],
         } as never,
         producerRelease: {
+          schemaDigest: reviewActionV2PublishedSchemaDigest,
           reviewInvestigationProfile: {
             capability: "review_investigation_v1",
             coverageProfileHash: "a".repeat(64),
@@ -771,6 +955,7 @@ describe("Review Action v2 production composition", () => {
           providerVoteLanes: [{ providerKind: "codex" }],
         } as never,
         producerRelease: {
+          schemaDigest: reviewActionV2PublishedSchemaDigest,
           reviewInvestigationProfile: null,
         } as never,
       })
@@ -889,6 +1074,7 @@ describe("Review Action v2 production composition", () => {
           ],
         } as never,
         producerRelease: {
+          schemaDigest: reviewActionV2PublishedSchemaDigest,
           reviewInvestigationProfile: {
             capability: "review_investigation_v1",
             coverageProfileHash: "a".repeat(64),

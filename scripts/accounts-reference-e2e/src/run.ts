@@ -15,6 +15,7 @@ import {
   BASELINE_REVISION,
   SKILLS_FIXTURE_BOUNDARY,
   PROBE_FIXTURE_BOUNDARY,
+  LIMITS_FIXTURE_BOUNDARY,
   FIXTURES,
   type FixtureSecrets,
   type RuntimeDescriptor,
@@ -37,9 +38,11 @@ type TestSummary = {
 async function main(): Promise<void> {
   const fixtureBoundary = process.argv.includes("--skills-fixture")
     ? SKILLS_FIXTURE_BOUNDARY
-    : process.argv.includes("--probe-fixture")
-      ? PROBE_FIXTURE_BOUNDARY
-      : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
+    : process.argv.includes("--limits-fixture")
+      ? LIMITS_FIXTURE_BOUNDARY
+      : process.argv.includes("--probe-fixture")
+        ? PROBE_FIXTURE_BOUNDARY
+        : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
   const options = parseCliOptions(process.argv);
   await ensureWorkDir(options.workDir);
   const revision = await readRevision(options.repoRoot);
@@ -55,6 +58,7 @@ async function main(): Promise<void> {
       "apps/web",
       "packages/features/provider-accounts",
       "packages/platform/db",
+      "scripts/accounts-reference-e2e/src",
     ],
     { maxBuffer: 256 * 1024 * 1024, encoding: "buffer" },
   )
@@ -278,6 +282,11 @@ async function runPlaywright(input: {
           ...process.env,
           ACCOUNTS_REFERENCE_E2E_BASE_URL: input.appUrl,
           ACCOUNTS_REFERENCE_E2E_GATEWAY_URL: input.gatewayUrl,
+          ACCOUNTS_REFERENCE_E2E_LIMITS: process.argv.includes(
+            "--limits-fixture",
+          )
+            ? "1"
+            : "0",
           ACCOUNTS_REFERENCE_E2E_CATALOG: process.argv.includes(
             "--catalog-fixture",
           )

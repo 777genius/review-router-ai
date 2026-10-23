@@ -175,3 +175,28 @@ tests и TypeScript typecheck. Миграционные 351 tests не повт�
 native duplication thread остаётся remote unresolved, хотя локальное исправление
 готово. Новые remote CI и merge не выполнены; локальные commits/bundles и
 квалификация не выдаются за опубликованный результат. Deploy/release не запускались.
+
+## Повторная проверка объединённого main — 2026-10-23
+
+Предыдущая остановка публикации преодолена: SaaS `e1cec4a` опубликован через
+immutable blobs и SHA-only tree. После обновлений SaaS main `296ddc0` и runtime
+main `ea3759a` три GPT-6.1 Sol xhigh направления снова проверяют release/schema,
+native/OCR/runtime и frontend/authority/UX.
+
+Release/schema: сохранены все SQL bytes и прежние historical manifests; новый
+143-migration каталог допускается через точные проверенные predecessor digests.
+**327** migration/release tests прошли (2 opt-in skips), formatting исправлен.
+CI installer issue исправлен точным allowlist уже закреплённых GM versions;
+**26/26** subprocess tests прошли, включая отказы для незнакомых configurations.
+
+Read-only merge critic: новых конкретных P1/P2 в проверенных admission/restore,
+companion authority, schema slots и dashboard seams не найдено. Foundation
+содержит все main Memory/account-limits boundaries и Skills boundaries без
+дубликатов. Harness сохраняет Skills, Limits и Probe сценарии. Это source review,
+не замена новой браузерной квалификации.
+
+Runtime: исправление native duplication восстановлено и проверено на текущем
+main. Большой Skill с Markdown resource и 200 paths уменьшается с **8 032 796**
+до **44 143** bytes; OCR projection остаётся побайтно прежней. **193/193** focused
+tests и **15/15** финальных Skills tests прошли, TypeScript/ESLint/format passed.
+Официальный export/build и свежий browser/paired/OCR gates выполняются отдельно.

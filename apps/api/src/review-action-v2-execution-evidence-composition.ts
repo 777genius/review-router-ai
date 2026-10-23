@@ -61,7 +61,7 @@ import {
   type ReviewRunAuthorizationTokenResolution,
 } from "@reviewrouter/features-review-run-control";
 import {
-  canonicalizeReviewActionV2Request,
+  canonicalizeReviewActionV2RequestForSlot,
   ReviewActionV2OperationId,
   ReviewActionV2ProtocolErrorCode,
   ReviewEvidenceCommitResultStatus,
@@ -599,7 +599,7 @@ async function acquireLease(
     sourceObservationId: null,
     acquireRequestIdHash: await d.digest.digestUtf8(request.acquireRequestId),
     acquireRequestHash: await d.digest.digestUtf8(
-      canonicalizeReviewActionV2Request(
+      canonicalizeReviewActionV2RequestForSlot(
         ReviewActionV2OperationId.ReviewInvocationLeaseAcquire,
         request,
       ),
@@ -1829,7 +1829,7 @@ async function assertBodyHash<O extends ReviewActionV2OperationId>(
 ) {
   if (
     (await digest.digestUtf8(
-      canonicalizeReviewActionV2Request(operation, request),
+      canonicalizeReviewActionV2RequestForSlot(operation, request),
     )) !== (request as { requestBodyHash?: string }).requestBodyHash
   )
     throw failure(

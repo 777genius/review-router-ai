@@ -26,10 +26,13 @@
     }
   },
   "dependencies": {
+    "@get-modular/core": "0.2.0",
+    "@get-modular/assembly": "0.2.0",
     "@prisma/client": "7.8.0",
     "@reviewrouter/features-auth": "workspace:*"
   },
   "devDependencies": {
+    "vitest": "4.1.10",
     "@prisma/adapter-pg": "7.8.0",
     "@types/pg": "8.23.1",
     "pg": "8.23.0"

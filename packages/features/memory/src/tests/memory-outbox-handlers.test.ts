@@ -1,14 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { MemoryItemSnapshot } from "../domain/memory-item";
 import { MemoryItem } from "../domain/memory-item";
 import { createDashboardMemorySource } from "../domain/memory-source";
-import type { MemorySearchIndexPort } from "../application/ports/memory-search-index-port";
+import {
+  MemoryIndexOperationError,
+  type MemorySearchIndexPort,
+} from "../application/ports/memory-search-index-port";
 import {
   createMemoryEmbeddingDeleteRequestedHandler,
   createMemoryEmbeddingReindexRequestedHandler,
   createMemoryOutboxHandlers,
 } from "../infrastructure/outbox/memory-index-outbox-handlers";
-import type { OutboxEvent } from "@reviewrouter/features-outbox";
+import {
+  OutboxHandlerError,
+  type OutboxEvent,
+} from "@reviewrouter/features-outbox";
 
 const now = new Date("2026-05-12T12:00:00.000Z");
 
@@ -48,6 +54,7 @@ class StaticMemoryItems {
 }
 
 class CapturingSearchIndex implements MemorySearchIndexPort {
+  readonly indexIdentity = "prisma";
   readonly upserts: unknown[] = [];
   readonly deletes: unknown[] = [];
 
@@ -63,6 +70,7 @@ class CapturingSearchIndex implements MemorySearchIndexPort {
     input: Parameters<MemorySearchIndexPort["upsertDocument"]>[0],
   ): ReturnType<MemorySearchIndexPort["upsertDocument"]> {
     this.upserts.push(input);
+    return { status: "indexed" };
   }
 
   async deleteDocument(
@@ -147,7 +155,11 @@ describe("memory outbox handlers", () => {
 
     expect(searchIndex.upserts).toEqual([]);
     expect(searchIndex.deletes).toEqual([
-      { workspaceId: "workspace_1", memoryItemId: item.id },
+      {
+        workspaceId: "workspace_1",
+        memoryItemId: item.id,
+        target: { kind: "item" },
+      },
     ]);
     expect(memoryItems.indexingSucceeded).toEqual([]);
     expect(memoryItems.indexingDeleted).toEqual([
@@ -155,7 +167,7 @@ describe("memory outbox handlers", () => {
     ]);
   });
 
-  it("ignores stale reindex payloads and handles delete requests", async () => {
+  it("cleans only stale revisions and refuses terminal cleanup of an active item", async () => {
     const item = memoryItem("mem_1", "Fresh body wins over stale event.");
     const searchIndex = new CapturingSearchIndex();
     const memoryItems = new StaticMemoryItems(new Map([[item.id, item]]));
@@ -184,13 +196,214 @@ describe("memory outbox handlers", () => {
 
     expect(searchIndex.upserts).toEqual([]);
     expect(searchIndex.deletes).toEqual([
-      { workspaceId: "workspace_1", memoryItemId: item.id },
+      {
+        workspaceId: "workspace_1",
+        memoryItemId: item.id,
+        target: {
+          kind: "revision",
+          bodyHash: "stale_hash",
+          bodyVersion: item.bodyVersion,
+        },
+      },
     ]);
     expect(memoryItems.indexingSucceeded).toEqual([]);
-    expect(memoryItems.indexingDeleted).toEqual([
-      { workspaceId: "workspace_1", itemId: item.id },
+    expect(memoryItems.indexingDeleted).toEqual([]);
+  });
+
+  it("cleans only the exported revision when canonical CAS loses an edit race", async () => {
+    const item = memoryItem(
+      "mem_race",
+      "Canonical content can change during indexing.",
+    );
+    const searchIndex = new CapturingSearchIndex();
+    const memoryItems = new StaticMemoryItems(new Map([[item.id, item]]));
+    vi.spyOn(memoryItems, "markIndexingSucceeded").mockResolvedValue({
+      updatedCount: 0,
+    });
+    await createMemoryEmbeddingReindexRequestedHandler({
+      memoryItems,
+      searchIndex,
+    }).handle(
+      outboxEvent({
+        type: "memory.embedding.reindex.requested",
+        aggregateId: item.id,
+        payload: { bodyHash: item.bodyHash, bodyVersion: item.bodyVersion },
+      }),
+    );
+    expect(searchIndex.deletes).toEqual([
+      {
+        workspaceId: item.workspaceId,
+        memoryItemId: item.id,
+        target: {
+          kind: "revision",
+          bodyHash: item.bodyHash,
+          bodyVersion: item.bodyVersion,
+        },
+      },
     ]);
   });
+
+  it("does not mark an explicitly superseded write indexed", async () => {
+    const item = memoryItem(
+      "mem_superseded",
+      "An obsolete revision cannot be acknowledged.",
+    );
+    const searchIndex = new CapturingSearchIndex();
+    const memoryItems = new StaticMemoryItems(new Map([[item.id, item]]));
+    vi.spyOn(searchIndex, "upsertDocument").mockResolvedValue({
+      status: "superseded",
+    });
+    await createMemoryEmbeddingReindexRequestedHandler({
+      memoryItems,
+      searchIndex,
+    }).handle(
+      outboxEvent({
+        type: "memory.embedding.reindex.requested",
+        aggregateId: item.id,
+        payload: { bodyHash: item.bodyHash, bodyVersion: item.bodyVersion },
+      }),
+    );
+    expect(memoryItems.indexingSucceeded).toEqual([]);
+    expect(searchIndex.deletes[0]).toMatchObject({
+      target: { kind: "revision" },
+    });
+  });
+
+  it("rejects a backfill event targeted at another index before any IO", async () => {
+    const searchIndex = new CapturingSearchIndex();
+    const memoryItems = new StaticMemoryItems(new Map());
+    const find = vi.spyOn(memoryItems, "findById");
+    await expect(
+      createMemoryEmbeddingReindexRequestedHandler({
+        memoryItems,
+        searchIndex,
+      }).handle(
+        outboxEvent({
+          type: "memory.embedding.reindex.requested",
+          aggregateId: "mem_1",
+          payload: {
+            bodyHash: "hash",
+            bodyVersion: 1,
+            targetIndexIdentity: "infinity:another",
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: "memory_index_identity_conflict",
+      retryable: true,
+    });
+    expect(find).not.toHaveBeenCalled();
+    expect(searchIndex.upserts).toEqual([]);
+  });
+
+  describe.each(["reindex", "delete"] as const)(
+    "%s failure diagnostics",
+    (operation) => {
+      async function rejectedByOutbox(providerFailure: unknown) {
+        const item = memoryItem(
+          "mem_privacy",
+          "Private confirmed body sentinel.",
+        );
+        const searchIndex = new CapturingSearchIndex();
+        const memoryItems = new StaticMemoryItems(
+          new Map(operation === "reindex" ? [[item.id, item]] : []),
+        );
+        const method =
+          operation === "reindex" ? "upsertDocument" : "deleteDocument";
+        vi.spyOn(searchIndex, method).mockRejectedValue(providerFailure);
+        const handler =
+          operation === "reindex"
+            ? createMemoryEmbeddingReindexRequestedHandler({
+                memoryItems,
+                searchIndex,
+              })
+            : createMemoryEmbeddingDeleteRequestedHandler({
+                memoryItems,
+                searchIndex,
+              });
+        const failure = await handler
+          .handle(
+            outboxEvent({
+              type: `memory.embedding.${operation}.requested`,
+              aggregateId: item.id,
+              payload: {
+                bodyHash: item.bodyHash,
+                bodyVersion: item.bodyVersion,
+              },
+            }),
+          )
+          .catch((error: unknown) => error);
+        expect(failure).toBeInstanceOf(OutboxHandlerError);
+        expect(failure).toMatchObject({
+          message: "Memory projection work needs reconciliation",
+          retryable: true,
+        });
+        expect(failure).not.toHaveProperty("cause");
+        expect(failure).not.toBe(providerFailure);
+        expect(String(failure)).not.toMatch(/SENTINEL/);
+        expect(JSON.stringify(failure)).not.toMatch(/SENTINEL/);
+        expect(memoryItems.indexingSucceeded).toEqual([]);
+        expect(memoryItems.indexingDeleted).toEqual([]);
+        return failure;
+      }
+
+      it.each([
+        "memory_index_conflict",
+        "memory_index_unknown_write",
+        "memory_index_deadline",
+      ])(
+        "preserves %s without forwarding provider text or cause",
+        async (code) => {
+          const providerFailure = Object.assign(
+            new MemoryIndexOperationError(code),
+            {
+              message: "BODY_SENTINEL QUERY_SENTINEL TOKEN_SENTINEL",
+              cause: new Error("CAUSE_SENTINEL"),
+            },
+          );
+          expect(await rejectedByOutbox(providerFailure)).toMatchObject({
+            code,
+          });
+        },
+      );
+
+      it.each([
+        {
+          name: "ordinary provider error",
+          error: () => new Error("BODY_SENTINEL QUERY_SENTINEL TOKEN_SENTINEL"),
+        },
+        {
+          name: "operation error with an arbitrary code",
+          error: () => new MemoryIndexOperationError("CODE_SENTINEL"),
+        },
+        {
+          name: "plain object spoofing a safe operation error",
+          error: () => ({
+            name: "MemoryIndexOperationError",
+            code: "memory_index_conflict",
+            message: "BODY_SENTINEL QUERY_SENTINEL TOKEN_SENTINEL",
+            cause: new Error("CAUSE_SENTINEL"),
+          }),
+        },
+        {
+          name: "provider error spoofing a safe operation code",
+          error: () =>
+            Object.assign(
+              new Error("BODY_SENTINEL QUERY_SENTINEL TOKEN_SENTINEL"),
+              {
+                name: "MemoryIndexOperationError",
+                code: "memory_index_deadline",
+                cause: new Error("CAUSE_SENTINEL"),
+              },
+            ),
+        },
+      ])("maps $name to generic pending", async ({ error }) => {
+        expect(await rejectedByOutbox(error())).toMatchObject({
+          code: "memory_index_pending",
+        });
+      });
+    },
+  );
 
   it("registers handlers for lifecycle events so worker does not dead-letter them", () => {
     expect(

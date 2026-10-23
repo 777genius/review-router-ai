@@ -43,6 +43,7 @@ import {
   type RegisterActionControlPlaneRoutesDependencies,
 } from "@reviewrouter/features-action-control-plane";
 import {
+  registerReviewActionV2ProtocolInfoRoute,
   registerReviewContextAttestationV2Routes,
   registerReviewEvidenceV2Routes,
   registerReviewExecutionV2Routes,
@@ -102,12 +103,12 @@ import {
   EntitlementMemoryQuotaPolicy,
   PrismaMemoryItemRepository,
   PrismaMemoryPermission,
-  PrismaMemorySearchIndex,
   PrismaMemorySuggestionRepository,
   PrismaMemoryTransaction,
   PrismaMemoryUsageEventRepository,
   readMemoryServiceEnabled,
-} from "@reviewrouter/features-memory";
+} from "@reviewrouter/features-memory/infrastructure";
+import { createMemorySearchRuntime } from "@reviewrouter/features-memory/composition";
 import { PrismaEntitlementRepository } from "@reviewrouter/features-entitlements";
 import {
   assertHostedCodexProductionReadiness,
@@ -967,6 +968,7 @@ export async function createApiApp(
         })
       : undefined);
 
+  registerReviewActionV2ProtocolInfoRoute(app);
   if (reviewRunControlV2Dependencies) {
     await registerReviewRunControlV2Routes(app, reviewRunControlV2Dependencies);
   }
@@ -1114,7 +1116,9 @@ export async function createApiApp(
             memoryTransaction: new PrismaMemoryTransaction(prisma),
             clock: actionControlPlaneDependencies.clock,
           },
-          memorySearchIndex: new PrismaMemorySearchIndex(prisma),
+          memorySearchIndex: (
+            await createMemorySearchRuntime({ prisma, env: process.env })
+          ).searchIndex,
           ...(actionControlPlaneDependencies.entitlements
             ? { entitlements: actionControlPlaneDependencies.entitlements }
             : {}),

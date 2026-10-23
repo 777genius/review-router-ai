@@ -390,3 +390,43 @@ Remote SaaS head остаётся `520ef97b2ec0328769a270deee15351155110293`, ru
 review thread и merge обоих PR не выполнены. Успешные проверки старых remote
 heads не выдаются за CI подготовленных commits. Production deploy и release
 операции не запускались.
+
+## Возобновление публикации и актуальная совместимость — 2026-10-23
+
+Предыдущий раздел фиксирует историческую остановку. После повторного разрешения
+пользователя публикация через отдельные immutable blobs и SHA-only tree успешно
+обновила SaaS PR до `e1cec4a1364915ac47516fb81efc9bc70e253677`; GitHub связал
+author/committer с аккаунтом `777genius`. Старый неопубликованный runtime pin
+заменяется после публикации нового согласованного runtime.
+
+В текущую подготовку включены SaaS main
+`296ddc0327b7dfc762c31b5b1d39e5461a41c12c` и runtime main
+`ea3759af489d8e431f72c398d0c1f98ba810b7cd`. Сохранены Memory projections,
+account limits, schema compatibility slots, comparison baseline, bounded OCR
+background, context-tool receipts и provider usage. Официальная генерация
+объединяет новый legacy schema slot и Skills contract; generated output вручную
+не редактируется.
+
+Новый inventory содержит **143** migrations, SHA256
+`036310f316485a0fd3392a72ddb29c79b781d3451b055c506d59f102c136074b`.
+Managed92 и historical96 identities сохранены. Добавлен только точный main141
+predecessor; regression сохраняет прежний Skills/main142 manifest и отвергает
+неизвестные/повреждённые каталоги. Все migration SQL bytes сохранены.
+
+Исправлены причины последнего удалённого CI: формат двух release tests и точный
+allowlist четырёх уже закреплённых Get Modular registry artifacts в private
+dependency installer. Неизвестные package/version, ranges, URLs и executable
+YAML configuration по-прежнему отклоняются.
+
+На этой подготовке прошли **327** migration/release tests (2 opt-in skips),
+**26** installer tests, **58** Skills/protocol/export tests (8 PostgreSQL opt-in
+skips), deterministic `protocol:check` с API typecheck и **82** shared FMS cases
+с rejecting mutation. Runtime source прошёл **193** focused tests, полный
+TypeScript typecheck и ESLint; финальные **15** Skills tests отдельно проверяют
+исправление native duplication и побайтную совместимость OCR.
+
+Независимый критик не нашёл новых P1/P2 в merge-sensitive admission/restore,
+companion authority, schema slots, dashboard, Foundation и browser harness.
+Исторические browser receipts выше не являются проверкой нового 143-migration
+checkout. Его свежие browser/paired/real-OCR результаты и окончательные
+опубликованные pins фиксируются следующим checkpoint после исполнения.

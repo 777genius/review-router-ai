@@ -189,9 +189,8 @@ import {
 } from "@reviewrouter/platform-signed-capabilities";
 import {
   ReviewActionV2ProtocolErrorCode,
-  reviewActionV2CanonicalizerDigest,
-  reviewActionV2PublishedSchemaDigest,
-  reviewInvestigationExtensionV1,
+  reviewActionV2CanonicalizerForSchema,
+  reviewActionV2SchemaSlot,
 } from "@reviewrouter/protocol-review-action-v2";
 import { SystemClock } from "@reviewrouter/shared";
 import { ReviewActionV2ExecutionEvidenceCapabilityAdapter } from "./review-action-v2-execution-evidence-capabilities.js";
@@ -555,6 +554,25 @@ export function composeReviewActionV2ProductionRoutes(input: {
       ? {}
       : { oidcAudience: input.oidcAudience }),
   });
+  const schemaBoundRuntime = {
+    ...input.runtime,
+    async assertAuthorizationSchema(token: string, schemaDigest: string) {
+      const resolved =
+        await runControl.authorizations.resolveReviewRunAuthorizationToken({
+          token,
+        });
+      if (
+        resolved.status === ReviewRunAuthorizationTokenResolutionStatus.Valid &&
+        resolved.authorization.schemaDigest !== schemaDigest
+      ) {
+        throw new ReviewActionV2RouteFailure(
+          403,
+          ReviewActionV2ProtocolErrorCode.Forbidden,
+          ["authorization_schema_slot_mismatch"],
+        );
+      }
+    },
+  };
   const investigationRolloutGuard = new ReviewInvestigationRolloutGuard(
     new ResolveInvestigationRollout(
       new EnvironmentInvestigationRolloutPolicyQuery(input.env),
@@ -816,7 +834,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
   );
   const contextAttestation = composeReviewActionV2ContextAttestationRoutes({
     enabled: true,
-    runtime: input.runtime,
+    runtime: schemaBoundRuntime,
     handlers: contextAttestationHandlers,
   });
   const common = {
@@ -832,7 +850,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
     timing: executionTiming,
   } as const;
   const snapshotPublication = composeReviewActionV2SnapshotPublicationRoutes({
-    runtime: input.runtime,
+    runtime: schemaBoundRuntime,
     prisma: input.prisma,
     authorizations: runControl.authorizations,
     authorizationQueries: repositories.authorizations,
@@ -884,7 +902,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
   });
   const investigation = composeReviewActionV2InvestigationRoutes({
     enabled: investigationRecordingEnabled,
-    runtime: input.runtime,
+    runtime: schemaBoundRuntime,
     handlers: {
       authorizations: runControl.authorizations,
       authorizationQueries: repositories.authorizations,
@@ -1446,12 +1464,12 @@ export function composeReviewActionV2ProductionRoutes(input: {
       : { enabled: false as const },
     runControl: composeReviewActionV2RunControlRoutes({
       enabled: true,
-      runtime: input.runtime,
+      runtime: schemaBoundRuntime,
       handlers: runControlHandlers,
     }),
     execution: composeReviewActionV2ExecutionRoutes({
       enabled: true,
-      runtime: input.runtime,
+      runtime: schemaBoundRuntime,
       handlers: {
         ...common,
         executions,
@@ -1476,7 +1494,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
     contextAttestation,
     evidence: composeReviewActionV2EvidenceRoutes({
       enabled: true,
-      runtime: input.runtime,
+      runtime: schemaBoundRuntime,
       handlers: {
         ...common,
         evidence,
@@ -1526,10 +1544,19 @@ function composeProductionHostedV4ReadRoutes(input: {
     releases: input.repositories.producerReleases,
     scm,
     currentProducerReleaseId: async (authorization, actionCommitSha) => {
+      const storedAuthorization =
+        await input.repositories.authorizations.findReviewRunAuthorizationById(
+          authorization.authorizationId,
+        );
+      if (!storedAuthorization) return null;
+      const canonicalizer = reviewActionV2CanonicalizerForSchema(
+        storedAuthorization.schemaDigest,
+      );
+      if (!canonicalizer) return null;
       const attested = await input.prerequisites.releaseAttestations.attest({
         actionCommitSha,
-        expectedSchemaDigest: reviewActionV2PublishedSchemaDigest,
-        expectedCanonicalizerDigest: reviewActionV2CanonicalizerDigest,
+        expectedSchemaDigest: storedAuthorization.schemaDigest,
+        expectedCanonicalizerDigest: canonicalizer,
       });
       if (
         attested.status !== ProducerReleaseAttestationStatus.Attested ||
@@ -1544,7 +1571,8 @@ function composeProductionHostedV4ReadRoutes(input: {
         baseRelease: attested.release,
       });
       return selected.state === ProducerReleaseState.Registered &&
-        selected.actionCommitSha === actionCommitSha
+        selected.actionCommitSha === actionCommitSha &&
+        selected.schemaDigest === storedAuthorization.schemaDigest
         ? selected.producerReleaseId
         : null;
     },
@@ -1581,6 +1609,10 @@ export class ProductionReviewInvestigationAuthorizationCapability implements Rev
       ReviewInvestigationAuthorizationCapabilityPort["resolve"]
     >[0],
   ) {
+    const extension = reviewActionV2SchemaSlot(
+      input.producerRelease.schemaDigest,
+    )?.reviewInvestigationExtensionV1;
+    if (!extension) return null;
     const profile = input.producerRelease.reviewInvestigationProfile;
     if (
       profile === null ||
@@ -1652,10 +1684,9 @@ export class ProductionReviewInvestigationAuthorizationCapability implements Rev
       authorizationDescriptorVersion: 3,
       capability: reviewInvestigationCapabilityV1,
       coverageProfileHash: profile.coverageProfileHash,
-      extensionCanonicalizerDigest:
-        reviewInvestigationExtensionV1.canonicalizerDigest,
-      extensionId: reviewInvestigationExtensionV1.extensionId,
-      extensionSchemaDigest: reviewInvestigationExtensionV1.schemaDigest,
+      extensionCanonicalizerDigest: extension.canonicalizerDigest,
+      extensionId: extension.extensionId,
+      extensionSchemaDigest: extension.schemaDigest,
       policyHash: profile.policyHash,
       providerCapabilities: Object.freeze(providerCapabilities),
     });

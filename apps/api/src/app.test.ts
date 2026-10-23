@@ -42,8 +42,8 @@ import type {
   MemoryPermissionDecision,
   MemoryPermissionPort,
   MemorySearchIndexInput,
-  MemorySearchIndexPort,
   MemorySearchIndexResult,
+  MemorySearchReaderPort,
   MemorySuggestionRepositoryPort,
   MemorySuggestionSnapshot,
   MemoryTransactionPort,
@@ -773,12 +773,12 @@ class CapturingMemoryUsageEvents implements MemoryUsageEventPort {
   }
 }
 
-class CapturingMemorySearchIndex implements MemorySearchIndexPort {
+class CapturingMemorySearchReader implements MemorySearchReaderPort {
   public readonly inputs: MemorySearchIndexInput[] = [];
 
   constructor(private readonly results: readonly MemorySearchIndexResult[]) {}
 
-  async supports(): ReturnType<MemorySearchIndexPort["supports"]> {
+  async supports(): ReturnType<MemorySearchReaderPort["supports"]> {
     return { capabilities: ["lexical"] };
   }
 
@@ -787,14 +787,6 @@ class CapturingMemorySearchIndex implements MemorySearchIndexPort {
   ): Promise<readonly MemorySearchIndexResult[]> {
     this.inputs.push(input);
     return this.results;
-  }
-
-  async upsertDocument(): Promise<void> {
-    return undefined;
-  }
-
-  async deleteDocument(): Promise<void> {
-    return undefined;
   }
 }
 
@@ -1173,7 +1165,8 @@ function actionMemorySnapshot(
     id: overrides.id ?? "mem_1",
     schemaVersion: 1,
     workspaceId: overrides.workspaceId ?? "workspace_1",
-    repositoryId: overrides.repositoryId ?? "repo_1",
+    repositoryId:
+      overrides.repositoryId !== undefined ? overrides.repositoryId : "repo_1",
     userId: overrides.userId ?? null,
     scope: overrides.scope ?? "repository",
     status: overrides.status ?? "active",
@@ -2144,7 +2137,7 @@ describe("API app", () => {
     expect(repositories.healthReports).toHaveLength(1);
   });
 
-  it("uses a safe action memory retrieval query when the runtime provides one", async () => {
+  it("uses a read-only memory engine with a safe runtime retrieval query", async () => {
     const repositories = new InMemoryActionRepositories();
     const sessions = new JoseActionSessionTokenService(
       "0123456789abcdef0123456789abcdef",
@@ -2164,9 +2157,13 @@ describe("API app", () => {
       }),
     ]);
     const actionMemory = createActionMemoryDependencies({ memoryItems });
-    const searchIndex = new CapturingMemorySearchIndex([
+    const searchIndex = new CapturingMemorySearchReader([
       {
         memoryItemId: "mem_browser",
+        bodyVersion: 1,
+        bodyHash: createMemoryBodyHash(
+          "Run dashboard memory changes through browser layout checks.",
+        ),
         scope: "repository",
         score: 10,
         scoreParts: {
@@ -2251,7 +2248,7 @@ describe("API app", () => {
       }),
     ]);
     const actionMemory = createActionMemoryDependencies({ memoryItems });
-    const searchIndex = new CapturingMemorySearchIndex([]);
+    const searchIndex = new CapturingMemorySearchReader([]);
     const app = await createApiApp({
       actionControlPlaneDependencies: {
         repositories,

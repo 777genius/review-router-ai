@@ -1,0 +1,253 @@
+import { describe, expect, it } from "vitest";
+import {
+  assessRollbackProtocolCompatibility,
+  parseWorkflowChannelContract,
+} from "./review-action-v2-rollback-protocol-preflight.js";
+
+const CURRENT = {
+  protocolVersion: "2",
+  schemaDigest: "a".repeat(64),
+  canonicalizerDigest: "b".repeat(64),
+} as const;
+const LEGACY = {
+  protocolVersion: "2",
+  schemaDigest: "c".repeat(64),
+  canonicalizerDigest: "d".repeat(64),
+} as const;
+const HISTORICAL = {
+  protocolVersion: "2",
+  schemaDigest: "e".repeat(64),
+  canonicalizerDigest: "f".repeat(64),
+} as const;
+
+function channelManifest(contract: {
+  protocolVersion: string;
+  schemaDigest: string;
+  canonicalizerDigest: string;
+}): string {
+  return JSON.stringify({
+    contractSourceVersion: 1,
+    protocolVersion: Number(contract.protocolVersion),
+    schemaDigest: contract.schemaDigest,
+    canonicalizerDigest: contract.canonicalizerDigest,
+  });
+}
+
+const baseline = {
+  targetContracts: [CURRENT, LEGACY],
+  channelManifestSource: channelManifest(CURRENT),
+  attestations: [
+    {
+      producerReleaseId: "release-current",
+      schemaDigest: CURRENT.schemaDigest,
+      canonicalizerDigest: CURRENT.canonicalizerDigest,
+    },
+    {
+      producerReleaseId: "release-legacy",
+      schemaDigest: LEGACY.schemaDigest,
+      canonicalizerDigest: LEGACY.canonicalizerDigest,
+    },
+  ],
+  activeAuthorizations: [
+    {
+      authorizationId: "authorization-1",
+      producerReleaseId: "release-current",
+      selectedProtocolVersion: "2",
+      schemaDigest: CURRENT.schemaDigest,
+    },
+  ],
+  retainedProducerReleases: [
+    { producerReleaseId: "release-legacy", schemaDigest: LEGACY.schemaDigest },
+  ],
+} as const;
+
+describe("assessRollbackProtocolCompatibility", () => {
+  it("proves a rollback when the target supports channel, runs and producers", () => {
+    const result = assessRollbackProtocolCompatibility(baseline);
+    expect(result.status).toBe("compatible");
+    expect(result.code).toBe("rollback_protocol_preflight_passed");
+    if (result.status !== "compatible") throw new Error("unreachable");
+    expect(result.requiredContracts).toHaveLength(3);
+  });
+
+  it("permits replacing the API only when the rollback is proven compatible", () => {
+    const rejected = assessRollbackProtocolCompatibility({
+      ...baseline,
+      targetContracts: [LEGACY],
+    });
+    expect(rejected.status).toBe("protocol_incompatible");
+    expect(rejected.code).toBe("rollback_protocol_preflight_rejected");
+
+    const notProven = assessRollbackProtocolCompatibility({
+      ...baseline,
+      attestations: null,
+    });
+    expect(notProven.status).toBe("inventory_incomplete");
+    expect(notProven.code).toBe("rollback_protocol_preflight_not_proven");
+
+    expect(assessRollbackProtocolCompatibility(baseline).status).toBe(
+      "compatible",
+    );
+  });
+
+  it("rejects a target without the channel contract", () => {
+    const result = assessRollbackProtocolCompatibility({
+      ...baseline,
+      targetContracts: [LEGACY],
+    });
+    expect(result.status).toBe("protocol_incompatible");
+    if (result.status !== "protocol_incompatible")
+      throw new Error("unreachable");
+    expect(result.code).toBe("rollback_protocol_preflight_rejected");
+    expect(result.unsupported.map((entry) => entry.source)).toEqual([
+      "workflow_channel",
+      "authorization",
+    ]);
+  });
+
+  it("rejects a retained producer whose canonicalizer matches no target slot", () => {
+    const result = assessRollbackProtocolCompatibility({
+      ...baseline,
+      targetContracts: [CURRENT, LEGACY],
+      attestations: [
+        ...(baseline.attestations as readonly {
+          producerReleaseId: string;
+          schemaDigest: string;
+          canonicalizerDigest: string;
+        }[]),
+        {
+          producerReleaseId: "release-historical",
+          schemaDigest: HISTORICAL.schemaDigest,
+          canonicalizerDigest: HISTORICAL.canonicalizerDigest,
+        },
+      ],
+      retainedProducerReleases: [
+        {
+          producerReleaseId: "release-legacy",
+          schemaDigest: LEGACY.schemaDigest,
+        },
+        {
+          producerReleaseId: "release-historical",
+          schemaDigest: HISTORICAL.schemaDigest,
+        },
+      ],
+    });
+    expect(result.status).toBe("protocol_incompatible");
+    if (result.status !== "protocol_incompatible")
+      throw new Error("unreachable");
+    expect(result.unsupported.map((entry) => entry.consumer)).toEqual([
+      "release-historical",
+    ]);
+  });
+
+  it("is never proven without an attestation for an active authorization", () => {
+    const result = assessRollbackProtocolCompatibility({
+      ...baseline,
+      attestations: [],
+    });
+    expect(result.status).toBe("inventory_incomplete");
+    if (result.status !== "inventory_incomplete")
+      throw new Error("unreachable");
+    expect(result.code).toBe("rollback_protocol_preflight_not_proven");
+    expect(result.missing).toContain("authorization:authorization-1");
+  });
+
+  it("is never proven without an attestation for a retained producer", () => {
+    const result = assessRollbackProtocolCompatibility({
+      ...baseline,
+      activeAuthorizations: [],
+      attestations: [],
+    });
+    expect(result.status).toBe("inventory_incomplete");
+    if (result.status !== "inventory_incomplete")
+      throw new Error("unreachable");
+    expect(result.missing).toContain("producer_release:release-legacy");
+  });
+
+  it("is never proven when the attestation inventory cannot be read", () => {
+    const result = assessRollbackProtocolCompatibility({
+      ...baseline,
+      attestations: null,
+    });
+    expect(result.status).toBe("inventory_incomplete");
+    if (result.status !== "inventory_incomplete")
+      throw new Error("unreachable");
+    expect(result.missing).toContain("producer_release_attestations");
+  });
+
+  it("is never proven without a readable channel manifest", () => {
+    const result = assessRollbackProtocolCompatibility({
+      ...baseline,
+      channelManifestSource: null,
+    });
+    expect(result.status).toBe("inventory_incomplete");
+    if (result.status !== "inventory_incomplete")
+      throw new Error("unreachable");
+    expect(result.missing).toContain("workflow_channel_manifest");
+  });
+
+  it("treats attestation digests that disagree with the inventory as incomplete", () => {
+    const result = assessRollbackProtocolCompatibility({
+      ...baseline,
+      retainedProducerReleases: [
+        {
+          producerReleaseId: "release-legacy",
+          schemaDigest: CURRENT.schemaDigest,
+        },
+      ],
+    });
+    expect(result.status).toBe("inventory_incomplete");
+    if (result.status !== "inventory_incomplete")
+      throw new Error("unreachable");
+    expect(result.missing).toContain(
+      "producer_release_attestation_mismatch:release-legacy",
+    );
+  });
+
+  it("is never proven on ambiguous attestations for one producer release", () => {
+    const result = assessRollbackProtocolCompatibility({
+      ...baseline,
+      attestations: [
+        ...(baseline.attestations as readonly {
+          producerReleaseId: string;
+          schemaDigest: string;
+          canonicalizerDigest: string;
+        }[]),
+        {
+          producerReleaseId: "release-legacy",
+          schemaDigest: LEGACY.schemaDigest,
+          canonicalizerDigest: HISTORICAL.canonicalizerDigest,
+        },
+      ],
+    });
+    expect(result.status).toBe("inventory_incomplete");
+    if (result.status !== "inventory_incomplete")
+      throw new Error("unreachable");
+    expect(result.missing).toContain(
+      "producer_release_attestation_ambiguous:release-legacy",
+    );
+  });
+});
+
+describe("parseWorkflowChannelContract", () => {
+  it("normalizes a numeric protocolVersion from the manifest", () => {
+    expect(parseWorkflowChannelContract(channelManifest(CURRENT))).toEqual({
+      protocolVersion: "2",
+      schemaDigest: CURRENT.schemaDigest,
+      canonicalizerDigest: CURRENT.canonicalizerDigest,
+    });
+  });
+
+  it.each([
+    null,
+    "not-json",
+    "{}",
+    JSON.stringify({ protocolVersion: "2", schemaDigest: "short" }),
+    JSON.stringify({
+      protocolVersion: "2",
+      schemaDigest: CURRENT.schemaDigest,
+    }),
+  ])("stays null for an unusable manifest (%s)", (source) => {
+    expect(parseWorkflowChannelContract(source)).toBeNull();
+  });
+});

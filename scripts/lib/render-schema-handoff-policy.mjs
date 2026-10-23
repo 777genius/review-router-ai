@@ -291,7 +291,7 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
-  // Skills can accompany the original checkout136 or the complete main140.
+  // Skills can accompany the original checkout136 or the complete reviewed main140/main141.
   // Match both named rows: other additive migrations now sort around this pair.
   const skills = catalog.filter((row) =>
     renderReviewSkillsCheckoutExtension.some(
@@ -311,10 +311,28 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
       ![
         "136:sha256:7a00ae60d98ffe6bdaf3bbb74a50eefed8ac60b94e55a443251cb480a47d48a8",
         "140:sha256:12ec2343e5de125175e4fc8946a9ab177034f60af43883b7c4ec8ac91a26ce48",
+        "141:sha256:f57efc9ec8fd5f1efcd8f9cea07586957e5bd4bf983f02f252b30dc474a67ec8",
       ].includes(`${base.length}:${manifest(base)}`)
     )
       fail("checkout_extension");
     return partitionRenderSchemaHandoffCheckout(base);
+  }
+  // Memory projection receipts are checkout-only. Admit the exact SQL and
+  // complete checkout141 before reducing to the previously qualified checkout.
+  const memoryProjectionMigration = catalog.find(
+    (row) => row.migrationName === "000141_memory_search_projections",
+  );
+  if (memoryProjectionMigration) {
+    if (
+      memoryProjectionMigration.checksum !==
+        "4169d5f18ff4bafe6ce316060c06d569d108f4e13704b7c66692514221723c3e" ||
+      manifest(catalog) !==
+        "sha256:f57efc9ec8fd5f1efcd8f9cea07586957e5bd4bf983f02f252b30dc474a67ec8"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== memoryProjectionMigration),
+    );
   }
   // Device sign-in adds only immutable enrollment method metadata. Admit the
   // exact extension before reducing to the previously qualified checkout.

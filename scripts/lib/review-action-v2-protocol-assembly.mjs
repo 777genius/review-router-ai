@@ -307,7 +307,11 @@ export function createPublishedProtocolArtifacts(contract, canonicalJson) {
     }),
   );
   const canonicalizerDescriptor = {
-    canonicalizerVersion: 1,
+    canonicalizerVersion: 2,
+    optionalRequestFields: {
+      omittedOrUndefined: "omit",
+      explicitNull: "preserve",
+    },
     publishedCanonicalizers: contract.canonicalizers,
     operations: baseContract.operations.map((operation) => ({
       operationId: operation.operationId,
@@ -787,13 +791,16 @@ export function parseReviewActionV2Request<Operation extends ReviewActionV2Opera
     validateField("oidcToken", "token", input.oidcToken, issues);
     validateProtocolOffers(input.supportedProtocols, issues);
   }
-  for (const field of descriptor.requestFields) validateField(
+  for (const field of descriptor.requestFields) {
+    if ("optional" in field && field.optional && input[field.name] === undefined) continue;
+    validateField(
     field.name,
     field.type,
     input[field.name],
     issues,
     "enumValues" in field ? field.enumValues : undefined,
   );
+  }
   for (const group of descriptor.allOrNoneRequestFieldGroups) {
     const nullCount = group.filter((field) => input[field] === null).length;
     if (nullCount !== 0 && nullCount !== group.length) {
@@ -814,7 +821,9 @@ export function canonicalizeReviewActionV2Request<Operation extends ReviewAction
   if (!parsed.ok) throw new Error(\`review_action_v2_request_invalid:\${parsed.issues.join(",")}\`);
   const descriptor = reviewActionV2Operations.find((item) => item.operationId === operationId);
   if (!descriptor) throw new Error("review_action_v2_operation_unknown");
-  const body = Object.fromEntries(descriptor.requestFields.map((field) => [field.name, (request as Record<string, unknown>)[field.name]]));
+  const body = Object.fromEntries(descriptor.requestFields
+    .filter((field) => !("optional" in field && field.optional && (request as Record<string, unknown>)[field.name] === undefined))
+    .map((field) => [field.name, (request as Record<string, unknown>)[field.name]]));
   return canonicalJson(body);
 }
 
@@ -1026,7 +1035,10 @@ function generatedOperationTypes(operation) {
     ...operation.requestFields,
   ];
   const requestBody = requestFields
-    .map((field) => `  readonly ${field.name}: ${fieldTsType(field)};`)
+    .map(
+      (field) =>
+        `  readonly ${field.name}${field.optional ? "?" : ""}: ${fieldTsType(field)};`,
+    )
     .join("\n");
   const resultBody = operation.resultFields
     .map((field) => `  readonly ${field.name}?: ${fieldTsType(field)};`)
@@ -1085,7 +1097,7 @@ function requestSchema(contract, operation) {
       "protocolVersion",
       "schemaDigest",
       "requestId",
-      ...fields.map((field) => field.name),
+      ...fields.filter((field) => !field.optional).map((field) => field.name),
     ],
     properties: {
       protocolVersion: { const: contract.protocolVersion },
@@ -1898,7 +1910,7 @@ function arraysEqual(left, right) {
 
 function enumMember(value) {
   return value
-    .split("_")
+    .split(/[_.]/u)
     .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
     .join("");
 }
