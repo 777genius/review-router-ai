@@ -17,9 +17,9 @@ export class ContextProbeError extends Error {
     super(code);
   }
 }
-const fail = (code: ContextProbeErrorCode): never => {
+function fail(code: ContextProbeErrorCode): never {
   throw new ContextProbeError(code);
-};
+}
 const maxBytes = 1_048_576;
 const timeoutMs = 30_000;
 const versions = ["2025-11-25", "2025-06-18", "2025-03-26"];
