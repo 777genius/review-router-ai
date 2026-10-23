@@ -2,6 +2,19 @@ name: Hindsight native qualification
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feat/hindsight-memory-v1
+    paths:
+      - deploy/hindsight/**
+      - scripts/hindsight-e2e/**
+      - packages/features/memory/src/infrastructure/hindsight/**
+      - packages/features/memory/src/infrastructure/config/memory-provider-config.ts
+      - packages/features/memory/src/application/ports/memory-knowledge-provider-port.ts
+      - packages/features/memory/src/domain/**
+      - package.json
+      - pnpm-lock.yaml
+      - .github/workflows/hindsight-memory-qualification.yml
   pull_request:
     paths:
       - deploy/hindsight/**
