@@ -3,6 +3,8 @@ import { Button, Checkbox, SelectField } from "@reviewrouter/ui";
 import type { ContextConnectionMetadata } from "@reviewrouter/features-review-context-tools";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import type { McpCatalogPreset } from "../../../src/features/context-tools/mcp-catalog";
+import { McpCatalogPicker } from "./mcp-catalog-picker";
 import {
   draftAuth,
   draftSecretNames,
@@ -31,9 +33,11 @@ const inputClass =
 export function ContextConnectionsForm({
   workspaceId,
   connections,
+  catalog = [],
 }: {
   workspaceId: string;
   connections: readonly ContextConnectionMetadata[];
+  catalog?: readonly McpCatalogPreset[];
 }): React.ReactElement {
   return (
     <div className="grid gap-8">
@@ -44,7 +48,7 @@ export function ContextConnectionsForm({
           connection={connection}
         />
       ))}
-      <ConnectionForm workspaceId={workspaceId} />
+      <ConnectionForm workspaceId={workspaceId} catalog={catalog} />
     </div>
   );
 }
@@ -52,9 +56,11 @@ export function ContextConnectionsForm({
 function ConnectionForm({
   workspaceId,
   connection,
+  catalog = [],
 }: {
   workspaceId: string;
   connection?: ContextConnectionMetadata;
+  catalog?: readonly McpCatalogPreset[];
 }): React.ReactElement {
   const router = useRouter();
   const headingId = useId();
@@ -280,6 +286,18 @@ function ConnectionForm({
             : "Connect an HTTPS MCP server, approve tools and save it for your workspace."}
         </p>
       </div>
+      {!connection && catalog.length > 0 && (
+        <McpCatalogPicker
+          presets={catalog}
+          disabled={saving}
+          onSelect={(preset) => {
+            updateDefinition(JSON.stringify({ ...preset, tools: [] }, null, 2));
+            setAdvancedAuth(false);
+            setManualTools("");
+            formRef.current?.reset();
+          }}
+        />
+      )}
       <div className="grid min-w-0 gap-4 sm:grid-cols-2">
         <label className="grid gap-2 text-sm">
           Connection ID
