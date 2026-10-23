@@ -335,10 +335,15 @@ Prefer a short memory-only pause over dual writes if the inventory permits:
    exports and unknown deletion/write outcomes.
 2. Stop every memory ingress and drain or settle outstanding work. Ordinary
    reviews may continue without memory.
+   During pause and rollback, verify service/workspace disable through
+   `MemoryPolicyConfigPort`: runtime bundles and new writes/proposals/confirmations
+   are blocked while authorized pending-suggestion rejection, retire/forget and
+   export remain available. Pending native cleanup reports progress honestly.
 3. Export eligible knowledge; decide how pending, expired, invalidated and audit
    data are handled. Import once and verify scopes and provenance.
 4. Switch one configured generation. Keep any old snapshot read-only for a
    bounded recovery window.
+   Repeat disabled-mode cleanup/export checks before re-enabling memory.
 5. Complete old remote cleanup before removing projection receipts and adapters.
 6. Remove obsolete source code and add forward schema migrations.
 
