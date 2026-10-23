@@ -37,32 +37,22 @@ Image/audio/video, computer use,
 
 Минимальный общий контракт, четыре provider lanes и общий UI параллельно.
 Каждый lane сразу включает свой collector/normalizer лимитов; это не отдельный
-проект после подключения. Расширение SDK и private ports делать только в объёме,
-необходимом первому реальному consumer. Существующие аккаунты, конфиги и формы
-продолжают работать без переноса данных и повторного входа. Отдельной фазы миграции
-перед новыми providers нет; необходимые additive schema changes входят в их PR.
-В RR достаточно одной миграции `000142_optional_gateway_reasoning`: снять
-`NOT NULL` с двух существующих reasoning columns, сохранив все значения и defaults.
-Она нужна моделям без reasoning; новые provider records используют существующие
-таблицы аккаунтов. Отдельные таблицы каталога, скрипт переноса и повторный вход
-пользователя не нужны.
+проект после подключения. Расширение SDK и private ports делать только под
+фактический consumer.
+Старые аккаунты и формы работают без переноса данных и повторного входа.
 
-**Миграция входит в обычную поставку, не в отдельный проект.** Применить `000142`
-штатным migration runner до запуска нового RR кода. Это два `DROP NOT NULL`,
-без изменения defaults, UPDATE существующих строк или преобразования JSON.
-Не добавлять временные flags миграции, compatibility bridge, dual-read/write,
-backfill, отдельный CLI и пользовательский шаг «перенести аккаунт».
-Старые Codex/Claude/MiMo/OpenRouter records и сохранённые reasoning значения
-остаются прежними. При откате приложения nullable columns оставить: старый код
-не должен получать новые profiles, а обратный `SET NOT NULL` не нужен.
-Native schema constraints расширять только там, где этого требует новая identity;
-это обычные additive migrations в native PR, без массовой переработки custody.
+**Миграция — часть обычной поставки.** В RR применить существующим runner
+`000142_optional_gateway_reasoning` перед новым кодом: два `DROP NOT NULL`
+для reasoning columns, без изменения значений/defaults. Новые providers используют
+существующие таблицы аккаунтов. В native расширить только constraints, мешающие
+новой identity, обычными additive migrations; прежние migrations не менять.
+Backfill, dual-write, compatibility bridge, новый runner и пользовательские шаги
+не нужны. При ошибке остановить rollout; при откате кода оставить nullable columns
+и закрыть новые profiles существующей deployment policy.
 
-Достаточная проверка миграции — один existing PostgreSQL harness: прежняя запись
-сохраняет значение, новая qualified модель без reasoning проходит save/read,
-существующие defaults работают. Это одна общая проверка, не четыре provider-прогона.
-Ошибка применения останавливает обычный rollout до запуска зависимого кода;
-не запускать обходной ручной перенос данных.
+Проверить миграцию один раз в существующем PostgreSQL harness: прежнее reasoning
+сохранено, defaults работают, qualified модель без reasoning сохраняется и читается.
+Не повторять эту общую проверку для каждого provider.
 
 Один существующий joined harness доказывает цепочку, browser E2E - пользовательский
 flow; дополнительные tests нужны только для непокрытых parser/lifecycle рисков.
@@ -248,9 +238,11 @@ profiles: UI и server save/admission используют те же qualified s
 unit credits/tokens/requests не подменять друг другом. Browser labels - короткая
 allowlisted projection (`5h`, `Week`, `Month`), без эха произвольных provider IDs.
 
-Нормализация живёт в native, SDK валидирует wire, RR domain проецирует display.
-Оба wire versions адаптируются в один consumer-facing limits port, без второй
-копии правил авторизации, stale/reset и вычисления процентов. Расширение wire
+Native нормализует provider responses, SDK валидирует versioned wire,
+существующий RR domain adapter готовит display для v1/v2. Gateway cached-limits
+port сохраняет единые authorization/identity/revalidation guards. Отдельный SDK
+Consumer DTO или неиспользуемый normalization helper не добавлять; вычисление
+процентов и stale/reset правила не дублировать. Расширение wire
 не требует переписывать сохранённые snapshots или одновременно публиковать их в v1/v2.
 Старые Codex/Claude сценарии и labels остаются прежними. Новый snapshot целиком
 заменяет набор окон: исчезнувшее weekly окно нельзя сохранить как свежее.
@@ -480,7 +472,8 @@ shared fixtures и package versions вносит A из reviewed lane patches, �
 
 PR примерно до 2 000 changed LOC; связный инвариант не разрезать ради цифры.
 Основание стека мержить без потери ancestry либо своевременно перестраивать
-потомков и проверять новый exact head. Не выпускать один mega-PR на все четыре.
+потомков и проверять новый exact head. Не разделять уже проверенный связный PR
+только ради числа providers; новые независимые slices не собирать в один mega-PR.
 Для каждой пары native/Gateway/RR фиксировать совместимые SHA и SDK version,
 а не переносить dirty directories как authoritative input.
 
@@ -554,6 +547,13 @@ live canary preparation и внешнее согласование не вклю
 | MiniMax leaf и его интеграция                                    |        250-450 |     300-550 |        7/10 |
 | Grok browser OAuth/principal/refresh/transport, без shared части |    1 100-1 900 |   600-1 100 |        6/10 |
 | Итого                                                            |    3 000-5 250 | 2 450-4 300 |        6/10 |
+
+Порядок завершения: зафиксировать совместимые native/Gateway/SDK/RR версии →
+проверить изменившиеся границы и единый joined/browser flow → required CI/review →
+merge в порядке native, Gateway, RR. Уже успешные проверки неизменённых bytes
+использовать повторно; новые отчёты, отдельные rehearsal и повторное согласование
+плана не являются дополнительными gates. Live canary нужен для activation,
+а не как повод повторно строить и тестировать весь fixture slice.
 
 Первый технический checkpoint готов, когда новый профиль проходит protected
 enrollment, установленный SDK, один model/tool review, safe lifecycle и browser UX.
