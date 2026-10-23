@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { createMemoryBodyHash } from "../../domain/memory-body";
 import { memoryActorRef } from "../../domain/memory-actor";
@@ -21,6 +22,7 @@ import type {
   MemoryKnowledgeStore,
   MemoryStoredCommand,
   MemoryVerifiedCleanupReceipt,
+  MemoryKnowledgeMaintenanceState,
 } from "../../application/ports/memory-knowledge-store-port";
 import type { MemoryProviderOperation } from "../../application/ports/memory-knowledge-provider-port";
 
@@ -60,6 +62,132 @@ const terminal = new Set(["published", "completed", "failed"]);
 export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
   constructor(private readonly prisma: PrismaClient) {}
 
+  async maintenanceState(
+    generation: string,
+  ): Promise<MemoryKnowledgeMaintenanceState> {
+    return readMemoryMaintenanceState(this.prisma, generation);
+  }
+
+  async setMaintenancePaused(
+    input: Parameters<MemoryKnowledgeStore["setMaintenancePaused"]>[0],
+  ): Promise<MemoryKnowledgeMaintenanceState> {
+    if (!input.actor || !/^[0-9]+$/.test(input.expectedEpoch))
+      throw new MemoryKnowledgeError("invalid_input");
+    return this.boundedTransaction(input.now, input.deadlineAt, async (tx) => {
+      await tx.$executeRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${deliveryFenceKey(input.generation)},0))`,
+      );
+      const current = await readMemoryMaintenanceState(tx, input.generation);
+      if (current.epoch !== input.expectedEpoch)
+        throw new MemoryKnowledgeError("conflict");
+      if (current.paused === input.paused) return current;
+      const epoch = String(BigInt(current.epoch) + 1n);
+      await tx.$executeRaw(
+        Prisma.sql`INSERT INTO "MemoryKnowledgeMaintenanceFence" ("generation","epoch","paused","actor","updatedAt") VALUES (${input.generation},${BigInt(epoch)},${input.paused},${input.actor},${input.now}) ON CONFLICT ("generation") DO UPDATE SET "epoch"=EXCLUDED."epoch","paused"=EXCLUDED."paused","actor"=EXCLUDED."actor","updatedAt"=EXCLUDED."updatedAt"`,
+      );
+      if (!input.paused) {
+        const pending = await tx.$queryRaw<CommandRow[]>(
+          Prisma.sql`SELECT c.* FROM "MemoryKnowledgeCommand" c JOIN "MemoryKnowledgeEntry" e ON e."generation"=c."generation" AND e."scopeKey"=c."scopeKey" AND e."entryId"=c."entryId" AND e."pendingCommandId"=c."id" WHERE c."generation"=${input.generation} AND c."state" NOT IN ('published','completed','failed','cleanup_pending') AND c."envelope" IS NOT NULL AND c."deliveryExpiresAt">${input.now} ORDER BY c."id" LIMIT 1001`,
+        );
+        if (pending.length > 1000)
+          throw new MemoryKnowledgeError("input_required");
+        if (pending.length)
+          await tx.outboxEvent.createMany({
+            data: pending.map((row) => ({
+              id: randomUUID(),
+              type: "memory.knowledge.command.requested",
+              version: 2,
+              idempotencyKey: `memory.knowledge.command.resume:${row.id}:${epoch}`,
+              workspaceId: row.workspaceId,
+              aggregateId: row.entryId,
+              payload: {
+                commandId: row.id,
+                generation: row.generation,
+                scope: row.envelope!.ref.scope,
+              },
+              occurredAt: input.now,
+            })),
+          });
+      }
+      return { generation: input.generation, epoch, paused: input.paused };
+    });
+  }
+
+  async withDeliveryPermit<T>(
+    input: Parameters<MemoryKnowledgeStore["withDeliveryPermit"]>[0],
+    work: (permit: { readonly revoked: boolean }) => Promise<T>,
+  ): Promise<
+    | { readonly permitted: false }
+    | { readonly permitted: true; readonly value: T }
+  > {
+    return this.boundedTransaction(input.now, input.deadlineAt, async (tx) => {
+      await tx.$executeRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${deliveryFenceKey(input.generation)},0))`,
+      );
+      const row = await this.command(tx, input.commandId);
+      if (
+        !row ||
+        row.generation !== input.generation ||
+        row.scopeKey !== memoryKnowledgeScopeKey(input.scope) ||
+        row.claimId !== input.claimId ||
+        terminal.has(row.state)
+      )
+        throw new MemoryKnowledgeError("conflict");
+      const maintenance = await readMemoryMaintenanceState(
+        tx,
+        input.generation,
+      );
+      if (maintenance.paused) {
+        await tx.$executeRaw(
+          Prisma.sql`UPDATE "MemoryKnowledgeCommand" SET "claimId"=NULL,"claimUntil"=NULL,"state"='unknown',"updatedAt"=${input.now} WHERE "id"=${row.id}`,
+        );
+        return { permitted: false as const };
+      }
+      const current = await this.entry(
+        tx,
+        { type: "entry", scope: input.scope, entryId: row.entryId },
+        input.generation,
+      );
+      if (!current || current.pendingCommandId !== row.id)
+        throw new MemoryKnowledgeError("conflict");
+      // Never call settle/claim recursively from work: this callback owns one
+      // borrowed transaction solely for the bounded external transport barrier.
+      const value = await work({
+        revoked: Boolean(
+          current.revocationCommandId && current.revocationCommandId !== row.id,
+        ),
+      });
+      return { permitted: true as const, value };
+    });
+  }
+
+  private async boundedTransaction<T>(
+    now: Date,
+    deadlineAt: Date,
+    work: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    const remaining = deadlineAt.getTime() - now.getTime();
+    if (!Number.isFinite(remaining) || remaining <= 0 || remaining > 60000)
+      throw new MemoryKnowledgeError("deadline_exceeded", true);
+    try {
+      return await this.prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw(
+            Prisma.sql`SELECT set_config('lock_timeout',${String(Math.ceil(remaining))},true)`,
+          );
+          await tx.$executeRaw(
+            Prisma.sql`SELECT set_config('statement_timeout',${String(Math.ceil(remaining))},true)`,
+          );
+          return work(tx);
+        },
+        { maxWait: Math.min(1000, remaining), timeout: remaining + 5000 },
+      );
+    } catch (error) {
+      if (error instanceof MemoryKnowledgeError) throw error;
+      throw new MemoryKnowledgeError("unavailable", true);
+    }
+  }
+
   async admit(
     input: Parameters<MemoryKnowledgeStore["admit"]>[0],
   ): Promise<MemoryKnowledgeOperation> {
@@ -79,6 +207,14 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
       await tx.$executeRaw(
         Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`memory-admission:${command.ref.scope.workspaceId}`}, 0))`,
       );
+      await tx.$executeRaw(
+        Prisma.sql`INSERT INTO "MemoryKnowledgeMaintenanceFence" ("generation","epoch","paused","actor","updatedAt") VALUES (${command.generation},0,false,'initial_admission',${input.now}) ON CONFLICT DO NOTHING`,
+      );
+      if (
+        (command.kind === "save" || command.kind === "topics") &&
+        (await readMemoryMaintenanceState(tx, command.generation)).paused
+      )
+        throw new MemoryKnowledgeError("unavailable", true);
       await this.lockScope(tx, command.ref.scope, command.generation);
       const existingCommand = await this.command(tx, command.commandId);
       if (existingCommand) {
@@ -299,6 +435,14 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
 
   async claim(input: Parameters<MemoryKnowledgeStore["claim"]>[0]) {
     return this.prisma.$transaction(async (tx) => {
+      const [permit] = await tx.$queryRaw<{ granted: boolean }[]>(
+        Prisma.sql`SELECT pg_try_advisory_xact_lock_shared(hashtextextended(${deliveryFenceKey(input.generation)},0)) AS granted`,
+      );
+      if (
+        !permit?.granted ||
+        (await readMemoryMaintenanceState(tx, input.generation)).paused
+      )
+        return null;
       await this.lockScope(tx, input.scope, input.generation);
       const row = await this.command(tx, input.commandId);
       if (
@@ -361,6 +505,11 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
       if (!current || current.pendingCommandId !== row.id)
         throw new MemoryKnowledgeError("conflict");
       let state = input.result.state;
+      if (
+        command.kind === "forget" &&
+        (state === "completed" || state === "published" || state === "failed")
+      )
+        state = "cleanup_pending";
       if (state === "failed" && !input.result.executionSettled)
         state = "unknown";
       if (
@@ -458,6 +607,9 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
     )
       throw new MemoryKnowledgeError("invalid_input");
     return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${deliveryFenceKey(receipt.generation)},0))`,
+      );
       await this.lockScope(tx, receipt.ref.scope, receipt.generation);
       const row = await this.command(tx, receipt.commandId);
       if (
@@ -474,6 +626,12 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
           throw new MemoryKnowledgeError("conflict");
         return this.operation(row, receipt.ref.scope);
       }
+      const maintenance = await readMemoryMaintenanceState(
+        tx,
+        receipt.generation,
+      );
+      if (!maintenance.paused || maintenance.epoch !== receipt.maintenanceEpoch)
+        throw new MemoryKnowledgeError("conflict");
       const current = await this.entry(tx, receipt.ref, receipt.generation);
       if (
         !current ||
@@ -563,8 +721,7 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
     result: MemoryProviderOperation,
   ): boolean {
     const command = row.envelope!;
-    if (command.kind === "forget")
-      return result.state === "completed" && Boolean(result.cleanupReceiptId);
+    if (command.kind === "forget") return false;
     if (command.kind === "retire" || command.kind === "expire")
       return result.state === "completed";
     if (command.kind !== "save" && command.kind !== "topics") return false;
@@ -667,17 +824,11 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
     );
   }
   private async lockScope(
-    tx: Database,
+    tx: Prisma.TransactionClient,
     scope: MemoryKnowledgeScope,
     generation: string,
   ): Promise<void> {
-    const scopeKey = memoryKnowledgeScopeKey(scope);
-    await tx.$executeRaw(
-      Prisma.sql`INSERT INTO "MemoryKnowledgeScopeState" ("generation","scopeKey","workspaceId") VALUES (${generation},${scopeKey},${scope.workspaceId}) ON CONFLICT DO NOTHING`,
-    );
-    await tx.$queryRaw(
-      Prisma.sql`SELECT "epoch" FROM "MemoryKnowledgeScopeState" WHERE "generation"=${generation} AND "scopeKey"=${scopeKey} FOR UPDATE`,
-    );
+    await lockMemoryKnowledgeScopes(tx, [scope], generation);
   }
   private async bumpEpoch(
     tx: Database,
@@ -744,4 +895,76 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
       Prisma.sql`INSERT INTO "MemoryKnowledgeEntry" ("generation","scopeKey","entryId","workspaceId","revision","lifecycle","metadata","pendingCommandId","revocationCommandId","createdAt","updatedAt") VALUES (${metadata.generation},${memoryKnowledgeScopeKey(metadata.ref.scope)},${metadata.ref.entryId},${metadata.ref.scope.workspaceId},${Number(metadata.revision)},${metadata.lifecycle},${JSON.stringify(metadata)}::jsonb,${metadata.pendingCommandId},${metadata.revocationCommandId},${new Date(metadata.createdAt)},${now}) ON CONFLICT ("generation","scopeKey","entryId") DO UPDATE SET "revision"=EXCLUDED."revision","lifecycle"=EXCLUDED."lifecycle","metadata"=EXCLUDED."metadata","pendingCommandId"=EXCLUDED."pendingCommandId","revocationCommandId"=EXCLUDED."revocationCommandId","updatedAt"=EXCLUDED."updatedAt"`,
     );
   }
+}
+
+function deliveryFenceKey(generation: string): string {
+  return `memory-delivery:${generation}`;
+}
+
+async function readMemoryMaintenanceState(
+  tx: Database,
+  generation: string,
+): Promise<MemoryKnowledgeMaintenanceState> {
+  const [row] = await tx.$queryRaw<{ epoch: bigint; paused: boolean }[]>(
+    Prisma.sql`SELECT "epoch","paused" FROM "MemoryKnowledgeMaintenanceFence" WHERE "generation"=${generation}`,
+  );
+  return {
+    generation,
+    epoch: String(row?.epoch ?? 0),
+    paused: row?.paused ?? false,
+  };
+}
+
+/** Shared host integration helper: sorted exact metadata locks, without nested transactions. */
+export async function lockMemoryKnowledgeScopes(
+  tx: Prisma.TransactionClient,
+  scopes: readonly MemoryKnowledgeScope[],
+  generation: string,
+): Promise<void> {
+  assertMemoryInteractiveTransaction(tx);
+  const unique = new Map(
+    scopes.map((scope) => [memoryKnowledgeScopeKey(scope), scope]),
+  );
+  for (const [scopeKey, scope] of [...unique].sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  )) {
+    await tx.$executeRaw(
+      Prisma.sql`INSERT INTO "MemoryKnowledgeScopeState" ("generation","scopeKey","workspaceId") VALUES (${generation},${scopeKey},${scope.workspaceId}) ON CONFLICT DO NOTHING`,
+    );
+    await tx.$queryRaw(
+      Prisma.sql`SELECT "epoch" FROM "MemoryKnowledgeScopeState" WHERE "generation"=${generation} AND "scopeKey"=${scopeKey} FOR UPDATE`,
+    );
+  }
+}
+
+/** Host lease admission may fail closed while an exclusive pause is pending. */
+export async function tryLockMemoryKnowledgeMaintenance(
+  tx: Prisma.TransactionClient,
+  generation: string,
+): Promise<MemoryKnowledgeMaintenanceState | null> {
+  assertMemoryInteractiveTransaction(tx);
+  const [permit] = await tx.$queryRaw<{ granted: boolean }[]>(
+    Prisma.sql`SELECT pg_try_advisory_xact_lock_shared(hashtextextended(${deliveryFenceKey(generation)},0)) AS granted`,
+  );
+  if (!permit?.granted) return null;
+  const [row] = await tx.$queryRaw<{ epoch: bigint; paused: boolean }[]>(
+    Prisma.sql`SELECT "epoch","paused" FROM "MemoryKnowledgeMaintenanceFence" WHERE "generation"=${generation} FOR SHARE`,
+  );
+  // Existing admitted entries bootstrap this row; absence is never freshness
+  // evidence from an older Serializable transaction snapshot.
+  return row
+    ? { generation, epoch: String(row.epoch), paused: row.paused }
+    : null;
+}
+
+function assertMemoryInteractiveTransaction(
+  tx: Prisma.TransactionClient,
+): void {
+  if (
+    !tx ||
+    typeof tx !== "object" ||
+    Reflect.get(tx, "$connect") !== undefined ||
+    Reflect.get(tx, "$disconnect") !== undefined
+  )
+    throw new MemoryKnowledgeError("invalid_input");
 }

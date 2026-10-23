@@ -48,6 +48,13 @@ export type MemoryKnowledgeBundleItem =
       readonly sourceMetadata: readonly MemoryKnowledgeEntryMetadata[];
     });
 
+export type MemoryKnowledgeBundleInput = {
+  readonly actor: MemoryActor;
+  readonly scopes: readonly MemoryKnowledgeScope[];
+  readonly query: string;
+  readonly limitPerScope?: number;
+};
+
 export type MemoryKnowledgeBundle = {
   readonly generation: string;
   readonly scopes: readonly {
@@ -320,22 +327,34 @@ export class MemoryKnowledgeService {
       resubmitUntil: claim.command.resubmitUntil,
     };
     try {
-      if (claim.mode === "submit" && revoked)
-        return await this.dependencies.store.settle({
+      const delivery = await this.dependencies.store.withDeliveryPermit(
+        {
           ...input,
           generation: this.dependencies.generation,
           claimId: claim.claimId,
-          result: {
-            commandId: command.commandId,
-            state: "failed",
-            executionSettled: true,
-            safeReason: "conflict",
-          },
           now: this.now(),
-        });
-      const result = await (claim.mode === "submit"
-        ? this.dependencies.writer.submit(context, controls)
-        : this.dependencies.observer.observe(context, controls));
+          deadlineAt: controls.deadlineAt,
+        },
+        async (permit) => {
+          this.check(controls);
+          if (claim.mode === "submit" && permit.revoked)
+            return {
+              commandId: command.commandId,
+              state: "failed" as const,
+              executionSettled: true,
+              safeReason: "conflict" as const,
+            };
+          const admitted = {
+            ...context,
+            allowResubmit: context.allowResubmit && !permit.revoked,
+          };
+          return claim.mode === "submit"
+            ? this.dependencies.writer.submit(admitted, controls)
+            : this.dependencies.observer.observe(admitted, controls);
+        },
+      );
+      if (!delivery.permitted) return null;
+      const result = delivery.value;
       if (result.commandId !== input.commandId)
         throw new MemoryKnowledgeError("unknown_write", true);
       return await this.dependencies.store.settle({
@@ -363,6 +382,30 @@ export class MemoryKnowledgeService {
     return this.dependencies.store.expireDeliveryEnvelopes({
       now: this.now(),
       limit: Math.min(1_000, Math.max(1, limit)),
+    });
+  }
+
+  /** Trusted host operator methods. Customer principals cannot create this grant. */
+  maintenanceState() {
+    return this.dependencies.store.maintenanceState(
+      this.dependencies.generation,
+    );
+  }
+
+  async setMaintenancePaused(
+    input: {
+      readonly paused: boolean;
+      readonly expectedEpoch: string;
+      readonly actor: string;
+    },
+    controls: MemoryRequestControls,
+  ) {
+    this.check(controls);
+    return this.dependencies.store.setMaintenancePaused({
+      ...input,
+      generation: this.dependencies.generation,
+      now: this.now(),
+      deadlineAt: controls.deadlineAt,
     });
   }
 
@@ -483,6 +526,49 @@ export class MemoryKnowledgeService {
   }
 
   async bundle(
+    input: MemoryKnowledgeBundleInput,
+    controls: MemoryRequestControls,
+  ): Promise<MemoryKnowledgeBundle> {
+    const remaining = Math.min(
+      2000,
+      controls.deadlineAt.getTime() - this.now().getTime(),
+    );
+    const empty = (): MemoryKnowledgeBundle => {
+      const snapshot = {
+        generation: this.dependencies.generation,
+        scopes: [],
+        expiresAt: new Date(this.now().getTime() + 30000).toISOString(),
+        degraded: true,
+      };
+      return { ...snapshot, hash: memoryKnowledgeDigest(snapshot) };
+    };
+    if (remaining <= 0 || controls.signal?.aborted) return empty();
+    const cancelled = new AbortController();
+    const signal = controls.signal
+      ? AbortSignal.any([controls.signal, cancelled.signal])
+      : cancelled.signal;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        cancelled.abort();
+        resolve(empty());
+      }, remaining);
+      this.buildBundle(input, {
+        deadlineAt: new Date(this.now().getTime() + remaining),
+        signal,
+      }).then(
+        (bundle) => {
+          clearTimeout(timer);
+          resolve(bundle);
+        },
+        (error: unknown) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+  }
+
+  private async buildBundle(
     input: {
       readonly actor: MemoryActor;
       readonly scopes: readonly MemoryKnowledgeScope[];
@@ -515,6 +601,14 @@ export class MemoryKnowledgeService {
     }[] = [];
     let degraded = false;
     try {
+      if (
+        (
+          await this.dependencies.store.maintenanceState(
+            this.dependencies.generation,
+          )
+        ).paused
+      )
+        throw new MemoryKnowledgeError("unavailable", true);
       for (const scope of input.scopes) {
         await this.dependencies.access.authorize(
           { actor: input.actor, scope, action: "runtime" },
@@ -562,6 +656,14 @@ export class MemoryKnowledgeService {
         );
         await this.recheck(section.scope, section.epoch, budget);
       }
+      if (
+        (
+          await this.dependencies.store.maintenanceState(
+            this.dependencies.generation,
+          )
+        ).paused
+      )
+        throw new MemoryKnowledgeError("unavailable", true);
     } catch {
       scopes.length = 0;
       degraded = true;
@@ -673,6 +775,14 @@ export class MemoryKnowledgeService {
     )
       return false;
     try {
+      if (
+        (
+          await this.dependencies.store.maintenanceState(
+            this.dependencies.generation,
+          )
+        ).paused
+      )
+        return false;
       for (const section of receipt.scopes) {
         await this.dependencies.access.authorize(
           { actor: input.actor, scope: section.scope, action: "runtime" },
@@ -724,6 +834,14 @@ export class MemoryKnowledgeService {
         );
         await this.recheck(section.scope, section.epoch, controls);
       }
+      if (
+        (
+          await this.dependencies.store.maintenanceState(
+            this.dependencies.generation,
+          )
+        ).paused
+      )
+        return false;
       return true;
     } catch {
       return false;

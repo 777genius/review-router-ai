@@ -3327,6 +3327,7 @@ model MemoryKnowledgeBundleReceipt {
   id               String   @id
   authorizationId  String
   bindingDigest    String
+  snapshotHash     String?
   workspaceId      String
   receipt          Json
   policyVersion    Int
@@ -3335,6 +3336,15 @@ model MemoryKnowledgeBundleReceipt {
   createdAt        DateTime @default(now())
 
   @@index([expiresAt])
+  @@unique([authorizationId, snapshotHash])
+}
+
+model MemoryKnowledgeMaintenanceFence {
+  generation String   @id
+  epoch      BigInt   @default(0)
+  paused     Boolean  @default(false)
+  actor      String
+  updatedAt  DateTime @default(now()) @updatedAt
 }
 
 model MemoryKnowledgeSourceCursor {

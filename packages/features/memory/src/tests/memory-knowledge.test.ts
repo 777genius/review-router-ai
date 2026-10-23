@@ -97,6 +97,11 @@ const controls = { deadlineAt: new Date(now.getTime() + 10_000) };
 
 function fixture() {
   const store = {
+    maintenanceState: vi.fn(async () => ({
+      generation: "generation",
+      epoch: "0",
+      paused: false,
+    })),
     findEntry: vi.fn(async () => metadata),
     scopeEpoch: vi.fn(async () => "1"),
     listEntries: vi.fn(async () => ({ entries: [metadata], nextCursor: null })),
@@ -212,6 +217,14 @@ describe("complete provider memory policy", () => {
     ).toThrow("memory_unsupported");
   });
 
+  it("rejects missing approval or actor as invalid input before dereferencing", () => {
+    for (const approval of [undefined, null, {}, { actor: null }]) {
+      expect(() =>
+        normalizeMemoryKnowledgeCommand({ ...command, approval } as never),
+      ).toThrow("memory_invalid_input");
+    }
+  });
+
   it("keeps retained inactive management bodies eligible and fences every forgotten/unsettled body", () => {
     for (const lifecycle of ["retired", "expired"] as const) {
       expect(
@@ -296,6 +309,19 @@ describe("complete provider memory policy", () => {
     await expect(
       service.bundle({ actor, scopes: [scope], query: "requests" }, controls),
     ).resolves.toMatchObject({ scopes: [], degraded: true });
+  });
+
+  it("returns a memory-free review by the total deadline even when metadata I/O stalls", async () => {
+    const { service, store, reader } = fixture();
+    store.scopeEpoch.mockImplementationOnce(
+      () => new Promise<string>(() => {}),
+    );
+    const result = await service.bundle(
+      { actor, scopes: [scope], query: "requests" },
+      { deadlineAt: new Date(now.getTime() + 20) },
+    );
+    expect(result).toMatchObject({ degraded: true, scopes: [] });
+    expect(reader.recall).not.toHaveBeenCalled();
   });
 
   it("validates every observation source and omits truncated or cross-scope evidence", async () => {

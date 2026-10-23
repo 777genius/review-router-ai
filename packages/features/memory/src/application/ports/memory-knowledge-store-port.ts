@@ -29,10 +29,43 @@ export type MemoryVerifiedCleanupReceipt = {
   readonly ref: MemoryEntryRef;
   readonly verifiedAt: string;
   readonly verifiedBy: string;
+  readonly maintenanceEpoch: string;
+};
+
+export type MemoryKnowledgeMaintenanceState = {
+  readonly generation: string;
+  readonly epoch: string;
+  readonly paused: boolean;
 };
 
 /** All admission/settlement methods are cross-process database transactions. No in-memory leases. */
 export interface MemoryKnowledgeStore {
+  maintenanceState(
+    generation: string,
+  ): Promise<MemoryKnowledgeMaintenanceState>;
+  setMaintenancePaused(input: {
+    readonly generation: string;
+    readonly paused: boolean;
+    readonly expectedEpoch: string;
+    readonly actor: string;
+    readonly now: Date;
+    readonly deadlineAt: Date;
+  }): Promise<MemoryKnowledgeMaintenanceState>;
+  /** Shared database permit spans the complete bounded native transport callback. */
+  withDeliveryPermit<T>(
+    input: {
+      readonly generation: string;
+      readonly scope: MemoryKnowledgeScope;
+      readonly commandId: string;
+      readonly claimId: string;
+      readonly now: Date;
+      readonly deadlineAt: Date;
+    },
+    work: (permit: { readonly revoked: boolean }) => Promise<T>,
+  ): Promise<
+    | { readonly permitted: false }
+    | { readonly permitted: true; readonly value: T }
+  >;
   admit(input: {
     readonly command: MemoryKnowledgeCommand;
     readonly digest: string;

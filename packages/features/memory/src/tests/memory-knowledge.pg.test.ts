@@ -66,6 +66,15 @@ describe.skipIf(!databaseUrl)(
             "utf8",
           ),
         );
+        await fixture.query(
+          await readFile(
+            new URL(
+              "../../../../platform/db/prisma/migrations/000143_memory_maintenance_fence/migration.sql",
+              import.meta.url,
+            ),
+            "utf8",
+          ),
+        );
       } finally {
         await fixture.end();
       }
@@ -88,7 +97,7 @@ describe.skipIf(!databaseUrl)(
 
     beforeEach(async () => {
       await prisma.$executeRawUnsafe(
-        'TRUNCATE "MemoryKnowledgeCommand","MemoryKnowledgeEntry","MemoryKnowledgeScopeState","MemoryKnowledgeSourceCursor","MemoryKnowledgeBundleReceipt","OutboxEvent","AuditEvent"',
+        'TRUNCATE "MemoryKnowledgeCommand","MemoryKnowledgeEntry","MemoryKnowledgeScopeState","MemoryKnowledgeSourceCursor","MemoryKnowledgeBundleReceipt","MemoryKnowledgeMaintenanceFence","OutboxEvent","AuditEvent"',
       );
     });
     afterAll(async () => {
@@ -417,7 +426,25 @@ describe.skipIf(!databaseUrl)(
         ref: forget.ref,
         verifiedAt: now.toISOString(),
         verifiedBy: "operator:stable",
+        maintenanceEpoch: "1",
       };
+      await expect(
+        store.completeCleanup({ receipt, now }),
+      ).rejects.toMatchObject({ code: "conflict" });
+      await store.setMaintenancePaused({
+        generation,
+        paused: true,
+        expectedEpoch: "0",
+        actor: "operator:stable",
+        now,
+        deadlineAt: new Date(now.getTime() + 5000),
+      });
+      await expect(
+        store.completeCleanup({
+          receipt: { ...receipt, maintenanceEpoch: "0" },
+          now,
+        }),
+      ).rejects.toMatchObject({ code: "conflict" });
       await expect(
         store.completeCleanup({
           receipt: { ...receipt, commandDigest: "f".repeat(64) },
@@ -434,9 +461,171 @@ describe.skipIf(!databaseUrl)(
       await expect(
         store.completeCleanup({ receipt, now }),
       ).resolves.toMatchObject({ state: "completed" });
+      await store.setMaintenancePaused({
+        generation,
+        paused: false,
+        expectedEpoch: "1",
+        actor: "operator:stable",
+        now,
+        deadlineAt: new Date(now.getTime() + 5000),
+      });
       await expect(
         admit(save({ ref: original.ref, expectedRevision: "2" })),
       ).rejects.toMatchObject({ code: "conflict" });
+    });
+
+    it("waits for admitted transports before pausing and denies preclaimed work after the pause", async () => {
+      const first = save();
+      const second = save();
+      await admit(first);
+      await admit(second);
+      const firstClaim = await claim(first);
+      const secondClaim = await claim(second);
+      let entered!: () => void;
+      let leave!: () => void;
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const release = new Promise<void>((resolve) => {
+        leave = resolve;
+      });
+      const transport = store.withDeliveryPermit(
+        {
+          generation,
+          scope,
+          commandId: first.commandId,
+          claimId: firstClaim!.claimId,
+          now,
+          deadlineAt: new Date(now.getTime() + 5000),
+        },
+        async () => {
+          entered();
+          await release;
+          return "native_transport_exited";
+        },
+      );
+      await started;
+      const pausing = otherStore.setMaintenancePaused({
+        generation,
+        paused: true,
+        expectedEpoch: "0",
+        actor: "operator:stable",
+        now,
+        deadlineAt: new Date(now.getTime() + 5000),
+      });
+      const waitUntil = Date.now() + 2000;
+      let blocked = false;
+      while (Date.now() < waitUntil) {
+        const lock = await admin.query(
+          "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND NOT granted) AS blocked",
+        );
+        if (lock.rows[0].blocked) {
+          blocked = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(blocked).toBe(true);
+      expect(await store.maintenanceState(generation)).toMatchObject({
+        epoch: "0",
+        paused: false,
+      });
+      leave();
+      expect(await transport).toEqual({
+        permitted: true,
+        value: "native_transport_exited",
+      });
+      expect(await pausing).toEqual({ generation, epoch: "1", paused: true });
+      let called = false;
+      expect(
+        await store.withDeliveryPermit(
+          {
+            generation,
+            scope,
+            commandId: second.commandId,
+            claimId: secondClaim!.claimId,
+            now,
+            deadlineAt: new Date(now.getTime() + 5000),
+          },
+          async () => {
+            called = true;
+            return true;
+          },
+        ),
+      ).toEqual({ permitted: false });
+      expect(called).toBe(false);
+      expect(await claim(second)).toBeNull();
+      await expect(admit(save())).rejects.toMatchObject({
+        code: "unavailable",
+      });
+      await expect(
+        otherStore.setMaintenancePaused({
+          generation,
+          paused: false,
+          expectedEpoch: "0",
+          actor: "operator:stable",
+          now,
+          deadlineAt: new Date(now.getTime() + 5000),
+        }),
+      ).rejects.toMatchObject({ code: "conflict" });
+      expect(
+        await otherStore.setMaintenancePaused({
+          generation,
+          paused: false,
+          expectedEpoch: "1",
+          actor: "operator:stable",
+          now,
+          deadlineAt: new Date(now.getTime() + 5000),
+        }),
+      ).toEqual({ generation, epoch: "2", paused: false });
+      expect((await claim(second))?.mode).toBe("observe");
+      const events = await prisma.outboxEvent.findMany({
+        where: {
+          idempotencyKey: { startsWith: "memory.knowledge.command.resume:" },
+        },
+      });
+      expect(events).toHaveLength(2);
+      expect(
+        JSON.stringify(events.map((event) => event.payload)),
+      ).not.toContain(first.body);
+    });
+
+    it("releases the shared transport barrier on callback failure without forgetting an unknown dispatch", async () => {
+      const command = save();
+      await admit(command);
+      const work = await claim(command);
+      await expect(
+        store.withDeliveryPermit(
+          {
+            generation,
+            scope,
+            commandId: command.commandId,
+            claimId: work!.claimId,
+            now,
+            deadlineAt: new Date(now.getTime() + 5000),
+          },
+          async () => {
+            throw new Error("unsafe provider error must not escape");
+          },
+        ),
+      ).rejects.toMatchObject({ code: "unavailable" });
+      expect(
+        await otherStore.setMaintenancePaused({
+          generation,
+          paused: true,
+          expectedEpoch: "0",
+          actor: "operator:stable",
+          now,
+          deadlineAt: new Date(now.getTime() + 5000),
+        }),
+      ).toMatchObject({ paused: true });
+      expect(
+        await store.findCommand({
+          commandId: command.commandId,
+          scope,
+          generation,
+        }),
+      ).toMatchObject({ operation: { state: "unknown" } });
     });
 
     it("purges expired unresolved delivery input while preserving visible fenced operator debt", async () => {
