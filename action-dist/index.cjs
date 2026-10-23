@@ -141225,6 +141225,10 @@ function isPermanentPullRequestHeadPollFailure(error52) {
 function buildFullReviewRuntimeEnv(input) {
   const inherited = pruneCodexRotatingChildEnv(input.sourceEnv);
   const runtimeEnv = normalizeFullReviewRuntimeEnv(input.runtimeEnv);
+  if (runtimeEnv.REVIEW_AUTH_MODE === "codex-account-gateway") {
+    delete inherited.CODEX_REASONING_EFFORT;
+    delete inherited.CODEX_FAST_MODE;
+  }
   const reviewAuthMode = runtimeEnv.REVIEW_AUTH_MODE === codexRotatingRuntimeAuthMode ? "codex-oauth" : runtimeEnv.REVIEW_AUTH_MODE ?? "codex-oauth";
   const providerSecretEnv = buildProviderSecretEnvForRuntime({
     runtimeEnv,
