@@ -41,6 +41,11 @@ Image/audio/video, computer use,
 необходимом первому реальному consumer. Существующие аккаунты, конфиги и формы
 продолжают работать без переноса данных и повторного входа. Отдельной фазы миграции
 перед новыми providers нет; необходимые additive schema changes входят в их PR.
+В RR достаточно одной миграции `000142_optional_gateway_reasoning`: снять
+`NOT NULL` с двух существующих reasoning columns, сохранив все значения и defaults.
+Она нужна моделям без reasoning; новые provider records используют существующие
+таблицы аккаунтов. Отдельные таблицы каталога, скрипт переноса и повторный вход
+пользователя не нужны.
 
 Один существующий joined harness доказывает цепочку, browser E2E - пользовательский
 flow; дополнительные tests нужны только для непокрытых parser/lifecycle рисков.
@@ -237,8 +242,10 @@ allowlisted projection (`5h`, `Week`, `Month`), без эха произволь
 Storage расширять только там, где существующая схема действительно мешает:
 например, FK snapshots в migration 252 связан с OAuth qualification, а journals
 245/253 закрепляют Codex client либо Claude principal. Не записывать Grok/keys
-под чужой identity ради reuse. Если нужен новый journal/table или guard, добавить
-его обычной новой migration для новых profiles; прежние SQL migrations не менять.
+под чужой identity ради reuse. Если существующий constraint мешает новому profile, расширить его в обычной
+новой migration. Новую таблицу/journal добавлять только при доказанной невозможности
+сохранить нужный custody/lifecycle invariant в существующем storage; не создавать
+копию на каждого provider. Прежние SQL migrations не менять.
 Без backfill, массового reconnect/re-encryption, dual-write и нового migration runner.
 Каталог profiles остаётся в коде, отдельные DB-таблицы для него не нужны.
 
@@ -451,7 +458,11 @@ shared fixtures и package versions вносит A из reviewed lane patches, �
 не предлагается в Accounts. Старые profiles продолжают работать на своих contracts.
 При откате активации закрыть новый profile для подключения и execution admission
 штатной deployment policy. Custody и journals сохранить для штатного lifecycle;
-обратный перенос старых данных не нужен.
+обратный перенос старых данных не нужен. Nullable reasoning columns оставляются:
+обратный `SET NOT NULL` не является шагом отката и может сломать новые записи.
+Проверить миграцию один раз на существующем PG harness: старые значения неизменны,
+новый Gateway config без reasoning сохраняется/читается, обычные defaults работают.
+Повторять это для каждого provider и создавать отдельную rehearsal-систему не нужно.
 
 PR примерно до 2 000 changed LOC; связный инвариант не разрезать ради цифры.
 Основание стека мержить без потери ancestry либо своевременно перестраивать
@@ -538,7 +549,8 @@ enrollment, установленный SDK, один model/tool review, safe lif
 Поставка следует [release source of truth](../operations/07-environments-and-release-management.md).
 Текущий production HOLD на общий cutover не обходить ради подключения провайдера;
 план не поручает менять миграционную authority, stable tags или обходить protection.
-Выполнение этого документа начинается отдельным поручением на реализацию.
+Реализация уже поручена; уточнение плана не требует нового согласования или
+повторного старта. Готовность фиксируется проверками и merge, а не этим документом.
 
 ## 11. Проверенные источники
 
