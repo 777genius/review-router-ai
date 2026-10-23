@@ -385,6 +385,82 @@ export class MemoryKnowledgeService {
     });
   }
 
+  /** Trusted worker path: due-time and expected revision are checked again in admission. */
+  async expireDueEntries(limit = 100): Promise<number> {
+    const now = this.now();
+    const entries = await this.dependencies.store.listExpiredEntries({
+      generation: this.dependencies.generation,
+      now,
+      limit: Math.min(1000, Math.max(1, limit)),
+    });
+    let expired = 0;
+    for (const metadata of entries) {
+      const validUntil = metadata.applicability.validUntil;
+      if (
+        !validUntil ||
+        metadata.lifecycle !== "active" ||
+        Date.parse(validUntil) > now.getTime()
+      )
+        continue;
+      const hash = memoryKnowledgeDigest({
+        generation: this.dependencies.generation,
+        ref: metadata.ref,
+        revision: metadata.revision,
+        validUntil,
+        operation: "expire",
+      });
+      const commandId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+      const command = normalizeMemoryKnowledgeCommand({
+        kind: "expire",
+        commandId,
+        ref: metadata.ref,
+        expectedRevision: metadata.revision,
+        generation: this.dependencies.generation,
+        providerProfileVersion: this.dependencies.providerProfileVersion,
+        approval: {
+          actor: {
+            kind: "system",
+            id: "memory-expiry-worker",
+            githubUserId: null,
+            login: null,
+          },
+          approvedAt: new Date(validUntil).toISOString(),
+          authorityRevision: `automatic-expiry:${metadata.revision}`,
+        },
+      });
+      try {
+        await this.dependencies.store.admit({
+          command,
+          digest: memoryKnowledgeCommandDigest(command),
+          now,
+          deliveryExpiresAt: new Date(
+            now.getTime() +
+              (this.dependencies.deliveryRetentionMs ?? 7 * 86_400_000),
+          ),
+          resubmitUntil: now,
+          activeEntryLimit: null,
+          pendingCommandLimit: 100,
+        });
+        expired++;
+      } catch (error) {
+        if (
+          !(error instanceof MemoryKnowledgeError) ||
+          !["conflict", "not_found"].includes(error.code)
+        )
+          throw error;
+      }
+    }
+    return expired;
+  }
+
+  async scheduleDueDeliveries(limit = 100): Promise<number> {
+    return this.dependencies.store.scheduleDueDeliveries({
+      generation: this.dependencies.generation,
+      now: this.now(),
+      limit: Math.min(1000, Math.max(1, limit)),
+    });
+  }
+
   /** Trusted host operator methods. Customer principals cannot create this grant. */
   maintenanceState() {
     return this.dependencies.store.maintenanceState(

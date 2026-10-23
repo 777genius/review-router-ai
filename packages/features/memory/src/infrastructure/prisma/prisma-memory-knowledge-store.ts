@@ -235,6 +235,15 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
         throw new MemoryKnowledgeError("not_found");
       if (current && command.expectedRevision !== String(current.revision))
         throw new MemoryKnowledgeError("conflict");
+      if (
+        command.kind === "expire" &&
+        (!current ||
+          current.metadata.lifecycle !== "active" ||
+          !current.metadata.applicability.validUntil ||
+          Date.parse(current.metadata.applicability.validUntil) >
+            input.now.getTime())
+      )
+        throw new MemoryKnowledgeError("conflict");
       const urgent =
         command.kind === "retire" ||
         command.kind === "expire" ||
@@ -715,6 +724,52 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
     );
   }
 
+  async listExpiredEntries(
+    input: Parameters<MemoryKnowledgeStore["listExpiredEntries"]>[0],
+  ): Promise<readonly MemoryKnowledgeEntryMetadata[]> {
+    const rows = await this.prisma.$queryRaw<
+      { metadata: MemoryKnowledgeEntryMetadata }[]
+    >(
+      Prisma.sql`SELECT "metadata" FROM "MemoryKnowledgeEntry" WHERE "generation"=${input.generation} AND "lifecycle"='active' AND "metadata"->'applicability'->>'validUntil' IS NOT NULL AND ("metadata"->'applicability'->>'validUntil')::timestamptz<=${input.now.toISOString()}::timestamptz ORDER BY "metadata"->'applicability'->>'validUntil',"scopeKey","entryId" LIMIT ${boundedMaintenanceLimit(input.limit)}`,
+    );
+    return rows.map((row) => row.metadata);
+  }
+
+  async scheduleDueDeliveries(
+    input: Parameters<MemoryKnowledgeStore["scheduleDueDeliveries"]>[0],
+  ): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      if ((await readMemoryMaintenanceState(tx, input.generation)).paused)
+        return 0;
+      const rows = await tx.$queryRaw<CommandRow[]>(
+        Prisma.sql`SELECT c.* FROM "MemoryKnowledgeCommand" c JOIN "MemoryKnowledgeEntry" e ON e."generation"=c."generation" AND e."scopeKey"=c."scopeKey" AND e."entryId"=c."entryId" AND e."pendingCommandId"=c."id" WHERE c."generation"=${input.generation} AND c."state" NOT IN ('published','completed','failed','cleanup_pending') AND c."envelope" IS NOT NULL AND c."deliveryExpiresAt">${input.now} AND (c."claimUntil" IS NULL OR c."claimUntil"<=${input.now}) AND c."updatedAt"<=${new Date(input.now.getTime() - 5_000)} ORDER BY c."updatedAt",c."id" LIMIT ${boundedMaintenanceLimit(input.limit)} FOR UPDATE OF c SKIP LOCKED`,
+      );
+      if (!rows.length) return 0;
+      const result = await tx.outboxEvent.createMany({
+        skipDuplicates: true,
+        data: rows.map((row) => ({
+          id: randomUUID(),
+          type: "memory.knowledge.command.requested",
+          version: 2,
+          idempotencyKey: `memory.knowledge.command.recover:${row.id}:${row.deliveryAttempt}:${Math.floor(input.now.getTime() / 5_000)}`,
+          workspaceId: row.workspaceId,
+          aggregateId: row.entryId,
+          repositoryId:
+            row.envelope!.ref.scope.kind === "repository"
+              ? row.envelope!.ref.scope.repositoryId
+              : null,
+          payload: {
+            commandId: row.id,
+            generation: row.generation,
+            scope: row.envelope!.ref.scope,
+          },
+          occurredAt: input.now,
+        })),
+      });
+      return result.count;
+    });
+  }
+
   private verifiedPublication(
     row: CommandRow,
     metadata: MemoryKnowledgeEntryMetadata,
@@ -895,6 +950,12 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
       Prisma.sql`INSERT INTO "MemoryKnowledgeEntry" ("generation","scopeKey","entryId","workspaceId","revision","lifecycle","metadata","pendingCommandId","revocationCommandId","createdAt","updatedAt") VALUES (${metadata.generation},${memoryKnowledgeScopeKey(metadata.ref.scope)},${metadata.ref.entryId},${metadata.ref.scope.workspaceId},${Number(metadata.revision)},${metadata.lifecycle},${JSON.stringify(metadata)}::jsonb,${metadata.pendingCommandId},${metadata.revocationCommandId},${new Date(metadata.createdAt)},${now}) ON CONFLICT ("generation","scopeKey","entryId") DO UPDATE SET "revision"=EXCLUDED."revision","lifecycle"=EXCLUDED."lifecycle","metadata"=EXCLUDED."metadata","pendingCommandId"=EXCLUDED."pendingCommandId","revocationCommandId"=EXCLUDED."revocationCommandId","updatedAt"=EXCLUDED."updatedAt"`,
     );
   }
+}
+
+function boundedMaintenanceLimit(limit: number): number {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 1000)
+    throw new MemoryKnowledgeError("invalid_input");
+  return limit;
 }
 
 function deliveryFenceKey(generation: string): string {

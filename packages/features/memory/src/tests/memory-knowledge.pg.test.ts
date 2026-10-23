@@ -654,6 +654,87 @@ describe.skipIf(!databaseUrl)(
       ).toBe(false);
     });
 
+    it("recovers expired delivery claims through IDs-only outbox work and checks expiry under the current revision lock", async () => {
+      const command = save({
+        applicability: {
+          validUntil: new Date(now.getTime() + 1000).toISOString(),
+          observedCommitSha: null,
+          exceptionRule: null,
+        },
+      });
+      await publish(command);
+      const expiry: MemoryKnowledgeCommand = {
+        kind: "expire",
+        ref: command.ref,
+        commandId: randomUUID(),
+        expectedRevision: "1",
+        generation,
+        providerProfileVersion: command.providerProfileVersion,
+        approval: command.approval,
+      };
+      await expect(admit(expiry)).rejects.toMatchObject({ code: "conflict" });
+      const due = new Date(now.getTime() + 2000);
+      expect(
+        (await store.findEntry(command.ref, generation))?.applicability
+          .validUntil,
+      ).toBe(command.applicability.validUntil);
+      expect(
+        await store.listExpiredEntries({ generation, now: due, limit: 10 }),
+      ).toHaveLength(1);
+      await store.admit({
+        command: expiry,
+        digest: memoryKnowledgeCommandDigest(expiry),
+        now: due,
+        deliveryExpiresAt: new Date(due.getTime() + 86400000),
+        resubmitUntil: due,
+        activeEntryLimit: null,
+        pendingCommandLimit: 100,
+      });
+      expect((await store.findEntry(command.ref, generation))?.lifecycle).toBe(
+        "expired",
+      );
+      expect(
+        await store.listExpiredEntries({ generation, now: due, limit: 10 }),
+      ).toHaveLength(0);
+      const work = await claim(expiry, store, due);
+      expect(work).not.toBeNull();
+      expect(
+        await store.scheduleDueDeliveries({
+          generation,
+          now: new Date(due.getTime() + 6000),
+          limit: 10,
+        }),
+      ).toBe(0);
+      const recoveryAt = new Date(due.getTime() + 11000);
+      const results = await Promise.all([
+        store.scheduleDueDeliveries({ generation, now: recoveryAt, limit: 10 }),
+        otherStore.scheduleDueDeliveries({
+          generation,
+          now: recoveryAt,
+          limit: 10,
+        }),
+      ]);
+      expect(results.reduce((a, b) => a + b, 0)).toBe(1);
+      const events = await prisma.outboxEvent.findMany({
+        where: {
+          idempotencyKey: { startsWith: "memory.knowledge.command.recover:" },
+        },
+      });
+      expect(events).toHaveLength(1);
+      expect(events[0]?.payload).toEqual({
+        commandId: expiry.commandId,
+        generation,
+        scope,
+      });
+      const observed = await claim(expiry, otherStore, recoveryAt);
+      expect(observed?.mode).toBe("observe");
+      const stale: MemoryKnowledgeCommand = {
+        ...expiry,
+        commandId: randomUUID(),
+      };
+      await expect(admit(stale)).rejects.toMatchObject({ code: "conflict" });
+    });
+
     it("atomically schedules safe outbox observation IDs instead of duplicating approved payloads", async () => {
       const command = save();
       await admit(command);

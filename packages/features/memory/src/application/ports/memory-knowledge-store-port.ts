@@ -131,6 +131,17 @@ export interface MemoryKnowledgeStore {
     readonly now: Date;
     readonly limit: number;
   }): Promise<number>;
+  /** Recover IDs-only delivery work into the existing transactional outbox. */
+  scheduleDueDeliveries(input: {
+    readonly generation: string;
+    readonly now: Date;
+    readonly limit: number;
+  }): Promise<number>;
+  listExpiredEntries(input: {
+    readonly generation: string;
+    readonly now: Date;
+    readonly limit: number;
+  }): Promise<readonly MemoryKnowledgeEntryMetadata[]>;
   completeCleanup(input: {
     readonly receipt: MemoryVerifiedCleanupReceipt;
     readonly now: Date;

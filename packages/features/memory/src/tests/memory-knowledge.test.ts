@@ -105,6 +105,7 @@ function fixture() {
     findEntry: vi.fn(async () => metadata),
     scopeEpoch: vi.fn(async () => "1"),
     listEntries: vi.fn(async () => ({ entries: [metadata], nextCursor: null })),
+    listExpiredEntries: vi.fn(async () => [metadata]),
     admit: vi.fn(async () => ({
       id: command.commandId,
       ref: command.ref,
@@ -156,6 +157,51 @@ function fixture() {
 }
 
 describe("complete provider memory policy", () => {
+  it("automatically expires only due entries with deterministic revision-bound commands and no human grant", async () => {
+    const { service, store, access } = fixture();
+    const due = {
+      ...metadata,
+      applicability: {
+        ...metadata.applicability,
+        validUntil: now.toISOString(),
+      },
+    };
+    store.listExpiredEntries.mockResolvedValue([
+      due,
+      metadata,
+      { ...due, lifecycle: "retired" },
+      {
+        ...due,
+        applicability: {
+          ...due.applicability,
+          validUntil: new Date(now.getTime() + 1000).toISOString(),
+        },
+      },
+    ]);
+    expect(await service.expireDueEntries()).toBe(1);
+    expect(await service.expireDueEntries()).toBe(1);
+    expect(store.admit.mock.calls).toHaveLength(2);
+    const first = (
+      store.admit.mock.calls as unknown as [
+        { command: MemoryKnowledgeCommand },
+      ][]
+    )[0]![0].command;
+    const second = (
+      store.admit.mock.calls as unknown as [
+        { command: MemoryKnowledgeCommand },
+      ][]
+    )[1]![0].command;
+    expect(first).toEqual(second);
+    expect(first).toMatchObject({
+      kind: "expire",
+      expectedRevision: "1",
+      approval: {
+        actor: { kind: "system", id: "memory-expiry-worker" },
+        approvedAt: now.toISOString(),
+      },
+    });
+    expect(access.authorize).not.toHaveBeenCalled();
+  });
   it("binds the full normalized approved command rather than only body text", () => {
     const digest = memoryKnowledgeCommandDigest(command);
     expect(
