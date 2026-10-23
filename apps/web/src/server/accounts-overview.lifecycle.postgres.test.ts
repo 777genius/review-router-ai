@@ -111,7 +111,6 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
               owner.kind === "workspace"
                 ? accountGatewayWorkspaceOwnerRef(owner.workspaceId)
                 : "unused",
-            lifecycleEnabled: () => true,
             lifecycleCompatible: async () => true,
             gateway: {
               get: async (accountRef) => ({
@@ -153,7 +152,8 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
             accounts: [
               {
                 connectionId: sources[2]!.id,
-                lifecycle: { status: "support_required" },
+                lifecycle: { status: "available" },
+                allowedActions: ["delete"],
               },
             ],
             nextCursor: null,

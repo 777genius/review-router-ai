@@ -54,7 +54,6 @@ function setup() {
   } as unknown as AccountLifecycleDependencies["store"];
   const gateway = { preflight: vi.fn(), submit: vi.fn(), read: vi.fn() };
   const deliverFences = vi.fn(async () => {});
-  const enabled = vi.fn(() => true);
   const service = createAccountLifecycleService({
     deps: { store, gateway, authorize: async () => {} },
     authorize: async () => ({ userId: "user", personal: false }),
@@ -62,14 +61,13 @@ function setup() {
       personalWorkspaceId: "personal",
       owningWorkspaceId: null,
     }),
-    enabled,
     compatible: async () => {
       order.push("remote-capability");
       return true;
     },
     deliverFences,
   });
-  return { service, receipt, store, gateway, order, deliverFences, enabled };
+  return { service, receipt, store, gateway, order, deliverFences };
 }
 describe("account lifecycle server policy", () => {
   it("observational Check never delivers pending fences or enters account ingress", async () => {
@@ -79,9 +77,8 @@ describe("account lifecycle server policy", () => {
     expect(f.store.claim).not.toHaveBeenCalled();
     expect(f.gateway.submit).not.toHaveBeenCalled();
   });
-  it("observational Check finalizes original readback with new writes closed and without replay", async () => {
+  it("observational Check finalizes original readback without entering new writes or replay", async () => {
     const f = setup();
-    f.enabled.mockReturnValue(false);
     (f.receipt as { phase: string }).phase = "unknown";
     f.gateway.read.mockResolvedValue({
       command: {
@@ -203,10 +200,30 @@ describe("account lifecycle server policy", () => {
     expect(result.actions).toEqual([]);
     expect(result.lifecycle).not.toHaveProperty("operationId");
   });
-  it("legacy disabled requires support and never advertises enable/delete or repeat disable", () => {
+  it("legacy disabled leftovers are deletable by their owner without compatibility gating", () => {
     expect(
       lifecycleProjection({
         owned: true,
+        compatible: true,
+        state: "disabled",
+        pendingOperationId: null,
+        synchronized: true,
+      }),
+    ).toEqual({ lifecycle: { status: "available" }, actions: ["delete"] });
+    expect(
+      lifecycleProjection({
+        owned: true,
+        compatible: false,
+        state: "disabled",
+        pendingOperationId: null,
+        synchronized: false,
+      }).actions,
+    ).toEqual(["delete"]);
+  });
+  it("legacy disabled leftovers stay inert for recipients", () => {
+    expect(
+      lifecycleProjection({
+        owned: false,
         compatible: true,
         state: "disabled",
         pendingOperationId: null,

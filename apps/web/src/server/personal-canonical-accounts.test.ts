@@ -20,7 +20,7 @@ type ConnectReceipt = Awaited<
 >;
 
 const nonce = "9874b2bc-e987-4456-9212-7f94f58932da";
-function fixture() {
+function fixture(options: { lifecycleWritable?: boolean } = {}) {
   let actor = "user-u",
     acknowledged = false,
     showApplied = false;
@@ -265,6 +265,15 @@ function fixture() {
   const deliverFences = vi.fn(async () => {});
   const api = createPersonalCanonicalAccounts({
     authorizeUser: async () => actor,
+    ...(options.lifecycleWritable
+      ? {
+          lifecycleReader: {
+            get: async () => ({ ...account }),
+            compatible: async () => true,
+            writable: async () => true,
+          },
+        }
+      : {}),
     store,
     canonical,
     control,
@@ -541,6 +550,19 @@ describe("personal canonical UI server boundary", () => {
     f.foreignGateway();
     const foreign = await f.api.listGatewayAccounts("", null);
     expect(foreign.status === "ok" && foreign.value.accounts).toEqual([]);
+  });
+
+  it("advertises lifecycle actions by default with no feature flag configured", async () => {
+    const f = fixture({ lifecycleWritable: true });
+    const result = await f.api.listGatewayAccounts("", null);
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") throw new Error("expected list");
+    expect(result.value.accounts[0]).toMatchObject({
+      connectionId: "own-source",
+      lifecycle: { status: "available" },
+      allowedActions: ["suspend", "delete"],
+      authorizationEpoch: 4,
+    });
   });
 
   const appliedConnectFixture = () => {
