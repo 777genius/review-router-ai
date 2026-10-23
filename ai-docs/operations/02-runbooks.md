@@ -479,3 +479,10 @@ If a user requests deletion:
 3. verify source/body redaction on the canonical memory item and linked confirmed suggestion
 4. let terminal retention prune hard-delete old deleted/expired rows
 5. do not paste memory body, source comments, code, diffs, prompts, or model output into support tickets
+
+## MiMo worker capacity and bridge job launch
+
+Use [the MiMo worker capacity runbook](./mimo-worker-capacity-runbook.md) for
+MimoProject bridge job relaunch order, the worker-account capacity gate, the
+operator gate clear, quota-block diagnosis, probe cadence, and job stop
+semantics. Companion tooling lives in `scripts/worker-ops/`.
