@@ -204,7 +204,11 @@ test("unknown, unsupported, restricted and partial windows never imply free quot
       }}
     />,
   );
-  expect(screen.getByText("Limits source unavailable")).toBeTruthy();
+  expect(screen.queryByText("Limits source unavailable")).toBeNull();
+  expect(screen.getByLabelText("Account limits").textContent).toBe("");
+  expect(
+    screen.getByRole("button", { name: "Reload saved limits" }),
+  ).toBeTruthy();
   expect(screen.queryByRole("progressbar")).toBeNull();
   rerender(
     <AccountLimitsLine
@@ -245,30 +249,38 @@ test("unknown, unsupported, restricted and partial windows never imply free quot
   expect(screen.queryByRole("progressbar")).toBeNull();
 });
 
-test("only explicit saved read fetches, preserves observation on failure, and denial clears figures", async () => {
-  const fetch = vi
-    .fn()
-    .mockRejectedValueOnce(new Error("down"))
-    .mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ status: "denied" }),
-    });
-  vi.stubGlobal("fetch", fetch);
-  const { props } = fixture();
-  render(<AccountLimitsLine {...props} />);
-  fireEvent.click(screen.getByRole("button", { name: "Reload saved limits" }));
-  expect(
-    await screen.findByText("Could not reload saved limits."),
-  ).toBeTruthy();
-  expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
-    "62.5",
-  );
-  fireEvent.click(screen.getByRole("button", { name: "Reload saved limits" }));
-  expect(await screen.findByText(/visible to the owner/)).toBeTruthy();
-  expect(screen.queryByRole("progressbar")).toBeNull();
-  expect(screen.queryByRole("button")).toBeNull();
-  expect(fetch).toHaveBeenCalledTimes(2);
-});
+test.each(["denied", "invalid"] as const)(
+  "only explicit saved read fetches, preserves observation on failure, and %s masks figures without an ownership claim",
+  async (status) => {
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("down"))
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status }),
+      });
+    vi.stubGlobal("fetch", fetch);
+    const { props } = fixture();
+    render(<AccountLimitsLine {...props} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Reload saved limits" }),
+    );
+    expect(
+      await screen.findByText("Could not reload saved limits."),
+    ).toBeTruthy();
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
+      "62.5",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Reload saved limits" }),
+    );
+    await waitFor(() => expect(screen.queryByRole("progressbar")).toBeNull());
+    expect(screen.queryByText(/visible to the owner/)).toBeNull();
+    expect(screen.queryByLabelText("Account limits")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  },
+);
 
 test("scope switch aborts an old read and removes its cached figures", async () => {
   let signal: AbortSignal | undefined;
@@ -362,6 +374,17 @@ test("a new authenticated bootstrap token hides old figures before hydration eff
   expect(html).not.toContain("37.5");
   expect(html).not.toContain("progressbar");
   expect(html).not.toContain("Reload saved limits");
+  const unavailable = renderToString(
+    <AccountLimitsLine
+      {...props}
+      expectedDisplayToken="unavailable"
+      expectedStatus="unavailable"
+    />,
+  );
+  expect(unavailable).not.toContain("62.5");
+  expect(unavailable).not.toContain("progressbar");
+  expect(unavailable).not.toContain("visible to the owner");
+  expect(unavailable).not.toContain("No limits saved yet");
 });
 
 test("an authenticated client observation newer than SSR crosses the bootstrap token gate", () => {

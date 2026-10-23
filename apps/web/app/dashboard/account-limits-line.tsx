@@ -58,7 +58,7 @@ function instant(value: string | null, local: boolean) {
 const statusText = {
   unknown: "No limits saved yet",
   unsupported: "Limits not supported",
-  unavailable: "Limits source unavailable",
+  unavailable: "",
   restricted: "Limits visible to the owner only",
 };
 
@@ -158,13 +158,16 @@ export function AccountLimitsLine({
     query.data &&
     query.data.status !== "ok" &&
     query.data.status !== "unavailable";
+  if (denied) return null;
   const restricted =
-    denied ||
     view?.status === "restricted" ||
     (changed && expectedStatus === "restricted");
   const unsupported =
     view?.status === "unsupported" ||
     (changed && expectedStatus === "unsupported");
+  const unavailable =
+    view?.status === "unavailable" ||
+    (changed && expectedStatus === "unavailable");
   return (
     <div
       className="mt-2 flex min-w-0 items-start gap-2 text-xs text-slate-400"
@@ -260,9 +263,11 @@ export function AccountLimitsLine({
               ? statusText.restricted
               : unsupported
                 ? statusText.unsupported
-                : view
-                  ? statusText[view.status]
-                  : statusText.unknown}
+                : unavailable
+                  ? null
+                  : view
+                    ? statusText[view.status]
+                    : statusText.unknown}
           </p>
         )}
         {query.isError || query.data?.status === "unavailable" ? (

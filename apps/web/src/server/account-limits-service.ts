@@ -96,10 +96,10 @@ export function createAccountLimitsService(input: {
   const equalScope = (left: Scope, right: Scope) =>
     left.userId === right.userId && left.workspaceId === right.workspaceId;
   const owned = (scope: Scope, source: Source) =>
-    scope.workspaceId
-      ? source.ownerWorkspaceId === scope.workspaceId &&
-        ["owner", "admin"].includes(source.role ?? "")
-      : source.ownerUserId === scope.userId && source.ownerWorkspaceId === null;
+    (source.ownerUserId === scope.userId && source.ownerWorkspaceId === null) ||
+    (scope.workspaceId !== undefined &&
+      source.ownerWorkspaceId === scope.workspaceId &&
+      ["owner", "admin"].includes(source.role ?? ""));
   async function read(
     connectionId: string,
   ): Promise<AccountsResult<AccountLimitsView>> {
@@ -155,6 +155,9 @@ export function createAccountLimitsService(input: {
           };
         },
       });
+      // Ownership was established above. A later scope/lifetime fence is an
+      // authorization failure, not evidence that this viewer is a recipient.
+      if (value.status === "restricted") return { status: "denied" };
       return { status: "ok", value };
     } catch {
       // Session/DB failure and transport diagnostics never become browser labels.
@@ -215,10 +218,10 @@ export function createAccountLimitsService(input: {
             !owned(currentScope, current) ||
             fingerprint(currentScope, current) !== row.limits.displayToken
           )
-            row.limits = view("restricted");
+            row.limits = view("unavailable");
         }
       } catch {
-        for (const row of numeric) row.limits = view("restricted");
+        for (const row of numeric) row.limits = view("unavailable");
       }
     }
     return rows;

@@ -12,6 +12,7 @@ import {
   installLoopbackOnlyNetworkGuard,
   openAccounts,
   sourceRow,
+  useOtherSession,
   useViewerSession,
 } from "./support.ts";
 
@@ -215,14 +216,17 @@ test("account limits partial and absent observations never imply free quota on m
     ["partial", "Remaining unknown"],
     ["unknown", "No limits saved yet"],
     ["unsupported", "Limits not supported"],
-    ["unavailable", "Limits source unavailable"],
+    ["unavailable", ""],
   ] as const) {
     await configure(request, mode);
     await openAccounts(page, "rr-e2e-personal-viewer");
     const limits = limitsFor(
       sourceRow(page, FIXTURES.sourceLabels.viewerPrimary),
     );
-    await expect(limits).toContainText(message);
+    if (mode === "unavailable") {
+      await expect(limits).toHaveText("");
+      await expect(limits).not.toContainText("visible to the owner");
+    } else await expect(limits).toContainText(message);
     await expect(limits.getByRole("progressbar")).toHaveCount(0);
     await expect(limits).not.toContainText(/remaining 100%|unlimited|7d/);
     if (mode === "partial") {
@@ -261,7 +265,7 @@ test("account limits restrict shared rows before native reads and fence a delaye
   const violations: string[] = [];
   await installLoopbackOnlyNetworkGuard(page, violations);
   await openAccounts(page, "rr-e2e-org-alpha");
-  const donor = limitsFor(sourceRow(page, FIXTURES.sourceLabels.viewerPrimary));
+  const donor = limitsFor(sourceRow(page, FIXTURES.sourceLabels.otherPrimary));
   await expect(donor).toContainText("Limits visible to the owner only");
   await expect(donor.getByRole("progressbar")).toHaveCount(0);
   await expect(
@@ -269,11 +273,17 @@ test("account limits restrict shared rows before native reads and fence a delaye
   ).toHaveCount(0);
   const owned = limitsFor(sourceRow(page, FIXTURES.sourceLabels.orgAlpha));
   await expect(owned).toContainText("62.5% left");
+  await expect(
+    limitsFor(sourceRow(page, FIXTURES.sourceLabels.viewerPrimary)),
+  ).toContainText("62.5% left");
   await page.waitForLoadState("networkidle");
   const initial = await stats(request);
   expect(initial.readAccounts).toContain(FIXTURES.gateway.accounts.orgAlpha);
-  // The hidden Your accounts tab legitimately preloads the viewer's personal
-  // account. The other user's shared account must never enter a native read.
+  // Personal ownership survives workspace sharing; the other user's shared
+  // account must never enter a native read.
+  expect(initial.readAccounts).toContain(
+    FIXTURES.gateway.accounts.viewerPrimary,
+  );
   expect(initial.readAccounts).not.toContain(
     FIXTURES.gateway.accounts.otherPrimary,
   );
@@ -335,20 +345,17 @@ test("account limits restrict shared rows before native reads and fence a delaye
     releaseResponse();
     if (deliveryStarted) await delivery;
   }
-  await expect(
-    page.getByRole("progressbar", { name: "5h remaining" }),
-  ).toHaveCount(0);
-  // The viewer's own limits remain authorized in the hidden personal-access
-  // dialog. Only the active workspace must reject the old organization result.
-  await expect(
-    page.locator('[aria-label="Account limits"]:visible').filter({
-      hasText: /62.5% left/,
-    }),
-  ).toHaveCount(0);
+  // Reject the old organization's result while preserving the personal owner's
+  // independently authorized numbers in the new workspace.
   await expect(sourceRow(page, FIXTURES.sourceLabels.orgAlpha)).toHaveCount(0);
+  const personal = limitsFor(
+    sourceRow(page, FIXTURES.sourceLabels.viewerPrimary),
+  );
+  await expect(personal).toContainText("62.5% left");
+  await expect(personal).not.toContainText("visible to the owner");
   await expect(
-    limitsFor(sourceRow(page, FIXTURES.sourceLabels.viewerPrimary)),
-  ).toContainText("Limits visible to the owner only");
+    personal.getByRole("progressbar", { name: "5h remaining" }),
+  ).toHaveAttribute("aria-valuenow", "62.5");
   await expectNetworkViolations(violations);
 });
 
@@ -578,7 +585,7 @@ test("Claude account limits preserve unknown and stale observations on mobile wi
   await expectNetworkViolations(violations);
 });
 
-test("Claude shared workspace rows do not inherit the owner's global quota", async ({
+test("Claude account limits follow the personal owner across workspace sharing", async ({
   page,
   context,
   request,
@@ -588,6 +595,26 @@ test("Claude shared workspace rows do not inherit the owner's global quota", asy
   const violations: string[] = [];
   await installLoopbackOnlyNetworkGuard(page, violations);
   await openAccounts(page, "rr-e2e-org-alpha");
+  const ownLimits = limitsFor(
+    sourceRow(page, FIXTURES.sourceLabels.viewerClaude),
+  );
+  await expect(ownLimits).toContainText("62.5% left");
+  await expect(
+    ownLimits.getByRole("progressbar", {
+      name: "7d Sonnet remaining",
+      exact: true,
+    }),
+  ).toHaveAttribute("aria-valuenow", "27.75");
+  await expect(ownLimits).not.toContainText("visible to the owner");
+  await page.waitForLoadState("networkidle");
+  expect((await stats(request)).readAccounts).toContain(
+    FIXTURES.gateway.accounts.viewerClaude,
+  );
+
+  // The same shared connection is private from a different workspace admin.
+  await useOtherSession(context);
+  await configure(request, "claude-models");
+  await openAccounts(page, "rr-e2e-org-alpha");
   const row = sourceRow(page, FIXTURES.sourceLabels.viewerClaude);
   await expect(row).toContainText(/Claude\s*·\s*OAuth/);
   const limits = limitsFor(row);
@@ -596,8 +623,10 @@ test("Claude shared workspace rows do not inherit the owner's global quota", asy
   await expect(
     limits.getByRole("button", { name: "Reload saved limits" }),
   ).toHaveCount(0);
-  // The hidden personal-owner view may preload independently. No numeric
-  // Claude bucket may enter the active recipient workspace row or its controls.
   await expect(limits).not.toContainText(/62.5% left|Sonnet|Fable/);
+  await page.waitForLoadState("networkidle");
+  expect((await stats(request)).readAccounts).not.toContain(
+    FIXTURES.gateway.accounts.viewerClaude,
+  );
   await expectNetworkViolations(violations);
 });
