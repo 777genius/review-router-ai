@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import {
   reviewActionV2SchemaSlot,
+  reviewActionV2SupportedContracts,
   createReviewActionV2ErrorResponse,
   createReviewActionV2ResultResponse,
   parseReviewActionV2Request,
@@ -131,6 +132,17 @@ const safeInternalFailureCodes = new Map<string, string>([
     "private_material_unique_conflict_missing",
   ].map((code) => [code, code] as const),
 ]);
+
+export function registerReviewActionV2ProtocolInfoRoute(
+  app: FastifyInstance,
+): void {
+  app.get("/api/action/v2/protocol-info", async (_request, reply) =>
+    reply.header("Cache-Control", "no-store").send({
+      infoVersion: 1,
+      contracts: reviewActionV2SupportedContracts(),
+    }),
+  );
+}
 
 export type ReviewActionV2EnabledHandler<
   Operation extends ReviewActionV2OperationId,

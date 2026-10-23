@@ -9,7 +9,10 @@ import {
   repositoryReleaseBindingsEnv,
   type RepositoryReleaseQueries,
 } from "./review-action-v2-repository-release-selection.js";
-import { PrismaProducerReleaseRepository } from "@reviewrouter/features-review-run-control/composition";
+import {
+  PrismaProducerReleaseRepository,
+  readConfiguredProducerReleaseAttestations,
+} from "@reviewrouter/features-review-run-control/composition";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
@@ -49,6 +52,11 @@ import {
   ReviewMutationOperatorPermission,
 } from "@reviewrouter/features-review-run-control/composition";
 import { createPrismaClient } from "@reviewrouter/platform-db";
+import { reviewActionV2SupportedContracts } from "@reviewrouter/protocol-review-action-v2";
+import {
+  assessRollbackProtocolCompatibility,
+  type RollbackProducerAttestationRecord,
+} from "./review-action-v2-rollback-protocol-preflight.js";
 import { composeReviewActionV2ProductionRunControl } from "./review-action-v2-production-composition.js";
 import { composeReviewActionV2ReleaseRegistry } from "./review-action-v2-release-registry-composition.js";
 import { composeReviewActionV2SafetyControlRuntime } from "./review-action-v2-safety-control-composition.js";
@@ -263,6 +271,49 @@ async function main() {
           queries: new PrismaProducerReleaseRepository(prisma),
         }),
       );
+      return;
+    }
+    if (command === "rollback protocol-preflight") {
+      const runtime = composeReviewActionV2ReleaseRegistry(prisma);
+      await authenticateOperator(runtime.digest, process.env);
+      const channelManifestPath = requireOption(parsed, "channel-manifest");
+      let channelManifestSource: string | null = null;
+      try {
+        channelManifestSource = await readFile(channelManifestPath, "utf8");
+      } catch {
+        channelManifestSource = null;
+      }
+      let attestations: readonly RollbackProducerAttestationRecord[] | null =
+        null;
+      try {
+        attestations = readConfiguredProducerReleaseAttestations(process.env);
+      } catch {
+        attestations = null;
+      }
+      const activeAuthorizations = await prisma.reviewRunAuthorization.findMany(
+        {
+          where: { state: "active", expiresAt: { gt: new Date() } },
+          select: {
+            authorizationId: true,
+            producerReleaseId: true,
+            selectedProtocolVersion: true,
+            schemaDigest: true,
+          },
+        },
+      );
+      const retainedProducerReleases = await prisma.producerRelease.findMany({
+        where: { state: "registered" },
+        select: { producerReleaseId: true, schemaDigest: true },
+      });
+      const result = assessRollbackProtocolCompatibility({
+        targetContracts: reviewActionV2SupportedContracts(),
+        channelManifestSource,
+        attestations,
+        activeAuthorizations,
+        retainedProducerReleases,
+      });
+      printJson(result);
+      if (result.status !== "compatible") process.exitCode = 1;
       return;
     }
     if (command === "release register") {
@@ -1452,6 +1503,9 @@ function printUsage() {
   process.stdout.write(`  release register --bundle FILE --confirm release\n`);
   process.stdout.write(
     `  release revoke --release RELEASE_ID --confirm RELEASE_ID\n`,
+  );
+  process.stdout.write(
+    `  rollback protocol-preflight --channel-manifest FILE\n`,
   );
   process.stdout.write(`  emergency global open|stop --confirm global\n`);
   process.stdout.write(
