@@ -154,7 +154,11 @@ interface KnowledgeWriter {
 
 These are design shapes, not final public wire DTOs. `expectedRevision` is an
 application precondition, not a claim that Hindsight exposes CAS/ETag. Requests
-carry deadlines/cancellation, and errors normalize to application-owned codes
+use a null expected revision only for create-if-absent; every existing-entry
+mutation supplies a revision. Keep the full-command digest separate from the
+approved text's body digest and distinguish UI/entry revision from content
+approval revision, so a topic change cannot fabricate a new text approval.
+Requests carry deadlines/cancellation, and errors normalize to application-owned codes
 such as unavailable, conflict, unsupported, incomplete evidence and unknown
 write. Provider error text cannot enter product responses or logs.
 
@@ -166,6 +170,11 @@ return an error object without throwing by default; the adapter must validate
 HTTP status and response shape before normalizing any successful result.
 
 Required capabilities are startup/deployment qualifications, not silent fallbacks.
+Validate local configuration and composition without remote I/O. Qualify native
+capabilities at deployment/canary admission and report feature-local health.
+A Hindsight version/health/bank outage must not fail shared API/web/worker startup
+or global readiness. Enabled but unusable memory is unavailable/degraded; release
+checks block enabling memory, while ordinary review remains available.
 Extra capabilities such as generated knowledge pages or advanced reflection get
 their own role only when a real feature uses them. No generic graph query DSL,
 abstract base repository or runtime plugin loader is needed.
@@ -193,6 +202,10 @@ real scope boundary rather than trusting tags as ACLs. Keep native consolidation
 scope stable by knowledge kind, independent of cosmetic topic moves; qualify
 the actual native `observation_scopes` configuration. Group names can change
 without changing entry or source identity.
+Router owns scoped group IDs/names; membership lives in the provider document's
+topic tags. Pending command input records desired changes only until settlement;
+there is no second independently writable current membership list in Prisma.
+The adapter preserves reserved tags when changing user topics.
 
 Promotion from repository to workspace is an explicit authorized copy/publication
 with a preview of its broader audience. Never silently promote private knowledge.
@@ -325,6 +338,13 @@ edits produce a maintained revision; a later source edit creates a proposal,
 not an automatic overwrite. A missing source means unavailable provenance, not
 proof a rule is false. Implementation observations record the observed commit;
 commit ancestry/applicability must be checked when the feature relies on it.
+Pass trusted statement time explicitly into native retain `timestamp`; omitted
+timestamps default to ingestion time. For a changed source use the checked source
+revision's statement/update time; for a new manual decision use its authorized
+decision time. Keep observed-code time, approval time and ingestion time distinct.
+Native chunks maps this event time into its fact time; metadata alone does not
+make old evidence temporally old. Validate the authoritative source cursor
+atomically on approval even when two proposals target different entry IDs.
 
 Declared source/path changes may flag observations for revalidation. Arbitrary
 code changes cannot be interpreted as semantic invalidation without evidence.
@@ -368,6 +388,15 @@ Plan a paired change in `777genius/review-router`:
 - Qualify the real caller/runtime artifacts under existing App-first/OIDC and
   release contracts. Inspect deployed refs; source main is not production proof.
 
+Authorize and freeze one exact rendered memory snapshot before assembling an
+invocation manifest. Providers within the same admitted ensemble use that
+snapshot. Retries never refetch changed text under an old hash. Fresh or cached
+invocation admission rechecks current revocation/binding eligibility; if it
+changed, prepare a new manifest with new eligible context or no memory. The
+snapshot is not a new persistent raw-prompt archive. Decide explicitly whether
+PR-description tasks use memory; review authority does not automatically extend
+to every model task.
+
 ## 9. Ordered writes and crash recovery
 
 Use the existing app database/outbox for command coordination, not a new queue.
@@ -384,6 +413,11 @@ Across API/web/worker processes, atomically permit only one unresolved mutation
 for a `(backend generation, scope, logical entry)` at a time. Use database claims
 and revision preconditions, not in-memory locks. A lease expiring cannot authorize
 a newer mutation while an older native call may still execute.
+This limits external mutation dispatch, not urgent revocation intent. Retire,
+expire or forget may atomically record an immediate eligibility fence while an
+older write is unknown. Its provider cleanup waits for that write's drain or
+resolution; a late acknowledgement cannot clear the newer fence. New writes
+remain blocked until the intent is satisfied.
 
 Native async UUID dedupe checks bank/type/identity, not payload equality. Router
 must reject reuse with a changed digest. Native per-document serialization helps
@@ -405,6 +439,8 @@ Use supported native readback/status, not internal `result_metadata`, as the
 product proof of publication. Bound payload retention and unresolved operations;
 expiry becomes visible operator debt/input-required resolution, not silent loss.
 The exact window must be chosen with native operation retention and backup policy.
+The guarantee is one logical application publication for a command, not exactly
+one LLM call, embedding computation or billed request under native retry.
 
 ## 10. Retrieval and publication readiness
 
@@ -416,6 +452,10 @@ Capture the relevant eligibility epoch before retrieval and recheck it before
 returning the bundle. Discard/retry within budget if authority/fence state changed.
 This is not cross-database snapshot isolation and cannot retract text already
 sent to an executing external model request.
+Apply the same current body-digest/content-revision/approval/lifecycle validation
+and final epoch/expiry check to detail, list, evidence and export, not just review
+bundles. Never pair an old native body with a newer approval record. Return only
+settled eligible entries; report unsettled/omitted export entries explicitly.
 
 For derived observations, validate every returned supporting source identity,
 not only the first citation. `include.source_facts` can be truncated; inspect the
@@ -424,6 +464,10 @@ An observation supported by both an active and a fenced source is not fully
 eligible. Do not cache privileged results across scopes or membership changes.
 Do not expose the whole native response: disable unused top-level entity/chunk
 inclusions and return only mapped results with qualified supporting evidence.
+Preserve one total default 2,000 ms memory-retrieval budget, including both scope
+queries, native/SDK retries, evidence hydration and final metadata recheck. Do not
+multiply it per call. Bounded timeout/cancellation yields a memory-free review;
+background operations keep their separate deadlines and progress semantics.
 
 Consolidation readiness and semantic correctness are distinct. Example: source
 E1 says timeout=30, E2 says timeout=60. Retain(E2) may complete while consolidation
@@ -435,9 +479,11 @@ context unless the following scoped readiness protocol passes qualification:
 
 1. Fence the observation section for the scope/kind while admitted observation
    changes are unsettled; exact approved rules remain separately available.
-2. Read back expected current source facts and their native `consolidation_state`
-   using supported memory-list APIs. Require done/nonfailed for the admitted
-   source set, not merely a completed retain/consolidation parent operation.
+2. Read back the complete expected current source-fact ID set using supported
+   memory-list APIs. `consolidation_state=done|pending|failed` is a list filter;
+   returned rows expose `consolidated_at` / `consolidation_failed_at`. Require
+   all expected IDs done/nonfailed, not an empty filtered page or merely a
+   completed retain/consolidation parent operation.
 3. Resolve all relevant commands for the same app scope epoch; check that epoch
    has not changed while assembling recall.
 4. Pass the real-model stale-state corpus, including later evidence and delayed
@@ -540,14 +586,25 @@ Pinned source contains concrete logging defects relative to our requirements:
 - Recall/Reflect log query prefixes at INFO;
 - malformed consolidation output can log full model text at WARNING;
 - mission merge can log model response prefixes;
-- standalone worker startup prints the full configured database URL.
+- standalone worker startup prints the full configured database URL;
+- provider failure logs may include response-body excerpts; native task errors
+  persist raw exception/traceback text in async operation errors and parent copies.
 
-Before real data, use an upstream fixed release or a minimal reviewed/pinned
-hardening patch that removes these payload/credential outputs. Log-level changes
+Before real credentials or data, use an upstream fixed release or a minimal
+reviewed/pinned hardening patch that removes these payload/credential outputs. Log-level changes
 alone do not cover all paths. Verify startup, normal reads and injected failures
 with synthetic sentinel credentials/text through stdout/stderr, collectors,
-database trace/audit tables and HTTP errors. Do not silently maintain a semantic
-engine fork; track the small patch and its upstream-removal condition explicitly.
+database trace/audit tables, native operation error/parent copies and HTTP errors.
+Pin request/error-body debug dump options off and test provider 4xx/5xx echo
+responses. Sanitize diagnostic sinks without changing internal provider-error
+classification/retry behavior, which can inspect those original responses.
+Do not silently maintain a semantic engine fork; track the small patch and its upstream-removal condition explicitly.
+
+Slice 0 produces the exact hardening diff, source/lock/base-image identity,
+reproducible build recipe, final derivative-image digest, named maintainer and
+upstream-removal condition. Smoke API and separate worker from those final bytes;
+tests of an unpatched checkout do not qualify the deployed image. If an upstream
+release resolves the issues, qualify that successor instead of keeping a fork.
 
 Self-hosted memory does not imply self-hosted inference. An external LLM,
 embedder or reranker receives the respective input. Choose and record that data
@@ -606,6 +663,27 @@ need an explicit migration/disposition; production Action still receives no
 arbitrary user's private preferences. Future authenticated tools use their own
 user-scoped authorization.
 
+### Verified file owners for implementation
+
+All control-plane paths below are relative to `777genius/review-router-ai`.
+`M` means `packages/features/memory/src`. These are change owners, not whole-file
+deletion instructions.
+
+| Owner | Existing paths |
+| --- | --- |
+| Canonical content | `M/domain/memory-item.ts`, `memory-suggestion.ts`; item/suggestion repository ports and Prisma repositories/mappers |
+| Projections | `M/application/ports/memory-search-index-port.ts`; `M/infrastructure/infinity/`, `projection/`, `outbox/memory-index-outbox-handlers.ts`; Prisma search/receipt/backfill adapters |
+| Host consumers | `M/composition/index.ts`; `apps/api/src/app.ts`, `action-memory-routes.ts`; `apps/worker/src/worker.ts`, `memory-maintenance.ts`, `memory-projection-maintenance.ts`, `memory-projection-operator.ts`; `apps/web/src/server/dashboard-memory.ts` |
+| UI and export | `apps/web/app/dashboard/dashboard-workspace-page.tsx`, `actions.ts`, `memory-management-panel.tsx`, `memory-development-notice.tsx`, `memory-preview/page.tsx`; `apps/web/src/features/memory/application/`; `apps/web/app/api/dashboard/memory/export/route.ts` |
+| Metadata consumers | `packages/platform/db/prisma/schema.prisma`; `packages/features/support-diagnostics/src/`; memory entitlement adapters; `apps/web/app/fair-use/page.tsx` |
+| Gates | `.github/workflows/memory-projections.yml`; `architecture/foundation/provider-seams.yaml`; `scripts/memory-foundation/qualify-boundaries.ts`; `scripts/memory-e2e/`; existing memory/GitHub smoke fixtures |
+| Deployment | `render.yaml`, `.env.example`, `deploy/self-hosted/compose.yml`, `deploy/self-hosted/.env.example`, `deploy/self-hosted/README.md`, self-host readiness checks and release/deployment runbooks |
+| Separate Action | `src/control-plane/memory.ts`, `src/github/memory-interaction.ts`, `src/github/interaction.ts`, `src/main.ts`, `src/review-orchestration/infrastructure/production-t0-review-runner.ts`, invocation/PromptBuilder and manifest/cache/replay owners |
+
+Regenerate distributed Action bundles/contracts through their owning release
+flow; generated output is excluded from hand-written LOC. Consolidate unused
+duplicate command parsers only after checking real callers and useful syntax.
+
 ## 14. Safe cutover
 
 Define `memory-core-export/v1` as a neutral source-entry export, not a native bank
@@ -628,6 +706,9 @@ format against a second independent fixture reader, not a second production engi
 4. Settle or fence old work. Export eligible core knowledge and authority/source
    metadata. Import once with stable IDs/digests and verify counts, samples,
    scope isolation and source completeness. Resolve cleanup debt separately.
+   Use a resumable import manifest with stable per-entry command UUID/digest,
+   source/destination generation and an activation fence. A crashed import resumes
+   the same commands; it does not recapture authority or duplicate approved entries.
 5. Switch one configured backend generation and compatible paired runtime.
    Re-enable memory only after real runtime qualification.
 6. Keep a bounded read-only recovery snapshot. After new writes, reverting to
@@ -763,8 +844,8 @@ choices, not reasons to re-ask whether Hindsight should be selected.
 
 Three GPT-6.1 Sol xhigh planners examined native contracts, product semantics
 and self-hosted operations in parallel. Three independent GPT-6.1 Sol xhigh
-critics completed the first round. This synthesis incorporates the following
-repairs and is entering round two:
+critics completed the first round and re-reviewed the concrete synthesis in a
+second round. The following first-round repairs are incorporated:
 
 | Finding | Repair in this draft |
 | --- | --- |
@@ -786,6 +867,14 @@ executed only the upstream pure retraction classifier and confirmed the
 all-sources-missing versus partial-retraction distinction; that is narrow source
 behavior evidence, not runtime qualification. Further review outcomes will be
 recorded here. Implementation gates remain even after document review is complete.
+
+Round two accepted the direction for a disposable native vertical slice and
+requested precise boundary repairs: urgent revocation during unknown writes;
+all-read consistency and export omissions; trusted native source timestamps;
+feature-local outage behavior and one total deadline; immutable invocation
+snapshots; native persisted-error redaction and final hardened-image identity.
+These changes are incorporated. Three fresh independent critics now review the
+repaired plan in round three; production qualification has not been performed.
 
 ## Primary sources
 
