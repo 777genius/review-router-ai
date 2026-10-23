@@ -156,8 +156,8 @@ import { PrismaReviewProgressPublicationStore } from "./review-progress-store";
 import { GitHubActionsReviewRequestedDispatchGateway } from "./review-v2-intent-dispatcher";
 import { GitHubReviewRequestEligibilityGateway } from "./review-v2-request-eligibility-gateway";
 import { createGitHubReviewRequestIngressHandler } from "./review-v2-github-request-ingress-handler";
+import { createWorkspaceDraftDispatchGate } from "./review-v2-draft-dispatch-gate";
 import {
-  ReviewRequestEligibilityStatus,
   ReviewRequestIngressApplicationService,
   createReviewRequestIngressHandler,
 } from "./review-v2-request-ingress-handler";
@@ -499,37 +499,30 @@ export function createProductionReviewV2WorkerRuntime(input: {
     intentIds,
     intentDigest,
     intentDispatchPolicy,
-    async (intent) => {
-      if (await workspaceReviewSettings.reviewDrafts(intent.workspaceId))
-        return true;
-      const repository = await input.prisma.repositoryConnection.findUnique({
-        where: { id: intent.repositoryConnectionId },
-        select: {
-          workspaceId: true,
-          fullName: true,
-          installation: { select: { githubInstallationId: true } },
-        },
-      });
-      if (
-        !repository?.installation ||
-        repository.workspaceId !== intent.workspaceId
-      )
-        return false;
-      const current = await requestEligibility.load({
-        githubInstallationId: String(
-          repository.installation.githubInstallationId,
-        ),
-        repositoryFullName: repository.fullName,
-        pullRequestNumber: intent.pullRequestNumber,
-      });
-      if (current.status === ReviewRequestEligibilityStatus.Unavailable) {
-        throw new Error("review_request_eligibility_unavailable");
-      }
-      return (
-        current.status === ReviewRequestEligibilityStatus.Current &&
-        !current.draft
-      );
-    },
+    createWorkspaceDraftDispatchGate({
+      reviewDrafts: (workspaceId) =>
+        workspaceReviewSettings.reviewDrafts(workspaceId),
+      findGitHubRepository: async (repositoryConnectionId) => {
+        const repository = await input.prisma.repositoryConnection.findUnique({
+          where: { id: repositoryConnectionId },
+          select: {
+            workspaceId: true,
+            fullName: true,
+            installation: { select: { githubInstallationId: true } },
+          },
+        });
+        return repository?.installation
+          ? {
+              workspaceId: repository.workspaceId,
+              fullName: repository.fullName,
+              githubInstallationId: String(
+                repository.installation.githubInstallationId,
+              ),
+            }
+          : null;
+      },
+      eligibility: requestEligibility,
+    }),
   );
   const intentRecovery = new RecoverReviewRequestedDispatches(
     requestedIntents,

@@ -552,6 +552,40 @@ describe("review execution domain", () => {
     ).resolves.toMatchObject({ state: ReviewRequestedIntentState.Superseded });
   });
 
+  it("keeps a queued request retryable when the dispatch gate cannot decide", async () => {
+    const intents = new InMemoryReviewRequestedIntentStore();
+    await intents.registerIntent({
+      candidate: intentCandidate("request-unknown", "31", scope, revision),
+    });
+    const prepare = vi.fn();
+    const dispatcher = new DispatchDueReviewRequestedIntents(
+      intents,
+      intents,
+      {
+        prepare,
+        findByRequestIdentity: vi.fn(),
+        inspectKnownRun: vi.fn(),
+        cancelKnownRun: vi.fn(),
+      },
+      { now: () => baseTime },
+      { nextClaimId: () => "claim-unknown", nextRequestId: () => "unused" },
+      {
+        digestUtf8: async (value) =>
+          createHash("sha256").update(value).digest("hex"),
+      },
+      undefined,
+      async () => {
+        throw new Error("review_request_eligibility_unavailable");
+      },
+    );
+    await expect(
+      dispatcher.execute({ ownerIdHash: hash("d"), limit: 10 }),
+    ).resolves.toMatchObject({ dispatched: 0, failed: 1 });
+    expect(prepare).not.toHaveBeenCalled();
+    const stored = await intents.findByRequestId("request-unknown");
+    expect(stored?.state).not.toBe(ReviewRequestedIntentState.Superseded);
+  });
+
   it("reconciles a timeout-after-success without issuing a second POST", async () => {
     const intents = new InMemoryReviewRequestedIntentStore();
     await intents.registerIntent({
