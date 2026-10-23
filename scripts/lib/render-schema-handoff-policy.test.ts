@@ -38,9 +38,14 @@ const usageMigrationName = "000136_provider_usage";
 const prDescriptionMigrationName = "000138_pr_description";
 const contextToolsMigrationName = "000139_review_context_tools";
 const oauthMethodMigrationName = "000140_personal_oauth_method";
+const optionalReasoningMigrationName = "000142_optional_gateway_reasoning";
+const readMemoryProjectionCheckoutInventory = () =>
+  readRenderManagedCheckoutInventory().filter(
+    (row) => row.migrationName !== optionalReasoningMigrationName,
+  );
 const memoryProjectionMigrationName = "000141_memory_search_projections";
 const readOauthMethodCheckoutInventory = () =>
-  readRenderManagedCheckoutInventory().filter(
+  readMemoryProjectionCheckoutInventory().filter(
     (row) => row.migrationName !== memoryProjectionMigrationName,
   );
 const readPriorFullCheckoutInventory = () =>
@@ -89,6 +94,7 @@ const historicalMigration119Sql = correctedMigration119Sql.replaceAll(
 const canonicalPrismaMigrationNames =
   currentCanonicalPrismaMigrationNames.filter(
     (name) =>
+      name !== optionalReasoningMigrationName &&
       name !== memoryProjectionMigrationName &&
       name !== oauthMethodMigrationName &&
       name !== usageMigrationName &&
@@ -454,8 +460,34 @@ const canonicalPrefix = (count: number) =>
   canonicalPrismaMigrationNames.slice(0, count);
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
-  it("admits only the exact memory-projection141 checkout and preserves managed92", () => {
+  it("admits exact optional-reasoning142 without changing managed92 authority", () => {
     const full = readRenderManagedCheckoutInventory();
+    expect(full).toHaveLength(142);
+    expect(full.at(-1)).toEqual({
+      migrationName: optionalReasoningMigrationName,
+      checksum:
+        "4414e3473290c6252cc06b9b5a10852cac5a93070c5b59c1b5c260113081b2c0",
+    });
+    expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
+    for (const changed of [
+      full.map((row) =>
+        row.migrationName === optionalReasoningMigrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
+      full.map((row) =>
+        row.migrationName === optionalReasoningMigrationName
+          ? { ...row, migrationName: "000142_relabelled" }
+          : row,
+      ),
+      full.filter((row) => row.migrationName !== memoryProjectionMigrationName),
+      [...full, { migrationName: "000143_unknown", checksum: "0".repeat(64) }],
+    ])
+      expect(() => partitionRenderSchemaHandoffCheckout(changed)).toThrow();
+  });
+
+  it("admits only the exact memory-projection141 checkout and preserves managed92", () => {
+    const full = readMemoryProjectionCheckoutInventory();
     expect(full).toHaveLength(141);
     expect(full.at(-1)).toEqual({
       migrationName: memoryProjectionMigrationName,
@@ -1953,6 +1985,9 @@ describe("complete filesystem checkout inventory", () => {
       { recursive: true },
     );
     if (count !== undefined) {
+      rmSync(join(migrations, optionalReasoningMigrationName), {
+        recursive: true,
+      });
       rmSync(join(migrations, memoryProjectionMigrationName), {
         recursive: true,
       });
@@ -2010,11 +2045,15 @@ describe("complete filesystem checkout inventory", () => {
     };
   }
 
-  it("reads current checkout141 through old125, historical124 and key-free123 as identical frozen92 rows", async () => {
+  it("reads current checkout142 through old125, historical124 and key-free123 as identical frozen92 rows", async () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(141);
+    expect(inventory).toHaveLength(142);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, optionalReasoningMigrationName), {
+      recursive: true,
+    });
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, memoryProjectionMigrationName), {
       recursive: true,
@@ -2370,7 +2409,7 @@ describe("complete filesystem checkout inventory", () => {
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
       // Only removing the current tail restores an independently admitted catalog.
-      if (name === memoryProjectionMigrationName)
+      if (name === optionalReasoningMigrationName)
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);

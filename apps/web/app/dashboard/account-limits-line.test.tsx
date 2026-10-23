@@ -77,6 +77,51 @@ test("SSR includes observed usage and UTC timestamps without reading the network
   expect(fetch).not.toHaveBeenCalled();
 });
 
+test("summarizes at most two known plan windows and keeps monthly/rate observations in Details", () => {
+  const value = snapshot();
+  if (value.status !== "snapshot") throw new Error();
+  const base = value.windows[0]!;
+  const { props } = fixture({
+    ...value,
+    windows: [
+      {
+        ...base,
+        label: "Request rate",
+        dimension: "rate_limit",
+        unit: "requests",
+      },
+      { ...base, label: "5h", dimension: "plan_quota", unit: "credits" },
+      { ...base, label: "Week", dimension: "plan_quota", unit: "credits" },
+      {
+        ...base,
+        label: "Month",
+        dimension: "plan_quota",
+        unit: "credits",
+        usedPercent: null,
+        remainingPercent: null,
+        progressPercent: null,
+      },
+    ],
+  });
+  render(<AccountLimitsLine {...props} />);
+  expect(screen.getAllByRole("progressbar")).toHaveLength(2);
+  expect(
+    screen.getByRole("progressbar", { name: "5h remaining" }),
+  ).toBeTruthy();
+  expect(
+    screen.getByRole("progressbar", { name: "Week remaining" }),
+  ).toBeTruthy();
+  expect(
+    screen.queryByRole("progressbar", { name: "Request rate remaining" }),
+  ).toBeNull();
+  expect(screen.queryByText("Remaining unknown")).toBeNull();
+  const details = screen.getByText("Details").closest("details")!;
+  expect(details.textContent).toContain("Month");
+  expect(details.textContent).toContain("Used unknown");
+  expect(details.textContent).toContain("Rate limit · requests");
+  expect(details.textContent).toContain("Plan quota · credits");
+});
+
 test("remaining and reset stay in the compact summary, with saved observations in Details", () => {
   const value = snapshot();
   if (value.status !== "snapshot") throw new Error();

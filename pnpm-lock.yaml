@@ -181,8 +181,8 @@ importers:
   apps/api:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-provider-plan-ef8884317a26.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-provider-plan-ef8884317a26.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -325,8 +325,8 @@ importers:
   apps/web:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-provider-plan-ef8884317a26.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-provider-plan-ef8884317a26.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -1294,13 +1294,8 @@ packages:
   '@actions/io@3.0.2':
     resolution: {integrity: sha512-nRBchcMM+QK1pdjO7/idu86rbJI5YHUKCvKs0KxnSYbVe3F51UfGxuZX4Qy/fWlp6l7gWFwIkrOzN+oUK03kfw==}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz':
-    resolution: {integrity: sha512-O1KJh9UJ+XCvNCO8XKTK6/ABBp3HeOkZi2LlhycW/RqK11z6rwk26FCjDMvxbPCnSEsZN3i0lUqUxJs5LP16jA==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz}
-    version: 0.1.0
-    engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
-
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz':
-    resolution: {integrity: sha512-2m6yfYE3VPAtlBPUrowOauDsHsoBwl1oIB8ph10Cvw4kFU8nzhV+msgUrHj9StUEzcGTEZFvKb6AB7vX6rMxgw==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz}
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-provider-plan-ef8884317a26.tgz':
+    resolution: {integrity: sha512-TPSm+E2GzK+M0yHeeP1a0PodoRzaNlM6JSYOKa+mACi3QsRylEk8ghsOgEtGKSb6OOu2CRR9gPif9Vz/RM3y6Q==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-provider-plan-ef8884317a26.tgz}
     version: 0.1.0
     engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
 
@@ -6427,13 +6422,7 @@ snapshots:
 
   '@actions/io@3.0.2': {}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz':
-    dependencies:
-      '@get-modular/assembly': 0.2.0
-      '@get-modular/core': 0.2.0
-      zod: 4.6.5
-
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz':
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-provider-plan-ef8884317a26.tgz':
     dependencies:
       '@get-modular/assembly': 0.2.0
       '@get-modular/core': 0.2.0

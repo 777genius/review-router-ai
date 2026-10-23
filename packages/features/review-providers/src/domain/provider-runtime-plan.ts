@@ -17,7 +17,6 @@ export type RuntimePlanReasoningEffort = CodexReasoningEffort;
 type RuntimePlanProviderSettings = {
   readonly kind: ProviderKind;
   readonly model: string;
-  readonly reasoningEffort: RuntimePlanReasoningEffort;
   readonly agenticContext: boolean;
   readonly fastMode: boolean;
   readonly requiredHealthy?: boolean;
@@ -29,11 +28,13 @@ export type RuntimePlanProviderConfiguration = RuntimePlanProviderSettings &
     | {
         readonly kind: "codex";
         readonly authMode: "codex_account_gateway";
+        readonly reasoningEffort?: RuntimePlanReasoningEffort | undefined;
         readonly gatewayBindingId: string;
         readonly gatewayProfileRef: string;
       }
     | {
         readonly authMode: Exclude<ProviderAuthMode, "codex_account_gateway">;
+        readonly reasoningEffort: RuntimePlanReasoningEffort;
         readonly gatewayBindingId?: undefined;
         readonly gatewayProfileRef?: undefined;
       }
@@ -113,7 +114,8 @@ export function buildProviderRuntimePlan(
 
   const codexBackedProvider = providers.find(isCodexBackedProvider);
   if (codexBackedProvider) {
-    runtimeEnv.CODEX_REASONING_EFFORT = codexBackedProvider.reasoningEffort;
+    if (codexBackedProvider.reasoningEffort !== undefined)
+      runtimeEnv.CODEX_REASONING_EFFORT = codexBackedProvider.reasoningEffort;
     runtimeEnv.CODEX_AGENTIC_CONTEXT = String(
       codexBackedProvider.agenticContext,
     );

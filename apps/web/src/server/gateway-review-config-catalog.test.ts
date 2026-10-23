@@ -187,3 +187,45 @@ test("legacy-only configuration performs no catalog I/O", async () => {
     ),
   ).resolves.toBe(false);
 });
+
+test("qualified models without reasoning/fast controls save only omitted settings", async () => {
+  const connection = {
+    provider: "kimi" as const,
+    planLabel: "Kimi Code",
+    regionLabel: "Global",
+    completionInputKind: "none" as const,
+    personalOnly: false,
+    limitsContract: "account-limits/v2" as const,
+    modelSettings: [
+      {
+        modelId: gateway.model,
+        reasoning: null,
+        fast: null,
+        tools: {
+          allowed: ["function_and_custom" as const],
+          default: "function_and_custom" as const,
+        },
+      },
+    ],
+  };
+  const profiles = [{ ...profile, connection }];
+  const selection = { ...gateway, reasoningEffort: undefined };
+  await expect(
+    assertGatewayReviewConfigCatalogAllowed(
+      { providers: [selection] },
+      async () => profiles,
+    ),
+  ).resolves.toBe(true);
+  await expect(
+    assertGatewayReviewConfigCatalogAllowed(
+      { providers: [gateway] },
+      async () => profiles,
+    ),
+  ).rejects.toThrow("gateway_review_reasoning_effort_unsupported");
+  await expect(
+    assertGatewayReviewConfigCatalogAllowed(
+      { providers: [{ ...selection, fastMode: true }] },
+      async () => profiles,
+    ),
+  ).rejects.toThrow("gateway_review_fast_mode_unsupported");
+});

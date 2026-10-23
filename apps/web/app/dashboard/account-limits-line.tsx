@@ -176,61 +176,73 @@ export function AccountLimitsLine({
       <div className="min-w-0 flex-1 space-y-2">
         {view?.status === "snapshot" ? (
           <>
-            {view.windows.map((window, index) => {
-              const reset = window.resetAt ? Date.parse(window.resetAt) : NaN;
-              const observed = window.observedAt
-                ? Date.parse(window.observedAt)
-                : NaN;
-              const elapsed = Number.isFinite(reset) && now >= reset;
-              const stale =
-                window.stale ||
-                !Number.isFinite(observed) ||
-                now - observed >= 300_000 ||
-                elapsed;
-              return (
-                <div
-                  key={`${window.label}:${index}`}
-                  className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5"
-                >
-                  <span className="min-w-4 shrink-0">{window.label}</span>
-                  <span className="min-w-20 font-semibold tabular-nums text-slate-100">
-                    {window.remainingPercent === null
-                      ? "Remaining unknown"
-                      : `${window.remainingPercent}% left`}
-                  </span>
-                  {window.remainingPercent !== null ? (
-                    <div
-                      role="progressbar"
-                      aria-label={`${window.label} remaining`}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-valuenow={window.remainingPercent}
-                      aria-valuetext={`${window.remainingPercent}% remaining${window.usedPercent === null ? "" : `; ${window.usedPercent}% used`}`}
-                      className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-slate-700 sm:w-20"
-                    >
-                      <div
-                        className={
-                          window.remainingPercent <= 5
-                            ? "h-full bg-rose-400"
-                            : window.remainingPercent <= 20
-                              ? "h-full bg-amber-400"
-                              : "h-full bg-cyan-400"
-                        }
-                        style={{ width: `${window.remainingPercent}%` }}
-                      />
-                    </div>
-                  ) : null}
-                  <span className="whitespace-nowrap tabular-nums">
-                    {resetText(reset, now)}
-                  </span>
-                  {stale ? (
-                    <span className="rounded bg-amber-300/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-200">
-                      Outdated
+            {view.windows
+              .filter(
+                (window) =>
+                  window.dimension === undefined ||
+                  window.remainingPercent !== null,
+              )
+              .sort(
+                (left, right) =>
+                  Number(left.dimension === "rate_limit") -
+                  Number(right.dimension === "rate_limit"),
+              )
+              .slice(0, 2)
+              .map((window, index) => {
+                const reset = window.resetAt ? Date.parse(window.resetAt) : NaN;
+                const observed = window.observedAt
+                  ? Date.parse(window.observedAt)
+                  : NaN;
+                const elapsed = Number.isFinite(reset) && now >= reset;
+                const stale =
+                  window.stale ||
+                  !Number.isFinite(observed) ||
+                  now - observed >= 300_000 ||
+                  elapsed;
+                return (
+                  <div
+                    key={`${window.label}:${index}`}
+                    className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5"
+                  >
+                    <span className="min-w-4 shrink-0">{window.label}</span>
+                    <span className="min-w-20 font-semibold tabular-nums text-slate-100">
+                      {window.remainingPercent === null
+                        ? "Remaining unknown"
+                        : `${window.remainingPercent}% left`}
                     </span>
-                  ) : null}
-                </div>
-              );
-            })}
+                    {window.remainingPercent !== null ? (
+                      <div
+                        role="progressbar"
+                        aria-label={`${window.label} remaining`}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={window.remainingPercent}
+                        aria-valuetext={`${window.remainingPercent}% remaining${window.usedPercent === null ? "" : `; ${window.usedPercent}% used`}`}
+                        className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-slate-700 sm:w-20"
+                      >
+                        <div
+                          className={
+                            window.remainingPercent <= 5
+                              ? "h-full bg-rose-400"
+                              : window.remainingPercent <= 20
+                                ? "h-full bg-amber-400"
+                                : "h-full bg-cyan-400"
+                          }
+                          style={{ width: `${window.remainingPercent}%` }}
+                        />
+                      </div>
+                    ) : null}
+                    <span className="whitespace-nowrap tabular-nums">
+                      {resetText(reset, now)}
+                    </span>
+                    {stale ? (
+                      <span className="rounded bg-amber-300/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-200">
+                        Outdated
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })}
             <details>
               <summary className="w-fit cursor-pointer rounded text-slate-500 hover:text-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300/70">
                 Details
@@ -250,6 +262,16 @@ export function AccountLimitsLine({
                         ? "Used unknown"
                         : `${window.usedPercent}% used`}
                     </p>
+                    {window.dimension ? (
+                      <p>
+                        {window.dimension === "rate_limit"
+                          ? "Rate limit"
+                          : "Plan quota"}
+                        {window.unit && window.unit !== "unknown"
+                          ? ` · ${window.unit}`
+                          : ""}
+                      </p>
+                    ) : null}
                     <p>Reset: {instant(window.resetAt, local)}</p>
                     <p>As of: {instant(window.observedAt, local)}</p>
                   </div>
