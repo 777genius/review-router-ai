@@ -20,6 +20,24 @@ another general-purpose memory engine inside ReviewRouter. Keep the integration
 modular under Clean Architecture, SOLID and DRY, with Get Modular, Engineering
 Foundation and the organization's engineering rules where applicable.
 
+## Owner clarification: replacement is preferred
+
+The owner clarified on 2026-10-23 that the custom memory implementation was
+created hurriedly and was never intended to become a separately maintained
+memory engine. Maintaining or developing that engine is not a product goal.
+Investigate a complete replacement with a capable external memory backend first.
+
+Removing the current engine implementation is explicitly acceptable if a ready
+backend offers a faster, more useful and maintainable result. Preserve existing
+code only where it serves a necessary product responsibility, not because it
+already exists. A local Prisma memory backend is not a required fallback.
+
+The current assignment is parallel research and independent criticism of that
+replacement direction. This authorizes reconsidering the old memory architecture;
+it does not select a vendor, approve an unspecified source-retention change or
+authorize deleting customer data. Provider selection, migration and the concrete
+implementation plan remain to be qualified.
+
 ## Owner requirements
 
 1. **Workspace and repository scope.** Support personal and organization
@@ -130,7 +148,10 @@ Relevant accepted decisions:
 - [ADR-022: tenancy and data residency](../decisions/022-balanced-memory-data-residency-tenancy.md).
 
 A future full-provider design must explicitly reconcile storage ownership,
-allowed source retention, approval and tenancy with these decisions. This note
+allowed source retention, approval and tenancy with all accepted memory ADRs
+(018–024 and 026), including the bounded context, rollback/disable, search
+capability contract and transaction/outbox decisions linked above or in the
+[memory adapter plan](../plans/2026-10-22-memory-engine-adapters.md). This note
 does not amend them, enable automatic capture, change configuration or restore
 dashboard functionality.
 
