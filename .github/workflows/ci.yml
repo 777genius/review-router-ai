@@ -543,6 +543,12 @@ jobs:
       - name: Architecture boundaries
         run: pnpm architecture:check
 
+      - name: Native modular composition and host qualification
+        env:
+          GOMAXPROCS: "2"
+          GOMEMLIMIT: "2048MiB"
+        run: pnpm modular:qualify
+
       - name: GitHub/OIDC contract tests
         run: pnpm spike:test
 

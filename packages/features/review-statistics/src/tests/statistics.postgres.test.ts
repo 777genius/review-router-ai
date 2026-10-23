@@ -56,8 +56,8 @@ describe.skipIf(!adminUrl)("review statistics real PostgreSQL", () => {
       `CREATE TYPE "WorkflowProvisioningStatus" AS ENUM ('not_started','setup_pr_open','configured','failed')`,
       `CREATE TABLE "Workspace"("id" text PRIMARY KEY,"personalOwnerUserId" text,"deletionState" text NOT NULL DEFAULT 'active',"createdAt" timestamp(3) NOT NULL)`,
       `CREATE TABLE "WorkspaceMember"("workspaceId" text,"userId" text,PRIMARY KEY("workspaceId","userId"))`,
-      `CREATE TABLE "RepositoryConnection"("id" text PRIMARY KEY,"workspaceId" text REFERENCES "Workspace"("id") ON DELETE CASCADE,"scmRepositoryIdentityId" text,"provider" text DEFAULT 'github',"sourceBaseUrl" text DEFAULT 'https://github.com',"fullName" text NOT NULL,"selected" boolean DEFAULT true,"archived" boolean DEFAULT false,UNIQUE("id","workspaceId"))`,
-      `CREATE TABLE "ScmRepositoryIdentity"("scmRepositoryIdentityId" text PRIMARY KEY,"currentWorkspaceId" text,"currentRepositoryConnectionId" text)`,
+      `CREATE TABLE "RepositoryConnection"("id" text PRIMARY KEY,"workspaceId" text REFERENCES "Workspace"("id") ON DELETE CASCADE,"scmRepositoryIdentityId" text,"provider" text DEFAULT 'github',"sourceBaseUrl" text DEFAULT 'https://github.com',"externalRepositoryId" text NOT NULL DEFAULT 'repo-external',"fullName" text NOT NULL,"selected" boolean DEFAULT true,"archived" boolean DEFAULT false,UNIQUE("id","workspaceId"))`,
+      `CREATE TABLE "ScmRepositoryIdentity"("scmRepositoryIdentityId" text PRIMARY KEY,"currentWorkspaceId" text,"currentRepositoryConnectionId" text,"provider" text DEFAULT 'github',"normalizedSourceBaseUrl" text DEFAULT 'https://github.com',"externalRepositoryId" text NOT NULL DEFAULT 'repo-external')`,
       `CREATE TABLE "ReviewMutationAuthority"("scmRepositoryIdentityId" text,"laneKind" text,"mode" "ReviewMutationModeV2","activatedAt" timestamp(3))`,
       `CREATE TABLE "HostedCodexRepositoryBinding"("id" text,"workspaceId" text,"repositoryConnectionId" text,"status" text)`,
       `CREATE TABLE "WorkflowProvisioning"("repositoryId" text,"workspaceId" text,"status" "WorkflowProvisioningStatus","workflowPath" text)`,
@@ -102,7 +102,7 @@ describe.skipIf(!adminUrl)("review statistics real PostgreSQL", () => {
     await prisma.$executeRaw`INSERT INTO "Workspace" ("id","personalOwnerUserId","createdAt") VALUES ('work',NULL,'2026-01-01'),('other',NULL,'2026-01-01'),('personal','owner','2026-01-01')`;
     await prisma.$executeRaw`INSERT INTO "WorkspaceMember" VALUES ('work','member'),('other','other-member'),('personal','intruder')`;
     await prisma.$executeRaw`INSERT INTO "RepositoryConnection" ("id","workspaceId","scmRepositoryIdentityId","fullName") VALUES ('repo','work','scm','org/repo'),('other-repo','other','other-scm','secret/repo')`;
-    await prisma.$executeRaw`INSERT INTO "ScmRepositoryIdentity" VALUES ('scm','work','repo'),('other-scm','other','other-repo')`;
+    await prisma.$executeRaw`INSERT INTO "ScmRepositoryIdentity" ("scmRepositoryIdentityId","currentWorkspaceId","currentRepositoryConnectionId") VALUES ('scm','work','repo'),('other-scm','other','other-repo')`;
     await prisma.$executeRaw`INSERT INTO "ReviewMutationAuthority" VALUES ('scm','hosted_reviewrouter_app','v2_active','2026-01-01'),('other-scm','hosted_reviewrouter_app','v2_active','2026-01-01')`;
     await prisma.$executeRaw`INSERT INTO "WorkflowProvisioning" VALUES ('repo','work','configured','.github/workflows/reviewrouter-review.yml'),('other-repo','other','configured','.github/workflows/reviewrouter-review.yml')`;
     await prisma.$executeRaw`INSERT INTO "ReviewStatisticsCoverage" VALUES ('capture_v1','2026-01-01')`;
@@ -330,12 +330,8 @@ describe.skipIf(!adminUrl)("review statistics real PostgreSQL", () => {
       ).totals.reviews,
     ).toBe(0);
   });
-  it("rejects an original connection rebound or unbound from the event SCM identity", async () => {
+  it("rejects a different nonnull SCM binding without writing facts", async () => {
     await prisma.$executeRaw`UPDATE "RepositoryConnection" SET "scmRepositoryIdentityId"='replacement-scm' WHERE "id"='repo'`;
-    await expect(projector.project(event())).rejects.toThrow(
-      StatisticsCollisionError,
-    );
-    await prisma.$executeRaw`UPDATE "RepositoryConnection" SET "scmRepositoryIdentityId"=NULL WHERE "id"='repo'`;
     await expect(projector.project(event())).rejects.toThrow(
       StatisticsCollisionError,
     );
@@ -345,6 +341,100 @@ describe.skipIf(!adminUrl)("review statistics real PostgreSQL", () => {
     expect(
       await prisma.$queryRaw`SELECT * FROM "ReviewStatisticsIssueFact"`,
     ).toEqual([]);
+  });
+  it("drains accepted settlement after normal unbind using durable original identity", async () => {
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`UPDATE "ScmRepositoryIdentity" SET "currentWorkspaceId"=NULL,"currentRepositoryConnectionId"=NULL WHERE "scmRepositoryIdentityId"='scm'`;
+      await tx.$executeRaw`UPDATE "RepositoryConnection" SET "scmRepositoryIdentityId"=NULL,"fullName"='org/renamed',"sourceBaseUrl"='https://GITHUB.com///' WHERE "id"='repo'`;
+    });
+    expect(await projector.project(event())).toBe(
+      ReviewStatisticsProjectionStatus.Applied,
+    );
+    expect(await projector.project(event())).toBe(
+      ReviewStatisticsProjectionStatus.Duplicate,
+    );
+    const report = await reader.readReport({
+      actorId: "member",
+      workspaceId: "work",
+      filter: { days: 7, severity: "all" },
+    });
+    expect(report.totals).toMatchObject({ reviews: 1, issuesCaught: 1 });
+    expect(report.topRepositoriesByReviews[0]?.fullName).toBe("org/renamed");
+    expect(report.topRepositoriesByReviews[0]?.url).toBe(
+      "https://github.com/org/renamed",
+    );
+    expect(report.coverage.currentComplete).toBe(false);
+    // An unbound connection changed to another immutable SCM tuple is unsafe.
+    await prisma.$executeRaw`UPDATE "RepositoryConnection" SET "externalRepositoryId"='other-external' WHERE "id"='repo'`;
+    await expect(
+      projector.project(event({ executionId: "wrong-target" })),
+    ).rejects.toThrow(StatisticsCollisionError);
+    expect(
+      await prisma.$queryRaw<
+        unknown[]
+      >`SELECT * FROM "ReviewStatisticsReviewFact"`,
+    ).toHaveLength(1);
+  });
+  it("keeps the earliest event's original connection across reordered reconnect delivery", async () => {
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`UPDATE "RepositoryConnection" SET "scmRepositoryIdentityId"=NULL WHERE "id"='repo'`;
+      // The registry compares normalized URLs; a retained old connection is not
+      // an instruction to follow the canonical identity's new current binding.
+      await tx.$executeRaw`INSERT INTO "RepositoryConnection" ("id","workspaceId","scmRepositoryIdentityId","sourceBaseUrl","fullName") VALUES ('reconnected','work','scm','https://github.com/','org/reconnected')`;
+      await tx.$executeRaw`UPDATE "ScmRepositoryIdentity" SET "currentRepositoryConnectionId"='reconnected' WHERE "scmRepositoryIdentityId"='scm'`;
+    });
+    const earlier = event({
+        executionId: "earlier-original-review",
+        settledAt: "2026-10-22T11:00:00.000Z",
+        issues: [
+          {
+            lineageId: "lineage",
+            severity: StatisticsSeverity.Major,
+            title: "Original issue",
+          },
+        ],
+      }),
+      later = event({
+        executionId: "newer-connection-review",
+        repositoryConnectionId: "reconnected",
+        issues: [
+          {
+            lineageId: "lineage",
+            severity: StatisticsSeverity.Minor,
+            title: "Later issue",
+          },
+        ],
+      });
+    for (const order of [
+      [later, earlier],
+      [earlier, later],
+    ]) {
+      await prisma.$executeRaw`DELETE FROM "ReviewStatisticsIssueFact"`;
+      await prisma.$executeRaw`DELETE FROM "ReviewStatisticsReviewFact"`;
+      for (const settlement of order) await projector.project(settlement);
+      const rows = await prisma.$queryRaw<
+        {
+          repositoryConnectionId: string;
+          sourceExecutionId: string;
+          caughtAt: Date;
+          title: string;
+        }[]
+      >`SELECT "repositoryConnectionId","sourceExecutionId","caughtAt","title" FROM "ReviewStatisticsIssueFact"`;
+      expect(rows).toEqual([
+        {
+          repositoryConnectionId: "repo",
+          sourceExecutionId: earlier.executionId,
+          caughtAt: new Date(earlier.settledAt),
+          title: "Original issue",
+        },
+      ]);
+    }
+    await prisma.$executeRaw`DELETE FROM "RepositoryConnection" WHERE "id"='reconnected'`;
+    expect(
+      await prisma.$queryRaw<
+        unknown[]
+      >`SELECT * FROM "ReviewStatisticsIssueFact"`,
+    ).toHaveLength(1);
   });
   it("uses bounded severity/repository keyset pages and rejects mismatched cursors", async () => {
     await projector.project(
@@ -396,7 +486,7 @@ describe.skipIf(!adminUrl)("review statistics real PostgreSQL", () => {
   it("keeps known older-repository activity visible when a newer source activates", async () => {
     await projector.project(event({ settledAt: "2026-10-18T11:00:00.000Z" }));
     await prisma.$executeRaw`INSERT INTO "RepositoryConnection" ("id","workspaceId","scmRepositoryIdentityId","fullName") VALUES ('new-repo','work','new-scm','org/new-repo')`;
-    await prisma.$executeRaw`INSERT INTO "ScmRepositoryIdentity" VALUES ('new-scm','work','new-repo')`;
+    await prisma.$executeRaw`INSERT INTO "ScmRepositoryIdentity" ("scmRepositoryIdentityId","currentWorkspaceId","currentRepositoryConnectionId") VALUES ('new-scm','work','new-repo')`;
     await prisma.$executeRaw`INSERT INTO "ReviewMutationAuthority" VALUES ('new-scm','hosted_reviewrouter_app','v2_active','2026-10-22T10:00:00.000Z')`;
     await prisma.$executeRaw`INSERT INTO "WorkflowProvisioning" VALUES ('new-repo','work','configured','.github/workflows/reviewrouter-review.yml')`;
     const report = await reader.readReport({

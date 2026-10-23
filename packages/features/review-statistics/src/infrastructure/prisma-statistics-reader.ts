@@ -67,6 +67,7 @@ function repositoryUrl(
     )
       return null;
     const path = segments.map(encodeURIComponent).join("/");
+    base.pathname = base.pathname.replace(/\/+$/u, "");
     return `${base.toString().replace(/\/$/u, "")}/${path}${pullRequestNumber === undefined ? "" : row.provider === "github" ? `/pull/${pullRequestNumber}` : `/-/merge_requests/${pullRequestNumber}`}`;
   } catch {
     return null;
