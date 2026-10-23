@@ -85,7 +85,7 @@ export async function qualifyNative() {
     HINDSIGHT_API_RERANKER_SILICONFLOW_API_KEY: `${privacySentinel}_RERANK_KEY`, HINDSIGHT_API_RERANKER_SILICONFLOW_BASE_URL: stub.url,
     HINDSIGHT_API_LLM_MAX_RETRIES: '0', HINDSIGHT_API_EMBEDDINGS_MAX_RETRIES: '0', HINDSIGHT_API_RERANKER_MAX_RETRIES: '0',
     HINDSIGHT_API_WORKER_MAX_RETRIES: '0', HINDSIGHT_API_WORKER_POLL_INTERVAL_MS: '200',
-    HINDSIGHT_API_WORKER_SHUTDOWN_TIMEOUT_SECONDS: '2', HINDSIGHT_API_DB_POOL_MIN_SIZE: '1', HINDSIGHT_API_DB_POOL_MAX_SIZE: '4',
+    HINDSIGHT_API_DB_POOL_MIN_SIZE: '1', HINDSIGHT_API_DB_POOL_MAX_SIZE: '4',
     HINDSIGHT_API_CONSOLIDATION_USE_DECISION_MODEL: 'false', HINDSIGHT_API_MAINTENANCE_START_JITTER_SECONDS: '0',
     HINDSIGHT_API_LLM_TRACE_ENABLED: 'false', HINDSIGHT_API_OTEL_TRACES_ENABLED: 'false', HINDSIGHT_API_AUDIT_LOG_ENABLED: 'false',
     HINDSIGHT_API_LLM_DEBUG_DUMP_4XX: 'false', HINDSIGHT_API_XAI_OAUTH_DEBUG_HEADERS: 'false', HINDSIGHT_API_MCP_ENABLED: 'false',
@@ -141,14 +141,14 @@ export async function qualifyNative() {
   }
   try {
     containers.add(pg);
-    await command(['run', '--detach', '--name', pg, '--network', 'host', '--label', label, '--env', `POSTGRES_PASSWORD=${password}`, postgresImage, '-p', String(dbPort), '-c', 'log_statement=none', '-c', 'log_min_error_statement=panic']);
+    await command(['run', '--detach', '--name', pg, '--network', 'host', '--label', label, '--env', `POSTGRES_PASSWORD=${password}`, postgresImage, '-p', String(dbPort), '-c', 'log_statement=none', '-c', 'log_min_messages=panic', '-c', 'log_min_error_statement=panic', '-c', 'log_error_verbosity=terse', '-c', 'log_parameter_max_length=0', '-c', 'log_parameter_max_length_on_error=0']);
     await eventually(async () => (await command(['exec', pg, 'pg_isready', '-U', 'postgres', '-p', String(dbPort)], true)).includes('accepting connections') ? true : undefined, 'PostgreSQL17 startup');
-    // Explicit admin bootstrap; native services use an isolated non-superuser.
     const pgExec = async (statement: string, database = 'postgres') => (await command(['exec', pg, 'psql', '-U', 'postgres', '-p', String(dbPort), '-d', database, '-At', '-v', 'ON_ERROR_STOP=1', '-c', statement])).trim();
     await pgExec(`CREATE ROLE hindsight LOGIN PASSWORD '${password}'`);
     await pgExec('CREATE DATABASE hindsight OWNER hindsight');
     await pgExec('CREATE EXTENSION vector; CREATE EXTENSION pg_trgm', 'hindsight');
     assert.equal(await pgExec("SELECT rolsuper FROM pg_roles WHERE rolname='hindsight'"), 'f');
+    for (const [setting, expected] of Object.entries({ log_min_messages: 'panic', log_min_error_statement: 'panic', log_parameter_max_length: '0', log_parameter_max_length_on_error: '0', log_statement: 'none' })) assert.equal(await pgExec(`SHOW ${setting}`), expected);
     await nativeContainer(`${run}-migrate`, ['hindsight-admin', 'run-db-migration'], cleanupEnv);
     const migrateStatus = (await command(['wait', `${run}-migrate`])).trim();
     assert.equal(migrateStatus, '0', 'Bounded native migration job failed');
@@ -190,7 +190,7 @@ export async function qualifyNative() {
     const currentFacts = await request<NativeList<Fact>>(path(`/memories/list?document_id=${document}`));
     for (const fact of currentFacts.items) await request(path(`/memories/${fact.id}`), 'PATCH', { state: 'invalidated', reason: 'synthetic authorized retirement' });
     const recalledRetired = await request<{ results: Fact[] }>(path('/memories/recall'), 'POST', { query: 'current replacement rule', types: ['world'], budget: 'low', include: {} });
-    assert(!recalledRetired.results.some(fact => fact.document_id === document));
+    assert.equal(recalledRetired.results.length, 0, 'Invalidated source facts re-entered recall');
     assert.equal((await request<Document>(path(`/documents/${document}`))).original_text, 'Use the current replacement rule.');
     checkpoints.push('same-body-preserves-native-event-time', 'topic-move-reserved-kind-preserved', 'online-replacement-and-all-fact-retirement');
 
@@ -202,10 +202,26 @@ export async function qualifyNative() {
       stub.setMode('normal');
     }
     await request(path('/memories'), 'POST', { items: [{ content: text, timestamp: `${privacySentinel} invalid timestamp` }] }, 422);
-    checkpoints.push('provider-4xx-5xx-http-validation-parent-child-error-sinks-private');
+    await request(path('/config'), 'PATCH', { updates: { enable_observations: true, enable_auto_consolidation: true } });
+    stub.setMode('malformed');
+    const beforeMalformed = stub.calls.consolidation;
+    await settled(await retain(`${run}-malformed`, `${privacySentinel} approved malformed consolidation fixture`));
+    await eventually(async () => stub.calls.consolidation > beforeMalformed ? true : undefined, 'malformed native consolidation response');
+    await eventually(async () => {
+      const page = await request<{ operations: Operation[] }>(path('/operations?type=consolidation&limit=100'));
+      assert(!JSON.stringify(page).includes(privacySentinel), 'Malformed model output leaked into operation errors');
+      return page.operations.length && page.operations.every(operation => ['completed', 'failed', 'cancelled'].includes(operation.status)) ? true : undefined;
+    }, 'malformed consolidation settlement');
+    stub.setMode('normal');
+    await request(path('/config'), 'PATCH', { updates: { enable_observations: false, enable_auto_consolidation: false } });
+    const inspectSinks = async () => {
+      const counts = JSON.parse(await sql("SELECT json_build_object('audit_rows',(SELECT count(*) FROM audit_log),'llm_rows',(SELECT count(*) FROM llm_requests),'unsafe_errors',(SELECT count(*) FROM async_operations WHERE error_message LIKE '%RR_NATIVE_PRIVATE_%' OR result_metadata::text LIKE '%RR_NATIVE_PRIVATE_%'))")) as { audit_rows: number; llm_rows: number; unsafe_errors: number };
+      assert.deepEqual(counts, { audit_rows: 0, llm_rows: 0, unsafe_errors: 0 });
+      return counts;
+    };
+    await inspectSinks();
+    checkpoints.push('provider-4xx-5xx-http-validation-parent-child-error-sinks-private', 'malformed-consolidation-output-sinks-private');
 
-    // Exercise a genuinely in-flight native request, then stop every tracked
-    // old/current executor and observe actual container exit + DB session drain.
     stub.setMode('hold');
     const late = await retain(document, `${privacySentinel} late queued write must never return`);
     await eventually(async () => stub.held > 0 ? true : undefined, 'in-flight native provider request');
@@ -235,8 +251,6 @@ export async function qualifyNative() {
       assert(page.operations.length || offset >= total, 'Native operation pagination stopped early');
     }
     assert(discovered.size >= retainedIds.length, 'Historical/queued operation discovery incomplete');
-    // This bank contains only disposable test sources. Cancel all its work,
-    // snapshot child IDs first, then delete leaves before terminal parents.
     for (const operation of discovered.values()) {
       if (['pending', 'processing'].includes(operation.status)) await request(path(`/operations/${operation.operation_id}`), 'DELETE');
     }
@@ -257,15 +271,18 @@ export async function qualifyNative() {
     assert.equal((await request<NativeList<Fact>>(path(`/memories/list?document_id=${document}`))).total, 0);
     checkpoints.push('all-executor-exit-and-db-session-closure', 'same-image-resolved-maintenance-off-no-execution', 'paginated-historical-parent-leaf-payload-cleanup', 'forget-absence-after-native-worker-restart');
     assert.equal(stub.calls.unexpected, 0, 'Unscripted native provider request occurred');
+    const healthProbe = await command(['exec', `${run}-restarted-api`, 'python', '-c', 'import asyncio; from hindsight_api import MemoryEngine; m=object.__new__(MemoryEngine); m._initialized=True\nasync def poisoned_backend(): raise RuntimeError("RR_NATIVE_PRIVATE_5C36E924")\nm._get_backend=poisoned_backend\nresult=asyncio.run(m.health_check()); assert result=={"status":"unhealthy","database":"error","error":"RuntimeError"}; print("private_health_error_verified")']);
+    assert(healthProbe.includes('private_health_error_verified'));
+    const poisonedSql = await command(['exec', pg, 'psql', '-U', 'postgres', '-p', String(dbPort), '-d', 'hindsight', '-c', `SELECT '${privacySentinel}'::integer`], true);
+    assert(poisonedSql.includes(privacySentinel), 'Synthetic native database failure did not carry the test sentinel');
+    const counts = await inspectSinks();
+    await command(['stop', '--time', '10', pg]);
+    await request('/health/ready', 'GET', undefined, 503);
     for (const name of containers) {
-      if (name === pg) continue;
       const logs = await command(['logs', name], true);
       assert(!logs.includes(privacySentinel), 'Native stdout/stderr leaked private content/credentials');
     }
-    const sinkCounts = await sql("SELECT json_build_object('audit_rows',(SELECT count(*) FROM audit_log),'llm_rows',(SELECT count(*) FROM llm_requests),'unsafe_errors',(SELECT count(*) FROM async_operations WHERE error_message LIKE '%RR_NATIVE_PRIVATE_%' OR result_metadata::text LIKE '%RR_NATIVE_PRIVATE_%'))");
-    const counts = JSON.parse(sinkCounts) as { audit_rows: number; llm_rows: number; unsafe_errors: number };
-    assert.deepEqual(counts, { audit_rows: 0, llm_rows: 0, unsafe_errors: 0 });
-    checkpoints.push('stdout-stderr-collector-inputs-trace-audit-operation-sinks-private');
+    checkpoints.push('stdout-stderr-collector-inputs-trace-audit-operation-sinks-private', 'database-error-health-error-and-server-logging-profile-private');
     const evidence = { schema: 'hindsight-native-qualification/v1', startedAt, completedAt: new Date().toISOString(), nativeRevision, imageId, postgresImage, checkpoints, providerCalls: stub.calls, safeSinkCounts: counts, evidenceKind: 'same-derivative-image-real-api-worker-postgresql17-deterministic-inference', realModelQualityQualified: false, productionReleaseQualified: false };
     await writeFile(`${output}/evidence.json`, JSON.stringify(evidence, null, 2) + '\n');
     const manifest = await command(['exec', `${run}-restarted-api`, 'cat', '/app/hardening-manifest.json']);

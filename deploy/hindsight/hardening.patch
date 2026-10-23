@@ -146,6 +146,15 @@
  
              async with acquire_with_retry(backend) as conn:
                  async with conn.transaction():
+@@ -6613,7 +6612,7 @@
+             # no args, and str(e) is "" for those — the probe payload is what an
+             # operator reads first when the database looks down, so it must name
+             # the exception class even when the message is empty.
+-            return {"status": "unhealthy", "database": "error", "error": repr(e)}
++            return {"status": "unhealthy", "database": "error", "error": type(e).__name__}
+ 
+     @staticmethod
+     def _pool_health_stats(backend: Any) -> dict:
 --- a/hindsight-api-slim/hindsight_api/engine/memories/pg/links.py
 +++ b/hindsight-api-slim/hindsight_api/engine/memories/pg/links.py
 @@ -574,7 +574,7 @@

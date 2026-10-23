@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
-import { spawn, spawnSync } from 'node:child_process';
-import type { Writable } from 'node:stream';
+import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const nativeRevision = 'a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5';
+export const nativeLockSha256 = 'bbd9c8232906ea947c8fdc4096f75d2e778b921af5bdeac09f553495f81f9666';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const hashes: Record<string, string> = {
   '__init__.py': '7ca4cf7b62f270489db430764644995fb16ee93b32a1ce25f90fceb85b9bf1ed',
@@ -50,7 +50,7 @@ export function harden(path: string, before: string): string {
     case 'worker/poller.py':
       return replace(before, 'error_message = error_message[:5000] if len(error_message) > 5000 else error_message', 'error_message = "native_task_failed"', 2);
     case 'engine/memory_engine.py':
-      return replace(before, '            full_error = f"{error_message}\\n\\nTraceback:\\n{error_traceback}"\n            truncated_error = full_error[:5000] if len(full_error) > 5000 else full_error', '            truncated_error = "native_task_failed"');
+      return replace(replace(before, '            full_error = f"{error_message}\\n\\nTraceback:\\n{error_traceback}"\n            truncated_error = full_error[:5000] if len(full_error) > 5000 else full_error', '            truncated_error = "native_task_failed"'), 'return {"status": "unhealthy", "database": "error", "error": repr(e)}', 'return {"status": "unhealthy", "database": "error", "error": type(e).__name__}');
     case 'engine/memories/pg/links.py':
       return replace(before, 'traceback.print_exc()', 'logging.getLogger(__name__).error("native_link_failed", exc_info=True)', 3);
     default: throw new Error('Unexpected upstream file');
@@ -67,9 +67,11 @@ export async function prepare(source: string, context?: string) {
     files[path] = { before, after: harden(path, before) };
   }
   files['native_privacy.py'] = { before: '', after: await readFile(join(root, 'deploy/hindsight/native-privacy.py'), 'utf8') };
+  const actualLock = digest(await readFile(join(source, 'uv.lock')));
+  if (actualLock !== nativeLockSha256) throw new Error('Modified upstream dependency lock');
   const manifest = {
     profile: 'approved-source-v1', nativeRevision,
-    nativeLockSha256: digest(await readFile(join(source, 'uv.lock'))),
+    nativeLockSha256,
     files: Object.entries(files).map(([path, contents]) => ({ path, beforeSha256: contents.before ? digest(contents.before) : null, afterSha256: digest(contents.after) })),
   };
   if (context) {
@@ -83,19 +85,43 @@ export async function prepare(source: string, context?: string) {
   return { files, manifest };
 }
 
-async function exactDiff(path: string, contents: { before: string; after: string }): Promise<string> {
+function exactDiff(path: string, contents: { before: string; after: string }): string {
   const prefix = `hindsight-api-slim/hindsight_api/${path}`;
-  return await new Promise((resolve, reject) => {
-    // GNU diff reads inherited pipes, so rendering a narrow reviewed diff does
-    // not write megabytes of copied upstream source into the working checkout.
-    const child = spawn('diff', ['-u', '--label', contents.before ? `a/${prefix}` : '/dev/null', '--label', `b/${prefix}`, '/proc/self/fd/3', '/proc/self/fd/4'], { stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe'] });
-    let patch = '';
-    child.stdout!.on('data', data => { patch += data; });
-    child.on('error', () => reject(new Error('GNU diff is required to render the exact hardening diff')));
-    child.on('close', code => code === 0 || code === 1 ? resolve(patch) : reject(new Error('Cannot render native hardening diff')));
-    (child.stdio[3] as Writable).on('error', () => undefined).end(contents.before);
-    (child.stdio[4] as Writable).on('error', () => undefined).end(contents.after);
-  });
+  const a = contents.before.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+  const b = contents.after.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+  const edits: { kind: ' ' | '+' | '-'; text: string; oldLine: number; newLine: number }[] = [];
+  let i = 0; let j = 0;
+  const emit = (kind: ' ' | '+' | '-') => { edits.push({ kind, text: kind === '+' ? b[j] : a[i], oldLine: i + 1, newLine: j + 1 }); if (kind !== '+') i++; if (kind !== '-') j++; };
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) { emit(' '); continue; }
+    let found: [number, number] | undefined;
+    // Changes are bounded exact-anchor replacements. Three matching lines give
+    // stable hunk boundaries without a dependency or copied source on disk.
+    for (let distance = 1; distance <= 128 && !found; distance++) {
+      for (let skipA = 0; skipA <= distance; skipA++) {
+        const skipB = distance - skipA;
+        if (i + skipA + 2 < a.length && j + skipB + 2 < b.length && [0, 1, 2].every(offset => a[i + skipA + offset] === b[j + skipB + offset])) { found = [skipA, skipB]; break; }
+      }
+    }
+    const targetA = found ? i + found[0] : a.length;
+    const targetB = found ? j + found[1] : b.length;
+    while (i < targetA) emit('-');
+    while (j < targetB) emit('+');
+  }
+  let patch = `--- ${contents.before ? `a/${prefix}` : '/dev/null'}\n+++ b/${prefix}\n`;
+  const changed = edits.flatMap((edit, index) => edit.kind === ' ' ? [] : [index]);
+  const ranges: [number, number][] = [];
+  for (const index of changed) {
+    const start = Math.max(0, index - 3); const end = Math.min(edits.length, index + 4);
+    const prior = ranges.at(-1);
+    if (prior && start <= prior[1]) prior[1] = Math.max(prior[1], end); else ranges.push([start, end]);
+  }
+  for (const [start, end] of ranges) {
+    const hunk = edits.slice(start, end);
+    patch += `@@ -${a.length ? hunk[0].oldLine : 0},${hunk.filter(edit => edit.kind !== '+').length} +${hunk[0].newLine},${hunk.filter(edit => edit.kind !== '-').length} @@\n`;
+    patch += hunk.map(edit => edit.kind + edit.text).join('');
+  }
+  return patch;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -106,7 +132,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   if (process.argv.includes('--write-patch')) {
     let patch = '';
     for (const [path, contents] of Object.entries(result.files)) {
-      patch += await exactDiff(path, contents);
+      patch += exactDiff(path, contents);
     }
     await writeFile(join(root, 'deploy/hindsight/hardening.patch'), patch);
   }
