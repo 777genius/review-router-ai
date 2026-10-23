@@ -201,6 +201,9 @@ export function AccountGatewayControls({
   connectOnly?: boolean;
   workspaceId?: string;
 }) {
+  const optionsCache = useCurrentGatewayModelAccountsCache();
+  const [fallback] = useState(() => new QueryClient());
+  const client = queryClient ?? optionsCache?.client ?? fallback;
   const bootstrapReadScope = `${managementScope}:${bootstrap.context}:${workspaceId ?? ""}`;
   const currentBootstrap = useRef({
     page: bootstrap.page,
@@ -210,9 +213,19 @@ export function AccountGatewayControls({
     page: bootstrap.page,
     scope: bootstrapReadScope,
   };
-  const [acceptedBootstrap, setAcceptedBootstrap] = useState(
-    currentBootstrap.current,
-  );
+  const [acceptedBootstrap, setAcceptedBootstrap] = useState<{
+    page: AccountsBootstrap["page"] | null;
+    scope: string;
+  }>(() => {
+    const viewerScope = bootstrap.context.split(".")[0] ?? "";
+    const scope =
+      managementScope === "personal" ? `personal:${viewerScope}` : viewerScope;
+    return {
+      ...currentBootstrap.current,
+      // A remounted view must reauthorize any existing interactive inventory.
+      page: client.getQueryData(pageKey(scope, null)) ? null : bootstrap.page,
+    };
+  });
   const acknowledgeBootstrap = useCallback(
     (page: AccountsBootstrap["page"], scope: string) => {
       if (
@@ -223,6 +236,9 @@ export function AccountGatewayControls({
     },
     [],
   );
+  const replacingBootstrap =
+    acceptedBootstrap.page !== bootstrap.page ||
+    acceptedBootstrap.scope !== bootstrapReadScope;
   const priorBootstrap = useRef(bootstrap.page);
   const removed = new Set(
     priorBootstrap.current.status === "ok" && bootstrap.page.status === "ok"
@@ -240,9 +256,7 @@ export function AccountGatewayControls({
   useEffect(() => {
     priorBootstrap.current = bootstrap.page;
   }, [bootstrap.page]);
-  const optionsCache = useCurrentGatewayModelAccountsCache();
-  const [fallback] = useState(() => new QueryClient());
-  const client = queryClient ?? optionsCache?.client ?? fallback;
+
   if (managementScope === "personal" && api === defaultManagementApi)
     return <p role="status">Personal account management is unavailable.</p>;
   return (
@@ -275,9 +289,7 @@ export function AccountGatewayControls({
               : [],
           ),
           removed,
-          replacingBootstrap:
-            acceptedBootstrap.page !== bootstrap.page ||
-            acceptedBootstrap.scope !== bootstrapReadScope,
+          replacingBootstrap,
           allowed: new Set(
             bootstrap.page.status === "ok"
               ? bootstrap.page.value.accounts.map((row) => row.connectionId)
@@ -292,6 +304,7 @@ export function AccountGatewayControls({
           key={`${managementScope}:${bootstrap.context.split(".")[0]}`}
           bootstrap={bootstrap}
           bootstrapReadScope={bootstrapReadScope}
+          replacingBootstrap={replacingBootstrap}
           acknowledgeBootstrap={acknowledgeBootstrap}
           api={api}
           managementScope={managementScope}
@@ -309,6 +322,7 @@ export function AccountGatewayControls({
 function Controls({
   bootstrap,
   bootstrapReadScope,
+  replacingBootstrap,
   acknowledgeBootstrap,
   api,
   managementScope,
@@ -320,6 +334,7 @@ function Controls({
 }: {
   bootstrap: AccountsBootstrap;
   bootstrapReadScope: string;
+  replacingBootstrap: boolean;
   acknowledgeBootstrap(page: AccountsBootstrap["page"], scope: string): void;
   api: AccountGatewayManagementApi;
   managementScope: ManagementScope;
@@ -346,7 +361,12 @@ function Controls({
     [client, limitsScope],
   );
   const hydratedBootstrap = useRef(bootstrap.page);
-  const hydratedScope = useRef<string | null>(null);
+  // Initial SSR data is already authorized and installed by useInfiniteQuery.
+  // Only a replacement needs asynchronous eviction/publication; resetting the
+  // accepted first page on mount can discard pagination started immediately.
+  const hydratedScope = useRef<string | null>(
+    replacingBootstrap ? null : bootstrapReadScope,
+  );
   const removedByBootstrap = new Set(
     hydratedBootstrap.current.status === "ok" && bootstrap.page.status === "ok"
       ? hydratedBootstrap.current.value.accounts
@@ -1139,8 +1159,10 @@ function Controls({
         <Button
           variant="outline"
           size="sm"
-          disabled={page.isFetching}
-          onClick={() => void page.fetchNextPage()}
+          disabled={page.isFetching || replacingBootstrap}
+          onClick={() => {
+            if (!replacingBootstrap) void page.fetchNextPage();
+          }}
         >
           Load more connection details
         </Button>

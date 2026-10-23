@@ -2270,3 +2270,97 @@ test("personal-only key receipt uses authorized account metadata without offerin
   expect(receipt.textContent).toContain("Personal use.");
   expect(receipt.textContent).not.toContain("Organization access");
 });
+
+test("remount reauthorizes cached inventory before enabling pagination or exposing old limits", async () => {
+  const client = new QueryClient();
+  clients.add(client);
+  const limits: NonNullable<AccountView["limits"]> = {
+    status: "snapshot",
+    fetchedAt: "2026-10-22T10:00:00.000Z",
+    displayToken: "remount-limits",
+    refreshAvailable: false,
+    scope: "subscription",
+    windows: [
+      {
+        label: "5h",
+        durationSeconds: 18000,
+        usedPercent: 25,
+        remainingPercent: 75,
+        progressPercent: 25,
+        observedAt: "2026-10-22T10:00:00.000Z",
+        resetAt: null,
+        stale: false,
+        reason: null,
+      },
+    ],
+  };
+  const old = {
+    ...row("active"),
+    connectionId: "removed-owner-account",
+    limits,
+  };
+  const authorized = { ...old, connectionId: "authorized-account" };
+  client.setQueryData(["gateway-accounts", "workspace-user", "page", null], {
+    pages: [
+      {
+        status: "ok",
+        value: { ...page, accounts: [old], nextCursor: "old-page-2" },
+      },
+    ],
+    pageParams: [null],
+  });
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const cancel = client.cancelQueries.bind(client);
+  vi.spyOn(client, "cancelQueries").mockImplementation((filters, options) =>
+    filters?.queryKey?.[0] === "gateway-accounts"
+      ? pending
+      : cancel(filters, options),
+  );
+  render(
+    <AccountGatewayControls
+      queryClient={client}
+      bootstrap={{
+        context,
+        page: {
+          status: "ok",
+          value: {
+            ...page,
+            accounts: [authorized],
+            nextCursor: "authorized-page-2",
+          },
+        },
+      }}
+      renderAccounts={(accounts) =>
+        accounts.map((account) => (
+          <BootstrapLimitsRow key={account.connectionId} account={account} />
+        ))
+      }
+    />,
+  );
+  expect(screen.queryByRole("progressbar")).toBeNull();
+  expect(
+    screen.getByText("Limits unavailable while connection changes"),
+  ).toBeTruthy();
+  const more = screen.getByRole("button", {
+    name: "Load more connection details",
+  });
+  expect((more as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(more);
+  expect(listGatewayAccounts).not.toHaveBeenCalled();
+  await act(async () => {
+    finish();
+    await pending;
+  });
+  await screen.findByRole("progressbar");
+  await waitFor(() => expect((more as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(more);
+  await waitFor(() =>
+    expect(listGatewayAccounts).toHaveBeenCalledWith(
+      context,
+      "authorized-page-2",
+    ),
+  );
+});
