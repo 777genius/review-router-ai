@@ -320,7 +320,7 @@ export function RepositoryLiveSearch({
           const stripeClass = repositoryRowStripeClass({
             rowIndex,
             selected: id === selectedRepositoryId,
-            setupComplete: item?.setupProgressStep === 4,
+            setupComplete: item?.setupProgressStep === "ready",
           });
           return (
             <div
@@ -589,7 +589,9 @@ function RepositorySummaryRow({
             title={`Open setup/settings for ${item.fullName}`}
             aria-label={`Open setup/settings for ${item.fullName}`}
             className={[
-              repositorySetupStepPillClassName(item.setupProgressStep === 4),
+              repositorySetupStepPillClassName(
+                item.setupProgressStep === "ready",
+              ),
               "disabled:cursor-wait disabled:opacity-70",
             ].join(" ")}
           >

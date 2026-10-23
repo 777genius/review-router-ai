@@ -56,7 +56,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent
         mutationsEnabled
-        initialStep={4}
+        initialStep="ready"
         expectedProviderAuthModes={["codex_account_gateway"]}
         gatewayReviewV2Readiness={{
           status: "draining",
@@ -93,7 +93,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={1}
+        initialStep="setup_pr"
         providerSetupBeforeWorkflow
         enableReviewAction={
           <button type="button">Set up versioned provider</button>
@@ -127,7 +127,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={1}
+        initialStep="setup_pr"
         enableReviewAction={<button type="button">Connect provider</button>}
       />,
     );
@@ -152,7 +152,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={1}
+        initialStep="setup_pr"
         expectedProviderAuthModes={["codex_account_gateway"]}
       />,
     );
@@ -175,7 +175,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={1}
+        initialStep="setup_pr"
         expectedProviderAuthModes={["codex_subscription_oauth_rotating"]}
       />,
     );
@@ -209,7 +209,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent
         mutationsEnabled
-        initialStep={3}
+        initialStep="provider"
         enableReviewAction={
           <ProviderSecretSetupDialog
             workspaceId="workspace_1"
@@ -276,7 +276,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent
         mutationsEnabled
-        initialStep={3}
+        initialStep="provider"
         enableReviewAction={<StatefulEnableReviewAction />}
       />,
     );
@@ -318,7 +318,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent
         mutationsEnabled
-        initialStep={3}
+        initialStep="provider"
         enableReviewAction={<button type="button">Set up provider</button>}
         providerSetupBeforeWorkflow
       />,
@@ -346,7 +346,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent
         mutationsEnabled
-        initialStep={3}
+        initialStep="provider"
         expectedProviderAuthModes={["codex_subscription_oauth_rotating"]}
         enableReviewAction={<button type="button">Enable review</button>}
       />,
@@ -376,7 +376,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent
         mutationsEnabled
-        initialStep={3}
+        initialStep="provider"
         expectedProviderAuthModes={["openrouter_api_key", "claude_code_oauth"]}
         enableReviewAction={<button type="button">Enable review</button>}
       />,
@@ -406,7 +406,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent
         mutationsEnabled
-        initialStep={3}
+        initialStep="provider"
         expectedProviderAuthModes={["openrouter_api_key", "claude_code_oauth"]}
         enableReviewAction={<button type="button">Enable review</button>}
       />,
@@ -458,7 +458,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent
         mutationsEnabled
-        initialStep={4}
+        initialStep="ready"
         enableReviewAction={<MountedAction />}
       />,
     );
@@ -479,7 +479,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl="https://github.com/777genius/example/pull/1"
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={2}
+        initialStep="merge_setup_pr"
         enableReviewAction={<button type="button">Enable review</button>}
       />,
     );
@@ -507,7 +507,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupIssue="setup_pr_closed"
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={1}
+        initialStep="setup_pr"
         enableReviewAction={<button type="button">Enable review</button>}
       />,
     );
@@ -534,7 +534,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupIssue="workflow_delete_untrusted"
         workflowCurrent
         mutationsEnabled
-        initialStep={1}
+        initialStep="setup_pr"
         enableReviewAction={<button type="button">Enable review</button>}
       />,
     );
@@ -556,7 +556,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupIssue="workflow_delete_untrusted"
         workflowCurrent
         mutationsEnabled
-        initialStep={2}
+        initialStep="merge_setup_pr"
         enableReviewAction={<button type="button">Enable review</button>}
       />,
     );
@@ -584,7 +584,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl="https://github.com/777genius/example/pull/1"
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={2}
+        initialStep="merge_setup_pr"
         enableReviewAction={<button type="button">Enable review</button>}
       />,
     );
@@ -624,7 +624,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl="https://github.com/777genius/example/pull/1"
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={2}
+        initialStep="merge_setup_pr"
         enableReviewAction={<button type="button">Enable review</button>}
       />,
     );
@@ -666,7 +666,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl="https://github.com/777genius/example/pull/1"
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={2}
+        initialStep="merge_setup_pr"
         enableReviewAction={<button type="button">Enable review</button>}
       />,
     );
@@ -707,7 +707,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={1}
+        initialStep="setup_pr"
         enableReviewAction={<button type="button">Enable review</button>}
       />,
     );
@@ -740,7 +740,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl="https://github.com/777genius/example/pull/1"
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={2}
+        initialStep="merge_setup_pr"
         enableReviewAction={<button type="button">Enable review</button>}
       />,
     );

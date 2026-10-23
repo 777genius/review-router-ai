@@ -1,5 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import {
+  evaluateFeatureEntitlement,
+  freeBetaEntitlement,
+  PrismaEntitlementRepository,
+} from "@reviewrouter/features-entitlements";
+import { PrismaHostedPoolQuery } from "@reviewrouter/features-hosted-account-pool";
+import {
   PrismaReviewPolicyHeadReader,
   resolveEffectiveReviewConfigurations,
 } from "@reviewrouter/features-review-config";
@@ -9,32 +15,35 @@ import {
 } from "@reviewrouter/features-repo-health";
 import { projectRepositorySetupStatus } from "@reviewrouter/features-workflow-provisioning";
 import {
+  isHostedCodexPoolEnabled,
   requireReviewRouterDatabaseRecoveryWitness,
   resolveReviewRouterActionRef,
 } from "@reviewrouter/platform-config";
+import { isSetupRecoveryIssue } from "../../../../dashboard/dashboard-copy";
 import {
   asDashboardGitHubActor,
   getDashboardSignedInActor,
   getDashboardWorkspaceScope,
 } from "../../../../../src/server/dashboard-mutations";
-import {
-  buildConfiguredProviderSetupByRepositoryId,
-  buildEffectiveProviderSetupStateByRepositoryId,
-  buildProviderSetupMismatchRepositoryIds,
-  repositoryHealthStatusWithProviderSetupReadiness,
-} from "../../../../../src/server/dashboard-provider-setup-readiness";
 import { deriveDashboardProviderSetupReadiness } from "../../../../../src/server/dashboard-codex-rotating-setup-readiness";
+import {
+  loadDashboardGatewayAccounts,
+  loadDashboardPersonalAccounts,
+} from "../../../../../src/server/dashboard-gateway-accounts";
+import {
+  gatewayReviewRepositoryIds,
+  resolveDashboardRepositoryReadiness,
+} from "../../../../../src/server/dashboard-repository-readiness";
 import { listGitHubUserRepositoryAccess } from "../../../../../src/server/github-user-repository-access";
+import { loadHostedPoolDashboardView } from "../../../../../src/server/hosted-pool-dashboard";
 import { getPrisma } from "../../../../../src/server/prisma";
 import { PrismaCodexRotatingSetupReadiness } from "../../../../../src/server/prisma-codex-rotating-setup-readiness";
+import { readGatewayReviewV2RepositoryReadiness } from "../../../../../src/server/prisma-gateway-review-v2-provisioning";
 import {
   buildRepositorySearchText,
   repositoryMatchesSearchFilter,
-  repositorySearchReadiness,
-  repositorySetupProgressStep,
   tokenizeRepositorySearch,
   type RepositorySearchFilter,
-  workflowSetupAlreadyCurrent,
 } from "../../../../../src/server/repository-search";
 
 export const dynamic = "force-dynamic";
@@ -130,85 +139,50 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         where: { workspaceId: workspace.id },
         orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
         take: 1,
-        select: { status: true },
+        select: { status: true, errorMessage: true },
       },
       selected: true,
       archived: true,
       stargazersCount: true,
     },
   });
-  const [health, cachedProviderSetup, hostedBindings] = await Promise.all([
-    listWorkspaceRepositoryHealth(
-      {
-        workspaceId: workspace.id,
-        expectedActionRef: resolveReviewRouterActionRef(),
-        workflowProbeMaxRepositories: 0,
-      },
-      { repositories: new PrismaRepositoryHealthRepository(prisma) },
-    ),
-    prisma.providerSetupState.findMany({
-      where: {
-        workspaceId: workspace.id,
-        repositoryId: {
-          in: repositories.map((repository) => repository.id),
+  const repositoryIds = repositories.map((repository) => repository.id);
+  const [health, cachedProviderSetup, policies, storedEntitlement] =
+    await Promise.all([
+      listWorkspaceRepositoryHealth(
+        {
+          workspaceId: workspace.id,
+          expectedActionRef: resolveReviewRouterActionRef(),
+          workflowProbeMaxRepositories: 0,
         },
-      },
-      select: {
-        repositoryId: true,
-        providerKind: true,
-        authMode: true,
-        state: true,
-        updatedAt: true,
-      },
-    }),
-    prisma.hostedCodexRepositoryBinding.findMany({
-      where: {
-        workspaceId: workspace.id,
-        status: "active",
-        repositoryConnectionId: {
-          in: repositories.map((repository) => repository.id),
+        { repositories: new PrismaRepositoryHealthRepository(prisma) },
+      ),
+      prisma.providerSetupState.findMany({
+        where: {
+          workspaceId: workspace.id,
+          repositoryId: { in: repositoryIds },
         },
-      },
-      select: { repositoryConnectionId: true },
-    }),
-  ]);
-  const providerSetup = await deriveDashboardProviderSetupReadiness({
-    providerSetup: cachedProviderSetup,
-    repositories,
-    workspaceId: workspace.id,
-    readiness: new PrismaCodexRotatingSetupReadiness(
-      prisma,
-      requireReviewRouterDatabaseRecoveryWitness(),
-    ),
-  });
-  const repositoryHealthById = new Map(
-    health.map((item) => [item.repositoryId, item] as const),
-  );
-  const hostedSessionReadyIds = new Set(
-    hostedBindings.map((binding) => binding.repositoryConnectionId),
-  );
-  const providerSetupConfigRepositoryIds = [
-    ...new Set(
-      providerSetup
-        .filter((item) => item.repositoryId)
-        .map((item) => item.repositoryId!),
-    ),
-  ];
-  const policies =
-    providerSetupConfigRepositoryIds.length > 0
-      ? await resolveEffectiveReviewConfigurations(
-          {
-            workspaceId: workspace.id,
-            repositoryIds: providerSetupConfigRepositoryIds,
-          },
-          { policyHeads: new PrismaReviewPolicyHeadReader(prisma) },
-        )
-      : null;
-  const activeConfig =
-    policies?.workspace.status === "ready" ? policies.workspace.config : null;
-  const repositoryConfigs = providerSetupConfigRepositoryIds.map(
-    (repositoryId) => {
-      const policy = policies?.repositories.get(repositoryId);
+        select: {
+          repositoryId: true,
+          providerKind: true,
+          authMode: true,
+          state: true,
+          updatedAt: true,
+        },
+      }),
+      resolveEffectiveReviewConfigurations(
+        { workspaceId: workspace.id, repositoryIds },
+        { policyHeads: new PrismaReviewPolicyHeadReader(prisma) },
+      ),
+      new PrismaEntitlementRepository(prisma).findWorkspaceEntitlement(
+        workspace.id,
+      ),
+    ]);
+  const configs = {
+    activeConfig:
+      policies.workspace.status === "ready" ? policies.workspace.config : null,
+    repositoryConfigs: repositoryIds.map((repositoryId) => {
+      const policy = policies.repositories.get(repositoryId);
       return {
         repositoryId,
         config:
@@ -216,68 +190,75 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             ? policy
             : null,
       };
-    },
-  );
-  const configuredProviderSetupByRepositoryId =
-    buildConfiguredProviderSetupByRepositoryId({
-      providerSetup,
-      repositories,
-      repositoryConfigs,
-      activeConfig,
-    });
-  const effectiveProviderSetupStateByRepositoryId =
-    buildEffectiveProviderSetupStateByRepositoryId({
-      providerSetup,
-      repositories,
-      repositoryConfigs,
-      activeConfig,
-    });
-  const providerSetupMismatchRepositoryIds =
-    buildProviderSetupMismatchRepositoryIds({
-      providerSetup,
-      repositories,
-      repositoryConfigs,
-      activeConfig,
-    });
-
-  const tokens = tokenizeRepositorySearch(query);
-  const repositoryIds = repositories
-    .filter((repository) => {
-      const setupStatus = projectRepositorySetupStatus({
+    }),
+  };
+  const gatewayRepositoryIds = gatewayReviewRepositoryIds({
+    ...configs,
+    repositoryIds,
+  });
+  const [providerSetup, hostedPool, gatewayAccounts, gatewayReadiness] =
+    await Promise.all([
+      deriveDashboardProviderSetupReadiness({
+        providerSetup: cachedProviderSetup,
+        repositories,
+        workspaceId: workspace.id,
+        readiness: new PrismaCodexRotatingSetupReadiness(
+          prisma,
+          requireReviewRouterDatabaseRecoveryWitness(),
+        ),
+      }),
+      loadHostedPoolDashboardView({
+        workspaceId: workspace.id,
+        repositories: repositories.map((repository) => ({
+          id: repository.id,
+          fullName: repository.fullName,
+          visibility: repository.visibility,
+        })),
+        featureEnabled: isHostedCodexPoolEnabled(),
+        entitled: evaluateFeatureEntitlement({
+          entitlement: storedEntitlement ?? freeBetaEntitlement(workspace.id),
+          feature: "hosted_codex_pool",
+        }).allowed,
+        queries: new PrismaHostedPoolQuery(prisma),
+      }),
+      // Listing accounts calls the Gateway, so only Gateway policies pay for it.
+      gatewayRepositoryIds.length > 0
+        ? loadDashboardPersonalAccounts(workspace.id).then((personal) =>
+            loadDashboardGatewayAccounts(workspace.id, personal),
+          )
+        : undefined,
+      readGatewayReviewV2RepositoryReadiness({
+        prisma,
+        workspaceId: workspace.id,
+        repositoryIds: gatewayRepositoryIds,
+      }),
+    ]);
+  const repositoryReadiness = resolveDashboardRepositoryReadiness({
+    ...configs,
+    repositories: repositories.map((repository) => ({
+      ...repository,
+      setupStatus: projectRepositorySetupStatus({
         workflowProvisioningStatus: repository.provisioning[0]?.status ?? null,
         legacySetupStatus: repository.setupStatus,
-      });
-      const repositoryHealth = repositoryHealthById.get(repository.id);
-      const hostedSessionReady = hostedSessionReadyIds.has(repository.id);
-      const effectiveHealthStatus =
-        repositoryHealthStatusWithProviderSetupReadiness({
-          repositoryId: repository.id,
-          healthStatus: repositoryHealth?.status,
-          effectiveProviderSetupStateByRepositoryId,
-          providerSetupMismatchRepositoryIds,
-          hostedSessionReady,
-        });
-      const workflowCurrent = workflowSetupAlreadyCurrent(
-        effectiveHealthStatus,
-      );
-      const providerSetupConfirmedAt =
-        configuredProviderSetupByRepositoryId.get(repository.id)?.updatedAt;
-      const providerSetupConfirmed =
-        hostedSessionReady ||
-        (providerSetupConfirmedAt !== undefined &&
-          (!repositoryHealth?.latestActionHealthReceivedAt ||
-            providerSetupConfirmedAt >=
-              repositoryHealth.latestActionHealthReceivedAt));
-      const setupProgressStep = repositorySetupProgressStep({
-        setupStatus,
-        healthStatus: effectiveHealthStatus,
-        workflowCurrent,
-        providerSetupConfirmed,
-      });
-      const readiness = repositorySearchReadiness({
-        setupProgressStep,
-        healthStatus: effectiveHealthStatus,
-      });
+      }),
+      setupNeedsAttention: isSetupRecoveryIssue(
+        repository.provisioning[0]?.errorMessage ?? null,
+      ),
+    })),
+    health,
+    providerSetup,
+    hostedRepositories: hostedPool.repositories,
+    gatewayAccounts,
+    gatewayReadiness,
+    providerSecretCheckFailedRepositoryFullName: null,
+  });
+  const repositoryHealthById = new Map(
+    health.map((item) => [item.repositoryId, item] as const),
+  );
+
+  const tokens = tokenizeRepositorySearch(query);
+  const matchingRepositories = repositoryReadiness
+    .filter(({ repository, healthStatus, readiness }) => {
       if (!repositoryMatchesSearchFilter({ repository, readiness }, filter)) {
         return false;
       }
@@ -291,23 +272,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         stargazersCount: repository.stargazersCount,
         archived: repository.archived,
         selected: repository.selected,
-        setupStatus,
-        healthStatus: effectiveHealthStatus,
-        healthSummary: repositoryHealth?.summary,
+        setupStatus: repository.setupStatus,
+        healthStatus,
+        healthSummary: repositoryHealthById.get(repository.id)?.summary,
       });
       return tokens.every((token) => searchable.includes(token));
     })
-    .map((repository) => repository.id);
+    .map(({ repository }) => repository);
 
   return NextResponse.json({
-    repositoryIds,
-    repositories: repositories
-      .filter((repository) => repositoryIds.includes(repository.id))
-      .map((repository) => ({
-        id: repository.id,
-        fullName: repository.fullName,
-        provider: repository.provider,
-      })),
+    repositoryIds: matchingRepositories.map((repository) => repository.id),
+    repositories: matchingRepositories.map((repository) => ({
+      id: repository.id,
+      fullName: repository.fullName,
+      provider: repository.provider,
+    })),
     total: repositories.length,
     query,
     filter,

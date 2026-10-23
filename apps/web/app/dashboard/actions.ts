@@ -90,7 +90,7 @@ import {
   workflowChecksOutReviewRouterRuntime,
   WorkflowSourceTrust,
   type ReviewRouterWorkflowStyle,
-  isAccountGatewayConfiguration,
+  requiredWorkflowTransport,
   validateAccountGatewayActionRef,
   reviewRouterWorkflowContract,
 } from "@reviewrouter/features-workflow-provisioning";
@@ -1226,18 +1226,15 @@ async function createSetupPullRequestMutation(
       workspaceId,
       repositoryId,
     });
-    const accountGateway = isAccountGatewayConfiguration(
-      resolvedRuntime.config,
-    );
+    const transport = requiredWorkflowTransport(resolvedRuntime.config);
+    const accountGateway = transport === "gateway";
     const mcpSecrets = accountGateway
       ? await contextToolsWorkflowSecrets(
           workspaceId,
           resolvedRuntime.config.contextTools,
         )
       : undefined;
-    const openRouterDirect = isOpenRouterDirectConfiguration(
-      resolvedRuntime.config,
-    );
+    const openRouterDirect = transport === "provider_api";
     const managedReview = accountGateway || openRouterDirect;
     if (
       managedReview &&
@@ -1264,12 +1261,14 @@ async function createSetupPullRequestMutation(
       ? undefined
       : workflowReadinessProviderKind(resolvedRuntime.config);
     const codexRotatingProviderInstanceId =
-      resolveCodexRotatingProviderInstanceId({
-        config: resolvedRuntime.config,
-        githubRepositoryId: githubRepository.githubRepositoryId.toString(),
-        repositoryFullName: repository.fullName,
-        repositoryVisibility: repository.visibility,
-      });
+      transport === "rotating"
+        ? resolveCodexRotatingProviderInstanceId({
+            config: resolvedRuntime.config,
+            githubRepositoryId: githubRepository.githubRepositoryId.toString(),
+            repositoryFullName: repository.fullName,
+            repositoryVisibility: repository.visibility,
+          })
+        : undefined;
     const codexRotatingSecretInputs = codexRotatingProviderInstanceId
       ? codexRotatingWorkflowSecretInputs(resolvedRuntime.config)
       : null;
@@ -1731,18 +1730,15 @@ async function confirmSetupPullRequestMergedMutation(
     // A stored PR head binds the attempt, not the installed runtime. Both hosted
     // reconfirmation and an intentional rotating switch can start with the same
     // active binding and hosted configuration. Inspect the current artifact.
-    const accountGateway = isAccountGatewayConfiguration(
-      resolvedRuntime.config,
-    );
+    const transport = requiredWorkflowTransport(resolvedRuntime.config);
+    const accountGateway = transport === "gateway";
     const mcpSecrets = accountGateway
       ? await contextToolsWorkflowSecrets(
           workspaceId,
           resolvedRuntime.config.contextTools,
         )
       : undefined;
-    const openRouterDirect = isOpenRouterDirectConfiguration(
-      resolvedRuntime.config,
-    );
+    const openRouterDirect = transport === "provider_api";
     const managedReview = accountGateway || openRouterDirect;
     const gatewayActionRef = accountGateway
       ? validateAccountGatewayActionRef(
@@ -1751,21 +1747,14 @@ async function confirmSetupPullRequestMergedMutation(
       : openRouterDirect
         ? resolveReviewRouterCodexRotatingActionRef()
         : undefined;
+    const codexTransport =
+      transport === "rotating" || transport === "hosted_pool";
     const codexWorkflowExpected =
-      !managedReview &&
-      (hostedBinding !== null ||
-        resolvedRuntime.config.providers.some(
-          (provider) =>
-            provider.authMode === "codex_subscription_oauth_hosted_pool" ||
-            provider.authMode === "codex_subscription_oauth_rotating",
-        ));
-    const rotatingWorkflowExpected = resolvedRuntime.config.providers.some(
-      (provider) => provider.authMode === "codex_subscription_oauth_rotating",
-    );
+      !managedReview && (hostedBinding !== null || codexTransport);
     const selectedCodexWorkflowPath = managedReview
       ? reviewRouterWorkflowContract.callerPath
       : setupProvisioning?.workflowPath === isolatedQualityWorkflowPath ||
-          (!setupProvisioning?.workflowPath && rotatingWorkflowExpected)
+          (!setupProvisioning?.workflowPath && transport === "rotating")
         ? codexWorkflowPathForRepository({
             repositoryId: githubRepository.githubRepositoryId.toString(),
             repositoryFullName: repository.fullName,
@@ -1933,7 +1922,7 @@ async function confirmSetupPullRequestMergedMutation(
       ? undefined
       : workflowReadinessProviderKind(resolvedRuntime.config);
     const codexRotatingProviderInstanceId =
-      codexWorkflow && !hostedWorkflowRequired
+      codexWorkflow && !hostedWorkflowRequired && codexTransport
         ? resolveCodexRotatingProviderInstanceId({
             config: {
               ...resolvedRuntime.config,
@@ -3907,17 +3896,14 @@ function resolveCodexRotatingProviderInstanceId(input: {
   readonly githubRepositoryId: string;
   readonly repositoryFullName: string;
   readonly repositoryVisibility: string;
-}): string | undefined {
-  const rotatingProviders = input.config.providers.filter(
-    (provider) => provider.authMode === "codex_subscription_oauth_rotating",
-  );
-  if (rotatingProviders.length === 0) {
-    return undefined;
-  }
+}): string {
   assertCodexRotatingOAuthRepositoryAllowed({
     repositoryFullName: input.repositoryFullName,
     repositoryVisibility: input.repositoryVisibility,
   });
+  const rotatingProviders = input.config.providers.filter(
+    (provider) => provider.authMode === "codex_subscription_oauth_rotating",
+  );
   if (
     rotatingProviders.length !== 1 ||
     rotatingProviders[0]?.kind !== "codex"

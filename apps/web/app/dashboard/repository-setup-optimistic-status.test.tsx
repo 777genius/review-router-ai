@@ -29,13 +29,13 @@ describe("RepositorySetupDisclosureToggle", () => {
         <RepositorySetupDisclosureToggle
           repositoryId="repo_1"
           disclosureId="setup_repo_1"
-          currentStep={ready ? 4 : 3}
+          currentStep={ready ? "ready" : "provider"}
           expectedProviderAuthModes={["codex_account_gateway"]}
           gatewayReviewV2Ready={ready}
         />
         <RepositorySetupReadyGate
           repositoryId="repo_1"
-          currentStep={ready ? 4 : 3}
+          currentStep={ready ? "ready" : "provider"}
           expectedProviderAuthModes={["codex_account_gateway"]}
           gatewayReviewV2Ready={ready}
         >
@@ -63,7 +63,7 @@ describe("RepositorySetupDisclosureToggle", () => {
       <RepositorySetupDisclosureToggle
         repositoryId="repo_1"
         disclosureId="setup_repo_1"
-        currentStep={3}
+        currentStep="provider"
       />,
     );
 
@@ -84,7 +84,7 @@ describe("RepositorySetupDisclosureToggle", () => {
       <RepositorySetupDisclosureToggle
         repositoryId="repo_1"
         disclosureId="setup_repo_1"
-        currentStep={3}
+        currentStep="provider"
       />,
     );
 
@@ -98,7 +98,7 @@ describe("RepositorySetupDisclosureToggle", () => {
       <RepositorySetupDisclosureToggle
         repositoryId="repo_1"
         disclosureId="setup_repo_1"
-        currentStep={2}
+        currentStep="merge_setup_pr"
       />,
     );
 
@@ -115,7 +115,7 @@ describe("RepositorySetupDisclosureToggle", () => {
 describe("RepositorySetupReadyGate", () => {
   it("shows ready-only children when provider setup is confirmed", async () => {
     render(
-      <RepositorySetupReadyGate repositoryId="repo_1" currentStep={3}>
+      <RepositorySetupReadyGate repositoryId="repo_1" currentStep="provider">
         <button type="button">Edit settings</button>
       </RepositorySetupReadyGate>,
     );
@@ -140,7 +140,7 @@ describe("RepositorySetupReadyGate", () => {
     render(
       <RepositorySetupReadyGate
         repositoryId="repo_1"
-        currentStep={3}
+        currentStep="provider"
         expectedProviderAuthModes={["codex_subscription_oauth_rotating"]}
       >
         <button type="button">Edit settings</button>
@@ -163,7 +163,7 @@ describe("RepositorySetupReadyGate", () => {
     render(
       <RepositorySetupReadyGate
         repositoryId="repo_1"
-        currentStep={3}
+        currentStep="provider"
         expectedProviderAuthModes={["openrouter_api_key", "claude_code_oauth"]}
       >
         <button type="button">Edit settings</button>
@@ -186,7 +186,7 @@ describe("RepositorySetupReadyGate", () => {
     render(
       <RepositorySetupReadyGate
         repositoryId="repo_1"
-        currentStep={3}
+        currentStep="provider"
         expectedProviderAuthModes={["openrouter_api_key", "claude_code_oauth"]}
       >
         <button type="button">Edit settings</button>

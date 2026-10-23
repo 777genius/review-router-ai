@@ -1,6 +1,5 @@
 import {
   resolveReviewConfiguration,
-  isOpenRouterDirectConfiguration,
   type ReviewConfigurationRepositoryPort,
 } from "@reviewrouter/features-review-config";
 import {
@@ -22,9 +21,9 @@ import {
 } from "../../domain/workflow-template";
 import {
   createProvisionWorkflowPlan,
-  isAccountGatewayConfiguration,
   type ProvisionWorkflowInput,
 } from "../../domain/workflow-provisioning";
+import { requiredWorkflowTransport } from "../../domain/workflow-transport";
 import type { WorkflowProvisioningRepositoryPort } from "../ports/workflow-provisioning-repository-port";
 import type { WorkflowSetupGatewayPort } from "../ports/workflow-setup-gateway-port";
 
@@ -54,12 +53,9 @@ export async function provisionReviewRouterWorkflow(
         { configurations: dependencies.configurations },
       )
     : undefined;
-  const gatewaySelected = saved
-    ? isAccountGatewayConfiguration(saved.config)
-    : false;
-  const providerApiSelected = saved
-    ? isOpenRouterDirectConfiguration(saved.config)
-    : false;
+  const transport = saved ? requiredWorkflowTransport(saved.config) : null;
+  const gatewaySelected = transport === "gateway";
+  const providerApiSelected = transport === "provider_api";
   if (
     !gatewaySelected &&
     input.mcpSecrets &&

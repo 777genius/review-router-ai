@@ -1,51 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   repositoryMatchesSearchFilter,
-  repositorySetupProgressStep,
   repositorySearchReadiness,
 } from "./repository-search";
-
-describe("repositorySetupProgressStep", () => {
-  it("keeps setup recovery on the first step even if health is stale", () => {
-    expect(
-      repositorySetupProgressStep({
-        setupStatus: "needs_attention",
-        healthStatus: "setup_pr_open",
-        workflowCurrent: false,
-        providerSetupConfirmed: false,
-        setupNeedsAttention: true,
-      }),
-    ).toBe(1);
-  });
-
-  it("does not let generic needs-attention hide an already current workflow", () => {
-    expect(
-      repositorySetupProgressStep({
-        setupStatus: "needs_attention",
-        healthStatus: "provider_needs_setup",
-        workflowCurrent: true,
-        providerSetupConfirmed: false,
-      }),
-    ).toBe(3);
-  });
-
-  it("completes setup when the hosted workspace pool session is ready", () => {
-    expect(
-      repositorySetupProgressStep({
-        setupStatus: "configured",
-        healthStatus: "healthy",
-        workflowCurrent: true,
-        providerSetupConfirmed: true,
-      }),
-    ).toBe(4);
-  });
-});
 
 describe("repositorySearchReadiness", () => {
   it("treats completed setup without provider danger as ready", () => {
     expect(
       repositorySearchReadiness({
-        setupProgressStep: 4,
+        setupProgressStep: "ready",
         healthStatus: "provider_report_stale",
       }),
     ).toBe("ready");
@@ -54,7 +17,7 @@ describe("repositorySearchReadiness", () => {
   it("keeps provider-danger repositories out of the ready filter", () => {
     expect(
       repositorySearchReadiness({
-        setupProgressStep: 4,
+        setupProgressStep: "ready",
         healthStatus: "provider_unhealthy",
       }),
     ).toBe("needs_attention");
@@ -63,7 +26,7 @@ describe("repositorySearchReadiness", () => {
   it("keeps provider setup blockers out of the ready filter", () => {
     expect(
       repositorySearchReadiness({
-        setupProgressStep: 4,
+        setupProgressStep: "ready",
         healthStatus: "provider_needs_setup",
       }),
     ).toBe("needs_setup");

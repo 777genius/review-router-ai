@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { RepositorySetupStepId } from "@reviewrouter/features-provider-setup";
 import type { ProviderAuthMode } from "@reviewrouter/features-review-providers";
 import {
   providerSetupConfirmedEventName,
@@ -9,7 +10,15 @@ import {
   type SetupPullRequestMergedEventDetail,
 } from "./repository-setup-optimistic-events";
 
-export type SetupStep = 1 | 2 | 3 | 4;
+export type SetupStep = RepositorySetupStepId;
+
+/** Position of each setup step in the stepper. */
+export const setupStepNumber: Readonly<Record<SetupStep, 1 | 2 | 3 | 4>> = {
+  setup_pr: 1,
+  merge_setup_pr: 2,
+  provider: 3,
+  ready: 4,
+};
 
 export function repositorySetupStepPillClassName(isComplete: boolean): string {
   return [
@@ -25,7 +34,7 @@ export function RepositorySetupStepPillBody({
 }: {
   readonly step: SetupStep;
 }): React.ReactElement {
-  const isComplete = step === 4;
+  const isComplete = step === "ready";
 
   return (
     <>
@@ -36,7 +45,7 @@ export function RepositorySetupStepPillBody({
           isComplete ? "text-emerald-200/80" : "text-slate-400",
         ].join(" ")}
       >
-        {step}/4
+        {setupStepNumber[step]}/4
       </span>
       {isComplete ? <SetupCompleteCheckIcon /> : <SetupDisclosureChevron />}
     </>
@@ -63,7 +72,7 @@ export function RepositorySetupDisclosureToggle({
     gatewayReviewV2Ready,
   });
 
-  const isComplete = optimisticStep === 4;
+  const isComplete = optimisticStep === "ready";
   return (
     <label
       htmlFor={disclosureId}
@@ -95,7 +104,7 @@ export function RepositorySetupReadyGate({
     gatewayReviewV2Ready,
   });
 
-  return optimisticStep === 4 ? <>{children}</> : null;
+  return optimisticStep === "ready" ? <>{children}</> : null;
 }
 
 function useOptimisticSetupStep({
@@ -122,7 +131,11 @@ function useOptimisticSetupStep({
       const detail = (event as CustomEvent<SetupPullRequestMergedEventDetail>)
         .detail;
       if (detail?.repositoryId === repositoryId) {
-        setOptimisticStep((current) => (current < 3 ? 3 : current));
+        setOptimisticStep((current) =>
+          setupStepNumber[current] < setupStepNumber.provider
+            ? "provider"
+            : current,
+        );
       }
     }
 
@@ -149,7 +162,7 @@ function useOptimisticSetupStep({
             !expectedProviderAuthModes.includes("codex_account_gateway") ||
             gatewayReviewV2Ready
           )
-            setOptimisticStep(4);
+            setOptimisticStep("ready");
         }
       }
     }
@@ -174,10 +187,10 @@ function useOptimisticSetupStep({
     };
   }, [expectedProviderAuthModes, repositoryId, gatewayReviewV2Ready]);
 
-  return optimisticStep === 4 &&
+  return optimisticStep === "ready" &&
     expectedProviderAuthModes.includes("codex_account_gateway") &&
     !gatewayReviewV2Ready
-    ? 3
+    ? "provider"
     : optimisticStep;
 }
 
@@ -286,13 +299,13 @@ function SetupCompleteCheckIcon(): React.ReactElement {
 
 function repositorySetupProgressSummary(step: SetupStep): string {
   switch (step) {
-    case 1:
+    case "setup_pr":
       return "1 of 4 - setup PR needed";
-    case 2:
+    case "merge_setup_pr":
       return "2 of 4 - merge setup PR";
-    case 3:
+    case "provider":
       return "3 of 4 - enable review";
-    case 4:
+    case "ready":
       return "4 of 4 - complete";
   }
 }
