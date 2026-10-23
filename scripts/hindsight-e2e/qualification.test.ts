@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { embedding, dimensions, privacySentinel, startProviderStub } from './provider-stub.ts';
+import { prepare } from './prepare-hardening.ts';
 
 test('deterministic lexical vectors are finite, normalized and multilingual', () => {
   const vector = embedding('Reviewed transactional правило');
@@ -32,12 +33,13 @@ test('provider stub fails unscripted calls and supplies intentional private erro
 test('privacy sink removes fstrings, exception bodies, tracebacks, extras and uncaught errors', () => {
   const privacy = resolve(dirname(fileURLToPath(import.meta.url)), '../../deploy/hindsight/native-privacy.py');
   const result = spawnSync('python', ['-c', `
-import importlib.util,logging,sys,types
+import importlib.util,logging,sys,types,warnings
 spec=importlib.util.spec_from_file_location('native_privacy',sys.argv[1])
 privacy=importlib.util.module_from_spec(spec); spec.loader.exec_module(privacy)
 privacy.install(); privacy.install()
 secret='RR_NATIVE_PRIVATE_5C36E924'
 logging.basicConfig(level=logging.DEBUG)
+warnings.warn(secret)
 try:
  raise RuntimeError(secret)
 except RuntimeError as error:
@@ -59,4 +61,18 @@ except RuntimeError as error:
   assert(output.includes('RuntimeError'));
   assert(output.includes('native_event='));
   assert(output.includes('safe_sink_verified'));
+});
+
+test('pinned native readiness error exposes its class without the poisoned DB message', { skip: !process.env.HINDSIGHT_SOURCE_CHECKOUT }, async () => {
+  const { files } = await prepare(process.env.HINDSIGHT_SOURCE_CHECKOUT!);
+  const source = files['engine/memory_engine.py']!.after;
+  const start = source.indexOf('    async def health_check(self)');
+  const end = source.indexOf('    @staticmethod', start);
+  assert(start >= 0 && end > start);
+  const healthMethod = source.slice(start, end).split('\n').map(line => line.startsWith('    ') ? line.slice(4) : line).join('\n');
+  const code = `import asyncio,time\n${healthMethod}\nclass Probe:\n _initialized=True\n async def _get_backend(self): raise RuntimeError('RR_NATIVE_PRIVATE_5C36E924')\n health_check=health_check\nresult=asyncio.run(Probe().health_check())\nassert result=={'status':'unhealthy','database':'error','error':'RuntimeError'}\nprint('private_health_verified')\n`;
+  const result = spawnSync('python', ['-c', code], { encoding: 'utf8', timeout: 10_000 });
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout.trim(), 'private_health_verified');
+  assert(!(result.stdout + result.stderr).includes(privacySentinel));
 });

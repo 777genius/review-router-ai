@@ -36,6 +36,7 @@ def install() -> None:
         return record
 
     logging.Logger.makeRecord = make_record
+    logging.captureWarnings(True)
 
     def uncaught(error_type, error, traceback):
         # Do not call the original hook: exception messages and source lines can

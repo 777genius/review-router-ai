@@ -91,7 +91,7 @@ function exactDiff(path: string, contents: { before: string; after: string }): s
   const b = contents.after.match(/[^\n]*\n|[^\n]+$/g) ?? [];
   const edits: { kind: ' ' | '+' | '-'; text: string; oldLine: number; newLine: number }[] = [];
   let i = 0; let j = 0;
-  const emit = (kind: ' ' | '+' | '-') => { edits.push({ kind, text: kind === '+' ? b[j] : a[i], oldLine: i + 1, newLine: j + 1 }); if (kind !== '+') i++; if (kind !== '-') j++; };
+  const emit = (kind: ' ' | '+' | '-') => { edits.push({ kind, text: (kind === '+' ? b[j] : a[i])!, oldLine: i + 1, newLine: j + 1 }); if (kind !== '+') i++; if (kind !== '-') j++; };
   while (i < a.length || j < b.length) {
     if (i < a.length && j < b.length && a[i] === b[j]) { emit(' '); continue; }
     let found: [number, number] | undefined;
@@ -118,7 +118,8 @@ function exactDiff(path: string, contents: { before: string; after: string }): s
   }
   for (const [start, end] of ranges) {
     const hunk = edits.slice(start, end);
-    patch += `@@ -${a.length ? hunk[0].oldLine : 0},${hunk.filter(edit => edit.kind !== '+').length} +${hunk[0].newLine},${hunk.filter(edit => edit.kind !== '-').length} @@\n`;
+    const first = hunk[0]!;
+    patch += `@@ -${a.length ? first.oldLine : 0},${hunk.filter(edit => edit.kind !== '+').length} +${first.newLine},${hunk.filter(edit => edit.kind !== '-').length} @@\n`;
     patch += hunk.map(edit => edit.kind + edit.text).join('');
   }
   return patch;

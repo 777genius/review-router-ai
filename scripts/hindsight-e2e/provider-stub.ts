@@ -9,7 +9,10 @@ export const privacySentinel = 'RR_NATIVE_PRIVATE_5C36E924';
 const words = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
 export function embedding(text: string): number[] {
   const vector = Array<number>(dimensions).fill(0);
-  for (const word of words(text)) vector[createHash('sha256').update(word).digest().readUInt32BE(0) % dimensions] += 1;
+  for (const word of words(text)) {
+    const index = createHash('sha256').update(word).digest().readUInt32BE(0) % dimensions;
+    vector[index] = (vector[index] ?? 0) + 1;
+  }
   const length = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0)) || 1;
   return vector.map(value => value / length);
 }

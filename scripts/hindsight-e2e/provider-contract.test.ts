@@ -55,15 +55,16 @@ function fixture() {
 }
 
 test('actual SDK carries stable caller UUID, original event time, named chunks, scope and reserved kind', async () => {
-  const f = fixture(); f.delivery.originalStatementAt = '2025-09-01T01:02:03Z';
-  await f.provider.submit(f.delivery, controls()); await f.provider.submit(f.delivery, controls());
+  const f = fixture(); const delivery = { ...f.delivery, originalStatementAt: '2025-09-01T01:02:03Z' };
+  await f.provider.submit(delivery, controls()); await f.provider.submit(delivery, controls());
   const submits = f.calls.filter(call => call.method === 'POST' && call.url.pathname.endsWith('/memories'));
-  assert.equal(submits.length, 2); assert.deepEqual(submits[0].body, submits[1].body);
-  const payload = submits[0].body as { operation_id: string; items: { timestamp: string; strategy: string; update_mode: string; tags: string[]; observation_scopes: string[][]; metadata: Record<string, string> }[] };
-  assert.equal(payload.operation_id, f.delivery.command.commandId); assert.equal(Date.parse(payload.items[0].timestamp), Date.parse(f.delivery.originalStatementAt));
-  assert.equal(payload.items[0].strategy, 'router-approved-v1'); assert.equal(payload.items[0].update_mode, 'replace');
-  assert.deepEqual(payload.items[0].observation_scopes, [['kind:rule']]); assert(payload.items[0].tags.includes('kind:rule'));
-  assert.equal(payload.items[0].metadata.rr_scope, memoryKnowledgeDigest(memoryKnowledgeScopeKey(scope)));
+  assert.equal(submits.length, 2); assert.deepEqual(submits[0]!.body, submits[1]!.body);
+  const payload = submits[0]!.body as { operation_id: string; items: { timestamp: string; strategy: string; update_mode: string; tags: string[]; observation_scopes: string[][]; metadata: Record<string, string> }[] };
+  const item = payload.items[0]; assert(item);
+  assert.equal(payload.operation_id, delivery.command.commandId); assert.equal(Date.parse(item.timestamp), Date.parse(delivery.originalStatementAt));
+  assert.equal(item.strategy, 'router-approved-v1'); assert.equal(item.update_mode, 'replace');
+  assert.deepEqual(item.observation_scopes, [['kind:rule']]); assert(item.tags.includes('kind:rule'));
+  assert.equal(item.metadata.rr_scope, memoryKnowledgeDigest(memoryKnowledgeScopeKey(scope)));
 });
 test('same-body source time is canonical and a completed parent requires completed children and exact current readback', async () => {
   const f = fixture();

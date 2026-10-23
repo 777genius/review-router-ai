@@ -1,51 +1,17 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:net';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startProviderStub, privacySentinel } from './provider-stub.ts';
 import { nativeRevision } from './prepare-hardening.ts';
+import { dockerCommand as command, eventually, freePort, pause } from './native-runtime.ts';
+import { qualifyProductionAdapter } from './production-adapter-story.ts';
 
 type Operation = { operation_id: string; status: string; task_payload?: unknown; error_message?: string | null; child_operations?: Operation[]; result_metadata?: unknown };
 type Fact = { id: string; text: string; document_id?: string; mentioned_at?: string; occurred_start?: string; state?: string; tags?: string[] };
 type NativeList<T> = { items: T[]; total: number };
 type Document = { original_text: string; tags: string[] };
-const pause = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
-
-async function command(args: string[], allowFailure = false): Promise<string> {
-  return await new Promise((resolve, reject) => {
-    const process = spawn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    process.stdout.on('data', data => { stdout += data; });
-    process.stderr.on('data', data => { stderr += data; });
-    process.on('error', () => reject(new Error('Docker runtime is unavailable')));
-    process.on('close', code => code === 0 || allowFailure ? resolve(stdout + (allowFailure ? stderr : '')) : reject(new Error(`Docker ${args[0]} failed (${code}); diagnostic payload suppressed`)));
-  });
-}
-
-async function freePort() {
-  const server = createServer();
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
-  assert(address && typeof address !== 'string');
-  const port = address.port;
-  await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
-  return port;
-}
-
-async function eventually<T>(action: () => Promise<T | undefined>, label: string, timeout = 60_000): Promise<T> {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    const result = await action();
-    if (result !== undefined) return result;
-    await pause(200);
-  }
-  throw new Error(`Native qualification timed out: ${label}`);
-}
-
 export async function qualifyNative() {
   const image = process.env.HINDSIGHT_QUALIFICATION_IMAGE;
   const postgresImage = process.env.HINDSIGHT_QUALIFICATION_POSTGRES_IMAGE;
@@ -100,7 +66,7 @@ export async function qualifyNative() {
   const sql = async (statement: string, database = 'hindsight') => (await command(['exec', pg, 'psql', '-U', 'postgres', '-p', String(dbPort), '-d', database, '-At', '-v', 'ON_ERROR_STOP=1', '-c', statement])).trim();
   const base = `http://127.0.0.1:${apiPort}`;
   async function request<T>(path: string, method = 'GET', body?: unknown, expected = 200): Promise<T> {
-    const response = await fetch(`${base}${path}`, { method, headers: { Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
+    const response = await fetch(`${base}${path}`, { method, headers: { Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(10_000) });
     const text = await response.text();
     if (response.status >= 400) { errors.push(text); assert(!text.includes(privacySentinel), 'Native HTTP error leaked a synthetic private sentinel'); }
     assert.equal(response.status, expected, `${method} ${path} returned unexpected HTTP status; body suppressed`);
@@ -131,7 +97,7 @@ export async function qualifyNative() {
     if (selectedBank === bank) retainedIds.push(id);
     return id;
   }
-  async function stopNative(names: string[]) {
+  async function stopNative(names: readonly string[]) {
     for (const name of names) {
       await command(['stop', '--time', '10', name]);
       const state = JSON.parse(await command(['inspect', '--format', '{{json .State}}', name])) as { Running: boolean; Pid: number; Status: string };
@@ -152,18 +118,20 @@ export async function qualifyNative() {
     await nativeContainer(`${run}-migrate`, ['hindsight-admin', 'run-db-migration'], cleanupEnv);
     const migrateStatus = (await command(['wait', `${run}-migrate`])).trim();
     assert.equal(migrateStatus, '0', 'Bounded native migration job failed');
-    const normal = [`${run}-api`, `${run}-worker`, `${run}-old-worker`];
+    const normal = [`${run}-api`, `${run}-worker`, `${run}-old-worker`] as const;
     await nativeContainer(normal[0], ['hindsight-api'], { HINDSIGHT_API_HOST: '127.0.0.1', HINDSIGHT_API_PORT: String(apiPort) });
     await ready(apiPort);
     await nativeContainer(normal[1], ['hindsight-worker', '--http-host', '127.0.0.1', '--http-port', String(workerPort)]);
     await ready(workerPort);
     await nativeContainer(normal[2], ['hindsight-worker', '--http-host', '127.0.0.1', '--http-port', String(oldWorkerPort)]);
     await ready(oldWorkerPort);
+    const adapter = await qualifyProductionAdapter(base, serviceKey, run);
+    checkpoints.push(...adapter.checkpoints);
     for (const selectedBank of [bank, otherBank]) {
       await request(`/v1/default/banks/${selectedBank}`, 'PUT', { name: 'Synthetic qualification bank' });
       await request(path('/config', selectedBank), 'PATCH', { updates: { retain_strategies: { 'router-approved-v1': { retain_extraction_mode: 'chunks' } }, retain_default_strategy: 'router-approved-v1', enable_observations: false, enable_auto_consolidation: false, default_observation_scopes: [['kind:rule']] } });
       const config = await request<{ config: { retain_strategies: Record<string, { retain_extraction_mode: string }> } }>(path('/config', selectedBank));
-      assert.equal(config.config.retain_strategies['router-approved-v1'].retain_extraction_mode, 'chunks');
+      assert.equal(config.config.retain_strategies['router-approved-v1']!.retain_extraction_mode, 'chunks');
     }
     const document = `${run}-entry`;
     const text = `Use transactional writes for ревью.\n${privacySentinel} approved distilled statement.`;

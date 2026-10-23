@@ -1,0 +1,147 @@
+# Private Hindsight qualification and operation
+
+This directory prepares the native memory backend; it does not enable memory or
+deploy infrastructure. Hindsight owns approved source text and native memory
+processing. Router owns authority, application revisions, ordered commands,
+eligibility/deletion fences and temporary approved delivery envelopes.
+
+## Reproducible qualification
+
+Requirements: Linux, Node 24, Git, Docker, and network access to the public pinned
+native source and OCI releases. No inference credentials or downloaded ML models
+are used by the qualification harness. The inference fixture implements only
+declared deterministic embeddings, reranking and consolidation protocol cases;
+an unscripted LLM call fails the run.
+
+Run `.github/workflows/hindsight-memory-qualification.yml` on the reviewed branch.
+It clones the exact upstream source, resolves immutable API-only/PG17 image
+inputs, verifies the bounded patch, builds the derivative and tests real HTTP
+API, two separate native workers and isolated PostgreSQL17/pgvector. It uses a
+dedicated non-superuser DB role after explicit extension/bootstrap work. Native
+database ownership includes required runtime index DDL; it is not DML-only.
+
+For an already prepared local runtime:
+
+```bash
+node scripts/hindsight-e2e/prepare-hardening.ts /path/to/pinned-hindsight /tmp/hindsight-build
+docker build --build-arg HINDSIGHT_BASE_IMAGE=ghcr.io/vectorize-io/hindsight-api@sha256:REVIEWED_DIGEST -f deploy/hindsight/Dockerfile -t reviewrouter-hindsight:qualified /tmp/hindsight-build
+HINDSIGHT_QUALIFICATION_IMAGE=reviewrouter-hindsight:qualified HINDSIGHT_QUALIFICATION_POSTGRES_IMAGE=pgvector/pgvector@sha256:REVIEWED_DIGEST node scripts/hindsight-e2e/qualify-native.ts
+```
+
+The gate covers named `chunks` strategy/readback, scoped native storage, UUID
+retry identity, same-body event-time preservation, online replace/retire, topic
+movement, provider 4xx/5xx echo failures, malformed consolidation, HTTP validation,
+native readiness failures and diagnostic sinks. It then stops every API/old/new
+executor, verifies process exit and DB-session closure, proves maintenance-off
+cleanup does not execute a queued sentinel, discovers historical parents/leaves
+with pagination, removes terminal payloads and verifies absence after restart.
+These are native protocol/storage/failure guarantees with deterministic inference;
+they establish no actual selected-model semantic quality benchmark.
+
+## Normal private service profile
+
+API command: `hindsight-api`; standalone executor command:
+`hindsight-worker --http-host 0.0.0.0 --http-port 8889`. Both use the same reviewed
+immutable derivative image. Copy `profile.env.example` to the deployment secret
+configuration and supply dedicated native database/service/inference credentials.
+Set a stable unique executor ID and a traceable process/generation-specific
+PostgreSQL `application_name`. Run bounded `hindsight-admin run-db-migration` as a
+release/admin job; disable startup migrations on long-running services.
+
+Use a separate private PostgreSQL17 database, pgvector and native text search.
+Bootstrap extensions with admin authority, then run native migrations/services
+under isolated bounded ownership without superuser or access to Router's DB.
+Set and verify the DB logging profile in PATCH-RECORD.md. Keep API and worker
+ingress private; no direct customer/admin mutations outside Router ordering.
+MCP, uploads, bodyful audit, LLM traces and request/error body dumps stay disabled.
+Store only approved distilled statements as document text. Retention of native
+operations must exceed the application's bounded unresolved-command horizon.
+The exact horizon is a release configuration gate shared with Router metadata;
+operation absence cannot establish non-execution after retention.
+
+Probe `/health/live` for process liveness and `/health/ready` for DB readiness;
+monitor queue lag, poll age and native metrics privately. Render private service
+provider checks are TCP-only, so internal HTTP/poll monitoring remains necessary.
+Native memory health is feature-local and does not fail ordinary Router reviews.
+Inference provider/model/dimensions, data egress and multilingual quality require
+their own recorded release choice; self-hosted storage does not imply local inference.
+
+## Initial physical forget: complete operator pause
+
+1. Router records the current entry's irreversible forget fence and command,
+   increments/binds a global pause epoch and pauses every submission/retry path.
+   Ordinary reviews continue with no memory. Do not return cleanup complete yet.
+2. Inventory **all** native executors, including API internal workers and every
+   old/rolling replica. Stop them and observe actual process/container exit.
+   Verify matching DB sessions have closed/rolled back. A sent signal, cancelled
+   native operation, failed health probe or provider suspend acknowledgment is
+   insufficient. An incomplete inventory leaves cleanup pending.
+3. Start a private cleanup-only API from the same qualified image with API worker
+   and migrations disabled, plus all four maintenance cadences set to `0` as in
+   `profile.env.example`. Confirm resolved configuration and that a queued sentinel
+   cannot execute. Fence ordinary mutation ingress throughout the window.
+4. Snapshot tracked and historical retain parent/child identities, including work
+   requeued by shutdown. Enumerate public operations with complete pagination.
+   Cancel queued/requeued leaves and terminalize parents; do not delete a child
+   while its parent remains active. Delete the document, then associated terminal
+   operation payload rows. Verify document, facts/evidence and payload absence.
+5. Clear Router's approved delivery envelope under the same forget fence. Restart
+   native processing with fences retained and verify absence again after remaining
+   work settles. Only a verified receipt bound to the current scope, generation,
+   entry, command, image and pause epoch may complete application cleanup.
+
+The first operator execution tooling supports a complete Docker host inventory.
+Render cleanup remains pending until its host/executor exit and DB-session proof
+can satisfy the same barrier. Do not turn a Render pause acknowledgment into a
+Docker process-exit receipt. Normal successful replacements and retirement stay
+online; this broad pause applies to physical forget closure only.
+
+### Signed Docker operator receipt
+
+`scripts/hindsight-e2e/cleanup-operator.ts` takes a reviewed JSON plan and an output
+receipt path. The plan names `profile: docker-complete-inventory-v1`, the stored
+forget binding, `nativeBankId`, an authoritative
+`io.reviewrouter.hindsight.deployment=...` label, every executor container ID,
+the API container ID, the subset of current containers to restart, tracked native
+operation UUIDs, Docker PostgreSQL container/port/database/admin user, and an
+authenticated `routerPauseCheckUrl`. API/worker containers carry role labels
+`io.reviewrouter.hindsight.role=api|worker`. The initial host profile requires
+the native DB URL to point at the observed loopback PostgreSQL17 process.
+
+Supply `HINDSIGHT_OPERATOR_NATIVE_SERVICE_KEY` and a **different**
+`REVIEW_ROUTER_MEMORY_OPERATOR_TOKEN`. Supply an independently managed Ed25519
+private key file (mode 0600), public key file and registered key ID via
+`HINDSIGHT_CLEANUP_SIGNING_PRIVATE_KEY_FILE`,
+`HINDSIGHT_CLEANUP_SIGNING_PUBLIC_KEY_FILE` and
+`HINDSIGHT_CLEANUP_SIGNING_KEY_ID`. The signing key is never the native service key.
+The pause endpoint returns the current server-derived `binding` and
+`submissionsPaused: true`; a plan-supplied pause boolean is insufficient.
+
+The CLI observes exit/session/configuration/queued-sentinel/native absence and
+restart readiness itself. It signs only after every check succeeds; any failure
+keeps cleanup pending and leaves Router submissions paused. Receipt verification
+uses the current stored command's namespace, generation, scope digest, raw-UTF8
+SHA256 of the mapped native bank ID, entry ID, forget-command UUID, exact native
+image ID and pause epoch. The server must atomically recheck the current global
+pause/fence before accepting completion. Receipts expire after 15 minutes and
+cannot cross entries, scopes, generations, images, commands or pause epochs.
+
+The complete host inventory is a deployment prerequisite. A signature cannot
+discover unknown external executors; an unowned host/replica or incomplete label
+inventory makes this profile unsupported. Mixed-source retain batches, more
+than 1,024 relevant operation identities, missing history/evidence or failed
+restart readiness leave cleanup pending. The CLI scans current and archived
+source facts, observations and public observation-history support. It provides
+no semantic erasure repair and does not claim model-generated old prose has been
+removed when native evidence cannot establish that postcondition.
+
+## Recovery and upgrade
+
+Back up native storage and Router metadata with a generation/recovery manifest.
+Restore privately with memory disabled; reconcile current deletion/revision/command
+fences before serving. If both databases restore to snapshots before a completed
+forget, those snapshots cannot prove that deletion: recover independent newer
+metadata/WAL evidence or keep affected memory fenced. Reapproval alone does not
+authorize resurrecting forgotten text. A backup file without an RPO and retained
+post-backup deletion evidence is not a supported restore receipt. Rehearse native
+migrations on a disposable restored database; no schema rollback is assumed.

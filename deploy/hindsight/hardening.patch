@@ -186,7 +186,7 @@
  
 --- /dev/null
 +++ b/hindsight-api-slim/hindsight_api/native_privacy.py
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,86 @@
 +"""Bounded diagnostic-sink hardening for the pinned Hindsight deployment.
 +
 +No exception is wrapped or mutated: native retry classification sees the original.
@@ -225,6 +225,7 @@
 +        return record
 +
 +    logging.Logger.makeRecord = make_record
++    logging.captureWarnings(True)
 +
 +    def uncaught(error_type, error, traceback):
 +        # Do not call the original hook: exception messages and source lines can
