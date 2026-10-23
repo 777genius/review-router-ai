@@ -325,7 +325,8 @@ export function applicationEnvironment(input: {
       ? { REVIEW_ROUTER_ENABLE_CODEX_ROTATING_OAUTH: "1" }
       : {}),
     REVIEW_ROUTER_PERSONAL_ACCOUNT_SHARING_ENABLED: "1",
-    ...(process.argv.includes("--lifecycle-fixture")
+    ...(process.argv.includes("--lifecycle-fixture") ||
+    process.argv.includes("--subscription-fixture")
       ? { REVIEW_ROUTER_ACCOUNT_LIFECYCLE_ENABLED: "1" }
       : {}),
     REVIEW_ROUTER_ACCOUNT_GATEWAY_ACCOUNTS_CONTEXT_SECRET:

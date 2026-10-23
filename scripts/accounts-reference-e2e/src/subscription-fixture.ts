@@ -57,14 +57,22 @@ type Operation = {
 type Reply = { status: number; body: unknown };
 export function createSubscriptionFixture(accounts: WireAccount[]) {
   const operations = new Map<string, Operation>();
+  const credentialGenerations = new Map<string, number>();
   const pending = new Map<
     string,
-    { ownerRef: string; profile: Profile; displayName: string }
+    {
+      ownerRef: string;
+      profile: Profile;
+      displayName: string;
+      accountRef?: string;
+    }
   >();
   const stats = {
     connects: 0,
     begins: 0,
     completes: 0,
+    reconnects: 0,
+    deletes: 0,
     quotaReads: 0,
     inference: 0,
     refresh: 0,
@@ -79,8 +87,20 @@ export function createSubscriptionFixture(accounts: WireAccount[]) {
     ownerRef: string,
     profile: Profile,
     displayName: string,
+    existingRef?: string,
   ): Operation {
-    const accountRef = `subscription-${createHash("sha256").update(operationId).digest("hex").slice(0, 24)}`;
+    const accountRef =
+      existingRef ??
+      `subscription-${createHash("sha256").update(operationId).digest("hex").slice(0, 24)}`;
+    const existing = accounts.find(
+      (account) => account.accountRef === existingRef,
+    );
+    if (existing)
+      accounts.splice(accounts.indexOf(existing), 1, {
+        ...existing,
+        metadataRevision: existing.metadataRevision + 1,
+        authorizationEpoch: existing.authorizationEpoch + 1,
+      });
     if (!accounts.some((account) => account.accountRef === accountRef))
       accounts.push({
         accountRef,
@@ -91,14 +111,21 @@ export function createSubscriptionFixture(accounts: WireAccount[]) {
         metadataRevision: 1,
         authorizationEpoch: 1,
       });
+    const current = accounts.find(
+      (account) => account.accountRef === accountRef,
+    )!;
+    credentialGenerations.set(
+      accountRef,
+      (credentialGenerations.get(accountRef) ?? 0) + 1,
+    );
     const operation: Operation = {
       operationRef: operationId,
       state: "applied",
       result: {
         kind: "account",
         accountRef,
-        metadataRevision: 1,
-        authorizationEpoch: 1,
+        metadataRevision: current.metadataRevision,
+        authorizationEpoch: current.authorizationEpoch,
       },
     };
     operations.set(operationId, operation);
@@ -226,21 +253,100 @@ export function createSubscriptionFixture(accounts: WireAccount[]) {
           },
         };
       }
+      const retired = path.match(
+        /^\/v1\/accounts\/([^/]+)\/retirement\/([^/]+)$/,
+      );
+      if (
+        method === "GET" &&
+        retired &&
+        operations.get(retired[2]!)?.state === "applied"
+      ) {
+        const account = accounts.find(
+          (account) => account.accountRef === retired[1],
+        );
+        if (!account || account.state !== "disabled") return denied();
+        return {
+          status: 200,
+          body: {
+            operationRef: retired[2],
+            account,
+            state: "completed",
+            inert: true,
+            fence: {
+              metadataRevision: account.metadataRevision,
+              authorizationEpoch: account.authorizationEpoch,
+            },
+            counts: {
+              retainedGenerations:
+                credentialGenerations.get(account.accountRef) ?? 1,
+              settledNativeErasureGenerations:
+                credentialGenerations.get(account.accountRef) ?? 1,
+              retainedExecutions: 0,
+              openExecutions: 0,
+              requests: 0,
+              occupiedTransports: 0,
+              acknowledgedNativeTransports: 0,
+              positiveKernelNonEntryRequests: 0,
+              unknownEffects: 0,
+            },
+          },
+        };
+      }
+      const disable = path.match(/^\/v1\/accounts\/([^/]+)\/disable$/);
+      if (method === "POST" && disable) {
+        const input = await read();
+        const operationId = String(input.operationId);
+        if (operations.has(operationId))
+          return { status: 200, body: operations.get(operationId) };
+        const account = accounts.find(
+          (account) => account.accountRef === disable[1],
+        );
+        if (
+          !account ||
+          account.metadataRevision !== input.expectedMetadataRevision
+        )
+          return denied();
+        const updated: WireAccount = {
+          ...account,
+          state: "disabled",
+          metadataRevision: account.metadataRevision + 1,
+          authorizationEpoch: account.authorizationEpoch + 1,
+        };
+        accounts.splice(accounts.indexOf(account), 1, updated);
+        const operation: Operation = {
+          operationRef: operationId,
+          state: "applied",
+          result: {
+            kind: "account",
+            accountRef: updated.accountRef,
+            metadataRevision: updated.metadataRevision,
+            authorizationEpoch: updated.authorizationEpoch,
+          },
+        };
+        operations.set(operationId, operation);
+        stats.deletes++;
+        stats.operationIds.push(operationId);
+        return { status: 200, body: operation };
+      }
+      const reconnect = path.match(/^\/v1\/accounts\/([^/]+)\/reconnect$/);
       const match = path.match(/^\/v1\/operations\/([^/]+)$/);
       if (method === "GET" && match && operations.has(match[1]!))
         return { status: 200, body: operations.get(match[1]!) };
       if (
         method !== "POST" ||
-        ![
-          "/v1/accounts",
-          "/v1/accounts/oauth/begin",
-          "/v1/accounts/oauth/complete",
-        ].includes(path)
+        (!reconnect &&
+          ![
+            "/v1/accounts",
+            "/v1/accounts/oauth/begin",
+            "/v1/accounts/oauth/complete",
+          ].includes(path))
       )
         return null;
       const input = await read();
       const operationId = String(input.operationId);
       if (path.endsWith("/complete")) {
+        if (operations.get(operationId)?.state === "applied")
+          return { status: 200, body: operations.get(operationId) };
         const original = pending.get(operationId);
         if (
           !original ||
@@ -256,22 +362,40 @@ export function createSubscriptionFixture(accounts: WireAccount[]) {
             original.ownerRef,
             original.profile,
             original.displayName,
+            original.accountRef,
           ),
         };
       }
+      const reconnectAccount = reconnect
+        ? accounts.find((account) => account.accountRef === reconnect[1])
+        : undefined;
       const profile = subscriptionProfiles.find(
-        (profile) => profile.profileId === input.profileId,
+        (profile) =>
+          profile.profileId ===
+          (reconnectAccount?.profileId ?? input.profileId),
       );
       if (!profile) return denied();
       if (operations.has(operationId))
         return { status: 200, body: operations.get(operationId) };
       stats.operationIds.push(operationId);
-      if (path.endsWith("/begin")) {
-        stats.begins++;
+      if (path.endsWith("/begin") || reconnect) {
+        if (
+          reconnect &&
+          (!reconnectAccount ||
+            reconnectAccount.metadataRevision !==
+              input.expectedMetadataRevision)
+        )
+          return denied();
+        if (reconnect) stats.reconnects++;
+        else stats.begins++;
         pending.set(operationId, {
-          ownerRef: String(input.ownerRef),
+          ownerRef: reconnectAccount?.ownerRef ?? String(input.ownerRef),
           profile,
-          displayName: String(input.displayName),
+          displayName:
+            reconnectAccount?.displayName ?? String(input.displayName),
+          ...(reconnectAccount
+            ? { accountRef: reconnectAccount.accountRef }
+            : {}),
         });
         const operation: Operation = {
           operationRef: operationId,

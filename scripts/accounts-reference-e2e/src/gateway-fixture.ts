@@ -379,7 +379,7 @@ export async function startGatewayFixture(input: {
       }
     }
     if (
-      process.argv.includes("--lifecycle-fixture") &&
+      (process.argv.includes("--lifecycle-fixture") || subscriptions) &&
       request.method === "GET"
     ) {
       if (requestUrl.pathname === "/v2/capabilities/account-lifecycle") {
@@ -407,7 +407,10 @@ export async function startGatewayFixture(input: {
         }
         send(response, 200, {
           ...account,
-          authKind: "api_key",
+          authKind:
+            account.profileId === "grok-subscription-responses-oauth-v1"
+              ? "oauth"
+              : "api_key",
           resumeCustody:
             account.state === "suspended" ? "verified" : "not_applicable",
         });

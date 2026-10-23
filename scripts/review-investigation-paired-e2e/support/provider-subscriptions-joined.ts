@@ -254,6 +254,10 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
           !("reasoning" in raw),
           "unsupported reasoning must not inherit ambient xhigh",
         );
+        assert.ok(
+          !("service_tier" in raw),
+          "unsupported fast must not enter the provider request",
+        );
         if (entries === 1) {
           relayPhase = "cli-tool-declarations";
           assert.ok(
@@ -474,6 +478,7 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
               returnedFunctionTools,
               returnedCustomTools,
               reasoningOmitted: true,
+              fastOmitted: true,
               executionClosureAcknowledged: true,
             }),
           );

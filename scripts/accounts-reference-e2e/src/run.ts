@@ -124,6 +124,7 @@ async function main(): Promise<void> {
         resultJson: join(options.workDir, "playwright-result.json"),
         viewerCookie: viewer.header,
         otherCookie: other.header,
+        browserExecutable: options.browserExecutable,
       });
     }
   } catch (error) {
@@ -231,6 +232,7 @@ async function runPlaywright(input: {
   resultJson: string;
   viewerCookie: string;
   otherCookie: string;
+  browserExecutable: string | null;
 }): Promise<TestSummary> {
   const playwrightBin = join(harnessRoot, "node_modules", ".bin", "playwright");
   await new Promise<void>((resolveRun, rejectRun) => {
@@ -265,6 +267,12 @@ async function runPlaywright(input: {
           ACCOUNTS_REFERENCE_E2E_RESULT_JSON: input.resultJson,
           ACCOUNTS_REFERENCE_E2E_VIEWER_COOKIE: input.viewerCookie,
           ACCOUNTS_REFERENCE_E2E_OTHER_COOKIE: input.otherCookie,
+          ...(input.browserExecutable
+            ? {
+                ACCOUNTS_REFERENCE_E2E_BROWSER_EXECUTABLE:
+                  input.browserExecutable,
+              }
+            : {}),
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "0",
         },
         maxBuffer: 20 * 1024 * 1024,

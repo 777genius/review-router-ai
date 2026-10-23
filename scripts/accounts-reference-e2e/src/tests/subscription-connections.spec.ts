@@ -41,6 +41,7 @@ test("subscription connections use real server actions for all four providers an
   context,
   request,
 }, testInfo) => {
+  test.setTimeout(180_000);
   const violations: string[] = [];
   await useViewerSession(context);
   await installLoopbackOnlyNetworkGuard(page, violations);
@@ -138,6 +139,45 @@ test("subscription connections use real server actions for all four providers an
     .click();
   await expect(sourceRow(page, "Browser Grok subscription")).toBeVisible();
   await noSecrets(page, [...secrets, callback, "synthetic-browser-grok-code"]);
+  const grokRow = sourceRow(page, "Browser Grok subscription");
+  await grokRow
+    .getByRole("button", { name: "Actions for Browser Grok subscription" })
+    .click();
+  await page.getByRole("menuitem", { name: "Refresh Grok sign-in" }).click();
+  const reconnectDialog = page.getByRole("dialog");
+  const reconnectPopup = page.waitForEvent("popup");
+  await reconnectDialog
+    .getByRole("button", { name: "Sign in to Grok" })
+    .click();
+  const reconnectAuthorization = await reconnectPopup;
+  await expect.poll(() => authorizationDocuments).toBe(2);
+  await reconnectAuthorization.close();
+  const reconnectCallback = callback.replace(
+    "synthetic-browser-grok-code",
+    "synthetic-browser-grok-reconnect-code",
+  );
+  const reconnectCompletion = page.getByRole("dialog", {
+    name: "Complete authorization",
+  });
+  await reconnectCompletion
+    .getByLabel("Authorization result address")
+    .fill(reconnectCallback);
+  await reconnectCompletion
+    .getByRole("button", { name: "Complete authorization" })
+    .click();
+  await expect(grokRow).toBeVisible();
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get(`${gateway}/__subscription-fixture`)).json())
+          .completes,
+    )
+    .toBe(2);
+  await noSecrets(page, [
+    ...secrets,
+    reconnectCallback,
+    "synthetic-browser-grok-reconnect-code",
+  ]);
   await page.screenshot({
     path: testInfo.outputPath("subscriptions-desktop.png"),
     fullPage: true,
@@ -163,19 +203,47 @@ test("subscription connections use real server actions for all four providers an
   expect(after).toMatchObject({
     connects: 3,
     begins: 1,
-    completes: 1,
+    completes: 2,
+    reconnects: 1,
     inference: 0,
     refresh: 0,
   });
   expect(after.connects).toBe(before.connects);
   expect(new Set(after.operationIds).size).toBe(after.operationIds.length);
+  const removed = sourceRow(page, "Browser Grok subscription");
+  await removed
+    .getByRole("button", { name: "Actions for Browser Grok subscription" })
+    .click();
+  await page.getByRole("menuitem", { name: "Remove connection…" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Remove connection permanently" })
+    .click();
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get(`${gateway}/__subscription-fixture`)).json())
+          .deletes,
+    )
+    .toBe(1);
+  await expect
+    .poll(
+      async () =>
+        (await removed.count()) === 0 ||
+        (await removed.textContent())?.includes("Retired"),
+    )
+    .toBe(true);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(
+    removed.getByRole("button", { name: "Refresh Grok sign-in" }),
+  ).toHaveCount(0);
   await openAccounts(page, "rr-e2e-org-alpha");
   await page.getByRole("button", { name: "Add account", exact: true }).click();
   await choose(page, "Owner", "RR E2E Org Alpha · organization account");
   await page.getByRole("combobox", { name: "Provider", exact: true }).click();
-  await expect(
-    page.getByRole("option", { name: /^GLM(?:\s|$)/ }),
-  ).toHaveCount(0);
+  await expect(page.getByRole("option", { name: /^GLM(?:\s|$)/ })).toHaveCount(
+    0,
+  );
   await page.keyboard.press("Escape");
   await page
     .getByRole("dialog")
