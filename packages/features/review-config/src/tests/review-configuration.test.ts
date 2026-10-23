@@ -410,7 +410,7 @@ describe("review configuration", () => {
         providers: [
           {
             kind: "codex",
-            authMode: "codex_subscription_oauth",
+            authMode: "codex_subscription_oauth_rotating",
             model: "gpt-5.5",
           },
         ],
@@ -631,7 +631,7 @@ describe("review configuration", () => {
       providers: [
         {
           kind: "codex",
-          authMode: "codex_subscription_oauth",
+          authMode: "codex_subscription_oauth_rotating",
           model: "gpt-5.5",
           reasoningEffort: "high",
           agenticContext: true,
@@ -998,7 +998,6 @@ it.each([
   { authMode: "unknown_gateway" },
   { authMode: "codex_subscription_oauth_rotating" },
   { authMode: "codex_subscription_oauth_hosted_pool" },
-  { authMode: "codex_openai_api_key" },
   { ownerWorkspaceId: "caller-owner" },
   { principal: "caller-user" },
   { token: "secret" },

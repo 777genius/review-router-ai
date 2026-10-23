@@ -205,7 +205,7 @@ function providerRow(input: {
 }) {
   return {
     providerKind: input.kind ?? "codex",
-    providerAuthMode: input.authMode ?? "codex_subscription_oauth",
+    providerAuthMode: input.authMode ?? "codex_subscription_oauth_rotating",
     model: input.model,
     reasoningEffort: "high",
     agenticContext: true,

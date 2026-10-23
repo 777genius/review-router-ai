@@ -172,7 +172,7 @@ describe("dashboard action form readers", () => {
     ]);
 
     expect(() => readReviewConfigurationForm(formData)).toThrow(
-      "review_auth_mode_requires_reconnect",
+      "invalid_form_value:providerAuthMode.0",
     );
   });
 
@@ -205,17 +205,16 @@ describe("dashboard action form readers", () => {
     });
   });
 
-  it.each(["codex_subscription_oauth", "codex_openai_api_key"] as const)(
-    "normalizes stale provider setup auth mode %s to rotating Codex",
+  it.each(["codex_subscription_oauth", "codex_openai_api_key"])(
+    "rejects removed provider setup auth mode %s instead of converting it",
     (authMode) => {
       const formData = new FormData();
       formData.set("providerKind", "codex");
       formData.set("authMode", authMode);
 
-      expect(readProviderSetupSelection(formData)).toEqual({
-        providerKind: "codex",
-        authMode: "codex_subscription_oauth_rotating",
-      });
+      expect(() => readProviderSetupSelection(formData)).toThrow(
+        "invalid_form_value:providerSetup",
+      );
     },
   );
 

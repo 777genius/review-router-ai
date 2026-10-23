@@ -78,8 +78,6 @@ export type ProviderSecretSetupChooserProps = {
   readonly organizationLogin: string | null;
   readonly organizationSecretPolicy: OrganizationSecretPolicy | null;
   readonly codexOAuthRotatingGuidance: ProviderSecretSetupGuidance;
-  readonly codexOAuthGuidance: ProviderSecretSetupGuidance;
-  readonly codexApiKeyGuidance: ProviderSecretSetupGuidance;
   readonly claudeCodeOAuthGuidance: ProviderSecretSetupGuidance;
   readonly mimoTokenPlanApiKeyGuidance: ProviderSecretSetupGuidance;
   readonly openRouterApiKeyGuidance: ProviderSecretSetupGuidance;

@@ -220,8 +220,6 @@ describe("RepositorySetupProgressPanel", () => {
             organizationSecretPolicy={null}
             guidanceSet={{
               codexOAuthRotating: rotatingGuidance(),
-              codexOAuth: guidance("CODEX_AUTH_JSON"),
-              codexApiKey: guidance("OPENAI_API_KEY"),
               claudeCodeOAuth: guidance("CLAUDE_CODE_OAUTH_TOKEN"),
               mimoTokenPlanApiKey: guidance("MIMO_TOKEN_PLAN_API_KEY"),
               openRouterApiKey: guidance("OPENROUTER_API_KEY"),
@@ -782,15 +780,11 @@ function hasCustomToastMessage(expected: RegExp, forbidden: string): boolean {
 function guidance(secretName: string): ProviderSecretSetupGuidance {
   return {
     provider:
-      secretName === "CODEX_AUTH_JSON"
-        ? "codex_oauth"
-        : secretName === "OPENAI_API_KEY"
-          ? "openai_api_key"
-          : secretName === "MIMO_TOKEN_PLAN_API_KEY"
-            ? "mimo_token_plan_api_key"
-            : secretName === "CLAUDE_CODE_OAUTH_TOKEN"
-              ? "claude_code_oauth"
-              : "openrouter_api_key",
+      secretName === "MIMO_TOKEN_PLAN_API_KEY"
+        ? "mimo_token_plan_api_key"
+        : secretName === "CLAUDE_CODE_OAUTH_TOKEN"
+          ? "claude_code_oauth"
+          : "openrouter_api_key",
     recommendedScope: "repository",
     commands: [
       {

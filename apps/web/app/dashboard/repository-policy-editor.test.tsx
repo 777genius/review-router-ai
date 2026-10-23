@@ -1984,51 +1984,13 @@ describe("ReviewConfigForm", () => {
     ).toContain("Codex OAuth with refresh");
   });
 
-  it.each(["codex_subscription_oauth", "codex_openai_api_key"] as const)(
-    "migrates legacy Codex auth mode %s to rotating OAuth in the form",
-    async (authMode) => {
-      vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValue({
-        status: "missing",
-      });
-
-      renderReviewConfigForm({
-        config: codexReviewConfiguration(authMode),
-        repositoryFullName: "777genius/agent-teams-ai",
-        repositorySecretCheckTarget: {
-          workspaceId: "workspace_1",
-          repositoryId: "repo_1",
-        },
-      });
-
-      await waitFor(() => {
-        expect(
-          screen.getByText(/Rotating Codex setup is not ready/i),
-        ).toBeTruthy();
-      });
-      expect(
-        screen.getByText(/Legacy Codex setup requires reconnect/i),
-      ).toBeTruthy();
-      expect(pageText()).toContain("server-authorized versioned namespace");
-      expect(pageText()).not.toContain("REVIEWROUTER_CODEX_AUTH_JSON");
-      expect(pageText()).not.toContain("gh secret set");
-      expect(pageText()).not.toContain("gh secret set CODEX_AUTH_JSON");
-      expect(pageText()).not.toContain("OPENAI_API_KEY");
-      const formData = vi.mocked(checkProviderRepositorySecretClientAction).mock
-        .calls[0]?.[0] as FormData;
-      expect(formData.get("providerKind")).toBe("codex");
-      expect(formData.get("authMode")).toBe(
-        "codex_subscription_oauth_rotating",
-      );
-    },
-  );
-
-  it("preserves inherited legacy Codex hybrid config as rotating Codex plus other providers", async () => {
+  it("preserves an inherited rotating Codex hybrid config with other providers", async () => {
     vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValue({
       status: "missing",
     });
 
     renderReviewConfigForm({
-      config: legacyCodexMultiProviderReviewConfiguration(),
+      config: rotatingCodexMultiProviderReviewConfiguration(),
       repositoryFullName: "777genius/agent-teams-ai",
       repositorySecretCheckTarget: {
         workspaceId: "workspace_1",
@@ -2580,10 +2542,10 @@ function duplicateOpenRouterReviewConfiguration(): ReviewConfiguration {
   };
 }
 
-function legacyCodexMultiProviderReviewConfiguration(): ReviewConfiguration {
+function rotatingCodexMultiProviderReviewConfiguration(): ReviewConfiguration {
   const codexProvider: ReviewProviderConfiguration = {
     kind: "codex",
-    authMode: "codex_subscription_oauth",
+    authMode: "codex_subscription_oauth_rotating",
     model: "gpt-5.5",
     reasoningEffort: "high",
     agenticContext: true,
@@ -2621,10 +2583,7 @@ function legacyCodexMultiProviderReviewConfiguration(): ReviewConfiguration {
 }
 
 function codexReviewConfiguration(
-  authMode:
-    | "codex_subscription_oauth"
-    | "codex_subscription_oauth_rotating"
-    | "codex_openai_api_key",
+  authMode: "codex_subscription_oauth_rotating",
 ): ReviewConfiguration {
   const codexProvider: ReviewProviderConfiguration = {
     kind: "codex",

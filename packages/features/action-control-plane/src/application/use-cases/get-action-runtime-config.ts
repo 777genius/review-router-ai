@@ -226,11 +226,7 @@ function assertStandardRuntimeProviderSupport(
   ) {
     return;
   }
-  throw new Error(
-    codexProvider.authMode === "codex_subscription_oauth"
-      ? "codex_legacy_auth_requires_reconnect"
-      : "codex_provider_requires_rotating_workflow",
-  );
+  throw new Error("codex_provider_requires_rotating_workflow");
 }
 
 function assertConflictRuntimeActionVersionAllowed(

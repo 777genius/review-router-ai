@@ -242,34 +242,10 @@ export function readProviderSetupSelection(formData: FormData): {
     authMode.success &&
     providerAuthModeBelongsToKind(authMode.data, providerKind.data)
   ) {
-    return normalizeProductionProviderSetupSelection({
-      providerKind: providerKind.data,
-      authMode: authMode.data,
-    });
+    return { providerKind: providerKind.data, authMode: authMode.data };
   }
 
   throw new Error("invalid_form_value:providerSetup");
-}
-
-function normalizeProductionProviderSetupSelection(input: {
-  readonly providerKind: ProviderKind;
-  readonly authMode: ProviderAuthMode;
-}): {
-  readonly providerKind: ProviderKind;
-  readonly authMode: ProviderAuthMode;
-} {
-  if (
-    input.providerKind === "codex" &&
-    (input.authMode === "codex_subscription_oauth" ||
-      input.authMode === "codex_openai_api_key")
-  ) {
-    return {
-      providerKind: "codex",
-      authMode: "codex_subscription_oauth_rotating",
-    };
-  }
-
-  return input;
 }
 
 export function readProviderSecretScope(
@@ -362,8 +338,6 @@ function readProviderAuthMode(
   if (!authMode.success) {
     throw new Error(`invalid_form_value:${key}`);
   }
-  if (authMode.data === "codex_subscription_oauth")
-    throw new Error("review_auth_mode_requires_reconnect");
   return authMode.data;
 }
 

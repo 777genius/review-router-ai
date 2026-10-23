@@ -129,14 +129,6 @@ const providerAuthOptionCopyByAuthMode = {
     description:
       "Uses a server-authorized versioned namespace with automatic GitHub-hosted refresh.",
   },
-  codex_subscription_oauth: {
-    label: "Codex legacy OAuth",
-    description: "Uses static CODEX_AUTH_JSON without automatic refresh.",
-  },
-  codex_openai_api_key: {
-    label: "Codex API key",
-    description: "Uses OPENAI_API_KEY from GitHub Actions secrets.",
-  },
   mimo_token_plan_api_key: {
     label: "MiMo Token Plan",
     description:
@@ -412,21 +404,6 @@ const secretCopyByAuthMode = {
     commandSuffix: "",
     recovery:
       "Run the rotating Codex OAuth setup command from the provider setup panel.",
-  },
-  codex_subscription_oauth: {
-    label: "Codex OAuth",
-    description:
-      "Codex OAuth uses CODEX_AUTH_JSON from GitHub Actions secrets.",
-    commandSuffix: "< ~/.codex/auth.json",
-    recovery:
-      "Run the Codex OAuth setup command from the setup panel, or seed auth.json from a trusted machine.",
-  },
-  codex_openai_api_key: {
-    label: "Codex API key",
-    description:
-      "Codex API-key mode uses OPENAI_API_KEY from GitHub Actions secrets.",
-    commandSuffix: "",
-    recovery: "Create an OpenAI API key, then store it as a GitHub secret.",
   },
   mimo_token_plan_api_key: {
     label: "MiMo Token Plan",
@@ -1450,14 +1427,8 @@ export function ReviewConfigForm({
         }),
       ),
   );
-  const configuredProviders = [...config.providers];
-  const legacyCodexReconnectRequired = configuredProviders.some(
-    isDisabledCodexAuthMode,
-  );
   const initialProviders = ensureAtLeastOneRequiredProvider(
-    normalizeCodexRotatingProvidersForForm(
-      configuredProviders.map(replaceDisabledCodexProvider),
-    ),
+    normalizeCodexRotatingProvidersForForm(config.providers),
   );
   const [providers, setProviders] = useState(initialProviders);
   const [updatePrDescription, setUpdatePrDescription] = useState(
@@ -2061,13 +2032,6 @@ export function ReviewConfigForm({
             value={String(enabled)}
           />
         ))}
-        {legacyCodexReconnectRequired ? (
-          <div className="rounded-xl border border-amber-300/25 bg-amber-300/[0.08] p-3 text-sm leading-6 text-amber-50">
-            Legacy Codex setup requires reconnect. This form has switched Codex
-            to the production rotating OAuth mode; save the config, create the
-            setup PR, and run the fresh Codex setup command.
-          </div>
-        ) : null}
 
         <section className="grid gap-3">
           <div>
@@ -2781,31 +2745,6 @@ function firstSelectableModel(
   options: readonly ReviewModelOption[],
 ): ReviewModelOption | undefined {
   return options.find((option) => !option.disabled) ?? options[0];
-}
-
-function isDisabledCodexAuthMode(
-  provider: ReviewProviderConfiguration,
-): boolean {
-  return (
-    provider.authMode === "codex_subscription_oauth" ||
-    provider.authMode === "codex_openai_api_key"
-  );
-}
-
-function replaceDisabledCodexProvider(
-  provider: ReviewProviderConfiguration,
-): ReviewProviderConfiguration {
-  if (
-    provider.authMode !== "codex_subscription_oauth" &&
-    provider.authMode !== "codex_openai_api_key"
-  ) {
-    return provider;
-  }
-  return {
-    ...provider,
-    kind: "codex",
-    authMode: "codex_subscription_oauth_rotating",
-  };
 }
 
 function normalizeCodexRotatingProvidersForForm(

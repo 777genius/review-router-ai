@@ -19,8 +19,6 @@ import type { OrganizationSecretPolicy } from "./provider-secret-setup-chooser";
 
 type ProviderSecretGuidanceSet = {
   readonly codexOAuthRotating: ProviderSecretSetupGuidance;
-  readonly codexOAuth: ProviderSecretSetupGuidance;
-  readonly codexApiKey: ProviderSecretSetupGuidance;
   readonly claudeCodeOAuth: ProviderSecretSetupGuidance;
   readonly mimoTokenPlanApiKey: ProviderSecretSetupGuidance;
   readonly openRouterApiKey: ProviderSecretSetupGuidance;
@@ -127,8 +125,6 @@ export function ProviderSecretSetupDialog({
               organizationLogin={organizationLogin}
               organizationSecretPolicy={organizationSecretPolicy}
               codexOAuthRotatingGuidance={guidanceSet.codexOAuthRotating}
-              codexOAuthGuidance={guidanceSet.codexOAuth}
-              codexApiKeyGuidance={guidanceSet.codexApiKey}
               claudeCodeOAuthGuidance={guidanceSet.claudeCodeOAuth}
               mimoTokenPlanApiKeyGuidance={guidanceSet.mimoTokenPlanApiKey}
               openRouterApiKeyGuidance={guidanceSet.openRouterApiKey}

@@ -2355,14 +2355,6 @@ describe("action control plane", () => {
 
   it.each([
     {
-      authMode: "codex_subscription_oauth" as const,
-      expectedCode: "codex_legacy_auth_requires_reconnect",
-    },
-    {
-      authMode: "codex_openai_api_key" as const,
-      expectedCode: "codex_provider_requires_rotating_workflow",
-    },
-    {
       authMode: "codex_subscription_oauth_rotating" as const,
       expectedCode: "codex_provider_requires_rotating_workflow",
     },

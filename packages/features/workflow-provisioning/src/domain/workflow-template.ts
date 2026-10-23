@@ -2047,10 +2047,8 @@ function providerKindForRuntimeAuthMode(
     case "codex-oauth-rotating":
     case "codex-oauth-hosted-pool":
     case "openai-api":
-    case "codex_subscription_oauth":
     case "codex_subscription_oauth_rotating":
     case "codex_subscription_oauth_hosted_pool":
-    case "codex_openai_api_key":
       return "codex";
     case "mimo-token-plan-api":
     case "mimo_token_plan_api_key":
@@ -2067,7 +2065,7 @@ function providerKindForRuntimeAuthMode(
 }
 
 function isCodexSubscriptionAuthMode(authMode: string): boolean {
-  return ["codex-oauth", "codex_subscription_oauth"].includes(authMode);
+  return authMode === "codex-oauth";
 }
 
 function isCodexRotatingAuthMode(authMode: string): boolean {
@@ -2080,7 +2078,7 @@ function isCodexRotatingAuthMode(authMode: string): boolean {
 }
 
 function isOpenAIApiAuthMode(authMode: string): boolean {
-  return ["openai-api", "codex_openai_api_key"].includes(authMode);
+  return authMode === "openai-api";
 }
 
 function renderCodexRotatingAdvisoryWorkflowWithProviderSecretInputs(

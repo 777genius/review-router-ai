@@ -1256,7 +1256,6 @@ async function createSetupPullRequestMutation(
       : openRouterDirect
         ? resolveReviewRouterCodexRotatingActionRef()
         : undefined;
-    assertCodexProductionReviewConfigAllowed(resolvedRuntime.config);
     assertCodexRotatingReviewConfigAllowed({
       config: resolvedRuntime.config,
       repository: githubRepository,
@@ -1725,7 +1724,6 @@ async function confirmSetupPullRequestMergedMutation(
       workspaceId,
       repositoryId,
     });
-    assertCodexProductionReviewConfigAllowed(resolvedRuntime.config);
     assertCodexRotatingReviewConfigAllowed({
       config: resolvedRuntime.config,
       repository: githubRepository,
@@ -2772,7 +2770,6 @@ async function saveWorkspaceReviewConfigMutation(
       config,
       loadApprovedGatewayAgentProfiles,
     );
-    assertCodexProductionReviewConfigAllowed(config);
     assertCodexRotatingReviewConfigAllowed({
       config,
       repository: null,
@@ -2912,7 +2909,6 @@ async function saveRepositoryReviewConfigMutation(
       config,
       loadApprovedGatewayAgentProfiles,
     );
-    assertCodexProductionReviewConfigAllowed(config);
     assertCodexRotatingReviewConfigAllowed({
       config,
       repository,
@@ -3959,34 +3955,10 @@ function assertCodexRotatingProviderSetupAllowed(input: {
   readonly repositoryFullName: string;
   readonly repositoryVisibility: string;
 }): void {
-  if (input.providerSetup.authMode === "codex_subscription_oauth") {
-    throw new Error("codex_legacy_auth_requires_reconnect");
-  }
-  if (input.providerSetup.authMode === "codex_openai_api_key") {
-    throw new Error("codex_api_key_setup_disabled");
-  }
   if (input.providerSetup.authMode !== "codex_subscription_oauth_rotating") {
     return;
   }
   assertCodexRotatingOAuthRepositoryAllowed(input);
-}
-
-function assertCodexProductionReviewConfigAllowed(
-  config: ReviewConfiguration,
-): void {
-  const unsupportedCodex = config.providers.find(
-    (provider) =>
-      provider.authMode === "codex_subscription_oauth" ||
-      provider.authMode === "codex_openai_api_key",
-  );
-  if (!unsupportedCodex) {
-    return;
-  }
-  throw new Error(
-    unsupportedCodex.authMode === "codex_subscription_oauth"
-      ? "codex_legacy_auth_requires_reconnect"
-      : "codex_api_key_setup_disabled",
-  );
 }
 
 function assertCodexRotatingReviewConfigAllowed(input: {

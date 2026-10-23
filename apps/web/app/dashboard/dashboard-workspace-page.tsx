@@ -3188,8 +3188,6 @@ type ProviderSecretGuidanceSet = {
   readonly codexOAuthRotating: ReturnType<
     typeof buildProviderSecretSetupGuidance
   >;
-  readonly codexOAuth: ReturnType<typeof buildProviderSecretSetupGuidance>;
-  readonly codexApiKey: ReturnType<typeof buildProviderSecretSetupGuidance>;
   readonly claudeCodeOAuth: ReturnType<typeof buildProviderSecretSetupGuidance>;
   readonly mimoTokenPlanApiKey: ReturnType<
     typeof buildProviderSecretSetupGuidance
@@ -3371,8 +3369,6 @@ function buildProviderSecretGuidanceSet({
   return {
     codexOAuthRotating:
       buildCodexRotatingPlaceholderGuidance(repositoryFullName),
-    codexOAuth: buildDisabledLegacyCodexGuidance("codex_oauth"),
-    codexApiKey: buildDisabledLegacyCodexGuidance("openai_api_key"),
     claudeCodeOAuth: buildProviderSecretSetupGuidance({
       provider: "claude_code_oauth",
       repoFullName: repositoryFullName,
@@ -3388,19 +3384,6 @@ function buildProviderSecretGuidanceSet({
       repoFullName: repositoryFullName,
       organizationLogin,
     }),
-  };
-}
-
-function buildDisabledLegacyCodexGuidance(
-  provider: "codex_oauth" | "openai_api_key",
-): ReturnType<typeof buildProviderSecretSetupGuidance> {
-  return {
-    provider,
-    recommendedScope: "repository",
-    commands: [],
-    warnings: [
-      "Legacy Codex setup is disabled. Reconnect Codex from the ReviewRouter dashboard to use rotating OAuth.",
-    ],
   };
 }
 
