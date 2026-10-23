@@ -7,6 +7,7 @@ import { startProviderStub, privacySentinel } from './provider-stub.ts';
 import { nativeRevision } from './prepare-hardening.ts';
 import { dockerCommand as command, eventually, freePort, pause } from './native-runtime.ts';
 import { qualifyProductionAdapter } from './production-adapter-story.ts';
+import { qualifyProductionCleanup } from './production-cleanup-story.ts';
 
 type Operation = { operation_id: string; status: string; task_payload?: unknown; error_message?: string | null; child_operations?: Operation[]; result_metadata?: unknown };
 type Fact = { id: string; text: string; document_id?: string; mentioned_at?: string; occurred_start?: string; state?: string; tags?: string[] };
@@ -31,6 +32,7 @@ export async function qualifyNative() {
   const containers = new Set<string>();
   const checkpoints: string[] = [];
   const errors: string[] = [];
+  const retainedLogs: string[] = [];
   const startedAt = new Date().toISOString();
   const imageId = (await command(['image', 'inspect', '--format', '{{.Id}}', image])).trim();
   const sourceRevision = (await command(['image', 'inspect', '--format', '{{index .Config.Labels "io.reviewrouter.hindsight.source-revision"}}', image])).trim();
@@ -78,7 +80,8 @@ export async function qualifyNative() {
   async function nativeContainer(name: string, args: string[], extra: Record<string, string> = {}) {
     containers.add(name);
     const settings = { ...env, HINDSIGHT_API_DATABASE_URL: `${databaseUrl}?application_name=${name}`, HINDSIGHT_API_WORKER_ID: name, ...extra };
-    await command(['run', '--detach', '--name', name, '--network', 'host', '--label', label, ...Object.entries(settings).flatMap(([key, value]) => ['--env', `${key}=${value}`]), imageId, ...args]);
+    const role = name === `${run}-api` ? 'api' : name === `${run}-worker` || name === `${run}-old-worker` ? 'worker' : undefined;
+    await command(['run', '--detach', '--name', name, '--network', 'host', '--label', label, ...(role ? ['--label', `io.reviewrouter.hindsight.deployment=${run}`, '--label', `io.reviewrouter.hindsight.role=${role}`, '--restart', 'no'] : []), ...Object.entries(settings).flatMap(([key, value]) => ['--env', `${key}=${value}`]), imageId, ...args]);
     assert.equal((await command(['inspect', '--format', '{{.Image}}', name])).trim(), imageId);
   }
   async function ready(port: number) {
@@ -118,6 +121,8 @@ export async function qualifyNative() {
     await nativeContainer(`${run}-migrate`, ['hindsight-admin', 'run-db-migration'], cleanupEnv);
     const migrateStatus = (await command(['wait', `${run}-migrate`])).trim();
     assert.equal(migrateStatus, '0', 'Bounded native migration job failed');
+    retainedLogs.push(await command(['logs', `${run}-migrate`], true));
+    await command(['rm', `${run}-migrate`]); containers.delete(`${run}-migrate`);
     const normal = [`${run}-api`, `${run}-worker`, `${run}-old-worker`] as const;
     await nativeContainer(normal[0], ['hindsight-api'], { HINDSIGHT_API_HOST: '127.0.0.1', HINDSIGHT_API_PORT: String(apiPort) });
     await ready(apiPort);
@@ -127,6 +132,7 @@ export async function qualifyNative() {
     await ready(oldWorkerPort);
     const adapter = await qualifyProductionAdapter(base, serviceKey, run);
     checkpoints.push(...adapter.checkpoints);
+    checkpoints.push(...await qualifyProductionCleanup({ base, serviceKey, imageDigest: imageId, run, output, normalContainerNames: normal, stub }));
     for (const selectedBank of [bank, otherBank]) {
       await request(`/v1/default/banks/${selectedBank}`, 'PUT', { name: 'Synthetic qualification bank' });
       await request(path('/config', selectedBank), 'PATCH', { updates: { retain_strategies: { 'router-approved-v1': { retain_extraction_mode: 'chunks' } }, retain_default_strategy: 'router-approved-v1', enable_observations: false, enable_auto_consolidation: false, default_observation_scopes: [['kind:rule']] } });
@@ -250,6 +256,7 @@ export async function qualifyNative() {
       const logs = await command(['logs', name], true);
       assert(!logs.includes(privacySentinel), 'Native stdout/stderr leaked private content/credentials');
     }
+    assert(retainedLogs.every(log => !log.includes(privacySentinel)), 'Bounded migration process leaked private credentials');
     checkpoints.push('stdout-stderr-collector-inputs-trace-audit-operation-sinks-private', 'database-error-health-error-and-server-logging-profile-private');
     const evidence = { schema: 'hindsight-native-qualification/v1', startedAt, completedAt: new Date().toISOString(), nativeRevision, imageId, postgresImage, checkpoints, providerCalls: stub.calls, safeSinkCounts: counts, evidenceKind: 'same-derivative-image-real-api-worker-postgresql17-deterministic-inference', realModelQualityQualified: false, productionReleaseQualified: false };
     await writeFile(`${output}/evidence.json`, JSON.stringify(evidence, null, 2) + '\n');

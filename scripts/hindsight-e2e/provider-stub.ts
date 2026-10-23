@@ -19,6 +19,7 @@ export function embedding(text: string): number[] {
 
 export async function startProviderStub() {
   let mode: ProviderMode = 'normal';
+  let updateFixture: { readonly observationId: string; readonly sourceMarker: string } | undefined;
   let held = 0;
   const calls = { embeddings: 0, rerank: 0, consolidation: 0, unexpected: 0 };
   const releases = new Set<() => void>();
@@ -72,7 +73,11 @@ export async function startProviderStub() {
         const user = [...messages].reverse().find((message: { role?: string }) => message.role === 'user')?.content ?? '';
         const facts = user.slice(user.lastIndexOf('### New facts'), user.lastIndexOf('### Existing observations'));
         const ids = [...facts.matchAll(/\[([0-9a-f-]{36})\]/g)].map(match => match[1]);
-        const content = mode === 'malformed' ? `${privacySentinel} invalid model response` : JSON.stringify({ creates: ids.length ? [{ text: 'Native qualification derived observation', source_fact_ids: ids, reason: 'synthetic protocol fixture' }] : [], updates: [], deletes: [] });
+        const updating = updateFixture && facts.includes(updateFixture.sourceMarker);
+        if (updating && !user.slice(user.lastIndexOf('### Existing observations')).includes(updateFixture!.observationId)) {
+          calls.unexpected += 1; return reply(response, 400, { error: { message: 'scripted_observation_candidate_missing' } });
+        }
+        const content = mode === 'malformed' ? `${privacySentinel} invalid model response` : JSON.stringify({ creates: !updating && ids.length ? [{ text: 'Native qualification derived observation', source_fact_ids: ids, reason: 'synthetic protocol fixture' }] : [], updates: updating ? [{ observation_id: updateFixture!.observationId, text: 'Native qualification derived observation with reviewed supporting evidence', source_fact_ids: ids, reason: 'synthetic history fixture' }] : [], deletes: [] });
         return reply(response, 200, { id: 'chatcmpl-native-fixture', object: 'chat.completion', created: 0, model: body.model, choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
       }
       calls.unexpected += 1;
@@ -88,6 +93,7 @@ export async function startProviderStub() {
   return {
     url: `http://127.0.0.1:${address.port}`, calls,
     setMode(next: ProviderMode) { mode = next; if (next !== 'hold') { for (const release of releases) release(); releases.clear(); } },
+    setObservationUpdateFixture(next: typeof updateFixture) { updateFixture = next; },
     get held() { return held; },
     async close() { for (const release of releases) release(); server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); },
   };

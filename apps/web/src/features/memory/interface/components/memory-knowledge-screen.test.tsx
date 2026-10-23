@@ -118,13 +118,13 @@ describe("memory screen", () => {
       "revision_mem_queries",
     );
   });
-  it("requires human pause and forget confirmation even when saving is disabled", async () => {
+  it("requires human stop-using and forget confirmation even when saving is disabled", async () => {
     const { api } = fixture({ writesEnabled: false, availability: "disabled" });
     expect(
       (screen.getByRole("button", { name: "Add memory" }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
-    fireEvent.click(screen.getAllByRole("button", { name: "Pause" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Stop using" })[0]!);
     expect(api.mutate).not.toHaveBeenCalled();
     const dialog = screen.getByRole("dialog");
     expect(

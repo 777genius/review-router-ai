@@ -45,12 +45,12 @@ function documentIds(value: unknown): string[] {
 }
 
 /** Real Docker host observations only; no caller-provided exit/absence booleans. */
-export async function runDockerHindsightCleanup(plan: OperatorPlan, credentials: { readonly nativeServiceKey: string; readonly routerOperatorToken: string; readonly signingKeyId: string; readonly signingPrivateKey: string; readonly signingPublicKey: string }) {
+export async function runDockerHindsightCleanup(plan: OperatorPlan, credentials: { readonly nativeServiceKey: string; readonly routerOperatorToken: string; readonly signingKeyId: string; readonly signingPrivateKey: string; readonly signingPublicKey: string }, qualification?: { readonly inspectCleanupDiagnostics: (text: string) => void }) {
   const lock = await acquireDeploymentLock(plan.deploymentLockPath);
-  try { return await runLockedCleanup(plan, credentials, lock); } finally { await lock.close(); }
+  try { return await runLockedCleanup(plan, credentials, lock, qualification); } finally { await lock.close(); }
 }
 
-async function runLockedCleanup(plan: OperatorPlan, credentials: { readonly nativeServiceKey: string; readonly routerOperatorToken: string; readonly signingKeyId: string; readonly signingPrivateKey: string; readonly signingPublicKey: string }, deploymentLock: Awaited<ReturnType<typeof acquireDeploymentLock>>) {
+async function runLockedCleanup(plan: OperatorPlan, credentials: { readonly nativeServiceKey: string; readonly routerOperatorToken: string; readonly signingKeyId: string; readonly signingPrivateKey: string; readonly signingPublicKey: string }, deploymentLock: Awaited<ReturnType<typeof acquireDeploymentLock>>, qualification?: { readonly inspectCleanupDiagnostics: (text: string) => void }) {
   const deploymentFenceHeldAt = stamp();
   assert.equal(plan.profile, 'docker-complete-inventory-v1');
   assert.equal(hindsightCleanupBankDigest(plan.nativeBankId), plan.binding.bankIdDigest);
@@ -266,7 +266,10 @@ async function runLockedCleanup(plan: OperatorPlan, credentials: { readonly nati
     const receipt = signHindsightCleanupReceipt(proof, credentials.signingKeyId, credentials.signingPrivateKey);
     assert(verifyHindsightCleanupReceipt(receipt, plan.binding, { [credentials.signingKeyId]: credentials.signingPublicKey }, new Date()), 'Observed evidence did not satisfy the receipt contract');
     return receipt;
-  } finally { await docker(['rm', '--force', cleanupName], true); }
+  } finally {
+    try { qualification?.inspectCleanupDiagnostics(await docker(['logs', cleanupName], true)); }
+    finally { await docker(['rm', '--force', cleanupName], true); }
+  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

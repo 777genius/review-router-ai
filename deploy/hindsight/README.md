@@ -25,7 +25,7 @@ For an already prepared local runtime:
 ```bash
 node scripts/hindsight-e2e/prepare-hardening.ts /path/to/pinned-hindsight /tmp/hindsight-build
 docker build --build-arg HINDSIGHT_BASE_IMAGE=ghcr.io/vectorize-io/hindsight-api@sha256:REVIEWED_DIGEST -f deploy/hindsight/Dockerfile -t reviewrouter-hindsight:qualified /tmp/hindsight-build
-HINDSIGHT_QUALIFICATION_IMAGE=reviewrouter-hindsight:qualified HINDSIGHT_QUALIFICATION_POSTGRES_IMAGE=pgvector/pgvector@sha256:REVIEWED_DIGEST node scripts/hindsight-e2e/qualify-native.ts
+HINDSIGHT_SDK_ENTRY=/path/to/verified-sdk/package/dist/index.mjs HINDSIGHT_QUALIFICATION_IMAGE=reviewrouter-hindsight:qualified HINDSIGHT_QUALIFICATION_POSTGRES_IMAGE=pgvector/pgvector@sha256:REVIEWED_DIGEST node --experimental-transform-types --import ./scripts/hindsight-e2e/register-native-runtime.ts scripts/hindsight-e2e/qualify-native.ts
 ```
 
 The gate covers named `chunks` strategy/readback, scoped native storage, UUID
@@ -37,6 +37,20 @@ cleanup does not execute a queued sentinel, discovers historical parents/leaves
 with pagination, removes terminal payloads and verifies absence after restart.
 These are native protocol/storage/failure guarantees with deterministic inference;
 they establish no actual selected-model semantic quality benchmark.
+
+The same run executes the actual production SDK adapter and the production Docker
+cleanup operator. Its cleanup fixture first produces a real derived observation
+and a native consolidation update with nonempty persisted history, then verifies
+physical history/source/payload absence after restart and signs the observed
+receipt. The Router maintenance HTTP attestation in this native-only fixture is
+synthetic and is recorded as such in `qualification-boundary.json`; the actual
+Router maintenance transport barrier requires separate real-PostgreSQL application
+qualification. Unit/contract success and source inspection do not establish a
+native-image runtime pass. A release requires the completed CI evidence artifact.
+
+For local runs, `HINDSIGHT_SDK_ENTRY` must point at the exact release archive whose
+SHA512 is checked in the workflow and package lock. The small Node loader resolves
+that real SDK and application TypeScript sources without a full repository install.
 
 ## Normal private service profile
 

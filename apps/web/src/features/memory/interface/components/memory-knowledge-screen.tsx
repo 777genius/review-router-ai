@@ -177,14 +177,14 @@ export function MemoryKnowledgeScreen({
           <span aria-hidden="true" className="mx-2 text-slate-600">
             ·
           </span>{" "}
-          {page.canManage ? "You can manage this scope" : "View only"}
+          {page.canManage ? "You can edit these memories" : "View only"}
         </p>
       </div>
       {page.availability !== "ready" || !page.writesEnabled ? (
         <Notice>
           {page.availability === "unavailable"
             ? "Memory is temporarily unavailable. Some text cannot be loaded. Existing reviews continue without memory when it is unavailable."
-            : "Memory saving is turned off for this scope. You can still view available knowledge and remove entries you manage."}
+            : "Memory saving is turned off for this selection. You can still view available knowledge and remove entries you manage."}
         </Notice>
       ) : null}
       {pageQuery.isError ? (
@@ -244,7 +244,7 @@ export function MemoryKnowledgeScreen({
                     {entry.status === "active"
                       ? "Active"
                       : entry.status === "retired"
-                        ? "Paused"
+                        ? "Not used"
                         : entry.status === "forget_pending"
                           ? "Forgetting"
                           : entry.status === "forgotten"
@@ -344,7 +344,7 @@ export function MemoryKnowledgeScreen({
                         disabled={busy || !!entry.pendingCommandId}
                         onClick={() => setDialog({ action: "retire", entry })}
                       >
-                        Pause
+                        Stop using
                       </Button>
                     </>
                   ) : null}
@@ -390,7 +390,7 @@ export function MemoryKnowledgeScreen({
         </nav>
       ) : null}
       <p className="mt-5 max-w-3xl text-xs leading-5 text-slate-500">
-        Pausing removes a rule from new reviews. Forgetting also requests
+        Stopping use removes a memory from new reviews. Forgetting also requests
         removal of its stored text. Historical observations describe an earlier
         point in time and do not establish a current rule.
       </p>
@@ -474,7 +474,7 @@ function MemoryChangeDialog({
         ? "Edit memory"
         : "Add memory"
       : dialog.action === "retire"
-        ? "Pause this memory?"
+        ? "Stop using this memory?"
         : "Forget this memory?";
   return (
     <DialogRoot
@@ -491,7 +491,7 @@ function MemoryChangeDialog({
             {dialog.action === "save"
               ? "Write a specific, approved rule for future reviews. Keep secrets and personal information out of memory."
               : dialog.action === "retire"
-                ? "This memory will no longer be used in new reviews. Paused entries cannot be restored from this page."
+                ? "This memory will no longer be used in new reviews. You can add a new memory later if your team needs it."
                 : "This removes the memory from new reviews and requests deletion of its stored text. Cleanup may take time. This cannot be undone."}
           </DialogDescription>
           <form onSubmit={submit} className="mt-5 space-y-4">
@@ -588,7 +588,7 @@ function MemoryChangeDialog({
                     : dialog.action === "save"
                       ? "Submit memory"
                       : dialog.action === "retire"
-                        ? "Pause memory"
+                        ? "Stop using memory"
                         : "Forget memory"}
               </Button>
             </DialogFooter>

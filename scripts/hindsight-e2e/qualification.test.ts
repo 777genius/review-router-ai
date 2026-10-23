@@ -76,3 +76,19 @@ test('pinned native readiness error exposes its class without the poisoned DB me
   assert.equal(result.stdout.trim(), 'private_health_verified');
   assert(!(result.stdout + result.stderr).includes(privacySentinel));
 });
+
+test('scripted consolidation update uses real candidate identity and refuses a missing candidate', async () => {
+  const stub = await startProviderStub();
+  const observation = '11111111-1111-4111-8111-111111111111';
+  const fact = '22222222-2222-4222-8222-222222222222';
+  try {
+    stub.setObservationUpdateFixture({ observationId: observation, sourceMarker: 'supporting-fixture' });
+    const send = (candidate: string) => fetch(`${stub.url}/v1/chat/completions`, { method: 'POST', body: JSON.stringify({ model: 'stub-model', messages: [{ role: 'user', content: `### New facts\n[${fact}] supporting-fixture\n### Existing observations\n${candidate}` }] }) });
+    const accepted = await send(observation); assert.equal(accepted.status, 200);
+    const completion = await accepted.json() as { choices: { message: { content: string } }[] };
+    const actions = JSON.parse(completion.choices[0]!.message.content);
+    assert.deepEqual(actions.creates, []); assert.equal(actions.updates[0].observation_id, observation); assert.deepEqual(actions.updates[0].source_fact_ids, [fact]);
+    assert.equal((await send('No candidate supplied by native retrieval')).status, 400);
+    assert.equal(stub.calls.unexpected, 1);
+  } finally { await stub.close(); }
+});
