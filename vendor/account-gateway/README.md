@@ -1,6 +1,17 @@
 # Account Gateway SDK artifacts
 
-The current Accounts SDK is
+The provider-connections candidate SDK is
+`agent-teams-account-gateway-0.1.0-provider-plan-a9d0c48cb9f8.tgz`.
+`provider-connections-provenance.json` binds its bytes to committed SDK source
+and installed Node24/26 qualification. API and web use this same archive.
+It preserves legacy Codex/Claude contracts and adds typed provider capabilities,
+Grok callback validation and cached account-limits/v2 reads for new profiles.
+Controlled four-provider native/Gateway/installed Action and Codex CLI qualification
+passed; `provider-connections-qualification.json` records source pins and boundaries.
+The CLI declared function tools only. Live-provider subscription qualification is
+still separate, and new profiles remain disabled until deployment qualification.
+
+The previous Codex/Claude Accounts SDK is
 `agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz`.
 `account-limits-provenance.json` binds it to committed Gateway and native source,
 including the Claude lifecycle migration. It carries `account-limits/v1` cached

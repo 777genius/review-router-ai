@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ProviderAccountError } from "@reviewrouter/features-provider-accounts";
 import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
+import { createPersonalCanonicalAccounts } from "./personal-canonical-accounts";
 import * as composition from "./personal-account-composition";
 import { detachRecipientPersonalAccount } from "../../app/dashboard/personal-account-actions";
 
@@ -11,6 +12,8 @@ const h = vi.hoisted(() => ({
   detach: vi.fn(),
   reconcile: vi.fn(),
   models: vi.fn(),
+  capabilities: vi.fn(),
+  subscriptionProfileIds: undefined as string[] | undefined,
   control: {
     profiles: vi.fn(),
     get: vi.fn(),
@@ -27,6 +30,13 @@ vi.mock("@agent-teams/account-gateway/http", async (load) => {
     await load<typeof import("@agent-teams/account-gateway/http")>();
   return {
     ...actual,
+    createManagementClient: vi.fn((settings) => {
+      actual.createManagementClient(settings);
+      return {
+        ...h.control,
+        getProviderConnectionCapabilities: h.capabilities,
+      };
+    }),
     createConsumerControlClient: vi.fn((settings) => {
       actual.createConsumerControlClient(settings); // Real config validation; no method/network entry.
       return h.control;
@@ -52,6 +62,9 @@ vi.mock("./account-gateway-accounts", () => ({
   accountGatewayProfilesConfiguration: () => ({
     apiKeyProfiles: new Map([["profile", "MiMo"]]),
     apiKeyProfileBaseURLs: new Map(),
+    ...(h.subscriptionProfileIds
+      ? { subscriptionProfileIds: h.subscriptionProfileIds }
+      : {}),
   }),
   accountGatewayUserOwnerRef: (id: string) => `user-${id}`,
   accountGatewayWorkspaceOwnerRef: (id: string) => `workspace-${id}`,
@@ -81,6 +94,8 @@ const scopeRow = (
 });
 beforeEach(() => {
   vi.clearAllMocks();
+  h.subscriptionProfileIds = undefined;
+  h.capabilities.mockReset();
   h.actor.mockReset().mockResolvedValue({ userId: "actual-u" });
   h.workspace.mockReset().mockResolvedValue(scopeRow());
   h.db.mockReturnValue({ workspace: { findUnique: h.workspace } });
@@ -251,3 +266,74 @@ it.each(["revision_conflict", "workspace_forbidden"] as const)(
     ).toEqual({ status: code === "revision_conflict" ? "conflict" : "denied" });
   },
 );
+
+const glmCapability = {
+  contract: "provider-connections/v1",
+  profileId: "glm-coding-global-responses-apikey-v1",
+  provider: { identity: "glm", label: "GLM" },
+  plan: { identity: "coding_plan", label: "Coding Plan" },
+  region: { identity: "global", label: "Global" },
+  protocol: "openai-responses",
+  modelIds: ["glm-5.3-flash"],
+  authMethods: ["api_key"],
+  completionInputKind: "none",
+  availability: "enabled",
+  oauthCallbackMode: null,
+  reconnect: "replace_api_key",
+  limitsContract: "account-limits/v2",
+  models: [
+    {
+      modelId: "glm-5.3-flash",
+      reasoning: null,
+      fast: null,
+      tools: { allowed: ["function"], default: "function" },
+    },
+  ],
+};
+it("projects enabled subscription capabilities into the existing personal composition without provider effects", async () => {
+  h.subscriptionProfileIds = [glmCapability.profileId];
+  h.capabilities.mockResolvedValue({
+    contract: "provider-connections/v1",
+    capabilities: [glmCapability],
+  });
+  await composition.productionPersonalAccounts();
+  const input = vi.mocked(createPersonalCanonicalAccounts).mock.calls[0]![0];
+  expect(input.profiles).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        id: glmCapability.profileId,
+        provider: "codex",
+        availability: "enabled",
+        connection: expect.objectContaining({
+          provider: "glm",
+          personalOnly: true,
+        }),
+      }),
+    ]),
+  );
+  expect(h.capabilities).toHaveBeenCalledTimes(1);
+  expect(h.control.profiles).not.toHaveBeenCalled();
+  expect(h.control.operation).not.toHaveBeenCalled();
+});
+it("revalidates the current actor after the awaited capability read", async () => {
+  h.subscriptionProfileIds = [glmCapability.profileId];
+  h.capabilities.mockImplementation(async () => {
+    h.actor.mockResolvedValue({ userId: "foreign-u" });
+    return {
+      contract: "provider-connections/v1",
+      capabilities: [glmCapability],
+    };
+  });
+  await expect(composition.productionPersonalAccounts()).rejects.toMatchObject(
+    forbidden,
+  );
+  expect(createPersonalCanonicalAccounts).not.toHaveBeenCalled();
+});
+
+it("preserves legacy consumer-only composition when subscription activation and management credentials are absent", async () => {
+  h.subscriptionProfileIds = [];
+  vi.stubEnv("REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN", "");
+  expect(await composition.productionPersonalAccounts()).not.toBeNull();
+  expect(h.capabilities).not.toHaveBeenCalled();
+  expect(h.control.profiles).not.toHaveBeenCalled();
+});

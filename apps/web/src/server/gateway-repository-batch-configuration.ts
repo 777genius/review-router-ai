@@ -27,7 +27,10 @@ import { RateLimitExceededError } from "@reviewrouter/features-rate-limits";
 import { reference as accountGatewayReference } from "@agent-teams/account-gateway/contracts";
 import type { AccountProfileView } from "./account-gateway-accounts";
 import { DashboardMutationRefusedError } from "./dashboard-mutation-errors";
-import { gatewayModelSupportsReasoningEffort } from "../features/account-gateway/review-reasoning-capabilities";
+import {
+  gatewayModelSupportsReasoningEffort,
+  gatewayModelSupportsFastMode,
+} from "../features/account-gateway/review-reasoning-capabilities";
 import { isGatewayReviewModelSupported } from "./gateway-review-config-catalog";
 
 export const gatewayBatchTargetLimit = 100;
@@ -330,7 +333,17 @@ export function createGatewayRepositoryBatchAdapter(dependencies: {
             !gatewayModelSupportsReasoningEffort(
               input.selection.model,
               input.selection.reasoningEffort,
-            )
+              profiles.find(
+                (profile) => profile.id === input.selection.gatewayProfileRef,
+              )?.connection,
+            ) ||
+            (input.selection.fastMode &&
+              !gatewayModelSupportsFastMode(
+                input.selection.model,
+                profiles.find(
+                  (profile) => profile.id === input.selection.gatewayProfileRef,
+                )?.connection,
+              ))
           )
             throw new GatewayBatchDenied();
           writeEntered = true;

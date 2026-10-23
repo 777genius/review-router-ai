@@ -55,7 +55,16 @@ export function AccountsAddDialog({
               name="connectionOwnership"
               label="Owner"
               defaultValue="personal"
-              onValueChange={setPath}
+              onValueChange={(next) => {
+                popup.current
+                  ?.querySelectorAll<HTMLInputElement>(
+                    'input[type="password"], input[name="callbackURL"]',
+                  )
+                  .forEach((field) => {
+                    field.value = "";
+                  });
+                setPath(next);
+              }}
               options={[
                 {
                   value: "personal",

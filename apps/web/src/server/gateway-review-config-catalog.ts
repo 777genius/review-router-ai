@@ -58,6 +58,7 @@ export function isGatewayReviewModelSupported(
   return profiles.some(
     (profile) =>
       profile.id === selection.gatewayProfileRef &&
+      profile.availability !== "deployment_configuration_required" &&
       profile.protocol === "openai-responses" &&
       profile.models.includes(selection.model),
   );
@@ -81,9 +82,27 @@ export async function assertGatewayReviewConfigCatalogAllowed(
   if (
     selections.some(
       (row) =>
-        !gatewayModelSupportsReasoningEffort(row.model, row.reasoningEffort),
+        !gatewayModelSupportsReasoningEffort(
+          row.model,
+          row.reasoningEffort,
+          profiles.find((profile) => profile.id === row.gatewayProfileRef)
+            ?.connection,
+        ),
     )
   )
     throw new Error("gateway_review_reasoning_effort_unsupported");
+  if (
+    selections.some((row) => {
+      const connection = profiles.find(
+        (profile) => profile.id === row.gatewayProfileRef,
+      )?.connection;
+      if (!connection) return false;
+      const qualified = connection.modelSettings.find(
+        (model) => model.modelId === row.model,
+      );
+      return row.fastMode && !qualified?.fast?.allowed.includes("fast");
+    })
+  )
+    throw new Error("gateway_review_fast_mode_unsupported");
   return true;
 }

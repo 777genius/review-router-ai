@@ -13,6 +13,26 @@ const baseInput = {
 };
 
 describe("provider runtime plan", () => {
+  it("omits reasoning for a Gateway model without a qualified reasoning control", () => {
+    const plan = buildProviderRuntimePlan({
+      ...baseInput,
+      providers: [
+        {
+          kind: "codex",
+          authMode: "codex_account_gateway",
+          model: "k3-256k",
+          gatewayBindingId: "binding",
+          gatewayProfileRef: "kimi-code-global-responses-apikey-v1",
+          agenticContext: true,
+          fastMode: false,
+        },
+      ],
+    });
+    expect(plan.runtimeEnv).not.toHaveProperty("CODEX_REASONING_EFFORT");
+    expect(plan.runtimeEnv.CODEX_FAST_MODE).toBe("false");
+    expect(plan.runtimeEnv.CODEX_MODEL).toBe("k3-256k");
+  });
+
   it("matches existing Codex runtime env contract", () => {
     const plan = buildProviderRuntimePlan({
       ...baseInput,
