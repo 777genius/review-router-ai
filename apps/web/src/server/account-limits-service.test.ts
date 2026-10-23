@@ -48,15 +48,16 @@ function fixture() {
   });
   const db = vi.fn().mockResolvedValue([source]);
   const authorize = vi.fn().mockResolvedValue({ userId: "user" });
+  const ownerRef = vi.fn(() => "owner");
   const service = createAccountLimitsService({
     prisma: { $queryRaw: db } as unknown as PrismaClient,
     reader: { read },
     secret: "test-only-secret",
     authorize,
-    ownerRef: () => "owner",
+    ownerRef,
     now: () => new Date("2026-10-22T10:01:00Z"),
   });
-  return { service, read, db, authorize };
+  return { service, read, db, authorize, ownerRef };
 }
 afterEach(() => vi.useRealTimers());
 it("derives canonical owner/profile/epoch and returns only safe numeric projection", async () => {
@@ -114,6 +115,27 @@ it("organization owner/admin may read their own suspended source", async () => {
   });
   expect(read).toHaveBeenCalledOnce();
 });
+it.each(["source", "binding"])(
+  "personal owners keep their limits in an authorized workspace page through the %s ID",
+  async (connectionId) => {
+    const { service, read, db, authorize, ownerRef } = fixture();
+    authorize.mockResolvedValue({ userId: "user", workspaceId: "org" });
+    db.mockResolvedValue([
+      { ...source, role: "admin", bindingId: "binding", bindingRevision: 1 },
+    ]);
+    expect(await service.page([account(connectionId)])).toMatchObject([
+      {
+        connectionId,
+        limits: {
+          status: "snapshot",
+          windows: [{ remainingPercent: 62.5 }],
+        },
+      },
+    ]);
+    expect(read).toHaveBeenCalledOnce();
+    expect(ownerRef).toHaveBeenCalledWith({ kind: "user", userId: "user" });
+  },
+);
 it.each([
   "state",
   "profileRef",
@@ -131,10 +153,7 @@ it.each([
     ]);
     return { status: "unknown" };
   });
-  expect(await service.read("source")).toMatchObject({
-    status: "ok",
-    value: { status: "restricted" },
-  });
+  expect(await service.read("source")).toEqual({ status: "denied" });
 });
 it.each(["role", "bindingRevision"] as const)(
   "revalidates organization %s after awaited read",
@@ -155,10 +174,7 @@ it.each(["role", "bindingRevision"] as const)(
       ]);
       return { status: "unknown" };
     });
-    expect(await service.read("source")).toMatchObject({
-      status: "ok",
-      value: { status: "restricted" },
-    });
+    expect(await service.read("source")).toEqual({ status: "denied" });
   },
 );
 it("deleted/cross-tenant IDs and lost membership never return quota", async () => {
@@ -171,10 +187,7 @@ it("deleted/cross-tenant IDs and lost membership never return quota", async () =
     db.mockResolvedValue([]);
     return { status: "unknown" };
   });
-  expect(await service.read("source")).toMatchObject({
-    status: "ok",
-    value: { status: "restricted" },
-  });
+  expect(await service.read("source")).toEqual({ status: "denied" });
 });
 it.each([
   { pendingSourceOperationId: "reconnect" },
@@ -211,19 +224,23 @@ it("isolates partial deadline and limits concurrency to four without starting mo
   ).toBe(true);
 });
 
-it("revalidates a completed numeric row after another account consumes the page deadline", async () => {
-  vi.useFakeTimers();
-  const { service, read, db } = fixture();
-  const original = await read();
-  read
-    .mockImplementationOnce(async () => original)
-    .mockImplementation(() => new Promise(() => {}));
-  const page = service.page([account("source"), account("stalled")]);
-  await vi.advanceTimersByTimeAsync(10);
-  db.mockResolvedValue([{ ...source, authorizationEpochMirror: 5n }]);
-  await vi.advanceTimersByTimeAsync(2990);
-  expect(await page).toMatchObject([
-    { limits: { status: "restricted" } },
-    { limits: { status: "unavailable" } },
-  ]);
-});
+it.each(["generation change", "database failure"] as const)(
+  "revalidates a completed numeric row after another account consumes the page deadline (%s)",
+  async (change) => {
+    vi.useFakeTimers();
+    const { service, read, db } = fixture();
+    const original = await read();
+    read
+      .mockImplementationOnce(async () => original)
+      .mockImplementation(() => new Promise(() => {}));
+    const page = service.page([account("source"), account("stalled")]);
+    await vi.advanceTimersByTimeAsync(10);
+    if (change === "database failure") db.mockRejectedValue(new Error("down"));
+    else db.mockResolvedValue([{ ...source, authorizationEpochMirror: 5n }]);
+    await vi.advanceTimersByTimeAsync(2990);
+    expect(await page).toMatchObject([
+      { limits: { status: "unavailable" } },
+      { limits: { status: "unavailable" } },
+    ]);
+  },
+);

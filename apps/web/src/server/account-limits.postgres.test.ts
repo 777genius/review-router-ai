@@ -152,6 +152,40 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
           profileId: "codex",
           expectedAuthorizationEpoch: 1,
         });
+        scope = { userId: owner, workspaceId: org };
+        for (const id of [personal.id, bindings[0]!.id]) {
+          expect(await service.read(id)).toMatchObject({
+            status: "ok",
+            value: {
+              status: "snapshot",
+              windows: [{ remainingPercent: 62.5 }],
+            },
+          });
+          expect(read).toHaveBeenLastCalledWith({
+            ownerRef: `u-${owner}`,
+            accountRef: personal.gatewayAccountRef,
+            profileId: "codex",
+            expectedAuthorizationEpoch: 1,
+          });
+        }
+        // Personal ownership does not bypass the authorized workspace binding.
+        read.mockImplementationOnce(async () => {
+          await db.workspaceAccountBinding.update({
+            where: { id: bindings[0]!.id },
+            data: { state: "revoked" },
+          });
+          return snapshot;
+        });
+        expect(await service.read(bindings[0]!.id)).toEqual({
+          status: "denied",
+        });
+        read.mockClear();
+        expect(await service.read(personal.id)).toEqual({ status: "denied" });
+        expect(read).not.toHaveBeenCalled();
+        await db.workspaceAccountBinding.update({
+          where: { id: bindings[0]!.id },
+          data: { state: "active" },
+        });
         scope = { userId: admin };
         read.mockClear();
         expect(await service.read(personal.id)).toEqual({ status: "denied" });
@@ -190,10 +224,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
           });
           return snapshot;
         });
-        expect(await service.read(owned.id)).toMatchObject({
-          status: "ok",
-          value: { status: "restricted" },
-        });
+        expect(await service.read(owned.id)).toEqual({ status: "denied" });
         scope = { userId: owner };
         read.mockImplementationOnce(async () => {
           await db.providerAccountConnection.update({
@@ -205,10 +236,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
           });
           return snapshot;
         });
-        expect(await service.read(personal.id)).toMatchObject({
-          status: "ok",
-          value: { status: "restricted" },
-        });
+        expect(await service.read(personal.id)).toEqual({ status: "denied" });
         // Delete reservation changes the canonical pending lifetime before the native response returns.
         const operations = new PrismaAccountLifecycleOperations(db);
         let deletionId = "";
@@ -227,10 +255,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
           deletionId = deletion.id;
           return snapshot;
         });
-        expect(await service.read(personal.id)).toMatchObject({
-          status: "ok",
-          value: { status: "restricted" },
-        });
+        expect(await service.read(personal.id)).toEqual({ status: "denied" });
         read.mockClear();
         expect(await service.read(personal.id)).toMatchObject({
           status: "ok",
