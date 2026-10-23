@@ -34,10 +34,11 @@ export const dashboardSectionMeta: Record<
     navDescription: "Setup PRs and health",
   },
   memory: {
-    eyebrow: "In development",
+    eyebrow: "Shared review knowledge",
     title: "Memory",
-    description: "Memory management is in development and not available yet.",
-    navDescription: "In development",
+    description:
+      "Manage approved rules and historical knowledge for future reviews.",
+    navDescription: "Approved review knowledge",
   },
   setup: {
     eyebrow: "Workspace credentials",

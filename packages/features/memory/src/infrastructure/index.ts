@@ -13,3 +13,5 @@ export * from "./prisma/prisma-memory-search-index";
 export * from "./prisma/prisma-memory-suggestion-repository";
 export * from "./prisma/prisma-memory-transaction";
 export * from "./prisma/prisma-memory-usage-event-repository";
+export { approvedMemorySourceApplicable } from "./prisma/approved-memory-source-applicable";
+export * from "./prisma/prisma-memory-repository-maintainers";
