@@ -1,7 +1,7 @@
 # Review statistics
 
-Status: design candidate 2 after round 1; implementation starts only after four sequential
-reviews by three independent critics per round. Requested by the owner on
+Status: approved after four sequential reviews by three independent critics
+per round; implementation in progress. Requested by the owner on
 2026-10-23. This plan follows ADR-005 and the existing dashboard architecture.
 
 ## Outcome and scope
@@ -12,8 +12,9 @@ issues by severity, repository rankings and an issue list. Average time to merge
 is explicitly excluded. Keep the current default dashboard section and reuse
 the existing workspace switcher, React Query, Recharts and shared UI controls.
 
-Every signed-in user can read their selected personal workspace or a workspace
-where they currently hold membership. This is workspace review activity, not
+Every signed-in user can read their own selected personal workspace, or an ordinary
+workspace where they currently hold membership. Membership never grants access
+to another user's personal workspace. This is workspace review activity, not
 PR-author productivity. Execution data does not reliably identify an author or
 requester. Do not accept a client-supplied actor or replicate counters per user.
 Nonmember repository-manager access does not authorize workspace-wide reports.
@@ -68,8 +69,26 @@ failure rolls back the terminal transition. An explicitly injected infrastructur
 hook captures a small,
 versioned settlement event in the existing outbox within that transaction. The
 hook is composed at the host; completion domain policy does not import stats,
-Prisma, a broker or report calculations. The hook receives tenant/PR/execution
-identity, the immutable source projection and the single settlement timestamp.
+Prisma, a broker or report calculations. Its infrastructure-only contract is:
+
+```ts
+type ReviewCompletionSettlementHook = (
+  tx: Prisma.TransactionClient,
+  settlement: {
+    executionId: string;
+    finalizedArtifactId: string;
+    publicationAttemptId: string;
+    state: "completed" | "completed_superseded";
+    settledAt: Date;
+  },
+) => Promise<void>;
+```
+
+The host adapter resolves and verifies execution, immutable artifact and
+successful publication through `tx`, maps them to the feature's primitive DTO,
+and calls its outbox writer using `tx`. The completion domain does not parse
+projections or import statistics. Production construction requires the real
+callback and fails if it is absent; unit doubles pass explicit callbacks.
 Capture compact eligible lineage metadata in the event so operational evidence
 pruning cannot later make an accepted event unreadable. No model text, raw
 responses, credentials or full review bodies enter statistics storage.
@@ -88,8 +107,12 @@ unknown commit responses cannot increase counts twice. Out-of-order settlement
 delivery must retain the earliest `(settledAt, executionId)` tuple and its
 corresponding metadata for each issue. An execution-ID collision with different
 immutable content is an explicit permanent failure, not a duplicate success.
-Bound event findings to the existing accepted projection limit, bound text
-fields, and reject oversized/invalid identity sets without silently truncating
+Bound event findings to the supported production ceiling of 2,000 occurrences
+and 2,097,152 (2 MiB) source projection bytes, using the authoritative execution
+limits in the host adapter. Verify acceptance at the byte limit and rejection
+one byte above it. Bound title to 240 characters and identity
+fields to validated source limits. Keep only issue-list metadata. A supported
+producer-limit change requires contract qualification. Reject oversized/invalid identity sets without silently truncating
 counted findings. Existing outbox retries, claim fencing and dead letters remain
 the operational mechanism. Report reads never drive projection work.
 
@@ -111,27 +134,43 @@ acknowledge an intentional no-op. Never resolve an old event through a new SCM
 binding. A reconnect after deletion starts fresh facts; a rename preserves them.
 
 Do not invent old history. A small singleton coverage record persists the capture
-activation boundary once, independently of whether any facts exist. Establish it
-when the mandatory capture-enabled completion composition starts; reopening the
-same composition must not reset it. New workspaces use the later of their creation
-and capture activation. The release must activate the capture-enabled completion
-owner before claiming covered periods; mixed older completion owners are not a
-supported source of complete coverage. One schema migration creates the two fact
+activation boundary once, independently of whether any facts exist. Initial
+release uses a nonrolling completion-owner cutover: stop/drain older owners,
+then start the validated capture-enabled owner. That owner inserts the singleton
+with database time before accepting any settlement. Report-only hosts never
+activate it; restart never resets it; absence means unavailable statistics,
+not an empty measured period. New workspaces use the later of their creation
+and capture activation. Mixed older completion owners are not supported during
+initial activation. This is a release requirement, not a product flag, new
+operator subsystem or production action in this PR. One schema migration creates the two fact
 tables plus this coverage record. No historical backfill or separate migration
 chain is introduced. First-caught means the first eligible occurrence recorded
 since this boundary, not a claim about all past reviews. A reconfirmed older issue
 can therefore be first recorded after activation.
 
-Source coverage is explicit. The canonical supported source is complete V2
-publication settlement; Account Gateway, GitHub Secrets, Hosted Pool and direct
-provider API paths must be traced and qualified against that source. The currently
-provisioned GitLab CLI publishes directly without a V2 settlement and is not
-silently counted as zero. Workspaces with those GitLab connections display a
-short partial-coverage notice and suppress workspace-wide comparisons. No new
-GitLab credential/telemetry protocol or legacy producer migration is part of this
-analytics change. Every authorized user still has the Statistics view; the DTO
-describes whether its connected sources are covered. Record the exact source
-matrix and proof before final qualification.
+Source coverage is based on execution mode, not just SCM provider. Only complete
+successful V2 publication settlement is counted. Current admission facts qualify
+a repository only when its managed review authority is active and its source
+path is supported; missing/unqualified facts mean conservative partial coverage.
+Respect authority activation timestamps when qualifying historical intervals.
+
+| Source | Contract used by statistics | Required local proof |
+| --- | --- | --- |
+| Account Gateway | Canonical neutral caller to V2 producer/completion | Captured identity and artifact reach successful settlement and one event/fact; retry is idempotent. |
+| GitHub Secrets | Canonical schema-v2 reusable execution to V2 completion | Supported identity settles; refresh-only maintenance and pre-review skips do not. Never copy stale schema-v1 examples. |
+| Direct provider API/OpenRouter | Supported immutable API caller to V2 completion | Producer identity and artifact reach the common completion owner. |
+| Ordinary Hosted Pool | Approved full runtime/reusable execution to V2 completion | Captured identity reaches real completion, not only a mocked runtime runner. |
+| Hosted certified-fork/schema 6 | Direct model/comment endpoint outside V2 | Excluded; an applicable Hosted binding has partial-source coverage. |
+| Provisioned GitLab CLI | Direct model/GitLab publication outside V2 | Excluded with partial-source coverage. |
+| Nonactivated/unqualified repository | No established supported V2 source | Excluded until qualified; provider name alone never proves coverage. |
+
+Bounded reason codes are `gitlab_direct`, `hosted_certified_fork`, and
+`unqualified_repository`. Detect applicable Hosted bindings conservatively.
+Any uncovered source visibly qualifies the metrics as recorded activity,
+including all-zero/all-unsupported cases, and suppresses workspace comparisons.
+No new telemetry protocol or legacy producer migration belongs in this change.
+Every authorized user still has the view. Local contract tests do not claim
+live external-runtime qualification.
 
 ## Modular composition
 
@@ -177,7 +216,8 @@ rankings, available-since date and cursor-paginated issue summaries. Freeze the
 following shared framework-free contract before implementation:
 
 ```ts
-type Severity = "critical" | "major" | "minor" | "unknown";
+enum Severity { Critical = "critical", Major = "major", Minor = "minor",
+  Unknown = "unknown" }
 type StatisticsFilter = { days: 7 | 30 | 90; severity: Severity | "all" };
 type Totals = { pullRequestsReviewed: number; reviews: number;
   issuesCaught: number; repositoriesWithIssues: number };
@@ -188,9 +228,11 @@ type StatisticsReport = {
     days: 7 | 30 | 90; timezone: "UTC"; asOf: string };
   filter: StatisticsFilter;
   coverage: { availableSince: string | null; currentComplete: boolean;
-    previousComplete: boolean; unsupportedProviders: readonly string[] };
+    previousComplete: boolean; uncoveredSources: readonly (
+      "gitlab_direct" | "hosted_certified_fork" | "unqualified_repository")[] };
   totals: Totals; previousTotals: Totals | null;
-  daily: readonly { day: string; available: boolean; pullRequestsReviewed: number;
+  daily: readonly { day: string; coverage: "complete" | "partial" | "unavailable";
+    pullRequestsReviewed: number;
     reviews: number; issues: Readonly<Record<Severity, number>> }[];
   topRepositoriesByReviews: readonly RepositoryCount[];
   topRepositoriesByIssues: readonly RepositoryCount[];
@@ -204,14 +246,29 @@ type StatisticsIssuePage = { items: readonly StatisticsIssue[];
 
 Top repository lists have at most five rows. The review ranking always counts
 total reviews and says so even when the chart selector shows distinct PRs. The
-issue ranking uses the selected severity; KPI totals and daily data remain
-all-severity, while the issue chart/table visually apply the selected severity.
+issue ranking uses the selected severity; KPI totals and the accessible daily
+table remain all-severity, while the issue chart and issue list apply the
+selected severity. Internal closed discriminators follow repository enum rules;
+serialized wire values remain as above.
 Issue pages contain at most 25 rows, ordered by `(caughtAt DESC, id DESC)` with
 keyset continuation tied to the workspace, the report's exact period, severity
 and optional repository filter. Reject malformed or mismatched cursors; never
 accept a cursor as authority. Issue requests retain the loaded report period
-until an explicit report refresh/filter change resets pagination. No client
+until an accepted report refresh/filter change resets pagination. No client
 aggregation or independently redefined DTOs.
+
+Report GET input is `workspaceId`, `days`, `severity`; session supplies actor.
+Issues GET input is `workspaceId`, exact report `from`/`to`, `severity`, optional
+`repositoryId` and `cursor`. Repository filtering is issue-drilldown-only.
+Issue page 1 loads separately when View issues is opened, never blocks SSR or
+cards, and requires an accepted authorized report. A page-only error leaves
+the report usable.
+
+Keep known counts on the activation boundary day and mark it partial; do not
+hide them or imply earlier hours were observed. Missing activation shows an
+unavailable state rather than zero cards. Partial-history/source notices remain
+visible for zero facts. `asOf` is the read boundary, not proof the asynchronous
+projector has caught up to that instant.
 
 Use private, no-store HTTP responses and parameterized SQL. Validate dates,
 window limits, severity and cursor before querying. Report reads use a consistent
@@ -227,7 +284,10 @@ with server-resolved actor/workspace/filter-scoped keys, abort signals and 30-se
 freshness. A keyed feature instance owns the access-rejected state. A 401/403
 from either endpoint hides the entire feature dataset, cancels and removes every
 statistics query for that actor/workspace, and permanently rejects its SSR seed
-until a newly authorized server render mounts a new instance.
+until a newly authorized server render mounts a new instance. A fresh server
+seed generation is part of instance identity, allowing same-user/workspace
+reauthorization without reviving a rejected seed. Ignore late callbacks from
+unmounted scopes. Issue keys also contain the accepted report's exact `from`/`to`.
 Never show prior-workspace or prior-period placeholder data under new labels.
 On authorization failure hide seeded/cached data and prevent its resurrection.
 The initial server wrapper catches feature load/auth failures without replacing
@@ -235,7 +295,10 @@ the whole dashboard, leaving workspace navigation usable. Applied preset and
 severity are local feature state for V1; no custom draft calendar or URL state is
 introduced. Query identity determines the displayed period labels. A failed
 same-filter refresh may retain labeled data with a visible retry notice; a new
-filter never reuses prior-filter data. Filter/refresh changes reset issue cursors.
+filter never reuses prior-filter data. Accepted filter/refresh changes reset issue
+cursors, including same-preset midnight refresh. Repeatable Read covers one
+report; later issue pages read the same interval but may see late projected
+facts. Report refresh reconciles them. No cross-request snapshot machinery.
 
 Split presentation into summary, review chart, issue chart, repository ranking
 and issue-list components. Use three KPI cells and two chart sections containing
@@ -244,18 +307,25 @@ switches daily PRs/reviews; severity filters the issue chart, its ranking and
 issue drilldown consistently. Top-level KPI totals remain all-severity and are
 labeled accordingly. Issue rows show severity, bounded title, repository, PR
 link and first-caught date. Use keyset pagination and reset it on filter changes.
+Show the active issue-only repository scope with a reset control. Keep its
+drilldown action distinct from the repository's external SCM link.
 
 Provide loading, initial-error, refresh-error, empty, no-issue and unauthorized
 states; never convert failures into zero totals. Include keyboard controls,
 textual severity legend, integer chart axes and an accessible daily-data table
 containing exact daily reviews, PRs and all severity counts, with unavailable
 and current-day-in-progress labels.
+Map unavailable numeric rows to unavailable chart/table presentation, never
+measured zero tooltips. Partial history retains known values; today's progress
+is a separate qualification from incomplete historical or source coverage.
 Inspect desktop/tablet/mobile and dark/light themes. No technical pipeline
 details in normal UI, merge-time metric, infinite percentages or mock live data.
 
 ## Implementation ownership and verification
 
-After four reviewed plan rounds, implement in isolated worktrees:
+After four reviewed plan rounds, implement with disjoint ownership. Prefer
+isolated worktrees when local capacity permits; this environment has no free
+overlay disk, so contributors use distinct paths in one checkout:
 
 1. Backend feature, migration and durable capture/projector.
 2. Get Modular upgrade, host/worker composition and architecture enforcement.
@@ -272,12 +342,16 @@ pruning, UTC boundaries, distinct PR semantics, tenant isolation and revocation,
 bounded SQL and representative tenant volume. Record `EXPLAIN (ANALYZE, BUFFERS)`
 for current/previous summaries and paginated issues with at least 100,000 reviews
 in the measured tenant and unrelated tenant facts. Report measured latency and
-query plans without claiming an unrun production load test. Run the four existing modular
+query plans without claiming an unrun production load test. Include 100,000
+issues, tied timestamps, severity/repository filters and continuation pages,
+not only empty issue queries. Run the four existing modular
 composition suites plus new assembly/negative-boundary tests. Use disposable
 PostgreSQL 17 and synthetic sessions with the real Next app and Chromium for
 dates, filters, drilldown, mobile and both themes. Inspect screenshots and report
 the actual evidence limits. Browser fixtures include populated, empty, unavailable
 history and access-revoked states; capture both themes at 1440, 900 and 390 pixels.
+Exercise initial-load retry, issue-page-only retry with preserved report scope,
+and same-actor/workspace recovery through a fresh authorized server seed.
 No production credentials or repository creation
 are needed for this feature's E2E.
 

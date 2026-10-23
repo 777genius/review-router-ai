@@ -18,7 +18,41 @@ The plan retains the existing modular monolith, durable outbox and two compact
 fact tables. No broker, separate service, custom GitLab reporting protocol,
 historical backfill, rollup engine or unused observation subscriber was added.
 
-## Remaining rounds
+## Plan round 2 — candidate 2 to candidate 3
 
-Rounds 2–4 will each inspect the prior round's revised plan. Implementation has
-not started.
+All three critics independently verified the first fixes and found narrower
+remaining gaps.
+
+| Direction | Findings | Resolution in candidate 3 |
+| --- | --- | --- |
+| Data/security | A GitHub certified-fork route also bypasses V2; provider name cannot establish source coverage. Personal workspaces need owner-only reads. | Explicit source/mode matrix and bounded uncovered-source reasons, conservative admission/activation checks, owner-only personal scope. |
+| Architecture/scale | First new worker startup cannot prove old captureless owners stopped; capture callback mapping owner/signature remained ambiguous. | Nonrolling initial owner cutover, DB-time singleton before work and unavailable reads before activation; exact infrastructure callback, host mapping and mandatory production binding. |
+| UX/qualification | Activation-day partial history and unsupported-only zero labels, request shapes/page-1 ownership, fresh authorized seed identity and separate-page freshness remained unspecified. | Partial daily coverage preserves known counts; visible recorded-activity notice; exact endpoints, lazy issue query, actor/workspace/seed identity and period-bound issue keys; no cross-request snapshot claim. |
+
+No additional service, producer migration or source reconstruction was added.
+
+## Plan round 3 — candidate 3 to candidate 4
+
+All three critics completed the third independent pass. Architecture/scale and
+frontend had no remaining blocking design findings.
+
+| Direction | Findings | Resolution in candidate 4 |
+| --- | --- | --- |
+| Data/security | Decimal 2,000,000-byte capture limit was lower than the existing valid 2 MiB source ceiling; mandatory capture could reject valid completion. | Use the authoritative 2,097,152-byte execution ceiling; qualify exact-limit and one-byte-over inputs. |
+| Architecture/scale | No remaining plan blocker. | Carry transaction/CAS, ungated handler, boundary and real TS7 qualification gates into implementation. |
+| UX/qualification | Narrow acceptance notes for issue scope, unavailable chart rows and retry/reauthorization proof. | Explicit visible/removable repository scope, separate unavailable/partial/current-day presentation, real-browser retry and fresh-seed recovery flows. |
+
+## Plan round 4 — final candidate 4
+
+All three independent critics reread the revised candidate and gave explicit GO
+for implementation. No remaining material data/security, architecture/scale or
+frontend/auth/accessibility plan blocker was reported. They reaffirmed the
+existing transaction, PostgreSQL, SQL-volume, compiler and browser evidence gates.
+
+All four sequential rounds are complete. Implementation starts after these
+approvals. Plan approval is not an implementation or E2E pass claim.
+
+## Implementation review and evidence
+
+In progress. Contributors have disjoint backend, composition and web ownership;
+root integrates host capture and performs PostgreSQL/browser qualification.
