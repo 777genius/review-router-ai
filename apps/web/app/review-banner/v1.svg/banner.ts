@@ -18,7 +18,7 @@ type Severity = (typeof severities)[number];
 type UpdateCounts = Readonly<Record<(typeof updateKeys)[number], number>>;
 export type ReviewBannerInput = {
   readonly state: "complete" | "incomplete";
-  readonly theme: "light" | "dark";
+  readonly theme: "light" | "dark" | "auto";
   readonly layout: "wide" | "compact";
   readonly counts: Readonly<Record<Severity, number>>;
   readonly coverage?: { readonly reviewed: number; readonly total: number };
@@ -48,7 +48,7 @@ function parseBannerInput(url: URL): ReviewBannerInput | null {
   if (
     (state !== "complete" && state !== "incomplete") ||
     (variant !== "first" && variant !== "update") ||
-    (theme !== "light" && theme !== "dark") ||
+    (theme !== "light" && theme !== "dark" && theme !== "auto") ||
     (layout !== "wide" && layout !== "compact")
   )
     return null;
@@ -172,6 +172,13 @@ function renderBanner(input: ReviewBannerInput): string {
   const width = compact ? 480 : 1200;
   const height = compact ? 360 : 280;
   const dark = input.theme === "dark";
+  const auto = input.theme === "auto";
+  const themeValues = new Map<string, { light: string; dark: string }>();
+  const themeValue = (name: string, darkValue: string, lightValue: string) => {
+    if (!auto) return dark ? darkValue : lightValue;
+    themeValues.set(name, { light: lightValue, dark: darkValue });
+    return `var(--${name},${lightValue})`;
+  };
   const action = input.variant === "first";
   const clean =
     input.state === "complete" &&
@@ -182,54 +189,30 @@ function renderBanner(input: ReviewBannerInput): string {
     action && input.state === "complete" && !clean && priority !== "critical";
   const accent = lowPriority
     ? priority === "major"
-      ? dark
-        ? "#e3b341"
-        : "#7d4e00"
-      : dark
-        ? "#79c0ff"
-        : "#0969da"
+      ? themeValue("accent", "#e3b341", "#7d4e00")
+      : themeValue("accent", "#79c0ff", "#0969da")
     : input.state === "incomplete"
-      ? dark
-        ? "#e3b341"
-        : "#7d4e00"
+      ? themeValue("accent", "#e3b341", "#7d4e00")
       : clean
-        ? dark
-          ? "#7ee787"
-          : "#1a7f37"
+        ? themeValue("accent", "#7ee787", "#1a7f37")
         : action
-          ? dark
-            ? "#ff8f96"
-            : "#ad2333"
-          : dark
-            ? "#79c0ff"
-            : "#0969da";
-  const ink = dark ? "#f0f3f6" : "#1f2328";
-  const muted = dark ? "#a6b0bc" : "#59636e";
-  const background = dark ? "#151b23" : "#f6f8fa";
+          ? themeValue("accent", "#ff8f96", "#ad2333")
+          : themeValue("accent", "#79c0ff", "#0969da");
+  const ink = themeValue("ink", "#f0f3f6", "#1f2328");
+  const muted = themeValue("muted", "#a6b0bc", "#59636e");
+  const background = themeValue("background", "#151b23", "#f6f8fa");
   const tint = lowPriority
     ? priority === "major"
-      ? dark
-        ? "#292317"
-        : "#fff8e6"
-      : dark
-        ? "#182437"
-        : "#edf3ff"
+      ? themeValue("tint", "#292317", "#fff8e6")
+      : themeValue("tint", "#182437", "#edf3ff")
     : input.state === "incomplete"
-      ? dark
-        ? "#292317"
-        : "#fff8e6"
+      ? themeValue("tint", "#292317", "#fff8e6")
       : clean
-        ? dark
-          ? "#14261c"
-          : "#edf8f0"
+        ? themeValue("tint", "#14261c", "#edf8f0")
         : action
-          ? dark
-            ? "#27191f"
-            : "#fff2f1"
-          : dark
-            ? "#182437"
-            : "#edf3ff";
-  const line = dark ? "#30363d" : "#d1d9e0";
+          ? themeValue("tint", "#27191f", "#fff2f1")
+          : themeValue("tint", "#182437", "#edf3ff");
+  const line = themeValue("line", "#30363d", "#d1d9e0");
   const status =
     input.state === "incomplete"
       ? "REVIEW INCOMPLETE"
@@ -300,11 +283,21 @@ function renderBanner(input: ReviewBannerInput): string {
       : title.note;
   const logoEffect = compact
     ? ""
-    : `<defs><radialGradient id="logoHalo"><stop stop-color="${accent}" stop-opacity="${dark ? ".14" : ".09"}"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient><filter id="logoGlow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="13"/></filter><g id="brandLogo">${reviewBannerLogo}</g></defs><g aria-hidden="true"><ellipse cx="1050" cy="134" rx="148" ry="110" fill="url(#logoHalo)"/><g opacity="${dark ? ".20" : ".13"}" filter="url(#logoGlow)"><use href="#brandLogo" transform="translate(976 63) scale(.287109375)"/></g><use href="#brandLogo" transform="translate(976 63) scale(.287109375)" opacity="${dark ? ".30" : ".22"}"/></g>`;
+    : `<defs><radialGradient id="logoHalo"><stop stop-color="${accent}" stop-opacity="${themeValue("halo-opacity", ".14", ".09")}"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient><filter id="logoGlow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="13"/></filter><g id="brandLogo">${reviewBannerLogo}</g></defs><g aria-hidden="true"><ellipse cx="1050" cy="134" rx="148" ry="110" fill="url(#logoHalo)"/><g opacity="${themeValue("glow-opacity", ".20", ".13")}" filter="url(#logoGlow)"><use href="#brandLogo" transform="translate(976 63) scale(.287109375)"/></g><use href="#brandLogo" transform="translate(976 63) scale(.287109375)" opacity="${themeValue("logo-opacity", ".30", ".22")}"/></g>`;
   const svgTitle = [status, headlineFirst, headlineSecond, coverage, ...metrics]
     .filter(Boolean)
     .join(" · ");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="title"><title id="title">${escapeXml(svgTitle)}</title><defs><linearGradient id="background"><stop stop-color="${tint}"/><stop offset="1" stop-color="${background}"/></linearGradient></defs><rect width="${width}" height="${height}" rx="8" fill="url(#background)"/>${action ? `<path d="M2 8V${height - 8}" stroke="${accent}" stroke-width="4"/>` : ""}${logoEffect}<g font-family="Arial,Helvetica,sans-serif">${text(left, compact ? 38 : 43, status, 22, muted, ' font-weight="600" letter-spacing="2"')}${coverage ? text(compact ? left : width - left, compact ? 73 : 43, coverage, compact ? 22 : 20, muted, compact ? "" : ' text-anchor="end"') : ""}${text(left, compact ? 126 : 112, headlineFirst, compact ? 32 : 40, ink, ' font-weight="600" letter-spacing="-0.6"')}${headlineSecond ? text(left, compact ? 168 : 159, headlineSecond, compact ? 28 : 40, ink, ' font-weight="600" letter-spacing="-0.6"') : ""}${text(left, compact ? 211 : 195, note, 22, muted)}${metrics.length > 0 ? `<path d="M${left} ${compact ? 236 : 216}H${width - left}" stroke="${line}"/>` : ""}${metrics.map((metric, index) => text(left + (compact ? (index % 2) * ((width - left * 2) / 2) : index * 282), compact ? 277 + Math.floor(index / 2) * 48 : 255, metric, Math.min(compact ? 26 : 25, Math.floor((compact ? 200 : 264) / (metric.length * 0.58))), input.variant === "first" ? (metric.endsWith(" critical") ? (dark ? "#ff8f96" : "#ad2333") : metric.endsWith(" major") ? (dark ? "#e3b341" : "#7d4e00") : metric.endsWith(" info") ? muted : dark ? "#79c0ff" : "#0969da") : metric.endsWith(" resolved") ? (input.update.resolved > 0 ? (dark ? "#7ee787" : "#1a7f37") : muted) : metric.endsWith("not rechecked") ? (dark ? "#e3b341" : "#7d4e00") : accent, ' font-weight="600"')).join("")}</g></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="title"><title id="title">${escapeXml(svgTitle)}</title><defs><linearGradient id="background"><stop stop-color="${tint}"/><stop offset="1" stop-color="${background}"/></linearGradient></defs><rect width="${width}" height="${height}" rx="8" fill="url(#background)"/>${action ? `<path d="M2 8V${height - 8}" stroke="${accent}" stroke-width="4"/>` : ""}${logoEffect}<g font-family="Arial,Helvetica,sans-serif">${text(left, compact ? 38 : 43, status, 22, muted, ' font-weight="600" letter-spacing="2"')}${coverage ? text(compact ? left : width - left, compact ? 73 : 43, coverage, compact ? 22 : 20, muted, compact ? "" : ' text-anchor="end"') : ""}${text(left, compact ? 126 : 112, headlineFirst, compact ? 32 : 40, ink, ' font-weight="600" letter-spacing="-0.6"')}${headlineSecond ? text(left, compact ? 168 : 159, headlineSecond, compact ? 28 : 40, ink, ' font-weight="600" letter-spacing="-0.6"') : ""}${text(left, compact ? 211 : 195, note, 22, muted)}${metrics.length > 0 ? `<path d="M${left} ${compact ? 236 : 216}H${width - left}" stroke="${line}"/>` : ""}${metrics.map((metric, index) => text(left + (compact ? (index % 2) * ((width - left * 2) / 2) : index * 282), compact ? 277 + Math.floor(index / 2) * 48 : 255, metric, Math.min(compact ? 26 : 25, Math.floor((compact ? 200 : 264) / (metric.length * 0.58))), input.variant === "first" ? (metric.endsWith(" critical") ? themeValue("critical", "#ff8f96", "#ad2333") : metric.endsWith(" major") ? themeValue("major", "#e3b341", "#7d4e00") : metric.endsWith(" info") ? muted : themeValue("minor", "#79c0ff", "#0969da")) : metric.endsWith(" resolved") ? (input.update.resolved > 0 ? themeValue("resolved", "#7ee787", "#1a7f37") : muted) : metric.endsWith("not rechecked") ? themeValue("unverified", "#e3b341", "#7d4e00") : accent, ' font-weight="600"')).join("")}</g></svg>`;
+  if (!auto) return svg;
+  // Build declarations after metric rows have registered their colors too.
+  const declarations = (theme: "light" | "dark") =>
+    [...themeValues]
+      .map(([name, values]) => `--${name}:${values[theme]}`)
+      .join(";");
+  return svg.replace(
+    "<defs>",
+    `<style>:root{${declarations("light")}}@media (prefers-color-scheme: dark){:root{${declarations("dark")}}}</style><defs>`,
+  );
 }
 
 /** Canonical v1 URL also retains the installed legacy state/lang query. */

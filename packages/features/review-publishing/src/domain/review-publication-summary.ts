@@ -445,7 +445,7 @@ function renderBanner(
     )
   )
     return "";
-  const url = (theme: "light" | "dark", layout: "wide" | "compact") => {
+  const url = (layout: "wide" | "compact") => {
     const query = new URLSearchParams({
       state: input.reviewState!,
       variant: "first",
@@ -453,7 +453,7 @@ function renderBanner(
       major: String(counts.major),
       minor: String(counts.minor),
       info: String(counts.info),
-      theme,
+      theme: "auto",
       layout,
     });
     return escapeHtml(`${base}/review-banner/v1.svg?${query}`);
@@ -462,10 +462,8 @@ function renderBanner(
     input.reviewState === "complete" ? "Review complete" : "Review incomplete";
   return [
     "<picture>",
-    `<source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="${url("dark", "compact")}">`,
-    `<source media="(max-width: 600px)" srcset="${url("light", "compact")}">`,
-    `<source media="(prefers-color-scheme: dark)" srcset="${url("dark", "wide")}">`,
-    `<img src="${url("light", "wide")}" alt="${alt}" width="100%">`,
+    `<source media="(max-width: 600px)" srcset="${url("compact")}">`,
+    `<img src="${url("wide")}" alt="${alt}" width="100%">`,
     "</picture>",
   ].join("\n");
 }
