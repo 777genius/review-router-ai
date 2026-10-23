@@ -365,7 +365,7 @@ const filePath = "src/review-file-000.ts";
         expect(fixture.fakeGitHub.comments).toHaveLength(index + 1);
         expect(comment.user.login).toBe("reviewrouter-e2e[bot]");
         expect(comment.body).toContain(envelope.publishing.summary.body);
-        expect(comment.body).toContain("/review-banner/v2.svg?");
+        expect(comment.body).toContain("/review-banner/v1.svg?");
         expect(comment.body).toContain(
           index === 0 ? "variant=first" : "variant=update",
         );

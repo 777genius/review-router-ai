@@ -531,6 +531,72 @@ Emergency rollback is the only normal exception to "do not move `v1` manually".
 If used, record the incident, the old and new SHAs, and follow up with a fixed
 release workflow run. Never rewrite exact `v1.0.x` tags.
 
+### API rollback protocol preflight
+
+Rule: the control plane API may only be rolled back to a build that supports the
+contract of the current `workflow-v1` channel **and** every still-active review
+run. Before option 2 (or any API replacement) run the preflight from the target
+build's exact release checkout or target image:
+
+```bash
+node dist/apps/api/src/review-action-v2-operator-cli.js \
+  rollback protocol-preflight \
+  --channel-manifest /path/to/workflow-v1-manifest.json
+```
+
+Inputs:
+
+- **Target build descriptors** come from the build being rolled back to (the CLI
+  runs inside that checkout/image and reads its own compiled schema slots) —
+  never from the currently deployed production build.
+- **Channel manifest** is the Action manifest at the exact SHA `workflow-v1`
+  currently points to, read via Git
+  (`git show <workflow-v1-sha>:src/control-plane/generated/review-action-v2/manifest.json`).
+  The channel entry is resolved to `protocolVersion + schemaDigest +
+canonicalizerDigest`.
+- **Active runs inventory** comes from the existing operational records:
+  active (non-expired) `ReviewRunAuthorization` rows and retained
+  (`state=registered`) `ProducerRelease` rows, plus the configured producer
+  release attestations env
+  (`REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON`).
+
+Outcomes:
+
+| Result                                   | Meaning                                                                                                                                 | Action                                   |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `rollback_protocol_preflight_passed`     | Target supports the whole required set                                                                                                  | Proceed with the rollback                |
+| `rollback_protocol_preflight_rejected`   | Target lacks a required contract                                                                                                        | Stop before replacing the API            |
+| `rollback_protocol_preflight_not_proven` | Inventory incomplete (missing channel manifest, unreadable attestations, attestation missing/ambiguous or disagreeing with a DB record) | Stop — a safe rollback is **not proven** |
+
+If the inventory is incomplete, a safe rollback is not considered proven; do not
+replace the API. On incompatibility or an unproven inventory, practical recovery
+paths are: pick a different target build that supports the required set, or ship
+a fixed release forward. The scheduled channel-protocol monitor
+(`monitor-workflow-channel-protocol.yml`) reports any bypass of this procedure;
+it never deploys or rolls back anything by itself.
+
+Schema slots are additive: both compiled slots stay in place, legacy slot bytes
+are never regenerated or edited, and removing or replacing a slot requires a
+separate check of all still-active consumers first. This deliberately restricts
+the set of allowed rollbacks.
+
+### Coordinated Action/API emergency rollback
+
+Rolling back the API to a build that does not support the current channel (for
+example when the deployed API build is fundamentally bad and no compatible older
+build exists) is an emergency procedure, separate from the normal rollback
+above:
+
+1. Stop new review runs (block the exact runtime version or disable the feature).
+2. Drain in-flight runs to completion (or revoke their authorizations).
+3. Roll `workflow-v1` back to a channel whose contract the target API supports,
+   and verify the channel SHA after the move.
+4. Only then replace the API deployment.
+
+Record the incident, the old and new SHAs for both the channel and the API
+deployment. Do not use this procedure to avoid the preflight in normal
+rollbacks.
+
 ### Workflow channel rollback — 2026-10-15
 
 Public release 177 (`175e3a1f86712373226e767561c3cd0d32066228`) moved

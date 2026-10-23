@@ -100,7 +100,7 @@ const query = new URLSearchParams({
   info: "0",
   theme: "light",
 });
-const imageUrl = `${origin.origin}/review-banner/v2.svg?${query}`;
+const imageUrl = `${origin.origin}/review-banner/v1.svg?${query}`;
 const image = await fetch(imageUrl, { signal: AbortSignal.timeout(30_000) });
 assert.equal(
   image.status,
@@ -124,7 +124,7 @@ const unrelatedValidator = await fetch(imageUrl, {
 });
 assert.equal(unrelatedValidator.status, 200);
 const invalidImage = await fetch(
-  `${origin.origin}/review-banner/v2.svg?state=complete&variant=first&critical=-1`,
+  `${origin.origin}/review-banner/v1.svg?state=complete&variant=first&critical=-1`,
   { signal: AbortSignal.timeout(30_000) },
 );
 assert.equal(invalidImage.status, 400);
@@ -265,7 +265,7 @@ assert.match(broken.body, /Full agent-readable evidence/);
 assert.match(broken.body, /1 critical/);
 assert.match(broken.body, /e2e-unavailable-banner/);
 const unavailable = await fetch(
-  `${origin.origin}/e2e-unavailable-banner/review-banner/v2.svg?${query}`,
+  `${origin.origin}/e2e-unavailable-banner/review-banner/v1.svg?${query}`,
   { signal: AbortSignal.timeout(30_000) },
 );
 assert.equal(unavailable.status, 404);
