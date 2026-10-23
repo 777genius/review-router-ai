@@ -2,11 +2,12 @@
 
 Recorded: 2026-10-23.
 
-Status: owner requirements and design direction for the next memory phase.
-This document records the owner's clarification; it is not an accepted
-architecture decision, a provider selection, or evidence of a production rollout.
-The existing memory ADRs remain the implementation baseline until an explicit
-replacement decision is approved.
+Status: owner requirements and selected direction for the next memory phase.
+On 2026-10-23 the owner selected **self-hosted Hindsight** as the first complete
+memory backend, behind provider-neutral application contracts. This selection
+is not evidence of a production rollout or completed qualification. The current
+assignment is deep integration planning and independent criticism; runtime
+changes and migration follow the resulting reviewed plan.
 
 ## Intended outcome
 
@@ -32,11 +33,14 @@ backend offers a faster, more useful and maintainable result. Preserve existing
 code only where it serves a necessary product responsibility, not because it
 already exists. A local Prisma memory backend is not a required fallback.
 
-The current assignment is parallel research and independent criticism of that
-replacement direction. This authorizes reconsidering the old memory architecture;
-it does not select a vendor, approve an unspecified source-retention change or
-authorize deleting customer data. Provider selection, migration and the concrete
-implementation plan remain to be qualified.
+The owner subsequently selected Hindsight on their own server and requested a
+deep plan for removing the current implementation and integrating the complete
+backend. All provider implementation must remain behind adapters; domain,
+application workflows and frontend must not acquire Hindsight-specific models.
+The owner explicitly permits removing unnecessary custom-engine code. This does
+not authorize discarding customer records or silently changing raw-source
+retention. The concrete architecture, migration, operational profile and native
+behavior must be researched and challenged before implementation.
 
 ## Owner requirements
 
@@ -110,16 +114,17 @@ an approved project rule. Automatic behavior must fit the chosen approval policy
 Assign one authoritative owner to each mutable record. ReviewRouter's database
 can keep users, permissions, source identities, approval decisions and audit
 metadata without independently maintaining a second writable memory engine.
-Whether confirmed text and revisions remain canonical in PostgreSQL or move to
-the provider is an open architecture decision. Audit snapshots are not a second
-editable current state.
+The selected direction moves current knowledge ownership to the complete
+provider; PostgreSQL is not to remain a parallel editable memory store. The
+replacement plan must specify native revision fidelity, publication authority
+and recovery metadata. Audit snapshots are not a second editable current state.
 
 Provider independence and provider optionality are different choices. A local
 Prisma-based memory fallback is not required merely to achieve Clean
 Architecture. Existing configuration and behavior are unchanged by this note.
-Decide explicitly whether memory requires a configured backend,
-can be disabled, or offers a deliberately limited local mode. Do not silently
-represent a reduced mode as having the selected backend's full capabilities.
+The replacement is to use a configured complete backend or be disabled.
+Ordinary reviews must continue without memory when it is unavailable. A local
+Prisma memory implementation is not a required runtime fallback.
 
 Prefer small contracts for actual use cases and explicit optional capabilities.
 Do not force every provider to implement every advanced feature, or hide
@@ -159,9 +164,9 @@ Research follow-up: [Full memory backend replacement](../spikes/2026-10-23-full-
 
 ## Provider evaluation context
 
-- Evaluate Hindsight as a candidate for a complete memory provider. An
-  extraction-only experiment can be an early qualification step, but must not
-  replace evaluation of its useful end-to-end memory lifecycle.
+- Hindsight is now the owner's selected complete backend, hosted on their own
+  server. Qualification must cover its full useful lifecycle; an extraction-only
+  experiment does not fulfill the selection.
 - Infinity Context is already integrated as an optional SDK search adapter.
   Its role as a complete memory provider remains a candidate for separate
   qualification; the search integration does not prove that its full memory
@@ -169,13 +174,14 @@ Research follow-up: [Full memory backend replacement](../spikes/2026-10-23-full-
 - The owner reports that Infinity Context already has Cognee/Graphiti adapters,
   possibly incomplete. Record this as owner-provided context. Their
   implementation was not inspected or requalified for this clarification.
-- No provider is selected by this document. Separate native OSS capabilities,
-  paid-service capabilities and behavior actually verified in our integration.
+- The selection is self-hosted OSS Hindsight, not its paid managed service.
+  Separate native capabilities from behavior actually verified in our integration.
+  Model hosting and permitted data egress require their own operational profile.
 
 ## Next design questions
 
-1. Which backend best handles our representative learn, correct, retrieve,
-   revalidate and delete scenarios?
+1. Does the pinned Hindsight integration meet our representative learn, correct,
+   retrieve, revalidate and delete scenarios without rebuilding an engine?
 2. Which component owns each kind of memory, confirmed text, revision and
    derived knowledge, and how is that state recovered or migrated?
 3. How do workspace and repository scopes, groups and approvals map to the
