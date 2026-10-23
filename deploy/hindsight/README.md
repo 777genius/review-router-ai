@@ -103,10 +103,30 @@ receipt path. The plan names `profile: docker-complete-inventory-v1`, the stored
 forget binding, `nativeBankId`, an authoritative
 `io.reviewrouter.hindsight.deployment=...` label, every executor container ID,
 the API container ID, the subset of current containers to restart, tracked native
-operation UUIDs, Docker PostgreSQL container/port/database/admin user, and an
+operation UUIDs, `deploymentLockPath`, `sourceInventoryPath`, and an
 authenticated `routerPauseCheckUrl`. API/worker containers carry role labels
 `io.reviewrouter.hindsight.role=api|worker`. The initial host profile requires
-the native DB URL to point at the observed loopback PostgreSQL17 process.
+the native DB URL to point at a loopback PostgreSQL17 process. Every read-only SQL
+observation connects through the **actual inspected API DSN** from the exact native
+image; no plan-selected PostgreSQL container can supply absence evidence.
+
+The supported deployment mechanism is standalone Docker with Swarm inactive,
+automatic container restart disabled (`--restart=no`), and no Compose, Swarm or
+Kubernetes reconciler. Create an operator-owned mode0700 directory and use the
+same mode0600 `deploymentLockPath` for every launch, start, stop, replacement and
+cleanup operation. The executable launcher acquires a real Linux `flock`:
+
+```sh
+node scripts/hindsight-e2e/deployment-lock.ts /srv/reviewrouter/hindsight-operator/deployment.lock docker start EXACT_CONTAINER_ID
+```
+
+Run every deployment mutation through that wrapper. The cleanup CLI acquires and
+holds the same lock through cleanup and restart, checks the lock inode and actual
+OS exclusion, and repeatedly verifies the complete Docker inventory and each
+expected stopped/running process state. The current API and at least one separate
+worker must restart. A host with an unowned launcher, reconciler or unknown replica
+is unsupported. A privileged administrator bypassing the agreed deployment
+controller is outside this host profile's guarantee.
 
 Supply `HINDSIGHT_OPERATOR_NATIVE_SERVICE_KEY` and a **different**
 `REVIEW_ROUTER_MEMORY_OPERATOR_TOKEN`. Supply an independently managed Ed25519
@@ -114,8 +134,21 @@ private key file (mode 0600), public key file and registered key ID via
 `HINDSIGHT_CLEANUP_SIGNING_PRIVATE_KEY_FILE`,
 `HINDSIGHT_CLEANUP_SIGNING_PUBLIC_KEY_FILE` and
 `HINDSIGHT_CLEANUP_SIGNING_KEY_ID`. The signing key is never the native service key.
-The pause endpoint returns the current server-derived `binding` and
-`submissionsPaused: true`; a plan-supplied pause boolean is insufficient.
+The pause endpoint returns the current server-derived `binding`,
+`submissionsPaused: true`, and `maintenance: {generation, epoch, paused:true}`.
+The numeric `binding.pauseEpoch` must equal that live durable maintenance epoch.
+The Router pause operation first obtains its exclusive transport drain barrier;
+a plan-supplied pause boolean is insufficient.
+
+Before any target deletion, the CLI writes a mode0600, signed and fsynced inventory
+of nonempty source fact IDs, related observation IDs and the recursively closed
+operation graph to `sourceInventoryPath`. Keep this file across retries. A retry
+authenticates and reuses the same command/generation/pause-bound inventory, so
+already-deleted facts cannot make observation-history verification vacuous. An
+absent document without authenticated pre-delete inventory, a partial/corrupt
+inventory or changed source/operation set leaves cleanup pending. The file contains
+identities and proof metadata, without approved prose. Never replace it with an
+empty inventory to force completion.
 
 The CLI observes exit/session/configuration/queued-sentinel/native absence and
 restart readiness itself. It signs only after every check succeeds; any failure
@@ -132,6 +165,8 @@ inventory makes this profile unsupported. Mixed-source retain batches, more
 than 1,024 relevant operation identities, missing history/evidence or failed
 restart readiness leave cleanup pending. The CLI scans current and archived
 source facts, observations and public observation-history support. It provides
+read-only checks of persisted history for known source and observation identities,
+including history whose observation is already absent from the public API. It provides
 no semantic erasure repair and does not claim model-generated old prose has been
 removed when native evidence cannot establish that postcondition.
 

@@ -26,6 +26,19 @@ export interface HindsightCleanupProof {
   readonly documentId: string;
   readonly deploymentInventoryDigest: string;
   readonly deploymentExecutorCount: number;
+  readonly deploymentFence: {
+    readonly profile: "standalone-docker-flock-v1";
+    readonly heldAt: string;
+    readonly verifiedAt: string;
+    readonly swarmInactive: true;
+    readonly automaticRestartDisabled: true;
+  };
+  readonly sourceInventory: {
+    readonly digest: string;
+    readonly sourceFactCount: number;
+    readonly observationCount: number;
+    readonly capturedAt: string;
+  };
   readonly pauseObservedAt: string;
   readonly executors: readonly {
     readonly containerId: string;
@@ -100,7 +113,7 @@ export function verifyHindsightCleanupReceipt(input: unknown, expected: Hindsigh
     const proof = input.proof;
     const encoded = canonicalHindsightCleanup(proof);
     if (encoded.length > 65_536 || proof.schema !== "hindsight-cleanup-proof/v1" || proof.profile !== "docker-complete-inventory-v1" || !object(proof.binding)) return false;
-    if (canonicalHindsightCleanup(proof.binding) !== canonicalHindsightCleanup(expected) || !text(expected.namespace) || !text(expected.generation) || !text(expected.entryId) || !text(expected.pauseEpoch) || !uuid(expected.forgetCommandId) || !digest(expected.scopeDigest) || !digest(expected.bankIdDigest) || !image(expected.imageDigest)) return false;
+    if (canonicalHindsightCleanup(proof.binding) !== canonicalHindsightCleanup(expected) || !text(expected.namespace) || !text(expected.generation) || !text(expected.entryId) || !/^(0|[1-9][0-9]*)$/.test(expected.pauseEpoch) || !uuid(expected.forgetCommandId) || !digest(expected.scopeDigest) || !digest(expected.bankIdDigest) || !image(expected.imageDigest)) return false;
     const publicKeyPem = publicKeys[input.keyId];
     if (!publicKeyPem) return false;
     const key = createPublicKey(publicKeyPem);
@@ -131,7 +144,10 @@ export function verifyHindsightCleanupReceipt(input: unknown, expected: Hindsigh
     const absence = (value: unknown): value is HindsightCleanupAbsence => object(value) && value.documentAbsent === true && value.sourceFactCount === 0 && value.evidenceSourceCount === 0 && value.operationPayloadCount === 0 && Number.isFinite(time(value.observedAt));
     if (!absence(proof.beforeRestart) || !absence(proof.afterRestart)) return false;
     const before = time(proof.beforeRestart.observedAt); const restarted = time(proof.restartObservedAt); const after = time(proof.afterRestart.observedAt);
-    return Number.isFinite(restarted) && sentinelEnd <= before && before <= restarted && restarted + 3 * sentinel.pollIntervalMs <= after && after <= completed;
+    const fence = proof.deploymentFence; const sources = proof.sourceInventory;
+    if (!object(fence) || fence.profile !== "standalone-docker-flock-v1" || fence.swarmInactive !== true || fence.automaticRestartDisabled !== true || !object(sources) || !digest(sources.digest) || !integer(sources.sourceFactCount, 1, 10_000) || !integer(sources.observationCount, 0, 10_000)) return false;
+    const held = time(fence.heldAt); const verified = time(fence.verifiedAt); const captured = time(sources.capturedAt);
+    return [held, verified, captured, restarted].every(Number.isFinite) && held <= paused && after <= verified && verified <= completed && captured <= before && sentinelEnd <= before && before <= restarted && restarted + 3 * sentinel.pollIntervalMs <= after && after <= completed;
   } catch { return false; }
 }
 

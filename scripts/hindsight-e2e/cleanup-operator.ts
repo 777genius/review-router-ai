@@ -5,6 +5,9 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { canonicalHindsightCleanup, hindsightCleanupBankDigest, hindsightCleanupDigest, signHindsightCleanupReceipt, verifyHindsightCleanupReceipt, type HindsightCleanupAbsence, type HindsightCleanupBinding, type HindsightCleanupProof } from '../../packages/features/memory/src/infrastructure/hindsight/hindsight-cleanup-receipt.ts';
 import { dockerCommand as docker, eventually, freePort, pause } from './native-runtime.ts';
+import { acquireDeploymentLock } from './deployment-lock.ts';
+import { assertExecutorPhase, nativeSqlObserverArguments, type DockerExecutorInspection } from './operator-host.ts';
+import { leafFirstOperations, operationClosure, persistCleanupInventory, readCleanupInventory, signCleanupInventory, type CleanupOperation } from './cleanup-inventory.ts';
 
 interface OperatorPlan {
   readonly profile: 'docker-complete-inventory-v1';
@@ -15,11 +18,12 @@ interface OperatorPlan {
   readonly apiContainerId: string;
   readonly restartContainerIds: readonly string[];
   readonly trackedOperationIds: readonly string[];
-  readonly database: { readonly containerId: string; readonly port: number; readonly name: string; readonly adminUser: string };
   readonly routerPauseCheckUrl: string;
+  readonly deploymentLockPath: string;
+  readonly sourceInventoryPath: string;
 }
-type Inspection = { Id: string; Image: string; Config: { Env: string[]; Cmd: string[]; Labels: Record<string, string> }; State: { Running: boolean; Pid: number; Status: string; ExitCode: number } };
-type Operation = { operation_id: string; status: string; task_payload?: unknown; result_metadata?: { parent_operation_id?: string }; child_operations?: Operation[] };
+type Inspection = DockerExecutorInspection;
+type Operation = CleanupOperation;
 type Fact = { id: string; source_memory_ids?: string[] };
 type List<T> = { items: T[]; total: number };
 const stamp = () => new Date().toISOString();
@@ -42,45 +46,79 @@ function documentIds(value: unknown): string[] {
 
 /** Real Docker host observations only; no caller-provided exit/absence booleans. */
 export async function runDockerHindsightCleanup(plan: OperatorPlan, credentials: { readonly nativeServiceKey: string; readonly routerOperatorToken: string; readonly signingKeyId: string; readonly signingPrivateKey: string; readonly signingPublicKey: string }) {
+  const lock = await acquireDeploymentLock(plan.deploymentLockPath);
+  try { return await runLockedCleanup(plan, credentials, lock); } finally { await lock.close(); }
+}
+
+async function runLockedCleanup(plan: OperatorPlan, credentials: { readonly nativeServiceKey: string; readonly routerOperatorToken: string; readonly signingKeyId: string; readonly signingPrivateKey: string; readonly signingPublicKey: string }, deploymentLock: Awaited<ReturnType<typeof acquireDeploymentLock>>) {
+  const deploymentFenceHeldAt = stamp();
   assert.equal(plan.profile, 'docker-complete-inventory-v1');
   assert.equal(hindsightCleanupBankDigest(plan.nativeBankId), plan.binding.bankIdDigest);
   assert(safeName(plan.nativeBankId) && /^io\.reviewrouter\.hindsight\.deployment=[a-zA-Z0-9_.-]+$/.test(plan.deploymentLabel));
   assert(plan.executorContainerIds.length > 0 && plan.executorContainerIds.length <= 64 && plan.executorContainerIds.every(id) && new Set(plan.executorContainerIds).size === plan.executorContainerIds.length);
-  assert(plan.executorContainerIds.includes(plan.apiContainerId) && plan.restartContainerIds.length > 0 && plan.restartContainerIds.every(container => plan.executorContainerIds.includes(container)));
+  assert(plan.executorContainerIds.includes(plan.apiContainerId) && plan.restartContainerIds.includes(plan.apiContainerId) && new Set(plan.restartContainerIds).size === plan.restartContainerIds.length && plan.restartContainerIds.every(container => plan.executorContainerIds.includes(container)));
+  assert(/^(0|[1-9][0-9]*)$/.test(plan.binding.pauseEpoch), 'Pause must bind the actual durable numeric maintenance epoch');
   assert(plan.trackedOperationIds.length <= 1024 && plan.trackedOperationIds.every(value => /^[a-f0-9-]{36}$/i.test(value)));
-  assert(id(plan.database.containerId) && Number.isSafeInteger(plan.database.port) && plan.database.port > 0 && plan.database.port < 65536 && safeName(plan.database.name) && safeName(plan.database.adminUser));
   assert(credentials.nativeServiceKey && credentials.routerOperatorToken && credentials.nativeServiceKey !== credentials.routerOperatorToken && credentials.signingPrivateKey !== credentials.nativeServiceKey);
   const pauseUrl = new URL(plan.routerPauseCheckUrl);
   assert(pauseUrl.protocol === 'https:' || pauseUrl.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(pauseUrl.hostname));
+  let cleanupContainerId: string | undefined;
   const inspect = async (container: string): Promise<Inspection> => JSON.parse(await docker(['inspect', '--format', '{{json .}}', container])) as Inspection;
-  const inspectAll = async () => {
-    const containers = (await docker(['ps', '--all', '--no-trunc', '--filter', `label=${plan.deploymentLabel}`, '--format', '{{.ID}}'])).trim().split('\n').filter(Boolean);
+  const inspectAll = async (phase: 'initial' | 'stopped' | 'restarted') => {
+    await deploymentLock.assertHeld();
+    const swarm = JSON.parse(await docker(['info', '--format', '{{json .Swarm}}'])) as { LocalNodeState?: string };
+    assert.equal(swarm.LocalNodeState, 'inactive', 'Swarm reconciliation is unsupported by this standalone host profile');
+    const containers = (await docker(['ps', '--all', '--no-trunc', '--format', '{{.ID}}'])).trim().split('\n').filter(Boolean);
+    assert(containers.length <= 512, 'Standalone host inventory exceeds the bounded inspection profile');
+    const records: Inspection[] = [];
+    for (const container of containers) records.push(await inspect(container));
+    const apiRecord = records.find(record => record.Id === plan.apiContainerId); assert(apiRecord);
+    const databaseIdentity = (record: Inspection) => {
+      const setting = record.Config.Env?.find(value => value.startsWith('HINDSIGHT_API_DATABASE_URL='));
+      if (!setting) return undefined;
+      const url = new URL(setting.slice('HINDSIGHT_API_DATABASE_URL='.length));
+      return `${url.hostname}:${url.port || 5432}${url.pathname}`;
+    };
+    const expectedDatabase = databaseIdentity(apiRecord); assert(expectedDatabase);
     const native: Inspection[] = [];
-    for (const container of containers) {
-      const record = await inspect(container);
+    const [labelKey, labelValue] = plan.deploymentLabel.split('=');
+    for (const record of records) {
+      if (record.Id === cleanupContainerId) {
+        assert(record.Image === plan.binding.imageDigest && record.Config.Cmd?.[0] === 'hindsight-api', 'Private cleanup observer identity drift');
+        continue;
+      }
       const role = record.Config.Labels?.['io.reviewrouter.hindsight.role'];
-      if (role === 'api' || role === 'worker' || record.Image === plan.binding.imageDigest) native.push(record);
+      if (record.Config.Labels?.[labelKey!] === labelValue || record.Image === plan.binding.imageDigest || databaseIdentity(record) === expectedDatabase) {
+        assert(record.Config.Labels?.[labelKey!] === labelValue, 'An executor sharing this image/database is outside the authoritative deployment label');
+        assert(role === 'api' || role === 'worker'); native.push(record);
+      }
     }
     assert.deepEqual(native.map(record => record.Id).sort(), [...plan.executorContainerIds].sort(), 'Executor inventory drift; no receipt can be issued');
     assert(native.every(record => record.Image === plan.binding.imageDigest), 'An unqualified old executor image remains');
+    assertExecutorPhase(native, plan.restartContainerIds, phase);
     return native;
   };
   async function checkPause() {
     const response = await fetch(pauseUrl, { headers: { Authorization: `Bearer ${credentials.routerOperatorToken}` }, signal: AbortSignal.timeout(5_000) });
     assert.equal(response.status, 200, 'Current Router pause could not be verified');
-    const state = await response.json() as { binding: HindsightCleanupBinding; submissionsPaused: boolean };
+    const state = await response.json() as { binding: HindsightCleanupBinding; submissionsPaused: boolean; maintenance: { generation: string; epoch: string; paused: boolean } };
     assert.equal(state.submissionsPaused, true);
     assert.equal(canonicalHindsightCleanup(state.binding), canonicalHindsightCleanup(plan.binding), 'Router pause binding changed');
+    assert.equal(state.maintenance.generation, plan.binding.generation); assert.equal(state.maintenance.epoch, plan.binding.pauseEpoch); assert.equal(state.maintenance.paused, true);
   }
   await checkPause();
   const pauseObservedAt = stamp();
-  const inventory = await inspectAll();
+  const inventory = await inspectAll('initial');
   const api = inventory.find(record => record.Id === plan.apiContainerId)!;
+  assert.equal(api.Config.Labels['io.reviewrouter.hindsight.role'], 'api');
+  assert(inventory.some(record => plan.restartContainerIds.includes(record.Id) && record.Config.Labels['io.reviewrouter.hindsight.role'] === 'worker'), 'Restart must include a separately observed worker');
   const originalEnvironment = Object.fromEntries(api.Config.Env.filter(value => value.startsWith('HINDSIGHT_API_')).map(value => { const equal = value.indexOf('='); return [value.slice(0, equal), value.slice(equal + 1)]; }));
   const configuredDsn = originalEnvironment.HINDSIGHT_API_DATABASE_URL; assert(configuredDsn);
   const databaseUrl = new URL(configuredDsn);
-  assert(['127.0.0.1', 'localhost'].includes(databaseUrl.hostname) && Number(databaseUrl.port || 5432) === plan.database.port && databaseUrl.pathname === `/${plan.database.name}`, 'Docker DB session observer is not bound to the native database');
-  const sql = async (statement: string) => (await docker(['exec', plan.database.containerId, 'psql', '-U', plan.database.adminUser, '-p', String(plan.database.port), '-d', plan.database.name, '-At', '-v', 'ON_ERROR_STOP=1', '-c', statement])).trim();
+  assert(['127.0.0.1', 'localhost'].includes(databaseUrl.hostname), 'Initial Docker host profile requires a loopback PostgreSQL endpoint');
+  // Connect through the actual API DSN, never a plan-selected database container.
+  // Even an identically named DB in another container cannot supply this proof.
+  const sql = async (statement: string) => (await docker(nativeSqlObserverArguments(configuredDsn, plan.binding.imageDigest, statement))).trim();
   assert(Number(await sql('SHOW server_version_num')) >= 170000 && Number(await sql('SHOW server_version_num')) < 180000);
   const executorRecords: HindsightCleanupProof['executors'][number][] = [];
   for (const record of inventory) {
@@ -93,14 +131,15 @@ export async function runDockerHindsightCleanup(plan: OperatorPlan, credentials:
     assert.equal(stopped.State.Running, false); assert.equal(stopped.State.Pid, 0); assert.equal(stopped.State.Status, 'exited');
     executorRecords.push({ containerId: record.Id, imageDigest: record.Image, databaseApplicationName: applicationName, pidBefore: record.State.Pid, pidAfter: 0, running: false, exitCode: stopped.State.ExitCode, observedAt: stamp() });
   }
-  await inspectAll();
-  await eventually(async () => await sql("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND backend_type='client backend' AND pid<>pg_backend_pid()") === '0' ? true : undefined, 'all native DB sessions closed');
+  await inspectAll('stopped');
+  await eventually(async () => await sql("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()") === '0' ? true : undefined, 'all native DB sessions closed');
   const sessionsClosedAt = stamp();
   const port = await freePort();
   const cleanupName = `rr-hindsight-cleanup-${randomUUID()}`;
   databaseUrl.searchParams.set('application_name', cleanupName);
   const environment = { ...originalEnvironment, HINDSIGHT_API_DATABASE_URL: databaseUrl.toString(), HINDSIGHT_API_HOST: '127.0.0.1', HINDSIGHT_API_PORT: String(port), HINDSIGHT_API_WORKER_ENABLED: 'false', HINDSIGHT_API_RUN_MIGRATIONS_ON_STARTUP: 'false', HINDSIGHT_API_CONSOLIDATION_RECONCILE_INTERVAL_SECONDS: '0', HINDSIGHT_API_MENTAL_MODEL_REFRESH_TICK_SECONDS: '0', HINDSIGHT_API_RETENTION_SWEEP_INTERVAL_SECONDS: '0', HINDSIGHT_API_OPERATION_CLEANUP_INTERVAL_SECONDS: '0', HINDSIGHT_API_LLM_TRACE_ENABLED: 'false', HINDSIGHT_API_OTEL_TRACES_ENABLED: 'false', HINDSIGHT_API_AUDIT_LOG_ENABLED: 'false', HINDSIGHT_API_LLM_DEBUG_DUMP_4XX: 'false', HINDSIGHT_API_MCP_ENABLED: 'false', HINDSIGHT_API_ENABLE_FILE_UPLOAD_API: 'false', HINDSIGHT_API_ACCESS_LOG: 'false' };
   await docker(['run', '--detach', '--name', cleanupName, '--network', 'host', ...Object.entries(environment).flatMap(([key, value]) => ['--env', `${key}=${value}`]), plan.binding.imageDigest, 'hindsight-api']);
+  cleanupContainerId = (await inspect(cleanupName)).Id;
   const base = `http://127.0.0.1:${port}`;
   const document = `entry-${plan.binding.entryId}`;
   const bankPath = (bank = plan.nativeBankId) => `/v1/default/banks/${encodeURIComponent(bank)}`;
@@ -124,8 +163,13 @@ export async function runDockerHindsightCleanup(plan: OperatorPlan, credentials:
       }
       return all;
     };
+    await checkPause(); await inspectAll('stopped');
+    const priorInventory = await readCleanupInventory(plan.sourceInventoryPath, plan.binding, credentials.signingKeyId, credentials.signingPublicKey);
+    const sourceDocument = await request(`${bankPath()}/documents/${encodeURIComponent(document)}`, 'GET', undefined, [200, 404]);
+    assert(sourceDocument || priorInventory, 'Document is already absent without authenticated pre-delete source inventory; cleanup must stay pending');
     const sourceFacts = [...await list<Fact>(`/memories/list?document_id=${encodeURIComponent(document)}&state=valid`), ...await list<Fact>(`/memories/list?document_id=${encodeURIComponent(document)}&state=invalidated`)];
-    const sourceIds = new Set(sourceFacts.map(fact => fact.id));
+    const sourceIds = new Set(priorInventory?.sourceFactIds ?? sourceFacts.map(fact => fact.id));
+    assert(sourceIds.size > 0 && sourceFacts.every(fact => sourceIds.has(fact.id)), 'Source inventory changed after its durable capture');
     const operations: Operation[] = []; let operationTotal = Infinity;
     while (operations.length < operationTotal) {
       const page = await request<{ operations: Operation[]; total: number }>(`${bankPath()}/operations?limit=100&offset=${operations.length}`);
@@ -137,15 +181,23 @@ export async function runDockerHindsightCleanup(plan: OperatorPlan, credentials:
       const state = await request<Operation>(`${bankPath()}/operations/${operation.operation_id}?include_payload=true`);
       assert(state); full.set(state.operation_id, state);
     }
-    const related = new Set(plan.trackedOperationIds);
-    for (const operation of full.values()) if (containsDocument(operation, document)) related.add(operation.operation_id);
-    for (const operationId of [...related]) {
-      const operation = full.get(operationId);
-      if (operation?.result_metadata?.parent_operation_id) related.add(operation.result_metadata.parent_operation_id);
-    }
-    for (const operationId of [...related]) for (const child of full.get(operationId)?.child_operations ?? []) related.add(child.operation_id);
-    assert(related.size <= 1024, 'Cleanup exceeds the bounded first-profile operation inventory');
+    const seeds = new Set([...plan.trackedOperationIds, ...priorInventory?.operationIds ?? []]);
+    for (const operation of full.values()) if (containsDocument(operation, document)) seeds.add(operation.operation_id);
+    const related = operationClosure(full, seeds);
+    if (priorInventory) assert([...related].every(operationId => priorInventory.operationIds.includes(operationId)), 'Native operation inventory changed after durable capture');
     for (const operationId of related) assert(documentIds(full.get(operationId)).every(value => value === document), 'Mixed-source native retain batch is unsupported by the first cleanup profile');
+    const observationIds = new Set(priorInventory?.observationIds ?? []);
+    for (const state of ['valid', 'invalidated']) for (const observation of await list<Fact>(`/memories/list?type=observation&state=${state}`)) {
+      const history = await request<unknown>(`${bankPath()}/memories/${observation.id}/history`, 'GET', undefined, [200, 404]);
+      if (observation.source_memory_ids?.some(source => sourceIds.has(source)) || containsId(history, sourceIds) || containsDocument(history, document)) {
+        assert(!priorInventory || observationIds.has(observation.id), 'A related observation appeared after inventory capture'); observationIds.add(observation.id);
+      }
+    }
+    const sourceInventory = priorInventory ?? { schema: 'hindsight-cleanup-inventory/v1' as const, binding: plan.binding, documentId: document, capturedAt: stamp(), sourceFactIds: [...sourceIds].sort(), observationIds: [...observationIds].sort(), operationIds: [...related].sort() };
+    if (!priorInventory) await persistCleanupInventory(plan.sourceInventoryPath, signCleanupInventory(sourceInventory, credentials.signingKeyId, credentials.signingPrivateKey));
+    // Authentication/readback and fsync must complete before the first target deletion.
+    assert(await readCleanupInventory(plan.sourceInventoryPath, plan.binding, credentials.signingKeyId, credentials.signingPublicKey));
+    await checkPause(); await inspectAll('stopped');
     const sentinelBank = `rr-cleanup-probe-${randomUUID()}`;
     await request(bankPath(sentinelBank), 'PUT', { name: 'Disposable no-execution probe' });
     await request(`${bankPath(sentinelBank)}/config`, 'PATCH', { updates: { audit_log_enabled: false } });
@@ -162,8 +214,7 @@ export async function runDockerHindsightCleanup(plan: OperatorPlan, credentials:
     const relevant = [...related].map(operationId => full.get(operationId)).filter((value): value is Operation => !!value);
     for (const operation of relevant) if (['pending', 'processing'].includes(operation.status)) await request(`${bankPath()}/operations/${operation.operation_id}`, 'DELETE', undefined, [200, 409]);
     await request(`${bankPath()}/documents/${encodeURIComponent(document)}`, 'DELETE', undefined, [200, 404]);
-    relevant.sort((a, b) => Number(Boolean(a.child_operations?.length)) - Number(Boolean(b.child_operations?.length)));
-    for (const operation of relevant) await request(`${bankPath()}/operations/${operation.operation_id}/delete`, 'DELETE', undefined, [200, 404]);
+    for (const operationId of leafFirstOperations(full, related)) await request(`${bankPath()}/operations/${operationId}/delete`, 'DELETE', undefined, [200, 404]);
     async function absence(): Promise<HindsightCleanupAbsence> {
       assert.equal(await request(`${bankPath()}/documents/${encodeURIComponent(document)}`, 'GET', undefined, [404]), null);
       for (const state of ['valid', 'invalidated']) {
@@ -174,11 +225,19 @@ export async function runDockerHindsightCleanup(plan: OperatorPlan, credentials:
           assert(!containsDocument(history, document) && !containsId(history, sourceIds), 'Observation history still exposes forgotten source evidence');
         }
       }
+      // Deleted observations have no public history endpoint. Inspect persisted history
+      // read-only as well; an inaccessible orphan cannot become a vacuous success.
+      const schema = originalEnvironment.HINDSIGHT_API_DATABASE_SCHEMA || 'public';
+      assert(/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(schema));
+      const knownObservations = [...observationIds].map(value => `'${value}'::uuid`).join(',');
+      const sources = [...sourceIds].map(value => `content::text LIKE '%${value}%'`).join(' OR ');
+      const observationMatch = knownObservations ? `observation_id IN (${knownObservations}) OR ` : '';
+      assert.equal(await sql(`SELECT count(*) FROM "${schema}".observation_history WHERE bank_id='${plan.nativeBankId}' AND (${observationMatch}${sources})`), '0', 'Persisted observation history still contains forgotten evidence');
       for (const operationId of related) await request(`${bankPath()}/operations/${operationId}?include_payload=true`, 'GET', undefined, [404]);
       return { documentAbsent: true, sourceFactCount: 0, evidenceSourceCount: 0, operationPayloadCount: 0, observedAt: stamp() };
     }
     const beforeRestart = await absence();
-    await checkPause(); await inspectAll();
+    await checkPause(); await inspectAll('stopped');
     await docker(['stop', '--time', '30', cleanupName]);
     for (const container of plan.restartContainerIds) await docker(['start', container]);
     for (const container of plan.restartContainerIds) {
@@ -201,9 +260,9 @@ export async function runDockerHindsightCleanup(plan: OperatorPlan, credentials:
     await eventually(async () => { try { return (await fetch(`${base}/health/ready`, { signal: AbortSignal.timeout(1000) })).ok ? true : undefined; } catch { return undefined; } }, 'post-restart observer readiness', 120_000);
     await pause(3 * pollIntervalMs);
     const afterRestart = await absence();
-    await checkPause(); await inspectAll();
+    await checkPause(); await inspectAll('restarted');
     const inventoryRecords = executorRecords.map(({ containerId, imageDigest, databaseApplicationName }) => ({ containerId, imageDigest, databaseApplicationName })).sort((a, b) => a.containerId.localeCompare(b.containerId));
-    const proof: HindsightCleanupProof = { schema: 'hindsight-cleanup-proof/v1', binding: plan.binding, profile: plan.profile, documentId: document, deploymentInventoryDigest: hindsightCleanupDigest(inventoryRecords), deploymentExecutorCount: executorRecords.length, pauseObservedAt, executors: executorRecords, sessionsClosedAt, openExecutorSessions: 0, cleanupApiImageDigest: plan.binding.imageDigest, cleanupConfiguration: { workerEnabled: false, migrationsEnabled: false, consolidationReconcileSeconds: 0, mentalModelRefreshSeconds: 0, retentionSweepSeconds: 0, operationCleanupSeconds: 0 }, queuedSentinel: { operationId: sentinelId, status: 'pending', startedAt: sentinelStarted, endedAt: sentinelEnded, pollIntervalMs, observedPolls }, removedOperationIds: [...related, sentinelId, ...(sentinel.child_operations ?? []).map(child => child.operation_id)], beforeRestart, restartObservedAt, restartImageDigest: plan.binding.imageDigest, afterRestart, completedAt: stamp() };
+    const proof: HindsightCleanupProof = { schema: 'hindsight-cleanup-proof/v1', binding: plan.binding, profile: plan.profile, documentId: document, deploymentInventoryDigest: hindsightCleanupDigest(inventoryRecords), deploymentExecutorCount: executorRecords.length, deploymentFence: { profile: 'standalone-docker-flock-v1', heldAt: deploymentFenceHeldAt, verifiedAt: stamp(), swarmInactive: true, automaticRestartDisabled: true }, sourceInventory: { digest: hindsightCleanupDigest(sourceInventory), sourceFactCount: sourceInventory.sourceFactIds.length, observationCount: sourceInventory.observationIds.length, capturedAt: sourceInventory.capturedAt }, pauseObservedAt, executors: executorRecords, sessionsClosedAt, openExecutorSessions: 0, cleanupApiImageDigest: plan.binding.imageDigest, cleanupConfiguration: { workerEnabled: false, migrationsEnabled: false, consolidationReconcileSeconds: 0, mentalModelRefreshSeconds: 0, retentionSweepSeconds: 0, operationCleanupSeconds: 0 }, queuedSentinel: { operationId: sentinelId, status: 'pending', startedAt: sentinelStarted, endedAt: sentinelEnded, pollIntervalMs, observedPolls }, removedOperationIds: [...related, sentinelId, ...(sentinel.child_operations ?? []).map(child => child.operation_id)], beforeRestart, restartObservedAt, restartImageDigest: plan.binding.imageDigest, afterRestart, completedAt: stamp() };
     const receipt = signHindsightCleanupReceipt(proof, credentials.signingKeyId, credentials.signingPrivateKey);
     assert(verifyHindsightCleanupReceipt(receipt, plan.binding, { [credentials.signingKeyId]: credentials.signingPublicKey }, new Date()), 'Observed evidence did not satisfy the receipt contract');
     return receipt;

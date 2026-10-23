@@ -6,6 +6,12 @@ on:
     paths:
       - deploy/hindsight/**
       - scripts/hindsight-e2e/**
+      - packages/features/memory/src/infrastructure/hindsight/**
+      - packages/features/memory/src/infrastructure/config/memory-provider-config.ts
+      - packages/features/memory/src/application/ports/memory-knowledge-provider-port.ts
+      - packages/features/memory/src/domain/**
+      - package.json
+      - pnpm-lock.yaml
       - .github/workflows/hindsight-memory-qualification.yml
 
 permissions:
@@ -49,7 +55,7 @@ jobs:
       - name: Verify exact bounded hardening and build derivative bytes
         shell: bash
         run: |
-          HINDSIGHT_SOURCE_CHECKOUT="$RUNNER_TEMP/hindsight-source" node --experimental-transform-types --import ./scripts/hindsight-e2e/register-native-runtime.ts --test scripts/hindsight-e2e/qualification.test.ts scripts/hindsight-e2e/cleanup-receipt.test.ts scripts/hindsight-e2e/provider-contract.test.ts
+          HINDSIGHT_SOURCE_CHECKOUT="$RUNNER_TEMP/hindsight-source" node --experimental-transform-types --import ./scripts/hindsight-e2e/register-native-runtime.ts --test scripts/hindsight-e2e/qualification.test.ts scripts/hindsight-e2e/cleanup-receipt.test.ts scripts/hindsight-e2e/provider-contract.test.ts scripts/hindsight-e2e/operator-safety.test.ts
           node scripts/hindsight-e2e/prepare-hardening.ts "$RUNNER_TEMP/hindsight-source" "$RUNNER_TEMP/hindsight-build"
           git -C "$RUNNER_TEMP/hindsight-source" apply --check "$GITHUB_WORKSPACE/deploy/hindsight/hardening.patch"
           native_base="$(docker image inspect --format '{{index .RepoDigests 0}}' ghcr.io/vectorize-io/hindsight-api:1.1.0)"

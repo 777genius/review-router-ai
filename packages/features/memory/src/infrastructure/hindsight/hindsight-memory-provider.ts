@@ -3,6 +3,7 @@ import { createMemoryBodyHash } from "../../domain/memory-body";
 import { MemoryKnowledgeError, memoryKnowledgeDigest, memoryKnowledgeScopeKey, memoryKnowledgeTopicsDigest, type MemoryEntryRef, type MemoryKnowledgeKind, type MemoryKnowledgeScope } from "../../domain/memory-knowledge";
 import type { MemoryKnowledgeReader, MemoryKnowledgeWriter, MemoryOperationObserver, MemoryProviderEntry, MemoryProviderOperation, MemoryProviderRecallItem, MemoryRequestControls } from "../../application/ports/memory-knowledge-provider-port";
 import type { MemoryProviderConfig } from "../config/memory-provider-config";
+import { hindsightMemoryBankId } from "./hindsight-scope";
 
 type Config = Extract<MemoryProviderConfig, { kind: "hindsight" }>;
 type Delivery = Parameters<MemoryKnowledgeWriter["submit"]>[0];
@@ -24,7 +25,7 @@ export class HindsightMemoryProvider implements MemoryKnowledgeReader, MemoryKno
   }
 
   private bank(scope: MemoryKnowledgeScope): string {
-    return `rr-${memoryKnowledgeDigest([this.config.namespace, this.config.generation, memoryKnowledgeScopeKey(scope)])}`;
+    return hindsightMemoryBankId(this.config, scope);
   }
 
   private path(scope: MemoryKnowledgeScope): { bank_id: string } { return { bank_id: this.bank(scope) }; }
