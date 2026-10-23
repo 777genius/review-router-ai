@@ -30,34 +30,62 @@ Image/audio/video, computer use,
 Параллельно ведутся три key-plan адаптера, Grok и общий UI. Общие контракты
 фиксируются один раз; готовый провайдер доставляется независимо от остальных.
 Подключение, выполнение review и доступность числовой квоты - отдельные capabilities.
-Неопределённая схема квоты отключает только её отображение, если вход и transport
-независимо квалифицированы.
+Неопределённое окно квоты скрывает только неподтверждённые цифры этого окна,
+если вход, transport и остальные окна независимо квалифицированы.
 
-## 2. Обязательное уточнение исходной оценки
+### Минимальный маршрут реализации
 
-Фраза «вход простой» относится к передаче ключа. Она не доказывает, что все
-персональные подписки разрешают автоматические SaaS-ревью и совместное использование.
-Проверка intended use выполняется в provider lane, без пользовательской анкеты.
+Один короткий общий контракт, затем четыре provider lanes и общий UI параллельно.
+Каждый lane сразу включает свой collector/normalizer лимитов; это не отдельный
+проект после подключения. Расширение SDK и private ports делать только в объёме,
+необходимом первому реальному consumer. Переписывание текущих четырёх providers,
+их записей в БД и всех существующих форм не является prerequisite.
 
-| Провайдер       | Подтверждено сейчас                                                                                                                                           | Условие включения в нашем продукте                                                                                                                                                           |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Kimi Code       | Ключ для сторонних coding tools; собственные продукты и командные интеграции документация направляет в Open Platform; требуется честная идентичность клиента. | Подтвердить именно автоматические review через наш relay и выбранную ownership/sharing модель. Новые Go не имеют coding-квоты; Plus+ и legacy отличаются.                                    |
-| GLM Coding Plan | FAQ ограничивает подписку официально поддержанными tools/products; ReviewRouter в опубликованном списке не найден.                                            | До подтверждения нашего сценария не включать подписочный профиль. Использование Codex как движка само по себе не доказывает допустимость SaaS-посредника.                                    |
-| MiniMax M Plan  | Допускаются совместимые AI tools; продукт предназначен для индивидуальной интерактивной работы, для production рекомендован PAYG.                             | Проверить серверные автоматические review и sharing; generic совместимость не равна подтверждению всех этих сценариев. Это неопределённость, а не утверждение о запрете любой автоматизации. |
-| Grok            | Есть официальный OAuth для subscription inference и сторонних tools.                                                                                          | Подтвердить разрешённый client/redirect, entitlement модели и personal/team principal для нашего deployment.                                                                                 |
+Один существующий joined harness доказывает цепочку, browser E2E - пользовательский
+flow; дополнительные tests нужны только для непокрытых parser/lifecycle рисков.
+Не добавлять новый framework, отдельный этап общего ресёрча, обязательную переписку
+с провайдерами, повторные review/CI или «полную миграцию на новую платформу».
+Существенную неизвестность проверять внутри соответствующего lane; она не задерживает
+остальные три. Ограничения доступа и фактические required checks сохраняются.
+
+## 2. Конкретные ограничения подписок
+
+Фраза «вход простой» относится к передаче ключа. Ограничения нужно сопоставить
+с конкретным tool, ключом и ownership; отсутствие названия ReviewRouter в списке
+само по себе не доказывает запрет запуска поддержанного Codex через relay.
+Это проверка provider lane по актуальным правилам, без пользовательской анкеты
+и без выдуманного требования всегда получать отдельное письменное разрешение.
+
+| Провайдер       | Подтверждено сейчас                                                                                                                                           | Условие включения в нашем продукте                                                                                                                                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Kimi Code       | Ключ для сторонних coding tools; собственные продукты и командные интеграции документация направляет в Open Platform; требуется честная идентичность клиента. | Подтвердить именно автоматические review через наш relay и выбранную ownership/sharing модель. Новые Go не имеют coding-квоты; Plus+ и legacy отличаются.                                                                          |
+| GLM Coding Plan | Codex официально поддержан. Usage Policy запрещает account sharing/multi-user access; Team Plan выдаёт каждому участнику отдельный key/seat.                  | Первый slice - персональное использование владельцем через реальный Codex. Один plan account не выдавать организации/пулу. Hosted relay сопоставить с фактическим сценарием, без автоматического запрета только из-за названия RR. |
+| MiniMax M Plan  | Допускаются совместимые AI tools; продукт предназначен для индивидуальной интерактивной работы, для production рекомендован PAYG.                             | Проверить серверные автоматические review и sharing; generic совместимость не равна подтверждению всех этих сценариев. Это неопределённость, а не утверждение о запрете любой автоматизации.                                       |
+| Grok            | Есть официальный OAuth для subscription inference и сторонних tools.                                                                                          | Подтвердить разрешённый client/redirect, entitlement модели и personal/team principal для нашего deployment.                                                                                                                       |
 
 Источники: [Kimi overview](https://www.kimi.com/code/docs/en/),
 [Kimi membership](https://www.kimi.com/code/docs/en/kimi-code/membership.html),
 [GLM FAQ](https://docs.z.ai/devpack/faq),
 [GLM tools](https://docs.z.ai/devpack/tool/others),
+[GLM Codex guide](https://docs.z.ai/devpack/tool/codex),
+[GLM Usage Policy](https://docs.z.ai/devpack/usage-policy),
+[GLM Team Plan](https://docs.z.ai/devpack/teamplan),
 [MiniMax FAQ](https://platform.minimax.io/docs/m-plan/faq),
 [xAI enterprise](https://docs.x.ai/build/enterprise),
 [xAI сторонняя OAuth-интеграция](https://x.ai/news/grok-kilocode).
 
 Не маскировать ReviewRouter под другой tool и не обходить ограничения User-Agent.
-Внешнее подтверждение может разрешать personal scope и не разрешать workspace
-sharing: такие capabilities включаются отдельно. Не отправлять запросы провайдерам
-от имени пользователя без отдельного поручения на переписку.
+Правила personal scope и multi-user sharing не смешивать. В первом GLM slice
+разрешён только personal workspace владельца; organization/operator grants
+не создаются и не принимаются при selection/admission. Ограничение проверить
+сервером при attach, изменении review config и создании execution, а не только
+скрыть кнопку Access. Для существующего исторического execution сохранить штатный
+порядок retirement/fencing, без изменения учтённых effects. Новых GLM подключений
+пока нет, поэтому миграция старых чужих account records не нужна.
+RR application применяет эту profile policy; Gateway не получает полномочий
+решать членство или роли workspace. Team Plan не отменяет правило «один seat -
+один участник»; его расширение не включать в первый slice.
+Не отправлять запросы провайдерам от имени пользователя без поручения на переписку.
 PAYG - отдельный продукт/профиль и отдельный выбор пользователя, не fallback при
 исчерпании подписки. Его реализация не добавляется молча в scope этого плана.
 
@@ -128,14 +156,16 @@ bounds и реальные auth methods. Gateway и native независимо 
 
 Безопасная projection содержит profile ID, provider identity/label, plan label,
 region label, public protocol, qualified model IDs, поддержанные auth methods,
-completion input kind, reconnect и доступность limits/sharing capabilities.
+completion input kind, reconnect и техническую доступность limits.
 Для qualified модели добавить безопасные разрешённые reasoning/fast/tool settings;
 отсутствующий capability не означает поддержку всех значений.
 В ней нет client secret, token policy, upstream URL, native route или raw claims.
 Она строится из того же registry, а не из второй независимо редактируемой таблицы.
 RR пересекает её с deployment allowlist и живой авторизацией.
 
-Сначала мигрировать MiMo/OpenRouter/Codex/Claude без изменения поведения.
+Текущие MiMo/OpenRouter/Codex/Claude проходят через совместимый legacy adapter
+без изменения поведения; новые подключаются к versioned projection сразу.
+Не требовать отдельной предварительной миграции всех старых flows или records.
 Только явный `404/unsupported contract` разрешает legacy discovery для старых
 явно настроенных profiles; `401/403` не превращаются в fallback. Неизвестный
 method/input kind не рекламировать. Новые providers требуют новой capability;
@@ -158,7 +188,30 @@ profiles: UI и server save/admission используют те же qualified s
 настройка требует исправления конкретного поля. Provider mapping thinking/reasoning
 остаётся native policy, а не vendor conditional в React.
 
-### 4.2. Limits v2 для новых providers
+### 4.2. Нативные лимиты: готовые источники и необходимая адаптация
+
+Числовые лимиты входят в каждый provider lane везде, где upstream их сообщает.
+Это provider quota, не локальная статистика ReviewRouter и не PAYG balance.
+Не переносить admin `Extra` в UI; переиспользовать исходные fetch/parsing helpers
+и записывать их результат в существующее canonical snapshot storage.
+
+| Провайдер       | Что уже умеет sub2api                                                                       | Что показываем и что исправить                                                                                                                                                                                                   |
+| --------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Kimi Code       | `cn_provider_quota_service.go`: GET `/coding/v1/usages`, `parseKimiUsageTiers`              | 5h и legacy weekly есть; monthly текущих тарифов нужно добавить по реальному ответу. Не считать `usage` всегда weekly и первый detail всегда 5h. Неизвестный monthly не скрывает независимо подтверждённое 5h.                   |
+| GLM Coding Plan | Тот же service: GET `/api/monitor/usage/quota/limit`, `parseZhipuTokenTiers`                | 5h/weekly, remaining/used и reset; различать credits/tokens. Использовать явный `unit` (3/6); не присваивать неизвестному окну тип по порядку reset. Отсутствующий percentage - unknown, не 0.                                   |
+| MiniMax M Plan  | `parseMiniMaxUsageTiers`, 5h и optional weekly                                              | Переиспользовать преобразование remaining→used. Проверить один выбранный endpoint/response: текущая документация указывает `/v1/token_plan/remains`, source использует legacy path. Не опрашивать оба адреса на каждом чтении.   |
+| Grok            | `grok_quota_fetcher.go`, `pkg/xai/quota.go`, `pkg/xai/billing.go`, read-only `ProbeBilling` | Week/Month из фактического billing snapshot, request/token rate limits из пассивных headers. Это разные dimensions, не выдавать rate limit за месячную квоту плана. Без наблюдения - unknown. Не использовать active `hi` probe. |
+
+Изменение endpoint/schema проверяется одним актуальным response fixture/canary
+в lane, без отдельного длительного исследовательского этапа и без обязательного
+наличия публичной спецификации JSON. Сохранять только проверенные поля; неизвестные
+поля не угадывать. Один неполный bucket не лишает пользователя остальных валидных
+окон, а failure одного provider не отключает соседние.
+Для Grok не считать встроенную free-tier константу или credential fallback
+наблюдённой квотой. `observedAt` берётся из фактического fetch/headers snapshot,
+а не из нового `now` при построении UI. Native значение и оценка не смешиваются.
+
+### 4.3. Совместимость limits wire
 
 Текущий `account-limits/v1` закрыт на семьи Codex/Claude. Не менять его смысл
 или выдавать новые значения старому strict consumer. Добавить negotiated
@@ -182,13 +235,20 @@ Source-owned collector работает независимо от страниц
 usage/billing request, один in-flight на account generation, timeout/response-byte
 bounds, cooldown и CAS при публикации. Переиспользовать native background cadence,
 но перечислять только явно enrolled protected accounts через их custody scope.
+После applied enrollment запланировать первый такой read-only сбор существующим
+native worker; success подключения не ждёт доступности quota endpoint. Повторять
+сбор по существующей cadence, без нового cron/сервиса и без пользовательских шагов.
 Не подключать ordinary account enumeration и plaintext `Extra` к private boundary.
 Collector не обновляет OAuth credential и не запускает inference как fallback.
 Если нужна maintenance refresh, сначала выполняется отдельная штатная операция.
 
+В v2 различать plan quota и rate-limit dimensions, отображая явные короткие labels.
+Публиковать валидные окна независимо: отсутствующий monthly не убирает валидное
+5h, а неизвестный тип окна не получает выдуманные duration/reset.
 Accounts SSR/list/reload saved limits остаются cached-only: ноль provider requests,
-refresh и пробных model calls. Неквалифицированная quota schema даёт unavailable
-без текста в строке, как принято пользователем; рабочий transport этим не блокируется.
+refresh и пробных model calls. Если не подтверждено ни одного окна, unavailable
+не добавляет текст в строке, как принято пользователем. Валидные соседние окна
+показываются; рабочий transport отсутствием квоты не блокируется.
 
 ## 5. Kimi / GLM / MiniMax: конкретные slices
 
@@ -197,11 +257,11 @@ refresh и пробных model calls. Неквалифицированная qu
 Предлагаемые IDs фиксируют семейство профиля, точный model остаётся в immutable
 tuple; менять его под сохранённым profile ID без новой qualification нельзя.
 
-| Lane    | Profile ID для первого slice               | Transport, который квалифицируем                                                                                                     | Model candidate, не обещание entitlement                |
-| ------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
-| Kimi    | `kimi-code-global-responses-apikey-v1`     | Native Responses на `https://api.kimi.ai/coding/v1`; source уже умеет этот protocol.                                                 | `k3-256k`, проверить доступ выбранного tier и bounds.   |
-| GLM     | `glm-coding-global-responses-apikey-v1`    | Существующая Chat conversion через `https://api.z.ai/api/coding/paas/v4`; не включать новый direct Responses только по документации. | `glm-5.3-flash`, подтвердить точный upstream ID/доступ. |
-| MiniMax | `minimax-mplan-global-responses-apikey-v1` | Source-native Responses на `https://api.minimax.io/v1`, после проверки tool/SSE поведения.                                           | `MiniMax-M3.1-Flash`.                                   |
+| Lane    | Profile ID для первого slice               | Transport, который квалифицируем                                                                                  | Model candidate, не обещание entitlement                |
+| ------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Kimi    | `kimi-code-global-responses-apikey-v1`     | Native Responses на `https://api.kimi.ai/coding/v1`; source уже умеет этот protocol.                              | `k3-256k`, проверить доступ выбранного tier и bounds.   |
+| GLM     | `glm-coding-global-responses-apikey-v1`    | Прямой Responses `https://api.z.ai/api/v1` по официальной Codex integration; один tool/SSE контракт до включения. | `glm-5.3-flash`, подтвердить точный upstream ID/доступ. |
+| MiniMax | `minimax-mplan-global-responses-apikey-v1` | Source-native Responses на `https://api.minimax.io/v1`, после проверки tool/SSE поведения.                        | `MiniMax-M3.1-Flash`.                                   |
 
 Эти новые IDs являются спецификацией реализации, сейчас registry их не принимает.
 Если выбранный direct Responses не проходит контракт, lane не включает tuple;
@@ -229,10 +289,14 @@ Provider-specific работа:
   `parseKimiUsageTiers` сейчас считает первый detail окном 5h, а `usage` weekly;
   перенести это предположение нельзя. Нужны явные window markers, monthly/legacy
   различия, исчезновение weekly и Go без coding quota. Experimental usage endpoint
-  без устойчивого schema оставляет numeric capability выключенной.
-- **GLM:** existing profile не знает опубликованный сейчас Responses endpoint.
-  В первом slice сохраняется проверяемый Chat bridge. Quota fixtures должны
-  различать credits и другие единицы, 5h и weekly. Optional team org/project
+  требует проверки фактического ответа; неподтверждённые окна остаются unknown,
+  независимо подтверждённые отображаются без ожидания полной схемы всех тарифов.
+- **GLM:** existing ordinary profile не знает опубликованный Responses endpoint.
+  Первый путь - прямой Responses по официальной Codex integration, с существующим
+  Responses codec и tool round trip. Chat bridge не строить заранее; он допустим
+  только при подтверждённой необходимости и отдельной qualification выбранного
+  tuple, без runtime failover. Quota fixtures должны различать credits и другие
+  единицы, 5h и weekly. Optional team org/project
   credentials из admin UI в MVP не переносить; team profile - отдельная квалификация.
 - **MiniMax:** актуализировать имя M Plan/Subscription Key. Source использует
   legacy `/v1/api/openplatform/coding_plan/remains`, docs показывают
@@ -240,8 +304,9 @@ Provider-specific работа:
   и response fixture; не считать старый неработающим без факта. В text slice не
   включать video buckets. Правильно обрабатывать optional weekly и business errors.
 
-Не писать «подписка никогда не тратит деньги»: Kimi Extra Usage и MiniMax credit
-packs могут иметь настройки расхода на стороне провайдера. Это отличается от
+Не писать «подписка никогда не тратит деньги»: Kimi Extra Usage, MiniMax credit
+packs и GLM Team overage могут иметь настройки расхода на стороне провайдера.
+Team overage не включается в наш первый GLM slice. Это отличается от
 запрещённого автоматического переключения нашего соединения на PAYG credential.
 
 ## 6. Grok: адаптация готового OAuth
@@ -308,6 +373,9 @@ Grok:                 Provider → Continue with Grok → return / one callback 
   значением. Region появляется только при нескольких квалифицированных вариантах,
   без Base URL и protocol выбора. Existing owner default/personal sharing policy
   сохраняется; не добавлять новый ownership wizard и не делиться аккаунтом молча.
+  Для первого GLM profile доступен только personal owner; не предлагать organization
+  owner/Access grant, запрещённые серверной profile policy. Достаточна короткая
+  подпись `Personal use`, без анкеты или дополнительного подтверждения.
 - Короткий helper: `Use your subscription key`. Для MiniMax явно Subscription Key,
   для Kimi - Kimi Code key. Обычный API key и его биллинг не определять по префиксу.
 - Один submit in-flight; Enter/keyboard focus работают. Ошибка рядом с полем:
@@ -337,14 +405,14 @@ Grok:                 Provider → Continue with Grok → return / one callback 
 дня независимые lanes исследуют entitlement/fixtures и пишут provider leaves на
 согласованных interfaces; UI работает с typed fixture capabilities.
 
-| Lane / ownership               | Изолированная работа                                                                                                          | Зависимость для интеграции                                                                         |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| A: общий контракт и интеграция | SDK schemas/capability endpoints, native private ports, registry roots/config, RR composition; отдельный limits-v2 checkpoint | Один writer общих authority/config/lock/schema файлов. Сохраняет legacy flows.                     |
-| B: Kimi                        | Kimi qualified leaf, request/response fixture, key auth и Kimi quota parser                                                   | Подключается к A; eligibility и quota schema отмечаются отдельно.                                  |
-| C: GLM                         | GLM Chat bridge leaf, credentials/credits fixtures, eligibility                                                               | Подключается к A независимо от B/D/E; отсутствие eligibility блокирует activation этого профиля.   |
-| D: MiniMax                     | M Plan leaf, current usage endpoint/parser fixtures, Subscription Key checks                                                  | Подключается к A независимо от B/C/E.                                                              |
-| E: Grok                        | Browser client/redirect qualification, durable OAuth/principal/refresh, finite transport и passive limits                     | Начинается одновременно с B/C/D; не ждёт их merge.                                                 |
-| F: RR UI / browser E2E         | Existing dialog/panels, provider-specific copy/icons, mocked capability adapter и browser scenarios                           | Сначала fixture A, затем installed SDK и реальные backend adapters. Не редактирует registry roots. |
+| Lane / ownership               | Изолированная работа                                                                                               | Зависимость для интеграции                                                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| A: общий контракт и интеграция | Минимальные SDK schemas/capability endpoints, private ports, registry/config и RR composition, включая limits wire | Один writer общих authority/config/lock/schema файлов. Не переносит все старые flows на новую архитектуру до новых providers. |
+| B: Kimi                        | Kimi qualified leaf, request/response fixture, key auth и Kimi quota parser                                        | Подключается к A; eligibility и quota schema отмечаются отдельно.                                                             |
+| C: GLM                         | GLM Responses leaf, credentials/credits fixtures, owner-only policy                                                | Подключается к A независимо от B/D/E. Проверяет поддержанный Codex scenario; не ждёт абстрактного внешнего approval.          |
+| D: MiniMax                     | M Plan leaf, current usage endpoint/parser fixtures, Subscription Key checks                                       | Подключается к A независимо от B/C/E.                                                                                         |
+| E: Grok                        | Browser client/redirect qualification, durable OAuth/principal/refresh, finite transport и passive limits          | Начинается одновременно с B/C/D; не ждёт их merge.                                                                            |
+| F: RR UI / browser E2E         | Existing dialog/panels, provider-specific copy/icons, mocked capability adapter и browser scenarios                | Сначала fixture A, затем installed SDK и реальные backend adapters. Не редактирует registry roots.                            |
 
 Каждый lane имеет отдельный worktree/branch и ownership. Provider definitions и
 tests находятся в собственных leaf modules. Общую регистрацию, schema exports,
@@ -358,16 +426,16 @@ shared fixtures и package versions вносит A из reviewed lane patches, �
 
 ### Порядок merge и поставки
 
-1. **A1:** versioned connection capabilities + минимальная registry normalization;
-   миграция текущих четырёх providers на тот же безопасный contract.
-2. **A2:** limits v2/collector boundary с отдельной совместимостью v1. Если numeric
-   quotas ещё не квалифицированы, это не задерживает проверенный auth/transport slice.
-3. **B/C/D:** каждый provider отдельным согласованным native/Gateway/RR vertical slice;
-   первый готовый включается для квалифицированного scope без ожидания остальных.
-4. **E:** Grok enrollment/refresh checkpoint, затем protected transport/limits;
-   до второго checkpoint публично не объявлять полноценный working review provider.
-5. **F:** UI может merge раньше с capabilities выключенными; включение profile
-   только после installed consumer + native joined proof и controlled live canary.
+1. **A:** минимальные connection/limits contracts и registry seam, совместимые
+   со старыми consumers. Они могут войти в первый связный provider PR, если diff
+   укладывается в review budget; отдельные подготовительные PR не самоцель.
+2. **B/C/D/E параллельно:** каждый provider - согласованный native/Gateway/RR slice,
+   включая его источник лимитов. Готовый slice доставляется без ожидания остальных.
+   Grok сохраняет enrollment/refresh/transport внутри своей работы; отдельное
+   публичное «подключение без работающего review» не объявляется готовым provider.
+3. **F:** общий UI использует тот же SDK и существующий browser harness. Включение
+   profile требует native joined proof и одного controlled live canary, а не
+   отдельного повторения одного и того же доказательства на каждом слое.
 
 PR примерно до 2 000 changed LOC; связный инвариант не разрезать ради цифры.
 Основание стека мержить без потери ancestry либо своевременно перестраивать
@@ -386,7 +454,7 @@ PR примерно до 2 000 changed LOC; связный инвариант н
 | OAuth Grok            | Single-use state/code; restart/concurrency; неверный issuer/audience/nonce/подпись; principal/team continuity; refresh rotation/nonrotation/revocation; неизвестный exchange не повторяется.                                                                                                                                                        |
 | Protected transport   | Реальный HTTP fixture через actual native transport → Gateway → installed SDK → настоящий установленный RR agent/caller: text, его function/custom-tool round trip, streamed terminal/usage, cancel/deadline/byte bounds. Один provider entry на admitted request; два законных tool turns - два явно учтённых request, без hidden replay/failover. |
 | Quotas                | Actual provider-shaped fixtures: Kimi new/legacy/monthly/no coding; GLM credits; MiniMax new endpoint/optional weekly/business error; Grok missing headers. Missing/malformed/zero различимы; old windows удаляются; stale/generation mismatch не выдаёт свежие цифры.                                                                              |
-| Owner/privacy         | Personal owner в workspace видит собственную quota; другие admin/member - нет. Отзыв membership/binding/revision во время await скрывает результат. Existing PG-test использует canonical detach + exact ACK, не raw state update.                                                                                                                  |
+| Owner/privacy         | Personal owner в workspace видит свою quota; получатели - нет. GLM owner-only policy отклоняет organization/operator grant, чужую selection и execution даже при подделанном запросе или сохранённом binding. Membership/binding/revision loss во время await скрывает результат. Использовать canonical detach + exact ACK, не raw state update.   |
 | Browser               | Все четыре connection flows, wrong key/region/tier, cancel/retry/readback, Grok manual handoff где включён, reconnect/delete и workspace switch; desktop/mobile, keyboard, минимум текста, нет overflow/secret leakage.                                                                                                                             |
 | Инертные reads        | Открытие Accounts, SSR, Models catalog, Details и Reload saved limits дают ноль upstream inference, OAuth refresh и provider quota probes.                                                                                                                                                                                                          |
 
@@ -415,6 +483,9 @@ fixtures/helpers; не добавлять отдельный JS runner или н
 
 Существующие Codex/Claude/MiMo/OpenRouter contract regressions обязательны после
 общих изменений; одинаковый успешный прогон не повторять из-за несвязанной правки.
+Installed SDK qualification повторять при изменении самого package/contract;
+не повторять её для каждого leaf с теми же неизменными SDK bytes. Provider-specific
+joined/browser scenario всё равно проверяет новый adapter и фактическую интеграцию.
 Quota fixtures и browser screenshots не являются доказательством настоящего входа
 или provider transport: в отчёте сохранять эти границы явно.
 
@@ -423,6 +494,10 @@ Quota fixtures и browser screenshots не являются доказатель
 request/tool cycle и нужный refresh/reconnect/erase proof. При ambiguous effect
 не повторять провайдерский POST. Не создавать новые GitHub repos на каждый прогон;
 reuse existing disposable repo. App-first публикация остаётся авторством GitHub App.
+В том же canary проверить quota collector: безопасно зафиксировать полученные
+provider windows, normalized values и последующее cached чтение без новых effects.
+Если у конкретного тарифа источник не отдаёт чисел, зафиксировать отсутствие,
+не запускать ещё один платный probe. Это не отдельный повтор всего E2E.
 
 ## 10. Оценка объёма и готовность
 
@@ -453,12 +528,15 @@ enrollment, установленный SDK, один model/tool review, safe lif
 план не поручает менять миграционную authority, stable tags или обходить protection.
 Выполнение этого документа начинается отдельным поручением на реализацию.
 
-## 11. Источники, требующие проверки в начале provider lane
+## 11. Проверенные источники
 
 - [Kimi endpoint/model/client identity](https://www.kimi.com/code/docs/en/),
   [тарифы и окна](https://www.kimi.com/code/docs/en/kimi-code/membership.html).
 - [GLM integration/endpoints](https://docs.z.ai/devpack/tool/others),
   [ограничения tools и quota](https://docs.z.ai/devpack/faq),
+  [Codex Responses integration](https://docs.z.ai/devpack/tool/codex),
+  [персональное использование](https://docs.z.ai/devpack/usage-policy),
+  [отдельные Team seats](https://docs.z.ai/devpack/teamplan),
   [Coding Plan overview](https://docs.z.ai/devpack/overview).
 - [MiniMax M Plan, usage URL и billing](https://platform.minimax.io/docs/m-plan/faq),
   [подключение других tools](https://platform.minimax.io/docs/m-plan/other-tools).
@@ -468,3 +546,5 @@ enrollment, установленный SDK, один model/tool review, safe lif
 
 До qualification не считать docs/catalog entry доказательством actual account
 entitlement, работоспособности модели или согласованности старого native parser.
+Повторять web research только по изменившемуся endpoint, правилу или новой
+существенной неопределённости; не начинать каждый lane с повторения всего аудита.
