@@ -140,16 +140,17 @@ describe("reviewed UAP catalog", () => {
     for (const headers of [
       { Authorization: "Bearer literal-secret" },
       { Authorization: "${TOKEN}/extra" },
-      { Cookie: "${TOKEN}" },
+      { Host: "${TOKEN}" },
     ]) {
       manifest(entry, {
         type: "streamable-http",
         url: "https://docs.example.test/mcp",
         headers,
       });
-      expect(mapReviewedMcpPreset(entry).compatibility.status).toBe(
-        "unsupported",
-      );
+      expect(
+        mapReviewedMcpPreset(entry).compatibility.status,
+        `Headers: ${JSON.stringify(headers)}`,
+      ).toBe("unsupported");
     }
   });
 

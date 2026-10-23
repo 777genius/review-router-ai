@@ -5,12 +5,18 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const registryRepository = "777genius/universal-agent-plugins-registry";
-const [checkout, revision, ...options] = process.argv.slice(2);
-if (!checkout || !revision || !/^[a-f0-9]{40}$/.test(revision)) {
+const [checkoutArgument, revisionArgument, ...options] = process.argv.slice(2);
+if (
+  !checkoutArgument ||
+  !revisionArgument ||
+  !/^[a-f0-9]{40}$/.test(revisionArgument)
+) {
   throw new Error(
     "Usage: node scripts/update-mcp-catalog.ts UAP_CHECKOUT IMMUTABLE_COMMIT_SHA",
   );
 }
+const checkout: string = checkoutArgument;
+const revision: string = revisionArgument;
 const gitAt = (root: string, ...args: string[]): Buffer =>
   execFileSync("git", ["-C", root, ...args], { maxBuffer: 16 * 1024 * 1024 });
 const git = (...args: string[]): Buffer => gitAt(checkout, ...args);
