@@ -114073,6 +114073,7 @@ __export(github_action_exports, {
   isHostedPoolQuotaFailureText: () => isHostedPoolQuotaFailureText,
   isReviewRouterTargetRevisionMismatchFailure: () => isReviewRouterTargetRevisionMismatchFailure,
   postPullRequestComment: () => postPullRequestComment,
+  protectedResponsesToolPolicyConfigLines: () => protectedResponsesToolPolicyConfigLines,
   readActionAuthJson: () => readActionAuthJson,
   readActionInputs: () => readActionInputs,
   readCertifiedForkApiResponse: () => readCertifiedForkApiResponse,
@@ -140409,13 +140410,16 @@ async function getAvailableDiskBytes(path4) {
     throw new Error("runner_disk_budget_unavailable", { cause: error52 });
   }
 }
+function protectedResponsesToolPolicyConfigLines() {
+  return ['web_search = "disabled"'];
+}
 async function writeCodexAuthSnapshot(codexHome, authJson) {
   await (0, import_promises9.mkdir)(codexHome, { recursive: true, mode: 448 });
   const config2 = [
     'cli_auth_credentials_store = "file"',
     'approval_policy = "never"',
     'sandbox_mode = "read-only"',
-    'web_search = "disabled"',
+    ...protectedResponsesToolPolicyConfigLines(),
     "disable_response_storage = true",
     'model_verbosity = "low"',
     "",
@@ -140454,7 +140458,7 @@ async function writeCodexProxySnapshot(input) {
     'model_provider = "reviewrouter_proxy"',
     'approval_policy = "never"',
     'sandbox_mode = "read-only"',
-    'web_search = "disabled"',
+    ...protectedResponsesToolPolicyConfigLines(),
     "disable_response_storage = true",
     'model_verbosity = "low"',
     "",
@@ -142150,6 +142154,7 @@ if (shouldAutoRunCodexRotatingAction({ env: process.env, argv: process.argv })) 
   isHostedPoolQuotaFailureText,
   isReviewRouterTargetRevisionMismatchFailure,
   postPullRequestComment,
+  protectedResponsesToolPolicyConfigLines,
   readActionAuthJson,
   readActionInputs,
   readCertifiedForkApiResponse,
