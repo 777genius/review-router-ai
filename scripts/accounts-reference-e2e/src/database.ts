@@ -345,6 +345,12 @@ export function applicationEnvironment(input: {
             FIXTURES.gateway.claudeProfileId,
         }
       : {}),
+    ...(process.argv.includes("--subscription-fixture")
+      ? {
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_SUBSCRIPTION_PROFILE_IDS:
+            "kimi-code-global-responses-apikey-v1,glm-coding-global-responses-apikey-v1,minimax-mplan-global-responses-apikey-v1,grok-subscription-responses-oauth-v1",
+        }
+      : {}),
     TMPDIR: input.tmpDir,
   };
 }

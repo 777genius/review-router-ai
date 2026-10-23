@@ -9,8 +9,12 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { FIXTURES, type FixtureSecrets } from "./contracts.ts";
 import { createLimitsFixture } from "./limits-fixture.ts";
+import {
+  createSubscriptionFixture,
+  subscriptionProfiles,
+} from "./subscription-fixture.ts";
 
-type WireAccount = {
+export type WireAccount = {
   readonly accountRef: string;
   readonly ownerRef: string;
   readonly profileId: string;
@@ -40,7 +44,7 @@ export async function startGatewayFixture(input: {
     `rrw_${createHash("sha256")
       .update(`rr-workspace-owner-v1\0${id}`)
       .digest("hex")}`;
-  const accounts: readonly WireAccount[] = [
+  const accounts: WireAccount[] = [
     wire(
       FIXTURES.gateway.accounts.viewerPrimary,
       ownerForUser(FIXTURES.users.viewer),
@@ -98,6 +102,9 @@ export async function startGatewayFixture(input: {
         ]
       : []),
   ];
+  const subscriptions = process.argv.includes("--subscription-fixture")
+    ? createSubscriptionFixture(accounts)
+    : null;
   const limits = process.argv.includes("--limits-fixture")
     ? createLimitsFixture(accounts)
     : null;
@@ -184,6 +191,7 @@ export async function startGatewayFixture(input: {
     const requestUrl = new URL(request.url ?? "/", url);
     const route = `${request.method ?? "GET"} ${requestUrl.pathname}`;
     log.push(route);
+    subscriptions?.observe(request.method ?? "GET", requestUrl.pathname);
     await writeFile(
       join(input.workDir, "gateway-requests.jsonl"),
       `${JSON.stringify({ route, at: new Date().toISOString() })}\n`,
@@ -199,6 +207,10 @@ export async function startGatewayFixture(input: {
         request.headers["x-reviewrouter-probe-proof"],
       );
       send(response, result.status, result.body);
+      return;
+    }
+    if (subscriptions && requestUrl.pathname === "/__subscription-fixture") {
+      send(response, 200, subscriptions.stats());
       return;
     }
     if (limits && requestUrl.pathname === "/__limits-fixture") {
@@ -344,6 +356,17 @@ export async function startGatewayFixture(input: {
       send(response, 401, safeError("unauthenticated", "rr-e2e-gateway-auth"));
       return;
     }
+    if (subscriptions) {
+      const result = await subscriptions.handle(
+        request.method ?? "GET",
+        requestUrl.pathname,
+        () => readJson(request),
+      );
+      if (result) {
+        send(response, result.status, result.body);
+        return;
+      }
+    }
     if (limits) {
       const result = await limits.handle(
         request.method ?? "GET",
@@ -394,6 +417,14 @@ export async function startGatewayFixture(input: {
     if (requestUrl.pathname === "/v1/profiles" && request.method === "GET") {
       send(response, 200, {
         profiles: [
+          ...(subscriptions
+            ? subscriptionProfiles.map((profile) => ({
+                profileId: profile.profileId,
+                protocol: "openai-responses",
+                modelIds: [profile.model],
+                authKinds: [profile.provider === "grok" ? "oauth" : "api_key"],
+              }))
+            : []),
           {
             profileId: FIXTURES.gateway.profileId,
             protocol: "openai-responses",

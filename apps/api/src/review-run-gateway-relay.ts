@@ -361,7 +361,7 @@ export function createReviewRunGatewayRelay(input: {
         throw new RelayFailure("gateway_unavailable", 403);
       if (gateway.limits.outputBytes > reviewRunGatewayMaxResponseBytes)
         throw new RelayFailure("gateway_unavailable", 403);
-      const body = responsesBytes(
+      const body = prepareReviewRunGatewayResponses(
         bytes,
         provider.model,
         gateway.limits.tokens,
@@ -1060,7 +1060,7 @@ function diagnoseUnknown(
 
 /** Decode complete JSON once, retaining user/tool data. Scan BEFORE JSON.parse
  * to reject duplicate decoded keys, critical aliases, deep/unbounded structure. */
-function responsesBytes(
+export function prepareReviewRunGatewayResponses(
   raw: Uint8Array,
   model: string,
   tokens: number,

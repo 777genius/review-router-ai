@@ -10,6 +10,7 @@ import {
   assertOpaqueReference,
   assertWorkspaceOwner,
   assertWorkspaceUseOwner,
+  assertProfileShareAllowed,
   selectBinding,
   type BindingScope,
   type BindingSelection,
@@ -125,7 +126,10 @@ async function changeBinding(
       input.workspaceId,
       dependencies.operatorWorkspaceId,
     );
-  if (state === "active") assertExecutable(connection);
+  if (state === "active") {
+    assertProfileShareAllowed(connection.profileRef);
+    assertExecutable(connection);
+  }
   return dependencies.accounts.compareAndSetBinding({
     workspaceId: input.workspaceId,
     connectionId: input.connectionId,
@@ -154,6 +158,14 @@ export async function changeOperatorWorkspaceAccountGrant(
     accounts: dependencies.accounts,
     workspaceAccess: dependencies.workspaceAccess,
   });
+  if (input.state === "active") {
+    const connection = await dependencies.accounts.findOwnedConnection({
+      workspaceId: operatorWorkspaceId,
+      connectionId: input.connectionId,
+    });
+    assertWorkspaceOwner(connection, operatorWorkspaceId);
+    assertProfileShareAllowed(connection.profileRef);
+  }
   return dependencies.operatorGrants.compareAndSetOperatorBinding(input);
 }
 export function bindWorkspaceAccount(

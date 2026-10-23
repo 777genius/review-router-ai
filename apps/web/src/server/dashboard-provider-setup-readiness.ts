@@ -19,7 +19,9 @@ export function getReadyGatewayAccounts(
       !account.binding.fencePending &&
       page.profiles.some(
         (profile) =>
-          profile.id === account.profileId && profile.models.length > 0,
+          profile.id === account.profileId &&
+          profile.availability !== "deployment_configuration_required" &&
+          profile.models.length > 0,
       ),
   );
 }

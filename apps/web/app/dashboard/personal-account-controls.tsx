@@ -515,6 +515,16 @@ function PersonalControls({
     choices = selected,
   ) {
     if (busyRef.current) return;
+    if (
+      choices.some((choice) =>
+        managementRows.some(
+          (account) =>
+            account.connectionId === choice.sourceId &&
+            account.connection?.personalOnly,
+        ),
+      )
+    )
+      return;
     if (choices.some((source) => lifecycleActivities.has(source.sourceId))) {
       setMessage(
         "Confirming connection change. The new access has not been sent yet.",
@@ -599,6 +609,11 @@ function PersonalControls({
   }
   const selectionStale = selected.some(
     (selection) =>
+      managementRows.some(
+        (account) =>
+          account.connectionId === selection.sourceId &&
+          account.connection?.personalOnly,
+      ) ||
       !sourceRows.some(
         (source) =>
           source.sourceId === selection.sourceId &&
@@ -715,7 +730,9 @@ function PersonalControls({
             const source = sourcesById.get(id);
             const account = managementById.get(id);
             const label = account?.label ?? source!.label;
+            const personalOnly = account?.connection?.personalOnly === true;
             const canAdd =
+              !personalOnly &&
               source?.state === "active" &&
               source.profileId !== null &&
               !source.sourceOperationPending &&
@@ -739,7 +756,7 @@ function PersonalControls({
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-3">
-                    {bulk && source ? (
+                    {bulk && source && !personalOnly ? (
                       <Checkbox
                         aria-label={`Select ${label}`}
                         checked={selected.some(
@@ -767,6 +784,7 @@ function PersonalControls({
                         ? {
                             profileLabel: account.profileLabel,
                             authKind: account.authKind,
+                            connection: account.connection,
                           }
                         : {})}
                     />
@@ -809,12 +827,16 @@ function PersonalControls({
                     </p>
                   ) : null}
                 </div>
-                <AccessSummaryChips summary={summaryBySource.get(id)} />
+                {personalOnly ? (
+                  <span className="text-xs text-slate-400">Personal use</span>
+                ) : (
+                  <AccessSummaryChips summary={summaryBySource.get(id)} />
+                )}
                 <p className="text-sm text-slate-300">
                   <AccountStatusLine {...status} />
                 </p>
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  {source ? (
+                  {source && !personalOnly ? (
                     <WorkspaceAccess
                       scope={bootstrap.scope}
                       source={source}

@@ -4243,6 +4243,12 @@ export function buildFullReviewRuntimeEnv(input: {
 }): Record<string, string> {
   const inherited = pruneCodexRotatingChildEnv(input.sourceEnv);
   const runtimeEnv = normalizeFullReviewRuntimeEnv(input.runtimeEnv);
+  if (runtimeEnv.REVIEW_AUTH_MODE === "codex-account-gateway") {
+    // The protected policy owns Gateway settings, including intentional absence.
+    // Workflow defaults cannot reintroduce controls unqualified by the catalog.
+    delete inherited.CODEX_REASONING_EFFORT;
+    delete inherited.CODEX_FAST_MODE;
+  }
   const reviewAuthMode =
     runtimeEnv.REVIEW_AUTH_MODE === codexRotatingRuntimeAuthMode
       ? "codex-oauth"

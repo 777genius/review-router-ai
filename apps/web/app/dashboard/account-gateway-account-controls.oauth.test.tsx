@@ -82,7 +82,21 @@ function safeOperation(
   nonce: string,
   state: AccountOperationView["state"] = "pending",
 ): AccountsResult<AccountOperationView> {
-  return { status: "ok", value: { nonce, state, cleanup: "unresolved" } };
+  return {
+    status: "ok",
+    value: {
+      nonce,
+      state,
+      cleanup: "unresolved",
+      completion: {
+        providerLabel:
+          page?.profiles.find((p) => p.authKind === "oauth")?.label ?? "Codex",
+        inputKind: page?.profiles.some((p) => p.provider === "claude")
+          ? "authorization_code"
+          : "callback_url",
+      },
+    },
+  };
 }
 function row(state: AccountView["state"] = "staging"): AccountView {
   return {
@@ -1371,7 +1385,7 @@ test("OAuth rows hide API-key reconnect and become selectable only after an acti
   await screen.findByText("Waiting for completion");
   const oauthRow = screen
     .getByText("Workspace Codex")
-    .closest("div.flex")! as HTMLElement;
+    .closest("div.flex-wrap")! as HTMLElement;
   expect(
     within(oauthRow).queryByRole("button", { name: "Update API key" }),
   ).toBeNull();
@@ -1712,9 +1726,9 @@ test.each(["workspace", "personal"] as const)(
       name: "Connect Claude OAuth",
     });
     expect(
-      within(enrollment).getByRole("combobox", { name: "Sign-in method" })
-        .textContent,
-    ).toContain("Browser sign-in");
+      within(enrollment).queryByRole("combobox", { name: "Sign-in method" }),
+    ).toBeNull();
+    expect(within(enrollment).getByText("Browser sign-in")).toBeTruthy();
     expect(within(enrollment).queryByText(/ChatGPT Settings/)).toBeNull();
     fireEvent.click(
       within(enrollment).getByRole("button", { name: "Sign in to Claude" }),
@@ -1763,3 +1777,324 @@ test.each(["workspace", "personal"] as const)(
     assertNoCapability();
   },
 );
+
+test.each([
+  ["kimi", "Kimi Code", "Kimi Code", "https://www.kimi.com/code/console"],
+  ["glm", "GLM", "Coding Plan", "https://z.ai/manage-apikey/apikey-list"],
+  ["minimax", "MiniMax", "M Plan", "https://platform.minimax.io/console/plan"],
+] as const)(
+  "%s connects a subscription key without transport setup or cached secrets",
+  async (provider, label, planLabel, keyURL) => {
+    page.accounts = [];
+    page.profiles = [
+      {
+        id: `${provider}-qualified-profile`,
+        label,
+        provider: "codex",
+        authKind: "api_key",
+        protocol: "openai-responses",
+        models: ["qualified-model"],
+        connection: {
+          provider,
+          planLabel,
+          regionLabel: "Global",
+          personalOnly: provider === "glm",
+          completionInputKind: "none",
+          limitsContract: "account-limits/v2",
+          modelSettings: [],
+        },
+      },
+    ];
+    const api = personalApi();
+    render(
+      <AccountGatewayControls
+        connectOnly
+        managementScope="personal"
+        api={api}
+        bootstrap={{ context, page: { status: "ok", value: page } }}
+      />,
+    );
+    const field = await screen.findByLabelText(/Subscription key/);
+    expect(
+      screen.getByRole("link", { name: "Get key" }).getAttribute("href"),
+    ).toBe(keyURL);
+    expect(
+      screen.queryByLabelText(/Base URL|Sign-in method|Provider profile/),
+    ).toBeNull();
+    const secret = `synthetic-${provider}-subscription-secret`;
+    fireEvent.change(field, { target: { value: secret } });
+    const connect = screen.getByRole("button", { name: "Connect account" });
+    await waitFor(() =>
+      expect((connect as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(connect);
+    await waitFor(() =>
+      expect(api.submitGatewayApiKey).toHaveBeenCalledTimes(1),
+    );
+    expect(api.submitGatewayApiKey.mock.calls[0]).toEqual([
+      context,
+      expect.objectContaining({
+        profileId: `${provider}-qualified-profile`,
+        kind: "connect",
+      }),
+      secret,
+    ]);
+    for (const client of clients) expect(caches(client)).not.toContain(secret);
+    expect(JSON.stringify(storageWrites.mock.calls)).not.toContain(secret);
+    expect((field as HTMLInputElement).value).toBe("");
+  },
+);
+
+test("Grok's saved callback grammar survives reload and never guesses a code from pasted text", async () => {
+  page.profiles = [
+    {
+      id: "grok-subscription-responses-oauth-v1",
+      label: "Grok",
+      provider: "codex",
+      authKind: "oauth",
+      oauthMethods: ["browser"],
+      protocol: "openai-responses",
+      models: ["qualified-grok"],
+      connection: {
+        provider: "grok",
+        planLabel: "Subscription",
+        regionLabel: "Global",
+        completionInputKind: "callback_url",
+        personalOnly: false,
+        limitsContract: "account-limits/v2",
+        modelSettings: [],
+      },
+    },
+  ];
+  page.accounts = [];
+  sessionStorage.setItem(storageKey, JSON.stringify([savedNonce]));
+  vi.mocked(readGatewayOperation).mockResolvedValue({
+    status: "ok",
+    value: {
+      nonce: savedNonce,
+      state: "pending",
+      cleanup: "unresolved",
+      oauthMethod: "browser",
+      completion: { providerLabel: "Grok", inputKind: "callback_url" },
+    },
+  });
+  vi.mocked(completeGatewayOAuth).mockResolvedValue(
+    safeOperation(savedNonce, "applied"),
+  );
+  render(
+    <AccountGatewayControls
+      connectOnly
+      bootstrap={{ context, page: { status: "ok", value: page } }}
+    />,
+  );
+  const field = await screen.findByLabelText("Authorization result address");
+  const pasted = `looks-like-code#${"a".repeat(64)}`;
+  fireEvent.change(field, { target: { value: pasted } });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Complete authorization" }),
+  );
+  await waitFor(() =>
+    expect(completeGatewayOAuth).toHaveBeenCalledWith(context, {
+      nonce: savedNonce,
+      callbackURL: pasted,
+    }),
+  );
+  expect((field as HTMLInputElement).value).toBe("");
+  for (const client of clients) expect(caches(client)).not.toContain(pasted);
+  expect(JSON.stringify(storageWrites.mock.calls)).not.toContain(pasted);
+});
+
+test("Grok offers one browser sign-in with no OpenAI setup or method wizard", async () => {
+  page.profiles = [
+    {
+      id: "grok-subscription-responses-oauth-v1",
+      label: "Grok",
+      provider: "codex",
+      authKind: "oauth",
+      oauthMethods: ["browser"],
+      protocol: "openai-responses",
+      models: ["qualified-grok"],
+      connection: {
+        provider: "grok",
+        planLabel: "Subscription",
+        regionLabel: "Global",
+        completionInputKind: "callback_url",
+        personalOnly: false,
+        limitsContract: "account-limits/v2",
+        modelSettings: [],
+      },
+    },
+  ];
+  page.accounts = [];
+  render(
+    <AccountGatewayControls
+      connectOnly
+      bootstrap={{ context, page: { status: "ok", value: page } }}
+    />,
+  );
+  const signIn = await screen.findByRole("button", { name: "Sign in to Grok" });
+  expect(screen.queryByRole("combobox", { name: "Sign-in method" })).toBeNull();
+  expect(screen.queryByText(/ChatGPT Settings/)).toBeNull();
+  expect(screen.queryByLabelText(/API key|Subscription key/)).toBeNull();
+  await waitFor(() =>
+    expect((signIn as HTMLButtonElement).disabled).toBe(false),
+  );
+  fireEvent.click(signIn);
+  await waitFor(() => expect(beginGatewayOAuth).toHaveBeenCalledTimes(1));
+  expect(vi.mocked(beginGatewayOAuth).mock.calls[0]![1]).toMatchObject({
+    profileId: "grok-subscription-responses-oauth-v1",
+    method: "browser",
+  });
+  expect(handoff).toHaveBeenCalledTimes(1);
+  await screen.findByLabelText("Authorization result address");
+  assertNoCapability();
+});
+
+test("legacy browser readback without presentation submits one neutral authorization result unchanged", async () => {
+  sessionStorage.setItem(storageKey, JSON.stringify([savedNonce]));
+  vi.mocked(readGatewayOperation).mockResolvedValue({
+    status: "ok",
+    value: {
+      nonce: savedNonce,
+      state: "pending",
+      oauthMethod: "browser",
+      cleanup: "unresolved",
+    },
+  });
+  vi.mocked(completeGatewayOAuth).mockResolvedValue(
+    safeOperation(savedNonce, "applied"),
+  );
+  render(
+    <AccountGatewayControls
+      bootstrap={{ context, page: { status: "ok", value: page } }}
+    />,
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Resume authorization" }),
+  );
+  const field = await screen.findByLabelText(
+    "Callback URL or authorization code",
+  );
+  const authorizationResult = `synthetic-legacy-code#${"a".repeat(64)}`;
+  fireEvent.change(field, { target: { value: authorizationResult } });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Complete authorization" }),
+  );
+  await waitFor(() =>
+    expect(completeGatewayOAuth).toHaveBeenCalledWith(context, {
+      nonce: savedNonce,
+      authorizationResult,
+    }),
+  );
+  expect((field as HTMLInputElement).value).toBe("");
+  for (const client of clients)
+    expect(caches(client)).not.toContain(authorizationResult);
+  expect(JSON.stringify(storageWrites.mock.calls)).not.toContain(
+    authorizationResult,
+  );
+});
+
+test("delayed Grok reconnect resumes browser enrollment with the same nonce after fences, never a key form", async () => {
+  const personalStorage = "rr-c3-account-operations:personal:workspace-user";
+  sessionStorage.setItem(personalStorage, JSON.stringify([savedNonce]));
+  page.profiles = [
+    {
+      id: "grok-subscription-responses-oauth-v1",
+      label: "Grok",
+      provider: "codex",
+      authKind: "oauth",
+      canReconnect: true,
+      oauthMethods: ["browser"],
+      protocol: "openai-responses",
+      models: ["grok-4.7"],
+      connection: {
+        provider: "grok",
+        planLabel: "Subscription",
+        regionLabel: "Global",
+        completionInputKind: "callback_url",
+        personalOnly: false,
+        limitsContract: "account-limits/v2",
+        modelSettings: [],
+      },
+    },
+  ];
+  page.accounts = [];
+  const api = personalApi();
+  const pending: AccountsResult<AccountOperationView> = {
+    status: "ok",
+    value: {
+      nonce: savedNonce,
+      state: "pending",
+      cleanup: "unresolved",
+      completion: { providerLabel: "Grok", inputKind: "callback_url" },
+    },
+  };
+  const ready: AccountsResult<AccountOperationView> = {
+    status: "ok",
+    value: {
+      ...pending.value,
+      resume: {
+        kind: "reconnect",
+        connectionId: "own-grok",
+        profileId: page.profiles[0]!.id,
+        gatewayRevision: 17,
+        mirrorRevision: 4,
+      },
+    },
+  };
+  api.readGatewayOperation.mockResolvedValue(pending);
+  api.beginGatewayOAuth.mockImplementation(async () => ({
+    status: "ok",
+    value: {
+      operation: {
+        nonce: savedNonce,
+        state: "pending",
+        cleanup: "unresolved",
+        oauthMethod: "browser",
+        completion: { providerLabel: "Grok", inputKind: "callback_url" },
+      },
+      authorizationURL: capability,
+    },
+  }));
+  render(
+    <AccountGatewayControls
+      managementScope="personal"
+      api={api}
+      bootstrap={{ context, page: { status: "ok", value: page } }}
+    />,
+  );
+  await screen.findByRole("button", { name: "Check status" });
+  expect(screen.queryByRole("button", { name: "Continue sign-in" })).toBeNull();
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Check status",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false),
+  );
+  api.readGatewayOperation.mockResolvedValue(ready);
+  fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Continue sign-in" }),
+  );
+  await waitFor(() => expect(api.beginGatewayOAuth).toHaveBeenCalledTimes(1));
+  expect(api.beginGatewayOAuth).toHaveBeenCalledWith(context, {
+    nonce: savedNonce,
+    method: "browser",
+    connectionId: "own-grok",
+    gatewayRevision: 17,
+    mirrorRevision: 4,
+  });
+  expect(api.submitGatewayApiKey).not.toHaveBeenCalled();
+  expect(
+    screen.queryByRole("button", { name: "Continue key update" }),
+  ).toBeNull();
+  expect(JSON.parse(sessionStorage.getItem(personalStorage)!)).toEqual([
+    savedNonce,
+  ]);
+  expect(handoff).toHaveBeenCalledTimes(1);
+  await screen.findByLabelText("Authorization result address");
+  assertNoCapability();
+});

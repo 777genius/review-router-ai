@@ -19,6 +19,7 @@ export type GatewayAccountLimitsClient = {
 /** Only canonical SDK observations enter this adapter; never admin /usage or raw extra. */
 export function createGatewayAccountLimitsReader(
   client: GatewayAccountLimitsClient,
+  contract: "account-limits/v1" | "account-limits/v2" = "account-limits/v1",
 ): AccountLimitsReader {
   let capability: Promise<boolean> | undefined;
   return {
@@ -27,9 +28,7 @@ export function createGatewayAccountLimitsReader(
         capability ??= client
           .getAccountLimitsCapabilities()
           .then(
-            (value) =>
-              value.contract === "account-limits/v1" &&
-              value.cachedRead === true,
+            (value) => value.contract === contract && value.cachedRead === true,
           )
           .catch(() => false);
         if (!(await capability))
