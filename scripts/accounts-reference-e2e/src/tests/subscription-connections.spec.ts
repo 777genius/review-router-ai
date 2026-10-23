@@ -254,9 +254,9 @@ test("subscription connections use real server actions for all four providers an
     0,
   );
   await page.keyboard.press("Escape");
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Close", exact: true })
-    .click();
+  // Escape may dismiss the select and dialog together. A second keyboard
+  // dismissal also closes the dialog when the select consumed the first one.
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await expectNetworkViolations(violations);
 });
