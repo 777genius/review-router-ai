@@ -261,7 +261,14 @@ const oauthCredentialCompletionSchema = z.union([
   }),
   z.strictObject({
     nonce: uuid,
-    authorizationCode: secretSubmission.claudeOAuthAuthorizationCode,
+    authorizationCode: z
+      .string()
+      .refine(
+        (value) =>
+          secretSubmission.claudeOAuthAuthorizationCode.safeParse(value)
+            .success ||
+          secretSubmission.grokOAuthAuthorizationCode.safeParse(value).success,
+      ),
   }),
 ]);
 const oauthCompletionSchema = z.union([
@@ -278,6 +285,32 @@ function oauthCompletionCredential(intent: NormalizedOAuthCompletion) {
   return "authorizationCode" in intent
     ? { authorizationCode: intent.authorizationCode }
     : { callbackURL: intent.callbackURL };
+}
+/** Credential authority comes from the saved profile, never from the pasted value. */
+export function oauthCompletionMatchesProfile(
+  profile: Pick<AccountProfileView, "id" | "label" | "connection">,
+  completion: NormalizedOAuthCompletion | { nonce: string },
+): boolean {
+  const kind = operationCompletion(profile).inputKind;
+  if (kind === "none") return false;
+  if (profile.connection?.provider === "grok") {
+    return "authorizationCode" in completion
+      ? secretSubmission.grokOAuthAuthorizationCode.safeParse(
+          completion.authorizationCode,
+        ).success
+      : "callbackURL" in completion &&
+          secretSubmission.grokOAuthCallbackURL.safeParse(
+            completion.callbackURL,
+          ).success;
+  }
+  return kind === "authorization_code"
+    ? "authorizationCode" in completion &&
+        secretSubmission.claudeOAuthAuthorizationCode.safeParse(
+          completion.authorizationCode,
+        ).success
+    : "callbackURL" in completion &&
+        secretSubmission.oauthCallbackURL.safeParse(completion.callbackURL)
+          .success;
 }
 export function snapshotOAuthCompletion(
   raw: AccountOAuthCompletion,
@@ -1162,13 +1195,11 @@ export function createAccountsAdapter(input: {
       const catalogue = await profiles(client);
       // Input grammar is declared by the configured catalog. The Gateway alone
       // resolves the original durable operation's profile before any exchange.
-      const inputKind =
-        "authorizationCode" in intent ? "authorization_code" : "callback_url";
       if (
         !catalogue.some(
           (profile) =>
             profile.authKind === "oauth" &&
-            operationCompletion(profile).inputKind === inputKind,
+            oauthCompletionMatchesProfile(profile, intent),
         )
       )
         throw new Denied();
@@ -1677,44 +1708,21 @@ export function createDisabledPersonalAccountsAdapter(input: {
       const original = await input.store.readOperation(actorUserId, safe.nonce);
       if (original.intent.action !== "connect") throw new Denied();
       const savedIntent = original.intent;
+      const originalProfile = input.connectionProfiles?.find(
+        (profile) => profile.id === savedIntent.profileId,
+      ) ?? { id: savedIntent.profileId, label: savedIntent.profileId };
       if (
         original.id !== personalOperationId(actorUserId, safe.nonce) ||
         savedIntent.actorUserId !== actorUserId ||
         savedIntent.clientOperationId !== safe.nonce ||
         savedIntent.ingress !== "oauth-begin" ||
         profiles.get(savedIntent.profileId) !== "oauth-begin" ||
-        (completion &&
-          (operationCompletion(
-            input.connectionProfiles?.find(
-              (p) => p.id === savedIntent.profileId,
-            ) ?? {
-              id: savedIntent.profileId,
-              label: savedIntent.profileId,
-            },
-          ).inputKind ===
-            "authorization_code") !==
-            "authorizationCode" in safe) ||
+        (completion && !oauthCompletionMatchesProfile(originalProfile, safe)) ||
         (completion
           ? savedIntent.method === "device_code"
           : savedIntent.method !== "device_code")
       )
         throw new Denied();
-      if (
-        completion &&
-        input.connectionProfiles?.find((p) => p.id === savedIntent.profileId)
-          ?.connection?.completionInputKind === "none"
-      )
-        throw new Denied();
-      if (completion && "callbackURL" in safe) {
-        const profile = input.connectionProfiles?.find(
-          (p) => p.id === savedIntent.profileId,
-        );
-        const grammar =
-          profile?.connection?.provider === "grok"
-            ? secretSubmission.grokOAuthCallbackURL
-            : secretSubmission.oauthCallbackURL;
-        if (!grammar.safeParse(safe.callbackURL).success) throw new Denied();
-      }
       async function reauthorize() {
         if ((await input.authorizeUser()) !== actorUserId) throw new Denied();
         // The store also checks the live original personal ownership scope.

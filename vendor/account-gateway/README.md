@@ -1,15 +1,19 @@
 # Account Gateway SDK artifacts
 
-The provider-connections candidate SDK is
-`agent-teams-account-gateway-0.1.0-provider-plan-a9d0c48cb9f8.tgz`.
-`provider-connections-provenance.json` binds its bytes to committed SDK source
-and installed Node24/26 qualification. API and web use this same archive.
-It preserves legacy Codex/Claude contracts and adds typed provider capabilities,
-Grok callback validation and cached account-limits/v2 reads for new profiles.
-Controlled four-provider native/Gateway/installed Action and Codex CLI qualification
-passed; `provider-connections-qualification.json` records source pins and boundaries.
-The CLI declared function tools only. Live-provider subscription qualification is
-still separate, and new profiles remain disabled until deployment qualification.
+The current private provider-connections SDK is
+`agent-teams-account-gateway-0.1.0-grok-code-130ca3f00dcc.tgz`.
+`provider-connections-provenance.json` binds the archive to committed SDK source
+and `grok-code-130ca3f00dcc-sdk-receipt.json` records installed Node24/26 qualification.
+API and web use the same archive. Grok shows one plain authorization-code field;
+the saved original provider selects its SDK-owned code grammar. Legacy Grok callback
+URLs and Claude code#state completion remain supported.
+
+Historical EF888 SDK bytes, provenance, installed receipt and controlled runtime
+qualification retain their original hash-named identities. The historical
+`provider-connections-qualification.json` is also still EF888 evidence; it is not
+qualification of the new code-only SDK or a new native/Gateway runtime. New RR
+and code-only runtime qualification are recorded separately in current provenance.
+No archive is published to npm, and deployment/live account proof stays separate.
 
 The previous Codex/Claude Accounts SDK is
 `agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz`.

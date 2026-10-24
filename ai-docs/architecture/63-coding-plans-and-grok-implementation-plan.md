@@ -351,11 +351,16 @@ Grok subscription inference использует `cli-chat-proxy.grok.com`, не
 произвольный hosted redirect или переиспользование клиента нашим продуктом.
 
 Сначала использовать разрешённый automatic return callback, если он подтверждён.
-Если разрешён только loopback handoff, capabilities декларируют manual callback URL:
-после входа пользователь один раз вставляет URL в тот же диалог, как в нынешнем
-Codex browser flow. Нет локального daemon, инструкции «настройте OAuth app» и
-поля provider URL. Если ни один легитимный browser handoff не подтверждён, профиль
-остаётся disabled; не подменять его cookie import.
+Фактический browser flow Grok Build показывает одноразовый код: capabilities
+декларируют существующий `authorization_code`, пользователь один раз вставляет
+код в тот же диалог. Native берёт исходный state из уже зашифрованного intent
+этой owner/profile/operation и выполняет прежний PKCE/CAS exchange; браузер не
+хранит state или authorization URL ради восстановления callback. Выбор grammar
+делается по сохранённому provider операции, а не содержимому вставленного секрета.
+Старый точный loopback callback URL принимается для совместимости и по-прежнему
+проверяет переданный state. Нет нового daemon, настройки OAuth app пользователем,
+миграции или поля provider URL. Если легитимный browser handoff не подтверждён,
+профиль остаётся disabled; не подменять его cookie import.
 
 Device authorization в этот slice не входит; source SSO-cookie converter
 не переносить как публичный вход. Первый UI предлагает один browser flow.
@@ -388,7 +393,7 @@ Device authorization в этот slice не входит; source SSO-cookie conv
 
 ```text
 Kimi / GLM / MiniMax:  Provider → Subscription key → Connect
-Grok:                 Provider → Continue with Grok → return / one callback paste
+Grok:                 Provider → Continue with Grok → one code paste
 ```
 
 - Расширить `AccountsAddDialog`/`AccountGatewayControls`, не создавать по странице
