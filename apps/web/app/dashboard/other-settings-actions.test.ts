@@ -4,11 +4,23 @@ const mocks = vi.hoisted(() => ({
   authorize: vi.fn(),
   update: vi.fn(),
   audit: vi.fn(),
+  changeAccessRights: vi.fn(),
 }));
 vi.mock("../../src/server/dashboard-mutations", () => ({
   assertDashboardMutationAllowed: mocks.authorize,
   dashboardMutationAccessAuditMetadata: () => ({}),
 }));
+vi.mock(
+  "../../src/server/dashboard-provider-selections",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../../src/server/dashboard-provider-selections")
+    >()),
+    dashboardProviderProfiles: () => ({
+      changeAccessRights: mocks.changeAccessRights,
+    }),
+  }),
+);
 vi.mock("../../src/server/prisma", () => ({
   getPrisma: () => ({ workspace: { update: mocks.update } }),
 }));
@@ -23,7 +35,17 @@ import {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.authorize.mockResolvedValue({ actor: "user:owner" });
+  mocks.authorize.mockResolvedValue({
+    userId: "user-owner",
+    actor: "user:owner",
+    githubLogin: "owner",
+  });
+  mocks.changeAccessRights.mockImplementation(
+    async (input: { readonly adminOnly: boolean }) => ({
+      adminOnly: input.adminOnly,
+      previous: !input.adminOnly,
+    }),
+  );
   mocks.update.mockResolvedValue({});
   mocks.audit.mockResolvedValue(undefined);
 });
@@ -87,17 +109,30 @@ describe("workspace Access rights authority", () => {
         },
       });
       expect(mocks.authorize).toHaveBeenCalledWith("workspace-selected");
-      expect(mocks.update).toHaveBeenCalledExactlyOnceWith({
-        where: { id: "workspace-selected" },
-        data: { providerManagementAdminOnly: adminOnly },
-      });
-      expect(mocks.audit).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: "workspace.access_rights_saved",
-          metadata: { providerManagementAdminOnly: adminOnly },
+      // The provider write decides, writes and audits in one transaction.
+      expect(mocks.changeAccessRights).toHaveBeenCalledExactlyOnceWith({
+        workspaceId: "workspace-selected",
+        actor: expect.objectContaining({
+          userId: "user-owner",
+          auditActor: "user:owner",
         }),
-        expect.anything(),
-      );
+        adminOnly,
+        auditMetadata: {},
+        authorize: expect.any(Function),
+      });
+      const { authorize } = mocks.changeAccessRights.mock.calls[0]![0];
+      const workspace = {
+        personalOwnerUserId: null,
+        providerManagementAdminOnly: false,
+      };
+      expect(() =>
+        authorize({ actor: { userId: "u", role: "member" }, workspace }),
+      ).toThrow("provider_management_forbidden:workspace_admin_required");
+      expect(() =>
+        authorize({ actor: { userId: "u", role: "admin" }, workspace }),
+      ).not.toThrow();
+      expect(mocks.update).not.toHaveBeenCalled();
+      expect(mocks.audit).not.toHaveBeenCalled();
     },
   );
 
@@ -113,7 +148,6 @@ describe("workspace Access rights authority", () => {
     ).resolves.toMatchObject({
       params: { section: "other", error: "workspace_mutation_forbidden" },
     });
-    expect(mocks.update).not.toHaveBeenCalled();
-    expect(mocks.audit).not.toHaveBeenCalled();
+    expect(mocks.changeAccessRights).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,9 @@
 "use server";
 
-import { PrismaWorkspaceReviewSettings } from "@reviewrouter/features-review-config";
+import {
+  changeProviderAccessRights,
+  PrismaWorkspaceReviewSettings,
+} from "@reviewrouter/features-review-config";
 import {
   recordAuditEvent,
   PrismaAuditLogRepository,
@@ -9,6 +12,10 @@ import {
   assertDashboardMutationAllowed,
   dashboardMutationAccessAuditMetadata,
 } from "../../src/server/dashboard-mutations";
+import {
+  dashboardProviderActor,
+  dashboardProviderProfiles,
+} from "../../src/server/dashboard-provider-selections";
 import { getPrisma } from "../../src/server/prisma";
 import { safeDashboardErrorCode } from "./dashboard-error-codes";
 
@@ -54,8 +61,10 @@ export async function saveWorkspaceOtherSettingsClientAction(
 
 /**
  * Access rights: owners and admins decide whether only they manage provider
- * profiles and selections. Writes only its own column, so a stale form of the
- * draft review setting can never reset drafts.
+ * profiles and selections. Decided by the provider policy under the
+ * workspace lock every provider write takes, written with its audit event in
+ * one transaction, and only its own column: a stale form of the draft review
+ * setting can never reset drafts.
  */
 export async function saveWorkspaceAccessRightsClientAction(
   formData: FormData,
@@ -69,24 +78,14 @@ export async function saveWorkspaceAccessRightsClientAction(
     const value = formData.get("providerManagementAdminOnly");
     if (value !== null && value !== "on")
       throw new Error("dashboard_action_failed");
-    const providerManagementAdminOnly = value === "on";
-    const prisma = getPrisma();
-    await new PrismaWorkspaceReviewSettings(
-      prisma,
-    ).saveProviderManagementAdminOnly(workspaceId, providerManagementAdminOnly);
-    await recordAuditEvent(
+    await changeProviderAccessRights(
       {
         workspaceId,
-        actor: actor.actor,
-        action: "workspace.access_rights_saved",
-        targetType: "workspace",
-        targetId: workspaceId,
-        metadata: {
-          providerManagementAdminOnly,
-          ...dashboardMutationAccessAuditMetadata(actor),
-        },
+        actor: dashboardProviderActor(actor),
+        adminOnly: value === "on",
+        auditMetadata: dashboardMutationAccessAuditMetadata(actor),
       },
-      { auditLog: new PrismaAuditLogRepository(prisma) },
+      { profiles: dashboardProviderProfiles(getPrisma()) },
     );
     return { params: { ...context, notice: "workspace_access_rights_saved" } };
   } catch (error) {

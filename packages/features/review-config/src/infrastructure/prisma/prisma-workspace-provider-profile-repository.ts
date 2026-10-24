@@ -1,3 +1,7 @@
+import {
+  PrismaAuditLogRepository,
+  recordAuditEvent,
+} from "@reviewrouter/features-audit-log";
 import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import type { WorkspacePolicyHeads } from "../../application/ports/review-configuration-repository-port";
@@ -90,6 +94,44 @@ export class PrismaWorkspaceProviderProfileRepository implements WorkspaceProvid
     return runReviewConfigurationTransaction(this.prisma, (tx) =>
       this.archiveIn(tx, input),
     );
+  }
+
+  changeAccessRights(
+    input: Parameters<
+      WorkspaceProviderProfileRepositoryPort["changeAccessRights"]
+    >[0],
+  ) {
+    return runReviewConfigurationTransaction(this.prisma, async (tx) => {
+      // Refuses a deleted or deleting workspace before any write.
+      const authority = await lockProviderAuthority(
+        tx,
+        input.workspaceId,
+        input.actor,
+      );
+      input.authorize(authority);
+      const previous = authority.workspace.providerManagementAdminOnly;
+      if (previous !== input.adminOnly)
+        await tx.workspace.update({
+          where: { id: input.workspaceId },
+          data: { providerManagementAdminOnly: input.adminOnly },
+        });
+      await recordAuditEvent(
+        {
+          workspaceId: input.workspaceId,
+          actor: input.actor.auditActor,
+          action: "workspace.access_rights_saved",
+          targetType: "workspace",
+          targetId: input.workspaceId,
+          metadata: {
+            providerManagementAdminOnly: input.adminOnly,
+            previous,
+            ...input.auditMetadata,
+          },
+        },
+        { auditLog: new PrismaAuditLogRepository(tx) },
+      );
+      return { adminOnly: input.adminOnly, previous };
+    });
   }
 
   async list(workspaceId: string) {

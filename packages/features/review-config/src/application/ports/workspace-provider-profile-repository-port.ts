@@ -110,6 +110,23 @@ export interface WorkspaceProviderProfileRepositoryPort {
    */
   archive(input: ProfileWrite): Promise<WorkspaceProviderProfile>;
 
+  /**
+   * Sets the Access rights setting (only owners and admins manage providers)
+   * under the same workspace lock as every provider write, so no profile or
+   * selection write decides with the old value. `authorize` runs under that
+   * lock; the column and its audit event are written in one transaction.
+   */
+  changeAccessRights(
+    input: Readonly<{
+      workspaceId: string;
+      actor: ProviderProfileActor;
+      adminOnly: boolean;
+      authorize: (facts: ProviderProfileGateFacts) => void;
+      /** Extra audit metadata of the caller, such as its access source. */
+      auditMetadata?: Readonly<Record<string, unknown>>;
+    }>,
+  ): Promise<Readonly<{ adminOnly: boolean; previous: boolean }>>;
+
   /** Active profiles of the workspace in creation order. */
   list(workspaceId: string): Promise<readonly WorkspaceProviderProfile[]>;
 

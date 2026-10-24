@@ -5,6 +5,7 @@ import {
 } from "@reviewrouter/platform-db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  changeProviderAccessRights,
   createWorkspaceProviderProfile,
   listWorkspaceProviderProfiles,
   renameWorkspaceProviderProfile,
@@ -341,9 +342,17 @@ databaseTests("WorkspaceProviderProfile PostgreSQL storage", () => {
       label: "Team gateway 5.5",
       credential: { kind: "gateway_binding", bindingId: bindingA },
     });
-    await prisma.workspace.update({
-      where: { id: workspaceA },
-      data: { providerManagementAdminOnly: true },
+    const accessRights = (actor: typeof owner, adminOnly: boolean) =>
+      changeProviderAccessRights(
+        { workspaceId: workspaceA, actor, adminOnly },
+        deps(),
+      );
+    await expect(accessRights(member, true)).rejects.toThrow(
+      "provider_management_forbidden:workspace_admin_required",
+    );
+    await expect(accessRights(owner, true)).resolves.toEqual({
+      adminOnly: true,
+      previous: false,
     });
     try {
       await expect(rename(creator, "Mine again")).rejects.toThrow(
@@ -365,11 +374,52 @@ databaseTests("WorkspaceProviderProfile PostgreSQL storage", () => {
         label: "Admin label",
       });
     } finally {
+      await accessRights(owner, false);
+    }
+    // Decided and audited in the toggle's own transaction; a refusal writes
+    // nothing.
+    expect(
+      await prisma.auditEvent.findMany({
+        where: {
+          workspaceId: workspaceA,
+          action: "workspace.access_rights_saved",
+        },
+        select: { actor: true, metadata: true },
+        orderBy: { createdAt: "asc" },
+      }),
+    ).toEqual([
+      {
+        actor: owner.auditActor,
+        metadata: { providerManagementAdminOnly: true, previous: false },
+      },
+      {
+        actor: owner.auditActor,
+        metadata: { providerManagementAdminOnly: false, previous: true },
+      },
+    ]);
+    // A workspace being deleted takes no provider writes, the toggle included.
+    await prisma.workspace.update({
+      where: { id: workspaceA },
+      data: { deletionState: "delete_pending" },
+    });
+    try {
+      await expect(accessRights(owner, true)).rejects.toThrow(
+        "provider_profile_workspace_unavailable",
+      );
+    } finally {
       await prisma.workspace.update({
         where: { id: workspaceA },
-        data: { providerManagementAdminOnly: false },
+        data: { deletionState: "active" },
       });
     }
+    expect(
+      (
+        await prisma.workspace.findUniqueOrThrow({
+          where: { id: workspaceA },
+          select: { providerManagementAdminOnly: true },
+        })
+      ).providerManagementAdminOnly,
+    ).toBe(false);
     expect(
       await prisma.auditEvent.findMany({
         where: { targetId: profile.id, action: "provider_profile.renamed" },

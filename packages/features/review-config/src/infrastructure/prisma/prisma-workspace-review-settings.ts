@@ -36,24 +36,4 @@ export class PrismaWorkspaceReviewSettings {
       data: { reviewDraftPullRequests },
     });
   }
-
-  /** Access rights: only owners and admins manage providers. Absent is off. */
-  async providerManagementAdminOnly(workspaceId: string): Promise<boolean> {
-    const workspace = await this.prisma.workspace.findUnique({
-      where: { id: workspaceId },
-      select: { providerManagementAdminOnly: true },
-    });
-    return workspace?.providerManagementAdminOnly === true;
-  }
-
-  /** Writes only the Access rights column, never the draft review setting. */
-  async saveProviderManagementAdminOnly(
-    workspaceId: string,
-    providerManagementAdminOnly: boolean,
-  ): Promise<void> {
-    await this.prisma.workspace.update({
-      where: { id: workspaceId },
-      data: { providerManagementAdminOnly },
-    });
-  }
 }

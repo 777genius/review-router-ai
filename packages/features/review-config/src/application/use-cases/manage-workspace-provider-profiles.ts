@@ -65,6 +65,30 @@ export function createWorkspaceProviderProfile(
   });
 }
 
+/**
+ * Access rights: whether only owners and admins manage provider profiles and
+ * selections. Only owners and admins change it.
+ */
+export function changeProviderAccessRights(
+  input: Readonly<{
+    workspaceId: string;
+    actor: ProviderProfileActor;
+    adminOnly: boolean;
+    auditMetadata?: Readonly<Record<string, unknown>>;
+  }>,
+  dependencies: Dependencies,
+): Promise<Readonly<{ adminOnly: boolean; previous: boolean }>> {
+  return dependencies.profiles.changeAccessRights({
+    ...input,
+    authorize: (facts) =>
+      assertProviderManagementAllowed({
+        actor: facts.actor,
+        workspace: facts.workspace,
+        action: { kind: "change_access_rights" },
+      }),
+  });
+}
+
 /** A label edit applies to every repository using the profile at once. */
 export function renameWorkspaceProviderProfile(
   input: Readonly<{
