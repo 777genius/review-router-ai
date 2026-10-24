@@ -15,13 +15,14 @@ cloud review execution.
 
 ## How the pieces fit
 
-ReviewRouter is made of parts that run in different places. Set up the first
-three to get reviews working. The fourth is separate and optional for the
-basic flow.
+ReviewRouter is made of parts that run in different places. This guide covers
+the control plane, the GitHub App, and the direct T0 settings for the review
+runtime. The account gateway is a separate service that this guide does not set
+up.
 
 | Part            | Where it runs                                 | What it does                                                                              | Covered here                            |
 | --------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------- |
-| Control plane   | Your host, this Compose stack                 | Dashboard, GitHub webhooks, review state, configuration                                   | Yes, sections 1-7                       |
+| Control plane   | Your host, this Compose stack                 | Dashboard, GitHub webhooks, review state, configuration                                   | Yes, sections 1 and 4-7                 |
 | GitHub App      | GitHub, owned by you                          | Gives the control plane access to your repositories and webhooks                          | Yes, section 2                          |
 | Review runtime  | The customer's GitHub Actions workflow        | Runs the review on each pull request with the provider key                                | Partly: direct T0 settings in section 3 |
 | Account gateway | A separate service, not in this Compose stack | Signs in subscription accounts (for example Codex device login) and routes calls for them | No, see below                           |
@@ -35,10 +36,11 @@ sign-in, account limits, and gateway-routed execution.
 - Source: <https://github.com/agent-teams-ai/account-gateway> (public).
 - Status: its README says the implementation is in progress and there is no
   qualified deployment or published SDK yet.
-- This Compose stack does not start or configure it. The API reads
-  `REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN` and
-  `REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER`; set them only if you run
-  a gateway yourself.
+- This Compose stack does not start or configure it. Gateway-routed execution
+  stays off unless `REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED=1` and
+  `REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY` are set. The web and API need
+  further `REVIEW_ROUTER_ACCOUNT_GATEWAY_*` settings that this guide does not
+  document; set any of them only if you run a gateway yourself.
 - Not verified in this guide: which review flows keep working with API-key
   providers and no gateway. Treat account sign-in as unavailable on a fresh
   self-hosted install until the gateway has a qualified deployment path.
