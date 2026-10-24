@@ -222,6 +222,18 @@ No new package.
   The workspace list is optional (absent = no default); the repository list is
   optional (absent = inherit).
   `execution.providerLimit` is derived from the selection count and not stored.
+  The stored `providerMaxParallel` and `inlineMinAgreement` must fit the
+  selections they govern. Only one case is fitted at materialization: a
+  repository that selects its own providers and inherits these limits from
+  the workspace runs and agrees with at most as many providers as it selects
+  (`min(stored, N)`). Limits a document stores next to the selection they
+  govern (the workspace limits of the default, or a repository's own
+  override) are never fitted on read or on write; an inconsistent document
+  is `resave_required` and its write is refused with
+  `review_execution_limits_incompatible`. The selection use cases (set
+  default, assign, clear) lower the written document's own limits to the new
+  provider count, so replacing a migrated multi-provider default with one
+  provider never strands its limits.
 - `resolveEffectiveReviewConfiguration` is the single resolver; it keeps the
   RepeatableRead root-client behavior and a transaction-reader overload for
   admission. Result: `ready` (carrying every field of today's
@@ -514,6 +526,21 @@ Done when: `rg` for `ProviderSecretSetupChooser`, `ProviderApplicationDialog`,
 `GatewayRepositoryBatchControls`, `ProviderApiKeyManager` is empty; the dialog
 opens for a fixed repository, and for none-selected, from the stepper line, the
 row indicator and the table header; policy table tests pass.
+
+As built: the workspace and repository settings forms submit no provider at
+all (not even a profile select); the provider, its model and its
+reasoning/fast/agentic settings change only in the dialog, which sends the
+`profileId` of an existing profile, so a form opened before a provider change
+can never revert it. "Remove all repository overrides" keeps the repository's
+own provider; "Use the workspace default" in the dialog removes it. The
+parallel/agreement limits are shown only where more than one provider is
+selected. The Models section shows the default provider line and the
+non-provider workspace settings; the repository list of the old second
+override editor is gone (each repository row has its settings). A workspace
+without a default shows the repository table with a "No default provider"
+line. A fixture-only preview, `/dashboard/provider-setup-preview` behind
+`REVIEW_ROUTER_ENABLE_PROVIDER_SETUP_PREVIEW=1`, renders the lines and the
+dialog without a database for visual review; S7 qualifies the real pages.
 
 ### S6 - Providers list, Access rights, Model section
 
