@@ -20,7 +20,13 @@ type ConnectReceipt = Awaited<
 >;
 
 const nonce = "9874b2bc-e987-4456-9212-7f94f58932da";
-function fixture(options: { grok?: boolean; disabled?: boolean } = {}) {
+function fixture(
+  options: {
+    lifecycleWritable?: boolean;
+    grok?: boolean;
+    disabled?: boolean;
+  } = {},
+) {
   const grokProfileId = "grok-subscription-responses-oauth-v1";
   let oauthBegun = false;
   let actor = "user-u",
@@ -313,6 +319,15 @@ function fixture(options: { grok?: boolean; disabled?: boolean } = {}) {
   const deliverFences = vi.fn(async () => {});
   const api = createPersonalCanonicalAccounts({
     authorizeUser: async () => actor,
+    ...(options.lifecycleWritable
+      ? {
+          lifecycleReader: {
+            get: async () => ({ ...account }),
+            compatible: async () => true,
+            writable: async () => true,
+          },
+        }
+      : {}),
     store,
     canonical,
     control,
@@ -613,6 +628,19 @@ describe("personal canonical UI server boundary", () => {
     f.foreignGateway();
     const foreign = await f.api.listGatewayAccounts("", null);
     expect(foreign.status === "ok" && foreign.value.accounts).toEqual([]);
+  });
+
+  it("advertises lifecycle actions by default with no feature flag configured", async () => {
+    const f = fixture({ lifecycleWritable: true });
+    const result = await f.api.listGatewayAccounts("", null);
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") throw new Error("expected list");
+    expect(result.value.accounts[0]).toMatchObject({
+      connectionId: "own-source",
+      lifecycle: { status: "available" },
+      allowedActions: ["suspend", "delete"],
+      authorizationEpoch: 4,
+    });
   });
 
   const appliedConnectFixture = () => {

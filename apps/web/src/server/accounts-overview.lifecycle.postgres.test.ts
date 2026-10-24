@@ -100,6 +100,10 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
           },
         );
         const pending = await reserve(sources[1]!.id);
+        // The inventory may only advertise what this store can reserve.
+        await expect(reserve(sources[2]!.id)).rejects.toMatchObject({
+          code: "revision_conflict",
+        });
         const reload = () =>
           createAccountsOverview({
             prisma: db,
@@ -111,7 +115,6 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
               owner.kind === "workspace"
                 ? accountGatewayWorkspaceOwnerRef(owner.workspaceId)
                 : "unused",
-            lifecycleEnabled: () => true,
             lifecycleCompatible: async () => true,
             gateway: {
               get: async (accountRef) => ({
@@ -154,6 +157,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
               {
                 connectionId: sources[2]!.id,
                 lifecycle: { status: "support_required" },
+                allowedActions: [],
               },
             ],
             nextCursor: null,

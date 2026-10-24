@@ -2,7 +2,7 @@
 
 Migration 000134 extends the existing operation ledger and source reservation. It retains all historical IDs, owner constraints, legacy operation guards and binding ACK rules. `originalOperationId` is the immutable Gateway command ID (equal to ledger ID); `gatewayOperationRef` on a source still identifies its previous applied command while a new command is pending.
 
-New writes remain closed by default behind `REVIEW_ROUTER_ACCOUNT_LIFECYCLE_ENABLED`; server composition also requires compatible Gateway/native capabilities. Legacy `disabled` rows are not changed to `suspended`.
+New writes are gated only by the remote Gateway lifecycle capability (`writeGate: enabled`); there is no local feature flag. Legacy `disabled` rows are not changed to `suspended` and stay terminal for lifecycle writes.
 
 Run the standard feature `test:postgres` against a fresh, explicitly disposable cluster to exercise the full migration chain and existing tests. `tests/lifecycle-migrated.test.mts` is an additional guarded runner for the dedicated already migrated TEST database on loopback port 55644; it runs actual adapter races, no-effect recovery, more than 100 grants, revocation preservation, owner-scope NULL/adversarial SQL and permanent delete denial.
 

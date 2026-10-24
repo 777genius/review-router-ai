@@ -54,7 +54,10 @@ function setup() {
   } as unknown as AccountLifecycleDependencies["store"];
   const gateway = { preflight: vi.fn(), submit: vi.fn(), read: vi.fn() };
   const deliverFences = vi.fn(async () => {});
-  const enabled = vi.fn(() => true);
+  const compatible = vi.fn(async () => {
+    order.push("remote-capability");
+    return true;
+  });
   const service = createAccountLifecycleService({
     deps: { store, gateway, authorize: async () => {} },
     authorize: async () => ({ userId: "user", personal: false }),
@@ -62,14 +65,10 @@ function setup() {
       personalWorkspaceId: "personal",
       owningWorkspaceId: null,
     }),
-    enabled,
-    compatible: async () => {
-      order.push("remote-capability");
-      return true;
-    },
+    compatible,
     deliverFences,
   });
-  return { service, receipt, store, gateway, order, deliverFences, enabled };
+  return { service, receipt, store, gateway, order, deliverFences, compatible };
 }
 describe("account lifecycle server policy", () => {
   it("observational Check never delivers pending fences or enters account ingress", async () => {
@@ -79,9 +78,9 @@ describe("account lifecycle server policy", () => {
     expect(f.store.claim).not.toHaveBeenCalled();
     expect(f.gateway.submit).not.toHaveBeenCalled();
   });
-  it("observational Check finalizes original readback with new writes closed and without replay", async () => {
+  it("observational Check finalizes original readback with the write gate closed and without replay", async () => {
     const f = setup();
-    f.enabled.mockReturnValue(false);
+    f.compatible.mockResolvedValue(false);
     (f.receipt as { phase: string }).phase = "unknown";
     f.gateway.read.mockResolvedValue({
       command: {
@@ -203,16 +202,21 @@ describe("account lifecycle server policy", () => {
     expect(result.actions).toEqual([]);
     expect(result.lifecycle).not.toHaveProperty("operationId");
   });
-  it("legacy disabled requires support and never advertises enable/delete or repeat disable", () => {
-    expect(
-      lifecycleProjection({
-        owned: true,
-        compatible: true,
-        state: "disabled",
-        pendingOperationId: null,
-        synchronized: true,
-      }),
-    ).toEqual({ lifecycle: { status: "support_required" }, actions: [] });
+  it("legacy disabled never advertises a delete the reservation store refuses", () => {
+    // The store and the lifecycle_source_cas guard reserve delete only from
+    // active/suspended/quarantined, so any advertised action would be dead.
+    for (const row of [
+      { owned: true, compatible: true, synchronized: true },
+      { owned: true, compatible: false, synchronized: false },
+      { owned: false, compatible: true, synchronized: true },
+    ])
+      expect(
+        lifecycleProjection({
+          ...row,
+          state: "disabled",
+          pendingOperationId: null,
+        }),
+      ).toEqual({ lifecycle: { status: "support_required" }, actions: [] });
   });
   it("suspended resume requires authoritative retained-custody proof", () => {
     const row = {
