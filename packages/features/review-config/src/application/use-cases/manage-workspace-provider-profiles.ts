@@ -119,6 +119,7 @@ export function renameWorkspaceProviderProfile(
 /**
  * Changes the model of a profile for every scope using it. The credential
  * source and auth mode never change, so neither does the workflow transport.
+ * A generated label follows the new model; a chosen one is kept.
  */
 export async function changeWorkspaceProviderProfileModel(
   input: Readonly<{

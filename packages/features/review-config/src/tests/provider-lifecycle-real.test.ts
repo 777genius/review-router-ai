@@ -21,6 +21,7 @@ import type { ProviderProfileModelChangeValidator } from "../application/use-cas
 import { ProviderManagementDeniedError } from "../domain/provider-management-policy";
 import { defaultWorkspaceReviewPolicy } from "../domain/review-policy-document";
 import {
+  defaultProviderProfileLabel,
   ProviderProfileError,
   type ProviderCredentialSource,
 } from "../domain/workspace-provider-profile";
@@ -482,6 +483,10 @@ databaseTests("provider profile lifecycle on PostgreSQL", () => {
       previousModel: "gpt-5.6-sol",
       affected: { workspaceDefault: true, repositoryIds: [repoB] },
     });
+    // The generated label follows the model instead of naming the old one.
+    expect(changed.profile.label).toBe(
+      defaultProviderProfileLabel(profile.credential, "gpt-5.3-codex-spark"),
+    );
     // In place: the documents keep their versions and select the same ID.
     expect(await countVersions()).toBe(versions + 1);
     const effective = await deps.configurations.findLatest({

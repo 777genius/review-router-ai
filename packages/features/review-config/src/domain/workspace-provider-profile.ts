@@ -232,6 +232,21 @@ export function defaultProviderProfileLabel(
 }
 
 /**
+ * The label a profile keeps after a model edit. A label that is still the
+ * generated one names the old model, so it follows the new model; a label
+ * someone chose stays as it is.
+ */
+export function providerProfileLabelAfterModelChange(
+  profile: Pick<WorkspaceProviderProfile, "credential" | "model" | "label">,
+  model: string,
+): string {
+  return profile.label ===
+    defaultProviderProfileLabel(profile.credential, profile.model)
+    ? defaultProviderProfileLabel(profile.credential, model)
+    : profile.label;
+}
+
+/**
  * Unique per workspace: `credentialKind:credentialRef-or-authMode:model`.
  * A gateway source contributes `bindingId/gatewayProfileRef`, so a changed
  * account profile is a distinct provider. Segments are URI-encoded, which

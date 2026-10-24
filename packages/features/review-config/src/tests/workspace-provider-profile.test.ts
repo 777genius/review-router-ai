@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  defaultProviderProfileLabel,
   parseProviderProfileDraft,
   providerCredentialSourceFromStorage,
   providerProfileIdentityKey,
+  providerProfileLabelAfterModelChange,
   type ProviderCredentialSource,
 } from "../domain/workspace-provider-profile";
 
@@ -131,5 +133,29 @@ describe("workspace provider profile input", () => {
       expect(() => providerCredentialSourceFromStorage(broken)).toThrow(
         "provider_profile_invalid",
       );
+  });
+});
+
+describe("workspace provider profile label after a model edit", () => {
+  const credential = gateway("b1", "p1");
+
+  it("moves a generated label to the new model so it never names the old one", () => {
+    const profile = {
+      credential,
+      model: "gpt-5.5",
+      label: defaultProviderProfileLabel(credential, "gpt-5.5"),
+    };
+    const label = providerProfileLabelAfterModelChange(profile, "gpt-5.6-sol");
+    expect(label).toBe(defaultProviderProfileLabel(credential, "gpt-5.6-sol"));
+    expect(label).not.toContain("gpt-5.5");
+  });
+
+  it("keeps a label someone chose", () => {
+    expect(
+      providerProfileLabelAfterModelChange(
+        { credential, model: "gpt-5.5", label: "Team ChatGPT" },
+        "gpt-5.6-sol",
+      ),
+    ).toBe("Team ChatGPT");
   });
 });

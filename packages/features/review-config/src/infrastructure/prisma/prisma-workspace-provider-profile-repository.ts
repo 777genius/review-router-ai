@@ -20,6 +20,7 @@ import {
 import type { ReviewConfigurationTarget } from "../../domain/review-configuration-target";
 import {
   providerProfileIdentityKey,
+  providerProfileLabelAfterModelChange,
   ProviderProfileError,
   type ProviderProfileUsage,
   type WorkspaceProviderProfile,
@@ -307,13 +308,14 @@ export class PrismaWorkspaceProviderProfileRepository implements WorkspaceProvid
       throw new ProviderProfileError("provider_profile_duplicate");
     if (previousModel === input.model)
       return { profile, previousModel, affected };
+    const label = providerProfileLabelAfterModelChange(profile, input.model);
     const updated = await tx.workspaceProviderProfile.updateMany({
       where: {
         id: profile.id,
         workspaceId: input.workspaceId,
         archivedAt: null,
       },
-      data: { model: input.model, identityKey },
+      data: { model: input.model, identityKey, label },
     });
     if (updated.count !== 1)
       throw new ProviderProfileError("provider_profile_not_found");
@@ -328,6 +330,7 @@ export class PrismaWorkspaceProviderProfileRepository implements WorkspaceProvid
       profile: saved,
       actor: input.actor.auditActor,
       previousModel,
+      ...(label === profile.label ? {} : { previousLabel: profile.label }),
       affected,
     });
     return { profile: saved, previousModel, affected };
