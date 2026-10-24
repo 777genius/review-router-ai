@@ -50,6 +50,23 @@ export function RepositorySelectionProvider({
     setReady(true);
   }, [workspaceId]);
   const locked = disabled || !ready;
+  // A repository that left the inventory leaves the selection: no action can
+  // target it, so no count includes it.
+  const known = useMemo(
+    () => new Set(inventory.map((item) => item.repositoryId)),
+    [inventory],
+  );
+  useEffect(() => {
+    setIds((prior) =>
+      prior.every((id) => known.has(id))
+        ? prior
+        : prior.filter((id) => known.has(id)),
+    );
+  }, [known]);
+  const selectedIds = useMemo(
+    () => ids.filter((id) => known.has(id)),
+    [ids, known],
+  );
   const available = useMemo(
     () =>
       new Set(
@@ -87,7 +104,7 @@ export function RepositorySelectionProvider({
   return (
     <Context.Provider
       value={{
-        ids,
+        ids: selectedIds,
         inventory,
         locked,
         toggle,

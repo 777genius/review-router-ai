@@ -367,3 +367,81 @@ describe("ProviderSetupDialog", () => {
       expect(String(url)).toContain("repository=repo_1&repository=repo_2");
   });
 });
+
+describe("Configure providers on the shared table selection", () => {
+  const renderBulk = (
+    count: number,
+    { limit, editable }: { limit: number; editable: readonly string[] },
+  ) => {
+    const repositories = Array.from({ length: count }, (_, index) => ({
+      id: `repo_${index + 1}`,
+      fullName: `acme/repo_${index + 1}`,
+    }));
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RepositorySelectionProvider
+          workspaceId="workspace_1"
+          inventory={repositories.map((repository) => ({
+            repositoryId: repository.id,
+            fullName: repository.fullName,
+            available: true,
+          }))}
+        >
+          <BulkProviderSetupAction
+            workspaceId="workspace_1"
+            mutationsEnabled
+            modelOptions={[]}
+            gatewayAccounts={undefined}
+            agentProfileOptions={[]}
+            limit={limit}
+            editableRepositoryIds={editable}
+          />
+          {repositories.map((repository) => (
+            <RepositorySelectionCheckbox
+              key={repository.id}
+              repositoryId={repository.id}
+            />
+          ))}
+        </RepositorySelectionProvider>
+      </QueryClientProvider>,
+    );
+    for (const repository of repositories)
+      fireEvent.click(
+        screen.getByRole("checkbox", { name: `Select ${repository.fullName}` }),
+      );
+    return screen.getByRole("button", { name: "Configure providers" });
+  };
+
+  it("refuses more repositories than one change may target and says why", () => {
+    const trigger = renderBulk(3, {
+      limit: 2,
+      editable: ["repo_1", "repo_2", "repo_3"],
+    });
+    expect(trigger).toHaveProperty("disabled", true);
+    expect(trigger.getAttribute("title")).toBe(
+      "Up to 2 repositories per change.",
+    );
+    expect(
+      document.getElementById(trigger.getAttribute("aria-describedby")!)
+        ?.textContent,
+    ).toBe("Up to 2 repositories per change.");
+  });
+
+  it("refuses a selection with repositories the viewer cannot change", () => {
+    const trigger = renderBulk(2, { limit: 100, editable: ["repo_1"] });
+    expect(trigger).toHaveProperty("disabled", true);
+    expect(
+      document.getElementById(trigger.getAttribute("aria-describedby")!)
+        ?.textContent,
+    ).toBe("1 repository of the selection cannot be changed now.");
+  });
+
+  it("opens for an editable selection within the limit", () => {
+    const trigger = renderBulk(2, {
+      limit: 2,
+      editable: ["repo_1", "repo_2"],
+    });
+    expect(trigger).toHaveProperty("disabled", false);
+    expect(trigger.hasAttribute("aria-describedby")).toBe(false);
+  });
+});

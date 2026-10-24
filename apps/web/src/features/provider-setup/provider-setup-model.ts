@@ -23,6 +23,11 @@ import type { ProviderAuthMode } from "@reviewrouter/features-review-providers";
 /** Repositories one dialog may target at once (the assignment bound). */
 export const PROVIDER_SETUP_MAX_REPOSITORIES = 100;
 
+/** "1 repository", "3 repositories". */
+export function repositoryCountLabel(count: number): string {
+  return `${count} ${count === 1 ? "repository" : "repositories"}`;
+}
+
 /** Who the dialog configures. Repository targets are fixed by the caller. */
 export type ProviderSetupTarget =
   | Readonly<{ kind: "workspace" }>

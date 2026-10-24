@@ -71,3 +71,29 @@ it("keeps selected IDs when inventory becomes unavailable and only clears on exp
   mounted.rerender(view("b", true));
   expect(screen.getByLabelText("Selected IDs").textContent).toBe("");
 });
+it("drops repositories that left the inventory from the selection and its count", () => {
+  const view = (count: number) => (
+    <RepositorySelectionProvider
+      workspaceId="workspace"
+      inventory={inventoryOf(true, count)}
+    >
+      <Probe
+        matching={inventoryOf(true, count).map((item) => item.repositoryId)}
+      />
+    </RepositorySelectionProvider>
+  );
+  const mounted = render(view(3));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Select all 3 matching" }),
+  );
+  expect(screen.getByText("3 selected")).toBeTruthy();
+  mounted.rerender(view(2));
+  expect(screen.getByLabelText("Selected IDs").textContent).toBe(
+    "repo-1,repo-2",
+  );
+  expect(screen.getByText("2 selected")).toBeTruthy();
+  mounted.rerender(view(3));
+  expect(screen.getByLabelText("Selected IDs").textContent).toBe(
+    "repo-1,repo-2",
+  );
+});

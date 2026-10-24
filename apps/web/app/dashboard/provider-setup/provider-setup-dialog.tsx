@@ -30,6 +30,7 @@ import {
   credentialStepLabel,
   credentialStepOf,
   providerSetupDenialText,
+  repositoryCountLabel,
   sourceTitle,
   type CredentialStepKind,
   type ProviderProfileOption,
@@ -49,6 +50,7 @@ import { personalAccountOriginText } from "../../../src/features/account-gateway
 import { dashboardErrorText } from "../dashboard-copy";
 import { GatewayConnectionTest } from "../gateway-connection-test";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
+import { AccountProviderLogo } from "../account-identity";
 import { ProviderAuthLogoFrame } from "../provider-auth-logo";
 import { useProviderModelCatalogs } from "../provider-model-catalog";
 import type { ProviderSetupAssignmentResult } from "../provider-setup-actions";
@@ -123,6 +125,8 @@ export type ProviderSetupDialogProps = Readonly<{
   triggerClassName?: string;
   triggerDisabled?: boolean;
   triggerTitle?: string;
+  /** The element that says why the trigger is disabled, if any. */
+  triggerDescribedBy?: string;
   mutationsEnabled: boolean;
   modelOptions: readonly ReviewModelOption[];
   gatewayAccounts: AccountsResult<AccountsPage> | undefined;
@@ -188,6 +192,7 @@ export function ProviderSetupDialog(
             className={props.triggerClassName}
             disabled={props.triggerDisabled}
             title={props.triggerTitle}
+            aria-describedby={props.triggerDescribedBy}
           />
         }
       >
@@ -280,7 +285,7 @@ function ProviderSetupDialogBody({
       ? "Workspace default provider"
       : target.kind === "repository"
         ? `Provider for ${target.repository.fullName}`
-        : `Provider for ${target.repositories.length} repositories`;
+        : `Provider for ${repositoryCountLabel(target.repositories.length)}`;
   const description = adding
     ? "It joins this workspace's providers. Repositories use it once it is chosen for them or made the default."
     : target.kind === "workspace"
@@ -987,6 +992,9 @@ function ProviderChoiceStep({
                 return {
                   value: account.binding!.id,
                   label: account.label,
+                  icon: (
+                    <AccountProviderLogo profileLabel={account.profileLabel} />
+                  ),
                   description: personalDenied
                     ? deniedText(source.personalAccountDecision)
                     : [account.profileLabel, personalAccountOriginText(account)]
@@ -1179,7 +1187,7 @@ function ProviderChoiceStep({
               : target.kind === "workspace"
                 ? "Set as default"
                 : target.kind === "repositories"
-                  ? `Use for ${target.repositories.length} repositories`
+                  ? `Use for ${repositoryCountLabel(target.repositories.length)}`
                   : choice?.kind === "default"
                     ? "Use the workspace default"
                     : "Use for this repository"}
@@ -1209,7 +1217,7 @@ function ProfileCard({
       title={option.label}
       description={
         bulk && option.refusedRepositoryCount > 0
-          ? `${sourceTitle(option.credentialKind, option.authMode)} · ${option.model}. Not allowed in ${option.refusedRepositoryCount} of ${total} repositories.`
+          ? `${sourceTitle(option.credentialKind, option.authMode)} · ${option.model}. Not allowed in ${option.refusedRepositoryCount} of ${repositoryCountLabel(total)}.`
           : `${sourceTitle(option.credentialKind, option.authMode)} · ${option.model}`
       }
       meta={
@@ -1342,8 +1350,10 @@ function AssignmentResults({
     <div className="grid gap-4">
       <p role="status" className="text-sm text-slate-200">
         {applied.length === results.length
-          ? `The provider is set for all ${results.length} repositories.`
-          : `The provider is set for ${applied.length} of ${results.length} repositories.`}{" "}
+          ? results.length === 1
+            ? "The provider is set for the repository."
+            : `The provider is set for all ${results.length} repositories.`
+          : `The provider is set for ${applied.length} of ${repositoryCountLabel(results.length)}.`}{" "}
         Repositories that need a secret or key show it as their next setup step.
       </p>
       <ul className="grid divide-y divide-cyan-200/10 border-y border-cyan-200/10">
