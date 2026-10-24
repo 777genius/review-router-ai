@@ -315,8 +315,17 @@ async function gitRevision(): Promise<string> {
     const head = (
       await execFileAsync("git", ["-C", repoRoot, "rev-parse", "HEAD"])
     ).stdout.trim();
+    // `next dev` itself rewrites next-env.d.ts; it is not a source change.
     const dirty = (
-      await execFileAsync("git", ["-C", repoRoot, "status", "--porcelain"])
+      await execFileAsync("git", [
+        "-C",
+        repoRoot,
+        "status",
+        "--porcelain",
+        "--",
+        ".",
+        ":(exclude)apps/web/next-env.d.ts",
+      ])
     ).stdout.trim();
     return dirty ? `${head}+dirty` : head;
   } catch {

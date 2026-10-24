@@ -84,7 +84,8 @@ migrates it and, before every shot, removes the fixture rows by their fixed
 IDs and seeds them again, so nothing a shot, a background refresh or an
 earlier run changed leaks into the next shot. `pnpm provider-setup:visual:seed
 [--rotating]` seeds without the app. Local `.env` files are refused because
-Next would load them over the fixture environment.
+Next would load them over the fixture environment. `next dev` rewrites
+`apps/web/next-env.d.ts` in the checkout; leave that change out of commits.
 
 The seed test needs a migrated database. A second database in the same
 cluster fails migration `000079` (its roles are cluster-wide), so run it
