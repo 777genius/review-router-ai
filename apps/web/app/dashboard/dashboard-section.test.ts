@@ -12,6 +12,8 @@ describe("dashboard section routing", () => {
     expect(resolveDashboardSection({ section: "statistics" })).toBe(
       "statistics",
     );
+    expect(resolveDashboardSection({ section: "skills" })).toBe("skills");
+    expect(resolveDashboardSection({ section: "other" })).toBe("other");
     expect(dashboardSectionHref("statistics", "acme")).toBe(
       "/dashboard?section=statistics&workspace=acme#dashboard-section-content",
     );

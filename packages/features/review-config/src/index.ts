@@ -19,3 +19,5 @@ export {
 export * from "./infrastructure/operator/hashed-review-configuration-operator-authorization";
 export * from "./infrastructure/prisma/prisma-review-configuration-operator-repository";
 export * from "./infrastructure/prisma/prisma-review-configuration-repository";
+
+export * from "./infrastructure/prisma/prisma-workspace-review-settings";

@@ -31,6 +31,7 @@
     "@reviewrouter/features-review-progress": "workspace:*",
     "@reviewrouter/features-review-publishing": "workspace:*",
     "@reviewrouter/features-review-run-control": "workspace:*",
+    "@reviewrouter/features-review-skills": "workspace:*",
     "@reviewrouter/features-review-snapshots": "workspace:*",
     "@reviewrouter/features-system-health": "workspace:*",
     "@reviewrouter/features-workflow-provisioning": "workspace:*",
@@ -47,7 +48,7 @@
     "@reviewrouter/platform-locks": "workspace:*",
     "@reviewrouter/features-sdk-growth-authority": "workspace:*",
     "@reviewrouter/features-provider-accounts": "workspace:*",
-    "@agent-teams/account-gateway": "file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz",
+    "@agent-teams/account-gateway": "file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-provider-plan-ef8884317a26.tgz",
     "@reviewrouter/features-review-context-tools": "workspace:*",
     "@reviewrouter/features-provider-usage": "workspace:*",
     "@reviewrouter/features-review-providers": "workspace:*"

@@ -11,6 +11,7 @@ import {
   assertExpectedRevision,
   assertWorkspaceOwner,
   assertWorkspaceUseOwner,
+  assertProfileShareAllowed,
   assertOpaqueReference,
   snapshotBindingFence,
   type ScopedBindingFence,
@@ -271,7 +272,10 @@ export class PrismaProviderAccountRepository
               this.operatorWorkspaceId,
             );
           else assertWorkspaceOwner(connection, input.workspaceId);
-          if (input.state === "active") assertExecutable(connection);
+          if (input.state === "active") {
+            assertProfileShareAllowed(connection.profileRef);
+            assertExecutable(connection);
+          }
           const pair = {
             workspaceId: input.workspaceId,
             connectionId: input.connectionId,

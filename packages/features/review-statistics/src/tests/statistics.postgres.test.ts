@@ -67,7 +67,7 @@ describe.skipIf(!adminUrl)("review statistics real PostgreSQL", () => {
     for (const sql of statements) await prisma.$executeRawUnsafe(sql);
     const migration = await readFile(
       new URL(
-        "../../../../platform/db/prisma/migrations/000142_review_statistics/migration.sql",
+        "../../../../platform/db/prisma/migrations/000144_review_statistics/migration.sql",
         import.meta.url,
       ),
       "utf8",
@@ -447,6 +447,9 @@ describe.skipIf(!adminUrl)("review statistics real PostgreSQL", () => {
         })),
       }),
     );
+    // Persisted IDs are bounded text; continuation must round-trip an opaque
+    // schema-valid ID rather than assuming the projector's current hash format.
+    await prisma.$executeRaw`UPDATE "ReviewStatisticsIssueFact" SET "id"='opaque-browser-issue-' || "id" WHERE "workspaceId"='work'`;
     const report = await reader.readReport({
       actorId: "member",
       workspaceId: "work",
@@ -462,6 +465,11 @@ describe.skipIf(!adminUrl)("review statistics real PostgreSQL", () => {
     const first = await reader.readIssues(input);
     expect(first.items).toHaveLength(25);
     expect(first.nextCursor).not.toBeNull();
+    expect(
+      first.items.every((issue) =>
+        issue.id.startsWith("opaque-browser-issue-"),
+      ),
+    ).toBe(true);
     const second = await reader.readIssues({
       ...input,
       cursor: first.nextCursor!,
@@ -479,6 +487,26 @@ describe.skipIf(!adminUrl)("review statistics real PostgreSQL", () => {
     ).rejects.toThrow(StatisticsValidationError);
     await expect(
       reader.readIssues({ ...input, repositoryId: "other-repo" }),
+    ).rejects.toThrow(StatisticsValidationError);
+    const validCursor = JSON.parse(
+      Buffer.from(first.nextCursor!, "base64url").toString("utf8"),
+    );
+    for (const invalidId of ["", "\u0000", "x".repeat(257), 42]) {
+      const cursor = Buffer.from(
+        JSON.stringify({ ...validCursor, id: invalidId }),
+      ).toString("base64url");
+      await expect(reader.readIssues({ ...input, cursor })).rejects.toThrow(
+        StatisticsValidationError,
+      );
+    }
+    const invalidTimestamp = Buffer.from(
+      JSON.stringify({
+        ...validCursor,
+        at: "2026-02-30T12:00:00.000Z",
+      }),
+    ).toString("base64url");
+    await expect(
+      reader.readIssues({ ...input, cursor: invalidTimestamp }),
     ).rejects.toThrow(StatisticsValidationError);
     expect(report.totals.issuesCaught).toBe(31);
     expect(report.topRepositoriesByIssues[0]?.count).toBe(30);

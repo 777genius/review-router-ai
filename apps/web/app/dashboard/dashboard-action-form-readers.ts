@@ -40,10 +40,15 @@ function readReviewProvidersForm(
       kind: providerKindForAuthMode(authMode),
       authMode,
       model: readFormString(formData, `providerModel.${index}`),
-      reasoningEffort: readFormString(
-        formData,
-        `providerReasoningEffort.${index}`,
-      ) as ReviewConfiguration["providers"][number]["reasoningEffort"],
+      reasoningEffort: (authMode === "codex_account_gateway"
+        ? (readOptionalFormString(
+            formData,
+            `providerReasoningEffort.${index}`,
+          ) ?? undefined)
+        : readFormString(
+            formData,
+            `providerReasoningEffort.${index}`,
+          )) as ReviewConfiguration["providers"][number]["reasoningEffort"],
       agenticContext: readFormBoolean(
         formData,
         `providerAgenticContext.${index}`,

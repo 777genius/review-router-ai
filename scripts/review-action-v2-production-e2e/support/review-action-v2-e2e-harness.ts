@@ -33,6 +33,10 @@ import {
 } from "../../../packages/features/review-executions/src/index.js";
 import { PrismaReviewExecutionStore } from "../../../packages/features/review-executions/src/composition/index.js";
 import { createPrismaReviewProgressCapture } from "../../../packages/features/review-progress/src/composition/index.js";
+import {
+  createReviewStatisticsFeature,
+  type ReviewStatisticsFeature,
+} from "../../../packages/features/review-statistics/src/composition/index.js";
 import { ClaimReviewPublicationStatus } from "../../../packages/features/review-publishing/src/v2/index.js";
 import { PrismaReviewPublicationRepository } from "../../../packages/features/review-publishing/src/v2/composition/index.js";
 import {
@@ -42,6 +46,7 @@ import {
   reviewInvestigationCapabilityV1,
   type ReviewOperationalSloThresholds,
   type ReviewProtocolLimits,
+  type ReviewAgentProfile,
 } from "../../../packages/features/review-run-control/src/index.js";
 import {
   createPrismaClient,
@@ -93,6 +98,8 @@ import {
 } from "../../../apps/api/src/review-action-v2-production-composition.js";
 import { reviewActionV2ProjectionPolicyVersion } from "../../../apps/api/src/review-action-v2-projection-policy.js";
 import { createProductionReviewV2WorkerRuntime } from "../../../apps/worker/src/review-v2-production-runtime.js";
+import { createReviewStatisticsSettlementCapture } from "../../../apps/worker/src/review-statistics-settlement-capture.js";
+import { createReviewStatisticsSettledHandler } from "../../../apps/worker/src/review-statistics-worker-runtime.js";
 import { PrismaReviewProgressPublicationStore } from "../../../apps/worker/src/review-progress-store.js";
 import {
   createReviewV2WorkerFeature,
@@ -143,6 +150,7 @@ export type ReviewActionV2E2EFlow = Readonly<{
 
 export type ReviewActionV2E2EAuthorization = Readonly<{
   result: ReviewRunAuthorizeResult;
+  providerApiAuthMode?: "openrouter-api";
   sourceRunAttempt?: string;
   oidcExpiresAt?: string;
   authorizationId: string;
@@ -158,6 +166,8 @@ export type ReviewActionV2E2EInvestigationProfile = Readonly<{
 }>;
 
 export type ReviewActionV2E2EHarnessOptions = Readonly<{
+  /** Registered test producer definitions, shared by DB row and attestation. */
+  agentProfiles?: readonly ReviewAgentProfile[];
   /** Signed workflow identity; independent of the configured policy. */
   modelTransport?: "account_gateway" | "provider_api";
   /** Shorten only the synthetic mint, without changing server run authority. */
@@ -184,6 +194,8 @@ export class ReviewActionV2E2EHarness {
   readonly env: Readonly<Record<string, string>>;
   readonly routes: ReturnType<typeof composeReviewActionV2ProductionRoutes>;
   private readonly worker: ReturnType<typeof createReviewV2WorkerFeature>;
+  private readonly statistics: ReviewStatisticsFeature;
+  private readonly knownOutboxHandlers: readonly OutboxHandler[];
   private readonly originalFetch: typeof globalThis.fetch;
   private oidcOrdinal = 0;
   private readonly oidcLifetimeSeconds: number;
@@ -202,6 +214,7 @@ export class ReviewActionV2E2EHarness {
     readonly env: Readonly<Record<string, string>>;
     readonly routes: ReturnType<typeof composeReviewActionV2ProductionRoutes>;
     readonly worker: ReturnType<typeof createReviewV2WorkerFeature>;
+    readonly statistics: ReviewStatisticsFeature;
     readonly originalFetch: typeof globalThis.fetch;
     readonly oidcLifetimeSeconds: number;
     readonly modelTransport: "account_gateway" | "provider_api";
@@ -218,6 +231,11 @@ export class ReviewActionV2E2EHarness {
     this.env = input.env;
     this.routes = input.routes;
     this.worker = input.worker;
+    this.statistics = input.statistics;
+    this.knownOutboxHandlers = [
+      ...input.worker.handlers,
+      createReviewStatisticsSettledHandler(input.statistics.projector),
+    ];
     this.originalFetch = input.originalFetch;
     this.oidcLifetimeSeconds = input.oidcLifetimeSeconds;
     this.modelTransport = input.modelTransport;
@@ -273,6 +291,9 @@ export class ReviewActionV2E2EHarness {
     };
     const env: Readonly<Record<string, string>> = Object.freeze({
       ...productionEnv({
+        ...(options.agentProfiles
+          ? { agentProfiles: options.agentProfiles }
+          : {}),
         appPrivateKey: appKeys.privateKey
           .export({ type: "pkcs8", format: "pem" })
           .toString(),
@@ -320,6 +341,9 @@ export class ReviewActionV2E2EHarness {
 
     try {
       await seedProductionControlPlane(prisma, {
+        ...(options.agentProfiles
+          ? { agentProfiles: options.agentProfiles }
+          : {}),
         prefix,
         workspaceId,
         repositoryConnectionId,
@@ -346,17 +370,22 @@ export class ReviewActionV2E2EHarness {
         },
         prisma,
       });
+      const statistics = await createReviewStatisticsFeature({ prisma });
       const productionWorker = createProductionReviewV2WorkerRuntime({
         prisma,
         clock: new SystemClock(),
         env,
         githubAppId: requiredString(env.GITHUB_APP_ID),
         githubPrivateKey: requiredString(env.GITHUB_APP_PRIVATE_KEY),
+        settlementHook: createReviewStatisticsSettlementCapture(
+          statistics.outboxWriter,
+        ),
       });
       const worker = createReviewV2WorkerFeature({
         env,
         createEnabledRuntime: () => productionWorker,
       });
+      if (worker.enabled) await statistics.activateCapture();
       return new ReviewActionV2E2EHarness({
         prisma,
         fakeGitHub,
@@ -370,6 +399,7 @@ export class ReviewActionV2E2EHarness {
         env,
         routes,
         worker,
+        statistics,
         originalFetch,
         oidcLifetimeSeconds,
         modelTransport: options.modelTransport ?? "provider_api",
@@ -426,6 +456,9 @@ export class ReviewActionV2E2EHarness {
     );
     return {
       result: response.result,
+      ...(input.providerApiAuthMode
+        ? { providerApiAuthMode: input.providerApiAuthMode }
+        : {}),
       sourceRunAttempt: runAttempt,
       oidcExpiresAt: new Date(oidcExpiresAt * 1000).toISOString(),
       authorizationId,
@@ -449,6 +482,7 @@ export class ReviewActionV2E2EHarness {
       oidcToken: await this.signOidcToken(
         authorization.sourceRunAttempt ?? "1",
         Math.floor(Date.now() / 1000) + this.oidcLifetimeSeconds,
+        authorization.providerApiAuthMode,
       ),
       requestedTtlMs: 900_000,
     });
@@ -1017,7 +1051,7 @@ export class ReviewActionV2E2EHarness {
       {
         limit: 20,
         handlers: input.handlers ?? this.worker.handlers,
-        knownHandlers: this.worker.handlers,
+        knownHandlers: this.knownOutboxHandlers,
         claimOwnerHash: sha256(`${this.prefix}-outbox-owner`),
         processingLeaseMs: 100,
         heartbeatIntervalMs: 50,
@@ -1076,6 +1110,9 @@ export class ReviewActionV2E2EHarness {
       },
       githubAppId: requiredString(this.env.GITHUB_APP_ID),
       githubPrivateKey: requiredString(this.env.GITHUB_APP_PRIVATE_KEY),
+      settlementHook: createReviewStatisticsSettlementCapture(
+        this.statistics.outboxWriter,
+      ),
     });
     return runtime.progress?.runMaintenance();
   }
@@ -1339,7 +1376,7 @@ export class ReviewActionV2E2EHarness {
       claimOwnerHash: sha256(`${this.prefix}-abandoned-owner`),
       claimForMs: 1,
       availableHandlers: this.worker.handlers,
-      knownHandlers: this.worker.handlers,
+      knownHandlers: this.knownOutboxHandlers,
     });
     if (claimed.length !== 1) {
       throw new Error("review_v2_e2e_stale_claim_not_acquired");
@@ -1606,6 +1643,7 @@ async function seedProductionControlPlane(
     operationalSloProfileId: string;
     investigationProfile?: ReviewActionV2E2EInvestigationProfile;
     protocolMaxAttemptsPerSlot?: number;
+    agentProfiles?: readonly ReviewAgentProfile[];
     prDescriptionProfile?: boolean;
   }>,
 ): Promise<void> {
@@ -1669,7 +1707,9 @@ async function seedProductionControlPlane(
       runtimeCommitSha,
       wrapperEntrypointDigest: null,
       runtimeEntrypointDigest: sha256("runtime-entrypoint"),
-      agentProfilesJson: JSON.stringify(approvedAgentProfilesFixture),
+      agentProfilesJson: JSON.stringify(
+        ids.agentProfiles ?? approvedAgentProfilesFixture,
+      ),
       ...(ids.prDescriptionProfile
         ? { prDescriptionProfile: { ...prDescriptionExtensionV1 } }
         : {}),
@@ -1801,6 +1841,7 @@ async function seedProductionControlPlane(
 }
 
 function productionEnv(input: {
+  readonly agentProfiles?: readonly ReviewAgentProfile[];
   readonly appPrivateKey: string;
   readonly producerReleaseId: string;
   readonly protocolLimitsProfileId: string;
@@ -1835,7 +1876,7 @@ function productionEnv(input: {
         runtimeCommitSha,
         wrapperEntrypointDigest: null,
         runtimeEntrypointDigest: sha256("runtime-entrypoint"),
-        agentProfiles: approvedAgentProfilesFixture,
+        agentProfiles: input.agentProfiles ?? approvedAgentProfilesFixture,
         ...(input.prDescriptionProfile
           ? { prDescriptionProfile: prDescriptionExtensionV1 }
           : {}),

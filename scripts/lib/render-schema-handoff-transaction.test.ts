@@ -6,6 +6,7 @@ import {
   readRenderSchemaHandoffCatalog,
   readReviewedRenderManagedContract,
   renderSchemaHandoffCheckoutExtension,
+  renderReviewSkillsCheckoutExtension,
 } from "./render-schema-handoff-policy.mjs";
 import {
   renderSchemaHandoffDependencySql,
@@ -43,9 +44,9 @@ const input = () => ({
 });
 
 describe("bounded managed89-to92 transaction construction", () => {
-  it("keeps the reader-to-builder boundary at92 for the exact checkout141", () => {
+  it("keeps the reader-to-builder boundary at92 for the exact Skills/main checkout146", () => {
     expect(readdirSync("packages/platform/db/prisma/migrations")).toHaveLength(
-      141,
+      146,
     );
     expect(catalog).toHaveLength(92);
     const sql = renderSchemaHandoffTransaction(input());
@@ -66,6 +67,7 @@ describe("bounded managed89-to92 transaction construction", () => {
       );
     const extensions = [
       ...renderSchemaHandoffCheckoutExtension,
+      ...renderReviewSkillsCheckoutExtension,
       {
         migrationName: "000096_hosted_pool_public_repository_eligibility",
         checksum: createHash("sha256")
@@ -212,6 +214,9 @@ describe("bounded managed89-to92 transaction construction", () => {
         "000139_review_context_tools",
         "000140_personal_oauth_method",
         "000141_memory_search_projections",
+        "000142_optional_gateway_reasoning",
+        "000143_workspace_draft_review_setting",
+        "000144_review_statistics",
       ].map((migrationName) => ({
         migrationName,
         checksum: createHash("sha256")

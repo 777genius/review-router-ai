@@ -96,11 +96,23 @@ const fixtures = vi.hoisted(() => {
       accounts: [],
       repositories: [],
     })),
+    workspaceAdmin: vi.fn(async () => false),
+    skillsDashboard: vi.fn(async () => ({ status: "signed_out" as const })),
   };
   return { spies, EmptyStore: class {} };
 });
 const { spies } = fixtures;
 
+vi.mock("../../src/server/review-skills-dashboard", () => ({
+  loadReviewSkillsDashboard: fixtures.spies.skillsDashboard,
+}));
+vi.mock("./dashboard-action-form", () => ({
+  DashboardActionForm: ({
+    children,
+  }: {
+    readonly children: React.ReactNode;
+  }) => <form>{children}</form>,
+}));
 vi.mock("./account-gateway-accounts-section", () => ({
   AccountGatewayAccountsSection: ({
     workspaceName,
@@ -149,6 +161,7 @@ vi.mock("../../src/server/dashboard-mutations", () => ({
   }),
   getDashboardSignedInActor: async () => null,
   asDashboardGitHubActor: (actor: unknown) => actor,
+  canDashboardActorAdminWorkspace: fixtures.spies.workspaceAdmin,
 }));
 vi.mock("../../src/server/github-app-install-url", () => ({
   getGitHubAppInstallUrl: () => null,
@@ -748,6 +761,69 @@ describe("dashboard server loading boundaries", () => {
       );
       expect(spies.config).not.toHaveBeenCalled();
       expect(spies.batchConfig).not.toHaveBeenCalled();
+    },
+  );
+
+  it("renders Other without model configuration or repository health", async () => {
+    const data = await loadDashboardSectionData(workspace, "setup", access);
+    const html = renderToStaticMarkup(
+      <WorkspaceCard
+        data={{
+          ...data,
+          reviewDraftPullRequests: true,
+          canEditOtherSettings: true,
+        }}
+        mutationsEnabled
+        selectedSection="other"
+        params={{}}
+        repositoryAccess={access}
+        workspaceKey="acme"
+        appInstallUrl={null}
+        modelOptions={[]}
+        claudeCodeProviderEnabled={false}
+      />,
+    );
+    expect(html).toContain(">Other</h2>");
+    expect(html).toContain("Review draft pull requests");
+    expect(html).toContain('name="reviewDraftPullRequests"');
+    expect(html).toContain('checked=""');
+    expect(html).not.toContain("Metadata only");
+    expect(html).not.toContain("Save workspace review settings");
+    expect(spies.config).not.toHaveBeenCalled();
+    expect(spies.health).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])(
+    "loads Other from the workspace and the admin mutation gate (admin=%s)",
+    async (admin) => {
+      const actor = {
+        userId: "user-a",
+        sourceProvider: "github" as const,
+        externalUserId: "1",
+        sourceLogin: "member",
+        githubUserId: "1",
+        githubLogin: "member",
+        actor: "user:github:member",
+      };
+      spies.audit.mockResolvedValueOnce({
+        reviewDraftPullRequests: true,
+      } as never);
+      spies.workspaceAdmin.mockResolvedValueOnce(admin);
+      const data = await loadDashboardSectionData(
+        workspace,
+        "other",
+        access,
+        undefined,
+        actor,
+      );
+      expect(data.reviewDraftPullRequests).toBe(true);
+      expect(data.canEditOtherSettings).toBe(admin);
+      expect(spies.workspaceAdmin).toHaveBeenCalledWith({
+        actor,
+        workspaceId: "workspace-a",
+      });
+      expect(spies.config).not.toHaveBeenCalled();
+      expect(spies.health).not.toHaveBeenCalled();
     },
   );
 

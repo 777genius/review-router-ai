@@ -23,7 +23,7 @@ const consumer = declareModule({
   provides: [],
   slots: [reader.slot("reader", required())],
 });
-interface ReaderCapabilities extends CapabilitiesOf<typeof reader> {}
+type ReaderCapabilities = CapabilitiesOf<typeof reader>;
 
 describe("statistics checked composition", () => {
   it("constructs without opening, querying, activating or disposing the borrowed database", async () => {
@@ -106,8 +106,11 @@ describe("statistics checked composition", () => {
 });
 
 // Native qualification must reject a contract that omits the reader capability.
-// This fixture is never executed; @ts-expect-error must fail if typing weakens.
-if (false) {
+// This function is never called; @ts-expect-error must fail if typing weakens.
+void (() => {
   // @ts-expect-error The declaration uses the statistics reader contract.
-  implement<{}>()(consumer, async () => ({ instance: {}, capabilities: {} }));
-}
+  implement<Record<never, never>>()(consumer, async () => ({
+    instance: {},
+    capabilities: {},
+  }));
+});

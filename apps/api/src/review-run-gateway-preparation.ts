@@ -277,6 +277,10 @@ export function createReviewRunGatewayPreparation(input: {
     recoverSameOperation: () => begin(true),
     // Private backend capabilities, never part of the preparation result/SQL DTO.
     hasSession: () => session?.attached === true && !closed,
+    isPreparing: () => inFlight,
+    // Once denied, absence is conclusive only if no Prepare was ever attempted.
+    canReleaseWithoutRemoteClose: () =>
+      closed && !inFlight && !initialAttempted && !session,
     usageBinding: () => (session?.attached ? { ...session.binding } : null),
     needsRecovery: () => initialAttempted && !session?.attached,
     request: async (
@@ -344,7 +348,29 @@ export function createReviewRunGatewayPreparation(input: {
     close: async (reason: c.Close["reason"], options: CallOptions = {}) => {
       closed = true; // Deny first, including in-flight preparation/dispatch.
       const firstReason = (closeReason ??= reason); // Stable ID retains first intent.
-      await pending?.catch(() => {});
+      const preparing = pending;
+      if (preparing) {
+        // A pressure cleanup must not wait indefinitely for an earlier prepare.
+        // Its eventual capability stays retained for exact same-close cleanup.
+        await new Promise<void>((resolve, reject) => {
+          const finish = (error?: GatewayError) => {
+            options.signal?.removeEventListener("abort", aborted);
+            if (error) reject(error);
+            else resolve();
+          };
+          const aborted = () =>
+            finish(new GatewayError("cancelled", "effect_unknown"));
+          if (options.signal?.aborted) {
+            aborted();
+            return;
+          }
+          options.signal?.addEventListener("abort", aborted, { once: true });
+          void preparing.then(
+            () => finish(),
+            () => finish(),
+          );
+        });
+      }
       const current = session;
       if (!current) return { state: "unknown" as const };
       return current.client.close(

@@ -40,6 +40,11 @@ export const reviewProviderConfigurationSchema = z
       .extend({
         kind: z.literal("codex"),
         authMode: z.literal("codex_account_gateway"),
+        // A qualified upstream may expose no reasoning control. Do not inject
+        // the legacy Codex default into its saved policy or runtime request.
+        reasoningEffort: z
+          .enum(["low", "medium", "high", "xhigh", "max", "ultra"])
+          .optional(),
         model: gatewayModelSchema,
         gatewayBindingId: gatewayReferenceSchema,
         gatewayProfileRef: gatewayReferenceSchema,
@@ -83,6 +88,15 @@ export const reviewProviderConfigurationSchema = z
           "Fast mode is not verified for this model. Disable fast mode before saving.",
       });
     }
+  })
+  .transform((provider) => {
+    if (
+      provider.authMode === "codex_account_gateway" &&
+      provider.reasoningEffort === undefined
+    ) {
+      delete provider.reasoningEffort;
+    }
+    return provider;
   });
 
 /** Agent kinds of the approved toolchain profile an agentProfileRef selects. */

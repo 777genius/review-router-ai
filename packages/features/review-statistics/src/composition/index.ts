@@ -50,13 +50,13 @@ export const reviewStatisticsContracts = {
   OutboxWriter,
   Activation,
 } as const;
-interface StatisticsCapabilities extends CapabilitiesOf<
+type StatisticsCapabilities = CapabilitiesOf<
   | typeof Database
   | typeof Reader
   | typeof Projector
   | typeof OutboxWriter
   | typeof Activation
-> {}
+>;
 const owner = { authority: "reviewrouter", path: ["statistics"] } as const;
 const hostDeclaration = declareModule({
   moduleId: "reviewrouter/statistics-host",

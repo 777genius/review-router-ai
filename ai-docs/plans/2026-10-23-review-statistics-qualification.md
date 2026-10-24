@@ -4,6 +4,27 @@ This record separates verified behavior from remaining gates. It covers PR #689
 and the isolated statistics feature; it is not deployment or production capacity
 evidence. The approved plan and four-round review record are adjacent files.
 
+## Current merged-source qualification — 2026-10-24
+
+The current integration includes main `21f903e7`, including Skills, MCP and the
+workspace draft-review setting. The unshipped statistics migration is now
+`000144_review_statistics`; the complete checkout has 146 migration directories.
+Its SQL is unchanged. The exact catalog extension preserves main's preceding
+145-migration admission and the historical/managed authority boundaries.
+
+The temporary execution environment was reset before the last local changes had
+been published. The core implementation was already preserved in PR #689. The
+known cursor, composition, E2E capture and catalog fixes were reconstructed on the
+new merged source, with fresh qualification required. Earlier raw local logs and
+screenshots referenced below were lost in that reset; their recorded outcomes
+are historical evidence, not results for this new tree.
+
+Fresh completed checks: the approved pnpm 11.28.7 frozen install, normal
+supply-chain policies and genuine Prisma 7.8.0 generation; seven catalog,
+authority and rehearsal suites with **341 tests passed**. The new source is being
+requalified against a fresh real PostgreSQL 17.10 database, actual browser flows
+and the full host/compiler/build gates. Those pending checks are not passes.
+
 ## Implemented boundary
 
 The completion owner invokes a mandatory host settlement hook inside its winning
@@ -65,8 +86,8 @@ used sequential scans where PostgreSQL preferred them; summary and daily distinc
 PR operations were approximately 261 ms and 215 ms in the recorded plans.
 These are single-run local measurements, not concurrent production load,
 thousands-of-users throughput, worst-distribution or latency guarantees. No
-unmeasured scale claim is inferred from them. The raw reproducible evidence is
-kept in the local ignored `tmp/statistics-e2e/data-volume.json`.
+unmeasured scale claim is inferred from them. The raw local evidence from that earlier run was lost in the environment reset;
+the committed opt-in test remains the reproducible qualification method.
 
 ## Independent implementation findings resolved
 
@@ -87,7 +108,7 @@ kept in the local ignored `tmp/statistics-e2e/data-volume.json`.
 
 ## Final gates in progress
 
-The committed `scripts/statistics-e2e/browser-qualify.ts` harness targets the real
+The `scripts/statistics-e2e/browser-qualify.ts` harness is being restored for the real
 Next SSR/API/auth and PostgreSQL reader with synthetic local sessions and facts.
 It must finish its interaction matrix and six 1440/900/390 px light/dark captures,
 followed by visual inspection. The harness documentation distinguishes this from

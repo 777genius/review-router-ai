@@ -1,4 +1,5 @@
 import { parseReviewRunRuntimeSnapshot } from "../../domain/review-run-runtime-snapshot";
+import type { ReviewRunSkillsSnapshotPort } from "../ports/review-run-skills-snapshot-port";
 import type {
   ReviewRunRuntimeCaptureDenial,
   ReviewRunRuntimeSnapshotPort,
@@ -96,6 +97,9 @@ export enum ReviewRunAuthorizationDenialReason {
   AdmissionFactsChanged = "admission_facts_changed",
   AgentProfileUnavailable = "agent_profile_unavailable",
   AgentProfileIncompatible = "agent_profile_incompatible",
+  SkillsUnavailable = "skills_unavailable",
+  SkillsEngineUnsupported = "skills_engine_unsupported",
+  SkillsLimitsExceeded = "skills_limits_exceeded",
   ContextToolsUnavailable = "context_tools_unavailable",
   ProviderVoteLaneUnavailable = "provider_vote_lane_unavailable",
   ReviewInvestigationIncompatible = "review_investigation_incompatible",
@@ -189,6 +193,7 @@ export class ManageReviewRunAuthorizations {
   constructor(
     private readonly dependencies: {
       readonly runtimeSnapshots?: ReviewRunRuntimeSnapshotPort;
+      readonly skillsSnapshots?: ReviewRunSkillsSnapshotPort;
       readonly clock: ClockPort;
       readonly identifiers: IdentifierFactoryPort;
       readonly digest: Sha256DigestPort;
@@ -228,7 +233,7 @@ export class ManageReviewRunAuthorizations {
       "max_authorization_lifetime_ms",
     );
     const verifiedIdentity = snapshotVerifiedIdentity(input.verifiedIdentity);
-    const original = this.dependencies.runtimeSnapshots
+    let original = this.dependencies.runtimeSnapshots
       ? await this.dependencies.authorizationQueries.findReviewRunAuthorizationForAdmission?.(
           {
             workspaceId: verifiedIdentity.workspaceId,
@@ -264,6 +269,8 @@ export class ManageReviewRunAuthorizations {
     // by the atomic repository; only its snapshot is checked/returned below.
     let runtimeSnapshotCanonicalJson =
       original?.runtimeSnapshotCanonicalJson ?? null;
+    let skillsSnapshotCanonicalJson =
+      original?.skillsSnapshotCanonicalJson ?? null;
     let reviewInvestigationDescriptorCanonicalJson =
       input.reviewInvestigationAuthorizationDescriptorCanonicalJson ?? null;
     let providerVoteLanes: readonly ProviderVoteLane[];
@@ -364,6 +371,55 @@ export class ManageReviewRunAuthorizations {
         );
       providerVoteLanes = input.providerVoteLanes;
     }
+    if (!original && this.dependencies.skillsSnapshots) {
+      const selectedRuntime = parseReviewRunRuntimeSnapshot(
+        runtimeSnapshotCanonicalJson,
+      );
+      const captured = await this.dependencies.skillsSnapshots.capture({
+        identity: verifiedIdentity,
+        agent: selectedRuntime?.agent ?? null,
+      });
+      if ("captureDenied" in captured) {
+        // A concurrent winner may have committed after our original lookup.
+        // Its immutable input survives a later grant/configuration change.
+        const winner =
+          await this.dependencies.authorizationQueries.findReviewRunAuthorizationForAdmission?.(
+            {
+              workspaceId: verifiedIdentity.workspaceId,
+              repositoryConnectionId: verifiedIdentity.repositoryConnectionId,
+              scmRepositoryIdentityId: verifiedIdentity.scmRepositoryIdentityId,
+              sourceRunId: verifiedIdentity.sourceRunId,
+              sourceRunAttempt: verifiedIdentity.sourceRunAttempt,
+              protocolOfferHash: input.protocolOfferHash,
+            },
+          );
+        if (!winner) {
+          const reasons = {
+            skills_unavailable:
+              ReviewRunAuthorizationDenialReason.SkillsUnavailable,
+            skills_engine_unsupported:
+              ReviewRunAuthorizationDenialReason.SkillsEngineUnsupported,
+            skills_limits_exceeded:
+              ReviewRunAuthorizationDenialReason.SkillsLimitsExceeded,
+          } as const;
+          return denied(reasons[captured.captureDenied]);
+        }
+        original = winner;
+        runtimeSnapshotCanonicalJson =
+          winner.runtimeSnapshotCanonicalJson ?? null;
+        skillsSnapshotCanonicalJson =
+          winner.skillsSnapshotCanonicalJson ?? null;
+        providerVoteLanes = winner.providerVoteLanes;
+        reviewInvestigationDescriptorCanonicalJson =
+          winner.reviewInvestigationAuthorizationDescriptorCanonicalJson;
+        maxExpiresAt = winner.maxExpiresAt;
+        expiresAt = new Date(
+          Math.min(expiresAt.getTime(), maxExpiresAt.getTime()),
+        );
+      } else {
+        skillsSnapshotCanonicalJson = captured.canonicalJson;
+      }
+    }
     // Provider/task safety checks and the fence target now follow the selected
     // lane (OCR safety target, not a leftover Codex capability).
     const safety = await this.resolveAuthorizationSafety(
@@ -381,6 +437,7 @@ export class ManageReviewRunAuthorizations {
           candidate: {
             ...verifiedIdentity,
             runtimeSnapshotCanonicalJson,
+            skillsSnapshotCanonicalJson,
             authorizationId: this.dependencies.identifiers.nextId(
               "review_run_authorization",
             ),

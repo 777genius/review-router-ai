@@ -1,8 +1,11 @@
 import { ReviewStatisticsSection } from "./review-statistics-section";
+import { ReviewSkillsSection } from "./review-skills-section";
+import { RepositorySkillsDialog } from "./repository-skills-dialog";
 import { listDashboardContextConnections } from "../../src/server/context-tools";
 import type { ContextConnectionMetadata } from "@reviewrouter/features-review-context-tools";
 import { loadProviderUsage } from "../../src/server/provider-usage-report";
 import { ProviderUsageView } from "./provider-usage-view";
+import { WorkspaceOtherSettings } from "./workspace-other-settings";
 import { readReviewPolicyHeadVersions } from "../../src/server/review-policy-heads";
 import { Badge, LinkButton, SelectField } from "@reviewrouter/ui";
 import {
@@ -72,6 +75,7 @@ import {
   findReviewConfiguration,
   findRepositoryReviewConfigurations,
   PrismaReviewConfigurationRepository,
+  PrismaWorkspaceReviewSettings,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import {
@@ -79,6 +83,7 @@ import {
   PrismaSupportDiagnosticsRepository,
 } from "@reviewrouter/features-support-diagnostics";
 import {
+  canDashboardActorAdminWorkspace,
   canDashboardActorConfigureRepository,
   canDashboardActorMutateRepository,
   asDashboardGitHubActor,
@@ -355,6 +360,8 @@ type DashboardWorkspaceData = {
   entitlement: ReturnType<typeof freeBetaEntitlement>;
   reviewConfig: Awaited<ReturnType<typeof findReviewConfiguration>>;
   reviewConfigExpectedVersion: number | null;
+  reviewDraftPullRequests?: boolean;
+  canEditOtherSettings?: boolean;
   repositoryConfigs: readonly {
     readonly repositoryId: string;
     readonly config: Awaited<ReturnType<typeof findReviewConfiguration>>;
@@ -378,6 +385,7 @@ export async function loadDashboardSectionData(
     readonly actor: string;
     readonly reason: "local_admin_override" | "workspace_admin";
   },
+  signedInActor: DashboardMutationActor | null = null,
 ): Promise<DashboardWorkspaceData> {
   const prisma = getPrisma();
   const workspace = selectedWorkspace.workspace;
@@ -609,7 +617,20 @@ export async function loadDashboardSectionData(
           })
         )?.auditEvents ?? [])
       : [];
+  const otherSettings =
+    section === "other"
+      ? {
+          reviewDraftPullRequests: await new PrismaWorkspaceReviewSettings(
+            prisma,
+          ).reviewDrafts(workspace.id),
+          canEditOtherSettings: await canDashboardActorAdminWorkspace({
+            actor: signedInActor,
+            workspaceId: workspace.id,
+          }),
+        }
+      : {};
   return {
+    ...otherSettings,
     hasWorkspaceWideAccess,
     workspace: {
       id: workspace.id,
@@ -1162,6 +1183,14 @@ export async function DashboardSectionContent({
   readonly params: Record<string, string | string[] | undefined>;
   readonly workspaceKey: string;
 }): Promise<React.ReactElement> {
+  if (selectedSection === "skills")
+    return (
+      <ReviewSkillsSection
+        workspaceId={selectedWorkspace.workspace.id}
+        workspaceKey={workspaceKey}
+        initialSkillId={typeof params.skill === "string" ? params.skill : ""}
+      />
+    );
   if (selectedSection === "memory") {
     return <MemoryDevelopmentNotice />;
   }
@@ -1206,6 +1235,7 @@ export async function DashboardSectionContent({
       selectedSection,
       repositoryAccess,
       supportAudit,
+      context.signedInActor,
     ),
     selectedSection === "repositories" || selectedSection === "policy"
       ? getReviewModelOptions()
@@ -1653,6 +1683,24 @@ export function WorkspaceCard({
     return (
       <div id="dashboard-section-content" className="min-w-0 space-y-5">
         <ProviderUsageSection workspaceId={workspace.id} />
+      </div>
+    );
+  if (selectedSection === "other")
+    return (
+      <div
+        id="dashboard-section-content"
+        className="min-w-0 space-y-5 scroll-mt-28"
+      >
+        <DashboardActionToast
+          params={params}
+          selectedSection={selectedSection}
+        />
+        <DashboardSectionHeader selectedSection="other" />
+        <WorkspaceOtherSettings
+          workspaceId={workspace.id}
+          reviewDraftPullRequests={data.reviewDraftPullRequests === true}
+          canEdit={mutationsEnabled && data.canEditOtherSettings === true}
+        />
       </div>
     );
   const activeConfig = data.reviewConfig?.config;
@@ -2271,9 +2319,9 @@ export function WorkspaceCard({
 
 function DashboardSectionHeader(
   props:
-    | { readonly selectedSection: "setup" }
+    | { readonly selectedSection: "setup" | "other" }
     | {
-        readonly selectedSection: Exclude<DashboardSection, "setup">;
+        readonly selectedSection: Exclude<DashboardSection, "setup" | "other">;
         readonly repositoryCount: number;
         readonly workspaceHealth: WorkspaceHealthSummary;
         readonly activeConfig: ReviewConfiguration;
@@ -2287,17 +2335,21 @@ function DashboardSectionHeader(
   if (selectedSection === "setup") return null;
   const meta = dashboardSectionMeta[selectedSection];
   const status =
-    selectedSection === "repositories"
-      ? `${props.repositoryCount} synced repositories`
-      : selectedSection === "policy"
-        ? props.activeConfig.providers
-            .map(
-              (provider) => `${provider.model} / ${provider.reasoningEffort}`,
-            )
-            .join(", ")
-        : selectedSection === "memory"
-          ? "In development"
-          : "Metadata only";
+    selectedSection === "other"
+      ? null
+      : selectedSection === "repositories"
+        ? `${props.repositoryCount} synced repositories`
+        : selectedSection === "policy"
+          ? props.activeConfig.providers
+              .map((provider) =>
+                provider.reasoningEffort
+                  ? `${provider.model} / ${provider.reasoningEffort}`
+                  : provider.model,
+              )
+              .join(", ")
+          : selectedSection === "memory"
+            ? "In development"
+            : "Metadata only";
 
   return (
     <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/62 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
@@ -2334,7 +2386,8 @@ function DashboardSectionHeader(
             </div>
           ) : null}
         </div>
-        {selectedSection === "repositories" ? null : (
+        {selectedSection === "repositories" ||
+        selectedSection === "other" ? null : (
           <div className="flex flex-wrap gap-2 xl:justify-end">
             {selectedSection === "diagnostics" ? (
               <Badge tone={props.workspaceHealth.tone}>
@@ -2814,6 +2867,14 @@ function RepositoryTable({
         key={workspace.id}
         workspaceId={workspace.id}
         enabled={mutationsEnabled}
+        selectionInventory={repositories.map((repository) => ({
+          repositoryId: repository.id,
+          fullName: repository.fullName,
+          available:
+            repository.provider === "github" &&
+            repository.selected &&
+            !repository.archived,
+        }))}
         inventory={repositories.map((repository) => ({
           repositoryId: repository.id,
           fullName: repository.fullName,
@@ -2839,16 +2900,19 @@ function RepositoryTable({
               selected repositories.
             </p>
           </div>
-          <ProviderApplicationDialog
-            workspaceId={workspace.id}
-            accounts={gatewayAccounts}
-            enabled={mutationsEnabled}
-            directEnabled={directConfigRepositoryIds === null}
-            actions={{
-              save: saveGatewayRepositoryBatch,
-              read: readGatewayRepositoryBatch,
-            }}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <RepositorySkillsDialog workspaceId={workspace.id} />
+            <ProviderApplicationDialog
+              workspaceId={workspace.id}
+              accounts={gatewayAccounts}
+              enabled={mutationsEnabled}
+              directEnabled={directConfigRepositoryIds === null}
+              actions={{
+                save: saveGatewayRepositoryBatch,
+                read: readGatewayRepositoryBatch,
+              }}
+            />
+          </div>
         </div>
         {repositories.length === 0 ? (
           <div className="p-5">

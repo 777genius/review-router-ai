@@ -97,13 +97,13 @@ behavior must be researched and challenged before implementation.
 These are design constraints for evaluating the next architecture, not a new
 storage-ownership decision.
 
-| ReviewRouter application | Memory provider |
-| --- | --- |
-| Workspace/repository identity, membership and authorization | Native memory storage and indexing, where assigned by the next design |
-| Which sources are allowed and who may approve a project rule | Fact extraction, entity resolution and semantic matching |
-| Product-specific applicability and approval policy | Deduplication, conflict detection and update proposals |
-| User-facing scope, grouping, provenance and workflows | Consolidation, derived knowledge and relevant retrieval |
-| Integration events, operation tracking and audit requirements | Supported lifecycle operations, export and deletion execution |
+| ReviewRouter application                                      | Memory provider                                                       |
+| ------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Workspace/repository identity, membership and authorization   | Native memory storage and indexing, where assigned by the next design |
+| Which sources are allowed and who may approve a project rule  | Fact extraction, entity resolution and semantic matching              |
+| Product-specific applicability and approval policy            | Deduplication, conflict detection and update proposals                |
+| User-facing scope, grouping, provenance and workflows         | Consolidation, derived knowledge and relevant retrieval               |
+| Integration events, operation tracking and audit requirements | Supported lifecycle operations, export and deletion execution         |
 
 Delegate algorithms the selected engine already provides. Qualified algorithms
 for reconciliation and freshness assessment can also be delegated; owning

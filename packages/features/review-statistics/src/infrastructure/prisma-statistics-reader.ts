@@ -365,10 +365,10 @@ function decodeCursor(value: string, scope: string): Cursor {
     if (
       cursor.v !== 1 ||
       cursor.scope !== scope ||
-      typeof cursor.id !== "string" ||
-      !/^[a-f0-9]{64}$/u.test(cursor.id)
+      typeof cursor.id !== "string"
     )
       throw new StatisticsValidationError();
+    validateStatisticsIdentifier(cursor.id);
     statisticsDate(cursor.at);
     return cursor;
   } catch {

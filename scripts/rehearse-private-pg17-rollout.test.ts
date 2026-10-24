@@ -1282,8 +1282,27 @@ describe("disposable dual-version rehearsal", () => {
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name);
 
-    const exclusions = resolvePreReleaseMigrationExclusions(migrationNames);
-    const historicalCheckout = migrationNames.filter(
+    const currentMigrationNames = migrationNames;
+    const legacyMigrationNames = currentMigrationNames.filter(
+      (name) =>
+        name !== "000144_review_statistics" &&
+        name !== "000136_review_skills" &&
+        name !== "000137_review_skills_capture",
+    );
+    expect(currentMigrationNames).toHaveLength(146);
+    expect(
+      [...currentMigrationNames]
+        .sort()
+        .filter(
+          (name) =>
+            name === "000136_review_skills" ||
+            name === "000137_review_skills_capture",
+        ),
+    ).toEqual(["000136_review_skills", "000137_review_skills_capture"]);
+    const exclusions = resolvePreReleaseMigrationExclusions(
+      currentMigrationNames,
+    );
+    const historicalCheckout = legacyMigrationNames.filter(
       (name) =>
         name !== "000125_hosted_codex_device_reconnect" &&
         name !== "000126_review_configuration_mimo_auth_kind" &&
@@ -1297,10 +1316,15 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000134_review_provider_kind_v2_ocr" &&
         name !== "000136_provider_usage" &&
         name !== "000135_review_run_checkout_repository_lock" &&
+        name !== "000136_review_skills" &&
+        name !== "000137_review_skills_capture" &&
         name !== "000138_pr_description" &&
         name !== "000139_review_context_tools" &&
         name !== "000140_personal_oauth_method" &&
         name !== "000141_memory_search_projections" &&
+        name !== "000142_optional_gateway_reasoning" &&
+        name !== "000144_review_statistics" &&
+        name !== "000143_workspace_draft_review_setting" &&
         name !== "000133_allow_first_time_scm_identity_bind",
     );
     const withoutProviderKey = historicalCheckout.filter(
@@ -1355,9 +1379,12 @@ describe("disposable dual-version rehearsal", () => {
     ).toBe(
       "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
     );
-    expect(migrationNames).toHaveLength(141);
-    expect(migrationManifestIdentity(migrationNames)).toBe(
-      "sha256:f57efc9ec8fd5f1efcd8f9cea07586957e5bd4bf983f02f252b30dc474a67ec8",
+    expect(migrationManifestIdentity(currentMigrationNames)).toBe(
+      "sha256:28c55f9026bfb1bd139bc25925571ea62e2c454a10e151ef6149aae0358a4178",
+    );
+    expect(legacyMigrationNames).toHaveLength(143);
+    expect(migrationManifestIdentity(legacyMigrationNames)).toBe(
+      "sha256:4fe4b459218a0cc56c8638b6f6d5a33d08d09579205d612b72d2781a7a0962bf",
     );
     expect(historicalCheckout).toHaveLength(124);
     expect(historicalMigrationManifestIdentity(historicalCheckout)).toBe(
@@ -1465,10 +1492,15 @@ describe("disposable dual-version rehearsal", () => {
       "000134_review_provider_kind_v2_ocr",
       "000135_review_run_checkout_repository_lock",
       "000136_provider_usage",
+      "000136_review_skills",
+      "000137_review_skills_capture",
       "000138_pr_description",
       "000139_review_context_tools",
       "000140_personal_oauth_method",
       "000141_memory_search_projections",
+      "000142_optional_gateway_reasoning",
+      "000143_workspace_draft_review_setting",
+      "000144_review_statistics",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1594,9 +1626,13 @@ describe("disposable dual-version rehearsal", () => {
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
     const exactTail = "000121_review_run_gateway_execution_binding";
-    const currentTail = "000141_memory_search_projections";
+    const currentTail = "000144_review_statistics";
     for (const candidate of [
       names.filter((name) => name !== currentTail),
+      names.filter((name) => name !== "000143_workspace_draft_review_setting"),
+      names.filter((name) => name !== "000136_review_skills"),
+      names.filter((name) => name !== "000137_review_skills_capture"),
+      names.filter((name) => name !== "000142_optional_gateway_reasoning"),
       names.filter((name) => name !== "000140_personal_oauth_method"),
       names.filter(
         (name) => name !== "000135_review_run_checkout_repository_lock",
@@ -1605,8 +1641,14 @@ describe("disposable dual-version rehearsal", () => {
       names.filter((name) => name !== "000129_personal_run_snapshot_v2"),
       names.filter((name) => name !== "000127_owner_workspace_deletion"),
       [...names, currentTail],
+      [...names, "000142_optional_gateway_reasoning"],
       [...names, "000140_personal_oauth_method"],
-      names.map((name) => (name === currentTail ? "000141_relabelled" : name)),
+      names.map((name) => (name === currentTail ? "000144_relabelled" : name)),
+      names.map((name) =>
+        name === "000142_optional_gateway_reasoning"
+          ? "000142_relabelled"
+          : name,
+      ),
       names.map((name) =>
         name === "000140_personal_oauth_method" ? "000140_relabelled" : name,
       ),
@@ -1683,10 +1725,15 @@ describe("disposable dual-version rehearsal", () => {
     "000134_review_provider_kind_v2_ocr",
     "000135_review_run_checkout_repository_lock",
     "000136_provider_usage",
+    "000136_review_skills",
+    "000137_review_skills_capture",
     "000138_pr_description",
     "000139_review_context_tools",
     "000140_personal_oauth_method",
     "000141_memory_search_projections",
+    "000142_optional_gateway_reasoning",
+    "000143_workspace_draft_review_setting",
+    "000144_review_statistics",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1754,10 +1801,15 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000134_review_provider_kind_v2_ocr" &&
                 name !== "000136_provider_usage" &&
                 name !== "000135_review_run_checkout_repository_lock" &&
+                name !== "000136_review_skills" &&
+                name !== "000137_review_skills_capture" &&
                 name !== "000138_pr_description" &&
                 name !== "000139_review_context_tools" &&
                 name !== "000140_personal_oauth_method" &&
                 name !== "000141_memory_search_projections" &&
+                name !== "000142_optional_gateway_reasoning" &&
+                name !== "000144_review_statistics" &&
+                name !== "000143_workspace_draft_review_setting" &&
                 name !== "000133_allow_first_time_scm_identity_bind",
               "000102_sdk_growth_current_authority",
             ),

@@ -1,0 +1,25 @@
+{
+  "contract": "provider-connections-sdk-provenance/v1",
+  "archive": "agent-teams-account-gateway-0.1.0-provider-plan-a9d0c48cb9f8.tgz",
+  "sha256": "a9d0c48cb9f825bd3c99789f62cd83cce9a6ef70121dc28eb8a38d2b82e0a635",
+  "sdkSourceRepository": "agent-teams-ai/account-gateway",
+  "sdkSourceCommit": "6d6029c6656ef9d9751b1da58db74f07f7c6f15e",
+  "sourceHashes": {
+    "packages/account-gateway/src/index.ts": "409d43edd42f934e78cd49d8864d53c98900bd723156b215c6fa611c64416d16",
+    "packages/account-gateway/src/contracts/index.ts": "48c320ed6064b3906b721ce5db0fbf1887592f7f5852c102676714bf1fec233d",
+    "packages/account-gateway/src/get-modular/index.ts": "e6ea38b7b03cab7ef80bfa19e8027c579908eaaf695f3e576e6189c1ee69c614",
+    "packages/account-gateway/src/http/index.ts": "e4ebce88f63243c11312fd5aafd2e9495e3e3c40e21c6330dcad311002bb1405",
+    "packages/account-gateway/src/features/facade-client/contracts/index.ts": "0e007e1ff47f0ec7810df908f6da5eef734c5bade48f6291f2f4a960a3b02b36",
+    "packages/account-gateway/src/features/facade-client/http/ingress.ts": "95f0adbe914b652027f4743f26cf03553d3f1e6088d7d1547e50419fe5a0de99",
+    "packages/account-gateway/src/features/facade-client/http/index.ts": "b9ac520f4bcbf8715cafb0ce10145f589cc6eaf13743ef9cb940ee82e23afb77"
+  },
+  "qualification": {
+    "sdkAndServiceTests": 79,
+    "installedConsumers": ["Node26.11.1", "Node24.21.0"],
+    "nativeProviderJoined": true,
+    "liveProviderCanary": false,
+    "rrActualInstalledCaller": true,
+    "controlledJoinedReceipt": "provider-connections-a9d0c48cb9f8-qualification.json"
+  },
+  "publicPublished": false
+}

@@ -1,3 +1,4 @@
+import { PrismaWorkspaceReviewSettings } from "@reviewrouter/features-review-config";
 import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
 import { createHash, randomUUID } from "node:crypto";
 import { hostname } from "node:os";
@@ -156,6 +157,7 @@ import { PrismaReviewProgressPublicationStore } from "./review-progress-store";
 import { GitHubActionsReviewRequestedDispatchGateway } from "./review-v2-intent-dispatcher";
 import { GitHubReviewRequestEligibilityGateway } from "./review-v2-request-eligibility-gateway";
 import { createGitHubReviewRequestIngressHandler } from "./review-v2-github-request-ingress-handler";
+import { createWorkspaceDraftDispatchGate } from "./review-v2-draft-dispatch-gate";
 import {
   ReviewRequestIngressApplicationService,
   createReviewRequestIngressHandler,
@@ -401,26 +403,21 @@ export function createProductionReviewV2WorkerRuntime(input: {
       releases,
       digest: { digestUtf8: async (value) => sha256(value) },
     });
-  // An empty list means draft review is enabled for every repository; the list
-  // only narrows it when an operator pins specific repositories.
-  const draftRepositories = new Set(
-    (input.env.REVIEW_ROUTER_REVIEW_V2_DRAFT_REPOSITORIES ?? "")
-      .split(",")
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean),
+  const workspaceReviewSettings = new PrismaWorkspaceReviewSettings(
+    input.prisma,
   );
+  const requestEligibility = new GitHubReviewRequestEligibilityGateway({
+    appId: input.githubAppId,
+    privateKey: input.githubPrivateKey,
+  });
   const ingressApplicationDependencies = {
     intents: intentService,
     revisions: intentPrerequisites.revisionResolver,
-    eligibility: new GitHubReviewRequestEligibilityGateway({
-      appId: input.githubAppId,
-      privateKey: input.githubPrivateKey,
-    }),
+    eligibility: requestEligibility,
     digest: { digestUtf8: async (value: string) => sha256(value) },
     clock: input.clock,
-    reviewDrafts: (repositoryFullName: string) =>
-      draftRepositories.size === 0 ||
-      draftRepositories.has(repositoryFullName.toLowerCase()),
+    reviewDrafts: (workspaceId: string) =>
+      workspaceReviewSettings.reviewDrafts(workspaceId),
   } as const;
   const ingressApplication = new ReviewRequestIngressApplicationService(
     ingressApplicationDependencies,
@@ -507,6 +504,30 @@ export function createProductionReviewV2WorkerRuntime(input: {
     intentIds,
     intentDigest,
     intentDispatchPolicy,
+    createWorkspaceDraftDispatchGate({
+      reviewDrafts: (workspaceId) =>
+        workspaceReviewSettings.reviewDrafts(workspaceId),
+      findGitHubRepository: async (repositoryConnectionId) => {
+        const repository = await input.prisma.repositoryConnection.findUnique({
+          where: { id: repositoryConnectionId },
+          select: {
+            workspaceId: true,
+            fullName: true,
+            installation: { select: { githubInstallationId: true } },
+          },
+        });
+        return repository?.installation
+          ? {
+              workspaceId: repository.workspaceId,
+              fullName: repository.fullName,
+              githubInstallationId: String(
+                repository.installation.githubInstallationId,
+              ),
+            }
+          : null;
+      },
+      eligibility: requestEligibility,
+    }),
   );
   const intentRecovery = new RecoverReviewRequestedDispatches(
     requestedIntents,

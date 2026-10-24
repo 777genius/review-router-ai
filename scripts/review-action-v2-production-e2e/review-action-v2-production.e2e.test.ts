@@ -7,6 +7,16 @@ import {
 } from "../../packages/protocol-review-action-v2/src/index.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  reviewStatisticsSettledEventType,
+  reviewStatisticsSettledEventVersion,
+} from "../../packages/features/review-statistics/src/index.js";
+import { createReviewStatisticsFeature } from "../../packages/features/review-statistics/src/composition/index.js";
+import { createReviewStatisticsSettledHandler } from "../../apps/worker/src/review-statistics-worker-runtime.js";
+import {
+  reviewExecutionFinalizedEventType,
+  reviewExecutionFinalizedEventVersion,
+} from "../../apps/worker/src/review-v2-worker-runtime.js";
+import {
   createReviewActionV2E2EHarness,
   resetReviewActionV2E2EDatabase,
   type ReviewActionV2E2EHarness,
@@ -96,6 +106,77 @@ describeWithDatabase.sequential(
       await expectSnapshot(fixture, flow.executionId, true);
       expect(fixture.fakeGitHub.comments).toHaveLength(1);
       expect(fixture.fakeGitHub.checkRuns).toHaveLength(1);
+
+      // Drain the actual accepted settlement separately from finalized-only
+      // dispatch, using the genuine registered statistics projector.
+      const settlementEvent = await fixture.prisma.outboxEvent.findFirstOrThrow(
+        {
+          where: {
+            workspaceId: fixture.workspaceId,
+            aggregateId: flow.executionId,
+            type: reviewStatisticsSettledEventType,
+            version: reviewStatisticsSettledEventVersion,
+          },
+        },
+      );
+      expect(settlementEvent.status).toBe("pending");
+      expect(settlementEvent.payload).toMatchObject({
+        executionId: flow.executionId,
+        repositoryConnectionId: fixture.repositoryConnectionId,
+        issues: [], // The real finalized all-clear fixture has no occurrences.
+      });
+      const statistics = await createReviewStatisticsFeature({
+        prisma: fixture.prisma,
+      });
+      await expect(
+        fixture.processFinalizedOutbox({
+          handlers: [
+            createReviewStatisticsSettledHandler(statistics.projector),
+          ],
+        }),
+      ).resolves.toMatchObject({ processed: 1, deadLettered: 0 });
+      await expect(
+        fixture.prisma.outboxEvent.findUniqueOrThrow({
+          where: { id: settlementEvent.id },
+          select: { status: true },
+        }),
+      ).resolves.toEqual({ status: "processed" });
+      const actorId = `${fixture.prefix}-statistics-reader`;
+      await fixture.prisma.user.create({
+        data: {
+          id: actorId,
+          memberships: {
+            create: { workspaceId: fixture.workspaceId, role: "member" },
+          },
+        },
+      });
+      try {
+        const report = await statistics.reader.readReport({
+          actorId,
+          workspaceId: fixture.workspaceId,
+          filter: { days: 7, severity: "all" },
+        });
+        expect(report.totals).toEqual({
+          reviews: 1,
+          pullRequestsReviewed: 1,
+          issuesCaught: 0,
+          repositoriesWithIssues: 0,
+        });
+        await expect(
+          statistics.reader.readIssues({
+            actorId,
+            workspaceId: fixture.workspaceId,
+            from: report.period.from,
+            to: report.period.to,
+            severity: "all",
+          }),
+        ).resolves.toEqual({ items: [], nextCursor: null });
+      } finally {
+        await fixture.prisma.workspaceMember.deleteMany({
+          where: { workspaceId: fixture.workspaceId, userId: actorId },
+        });
+        await fixture.prisma.user.delete({ where: { id: actorId } });
+      }
     }, 60_000);
 
     it("takes over expired outbox and publication claims with monotonic fencing", async () => {
@@ -198,6 +279,8 @@ describeWithDatabase.sequential(
         where: {
           workspaceId: fixture.workspaceId,
           aggregateId: flow.executionId,
+          type: reviewExecutionFinalizedEventType,
+          version: reviewExecutionFinalizedEventVersion,
         },
       });
       expect(event.status).toBe("processed");

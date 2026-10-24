@@ -9,6 +9,11 @@ import {
   within,
 } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
+import { useContext } from "react";
+import {
+  AccountLimitsLine,
+  AccountLimitsReadContext,
+} from "./account-limits-line";
 import {
   afterEach,
   beforeEach,
@@ -82,7 +87,21 @@ function safeOperation(
   nonce: string,
   state: AccountOperationView["state"] = "pending",
 ): AccountsResult<AccountOperationView> {
-  return { status: "ok", value: { nonce, state, cleanup: "unresolved" } };
+  return {
+    status: "ok",
+    value: {
+      nonce,
+      state,
+      cleanup: "unresolved",
+      completion: {
+        providerLabel:
+          page?.profiles.find((p) => p.authKind === "oauth")?.label ?? "Codex",
+        inputKind: page?.profiles.some((p) => p.provider === "claude")
+          ? "authorization_code"
+          : "callback_url",
+      },
+    },
+  };
 }
 function row(state: AccountView["state"] = "staging"): AccountView {
   return {
@@ -1371,7 +1390,7 @@ test("OAuth rows hide API-key reconnect and become selectable only after an acti
   await screen.findByText("Waiting for completion");
   const oauthRow = screen
     .getByText("Workspace Codex")
-    .closest("div.flex")! as HTMLElement;
+    .closest("div.flex-wrap")! as HTMLElement;
   expect(
     within(oauthRow).queryByRole("button", { name: "Update API key" }),
   ).toBeNull();
@@ -1712,9 +1731,9 @@ test.each(["workspace", "personal"] as const)(
       name: "Connect Claude OAuth",
     });
     expect(
-      within(enrollment).getByRole("combobox", { name: "Sign-in method" })
-        .textContent,
-    ).toContain("Browser sign-in");
+      within(enrollment).queryByRole("combobox", { name: "Sign-in method" }),
+    ).toBeNull();
+    expect(within(enrollment).getByText("Browser sign-in")).toBeTruthy();
     expect(within(enrollment).queryByText(/ChatGPT Settings/)).toBeNull();
     fireEvent.click(
       within(enrollment).getByRole("button", { name: "Sign in to Claude" }),
@@ -1763,3 +1782,585 @@ test.each(["workspace", "personal"] as const)(
     assertNoCapability();
   },
 );
+
+test.each([
+  ["kimi", "Kimi Code", "Kimi Code", "https://www.kimi.com/code/console"],
+  ["glm", "GLM", "Coding Plan", "https://z.ai/manage-apikey/apikey-list"],
+  ["minimax", "MiniMax", "M Plan", "https://platform.minimax.io/console/plan"],
+] as const)(
+  "%s connects a subscription key without transport setup or cached secrets",
+  async (provider, label, planLabel, keyURL) => {
+    page.accounts = [];
+    page.profiles = [
+      {
+        id: `${provider}-qualified-profile`,
+        label,
+        provider: "codex",
+        authKind: "api_key",
+        protocol: "openai-responses",
+        models: ["qualified-model"],
+        connection: {
+          provider,
+          planLabel,
+          regionLabel: "Global",
+          personalOnly: provider === "glm",
+          completionInputKind: "none",
+          limitsContract: "account-limits/v2",
+          modelSettings: [],
+        },
+      },
+    ];
+    const api = personalApi();
+    render(
+      <AccountGatewayControls
+        connectOnly
+        managementScope="personal"
+        api={api}
+        bootstrap={{ context, page: { status: "ok", value: page } }}
+      />,
+    );
+    const field = await screen.findByLabelText(/Subscription key/);
+    expect(
+      screen.getByRole("link", { name: "Get key" }).getAttribute("href"),
+    ).toBe(keyURL);
+    expect(
+      screen.queryByLabelText(/Base URL|Sign-in method|Provider profile/),
+    ).toBeNull();
+    const secret = `synthetic-${provider}-subscription-secret`;
+    fireEvent.change(field, { target: { value: secret } });
+    const connect = screen.getByRole("button", { name: "Connect account" });
+    await waitFor(() =>
+      expect((connect as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(connect);
+    await waitFor(() =>
+      expect(api.submitGatewayApiKey).toHaveBeenCalledTimes(1),
+    );
+    expect(api.submitGatewayApiKey.mock.calls[0]).toEqual([
+      context,
+      expect.objectContaining({
+        profileId: `${provider}-qualified-profile`,
+        kind: "connect",
+      }),
+      secret,
+    ]);
+    for (const client of clients) expect(caches(client)).not.toContain(secret);
+    expect(JSON.stringify(storageWrites.mock.calls)).not.toContain(secret);
+    expect((field as HTMLInputElement).value).toBe("");
+  },
+);
+
+test("Grok's saved callback grammar survives reload and never guesses a code from pasted text", async () => {
+  page.profiles = [
+    {
+      id: "grok-subscription-responses-oauth-v1",
+      label: "Grok",
+      provider: "codex",
+      authKind: "oauth",
+      oauthMethods: ["browser"],
+      protocol: "openai-responses",
+      models: ["qualified-grok"],
+      connection: {
+        provider: "grok",
+        planLabel: "Subscription",
+        regionLabel: "Global",
+        completionInputKind: "callback_url",
+        personalOnly: false,
+        limitsContract: "account-limits/v2",
+        modelSettings: [],
+      },
+    },
+  ];
+  page.accounts = [];
+  sessionStorage.setItem(storageKey, JSON.stringify([savedNonce]));
+  vi.mocked(readGatewayOperation).mockResolvedValue({
+    status: "ok",
+    value: {
+      nonce: savedNonce,
+      state: "pending",
+      cleanup: "unresolved",
+      oauthMethod: "browser",
+      completion: { providerLabel: "Grok", inputKind: "callback_url" },
+    },
+  });
+  vi.mocked(completeGatewayOAuth).mockResolvedValue(
+    safeOperation(savedNonce, "applied"),
+  );
+  render(
+    <AccountGatewayControls
+      connectOnly
+      bootstrap={{ context, page: { status: "ok", value: page } }}
+    />,
+  );
+  const field = await screen.findByLabelText("Authorization result address");
+  const pasted = `looks-like-code#${"a".repeat(64)}`;
+  fireEvent.change(field, { target: { value: pasted } });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Complete authorization" }),
+  );
+  await waitFor(() =>
+    expect(completeGatewayOAuth).toHaveBeenCalledWith(context, {
+      nonce: savedNonce,
+      callbackURL: pasted,
+    }),
+  );
+  expect((field as HTMLInputElement).value).toBe("");
+  for (const client of clients) expect(caches(client)).not.toContain(pasted);
+  expect(JSON.stringify(storageWrites.mock.calls)).not.toContain(pasted);
+});
+
+test("Grok offers one browser sign-in with no OpenAI setup or method wizard", async () => {
+  page.profiles = [
+    {
+      id: "grok-subscription-responses-oauth-v1",
+      label: "Grok",
+      provider: "codex",
+      authKind: "oauth",
+      oauthMethods: ["browser"],
+      protocol: "openai-responses",
+      models: ["qualified-grok"],
+      connection: {
+        provider: "grok",
+        planLabel: "Subscription",
+        regionLabel: "Global",
+        completionInputKind: "callback_url",
+        personalOnly: false,
+        limitsContract: "account-limits/v2",
+        modelSettings: [],
+      },
+    },
+  ];
+  page.accounts = [];
+  render(
+    <AccountGatewayControls
+      connectOnly
+      bootstrap={{ context, page: { status: "ok", value: page } }}
+    />,
+  );
+  const signIn = await screen.findByRole("button", { name: "Sign in to Grok" });
+  expect(screen.queryByRole("combobox", { name: "Sign-in method" })).toBeNull();
+  expect(screen.queryByText(/ChatGPT Settings/)).toBeNull();
+  expect(screen.queryByLabelText(/API key|Subscription key/)).toBeNull();
+  await waitFor(() =>
+    expect((signIn as HTMLButtonElement).disabled).toBe(false),
+  );
+  fireEvent.click(signIn);
+  await waitFor(() => expect(beginGatewayOAuth).toHaveBeenCalledTimes(1));
+  expect(vi.mocked(beginGatewayOAuth).mock.calls[0]![1]).toMatchObject({
+    profileId: "grok-subscription-responses-oauth-v1",
+    method: "browser",
+  });
+  expect(handoff).toHaveBeenCalledTimes(1);
+  await screen.findByLabelText("Authorization result address");
+  assertNoCapability();
+});
+
+test("legacy browser readback without presentation submits one neutral authorization result unchanged", async () => {
+  sessionStorage.setItem(storageKey, JSON.stringify([savedNonce]));
+  vi.mocked(readGatewayOperation).mockResolvedValue({
+    status: "ok",
+    value: {
+      nonce: savedNonce,
+      state: "pending",
+      oauthMethod: "browser",
+      cleanup: "unresolved",
+    },
+  });
+  vi.mocked(completeGatewayOAuth).mockResolvedValue(
+    safeOperation(savedNonce, "applied"),
+  );
+  render(
+    <AccountGatewayControls
+      bootstrap={{ context, page: { status: "ok", value: page } }}
+    />,
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Resume authorization" }),
+  );
+  const field = await screen.findByLabelText(
+    "Callback URL or authorization code",
+  );
+  const authorizationResult = `synthetic-legacy-code#${"a".repeat(64)}`;
+  fireEvent.change(field, { target: { value: authorizationResult } });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Complete authorization" }),
+  );
+  await waitFor(() =>
+    expect(completeGatewayOAuth).toHaveBeenCalledWith(context, {
+      nonce: savedNonce,
+      authorizationResult,
+    }),
+  );
+  expect((field as HTMLInputElement).value).toBe("");
+  for (const client of clients)
+    expect(caches(client)).not.toContain(authorizationResult);
+  expect(JSON.stringify(storageWrites.mock.calls)).not.toContain(
+    authorizationResult,
+  );
+});
+
+test("delayed Grok reconnect resumes browser enrollment with the same nonce after fences, never a key form", async () => {
+  const personalStorage = "rr-c3-account-operations:personal:workspace-user";
+  sessionStorage.setItem(personalStorage, JSON.stringify([savedNonce]));
+  page.profiles = [
+    {
+      id: "grok-subscription-responses-oauth-v1",
+      label: "Grok",
+      provider: "codex",
+      authKind: "oauth",
+      canReconnect: true,
+      oauthMethods: ["browser"],
+      protocol: "openai-responses",
+      models: ["grok-4.7"],
+      connection: {
+        provider: "grok",
+        planLabel: "Subscription",
+        regionLabel: "Global",
+        completionInputKind: "callback_url",
+        personalOnly: false,
+        limitsContract: "account-limits/v2",
+        modelSettings: [],
+      },
+    },
+  ];
+  page.accounts = [];
+  const api = personalApi();
+  const pending: AccountsResult<AccountOperationView> = {
+    status: "ok",
+    value: {
+      nonce: savedNonce,
+      state: "pending",
+      cleanup: "unresolved",
+      completion: { providerLabel: "Grok", inputKind: "callback_url" },
+    },
+  };
+  const ready: AccountsResult<AccountOperationView> = {
+    status: "ok",
+    value: {
+      ...pending.value,
+      resume: {
+        kind: "reconnect",
+        connectionId: "own-grok",
+        profileId: page.profiles[0]!.id,
+        gatewayRevision: 17,
+        mirrorRevision: 4,
+      },
+    },
+  };
+  api.readGatewayOperation.mockResolvedValue(pending);
+  api.beginGatewayOAuth.mockImplementation(async () => ({
+    status: "ok",
+    value: {
+      operation: {
+        nonce: savedNonce,
+        state: "pending",
+        cleanup: "unresolved",
+        oauthMethod: "browser",
+        completion: { providerLabel: "Grok", inputKind: "callback_url" },
+      },
+      authorizationURL: capability,
+    },
+  }));
+  render(
+    <AccountGatewayControls
+      managementScope="personal"
+      api={api}
+      bootstrap={{ context, page: { status: "ok", value: page } }}
+    />,
+  );
+  await screen.findByRole("button", { name: "Check status" });
+  expect(screen.queryByRole("button", { name: "Continue sign-in" })).toBeNull();
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Check status",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false),
+  );
+  api.readGatewayOperation.mockResolvedValue(ready);
+  fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Continue sign-in" }),
+  );
+  await waitFor(() => expect(api.beginGatewayOAuth).toHaveBeenCalledTimes(1));
+  expect(api.beginGatewayOAuth).toHaveBeenCalledWith(context, {
+    nonce: savedNonce,
+    method: "browser",
+    connectionId: "own-grok",
+    gatewayRevision: 17,
+    mirrorRevision: 4,
+  });
+  expect(api.submitGatewayApiKey).not.toHaveBeenCalled();
+  expect(
+    screen.queryByRole("button", { name: "Continue key update" }),
+  ).toBeNull();
+  expect(JSON.parse(sessionStorage.getItem(personalStorage)!)).toEqual([
+    savedNonce,
+  ]);
+  expect(handoff).toHaveBeenCalledTimes(1);
+  await screen.findByLabelText("Authorization result address");
+  assertNoCapability();
+});
+
+// The custom row slot is also used by the personal-account list. Render its
+// real limit line so the bootstrap privacy contract is exercised with real caches.
+function BootstrapLimitsRow({ account }: { account: AccountView }) {
+  const read = useContext(AccountLimitsReadContext)!;
+  return (
+    <AccountLimitsLine
+      scope={read.scope}
+      context={read.context}
+      client={read.client}
+      connectionId={account.connectionId}
+      initialData={account.limits}
+      blocked={Boolean(
+        read.denied ||
+        read.removed?.has(account.connectionId) ||
+        (read.replacingBootstrap && !read.allowed?.has(account.connectionId)),
+      )}
+    />
+  );
+}
+
+test("bootstrap replacement blocks removed metrics until publication, then permits newly connected accounts", async () => {
+  const client = new QueryClient();
+  clients.add(client);
+  const limits: NonNullable<AccountView["limits"]> = {
+    status: "snapshot",
+    fetchedAt: "2026-10-22T10:00:00.000Z",
+    displayToken: "bootstrap-regression",
+    refreshAvailable: false,
+    scope: "subscription",
+    windows: [
+      {
+        label: "5h",
+        durationSeconds: 18000,
+        usedPercent: 25,
+        remainingPercent: 75,
+        progressPercent: 25,
+        observedAt: "2026-10-22T10:00:00.000Z",
+        resetAt: null,
+        stale: false,
+        reason: null,
+      },
+    ],
+  };
+  const old = { ...row("active"), limits };
+  const initial = {
+    status: "ok" as const,
+    value: { ...page, accounts: [old] },
+  };
+  const replacement = {
+    status: "ok" as const,
+    value: { ...page, accounts: [] },
+  };
+  const draw = (bootstrapPage: typeof initial) => (
+    <AccountGatewayControls
+      queryClient={client}
+      bootstrap={{ context, page: bootstrapPage }}
+      renderAccounts={(accounts) =>
+        (accounts.length ? accounts : [old]).map((account) => (
+          <BootstrapLimitsRow key={account.connectionId} account={account} />
+        ))
+      }
+    />
+  );
+  const view = render(draw(initial));
+  await screen.findByRole("progressbar");
+  // Finish initial publication before deferring the replacement cleanup.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  let finishLatest!: () => void;
+  const latestPending = new Promise<void>((resolve) => {
+    finishLatest = resolve;
+  });
+  const cancelQueries = client.cancelQueries.bind(client);
+  let replacements = 0;
+  vi.spyOn(client, "cancelQueries").mockImplementation((filters, options) =>
+    filters?.queryKey?.[0] === "gateway-accounts"
+      ? ++replacements === 1
+        ? pending
+        : latestPending
+      : cancelQueries(filters, options),
+  );
+  view.rerender(draw(replacement));
+  expect(screen.queryByRole("progressbar")).toBeNull();
+  // Supersede the pending replacement. Its late completion cannot open the
+  // latest bootstrap fence, even when both pages contain no accounts.
+  view.rerender(draw({ ...replacement, value: { ...replacement.value } }));
+  await act(async () => {
+    client.setQueryData(["gateway-accounts", "workspace-user", "page", null], {
+      pages: [initial],
+      pageParams: [null],
+    });
+    finish();
+    await pending;
+  });
+  expect(screen.queryByRole("progressbar")).toBeNull();
+  await screen.findByText("Limits unavailable while connection changes");
+  await act(async () => {
+    finishLatest();
+    await latestPending;
+  });
+  await waitFor(() =>
+    expect(
+      screen.queryByText("Limits unavailable while connection changes"),
+    ).toBeNull(),
+  );
+  // A later authorized enrollment is absent from the original SSR allowlist.
+  const connected = { ...old, connectionId: "new-subscription" };
+  await act(async () => {
+    client.setQueryData(["gateway-accounts", "workspace-user", "page", null], {
+      pages: [{ status: "ok", value: { ...page, accounts: [connected] } }],
+      pageParams: [null],
+    });
+  });
+  expect(await screen.findByRole("progressbar")).toBeTruthy();
+  expect(
+    screen.queryByText("Limits unavailable while connection changes"),
+  ).toBeNull();
+});
+
+test("personal-only key receipt uses authorized account metadata without offering organization access", async () => {
+  const api = personalApi();
+  const account: AccountView = {
+    ...row("active"),
+    label: "Personal GLM",
+    authKind: "api_key",
+    connection: {
+      provider: "glm",
+      planLabel: "Coding Plan",
+      regionLabel: "Global",
+      completionInputKind: "none",
+      personalOnly: true,
+      limitsContract: "account-limits/v2",
+      modelSettings: [],
+    },
+  };
+  sessionStorage.setItem(
+    "rr-c3-account-operations:personal:workspace-user",
+    JSON.stringify([savedNonce]),
+  );
+  api.readGatewayOperation.mockResolvedValue({
+    status: "ok",
+    value: {
+      nonce: savedNonce,
+      state: "applied",
+      cleanup: "unresolved",
+      account,
+    },
+  });
+  render(
+    <AccountGatewayControls
+      managementScope="personal"
+      api={api}
+      bootstrap={{ context, page: { status: "ok", value: page } }}
+    />,
+  );
+  const receipt = (await screen.findByText("Personal GLM")).closest(
+    '[role="status"]',
+  )!;
+  expect(receipt.textContent).toContain("Personal use.");
+  expect(receipt.textContent).not.toContain("Organization access");
+});
+
+test("remount reauthorizes cached inventory before enabling pagination or exposing old limits", async () => {
+  const client = new QueryClient();
+  clients.add(client);
+  const limits: NonNullable<AccountView["limits"]> = {
+    status: "snapshot",
+    fetchedAt: "2026-10-22T10:00:00.000Z",
+    displayToken: "remount-limits",
+    refreshAvailable: false,
+    scope: "subscription",
+    windows: [
+      {
+        label: "5h",
+        durationSeconds: 18000,
+        usedPercent: 25,
+        remainingPercent: 75,
+        progressPercent: 25,
+        observedAt: "2026-10-22T10:00:00.000Z",
+        resetAt: null,
+        stale: false,
+        reason: null,
+      },
+    ],
+  };
+  const old = {
+    ...row("active"),
+    connectionId: "removed-owner-account",
+    limits,
+  };
+  const authorized = { ...old, connectionId: "authorized-account" };
+  client.setQueryData(["gateway-accounts", "workspace-user", "page", null], {
+    pages: [
+      {
+        status: "ok",
+        value: { ...page, accounts: [old], nextCursor: "old-page-2" },
+      },
+    ],
+    pageParams: [null],
+  });
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const cancel = client.cancelQueries.bind(client);
+  vi.spyOn(client, "cancelQueries").mockImplementation((filters, options) =>
+    filters?.queryKey?.[0] === "gateway-accounts"
+      ? pending
+      : cancel(filters, options),
+  );
+  render(
+    <AccountGatewayControls
+      queryClient={client}
+      bootstrap={{
+        context,
+        page: {
+          status: "ok",
+          value: {
+            ...page,
+            accounts: [authorized],
+            nextCursor: "authorized-page-2",
+          },
+        },
+      }}
+      renderAccounts={(accounts) =>
+        accounts.map((account) => (
+          <BootstrapLimitsRow key={account.connectionId} account={account} />
+        ))
+      }
+    />,
+  );
+  expect(screen.queryByRole("progressbar")).toBeNull();
+  expect(
+    screen.getByText("Limits unavailable while connection changes"),
+  ).toBeTruthy();
+  const more = screen.getByRole("button", {
+    name: "Load more connection details",
+  });
+  expect((more as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(more);
+  expect(listGatewayAccounts).not.toHaveBeenCalled();
+  await act(async () => {
+    finish();
+    await pending;
+  });
+  await screen.findByRole("progressbar");
+  await waitFor(() => expect((more as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(more);
+  await waitFor(() =>
+    expect(listGatewayAccounts).toHaveBeenCalledWith(
+      context,
+      "authorized-page-2",
+    ),
+  );
+});

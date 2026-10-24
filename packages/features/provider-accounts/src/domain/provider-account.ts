@@ -167,6 +167,30 @@ export function assertMetadata(metadata: ConnectionMetadata): void {
     throw new ProviderAccountError("invalid_input");
   }
 }
+/** Product usage restriction, independent of Gateway ownership/transport metadata. */
+export function isPersonalOwnerOnlyProfile(profileRef: string | null): boolean {
+  return profileRef === "glm-coding-global-responses-apikey-v1";
+}
+export function assertProfileUseAllowed(
+  connection: ProviderAccountConnection,
+  workspaceId: string,
+  personalUse?: PersonalBindingUse,
+): void {
+  if (!isPersonalOwnerOnlyProfile(connection.profileRef)) return;
+  if (
+    connection.owner.kind !== "user" ||
+    !personalUse ||
+    personalUse.workspaceId !== workspaceId ||
+    personalUse.personalOwnerUserId !== connection.owner.userId ||
+    personalUse.donorUserId !== connection.owner.userId
+  )
+    throw new ProviderAccountError("connection_unavailable");
+}
+/** Sharing a personal-only subscription is forbidden, including operator pools. */
+export function assertProfileShareAllowed(profileRef: string | null): void {
+  if (isPersonalOwnerOnlyProfile(profileRef))
+    throw new ProviderAccountError("workspace_forbidden");
+}
 export function assertWorkspaceOwner(
   connection: ProviderAccountConnection | null,
   workspaceId: string,
@@ -241,6 +265,11 @@ export function selectBinding(
   ) {
     throw new ProviderAccountError("binding_unavailable");
   }
+  assertProfileUseAllowed(
+    selection.connection,
+    workspaceId,
+    selection.personalUse,
+  );
   assertWorkspaceUseOwner(
     selection.connection,
     workspaceId,

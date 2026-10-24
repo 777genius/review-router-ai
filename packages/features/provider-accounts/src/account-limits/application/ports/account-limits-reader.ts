@@ -8,7 +8,7 @@ export type AccountLimitsTarget = {
   readonly expectedAuthorizationEpoch: number;
 };
 export type AccountLimitsCapability = {
-  readonly contract: "account-limits/v1";
+  readonly contract: "account-limits/v1" | "account-limits/v2";
   readonly cachedRead: boolean;
   readonly quotaOnlyRefresh: boolean;
 };
