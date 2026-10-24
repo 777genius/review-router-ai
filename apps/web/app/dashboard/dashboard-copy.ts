@@ -419,6 +419,8 @@ export function dashboardErrorText(error: string): string {
       return "A rotating Codex provider belongs to its own repository and cannot be used anywhere else.";
     case "review_configuration_gateway_profile_mismatch":
       return "The account behind this provider now uses another profile. Choose the account again to create a new provider.";
+    case "review_workspace_policy_retired":
+      return "The workspace settings use a retired format. An owner or admin replaces them by choosing a default provider; then choose this repository's provider.";
     case "hosted_pool_session_source_required":
       return "A hosted Codex pool is turned on for each repository with its session source setting, so it cannot be chosen here or made the default.";
     case "provider_profile_invalid":

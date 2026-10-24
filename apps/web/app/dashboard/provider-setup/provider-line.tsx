@@ -17,6 +17,8 @@ export type ProviderLineSummary = Readonly<{
    * format, so no provider applies until they are saved again.
    */
   source: "repository" | "workspace" | "none" | "unreadable";
+  /** `unreadable` only: whose document is in the retired format. */
+  retiredScope?: "workspace" | "repository";
   profile: Readonly<{
     label: string;
     model: string;
@@ -166,14 +168,23 @@ export function providerLineCopy(
         attention: profile === null,
       };
     case "unreadable":
-      return {
-        title: "Provider settings need to be saved again",
-        short: "Provider settings need saving",
-        detail:
-          "They use a retired format, so reviews are stopped. Choose a provider to continue.",
-        action: "Choose provider",
-        attention: true,
-      };
+      return summary.retiredScope === "workspace"
+        ? {
+            title: "Workspace settings need to be replaced",
+            short: "Workspace settings need replacing",
+            detail:
+              "They use a retired format, so this repository is stopped too. An owner or admin replaces them by choosing a default provider.",
+            action: "Choose provider",
+            attention: true,
+          }
+        : {
+            title: "Provider settings need to be saved again",
+            short: "Provider settings need saving",
+            detail:
+              "They use a retired format, so reviews are stopped. Choosing a provider replaces them; the repository then follows the workspace settings.",
+            action: "Choose provider",
+            attention: true,
+          };
     case "none":
       return {
         title: "No provider yet",

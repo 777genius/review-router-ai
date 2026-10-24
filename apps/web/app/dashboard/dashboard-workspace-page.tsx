@@ -3054,7 +3054,14 @@ function repositoryProviderSummary(
     (item) => item.repositoryId === repositoryId,
   );
   if (config?.status === "resave_required")
-    return { source: "unreadable", profile: null };
+    return {
+      source: "unreadable",
+      profile: null,
+      retiredScope:
+        !data.workspacePolicy && data.reviewConfigStatus === "resave_required"
+          ? "workspace"
+          : "repository",
+    };
   const own = config?.policy?.providers?.[0];
   if (own)
     return {

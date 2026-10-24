@@ -501,12 +501,16 @@ async function saveRepositorySelection(
   };
   return withSelectionRetry(async () => {
     const heads = await dependencies.policyHeads.readPolicyHeads(target);
-    // A document in a retired format cannot be read and is not kept: the
-    // write replaces it as if there were none, so choosing a provider is the
-    // one action that brings such a repository back.
     const workspace = heads.workspace
       ? parseStoredReviewPolicy("workspace", heads.workspace)
       : null;
+    // The workspace document belongs to its owners and admins: a repository
+    // write never replaces one in a retired format (its settings would be
+    // lost); the default action or the one-time migration converts it.
+    if (heads.workspace && !workspace)
+      throw new Error("review_workspace_policy_retired");
+    // The repository's own document in a retired format is not kept: the
+    // write replaces it, so choosing a provider brings the repository back.
     const current =
       (heads.repository
         ? parseStoredReviewPolicy("repository", heads.repository)
@@ -522,13 +526,13 @@ async function saveRepositorySelection(
       providerCount,
     );
     const writes: ReviewPolicyWrite[] = [];
-    // The first attach creates the workspace document (or replaces a retired
-    // one) with built-in settings, never a default.
-    if (!workspace)
+    // The first attach of a workspace without a document creates one with
+    // built-in settings, never a default.
+    if (!heads.workspace)
       writes.push({
         target: { scope: "workspace", workspaceId: input.workspaceId },
         policy: defaultWorkspaceReviewPolicy(),
-        expectedVersion: heads.workspace?.version ?? null,
+        expectedVersion: null,
         implicit: true,
       });
     writes.push({

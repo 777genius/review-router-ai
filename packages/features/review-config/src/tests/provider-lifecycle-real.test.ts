@@ -697,7 +697,27 @@ databaseTests("provider profile lifecycle on PostgreSQL", () => {
           visibility: "private",
         },
       });
-      // Heads in a retired format, as a schema 3 install left them.
+      // Heads in a retired format with settings, as a schema 3 install left
+      // them.
+      const retiredDocuments = {
+        workspace: JSON.stringify({
+          schemaVersion: 3,
+          providers: [
+            {
+              kind: "claude",
+              authMode: "claude_code_oauth",
+              model: "opus",
+              reasoningEffort: "high",
+            },
+          ],
+          output: { reviewLanguage: "Deutsch" },
+          limits: { inlineMaxComments: 7, targetTokensPerBatch: 40000 },
+        }),
+        repository: JSON.stringify({
+          schemaVersion: 3,
+          limits: { inlineMaxComments: 3 },
+        }),
+      };
       for (const scope of [target(), target(retiredRepository)]) {
         const configuration = await prisma.reviewConfiguration.create({
           data: {
@@ -713,7 +733,7 @@ databaseTests("provider profile lifecycle on PostgreSQL", () => {
             workspaceId: retiredWorkspaceId,
             version: 1,
             schemaVersion: 3,
-            policyJson: "{}",
+            policyJson: retiredDocuments[scope.scope],
           },
         });
       }
@@ -744,11 +764,17 @@ databaseTests("provider profile lifecycle on PostgreSQL", () => {
             deps,
           )
         )[0]!;
-      // Replacing a retired workspace document is an owner/admin change.
-      expect(await assign(member)).toMatchObject({
-        status: "denied",
-        reason: "workspace_admin_required",
-      });
+      // A repository write never replaces the workspace's retired document,
+      // whoever asks: its settings would be lost without a trace.
+      for (const who of [member, owner])
+        expect(await assign(who)).toMatchObject({
+          status: "failed",
+          code: "review_workspace_policy_retired",
+        });
+      expect(
+        (await deps.policyHeads.readPolicyHeads(target())).workspace,
+      ).toMatchObject({ version: 1, schemaVersion: 3 });
+      // The owner's default replaces it with the built-in settings, audited.
       await setWorkspaceDefaultProvider(
         {
           workspaceId: retiredWorkspaceId,
@@ -760,8 +786,26 @@ databaseTests("provider profile lifecycle on PostgreSQL", () => {
       expect(
         await resolveEffectiveReviewConfiguration(target(), deps),
       ).toMatchObject({ status: "ready", workspaceVersion: 2 });
+      expect(
+        await prisma.auditEvent.count({
+          where: {
+            workspaceId: retiredWorkspaceId,
+            action: "provider_selection.default_set",
+            targetType: "workspace",
+          },
+        }),
+      ).toBe(1);
       // The repository's own retired document goes with its first choice.
       expect(await assign(member)).toMatchObject({ status: "applied" });
+      expect(
+        await prisma.auditEvent.findMany({
+          where: {
+            workspaceId: retiredWorkspaceId,
+            action: "provider_selection.assigned",
+          },
+          select: { targetType: true },
+        }),
+      ).toEqual([{ targetType: "repository" }]);
       expect(
         await resolveEffectiveReviewConfiguration(
           target(retiredRepository),
@@ -817,6 +861,30 @@ databaseTests("provider profile lifecycle on PostgreSQL", () => {
       ).toBe("workspace_member_required");
       expect(catalogChecks).toBe(0);
     }
+    // A member who did not add it is refused before the network check too.
+    let memberCatalogChecks = 0;
+    expect(
+      await denialOf(
+        changeWorkspaceProviderProfileModel(
+          {
+            workspaceId,
+            profileId: profile.id,
+            actor: member,
+            model: "gpt-5.4",
+          },
+          {
+            ...profiles,
+            validator: {
+              ...acceptModelChange,
+              beforeTransaction: async () => {
+                memberCatalogChecks += 1;
+              },
+            },
+          },
+        ),
+      ),
+    ).toBe("profile_creator_required");
+    expect(memberCatalogChecks).toBe(0);
     // A member sees not_found only for an ID that truly does not exist.
     await expect(
       renameWorkspaceProviderProfile(
