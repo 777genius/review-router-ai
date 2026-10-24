@@ -191,9 +191,9 @@ export function createAccountsOverview(input: {
         });
         // One capability read per inventory page; per-row repetition only adds
         // sequential Gateway timeouts to a server render.
-        const compatible = !!(
-          await input.lifecycleCompatible?.().catch(() => false)
-        );
+        const compatible = !!(await input
+          .lifecycleCompatible?.()
+          .catch(() => false));
         const remotes = await Promise.all(
           visible.map(({ source }) =>
             input.gateway.get(source.gatewayAccountRef).catch(() => null),

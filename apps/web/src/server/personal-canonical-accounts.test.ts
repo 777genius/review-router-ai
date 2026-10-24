@@ -20,7 +20,13 @@ type ConnectReceipt = Awaited<
 >;
 
 const nonce = "9874b2bc-e987-4456-9212-7f94f58932da";
-function fixture(options: { lifecycleWritable?: boolean; grok?: boolean; disabled?: boolean } = {}) {
+function fixture(
+  options: {
+    lifecycleWritable?: boolean;
+    grok?: boolean;
+    disabled?: boolean;
+  } = {},
+) {
   const grokProfileId = "grok-subscription-responses-oauth-v1";
   let oauthBegun = false;
   let actor = "user-u",
