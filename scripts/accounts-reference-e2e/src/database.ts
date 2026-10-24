@@ -327,9 +327,6 @@ export function applicationEnvironment(input: {
       ? { REVIEW_ROUTER_ENABLE_CODEX_ROTATING_OAUTH: "1" }
       : {}),
     REVIEW_ROUTER_PERSONAL_ACCOUNT_SHARING_ENABLED: "1",
-    ...(process.argv.includes("--lifecycle-fixture")
-      ? { REVIEW_ROUTER_ACCOUNT_LIFECYCLE_ENABLED: "1" }
-      : {}),
     REVIEW_ROUTER_ACCOUNT_GATEWAY_ACCOUNTS_CONTEXT_SECRET:
       input.secrets.gatewayAccountsContextSecret,
     GITHUB_APP_CLIENT_ID: input.secrets.githubClientId,
@@ -345,6 +342,12 @@ export function applicationEnvironment(input: {
       ? {
           REVIEW_ROUTER_ACCOUNT_GATEWAY_CLAUDE_OAUTH_PROFILE_ID:
             FIXTURES.gateway.claudeProfileId,
+        }
+      : {}),
+    ...(process.argv.includes("--subscription-fixture")
+      ? {
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_SUBSCRIPTION_PROFILE_IDS:
+            "kimi-code-global-responses-apikey-v1,glm-coding-global-responses-apikey-v1,minimax-mplan-global-responses-apikey-v1,grok-subscription-responses-oauth-v1",
         }
       : {}),
     TMPDIR: input.tmpDir,

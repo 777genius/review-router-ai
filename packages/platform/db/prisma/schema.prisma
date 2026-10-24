@@ -13,6 +13,7 @@ model Workspace {
   id        String   @id @default(cuid())
   slug      String   @unique
   name      String
+  reviewDraftPullRequests Boolean @default(true)
   deletionState WorkspaceDeletionState @default(active)
   deletionRevision Int @default(1)
   deletionTombstonedAt DateTime?
@@ -530,7 +531,7 @@ model ReviewConfigurationVersion {
   providerKind                            String
   providerAuthMode                        String
   model                                   String
-  reasoningEffort                         String
+  reasoningEffort                         String?
   agenticContext                          Boolean  @default(true)
   fastMode                                Boolean  @default(false)
   failOnSeverity                          String
@@ -569,7 +570,7 @@ model ReviewConfigurationVersionProvider {
   providerKind           String
   providerAuthMode       String
   model                  String
-  reasoningEffort        String
+  reasoningEffort        String?
   agenticContext         Boolean @default(true)
   fastMode               Boolean @default(false)
   requiredHealthy        Boolean @default(false)

@@ -14,17 +14,29 @@ export type AccountLimitsReason =
   | "generation_changed"
   | "revision_regressed";
 
-export type AccountLimitsSourceWindow = {
+type SourceWindow = {
   readonly id: string;
-  readonly family: "codex" | "claude";
   readonly durationSeconds: number | null;
   readonly usedPercent: number | null;
   readonly observedAt: string | null;
   readonly resetAt: string | null;
-  readonly basis: "duration" | "legacy_alias" | "unknown";
   /** Untrusted source code; projection exposes only the closed display allowlist. */
   readonly reason?: string | undefined;
 };
+
+export type SubscriptionLimitsProvider = "kimi" | "glm" | "minimax" | "grok";
+export type SubscriptionLimitsWindow = SourceWindow & {
+  readonly family: SubscriptionLimitsProvider;
+  readonly basis: "duration" | "billing_cycle" | "unknown";
+  readonly dimension: "plan_quota" | "rate_limit";
+  readonly unit: "credits" | "tokens" | "requests" | "unknown";
+};
+export type AccountLimitsSourceWindow =
+  | (SourceWindow & {
+      readonly family: "codex" | "claude";
+      readonly basis: "duration" | "legacy_alias" | "unknown";
+    })
+  | SubscriptionLimitsWindow;
 
 /** This result is server-only: physical identity must never enter a browser DTO. */
 export type AccountLimitsSnapshot = {
@@ -52,6 +64,8 @@ export type AccountLimitsWindowView = {
   readonly resetAt: string | null;
   readonly stale: boolean;
   readonly reason: AccountLimitsReason | null;
+  readonly dimension?: "plan_quota" | "rate_limit";
+  readonly unit?: SubscriptionLimitsWindow["unit"];
 };
 type DisplayContext = {
   readonly fetchedAt: string;
@@ -129,6 +143,44 @@ const claudeLabels: Readonly<Record<string, string>> = {
   "claude-7d-fable": " Fable",
 };
 
+const subscriptionProviders = new Set<string>([
+  "kimi",
+  "glm",
+  "minimax",
+  "grok",
+]);
+const subscriptionWindows = new Set<string>([
+  "five_hour",
+  "weekly",
+  "monthly",
+  "primary",
+  "secondary",
+  "unknown",
+  "request_rate",
+  "token_rate",
+]);
+function subscriptionWindow(
+  window: AccountLimitsSourceWindow,
+): window is SubscriptionLimitsWindow {
+  return subscriptionProviders.has(window.family);
+}
+function subscriptionLabel(
+  window: SubscriptionLimitsWindow,
+  duration: number | null,
+): string {
+  if (window.dimension === "rate_limit") {
+    return window.unit === "tokens"
+      ? "Token rate"
+      : window.unit === "requests"
+        ? "Request rate"
+        : "Rate limit";
+  }
+  if (window.basis === "billing_cycle") return "Month";
+  if (duration === 18000) return "5h";
+  if (duration === 604800) return "Week";
+  return duration === null ? "Usage" : durationLabel(duration, 0);
+}
+
 export function projectAccountLimits(
   result: AccountLimitsSourceResult,
   context: {
@@ -178,18 +230,40 @@ export function projectAccountLimits(
   const ids = new Set<string>();
   const family = result.windows[0]?.family;
   for (const window of result.windows) {
+    const subscription = window && subscriptionWindow(window);
+    const key = subscription
+      ? `${window.id}:${window.dimension}:${window.unit}`
+      : window?.id;
     if (
       !window ||
       typeof window.id !== "string" ||
       !window.id ||
-      ids.has(window.id) ||
-      !["codex", "claude"].includes(window.family) ||
+      ids.has(key) ||
+      (!["codex", "claude"].includes(window.family) && !subscription) ||
       window.family !== family ||
       (window.family === "claude" && !Object.hasOwn(claudeLabels, window.id)) ||
-      !["duration", "legacy_alias", "unknown"].includes(window.basis)
+      (subscription
+        ? !subscriptionWindows.has(window.id) ||
+          !["plan_quota", "rate_limit"].includes(window.dimension) ||
+          !["credits", "tokens", "requests", "unknown"].includes(window.unit) ||
+          !["duration", "billing_cycle", "unknown"].includes(window.basis) ||
+          (window.basis === "billing_cycle" &&
+            (window.id !== "monthly" ||
+              window.dimension !== "plan_quota" ||
+              window.durationSeconds !== null)) ||
+          (window.id === "five_hour" && window.durationSeconds !== 18000) ||
+          (window.id === "weekly" && window.durationSeconds !== 604800) ||
+          (window.id === "monthly" && window.basis !== "billing_cycle") ||
+          (window.id === "request_rate" &&
+            (window.dimension !== "rate_limit" ||
+              window.unit !== "requests")) ||
+          (window.id === "token_rate" &&
+            (window.dimension !== "rate_limit" || window.unit !== "tokens")) ||
+          (window.basis === "unknown" && window.durationSeconds !== null)
+        : !["duration", "legacy_alias", "unknown"].includes(window.basis))
     )
       return invalid();
-    ids.add(window.id);
+    ids.add(key);
   }
   const now = context.now.getTime();
   const windows = result.windows.map(
@@ -226,8 +300,24 @@ export function projectAccountLimits(
             : expired
               ? "observation_expired"
               : null;
+      const label = subscriptionWindow(window)
+        ? subscriptionLabel(window, durationSeconds)
+        : `${durationLabel(durationSeconds, index)}${window.family === "claude" ? claudeLabels[window.id] : ""}`;
+      const distinguishUnit =
+        subscriptionWindow(window) &&
+        window.unit !== "unknown" &&
+        result.windows.some(
+          (other) =>
+            subscriptionWindow(other) &&
+            other.id === window.id &&
+            other.dimension === window.dimension &&
+            other.unit !== window.unit,
+        );
       return {
-        label: `${durationLabel(durationSeconds, index)}${window.family === "claude" ? claudeLabels[window.id] : ""}`,
+        label:
+          distinguishUnit && subscriptionWindow(window)
+            ? `${label} ${window.unit}`
+            : label,
         durationSeconds,
         usedPercent,
         remainingPercent:
@@ -240,6 +330,9 @@ export function projectAccountLimits(
         resetAt,
         stale: observedAt === null || resetElapsed || expired,
         reason,
+        ...(subscriptionWindow(window)
+          ? { dimension: window.dimension, unit: window.unit }
+          : {}),
       };
     },
   );

@@ -324,6 +324,27 @@ export async function canDashboardActorMutateRepository(input: {
   }
 }
 
+/**
+ * Read-only form of the workspace admin gate enforced by
+ * assertDashboardMutationAllowed, so the UI and the action cannot disagree.
+ */
+export async function canDashboardActorAdminWorkspace(input: {
+  readonly actor: DashboardMutationActor | null;
+  readonly workspaceId: string;
+}): Promise<boolean> {
+  if (!input.actor) return false;
+  try {
+    await assertWorkspaceMutationAllowedForActor(
+      input.workspaceId,
+      input.actor,
+    );
+    return true;
+  } catch (error) {
+    if (isWorkspaceMutationForbidden(error)) return false;
+    throw error;
+  }
+}
+
 export function dashboardMutationAccessAuditMetadata(
   actor: DashboardMutationActor,
 ): Record<string, unknown> {

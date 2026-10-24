@@ -532,6 +532,12 @@ test.describe("Accounts UX reference browser contract", () => {
         name: /Enable|Disable|Reconnect|Update API key|Refresh Codex|Connect Codex/i,
       }),
     ).toHaveCount(0);
+    // Disabled is terminal for lifecycle delete (store and DB CAS guard), so
+    // no dead removal control. Menu content renders through a portal, so this
+    // is page-scoped.
+    await expect(
+      page.getByRole("menuitem", { name: /Remove connection/ }),
+    ).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(legacy.getByRole("button", { name: /Enable/i })).toHaveCount(
       0,

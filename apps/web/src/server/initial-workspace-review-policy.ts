@@ -2,7 +2,10 @@ import {
   parseReviewConfiguration,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
-import { gatewayModelSupportsReasoningEffort } from "../features/account-gateway/review-reasoning-capabilities";
+import {
+  gatewayModelDefaultReasoningEffort,
+  gatewayModelSupportsReasoningEffort,
+} from "../features/account-gateway/review-reasoning-capabilities";
 import type { AccountsPage, AccountsResult } from "./account-gateway-accounts";
 import { getReadyGatewayAccounts } from "./dashboard-provider-setup-readiness";
 
@@ -16,10 +19,19 @@ export function initialWorkspaceReviewPolicyDraft(
       (item) => item.id === account.profileId,
     );
     for (const model of profile?.models ?? []) {
-      const reasoningEffort = (["medium", "high", "low"] as const).find(
-        (effort) => gatewayModelSupportsReasoningEffort(model, effort),
-      );
-      if (!reasoningEffort) continue;
+      const reasoningEffort = profile?.connection
+        ? gatewayModelDefaultReasoningEffort(model, profile.connection)
+        : (["medium", "high", "low"] as const).find((effort) =>
+            gatewayModelSupportsReasoningEffort(model, effort),
+          );
+      if (
+        !gatewayModelSupportsReasoningEffort(
+          model,
+          reasoningEffort,
+          profile?.connection,
+        )
+      )
+        continue;
       return parseReviewConfiguration({
         schemaVersion: 3,
         providers: [

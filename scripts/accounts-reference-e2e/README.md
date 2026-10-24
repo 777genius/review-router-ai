@@ -283,3 +283,19 @@ public catalog URLs. The actual server composition, normalization and cache run
 unchanged. The browser verifies all three vendors, native IDs, manual refresh,
 cooldown, preserved selection, row removal and absence of automatic inference.
 No provider credentials or external requests are needed.
+
+Subscription connections use `--subscription-fixture` with
+`ACCOUNTS_REFERENCE_E2E_GREP='subscription connections'`. This opt-in serves
+qualified Kimi/GLM/MiniMax/Grok metadata, key/OAuth operations and cached v2 limits
+from the existing loopback Gateway fixture. It exercises real RR SSR, session,
+canonical storage, server actions and the installed SDK. The single xAI browser
+authorization document is intercepted and fulfilled with synthetic HTML; no
+provider network request is made. Synthetic subscription keys and callback values
+are test data. This does not prove live provider eligibility, native transport,
+refresh, credentials or actual subscription quota; those require the separate
+native/Gateway/Codex qualification.
+The controlled case also reconnects the same Grok account and removes it through
+real RR lifecycle controls. Gateway retirement counters/closure are synthetic
+fixtures; native erasure and transport closure require the separate native proof.
+Use an explicit `--repo-root` when launching via `pnpm --dir` because the harness
+has its own workspace file. `--browser-executable` is forwarded to Playwright.

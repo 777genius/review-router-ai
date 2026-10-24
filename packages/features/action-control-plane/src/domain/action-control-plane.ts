@@ -356,13 +356,25 @@ const actionRuntimeProviderSchema = z
     kind: providerKindSchema,
     authMode: providerAuthModeSchema,
     model: z.string().min(1),
-    reasoningEffort: z.enum(["low", "medium", "high", "xhigh", "max", "ultra"]),
+    reasoningEffort: z
+      .enum(["low", "medium", "high", "xhigh", "max", "ultra"])
+      .optional(),
     agenticContext: z.boolean(),
     fastMode: z.boolean(),
     requiredHealthy: z.boolean().default(false),
     secretBackedProviderEnabled: z.boolean(),
   })
   .superRefine((provider, context) => {
+    if (
+      provider.authMode !== "codex_account_gateway" &&
+      provider.reasoningEffort === undefined
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["reasoningEffort"],
+        message: "reasoning effort is required for legacy providers",
+      });
+    }
     if (!providerAuthModeBelongsToKind(provider.authMode, provider.kind)) {
       context.addIssue({
         code: "custom",

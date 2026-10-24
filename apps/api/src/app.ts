@@ -127,6 +127,7 @@ import {
   HashedReviewConfigurationOperatorAuthorization,
   PrismaReviewConfigurationOperatorRepository,
   PrismaReviewConfigurationRepository,
+  PrismaWorkspaceReviewSettings,
   type OperatorReviewConfigurationDependencies,
 } from "@reviewrouter/features-review-config";
 import { PrismaReviewSnapshotRepository } from "@reviewrouter/features-review-snapshots";
@@ -1267,18 +1268,13 @@ function createReviewV2IntentWebhookHandler(input: {
       },
     },
   );
-  const draftRepositories = new Set(
-    parseCommaSeparatedEnv(
-      input.env.REVIEW_ROUTER_REVIEW_V2_DRAFT_REPOSITORIES,
-    ).map((value) => value.toLowerCase()),
-  );
+  const settings = new PrismaWorkspaceReviewSettings(input.prisma);
   return new ReviewV2PullRequestWebhookHandler({
     ingress,
     clock: new SystemClock(),
     policy: {
-      reviewDrafts: (repositoryFullName) =>
-        draftRepositories.size === 0 ||
-        draftRepositories.has(repositoryFullName.toLowerCase()),
+      reviewDrafts: (githubInstallationId) =>
+        settings.reviewDraftsForGitHubInstallation(githubInstallationId),
     },
   });
 }
