@@ -44,6 +44,7 @@ import {
 import type { VisualTheme } from "./scenarios.js";
 import type { VisualSeedResult } from "./seed.js";
 import {
+  chooseCard,
   chooseModel,
   chooseNewProvider,
   chooseSource,
@@ -368,11 +369,12 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
             ),
           ),
       );
-      await flow.check("the row names the new provider", async () => {
+      await flow.check("the provider line names the new provider", async () => {
         await visible(
-          repositoryRowHeader(page, repositoryKey).getByText(created!.label, {
-            exact: true,
-          }),
+          repositorySetupPanel(page, repositoryKey).getByText(
+            `Provider: ${created!.label}`,
+            { exact: true },
+          ),
         );
       });
       await flow.shot(page, "stepper-ready");
@@ -442,7 +444,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       });
       await flow.shot(page, "providers-new-default");
 
-      await gotoDashboard(page, repositoryRoute("mainSetupPr"));
+      await gotoDashboard(page, workspaceRoute("main", "repositories"));
       await flow.check(
         "a repository without its own provider shows the new default in its row",
         async () => {
@@ -453,6 +455,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           );
         },
       );
+      await gotoDashboard(page, repositoryRoute("mainSetupPr"));
       await flow.check(
         "the line above its steps says it uses the workspace default",
         async () => {
@@ -639,21 +642,19 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
         "the member cannot edit or remove the owner's provider, and is told why",
         async () => {
           expectEqual(
-            await foreign.getByRole("button", { name: "Edit" }).isEnabled(),
-            false,
-            "Edit enabled",
+            await foreign.getByRole("button", { name: "Edit" }).count(),
+            0,
+            "Edit buttons",
           );
           expectEqual(
             await foreign
               .getByRole("button", { name: "Remove", exact: true })
-              .isEnabled(),
-            false,
-            "Remove enabled",
+              .count(),
+            0,
+            "Remove buttons",
           );
           await visible(
-            foreign.getByText(
-              "Only the person who added this provider, or an owner or admin, can change it.",
-            ),
+            page.getByText("You can edit or remove the providers you added."),
           );
         },
       );
@@ -734,9 +735,9 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           return expectEqual(
             await providerListRow(member, VISUAL_PROFILES.memberMimo.label)
               .getByRole("button", { name: "Edit" })
-              .isEnabled(),
-            false,
-            "Edit of the member's own provider enabled",
+              .count(),
+            0,
+            "Edit buttons on the member's own provider",
           );
         },
       );
@@ -914,6 +915,55 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           return expectEqual(stored?.archivedAt ?? null, null, "archivedAt");
         },
       );
+    },
+  },
+  {
+    id: "flow-member-gateway-attach",
+    title:
+      "With personal account sharing off, a member maintainer attaches a workspace Gateway provider",
+    requires: { personalSharing: false },
+    run: async (flow) => {
+      const workspace = VISUAL_WORKSPACES.main;
+      const repository = VISUAL_REPOSITORIES.mainNeedsSecret;
+      const profile = VISUAL_PROFILES.gatewayOrg;
+      const page = await flow.open(
+        "member",
+        repositoryRoute("mainNeedsSecret"),
+      );
+      const dialog = await openDialog(
+        page,
+        repositorySetupPanel(page, "mainNeedsSecret").getByRole("button", {
+          name: "Use a different provider",
+        }),
+      );
+      await chooseCard(dialog, profile.label);
+      await dialog
+        .getByRole("button", { name: "Use for this repository" })
+        .click();
+      await flow.check(
+        "the dialog closes: a Gateway provider needs no credential step",
+        async () => {
+          await dialog.waitFor({ state: "hidden", timeout: 30_000 });
+        },
+      );
+      await flow.check(
+        "stored: the repository selects the Gateway provider",
+        async () =>
+          expectEqual(
+            await repositoryProfileId(flow.prisma, workspace.id, repository.id),
+            requiredProfile(flow.seed, "gatewayOrg"),
+            "repository selection",
+          ),
+      );
+      await flow.check("the provider line names it", async () => {
+        await visible(
+          repositorySetupPanel(page, "mainNeedsSecret").getByText(
+            `Provider: ${profile.label}`,
+            { exact: true },
+          ),
+        );
+      });
+      await flow.shot(page, "member-gateway-attached");
     },
   },
   {

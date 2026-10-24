@@ -7,10 +7,12 @@
  *
  *   PROVIDER_VISUAL_DATABASE_URL=postgresql://user@127.0.0.1:PORT/reviewrouter_provider_setup_visual \
  *   pnpm provider-setup:visual [--out DIR] [--only REGEX] [--rotating] [--port N]
- *     [--flows | --flows-only]
+ *     [--flows | --flows-only] [--no-personal-sharing]
  *
  * `--flows` also runs the end-to-end flows after the screenshots;
  * `--flows-only` runs only the flows. `--only` filters both by ID.
+ * `--no-personal-sharing` turns personal account sharing off and serves the
+ * Account Gateway profile catalog from a loopback fixture.
  *
  * Exit 0: every runnable shot captured cleanly and every flow passed. Exit 2:
  * a shot failed or is suspect, or a flow failed (see manifest). Exit 1: setup
@@ -42,6 +44,10 @@ import {
   type VisualUserKey,
 } from "./fixture-contract.js";
 import { runFlows, type FlowRecord } from "./flows.js";
+import {
+  startGatewayCatalogFixture,
+  type GatewayCatalogFixture,
+} from "./gateway-catalog-fixture.js";
 import { startNextApp, type NextApp } from "./next-app.js";
 import { VISUAL_SCENARIOS } from "./scenarios.js";
 import {
@@ -106,6 +112,7 @@ async function main(): Promise<void> {
   const port = options.port ?? (await freeLoopbackPort());
   const appUrl = `http://127.0.0.1:${port}`;
   let app: NextApp | null = null;
+  let gateway: GatewayCatalogFixture | null = null;
   let shots: readonly ShotRecord[] = [];
   let flows: readonly FlowRecord[] = [];
   // Screens and flows change providers (and the setup PR refresher records
@@ -117,6 +124,8 @@ async function main(): Promise<void> {
   };
   try {
     await writeJson(join(options.outDir, "seed.json"), await reseed());
+    if (!options.flags.personalSharing)
+      gateway = await startGatewayCatalogFixture();
     app = await startNextApp({
       repoRoot,
       port,
@@ -124,6 +133,7 @@ async function main(): Promise<void> {
       preload: join(repoRoot, "scripts/provider-setup-visual/preload.ts"),
       environment: {
         ...visualSharedEnvironment(options.flags),
+        ...(gateway?.environment ?? {}),
         DATABASE_URL: options.databaseUrl,
         AUTH_SECRET: secrets.auth,
         NEXTAUTH_SECRET: secrets.auth,
@@ -182,6 +192,7 @@ async function main(): Promise<void> {
     }
   } finally {
     await app?.stop();
+    await gateway?.stop();
     await prisma.$disconnect();
   }
 
@@ -217,6 +228,7 @@ function readOptions(): RunOptions {
       only: { type: "string" },
       port: { type: "string" },
       rotating: { type: "boolean", default: false },
+      "no-personal-sharing": { type: "boolean", default: false },
       flows: { type: "boolean", default: false },
       "flows-only": { type: "boolean", default: false },
     },
@@ -235,7 +247,10 @@ function readOptions(): RunOptions {
     ),
     only: values.only ? new RegExp(values.only) : null,
     port: values.port ? Number(values.port) : null,
-    flags: { rotating: values.rotating ?? false },
+    flags: {
+      rotating: values.rotating ?? false,
+      personalSharing: !values["no-personal-sharing"],
+    },
     shots: !values["flows-only"],
     flows: Boolean(values.flows || values["flows-only"]),
     browserExecutable: process.env.PROVIDER_VISUAL_BROWSER_EXECUTABLE,

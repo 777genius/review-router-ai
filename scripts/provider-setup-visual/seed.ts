@@ -12,7 +12,7 @@
  *
  * CLI: PROVIDER_VISUAL_DATABASE_URL=postgresql://user@127.0.0.1:PORT/
  * reviewrouter_provider_setup_visual tsx scripts/provider-setup-visual/seed.ts
- * [--rotating]
+ * [--rotating] [--no-personal-sharing]
  */
 import { pathToFileURL } from "node:url";
 import type { PrismaClient } from "@prisma/client";
@@ -155,6 +155,7 @@ async function seedProviderRegistry(
 
   for (const [key, profile] of entriesOf(VISUAL_PROFILES)) {
     if (profile.requiresRotating && !flags.rotating) continue;
+    if (profile.requiresPersonalSharing && !flags.personalSharing) continue;
     const workspaceId = VISUAL_WORKSPACES[profile.workspace].id;
     const credential = credentialRequest(profile.credential);
     if (profile.attachTo) {
@@ -703,6 +704,7 @@ async function main(): Promise<void> {
   try {
     const result = await seedProviderSetupVisualFixtures(prisma, {
       rotating: process.argv.includes("--rotating"),
+      personalSharing: !process.argv.includes("--no-personal-sharing"),
     });
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   } finally {

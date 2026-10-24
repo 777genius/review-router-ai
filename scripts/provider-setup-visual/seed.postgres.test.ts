@@ -108,7 +108,7 @@ databaseTests("provider setup visual seed", () => {
   });
 
   it("resolves every repository as the contract says and reruns identically", async () => {
-    const flags = { rotating: true };
+    const flags = { rotating: true, personalSharing: true };
     const first = await seedProviderSetupVisualFixtures(prisma, flags);
     const before = await snapshot();
     const second = await seedProviderSetupVisualFixtures(prisma, flags);
@@ -165,6 +165,7 @@ databaseTests("provider setup visual seed", () => {
   it("leaves rotating Codex out of a run with the flag off", async () => {
     const result = await seedProviderSetupVisualFixtures(prisma, {
       rotating: false,
+      personalSharing: true,
     });
     expect(result.profileIds.rotating).toBeUndefined();
     expect(

@@ -126,6 +126,14 @@ export const VISUAL_WORKSPACES: Readonly<
   },
 };
 
+/** The Account Gateway profile the fixture's connected accounts use. */
+export const VISUAL_GATEWAY_PROFILE = {
+  profileId: "rr-visual-profile-codex",
+  protocol: "openai-responses",
+  modelIds: ["gpt-5.5"],
+  authKinds: ["api_key"],
+} as const;
+
 export type VisualConnectionKey = "mainOrg" | "adminPersonal" | "lockedOrg";
 
 /** Account Gateway accounts and their single active binding. */
@@ -151,7 +159,7 @@ export const VISUAL_CONNECTIONS: Readonly<
     workspace: "main",
     owner: { kind: "workspace" },
     gatewayAccountRef: "rr-visual-gateway-main-org",
-    profileRef: "rr-visual-profile-codex",
+    profileRef: VISUAL_GATEWAY_PROFILE.profileId,
     displayName: "Visual Org Codex",
   },
   adminPersonal: {
@@ -160,7 +168,7 @@ export const VISUAL_CONNECTIONS: Readonly<
     workspace: "main",
     owner: { kind: "user", user: "admin" },
     gatewayAccountRef: "rr-visual-gateway-admin-personal",
-    profileRef: "rr-visual-profile-codex",
+    profileRef: VISUAL_GATEWAY_PROFILE.profileId,
     displayName: "Admin personal Codex",
   },
   lockedOrg: {
@@ -169,7 +177,7 @@ export const VISUAL_CONNECTIONS: Readonly<
     workspace: "locked",
     owner: { kind: "workspace" },
     gatewayAccountRef: "rr-visual-gateway-locked-org",
-    profileRef: "rr-visual-profile-codex",
+    profileRef: VISUAL_GATEWAY_PROFILE.profileId,
     displayName: "Locked Org Codex",
   },
 };
@@ -225,6 +233,8 @@ export type VisualProfile = Readonly<{
   attachReasoningEffort?: "max";
   /** Seeded only when the run enables rotating Codex. */
   requiresRotating?: boolean;
+  /** Over a personal account: seeded only while sharing them is on. */
+  requiresPersonalSharing?: boolean;
 }>;
 
 /** In creation order, which is the order of the workspace list. */
@@ -251,6 +261,7 @@ export const VISUAL_PROFILES: Readonly<
     credential: { kind: "gateway_binding", connection: "adminPersonal" },
     model: "gpt-5.5",
     label: "Admin personal Codex",
+    requiresPersonalSharing: true,
   },
   mimoManaged: {
     workspace: "main",
@@ -565,6 +576,11 @@ export function visualRepositorySecretKey(
 export type VisualRunFlags = Readonly<{
   /** Deployment flag of rotating Codex; hosted deployments keep it off. */
   rotating: boolean;
+  /**
+   * Deployment flag of personal account sharing. Off, the run also serves
+   * the Account Gateway's profile catalog, so Gateway selections validate.
+   */
+  personalSharing: boolean;
 }>;
 
 /**
@@ -580,7 +596,9 @@ export function visualSharedEnvironment(
     REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY: createHash("sha256")
       .update("reviewrouter-provider-setup-visual-fixture")
       .digest("base64url"),
-    REVIEW_ROUTER_PERSONAL_ACCOUNT_SHARING_ENABLED: "1",
+    REVIEW_ROUTER_PERSONAL_ACCOUNT_SHARING_ENABLED: flags.personalSharing
+      ? "1"
+      : "0",
     REVIEW_ROUTER_ENABLE_CODEX_ROTATING_OAUTH: flags.rotating ? "1" : "0",
   };
 }
