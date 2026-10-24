@@ -44,10 +44,11 @@ const currentWorkspaceIds = new Set<string>();
 const limitsProfileId = "limits-contract";
 const sloProfileId = "slo-contract";
 // This suite intentionally runs against the historical through-000079 schema.
-// Current Prisma must not select a column first introduced by SQL120.
+// Current Prisma must not select attachment columns added after that boundary.
 const historicalAuthorizationOmit = {
   runtimeSnapshotCanonicalJson: true,
   gatewayExecutionCanonicalJson: true,
+  skillsSnapshotCanonicalJson: true,
 } as const;
 
 if (databaseUrl) {

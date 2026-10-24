@@ -25,6 +25,15 @@ export default defineConfig({
     ...(baseURL ? { baseURL } : {}),
     browserName: "chromium",
     headless: true,
+    ...(process.env.ACCOUNTS_REFERENCE_E2E_BROWSER_EXECUTABLE
+      ? {
+          launchOptions: {
+            executablePath:
+              process.env.ACCOUNTS_REFERENCE_E2E_BROWSER_EXECUTABLE,
+            args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+          },
+        }
+      : {}),
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "off",

@@ -66,6 +66,8 @@ import {
 } from "./provider-model-catalog";
 import {
   defaultGatewayMiMoReasoningEffort,
+  gatewayModelDefaultReasoningEffort,
+  gatewayModelSupportsFastMode,
   gatewayModelSupportsReasoningEffort,
   isGatewayMiMoModel,
 } from "../../src/features/account-gateway/review-reasoning-capabilities";
@@ -222,11 +224,12 @@ const reasoningEffortOptions = [
 function reasoningEffortOptionsForModel(
   model: string,
   authMode: ProviderAuthMode,
+  connection?: import("../../src/features/account-gateway/connection-capabilities").AccountConnectionView,
 ) {
   if (authMode === "codex_account_gateway")
     return reasoningEffortOptions
       .filter((option) =>
-        gatewayModelSupportsReasoningEffort(model, option.value),
+        gatewayModelSupportsReasoningEffort(model, option.value, connection),
       )
       .map((option) =>
         isGatewayMiMoModel(model) && option.value === "high"
@@ -1544,6 +1547,32 @@ export function ReviewConfigForm({
         ?.models ?? []
     );
   }
+  function gatewayConnectionForProvider(provider: ReviewProviderConfiguration) {
+    return gatewayPage?.profiles.find(
+      (profile) => profile.id === provider.gatewayProfileRef,
+    )?.connection;
+  }
+  function qualifiedGatewayModel(
+    provider: ReviewProviderConfiguration,
+    model: string,
+  ): ReviewProviderConfiguration {
+    if (provider.authMode !== "codex_account_gateway") return provider;
+    const connection = gatewayConnectionForProvider(provider);
+    const next = withGatewayModel(provider, model);
+    if (!connection) return next;
+    return reviewProviderConfigurationSchema.parse({
+      ...next,
+      reasoningEffort: gatewayModelSupportsReasoningEffort(
+        model,
+        provider.reasoningEffort,
+        connection,
+      )
+        ? provider.reasoningEffort
+        : gatewayModelDefaultReasoningEffort(model, connection),
+      fastMode:
+        provider.fastMode && gatewayModelSupportsFastMode(model, connection),
+    });
+  }
   function gatewayModelsForProvider(
     provider: ReviewProviderConfiguration,
   ): string[] {
@@ -1590,7 +1619,7 @@ export function ReviewConfigForm({
         ((provider.fastMode && !codexModelSupportsFastMode(provider.model)) ||
           !codexModelSupportsReasoningEffort(
             provider.model,
-            provider.reasoningEffort,
+            provider.reasoningEffort ?? "xhigh",
           )),
     );
   const gatewayReasoningInvalid =
@@ -1601,6 +1630,18 @@ export function ReviewConfigForm({
         !gatewayModelSupportsReasoningEffort(
           provider.model,
           provider.reasoningEffort,
+          gatewayConnectionForProvider(provider),
+        ),
+    );
+  const gatewayFastInvalid =
+    !providersInherited &&
+    providers.some(
+      (provider) =>
+        provider.authMode === "codex_account_gateway" &&
+        provider.fastMode &&
+        !gatewayModelSupportsFastMode(
+          provider.model,
+          gatewayConnectionForProvider(provider),
         ),
     );
   const hasGateway = providers.some(
@@ -1680,7 +1721,7 @@ export function ReviewConfigForm({
       if (current.length === 0 && eligibleGatewayAccounts.length > 0) {
         const selection = soleGatewaySelection("codex");
         return [
-          withGatewayModel(
+          qualifiedGatewayModel(
             {
               kind: "codex",
               authMode: "codex_account_gateway",
@@ -1747,7 +1788,7 @@ export function ReviewConfigForm({
       // explicit so transitional empty fields cannot be submitted.
       updateProvider(index, (provider) => {
         const selection = soleGatewaySelection(choice);
-        return withGatewayModel(
+        return qualifiedGatewayModel(
           {
             ...provider,
             kind: "codex",
@@ -2058,6 +2099,23 @@ export function ReviewConfigForm({
                   : [];
               const gatewayAccount = gatewayAccountForProvider(provider);
               const gatewayModels = gatewayModelsForProvider(provider);
+              const qualifiedConnection =
+                gatewayConnectionForProvider(provider);
+              const qualifiedModelSettings =
+                qualifiedConnection?.modelSettings.find(
+                  (row) => row.modelId === provider.model,
+                );
+              const showReasoning =
+                provider.authMode !== "codex_account_gateway" ||
+                !qualifiedConnection ||
+                qualifiedModelSettings?.reasoning != null;
+              const showFast =
+                provider.authMode !== "codex_account_gateway" ||
+                !qualifiedConnection ||
+                gatewayModelSupportsFastMode(
+                  provider.model,
+                  qualifiedConnection,
+                );
               const agentProfileViolation = agentProfileAgenticContextViolation(
                 provider,
                 agentProfileOptions,
@@ -2286,7 +2344,7 @@ export function ReviewConfigForm({
                           onValueChange={(model) => {
                             if (gatewayModels.includes(model))
                               updateProvider(index, (current) =>
-                                withGatewayModel(current, model),
+                                qualifiedGatewayModel(current, model),
                               );
                           }}
                         />
@@ -2323,14 +2381,15 @@ export function ReviewConfigForm({
                         options={providerOptions}
                         onValueChange={(value) =>
                           updateProvider(index, (current) => {
+                            if (current.authMode === "codex_account_gateway")
+                              return qualifiedGatewayModel(current, value);
                             const reasoningEffort =
                               !codexModelOptions.some(
                                 (option) => option.value === value,
                               ) ||
-                              current.authMode === "codex_account_gateway" ||
                               codexModelSupportsReasoningEffort(
                                 value,
-                                current.reasoningEffort,
+                                current.reasoningEffort ?? "xhigh",
                               )
                                 ? current.reasoningEffort
                                 : "xhigh";
@@ -2351,7 +2410,7 @@ export function ReviewConfigForm({
                     (provider.fastMode ||
                       !codexModelSupportsReasoningEffort(
                         provider.model,
-                        provider.reasoningEffort,
+                        provider.reasoningEffort ?? "xhigh",
                       )) ? (
                       <p role="status">
                         This public model has no verified fast mode or Max/Ultra
@@ -2392,47 +2451,61 @@ export function ReviewConfigForm({
                     />
                     {provider.kind === "codex" ? (
                       <>
-                        <input
-                          type="hidden"
-                          name={`providerReasoningEffort.${index}`}
-                          value={provider.reasoningEffort}
-                        />
-                        <DashboardSelectField
-                          label="Reasoning effort"
-                          helpText={fieldHelp.reasoningEffort}
-                          value={provider.reasoningEffort}
-                          disabled={providersInherited || !mutationsEnabled}
-                          options={reasoningEffortOptionsForModel(
-                            provider.model,
-                            provider.authMode,
-                          )}
-                          onValueChange={(value) =>
-                            updateProvider(index, (current) => ({
-                              ...current,
-                              reasoningEffort:
-                                value as ReviewProviderConfiguration["reasoningEffort"],
-                            }))
-                          }
-                        />
-                        <DashboardSwitchField
-                          name={`providerFastMode.${index}`}
-                          label="Fast mode"
-                          helpText={fieldHelp.fastMode}
-                          checked={provider.fastMode}
-                          disabled={
-                            providersInherited ||
-                            !mutationsEnabled ||
-                            (provider.authMode !== "codex_account_gateway" &&
-                              !provider.fastMode &&
-                              !codexModelSupportsFastMode(provider.model))
-                          }
-                          onCheckedChange={(checked) =>
-                            updateProvider(index, (current) => ({
-                              ...current,
-                              fastMode: checked,
-                            }))
-                          }
-                        />
+                        {showReasoning ? (
+                          <>
+                            <input
+                              type="hidden"
+                              name={`providerReasoningEffort.${index}`}
+                              value={provider.reasoningEffort ?? ""}
+                            />
+                            <DashboardSelectField
+                              label="Reasoning effort"
+                              helpText={fieldHelp.reasoningEffort}
+                              value={provider.reasoningEffort ?? ""}
+                              disabled={providersInherited || !mutationsEnabled}
+                              options={reasoningEffortOptionsForModel(
+                                provider.model,
+                                provider.authMode,
+                                qualifiedConnection,
+                              )}
+                              onValueChange={(value) =>
+                                updateProvider(index, (current) => ({
+                                  ...current,
+                                  reasoningEffort: value as NonNullable<
+                                    ReviewProviderConfiguration["reasoningEffort"]
+                                  >,
+                                }))
+                              }
+                            />
+                          </>
+                        ) : null}
+                        {showFast ? (
+                          <DashboardSwitchField
+                            name={`providerFastMode.${index}`}
+                            label="Fast mode"
+                            helpText={fieldHelp.fastMode}
+                            checked={provider.fastMode}
+                            disabled={
+                              providersInherited ||
+                              !mutationsEnabled ||
+                              (provider.authMode !== "codex_account_gateway" &&
+                                !provider.fastMode &&
+                                !codexModelSupportsFastMode(provider.model))
+                            }
+                            onCheckedChange={(checked) =>
+                              updateProvider(index, (current) => ({
+                                ...current,
+                                fastMode: checked,
+                              }))
+                            }
+                          />
+                        ) : (
+                          <input
+                            type="hidden"
+                            name={`providerFastMode.${index}`}
+                            value="false"
+                          />
+                        )}
                         <DashboardSelectField
                           name={`providerAgenticContext.${index}`}
                           label="Agentic context"
@@ -2543,10 +2616,25 @@ export function ReviewConfigForm({
                       {!gatewayModelSupportsReasoningEffort(
                         provider.model,
                         provider.reasoningEffort,
-                      ) ? (
+                        qualifiedConnection,
+                      ) ||
+                      (provider.fastMode && !showFast) ? (
                         <p role="status">
-                          Choose Low, Medium or High reasoning for MiMo before
-                          saving. The saved value has not been changed.
+                          Choose supported model settings before saving. The
+                          saved value has not been changed.
+                          {qualifiedConnection ? (
+                            <button
+                              type="button"
+                              disabled={providersInherited || !mutationsEnabled}
+                              onClick={() =>
+                                updateProvider(index, (current) =>
+                                  qualifiedGatewayModel(current, current.model),
+                                )
+                              }
+                            >
+                              Use provider default
+                            </button>
+                          ) : null}
                         </p>
                       ) : null}
                       {agentProfileViolation ? (
@@ -2675,6 +2763,7 @@ export function ReviewConfigForm({
               providerChoiceInvalid ||
               gatewaySelectionInvalid ||
               gatewayReasoningInvalid ||
+              gatewayFastInvalid ||
               publicModelSettingsInvalid ||
               gatewaySingleProviderViolation ||
               agentProfileContextInvalid
@@ -2733,6 +2822,7 @@ function withGatewayModel(
   provider: ReviewProviderConfiguration,
   model: string,
 ): ReviewProviderConfiguration {
+  if (provider.authMode !== "codex_account_gateway") return provider;
   return {
     ...provider,
     model,
@@ -2772,7 +2862,7 @@ function resolveProviderAfterAuthChange(input: {
       defaultProvider.model,
     reasoningEffort:
       kind === "codex" && provider.kind === "codex"
-        ? provider.reasoningEffort
+        ? (provider.reasoningEffort ?? defaultProvider.reasoningEffort)
         : defaultProvider.reasoningEffort,
     agenticContext:
       supportsAgenticContext(kind) && supportsAgenticContext(provider.kind)

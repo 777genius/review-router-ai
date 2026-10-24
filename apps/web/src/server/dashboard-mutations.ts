@@ -1,4 +1,5 @@
 import { App } from "@octokit/app";
+import { githubAppTestTransport } from "./github-app-test-transport";
 import type { Session } from "next-auth";
 import { getServerSession } from "next-auth";
 import { cache } from "react";
@@ -197,6 +198,20 @@ export async function assertDashboardRepositoryMutationAllowed(
   return withRepositoryAccess(actor, repositoryAccess);
 }
 
+/** Skills requires an actual SCM manager proof; local override is not enough. */
+export async function assertDashboardSkillsRepositoryManagementAllowed(
+  _workspaceId: string,
+  repository: Parameters<typeof assertDashboardRepositoryMutationAllowed>[1],
+): Promise<DashboardMutationActor> {
+  const actor = await readDashboardMutationActor();
+  const access = await assertRepositoryPermissionForActor({
+    actor,
+    repository,
+    capability: "repo_manager",
+  });
+  return withRepositoryAccess(actor, access);
+}
+
 /**
  * Authorizes the recovery transport without changing the durable repository
  * permission cache. Recovery must admit the database recovery witness before
@@ -306,6 +321,27 @@ export async function canDashboardActorMutateRepository(input: {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Read-only form of the workspace admin gate enforced by
+ * assertDashboardMutationAllowed, so the UI and the action cannot disagree.
+ */
+export async function canDashboardActorAdminWorkspace(input: {
+  readonly actor: DashboardMutationActor | null;
+  readonly workspaceId: string;
+}): Promise<boolean> {
+  if (!input.actor) return false;
+  try {
+    await assertWorkspaceMutationAllowedForActor(
+      input.workspaceId,
+      input.actor,
+    );
+    return true;
+  } catch (error) {
+    if (isWorkspaceMutationForbidden(error)) return false;
+    throw error;
   }
 }
 
@@ -521,11 +557,12 @@ async function assertRepositoryPermissionForActor(input: {
     .safeParse(response.data);
   if (!facts.success) throw new Error("repository_mutation_forbidden");
   const data = facts.data;
+  // Facts for another principal do not prove this actor's permission decision.
   if (
     String(data.user.id) !== githubActor.githubUserId ||
     data.user.login.toLowerCase() !== githubActor.githubLogin.toLowerCase()
   )
-    throw new DashboardMutationRefusedError("repository_mutation_forbidden");
+    throw new Error("repository_mutation_forbidden");
 
   const permission = data.permission;
   const roleName = data.role_name ?? "";
@@ -688,6 +725,7 @@ export async function createGitHubAppInstallationOctokit(
   const app = new App({
     appId,
     privateKey: requireGitHubAppPrivateKey(),
+    ...githubAppTestTransport(),
   });
 
   return app.getInstallationOctokit(Number(githubInstallationId));

@@ -1,3 +1,4 @@
+import { reviewProviderConfigurationSchema } from "../domain/review-configuration";
 import {
   workspacePolicyFixture,
   workspaceProviderFixture,
@@ -1200,4 +1201,18 @@ it("requires explicit fast-mode correction for an unverified public Codex model"
       providers: [{ ...provider, fastMode: false }],
     }).providers[0],
   ).toMatchObject({ model: "public-new-model", fastMode: false });
+});
+
+it("does not default absent Gateway reasoning while preserving legacy defaults", () => {
+  const settings = {
+    kind: "codex",
+    authMode: "codex_account_gateway",
+    model: "k3-256k",
+    gatewayBindingId: "binding",
+    gatewayProfileRef: "kimi-code-global-responses-apikey-v1",
+    agenticContext: true,
+    fastMode: false,
+  };
+  const gateway = reviewProviderConfigurationSchema.parse(settings);
+  expect(gateway).not.toHaveProperty("reasoningEffort");
 });

@@ -228,3 +228,97 @@ test("personal use is closed by default and requires the exact live donor/target
     );
   }
 });
+
+test("GLM cannot enter organization or operator execution through a saved binding", () => {
+  const source: ProviderAccountConnection = {
+    ...connection,
+    profileRef: "glm-coding-global-responses-apikey-v1",
+    owner: { kind: "user", userId: "donor-u" },
+    authorizationEpochMirror: 7,
+  };
+  const selected = {
+    binding: { ...binding, state: "active" as const },
+    connection: source,
+    personalUse: {
+      workspaceId: "workspace-x",
+      personalOwnerUserId: "donor-u",
+      donorUserId: "donor-u",
+      donorRole: null,
+    },
+  };
+  assert.equal(
+    selectBinding("workspace-x", "binding-x", selected)
+      .expectedAuthorizationEpoch,
+    7,
+  );
+  const denied = (error: unknown) =>
+    error instanceof ProviderAccountError &&
+    error.code === "connection_unavailable";
+  for (const personalUse of [
+    undefined,
+    {
+      ...selected.personalUse,
+      personalOwnerUserId: null,
+      donorRole: "owner" as const,
+    },
+    {
+      ...selected.personalUse,
+      personalOwnerUserId: null,
+      donorRole: "admin" as const,
+    },
+    { ...selected.personalUse, personalOwnerUserId: "other-user" },
+    { ...selected.personalUse, donorUserId: "other-user" },
+    { ...selected.personalUse, workspaceId: "other-personal-workspace" },
+  ]) {
+    assert.throws(
+      () =>
+        selectBinding(
+          "workspace-x",
+          "binding-x",
+          personalUse
+            ? { ...selected, personalUse }
+            : { binding: selected.binding, connection: selected.connection },
+          "operator",
+        ),
+      denied,
+    );
+  }
+  for (const ownerWorkspaceId of ["workspace-x", "operator"]) {
+    assert.throws(
+      () =>
+        selectBinding(
+          "workspace-x",
+          "binding-x",
+          {
+            ...selected,
+            connection: {
+              ...source,
+              owner: { kind: "workspace", workspaceId: ownerWorkspaceId },
+            },
+          },
+          "operator",
+        ),
+      denied,
+    );
+  }
+  // Other subscription profiles retain the existing explicit donor grant behavior.
+  for (const profileRef of [
+    "kimi-code-global-responses-apikey-v1",
+    "minimax-mplan-global-responses-apikey-v1",
+    "codex",
+    "claude",
+  ]) {
+    assert.equal(
+      selectBinding("workspace-x", "binding-x", {
+        ...selected,
+        connection: { ...source, profileRef },
+        personalUse: {
+          ...selected.personalUse,
+          personalOwnerUserId: null,
+          donorRole: "admin",
+        },
+      }).expectedAuthorizationEpoch,
+      7,
+    );
+  }
+});

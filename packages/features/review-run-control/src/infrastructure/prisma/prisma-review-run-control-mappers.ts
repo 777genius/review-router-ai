@@ -204,6 +204,7 @@ export function reviewRunAuthorizationToDomain(
 ): ReviewRunAuthorization {
   return {
     runtimeSnapshotCanonicalJson: row.runtimeSnapshotCanonicalJson ?? null,
+    skillsSnapshotCanonicalJson: row.skillsSnapshotCanonicalJson ?? null,
     authorizationId: row.authorizationId,
     version: row.version,
     workspaceId: row.workspaceId,

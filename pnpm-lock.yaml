@@ -181,8 +181,8 @@ importers:
   apps/api:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-grok-code-130ca3f00dcc.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-grok-code-130ca3f00dcc.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -276,6 +276,9 @@ importers:
       '@reviewrouter/features-review-run-control':
         specifier: workspace:*
         version: link:../../packages/features/review-run-control
+      '@reviewrouter/features-review-skills':
+        specifier: workspace:*
+        version: link:../../packages/features/review-skills
       '@reviewrouter/features-review-snapshots':
         specifier: workspace:*
         version: link:../../packages/features/review-snapshots
@@ -325,8 +328,8 @@ importers:
   apps/web:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-grok-code-130ca3f00dcc.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-grok-code-130ca3f00dcc.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -396,6 +399,9 @@ importers:
       '@reviewrouter/features-review-run-control':
         specifier: workspace:*
         version: link:../../packages/features/review-run-control
+      '@reviewrouter/features-review-skills':
+        specifier: workspace:*
+        version: link:../../packages/features/review-skills
       '@reviewrouter/features-support-diagnostics':
         specifier: workspace:*
         version: link:../../packages/features/support-diagnostics
@@ -456,6 +462,9 @@ importers:
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
       zod:
         specifier: ^4.4.2
         version: 4.4.2
@@ -1122,6 +1131,37 @@ importers:
         specifier: workspace:*
         version: link:../../shared
 
+  packages/features/review-skills:
+    dependencies:
+      '@get-modular/assembly':
+        specifier: 0.7.0
+        version: 0.7.0
+      '@get-modular/core':
+        specifier: 0.7.0
+        version: 0.7.0
+      '@prisma/client':
+        specifier: 7.8.0
+        version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
+      '@reviewrouter/shared':
+        specifier: workspace:*
+        version: link:../../shared
+    devDependencies:
+      '@get-modular/conformance':
+        specifier: 0.5.0
+        version: 0.5.0(@get-modular/assembly@0.7.0)(@get-modular/core@0.7.0)(@get-modular/resources@0.2.1)
+      '@get-modular/resources':
+        specifier: 0.2.1
+        version: 0.2.1
+      '@prisma/adapter-pg':
+        specifier: 7.8.0
+        version: 7.8.0
+      '@types/pg':
+        specifier: 8.23.1
+        version: 8.23.1
+      pg:
+        specifier: 8.23.0
+        version: 8.23.0
+
   packages/features/review-snapshots:
     dependencies:
       '@prisma/client':
@@ -1301,13 +1341,8 @@ packages:
   '@actions/io@3.0.2':
     resolution: {integrity: sha512-nRBchcMM+QK1pdjO7/idu86rbJI5YHUKCvKs0KxnSYbVe3F51UfGxuZX4Qy/fWlp6l7gWFwIkrOzN+oUK03kfw==}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz':
-    resolution: {integrity: sha512-O1KJh9UJ+XCvNCO8XKTK6/ABBp3HeOkZi2LlhycW/RqK11z6rwk26FCjDMvxbPCnSEsZN3i0lUqUxJs5LP16jA==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz}
-    version: 0.1.0
-    engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
-
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz':
-    resolution: {integrity: sha512-2m6yfYE3VPAtlBPUrowOauDsHsoBwl1oIB8ph10Cvw4kFU8nzhV+msgUrHj9StUEzcGTEZFvKb6AB7vX6rMxgw==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz}
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-grok-code-130ca3f00dcc.tgz':
+    resolution: {integrity: sha512-zrA5gRtVGw9Qw6fRi08RpzQ3M0ZQbMnfZfyWoMbtk97vXMHPlJnaYfml1IL9/UTp3iutZmzsRVysptkiZJC9Ew==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-grok-code-130ca3f00dcc.tgz}
     version: 0.1.0
     engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
 
@@ -1893,8 +1928,28 @@ packages:
     resolution: {integrity: sha512-xZTgfMUzHnA8DR7wk/3mAdLppTlwAsm6pfW5bgoW6lvGh8hYGBJwcwzbdynJduRVBVW7aFmchsrLTP5w4rcmlw==}
     engines: {node: '>=24.18.0 <25 || >=26.10.0 <27'}
 
+  '@get-modular/assembly@0.7.0':
+    resolution: {integrity: sha512-5gnrW39E/xW8BiNSivmTmUHD5xSrF7RKBtP57wMbXwVYS/+OtVza/2zuuU71l0oqqvFBgy0LNTKg0E4pu2h6OQ==}
+    engines: {node: '>=24.18.0 <25 || >=26.10.0 <27'}
+
+  '@get-modular/conformance@0.5.0':
+    resolution: {integrity: sha512-mSNesfH+8hXYy3O+LstN+krw8J6sGNlZ4PvT83nK+z4oupteWSWX2c40YDjM8o42xXFZGp2JTJjY7HbrWXkX6A==}
+    engines: {node: '>=24.18.0 <25 || >=26.10.0 <27'}
+    peerDependencies:
+      '@get-modular/assembly': ^0.7.0
+      '@get-modular/core': ^0.7.0
+      '@get-modular/resources': ^0.2.1
+
   '@get-modular/core@0.2.0':
     resolution: {integrity: sha512-npn2dAR5TuVobDzuI7MRZS0p6/0qzTWbRbPo5y9EaDz4qFtBNF6+YBhU92QPwOkYzVjo9xAJtIgMkly7wlkdWw==}
+    engines: {node: '>=24.18.0 <25 || >=26.10.0 <27'}
+
+  '@get-modular/core@0.7.0':
+    resolution: {integrity: sha512-zPUGjggUFClkqzinzKkR3UHaT6OnDNL/f4gnVaGMsvTC4ZuqDGn2kygoSu2Ktid1t9m3MY4mR+yh+icA3oW4zw==}
+    engines: {node: '>=24.18.0 <25 || >=26.10.0 <27'}
+
+  '@get-modular/resources@0.2.1':
+    resolution: {integrity: sha512-qRmHsWuPajee+35BM5DhY6o1tCeDrzkei3SPBEIWF4PVkHO/pq+zODprvJ0cr+vCFtY0uJqgfnSor+ldRkwwGA==}
     engines: {node: '>=24.18.0 <25 || >=26.10.0 <27'}
 
   '@hono/node-server@2.0.11':
@@ -6436,13 +6491,7 @@ snapshots:
 
   '@actions/io@3.0.2': {}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz':
-    dependencies:
-      '@get-modular/assembly': 0.2.0
-      '@get-modular/core': 0.2.0
-      zod: 4.6.5
-
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz':
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-grok-code-130ca3f00dcc.tgz':
     dependencies:
       '@get-modular/assembly': 0.2.0
       '@get-modular/core': 0.2.0
@@ -7131,7 +7180,21 @@ snapshots:
     dependencies:
       '@get-modular/core': 0.2.0
 
+  '@get-modular/assembly@0.7.0':
+    dependencies:
+      '@get-modular/core': 0.7.0
+
+  '@get-modular/conformance@0.5.0(@get-modular/assembly@0.7.0)(@get-modular/core@0.7.0)(@get-modular/resources@0.2.1)':
+    dependencies:
+      '@get-modular/assembly': 0.7.0
+      '@get-modular/core': 0.7.0
+      '@get-modular/resources': 0.2.1
+
   '@get-modular/core@0.2.0': {}
+
+  '@get-modular/core@0.7.0': {}
+
+  '@get-modular/resources@0.2.1': {}
 
   '@hono/node-server@2.0.11(hono@4.12.32)':
     dependencies:

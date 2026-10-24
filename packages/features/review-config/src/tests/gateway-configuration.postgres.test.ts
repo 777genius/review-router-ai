@@ -100,8 +100,20 @@ describe.skipIf(!enabled)(
         const names = (await readdir(migrations))
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
-        expect(names).toHaveLength(141);
-        expect(names.at(-1)).toBe("000141_memory_search_projections");
+        // Replay every current migration, including both additive Skills rows.
+        expect(names).toHaveLength(145);
+        expect(names.slice(-10)).toEqual([
+          "000135_review_run_checkout_repository_lock",
+          "000136_provider_usage",
+          "000136_review_skills",
+          "000137_review_skills_capture",
+          "000138_pr_description",
+          "000139_review_context_tools",
+          "000140_personal_oauth_method",
+          "000141_memory_search_projections",
+          "000142_optional_gateway_reasoning",
+          "000143_workspace_draft_review_setting",
+        ]);
         let legacyBefore: unknown;
         for (const name of names) {
           if (name === "000119_review_configuration_gateway_binding") {
@@ -317,6 +329,59 @@ describe.skipIf(!enabled)(
         );
         expect(savedDefault.version).toBe(2);
         expect(savedDefault.config).toEqual(config);
+        // Nullable SQL projections must preserve omission in authoritative policy
+        // JSON and runtime env without rewriting legacy high/xhigh rows.
+        await prisma.workspace.create({
+          data: {
+            id: "c2b-no-reason",
+            slug: "c2b-no-reason",
+            name: "No reasoning fixture",
+          },
+        });
+        await binding(
+          "c2b-no-reason-binding",
+          "c2b-no-reason",
+          "kimi-code-global-responses-apikey-v1",
+        );
+        const noReasonTarget = {
+          scope: "workspace" as const,
+          workspaceId: "c2b-no-reason",
+        };
+        const noReasonPolicy = configFor({
+          ...provider(
+            "c2b-no-reason-binding",
+            "kimi-code-global-responses-apikey-v1",
+            "k3-256k",
+          ),
+          reasoningEffort: undefined,
+          fastMode: false,
+        });
+        const noReasonSaved = await saveReviewConfiguration(
+          {
+            target: noReasonTarget,
+            policy: noReasonPolicy,
+            expectedVersion: null,
+          },
+          deps,
+        );
+        expect(
+          (await configs.findLatest(noReasonTarget))?.config.providers[0],
+        ).not.toHaveProperty("reasoningEffort");
+        expect(noReasonSaved.config.providers[0]).not.toHaveProperty(
+          "reasoningEffort",
+        );
+        const noReasonRows = await sql.query(
+          `SELECT v."reasoningEffort" AS primary_effort, p."reasoningEffort" AS ordered_effort, v."policyJson" FROM "ReviewConfigurationVersion" v JOIN "ReviewConfigurationVersionProvider" p ON p."configurationVersionId" = v.id WHERE v."workspaceId" = 'c2b-no-reason'`,
+        );
+        expect(noReasonRows.rows).toHaveLength(1);
+        expect(noReasonRows.rows[0]).toMatchObject({
+          primary_effort: null,
+          ordered_effort: null,
+        });
+        expect(
+          JSON.parse(noReasonRows.rows[0].policyJson).providers[0],
+        ).not.toHaveProperty("reasoningEffort");
+
         // A retired repository head is not equivalent to no override, even with a valid workspace.
         await prisma.repositoryConnection.create({
           data: {

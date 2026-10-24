@@ -25,3 +25,17 @@ export function suggestedAccountLabel(
   while (labels.has(`${provider} Account ${number}`)) number++;
   return `${provider} Account ${number}`;
 }
+
+// Source-owned console destinations, never supplied by capability payloads.
+export function subscriptionKeyURL(provider: string): string | undefined {
+  switch (provider) {
+    case "kimi":
+      return "https://www.kimi.com/code/console";
+    case "glm":
+      return "https://z.ai/manage-apikey/apikey-list";
+    case "minimax":
+      return "https://platform.minimax.io/console/plan";
+    default:
+      return undefined;
+  }
+}

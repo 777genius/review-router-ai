@@ -110,6 +110,12 @@ function dashboardActionToast(
   }
 
   switch (params.notice) {
+    case "workspace_review_settings_saved":
+      return {
+        tone: "success",
+        title: "Settings saved",
+        body: "Workspace review settings were updated for every repository.",
+      };
     case "sync_requested":
       return {
         tone: "success",

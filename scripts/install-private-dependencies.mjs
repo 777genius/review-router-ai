@@ -29,6 +29,16 @@ const forbiddenCredentialNames = [
 const forbiddenPnpmConfigBasename =
   /^(?:\.npmrc|\.pnpmfile(?:\..*)?|pnpmfile\.(?:c?js|mjs|ts))$/iu;
 
+const reviewedMinimumReleaseAgeExclusions = new Set([
+  "@agent-teams/document-authoring@0.3.4",
+  "@agent-teams/engineering-foundation@2.1.0",
+  "@agent-teams/repository-mutation@0.4.0",
+  "@get-modular/assembly@0.7.0",
+  "@get-modular/conformance@0.5.0",
+  "@get-modular/core@0.7.0",
+  "@get-modular/resources@0.2.1",
+]);
+
 function validateDeployKeyInstallConfiguration() {
   const tracked = spawnSync("git", ["ls-files", "-z"], {
     encoding: "utf8",
@@ -67,7 +77,7 @@ function validateDeployKeyInstallConfiguration() {
       section = heading[1];
       if (section === "packages") sawPackages = true;
       else if (section === "minimumReleaseAgeExclude") {
-        // Reviewed exact new Foundation registry artifacts only.
+        // Only explicitly reviewed registry artifacts may bypass the age gate.
       } else if (section === "overrides") {
         // pnpm 11 moved overrides out of package.json. Only exact data-only
         // registry version pins are accepted while the deploy key is present.
@@ -88,11 +98,8 @@ function validateDeployKeyInstallConfiguration() {
       continue;
     }
     if (section === "minimumReleaseAgeExclude") {
-      if (
-        !/^ {2}- ["'](?:@agent-teams\/document-authoring@0\.3\.4|@agent-teams\/engineering-foundation@2\.1\.0|@agent-teams\/repository-mutation@0\.4\.0)["']\s*$/u.test(
-          line,
-        )
-      )
+      const match = /^ {2}- (["'])([^"']+)\1\s*$/u.exec(line);
+      if (!match || !reviewedMinimumReleaseAgeExclusions.has(match[2]))
         throw new Error("pnpm-workspace executable configuration denied");
       continue;
     }

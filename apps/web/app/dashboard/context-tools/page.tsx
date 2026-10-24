@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { listDashboardContextConnections } from "../../../src/server/context-tools";
+import { listDashboardMcpCatalogPresets } from "../../../src/server/mcp-catalog";
 import { createNoIndexPageMetadata } from "../../seo";
 import { ContextConnectionsForm } from "./context-connections-form";
 
@@ -48,6 +49,7 @@ export default async function ContextToolsPage({
         <ContextConnectionsForm
           workspaceId={workspaceId}
           connections={connections}
+          catalog={listDashboardMcpCatalogPresets()}
         />
       )}
     </main>

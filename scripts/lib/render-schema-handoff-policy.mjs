@@ -263,6 +263,22 @@ const checkoutExtensions = Object.freeze([
   }),
 ]);
 
+// Checkout-only Skills storage and its separate authorization attachment never
+// enter managed92 SQL or historical96 execution. Retain the exact prior source
+// manifest; pin only these new files instead of replacing protected baselines.
+export const renderReviewSkillsCheckoutExtension = Object.freeze([
+  Object.freeze({
+    migrationName: "000136_review_skills",
+    checksum:
+      "ff5e720ea05be6dcfdfca134182d1c9da13bbc98426375b214fcaa3166d1af26",
+  }),
+  Object.freeze({
+    migrationName: "000137_review_skills_capture",
+    checksum:
+      "40c3734f9e0b46a700a92d6a3fc8a7da01276511daae84b573e415afb52ed766",
+  }),
+]);
+
 export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     !Array.isArray(catalog) ||
@@ -275,6 +291,67 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Skills accompany only an exact reviewed base. Strip the immutable pair
+  // before the existing main143/142/141 and historical authority reductions.
+  // Match both named rows: other additive migrations now sort around this pair.
+  const skills = catalog.filter((row) =>
+    renderReviewSkillsCheckoutExtension.some(
+      (skill) => skill.migrationName === row.migrationName,
+    ),
+  );
+  if (skills.length > 0) {
+    const base = catalog.filter((row) => !skills.includes(row));
+    if (
+      skills.length !== renderReviewSkillsCheckoutExtension.length ||
+      skills.some(
+        (row, index) =>
+          row.migrationName !==
+            renderReviewSkillsCheckoutExtension[index].migrationName ||
+          row.checksum !== renderReviewSkillsCheckoutExtension[index].checksum,
+      ) ||
+      ![
+        "136:sha256:7a00ae60d98ffe6bdaf3bbb74a50eefed8ac60b94e55a443251cb480a47d48a8",
+        "140:sha256:12ec2343e5de125175e4fc8946a9ab177034f60af43883b7c4ec8ac91a26ce48",
+        "141:sha256:f57efc9ec8fd5f1efcd8f9cea07586957e5bd4bf983f02f252b30dc474a67ec8",
+        "143:sha256:4fe4b459218a0cc56c8638b6f6d5a33d08d09579205d612b72d2781a7a0962bf",
+      ].includes(`${base.length}:${manifest(base)}`)
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(base);
+  }
+  // The workspace draft-review flag is a checkout-only constant-default column.
+  // Admit the exact SQL and checkout143 before reducing to checkout142.
+  const workspaceDraftReviewMigration = catalog.find(
+    (row) => row.migrationName === "000143_workspace_draft_review_setting",
+  );
+  if (workspaceDraftReviewMigration) {
+    if (
+      workspaceDraftReviewMigration.checksum !==
+        "cc23c19feb97dd122d89cf080ee04fd49a95252dcbc4400b4cfa64704d430654" ||
+      manifest(catalog) !==
+        "sha256:4fe4b459218a0cc56c8638b6f6d5a33d08d09579205d612b72d2781a7a0962bf"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== workspaceDraftReviewMigration),
+    );
+  }
+  // Optional reasoning changes only checkout nullability, not managed92 authority.
+  const optionalReasoningMigration = catalog.find(
+    (row) => row.migrationName === "000142_optional_gateway_reasoning",
+  );
+  if (optionalReasoningMigration) {
+    if (
+      optionalReasoningMigration.checksum !==
+        "4414e3473290c6252cc06b9b5a10852cac5a93070c5b59c1b5c260113081b2c0" ||
+      manifest(catalog) !==
+        "sha256:a0cd29f30a38777a777aad492da123023a0c5258ed093589643655c96ebb5d7f"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== optionalReasoningMigration),
+    );
+  }
   // Memory projection receipts are checkout-only. Admit the exact SQL and
   // complete checkout141 before reducing to the previously qualified checkout.
   const memoryProjectionMigration = catalog.find(

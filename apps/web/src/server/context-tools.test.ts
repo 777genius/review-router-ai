@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   update: vi.fn(),
   encrypt: vi.fn(),
+  decrypt: vi.fn(),
+  probe: vi.fn(),
   repository: vi.fn(),
   request: vi.fn(),
   octokit: vi.fn(),
@@ -30,8 +32,13 @@ vi.mock("./prisma", () => ({
 }));
 vi.mock("@reviewrouter/features-auth", () => ({
   encryptServerToken: mocks.encrypt,
-  decryptServerToken: vi.fn(),
+  decryptServerToken: mocks.decrypt,
 }));
+vi.mock("./context-tools-probe", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./context-tools-probe")>()),
+  probeContextTools: mocks.probe,
+}));
+import { POST as TEST_CONNECTION } from "../../app/api/dashboard/context-tools/test/route";
 import { GET, POST } from "../../app/api/dashboard/context-tools/route";
 import {
   assertDashboardContextSelectionAllowed,
@@ -61,6 +68,10 @@ beforeEach(() => {
   mocks.find.mockResolvedValue(null);
   mocks.list.mockResolvedValue([row]);
   mocks.encrypt.mockReturnValue("encrypted-fixture");
+  mocks.decrypt.mockReturnValue('{"DOCS_KEY":"secret-fixture"}');
+  mocks.probe.mockResolvedValue([
+    { name: "search_docs", description: "Read docs" },
+  ]);
   mocks.octokit.mockResolvedValue({ request: mocks.request });
 });
 it("refuses reads and writes before touching connections when normal admin authorization fails", async () => {
@@ -314,4 +325,186 @@ it("rejects identity mismatch and tampered config bytes without producing a prev
   await expect(
     importDashboardContextSelection("workspace", "repository"),
   ).rejects.toThrow("context_connection_invalid");
+});
+
+function testRequest(
+  override: Record<string, unknown> = {},
+  headers: Record<string, string> = {},
+) {
+  return new Request("https://local.test/api/dashboard/context-tools/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify({
+      workspaceId: "workspace",
+      expectedVersion: null,
+      definition: { ...definition, tools: [] },
+      secrets: { DOCS_KEY: "secret-fixture" },
+      ...override,
+    }),
+  });
+}
+it("refuses connection probes before reading/decrypting/networking without durable admin authorization", async () => {
+  mocks.admin.mockRejectedValue(
+    new Error("workspace_admin_forbidden:missing_role"),
+  );
+  expect((await TEST_CONNECTION(testRequest())).status).toBe(403);
+  mocks.admin.mockResolvedValue({ userId: "owner" });
+  mocks.member.mockResolvedValue(null);
+  const result = await TEST_CONNECTION(testRequest());
+  expect(result.status).toBe(403);
+  expect(await result.json()).toEqual({
+    ok: false,
+    tools: [],
+    error: "context_admin_required",
+  });
+  expect(mocks.find).not.toHaveBeenCalled();
+  expect(mocks.decrypt).not.toHaveBeenCalled();
+  expect(mocks.probe).not.toHaveBeenCalled();
+});
+it("tests unsaved draft and anonymous connections with no writes or encryption", async () => {
+  const response = await TEST_CONNECTION(testRequest());
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    ok: true,
+    tools: [{ name: "search_docs", description: "Read docs" }],
+  });
+  expect(mocks.probe).toHaveBeenCalledWith({
+    url: definition.url,
+    headers: { Authorization: "Bearer secret-fixture" },
+    redact: ["secret-fixture", "Bearer secret-fixture"],
+  });
+  expect(
+    (
+      await TEST_CONNECTION(
+        testRequest({
+          definition: {
+            ...definition,
+            headers: {},
+            credentials: {},
+            tools: [],
+          },
+          secrets: undefined,
+        }),
+      )
+    ).status,
+  ).toBe(200);
+  expect(mocks.create).not.toHaveBeenCalled();
+  expect(mocks.update).not.toHaveBeenCalled();
+  expect(mocks.encrypt).not.toHaveBeenCalled();
+});
+it("reuses only an exact stored version and destination, while explicit replacements may test edited destinations", async () => {
+  mocks.find.mockResolvedValue(row);
+  const stored = { expectedVersion: 1, secrets: undefined };
+  expect((await TEST_CONNECTION(testRequest(stored))).status).toBe(200);
+  expect(mocks.decrypt).toHaveBeenCalledExactlyOnceWith("encrypted-fixture");
+  mocks.decrypt.mockClear();
+  mocks.probe.mockClear();
+  for (const changed of [
+    { ...definition, url: "https://other.example.test/mcp", tools: [] },
+    {
+      ...definition,
+      headers: { Authorization: "Token {{ secrets.DOCS_KEY }}" },
+      tools: [],
+    },
+    {
+      ...definition,
+      headers: { Authorization: "Bearer {{ secrets.OTHER }}" },
+      credentials: { OTHER: { source: "dashboard-secret" } },
+      tools: [],
+    },
+  ]) {
+    const response = await TEST_CONNECTION(
+      testRequest({ ...stored, definition: changed }),
+    );
+    expect(await response.json()).toEqual({
+      ok: false,
+      tools: [],
+      error: "context_secret_reentry_required",
+    });
+  }
+  expect(
+    (await TEST_CONNECTION(testRequest({ expectedVersion: 2 }))).status,
+  ).toBe(409);
+  expect(mocks.decrypt).not.toHaveBeenCalled();
+  expect(mocks.probe).not.toHaveBeenCalled();
+  expect(
+    (
+      await TEST_CONNECTION(
+        testRequest({
+          expectedVersion: 1,
+          definition: {
+            ...definition,
+            url: "https://other.example.test/mcp",
+            tools: [],
+          },
+        }),
+      )
+    ).status,
+  ).toBe(200);
+  expect(mocks.decrypt).not.toHaveBeenCalled();
+  expect(mocks.create).not.toHaveBeenCalled();
+  expect(mocks.update).not.toHaveBeenCalled();
+});
+it("returns safe actionable GitHub credential and decryption errors without any remote request", async () => {
+  const github = await TEST_CONNECTION(
+    testRequest({
+      definition: {
+        ...definition,
+        credentials: {
+          DOCS_KEY: { source: "github-secret", name: "DOCS_KEY" },
+        },
+        tools: [],
+      },
+      secrets: undefined,
+    }),
+  );
+  expect(await github.json()).toEqual({
+    ok: false,
+    tools: [],
+    error: "context_github_secret_unavailable",
+  });
+  mocks.find.mockResolvedValue(row);
+  mocks.decrypt.mockImplementation(() => {
+    throw new Error("private secret-fixture encrypted-fixture");
+  });
+  const response = await TEST_CONNECTION(
+    testRequest({ expectedVersion: 1, secrets: undefined }),
+  );
+  expect(await response.json()).toEqual({
+    ok: false,
+    tools: [],
+    error: "context_secret_unavailable",
+  });
+  expect(mocks.probe).not.toHaveBeenCalled();
+});
+it("rejects cross-origin, oversized and malformed probe requests before reaching the application", async () => {
+  vi.stubEnv("NODE_ENV", "production");
+  vi.stubEnv("REVIEW_ROUTER_WEB_URL", "https://reviewrouter.org");
+  try {
+    const response = await TEST_CONNECTION(
+      testRequest({}, { Origin: "https://attacker.test" }),
+    );
+    expect(response.status).toBe(403);
+    const oversized = await TEST_CONNECTION(
+      new Request("https://local.test/api/dashboard/context-tools/test", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "x".repeat(32769),
+      }),
+    );
+    expect(oversized.status).toBe(413);
+    expect(await oversized.json()).toEqual({
+      ok: false,
+      tools: [],
+      error: "context_request_too_large",
+    });
+    expect((await TEST_CONNECTION(testRequest({ enabled: true }))).status).toBe(
+      400,
+    );
+    expect(mocks.admin).not.toHaveBeenCalled();
+    expect(mocks.find).not.toHaveBeenCalled();
+    expect(mocks.probe).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });

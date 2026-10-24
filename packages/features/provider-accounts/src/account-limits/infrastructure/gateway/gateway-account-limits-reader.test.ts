@@ -12,6 +12,58 @@ const target: AccountLimitsTarget = {
   expectedAuthorizationEpoch: 3,
 };
 describe("Gateway cached account limits capability", () => {
+  it("uses only the explicitly selected v2 contract without probing the legacy source", async () => {
+    const calls: string[] = [];
+    const reader = createGatewayAccountLimitsReader(
+      {
+        async getAccountLimitsCapabilities() {
+          calls.push("v2-capability");
+          return {
+            contract: "account-limits/v2",
+            cachedRead: true,
+            quotaOnlyRefresh: false,
+          };
+        },
+        async readAccountLimits(input) {
+          calls.push(input.profileId);
+          return { status: "unknown" };
+        },
+      },
+      "account-limits/v2",
+    );
+    expect(
+      await reader.read({
+        ...target,
+        profileId: "grok-subscription-responses-oauth-v1",
+      }),
+    ).toEqual({ status: "unknown" });
+    expect(calls).toEqual([
+      "v2-capability",
+      "grok-subscription-responses-oauth-v1",
+    ]);
+  });
+
+  it("does not retry v1 when declared v2 support is absent", async () => {
+    let reads = 0;
+    const reader = createGatewayAccountLimitsReader(
+      {
+        async getAccountLimitsCapabilities() {
+          return {
+            contract: "account-limits/v1",
+            cachedRead: true,
+            quotaOnlyRefresh: false,
+          };
+        },
+        async readAccountLimits() {
+          reads++;
+          return { status: "unknown" };
+        },
+      },
+      "account-limits/v2",
+    );
+    expect(await reader.read(target)).toMatchObject({ status: "unavailable" });
+    expect(reads).toBe(0);
+  });
   it.each(["forbidden", "not_found", "conflict", "unauthenticated"])(
     "clears old observations on a safe %s identity refusal",
     async (code) => {

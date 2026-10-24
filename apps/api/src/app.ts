@@ -126,6 +126,7 @@ import {
   HashedReviewConfigurationOperatorAuthorization,
   PrismaReviewConfigurationOperatorRepository,
   PrismaReviewConfigurationRepository,
+  PrismaWorkspaceReviewSettings,
   type OperatorReviewConfigurationDependencies,
 } from "@reviewrouter/features-review-config";
 import { PrismaReviewSnapshotRepository } from "@reviewrouter/features-review-snapshots";
@@ -993,6 +994,12 @@ export async function createApiApp(
   if (reviewRunControlV2Dependencies) {
     await registerReviewRunControlV2Routes(app, reviewRunControlV2Dependencies);
   }
+  if (productionReviewActionV2Dependencies?.reviewSkills) {
+    await registerReviewRunSkillsRoute(
+      app,
+      productionReviewActionV2Dependencies.reviewSkills,
+    );
+  }
   if (
     providerUsageDependencies?.providerUsageRecovery ||
     providerUsageDependencies?.providerUsageNative
@@ -1278,18 +1285,13 @@ function createReviewV2IntentWebhookHandler(input: {
       },
     },
   );
-  const draftRepositories = new Set(
-    parseCommaSeparatedEnv(
-      input.env.REVIEW_ROUTER_REVIEW_V2_DRAFT_REPOSITORIES,
-    ).map((value) => value.toLowerCase()),
-  );
+  const settings = new PrismaWorkspaceReviewSettings(input.prisma);
   return new ReviewV2PullRequestWebhookHandler({
     ingress,
     clock: new SystemClock(),
     policy: {
-      reviewDrafts: (repositoryFullName) =>
-        draftRepositories.size === 0 ||
-        draftRepositories.has(repositoryFullName.toLowerCase()),
+      reviewDrafts: (githubInstallationId) =>
+        settings.reviewDraftsForGitHubInstallation(githubInstallationId),
     },
   });
 }
@@ -1506,3 +1508,4 @@ function resolveActionOwnerRepo(actionRef: string | undefined): string {
   }
   return ownerRepo;
 }
+import { registerReviewRunSkillsRoute } from "./review-run-skills";
