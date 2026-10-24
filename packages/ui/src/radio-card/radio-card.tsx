@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Radio } from "@base-ui/react/radio";
 import { RadioGroup } from "@base-ui/react/radio-group";
 import { cn } from "../utils/cn";
@@ -69,6 +69,11 @@ export function RadioCard({
   className,
   children,
 }: RadioCardProps): React.ReactElement {
+  // The radio is named by its title and described by its description or
+  // the reason it is disabled, instead of reading the whole row as a name.
+  const titleId = useId();
+  const descriptionId = useId();
+  const explanation = disabled && disabledReason ? disabledReason : description;
   return (
     <label
       data-disabled={disabled ? "" : undefined}
@@ -84,6 +89,8 @@ export function RadioCard({
       <Radio.Root
         value={value}
         disabled={disabled}
+        aria-labelledby={titleId}
+        {...(explanation ? { "aria-describedby": descriptionId } : {})}
         className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border border-cyan-200/40 bg-slate-950 outline-none transition data-[checked]:border-cyan-300 data-[disabled]:border-slate-600"
       >
         <Radio.Indicator className="h-2 w-2 rounded-full bg-cyan-300" />
@@ -92,6 +99,7 @@ export function RadioCard({
       <span className="grid min-w-0 flex-1 gap-1">
         <span className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1">
           <span
+            id={titleId}
             className={cn(
               "min-w-0 break-words text-sm font-semibold leading-5",
               disabled ? "text-slate-500" : "text-cyan-50",
@@ -103,13 +111,17 @@ export function RadioCard({
             <span className="flex flex-wrap items-center gap-1.5">{meta}</span>
           ) : null}
         </span>
-        {disabled && disabledReason ? (
-          <span className="text-xs leading-5 text-amber-100/80">
-            {disabledReason}
-          </span>
-        ) : description ? (
-          <span className="text-xs leading-5 text-slate-400">
-            {description}
+        {explanation ? (
+          <span
+            id={descriptionId}
+            className={cn(
+              "text-xs leading-5",
+              disabled && disabledReason
+                ? "text-amber-100/80"
+                : "text-slate-400",
+            )}
+          >
+            {explanation}
           </span>
         ) : null}
         {children}

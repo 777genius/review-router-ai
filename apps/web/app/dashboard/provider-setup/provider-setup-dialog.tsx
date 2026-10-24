@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ProviderSecretSetupGuidance } from "@reviewrouter/features-provider-setup";
 import {
   getDefaultProviderConfigForAuthMode,
@@ -250,6 +250,17 @@ function ProviderSetupDialogBody({
       ? "credentials"
       : "provider",
   );
+  // A save that moves on replaces the content under the focus: take the
+  // focus to the step now shown instead of losing it to the page.
+  const stepNav = useRef<HTMLOListElement>(null);
+  const handledStep = useRef(step);
+  useEffect(() => {
+    if (step === handledStep.current) return;
+    handledStep.current = step;
+    stepNav.current
+      ?.querySelector<HTMLButtonElement>('[aria-current="step"]')
+      ?.focus();
+  }, [step]);
   // What the repository uses after a save, before the page refreshes.
   const [saved, setSaved] = useState<{
     readonly authMode: ProviderAuthMode;
@@ -289,7 +300,10 @@ function ProviderSetupDialogBody({
         </DialogDescription>
         {repository && credentialStep ? (
           <nav aria-label="Provider setup steps" className="mt-4">
-            <ol className="inline-flex rounded-xl border border-cyan-200/12 bg-slate-950/50 p-1">
+            <ol
+              ref={stepNav}
+              className="inline-flex rounded-xl border border-cyan-200/12 bg-slate-950/50 p-1"
+            >
               <li>
                 <StepButton
                   current={step === "provider"}

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Select as BaseSelect } from "@base-ui/react/select";
 import { cn } from "../utils/cn";
 
@@ -40,6 +40,7 @@ export function SelectField({
   hint,
   className,
 }: SelectFieldProps): React.ReactElement {
+  const hintId = useId();
   return (
     <label
       className={cn("grid min-w-0 gap-2 text-sm text-slate-300", className)}
@@ -60,6 +61,7 @@ export function SelectField({
         }))}
       >
         <BaseSelect.Trigger
+          {...(hint ? { "aria-describedby": hintId } : {})}
           className={cn(
             "flex min-h-11 w-full min-w-0 items-center justify-between gap-3 rounded-xl border border-cyan-200/15 bg-slate-950/80 px-3 py-2 text-left text-cyan-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition hover:border-cyan-200/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300 disabled:cursor-not-allowed disabled:opacity-50",
           )}
@@ -115,7 +117,9 @@ export function SelectField({
         </BaseSelect.Portal>
       </BaseSelect.Root>
       {hint ? (
-        <span className="text-xs leading-5 text-slate-400">{hint}</span>
+        <span id={hintId} className="text-xs leading-5 text-slate-400">
+          {hint}
+        </span>
       ) : null}
     </label>
   );

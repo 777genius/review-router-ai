@@ -185,12 +185,15 @@ describe("ProviderSetupDialog", () => {
       target: { kind: "repositories", repositoryIds: ["repo_1"] },
       provider: { kind: "profile", profileId: "profile_other" },
     });
-    // Claude Code needs its secret next: the dialog moves to that step.
-    expect(
-      (
-        await screen.findByRole("button", { name: "2. Add secret" })
-      ).getAttribute("aria-current"),
-    ).toBe("step");
+    // Claude Code needs its secret next: the dialog moves to that step and
+    // takes the focus there.
+    const secretStep = await screen.findByRole("button", {
+      name: "2. Add secret",
+    });
+    await waitFor(() =>
+      expect(secretStep.getAttribute("aria-current")).toBe("step"),
+    );
+    await waitFor(() => expect(document.activeElement).toBe(secretStep));
   });
 
   it("returns a repository with its own provider to the workspace default", async () => {
