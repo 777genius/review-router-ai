@@ -159,3 +159,47 @@ export function workflowRequirement(
     throw new Error("workflow_requirement_invalid");
   return requirement;
 }
+
+/**
+ * The requirement of an installed workflow, taken from the artifact that was
+ * actually verified rather than from the policy read before it: a hosted pool
+ * confirmation may install the rotating workflow and switch the policy only
+ * afterwards, and the reverse.
+ */
+export function verifiedWorkflowRequirement(input: {
+  /** The managed route (Gateway, provider API) the verified caller uses. */
+  readonly managedTransport: "gateway" | "provider_api" | null;
+  /** A verified Codex subscription workflow; null for a CI-secret workflow. */
+  readonly codexWorkflow: Readonly<{ hosted: boolean }> | null;
+  readonly config: ReviewConfiguration;
+}): WorkflowRequirement {
+  const transport: WorkflowTransport =
+    input.managedTransport ??
+    (input.codexWorkflow
+      ? input.codexWorkflow.hosted
+        ? "hosted_pool"
+        : "rotating"
+      : "ci_secrets");
+  return workflowRequirement(
+    transport,
+    workflowProviderVariants(transport, input.config),
+  );
+}
+
+/**
+ * The requirement compared for "workflow update required". While a hosted
+ * pool binding moves a repository between its hosted and rotating workflows,
+ * the policy and the workflow switch at different moments; both Codex
+ * subscription workflows then count as one family, so a half-finished switch
+ * never asks for a setup PR under the old policy.
+ */
+export function comparableWorkflowRequirement(
+  requirement: WorkflowRequirement,
+  options: Readonly<{ hostedPoolTransition: boolean }>,
+): WorkflowRequirement {
+  if (!options.hostedPoolTransition) return requirement;
+  const transport = requirement.split("+", 1)[0];
+  return transport === "rotating" || transport === "hosted_pool"
+    ? "codex_subscription"
+    : requirement;
+}

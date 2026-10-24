@@ -90,8 +90,8 @@ import {
   WorkflowSourceTrust,
   type ReviewRouterWorkflowStyle,
   ciSecretsWorkflowProviderKind,
-  requiredWorkflowRequirement,
   requiredWorkflowTransport,
+  verifiedWorkflowRequirement,
   validateAccountGatewayActionRef,
   reviewRouterWorkflowContract,
 } from "@reviewrouter/features-workflow-provisioning";
@@ -2351,9 +2351,17 @@ async function confirmSetupPullRequestMergedMutation(
         workflowPath: verifiedWorkflowArtifact.workflowPath,
         workflowStyle: verifiedWorkflowArtifact.workflowStyle,
         actionVersion: verifiedWorkflowArtifact.actionVersion,
-        workflowRequirement: requiredWorkflowRequirement(
-          resolvedRuntime.config,
-        ),
+        // The artifact verified above, not the policy read before a hosted
+        // pool activation or switch changed it.
+        workflowRequirement: verifiedWorkflowRequirement({
+          managedTransport: accountGateway
+            ? "gateway"
+            : openRouterDirect
+              ? "provider_api"
+              : null,
+          codexWorkflow,
+          config: resolvedRuntime.config,
+        }),
       });
     }
     await recordAuditEvent(

@@ -5,9 +5,11 @@ import {
 } from "@reviewrouter/features-review-config";
 import { describe, expect, it } from "vitest";
 import {
+  comparableWorkflowRequirement,
   renderedWorkflowRequirement,
   requiredWorkflowRequirement,
   requiredWorkflowTransport,
+  verifiedWorkflowRequirement,
 } from "../domain/workflow-transport";
 
 const settings = {
@@ -90,5 +92,68 @@ describe("workflow requirement", () => {
           mapConfigToRuntimeEnv(candidate),
         ),
       ).toBe(requiredWorkflowRequirement(candidate));
+  });
+  it("treats hosted and rotating workflows as one family only during a hosted pool transition", () => {
+    for (const [required, installed] of [
+      ["hosted_pool", "rotating"],
+      ["rotating", "hosted_pool"],
+      ["rotating+claude", "hosted_pool"],
+    ]) {
+      const transition = { hostedPoolTransition: true };
+      expect(comparableWorkflowRequirement(required!, transition)).toBe(
+        comparableWorkflowRequirement(installed!, transition),
+      );
+      const settled = { hostedPoolTransition: false };
+      expect(comparableWorkflowRequirement(required!, settled)).not.toBe(
+        comparableWorkflowRequirement(installed!, settled),
+      );
+    }
+    expect(
+      comparableWorkflowRequirement("ci_secrets+claude", {
+        hostedPoolTransition: true,
+      }),
+    ).toBe("ci_secrets+claude");
+  });
+
+  it("records the verified artifact when a hosted pool switch changes the workflow first", () => {
+    const hosted = config([
+      {
+        kind: "codex",
+        authMode: "codex_subscription_oauth_hosted_pool",
+        model: "gpt-5.6-sol",
+        ...settings,
+      },
+    ]);
+    const rotating = config([
+      {
+        kind: "codex",
+        authMode: "codex_subscription_oauth_rotating",
+        model: "gpt-5.6-sol",
+        ...settings,
+      },
+    ]);
+    // Hosted -> rotating: the hosted policy is switched only after confirm.
+    expect(
+      verifiedWorkflowRequirement({
+        managedTransport: null,
+        codexWorkflow: { hosted: false },
+        config: hosted,
+      }),
+    ).toBe(requiredWorkflowRequirement(rotating));
+    // Rotating -> hosted: activation switches the rotating policy afterwards.
+    expect(
+      verifiedWorkflowRequirement({
+        managedTransport: null,
+        codexWorkflow: { hosted: true },
+        config: rotating,
+      }),
+    ).toBe(requiredWorkflowRequirement(hosted));
+    expect(
+      verifiedWorkflowRequirement({
+        managedTransport: null,
+        codexWorkflow: null,
+        config: mimo,
+      }),
+    ).toBe("ci_secrets+codex-mimo");
   });
 });

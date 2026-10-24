@@ -5,6 +5,7 @@ import {
 import type { RepositoryHealthStatus } from "@reviewrouter/features-repo-health";
 import type { ReviewConfiguration } from "@reviewrouter/features-review-config";
 import {
+  comparableWorkflowRequirement,
   requiredWorkflowRequirement,
   type WorkflowRequirement,
 } from "@reviewrouter/features-workflow-provisioning";
@@ -99,21 +100,26 @@ export function resolveDashboardRepositoryReadiness<
   return input.repositories.map((repository) => {
     const config = effectiveConfig(repository.id);
     const health = healthByRepositoryId.get(repository.id);
+    const hosted = hostedByRepositoryId.get(repository.id);
+    // A hosted pool binding moves between its hosted and rotating workflows.
+    const transition = {
+      hostedPoolTransition: hosted?.source === "hosted_workspace_pool",
+    };
+    const required = config ? knownWorkflowRequirement(config) : null;
+    const installed = repository.installedWorkflowRequirement;
     const readiness = resolveEffectiveProviderReadiness({
       providers: config?.providers ?? null,
-      requiredWorkflowRequirement: config
-        ? knownWorkflowRequirement(config)
-        : null,
-      installedWorkflowRequirement: repository.installedWorkflowRequirement,
+      requiredWorkflowRequirement:
+        required && comparableWorkflowRequirement(required, transition),
+      installedWorkflowRequirement:
+        installed && comparableWorkflowRequirement(installed, transition),
       setupStatus: repository.setupStatus,
       setupNeedsAttention: repository.setupNeedsAttention,
       healthStatus: health?.status,
       latestActionHealthReceivedAt:
         health?.latestActionHealthReceivedAt ?? null,
       providerSetup: providerSetupByRepositoryId.get(repository.id) ?? [],
-      hostedSessionReady: isHostedWorkspacePoolSessionReady(
-        hostedByRepositoryId.get(repository.id),
-      ),
+      hostedSessionReady: isHostedWorkspacePoolSessionReady(hosted),
       gatewayAccountReady: config
         ? isGatewayProviderSetupReady(config, input.gatewayAccounts)
         : false,
