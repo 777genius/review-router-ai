@@ -52,59 +52,64 @@ const headerTemplatesSchema = z.record(
     .max(contextToolsContract.maxHeaderValueChars)
     .refine((v) => !/[\r\n\0]/.test(v)),
 );
-export const contextConnectionDefinitionSchema = z
-  .object({
-    id: identifier,
-    url: httpsMcpUrlSchema,
-    headers: headerTemplatesSchema,
-    tools: z
-      .array(toolName)
-      .min(1)
-      .max(contextToolsContract.maxToolsPerServer)
-      .refine(unique),
-    credentials: z.record(logicalName, contextCredentialSourceSchema),
-  })
-  .strict()
-  .superRefine((v, c) => {
-    if (
-      Object.keys(v.credentials).length >
-      contextToolsContract.maxCredentialBindingsPerServer
-    )
-      c.addIssue({ code: "custom", message: "context_secret_binding_limit" });
-    const used = [
-      ...new Set(Object.values(v.headers).flatMap(referencedContextSecrets)),
-    ].sort();
-    if (
-      used.join() !== Object.keys(v.credentials).sort().join() ||
-      Object.values(v.headers).some(
-        (value) =>
-          referencedContextSecrets(value).length === 0 ||
-          /[{}]/.test(value.replace(templateRegex, "")),
+const connectionDefinitionSchema = (minimumTools: number) =>
+  z
+    .object({
+      id: identifier,
+      url: httpsMcpUrlSchema,
+      headers: headerTemplatesSchema,
+      tools: z
+        .array(toolName)
+        .min(minimumTools)
+        .max(contextToolsContract.maxToolsPerServer)
+        .refine(unique),
+      credentials: z.record(logicalName, contextCredentialSourceSchema),
+    })
+    .strict()
+    .superRefine((v, c) => {
+      if (
+        Object.keys(v.credentials).length >
+        contextToolsContract.maxCredentialBindingsPerServer
       )
-    )
-      c.addIssue({
-        code: "custom",
-        message: "context_secret_binding_mismatch",
-      });
-    if (
-      !unique(Object.keys(v.headers).map((k) => k.toLowerCase())) ||
-      Object.keys(v.headers).length > contextToolsContract.maxHeadersPerServer
-    )
-      c.addIssue({ code: "custom", message: "context_header_duplicate" });
-    if (
-      Object.keys(v.headers).some(
-        (k) =>
-          new RegExp(
-            contextToolsContract.forbiddenHeaderPrefixPattern,
-            "i",
-          ).test(k) ||
-          (
-            contextToolsContract.forbiddenHeaderNames as readonly string[]
-          ).includes(k.toLowerCase()),
+        c.addIssue({ code: "custom", message: "context_secret_binding_limit" });
+      const used = [
+        ...new Set(Object.values(v.headers).flatMap(referencedContextSecrets)),
+      ].sort();
+      if (
+        used.join() !== Object.keys(v.credentials).sort().join() ||
+        Object.values(v.headers).some(
+          (value) =>
+            referencedContextSecrets(value).length === 0 ||
+            /[{}]/.test(value.replace(templateRegex, "")),
+        )
       )
-    )
-      c.addIssue({ code: "custom", message: "context_header_forbidden" });
-  });
+        c.addIssue({
+          code: "custom",
+          message: "context_secret_binding_mismatch",
+        });
+      if (
+        !unique(Object.keys(v.headers).map((k) => k.toLowerCase())) ||
+        Object.keys(v.headers).length > contextToolsContract.maxHeadersPerServer
+      )
+        c.addIssue({ code: "custom", message: "context_header_duplicate" });
+      if (
+        Object.keys(v.headers).some(
+          (k) =>
+            new RegExp(
+              contextToolsContract.forbiddenHeaderPrefixPattern,
+              "i",
+            ).test(k) ||
+            (
+              contextToolsContract.forbiddenHeaderNames as readonly string[]
+            ).includes(k.toLowerCase()),
+        )
+      )
+        c.addIssue({ code: "custom", message: "context_header_forbidden" });
+    });
+export const contextConnectionDefinitionSchema = connectionDefinitionSchema(1);
+/** Discovery has no selected tools yet; every other connection invariant is shared. */
+export const contextConnectionProbeDefinitionSchema =
+  connectionDefinitionSchema(0);
 export type ContextConnectionDefinition = z.infer<
   typeof contextConnectionDefinitionSchema
 >;
