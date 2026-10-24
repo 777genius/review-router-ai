@@ -684,6 +684,19 @@ export async function assertDashboardWorkspaceAdminAllowed(
   };
 }
 
+/**
+ * The owner/admin gate of a write that does not go through the dashboard's
+ * other mutation gates (managed key uploads): refused like every dashboard
+ * write while changes are off for the deployment.
+ */
+export async function assertDashboardWorkspaceAdminMutationAllowed(
+  workspaceId: string,
+): Promise<DashboardWorkspaceAdminActor> {
+  if (!dashboardMutationsEnabled())
+    throw new DashboardMutationRefusedError("dashboard_mutations_disabled");
+  return assertDashboardWorkspaceAdminAllowed(workspaceId);
+}
+
 export async function getDashboardWorkspaceScope(): Promise<DashboardWorkspaceScope> {
   if (!getAuthEnvironmentStatus().configured) {
     return { kind: "none", reason: "signed_out" };

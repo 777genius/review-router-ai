@@ -7,6 +7,7 @@ import {
   type ProviderApiKeyRepositoryResult,
 } from "./provider-api-key";
 import type {
+  ProviderApiKeyAuditPort,
   ProviderApiKeyErrorClassifier,
   ProviderApiKeyGitHubSecretGatewayPort,
   ProviderApiKeyLockPort,
@@ -28,8 +29,11 @@ export async function applyProviderApiKey(
     readonly providerType: ProviderApiKeyProvider;
     readonly apiKey?: string;
     readonly repositoryIds: readonly string[];
+    /** Audit actor of the owner or admin who asked. */
+    readonly actor: string;
   },
   dependencies: {
+    readonly audit: ProviderApiKeyAuditPort;
     readonly providerApiKeys: ProviderApiKeyStorePort;
     readonly providerApiKeyRepositories: ProviderApiKeyRepositoryPort;
     readonly storageCipher: ProviderApiKeyStorageCipherPort;
@@ -263,10 +267,21 @@ export async function applyProviderApiKey(
           keyVersion: session.keyVersion,
         }),
       );
-      return {
+      const all = [...deniedResults, ...results, ...blockedResults];
+      const applied = all.filter((result) => result.status === "applied");
+      await dependencies.audit.record({
+        workspaceId,
+        actor: input.actor,
+        action: encryptedApiKey
+          ? "provider_api_key.saved"
+          : "provider_api_key.installed",
         providerType,
-        results: [...deniedResults, ...results, ...blockedResults],
-      };
+        operationId: session.operationId,
+        keyVersion: session.keyVersion,
+        appliedRepositoryCount: applied.length,
+        unappliedRepositoryCount: all.length - applied.length,
+      });
+      return { providerType, results: all };
     },
   );
 }

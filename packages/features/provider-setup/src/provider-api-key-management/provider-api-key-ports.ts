@@ -98,3 +98,24 @@ export interface ProviderApiKeyGitHubSecretGatewayPort {
 export type ProviderApiKeyErrorClassifier = (
   error: unknown,
 ) => ProviderApiKeyErrorReason;
+
+/**
+ * One audit event per save or installation of a server-managed key: who,
+ * which provider, the key version and how many repositories got it. Never
+ * the key or its ciphertext.
+ */
+export type ProviderApiKeyAuditEvent = {
+  readonly workspaceId: string;
+  readonly actor: string;
+  /** `saved`: a new key was stored (first upload or replacement). */
+  readonly action: "provider_api_key.saved" | "provider_api_key.installed";
+  readonly providerType: ProviderApiKeyProvider;
+  readonly operationId: string;
+  readonly keyVersion: number;
+  readonly appliedRepositoryCount: number;
+  readonly unappliedRepositoryCount: number;
+};
+
+export interface ProviderApiKeyAuditPort {
+  record(event: ProviderApiKeyAuditEvent): Promise<void>;
+}

@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
+import {
+  PrismaAuditLogRepository,
+  recordAuditEvent,
+} from "@reviewrouter/features-audit-log";
 import { ProviderApiKeyGitHubGateway } from "./provider-api-key-github-gateway";
 import {
   decryptServerToken,
@@ -11,6 +15,7 @@ import {
   providerApiKeyRepositoryStatusSchema,
   sanitizeProviderApiKeyError,
   type ProviderApiKeyApplySession,
+  type ProviderApiKeyAuditPort,
   type ProviderApiKeyErrorReason,
   type ProviderApiKeyGitHubSecretGatewayPort,
   type ProviderApiKeyLockPort,
@@ -30,6 +35,7 @@ export function createProviderApiKeyServiceDependencies(input: {
   readonly githubAppPrivateKey: string;
   readonly env?: NodeJS.ProcessEnv;
 }): {
+  readonly audit: ProviderApiKeyAuditPort;
   readonly providerApiKeys: ProviderApiKeyStorePort;
   readonly providerApiKeyRepositories: ProviderApiKeyRepositoryPort;
   readonly storageCipher: ProviderApiKeyStorageCipherPort;
@@ -37,7 +43,22 @@ export function createProviderApiKeyServiceDependencies(input: {
   readonly classifyError: typeof classifyProviderApiKeyError;
   readonly lock: ProviderApiKeyLockPort;
 } {
+  const auditLog = new PrismaAuditLogRepository(input.prisma);
   return {
+    audit: {
+      record: ({ workspaceId, actor, action, providerType, ...metadata }) =>
+        recordAuditEvent(
+          {
+            workspaceId,
+            actor,
+            action,
+            targetType: "provider_api_key",
+            targetId: providerType,
+            metadata: { providerType, ...metadata },
+          },
+          { auditLog },
+        ),
+    },
     providerApiKeys: new PrismaProviderApiKeyStore(input.prisma),
     providerApiKeyRepositories: new PrismaProviderApiKeyRepository(
       input.prisma,

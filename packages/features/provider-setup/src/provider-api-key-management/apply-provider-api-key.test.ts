@@ -9,6 +9,7 @@ import {
   ProviderApiKeySecretPutPreDispatchError,
 } from "./provider-api-key";
 import type {
+  ProviderApiKeyAuditPort,
   ProviderApiKeyGitHubSecretGatewayPort,
   ProviderApiKeyRepositoryPort,
   ProviderApiKeyStorageCipherPort,
@@ -33,6 +34,7 @@ describe("applyProviderApiKey", () => {
     await applyProviderApiKey(
       {
         workspaceId: "workspace_1",
+        actor: "user:github:owner",
         providerType: "mimo",
         repositoryIds: ["repo_2"],
       },
@@ -51,16 +53,32 @@ describe("applyProviderApiKey", () => {
   it("writes the same provider key to every selected repository", async () => {
     const githubSecrets = gateway();
     const providerApiKeys = store();
+    const audit = { record: vi.fn(async () => undefined) };
     const result = await applyProviderApiKey(
       {
         workspaceId: "workspace_1",
+        actor: "user:github:owner",
         providerType: "openrouter",
         apiKey,
         repositoryIds: ["repo_1", "repo_2"],
       },
-      dependencies({ githubSecrets, providerApiKeys }),
+      dependencies({ githubSecrets, providerApiKeys, audit }),
     );
 
+    // The replacement is audited by version and counts, never by value.
+    expect(audit.record).toHaveBeenCalledExactlyOnceWith({
+      workspaceId: "workspace_1",
+      actor: "user:github:owner",
+      action: "provider_api_key.saved",
+      providerType: "openrouter",
+      operationId: expect.any(String),
+      keyVersion: expect.any(Number),
+      appliedRepositoryCount: 2,
+      unappliedRepositoryCount: 0,
+    });
+    expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain(
+      apiKey,
+    );
     expect(result.results).toMatchObject([
       {
         repositoryId: "repo_1",
@@ -100,6 +118,7 @@ describe("applyProviderApiKey", () => {
     const result = await applyProviderApiKey(
       {
         workspaceId: "workspace_1",
+        actor: "user:github:owner",
         providerType: "mimo",
         apiKey,
         repositoryIds: ["repo_1", "repo_2"],
@@ -132,6 +151,7 @@ describe("applyProviderApiKey", () => {
     const result = await applyProviderApiKey(
       {
         workspaceId: "workspace_1",
+        actor: "user:github:owner",
         providerType: "mimo",
         apiKey,
         repositoryIds: ["repo_1", "repo_2"],
@@ -165,6 +185,7 @@ describe("applyProviderApiKey", () => {
       const result = await applyProviderApiKey(
         {
           workspaceId: "workspace_1",
+          actor: "user:github:owner",
           providerType: "mimo",
           apiKey,
           repositoryIds: ["repo_1"],
@@ -191,6 +212,7 @@ describe("applyProviderApiKey", () => {
     const result = await applyProviderApiKey(
       {
         workspaceId: "workspace_1",
+        actor: "user:github:owner",
         providerType: "mimo",
         apiKey,
         repositoryIds: ["repo_1"],
@@ -219,6 +241,7 @@ describe("applyProviderApiKey", () => {
     const result = await applyProviderApiKey(
       {
         workspaceId: "workspace_1",
+        actor: "user:github:owner",
         providerType: "mimo",
         apiKey,
         repositoryIds: ["repo_1", "repo_2"],
@@ -254,7 +277,9 @@ describe("applyProviderApiKey", () => {
 function dependencies(overrides?: {
   readonly githubSecrets?: MockedGitHubSecretGateway;
   readonly providerApiKeys?: ProviderApiKeyStorePort;
+  readonly audit?: ProviderApiKeyAuditPort;
 }): {
+  audit: ProviderApiKeyAuditPort;
   providerApiKeys: ProviderApiKeyStorePort;
   providerApiKeyRepositories: ProviderApiKeyRepositoryPort;
   storageCipher: ProviderApiKeyStorageCipherPort;
@@ -269,6 +294,7 @@ function dependencies(overrides?: {
   };
 } {
   return {
+    audit: overrides?.audit ?? { record: vi.fn(async () => undefined) },
     providerApiKeys: overrides?.providerApiKeys ?? store(),
     providerApiKeyRepositories: {
       findRepositoryTargets: vi.fn().mockResolvedValue([
