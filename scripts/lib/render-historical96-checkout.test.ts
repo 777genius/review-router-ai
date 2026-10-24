@@ -40,6 +40,7 @@ const full = currentFull
       row.migrationName !== "000141_memory_search_projections" &&
       row.migrationName !== "000142_optional_gateway_reasoning" &&
       row.migrationName !== "000143_workspace_draft_review_setting" &&
+      row.migrationName !== "000144_workspace_provider_profiles" &&
       row.migrationName !== "000134_account_lifecycle" &&
       row.migrationName !== "000134_review_provider_kind_v2_ocr" &&
       row.migrationName !== "000133_allow_first_time_scm_identity_bind",
@@ -179,6 +180,7 @@ describe("trusted historical96 checkout reader", () => {
           row.migrationName !== "000141_memory_search_projections" &&
           row.migrationName !== "000142_optional_gateway_reasoning" &&
           row.migrationName !== "000143_workspace_draft_review_setting" &&
+          row.migrationName !== "000144_workspace_provider_profiles" &&
           row.migrationName !== "000134_account_lifecycle" &&
           row.migrationName !== "000134_review_provider_kind_v2_ocr" &&
           row.migrationName !== "000133_allow_first_time_scm_identity_bind",
@@ -198,6 +200,7 @@ describe("trusted historical96 checkout reader", () => {
           row.migrationName !== "000141_memory_search_projections" &&
           row.migrationName !== "000142_optional_gateway_reasoning" &&
           row.migrationName !== "000143_workspace_draft_review_setting" &&
+          row.migrationName !== "000144_workspace_provider_profiles" &&
           row.migrationName !== "000134_account_lifecycle" &&
           row.migrationName !== "000134_review_provider_kind_v2_ocr" &&
           row.migrationName !== "000133_allow_first_time_scm_identity_bind",

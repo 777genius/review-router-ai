@@ -102,8 +102,8 @@ describe.skipIf(!enabled)(
         const names = (await readdir(migrations))
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
-        expect(names).toHaveLength(143);
-        expect(names.at(-1)).toBe("000143_workspace_draft_review_setting");
+        expect(names).toHaveLength(144);
+        expect(names.at(-1)).toBe("000144_workspace_provider_profiles");
         let legacyBefore: unknown;
         for (const name of names) {
           if (name === "000119_review_configuration_gateway_binding") {
@@ -129,6 +129,19 @@ describe.skipIf(!enabled)(
                    (SELECT to_jsonb(p) FROM "ReviewConfigurationVersionProvider" p
                     WHERE p."id" = 'c2b-legacy-provider') AS p`)
             ).rows;
+          }
+          if (name === "000144_workspace_provider_profiles") {
+            // A configured repository of the 143 schema keeps every value.
+            await sql.query(`
+            INSERT INTO "RepositoryConnection" ("id", "workspaceId", "externalRepositoryId",
+              "owner", "name", "fullName", "defaultBranch", "visibility", "updatedAt") VALUES
+              ('c2b-pre144-repo', 'c2b-x', 'c2b-pre144-repo', 'synthetic', 'pre144',
+               'synthetic/pre144', 'main', 'private', now());
+            INSERT INTO "WorkflowProvisioning" ("id", "attemptId", "workspaceId", "repositoryId",
+              "status", "branch", "workflowPath", "actionVersion", "updatedAt") VALUES
+              ('c2b-pre144-provisioning', 'c2b-pre144-attempt', 'c2b-x', 'c2b-pre144-repo',
+               'configured', 'reviewrouter/setup', '.github/workflows/reviewrouter-review.yml',
+               'v1', now());`);
           }
           // Match the existing account PG convention: psql runs statements singly,
           // including historical CONCURRENTLY and enum migrations outside implicit transactions.
@@ -180,6 +193,42 @@ describe.skipIf(!enabled)(
                (SELECT to_jsonb(p) - 'workspaceId' - 'gatewayBindingId' - 'gatewayProfileRef'
                 FROM "ReviewConfigurationVersionProvider" p WHERE p."id" = 'c2b-legacy-provider') AS p`);
         expect(legacyAfter.rows).toEqual(legacyBefore);
+        // 000144 keeps existing rows: unknown transports, Access rights off,
+        // and the schema 1-3 projection columns only lose NOT NULL.
+        expect(
+          (
+            await sql.query(`
+            SELECT p."status", p."attemptTransport", p."installedTransport",
+                   w."providerManagementAdminOnly"
+            FROM "WorkflowProvisioning" p JOIN "Workspace" w ON w."id" = p."workspaceId"
+            WHERE p."id" = 'c2b-pre144-provisioning'`)
+          ).rows,
+        ).toEqual([
+          {
+            status: "configured",
+            attemptTransport: null,
+            installedTransport: null,
+            providerManagementAdminOnly: false,
+          },
+        ]);
+        expect(
+          (
+            await sql.query(`
+            SELECT "column_name", "is_nullable" FROM information_schema.columns
+            WHERE "table_schema" = 'public' AND "table_name" = 'ReviewConfigurationVersion'
+              AND "column_name" IN ('providerKind', 'providerAuthMode', 'model',
+                'reasoningEffort', 'failOnSeverity', 'inlineMaxComments', 'targetTokensPerBatch')
+            ORDER BY "column_name"`)
+          ).rows.map((row) => `${row.column_name}:${row.is_nullable}`),
+        ).toEqual([
+          "failOnSeverity:YES",
+          "inlineMaxComments:YES",
+          "model:YES",
+          "providerAuthMode:YES",
+          "providerKind:YES",
+          "reasoningEffort:YES",
+          "targetTokensPerBatch:YES",
+        ]);
         for (const table of [
           "ReviewConfigurationVersion",
           "ReviewConfigurationVersionProvider",

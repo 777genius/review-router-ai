@@ -275,6 +275,24 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Provider profiles add checkout-only tables, nullable columns and relaxed
+  // projection nullability. Admit the exact SQL and checkout144 before
+  // reducing to checkout143.
+  const workspaceProviderProfilesMigration = catalog.find(
+    (row) => row.migrationName === "000144_workspace_provider_profiles",
+  );
+  if (workspaceProviderProfilesMigration) {
+    if (
+      workspaceProviderProfilesMigration.checksum !==
+        "9111addbe91c566b47b7e8cc8929931e47cbdc1f8cb68c9fce655f4545b70149" ||
+      manifest(catalog) !==
+        "sha256:fd377b4126a14bba021e8dcaecf027cefa5e7863b49c5c16ea22bb0673096172"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== workspaceProviderProfilesMigration),
+    );
+  }
   // The workspace draft-review flag is a checkout-only constant-default column.
   // Admit the exact SQL and checkout143 before reducing to checkout142.
   const workspaceDraftReviewMigration = catalog.find(

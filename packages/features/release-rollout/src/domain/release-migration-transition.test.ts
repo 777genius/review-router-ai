@@ -93,7 +93,7 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps checkout143 source admission separate from historical96 and managed92 authority", () => {
+  it("keeps checkout144 source admission separate from historical96 and managed92 authority", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
     const full = names.map((migrationName) => ({
@@ -107,11 +107,18 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(143);
+    expect(full).toHaveLength(144);
     expect(manifest(full)).toBe(
+      "sha256:fd377b4126a14bba021e8dcaecf027cefa5e7863b49c5c16ea22bb0673096172",
+    );
+    const previous143 = full.filter(
+      (row) => row.migrationName !== "000144_workspace_provider_profiles",
+    );
+    expect(previous143).toHaveLength(143);
+    expect(manifest(previous143)).toBe(
       "sha256:4fe4b459218a0cc56c8638b6f6d5a33d08d09579205d612b72d2781a7a0962bf",
     );
-    const previous142 = full.filter(
+    const previous142 = previous143.filter(
       (row) => row.migrationName !== "000143_workspace_draft_review_setting",
     );
     expect(previous142).toHaveLength(142);
@@ -166,7 +173,7 @@ describe("canonical release migration transition", () => {
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
     expect(full).toEqual(readRenderManagedCheckoutInventory());
-    expect(full.slice(-35).map((row) => row.migrationName)).toEqual([
+    expect(full.slice(-36).map((row) => row.migrationName)).toEqual([
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",
       "000111_sdk_growth_source_binding",
@@ -202,6 +209,7 @@ describe("canonical release migration transition", () => {
       "000141_memory_search_projections",
       "000142_optional_gateway_reasoning",
       "000143_workspace_draft_review_setting",
+      "000144_workspace_provider_profiles",
     ]);
     const withoutProviderKey = historicalFull.filter(
       (row) =>

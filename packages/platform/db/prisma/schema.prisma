@@ -11,6 +11,8 @@ model Workspace {
   slug      String   @unique
   name      String
   reviewDraftPullRequests Boolean @default(true)
+  // Access rights: only owners and admins manage provider profiles and selections.
+  providerManagementAdminOnly Boolean @default(false)
   deletionState WorkspaceDeletionState @default(active)
   deletionRevision Int @default(1)
   deletionTombstonedAt DateTime?
@@ -52,6 +54,7 @@ model Workspace {
   providerApiKeyConnections    ProviderApiKeyConnection[]
   providerApiKeyGrants         ProviderApiKeyWorkspaceGrant[]
   deletionOperations          WorkspaceDeletionOperation[]
+  providerProfiles            WorkspaceProviderProfile[]
 }
 
 model User {
@@ -73,6 +76,7 @@ model User {
   personalWorkspaces Workspace? @relation("PersonalWorkspaceOwner")
   ownedProviderAccountConnections ProviderAccountConnection[] @relation("UserProviderAccountOwner")
   personalAccountOperations PersonalAccountOperation[]
+  createdProviderProfiles WorkspaceProviderProfile[]
 
   @@index([githubLogin])
 }
@@ -128,6 +132,7 @@ model WorkspaceAccountBinding {
 
   reviewConfigurationVersions ReviewConfigurationVersion[] @relation("PrimaryGatewayBinding")
   reviewConfigurationProviders ReviewConfigurationVersionProvider[] @relation("OrderedGatewayBinding")
+  providerProfiles WorkspaceProviderProfile[]
 
   // Active pair uniqueness is a partial SQL index in 000124. Retired IDs remain.
   @@index([workspaceId, connectionId, state])
@@ -404,6 +409,7 @@ model RepositoryConnection {
   reviewExecutionCheckpoints   ReviewExecutionCheckpoint[]
   hostedCodexBindings          HostedCodexRepositoryBinding[]
   providerApiKeyLinks          ProviderApiKeyRepositoryLink[]
+  providerProfiles             WorkspaceProviderProfile[]
 
   @@unique([provider, externalRepositoryId, sourceBaseUrl])
   @@unique([workspaceId, provider, fullName, sourceBaseUrl])
@@ -427,6 +433,7 @@ model ProviderApiKeyConnection {
 
   workspace       Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   repositoryLinks ProviderApiKeyRepositoryLink[]
+  providerProfiles WorkspaceProviderProfile[]
 
   @@unique([workspaceId, providerType])
   @@unique([id, workspaceId])
@@ -523,18 +530,19 @@ model ReviewConfigurationVersion {
   version                                 Int
   schemaVersion                           Int      @default(1)
   policyJson                              String?
-  providerKind                            String
-  providerAuthMode                        String
-  model                                   String
+  // Projection of the first provider for schema 1-3 versions only.
+  providerKind                            String?
+  providerAuthMode                        String?
+  model                                   String?
   reasoningEffort                         String?
   agenticContext                          Boolean  @default(true)
   fastMode                                Boolean  @default(false)
-  failOnSeverity                          String
-  inlineMaxComments                       Int
+  failOnSeverity                          String?
+  inlineMaxComments                       Int?
   providerLimit                           Int      @default(1)
   providerMaxParallel                     Int      @default(1)
   inlineMinAgreement                      Int      @default(1)
-  targetTokensPerBatch                    Int
+  targetTokensPerBatch                    Int?
   reviewLanguage                          String?
   investigationRecordingEnabled           Boolean  @default(false)
   investigationShadowEnabled              Boolean  @default(false)
@@ -576,6 +584,42 @@ model ReviewConfigurationVersionProvider {
   @@index([gatewayBindingId, workspaceId], map: "ReviewConfigurationVersionProvider_gateway_binding_idx")
   @@unique([configurationVersionId, order])
   @@index([configurationVersionId])
+}
+
+// A reusable workspace provider: an immutable credential source plus a model.
+// Never stores a secret. Exactly the reference of the credential kind is set
+// (SQL CHECK) and the credential source is immutable (SQL trigger, 000144).
+model WorkspaceProviderProfile {
+  id                 String                 @id @default(cuid())
+  workspaceId        String
+  // NULL is a system creator or a deleted user: only owners/admins manage it.
+  createdByUserId    String?
+  credentialKind     ProviderCredentialKind
+  authMode           String
+  gatewayBindingId   String?
+  // Captured from the binding at creation; part of the credential source.
+  gatewayProfileRef  String?
+  apiKeyConnectionId String?
+  repositoryId       String?
+  model              String
+  label              String
+  // credentialKind:credentialRef-or-authMode:normalizedModel; NULL once archived.
+  identityKey        String?
+  archivedAt         DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  workspace        Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy        User?                     @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  gatewayBinding   WorkspaceAccountBinding?  @relation(fields: [gatewayBindingId, workspaceId], references: [id, workspaceId], onDelete: NoAction, onUpdate: NoAction)
+  apiKeyConnection ProviderApiKeyConnection? @relation(fields: [apiKeyConnectionId, workspaceId], references: [id, workspaceId], onDelete: NoAction, onUpdate: NoAction)
+  repository       RepositoryConnection?     @relation(fields: [repositoryId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([workspaceId, identityKey])
+  @@index([createdByUserId])
+  @@index([gatewayBindingId, workspaceId])
+  @@index([apiKeyConnectionId, workspaceId])
+  @@index([repositoryId, workspaceId])
 }
 
 model ProviderSetupState {
@@ -3122,6 +3166,10 @@ model WorkflowProvisioning {
   pullRequestHeadSha String?
   pullRequestUrl     String?
   errorMessage       String?
+  // Credential transport of the current attempt's workflow and of the workflow
+  // last confirmed installed. NULL means unknown (rows before 000144).
+  attemptTransport   WorkflowTransport?
+  installedTransport WorkflowTransport?
   createdAt          DateTime                   @default(now())
   updatedAt          DateTime                   @updatedAt
 
@@ -3980,6 +4028,22 @@ enum WorkflowProvisioningStatus {
   setup_pr_open
   configured
   failed
+}
+
+enum WorkflowTransport {
+  gateway
+  provider_api
+  rotating
+  hosted_pool
+  ci_secrets
+}
+
+enum ProviderCredentialKind {
+  gateway_binding
+  managed_api_key
+  hosted_pool
+  repository_rotating
+  user_ci_secret
 }
 
 enum OrgRulesetProvisioningStatus {
