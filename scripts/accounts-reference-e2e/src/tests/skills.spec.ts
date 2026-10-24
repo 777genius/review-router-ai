@@ -1402,110 +1402,242 @@ test.describe("Skills real Next and PostgreSQL", () => {
     const violations: string[] = [];
     await installLoopbackOnlyNetworkGuard(page, violations);
     await useViewerSession(context);
-    // The preceding writer scenario revoked this link and left only repo002 assigned.
-    // Inventory removal/archival retains that binding, so cleanup must stay reachable.
-    await sql(
-      `UPDATE "RepositoryConnection" SET selected=false,archived=true WHERE id='rr-e2e-repo-rr-e2e-org-alpha-002'`,
-    );
-    await openLibrary(page, "rr-e2e-org-alpha");
-    await page
-      .getByRole("searchbox", { name: "Search skills" })
-      .fill(SKILLS_SHARED_ID);
-    const row = page.getByRole("row").filter({ hasText: SKILLS_SHARED_ID });
-    await expect(row).toContainText("Unavailable skill");
-    await expect(row).toContainText("1 repository");
-    await expect(row).not.toContainText("PRIVATE RENAMED AFTER REVOKE");
-    await expect(row).not.toContainText("PRIVATE DESCRIPTION");
-    await expect(page.getByText("PRIVATE BODY", { exact: false })).toHaveCount(
-      0,
-    );
-    await expect(
-      row.getByRole("button", { name: "Manage access", exact: true }),
-    ).toHaveCount(0);
-    await expect(
-      row.getByRole("link", { name: "Edit original", exact: true }),
-    ).toHaveCount(0);
-    await row
-      .getByRole("button", { name: "Remove assignments", exact: true })
-      .click();
-    const targets = page.getByRole("dialog", {
-      name: "Remove skill assignments",
-      exact: true,
+    const repositoryId = "rr-e2e-repo-rr-e2e-org-alpha-002";
+    const destinationWorkspaceId = FIXTURES.workspaces.orgAlpha;
+    const fixture = new pg.Client({
+      connectionString: process.env.ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL,
     });
-    await expect(targets.getByRole("checkbox")).toHaveCount(1);
-    await expect(
-      targets.getByText("Inactive · remove assignments only", { exact: true }),
-    ).toBeVisible();
-    await targets
-      .getByRole("checkbox", {
-        name: "Select rr-e2e-org-alpha/skills-project-002",
-        exact: true,
-      })
-      .check();
-    await targets
-      .getByRole("button", {
-        name: "Manage selected repositories (1)",
-        exact: true,
-      })
-      .click();
-    const operation = page.getByRole("dialog", {
-      name: "Remove skills from repositories",
-      exact: true,
-    });
-    await expect(
-      operation.getByRole("button", { name: "Add", exact: true }),
-    ).toBeDisabled();
-    await expect(
-      operation.getByText("Repository paths and Git skills", { exact: true }),
-    ).toHaveCount(0);
-    await expect(
-      operation.getByRole("button", { name: "Save paths", exact: true }),
-    ).toHaveCount(0);
-    await expect(
-      operation.getByRole("checkbox", {
-        name: `Select skill Unavailable skill ${SKILLS_SHARED_ID}`,
-        exact: true,
-      }),
-    ).toBeChecked();
-    await page.setViewportSize({ width: 390, height: 844 });
-    await expect(
-      operation.getByRole("button", {
-        name: "Remove selected skills",
-        exact: true,
-      }),
-    ).toBeInViewport({ ratio: 1 });
-    await operation.screenshot({
-      path: test.info().outputPath("skills-inactive-remove-mobile.png"),
-    });
-    await operation
-      .getByRole("button", { name: "Remove selected skills", exact: true })
-      .click();
-    await expect(
-      operation.getByRole("status").filter({ hasText: "1 removed" }),
-    ).toBeInViewport({ ratio: 1 });
-    expect(
-      await sql<{ count: string }>(
-        `SELECT count(*)::text FROM "ReviewSkillBinding" WHERE "workspaceId"=$1 AND "skillId"=$2`,
-        [FIXTURES.workspaces.orgAlpha, SKILLS_SHARED_ID],
-      ),
-    ).toEqual([{ count: "0" }]);
-    await operation.getByRole("button", { name: "Close", exact: true }).click();
-    await expect(row).toContainText("0 repositories");
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.screenshot({
-      path: test.info().outputPath("skills-unavailable-cleanup-desktop.png"),
-    });
-    page.once("dialog", (confirmation) => confirmation.accept());
-    await row
-      .getByRole("button", { name: "Remove from workspace", exact: true })
-      .click();
-    await expect(row).toHaveCount(0);
-    expect(
-      await sql<{ linked: boolean; originalActive: boolean }>(
-        `SELECT (l."unlinkedAt" IS NULL) AS linked,(s."deletedAt" IS NULL) AS "originalActive" FROM "ReviewSkillLink" l JOIN "ReviewSkill" s ON s.id=l."skillId" WHERE l."workspaceId"=$1 AND l."skillId"=$2`,
-        [FIXTURES.workspaces.orgAlpha, SKILLS_SHARED_ID],
-      ),
-    ).toEqual([{ linked: false, originalActive: true }]);
-    await expectNetworkViolations(violations);
+    await fixture.connect();
+    try {
+      const transaction = async (operation: () => Promise<void>) => {
+        await fixture.query("BEGIN");
+        try {
+          await operation();
+          await fixture.query("COMMIT");
+        } catch (error) {
+          await fixture.query("ROLLBACK");
+          throw error;
+        }
+      };
+      type CleanupState = {
+        grant: Record<string, unknown> | null;
+        link: Record<string, unknown> | null;
+        bindings: Record<string, unknown>[];
+        repository: { selected: boolean; archived: boolean };
+        source: {
+          skillId: string;
+          headRevisionId: string;
+          revisionIds: string[];
+          deletedAt: string | null;
+        };
+      };
+      const snapshot = async () =>
+        (
+          await fixture.query<CleanupState>(
+            `SELECT
+               (SELECT to_jsonb(g) FROM "ReviewSkillGrant" g WHERE g."skillId"=s.id AND g."destinationWorkspaceId"=$3) AS "grant",
+               (SELECT to_jsonb(l) FROM "ReviewSkillLink" l WHERE l."skillId"=s.id AND l."workspaceId"=$3) AS link,
+               (SELECT COALESCE(jsonb_agg(to_jsonb(b) ORDER BY b."repositoryConnectionId"),'[]'::jsonb) FROM "ReviewSkillBinding" b WHERE b."skillId"=s.id AND b."workspaceId"=$3) AS bindings,
+               jsonb_build_object('selected',r.selected,'archived',r.archived) AS repository,
+               jsonb_build_object('skillId',s.id,'headRevisionId',s."headRevisionId",'deletedAt',s."deletedAt",'revisionIds',(SELECT jsonb_agg(v.id ORDER BY v."revisionNumber") FROM "ReviewSkillRevision" v WHERE v."skillId"=s.id)) AS source
+             FROM "RepositoryConnection" r CROSS JOIN "ReviewSkill" s WHERE r.id=$1 AND s.id=$2`,
+            [repositoryId, SKILLS_SHARED_ID, destinationWorkspaceId],
+          )
+        ).rows[0]!;
+      const before = await snapshot();
+      const sourceContent = (
+        await fixture.query<{
+          name: string;
+          description: string;
+          instructions: string;
+        }>(
+          `SELECT v.name,v.description,v.instructions FROM "ReviewSkill" s JOIN "ReviewSkillRevision" v ON v.id=s."headRevisionId" AND v."skillId"=s.id WHERE s.id=$1`,
+          [SKILLS_SHARED_ID],
+        )
+      ).rows[0]!;
+      for (const value of Object.values(sourceContent))
+        expect(value.trim()).not.toBe("");
+      try {
+        // Establish the revoked link and sole inactive assignment independently
+        // of the writer scenario, including when this test runs through --grep.
+        await transaction(async () => {
+          await fixture.query(
+            `DELETE FROM "ReviewSkillBinding" WHERE "workspaceId"=$1 AND "skillId"=$2`,
+            [destinationWorkspaceId, SKILLS_SHARED_ID],
+          );
+          await fixture.query(
+            `INSERT INTO "ReviewSkillGrant" ("skillId","destinationWorkspaceId","grantedBy","revokedAt",version) VALUES ($1,$2,$3,CURRENT_TIMESTAMP,2)
+             ON CONFLICT ("skillId","destinationWorkspaceId") DO UPDATE SET "revokedAt"=CURRENT_TIMESTAMP,version="ReviewSkillGrant".version+1`,
+            [SKILLS_SHARED_ID, destinationWorkspaceId, FIXTURES.users.viewer],
+          );
+          await fixture.query(
+            `INSERT INTO "ReviewSkillLink" ("workspaceId","skillId","acceptedGrantVersion","acceptedBy") VALUES ($1,$2,1,$3)
+             ON CONFLICT ("workspaceId","skillId") DO UPDATE SET "acceptedGrantVersion"=1,"unlinkedAt"=NULL`,
+            [destinationWorkspaceId, SKILLS_SHARED_ID, FIXTURES.users.viewer],
+          );
+          await fixture.query(
+            `INSERT INTO "ReviewSkillBinding" ("workspaceId","repositoryConnectionId","skillId","includePaths","excludePaths") VALUES ($1,$2,$3,'["**"]','[]')`,
+            [destinationWorkspaceId, repositoryId, SKILLS_SHARED_ID],
+          );
+          await fixture.query(
+            `UPDATE "RepositoryConnection" SET selected=false,archived=true WHERE id=$1`,
+            [repositoryId],
+          );
+        });
+        await openLibrary(page, "rr-e2e-org-alpha");
+        await page
+          .getByRole("searchbox", { name: "Search skills" })
+          .fill(SKILLS_SHARED_ID);
+        const row = page.getByRole("row").filter({ hasText: SKILLS_SHARED_ID });
+        await expect(row).toContainText("Unavailable skill");
+        await expect(row).toContainText("1 repository");
+        await expect(row).not.toContainText(sourceContent.name);
+        await expect(row).not.toContainText(sourceContent.description);
+        await expect(
+          page.getByText(sourceContent.instructions, { exact: false }),
+        ).toHaveCount(0);
+        await expect(
+          row.getByRole("button", { name: "Manage access", exact: true }),
+        ).toHaveCount(0);
+        await expect(
+          row.getByRole("link", { name: "Edit original", exact: true }),
+        ).toHaveCount(0);
+        await row
+          .getByRole("button", { name: "Remove assignments", exact: true })
+          .click();
+        const targets = page.getByRole("dialog", {
+          name: "Remove skill assignments",
+          exact: true,
+        });
+        await expect(targets.getByRole("checkbox")).toHaveCount(1);
+        await expect(
+          targets.getByText("Inactive · remove assignments only", {
+            exact: true,
+          }),
+        ).toBeVisible();
+        await targets
+          .getByRole("checkbox", {
+            name: "Select rr-e2e-org-alpha/skills-project-002",
+            exact: true,
+          })
+          .check();
+        await targets
+          .getByRole("button", {
+            name: "Manage selected repositories (1)",
+            exact: true,
+          })
+          .click();
+        const operation = page.getByRole("dialog", {
+          name: "Remove skills from repositories",
+          exact: true,
+        });
+        await expect(
+          operation.getByRole("button", { name: "Add", exact: true }),
+        ).toBeDisabled();
+        await expect(
+          operation.getByText("Repository paths and Git skills", {
+            exact: true,
+          }),
+        ).toHaveCount(0);
+        await expect(
+          operation.getByRole("button", { name: "Save paths", exact: true }),
+        ).toHaveCount(0);
+        await expect(
+          operation.getByRole("checkbox", {
+            name: `Select skill Unavailable skill ${SKILLS_SHARED_ID}`,
+            exact: true,
+          }),
+        ).toBeChecked();
+        await page.setViewportSize({ width: 390, height: 844 });
+        await expect(
+          operation.getByRole("button", {
+            name: "Remove selected skills",
+            exact: true,
+          }),
+        ).toBeInViewport({ ratio: 1 });
+        await operation.screenshot({
+          path: test.info().outputPath("skills-inactive-remove-mobile.png"),
+        });
+        await operation
+          .getByRole("button", { name: "Remove selected skills", exact: true })
+          .click();
+        await expect(
+          operation.getByRole("status").filter({ hasText: "1 removed" }),
+        ).toBeInViewport({ ratio: 1 });
+        expect(
+          await sql<{ count: string }>(
+            `SELECT count(*)::text FROM "ReviewSkillBinding" WHERE "workspaceId"=$1 AND "skillId"=$2`,
+            [FIXTURES.workspaces.orgAlpha, SKILLS_SHARED_ID],
+          ),
+        ).toEqual([{ count: "0" }]);
+        await operation
+          .getByRole("button", { name: "Close", exact: true })
+          .click();
+        await expect(row).toContainText("0 repositories");
+        await page.setViewportSize({ width: 1280, height: 900 });
+        await page.screenshot({
+          path: test
+            .info()
+            .outputPath("skills-unavailable-cleanup-desktop.png"),
+        });
+        page.once("dialog", (confirmation) => confirmation.accept());
+        await row
+          .getByRole("button", { name: "Remove from workspace", exact: true })
+          .click();
+        await expect(row).toHaveCount(0);
+        expect(
+          await sql<{ linked: boolean; originalActive: boolean }>(
+            `SELECT (l."unlinkedAt" IS NULL) AS linked,(s."deletedAt" IS NULL) AS "originalActive" FROM "ReviewSkillLink" l JOIN "ReviewSkill" s ON s.id=l."skillId" WHERE l."workspaceId"=$1 AND l."skillId"=$2`,
+            [FIXTURES.workspaces.orgAlpha, SKILLS_SHARED_ID],
+          ),
+        ).toEqual([{ linked: false, originalActive: true }]);
+        await expectNetworkViolations(violations);
+      } finally {
+        await transaction(async () => {
+          await fixture.query(
+            `DELETE FROM "ReviewSkillBinding" WHERE "workspaceId"=$1 AND "skillId"=$2`,
+            [destinationWorkspaceId, SKILLS_SHARED_ID],
+          );
+          await fixture.query(
+            `DELETE FROM "ReviewSkillLink" WHERE "workspaceId"=$1 AND "skillId"=$2`,
+            [destinationWorkspaceId, SKILLS_SHARED_ID],
+          );
+          await fixture.query(
+            `DELETE FROM "ReviewSkillGrant" WHERE "destinationWorkspaceId"=$1 AND "skillId"=$2`,
+            [destinationWorkspaceId, SKILLS_SHARED_ID],
+          );
+          if (before.grant)
+            await fixture.query(
+              `INSERT INTO "ReviewSkillGrant" SELECT * FROM jsonb_populate_record(NULL::"ReviewSkillGrant",$1::jsonb)`,
+              [JSON.stringify(before.grant)],
+            );
+          if (before.link)
+            await fixture.query(
+              `INSERT INTO "ReviewSkillLink" SELECT * FROM jsonb_populate_record(NULL::"ReviewSkillLink",$1::jsonb)`,
+              [JSON.stringify(before.link)],
+            );
+          await fixture.query(
+            `INSERT INTO "ReviewSkillBinding" SELECT * FROM jsonb_populate_recordset(NULL::"ReviewSkillBinding",$1::jsonb)`,
+            [JSON.stringify(before.bindings)],
+          );
+          await fixture.query(
+            `UPDATE "RepositoryConnection" SET selected=$2,archived=$3 WHERE id=$1`,
+            [
+              repositoryId,
+              before.repository.selected,
+              before.repository.archived,
+            ],
+          );
+        });
+        const after = await snapshot();
+        await test.info().attach("skills-inactive-cleanup-state", {
+          body: JSON.stringify({ before, after }, null, 2),
+          contentType: "application/json",
+        });
+        expect(after).toEqual(before);
+      }
+    } finally {
+      await fixture.end();
+    }
   });
 });
