@@ -171,6 +171,11 @@ class FlowRun {
   }
 }
 
+/** Whether `--only` selects any flow. */
+export function visualFlowSelected(only: RegExp | null): boolean {
+  return VISUAL_FLOWS.some((flow) => !only || only.test(flow.id));
+}
+
 export async function runFlows(
   env: FlowEnvironment,
   only: RegExp | null,
@@ -759,12 +764,16 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
               )
               .first(),
           );
+          const radios = await dialog.getByRole("radio").all();
+          const enabled: string[] = [];
+          for (const radio of radios)
+            if (!(await radio.isDisabled()))
+              enabled.push((await radio.getAttribute("aria-labelledby")) ?? "");
+          if (radios.length === 0) throw new Error("no choices shown");
           return expectEqual(
-            await dialog
-              .getByRole("radio", { name: /Add a new provider/ })
-              .isDisabled(),
-            true,
-            "Add a new provider disabled",
+            enabled.length,
+            0,
+            `enabled choices of ${radios.length}`,
           );
         },
       );

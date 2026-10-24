@@ -43,7 +43,7 @@ import {
   type VisualRunFlags,
   type VisualUserKey,
 } from "./fixture-contract.js";
-import { runFlows, type FlowRecord } from "./flows.js";
+import { runFlows, visualFlowSelected, type FlowRecord } from "./flows.js";
 import {
   startGatewayCatalogFixture,
   type GatewayCatalogFixture,
@@ -79,7 +79,12 @@ async function main(): Promise<void> {
         (scenario) => !options.only || options.only.test(scenario.id),
       )
     : [];
-  if (scenarios.length === 0 && !options.flows)
+  // A run that would capture and check nothing is a mistake, such as a
+  // misspelled `--only`.
+  if (
+    scenarios.length === 0 &&
+    !(options.flows && visualFlowSelected(options.only))
+  )
     throw new Error("provider_visual_no_scenario_matches");
 
   await migrate(options.databaseUrl, join(options.outDir, "migrate.log"));
