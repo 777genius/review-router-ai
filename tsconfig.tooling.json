@@ -14,6 +14,7 @@
     "scripts/memory-foundation/**/*.ts",
     "scripts/memory-e2e/**/*.ts",
     "scripts/migrate-provider-profiles.ts",
+    "scripts/provider-setup-visual/**/*.ts",
     "scripts/migrate-provider-profiles.postgres.test.ts"
   ],
   "exclude": ["node_modules", "dist", ".next"]
