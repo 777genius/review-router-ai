@@ -267,13 +267,21 @@ No new package.
   the required and installed requirement, never stored as a flag; while a
   hosted pool binding exists the hosted and rotating workflows count as one
   family, because the policy and the workflow switch at different moments.
-- Concurrency: profile edit, archive and set-default take the workspace-exclusive
-  scope guard, then `Workspace FOR UPDATE`, then `lockPersonalWriteActor` for the
-  actor and donors, then the binding locks of the affected bindings
+- Concurrency: a profile model edit and an archive take the workspace-exclusive
+  scope guard (repository writers hold the workspace guard shared, so this
+  serializes them with every selection write), then `Workspace FOR NO KEY
+UPDATE` (it conflicts with admission's `FOR UPDATE` and with every other
+  provider write, including the Access rights toggle, but not with foreign-key
+  checks of inserts), then `lockPersonalWriteActor` for the actor and donors,
+  then the binding locks of the affected bindings
   (`lockProviderAccountBindingUses`), then the `ReviewConfiguration` rows, then
   the profile `FOR UPDATE`; this is the admission order extended with the
   documented Member, Source, Binding order, so they are serialized against
-  admission and saves without new locks on those paths. Scope guards cannot be
+  admission and saves without new locks on those paths. A label edit changes
+  no configuration and takes only the Workspace lock. Selection writes (set
+  default, assign, clear, form saves) take their target guards and the
+  Workspace lock and end with `FOR SHARE` on the selected profiles, so a
+  concurrent archive either waits or forces a serialization retry. Scope guards cannot be
   extended inside a transaction (`current_scope_guard_plan_extension`): a
   transaction that may write the workspace document and repository documents
   (first attach when the workspace head is absent, the S4 script) declares
@@ -447,9 +455,12 @@ No new migration.
   unconverted v3 head makes the new app fail closed with `resave_required`. Order
   for each environment (developer database, hosted beta, any other): apply
   migrations, stop writers, run the script, start the new app. Take a `pg_dump`
-  first. No dry-run mode, digest-equivalence check or per-workspace rollback. The
-  script is never run against a production database without the owner's explicit
-  instruction.
+  first. `--dry-run` runs the same per-workspace transactions and rolls them
+  back; a converted target whose schema 4 configuration differs from its
+  schema 3 one is reported as a warning, never repaired. A workspace whose
+  transaction fails is rolled back and reported; there is no other rollback.
+  The script is never run against a production database without the owner's
+  explicit instruction.
 
 Done when: stored-document checks use the stored constant (4) and runtime checks
 use `REVIEW_POLICY_SCHEMA_VERSION` (3), with no literal `schemaVersion !== [34]`
