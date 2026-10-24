@@ -664,6 +664,32 @@ catalog capture. Its trust root is pending until fresh authenticated captures
 and independent review prove the new catalog. Production remains HOLD; old
 capture digests must never be relabeled as evidence for the new manifest.
 
+### Provider registry cutover (000144 through 000145)
+
+`000144_workspace_provider_profiles` adds provider profiles and schema 4
+selections; `000145_drop_review_configuration_projection` then drops the
+schema 1-3 projection columns of `ReviewConfigurationVersion` and the
+`ReviewConfigurationVersionProvider` table. Binaries built before 000145 still
+name those columns in every review configuration query, so they fail on the new
+schema, and the dropped data cannot be recreated by a later migration. This is
+a stopped-fleet upgrade, in this order, for every environment (developer
+database, hosted beta, self-hosted, any other):
+
+1. Take a `pg_dump` of the database and keep it until the new app is verified.
+2. Stop every old web, API and worker process before `migrate deploy`, not just
+   before the script. A deploy that migrates while the old fleet still serves
+   (a pre-deploy migration hook, a compose `migrate` service started before the
+   old `web`/`api`/`worker` containers are stopped) is not allowed here.
+3. Run `migrate deploy`, then `pnpm provider-profiles:migrate --dry-run` and,
+   after reading its report, `pnpm provider-profiles:migrate`. A schema 3 document the
+   script leaves unconverted makes the new app fail closed with
+   `resave_required` for that workspace or repository.
+4. Start the new web, API and worker code.
+
+Rolling back to an old binary after 000145 is forbidden. Restore the
+`pg_dump` with the fleet stopped and start the old binaries against it, or fix
+forward.
+
 ### Provider-scope concurrency bridge
 
 Migration `000079_remove_account_wide_provider_lane_serialization` installs a

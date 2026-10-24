@@ -91,11 +91,13 @@ and serves the Account Gateway profile catalog from a loopback fixture
 (`gateway-catalog-fixture.ts`), so a Gateway selection validates; its flow
 runs only in that variant:
 
-````bash
+```bash
 pnpm provider-setup:visual --out "$PWD/../out/<run>-no-sharing" --port 35712 \
   --no-personal-sharing --flows-only --only '^flow-member-gateway-attach$'
-``` The database guard accepts only a
-loopback URL whose database is `reviewrouter_provider_setup_visual`. Each run
+```
+
+The database guard accepts only a loopback URL whose database is
+`reviewrouter_provider_setup_visual`. Each run
 migrates it and, before every shot, removes the fixture rows by their fixed
 IDs and seeds them again, so nothing a shot, a background refresh or an
 earlier run changed leaks into the next shot. `pnpm provider-setup:visual:seed
@@ -141,7 +143,7 @@ and checks both the page and the stored result. New data states go into
 ```bash
 sudo -n docker rm -f TEST-rr-provider-s7-pg   # the PostgreSQL container and its data
 rm -rf out/<run>                              # screenshots and logs of a run
-````
+```
 
 Ctrl-C or SIGTERM stops a run together with its Next process group (checked
 on the worker). After a `kill -9` of the runner, stop the leftover server by

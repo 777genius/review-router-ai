@@ -564,9 +564,12 @@ model; the credential is shown as unchangeable), Make default (the shared
 dialog opened on that provider), Remove as default, Remove (disabled while the
 default or a repository uses it; the write's refusal names them) and, for a
 managed key, Replace key (owner/admin, through the existing apply flow, which
-is the consumer of `GET /api/dashboard/provider-keys`). An action the viewer
-cannot take stays visible and disabled with its reason; a reason every row
-shares is stated once above the list. "Add provider" is the shared dialog in
+is the consumer of `GET /api/dashboard/provider-keys`). An action refused for a
+reason specific to its row (in use, a hosted pool, a personal account) stays
+visible and disabled with that reason; an action refused for a reason the
+list states once above it (owner/admin only, Access rights, only the person
+who added it) is left out of the rows (changed in S7 after the visual review;
+the owner kept it). "Add provider" is the shared dialog in
 an `add` mode: it creates the profile and can also make it the default,
 preselected only while there is none. Editing and removing pass a signed-in
 gate instead of the admin gate so a member who added a provider can change
@@ -630,14 +633,25 @@ list leaves out actions refused for a reason it states once; an opened
 repository shows its provider line once; plain-language step 3; read-only Other
 without save buttons; the Model badge no longer widens phones. Independent
 review findings closed in S7: the profile gate runs before rate limits,
-entitlements and network checks; selection writes replace retired documents;
-Gateway validation reads the deployment catalog without the owner/admin
-Accounts context; the dialog never selects a hosted pool; managed key saves
-are audited and refused while changes are off; GitHub permission checks of a
-bulk view are bounded and the Gateway catalog is read once per write. The
-hosted pool canary resolves the effective configuration, and migration 000145
-drops the schema 1-3 projection columns and `ReviewConfigurationVersionProvider`
-(checkout-only; registration as for 000144).
+entitlements and network checks; selection writes replace a retired document
+of their own scope with an audit event, but a repository choice never replaces
+a retired workspace document (an owner or admin replaces it by choosing a
+default, and the repository line says so); Gateway validation reads the
+deployment catalog without the owner/admin Accounts context; the dialog never
+selects a hosted pool; managed key saves are audited and refused while changes
+are off, and an audit failure after a saved key is logged instead of failing
+it; GitHub permission checks of a bulk view are bounded and the Gateway catalog
+is read once per write. After the second review: Access rights, the hosted pool
+refusal and the creator check of a model change run before quotas, GitHub and
+the catalog; a bounded parallel map stops starting items after the first
+failure; the one-time script retries a Serializable workspace pass longer, with
+a random pause, because other workspaces' writes fail it spuriously. The hosted
+pool canary resolves the effective configuration, and migration 000145 drops
+the schema 1-3 projection columns and `ReviewConfigurationVersionProvider` and
+keeps the format check of the remaining Gateway reference columns
+(checkout-only; registration as for 000144). Release order (stopped fleet,
+`pg_dump` first, no old-binary rollback): Database Release Rule in
+[environments and release management](../operations/07-environments-and-release-management.md).
 
 Prepared ahead of S5/S6: (b) and (c) are a separate seed and runner rather than
 an extension of the accounts-reference harness, see
