@@ -19,7 +19,6 @@ import {
   repositorySetupStepPillClassName,
   type SetupStep,
 } from "./repository-setup-optimistic-status";
-import { RepositoryActionSelectionCheckbox } from "./gateway-repository-batch-controls";
 import {
   RepositoryNameLink,
   RepositoryStarsBadge,
@@ -330,16 +329,13 @@ export function RepositoryLiveSearch({
               className={
                 visible
                   ? [
-                      "grid grid-cols-[2.75rem_minmax(0,1fr)] items-start",
+                      "grid items-start",
                       "border-t border-cyan-200/10 transition-colors",
                       stripeClass,
                     ].join(" ")
                   : "hidden"
               }
             >
-              <div className="flex justify-center pt-5">
-                <RepositoryActionSelectionCheckbox repositoryId={id} />
-              </div>
               <div className="min-w-0">
                 {richRow ??
                   (item ? (
