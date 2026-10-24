@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { mapWithConcurrency } from "@reviewrouter/shared";
 import {
   managedApiKeyProviderTypes,
   parseStoredReviewPolicy,
@@ -25,6 +26,9 @@ import {
   dashboardProviderActor,
   dashboardProviderProfiles,
 } from "./dashboard-provider-selections";
+
+/** GitHub permission checks one dialog view runs at once. */
+const GITHUB_PERMISSION_CHECK_CONCURRENCY = 5;
 
 export class ProviderSetupViewError extends Error {
   constructor(
@@ -116,15 +120,16 @@ export async function loadProviderSetupView(input: {
   if (target.kind === "workspace" && facts.actor.role === null)
     throw new ProviderSetupViewError("provider_setup_forbidden");
 
+  // A bulk view checks up to 100 repositories on GitHub, a few at a time.
   const capabilities = new Map<string, ProviderRepositoryCapability | null>(
-    await Promise.all(
-      repositories.map(
-        async (repository) =>
-          [
-            repository.id,
-            admin ? "direct_config" : await githubCapability(actor, repository),
-          ] as const,
-      ),
+    await mapWithConcurrency(
+      repositories,
+      GITHUB_PERMISSION_CHECK_CONCURRENCY,
+      async (repository) =>
+        [
+          repository.id,
+          admin ? "direct_config" : await githubCapability(actor, repository),
+        ] as const,
     ),
   );
   if (

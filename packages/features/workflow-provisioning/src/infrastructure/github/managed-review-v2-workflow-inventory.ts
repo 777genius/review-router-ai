@@ -1,4 +1,7 @@
-import { reviewRouterApiUrlsMatch } from "@reviewrouter/shared";
+import {
+  mapWithConcurrency,
+  reviewRouterApiUrlsMatch,
+} from "@reviewrouter/shared";
 import { App } from "@octokit/app";
 import { request as githubRequest } from "@octokit/request";
 import { createHash } from "node:crypto";
@@ -684,26 +687,6 @@ export class ManagedReviewV2WorkflowInventory {
   }
 }
 
-async function mapWithConcurrency<T, R>(
-  values: readonly T[],
-  limit: number,
-  mapper: (value: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(values.length);
-  let nextIndex = 0;
-  const workers = Array.from(
-    { length: Math.min(limit, values.length) },
-    async () => {
-      while (nextIndex < values.length) {
-        const index = nextIndex;
-        nextIndex += 1;
-        results[index] = await mapper(values[index]!, index);
-      }
-    },
-  );
-  await Promise.all(workers);
-  return results;
-}
 
 function decodeRepositoryDefaultBranch(
   data: unknown,

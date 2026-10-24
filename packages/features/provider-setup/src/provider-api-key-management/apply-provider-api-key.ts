@@ -1,4 +1,5 @@
 import { encryptApiKeyForGitHubSecret } from "@reviewrouter/features-codex-oauth-rotating";
+import { mapWithConcurrency } from "@reviewrouter/shared";
 import {
   isProviderApiKeySecretPutOutcomeUnknownError,
   providerApiKeySecretName,
@@ -358,24 +359,3 @@ function isRateLimitError(error: unknown, status: number | null): boolean {
   return headers?.["x-ratelimit-remaining"] === "0";
 }
 
-async function mapWithConcurrency<Input, Output>(
-  values: readonly Input[],
-  concurrency: number,
-  mapper: (value: Input) => Promise<Output>,
-): Promise<Output[]> {
-  const output = new Array<Output>(values.length);
-  let nextIndex = 0;
-  await Promise.all(
-    Array.from(
-      { length: Math.min(concurrency, Math.max(values.length, 1)) },
-      async () => {
-        while (nextIndex < values.length) {
-          const currentIndex = nextIndex++;
-          const value = values[currentIndex];
-          if (value !== undefined) output[currentIndex] = await mapper(value);
-        }
-      },
-    ),
-  );
-  return output;
-}

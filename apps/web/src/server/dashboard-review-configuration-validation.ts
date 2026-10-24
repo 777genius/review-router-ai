@@ -32,6 +32,10 @@ export async function validateDashboardEffectiveConfiguration(input: {
   /** Null validates the workspace default. */
   readonly repository: DashboardValidatedRepository | null;
   readonly config: ReviewConfiguration;
+  /** The Gateway catalog; a caller validating many scopes reads it once. */
+  readonly loadGatewayProfiles?: () => ReturnType<
+    typeof loadGatewayReviewProfiles
+  >;
 }): Promise<Readonly<{ gatewayCatalogChecked: boolean }>> {
   await assertDashboardContextSelectionAllowed(
     input.workspaceId,
@@ -49,7 +53,8 @@ export async function validateDashboardEffectiveConfiguration(input: {
   return {
     gatewayCatalogChecked: await assertGatewayReviewConfigCatalogAllowed(
       input.config,
-      () => loadGatewayReviewProfiles(input.workspaceId),
+      input.loadGatewayProfiles ??
+        (() => loadGatewayReviewProfiles(input.workspaceId)),
     ),
   };
 }
@@ -68,6 +73,10 @@ export function dashboardSelectionValidator(input: {
     >[0]["target"],
   ) => Promise<void>;
 }): EffectiveReviewConfigurationValidatorPort {
+  // One write may validate many repositories: read the catalog once.
+  let catalog: ReturnType<typeof loadGatewayReviewProfiles> | null = null;
+  const loadGatewayProfiles = () =>
+    (catalog ??= loadGatewayReviewProfiles(input.workspaceId));
   return {
     async validate({ target, config }) {
       const repository =
@@ -80,6 +89,7 @@ export function dashboardSelectionValidator(input: {
           workspaceId: input.workspaceId,
           repository,
           config,
+          loadGatewayProfiles,
         });
       if (gatewayCatalogChecked) await input.afterGatewayCatalogCheck?.(target);
     },
