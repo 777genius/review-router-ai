@@ -30,7 +30,7 @@ describe("Other workspace review settings", () => {
     expect(new FormData(form).get("reviewDraftPullRequests")).toBeNull();
   });
 
-  it("disables the setting and save for a non-admin", () => {
+  it("shows a non-admin the settings disabled, without a save button", () => {
     render(
       <WorkspaceOtherSettings
         workspaceId="workspace-selected"
@@ -41,13 +41,7 @@ describe("Other workspace review settings", () => {
     );
     for (const checkbox of screen.getAllByRole("checkbox"))
       expect((checkbox as HTMLInputElement).disabled).toBe(true);
-    expect(
-      (
-        screen.getByRole("button", {
-          name: "Save settings",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
+    expect(screen.queryByRole("button", { name: "Save settings" })).toBeNull();
   });
 });
 
@@ -98,17 +92,14 @@ describe("Other -> Access rights", () => {
     }) as HTMLInputElement;
     expect(toggle.checked).toBe(true);
     expect(toggle.disabled).toBe(true);
+    // The reason is stated once for every setting of the page.
     expect(
-      within(section).getByText(
+      screen.getAllByText(
         "Only workspace owners and admins can change these settings.",
       ),
-    ).toBeTruthy();
+    ).toHaveLength(1);
     expect(
-      (
-        within(section).getByRole("button", {
-          name: "Save access rights",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
+      within(section).queryByRole("button", { name: "Save access rights" }),
+    ).toBeNull();
   });
 });

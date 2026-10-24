@@ -560,7 +560,7 @@ function buildSetupSteps({
               ? "Verify the exact activated namespace."
               : gatewayProviderSetup
                 ? "Choose an active workspace account and model. Credentials stay on the server."
-                : "Seed provider access."
+                : "Add the credential the provider needs."
             : providerSetupBeforeWorkflow
               ? "Return after merge to verify activation."
               : "Available after merge.",

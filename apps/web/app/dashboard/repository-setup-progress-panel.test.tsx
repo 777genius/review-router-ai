@@ -268,9 +268,9 @@ describe("RepositorySetupProgressPanel", () => {
     expect(screen.getByText("Provider for 777genius/example")).toBeTruthy();
     expect(
       screen
-        .getByRole("tab", { name: "2. Add secret" })
-        .getAttribute("aria-selected"),
-    ).toBe("true");
+        .getByRole("button", { name: "2. Add secret" })
+        .getAttribute("aria-current"),
+    ).toBe("step");
     expect(screen.queryByText(/Connect model credentials/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "I added the secret" }));
 

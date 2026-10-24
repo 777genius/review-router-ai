@@ -127,7 +127,7 @@ export function providerLineCopy(
       title: "Workspace settings need to be saved again",
       short: "Settings need saving",
       detail:
-        "They use a retired format, so repositories that inherit them are stopped. Choose a default provider and save the settings below.",
+        "They use a retired format, so repositories that follow them are stopped. Choosing a default provider replaces them with the built-in settings.",
       action: "Choose default provider",
       attention: true,
     };

@@ -17,6 +17,11 @@ import {
   ProviderSetupDialog,
   type ProviderSetupDialogProps,
 } from "./provider-setup-dialog";
+import {
+  BulkProviderSetupAction,
+  RepositorySelectionCheckbox,
+  RepositorySelectionProvider,
+} from "./repository-selection";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
@@ -182,10 +187,10 @@ describe("ProviderSetupDialog", () => {
     });
     // Claude Code needs its secret next: the dialog moves to that step.
     expect(
-      (await screen.findByRole("tab", { name: "2. Add secret" })).getAttribute(
-        "aria-selected",
-      ),
-    ).toBe("true");
+      (
+        await screen.findByRole("button", { name: "2. Add secret" })
+      ).getAttribute("aria-current"),
+    ).toBe("step");
   });
 
   it("returns a repository with its own provider to the workspace default", async () => {
@@ -271,5 +276,81 @@ describe("ProviderSetupDialog", () => {
         "You need maintain or admin access to this repository on GitHub.",
       ),
     ).toBeTruthy();
+  });
+
+  it("keeps the bulk target and its results until the dialog closes, then clears the selection", async () => {
+    view = {
+      ...view,
+      repositories: ["repo_1", "repo_2"].map((id) => ({
+        id,
+        fullName: `acme/${id}`,
+        source: "workspace" as const,
+        selection: null,
+        useDefault: { allowed: true as const },
+      })),
+    };
+    vi.mocked(saveProviderSetupAction).mockResolvedValueOnce({
+      status: "saved",
+      results: ["repo_1", "repo_2"].map((id) => ({
+        repositoryId: id,
+        fullName: `acme/${id}`,
+        status: "applied" as const,
+      })),
+    });
+    const repositories = ["repo_1", "repo_2"].map((id) => ({
+      id,
+      fullName: `acme/${id}`,
+      eligible: true,
+    }));
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RepositorySelectionProvider
+          workspaceId="workspace_1"
+          repositories={repositories}
+          limit={100}
+        >
+          <BulkProviderSetupAction
+            workspaceId="workspace_1"
+            mutationsEnabled
+            modelOptions={[]}
+            gatewayAccounts={undefined}
+            agentProfileOptions={[]}
+          />
+          {repositories.map((repository) => (
+            <RepositorySelectionCheckbox
+              key={repository.id}
+              repositoryId={repository.id}
+            />
+          ))}
+        </RepositorySelectionProvider>
+      </QueryClientProvider>,
+    );
+    for (const repository of repositories)
+      fireEvent.click(
+        screen.getByRole("checkbox", { name: `Select ${repository.fullName}` }),
+      );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Configure providers" }),
+    );
+    await choose("Second Claude");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use for 2 repositories" }),
+    );
+    expect(
+      await screen.findByText(/The provider is set for all 2 repositories/),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Provider for 2 repositories" }),
+    ).toBeTruthy();
+    expect(screen.getByText("2 selected")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(
+      await screen.findByText(
+        "Select repositories to change their provider together.",
+      ),
+    ).toBeTruthy();
+    // Every read named the opened repositories, never an emptied selection.
+    for (const [url] of vi.mocked(fetch).mock.calls)
+      expect(String(url)).toContain("repository=repo_1&repository=repo_2");
   });
 });

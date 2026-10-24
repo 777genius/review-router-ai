@@ -14,7 +14,7 @@ import {
   type ProviderListFacts,
 } from "../../../src/features/provider-setup/provider-list-model";
 import { updateProviderProfileAction } from "../provider-setup-actions";
-import { ProviderList } from "./provider-list";
+import { ProviderList, profileActionErrorText } from "./provider-list";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
@@ -117,18 +117,18 @@ afterEach(() => {
 });
 
 describe("Providers list", () => {
-  it("shows a member the actions they cannot take as disabled, each with its reason", () => {
+  it("explains once what a member cannot do and keeps only row-specific refusals on the rows", () => {
     renderList();
     const team = rowOf("Team ChatGPT");
     expect(within(team).getByText("Default")).toBeTruthy();
-    expect(button(team, "Edit").disabled).toBe(true);
-    expect(button(team, "Remove as default").disabled).toBe(true);
+    // Refused for a reason stated above the list: left out of the row.
+    expect(within(team).queryByRole("button", { name: "Edit" })).toBeNull();
     expect(
-      within(team).getByText(
-        "Only the person who added this provider, or an owner or admin, can change it.",
-      ),
-    ).toBeTruthy();
-    // A reason every row shares is stated once, above the list.
+      within(team).queryByRole("button", { name: "Remove as default" }),
+    ).toBeNull();
+    expect(
+      screen.getAllByText("You can edit or remove the providers you added."),
+    ).toHaveLength(1);
     expect(
       screen.getAllByText(
         "Only workspace owners and admins set the default and replace saved keys.",
@@ -138,6 +138,7 @@ describe("Providers list", () => {
 
     const mine = rowOf("My Claude");
     expect(button(mine, "Edit").disabled).toBe(false);
+    // A refusal of this row only stays visible with its reason.
     expect(button(mine, "Remove").disabled).toBe(true);
     expect(
       within(mine).getByText(
@@ -162,8 +163,8 @@ describe("Providers list", () => {
       },
     });
     const mine = rowOf("My Claude");
-    expect(button(mine, "Edit").disabled).toBe(true);
-    expect(button(mine, "Remove").disabled).toBe(true);
+    expect(within(mine).queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(within(mine).queryByRole("button", { name: "Remove" })).toBeNull();
     expect(
       screen.getAllByText(
         "Only workspace owners and admins can manage providers.",
@@ -205,5 +206,17 @@ describe("Providers list", () => {
         "The new model does not support the review depth or fast mode used by acme/web. Change their settings first, or keep the current model.",
       ),
     ).toBeTruthy();
+  });
+
+  it("names what still uses a provider without changing repository names", () => {
+    expect(
+      profileActionErrorText({
+        status: "error",
+        error: "provider_profile_in_use",
+        blocking: { workspaceDefault: true, repositories: ["acme/web"] },
+      }),
+    ).toBe(
+      "This provider is still the workspace default and used by acme/web. Choose another provider there first.",
+    );
   });
 });

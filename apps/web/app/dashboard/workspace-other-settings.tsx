@@ -31,6 +31,12 @@ export function WorkspaceOtherSettings({
     : "Changes are turned off for this dashboard.";
   return (
     <div className="grid">
+      {/* A read-only viewer is told once why, instead of under each setting. */}
+      {!canEdit ? (
+        <p role="status" className="pt-2 text-sm text-slate-400">
+          {readOnlyText}
+        </p>
+      ) : null}
       <OtherSettingsForm
         title="Reviews"
         formKey={`${workspaceId}:drafts:${reviewDraftPullRequests}`}
@@ -38,7 +44,6 @@ export function WorkspaceOtherSettings({
         action={saveWorkspaceOtherSettingsClientAction}
         submitLabel="Save settings"
         canEdit={canEdit}
-        readOnlyText={readOnlyText}
       >
         <SettingCheckbox
           name="reviewDraftPullRequests"
@@ -55,7 +60,6 @@ export function WorkspaceOtherSettings({
         action={saveWorkspaceAccessRightsClientAction}
         submitLabel="Save access rights"
         canEdit={canEdit}
-        readOnlyText={readOnlyText}
       >
         <SettingCheckbox
           name="providerManagementAdminOnly"
@@ -76,7 +80,6 @@ function OtherSettingsForm({
   action,
   submitLabel,
   canEdit,
-  readOnlyText,
   children,
 }: {
   readonly title: string;
@@ -85,7 +88,6 @@ function OtherSettingsForm({
   readonly action: typeof saveWorkspaceOtherSettingsClientAction;
   readonly submitLabel: string;
   readonly canEdit: boolean;
-  readonly readOnlyText: string;
   readonly children: ReactNode;
 }): React.ReactElement {
   return (
@@ -106,16 +108,14 @@ function OtherSettingsForm({
       >
         <input type="hidden" name="workspaceId" value={workspaceId} />
         {children}
-        {!canEdit ? (
-          <p className="text-sm text-slate-400">{readOnlyText}</p>
+        {canEdit ? (
+          <div>
+            <FormSubmitButton
+              idleLabel={submitLabel}
+              pendingLabel="Saving..."
+            />
+          </div>
         ) : null}
-        <div>
-          <FormSubmitButton
-            idleLabel={submitLabel}
-            pendingLabel="Saving..."
-            disabled={!canEdit}
-          />
-        </div>
       </DashboardActionForm>
     </section>
   );

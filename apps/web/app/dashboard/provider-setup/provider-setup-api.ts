@@ -14,15 +14,6 @@ import {
 } from "@reviewrouter/features-review-config/workspace-provider-profile";
 import type { ProviderSetupView } from "../../../src/features/provider-setup/provider-setup-model";
 import { checkProviderRepositorySecretClientAction } from "../actions";
-import {
-  archiveProviderProfileAction,
-  clearWorkspaceDefaultProviderAction,
-  createProviderProfileAction,
-  inheritWorkspaceDefaultProviderAction,
-  saveProviderSetupAction,
-  updateProviderProfileAction,
-} from "../provider-setup-actions";
-
 /**
  * Client adapter of the provider dialog: typed query keys, read functions and
  * the mutations it calls. Reads go through React Query; writes are server
@@ -121,31 +112,18 @@ export function useProviderSecretStatus(input: {
   });
 }
 
-export const saveProviderSetup = saveProviderSetupAction;
-export const inheritWorkspaceDefaultProvider =
-  inheritWorkspaceDefaultProviderAction;
-
-/** Writes of the Providers list; each one decides again under its locks. */
-export function createProviderProfile(
-  request: Parameters<typeof createProviderProfileAction>[0],
-) {
-  return createProviderProfileAction(request);
-}
-export function updateProviderProfile(
-  request: Parameters<typeof updateProviderProfileAction>[0],
-) {
-  return updateProviderProfileAction(request);
-}
-export function archiveProviderProfile(
-  request: Parameters<typeof archiveProviderProfileAction>[0],
-) {
-  return archiveProviderProfileAction(request);
-}
-export function clearWorkspaceDefaultProvider(
-  request: Parameters<typeof clearWorkspaceDefaultProviderAction>[0],
-) {
-  return clearWorkspaceDefaultProviderAction(request);
-}
+/**
+ * The dialog's and the Providers list's writes: server actions, each deciding
+ * again under its own locks.
+ */
+export {
+  archiveProviderProfileAction as archiveProviderProfile,
+  clearWorkspaceDefaultProviderAction as clearWorkspaceDefaultProvider,
+  createProviderProfileAction as createProviderProfile,
+  inheritWorkspaceDefaultProviderAction as inheritWorkspaceDefaultProvider,
+  saveProviderSetupAction as saveProviderSetup,
+  updateProviderProfileAction as updateProviderProfile,
+} from "../provider-setup-actions";
 
 export type ManagedProviderKeyState = Readonly<{
   connected: boolean;

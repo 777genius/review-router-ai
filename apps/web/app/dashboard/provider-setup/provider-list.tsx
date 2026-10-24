@@ -25,6 +25,7 @@ import {
   providerListWideReasons,
   providerUsageText,
   type ProviderListDecision,
+  type ProviderListDenialReason,
   type ProviderListRow,
   type ProviderListUsage,
   type ProviderListView,
@@ -67,6 +68,26 @@ const changesOff: ProviderListDecision = {
 };
 
 /**
+ * Reasons stated once above the list instead of on every row; an action
+ * refused for one of them is left out of its row rather than shown disabled
+ * again and again.
+ */
+const listExplainedReasons: ReadonlySet<ProviderListDenialReason> = new Set([
+  ...providerListWideReasons,
+  "profile_creator_required",
+]);
+
+/** Whether a row shows the action: allowed, or refused for its own reason. */
+function shown(
+  decision: ProviderListDecision | null,
+): decision is ProviderListDecision {
+  return (
+    decision !== null &&
+    (decision.allowed || !listExplainedReasons.has(decision.reason))
+  );
+}
+
+/**
  * The workspace's providers: one row per credential and model, the default
  * first, with what uses each and who added it. Every action is decided on the
  * server by the provider management policy; one the viewer cannot take stays
@@ -99,9 +120,9 @@ export function ProviderList(props: ProviderListProps): React.ReactElement {
               : `${view.rows.length} ${view.rows.length === 1 ? "provider" : "providers"}`}
           </p>
           <p className="max-w-2xl text-sm leading-6 text-slate-400">
-            A provider is a credential and a model. The default reviews every
-            repository without a provider of its own; a repository can choose
-            any provider here from its row in Repositories.
+            The default reviews every repository without a provider of its own;
+            a repository can choose any provider here from its row in
+            Repositories.
           </p>
           {view.rows.length > 0 && !view.hasDefault ? (
             <p className="text-xs leading-5 text-amber-100/85">
@@ -131,6 +152,13 @@ export function ProviderList(props: ProviderListProps): React.ReactElement {
             <p className="text-xs leading-5 text-slate-400">
               Only workspace owners and admins set the default and replace saved
               keys.
+            </p>
+          ) : null}
+          {mutationsEnabled &&
+          !(view.accessRightsAdminOnly && !view.viewerIsAdmin) &&
+          wideReasons.has("profile_creator_required") ? (
+            <p className="text-xs leading-5 text-slate-400">
+              You can edit or remove the providers you added.
             </p>
           ) : null}
         </div>
@@ -203,12 +231,12 @@ function ProviderListItem({
         remove: changesOff,
         replaceKey: row.actions.replaceKey && changesOff,
       };
-  // Reasons shared by every row are stated once above the list.
+  // Reasons the list states once are not repeated on the row.
   const reasons = mutationsEnabled
     ? [
         ...new Set(
           rowDecisions(row).flatMap((decision) =>
-            !decision.allowed && !providerListWideReasons.has(decision.reason)
+            !decision.allowed && !listExplainedReasons.has(decision.reason)
               ? [providerListDenialText(decision.reason)]
               : [],
           ),
@@ -239,7 +267,7 @@ function ProviderListItem({
           </p>
           <p className="min-w-0 break-words text-xs leading-5 text-slate-300">
             {providerSourceText(row)} ·{" "}
-            <span className="whitespace-nowrap font-mono text-cyan-100">
+            <span className="inline-block max-w-full align-bottom font-mono text-cyan-100 [overflow-wrap:anywhere]">
               {row.model}
             </span>
           </p>
@@ -250,12 +278,14 @@ function ProviderListItem({
       </div>
       <div className="grid gap-2 lg:justify-items-end">
         <div className="flex flex-wrap gap-2 lg:justify-end">
-          <ProviderProfileEditDialog
-            row={row}
-            dialog={dialog}
-            decision={actions.edit}
-          />
-          {actions.makeDefault ? (
+          {shown(actions.edit) ? (
+            <ProviderProfileEditDialog
+              row={row}
+              dialog={dialog}
+              decision={actions.edit}
+            />
+          ) : null}
+          {shown(actions.makeDefault) ? (
             <ProviderSetupDialog
               {...dialog}
               target={{ kind: "workspace" }}
@@ -267,7 +297,7 @@ function ProviderListItem({
               triggerDisabled={!actions.makeDefault.allowed}
             />
           ) : null}
-          {actions.removeDefault ? (
+          {shown(actions.removeDefault) ? (
             <ConfirmActionDialog
               triggerLabel="Remove as default"
               decision={actions.removeDefault}
@@ -282,28 +312,30 @@ function ProviderListItem({
               }
             />
           ) : null}
-          {managedAuthMode && actions.replaceKey ? (
+          {managedAuthMode && shown(actions.replaceKey) ? (
             <ManagedKeyRotationDialog
               workspaceId={dialog.workspaceId}
               authMode={managedAuthMode}
               decision={actions.replaceKey}
             />
           ) : null}
-          <ConfirmActionDialog
-            triggerLabel="Remove"
-            tone="danger"
-            decision={actions.remove}
-            title={`Remove ${row.label}?`}
-            body={`It leaves this workspace's providers, so repositories can no longer choose it. ${credentialKeptText(row)}`}
-            confirmLabel="Remove provider"
-            workspaceId={dialog.workspaceId}
-            run={() =>
-              archiveProviderProfile({
-                workspaceId: dialog.workspaceId,
-                profileId: row.id,
-              })
-            }
-          />
+          {shown(actions.remove) ? (
+            <ConfirmActionDialog
+              triggerLabel="Remove"
+              tone="danger"
+              decision={actions.remove}
+              title={`Remove ${row.label}?`}
+              body={`It leaves this workspace's providers, so repositories can no longer choose it. ${credentialKeptText(row)}`}
+              confirmLabel="Remove provider"
+              workspaceId={dialog.workspaceId}
+              run={() =>
+                archiveProviderProfile({
+                  workspaceId: dialog.workspaceId,
+                  profileId: row.id,
+                })
+              }
+            />
+          ) : null}
         </div>
         {reasons.length > 0 ? (
           <ul className="grid gap-0.5 text-xs leading-5 text-slate-400 lg:max-w-sm lg:text-right">
@@ -684,28 +716,29 @@ export function profileActionErrorText(
   if (result.reason) return providerListDenialText(result.reason);
   const blocking = result.blocking;
   if (blocking && result.error === "provider_profile_in_use")
-    return `${capitalized(blockingText(blocking))} still use this provider. Choose another provider there first.`;
+    return `This provider is still ${
+      [
+        ...(blocking.workspaceDefault ? ["the workspace default"] : []),
+        ...(blocking.repositories.length
+          ? [`used by ${repositoryNames(blocking.repositories)}`]
+          : []),
+      ].join(" and ") || "in use"
+    }. Choose another provider there first.`;
   if (blocking && result.error === "provider_profile_model_incompatible")
-    return `The new model does not support the review depth or fast mode used by ${blockingText(blocking)}. Change their settings first, or keep the current model.`;
+    return `The new model does not support the review depth or fast mode used by ${
+      [
+        ...(blocking.workspaceDefault ? ["the workspace default"] : []),
+        ...(blocking.repositories.length
+          ? [repositoryNames(blocking.repositories)]
+          : []),
+      ].join(" and ") || "some repositories"
+    }. Change their settings first, or keep the current model.`;
   return dashboardErrorText(result.error);
 }
 
-function blockingText(
-  blocking: NonNullable<
-    Extract<ProviderProfileActionResult, { status: "error" }>["blocking"]
-  >,
-): string {
-  const names = blocking.repositories.slice(0, 5);
-  const more = blocking.repositories.length - names.length;
-  const parts = [
-    ...(blocking.workspaceDefault ? ["the workspace default"] : []),
-    ...(names.length
-      ? [`${names.join(", ")}${more > 0 ? ` and ${more} more` : ""}`]
-      : []),
-  ];
-  return parts.join(" and ") || "some repositories";
-}
-
-function capitalized(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
+/** Up to five repository names, then how many more. */
+function repositoryNames(repositories: readonly string[]): string {
+  const names = repositories.slice(0, 5);
+  const more = repositories.length - names.length;
+  return `${names.join(", ")}${more > 0 ? ` and ${more} more` : ""}`;
 }

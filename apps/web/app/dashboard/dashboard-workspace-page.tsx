@@ -386,6 +386,8 @@ type DashboardWorkspaceData = {
   /** Access rights: only owners and admins manage providers. */
   providerManagementAdminOnly?: boolean;
   canEditOtherSettings?: boolean;
+  /** The viewer may set the workspace default (owner/admin). */
+  canSetDefaultProvider?: boolean;
   /** The Providers list; null outside it or for a non-member. */
   providerList?: ProviderListView | null;
   repositoryConfigs: readonly {
@@ -653,6 +655,15 @@ export async function loadDashboardSectionData(
     section === "providers" && hasWorkspaceWideAccess
       ? await loadDashboardProviderList(workspace.id, signedInActor)
       : null;
+  // Only owners and admins set the default; the repositories section offers
+  // the action only to them.
+  const canSetDefaultProvider =
+    section === "repositories" && hasWorkspaceWideAccess
+      ? await canDashboardActorAdminWorkspace({
+          actor: signedInActor,
+          workspaceId: workspace.id,
+        })
+      : false;
   const otherSettings =
     section === "other"
       ? {
@@ -668,6 +679,7 @@ export async function loadDashboardSectionData(
   return {
     ...otherSettings,
     providerList,
+    canSetDefaultProvider,
     hasWorkspaceWideAccess,
     workspace: {
       id: workspace.id,
@@ -1918,7 +1930,7 @@ export function WorkspaceCard({
               hasWorkspaceWideAccess={hasWorkspaceWideAccess}
               mutationsEnabled={mutationsEnabled}
             />
-            {defaultSummary.profile ? null : hasWorkspaceWideAccess ? (
+            {defaultSummary.profile ? null : data.canSetDefaultProvider ? (
               <ProviderLine
                 {...providerDialog}
                 summary={defaultSummary}
@@ -2311,7 +2323,10 @@ function DashboardSectionHeader(
                 {props.workspaceHealth.label}
               </Badge>
             ) : null}
-            <Badge tone="neutral" className="max-w-full break-words">
+            <Badge
+              tone="neutral"
+              className="max-w-full shrink whitespace-normal break-words leading-5"
+            >
               {status}
             </Badge>
           </div>
@@ -2706,7 +2721,10 @@ function RepositoryTable({
                             />
                           ) : null}
                           {repository.provider === "github" ? (
-                            <span className="flex w-full min-w-0">
+                            <span
+                              data-row-provider-line
+                              className="flex w-full min-w-0"
+                            >
                               <ProviderLine
                                 {...providerDialog}
                                 compact
@@ -2714,7 +2732,12 @@ function RepositoryTable({
                                 target={providerTarget}
                               />
                             </span>
-                          ) : null}
+                          ) : (
+                            <span className="w-full text-xs text-slate-400">
+                              Choosing a provider for GitLab projects is not
+                              available yet.
+                            </span>
+                          )}
                         </div>
                         <div className="repository-setup-toggle-row flex flex-wrap items-center gap-2 peer-focus-visible:[&_.setup-toggle]:outline peer-focus-visible:[&_.setup-toggle]:outline-2 peer-focus-visible:[&_.setup-toggle]:outline-offset-2 peer-focus-visible:[&_.setup-toggle]:outline-cyan-200 sm:justify-end">
                           <RepositoryVisibilityBadge

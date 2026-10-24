@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import type { ProviderSecretSetupGuidance } from "@reviewrouter/features-provider-setup";
 import {
   getDefaultProviderConfigForAuthMode,
@@ -127,7 +127,7 @@ export type ProviderSetupDialogProps = Readonly<{
   modelOptions: readonly ReviewModelOption[];
   gatewayAccounts: AccountsResult<AccountsPage> | undefined;
   agentProfileOptions: readonly GatewayAgentProfileOption[];
-  /** Called after the dialog closed with the selection cleared, if any. */
+  /** Called once the dialog closes after it saved something. */
   onSaved?: () => void;
 }>;
 
@@ -155,12 +155,28 @@ export function ProviderSetupDialog(
 ): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [locked, setLocked] = useState(false);
+  // The target the dialog opened with: a selection the page clears after a
+  // save must not retarget the dialog or the results it still shows.
+  const [openedTarget, setOpenedTarget] = useState(props.target);
+  const saved = useRef(false);
+  const close = () => {
+    setOpen(false);
+    if (saved.current) {
+      saved.current = false;
+      props.onSaved?.();
+    }
+  };
   return (
     <DialogRoot
       open={open}
       onOpenChange={(next) => {
-        if (!next && locked) return;
-        setOpen(next);
+        if (next) {
+          setOpenedTarget(props.target);
+          saved.current = false;
+          setOpen(true);
+          return;
+        }
+        if (!locked) close();
       }}
     >
       <DialogTrigger
@@ -184,8 +200,12 @@ export function ProviderSetupDialog(
           {open ? (
             <ProviderSetupDialogBody
               {...props}
+              target={openedTarget}
+              onSaved={() => {
+                saved.current = true;
+              }}
               onLockedChange={setLocked}
-              onClose={() => setOpen(false)}
+              onClose={close}
             />
           ) : null}
         </DialogPopup>
@@ -255,7 +275,9 @@ function ProviderSetupDialogBody({
     : target.kind === "workspace"
       ? "Repositories without a provider of their own review with this one."
       : target.kind === "repository"
-        ? "Choose which AI provider reviews pull requests in this repository."
+        ? step === "credentials"
+          ? "Add the credential this provider needs in this repository."
+          : "Choose which AI provider reviews pull requests in this repository."
         : "Every selected repository gets this provider. The workspace default does not change.";
 
   return (
@@ -266,24 +288,26 @@ function ProviderSetupDialogBody({
           {description}
         </DialogDescription>
         {repository && credentialStep ? (
-          <div
-            role="tablist"
-            aria-label="Provider setup"
-            className="mt-4 inline-flex rounded-xl border border-cyan-200/12 bg-slate-950/50 p-1"
-          >
-            <StepTab
-              active={step === "provider"}
-              onSelect={() => setStep("provider")}
-            >
-              1. Provider
-            </StepTab>
-            <StepTab
-              active={step === "credentials"}
-              onSelect={() => setStep("credentials")}
-            >
-              2. {credentialStepLabel(credentialStep)}
-            </StepTab>
-          </div>
+          <nav aria-label="Provider setup steps" className="mt-4">
+            <ol className="inline-flex rounded-xl border border-cyan-200/12 bg-slate-950/50 p-1">
+              <li>
+                <StepButton
+                  current={step === "provider"}
+                  onSelect={() => setStep("provider")}
+                >
+                  1. Provider
+                </StepButton>
+              </li>
+              <li>
+                <StepButton
+                  current={step === "credentials"}
+                  onSelect={() => setStep("credentials")}
+                >
+                  2. {credentialStepLabel(credentialStep)}
+                </StepButton>
+              </li>
+            </ol>
+          </nav>
         ) : null}
       </div>
       <div className="px-5 py-5 sm:px-6">
@@ -351,24 +375,24 @@ function ProviderSetupDialogBody({
   );
 }
 
-function StepTab({
-  active,
+/** One of the dialog's two steps; the current one carries `aria-current`. */
+function StepButton({
+  current,
   onSelect,
   children,
 }: {
-  readonly active: boolean;
+  readonly current: boolean;
   readonly onSelect: () => void;
   readonly children: ReactNode;
 }): React.ReactElement {
   return (
     <button
       type="button"
-      role="tab"
-      aria-selected={active}
+      aria-current={current ? "step" : undefined}
       onClick={onSelect}
       className={[
         "rounded-lg px-3 py-1.5 text-sm font-semibold transition",
-        active
+        current
           ? "bg-cyan-300/[0.12] text-cyan-50"
           : "text-slate-400 hover:text-cyan-50",
       ].join(" ")}
@@ -427,8 +451,10 @@ function ProviderChoiceStep({
     : undefined;
   const offersDefault =
     target.kind === "repository" && view.defaultSelection !== null;
+  // Nothing to choose from yet: the dialog opens straight on a new provider.
+  const firstProvider = !adding && view.profiles.length === 0 && !offersDefault;
   const initialChoice = useMemo<Choice | null>(() => {
-    if (adding) {
+    if (adding || firstProvider) {
       const first = firstAllowedSource(view.sources);
       return first ? { kind: "new", source: first.key } : null;
     }
@@ -446,6 +472,7 @@ function ProviderChoiceStep({
     return null;
   }, [
     adding,
+    firstProvider,
     initialProfileId,
     repositoryView,
     target.kind,
@@ -785,6 +812,33 @@ function ProviderChoiceStep({
       !(offersDefault && candidate.id === view.defaultSelection?.profileId) ||
       repositoryView?.selection?.profileId === candidate.id,
   );
+  // One reason refusing every choice (such as admin-only Access rights) is
+  // said once, not under each option.
+  const newProviderDecision: ProviderSetupDecision = firstAllowedSource(
+    visibleSources,
+  )
+    ? { allowed: true }
+    : (visibleSources[0]?.decision ?? { allowed: true });
+  const choiceDecisions: readonly ProviderSetupDecision[] = [
+    ...(offersDefault && defaultProfile && repositoryView
+      ? [repositoryView.useDefault]
+      : []),
+    ...listedProfiles.map((option) => option.decision),
+    newProviderDecision,
+  ];
+  const sharedDenial =
+    !adding &&
+    !firstProvider &&
+    choiceDecisions.every(
+      (candidate) =>
+        !candidate.allowed &&
+        !choiceDecisions[0]!.allowed &&
+        candidate.reason === choiceDecisions[0]!.reason,
+    )
+      ? choiceDecisions[0]!
+      : null;
+  const reasonOf = (candidate: ProviderSetupDecision | undefined) =>
+    sharedDenial ? undefined : deniedText(candidate);
 
   return (
     <div className="grid gap-6">
@@ -797,18 +851,26 @@ function ProviderChoiceStep({
         <RepositoryList repositories={target.repositories} />
       ) : null}
 
-      {adding && !firstAllowedSource(visibleSources) ? (
+      {(adding || firstProvider) && !firstAllowedSource(visibleSources) ? (
         <p className="text-sm text-amber-100/85">
           {deniedText(visibleSources[0]?.decision)}
         </p>
       ) : null}
 
-      {adding ? null : (
+      {firstProvider ? (
+        <h3 className="text-sm font-semibold text-cyan-50">
+          Add the first provider
+        </h3>
+      ) : null}
+      {sharedDenial ? (
+        <p role="status" className="text-sm text-amber-100/85">
+          {deniedText(sharedDenial)}
+        </p>
+      ) : null}
+      {adding || firstProvider ? null : (
         <section className="grid gap-3">
           <h3 className="text-sm font-semibold text-cyan-50">
-            {view.profiles.length > 0 || offersDefault
-              ? "Choose a provider"
-              : "Add the first provider"}
+            Choose a provider
           </h3>
           <RadioCardGroup
             label="Provider"
@@ -842,7 +904,7 @@ function ProviderChoiceStep({
                   ) : null
                 }
                 disabled={!repositoryView?.useDefault.allowed}
-                disabledReason={deniedText(repositoryView?.useDefault)}
+                disabledReason={reasonOf(repositoryView?.useDefault)}
               />
             ) : null}
             {listedProfiles.map((option) => (
@@ -856,6 +918,7 @@ function ProviderChoiceStep({
                 }
                 bulk={target.kind === "repositories"}
                 total={repositoryIds(target).length}
+                disabledReason={reasonOf(option.decision)}
               />
             ))}
             <RadioCard
@@ -863,10 +926,7 @@ function ProviderChoiceStep({
               title="Add a new provider"
               description="Connect an account, a key or a subscription. It is added to this workspace's providers."
               disabled={!firstAllowedSource(visibleSources)}
-              disabledReason={deniedText(
-                visibleSources.find((candidate) => !candidate.decision.allowed)
-                  ?.decision,
-              )}
+              disabledReason={reasonOf(newProviderDecision)}
             />
           </RadioCardGroup>
         </section>
@@ -875,7 +935,7 @@ function ProviderChoiceStep({
       {choice?.kind === "new" ? (
         <section
           className={
-            adding
+            adding || firstProvider
               ? "grid gap-4"
               : "grid gap-4 border-t border-cyan-200/10 pt-5"
           }
@@ -947,7 +1007,7 @@ function ProviderChoiceStep({
             <TextField
               label="API key"
               type="password"
-              autoComplete="off"
+              autoComplete="new-password"
               value={draft.apiKey}
               disabled={pending || target.kind === "workspace"}
               onChange={(event) =>
@@ -1074,7 +1134,7 @@ function ProviderChoiceStep({
         </section>
       ) : null}
 
-      {decision && !decision.allowed ? (
+      {decision && !decision.allowed && !sharedDenial ? (
         <p className="text-sm text-amber-100/85">{deniedText(decision)}</p>
       ) : null}
       {error ? (
@@ -1120,11 +1180,13 @@ function ProfileCard({
   inUse,
   bulk,
   total,
+  disabledReason,
 }: {
   readonly option: ProviderProfileOption;
   readonly inUse: boolean;
   readonly bulk: boolean;
   readonly total: number;
+  readonly disabledReason: string | undefined;
 }): React.ReactElement {
   return (
     <RadioCard
@@ -1151,7 +1213,7 @@ function ProfileCard({
         </>
       }
       disabled={!option.decision.allowed}
-      disabledReason={deniedText(option.decision)}
+      disabledReason={disabledReason}
     />
   );
 }
@@ -1442,10 +1504,4 @@ function viewErrorText(error: unknown): string {
     default:
       return "Providers could not be loaded.";
   }
-}
-
-export function useDialogResetKey(value: unknown): number {
-  const [key, setKey] = useState(0);
-  useEffect(() => setKey((current) => current + 1), [value]);
-  return key;
 }
