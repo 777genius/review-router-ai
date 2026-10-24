@@ -6,7 +6,8 @@ export type DashboardSection =
   | "setup"
   | "policy"
   | "diagnostics"
-  | "usage";
+  | "usage"
+  | "other";
 
 export const DASHBOARD_SECTIONS = [
   "repositories",
@@ -14,6 +15,7 @@ export const DASHBOARD_SECTIONS = [
   "policy",
   "diagnostics",
   "usage",
+  "other",
   "memory",
 ] as const satisfies readonly DashboardSection[];
 
@@ -59,6 +61,13 @@ export const dashboardSectionMeta: Record<
     description:
       "Provider attempts, known tokens and cost, with source coverage.",
     navDescription: "Provider usage and coverage",
+  },
+  other: {
+    eyebrow: "Workspace settings",
+    title: "Other",
+    description:
+      "Additional review settings for every repository in this workspace.",
+    navDescription: "Workspace review settings",
   },
   diagnostics: {
     eyebrow: "Operations",
