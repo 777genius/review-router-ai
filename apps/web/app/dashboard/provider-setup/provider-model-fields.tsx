@@ -169,46 +169,14 @@ export function ProviderModelFields({
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
-      {onModelChange ? (
-        modelChoice === "list" ? (
-          <SelectField
-            label="Model"
-            value={
-              modelOptions.some((option) => option.value === model) ? model : ""
-            }
-            placeholder={
-              modelOptions.length === 0
-                ? "Choose an account first"
-                : "Choose a model"
-            }
-            disabled={disabled || modelOptions.length === 0}
-            options={modelOptions.map((option) => ({
-              value: option.value,
-              label: option.label,
-              ...(option.disabled ? { disabled: true } : {}),
-              ...(option.description
-                ? { description: option.description }
-                : {}),
-            }))}
-            onValueChange={onModelChange}
-            className="sm:col-span-2"
-          />
-        ) : (
-          <ProviderModelInput
-            value={model}
-            options={modelOptions}
-            disabled={disabled}
-            onValueChange={onModelChange}
-          />
-        )
-      ) : (
-        <div className="grid gap-1 sm:col-span-2">
-          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-            Model
-          </span>
-          <span className="text-sm text-cyan-50">{model}</span>
-        </div>
-      )}
+      <ProviderModelPicker
+        model={model}
+        onModelChange={onModelChange}
+        modelOptions={modelOptions}
+        modelChoice={modelChoice}
+        disabled={disabled}
+        className="sm:col-span-2"
+      />
       {showReasoning ? (
         <SelectField
           label="Review depth"
@@ -288,6 +256,72 @@ export function ProviderModelFields({
 
 const defaultEngine = "__default__";
 
+/**
+ * The model of one provider alone: a list for a credential that offers fixed
+ * models, a catalog with free input otherwise, or the fixed model when it
+ * cannot change here. Used inside `ProviderModelFields` and where only the
+ * provider's model changes, such as a provider edit in the Providers list.
+ */
+export function ProviderModelPicker({
+  model,
+  onModelChange,
+  modelOptions,
+  modelChoice,
+  disabled,
+  emptyListPlaceholder = "Choose an account first",
+  className,
+}: Readonly<{
+  model: string;
+  /** Null shows the model as fixed. */
+  onModelChange: ((model: string) => void) | null;
+  modelOptions: readonly ReviewModelOption[];
+  modelChoice: "list" | "catalog";
+  disabled: boolean;
+  /** The list placeholder while the credential offers no model. */
+  emptyListPlaceholder?: string;
+  className?: string;
+}>): React.ReactElement {
+  if (!onModelChange)
+    return (
+      <div className={["grid gap-1", className].filter(Boolean).join(" ")}>
+        <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+          Model
+        </span>
+        <span className="text-sm text-cyan-50">{model}</span>
+      </div>
+    );
+  if (modelChoice === "list")
+    return (
+      <SelectField
+        label="Model"
+        value={
+          modelOptions.some((option) => option.value === model) ? model : ""
+        }
+        placeholder={
+          modelOptions.length === 0 ? emptyListPlaceholder : "Choose a model"
+        }
+        disabled={disabled || modelOptions.length === 0}
+        options={modelOptions.map((option) => ({
+          value: option.value,
+          label: option.label,
+          ...(option.disabled ? { disabled: true } : {}),
+          ...(option.description ? { description: option.description } : {}),
+        }))}
+        onValueChange={onModelChange}
+        {...(className ? { className } : {})}
+      />
+    );
+  return (
+    <ProviderModelInput
+      value={model}
+      options={modelOptions}
+      disabled={disabled}
+      onValueChange={onModelChange}
+      {...(className ? { className } : {})}
+    />
+  );
+}
+
 function CheckboxRow({
   checked,
   disabled,
@@ -323,11 +357,13 @@ function ProviderModelInput({
   options,
   disabled,
   onValueChange,
+  className,
 }: {
   readonly value: string;
   readonly options: readonly ReviewModelOption[];
   readonly disabled: boolean;
   readonly onValueChange: (value: string) => void;
+  readonly className?: string;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const listboxId = useId();
@@ -350,7 +386,12 @@ function ProviderModelInput({
 
   return (
     <label
-      className="relative grid min-w-0 gap-2 text-sm text-slate-300 sm:col-span-2"
+      className={[
+        "relative grid min-w-0 gap-2 text-sm text-slate-300",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
       onBlur={closeWhenFocusLeaves}
     >
       <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
