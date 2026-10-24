@@ -1255,7 +1255,6 @@ function statusCodeForActionError(message: string): number {
     message.includes("workflow_ref_not_allowed") ||
     message.startsWith("legacy_review_mutation_blocked:") ||
     message.includes("codex_rotating_not_enabled") ||
-    message.includes("codex_legacy_auth_requires_reconnect") ||
     message.includes("codex_provider_requires_rotating_workflow") ||
     message.includes("entitlement_denied") ||
     message.includes("mismatch")
@@ -1383,9 +1382,6 @@ function safeActionErrorCode(message: string): string {
   if (message.includes("codex_rotating_not_enabled")) {
     return "codex_rotating_not_enabled";
   }
-  if (message.includes("codex_legacy_auth_requires_reconnect")) {
-    return "codex_legacy_auth_requires_reconnect";
-  }
   if (message.includes("codex_provider_requires_rotating_workflow")) {
     return "codex_provider_requires_rotating_workflow";
   }
@@ -1470,8 +1466,6 @@ function safeActionErrorMessage(code: string): string {
       return "Another Codex OAuth run is still active for this repository.";
     case "codex_rotating_not_enabled":
       return "Codex OAuth rotating is not enabled for this repository.";
-    case "codex_legacy_auth_requires_reconnect":
-      return "Legacy Codex OAuth is disabled. Reconnect Codex from the ReviewRouter dashboard.";
     case "codex_provider_requires_rotating_workflow":
       return "Codex now requires the rotating ReviewRouter Codex workflow. Reconnect Codex from the dashboard.";
     case "unknown_auth_state":

@@ -65,7 +65,6 @@ const publicReason = z.enum([
   "codex_rotating_new_work_repository_not_approved",
   "codex_rotating_lease_conflict",
   "codex_rotating_not_enabled",
-  "codex_legacy_auth_requires_reconnect",
   "codex_provider_requires_rotating_workflow",
   "action_control_plane_entitlement_denied",
 ]);
