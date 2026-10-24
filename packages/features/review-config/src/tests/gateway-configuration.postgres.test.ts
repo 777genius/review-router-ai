@@ -247,6 +247,17 @@ describe.skipIf(!enabled)(
             )
           ).rows,
         ).toEqual([{ t: null }]);
+        // The Gateway references that stay keep their pairing and guard.
+        for (const values of [
+          `NULL, 'rr-profile'`,
+          `'c2b-missing-binding', NULL`,
+          `NULL, 'sk-live-secret'`,
+        ])
+          await expect(
+            sql.query(
+              `INSERT INTO "ReviewConfigurationVersion" ("id", "configurationId", "workspaceId", "version", "schemaVersion", "gatewayBindingId", "gatewayProfileRef") VALUES ('c2b-ref-guard', 'c2b-legacy-config', 'c2b-w', 99, 4, ${values})`,
+            ),
+          ).rejects.toMatchObject({ code: "23514" });
         expect(
           (
             await sql.query(

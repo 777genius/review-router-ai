@@ -109,7 +109,7 @@ describe("canonical release migration transition", () => {
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
     expect(full).toHaveLength(145);
     expect(manifest(full)).toBe(
-      "sha256:53922c66d2957813d0622ff66439d78ab521bd4c209a1af9b751e25e896b657b",
+      "sha256:52745c4ade77dac83b001278e90bcd92ad6f82995777e86cbbb136ae4b123b1a",
     );
     const previous144 = full.filter(
       (row) =>

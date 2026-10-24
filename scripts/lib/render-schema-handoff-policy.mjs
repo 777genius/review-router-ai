@@ -285,9 +285,9 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (reviewConfigurationProjectionMigration) {
     if (
       reviewConfigurationProjectionMigration.checksum !==
-        "97d8c76fd297c95ec5e75a5006ef261d4d9ea56c237fae38cf27857524cafe7a" ||
+        "d42d8143d918aaf8bf3ac90c1488ec317bcdd3795c529c05f6a216da0931f5d9" ||
       manifest(catalog) !==
-        "sha256:53922c66d2957813d0622ff66439d78ab521bd4c209a1af9b751e25e896b657b"
+        "sha256:52745c4ade77dac83b001278e90bcd92ad6f82995777e86cbbb136ae4b123b1a"
     )
       fail("checkout_extension");
     return partitionRenderSchemaHandoffCheckout(
