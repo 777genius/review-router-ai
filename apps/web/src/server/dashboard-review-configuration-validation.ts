@@ -1,6 +1,8 @@
 import {
   isOpenRouterDirectConfiguration,
+  ProviderProfileError,
   type EffectiveReviewConfigurationValidatorPort,
+  type ProviderProfileModelChangeValidator,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import { isCodexRotatingOAuthAllowedForRepository } from "@reviewrouter/platform-config";
@@ -9,6 +11,7 @@ import { loadApprovedGatewayAgentProfiles } from "./gateway-agent-profile-option
 import {
   assertGatewayReviewAgentProfileContextAllowed,
   assertGatewayReviewConfigCatalogAllowed,
+  assertGatewayReviewConfigSupported,
 } from "./gateway-review-config-catalog";
 
 export type DashboardValidatedRepository = Readonly<{
@@ -79,6 +82,76 @@ export function dashboardSelectionValidator(input: {
           config,
         });
       if (gatewayCatalogChecked) await input.afterGatewayCatalogCheck?.(target);
+    },
+  };
+}
+
+/**
+ * The dashboard checks of a provider model edit, which changes every scope
+ * using the provider at once. Before the write the Gateway catalog of a
+ * connected account must offer the model (network); inside the write each
+ * affected scope passes the save-time rules a model can change, without I/O.
+ * A scope whose stored settings the model no longer supports is refused as
+ * incompatible and named. Context tool selections are not rechecked: a model
+ * edit never changes them.
+ */
+export function dashboardProfileModelChangeValidator(input: {
+  readonly workspaceId: string;
+  readonly repositories: ReadonlyMap<string, DashboardValidatedRepository>;
+}): ProviderProfileModelChangeValidator {
+  let catalog: Readonly<{
+    profileId: string;
+    profiles: Awaited<ReturnType<typeof loadGatewayReviewProfiles>>;
+  }> | null = null;
+  return {
+    async beforeTransaction({ profile, model }) {
+      const { credential } = profile;
+      if (credential.kind !== "gateway_binding") return;
+      const profileRef = credential.gatewayProfileRef;
+      const profiles = await loadGatewayReviewProfiles(input.workspaceId);
+      const offered = profiles.some(
+        (candidate) =>
+          candidate.id === profileRef &&
+          candidate.availability !== "deployment_configuration_required" &&
+          candidate.protocol === "openai-responses" &&
+          candidate.models.includes(model),
+      );
+      if (!offered) throw new Error("gateway_review_model_unsupported");
+      catalog = { profileId: profile.id, profiles };
+    },
+    scope({ target, config }) {
+      isOpenRouterDirectConfiguration(config);
+      assertGatewayReviewAgentProfileContextAllowed(
+        config,
+        loadApprovedGatewayAgentProfiles,
+      );
+      assertCodexRotatingReviewConfigAllowed({
+        config,
+        repository:
+          target.scope === "repository"
+            ? (input.repositories.get(target.repositoryId) ?? null)
+            : null,
+      });
+      if (!catalog) return;
+      try {
+        assertGatewayReviewConfigSupported(config, catalog.profiles);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          (error.message === "gateway_review_reasoning_effort_unsupported" ||
+            error.message === "gateway_review_fast_mode_unsupported")
+        )
+          throw new ProviderProfileError(
+            "provider_profile_model_incompatible",
+            {
+              profileId: catalog.profileId,
+              workspaceDefault: target.scope === "workspace",
+              repositoryIds:
+                target.scope === "repository" ? [target.repositoryId] : [],
+            },
+          );
+        throw error;
+      }
     },
   };
 }

@@ -824,7 +824,8 @@ function ciSecretDetails(
       };
 }
 
-function managedKeyName(
+/** The plain name of a key ReviewRouter saves for a managed provider. */
+export function managedKeyName(
   authMode: "mimo_token_plan_api_key" | "openrouter_api_key",
 ): string {
   return authMode === "mimo_token_plan_api_key"
@@ -953,7 +954,7 @@ function confirmErrorText(error: string): string {
   }
 }
 
-function managedKeyErrorText(code: string): string {
+export function managedKeyErrorText(code: string): string {
   switch (code) {
     case "workspace_admin_forbidden":
       return "Only workspace owners and admins install keys.";

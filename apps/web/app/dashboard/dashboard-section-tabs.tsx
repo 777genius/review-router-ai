@@ -8,6 +8,7 @@ import {
   Brain,
   Cpu,
   GitPullRequest,
+  Layers,
   Settings2,
   type LucideIcon,
 } from "lucide-react";
@@ -18,6 +19,7 @@ const dashboardSectionIcons: Record<string, LucideIcon> = {
   repositories: GitPullRequest,
   memory: Brain,
   setup: Settings2,
+  providers: Layers,
   policy: Cpu,
   diagnostics: Activity,
 };

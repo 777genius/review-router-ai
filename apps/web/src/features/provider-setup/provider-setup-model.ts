@@ -424,7 +424,7 @@ export function providerSetupDenialText(
     case "workspace_admin_required":
       return "Only workspace owners and admins can do this.";
     case "access_rights_admin_only":
-      return "This workspace lets only owners and admins change providers (Other → Access rights).";
+      return "Only workspace owners and admins can manage providers.";
     case "personal_binding_owner_required":
       return "This account is shared by its owner, so only an owner or admin can use it here.";
     case "profile_creator_required":
@@ -488,8 +488,8 @@ export function sourceTitle(
         : "MiMo Token Plan key saved by ReviewRouter";
     case "user_ci_secret":
       return authMode === "claude_code_oauth"
-        ? "Claude Code subscription, your GitHub secret"
-        : "MiMo Token Plan, your GitHub secret";
+        ? "Claude Code subscription, GitHub secret of each repository"
+        : "MiMo Token Plan, GitHub secret of each repository";
     case "repository_rotating":
       return "Codex subscription for this repository";
     case "hosted_pool":

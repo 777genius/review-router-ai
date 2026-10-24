@@ -16,8 +16,29 @@ vi.mock("./gateway-review-config-catalog", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./gateway-review-config-catalog")>()),
   assertGatewayReviewConfigCatalogAllowed: mocks.catalogChecked,
 }));
+vi.mock("./personal-account-composition", () => ({
+  productionPersonalAccounts: async () => null,
+}));
+vi.mock("./account-gateway-accounts", () => ({
+  loadAccountsBootstrap: async () => ({
+    page: {
+      status: "ok",
+      value: {
+        profiles: [
+          {
+            id: "profile-1",
+            label: "MiMo",
+            provider: "codex",
+            protocol: "openai-responses",
+            models: ["mimo-v2.6-pro"],
+          },
+        ],
+      },
+    },
+  }),
+}));
 
-const { dashboardSelectionValidator } =
+const { dashboardProfileModelChangeValidator, dashboardSelectionValidator } =
   await import("./dashboard-review-configuration-validation");
 
 const gatewayConfig = (agenticContext: boolean) =>
@@ -90,5 +111,68 @@ describe("dashboard selection validator", () => {
       }),
     ).rejects.toThrow("gateway_review_config_denied");
     expect(recheck).toHaveBeenCalledWith(repositoryTarget);
+  });
+});
+
+describe("dashboard provider model edit validator", () => {
+  const profile = {
+    id: "profile_gateway",
+    workspaceId: "workspace_1",
+    createdByUserId: "user_owner",
+    credential: {
+      kind: "gateway_binding",
+      authMode: "codex_account_gateway",
+      bindingId: "binding-1",
+      gatewayProfileRef: "profile-1",
+    },
+    model: "gpt-5.5",
+    label: "Team",
+    archivedAt: null,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+  } as const;
+  const validator = () =>
+    dashboardProfileModelChangeValidator({
+      workspaceId: "workspace_1",
+      repositories: new Map([
+        ["repo_1", { fullName: "acme/repo", visibility: "private" }],
+      ]),
+    });
+
+  it("refuses a model the account's catalog does not offer before any write", async () => {
+    await expect(
+      validator().beforeTransaction({ profile, model: "gpt-9" }),
+    ).rejects.toThrow("gateway_review_model_unsupported");
+    await expect(
+      validator().beforeTransaction({ profile, model: "mimo-v2.6-pro" }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("names the scope whose stored depth the new model does not support", async () => {
+    mocks.agentProfiles.mockReturnValue([
+      { profileRef: "ocr-managed-v2", agentKind: "ocr" },
+    ]);
+    const checks = validator();
+    await checks.beforeTransaction({ profile, model: "mimo-v2.6-pro" });
+    const config = gatewayConfig(true);
+    expect(() =>
+      checks.scope({ target: repositoryTarget, config }),
+    ).not.toThrow();
+    const deeper = {
+      ...config,
+      providers: [{ ...config.providers[0]!, reasoningEffort: "xhigh" }],
+    } as typeof config;
+    expect(() =>
+      checks.scope({ target: repositoryTarget, config: deeper }),
+    ).toThrow(
+      expect.objectContaining({
+        code: "provider_profile_model_incompatible",
+        affected: {
+          profileId: "profile_gateway",
+          workspaceDefault: false,
+          repositoryIds: ["repo_1"],
+        },
+      }),
+    );
   });
 });

@@ -104,6 +104,7 @@ const fixtures = vi.hoisted(() => {
       repositories: [],
     })),
     workspaceAdmin: vi.fn(async () => false),
+    providerList: vi.fn(async () => ({ rows: [] }) as never),
   };
   return { spies, EmptyStore: class {} };
 });
@@ -153,6 +154,9 @@ vi.mock("./provider-setup-actions", () => ({
 }));
 vi.mock("../../src/server/dashboard-provider-selections", () => ({
   dashboardProviderProfiles: () => ({ list: async () => [] }),
+}));
+vi.mock("../../src/server/provider-list-view", () => ({
+  loadProviderListView: fixtures.spies.providerList,
 }));
 vi.mock("../../src/server/dashboard-mutations", () => ({
   createGitHubAppInstallationOctokit: async () => ({
@@ -842,6 +846,39 @@ describe("dashboard server loading boundaries", () => {
         actor,
         workspaceId: "workspace-a",
       });
+      expect(spies.policies).not.toHaveBeenCalled();
+      expect(spies.health).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([true, false])(
+    "reads the Providers list only for workspace members (member=%s)",
+    async (hasWorkspaceWideAccess) => {
+      const actor = {
+        userId: "user-a",
+        sourceProvider: "github" as const,
+        externalUserId: "1",
+        sourceLogin: "member",
+        githubUserId: "1",
+        githubLogin: "member",
+        actor: "user:github:member",
+      };
+      const data = await loadDashboardSectionData(
+        { ...workspace, hasWorkspaceWideAccess },
+        "providers",
+        access,
+        undefined,
+        actor,
+      );
+      if (hasWorkspaceWideAccess) {
+        expect(spies.providerList).toHaveBeenCalledWith(
+          expect.objectContaining({ workspaceId: "workspace-a", actor }),
+        );
+        expect(data.providerList).toEqual({ rows: [] });
+      } else {
+        expect(spies.providerList).not.toHaveBeenCalled();
+        expect(data.providerList).toBeNull();
+      }
       expect(spies.policies).not.toHaveBeenCalled();
       expect(spies.health).not.toHaveBeenCalled();
     },

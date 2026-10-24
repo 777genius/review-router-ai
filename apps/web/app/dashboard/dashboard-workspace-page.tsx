@@ -100,6 +100,8 @@ import {
   type GitHubUserRepositoryAccessStatus,
 } from "../../src/server/github-user-repository-access";
 import { getPrisma } from "../../src/server/prisma";
+import { loadProviderListView } from "../../src/server/provider-list-view";
+import type { ProviderListView } from "../../src/features/provider-setup/provider-list-model";
 import {
   isGatewayReviewV2RepositoryReady,
   readGatewayReviewV2RepositoryReadiness,
@@ -157,6 +159,7 @@ import {
   ProviderLine,
   type ProviderLineSummary,
 } from "./provider-setup/provider-line";
+import { ProviderList } from "./provider-setup/provider-list";
 import {
   ProviderSetupDialog,
   type ProviderSetupRepositoryContext,
@@ -383,6 +386,8 @@ type DashboardWorkspaceData = {
   /** Access rights: only owners and admins manage providers. */
   providerManagementAdminOnly?: boolean;
   canEditOtherSettings?: boolean;
+  /** The Providers list; null outside it or for a non-member. */
+  providerList?: ProviderListView | null;
   repositoryConfigs: readonly {
     readonly repositoryId: string;
     /** The repository's own stored document, when it is readable. */
@@ -644,6 +649,10 @@ export async function loadDashboardSectionData(
           })
         )?.auditEvents ?? [])
       : [];
+  const providerList =
+    section === "providers" && hasWorkspaceWideAccess
+      ? await loadDashboardProviderList(workspace.id, signedInActor)
+      : null;
   const otherSettings =
     section === "other"
       ? {
@@ -658,6 +667,7 @@ export async function loadDashboardSectionData(
       : {};
   return {
     ...otherSettings,
+    providerList,
     hasWorkspaceWideAccess,
     workspace: {
       id: workspace.id,
@@ -694,6 +704,20 @@ export async function loadDashboardSectionData(
     orgRuleset,
     hostedPool,
   };
+}
+
+/**
+ * The Providers list of the signed-in user. Read-only sessions (changes
+ * off) still see it; the list then shows every action as unavailable.
+ */
+async function loadDashboardProviderList(
+  workspaceId: string,
+  signedInActor: DashboardMutationActor | null,
+): Promise<ProviderListView | null> {
+  const actor =
+    signedInActor ?? (await getDashboardSignedInActor({ readOnly: true }));
+  if (!actor) return null;
+  return loadProviderListView({ prisma: getPrisma(), workspaceId, actor });
 }
 
 /** The resolver's effective configuration of each repository, for readiness. */
@@ -1228,10 +1252,15 @@ export async function DashboardSectionContent({
       : undefined;
   const wantsAccounts = [
     "repositories",
+    "providers",
     "policy",
     "diagnostics",
     "setup",
   ].includes(selectedSection);
+  const wantsProviderDialog =
+    selectedSection === "repositories" ||
+    selectedSection === "providers" ||
+    selectedSection === "policy";
   const personal = wantsAccounts
     ? await loadDashboardPersonalAccounts(selectedWorkspace.workspace.id)
     : null;
@@ -1249,12 +1278,8 @@ export async function DashboardSectionContent({
       supportAudit,
       context.signedInActor,
     ),
-    selectedSection === "repositories" || selectedSection === "policy"
-      ? getReviewModelOptions()
-      : Promise.resolve([]),
-    selectedSection === "repositories" ||
-    selectedSection === "policy" ||
-    selectedSection === "diagnostics"
+    wantsProviderDialog ? getReviewModelOptions() : Promise.resolve([]),
+    wantsProviderDialog || selectedSection === "diagnostics"
       ? loadDashboardGatewayAccounts(selectedWorkspace.workspace.id, personal)
       : Promise.resolve(undefined),
     selectedSection === "repositories" || selectedSection === "policy"
@@ -1262,9 +1287,7 @@ export async function DashboardSectionContent({
           () => [],
         )
       : Promise.resolve([]),
-    selectedSection === "repositories" || selectedSection === "policy"
-      ? getProviderModelCatalogs()
-      : Promise.resolve([]),
+    wantsProviderDialog ? getProviderModelCatalogs() : Promise.resolve([]),
   ]);
   // Approved engine profiles for the Account Gateway provider row; derived
   // from the producer-release approved profile authority, never user input.
@@ -1686,6 +1709,35 @@ export function WorkspaceCard({
         <ProviderUsageSection workspaceId={workspace.id} />
       </div>
     );
+  if (selectedSection === "providers")
+    return (
+      <div
+        id="dashboard-section-content"
+        className="min-w-0 space-y-5 scroll-mt-28"
+      >
+        <DashboardActionToast
+          params={params}
+          selectedSection={selectedSection}
+        />
+        <DashboardSectionHeader selectedSection="providers" />
+        {data.providerList ? (
+          <ProviderList
+            view={data.providerList}
+            mutationsEnabled={mutationsEnabled}
+            modelOptions={modelOptions}
+            gatewayAccounts={gatewayAccounts}
+            agentProfileOptions={agentProfileOptions}
+            accessRightsHref={dashboardSectionHref("other", workspaceKey)}
+          />
+        ) : (
+          <p className="max-w-3xl text-sm leading-6 text-slate-400">
+            The providers list is for members of this workspace. You can choose
+            a provider for a repository you maintain from its row in
+            Repositories.
+          </p>
+        )}
+      </div>
+    );
   if (selectedSection === "other")
     return (
       <div
@@ -1943,6 +1995,12 @@ export function WorkspaceCard({
                   summary={defaultSummary}
                   target={{ kind: "workspace" }}
                 />
+                <a
+                  className="inline-block text-sm text-cyan-200 underline"
+                  href={dashboardSectionHref("providers", workspaceKey)}
+                >
+                  Rename, edit or remove providers in Providers
+                </a>
                 <WorkspaceReviewSettingsForm
                   workspaceId={workspace.id}
                   expectedVersion={data.reviewConfigExpectedVersion}
@@ -2178,9 +2236,12 @@ export function WorkspaceCard({
 
 function DashboardSectionHeader(
   props:
-    | { readonly selectedSection: "setup" | "other" }
+    | { readonly selectedSection: "setup" | "other" | "providers" }
     | {
-        readonly selectedSection: Exclude<DashboardSection, "setup" | "other">;
+        readonly selectedSection: Exclude<
+          DashboardSection,
+          "setup" | "other" | "providers"
+        >;
         readonly repositoryCount: number;
         readonly workspaceHealth: WorkspaceHealthSummary;
         readonly defaultProvider: ProviderLineSummary;
@@ -2194,13 +2255,13 @@ function DashboardSectionHeader(
   if (selectedSection === "setup") return null;
   const meta = dashboardSectionMeta[selectedSection];
   const status =
-    selectedSection === "other"
+    selectedSection === "other" || selectedSection === "providers"
       ? null
       : selectedSection === "repositories"
         ? `${props.repositoryCount} synced repositories`
         : selectedSection === "policy"
           ? props.defaultProvider.profile
-            ? `Default: ${props.defaultProvider.profile.label} / ${props.defaultProvider.profile.model}`
+            ? `Default: ${providerLabelWithModel(props.defaultProvider.profile)}`
             : "No default provider"
           : selectedSection === "memory"
             ? "In development"
@@ -2242,7 +2303,8 @@ function DashboardSectionHeader(
           ) : null}
         </div>
         {selectedSection === "repositories" ||
-        selectedSection === "other" ? null : (
+        selectedSection === "other" ||
+        selectedSection === "providers" ? null : (
           <div className="flex flex-wrap gap-2 xl:justify-end">
             {selectedSection === "diagnostics" ? (
               <Badge tone={props.workspaceHealth.tone}>
@@ -2257,6 +2319,16 @@ function DashboardSectionHeader(
       </div>
     </section>
   );
+}
+
+/** A provider's name with its model, without repeating a model it names. */
+function providerLabelWithModel(profile: {
+  readonly label: string;
+  readonly model: string;
+}): string {
+  return profile.label.includes(profile.model)
+    ? profile.label
+    : `${profile.label} / ${profile.model}`;
 }
 
 function ReadinessInlineStat({

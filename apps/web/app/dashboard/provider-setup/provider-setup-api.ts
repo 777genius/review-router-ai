@@ -8,11 +8,19 @@ import {
   getProviderAuthModeMetadata,
   type ProviderAuthMode,
 } from "@reviewrouter/features-review-providers";
+import {
+  managedApiKeyProviderTypes,
+  type ManagedApiKeyAuthMode,
+} from "@reviewrouter/features-review-config/workspace-provider-profile";
 import type { ProviderSetupView } from "../../../src/features/provider-setup/provider-setup-model";
 import { checkProviderRepositorySecretClientAction } from "../actions";
 import {
+  archiveProviderProfileAction,
+  clearWorkspaceDefaultProviderAction,
+  createProviderProfileAction,
   inheritWorkspaceDefaultProviderAction,
   saveProviderSetupAction,
+  updateProviderProfileAction,
 } from "../provider-setup-actions";
 
 /**
@@ -35,6 +43,8 @@ export const providerSetupQueryKeys = {
     authMode: ProviderAuthMode,
   ) =>
     ["provider-setup", workspaceId, "secret", repositoryId, authMode] as const,
+  managedKey: (workspaceId: string, authMode: ManagedApiKeyAuthMode) =>
+    ["provider-setup", workspaceId, "managed-key", authMode] as const,
 };
 
 export async function fetchProviderSetupView(
@@ -115,6 +125,79 @@ export const saveProviderSetup = saveProviderSetupAction;
 export const inheritWorkspaceDefaultProvider =
   inheritWorkspaceDefaultProviderAction;
 
+/** Writes of the Providers list; each one decides again under its locks. */
+export function createProviderProfile(
+  request: Parameters<typeof createProviderProfileAction>[0],
+) {
+  return createProviderProfileAction(request);
+}
+export function updateProviderProfile(
+  request: Parameters<typeof updateProviderProfileAction>[0],
+) {
+  return updateProviderProfileAction(request);
+}
+export function archiveProviderProfile(
+  request: Parameters<typeof archiveProviderProfileAction>[0],
+) {
+  return archiveProviderProfileAction(request);
+}
+export function clearWorkspaceDefaultProvider(
+  request: Parameters<typeof clearWorkspaceDefaultProviderAction>[0],
+) {
+  return clearWorkspaceDefaultProviderAction(request);
+}
+
+export type ManagedProviderKeyState = Readonly<{
+  connected: boolean;
+  keyVersion: number | null;
+  repositories: readonly Readonly<{
+    repositoryId: string;
+    repositoryFullName: string;
+    status: ProviderApiKeyRepositoryResult["status"];
+  }>[];
+}>;
+
+export async function fetchManagedProviderKeyState(
+  workspaceId: string,
+  authMode: ManagedApiKeyAuthMode,
+): Promise<ManagedProviderKeyState> {
+  const params = new URLSearchParams({
+    workspace: workspaceId,
+    providerType: managedApiKeyProviderTypes[authMode],
+  });
+  const response = await fetch(`/api/dashboard/provider-keys?${params}`, {
+    cache: "no-store",
+  });
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok)
+    throw new Error(
+      body && typeof body === "object" && "error" in body
+        ? String((body as { readonly error: unknown }).error)
+        : "provider_key_request_failed",
+    );
+  return body as ManagedProviderKeyState;
+}
+
+/** The saved key of a managed provider and where it is installed. */
+export function useManagedProviderKeyState(input: {
+  readonly workspaceId: string;
+  readonly authMode: ManagedApiKeyAuthMode;
+  readonly enabled: boolean;
+}) {
+  return useQuery({
+    queryKey: providerSetupQueryKeys.managedKey(
+      input.workspaceId,
+      input.authMode,
+    ),
+    queryFn: () =>
+      fetchManagedProviderKeyState(input.workspaceId, input.authMode),
+    enabled: input.enabled,
+    // Installs run in the background of an apply; recheck while open.
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
 /**
  * After a provider write: refetch the dialog reads of the workspace and the
  * server-rendered dashboard, which owns the stepper and provider lines.
@@ -168,7 +251,7 @@ export type ManagedProviderKeyResult = Readonly<{
  */
 export async function installManagedProviderKey(input: {
   readonly workspaceId: string;
-  readonly authMode: "mimo_token_plan_api_key" | "openrouter_api_key";
+  readonly authMode: ManagedApiKeyAuthMode;
   readonly apiKey?: string;
   readonly repositoryIds: readonly string[];
 }): Promise<ManagedProviderKeyResult> {
@@ -177,8 +260,7 @@ export async function installManagedProviderKey(input: {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       workspaceId: input.workspaceId,
-      providerType:
-        input.authMode === "mimo_token_plan_api_key" ? "mimo" : "openrouter",
+      providerType: managedApiKeyProviderTypes[input.authMode],
       ...(input.apiKey ? { apiKey: input.apiKey } : {}),
       repositoryIds: input.repositoryIds,
     }),

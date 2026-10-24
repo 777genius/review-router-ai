@@ -165,6 +165,16 @@ export async function assertDashboardMutationAllowed(
   return withWorkspaceAdminAccess(actor);
 }
 
+/**
+ * The signed-in user of a dashboard write whose authority is decided later,
+ * under the write's own locks (provider profile edits and removals, where a
+ * member who added a provider may change it). Refuses like every other
+ * dashboard write when changes are off or nobody is signed in.
+ */
+export async function assertDashboardSignedInMutationActor(): Promise<DashboardMutationActor> {
+  return readDashboardMutationActor();
+}
+
 export async function assertDashboardRepositoryMutationAllowed(
   workspaceId: string,
   repository: {

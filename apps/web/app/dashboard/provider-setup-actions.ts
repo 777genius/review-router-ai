@@ -3,9 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import {
+  archiveWorkspaceProviderProfile,
   assignProviderProfileToRepositories,
+  changeWorkspaceProviderProfileModel,
   clearRepositoryProviderSelection,
+  createWorkspaceProviderProfile,
+  parseProviderProfileLabel,
   ProviderManagementDeniedError,
+  ProviderProfileError,
+  renameWorkspaceProviderProfile,
   reviewProviderSelectionSchema,
   setWorkspaceDefaultProvider,
   type ProviderManagementDenialReason,
@@ -14,14 +20,17 @@ import {
 import {
   assertDashboardMutationAllowed,
   assertDashboardRepositoryConfigMutationAllowed,
+  assertDashboardSignedInMutationActor,
   type DashboardMutationActor,
 } from "../../src/server/dashboard-mutations";
 import {
   dashboardProviderActor,
+  dashboardProviderProfiles,
   dashboardProviderSelection,
   dashboardRepositoryCapability,
   dashboardSelectionDependencies,
 } from "../../src/server/dashboard-provider-selections";
+import { dashboardProfileModelChangeValidator } from "../../src/server/dashboard-review-configuration-validation";
 import { createDashboardRateLimitPolicy } from "../../src/server/dashboard-rate-limits";
 import {
   assertDashboardEntitlement,
@@ -323,6 +332,241 @@ export async function inheritWorkspaceDefaultProviderAction(input: {
   }
 }
 
+/** Outcome of a write from the Providers list. */
+export type ProviderProfileActionResult =
+  | Readonly<{ status: "saved"; created?: boolean }>
+  | Readonly<{
+      status: "error";
+      error: string;
+      reason?: ProviderManagementDenialReason;
+      /** What blocks a removal or a model edit, by repository name. */
+      blocking?: Readonly<{
+        workspaceDefault: boolean;
+        repositories: readonly string[];
+      }>;
+    }>;
+
+const createProfileRequestSchema = z
+  .object({
+    workspaceId: z.string().trim().min(1),
+    credential: z.unknown(),
+    model: z.string(),
+  })
+  .strict();
+
+/**
+ * Adds a provider to the workspace list without selecting it anywhere
+ * (owner/admin). Adding one that already exists returns it unchanged.
+ */
+export async function createProviderProfileAction(
+  request: z.input<typeof createProfileRequestSchema>,
+): Promise<ProviderProfileActionResult> {
+  const parsed = createProfileRequestSchema.safeParse(request);
+  if (!parsed.success) return { status: "error", error: "invalid_form" };
+  const { workspaceId, credential, model } = parsed.data;
+  const prisma = getPrisma();
+  try {
+    const actor = await assertDashboardMutationAllowed(workspaceId);
+    await assertDashboardEntitlement({
+      prisma,
+      workspaceId,
+      actor: actor.actor,
+      feature: "action_control_plane",
+    });
+    await createDashboardRateLimitPolicy(prisma).assertReviewConfigSaveAllowed({
+      workspaceId,
+    });
+    const { created } = await createWorkspaceProviderProfile(
+      {
+        workspaceId,
+        actor: dashboardProviderActor(actor),
+        credential,
+        model,
+      },
+      { profiles: dashboardProviderProfiles(prisma) },
+    );
+    revalidateDashboard();
+    return { status: "saved", created };
+  } catch (error) {
+    return profileActionError(error, workspaceId);
+  }
+}
+
+const updateProfileRequestSchema = z
+  .object({
+    workspaceId: z.string().trim().min(1),
+    profileId: z.string().trim().min(1),
+    label: z.string().optional(),
+    model: z.string().optional(),
+  })
+  .strict()
+  .refine((value) => value.label !== undefined || value.model !== undefined);
+
+/**
+ * Renames a provider and changes its model, for every repository using it.
+ * The policy decides under the write's locks: its creator while still a
+ * member, or an owner or admin, and only owners and admins under admin-only
+ * Access rights. The label is checked before anything is written.
+ */
+export async function updateProviderProfileAction(
+  request: z.input<typeof updateProfileRequestSchema>,
+): Promise<ProviderProfileActionResult> {
+  const parsed = updateProfileRequestSchema.safeParse(request);
+  if (!parsed.success) return { status: "error", error: "invalid_form" };
+  const { workspaceId, profileId, label, model } = parsed.data;
+  const prisma = getPrisma();
+  try {
+    if (label !== undefined) parseProviderProfileLabel(label);
+    const actor = await assertDashboardSignedInMutationActor();
+    await createDashboardRateLimitPolicy(prisma).assertReviewConfigSaveAllowed({
+      workspaceId,
+      resourceId: profileId,
+    });
+    const providerActor = dashboardProviderActor(actor);
+    const profiles = dashboardProviderProfiles(prisma);
+    if (model !== undefined) {
+      await assertDashboardEntitlement({
+        prisma,
+        workspaceId,
+        actor: actor.actor,
+        feature: "action_control_plane",
+      });
+      const repositories = await prisma.repositoryConnection.findMany({
+        where: { workspaceId },
+        select: { id: true, fullName: true, visibility: true },
+      });
+      await changeWorkspaceProviderProfileModel(
+        { workspaceId, profileId, actor: providerActor, model },
+        {
+          profiles,
+          validator: dashboardProfileModelChangeValidator({
+            workspaceId,
+            repositories: new Map(
+              repositories.map((repository) => [repository.id, repository]),
+            ),
+          }),
+        },
+      );
+    }
+    if (label !== undefined)
+      await renameWorkspaceProviderProfile(
+        { workspaceId, profileId, actor: providerActor, label },
+        { profiles },
+      );
+    revalidateDashboard();
+    return { status: "saved" };
+  } catch (error) {
+    return profileActionError(error, workspaceId);
+  }
+}
+
+const profileRequestSchema = z
+  .object({
+    workspaceId: z.string().trim().min(1),
+    profileId: z.string().trim().min(1),
+  })
+  .strict();
+
+/**
+ * Removes a provider from the workspace list. One still selected by the
+ * default or a repository is refused and the refusal names them.
+ */
+export async function archiveProviderProfileAction(
+  request: z.input<typeof profileRequestSchema>,
+): Promise<ProviderProfileActionResult> {
+  const parsed = profileRequestSchema.safeParse(request);
+  if (!parsed.success) return { status: "error", error: "invalid_form" };
+  const { workspaceId, profileId } = parsed.data;
+  const prisma = getPrisma();
+  try {
+    const actor = await assertDashboardSignedInMutationActor();
+    await createDashboardRateLimitPolicy(prisma).assertReviewConfigSaveAllowed({
+      workspaceId,
+      resourceId: profileId,
+    });
+    await archiveWorkspaceProviderProfile(
+      { workspaceId, profileId, actor: dashboardProviderActor(actor) },
+      { profiles: dashboardProviderProfiles(prisma) },
+    );
+    revalidateDashboard();
+    return { status: "saved" };
+  } catch (error) {
+    return profileActionError(error, workspaceId);
+  }
+}
+
+/**
+ * Stops using any provider as the workspace default (owner/admin). The
+ * provider stays in the list; repositories without their own provider wait
+ * until a new default is chosen.
+ */
+export async function clearWorkspaceDefaultProviderAction(input: {
+  readonly workspaceId: string;
+}): Promise<ProviderProfileActionResult> {
+  const workspaceId =
+    typeof input?.workspaceId === "string" ? input.workspaceId.trim() : "";
+  if (!workspaceId) return { status: "error", error: "invalid_form" };
+  const prisma = getPrisma();
+  try {
+    const actor = await assertDashboardMutationAllowed(workspaceId);
+    await assertDashboardEntitlement({
+      prisma,
+      workspaceId,
+      actor: actor.actor,
+      feature: "action_control_plane",
+    });
+    await createDashboardRateLimitPolicy(prisma).assertReviewConfigSaveAllowed({
+      workspaceId,
+    });
+    await setWorkspaceDefaultProvider(
+      { workspaceId, actor: dashboardProviderActor(actor), selection: null },
+      selectionDependencies({
+        workspaceId,
+        actor,
+        repositories: new Map(),
+        recheck: async () =>
+          assertGatewayReviewActorUnchanged(
+            actor,
+            await assertDashboardMutationAllowed(workspaceId),
+          ),
+      }),
+    );
+    revalidateDashboard();
+    return { status: "saved" };
+  } catch (error) {
+    return profileActionError(error, workspaceId);
+  }
+}
+
+async function profileActionError(
+  error: unknown,
+  workspaceId: string,
+): Promise<ProviderProfileActionResult> {
+  if (error instanceof ProviderProfileError && error.affected) {
+    const ids = error.affected.repositoryIds;
+    const repositories = ids.length
+      ? await getPrisma()
+          .repositoryConnection.findMany({
+            where: { workspaceId, id: { in: [...ids] } },
+            select: { id: true, fullName: true },
+          })
+          .catch(() => [])
+      : [];
+    const names = new Map(
+      repositories.map((repository) => [repository.id, repository.fullName]),
+    );
+    return {
+      status: "error",
+      error: error.code,
+      blocking: {
+        workspaceDefault: error.affected.workspaceDefault,
+        repositories: ids.map((id) => names.get(id) ?? id).sort(),
+      },
+    };
+  }
+  return actionError(error);
+}
+
 type AuthorizedRepository = Readonly<{
   repository: DashboardRepository;
   actor: DashboardMutationActor;
@@ -409,7 +653,9 @@ function settingsWithoutProfile(
   return settings;
 }
 
-function actionError(error: unknown): ProviderSetupActionResult {
+function actionError(
+  error: unknown,
+): Extract<ProviderSetupActionResult, { status: "error" }> {
   if (error instanceof ProviderManagementDeniedError)
     return {
       status: "error",

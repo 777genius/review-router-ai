@@ -11,6 +11,7 @@ import {
 import {
   Badge,
   Button,
+  Checkbox,
   DialogBackdrop,
   DialogCloseButton,
   DialogDescription,
@@ -22,6 +23,7 @@ import {
   RadioCard,
   RadioCardGroup,
   SelectField,
+  TextField,
 } from "@reviewrouter/ui";
 import type { ProviderCredentialKind } from "@reviewrouter/features-review-config/workspace-provider-profile";
 import {
@@ -60,8 +62,10 @@ import {
   defaultProviderSelectionSettings,
   fitProviderSelectionSettings,
   ProviderModelFields,
+  ProviderModelPicker,
 } from "./provider-model-fields";
 import {
+  createProviderProfile,
   inheritWorkspaceDefaultProvider,
   installManagedProviderKey,
   saveProviderSetup,
@@ -103,6 +107,14 @@ export type ProviderSetupDialogTarget =
 export type ProviderSetupDialogProps = Readonly<{
   workspaceId: string;
   target: ProviderSetupDialogTarget;
+  /**
+   * `choose` (default) picks the provider of the target. `add`, for the
+   * workspace target only, adds a new provider to the workspace list and may
+   * also make it the default.
+   */
+  mode?: "choose" | "add";
+  /** Workspace target: the provider to offer first, such as "Make default". */
+  initialProfileId?: string;
   /** Which part opens first; credentials only for one repository. */
   initialStep?: "provider" | "credentials";
   triggerLabel: ReactNode;
@@ -185,6 +197,8 @@ export function ProviderSetupDialog(
 function ProviderSetupDialogBody({
   workspaceId,
   target,
+  mode = "choose",
+  initialProfileId,
   initialStep = "provider",
   mutationsEnabled,
   modelOptions,
@@ -228,14 +242,17 @@ function ProviderSetupDialogBody({
   const credentialStep =
     repository && effective ? credentialStepOf(effective) : null;
 
-  const title =
-    target.kind === "workspace"
+  const adding = mode === "add" && target.kind === "workspace";
+  const title = adding
+    ? "Add a provider"
+    : target.kind === "workspace"
       ? "Workspace default provider"
       : target.kind === "repository"
         ? `Provider for ${target.repository.fullName}`
         : `Provider for ${target.repositories.length} repositories`;
-  const description =
-    target.kind === "workspace"
+  const description = adding
+    ? "It joins this workspace's providers. Repositories use it once it is chosen for them or made the default."
+    : target.kind === "workspace"
       ? "Repositories without a provider of their own review with this one."
       : target.kind === "repository"
         ? "Choose which AI provider reviews pull requests in this repository."
@@ -302,6 +319,8 @@ function ProviderSetupDialogBody({
           <ProviderChoiceStep
             workspaceId={workspaceId}
             target={target}
+            adding={adding}
+            initialProfileId={initialProfileId}
             view={view.data}
             mutationsEnabled={mutationsEnabled}
             modelOptions={modelOptions}
@@ -376,6 +395,8 @@ type SaveOutcome =
 function ProviderChoiceStep({
   workspaceId,
   target,
+  adding,
+  initialProfileId,
   view,
   mutationsEnabled,
   modelOptions,
@@ -386,6 +407,9 @@ function ProviderChoiceStep({
 }: {
   readonly workspaceId: string;
   readonly target: ProviderSetupDialogTarget;
+  /** Adding a provider to the workspace list (workspace target). */
+  readonly adding: boolean;
+  readonly initialProfileId: string | undefined;
   readonly view: ProviderSetupView;
   readonly mutationsEnabled: boolean;
   readonly modelOptions: readonly ReviewModelOption[];
@@ -404,32 +428,95 @@ function ProviderChoiceStep({
   const offersDefault =
     target.kind === "repository" && view.defaultSelection !== null;
   const initialChoice = useMemo<Choice | null>(() => {
+    if (adding) {
+      const first = firstAllowedSource(view.sources);
+      return first ? { kind: "new", source: first.key } : null;
+    }
     if (target.kind === "workspace")
-      return view.defaultSelection
-        ? { kind: "profile", profileId: view.defaultSelection.profileId }
-        : null;
+      return initialProfileId &&
+        view.profiles.some((candidate) => candidate.id === initialProfileId)
+        ? { kind: "profile", profileId: initialProfileId }
+        : view.defaultSelection
+          ? { kind: "profile", profileId: view.defaultSelection.profileId }
+          : null;
     if (repositoryView?.selection)
       return { kind: "profile", profileId: repositoryView.selection.profileId };
     if (target.kind === "repository" && view.defaultSelection)
       return { kind: "default" };
     return null;
-  }, [repositoryView, target.kind, view.defaultSelection]);
+  }, [
+    adding,
+    initialProfileId,
+    repositoryView,
+    target.kind,
+    view.defaultSelection,
+    view.profiles,
+    view.sources,
+  ]);
+  /** The draft and settings a choice starts with. */
+  const startOf = (
+    next: Choice | null,
+  ): Readonly<{
+    draft: DraftProvider;
+    settings: ProviderSelectionSettings | null;
+  }> => {
+    const empty = { model: "", bindingId: "", apiKey: "" };
+    if (!next) return { draft: empty, settings: null };
+    if (next.kind === "new") {
+      const option = view.sources.find(
+        (candidate) => candidate.key === next.source,
+      );
+      if (!option) return { draft: empty, settings: null };
+      const model =
+        option.key === "gateway_binding"
+          ? ""
+          : getDefaultProviderConfigForAuthMode(option.authMode).model;
+      return {
+        draft: { ...empty, model },
+        settings: defaultProviderSelectionSettings({
+          authMode: option.authMode,
+          model,
+        }),
+      };
+    }
+    const selected =
+      next.kind === "default"
+        ? view.defaultSelection
+        : next.profileId === repositoryView?.selection?.profileId
+          ? repositoryView.selection
+          : next.profileId === view.defaultSelection?.profileId
+            ? view.defaultSelection
+            : null;
+    const chosen =
+      next.kind === "default"
+        ? defaultProfile
+        : view.profiles.find((candidate) => candidate.id === next.profileId);
+    return {
+      draft: empty,
+      settings: selected
+        ? selectionSettings(selected)
+        : chosen
+          ? defaultProviderSelectionSettings({
+              authMode: chosen.authMode,
+              model: chosen.model,
+            })
+          : null,
+    };
+  };
   const [choice, setChoice] = useState<Choice | null>(initialChoice);
-  const [draft, setDraft] = useState<DraftProvider>({
-    model: "",
-    bindingId: "",
-    apiKey: "",
-  });
+  const [draft, setDraft] = useState<DraftProvider>(
+    () => startOf(initialChoice).draft,
+  );
   const [settings, setSettings] = useState<ProviderSelectionSettings | null>(
-    () =>
-      initialChoice?.kind === "profile"
-        ? selectionSettings(
-            repositoryView?.selection ?? view.defaultSelection ?? null,
-          )
-        : null,
+    () => startOf(initialChoice).settings,
+  );
+  // Adding from the list: preselected only while there is no default.
+  const [makeDefault, setMakeDefault] = useState(
+    adding && view.defaultSelection === null,
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const source =
     choice?.kind === "new"
@@ -513,46 +600,12 @@ function ProviderChoiceStep({
   function choose(next: Choice): void {
     setChoice(next);
     setError(null);
-    if (next.kind === "new") {
-      const option = view.sources.find(
-        (candidate) => candidate.key === next.source,
-      );
-      if (!option) return;
-      const defaultModel =
-        option.key === "gateway_binding"
-          ? ""
-          : getDefaultProviderConfigForAuthMode(option.authMode).model;
-      setDraft({ model: defaultModel, bindingId: "", apiKey: "" });
-      setSettings(
-        defaultProviderSelectionSettings({
-          authMode: option.authMode,
-          model: defaultModel,
-        }),
-      );
+    setNotice(null);
+    if (next.kind === "new" && !view.sources.some((s) => s.key === next.source))
       return;
-    }
-    const selected =
-      next.kind === "default"
-        ? view.defaultSelection
-        : next.profileId === repositoryView?.selection?.profileId
-          ? repositoryView.selection
-          : next.profileId === view.defaultSelection?.profileId
-            ? view.defaultSelection
-            : null;
-    const chosen =
-      next.kind === "default"
-        ? defaultProfile
-        : view.profiles.find((candidate) => candidate.id === next.profileId);
-    setSettings(
-      selected
-        ? selectionSettings(selected)
-        : chosen
-          ? defaultProviderSelectionSettings({
-              authMode: chosen.authMode,
-              model: chosen.model,
-            })
-          : null,
-    );
+    const start = startOf(next);
+    if (next.kind === "new") setDraft(start.draft);
+    setSettings(start.settings);
   }
 
   const unchanged =
@@ -570,6 +623,7 @@ function ProviderChoiceStep({
     mutationsEnabled &&
     !pending &&
     choice !== null &&
+    (!adding || choice.kind === "new") &&
     decision?.allowed === true &&
     !draftIncomplete &&
     (settings !== null || choice.kind === "default") &&
@@ -585,6 +639,7 @@ function ProviderChoiceStep({
     setPending(true);
     onLockedChange(true);
     setError(null);
+    setNotice(null);
     try {
       if (choice.kind === "default") {
         if (target.kind !== "repository") return;
@@ -629,6 +684,28 @@ function ProviderChoiceStep({
           apiKey: draft.apiKey.trim(),
           repositoryIds,
         });
+      }
+      if (adding && !makeDefault && source) {
+        // Only added to the list: its review settings belong to selections.
+        const created = await createProviderProfile({
+          workspaceId,
+          credential: credentialRequest(source, {
+            bindingId: gatewayAccount?.binding?.id ?? "",
+            gatewayProfileRef: gatewayAccount?.profileId ?? "",
+            repositoryId: "",
+          }),
+          model: model.trim(),
+        });
+        if (created.status === "error") {
+          setError(actionErrorText(created));
+          return;
+        }
+        if (created.created === false) {
+          setNotice("This provider is already in the list.");
+          return;
+        }
+        await onSaved({ kind: "workspace" });
+        return;
       }
       const fitted = fitProviderSelectionSettings({
         authMode: authMode!,
@@ -693,6 +770,8 @@ function ProviderChoiceStep({
   }
 
   const visibleSources = view.sources;
+  // Adding to the list only: the review settings belong to selections.
+  const modelOnly = adding && !makeDefault;
   const groupValue =
     choice === null
       ? null
@@ -718,74 +797,89 @@ function ProviderChoiceStep({
         <RepositoryList repositories={target.repositories} />
       ) : null}
 
-      <section className="grid gap-3">
-        <h3 className="text-sm font-semibold text-cyan-50">
-          {view.profiles.length > 0 || offersDefault
-            ? "Choose a provider"
-            : "Add the first provider"}
-        </h3>
-        <RadioCardGroup
-          label="Provider"
-          value={groupValue}
-          disabled={pending}
-          onValueChange={(value) => {
-            if (value === defaultChoice) choose({ kind: "default" });
-            else if (value === newProviderChoice)
-              choose({
-                kind: "new",
-                source:
-                  firstAllowedSource(visibleSources)?.key ?? "gateway_binding",
-              });
-            else choose({ kind: "profile", profileId: value });
-          }}
-        >
-          {offersDefault && defaultProfile ? (
+      {adding && !firstAllowedSource(visibleSources) ? (
+        <p className="text-sm text-amber-100/85">
+          {deniedText(visibleSources[0]?.decision)}
+        </p>
+      ) : null}
+
+      {adding ? null : (
+        <section className="grid gap-3">
+          <h3 className="text-sm font-semibold text-cyan-50">
+            {view.profiles.length > 0 || offersDefault
+              ? "Choose a provider"
+              : "Add the first provider"}
+          </h3>
+          <RadioCardGroup
+            label="Provider"
+            value={groupValue}
+            disabled={pending}
+            onValueChange={(value) => {
+              if (value === defaultChoice) choose({ kind: "default" });
+              else if (value === newProviderChoice)
+                choose({
+                  kind: "new",
+                  source:
+                    firstAllowedSource(visibleSources)?.key ??
+                    "gateway_binding",
+                });
+              else choose({ kind: "profile", profileId: value });
+            }}
+          >
+            {offersDefault && defaultProfile ? (
+              <RadioCard
+                value={defaultChoice}
+                icon={
+                  <ProviderAuthLogoFrame authMode={defaultProfile.authMode} />
+                }
+                title={`Workspace default: ${defaultProfile.label}`}
+                description={`${sourceTitle(defaultProfile.credentialKind, defaultProfile.authMode)} · ${defaultProfile.model}. Follows the default when it changes.`}
+                meta={
+                  repositoryView?.source === "workspace" ? (
+                    <Badge tone="success" size="xs">
+                      In use
+                    </Badge>
+                  ) : null
+                }
+                disabled={!repositoryView?.useDefault.allowed}
+                disabledReason={deniedText(repositoryView?.useDefault)}
+              />
+            ) : null}
+            {listedProfiles.map((option) => (
+              <ProfileCard
+                key={option.id}
+                option={option}
+                inUse={
+                  target.kind === "workspace"
+                    ? option.isDefault
+                    : repositoryView?.selection?.profileId === option.id
+                }
+                bulk={target.kind === "repositories"}
+                total={repositoryIds(target).length}
+              />
+            ))}
             <RadioCard
-              value={defaultChoice}
-              icon={
-                <ProviderAuthLogoFrame authMode={defaultProfile.authMode} />
-              }
-              title={`Workspace default: ${defaultProfile.label}`}
-              description={`${sourceTitle(defaultProfile.credentialKind, defaultProfile.authMode)} · ${defaultProfile.model}. Follows the default when it changes.`}
-              meta={
-                repositoryView?.source === "workspace" ? (
-                  <Badge tone="success" size="xs">
-                    In use
-                  </Badge>
-                ) : null
-              }
-              disabled={!repositoryView?.useDefault.allowed}
-              disabledReason={deniedText(repositoryView?.useDefault)}
+              value={newProviderChoice}
+              title="Add a new provider"
+              description="Connect an account, a key or a subscription. It is added to this workspace's providers."
+              disabled={!firstAllowedSource(visibleSources)}
+              disabledReason={deniedText(
+                visibleSources.find((candidate) => !candidate.decision.allowed)
+                  ?.decision,
+              )}
             />
-          ) : null}
-          {listedProfiles.map((option) => (
-            <ProfileCard
-              key={option.id}
-              option={option}
-              inUse={
-                target.kind === "workspace"
-                  ? option.isDefault
-                  : repositoryView?.selection?.profileId === option.id
-              }
-              bulk={target.kind === "repositories"}
-              total={repositoryIds(target).length}
-            />
-          ))}
-          <RadioCard
-            value={newProviderChoice}
-            title="Add a new provider"
-            description="Connect an account, a key or a subscription. It is added to this workspace's providers."
-            disabled={!firstAllowedSource(visibleSources)}
-            disabledReason={deniedText(
-              visibleSources.find((candidate) => !candidate.decision.allowed)
-                ?.decision,
-            )}
-          />
-        </RadioCardGroup>
-      </section>
+          </RadioCardGroup>
+        </section>
+      )}
 
       {choice?.kind === "new" ? (
-        <section className="grid gap-4 border-t border-cyan-200/10 pt-5">
+        <section
+          className={
+            adding
+              ? "grid gap-4"
+              : "grid gap-4 border-t border-cyan-200/10 pt-5"
+          }
+        >
           <SelectField
             label="Where the credential comes from"
             value={choice.source}
@@ -850,27 +944,39 @@ function ProviderChoiceStep({
             />
           ) : null}
           {needsKeyUpload ? (
-            <label className="grid gap-2 text-sm text-slate-300">
-              <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-                API key
-              </span>
-              <input
-                type="password"
-                autoComplete="off"
-                value={draft.apiKey}
-                disabled={pending || target.kind === "workspace"}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    apiKey: event.target.value,
-                  }))
-                }
-                placeholder="Paste the key"
-                className="min-h-11 w-full rounded-xl border border-cyan-200/15 bg-slate-950/80 px-3 py-2 text-cyan-50 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/55 focus:ring-2 focus:ring-cyan-300/20"
+            <TextField
+              label="API key"
+              type="password"
+              autoComplete="off"
+              value={draft.apiKey}
+              disabled={pending || target.kind === "workspace"}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  apiKey: event.target.value,
+                }))
+              }
+              placeholder="Paste the key"
+              hint="Saved encrypted on the server and installed in the selected repositories. It is never shown again."
+            />
+          ) : null}
+          {adding ? (
+            <label className="flex cursor-pointer items-start gap-3 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60">
+              <Checkbox
+                checked={makeDefault}
+                disabled={pending || !sourceDecision?.allowed}
+                onChange={(event) => setMakeDefault(event.target.checked)}
+                className="mt-0.5"
               />
-              <span className="text-xs leading-5 text-slate-400">
-                Saved encrypted on the server and installed in the selected
-                repositories. It is never shown again.
+              <span className="grid gap-0.5">
+                <span className="font-semibold text-cyan-50">
+                  Use as workspace default
+                </span>
+                <span className="text-xs leading-5 text-slate-400">
+                  {view.defaultSelection
+                    ? "Replaces the current default for repositories without a provider of their own."
+                    : "Repositories without a provider of their own start reviewing with it."}
+                </span>
               </span>
             </label>
           ) : null}
@@ -878,40 +984,72 @@ function ProviderChoiceStep({
       ) : null}
 
       {authMode && settings && (choice?.kind !== "new" || source) ? (
-        <section className="grid gap-4 border-t border-cyan-200/10 pt-5">
-          <h3 className="text-sm font-semibold text-cyan-50">
-            Model and review settings
-          </h3>
-          <ProviderModelFields
-            authMode={authMode}
-            model={model}
-            onModelChange={
-              source
-                ? (next) => {
-                    setDraft((current) => ({ ...current, model: next }));
-                    setSettings((current) =>
-                      current
-                        ? fitProviderSelectionSettings({
-                            authMode,
-                            model: next,
-                            settings: current,
-                            connection: gatewayProfile?.connection,
-                          })
-                        : current,
-                    );
-                  }
-                : null
-            }
-            modelOptions={sourceModelOptions}
-            modelChoice={source?.key === "gateway_binding" ? "list" : "catalog"}
-            settings={settings}
-            onSettingsChange={setSettings}
-            connection={gatewayProfile?.connection}
-            agentProfileOptions={agentProfileOptions}
-            disabled={
-              pending || !mutationsEnabled || choice?.kind === "default"
-            }
-          />
+        <section
+          className={
+            modelOnly
+              ? "grid gap-4"
+              : "grid gap-4 border-t border-cyan-200/10 pt-5"
+          }
+        >
+          {modelOnly ? null : (
+            <h3 className="text-sm font-semibold text-cyan-50">
+              {adding
+                ? "Model and review settings of the default"
+                : "Model and review settings"}
+            </h3>
+          )}
+          {modelOnly ? (
+            <ProviderModelPicker
+              model={model}
+              onModelChange={(next) =>
+                setDraft((current) => ({ ...current, model: next }))
+              }
+              modelOptions={sourceModelOptions}
+              modelChoice={
+                source?.key === "gateway_binding" ? "list" : "catalog"
+              }
+              disabled={pending || !mutationsEnabled}
+            />
+          ) : (
+            <ProviderModelFields
+              authMode={authMode}
+              model={model}
+              onModelChange={
+                source
+                  ? (next) => {
+                      setDraft((current) => ({ ...current, model: next }));
+                      setSettings((current) =>
+                        current
+                          ? fitProviderSelectionSettings({
+                              authMode,
+                              model: next,
+                              settings: current,
+                              connection: gatewayProfile?.connection,
+                            })
+                          : current,
+                      );
+                    }
+                  : null
+              }
+              modelOptions={sourceModelOptions}
+              modelChoice={
+                source?.key === "gateway_binding" ? "list" : "catalog"
+              }
+              settings={settings}
+              onSettingsChange={setSettings}
+              connection={gatewayProfile?.connection}
+              agentProfileOptions={agentProfileOptions}
+              disabled={
+                pending || !mutationsEnabled || choice?.kind === "default"
+              }
+            />
+          )}
+          {modelOnly ? (
+            <p className="text-xs leading-5 text-slate-400">
+              Review depth and similar settings are chosen where the provider is
+              used.
+            </p>
+          ) : null}
           {authMode === "codex_account_gateway" && gatewayBindingId ? (
             <GatewayConnectionTest
               bindingId={gatewayBindingId}
@@ -929,8 +1067,8 @@ function ProviderChoiceStep({
             </p>
           ) : profile && !source ? (
             <p className="text-xs leading-5 text-slate-400">
-              The model belongs to the provider and changes for everyone who
-              uses it. The settings above apply only here.
+              The model belongs to the provider and is changed in Providers, for
+              everyone who uses it. The settings above apply only here.
             </p>
           ) : null}
         </section>
@@ -944,6 +1082,11 @@ function ProviderChoiceStep({
           {error}
         </p>
       ) : null}
+      {notice ? (
+        <p role="status" className="text-sm leading-6 text-slate-200">
+          {notice}
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap items-center justify-end gap-3 border-t border-cyan-200/10 pt-4">
         <Button
@@ -955,13 +1098,17 @@ function ProviderChoiceStep({
         >
           {pending
             ? "Saving..."
-            : target.kind === "workspace"
-              ? "Set as default"
-              : target.kind === "repositories"
-                ? `Use for ${target.repositories.length} repositories`
-                : choice?.kind === "default"
-                  ? "Use the workspace default"
-                  : "Use for this repository"}
+            : adding
+              ? makeDefault
+                ? "Add and make default"
+                : "Add provider"
+              : target.kind === "workspace"
+                ? "Set as default"
+                : target.kind === "repositories"
+                  ? `Use for ${target.repositories.length} repositories`
+                  : choice?.kind === "default"
+                    ? "Use the workspace default"
+                    : "Use for this repository"}
         </Button>
       </div>
     </div>
