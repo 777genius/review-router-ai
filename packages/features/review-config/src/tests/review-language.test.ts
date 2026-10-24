@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   parseReviewConfiguration,
-  resolveReviewPolicy,
-  parseRepositoryReviewPolicyOverride,
   canonicalJson,
 } from "../domain/review-configuration";
+import {
+  parseRepositoryReviewPolicy,
+  resolveEffectiveReviewPolicy,
+} from "../domain/review-policy-document";
 import { mapConfigToRuntimeEnv } from "../application/use-cases/map-config-to-runtime-env";
+import {
+  providerProfileFixture,
+  workspacePolicyDocumentFixture,
+} from "./current-policy-fixture";
 
 const baseInput = {
   schemaVersion: 3 as const,
@@ -85,27 +91,65 @@ describe("review output language", () => {
 });
 
 describe("current policy overrides", () => {
-  it("resets all overrides with an empty current patch", () => {
-    const workspace = parseReviewConfiguration(baseInput);
-    expect(resolveReviewPolicy(workspace, { schemaVersion: 3 })).toEqual(
-      workspace,
-    );
+  const target = {
+    scope: "repository",
+    workspaceId: "workspace_1",
+    repositoryId: "repository_1",
+  } as const;
+  const profile = providerProfileFixture({
+    id: "profile_rotating",
+    credential: {
+      kind: "repository_rotating",
+      authMode: "codex_subscription_oauth_rotating",
+      repositoryId: "repository_1",
+    },
+    model: "gpt-5.5",
+  });
+  const profiles = new Map([[profile.id, profile]]);
+  const resolve = (
+    workspaceInput: unknown,
+    repository: Parameters<typeof parseRepositoryReviewPolicy>[0],
+  ) => {
+    const config = parseReviewConfiguration(workspaceInput);
+    return resolveEffectiveReviewPolicy({
+      target,
+      workspace: workspacePolicyDocumentFixture(config),
+      repository: parseRepositoryReviewPolicy({
+        schemaVersion: 4,
+        providers: [
+          {
+            profileId: profile.id,
+            reasoningEffort: "medium",
+            agenticContext: true,
+            fastMode: false,
+            requiredHealthy: false,
+          },
+        ],
+        ...(repository as object),
+      }),
+      profiles,
+    })!.config;
+  };
+
+  it("inherits every setting the repository document does not name", () => {
+    expect(resolve(baseInput, {})).toEqual(parseReviewConfiguration(baseInput));
   });
   it("preserves explicit zero, false and nullable language", () => {
-    const workspace = parseReviewConfiguration({
-      ...baseInput,
-      reviewLanguage: "Russian",
-      investigationRollout: {
-        ...baseInput.investigationRollout,
-        recordingEnabled: true,
+    const effective = resolve(
+      {
+        ...baseInput,
+        reviewLanguage: "Russian",
+        investigationRollout: {
+          ...baseInput.investigationRollout,
+          recordingEnabled: true,
+        },
       },
-    });
-    const effective = resolveReviewPolicy(workspace, {
-      schemaVersion: 3,
-      limits: { inlineMaxComments: 0 },
-      investigationRollout: { recordingEnabled: false },
-      reviewLanguage: null,
-    });
+      {
+        limits: { inlineMaxComments: 0 },
+        investigationRollout: { recordingEnabled: false },
+        reviewLanguage: null,
+      },
+    );
     expect(effective.limits.inlineMaxComments).toBe(0);
     expect(effective.investigationRollout.recordingEnabled).toBe(false);
     expect(effective.reviewLanguage).toBeNull();
@@ -121,18 +165,23 @@ describe("current policy overrides", () => {
     );
   });
   it("rejects obsolete schemas, unknown settings and implicit null limits", () => {
-    for (const schemaVersion of [1, 2])
-      expect(() =>
-        parseReviewConfiguration({ ...baseInput, schemaVersion }),
-      ).toThrow();
+    for (const schemaVersion of [1, 2, 3])
+      expect(() => parseRepositoryReviewPolicy({ schemaVersion })).toThrow();
     expect(() =>
-      parseRepositoryReviewPolicyOverride({
-        schemaVersion: 3,
+      parseRepositoryReviewPolicy({
+        schemaVersion: 4,
         limits: { inlineMaxComments: null },
       }),
     ).toThrow();
     expect(() =>
-      parseRepositoryReviewPolicyOverride({ schemaVersion: 3, agent: "codex" }),
+      parseRepositoryReviewPolicy({ schemaVersion: 4, agent: "codex" }),
+    ).toThrow();
+    // The provider limit is the selection count and is never stored.
+    expect(() =>
+      parseRepositoryReviewPolicy({
+        schemaVersion: 4,
+        execution: { providerLimit: 1 },
+      }),
     ).toThrow();
   });
 });

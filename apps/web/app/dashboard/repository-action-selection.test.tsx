@@ -2,97 +2,65 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import {
-  RepositoryActionSelectionProvider,
-  useRepositoryActionSelection,
-} from "./gateway-repository-batch-controls";
-import {
+  RepositorySelectionProvider,
   RepositorySelectionToolbar,
   useRepositorySelection,
+  type RepositorySelectionItem,
 } from "./repository-action-selection";
 afterEach(cleanup);
 function Probe({ matching }: { readonly matching: readonly string[] }) {
-  const neutral = useRepositorySelection()!;
-  const gateway = useRepositoryActionSelection()!;
+  const selection = useRepositorySelection()!;
   return (
     <>
       <RepositorySelectionToolbar matchingIds={matching} />
-      <output aria-label="Selected IDs">{neutral.ids.join(",")}</output>
-      <output aria-label="Gateway versions">
-        {gateway.selected
-          .map((item) => `${item.repositoryId}:${item.expectedVersion}`)
-          .join(",")}
-      </output>
-      <button onClick={() => neutral.toggle("repo-1")}>Toggle first</button>
-      <button onClick={() => gateway.toggle(gateway.inventory[124]!)}>
-        Gateway toggle last
-      </button>
+      <output aria-label="Selected IDs">{selection.ids.join(",")}</output>
+      <button onClick={() => selection.toggle("repo-1")}>Toggle first</button>
     </>
   );
 }
-it("captures all 125 matching IDs without a Gateway cap, preserves hidden IDs and selected CAS versions across refresh", () => {
-  const ids = Array.from({ length: 125 }, (_, index) => `repo-${index + 1}`);
-  const inventory = ids.map((repositoryId) => ({
-    repositoryId,
-    fullName: repositoryId,
-    eligible: true,
-    expectedVersion: 1,
+const inventoryOf = (
+  available: boolean,
+  count = 125,
+): readonly RepositorySelectionItem[] =>
+  Array.from({ length: count }, (_, index) => ({
+    repositoryId: `repo-${index + 1}`,
+    fullName: `acme/repo-${index + 1}`,
+    available,
   }));
-  const view = (version: number, matching = ids) => (
-    <RepositoryActionSelectionProvider
+it("captures all 125 matching IDs without an action cap and preserves hidden IDs across refresh", () => {
+  const ids = inventoryOf(true).map((item) => item.repositoryId);
+  const view = (matching = ids) => (
+    <RepositorySelectionProvider
       workspaceId="workspace"
-      inventory={inventory.map((item) => ({
-        ...item,
-        expectedVersion: version,
-      }))}
+      inventory={inventoryOf(true)}
     >
       <Probe matching={matching} />
-    </RepositoryActionSelectionProvider>
+    </RepositorySelectionProvider>
   );
-  const mounted = render(view(1));
+  const mounted = render(view());
   fireEvent.click(
     screen.getByRole("button", { name: "Select all 125 matching" }),
   );
   expect(
     screen.getByLabelText("Selected IDs").textContent?.split(","),
   ).toHaveLength(125);
-  expect(screen.getByLabelText("Gateway versions").textContent).toContain(
-    "repo-1:1",
-  );
-  mounted.rerender(view(2, ["repo-125"]));
+  mounted.rerender(view(["repo-125"]));
   expect(
     screen.getByText("125 selected · 124 outside current search"),
   ).toBeTruthy();
-  expect(screen.getByLabelText("Gateway versions").textContent).toContain(
-    "repo-1:1",
-  );
   fireEvent.click(screen.getByRole("button", { name: "Toggle first" }));
-  fireEvent.click(screen.getByRole("button", { name: "Toggle first" }));
-  expect(screen.getByLabelText("Gateway versions").textContent).toContain(
-    "repo-1:2",
-  );
+  expect(
+    screen.getByLabelText("Selected IDs").textContent?.split(","),
+  ).toHaveLength(124);
 });
 it("keeps selected IDs when inventory becomes unavailable and only clears on explicit intent or workspace change", () => {
-  const inventory = [
-    {
-      repositoryId: "repo-1",
-      fullName: "one",
-      eligible: true,
-      expectedVersion: 1,
-    },
-    ...Array.from({ length: 124 }, (_, index) => ({
-      repositoryId: `repo-${index + 2}`,
-      fullName: "other",
-      eligible: true,
-      expectedVersion: 1,
-    })),
-  ];
-  const view = (workspaceId: string, eligible: boolean) => (
-    <RepositoryActionSelectionProvider
+  const view = (workspaceId: string, available: boolean) => (
+    <RepositorySelectionProvider
       workspaceId={workspaceId}
-      inventory={inventory.map((item) => ({ ...item, eligible }))}
+      inventory={inventoryOf(available)}
     >
       <Probe matching={["repo-1"]} />
-    </RepositoryActionSelectionProvider>
+    </RepositorySelectionProvider>
   );
   const mounted = render(view("a", true));
   fireEvent.click(
@@ -102,4 +70,30 @@ it("keeps selected IDs when inventory becomes unavailable and only clears on exp
   expect(screen.getByLabelText("Selected IDs").textContent).toBe("repo-1");
   mounted.rerender(view("b", true));
   expect(screen.getByLabelText("Selected IDs").textContent).toBe("");
+});
+it("drops repositories that left the inventory from the selection and its count", () => {
+  const view = (count: number) => (
+    <RepositorySelectionProvider
+      workspaceId="workspace"
+      inventory={inventoryOf(true, count)}
+    >
+      <Probe
+        matching={inventoryOf(true, count).map((item) => item.repositoryId)}
+      />
+    </RepositorySelectionProvider>
+  );
+  const mounted = render(view(3));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Select all 3 matching" }),
+  );
+  expect(screen.getByText("3 selected")).toBeTruthy();
+  mounted.rerender(view(2));
+  expect(screen.getByLabelText("Selected IDs").textContent).toBe(
+    "repo-1,repo-2",
+  );
+  expect(screen.getByText("2 selected")).toBeTruthy();
+  mounted.rerender(view(3));
+  expect(screen.getByLabelText("Selected IDs").textContent).toBe(
+    "repo-1,repo-2",
+  );
 });

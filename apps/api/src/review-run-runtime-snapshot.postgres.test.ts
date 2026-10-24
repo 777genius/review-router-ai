@@ -1,4 +1,7 @@
-import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
+import {
+  systemPolicyWriteFixture,
+  workspacePolicyFixture,
+} from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { createApiApp } from "./app";
 import { describe, expect, it } from "vitest";
 import { once } from "node:events";
@@ -423,6 +426,22 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         }),
       ).toBeNull();
       // Even a dual-transport release cannot authorize a mixed policy.
+      const mixedConnection = await prisma.providerAccountConnection.create({
+        data: {
+          ownerWorkspaceId: harness.workspaceId,
+          gatewayAccountRef: `${harness.prefix}-mixed-account`,
+          profileRef: "mimo-responses-v1",
+          displayName: "Mixed transport",
+          state: "active",
+        },
+      });
+      const mixedBinding = await prisma.workspaceAccountBinding.create({
+        data: {
+          workspaceId: harness.workspaceId,
+          connectionId: mixedConnection.id,
+          state: "active",
+        },
+      });
       const mixedPolicy = parseReviewConfigurationStrict({
         ...workspacePolicyFixture,
         providers: [
@@ -434,8 +453,8 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
             reasoningEffort: "high",
             fastMode: false,
             agenticContext: true,
-            gatewayBindingId: "transport-test-binding",
-            gatewayProfileRef: "mimo-responses-v1",
+            gatewayBindingId: mixedBinding.id,
+            gatewayProfileRef: mixedConnection.profileRef,
           },
         ],
         execution: {
@@ -444,9 +463,19 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           inlineMinAgreement: 1,
         },
       });
-      await prisma.reviewConfigurationVersion.updateMany({
-        where: { workspaceId: harness.workspaceId },
-        data: { policyJson: canonicalJson(mixedPolicy) },
+      const mixedTarget = {
+        scope: "repository" as const,
+        workspaceId: harness.workspaceId,
+        repositoryId: harness.repositoryConnectionId,
+      };
+      await new PrismaReviewConfigurationRepository(
+        prisma,
+        undefined,
+        false,
+        undefined,
+      ).saveNextVersion({
+        target: mixedTarget,
+        ...systemPolicyWriteFixture(mixedPolicy, mixedTarget),
       });
       for (const modelTransport of [
         "provider_api",
@@ -895,6 +924,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         await hold?.();
       },
       modelTransport: "account_gateway",
+      repositoryProviderSelection: "none",
       environmentOverrides: {
         REVIEW_ROUTER_REVIEW_V2_MAX_AUTHORIZATION_LIFETIME_MS: "900000",
         REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: JSON.stringify({
@@ -935,7 +965,12 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         expectedRevision: 0,
         state: "active",
       });
-      const configurations = new PrismaReviewConfigurationRepository(prisma);
+      const configurations = new PrismaReviewConfigurationRepository(
+        prisma,
+        undefined,
+        false,
+        undefined,
+      );
       const target = {
         scope: "repository" as const,
         workspaceId,
@@ -957,39 +992,32 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         ],
       });
       await saveReviewConfiguration(
-        { target, policy: config, expectedVersion: null },
+        {
+          target,
+          expectedVersion: null,
+          ...systemPolicyWriteFixture(config, target),
+        },
         { configurations },
       );
       // Reject malformed current policy before creating any authorization.
-      const providerRow =
-        await prisma.reviewConfigurationVersionProvider.findFirstOrThrow({
+      const repositoryHead =
+        await prisma.reviewConfigurationVersion.findFirstOrThrow({
           where: {
             workspaceId,
-            configurationVersion: {
-              configuration: {
-                targetKey: `repo:${repositoryConnectionId}`,
-              },
-            },
+            configuration: { targetKey: `repo:${repositoryConnectionId}` },
           },
+          orderBy: { version: "desc" },
         });
-      const duplicate = await prisma.reviewConfigurationVersionProvider.create({
-        data: {
-          ...providerRow,
-          id: `${harness.prefix}-duplicate-provider`,
-          order: providerRow.order + 1,
-        },
-      });
+      const storedPolicy = JSON.parse(repositoryHead.policyJson!) as {
+        readonly providers: readonly unknown[];
+      };
+      // The same profile selected twice is not a readable document.
       await prisma.reviewConfigurationVersion.update({
-        where: { id: providerRow.configurationVersionId },
+        where: { id: repositoryHead.id },
         data: {
           policyJson: canonicalJson({
-            ...config,
-            providers: [...config.providers, config.providers[0]!],
-            execution: {
-              providerLimit: 2,
-              providerMaxParallel: 2,
-              inlineMinAgreement: 1,
-            },
+            ...storedPolicy,
+            providers: [...storedPolicy.providers, storedPolicy.providers[0]],
           }),
         },
       });
@@ -999,12 +1027,9 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           where: { repositoryConnectionId },
         }),
       ).toBe(0);
-      await prisma.reviewConfigurationVersionProvider.delete({
-        where: { id: duplicate.id },
-      });
       await prisma.reviewConfigurationVersion.update({
-        where: { id: providerRow.configurationVersionId },
-        data: { policyJson: canonicalJson(config) },
+        where: { id: repositoryHead.id },
+        data: { policyJson: repositoryHead.policyJson },
       });
       const producerRow = await prisma.producerRelease.findUniqueOrThrow({
         where: { producerReleaseId: harness.producerReleaseId },
@@ -2208,7 +2233,11 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         ],
       });
       await saveReviewConfiguration(
-        { target, policy: changed, expectedVersion: 1 },
+        {
+          target,
+          expectedVersion: 1,
+          ...systemPolicyWriteFixture(changed, target),
+        },
         { configurations },
       );
       expect(recheckRuntimeConfig).toBeDefined();
@@ -2420,7 +2449,11 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         capture: async (captureInput) => {
           const captured = await snapshotSource.capture(captureInput);
           await saveReviewConfiguration(
-            { target, policy: config, expectedVersion: 2 },
+            {
+              target,
+              expectedVersion: 2,
+              ...systemPolicyWriteFixture(config, target),
+            },
             { configurations },
           );
           return captured;
@@ -2500,7 +2533,11 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       // Current configuration now points to a different live account, but replay,
       // renewal and token resolution must still honor the original revocation.
       await saveReviewConfiguration(
-        { target, policy: changed, expectedVersion: 3 },
+        {
+          target,
+          expectedVersion: 3,
+          ...systemPolicyWriteFixture(changed, target),
+        },
         { configurations },
       );
       const replacedPin = await snapshotSource.capture({
@@ -2600,7 +2637,11 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       // Separate ordinary-TTL fixture in this same PG lifecycle case: real
       // configuration capture, admission, renewal, restore and SQL/outbox reads.
       await saveReviewConfiguration(
-        { target, policy: workspacePolicyFixture, expectedVersion: 4 },
+        {
+          target,
+          expectedVersion: 4,
+          ...systemPolicyWriteFixture(workspacePolicyFixture, target),
+        },
         { configurations },
       );
       const ordinaryAdmission =

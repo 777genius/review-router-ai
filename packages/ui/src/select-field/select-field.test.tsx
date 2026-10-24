@@ -39,4 +39,19 @@ describe("SelectField", () => {
     );
     expect(screen.getByRole("combobox").textContent).toContain("Provider A");
   });
+  it("shows the selected option's icon on a controlled control", () => {
+    render(
+      <SelectField
+        label="Account"
+        value="grok"
+        options={[
+          { value: "codex", label: "Team Codex", icon: <i>codex-logo</i> },
+          { value: "grok", label: "Team Grok", icon: <i>grok-logo</i> },
+        ]}
+      />,
+    );
+    const control = screen.getByRole("combobox");
+    expect(control.textContent).toContain("grok-logo");
+    expect(control.textContent).not.toContain("codex-logo");
+  });
 });

@@ -12,7 +12,6 @@ import {
   selectVisibleRepositoryIds,
   type RepositorySearchIndexItem,
 } from "./repository-live-search";
-import { RepositoryActionSelectionProvider } from "./gateway-repository-batch-controls";
 
 const routerMock = vi.hoisted(() => ({ replace: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => routerMock }));
@@ -27,7 +26,7 @@ const index: RepositorySearchIndexItem[] = Array.from(
     provider: "github",
     visibility: i === 39 ? "public" : "private",
     readiness: i === 39 ? "needs_setup" : "ready",
-    setupProgressStep: i === 39 ? 1 : 4,
+    setupProgressStep: i === 39 ? "setup_pr" : "ready",
     stargazersCount: i + 1,
     archived: i === 39,
   }),
@@ -77,10 +76,6 @@ describe("RepositoryLiveSearch", () => {
     const slot = summaryRow!.closest<HTMLElement>(
       "[data-repository-result-slot]",
     )!;
-    // The checkbox sits inside the row block so it shares the row background.
-    expect(
-      slot.querySelector('input[aria-label="Select personal/project-2"]'),
-    ).not.toBeNull();
     expect(slot.querySelector("[data-repository-summary-row]")).not.toBeNull();
     // Divider and zebra/hover background live on the row block itself.
     expect(slot.className).toContain("border-t");
@@ -353,38 +348,28 @@ function Fixture({
 }): React.ReactElement {
   return (
     <div data-repository-table>
-      <RepositoryActionSelectionProvider
-        workspaceId={workspaceKey}
-        inventory={searchIndex.map((item) => ({
-          repositoryId: item.id,
-          expectedVersion: null,
-          fullName: item.fullName,
-          eligible: true,
-        }))}
+      <RepositoryLiveSearch
+        key={workspaceKey}
+        workspaceKey={workspaceKey}
+        initialWorkspaceParam={initialWorkspaceParam}
+        selectedRepositoryFullName={
+          selectedId ? `personal/project-${selectedId.slice(5)}` : null
+        }
+        selectedRepositoryId={selectedId ?? null}
+        initialQuery=""
+        initialFilter="all"
+        searchIndex={searchIndex}
+        totalRepositoryCount={searchIndex.length}
+        rowLimit={24}
+        richRowIds={richIds}
       >
-        <RepositoryLiveSearch
-          key={workspaceKey}
-          workspaceKey={workspaceKey}
-          initialWorkspaceParam={initialWorkspaceParam}
-          selectedRepositoryFullName={
-            selectedId ? `personal/project-${selectedId.slice(5)}` : null
-          }
-          selectedRepositoryId={selectedId ?? null}
-          initialQuery=""
-          initialFilter="all"
-          searchIndex={searchIndex}
-          totalRepositoryCount={searchIndex.length}
-          rowLimit={24}
-          richRowIds={richIds}
-        >
-          {richIds.map((id) => (
-            <div key={id} data-repository-row-id={id} data-repository-setup-row>
-              <input type="checkbox" defaultChecked={id === selectedId} />
-              rich {id}
-            </div>
-          ))}
-        </RepositoryLiveSearch>
-      </RepositoryActionSelectionProvider>
+        {richIds.map((id) => (
+          <div key={id} data-repository-row-id={id} data-repository-setup-row>
+            <input type="checkbox" defaultChecked={id === selectedId} />
+            rich {id}
+          </div>
+        ))}
+      </RepositoryLiveSearch>
     </div>
   );
 }

@@ -35,6 +35,8 @@ export class PrismaWorkflowProvisioningRepository implements WorkflowProvisionin
         workflowPath: record.workflowPath,
         workflowStyle: record.workflowStyle,
         actionVersion: record.actionVersion,
+        // The installed requirement changes only when this attempt is confirmed.
+        attemptWorkflowRequirement: record.workflowRequirement,
         pullRequestHeadSha: null,
         pullRequestUrl: null,
         errorMessage: null,

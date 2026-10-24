@@ -13,31 +13,10 @@ import type {
 import type { ReviewRouterMcpSecrets } from "@reviewrouter/protocol-review-workflow";
 export type { ReviewRouterMcpSecrets } from "@reviewrouter/protocol-review-workflow";
 import {
-  parseReviewConfigurationStrict,
-  type ReviewConfiguration,
-} from "@reviewrouter/features-review-config";
-import {
   codexWorkflowPathForRepository,
   isolatedQualityWorkflowRepositoryId,
   isCodexWorkflowRepositoryIdentityAdmitted,
 } from "@reviewrouter/features-codex-oauth-rotating";
-
-export function isAccountGatewayConfiguration(
-  config: ReviewConfiguration,
-): boolean {
-  const selected = config.providers.some(
-    (provider) => provider.authMode === "codex_account_gateway",
-  );
-  if (!selected) return false;
-  const parsed = parseReviewConfigurationStrict(config);
-  if (
-    parsed.providers.length !== 1 ||
-    parsed.providers[0]?.authMode !== "codex_account_gateway"
-  ) {
-    throw new Error("account_gateway_single_provider_required");
-  }
-  return true;
-}
 
 export type WorkflowProvisioningStatus =
   | "not_started"

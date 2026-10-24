@@ -58,24 +58,11 @@ export async function seedSkillsFixtures(databaseUrl: string) {
         `INSERT INTO "ReviewConfiguration" (id,"workspaceId","targetKey","updatedAt") VALUES ($1,$2,'workspace:default',CURRENT_TIMESTAMP)`,
         [`rr-e2e-review-config-${owner}`, workspaceId],
       );
+      // A schema 4 workspace document with built-in settings and no default
+      // provider: Skills need a readable review configuration, not a provider.
       const policy = {
-        schemaVersion: 3,
-        providers: [
-          {
-            kind: "codex",
-            authMode: "codex_openai_api_key",
-            model: "gpt-5.4",
-            reasoningEffort: "high",
-            agenticContext: true,
-            fastMode: false,
-            requiredHealthy: false,
-          },
-        ],
-        execution: {
-          providerLimit: 1,
-          providerMaxParallel: 1,
-          inlineMinAgreement: 1,
-        },
+        schemaVersion: 4,
+        execution: { providerMaxParallel: 1, inlineMinAgreement: 1 },
         blockingPolicy: { failOnSeverity: "critical" },
         limits: { inlineMaxComments: 50, targetTokensPerBatch: 50000 },
         reviewLanguage: null,
@@ -89,7 +76,7 @@ export async function seedSkillsFixtures(databaseUrl: string) {
         },
       };
       await db.query(
-        `INSERT INTO "ReviewConfigurationVersion" (id,"configurationId","workspaceId",version,"schemaVersion","policyJson","providerKind","providerAuthMode",model,"reasoningEffort","failOnSeverity","inlineMaxComments","targetTokensPerBatch") VALUES ($1,$2,$3,1,3,$4,'codex','codex_openai_api_key','gpt-5.4','high','critical',50,50000)`,
+        `INSERT INTO "ReviewConfigurationVersion" (id,"configurationId","workspaceId",version,"schemaVersion","policyJson") VALUES ($1,$2,$3,1,4,$4)`,
         [
           `rr-e2e-review-config-version-${owner}`,
           `rr-e2e-review-config-${owner}`,

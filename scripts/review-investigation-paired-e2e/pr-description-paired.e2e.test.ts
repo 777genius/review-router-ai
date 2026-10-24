@@ -8,7 +8,10 @@ import {
   PrismaReviewConfigurationRepository,
   parseReviewConfigurationStrict,
 } from "../../packages/features/review-config/src/index.js";
-import { workspacePolicyFixture } from "../../packages/features/review-config/src/tests/current-policy-fixture.js";
+import {
+  systemPolicyWriteFixture,
+  workspacePolicyFixture,
+} from "../../packages/features/review-config/src/tests/current-policy-fixture.js";
 import { renderReviewRouterProviderApiCaller } from "../../packages/protocol-review-workflow/src/index.js";
 import { registerReviewRunCheckoutRoute } from "../../apps/api/src/review-run-gateway-checkout.js";
 import {
@@ -33,6 +36,8 @@ const hash = (value: string | Uint8Array) =>
     await resetReviewActionV2E2EDatabase(databaseUrl!);
     const fixture = await createReviewActionV2E2EHarness(databaseUrl!, {
       prDescriptionProfile: true,
+      // The workspace OpenRouter default below must not be shadowed.
+      repositoryProviderSelection: "none",
       environmentOverrides: {
         REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED: "0",
       },
@@ -60,12 +65,29 @@ const hash = (value: string | Uint8Array) =>
           },
         ],
       });
+      // OpenRouter is delivered only by the workspace's managed API key.
+      await fixture.prisma.providerApiKeyConnection.create({
+        data: {
+          workspaceId: fixture.workspaceId,
+          providerType: "openrouter",
+          encryptedApiKey: "paired-e2e-ciphertext",
+          keyVersion: 1,
+          latestOperationId: `${fixture.prefix}-openrouter-key`,
+        },
+      });
+      const workspaceTarget = {
+        scope: "workspace" as const,
+        workspaceId: fixture.workspaceId,
+      };
       await new PrismaReviewConfigurationRepository(
         fixture.prisma,
+        undefined,
+        false,
+        undefined,
       ).saveNextVersion({
-        target: { scope: "workspace", workspaceId: fixture.workspaceId },
-        policy: config,
+        target: workspaceTarget,
         expectedVersion: 1,
+        ...systemPolicyWriteFixture(config, workspaceTarget),
       });
       const source = renderReviewRouterProviderApiCaller({
         runtimeRef: "a".repeat(40),

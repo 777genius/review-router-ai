@@ -1,4 +1,8 @@
-import { workspacePolicyFixture } from "../../../review-config/src/tests/current-policy-fixture";
+import {
+  storedPolicyForConfiguration,
+  workspacePolicyFixture,
+} from "../../../review-config/src/tests/current-policy-fixture";
+import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
 import type { PrismaClient } from "@prisma/client";
 import {
   allocateVersionedProviderSecretNamespace,
@@ -891,6 +895,12 @@ describe("PrismaActionControlPlaneRepository helpers", () => {
           productionEffectsEnabled: true,
         },
       };
+      // Rotating is repository-only: the repository selects its profile and
+      // inherits the other settings from the workspace document.
+      const stored = storedPolicyForConfiguration(
+        parseReviewConfigurationStrict(policy),
+        { repositoryId: "repo_1" },
+      );
       const transaction = {
         reviewConfiguration: {
           findUnique: vi.fn(
@@ -898,21 +908,21 @@ describe("PrismaActionControlPlaneRepository helpers", () => {
               where,
             }: {
               where: { workspaceId_targetKey: { targetKey: string } };
-            }) =>
-              where.workspaceId_targetKey.targetKey === "workspace:default"
-                ? {
-                    active: true,
-                    repositoryId: null,
-                    versions: [
-                      {
-                        version: 11,
-                        schemaVersion: 3,
-                        policyJson: JSON.stringify(policy),
-                      },
-                    ],
-                  }
-                : null,
+            }) => {
+              const head =
+                where.workspaceId_targetKey.targetKey === "workspace:default"
+                  ? stored.workspaceHead
+                  : where.workspaceId_targetKey.targetKey === "repo:repo_1"
+                    ? stored.repositoryHead
+                    : null;
+              return head
+                ? { active: true, repositoryId: null, versions: [head] }
+                : null;
+            },
           ),
+        },
+        workspaceProviderProfile: {
+          findMany: vi.fn(async () => stored.profileRows),
         },
       };
       const prisma = {

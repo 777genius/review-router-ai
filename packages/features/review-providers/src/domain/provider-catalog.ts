@@ -8,11 +8,9 @@ export const reviewProviderKinds = [
 ] as const;
 
 export const reviewProviderAuthModes = [
-  "codex_subscription_oauth",
   "codex_subscription_oauth_rotating",
   "codex_subscription_oauth_hosted_pool",
   "codex_account_gateway",
-  "codex_openai_api_key",
   "mimo_token_plan_api_key",
   "claude_code_oauth",
   "openrouter_api_key",
@@ -48,11 +46,9 @@ export type ProviderKind = (typeof reviewProviderKinds)[number];
 export type ProviderAuthMode = (typeof reviewProviderAuthModes)[number];
 
 export type RuntimeAuthMode =
-  | "codex-oauth"
   | "codex-oauth-rotating"
   | "codex-oauth-hosted-pool"
   | "codex-account-gateway"
-  | "openai-api"
   | "mimo-token-plan-api"
   | "claude-oauth"
   | "openrouter-api";
@@ -77,11 +73,9 @@ export type ProviderCapability =
   | "agentic_context";
 
 export type ProviderSetupKind =
-  | "codex_oauth"
   | "codex_oauth_rotating"
   | "codex_oauth_hosted_pool"
   | "account_gateway"
-  | "openai_api_key"
   | "mimo_token_plan_api_key"
   | "claude_code_oauth"
   | "openrouter_api_key";
@@ -164,14 +158,6 @@ const providerCatalog = {
 } as const satisfies Record<ProviderKind, ProviderCatalogEntry>;
 
 const authModeMetadata = {
-  codex_subscription_oauth: {
-    authMode: "codex_subscription_oauth",
-    providerKind: "codex",
-    runtimeAuthMode: "codex-oauth",
-    setupKind: "codex_oauth",
-    label: "Codex subscription",
-    secretNames: ["CODEX_AUTH_JSON"],
-  },
   codex_subscription_oauth_rotating: {
     authMode: "codex_subscription_oauth_rotating",
     providerKind: "codex",
@@ -198,14 +184,6 @@ const authModeMetadata = {
     setupKind: "account_gateway",
     label: "Account Gateway",
     secretNames: [],
-  },
-  codex_openai_api_key: {
-    authMode: "codex_openai_api_key",
-    providerKind: "codex",
-    runtimeAuthMode: "openai-api",
-    setupKind: "openai_api_key",
-    label: "OpenAI API key",
-    secretNames: ["OPENAI_API_KEY"],
   },
   mimo_token_plan_api_key: {
     authMode: "mimo_token_plan_api_key",

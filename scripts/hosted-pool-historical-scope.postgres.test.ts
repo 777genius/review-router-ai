@@ -13,6 +13,9 @@ import {
 } from "../packages/features/action-control-plane/src/index";
 import { canonicalJson } from "../packages/features/review-run-control/src/index";
 import { parseReviewConfiguration } from "../packages/features/review-config/src/domain/review-configuration";
+import { STORED_REVIEW_POLICY_SCHEMA_VERSION } from "../packages/features/review-config/src/domain/review-policy-document";
+import { providerProfileIdentityKey } from "../packages/features/review-config/src/domain/workspace-provider-profile";
+import { workspacePolicyDocumentFixture } from "../packages/features/review-config/src/tests/current-policy-fixture";
 import {
   PrismaHostedAccountRepository,
   PrismaHostedPoolBindingRepository,
@@ -532,6 +535,25 @@ beforeAll(async () => {
     "3",
   );
   await intent("external-old-review-request", newHead, "review-alias-run");
+  // The workspace default selects the hosted pool profile; the repository
+  // document inherits it.
+  const hostedProfile = await db.workspaceProviderProfile.create({
+    data: {
+      id: "hs-hosted-profile",
+      workspaceId: "hs-workspace",
+      credentialKind: "hosted_pool",
+      authMode: "codex_subscription_oauth_hosted_pool",
+      model: syntheticConfigurationVersion.model,
+      label: "Hosted pool",
+      identityKey: providerProfileIdentityKey(
+        {
+          kind: "hosted_pool",
+          authMode: "codex_subscription_oauth_hosted_pool",
+        },
+        syntheticConfigurationVersion.model,
+      ),
+    },
+  });
   await db.reviewConfiguration.create({
     data: {
       id: "hs-workspace-config",
@@ -540,8 +562,11 @@ beforeAll(async () => {
       targetKey: "workspace:default",
       versions: {
         create: {
-          ...syntheticConfigurationVersion,
-          policyJson: JSON.stringify(syntheticPolicy),
+          version: syntheticConfigurationVersion.version,
+          schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
+          policyJson: canonicalJson(
+            workspacePolicyDocumentFixture(syntheticPolicy, [hostedProfile.id]),
+          ),
         },
       },
     },
@@ -554,8 +579,11 @@ beforeAll(async () => {
       targetKey: "repo:hs-repo",
       versions: {
         create: {
-          ...syntheticConfigurationVersion,
-          policyJson: JSON.stringify({ schemaVersion: 3 }),
+          version: syntheticConfigurationVersion.version,
+          schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
+          policyJson: canonicalJson({
+            schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
+          }),
         },
       },
     },

@@ -18,11 +18,27 @@
       "types": "./src/domain/review-configuration.ts",
       "production": "./dist/domain/review-configuration.js",
       "default": "./src/domain/review-configuration.ts"
+    },
+    "./review-policy-document": {
+      "types": "./src/domain/review-policy-document.ts",
+      "production": "./dist/domain/review-policy-document.js",
+      "default": "./src/domain/review-policy-document.ts"
+    },
+    "./provider-management-policy": {
+      "types": "./src/domain/provider-management-policy.ts",
+      "production": "./dist/domain/provider-management-policy.js",
+      "default": "./src/domain/provider-management-policy.ts"
+    },
+    "./workspace-provider-profile": {
+      "types": "./src/domain/workspace-provider-profile.ts",
+      "production": "./dist/domain/workspace-provider-profile.js",
+      "default": "./src/domain/workspace-provider-profile.ts"
     }
   },
   "dependencies": {
     "@prisma/client": "^7.8.0",
     "@reviewrouter/platform-db": "workspace:*",
+    "@reviewrouter/features-audit-log": "workspace:*",
     "@reviewrouter/features-provider-accounts": "workspace:*",
     "@reviewrouter/features-review-providers": "workspace:*",
     "@reviewrouter/shared": "workspace:*",

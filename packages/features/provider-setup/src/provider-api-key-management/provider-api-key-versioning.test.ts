@@ -4,6 +4,7 @@ import {
   classifyProviderApiKeyError,
 } from "./apply-provider-api-key";
 import type {
+  ProviderApiKeyAuditPort,
   ProviderApiKeyGitHubSecretGatewayPort,
   ProviderApiKeyRepositoryPort,
   ProviderApiKeyStorageCipherPort,
@@ -32,6 +33,7 @@ describe("provider API key versioning", () => {
     const result = await applyProviderApiKey(
       {
         workspaceId: "workspace_1",
+        actor: "user:github:owner",
         providerType: "mimo",
         apiKey: "new-key",
         repositoryIds: ["repo_2"],
@@ -65,6 +67,7 @@ describe("provider API key versioning", () => {
     await applyProviderApiKey(
       {
         workspaceId: "workspace_1",
+        actor: "user:github:owner",
         providerType: "mimo",
         repositoryIds: ["repo_2"],
       },
@@ -94,6 +97,7 @@ describe("provider API key versioning", () => {
     const first = applyProviderApiKey(
       {
         workspaceId: "workspace_1",
+        actor: "user:github:owner",
         providerType: "mimo",
         apiKey: "key-2",
         repositoryIds: ["repo_1"],
@@ -103,6 +107,7 @@ describe("provider API key versioning", () => {
     const second = applyProviderApiKey(
       {
         workspaceId: "workspace_1",
+        actor: "user:github:owner",
         providerType: "mimo",
         apiKey: "key-3",
         repositoryIds: ["repo_1"],
@@ -128,6 +133,7 @@ describe("provider API key versioning", () => {
     const result = await applyProviderApiKey(
       {
         workspaceId: "workspace_1",
+        actor: "user:github:owner",
         providerType: "mimo",
         apiKey: "new-key",
         repositoryIds: ["repo_1"],
@@ -148,6 +154,7 @@ describe("provider API key versioning", () => {
     const result = await applyProviderApiKey(
       {
         workspaceId: "workspace_1",
+        actor: "user:github:owner",
         providerType: "mimo",
         apiKey: "new-key",
         repositoryIds: ["denied_repo"],
@@ -175,6 +182,7 @@ describe("provider API key versioning", () => {
     const result = await applyProviderApiKey(
       {
         workspaceId: "workspace_1",
+        actor: "user:github:owner",
         providerType: "openrouter",
         apiKey: "sk-or-v1-must-never-leak",
         repositoryIds: ["repo_1"],
@@ -197,6 +205,7 @@ function dependencies(overrides: {
   readonly providerApiKeys?: TestStore;
   readonly lock?: SerializedLock;
 }): {
+  audit: ProviderApiKeyAuditPort;
   providerApiKeys: ProviderApiKeyStorePort;
   providerApiKeyRepositories: ProviderApiKeyRepositoryPort;
   storageCipher: ProviderApiKeyStorageCipherPort;
@@ -205,6 +214,7 @@ function dependencies(overrides: {
   lock: SerializedLock;
 } {
   return {
+    audit: { record: vi.fn(async () => undefined) },
     providerApiKeys: (overrides.providerApiKeys ??
       new TestStore()) as unknown as ProviderApiKeyStorePort,
     providerApiKeyRepositories: {

@@ -107,10 +107,28 @@ export class PrismaWorkflowProvisioningStatusAuthority {
             workflowPath: input.workflowPath,
             workflowStyle: input.workflowStyle,
             actionVersion: input.actionVersion,
+            attemptWorkflowRequirement: input.workflowRequirement,
+            installedWorkflowRequirement: input.workflowRequirement,
           },
         });
         return;
       }
+      // Records what the verified artifact was rendered for.
+      const recordInstalledRequirement = async () => {
+        if (current.installedWorkflowRequirement === input.workflowRequirement)
+          return;
+        const updated = await tx.workflowProvisioning.updateMany({
+          where: {
+            id: current.id,
+            attemptId: current.attemptId,
+            revision: current.revision,
+            status: "configured",
+          },
+          data: { installedWorkflowRequirement: input.workflowRequirement },
+        });
+        if (updated.count !== 1)
+          throw new Error("workflow_provisioning_concurrent_transition");
+      };
       if (
         input.expectedAttempt === null &&
         current.workspaceId === input.workspaceId &&
@@ -122,7 +140,7 @@ export class PrismaWorkflowProvisioningStatusAuthority {
         current.workflowStyle === input.workflowStyle &&
         current.actionVersion === input.actionVersion
       )
-        return;
+        return recordInstalledRequirement();
       // The no-history transfer marker carries placeholder defaults, not an
       // artifact binding. Recognize only that exact unbound shape; ordinary
       // attempts retain all artifact comparisons below.
@@ -146,7 +164,7 @@ export class PrismaWorkflowProvisioningStatusAuthority {
             current.actionVersion !== input.actionVersion)
       )
         throw new Error("workflow_provisioning_match_not_found");
-      if (current.status === "configured") return;
+      if (current.status === "configured") return recordInstalledRequirement();
       if (current.revision !== input.expectedAttempt.revision)
         throw new Error("workflow_provisioning_match_not_found");
       const updated = await tx.workflowProvisioning.updateMany({
@@ -166,6 +184,7 @@ export class PrismaWorkflowProvisioningStatusAuthority {
               }
             : {}),
           errorMessage: null,
+          installedWorkflowRequirement: input.workflowRequirement,
           revision: { increment: 1 },
         },
       });
@@ -241,6 +260,13 @@ export class PrismaWorkflowProvisioningStatusAuthority {
         data: {
           status: next.status,
           errorMessage: next.status === "failed" ? next.reason : null,
+          // A merged setup PR installs exactly the workflow of its attempt.
+          ...(next.status === "configured"
+            ? {
+                installedWorkflowRequirement:
+                  current.attemptWorkflowRequirement,
+              }
+            : {}),
           revision: { increment: 1 },
         },
       });

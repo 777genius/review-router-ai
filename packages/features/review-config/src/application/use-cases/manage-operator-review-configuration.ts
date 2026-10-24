@@ -3,13 +3,17 @@ import {
   codexModelSupportsReasoningEffort,
   isCodexBackedProvider,
 } from "@reviewrouter/features-review-providers";
-import {
-  parseRepositoryReviewPolicyOverride,
-  type RepositoryReviewPolicyOverride,
-  type ReviewPolicyDocument,
-  type ReviewConfiguration,
-  type ReviewInvestigationRolloutConfiguration,
+import type {
+  ReviewConfiguration,
+  ReviewInvestigationRolloutConfiguration,
 } from "../../domain/review-configuration";
+import {
+  parseRepositoryReviewPolicy,
+  STORED_REVIEW_POLICY_SCHEMA_VERSION,
+  type RepositoryReviewPolicy,
+  type ReviewPolicyDocument,
+  type ReviewProviderSelection,
+} from "../../domain/review-policy-document";
 import { ReviewReasoningEffort } from "../../domain/review-reasoning-effort";
 import {
   isReviewConfigurationWriteConflictError,
@@ -162,13 +166,12 @@ export async function setOperatorReviewReasoningEffort(
     throw new ReviewConfigurationOperatorError(
       ReviewConfigurationOperatorErrorCode.ConfigurationMissing,
     );
-  const updatedConfig = withReasoningEffort(previous.config, input.effort);
-  const currentProvider = existingRepositoryOverrides(previous).providers?.find(
-    isCodexBackedProvider,
-  );
+  const providerIndex = codexBackedProviderIndex(previous.config, input.effort);
+  const repositoryPolicy = existingRepositoryOverrides(previous);
   const alreadyExplicitAndEqual =
     previous.source === "repository" &&
-    currentProvider?.reasoningEffort === input.effort;
+    repositoryPolicy.providers !== undefined &&
+    previous.config.providers[providerIndex]?.reasoningEffort === input.effort;
   const auditEvent = {
     workspaceId: repository.workspaceId,
     actor: principal.operatorId,
@@ -182,7 +185,7 @@ export async function setOperatorReviewReasoningEffort(
       changed: !alreadyExplicitAndEqual,
       previousSource: previous.source,
       previousVersion: previous.version,
-      providers: updatedConfig.providers.length,
+      providers: previous.config.providers.length,
       reviewProvider: "codex-backed",
       reason: normalizeReason(input.reason),
     },
@@ -194,9 +197,14 @@ export async function setOperatorReviewReasoningEffort(
       : await dependencies.mutations.commit({
           target,
           expectedRevisionToken: previous.revisionToken,
+          // The same profiles as before, now explicit with the new effort.
           policy: {
-            ...existingRepositoryOverrides(previous),
-            providers: updatedConfig.providers,
+            ...repositoryPolicy,
+            providers: withSelectionReasoningEffort(
+              previous.selections,
+              providerIndex,
+              input.effort,
+            ),
           },
           auditEvent,
         });
@@ -438,16 +446,17 @@ function repositoryTarget(repository: ReviewConfigurationOperatorRepository) {
 function existingRepositoryOverrides(previous: {
   readonly source: "workspace" | "repository";
   readonly policy: ReviewPolicyDocument;
-}): RepositoryReviewPolicyOverride {
+}): RepositoryReviewPolicy {
   return previous.source === "repository"
-    ? parseRepositoryReviewPolicyOverride(previous.policy)
-    : { schemaVersion: 3 };
+    ? parseRepositoryReviewPolicy(previous.policy)
+    : { schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION };
 }
 
-function withReasoningEffort(
+/** The runtime-selected Codex-backed provider, if it supports the effort. */
+function codexBackedProviderIndex(
   config: ReviewConfiguration,
   effort: ReviewReasoningEffort,
-): ReviewConfiguration {
+): number {
   const providerIndex = config.providers.findIndex(isCodexBackedProvider);
   if (providerIndex < 0) {
     throw new ReviewConfigurationOperatorError(
@@ -460,15 +469,20 @@ function withReasoningEffort(
       ReviewConfigurationOperatorErrorCode.UnsupportedReasoningEffort,
     );
   }
-  const providers = config.providers.map((provider, index) =>
+  return providerIndex;
+}
+
+/** Selections follow the order of the materialized runtime providers. */
+function withSelectionReasoningEffort(
+  selections: readonly ReviewProviderSelection[],
+  providerIndex: number,
+  effort: ReviewReasoningEffort,
+): ReviewProviderSelection[] {
+  return selections.map((selection, index) =>
     index === providerIndex
-      ? { ...provider, reasoningEffort: effort }
-      : provider,
+      ? { ...selection, reasoningEffort: effort }
+      : selection,
   );
-  return {
-    ...config,
-    providers,
-  };
 }
 
 function toOperatorReviewConfiguration(

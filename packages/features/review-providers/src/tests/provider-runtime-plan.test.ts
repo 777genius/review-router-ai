@@ -39,7 +39,7 @@ describe("provider runtime plan", () => {
       providers: [
         {
           kind: "codex",
-          authMode: "codex_subscription_oauth",
+          authMode: "codex_subscription_oauth_rotating",
           model: "gpt-5.5",
           reasoningEffort: "medium",
           agenticContext: true,
@@ -50,7 +50,7 @@ describe("provider runtime plan", () => {
     });
 
     expect(plan.runtimeEnv).toMatchObject({
-      REVIEW_AUTH_MODE: "codex-oauth",
+      REVIEW_AUTH_MODE: "codex-oauth-rotating",
       CODEX_MODEL: "gpt-5.5",
       CODEX_REASONING_EFFORT: "medium",
       CODEX_AGENTIC_CONTEXT: "true",
@@ -64,7 +64,6 @@ describe("provider runtime plan", () => {
     });
     expect(plan.runtimeEnv.INLINE_MAX_COMMENTS).toBe("5");
     expect(plan.runtimeEnv.INLINE_MIN_SEVERITY).toBe("minor");
-    expect(plan.requiredSecretNames).toEqual(["CODEX_AUTH_JSON"]);
     expect(plan.requiredCliTools).toEqual(["codex"]);
   });
 
@@ -121,7 +120,7 @@ describe("provider runtime plan", () => {
       providers: [
         {
           kind: "codex",
-          authMode: "codex_subscription_oauth",
+          authMode: "codex_subscription_oauth_rotating",
           model: "gpt-5.5",
           reasoningEffort: "medium",
           agenticContext: true,
@@ -241,9 +240,9 @@ describe("provider runtime plan", () => {
       },
       providers: [
         {
-          kind: "codex",
-          authMode: "codex_subscription_oauth",
-          model: "gpt-5.5",
+          kind: "openrouter",
+          authMode: "openrouter_api_key",
+          model: "openai/gpt-oss-120b:free",
           reasoningEffort: "high",
           agenticContext: true,
           fastMode: false,
@@ -268,18 +267,20 @@ describe("provider runtime plan", () => {
     });
 
     expect(plan.providerIds).toEqual([
-      "codex/gpt-5.5",
+      "openrouter/openai/gpt-oss-120b:free",
       "claude/sonnet",
       "claude/opus",
     ]);
     expect(plan.requiredSecretNames).toEqual([
-      "CODEX_AUTH_JSON",
+      "OPENROUTER_API_KEY",
       "CLAUDE_CODE_OAUTH_TOKEN",
     ]);
     expect(plan.requiredCliTools).toEqual(["codex", "claude"]);
     expect(plan.runtimeEnv.PROVIDER_MAX_PARALLEL).toBe("3");
     expect(plan.runtimeEnv.INLINE_MIN_AGREEMENT).toBe("2");
-    expect(plan.runtimeEnv.REQUIRED_HEALTHY_PROVIDERS).toBe("codex/gpt-5.5");
+    expect(plan.runtimeEnv.REQUIRED_HEALTHY_PROVIDERS).toBe(
+      "openrouter/openai/gpt-oss-120b:free",
+    );
     expect(plan.runtimeEnv.CLAUDE_AGENTIC_CONTEXT).toBe("true");
   });
 
@@ -289,7 +290,7 @@ describe("provider runtime plan", () => {
       providers: [
         {
           kind: "codex",
-          authMode: "codex_subscription_oauth",
+          authMode: "codex_subscription_oauth_rotating",
           model: "gpt-5.5",
           reasoningEffort: "medium",
           agenticContext: true,
