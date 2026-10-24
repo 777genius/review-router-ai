@@ -70,6 +70,7 @@ export async function provisionHostedPoolRepositoryWorkflow(
     workflowPath: plan.workflowPath,
     workflowStyle: "reusable" as const,
     actionVersion: plan.actionRef,
+    transport: "hosted_pool" as const,
   };
   const attempt = await dependencies.provisioning.beginAttempt({
     ...record,

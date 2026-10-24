@@ -40,6 +40,8 @@ export type DashboardReadinessRepository = Readonly<{
   fullName: string;
   setupStatus: string;
   setupNeedsAttention: boolean;
+  /** Transport of the installed workflow; null when not recorded. */
+  installedTransport: WorkflowTransport | null;
 }>;
 
 export type DashboardRepositoryReadiness<
@@ -100,8 +102,7 @@ export function resolveDashboardRepositoryReadiness<
     const readiness = resolveEffectiveProviderReadiness({
       providers: config?.providers ?? null,
       requiredTransport: config ? knownWorkflowTransport(config) : null,
-      // No installed transport is recorded yet, so no update is derived.
-      installedTransport: null,
+      installedTransport: repository.installedTransport,
       setupStatus: repository.setupStatus,
       setupNeedsAttention: repository.setupNeedsAttention,
       healthStatus: health?.status,

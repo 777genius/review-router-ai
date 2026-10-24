@@ -23,7 +23,10 @@ import {
   createProvisionWorkflowPlan,
   type ProvisionWorkflowInput,
 } from "../../domain/workflow-provisioning";
-import { requiredWorkflowTransport } from "../../domain/workflow-transport";
+import {
+  requiredWorkflowTransport,
+  type WorkflowTransport,
+} from "../../domain/workflow-transport";
 import type { WorkflowProvisioningRepositoryPort } from "../ports/workflow-provisioning-repository-port";
 import type { WorkflowSetupGatewayPort } from "../ports/workflow-setup-gateway-port";
 
@@ -147,6 +150,14 @@ export async function provisionReviewRouterWorkflow(
     });
   }
 
+  // The transport of the workflow this attempt renders, not of the policy.
+  const attemptTransport: WorkflowTransport = gatewaySelected
+    ? "gateway"
+    : providerApiSelected
+      ? "provider_api"
+      : plan.codexRotatingProviderInstanceId
+        ? "rotating"
+        : "ci_secrets";
   const attempt = await dependencies.provisioning.beginAttempt({
     workspaceId: plan.workspaceId,
     repositoryId: plan.repositoryId,
@@ -156,6 +167,7 @@ export async function provisionReviewRouterWorkflow(
     workflowPath: plan.workflowPath,
     workflowStyle: plan.workflowStyle,
     actionVersion,
+    transport: attemptTransport,
   });
 
   if (dependencies.enabled === false) {
@@ -168,6 +180,7 @@ export async function provisionReviewRouterWorkflow(
       workflowPath: plan.workflowPath,
       workflowStyle: plan.workflowStyle,
       actionVersion,
+      transport: attemptTransport,
       pullRequestUrl: null,
       errorMessage: "workflow_provisioning_disabled",
     });
@@ -295,6 +308,7 @@ export async function provisionReviewRouterWorkflow(
       workflowPath: plan.workflowPath,
       workflowStyle: plan.workflowStyle,
       actionVersion,
+      transport: attemptTransport,
       pullRequestUrl: pullRequest.url,
       pullRequestHeadSha: pullRequest.headSha,
       errorMessage: null,
@@ -332,6 +346,7 @@ export async function provisionReviewRouterWorkflow(
       workflowPath: plan.workflowPath,
       workflowStyle: plan.workflowStyle,
       actionVersion,
+      transport: attemptTransport,
       pullRequestUrl: null,
       errorMessage: message,
     });

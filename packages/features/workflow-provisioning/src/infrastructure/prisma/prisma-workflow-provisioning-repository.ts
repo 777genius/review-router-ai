@@ -35,6 +35,8 @@ export class PrismaWorkflowProvisioningRepository implements WorkflowProvisionin
         workflowPath: record.workflowPath,
         workflowStyle: record.workflowStyle,
         actionVersion: record.actionVersion,
+        // The installed transport changes only when this attempt is confirmed.
+        attemptTransport: record.transport,
         pullRequestHeadSha: null,
         pullRequestUrl: null,
         errorMessage: null,

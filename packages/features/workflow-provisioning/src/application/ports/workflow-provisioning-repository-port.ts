@@ -1,5 +1,6 @@
 import type { WorkflowProvisioningStatus } from "../../domain/workflow-provisioning";
 import type { ReviewRouterWorkflowStyle } from "../../domain/workflow-template";
+import type { WorkflowTransport } from "../../domain/workflow-transport";
 
 export type WorkflowProvisioningScope = {
   readonly workspaceId: string;
@@ -19,6 +20,8 @@ export type WorkflowProvisioningRecord = WorkflowProvisioningScope & {
   readonly workflowPath: string;
   readonly workflowStyle: ReviewRouterWorkflowStyle;
   readonly actionVersion: string;
+  /** Credential transport of the workflow this record installs. */
+  readonly transport: WorkflowTransport;
   readonly pullRequestHeadSha?: string | null;
   readonly pullRequestUrl?: string | null;
   readonly errorMessage?: string | null;

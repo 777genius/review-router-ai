@@ -139,7 +139,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         where: { workspaceId: workspace.id },
         orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
         take: 1,
-        select: { status: true, errorMessage: true },
+        select: { status: true, errorMessage: true, installedTransport: true },
       },
       selected: true,
       archived: true,
@@ -244,6 +244,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       setupNeedsAttention: isSetupRecoveryIssue(
         repository.provisioning[0]?.errorMessage ?? null,
       ),
+      installedTransport:
+        repository.provisioning[0]?.installedTransport ?? null,
     })),
     health,
     providerSetup,

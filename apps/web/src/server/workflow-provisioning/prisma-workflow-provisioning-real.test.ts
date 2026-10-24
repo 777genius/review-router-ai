@@ -43,6 +43,7 @@ withDatabase("WorkflowProvisioning PostgreSQL concurrency and transfer", () => {
     workflowPath: ".github/workflows/reviewrouter-review.yml",
     workflowStyle: "reusable" as const,
     actionVersion: "a".repeat(40),
+    transport: "ci_secrets" as const,
     pullRequestHeadSha: "b".repeat(40),
   };
   const identity = {
@@ -366,6 +367,58 @@ withDatabase("WorkflowProvisioning PostgreSQL concurrency and transfer", () => {
     expect(
       await prisma.workflowProvisioning.count({ where: { repositoryId } }),
     ).toBe(1);
+  });
+  it("records each attempt's transport and installs it only on confirmation", async () => {
+    await prisma.workflowProvisioning.deleteMany({ where: { repositoryId } });
+    const writer = new PrismaWorkflowProvisioningRepository(prisma);
+    const authority = new PrismaWorkflowProvisioningStatusAuthority(prisma);
+    const row = () =>
+      prisma.workflowProvisioning.findUniqueOrThrow({
+        where: { repositoryId },
+      });
+    const gateway = { ...record, transport: "gateway" as const };
+    const first = await writer.beginAttempt(gateway);
+    await writer.markSetupPullRequestOpen({
+      ...gateway,
+      ...first,
+      pullRequestUrl: "https://github.com/acme/widget/pull/7",
+    });
+    identity.setupBranch = first.branch;
+    expect(await row()).toMatchObject({
+      attemptTransport: "gateway",
+      installedTransport: null,
+    });
+    expect(await authority.markConfigured(identity)).toBe(true);
+    expect(await row()).toMatchObject({
+      status: "configured",
+      installedTransport: "gateway",
+    });
+    // A newer attempt leaves the installed workflow until it is confirmed.
+    const second = await writer.beginAttempt(record);
+    expect(await row()).toMatchObject({
+      attemptId: second.attemptId,
+      attemptTransport: "ci_secrets",
+      installedTransport: "gateway",
+    });
+    // Verified installed evidence records the transport it was verified for.
+    await prisma.workflowProvisioning.deleteMany({ where: { repositoryId } });
+    await authority.confirmInstalledWorkflow({
+      ...record,
+      transport: "rotating",
+      baseBranch: "main",
+      expectedAttempt: null,
+    });
+    expect(await row()).toMatchObject({
+      status: "configured",
+      attemptTransport: "rotating",
+      installedTransport: "rotating",
+    });
+    await authority.confirmInstalledWorkflow({
+      ...record,
+      baseBranch: "main",
+      expectedAttempt: null,
+    });
+    expect(await row()).toMatchObject({ installedTransport: "ci_secrets" });
   });
   it("isolates remote writes after A pauses, expires, B finishes and A resumes", async () => {
     const remote = new WorkflowGitHubFixture();

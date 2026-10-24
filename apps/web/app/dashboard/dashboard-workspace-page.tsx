@@ -1782,6 +1782,7 @@ export function WorkspaceCard({
         setupNeedsAttention: isSetupRecoveryIssue(
           repositoryProvisioning?.errorMessage ?? null,
         ),
+        installedTransport: repositoryProvisioning?.installedTransport ?? null,
       };
     }),
     health,

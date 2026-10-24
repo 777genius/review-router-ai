@@ -330,6 +330,7 @@ export function createHostedPoolOperatorConnect(
                   status: "not_started",
                   errorMessage: null,
                   actionVersion: input.actionRef,
+                  attemptTransport: record.transport,
                 },
               });
               if (resumed.count !== 1)

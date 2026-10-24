@@ -107,10 +107,27 @@ export class PrismaWorkflowProvisioningStatusAuthority {
             workflowPath: input.workflowPath,
             workflowStyle: input.workflowStyle,
             actionVersion: input.actionVersion,
+            attemptTransport: input.transport,
+            installedTransport: input.transport,
           },
         });
         return;
       }
+      // The verified workflow is the one the current configuration requires.
+      const recordInstalledTransport = async () => {
+        if (current.installedTransport === input.transport) return;
+        const updated = await tx.workflowProvisioning.updateMany({
+          where: {
+            id: current.id,
+            attemptId: current.attemptId,
+            revision: current.revision,
+            status: "configured",
+          },
+          data: { installedTransport: input.transport },
+        });
+        if (updated.count !== 1)
+          throw new Error("workflow_provisioning_concurrent_transition");
+      };
       if (
         input.expectedAttempt === null &&
         current.workspaceId === input.workspaceId &&
@@ -122,7 +139,7 @@ export class PrismaWorkflowProvisioningStatusAuthority {
         current.workflowStyle === input.workflowStyle &&
         current.actionVersion === input.actionVersion
       )
-        return;
+        return recordInstalledTransport();
       // The no-history transfer marker carries placeholder defaults, not an
       // artifact binding. Recognize only that exact unbound shape; ordinary
       // attempts retain all artifact comparisons below.
@@ -146,7 +163,7 @@ export class PrismaWorkflowProvisioningStatusAuthority {
             current.actionVersion !== input.actionVersion)
       )
         throw new Error("workflow_provisioning_match_not_found");
-      if (current.status === "configured") return;
+      if (current.status === "configured") return recordInstalledTransport();
       if (current.revision !== input.expectedAttempt.revision)
         throw new Error("workflow_provisioning_match_not_found");
       const updated = await tx.workflowProvisioning.updateMany({
@@ -166,6 +183,7 @@ export class PrismaWorkflowProvisioningStatusAuthority {
               }
             : {}),
           errorMessage: null,
+          installedTransport: input.transport,
           revision: { increment: 1 },
         },
       });
@@ -241,6 +259,10 @@ export class PrismaWorkflowProvisioningStatusAuthority {
         data: {
           status: next.status,
           errorMessage: next.status === "failed" ? next.reason : null,
+          // A merged setup PR installs exactly the workflow of its attempt.
+          ...(next.status === "configured"
+            ? { installedTransport: current.attemptTransport }
+            : {}),
           revision: { increment: 1 },
         },
       });

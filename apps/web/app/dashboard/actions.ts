@@ -2350,6 +2350,7 @@ async function confirmSetupPullRequestMergedMutation(
         workflowPath: verifiedWorkflowArtifact.workflowPath,
         workflowStyle: verifiedWorkflowArtifact.workflowStyle,
         actionVersion: verifiedWorkflowArtifact.actionVersion,
+        transport,
       });
     }
     await recordAuditEvent(
