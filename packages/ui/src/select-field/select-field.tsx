@@ -12,11 +12,16 @@ export type SelectFieldOption = {
 };
 
 export type SelectFieldProps = {
-  readonly name: string;
+  /** Form field name; omit for a controlled select outside a form. */
+  readonly name?: string;
   readonly label: ReactNode;
   readonly options: readonly SelectFieldOption[];
   readonly disabled?: boolean;
   readonly onValueChange?: (value: string) => void;
+  /** Shown while no option is selected. */
+  readonly placeholder?: string;
+  /** Helper text under the control. */
+  readonly hint?: ReactNode;
   readonly className?: string;
 } & (
   | { readonly value: string; readonly defaultValue?: never }
@@ -31,6 +36,8 @@ export function SelectField({
   options,
   disabled,
   onValueChange,
+  placeholder,
+  hint,
   className,
 }: SelectFieldProps): React.ReactElement {
   return (
@@ -57,7 +64,10 @@ export function SelectField({
             "flex min-h-11 w-full min-w-0 items-center justify-between gap-3 rounded-xl border border-cyan-200/15 bg-slate-950/80 px-3 py-2 text-left text-cyan-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition hover:border-cyan-200/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300 disabled:cursor-not-allowed disabled:opacity-50",
           )}
         >
-          <BaseSelect.Value className="min-w-0 truncate" />
+          <BaseSelect.Value
+            className="min-w-0 truncate data-[placeholder]:text-slate-500"
+            placeholder={placeholder}
+          />
           <BaseSelect.Icon className="shrink-0 text-cyan-100">
             ⌄
           </BaseSelect.Icon>
@@ -104,6 +114,9 @@ export function SelectField({
           </BaseSelect.Positioner>
         </BaseSelect.Portal>
       </BaseSelect.Root>
+      {hint ? (
+        <span className="text-xs leading-5 text-slate-400">{hint}</span>
+      ) : null}
     </label>
   );
 }
