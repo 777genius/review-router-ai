@@ -2304,6 +2304,7 @@ function mapInvocationFlightAcquire(
       return ReviewInvocationLeaseResultStatus.Busy;
     case AcquireOrJoinInvocationFlightStatus.Missing:
       return ReviewInvocationLeaseResultStatus.Missing;
+    case AcquireOrJoinInvocationFlightStatus.InputStale:
     case AcquireOrJoinInvocationFlightStatus.AttemptBudgetExhausted:
     case AcquireOrJoinInvocationFlightStatus.NotRunnable:
     case AcquireOrJoinInvocationFlightStatus.IdempotencyConflict:
@@ -2314,6 +2315,7 @@ function mapInvocationFlightAcquireRejectionReason(
   status: AcquireOrJoinInvocationFlightStatus,
 ) {
   switch (status) {
+    case AcquireOrJoinInvocationFlightStatus.InputStale:
     case AcquireOrJoinInvocationFlightStatus.AttemptBudgetExhausted:
     case AcquireOrJoinInvocationFlightStatus.NotRunnable:
     case AcquireOrJoinInvocationFlightStatus.IdempotencyConflict:

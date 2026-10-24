@@ -28,19 +28,6 @@ vi.mock("../../src/server/dashboard-mutations", () => ({
   getDashboardSignedInActor: vi.fn(),
   getDashboardWorkspaceScope: vi.fn(),
 }));
-vi.mock("../../src/server/dashboard-memory", () => ({
-  createDashboardMemoryDependencies: mocks.memoryDependencies,
-  resolveDashboardMemoryActor: mocks.memoryActor,
-}));
-vi.mock("@reviewrouter/features-memory", () => ({
-  confirmMemorySuggestion: mocks.mutateMemory,
-  createDashboardMemorySource: mocks.mutateMemory,
-  deleteMemoryItem: mocks.mutateMemory,
-  disableMemoryItem: mocks.mutateMemory,
-  editMemoryItem: mocks.mutateMemory,
-  rejectMemorySuggestion: mocks.mutateMemory,
-  rememberMemoryDirectly: mocks.mutateMemory,
-}));
 vi.mock("@reviewrouter/features-audit-log", () => ({
   recordAuditEvent: mocks.audit,
   PrismaAuditLogRepository: class {},

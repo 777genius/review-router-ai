@@ -39,6 +39,7 @@ export enum ReviewExecutionAdmissionStatus {
 }
 
 export enum ReviewInvocationLeaseAcquireStatus {
+  InputStale = "input_stale",
   Acquired = "acquired",
   Restored = "restored",
   Busy = "busy",
@@ -277,8 +278,7 @@ export type TerminalizeReviewWorkSlotCommand = {
   readonly reviewRevisionHash: string;
   readonly workSlotId: string;
   readonly terminalState:
-    | ReviewWorkSlotState.Exhausted
-    | ReviewWorkSlotState.Cancelled;
+    ReviewWorkSlotState.Exhausted | ReviewWorkSlotState.Cancelled;
   readonly reasonCode: ReviewWorkSlotTerminalReason;
   readonly now: Date;
 };

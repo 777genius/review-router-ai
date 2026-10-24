@@ -77,6 +77,7 @@ export class PrismaSupportDiagnosticsRepository implements SupportDiagnosticsRep
         where: { workspaceId },
         _count: { _all: true },
       }),
+      // Historical cutover inventory only; never used for current memory reads or runtime.
       this.prisma.memoryItem.groupBy({
         by: ["status"],
         where: { workspaceId },

@@ -130,6 +130,7 @@ import {
 } from "@reviewrouter/features-review-executions";
 import {
   PrismaReviewExecutionStore,
+  type ReviewExecutionInputAdmissionPort,
   PrismaReviewRequestedIntentStore,
   createReviewExecutionsUseCases,
 } from "@reviewrouter/features-review-executions/composition";
@@ -473,6 +474,7 @@ export function composeReviewActionV2ProductionRunControl(input: {
 }
 
 export function composeReviewActionV2ProductionRoutes(input: {
+  readonly memoryInputAdmission?: ReviewExecutionInputAdmissionPort;
   readonly enabled: boolean;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly runtime: ReviewActionV2RouteRuntime;
@@ -480,8 +482,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
   readonly oidcAudience?: string | undefined;
   readonly ledgerHmacSecret?: string | undefined;
   readonly investigationTelemetrySamples?:
-    | ReviewInvestigationTerminalTelemetrySamplePort
-    | undefined;
+    ReviewInvestigationTerminalTelemetrySamplePort | undefined;
   readonly recordInvestigationOperationsDiagnostic?:
     | ((
         code: ReviewInvestigationOperationsDiagnosticCode,
@@ -660,17 +661,19 @@ export function composeReviewActionV2ProductionRoutes(input: {
       ),
   } as const;
 
-  const executionStore = new PrismaReviewExecutionStore(
-    input.prisma,
-    input.env.REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE === "1"
+  const executionStore = new PrismaReviewExecutionStore(input.prisma, {
+    ...(input.memoryInputAdmission
+      ? { inputAdmission: input.memoryInputAdmission }
+      : {}),
+    ...(input.env.REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE === "1"
       ? {
           progressCapture: createPrismaReviewProgressCapture({
             fileCoverageEnabled:
               input.env.REVIEW_ROUTER_PROGRESS_FILE_COVERAGE === "1",
           }),
         }
-      : {},
-  );
+      : {}),
+  });
   const currentRevision = new ProductionCurrentReviewRevisionAdapter({
     prisma: input.prisma,
     identities: repositories.repositoryIdentities,

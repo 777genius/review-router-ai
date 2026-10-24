@@ -28,11 +28,13 @@ describe("DashboardSectionTabs", () => {
 
     expect(DASHBOARD_SECTIONS.at(-1)).toBe("memory");
     expect(dashboardSectionMeta.memory.navDescription).toMatch(
-      /in development/i,
+      /approved review knowledge/i,
     );
-    expect(dashboardSectionMeta.memory.description).toMatch(/in development/i);
+    expect(dashboardSectionMeta.memory.description).toMatch(/approved rules/i);
     expect(
-      screen.getByRole("tab", { name: /^Memory\s*In development$/i }),
+      screen.getByRole("tab", {
+        name: /^Memory\s*Approved review knowledge$/i,
+      }),
     ).toBeTruthy();
     const setupLink = screen.getByRole("tab", {
       name: /AccountsWorkspace provider accounts/i,
@@ -71,8 +73,6 @@ describe("DashboardSectionTabs", () => {
     expect(
       screen.getByRole("link", { name: /Accounts/i }).querySelector("svg"),
     ).toBeTruthy();
-    expect(
-      screen.getByRole("link", { name: /MemoryIn development/i }),
-    ).toBeTruthy();
+    expect(screen.getByRole("link", { name: /^Memory$/i })).toBeTruthy();
   });
 });

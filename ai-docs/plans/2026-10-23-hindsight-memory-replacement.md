@@ -2,13 +2,14 @@
 
 Recorded: 2026-10-23.
 
-Status: owner-selected direction; three critique/fix rounds complete; ready for
-qualification-first implementation.
+Status: owner-selected direction; three critique/fix rounds complete; implementation
+in progress in control-plane PR #690 and paired Action PR #328.
 This document is a plan, not an implementation or production-readiness receipt.
 The owner selected self-hosted Hindsight and explicitly permits deleting the
-unnecessary custom memory engine. The current task is deep research and plan
-review before runtime changes. Existing accepted ADR files remain historical
-authority until the scoped successor decisions below are adopted.
+unnecessary custom memory engine. The owner subsequently authorized autonomous implementation, testing, review and
+merge. ADR-031 records the successor ownership and precise lease-admission semantics.
+Existing ADR files remain historical evidence; production activation requires the
+qualification and cutover gates below.
 
 ## 1. Decision and evidence boundary
 
@@ -1031,3 +1032,22 @@ finding is also incorporated in the cutover acceptance criteria.
 - [Router memory E2E database preparation](https://github.com/777genius/review-router-ai/blob/296ddc0327b7dfc762c31b5b1d39e5461a41c12c/scripts/memory-e2e/prepare-database.ts).
 - [Native system tests](https://github.com/vectorize-io/hindsight/blob/a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5/hindsight-system-tests/README.md).
 - [Render private services](https://render.com/docs/private-services) and [health checks](https://render.com/docs/health-checks).
+
+## Implementation clarification: lease admission
+
+The server transaction granting the inference lease checks current memory before
+charging budget. A stale-input rejection retries the same attempt with no memory.
+Already granted immutable context may finish after a subsequent revocation. There
+is no post-grant release/refund/reprepare loop. Exact retries recover the original
+lease. This refinement was accepted after two independent implementation critics
+identified the budget-one race in a post-acquire memory check. See ADR-031.
+
+The initial profile uses a fixed server-owned retrieval query and approved
+statements only. `/rr memory edit <entry-id> <approved text>` is an explicit
+correction with the original command CAS and a durable wire-request fingerprint;
+replayed webhooks cannot create another update or silently overwrite later edits.
+
+The native Docker qualification is distinct from HTTP/crypto contract tests,
+actual PostgreSQL coordination tests, real Action orchestration and visual UI
+checks. A queued CI run is not qualification evidence. Record the completed run,
+exact provider image and data disposition before enabling the provider.
