@@ -625,14 +625,12 @@ test.each(["plain_code", "callback_url"] as const)(
   async (representation) => {
     const f = await fixture(grokProfileId);
     const nonce = randomUUID();
-    await f
-      .personal()
-      .connect({
-        nonce,
-        profileId: grokProfileId,
-        label: "Own Grok",
-        method: "browser",
-      });
+    await f.personal().connect({
+      nonce,
+      profileId: grokProfileId,
+      label: "Own Grok",
+      method: "browser",
+    });
     expect((await f.personal().operation(nonce)).completion).toMatchObject({
       providerLabel: "Grok",
       inputKind: "authorization_code",
