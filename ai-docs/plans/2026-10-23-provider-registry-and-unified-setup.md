@@ -447,18 +447,34 @@ No new migration.
   `personalOwnerUserId`, else the earliest owner, else the earliest admin, else
   skip the workspace with a warning, and that same user is passed as the
   personal write actor for validation; the workspace head is converted first,
-  then repository heads, under the up-front guard declaration above; a v3
-  workspace default that uses rotating is
-  skipped with a warning; v1/v2 history and unmappable providers are skipped with
-  a warning; fills `installedWorkflowRequirement` from the v3 effective config; prints a
+  then repository heads, under the up-front guard declaration above; workspaces
+  being deleted are skipped; a v3 workspace default that uses rotating is not
+  kept as a default (rotating is repository-level only): the workspace document
+  keeps its settings without a default, and each repository that inherited it
+  gets its own rotating selection where the deployment allows rotating for that
+  repository (`isCodexRotatingOAuthAllowedForRepository`), so it keeps reviewing
+  exactly as before; the others are listed in a warning; v1/v2 history and
+  provider lists the write would refuse are skipped with a warning, the rest of
+  the workspace converts (Gateway rows are checked in the transaction with the
+  write path's own `readSelectableGatewayProfileRef` and personal-actor rules:
+  unavailable binding, personal binding without sharing or without the creator
+  as write actor, changed account profile; OpenRouter without a managed key);
+  fills `installedWorkflowRequirement` from the v3 effective config; prints a
   per-workspace summary; skipping already-v4 documents makes reruns safe. An
   unconverted v3 head makes the new app fail closed with `resave_required`. Order
   for each environment (developer database, hosted beta, any other): apply
   migrations, stop writers, run the script, start the new app. Take a `pg_dump`
-  first. `--dry-run` runs the same per-workspace transactions and rolls them
+  first. Preflight: 000144 was corrected in place before release and
+  `prisma migrate deploy` does not reapply a migration whose checksum changed, so
+  the script refuses a database whose `_prisma_migrations` checksum for 000144
+  differs from the SHA-256 of the checkout's file
+  (`provider_profile_migration_stale_000144`); such a development database is
+  recreated. `--dry-run` runs the same per-workspace transactions and rolls them
   back; a converted target whose schema 4 configuration differs from its
-  schema 3 one is reported as a warning, never repaired. A workspace whose
-  transaction fails is rolled back and reported; there is no other rollback.
+  schema 3 one is reported as a warning, never repaired. When a write still
+  fails, the script finds the failing targets (each alone with the workspace
+  document, rolled back), reports them with the creator and converts the rest;
+  a failing workspace document fails the whole workspace.
   The script is never run against a production database without the owner's
   explicit instruction.
 
