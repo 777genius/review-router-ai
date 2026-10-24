@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   rateLimit: vi.fn(),
   entitlement: vi.fn(),
   findRepositories: vi.fn(),
+  loadRepository: vi.fn(),
   setDefault: vi.fn(),
   authority: {
     /** `none`: the workspace is unavailable to the actor. */
@@ -35,7 +36,7 @@ vi.mock("../../src/server/dashboard-repository-guards", () => ({
   assertDashboardEntitlement: mocks.entitlement,
   assertGatewayReviewActorUnchanged: vi.fn(),
   assertRepositoryConfigMutable: vi.fn(),
-  loadDashboardRepository: vi.fn(),
+  loadDashboardRepository: mocks.loadRepository,
 }));
 vi.mock("../../src/server/prisma", () => ({
   getPrisma: () => ({
@@ -93,18 +94,23 @@ vi.mock(
       >()),
       dashboardSelectionDependencies: () => ({}),
       dashboardProviderProfiles: () => ({
-        readManagementFacts: async () =>
+        readManagementFacts: async (input: Pick<Input, "actor">) =>
           mocks.authority.role === "none"
             ? null
             : {
-                actor: { userId: "user", role: mocks.authority.role },
+                actor: {
+                  userId: input.actor.userId,
+                  role: mocks.authority.role,
+                },
                 workspace: {
                   personalOwnerUserId: null,
                   providerManagementAdminOnly: mocks.authority.adminOnly,
                 },
                 personalBindingIds: new Set<string>(),
               },
-        list: async () => [profile],
+        list: async () => [
+          { ...profile, createdByUserId: mocks.authority.createdBy },
+        ],
         rename: async (input: Input) => {
           decide(input);
           mocks.writes.push("rename");
@@ -272,7 +278,7 @@ describe("Providers list actions decide with the provider policy", () => {
   });
 });
 
-describe("the provider dialog never selects a hosted Codex pool", () => {
+describe("provider choices refused before quotas: hosted pools and Access rights", () => {
   const settings = {
     reasoningEffort: "high",
     agenticContext: true,
@@ -313,8 +319,44 @@ describe("the provider dialog never selects a hosted Codex pool", () => {
       status: "error",
       error: "hosted_pool_session_source_required",
     });
+    await expect(
+      saveProviderSetupAction({
+        workspaceId: "workspace_1",
+        target: { kind: "repositories", repositoryIds: ["repo_a"] },
+        provider: {
+          kind: "new",
+          credential: { kind: "hosted_pool" },
+          model: "gpt-5.5",
+        },
+        settings,
+      }),
+    ).resolves.toEqual({
+      status: "error",
+      error: "hosted_pool_session_source_required",
+    });
     expect(mocks.setDefault).not.toHaveBeenCalled();
-    // Only the default's write reached its entitlement check.
-    expect(mocks.entitlement).toHaveBeenCalledTimes(1);
+    // Refused before any quota, entitlement or GitHub check.
+    expect(mocks.entitlement).not.toHaveBeenCalled();
+    expect(mocks.rateLimit).not.toHaveBeenCalled();
+    expect(mocks.loadRepository).not.toHaveBeenCalled();
+  });
+
+  it("refuses a member's choice under admin-only Access rights before quotas and GitHub checks", async () => {
+    mocks.authority.adminOnly = true;
+    await expect(
+      saveProviderSetupAction({
+        workspaceId: "workspace_1",
+        target: { kind: "repositories", repositoryIds: ["repo_a"] },
+        provider: { kind: "profile", profileId: "profile_1" },
+        settings,
+      }),
+    ).resolves.toEqual({
+      status: "error",
+      error: "provider_management_forbidden",
+      reason: "access_rights_admin_only",
+    });
+    expect(mocks.rateLimit).not.toHaveBeenCalled();
+    expect(mocks.entitlement).not.toHaveBeenCalled();
+    expect(mocks.loadRepository).not.toHaveBeenCalled();
   });
 });

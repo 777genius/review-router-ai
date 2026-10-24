@@ -134,17 +134,50 @@ export async function changeWorkspaceProviderProfileModel(
   const model = providerProfileModelSchema.safeParse(input.model);
   if (!model.success)
     throw new ProviderProfileError("provider_profile_invalid");
-  // The catalog check below may use the network: only for allowed actors.
-  await assertProviderProfileManagementGate(input, dependencies);
   const profile = (await dependencies.profiles.list(input.workspaceId)).find(
     (candidate) => candidate.id === input.profileId,
   );
-  // A missing profile is refused by the write with the policy's reason first.
-  if (profile)
+  const gatewayBindingId =
+    profile?.credential.kind === "gateway_binding"
+      ? profile.credential.bindingId
+      : null;
+  // The catalog check below may use the network: decide the actor and the
+  // edit of this profile (its creator, a personal account) first. The write
+  // decides again under its locks.
+  const facts = await dependencies.profiles.readManagementFacts({
+    workspaceId: input.workspaceId,
+    actor: input.actor,
+    bindingIds: gatewayBindingId ? [gatewayBindingId] : [],
+  });
+  if (!facts)
+    throw new ProviderManagementDeniedError("workspace_member_required");
+  assertProfileGate(facts);
+  // A missing profile is refused by the write with the policy's reason.
+  if (profile) {
+    const { credential } = profile;
+    assertProviderManagementAllowed({
+      actor: facts.actor,
+      workspace: facts.workspace,
+      action: {
+        kind: "edit_profile",
+        profile: {
+          credentialKind: credential.kind,
+          createdByUserId: profile.createdByUserId,
+          personalBinding:
+            gatewayBindingId !== null &&
+            facts.personalBindingIds.has(gatewayBindingId),
+          repositoryId:
+            credential.kind === "repository_rotating"
+              ? credential.repositoryId
+              : null,
+        },
+      },
+    });
     await dependencies.validator.beforeTransaction({
       profile,
       model: model.data,
     });
+  }
   return dependencies.profiles.changeModel({
     workspaceId: input.workspaceId,
     profileId: input.profileId,
@@ -203,6 +236,28 @@ export async function assertProviderProfileManagementGate(
   if (!facts)
     throw new ProviderManagementDeniedError("workspace_member_required");
   assertProfileGate(facts);
+}
+
+/**
+ * Admin-only Access rights refuse every provider choice of a non-admin. A
+ * selection write checks this first, before rate limits, entitlements and
+ * GitHub checks; the write decides the whole action again under its locks.
+ */
+export async function assertProviderSelectionAccessRights(
+  input: Readonly<{ workspaceId: string; actor: ProviderProfileActor }>,
+  dependencies: Dependencies,
+): Promise<void> {
+  const facts = await dependencies.profiles.readManagementFacts({
+    workspaceId: input.workspaceId,
+    actor: input.actor,
+    bindingIds: [],
+  });
+  if (
+    facts?.workspace.providerManagementAdminOnly &&
+    facts.actor.role !== "owner" &&
+    facts.actor.role !== "admin"
+  )
+    throw new ProviderManagementDeniedError("access_rights_admin_only");
 }
 
 /** The workspace list without usage counts; callers authorize the read. */

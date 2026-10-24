@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   archiveWorkspaceProviderProfile,
   assertProviderProfileManagementGate,
+  assertProviderSelectionAccessRights,
   assignProviderProfileToRepositories,
   changeWorkspaceProviderProfileModel,
   clearRepositoryProviderSelection,
@@ -135,6 +136,13 @@ export async function saveProviderSetupAction(
   try {
     if (target.kind === "workspace") {
       const actor = await assertDashboardMutationAllowed(workspaceId);
+      // Refusals that need no quota come first (a hosted pool, for one).
+      const { selection, draft } = await dashboardProviderSelection({
+        prisma,
+        workspaceId,
+        provider,
+        settings: selectionSettings,
+      });
       await assertDashboardEntitlement({
         prisma,
         workspaceId,
@@ -144,12 +152,6 @@ export async function saveProviderSetupAction(
       await createDashboardRateLimitPolicy(
         prisma,
       ).assertReviewConfigSaveAllowed({ workspaceId });
-      const { selection, draft } = await dashboardProviderSelection({
-        prisma,
-        workspaceId,
-        provider,
-        settings: selectionSettings,
-      });
       await setWorkspaceDefaultProvider(
         {
           workspaceId,
@@ -172,6 +174,25 @@ export async function saveProviderSetupAction(
       return { status: "saved", results: [] };
     }
 
+    // Access rights and the chosen provider are decided before the rate
+    // limit, the entitlement and the GitHub permission checks of each
+    // repository; every write decides again under its locks.
+    await assertProviderSelectionAccessRights(
+      {
+        workspaceId,
+        actor: dashboardProviderActor(
+          await assertDashboardSignedInMutationActor(),
+        ),
+      },
+      { profiles: dashboardProviderProfiles(prisma) },
+    );
+    const { selection, draft, credentialKind } =
+      await dashboardProviderSelection({
+        prisma,
+        workspaceId,
+        provider,
+        settings: selectionSettings,
+      });
     const authorized = await authorizeRepositories(
       workspaceId,
       target.repositoryIds,
@@ -181,13 +202,6 @@ export async function saveProviderSetupAction(
       revalidateDashboard();
       return { status: "saved", results: authorized.refused };
     }
-    const { selection, draft, credentialKind } =
-      await dashboardProviderSelection({
-        prisma,
-        workspaceId,
-        provider,
-        settings: selectionSettings,
-      });
     const byId = new Map(
       authorized.allowed.map((item) => [item.repository.id, item] as const),
     );
@@ -293,6 +307,15 @@ export async function inheritWorkspaceDefaultProviderAction(input: {
 }): Promise<ProviderSetupActionResult> {
   const prisma = getPrisma();
   try {
+    await assertProviderSelectionAccessRights(
+      {
+        workspaceId: input.workspaceId,
+        actor: dashboardProviderActor(
+          await assertDashboardSignedInMutationActor(),
+        ),
+      },
+      { profiles: dashboardProviderProfiles(prisma) },
+    );
     const authorized = await authorizeRepositories(input.workspaceId, [
       input.repositoryId,
     ]);
