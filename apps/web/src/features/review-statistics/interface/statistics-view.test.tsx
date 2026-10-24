@@ -36,12 +36,14 @@ vi.mock("@reviewrouter/ui", async () => ({
     "@reviewrouter/ui",
   )),
   SelectField: ({
+    name,
     label,
     value,
     options,
     onValueChange,
     disabled,
   }: {
+    name: string;
     label: string;
     value: string;
     options: { value: string; label: string }[];
@@ -51,6 +53,7 @@ vi.mock("@reviewrouter/ui", async () => ({
     <label>
       {label}
       <select
+        name={name}
         value={value}
         disabled={disabled}
         onChange={(event) => onValueChange(event.target.value)}
@@ -201,6 +204,97 @@ describe("Statistics", () => {
     ).toEqual(["1", "3", "4"]);
     fireEvent.click(screen.getByText("Daily data · all severities"));
     expect(screen.getByRole("columnheader", { name: "Unknown" })).toBeTruthy();
+  });
+  it("moves focus only for explicit issue navigation, preserving filter and refresh focus across remounts", async () => {
+    const original = statisticsFixture();
+    let generation = 0;
+    vi.mocked(fetchStatisticsReport).mockImplementation(
+      async (_workspace, filter) => ({
+        ...original,
+        filter,
+        period: {
+          ...original.period,
+          to: new Date(
+            Date.parse(original.period.to) + ++generation,
+          ).toISOString(),
+        },
+      }),
+    );
+    vi.mocked(fetchStatisticsIssues).mockImplementation(
+      async (_workspace, filter) => ({
+        items: [
+          issueFixture(`${filter.severity}-${filter.repositoryId ?? "all"}`),
+        ],
+        nextCursor: null,
+      }),
+    );
+    const previousScroll = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    const scroll = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scroll,
+    });
+    try {
+      setup();
+      fireEvent.click(
+        screen.getByRole("button", { name: "View issues in acme/project" }),
+      );
+      await screen.findByText("Issue all-repo-a");
+      expect(document.activeElement).toBe(
+        screen.getByRole("region", { name: "Recorded issues" }),
+      );
+      expect(scroll).toHaveBeenCalledTimes(1);
+      const severity = screen.getByLabelText("Severity");
+      severity.focus();
+      fireEvent.change(severity, { target: { value: "major" } });
+      await screen.findByText("Issue major-all");
+      expect(document.activeElement).toBe(screen.getByLabelText("Severity"));
+      expect(scroll).toHaveBeenCalledTimes(1);
+      const button = screen.getByRole("button", { name: "Refresh" });
+      button.focus();
+      await refresh();
+      await waitFor(() =>
+        expect(fetchStatisticsIssues).toHaveBeenCalledTimes(3),
+      );
+      expect(document.activeElement).toBe(button);
+      expect(scroll).toHaveBeenCalledTimes(1);
+      const period = screen.getByLabelText("Period");
+      period.focus();
+      fireEvent.change(period, { target: { value: "7" } });
+      await waitFor(() =>
+        expect(fetchStatisticsIssues).toHaveBeenCalledTimes(4),
+      );
+      expect(document.activeElement).toBe(period);
+      expect(scroll).toHaveBeenCalledTimes(1);
+      fireEvent.click(
+        screen.getByRole("button", { name: "View issues in acme/project" }),
+      );
+      await screen.findByText("Issue major-repo-a");
+      expect(document.activeElement).toBe(
+        screen.getByRole("region", { name: "Recorded issues" }),
+      );
+      expect(scroll).toHaveBeenCalledTimes(2);
+      fireEvent.click(screen.getByRole("button", { name: "Close issues" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "View issues caught →" }),
+      );
+      await screen.findByText("Issue major-all");
+      expect(document.activeElement).toBe(
+        screen.getByRole("region", { name: "Recorded issues" }),
+      );
+      expect(scroll).toHaveBeenCalledTimes(3);
+    } finally {
+      if (previousScroll)
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "scrollIntoView",
+          previousScroll,
+        );
+      else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+    }
   });
   it.each([401, 403])(
     "a report %s purges the entire actor/workspace and never resurrects the seed through controls",

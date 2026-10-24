@@ -103,7 +103,9 @@ const empty = {
   name: "Empty statistics workspace",
 };
 const dayMs = 86_400_000;
-const epoch = new Date(Date.now() - 200 * dayMs);
+const fixtureUtcDay = new Date();
+fixtureUtcDay.setUTCHours(0, 0, 0, 0);
+const epoch = new Date(Date.now() - 200 * dayMs).toISOString();
 const repositories = [
   "harbor",
   "observatory-for-security-and-engineering-metrics-examples",
@@ -128,9 +130,9 @@ let adminConnected = false;
 let seeded = false;
 let roleCreated = false;
 let coverageChanged = false;
-let originalCoverage: Date | null = null;
+let originalCoverage: string | null = null;
 let failure: unknown;
-let cleaningUp = false;
+let appStopRequested = false;
 let appExit: {
   code: number | null;
   signal: string | null;
@@ -245,7 +247,16 @@ try {
     failure = error;
   });
   child.once("exit", (code, signal) => {
-    appExit = { code, signal, phase: cleaningUp ? "cleanup" : "qualification" };
+    appExit = {
+      code,
+      signal,
+      phase: appStopRequested ? "cleanup" : "qualification",
+    };
+    if (!appStopRequested) {
+      failure ??= new Error(
+        `Next exited before owned shutdown: code=${code}, signal=${signal}`,
+      );
+    }
     console.log("statistics-e2e: Next child exit", JSON.stringify(appExit));
   });
   const deadline = Date.now() + 150_000;
@@ -320,6 +331,10 @@ try {
     `/api/dashboard/review-statistics?workspaceId=${main.id}&days=30&severity=all`,
   );
   const report = (await warmedReport.json()) as StatisticsReport;
+  await writeFile(
+    join(outputDir, "warm-report.json"),
+    JSON.stringify(report, null, 2) + "\n",
+  );
   assert.equal(report.totals.reviews, 90);
   assert.equal(report.totals.pullRequestsReviewed, 12);
   assert.equal(report.totals.issuesCaught, 180);
@@ -426,7 +441,6 @@ try {
 } catch (error) {
   failure = error;
 } finally {
-  cleaningUp = true;
   for (const action of [
     async () => {
       await browser?.close();
@@ -470,6 +484,17 @@ try {
         await admin.query(
           'DELETE FROM "ReviewStatisticsCoverage" WHERE "id"=\'capture_v1\'',
         );
+      const restored =
+        (
+          await admin.query<{ activatedAt: string }>(
+            'SELECT "activatedAt"::text AS "activatedAt" FROM "ReviewStatisticsCoverage" WHERE "id"=\'capture_v1\'',
+          )
+        ).rows[0]?.activatedAt ?? null;
+      assert.equal(
+        restored,
+        originalCoverage,
+        "Capture boundary must be restored exactly",
+      );
     },
     async () => {
       if (!adminConnected || !seeded) return;
@@ -626,6 +651,52 @@ async function dailyRows(
       "UTC midnight must not shift to the previous day in Honolulu",
     );
   }
+  const observedDay = new Date();
+  observedDay.setUTCHours(0, 0, 0, 0);
+  assert.equal(
+    observedDay.getTime(),
+    fixtureUtcDay.getTime(),
+    "Qualification crossed UTC midnight; rerun with a stable fixture period",
+  );
+  const actualCells = await table
+    .locator("tbody tr")
+    .evaluateAll((rows) =>
+      rows.map((row) =>
+        Array.from(
+          row.querySelectorAll("th,td"),
+          (cell) => cell.textContent?.trim() ?? "",
+        ),
+      ),
+    );
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+  const expectedCells = Array.from({ length: expected }, (_, index) => {
+    const dayOffset = expected - 1 - index;
+    const day = new Date(fixtureUtcDay.getTime() - dayOffset * dayMs);
+    const active = dayOffset < 30;
+    const issues = [0, 0, 0, 0];
+    if (active)
+      for (let issue = 0; issue < 6; issue++)
+        issues[(dayOffset * 6 + issue) % 4]!++;
+    // This fixture's capture/workspace/qualified-source boundaries predate all
+    // presets. Coverage is Covered even today; in-progress is a separate label.
+    return [
+      formatter.format(day) + (dayOffset === 0 ? " · in progress" : ""),
+      "Covered",
+      active ? "3" : "0",
+      active ? "3" : "0",
+      ...issues.map(String),
+    ];
+  });
+  assert.deepEqual(
+    actualCells,
+    expectedCells,
+    "Every UTC day, coverage label and all-severity numeric cell must match the known immutable fixture",
+  );
   const rows = await table.locator("tbody tr").allTextContents();
   await disclosure.click();
   return rows;
@@ -682,6 +753,14 @@ async function interactions(page: Page, context: BrowserContext) {
   const reviewRanks = await ranking.locator("li").allTextContents();
   const allDailyRows = await dailyRows(page, 30, false);
   await choose(page, "Severity", "Major", true);
+  await page.waitForFunction(
+    () =>
+      document.activeElement ===
+      document
+        .querySelector('[name="statistics-severity"]')
+        ?.closest("label")
+        ?.querySelector('[role="combobox"], select'),
+  );
   await page
     .getByText("Repositories with the most major issues", { exact: true })
     .waitFor();
@@ -711,9 +790,30 @@ async function interactions(page: Page, context: BrowserContext) {
   });
   await issues.locator("li").first().waitFor();
   assert.equal(await issues.locator("li").count(), 25);
+  assert(
+    await issues.evaluate((element) => element === document.activeElement),
+    "Explicit issue opening focuses the panel",
+  );
+  assert.equal(
+    await issues.locator("li").getByText("Major", { exact: true }).count(),
+    25,
+  );
+  const firstPageRows = new Set(await issues.locator("li").allTextContents());
+  assert.equal(firstPageRows.size, 25);
   await issues.getByRole("button", { name: "Next", exact: true }).click();
   await issues.getByText("Page 2", { exact: true }).waitFor();
   assert.equal(await issues.locator("li").count(), 20);
+  assert.equal(
+    await issues.locator("li").getByText("Major", { exact: true }).count(),
+    20,
+  );
+  const secondPageRows = new Set(await issues.locator("li").allTextContents());
+  assert.equal(secondPageRows.size, 20);
+  assert.equal(new Set([...firstPageRows, ...secondPageRows]).size, 45);
+  assert(
+    [...secondPageRows].every((row) => !firstPageRows.has(row)),
+    "Keyset pages must contain distinct Major findings",
+  );
   await issues
     .getByRole("button", { name: "Close issues", exact: true })
     .click();
@@ -725,8 +825,18 @@ async function interactions(page: Page, context: BrowserContext) {
     })
     .click();
   await issues.locator("li").first().waitFor();
+  assert.equal(await issues.locator("li").count(), 25);
+  assert.equal(
+    await issues
+      .locator("li")
+      .getByText("observatory/harbor", { exact: true })
+      .count(),
+    await issues.locator("li").count(),
+    "Every displayed repository-scoped issue must belong to Harbor",
+  );
   assert(
-    (await issues.getByText("observatory/harbor", { exact: true }).count()) > 0,
+    await issues.evaluate((element) => element === document.activeElement),
+    "Repository navigation focuses the panel",
   );
   await issues
     .getByRole("button", { name: "All repositories", exact: true })
@@ -765,6 +875,24 @@ async function interactions(page: Page, context: BrowserContext) {
     .getByRole("button", { name: "Retry issues", exact: true })
     .click();
   await issues.getByText("Page 2", { exact: true }).waitFor();
+  const topRefresh = page.getByRole("button", { name: "Refresh", exact: true });
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+  await topRefresh.focus();
+  const beforeRefreshScroll = await page.evaluate(() => window.scrollY);
+  await topRefresh.click();
+  await issues.getByText("Page 1", { exact: true }).waitFor();
+  await page.waitForFunction(
+    () => document.activeElement?.textContent?.trim() === "Refresh",
+  );
+  assert.equal(
+    await page.evaluate(() => window.scrollY),
+    beforeRefreshScroll,
+    "Report refresh must not jump to issues",
+  );
+  assert(
+    await topRefresh.evaluate((element) => element === document.activeElement),
+    "Refresh keeps initiating control focus after issue remount",
+  );
   await snapshot(page, "issues-drilldown.png");
   await page.unroute("**/api/dashboard/review-statistics/issues?**");
   checks.push(
@@ -970,8 +1098,8 @@ async function seed() {
   try {
     originalCoverage =
       (
-        await admin.query<{ activatedAt: Date }>(
-          'SELECT "activatedAt" FROM "ReviewStatisticsCoverage" WHERE "id"=\'capture_v1\'',
+        await admin.query<{ activatedAt: string }>(
+          'SELECT "activatedAt"::text AS "activatedAt" FROM "ReviewStatisticsCoverage" WHERE "id"=\'capture_v1\'',
         )
       ).rows[0]?.activatedAt ?? null;
     await admin.query(
@@ -1031,8 +1159,7 @@ async function seed() {
         ],
       );
     }
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
+    const today = fixtureUtcDay;
     // Today's observation must be in the past even when qualification runs
     // before16:00UTC, unlike a fixed afternoon timestamp fixture.
     const todayOffset = Math.max(
@@ -1045,7 +1172,7 @@ async function seed() {
         today.getTime() -
           day * dayMs +
           (day === 0 ? todayOffset : 16 * 3_600_000),
-      );
+      ).toISOString();
       for (let repositoryIndex = 0; repositoryIndex < 3; repositoryIndex++) {
         const repository = repositories[repositoryIndex]!;
         const reviewIndex = day * 3 + repositoryIndex;
@@ -1091,6 +1218,54 @@ async function seed() {
         }
       }
     }
+    // Bind explicit UTC strings to TIMESTAMP WITHOUT TIME ZONE. node-postgres
+    // otherwise formats Date parameters in the host's local timezone.
+    const seedReceipt = (
+      await admin.query<{
+        reviews: number;
+        issues: number;
+        prs: number;
+        future: number;
+        futureIssues: number;
+        earliest: string;
+        latest: string;
+      }>(
+        `
+      SELECT COUNT(*)::int AS reviews,
+        COUNT(DISTINCT ("scmRepositoryIdentityId","pullRequestNumber"))::int AS prs,
+        COUNT(*) FILTER (WHERE "settledAt">(clock_timestamp() AT TIME ZONE 'UTC'))::int AS future,
+        MIN("settledAt")::text AS earliest, MAX("settledAt")::text AS latest,
+        (SELECT COUNT(*)::int FROM "ReviewStatisticsIssueFact" WHERE "workspaceId"=$1) AS issues,
+        (SELECT COUNT(*)::int FROM "ReviewStatisticsIssueFact" WHERE "workspaceId"=$1 AND "caughtAt">(clock_timestamp() AT TIME ZONE 'UTC')) AS "futureIssues"
+      FROM "ReviewStatisticsReviewFact" WHERE "workspaceId"=$1
+        AND "settledAt">=date_trunc('day',clock_timestamp() AT TIME ZONE 'UTC')-INTERVAL '29 days'
+    `,
+        [main.id],
+      )
+    ).rows[0]!;
+    assert.deepEqual(
+      [
+        seedReceipt.reviews,
+        seedReceipt.prs,
+        seedReceipt.issues,
+        seedReceipt.future,
+        seedReceipt.futureIssues,
+      ],
+      [90, 12, 180, 0, 0],
+      "UTC fixture must be complete and in the past before starting Next",
+    );
+    await writeFile(
+      join(outputDir, "seed-receipt.json"),
+      JSON.stringify(
+        {
+          fixtureUtcDay: fixtureUtcDay.toISOString(),
+          nodeTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          ...seedReceipt,
+        },
+        null,
+        2,
+      ) + "\n",
+    );
     await admin.query("COMMIT");
     seeded = true;
     coverageChanged = true;
@@ -1159,35 +1334,38 @@ async function loopbackPort(): Promise<number> {
   });
 }
 async function stopApp(app: ChildProcess): Promise<void> {
-  if (app.exitCode !== null || app.signalCode !== null || !app.pid) return;
+  if (!app.pid) return;
+  const pid = app.pid;
+  const unixGroup = process.platform !== "win32";
+  const alive = () => {
+    if (!unixGroup) return app.exitCode === null && app.signalCode === null;
+    try {
+      process.kill(-pid, 0);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+      throw error;
+    }
+  };
   const signal = (name: NodeJS.Signals) => {
     try {
-      if (process.platform !== "win32" && app.pid) process.kill(-app.pid, name);
+      if (unixGroup) process.kill(-pid, name);
       else app.kill(name);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
     }
   };
+  // The only negative PID is the detached process group this run created.
+  // Its leader may have exited while compiler/runtime descendants remain.
+  if (!alive()) return;
+  appStopRequested = true;
   signal("SIGTERM");
   const deadline = Date.now() + 10_000;
-  while (
-    app.exitCode === null &&
-    app.signalCode === null &&
-    Date.now() < deadline
-  )
-    await delay(100);
-  if (app.exitCode === null && app.signalCode === null) {
+  while (alive() && Date.now() < deadline) await delay(100);
+  if (alive()) {
     signal("SIGKILL");
     const finalDeadline = Date.now() + 5000;
-    while (
-      app.exitCode === null &&
-      app.signalCode === null &&
-      Date.now() < finalDeadline
-    )
-      await delay(50);
-    assert(
-      app.exitCode !== null || app.signalCode !== null,
-      "Owned Next process did not stop",
-    );
+    while (alive() && Date.now() < finalDeadline) await delay(50);
+    assert(!alive(), "Owned Next process group did not stop");
   }
 }

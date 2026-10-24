@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { unstable_rethrow } from "next/navigation";
 import {
   loadStatisticsReport,
   statisticsErrorStatus,
@@ -22,7 +23,12 @@ export async function ReviewStatisticsSection({
       />
     );
   } catch (error) {
+    unstable_rethrow(error);
     const status = statisticsErrorStatus(error);
+    if (status === 500) {
+      // Infrastructure errors can contain credentials or SQL; log only scope.
+      console.error("review_statistics_load_failed", { workspaceId });
+    }
     return (
       <section
         id="dashboard-section-content"

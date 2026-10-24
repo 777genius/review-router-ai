@@ -4722,7 +4722,7 @@ model ReviewStatisticsReviewFact {
   pullRequestNumber Int
   settledAt DateTime @db.Timestamp(3)
   payloadHash String
-  repository RepositoryConnection @relation(fields: [repositoryConnectionId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: Restrict)
+  repository RepositoryConnection @relation(fields: [repositoryConnectionId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: Restrict, map: "ReviewStatisticsReviewFact_repository_tenant_fkey")
   @@index([workspaceId, settledAt, executionId], map: "statistics_review_workspace_time_idx")
   @@index([repositoryConnectionId, workspaceId], map: "statistics_review_repository_idx")
 }
@@ -4738,7 +4738,7 @@ model ReviewStatisticsIssueFact {
   title String
   caughtAt DateTime @db.Timestamp(3)
   sourceExecutionId String
-  repository RepositoryConnection @relation(fields: [repositoryConnectionId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: Restrict)
+  repository RepositoryConnection @relation(fields: [repositoryConnectionId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: Restrict, map: "ReviewStatisticsIssueFact_repository_tenant_fkey")
   @@unique([workspaceId, scmRepositoryIdentityId, pullRequestNumber, lineageId], map: "ReviewStatisticsIssueFact_lineage_key")
   @@index([workspaceId, caughtAt, id], map: "statistics_issue_workspace_time_idx")
   @@index([workspaceId, severity, caughtAt, id], map: "statistics_issue_severity_time_idx")

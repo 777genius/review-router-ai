@@ -61,6 +61,29 @@ retention on unbind/reordered delivery, and fresh-SSR browser-cache races.
 
 Real PostgreSQL, source/capture contracts, component/API tests, composition and
 boundary qualification results are recorded in
-`2026-10-23-review-statistics-qualification.md`. Final browser inspection, full-host
-compilation/CI and final review disposition remain in progress; no unexecuted
-gate is recorded as passing.
+`2026-10-23-review-statistics-qualification.md`. The fresh full browser scenario
+passed on the integrated main source, including actual access revocation/recovery
+and all six populated viewport/theme captures. UI and root visual inspection
+returned GO; final data/security and architecture reviews also returned GO.
+Executed host builds and the protected remote merge gates are recorded separately
+in the qualification record and PR checks; no unexecuted gate is counted as passing.
+
+## External implementation review
+
+Seven CodeRabbit threads were independently checked against current source.
+
+| Finding                                                | Disposition                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stale migration evidence                               | Replaced with the fresh 146-migration result; old lost-volume evidence is explicitly historical.                                                                                                                                                                                                      |
+| Next control-flow catch and diagnostics                | Genuine framework signals are rethrown; unexpected failures log only a fixed event and workspace scope. Real signal and sensitive-text regressions pass.                                                                                                                                              |
+| Midnight rendered as 24:xx                             | UTC formatting now uses `h23`; the regression asserts `00:01`.                                                                                                                                                                                                                                        |
+| Issue remount steals focus and scroll                  | Focus follows explicit issue navigation; filter/refetch remounts do not jump to the list. Component tests and genuine browser controls pass.                                                                                                                                                          |
+| Native compiler missing in C1                          | Added explicit pinned compiler preparation after the intentional frozen `--ignore-scripts` install; retained existing policies.                                                                                                                                                                       |
+| Statistics hook blocks superseded-no-effect completion | The claimed accepted path is not valid. Two independent traces and a 20-test completion/capture run prove no-effect publication becomes terminal `PublicationNotApplied` without snapshot work. Successfully published snapshot supersession remains countable; atomic invariant checks are retained. |
+| Prisma tenant foreign-key names differ                 | Added explicit relation maps matching existing migration/database constraints; genuine Prisma validation/generation pass, SQL bytes unchanged.                                                                                                                                                        |
+
+The capture review also checked authoritative envelope size, finding count,
+occurrence states and lineage bounds before successful settlement. No valid
+current-domain completion was found that the statistics guards would newly
+reject. A future extension to live adjudication must qualify its own correction
+and receipt ordering; this review does not claim correctness for a future path.

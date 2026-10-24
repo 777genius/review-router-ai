@@ -1,7 +1,7 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@reviewrouter/ui";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { StatisticsReport } from "@reviewrouter/features-review-statistics";
 import {
   fetchStatisticsIssues,
@@ -36,11 +36,6 @@ export function StatisticsIssues({
   onClose: () => void;
   onAccessFailure: () => void;
 }) {
-  const section = useRef<HTMLElement>(null);
-  useEffect(() => {
-    section.current?.focus({ preventScroll: true });
-    section.current?.scrollIntoView?.({ block: "start" });
-  }, []);
   const [cursors, setCursors] = useState<string[]>([]);
   const cursor = cursors[cursors.length - 1];
   const filters: IssueFilters = {
@@ -66,7 +61,6 @@ export function StatisticsIssues({
   });
   return (
     <section
-      ref={section}
       tabIndex={-1}
       className={styles.issues}
       aria-label="Recorded issues"

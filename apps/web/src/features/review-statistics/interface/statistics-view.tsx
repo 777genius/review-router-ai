@@ -51,6 +51,17 @@ function StatisticsInstance({
   const [denied, setDenied] = useState(false);
   const [issuesOpen, setIssuesOpen] = useState(false);
   const [repository, setRepository] = useState<IssueRepository | null>(null);
+  const section = useRef<HTMLElement>(null);
+  const restoreControlFocus = useRef<"severity" | "refresh" | null>(null);
+  const refreshControl = useRef<HTMLButtonElement>(null);
+  const [issueFocusRequest, setIssueFocusRequest] = useState(0);
+  useEffect(() => {
+    if (!issueFocusRequest) return;
+    const target =
+      section.current?.querySelector<HTMLElement>("#statistics-issues");
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView?.({ block: "start" });
+  }, [issueFocusRequest]);
   const active = useRef(true);
   const deniedRef = useRef(false);
   useEffect(() => {
@@ -88,7 +99,26 @@ function StatisticsInstance({
   });
   const report =
     denied || isStatisticsAccessFailure(query.error) ? undefined : query.data;
+  useEffect(() => {
+    if (!report || query.isFetching || !restoreControlFocus.current) return;
+    const control = restoreControlFocus.current;
+    restoreControlFocus.current = null;
+    // Loading removes Severity or disables Refresh. Restore their initiating
+    // focus only when it fell away and the user has not moved to another control.
+    if (document.activeElement && document.activeElement !== document.body)
+      return;
+    const target =
+      control === "refresh"
+        ? refreshControl.current
+        : section.current
+            ?.querySelector('[name="statistics-severity"]')
+            ?.closest("label")
+            ?.querySelector<HTMLElement>('[role="combobox"], select');
+    target?.focus({ preventScroll: true });
+  }, [report, query.isFetching]);
   const changeFilter = (changes: Partial<StatisticsFilter>) => {
+    restoreControlFocus.current =
+      changes.severity !== undefined ? "severity" : null;
     setRepository(null);
     setFilter((current) => ({ ...current, ...changes }));
   };
@@ -103,6 +133,7 @@ function StatisticsInstance({
     : "";
   return (
     <section
+      ref={section}
       id="dashboard-section-content"
       className={styles.root}
       aria-label="Review statistics"
@@ -132,11 +163,15 @@ function StatisticsInstance({
             className={styles.periodControl ?? ""}
           />
           <Button
+            ref={refreshControl}
             variant="outline"
             size="sm"
             disabled={denied || query.isFetching}
             aria-busy={query.isFetching}
-            onClick={() => void query.refetch()}
+            onClick={() => {
+              restoreControlFocus.current = "refresh";
+              void query.refetch();
+            }}
           >
             <RefreshCw size={14} aria-hidden="true" />
             <span>{query.isFetching ? "Refreshing…" : "Refresh"}</span>
@@ -224,6 +259,7 @@ function StatisticsInstance({
                       : null,
                   );
                   setIssuesOpen(true);
+                  setIssueFocusRequest((request) => request + 1);
                 }}
               />
               <p className={styles.help}>
@@ -241,7 +277,10 @@ function StatisticsInstance({
                   seedId={seedId}
                   report={report}
                   repository={repository}
-                  onResetRepository={() => setRepository(null)}
+                  onResetRepository={() => {
+                    setRepository(null);
+                    setIssueFocusRequest((request) => request + 1);
+                  }}
                   onClose={() => setIssuesOpen(false)}
                   onAccessFailure={rejectAccess}
                 />

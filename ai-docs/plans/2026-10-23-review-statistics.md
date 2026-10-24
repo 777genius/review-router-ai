@@ -1,8 +1,9 @@
 # Review statistics
 
-Status: approved after four sequential reviews by three independent critics
-per round; implementation in progress. Requested by the owner on
-2026-10-23. This plan follows ADR-005 and the existing dashboard architecture.
+Status: implemented after four sequential reviews by three independent critics
+per round. Executed qualification and review dispositions are recorded in the
+adjacent qualification and review records. Requested by the owner on 2026-10-23.
+This plan follows ADR-005 and the existing dashboard architecture.
 
 ## Outcome and scope
 

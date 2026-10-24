@@ -41,9 +41,9 @@ export const instantLabel = (instant: string) =>
     year: "numeric",
     month: "short",
     day: "numeric",
-    hour: "numeric",
+    hour: "2-digit",
     minute: "2-digit",
-    hour12: false,
+    hourCycle: "h23",
   }).format(new Date(instant));
 export function periodLabel(report: StatisticsReport): string {
   return `${fullDayLabel(report.period.from)} – ${fullDayLabel(report.period.to)} · UTC`;
