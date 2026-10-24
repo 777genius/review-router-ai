@@ -13,6 +13,7 @@ const session: ActionSessionClaims = {
   githubRepositoryId: "1234",
   repository: "acme/project",
   githubActorLogin: "maintainer",
+  githubActorId: "11",
   githubRunId: "run_1",
   githubRunAttempt: "1",
   eventName: "issue_comment",
@@ -146,6 +147,17 @@ describe("independent metadata-only GitHub source critic", () => {
       ).rejects.toMatchObject({ code: "conflict" });
     },
   );
+  it("rejects a reassigned matching login when signed numeric actor ID differs, and fails legacy memory writes closed", async () => {
+    const f = fixture();
+    await expect(
+      f.verifier.verify({ ...session, githubActorId: "22" }, claim, controls()),
+    ).rejects.toMatchObject({ code: "conflict" });
+    const { githubActorId: _legacyId, ...legacy } = session;
+    await expect(
+      f.verifier.verify(legacy, claim, controls()),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    expect(f.graphql).toHaveBeenCalledTimes(1);
+  });
   it.each([
     { githubRepositoryId: "9999" },
     { githubActorLogin: null },

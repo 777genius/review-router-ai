@@ -27,6 +27,7 @@ export async function createActionMemoryHttpPeer() {
     githubRepositoryId: "1234",
     repository: "acme/project",
     githubActorLogin: "maintainer",
+    githubActorId: "11",
     githubRunId: "run_1",
     githubRunAttempt: "1",
     eventName: "issue_comment",

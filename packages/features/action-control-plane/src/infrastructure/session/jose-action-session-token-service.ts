@@ -68,6 +68,7 @@ export class JoseActionSessionTokenService implements ActionSessionTokenServiceP
         ? { identityBindingEpoch: payload.identityBindingEpoch }
         : {}),
       githubActorLogin: optionalString(payload.githubActorLogin),
+      ...optionalGithubActorId(payload.githubActorId),
       githubRunId: assertString(payload.githubRunId, "githubRunId"),
       githubRunAttempt: assertString(
         payload.githubRunAttempt,
@@ -82,6 +83,15 @@ export class JoseActionSessionTokenService implements ActionSessionTokenServiceP
       protocolVersion: 1,
     };
   }
+}
+
+function optionalGithubActorId(
+  value: unknown,
+): Pick<ActionSessionClaims, "githubActorId"> {
+  if (value === undefined) return {};
+  if (typeof value !== "string" || !/^[1-9]\d{0,19}$/.test(value))
+    throw new Error("invalid_action_session_githubActorId");
+  return { githubActorId: value };
 }
 
 function optionalString(value: unknown): string | null {

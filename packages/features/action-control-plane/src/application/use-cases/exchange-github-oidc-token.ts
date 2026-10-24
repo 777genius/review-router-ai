@@ -154,6 +154,7 @@ export async function exchangeGitHubOidcToken(
       ? { identityBindingEpoch: repository.identityBindingEpoch }
       : {}),
     githubActorLogin: claims.actor,
+    ...(claims.actor_id ? { githubActorId: claims.actor_id } : {}),
     githubRunId: claims.run_id,
     githubRunAttempt: claims.run_attempt,
     eventName: claims.event_name,

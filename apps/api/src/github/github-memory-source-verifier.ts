@@ -133,6 +133,8 @@ export class GitHubMemorySourceVerifier {
   }> {
     if (
       !session.githubActorLogin ||
+      !session.githubActorId ||
+      !/^[1-9]\d{0,19}$/.test(session.githubActorId) ||
       claim.githubRepositoryId !== session.githubRepositoryId ||
       (session.eventName !== "issue_comment" &&
         session.eventName !== "pull_request_review_comment") ||
@@ -198,6 +200,8 @@ export class GitHubMemorySourceVerifier {
       author.__typename !== "User" ||
       !Number.isSafeInteger(author.databaseId) ||
       !author.databaseId ||
+      author.databaseId < 1 ||
+      String(author.databaseId) !== session.githubActorId ||
       metadata.id !== claim.nodeId ||
       metadata.__typename !==
         (claim.type === "github_issue_comment"
