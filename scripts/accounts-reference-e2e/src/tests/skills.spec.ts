@@ -760,9 +760,7 @@ test.describe("Skills real Next and PostgreSQL", () => {
       .getByText("Advanced: paths for new assignments", { exact: true })
       .click();
     const advanced = operation.locator("details").filter({
-      has: operation.getByText("Advanced: paths for new assignments", {
-        exact: true,
-      }),
+      hasText: "Advanced: paths for new assignments",
     });
     await advanced
       .getByRole("textbox", { name: "Include paths", exact: true })
@@ -884,11 +882,20 @@ test.describe("Skills real Next and PostgreSQL", () => {
     ).toBeVisible();
     await operation
       .getByRole("checkbox", { name: ".reviewrouter/skills", exact: true })
-      .check();
+      .click();
+    await expect(
+      operation.getByRole("checkbox", {
+        name: ".reviewrouter/skills",
+        exact: true,
+      }),
+    ).toBeChecked();
     await expect.poll(roots).toEqual([".reviewrouter/skills"]);
     await operation
       .getByRole("checkbox", { name: ".agents/skills", exact: true })
-      .check();
+      .click();
+    await expect(
+      operation.getByRole("checkbox", { name: ".agents/skills", exact: true }),
+    ).toBeChecked();
     await expect
       .poll(roots)
       .toEqual([".agents/skills", ".reviewrouter/skills"]);
@@ -931,11 +938,23 @@ test.describe("Skills real Next and PostgreSQL", () => {
     ).toBeChecked();
     await reopened.operation
       .getByRole("checkbox", { name: ".reviewrouter/skills", exact: true })
-      .uncheck();
+      .click();
+    await expect(
+      reopened.operation.getByRole("checkbox", {
+        name: ".reviewrouter/skills",
+        exact: true,
+      }),
+    ).not.toBeChecked();
     await expect.poll(roots).toEqual([".agents/skills"]);
     await reopened.operation
       .getByRole("checkbox", { name: ".agents/skills", exact: true })
-      .uncheck();
+      .click();
+    await expect(
+      reopened.operation.getByRole("checkbox", {
+        name: ".agents/skills",
+        exact: true,
+      }),
+    ).not.toBeChecked();
     await expect.poll(roots).toEqual([]);
     await expect(
       reopened.operation.getByText("Git sources: disabled", { exact: true }),
@@ -1348,6 +1367,9 @@ test.describe("Skills real Next and PostgreSQL", () => {
       .getByRole("button", { name: "Manage skills (1)", exact: true })
       .click();
     dialog = page.getByRole("dialog");
+    await dialog
+      .getByRole("searchbox", { name: "Search skills" })
+      .fill(SKILLS_SHARED_ID);
     await dialog.getByRole("button", { name: "Remove", exact: true }).click();
     await expect(
       dialog.getByText("PRIVATE RENAMED AFTER REVOKE", { exact: true }),
