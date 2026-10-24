@@ -157,6 +157,7 @@ export type ReviewPolicyWrite = Readonly<{
 }>;
 
 /** Recorded once per written document inside the write transaction. */
+/** One audit event of a batch, recorded for its last write (the subject). */
 export type ReviewPolicyWriteAudit = Readonly<{
   actor: string;
   action: string;

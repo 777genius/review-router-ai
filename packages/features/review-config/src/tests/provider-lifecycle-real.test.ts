@@ -18,7 +18,9 @@ import {
   type ProviderSelectionDraft,
 } from "../application/use-cases/manage-provider-selections";
 import type { ProviderProfileModelChangeValidator } from "../application/use-cases/manage-workspace-provider-profiles";
+import { resolveEffectiveReviewConfiguration } from "../application/use-cases/resolve-effective-review-configuration";
 import { ProviderManagementDeniedError } from "../domain/provider-management-policy";
+import { reviewConfigurationTargetKey } from "../domain/review-configuration-target";
 import { defaultWorkspaceReviewPolicy } from "../domain/review-policy-document";
 import {
   defaultProviderProfileLabel,
@@ -269,6 +271,13 @@ databaseTests("provider profile lifecycle on PostgreSQL", () => {
         })
       ).workspace,
     ).toMatchObject({ version: 1, schemaVersion: 4 });
+    // One audit event for the attach, none for the document it created.
+    expect(
+      await prisma.auditEvent.findMany({
+        where: { workspaceId, action: "provider_selection.assigned" },
+        select: { targetType: true, targetId: true },
+      }),
+    ).toEqual([{ targetType: "repository", targetId: repoA }]);
     await clearRepositoryProviderSelection(
       {
         workspaceId,
@@ -651,6 +660,124 @@ databaseTests("provider profile lifecycle on PostgreSQL", () => {
     );
   });
 
+  it("replaces documents in a retired format when a provider is chosen", async () => {
+    const retiredWorkspaceId = `${prefix}-retired-w`;
+    const retiredRepository = `${prefix}-retired-repo`;
+    const target = (repositoryId?: string) =>
+      repositoryId
+        ? ({
+            scope: "repository",
+            workspaceId: retiredWorkspaceId,
+            repositoryId,
+          } as const)
+        : ({ scope: "workspace", workspaceId: retiredWorkspaceId } as const);
+    await prisma.workspace.create({
+      data: {
+        id: retiredWorkspaceId,
+        slug: retiredWorkspaceId,
+        name: retiredWorkspaceId,
+        members: {
+          create: [
+            { userId: owner.userId, role: "owner" },
+            { userId: member.userId, role: "member" },
+          ],
+        },
+      },
+    });
+    try {
+      await prisma.repositoryConnection.create({
+        data: {
+          id: retiredRepository,
+          workspaceId: retiredWorkspaceId,
+          externalRepositoryId: retiredRepository,
+          owner: "acme",
+          name: retiredRepository,
+          fullName: `acme/${retiredRepository}`,
+          defaultBranch: "main",
+          visibility: "private",
+        },
+      });
+      // Heads in a retired format, as a schema 3 install left them.
+      for (const scope of [target(), target(retiredRepository)]) {
+        const configuration = await prisma.reviewConfiguration.create({
+          data: {
+            workspaceId: retiredWorkspaceId,
+            repositoryId:
+              scope.scope === "repository" ? scope.repositoryId : null,
+            targetKey: reviewConfigurationTargetKey(scope),
+          },
+        });
+        await prisma.reviewConfigurationVersion.create({
+          data: {
+            configurationId: configuration.id,
+            workspaceId: retiredWorkspaceId,
+            version: 1,
+            schemaVersion: 3,
+            policyJson: "{}",
+          },
+        });
+      }
+      const { profile } = await createWorkspaceProviderProfile(
+        {
+          workspaceId: retiredWorkspaceId,
+          actor: owner,
+          credential: { kind: "user_ci_secret", authMode: "claude_code_oauth" },
+          model: "sonnet",
+        },
+        profiles,
+      );
+      const assign = async (who: typeof owner) =>
+        (
+          await assignProviderProfileToRepositories(
+            {
+              workspaceId: retiredWorkspaceId,
+              actor: who,
+              profileId: profile.id,
+              settings,
+              repositories: [
+                {
+                  repositoryId: retiredRepository,
+                  capability: "direct_config",
+                },
+              ],
+            },
+            deps,
+          )
+        )[0]!;
+      // Replacing a retired workspace document is an owner/admin change.
+      expect(await assign(member)).toMatchObject({
+        status: "denied",
+        reason: "workspace_admin_required",
+      });
+      await setWorkspaceDefaultProvider(
+        {
+          workspaceId: retiredWorkspaceId,
+          actor: owner,
+          selection: { profileId: profile.id, ...settings },
+        },
+        deps,
+      );
+      expect(
+        await resolveEffectiveReviewConfiguration(target(), deps),
+      ).toMatchObject({ status: "ready", workspaceVersion: 2 });
+      // The repository's own retired document goes with its first choice.
+      expect(await assign(member)).toMatchObject({ status: "applied" });
+      expect(
+        await resolveEffectiveReviewConfiguration(
+          target(retiredRepository),
+          deps,
+        ),
+      ).toMatchObject({
+        status: "ready",
+        source: "repository",
+        repositoryVersion: 2,
+        selections: [expect.objectContaining({ profileId: profile.id })],
+      });
+    } finally {
+      await prisma.workspace.deleteMany({ where: { id: retiredWorkspaceId } });
+    }
+  });
+
   it("answers outsiders before telling whether a profile exists", async () => {
     const profile = await hostedProfile("gpt-5.2");
     for (const profileId of [profile.id, `${prefix}-missing`]) {
@@ -670,6 +797,25 @@ databaseTests("provider profile lifecycle on PostgreSQL", () => {
           ),
         ),
       ).toBe("workspace_member_required");
+      // The caller's network check of a model edit never runs for them.
+      let catalogChecks = 0;
+      expect(
+        await denialOf(
+          changeWorkspaceProviderProfileModel(
+            { workspaceId, profileId, actor: outsider, model: "gpt-5.4" },
+            {
+              ...profiles,
+              validator: {
+                ...acceptModelChange,
+                beforeTransaction: async () => {
+                  catalogChecks += 1;
+                },
+              },
+            },
+          ),
+        ),
+      ).toBe("workspace_member_required");
+      expect(catalogChecks).toBe(0);
     }
     // A member sees not_found only for an ID that truly does not exist.
     await expect(

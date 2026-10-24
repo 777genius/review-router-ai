@@ -214,8 +214,9 @@ export async function previewEffectiveReviewConfiguration(
 
 /**
  * Sets or clears the workspace default (owner/admin). Creates the workspace
- * document with built-in settings when none exists. Repositories without a
- * selection of their own follow the new default.
+ * document with built-in settings when none exists or the stored one is in a
+ * retired format (it cannot be read, so nothing of it is kept). Repositories
+ * without a selection of their own follow the new default.
  */
 export async function setWorkspaceDefaultProvider(
   input: Readonly<{
@@ -238,9 +239,10 @@ export async function setWorkspaceDefaultProvider(
   };
   return withSelectionRetry(async () => {
     const heads = await dependencies.policyHeads.readPolicyHeads(target);
-    const current = heads.workspace
-      ? requireCurrent(parseStoredReviewPolicy("workspace", heads.workspace))
-      : defaultWorkspaceReviewPolicy();
+    const current =
+      (heads.workspace
+        ? parseStoredReviewPolicy("workspace", heads.workspace)
+        : null) ?? defaultWorkspaceReviewPolicy();
     const next = selection
       ? fitExecutionLimits(withProviderSelections(current, [selection]), 1)
       : withProviderSelections(current, null);
@@ -467,7 +469,8 @@ export async function assignProviderProfileToRepositories(
 
 /**
  * Removes the repository's own selection so it follows the workspace
- * default again. Its other repository settings stay.
+ * default again. Its other repository settings stay; a document in a retired
+ * format is replaced, so the repository then has no overrides at all.
  */
 export async function clearRepositoryProviderSelection(
   input: Readonly<{
@@ -498,14 +501,19 @@ async function saveRepositorySelection(
   };
   return withSelectionRetry(async () => {
     const heads = await dependencies.policyHeads.readPolicyHeads(target);
+    // A document in a retired format cannot be read and is not kept: the
+    // write replaces it as if there were none, so choosing a provider is the
+    // one action that brings such a repository back.
     const workspace = heads.workspace
-      ? requireCurrent(parseStoredReviewPolicy("workspace", heads.workspace))
+      ? parseStoredReviewPolicy("workspace", heads.workspace)
       : null;
-    const current = heads.repository
-      ? requireCurrent(parseStoredReviewPolicy("repository", heads.repository))
-      : parseRepositoryReviewPolicy({
-          schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
-        });
+    const current =
+      (heads.repository
+        ? parseStoredReviewPolicy("repository", heads.repository)
+        : null) ??
+      parseRepositoryReviewPolicy({
+        schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
+      });
     // The repository's own limits follow the providers it reviews with now.
     const providerCount =
       input.selections?.length ?? workspace?.providers?.length ?? 0;
@@ -514,12 +522,13 @@ async function saveRepositorySelection(
       providerCount,
     );
     const writes: ReviewPolicyWrite[] = [];
-    // The first attach creates the workspace document, never a default.
+    // The first attach creates the workspace document (or replaces a retired
+    // one) with built-in settings, never a default.
     if (!workspace)
       writes.push({
         target: { scope: "workspace", workspaceId: input.workspaceId },
         policy: defaultWorkspaceReviewPolicy(),
-        expectedVersion: null,
+        expectedVersion: heads.workspace?.version ?? null,
       });
     writes.push({
       target,

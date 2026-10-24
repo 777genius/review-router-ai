@@ -134,6 +134,8 @@ export async function changeWorkspaceProviderProfileModel(
   const model = providerProfileModelSchema.safeParse(input.model);
   if (!model.success)
     throw new ProviderProfileError("provider_profile_invalid");
+  // The catalog check below may use the network: only for allowed actors.
+  await assertProviderProfileManagementGate(input, dependencies);
   const profile = (await dependencies.profiles.list(input.workspaceId)).find(
     (candidate) => candidate.id === input.profileId,
   );
@@ -180,6 +182,27 @@ export function archiveWorkspaceProviderProfile(
         action: { kind: "archive_profile", profile: facts.profile },
       }),
   });
+}
+
+/**
+ * The profile-independent part of an edit, rename or archive, decided before
+ * anything else of the request runs: a non-member, or a member under
+ * admin-only Access rights, spends no rate limit, entitlement check or
+ * network call and learns nothing about the profile. The write decides the
+ * whole action again under its locks.
+ */
+export async function assertProviderProfileManagementGate(
+  input: Readonly<{ workspaceId: string; actor: ProviderProfileActor }>,
+  dependencies: Dependencies,
+): Promise<void> {
+  const facts = await dependencies.profiles.readManagementFacts({
+    workspaceId: input.workspaceId,
+    actor: input.actor,
+    bindingIds: [],
+  });
+  if (!facts)
+    throw new ProviderManagementDeniedError("workspace_member_required");
+  assertProfileGate(facts);
 }
 
 /** The workspace list without usage counts; callers authorize the read. */

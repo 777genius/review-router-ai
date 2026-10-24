@@ -649,7 +649,9 @@ async function saveReviewPolicyWrites(
           })
         : null,
     });
-    if (input.audit)
+    // The audit names the batch's subject, its last write; a workspace
+    // document a first attach creates alongside it is not a second event.
+    if (input.audit && write === effective.at(-1)?.write)
       await recordAuditEvent(
         {
           workspaceId,
