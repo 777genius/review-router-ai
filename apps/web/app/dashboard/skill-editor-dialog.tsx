@@ -10,7 +10,7 @@ import {
 import { SkillsDialog, SkillsError, skillFieldClass } from "./review-skills-ui";
 
 function exportSkill(document: ReviewSkillDocument) {
-  const text = `---\nname: ${JSON.stringify(document.name)}\ndescription: ${JSON.stringify(document.description)}\n---\n\n${document.instructions}\n`;
+  const text = `---\nname: ${JSON.stringify(document.name)}\ndescription: ${JSON.stringify(document.description)}\n---\n${document.instructions}`;
   const url = URL.createObjectURL(
     new Blob([text], { type: "text/markdown;charset=utf-8" }),
   );
@@ -81,8 +81,12 @@ export function SkillEditorDialog({
   async function importFile(file: File | undefined) {
     if (!file) return;
     try {
-      if (file.size > 32768)
-        throw new Error("SKILL.md must be 32 KiB or smaller.");
+      // Bound parsing while leaving room for the YAML header around a valid
+      // 32 KiB body, including escaped name and description characters.
+      if (file.size > 64 * 1024)
+        throw new Error(
+          "SKILL.md must be 64 KiB or smaller; instructions are limited to 32 KiB.",
+        );
       const text = await file.text();
       const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/.exec(
         text,
@@ -123,7 +127,7 @@ export function SkillEditorDialog({
         );
       setName(fields.name);
       setDescription(fields.description);
-      setInstructions(match[2]!.trim());
+      setInstructions(match[2]!);
       setImportError(null);
     } catch (error) {
       setImportError(error);

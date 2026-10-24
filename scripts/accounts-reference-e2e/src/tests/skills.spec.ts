@@ -267,7 +267,7 @@ test.describe("Skills real Next and PostgreSQL", () => {
     await second.close();
     await expectNetworkViolations(violations);
   });
-  test("Skills imports a portable text-only SKILL.md and exports saved content", async ({
+  test("Skills imports and exports a maximum-size portable skill without changing Markdown", async ({
     page,
     context,
   }) => {
@@ -283,19 +283,37 @@ test.describe("Skills real Next and PostgreSQL", () => {
       exact: true,
     });
     const name = `Portable browser skill ${Date.now()}`;
+    const description = '"\t🙂'.repeat(341) + '"';
+    const prefix =
+      "    Keep this Markdown code block indented.\n\nCheck ownership boundaries.\n![untrusted](https://example.invalid/never-fetch.png)\n<script>throw new Error('never execute')</script>\n";
+    const suffix = "  \n\n";
     const instructions =
-      "Check ownership boundaries.\n![untrusted](https://example.invalid/never-fetch.png)\n<script>throw new Error('never execute')</script>";
+      prefix +
+      "x".repeat(32768 - Buffer.byteLength(prefix + suffix, "utf8")) +
+      suffix;
+    const portable = `---\nname: ${JSON.stringify(name)}\ndescription: ${JSON.stringify(description)}\n---\n${instructions}`;
+    expect(Buffer.byteLength(instructions, "utf8")).toBe(32768);
+    expect(Buffer.byteLength(portable, "utf8")).toBeGreaterThan(32768);
     await editor.getByLabel("Import SKILL.md", { exact: false }).setInputFiles({
       name: "SKILL.md",
       mimeType: "text/markdown",
-      buffer: Buffer.from(
-        `---\nname: ${JSON.stringify(name)}\ndescription: "Portable plain text"\n---\n\n${instructions}\n`,
+      buffer: Buffer.alloc(64 * 1024 + 1, "x"),
+    });
+    await expect(
+      editor.getByText(
+        "SKILL.md must be 64 KiB or smaller; instructions are limited to 32 KiB.",
+        { exact: true },
       ),
+    ).toBeVisible();
+    await editor.getByLabel("Import SKILL.md", { exact: false }).setInputFiles({
+      name: "SKILL.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from(portable),
     });
     await expect(editor.getByLabel("Name", { exact: false })).toHaveValue(name);
     await expect(
       editor.getByLabel("Description", { exact: false }),
-    ).toHaveValue("Portable plain text");
+    ).toHaveValue(description);
     await expect(
       editor.getByLabel("Markdown instructions", { exact: false }),
     ).toHaveValue(instructions);
@@ -317,8 +335,42 @@ test.describe("Skills real Next and PostgreSQL", () => {
     const path = await download.path();
     expect(path).toBeTruthy();
     const exported = await readFile(path!, "utf8");
-    expect(exported).toContain(`name: ${JSON.stringify(name)}`);
-    expect(exported).toContain(instructions);
+    expect(exported).toBe(portable);
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Create skill", exact: true })
+      .click();
+    await editor
+      .getByLabel("Import SKILL.md", { exact: false })
+      .setInputFiles(path!);
+    await expect(editor.getByLabel("Name", { exact: false })).toHaveValue(name);
+    await expect(
+      editor.getByLabel("Description", { exact: false }),
+    ).toHaveValue(description);
+    await expect(
+      editor.getByLabel("Markdown instructions", { exact: false }),
+    ).toHaveValue(instructions);
+    await editor
+      .getByLabel("Markdown instructions", { exact: false })
+      .fill(instructions + "x");
+    await expect(
+      editor.getByRole("button", { name: "Save", exact: true }),
+    ).toBeDisabled();
+    await editor
+      .getByLabel("Import SKILL.md", { exact: false })
+      .setInputFiles(path!);
+    const copyName = `Imported copy ${Date.now()}`;
+    await editor.getByLabel("Name", { exact: false }).fill(copyName);
+    await editor.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(editor).not.toBeVisible();
+    const copied = await sql<{ instructions: string; description: string }>(
+      `SELECT r.instructions, r.description FROM "ReviewSkill" s JOIN "ReviewSkillRevision" r ON r.id=s."headRevisionId" WHERE r.name=$1`,
+      [copyName],
+    );
+    expect(copied).toEqual([{ instructions, description }]);
     await expectNetworkViolations(violations);
   });
   test("Skills all current 125 repositories, mixed counts, skill pages and delta remove", async ({
