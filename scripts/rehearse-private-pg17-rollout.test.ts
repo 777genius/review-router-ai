@@ -1304,6 +1304,7 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000142_optional_gateway_reasoning" &&
         name !== "000143_workspace_draft_review_setting" &&
         name !== "000144_workspace_provider_profiles" &&
+        name !== "000145_drop_review_configuration_projection" &&
         name !== "000133_allow_first_time_scm_identity_bind",
     );
     const withoutProviderKey = historicalCheckout.filter(
@@ -1358,9 +1359,9 @@ describe("disposable dual-version rehearsal", () => {
     ).toBe(
       "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
     );
-    expect(migrationNames).toHaveLength(144);
+    expect(migrationNames).toHaveLength(145);
     expect(migrationManifestIdentity(migrationNames)).toBe(
-      "sha256:24006c61e30b1d814fa60f9a1cba43e5fa4e2fe8441f333917a1d416f35609b6",
+      "sha256:53922c66d2957813d0622ff66439d78ab521bd4c209a1af9b751e25e896b657b",
     );
     expect(historicalCheckout).toHaveLength(124);
     expect(historicalMigrationManifestIdentity(historicalCheckout)).toBe(
@@ -1475,6 +1476,7 @@ describe("disposable dual-version rehearsal", () => {
       "000142_optional_gateway_reasoning",
       "000143_workspace_draft_review_setting",
       "000144_workspace_provider_profiles",
+      "000145_drop_review_configuration_projection",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1600,9 +1602,10 @@ describe("disposable dual-version rehearsal", () => {
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
     const exactTail = "000121_review_run_gateway_execution_binding";
-    const currentTail = "000144_workspace_provider_profiles";
+    const currentTail = "000145_drop_review_configuration_projection";
     for (const candidate of [
       names.filter((name) => name !== currentTail),
+      names.filter((name) => name !== "000144_workspace_provider_profiles"),
       names.filter((name) => name !== "000143_workspace_draft_review_setting"),
       names.filter((name) => name !== "000142_optional_gateway_reasoning"),
       names.filter((name) => name !== "000140_personal_oauth_method"),
@@ -1613,10 +1616,16 @@ describe("disposable dual-version rehearsal", () => {
       names.filter((name) => name !== "000129_personal_run_snapshot_v2"),
       names.filter((name) => name !== "000127_owner_workspace_deletion"),
       [...names, currentTail],
+      [...names, "000144_workspace_provider_profiles"],
       [...names, "000143_workspace_draft_review_setting"],
       [...names, "000142_optional_gateway_reasoning"],
       [...names, "000140_personal_oauth_method"],
-      names.map((name) => (name === currentTail ? "000144_relabelled" : name)),
+      names.map((name) => (name === currentTail ? "000145_relabelled" : name)),
+      names.map((name) =>
+        name === "000144_workspace_provider_profiles"
+          ? "000144_relabelled"
+          : name,
+      ),
       names.map((name) =>
         name === "000143_workspace_draft_review_setting"
           ? "000143_relabelled"
@@ -1710,6 +1719,7 @@ describe("disposable dual-version rehearsal", () => {
     "000142_optional_gateway_reasoning",
     "000143_workspace_draft_review_setting",
     "000144_workspace_provider_profiles",
+    "000145_drop_review_configuration_projection",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1784,6 +1794,7 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000142_optional_gateway_reasoning" &&
                 name !== "000143_workspace_draft_review_setting" &&
                 name !== "000144_workspace_provider_profiles" &&
+                name !== "000145_drop_review_configuration_projection" &&
                 name !== "000133_allow_first_time_scm_identity_bind",
               "000102_sdk_growth_current_authority",
             ),

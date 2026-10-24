@@ -131,7 +131,6 @@ model WorkspaceAccountBinding {
   personalOperationResults PersonalAccountOperation[] @relation("PersonalOperationResultBinding")
 
   reviewConfigurationVersions ReviewConfigurationVersion[] @relation("PrimaryGatewayBinding")
-  reviewConfigurationProviders ReviewConfigurationVersionProvider[] @relation("OrderedGatewayBinding")
   providerProfiles WorkspaceProviderProfile[]
 
   // Active pair uniqueness is a partial SQL index in 000124. Retired IDs remain.
@@ -530,19 +529,12 @@ model ReviewConfigurationVersion {
   version                                 Int
   schemaVersion                           Int      @default(1)
   policyJson                              String?
-  // Projection of the first provider for schema 1-3 versions only.
-  providerKind                            String?
-  providerAuthMode                        String?
-  model                                   String?
-  reasoningEffort                         String?
+  // Left from the schema 1-3 projection; schema 4 versions keep defaults.
   agenticContext                          Boolean  @default(true)
   fastMode                                Boolean  @default(false)
-  failOnSeverity                          String?
-  inlineMaxComments                       Int?
   providerLimit                           Int      @default(1)
   providerMaxParallel                     Int      @default(1)
   inlineMinAgreement                      Int      @default(1)
-  targetTokensPerBatch                    Int?
   reviewLanguage                          String?
   investigationRecordingEnabled           Boolean  @default(false)
   investigationShadowEnabled              Boolean  @default(false)
@@ -554,36 +546,12 @@ model ReviewConfigurationVersion {
 
   configuration ReviewConfiguration @relation(fields: [configurationId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: Restrict)
   gatewayBinding WorkspaceAccountBinding? @relation("PrimaryGatewayBinding", fields: [gatewayBindingId, workspaceId], references: [id, workspaceId], onDelete: Restrict, onUpdate: Restrict)
-  providers     ReviewConfigurationVersionProvider[]
 
   @@unique([id, workspaceId])
   @@index([gatewayBindingId, workspaceId])
   @@unique([configurationId, version])
   @@unique([configurationId, operationId])
   @@index([configurationId, createdAt])
-}
-
-model ReviewConfigurationVersionProvider {
-  id                     String  @id @default(cuid())
-  configurationVersionId String
-  workspaceId            String
-  gatewayBindingId       String?
-  gatewayProfileRef      String?
-  order                  Int
-  providerKind           String
-  providerAuthMode       String
-  model                  String
-  reasoningEffort        String?
-  agenticContext         Boolean @default(true)
-  fastMode               Boolean @default(false)
-  requiredHealthy        Boolean @default(false)
-
-  configurationVersion ReviewConfigurationVersion @relation(fields: [configurationVersionId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: Restrict, map: "ReviewConfigurationVersionProvider_version_workspace_fkey")
-  gatewayBinding WorkspaceAccountBinding? @relation("OrderedGatewayBinding", fields: [gatewayBindingId, workspaceId], references: [id, workspaceId], onDelete: Restrict, onUpdate: Restrict, map: "ReviewConfigurationVersionProvider_binding_workspace_fkey")
-
-  @@index([gatewayBindingId, workspaceId], map: "ReviewConfigurationVersionProvider_gateway_binding_idx")
-  @@unique([configurationVersionId, order])
-  @@index([configurationVersionId])
 }
 
 // A reusable workspace provider: an immutable credential source plus a model.

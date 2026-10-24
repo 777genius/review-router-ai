@@ -93,7 +93,7 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps checkout144 source admission separate from historical96 and managed92 authority", () => {
+  it("keeps checkout145 source admission separate from historical96 and managed92 authority", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
     const full = names.map((migrationName) => ({
@@ -107,11 +107,19 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(144);
+    expect(full).toHaveLength(145);
     expect(manifest(full)).toBe(
+      "sha256:53922c66d2957813d0622ff66439d78ab521bd4c209a1af9b751e25e896b657b",
+    );
+    const previous144 = full.filter(
+      (row) =>
+        row.migrationName !== "000145_drop_review_configuration_projection",
+    );
+    expect(previous144).toHaveLength(144);
+    expect(manifest(previous144)).toBe(
       "sha256:24006c61e30b1d814fa60f9a1cba43e5fa4e2fe8441f333917a1d416f35609b6",
     );
-    const previous143 = full.filter(
+    const previous143 = previous144.filter(
       (row) => row.migrationName !== "000144_workspace_provider_profiles",
     );
     expect(previous143).toHaveLength(143);
@@ -173,7 +181,7 @@ describe("canonical release migration transition", () => {
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
     expect(full).toEqual(readRenderManagedCheckoutInventory());
-    expect(full.slice(-36).map((row) => row.migrationName)).toEqual([
+    expect(full.slice(-37).map((row) => row.migrationName)).toEqual([
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",
       "000111_sdk_growth_source_binding",
@@ -210,6 +218,7 @@ describe("canonical release migration transition", () => {
       "000142_optional_gateway_reasoning",
       "000143_workspace_draft_review_setting",
       "000144_workspace_provider_profiles",
+      "000145_drop_review_configuration_projection",
     ]);
     const withoutProviderKey = historicalFull.filter(
       (row) =>

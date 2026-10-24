@@ -102,9 +102,12 @@ describe.skipIf(!enabled)(
         const names = (await readdir(migrations))
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
-        expect(names).toHaveLength(144);
-        expect(names.at(-1)).toBe("000144_workspace_provider_profiles");
+        expect(names).toHaveLength(145);
+        expect(names.at(-1)).toBe(
+          "000145_drop_review_configuration_projection",
+        );
         let legacyBefore: unknown;
+        let legacyBefore145: unknown;
         for (const name of names) {
           if (name === "000119_review_configuration_gateway_binding") {
             // Real pre-119 data detects destructive backfill or parent-scope guessing.
@@ -128,6 +131,22 @@ describe.skipIf(!enabled)(
                     WHERE v."id" = 'c2b-legacy-version') AS v,
                    (SELECT to_jsonb(p) FROM "ReviewConfigurationVersionProvider" p
                     WHERE p."id" = 'c2b-legacy-provider') AS p`)
+            ).rows;
+          }
+          if (name === "000145_drop_review_configuration_projection") {
+            // Through 144 the legacy rows kept every value.
+            const legacy144 = await sql.query(`
+            SELECT (SELECT to_jsonb(v) - 'workspaceId' - 'gatewayBindingId' - 'gatewayProfileRef'
+                      - 'operationId' - 'operationIntentHash' - 'policyJson' - 'operationSnapshotJson'
+                    FROM "ReviewConfigurationVersion" v WHERE v."id" = 'c2b-legacy-version') AS v,
+                   (SELECT to_jsonb(p) - 'workspaceId' - 'gatewayBindingId' - 'gatewayProfileRef'
+                    FROM "ReviewConfigurationVersionProvider" p WHERE p."id" = 'c2b-legacy-provider') AS p`);
+            expect(legacy144.rows).toEqual(legacyBefore);
+            legacyBefore145 = (
+              await sql.query(`
+              SELECT to_jsonb(v) - 'providerKind' - 'providerAuthMode' - 'model' - 'reasoningEffort'
+                       - 'failOnSeverity' - 'inlineMaxComments' - 'targetTokensPerBatch' AS v
+              FROM "ReviewConfigurationVersion" v WHERE v."id" = 'c2b-legacy-version'`)
             ).rows;
           }
           if (name === "000144_workspace_provider_profiles") {
@@ -186,15 +205,15 @@ describe.skipIf(!enabled)(
             `migration ${name} failed: ${applied.stderr}`,
           ).toBe(0);
         }
-        const legacyAfter = await sql.query(`
-        SELECT (SELECT to_jsonb(v) - 'workspaceId' - 'gatewayBindingId' - 'gatewayProfileRef'
-                  - 'operationId' - 'operationIntentHash' - 'policyJson' - 'operationSnapshotJson'
-                FROM "ReviewConfigurationVersion" v WHERE v."id" = 'c2b-legacy-version') AS v,
-               (SELECT to_jsonb(p) - 'workspaceId' - 'gatewayBindingId' - 'gatewayProfileRef'
-                FROM "ReviewConfigurationVersionProvider" p WHERE p."id" = 'c2b-legacy-provider') AS p`);
-        expect(legacyAfter.rows).toEqual(legacyBefore);
-        // 000144 keeps existing rows: unknown transports, Access rights off,
-        // and the schema 1-3 projection columns only lose NOT NULL.
+        // 000145 drops only the projection: the rest of a legacy version stays.
+        expect(
+          (
+            await sql.query(`
+            SELECT to_jsonb(v) AS v FROM "ReviewConfigurationVersion" v
+            WHERE v."id" = 'c2b-legacy-version'`)
+          ).rows,
+        ).toEqual(legacyBefore145);
+        // 000144 keeps existing rows: unknown transports, Access rights off.
         expect(
           (
             await sql.query(`
@@ -211,41 +230,36 @@ describe.skipIf(!enabled)(
             providerManagementAdminOnly: false,
           },
         ]);
+        // 000145: no schema 1-3 projection column and no provider rows table.
         expect(
           (
             await sql.query(`
-            SELECT "column_name", "is_nullable" FROM information_schema.columns
+            SELECT "column_name" FROM information_schema.columns
             WHERE "table_schema" = 'public' AND "table_name" = 'ReviewConfigurationVersion'
               AND "column_name" IN ('providerKind', 'providerAuthMode', 'model',
-                'reasoningEffort', 'failOnSeverity', 'inlineMaxComments', 'targetTokensPerBatch')
-            ORDER BY "column_name"`)
-          ).rows.map((row) => `${row.column_name}:${row.is_nullable}`),
-        ).toEqual([
-          "failOnSeverity:YES",
-          "inlineMaxComments:YES",
-          "model:YES",
-          "providerAuthMode:YES",
-          "providerKind:YES",
-          "reasoningEffort:YES",
-          "targetTokensPerBatch:YES",
-        ]);
-        for (const table of [
-          "ReviewConfigurationVersion",
-          "ReviewConfigurationVersionProvider",
-        ] as const) {
-          const rows = (
+                'reasoningEffort', 'failOnSeverity', 'inlineMaxComments', 'targetTokensPerBatch')`)
+          ).rows,
+        ).toEqual([]);
+        expect(
+          (
             await sql.query(
-              `SELECT "workspaceId", "gatewayBindingId", "gatewayProfileRef" FROM "${table}"`,
+              `SELECT to_regclass('public."ReviewConfigurationVersionProvider"') AS t`,
             )
-          ).rows;
-          expect(rows).toEqual([
-            {
-              workspaceId: "c2b-w",
-              gatewayBindingId: null,
-              gatewayProfileRef: null,
-            },
-          ]);
-        }
+          ).rows,
+        ).toEqual([{ t: null }]);
+        expect(
+          (
+            await sql.query(
+              `SELECT "workspaceId", "gatewayBindingId", "gatewayProfileRef" FROM "ReviewConfigurationVersion"`,
+            )
+          ).rows,
+        ).toEqual([
+          {
+            workspaceId: "c2b-w",
+            gatewayBindingId: null,
+            gatewayProfileRef: null,
+          },
+        ]);
 
         prisma = new PrismaClient({
           adapter: new PrismaPg(target),
@@ -457,21 +471,14 @@ describe.skipIf(!enabled)(
         expect(noReasonSaved.config.providers[0]).not.toHaveProperty(
           "reasoningEffort",
         );
-        // Schema 4 writes only the document: no first-provider or ordered
-        // provider projection rows, and the selection keeps the omission.
+        // Schema 4 writes only the document, and the selection keeps the
+        // omission.
         const noReasonRows = await sql.query(
-          `SELECT v."schemaVersion", v."reasoningEffort", v."providerKind", v."policyJson",
-             (SELECT count(*)::int FROM "ReviewConfigurationVersionProvider" p
-              WHERE p."configurationVersionId" = v.id) AS projected
+          `SELECT v."schemaVersion", v."policyJson"
            FROM "ReviewConfigurationVersion" v WHERE v."workspaceId" = 'c2b-no-reason'`,
         );
         expect(noReasonRows.rows).toHaveLength(1);
-        expect(noReasonRows.rows[0]).toMatchObject({
-          schemaVersion: 4,
-          reasoningEffort: null,
-          providerKind: null,
-          projected: 0,
-        });
+        expect(noReasonRows.rows[0]).toMatchObject({ schemaVersion: 4 });
         const noReasonSelection = JSON.parse(noReasonRows.rows[0].policyJson)
           .providers[0];
         expect(noReasonSelection).not.toHaveProperty("reasoningEffort");
@@ -496,7 +503,7 @@ describe.skipIf(!enabled)(
           `INSERT INTO "ReviewConfiguration" ("id", "workspaceId", "repositoryId", "targetKey", "updatedAt") VALUES ('c2b-opaque-config', 'c2b-w', 'c2b-opaque-repo', 'repo:c2b-opaque-repo', now())`,
         );
         await prisma.$executeRawUnsafe(
-          `INSERT INTO "ReviewConfigurationVersion" ("id", "configurationId", "workspaceId", "version", "schemaVersion", "providerKind", "providerAuthMode", "model", "reasoningEffort", "failOnSeverity", "inlineMaxComments", "targetTokensPerBatch") VALUES ('c2b-opaque-version', 'c2b-opaque-config', 'c2b-w', 1, 2, 'codex', 'codex_subscription_oauth_rotating', 'gpt-5.6-sol', 'high', 'critical', 0, 50000)`,
+          `INSERT INTO "ReviewConfigurationVersion" ("id", "configurationId", "workspaceId", "version", "schemaVersion") VALUES ('c2b-opaque-version', 'c2b-opaque-config', 'c2b-w', 1, 2)`,
         );
         const opaqueTarget = { ...repository, repositoryId: "c2b-opaque-repo" };
         const opaqueRuntimeTarget = {
@@ -553,7 +560,7 @@ describe.skipIf(!enabled)(
         ).toEqual(historyBeforeStaleReset);
         // The existing clear path must also recover directly from a retired head.
         await prisma.$executeRawUnsafe(
-          `INSERT INTO "ReviewConfigurationVersion" ("id", "configurationId", "workspaceId", "version", "schemaVersion", "providerKind", "providerAuthMode", "model", "reasoningEffort", "failOnSeverity", "inlineMaxComments", "targetTokensPerBatch") VALUES ('c2b-opaque-version-3', 'c2b-opaque-config', 'c2b-w', 3, 2, 'codex', 'codex_subscription_oauth_rotating', 'gpt-5.6-sol', 'high', 'critical', 0, 50000)`,
+          `INSERT INTO "ReviewConfigurationVersion" ("id", "configurationId", "workspaceId", "version", "schemaVersion") VALUES ('c2b-opaque-version-3', 'c2b-opaque-config', 'c2b-w', 3, 2)`,
         );
         await expect(
           legacyRuntime.findRuntimeReviewConfiguration(opaqueRuntimeTarget),
@@ -659,7 +666,6 @@ describe.skipIf(!enabled)(
             where: {
               configuration: { workspaceId: "c2b-w", repositoryId: "c2b-repo" },
             },
-            include: { providers: { orderBy: { order: "asc" } } },
           });
         // Schema 4 versions carry no binding projection; the stored document
         // selects the profile, and the profile row names the binding.
@@ -668,8 +674,6 @@ describe.skipIf(!enabled)(
           schemaVersion: 4,
           gatewayBindingId: null,
           gatewayProfileRef: null,
-          providerKind: null,
-          providers: [],
         });
         expect(
           JSON.parse(firstVersion.policyJson!).providers.map(
@@ -679,13 +683,11 @@ describe.skipIf(!enabled)(
         const defaultVersion =
           await prisma.reviewConfigurationVersion.findFirstOrThrow({
             where: { configurationId: "c2b-legacy-config", version: 2 },
-            include: { providers: { orderBy: { order: "asc" } } },
           });
         expect(defaultVersion).toMatchObject({
           workspaceId: "c2b-w",
           schemaVersion: 4,
           gatewayBindingId: null,
-          providers: [],
         });
         expect(
           JSON.parse(defaultVersion.policyJson!).providers.map(
@@ -726,7 +728,6 @@ describe.skipIf(!enabled)(
         expect(
           await refetched.reviewConfigurationVersion.findUniqueOrThrow({
             where: { id: firstVersion.id },
-            include: { providers: { orderBy: { order: "asc" } } },
           }),
         ).toEqual(firstVersion);
 
@@ -917,7 +918,6 @@ describe.skipIf(!enabled)(
         expect(
           await refetched.reviewConfigurationVersion.findUniqueOrThrow({
             where: { id: firstVersion.id },
-            include: { providers: { orderBy: { order: "asc" } } },
           }),
         ).toEqual(firstVersion);
         expect(await fresh.findLatest(repository)).toEqual(afterAck);

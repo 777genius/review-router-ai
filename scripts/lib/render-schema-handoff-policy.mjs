@@ -275,6 +275,25 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Dropping the schema 1-3 review configuration projection is checkout-only:
+  // its columns and table entered after the managed catalog. Admit the exact
+  // SQL and checkout145 before reducing to checkout144.
+  const reviewConfigurationProjectionMigration = catalog.find(
+    (row) =>
+      row.migrationName === "000145_drop_review_configuration_projection",
+  );
+  if (reviewConfigurationProjectionMigration) {
+    if (
+      reviewConfigurationProjectionMigration.checksum !==
+        "97d8c76fd297c95ec5e75a5006ef261d4d9ea56c237fae38cf27857524cafe7a" ||
+      manifest(catalog) !==
+        "sha256:53922c66d2957813d0622ff66439d78ab521bd4c209a1af9b751e25e896b657b"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== reviewConfigurationProjectionMigration),
+    );
+  }
   // Provider profiles add checkout-only tables, nullable columns and relaxed
   // projection nullability. Admit the exact SQL and checkout144 before
   // reducing to checkout143.
