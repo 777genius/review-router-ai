@@ -249,6 +249,47 @@ describe("context connection secrets and revision boundary", () => {
   });
 });
 
+it("requires explicit Dashboard credential replacement before saving a changed endpoint or header binding", async () => {
+  const f = fixture();
+  await f.create();
+  for (const changed of [
+    { ...definition, url: "https://other.example.com/mcp" },
+    {
+      ...definition,
+      headers: {
+        ...definition.headers,
+        Authorization: "Token {{ secrets.DOCS_KEY }}",
+      },
+    },
+  ]) {
+    await expect(
+      saveContextConnection(
+        {
+          workspaceId: "w1",
+          expectedVersion: 1,
+          definition: changed,
+          enabled: true,
+        },
+        f.deps,
+      ),
+    ).rejects.toMatchObject({ code: "context_secret_reentry_required" });
+  }
+  expect((await f.store.find("w1", "docs"))?.version).toBe(1);
+  expect(f.crypto.decrypt).not.toHaveBeenCalled();
+  await expect(
+    saveContextConnection(
+      {
+        workspaceId: "w1",
+        expectedVersion: 1,
+        definition: { ...definition, url: "https://other.example.com/mcp" },
+        enabled: true,
+        secrets: { DOCS_KEY: "new-secret" },
+      },
+      f.deps,
+    ),
+  ).resolves.toMatchObject({ version: 2 });
+});
+
 describe("captured context credential delivery", () => {
   it("delivers only selected Dashboard values and never supplies GitHub values", async () => {
     const f = fixture();
