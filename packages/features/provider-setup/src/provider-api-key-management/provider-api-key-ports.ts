@@ -116,6 +116,7 @@ export type ProviderApiKeyAuditEvent = {
   readonly unappliedRepositoryCount: number;
 };
 
+/** Best effort: called after the key is saved, so a failure never fails it. */
 export interface ProviderApiKeyAuditPort {
   record(event: ProviderApiKeyAuditEvent): Promise<void>;
 }

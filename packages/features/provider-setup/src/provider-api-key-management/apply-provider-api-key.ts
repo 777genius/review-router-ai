@@ -270,18 +270,23 @@ export async function applyProviderApiKey(
       );
       const all = [...deniedResults, ...results, ...blockedResults];
       const applied = all.filter((result) => result.status === "applied");
-      await dependencies.audit.record({
-        workspaceId,
-        actor: input.actor,
-        action: encryptedApiKey
-          ? "provider_api_key.saved"
-          : "provider_api_key.installed",
-        providerType,
-        operationId: session.operationId,
-        keyVersion: session.keyVersion,
-        appliedRepositoryCount: applied.length,
-        unappliedRepositoryCount: all.length - applied.length,
-      });
+      try {
+        await dependencies.audit.record({
+          workspaceId,
+          actor: input.actor,
+          action: encryptedApiKey
+            ? "provider_api_key.saved"
+            : "provider_api_key.installed",
+          providerType,
+          operationId: session.operationId,
+          keyVersion: session.keyVersion,
+          appliedRepositoryCount: applied.length,
+          unappliedRepositoryCount: all.length - applied.length,
+        });
+      } catch {
+        // The key is stored and installed by now: an audit failure must not
+        // turn that into an error (the adapter logs it).
+      }
       return { providerType, results: all };
     },
   );

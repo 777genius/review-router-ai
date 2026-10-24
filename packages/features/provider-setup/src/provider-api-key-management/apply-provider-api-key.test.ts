@@ -272,6 +272,30 @@ describe("applyProviderApiKey", () => {
       ).toBe(errorReason);
     },
   );
+
+  it("keeps a saved key's results when its audit event cannot be written", async () => {
+    const githubSecrets = gateway();
+    const result = await applyProviderApiKey(
+      {
+        workspaceId: "workspace_1",
+        actor: "user:github:owner",
+        providerType: "openrouter",
+        apiKey,
+        repositoryIds: ["repo_1"],
+      },
+      dependencies({
+        githubSecrets,
+        audit: {
+          record: vi.fn(async () => {
+            throw new Error("audit_log_unavailable");
+          }),
+        },
+      }),
+    );
+    expect(result.results).toMatchObject([
+      { repositoryId: "repo_1", status: "applied" },
+    ]);
+  });
 });
 
 function dependencies(overrides?: {

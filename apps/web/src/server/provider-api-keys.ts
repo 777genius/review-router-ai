@@ -46,18 +46,38 @@ export function createProviderApiKeyServiceDependencies(input: {
   const auditLog = new PrismaAuditLogRepository(input.prisma);
   return {
     audit: {
-      record: ({ workspaceId, actor, action, providerType, ...metadata }) =>
-        recordAuditEvent(
-          {
+      // Best effort: the key is already saved. The log names the operation,
+      // never the key.
+      record: async ({
+        workspaceId,
+        actor,
+        action,
+        providerType,
+        ...metadata
+      }) => {
+        try {
+          await recordAuditEvent(
+            {
+              workspaceId,
+              actor,
+              action,
+              targetType: "provider_api_key",
+              targetId: providerType,
+              metadata: { providerType, ...metadata },
+            },
+            { auditLog },
+          );
+        } catch (error) {
+          console.warn("provider_api_key_audit_failed", {
             workspaceId,
-            actor,
             action,
-            targetType: "provider_api_key",
-            targetId: providerType,
-            metadata: { providerType, ...metadata },
-          },
-          { auditLog },
-        ),
+            providerType,
+            operationId: metadata.operationId,
+            keyVersion: metadata.keyVersion,
+            error: error instanceof Error ? error.name : "unknown",
+          });
+        }
+      },
     },
     providerApiKeys: new PrismaProviderApiKeyStore(input.prisma),
     providerApiKeyRepositories: new PrismaProviderApiKeyRepository(
