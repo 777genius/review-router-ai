@@ -4,6 +4,9 @@ export const BASELINE_REVISION =
 export const TEST_DATABASE_NAME =
   "review_router_accounts_reference_e2e_test" as const;
 
+export const SKILLS_FIXTURE_BOUNDARY =
+  "Real Next/session/PostgreSQL Skills persistence and authorization with an isolated GitHub App HTTP fixture; no live SCM/provider or native lifecycle claim" as const;
+
 export const PROBE_FIXTURE_BOUNDARY =
   "Real browser and controlled Gateway HTTP inference transport; no live model provider or native lifecycle proof" as const;
 
@@ -129,6 +132,7 @@ export type RuntimeDescriptor = {
   readonly secretsGenerated: true;
   readonly externalNetworkAllowed: false;
   readonly fixtureBoundary:
+    | typeof SKILLS_FIXTURE_BOUNDARY
     | typeof SUBSCRIPTION_FIXTURE_BOUNDARY
     | typeof LIMITS_FIXTURE_BOUNDARY
     | typeof PROBE_FIXTURE_BOUNDARY

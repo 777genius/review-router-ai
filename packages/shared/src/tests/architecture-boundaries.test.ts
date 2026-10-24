@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
 import { describe, expect, it } from "vitest";
 
 type SourceLayer = "domain" | "application";
@@ -86,6 +87,23 @@ const toRelative = (absolutePath: string): string =>
   path.relative(repoRoot, absolutePath).replaceAll(path.sep, "/");
 
 describe("feature architecture boundaries", () => {
+  it("keeps the shared root entrypoint compatible with browser bundles", async () => {
+    await expect(
+      build({
+        stdin: {
+          contents: 'export * from "@reviewrouter/shared";',
+          resolveDir: path.join(repoRoot, "apps/web"),
+          loader: "ts",
+        },
+        bundle: true,
+        platform: "browser",
+        format: "esm",
+        write: false,
+        logLevel: "silent",
+      }),
+    ).resolves.toMatchObject({ errors: [] });
+  });
+
   it("keeps domain/application independent from framework and adapter layers", () => {
     const violations: string[] = [];
 

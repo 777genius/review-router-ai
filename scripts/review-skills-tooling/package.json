@@ -1,0 +1,14 @@
+{
+  "name": "reviewrouter-review-skills-tooling",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": "^24.18.0 || ^26.0.0",
+    "pnpm": ">=11.17.0 <12"
+  },
+  "devDependencies": {
+    "@agent-teams/engineering-foundation": "2.1.0",
+    "@agent-teams/feature-module-standard": "0.2.2"
+  }
+}

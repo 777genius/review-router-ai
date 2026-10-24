@@ -108,6 +108,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     private readonly operatorWorkspaceId?: string,
     private readonly personalAccountsEnabled = false,
     private readonly agentProfileRef = defaultReviewAgentProfileRef,
+    private readonly preferSkillsProfile = false,
   ) {
     assertOpaqueReference(agentProfileRef);
     if (operatorWorkspaceId !== undefined)
@@ -137,6 +138,24 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       operatorWorkspaceId,
       personalAccountsEnabled,
     );
+  }
+
+  private selectImplicitGatewayProfile(
+    profiles: readonly ReviewAgentProfile[],
+    transport: ReviewAgentProfile["modelTransports"][number],
+  ): ReviewAgentProfile {
+    if (this.preferSkillsProfile) {
+      const supporting = profiles.filter(
+        (profile) =>
+          profile.agentKind === "ocr" &&
+          profile.reviewSkillsVersion === 1 &&
+          profile.modelTransports.includes(transport),
+      );
+      if (supporting.length > 1)
+        throw new Error("review_agent_profile_unavailable");
+      if (supporting[0]) return supporting[0];
+    }
+    return selectReviewAgentProfile(profiles, this.agentProfileRef, transport);
   }
 
   async capture(
@@ -244,12 +263,14 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
               modelTransport,
             )
           : modelTransport === "provider_api"
-            ? selectProviderApiReviewAgentProfile(agentProfiles)
+            ? selectProviderApiReviewAgentProfile(agentProfiles, {
+                reviewSkillsDelivery:
+                  input.providerApiAuthMode === "openrouter-api",
+              })
             : selected?.provider.agenticContext === false
               ? selectSuppliedDiffReviewAgentProfile(agentProfiles)
-              : selectReviewAgentProfile(
+              : this.selectImplicitGatewayProfile(
                   agentProfiles,
-                  this.agentProfileRef,
                   modelTransport,
                 );
     } catch {
@@ -511,6 +532,22 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     if (!original) return false;
     if (original.producer.producerReleaseId !== candidate.producerReleaseId)
       return false;
+    let providerApiAuthMode: "openrouter-api" | undefined;
+    // The fence replays the original delivery capability, never a fresh caller
+    // flag or configuration-only guess. A non-Gateway Skills profile was
+    // admitted only through the verified direct OpenRouter route.
+    if (!original.gateway && original.agent.reviewSkillsVersion === 1) {
+      try {
+        assertOpenRouterDirectConfigurationSupported(
+          parseReviewConfigurationStrict(
+            JSON.parse(original.configurationCanonicalJson),
+          ),
+        );
+      } catch {
+        return false;
+      }
+      providerApiAuthMode = "openrouter-api";
+    }
     const producer = await transaction.producerRelease.findUnique({
       where: { producerReleaseId: candidate.producerReleaseId },
       select: {
@@ -546,6 +583,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         {
           identity: candidate,
           modelTransport: original.gateway ? "account_gateway" : "provider_api",
+          ...(providerApiAuthMode ? { providerApiAuthMode } : {}),
           deadline: candidate.maxExpiresAt,
           producerRelease: {
             producerReleaseId: producer.producerReleaseId,

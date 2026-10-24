@@ -276,6 +276,9 @@ importers:
       '@reviewrouter/features-review-run-control':
         specifier: workspace:*
         version: link:../../packages/features/review-run-control
+      '@reviewrouter/features-review-skills':
+        specifier: workspace:*
+        version: link:../../packages/features/review-skills
       '@reviewrouter/features-review-snapshots':
         specifier: workspace:*
         version: link:../../packages/features/review-snapshots
@@ -396,6 +399,9 @@ importers:
       '@reviewrouter/features-review-run-control':
         specifier: workspace:*
         version: link:../../packages/features/review-run-control
+      '@reviewrouter/features-review-skills':
+        specifier: workspace:*
+        version: link:../../packages/features/review-skills
       '@reviewrouter/features-support-diagnostics':
         specifier: workspace:*
         version: link:../../packages/features/support-diagnostics
@@ -456,6 +462,9 @@ importers:
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
       zod:
         specifier: ^4.4.2
         version: 4.4.2
@@ -1118,6 +1127,37 @@ importers:
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../shared
+
+  packages/features/review-skills:
+    dependencies:
+      '@get-modular/assembly':
+        specifier: 0.7.0
+        version: 0.7.0
+      '@get-modular/core':
+        specifier: 0.7.0
+        version: 0.7.0
+      '@prisma/client':
+        specifier: 7.8.0
+        version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
+      '@reviewrouter/shared':
+        specifier: workspace:*
+        version: link:../../shared
+    devDependencies:
+      '@get-modular/conformance':
+        specifier: 0.5.0
+        version: 0.5.0(@get-modular/assembly@0.7.0)(@get-modular/core@0.7.0)(@get-modular/resources@0.2.1)
+      '@get-modular/resources':
+        specifier: 0.2.1
+        version: 0.2.1
+      '@prisma/adapter-pg':
+        specifier: 7.8.0
+        version: 7.8.0
+      '@types/pg':
+        specifier: 8.23.1
+        version: 8.23.1
+      pg:
+        specifier: 8.23.0
+        version: 8.23.0
 
   packages/features/review-snapshots:
     dependencies:
@@ -1881,8 +1921,28 @@ packages:
     resolution: {integrity: sha512-xZTgfMUzHnA8DR7wk/3mAdLppTlwAsm6pfW5bgoW6lvGh8hYGBJwcwzbdynJduRVBVW7aFmchsrLTP5w4rcmlw==}
     engines: {node: '>=24.18.0 <25 || >=26.10.0 <27'}
 
+  '@get-modular/assembly@0.7.0':
+    resolution: {integrity: sha512-5gnrW39E/xW8BiNSivmTmUHD5xSrF7RKBtP57wMbXwVYS/+OtVza/2zuuU71l0oqqvFBgy0LNTKg0E4pu2h6OQ==}
+    engines: {node: '>=24.18.0 <25 || >=26.10.0 <27'}
+
+  '@get-modular/conformance@0.5.0':
+    resolution: {integrity: sha512-mSNesfH+8hXYy3O+LstN+krw8J6sGNlZ4PvT83nK+z4oupteWSWX2c40YDjM8o42xXFZGp2JTJjY7HbrWXkX6A==}
+    engines: {node: '>=24.18.0 <25 || >=26.10.0 <27'}
+    peerDependencies:
+      '@get-modular/assembly': ^0.7.0
+      '@get-modular/core': ^0.7.0
+      '@get-modular/resources': ^0.2.1
+
   '@get-modular/core@0.2.0':
     resolution: {integrity: sha512-npn2dAR5TuVobDzuI7MRZS0p6/0qzTWbRbPo5y9EaDz4qFtBNF6+YBhU92QPwOkYzVjo9xAJtIgMkly7wlkdWw==}
+    engines: {node: '>=24.18.0 <25 || >=26.10.0 <27'}
+
+  '@get-modular/core@0.7.0':
+    resolution: {integrity: sha512-zPUGjggUFClkqzinzKkR3UHaT6OnDNL/f4gnVaGMsvTC4ZuqDGn2kygoSu2Ktid1t9m3MY4mR+yh+icA3oW4zw==}
+    engines: {node: '>=24.18.0 <25 || >=26.10.0 <27'}
+
+  '@get-modular/resources@0.2.1':
+    resolution: {integrity: sha512-qRmHsWuPajee+35BM5DhY6o1tCeDrzkei3SPBEIWF4PVkHO/pq+zODprvJ0cr+vCFtY0uJqgfnSor+ldRkwwGA==}
     engines: {node: '>=24.18.0 <25 || >=26.10.0 <27'}
 
   '@hono/node-server@2.0.11':
@@ -7111,7 +7171,21 @@ snapshots:
     dependencies:
       '@get-modular/core': 0.2.0
 
+  '@get-modular/assembly@0.7.0':
+    dependencies:
+      '@get-modular/core': 0.7.0
+
+  '@get-modular/conformance@0.5.0(@get-modular/assembly@0.7.0)(@get-modular/core@0.7.0)(@get-modular/resources@0.2.1)':
+    dependencies:
+      '@get-modular/assembly': 0.7.0
+      '@get-modular/core': 0.7.0
+      '@get-modular/resources': 0.2.1
+
   '@get-modular/core@0.2.0': {}
+
+  '@get-modular/core@0.7.0': {}
+
+  '@get-modular/resources@0.2.1': {}
 
   '@hono/node-server@2.0.11(hono@4.12.32)':
     dependencies:

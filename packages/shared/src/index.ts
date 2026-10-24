@@ -15,7 +15,6 @@ export {
   type PrDescriptionGenerationProvenance,
   type PrDescriptionStageOutcome,
 } from "./review-action-companion-contracts";
-
 export {
   parseReviewAgentProfiles,
   type ReviewAgentProfile,

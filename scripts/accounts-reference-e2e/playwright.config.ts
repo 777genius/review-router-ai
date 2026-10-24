@@ -30,6 +30,7 @@ export default defineConfig({
           launchOptions: {
             executablePath:
               process.env.ACCOUNTS_REFERENCE_E2E_BROWSER_EXECUTABLE,
+            args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
           },
         }
       : {}),

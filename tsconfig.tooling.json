@@ -5,6 +5,8 @@
     "allowImportingTsExtensions": true
   },
   "include": [
+    "scripts/context-tools-e2e/**/*.ts",
+    "scripts/update-mcp-catalog.ts",
     "scripts/lib/server-rendered-heading.ts",
     "scripts/lib/server-rendered-heading.test.ts",
     "scripts/local-checks/compiler-*.ts",

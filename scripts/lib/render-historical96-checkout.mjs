@@ -47,11 +47,14 @@ const checkoutOnlyMigrations = Object.freeze([
   "000134_review_provider_kind_v2_ocr",
   "000135_review_run_checkout_repository_lock",
   "000136_provider_usage",
+  "000136_review_skills",
+  "000137_review_skills_capture",
   "000138_pr_description",
   "000139_review_context_tools",
   "000140_personal_oauth_method",
   "000141_memory_search_projections",
   "000142_optional_gateway_reasoning",
+  "000143_workspace_draft_review_setting",
 ]);
 
 /** @returns {ReadonlyArray<Readonly<{migrationName: string, checksum: string}>>} */
@@ -69,7 +72,7 @@ export function readRenderHistorical96CheckoutInventory() {
       96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110,
       111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125,
       126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140,
-      141,
+      141, 142, 143, 144,
     ].includes(
       checkout.filter(
         (row) =>

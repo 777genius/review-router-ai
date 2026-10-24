@@ -100,8 +100,20 @@ describe.skipIf(!enabled)(
         const names = (await readdir(migrations))
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
-        expect(names).toHaveLength(142);
-        expect(names.at(-1)).toBe("000142_optional_gateway_reasoning");
+        // Replay every current migration, including both additive Skills rows.
+        expect(names).toHaveLength(145);
+        expect(names.slice(-10)).toEqual([
+          "000135_review_run_checkout_repository_lock",
+          "000136_provider_usage",
+          "000136_review_skills",
+          "000137_review_skills_capture",
+          "000138_pr_description",
+          "000139_review_context_tools",
+          "000140_personal_oauth_method",
+          "000141_memory_search_projections",
+          "000142_optional_gateway_reasoning",
+          "000143_workspace_draft_review_setting",
+        ]);
         let legacyBefore: unknown;
         for (const name of names) {
           if (name === "000119_review_configuration_gateway_binding") {
