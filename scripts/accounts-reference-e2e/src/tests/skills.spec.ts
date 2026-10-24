@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import pg from "pg";
 import { FIXTURES } from "../contracts.ts";
@@ -400,85 +401,152 @@ test.describe("Skills real Next and PostgreSQL", () => {
     const violations: string[] = [];
     await installLoopbackOnlyNetworkGuard(page, violations);
     await useViewerSession(context);
-    await openLibrary(page);
-    await page.getByRole("tab", { name: /^Repositories/ }).click();
-    await page
-      .getByRole("checkbox", {
-        name: "Select rr-e2e-viewer/skills-project-001",
+    const prefix = "🌱".repeat(100);
+    const duplicates = Array.from({ length: 51 }, (_, index) => {
+      const suffix = String(index + 1).padStart(3, "0");
+      const content = {
+        name: `${prefix} duplicate ${suffix}`,
+        description: "Synthetic duplicate-prefix search fixture.",
+        instructions: "Check only the declared fixture boundaries.",
+      };
+      return {
+        id: `0000-rr-e2e-duplicate-${suffix}`,
+        ...content,
+        digest: `sha256:${createHash("sha256").update(JSON.stringify(content)).digest("hex")}`,
+      };
+    });
+    await sql(
+      `WITH fixture AS (SELECT * FROM jsonb_to_recordset($1::jsonb) AS f(id text,name text,description text,instructions text,digest text)), originals AS (INSERT INTO "ReviewSkill" (id,"sourceWorkspaceId","authorUserId","headRevisionId") SELECT id,$2,$3,id||'-revision-1' FROM fixture RETURNING id) INSERT INTO "ReviewSkillRevision" (id,"skillId","revisionNumber",name,description,instructions,"contentDigest") SELECT f.id||'-revision-1',f.id,1,f.name,f.description,f.instructions,f.digest FROM fixture f JOIN originals o ON o.id=f.id`,
+      [
+        JSON.stringify(duplicates),
+        FIXTURES.workspaces.personalViewer,
+        FIXTURES.users.viewer,
+      ],
+    );
+    try {
+      await openLibrary(page);
+      await page.getByRole("tab", { name: /^Repositories/ }).click();
+      await page
+        .getByRole("checkbox", {
+          name: "Select rr-e2e-viewer/skills-project-001",
+          exact: true,
+        })
+        .check();
+      const searchRepositories = page.getByRole("searchbox", {
+        name: "Find repository",
         exact: true,
-      })
-      .check();
-    const searchRepositories = page.getByRole("searchbox", {
-      name: "Find repository",
-      exact: true,
-    });
-    await searchRepositories.fill("skills-project-125");
-    await page
-      .getByRole("checkbox", {
-        name: "Select rr-e2e-viewer/skills-project-125",
+      });
+      await searchRepositories.fill("skills-project-125");
+      await page
+        .getByRole("checkbox", {
+          name: "Select rr-e2e-viewer/skills-project-125",
+          exact: true,
+        })
+        .check();
+      await searchRepositories.fill("skills-project-002");
+      await expect(
+        page.getByText("2 selected · 2 outside current search", {
+          exact: true,
+        }),
+      ).toBeVisible();
+      await page
+        .getByRole("button", { name: "Manage skills (2)", exact: true })
+        .click();
+      const operation = page.getByRole("dialog", {
+        name: "Add skills to repositories",
         exact: true,
-      })
-      .check();
-    await searchRepositories.fill("skills-project-002");
-    await expect(
-      page.getByText("2 selected · 2 outside current search", { exact: true }),
-    ).toBeVisible();
-    await page
-      .getByRole("button", { name: "Manage skills (2)", exact: true })
-      .click();
-    const operation = page.getByRole("dialog", {
-      name: "Add skills to repositories",
-      exact: true,
-    });
-    await operation
-      .getByRole("searchbox", { name: "Search skills" })
-      .fill("no matching skill before creation");
-    await operation
-      .getByRole("button", { name: "Create skill", exact: true })
-      .click();
-    const editor = page.getByRole("dialog", {
-      name: "Create skill",
-      exact: true,
-    });
-    // A valid name may exceed the search API's 200 UTF-16 code-unit limit.
-    const name = "🌱".repeat(105) + Date.now();
-    await editor.getByLabel("Name", { exact: false }).fill(name);
-    await editor
-      .getByLabel("Description", { exact: false })
-      .fill("Created from an empty bulk search.");
-    await editor
-      .getByLabel("Markdown instructions", { exact: false })
-      .fill("Check ownership boundaries in the selected repositories.");
-    await editor.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(editor).not.toBeVisible();
-    await expect(operation).toContainText("2 repositories selected.");
-    await expect(
-      operation.getByRole("checkbox", {
+      });
+      await operation
+        .getByRole("searchbox", { name: "Search skills" })
+        .fill("no matching skill before creation");
+      await operation
+        .getByRole("button", { name: "Create skill", exact: true })
+        .click();
+      const editor = page.getByRole("dialog", {
+        name: "Create skill",
+        exact: true,
+      });
+      // A valid name may exceed the search API's 200 UTF-16 code-unit limit.
+      const name = "🌱".repeat(105) + Date.now();
+      await editor.getByLabel("Name", { exact: false }).fill(name);
+      await editor
+        .getByLabel("Description", { exact: false })
+        .fill("Created from an empty bulk search.");
+      await editor
+        .getByLabel("Markdown instructions", { exact: false })
+        .fill("Check ownership boundaries in the selected repositories.");
+      await editor.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(editor).not.toBeVisible();
+      await expect(operation).toContainText("2 repositories selected.");
+      const chosen = operation.getByRole("checkbox", {
         name: `Select skill ${name}`,
         exact: true,
-      }),
-    ).toBeChecked();
-    await expect(
-      operation.getByRole("searchbox", { name: "Search skills" }),
-    ).toHaveValue("🌱".repeat(100));
-    await operation
-      .getByRole("button", { name: "Add selected skills", exact: true })
-      .click();
-    await expect(operation.getByRole("status")).toContainText("2 added");
-    const assigned = await sql<{ repositoryId: string }>(
-      `SELECT b."repositoryConnectionId" AS "repositoryId" FROM "ReviewSkillBinding" b JOIN "ReviewSkill" s ON s.id=b."skillId" JOIN "ReviewSkillRevision" r ON r.id=s."headRevisionId" WHERE r.name=$1 ORDER BY b."repositoryConnectionId"`,
-      [name],
-    );
-    expect(assigned).toEqual([
-      { repositoryId: "rr-e2e-repo-rr-e2e-viewer-001" },
-      { repositoryId: "rr-e2e-repo-rr-e2e-viewer-125" },
-    ]);
-    await operation.getByRole("button", { name: "Close", exact: true }).click();
-    await page.getByRole("tab", { name: /^Skills/ }).click();
-    await expect(page.getByRole("row").filter({ hasText: name })).toContainText(
-      "2 repositories",
-    );
-    await expectNetworkViolations(violations);
+      });
+      await expect(chosen).toBeVisible();
+      await expect(chosen).toBeChecked();
+      await expect(
+        operation.getByText("Showing the chosen skill.", { exact: true }),
+      ).toBeVisible();
+      await expect(
+        operation.getByRole("checkbox", {
+          name: `Select skill ${duplicates[0]!.name}`,
+          exact: true,
+        }),
+      ).toHaveCount(0);
+      await expect(
+        operation.getByRole("searchbox", { name: "Search skills" }),
+      ).toHaveValue("🌱".repeat(100));
+      await operation
+        .getByRole("button", { name: "Add selected skills", exact: true })
+        .click();
+      await expect(operation.getByRole("status")).toContainText("2 added");
+      const assigned = await sql<{ repositoryId: string }>(
+        `SELECT b."repositoryConnectionId" AS "repositoryId" FROM "ReviewSkillBinding" b JOIN "ReviewSkill" s ON s.id=b."skillId" JOIN "ReviewSkillRevision" r ON r.id=s."headRevisionId" WHERE r.name=$1 ORDER BY b."repositoryConnectionId"`,
+        [name],
+      );
+      expect(assigned).toEqual([
+        { repositoryId: "rr-e2e-repo-rr-e2e-viewer-001" },
+        { repositoryId: "rr-e2e-repo-rr-e2e-viewer-125" },
+      ]);
+      await operation
+        .getByRole("button", { name: "Show all skills", exact: true })
+        .click();
+      await expect(
+        operation.getByRole("searchbox", { name: "Search skills" }),
+      ).toHaveValue("");
+      await expect(
+        operation.getByText("Showing the chosen skill.", { exact: true }),
+      ).toHaveCount(0);
+      await expect(
+        operation.getByRole("checkbox", {
+          name: `Select skill ${duplicates[0]!.name}`,
+          exact: true,
+        }),
+      ).toBeVisible();
+      await operation
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+      const createdId = (
+        await sql<{ id: string }>(
+          `SELECT s.id FROM "ReviewSkill" s JOIN "ReviewSkillRevision" r ON r.id=s."headRevisionId" WHERE r.name=$1`,
+          [name],
+        )
+      )[0]!.id;
+      await page.getByRole("tab", { name: /^Skills/ }).click();
+      await page
+        .getByRole("searchbox", { name: "Search skills" })
+        .fill(createdId);
+      await expect(
+        page.getByRole("row").filter({ hasText: name }),
+      ).toContainText("2 repositories");
+      await expectNetworkViolations(violations);
+    } finally {
+      // Keep immutable fixture revisions, but hide exactly these temporary originals.
+      await sql(
+        `UPDATE "ReviewSkill" SET "deletedAt"=CURRENT_TIMESTAMP WHERE id=ANY($1::text[])`,
+        [duplicates.map((value) => value.id)],
+      );
+    }
   });
   test("Skills all current 125 repositories, mixed counts, skill pages and delta remove", async ({
     page,
@@ -568,6 +636,9 @@ test.describe("Skills real Next and PostgreSQL", () => {
     await expect(dialog.getByRole("status")).toBeInViewport({ ratio: 1 });
     await expect(
       dialog.getByRole("button", { name: "Add selected skills", exact: true }),
+    ).toBeInViewport({ ratio: 1 });
+    await expect(
+      dialog.getByRole("button", { name: "Close", exact: true }),
     ).toBeInViewport({ ratio: 1 });
     await dialog.screenshot({
       path: test.info().outputPath("skills-bulk-result-mobile.png"),
@@ -663,23 +734,27 @@ test.describe("Skills real Next and PostgreSQL", () => {
     await row.getByText("Paths", { exact: true }).click();
     const initial = await binding();
     expect(initial).toMatchObject({ includePaths: ["**"], excludePaths: [] });
-    await row.getByLabel("Include paths", { exact: true }).fill("../outside");
+    await row
+      .getByRole("textbox", { name: "Include paths", exact: true })
+      .fill("../outside");
     await row.getByRole("button", { name: "Save paths", exact: true }).click();
     await expect(row.getByRole("alert")).toContainText("path patterns");
     expect(await binding()).toEqual(initial);
     await row
-      .getByLabel("Include paths", { exact: true })
+      .getByRole("textbox", { name: "Include paths", exact: true })
       .fill("src/**\npackages/**");
-    await row.getByLabel("Exclude paths", { exact: true }).fill("**/*.test.ts");
+    await row
+      .getByRole("textbox", { name: "Exclude paths", exact: true })
+      .fill("**/*.test.ts");
     await row.getByRole("button", { name: "Save paths", exact: true }).click();
     await expect.poll(binding).toEqual({
       includePaths: ["packages/**", "src/**"],
       excludePaths: ["**/*.test.ts"],
       version: initial!.version + 1,
     });
-    await expect(row.getByLabel("Include paths", { exact: true })).toHaveValue(
-      "packages/**\nsrc/**",
-    );
+    await expect(
+      row.getByRole("textbox", { name: "Include paths", exact: true }),
+    ).toHaveValue("packages/**\nsrc/**");
     // The same Add command must preserve an existing assignment's paths.
     await operation
       .getByText("Advanced: paths for new assignments", { exact: true })
@@ -690,7 +765,7 @@ test.describe("Skills real Next and PostgreSQL", () => {
       }),
     });
     await advanced
-      .getByLabel("Include paths", { exact: true })
+      .getByRole("textbox", { name: "Include paths", exact: true })
       .fill("other/**");
     await row.getByRole("checkbox").check();
     await operation
@@ -705,19 +780,21 @@ test.describe("Skills real Next and PostgreSQL", () => {
     await operation
       .getByText("Advanced: paths for new assignments", { exact: true })
       .click();
-    await row.getByLabel("Include paths", { exact: true }).fill("client/**");
     await row
-      .getByLabel("Exclude paths", { exact: true })
+      .getByRole("textbox", { name: "Include paths", exact: true })
+      .fill("client/**");
+    await row
+      .getByRole("textbox", { name: "Exclude paths", exact: true })
       .fill("client/generated/**");
     const second = await context.newPage();
     await installLoopbackOnlyNetworkGuard(second, violations);
     const concurrent = await openSingleRepository(second);
     await concurrent.row.getByText("Paths", { exact: true }).click();
     await concurrent.row
-      .getByLabel("Include paths", { exact: true })
+      .getByRole("textbox", { name: "Include paths", exact: true })
       .fill("server/**");
     await concurrent.row
-      .getByLabel("Exclude paths", { exact: true })
+      .getByRole("textbox", { name: "Exclude paths", exact: true })
       .fill("server/generated/**");
     await concurrent.row
       .getByRole("button", { name: "Save paths", exact: true })
@@ -729,12 +806,12 @@ test.describe("Skills real Next and PostgreSQL", () => {
     });
     await row.getByRole("button", { name: "Save paths", exact: true }).click();
     await expect(row.getByRole("alert")).toContainText("saved version changed");
-    await expect(row.getByLabel("Include paths", { exact: true })).toHaveValue(
-      "client/**",
-    );
-    await expect(row.getByLabel("Exclude paths", { exact: true })).toHaveValue(
-      "client/generated/**",
-    );
+    await expect(
+      row.getByRole("textbox", { name: "Include paths", exact: true }),
+    ).toHaveValue("client/**");
+    await expect(
+      row.getByRole("textbox", { name: "Exclude paths", exact: true }),
+    ).toHaveValue("client/generated/**");
     await expect(
       row.getByRole("button", { name: "Save paths", exact: true }),
     ).toBeDisabled();
@@ -766,7 +843,7 @@ test.describe("Skills real Next and PostgreSQL", () => {
     });
     // The other editor can explicitly discard its stale draft after comparing.
     await concurrent.row
-      .getByLabel("Include paths", { exact: true })
+      .getByRole("textbox", { name: "Include paths", exact: true })
       .fill("stale/**");
     await concurrent.row
       .getByRole("button", { name: "Save paths", exact: true })
@@ -787,10 +864,16 @@ test.describe("Skills real Next and PostgreSQL", () => {
       .getByRole("button", { name: "Use current saved paths", exact: true })
       .click();
     await expect(
-      concurrent.row.getByLabel("Include paths", { exact: true }),
+      concurrent.row.getByRole("textbox", {
+        name: "Include paths",
+        exact: true,
+      }),
     ).toHaveValue("client/**");
     await expect(
-      concurrent.row.getByLabel("Exclude paths", { exact: true }),
+      concurrent.row.getByRole("textbox", {
+        name: "Exclude paths",
+        exact: true,
+      }),
     ).toHaveValue("client/generated/**");
     await second.close();
     await operation
@@ -826,10 +909,10 @@ test.describe("Skills real Next and PostgreSQL", () => {
     const reopened = await openSingleRepository(page);
     await reopened.row.getByText("Paths", { exact: true }).click();
     await expect(
-      reopened.row.getByLabel("Include paths", { exact: true }),
+      reopened.row.getByRole("textbox", { name: "Include paths", exact: true }),
     ).toHaveValue("client/**");
     await expect(
-      reopened.row.getByLabel("Exclude paths", { exact: true }),
+      reopened.row.getByRole("textbox", { name: "Exclude paths", exact: true }),
     ).toHaveValue("client/generated/**");
     await reopened.operation
       .getByText("Repository paths and Git skills", { exact: true })

@@ -182,7 +182,7 @@ async function available(
     : skillColumns;
   return q<Skill>(
     reader,
-    Prisma.sql`SELECT ${columns} ${skillJoins} WHERE ${availability(workspaceId)} ${skillId ? Prisma.sql`AND s."id"=${skillId}` : Prisma.empty} ${options.ids ? Prisma.sql`AND s."id" IN (${Prisma.join(options.ids)})` : Prisma.empty} ${options.page?.cursor ? Prisma.sql`AND s."id">${options.page.cursor}` : Prisma.empty} ${options.page?.search ? Prisma.sql`AND (position(lower(${options.page.search}) in lower(v."name"))>0 OR position(lower(${options.page.search}) in lower(v."description"))>0)` : Prisma.empty} ORDER BY s."id" ${options.page ? Prisma.sql`LIMIT 51` : Prisma.empty}`,
+    Prisma.sql`SELECT ${columns} ${skillJoins} WHERE ${availability(workspaceId)} ${skillId ? Prisma.sql`AND s."id"=${skillId}` : Prisma.empty} ${options.ids ? Prisma.sql`AND s."id" IN (${Prisma.join(options.ids)})` : Prisma.empty} ${options.page?.cursor ? Prisma.sql`AND s."id">${options.page.cursor}` : Prisma.empty} ${options.page?.search ? Prisma.sql`AND (position(lower(${options.page.search}) in lower(v."name"))>0 OR position(lower(${options.page.search}) in lower(v."description"))>0 OR position(lower(${options.page.search}) in lower(s."id"))>0)` : Prisma.empty} ORDER BY s."id" ${options.page ? Prisma.sql`LIMIT 51` : Prisma.empty}`,
   );
 }
 async function bindings(
@@ -381,7 +381,7 @@ export class PrismaReviewSkillsStore implements ReviewSkillsStore {
       i,
       (entry) =>
         entry.available
-          ? `${entry.name} ${entry.description}`
+          ? `${entry.name} ${entry.description} ${entry.skillId}`
           : `${entry.name} ${entry.skillId}`,
     );
   }
@@ -856,8 +856,7 @@ export class PrismaReviewSkillsStore implements ReviewSkillsStore {
       rows,
       (r) => r.skillId,
       i,
-      (r) =>
-        `${r.name} ${r.description ?? ""}${r.available ? "" : ` ${r.skillId}`}`,
+      (r) => `${r.name} ${r.description ?? ""} ${r.skillId}`,
     );
   }
 

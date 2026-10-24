@@ -538,6 +538,130 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
         search: "x".repeat(201),
       }),
     ).rejects.toMatchObject({ code: "invalid_input" });
+    // A known created/reverse-selected skill must remain discoverable when its
+    // human-readable name matches more entries than the first choices page.
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`UPDATE "ReviewSkillGrant" SET "revokedAt"=NULL,"version"=3 WHERE "destinationWorkspaceId"=${destination}`;
+      await tx.$executeRaw`UPDATE "ReviewSkillLink" SET "acceptedGrantVersion"=3 WHERE "workspaceId"=${destination}`;
+    });
+    const repositoryId = `${prefix}-pagination-repository`;
+    await prisma.repositoryConnection.create({
+      data: {
+        id: repositoryId,
+        workspaceId: destination,
+        externalRepositoryId: repositoryId,
+        owner: "synthetic",
+        name: repositoryId,
+        fullName: `synthetic/${repositoryId}`,
+        defaultBranch: "main",
+        visibility: "private",
+      },
+    });
+    const choicesInput = {
+      actor: owner,
+      workspaceId: destination,
+      repositoryIds: [repositoryId],
+    };
+    const sameNamePage = await service.listAssignmentChoices({
+      ...choicesInput,
+      search: "Pagination fixture",
+    });
+    expect(sameNamePage.items.map((entry) => entry.skillId)).toEqual(
+      ids.slice(0, 50),
+    );
+    expect(sameNamePage.nextCursor).toBe(ids[49]);
+    const focusedId = ids[52]!;
+    const focusedChoices = await service.listAssignmentChoices({
+      ...choicesInput,
+      search: focusedId,
+    });
+    expect(focusedChoices.items).toMatchObject([
+      { skillId: focusedId, available: true, name: "Pagination fixture" },
+    ]);
+    expect(focusedChoices.items).toHaveLength(1);
+    expect(focusedChoices.nextCursor).toBeNull();
+    const focusedLibrary = await service.listWorkspaceSkills({
+      actor: owner,
+      workspaceId: destination,
+      search: focusedId,
+    });
+    expect(focusedLibrary.items).toMatchObject([
+      { skillId: focusedId, available: true, name: "Pagination fixture" },
+    ]);
+    expect(focusedLibrary.items).toHaveLength(1);
+    await service.applyAssignments({
+      ...choicesInput,
+      skillIds: [focusedId],
+      mode: "add",
+    });
+    await service.revokeSkillGrant({
+      actor: owner,
+      sourceWorkspaceId: a,
+      destinationWorkspaceId: destination,
+      skillId: focusedId,
+      expectedGrantVersion: 3,
+    });
+    await service.saveSkill({
+      actor: owner,
+      workspaceId: a,
+      skillId: focusedId,
+      expectedRevisionId: `${focusedId}-revision`,
+      content: content("Private renamed pagination skill"),
+    });
+    expect(
+      (
+        await service.listAssignmentChoices({
+          ...choicesInput,
+          search: focusedId,
+        })
+      ).items,
+    ).toMatchObject([
+      {
+        skillId: focusedId,
+        available: false,
+        name: "Unavailable skill",
+        description: null,
+        sourceWorkspaceId: null,
+        sourceWorkspaceName: null,
+        authorName: null,
+      },
+    ]);
+    expect(
+      (
+        await service.listWorkspaceSkills({
+          actor: owner,
+          workspaceId: destination,
+          search: focusedId,
+        })
+      ).items,
+    ).toEqual([
+      {
+        skillId: focusedId,
+        available: false,
+        linked: true,
+        name: "Unavailable skill",
+        unavailableReason: "unavailable",
+        usedIn: [{ repositoryId, name: `synthetic/${repositoryId}` }],
+        canUnlink: true,
+      },
+    ]);
+    expect(
+      (
+        await service.listAssignmentChoices({
+          ...choicesInput,
+          search: "Private renamed pagination skill",
+        })
+      ).items,
+    ).toEqual([]);
+    expect(
+      (
+        await service.listWorkspaceSkills({
+          actor: owner,
+          workspaceId: destination,
+          search: "Private renamed pagination skill",
+        })
+      ).items,
+    ).toEqual([]);
   });
   it("lets only current workspace admins remove retained bindings from inactive local repositories", async () => {
     const localRepos = ["archived", "unselected", "active", "unassigned"].map(

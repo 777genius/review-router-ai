@@ -424,11 +424,7 @@ function SkillRepositoriesDialog({
           skill.available === false || captured.removalOnly ? "remove" : "add"
         }
         removalOnly={captured.removalOnly}
-        initialSearch={
-          skill.available === false
-            ? skill.skillId
-            : Array.from(skill.name).slice(0, 100).join("")
-        }
+        initialSearch={Array.from(skill.name).slice(0, 100).join("")}
         onClose={onClose}
       />
     );

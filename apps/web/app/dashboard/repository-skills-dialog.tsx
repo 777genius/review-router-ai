@@ -102,6 +102,10 @@ export function RepositorySkillsOperation({
     removalOnly ? "remove" : initialMode,
   );
   const [search, setSearch] = useState(initialSearch);
+  const [focusedSkillId, setFocusedSkillId] = useState<string | null>(() =>
+    initialSkillIds.length === 1 ? initialSkillIds[0]! : null,
+  );
+  const effectiveSearch = focusedSkillId ?? search;
   const [selected, setSelected] = useState<ReadonlySet<string>>(
     () => new Set(initialSkillIds),
   );
@@ -116,14 +120,14 @@ export function RepositorySkillsOperation({
       viewerId,
       workspaceId,
       repositoryIds,
-      search,
+      effectiveSearch,
     ),
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) =>
       requestReviewSkills("listAssignmentChoices", {
         workspaceId,
         repositoryIds,
-        search,
+        search: effectiveSearch,
         cursor: pageParam,
       }),
     getNextPageParam: (page) => page.nextCursor ?? undefined,
@@ -309,7 +313,32 @@ export function RepositorySkillsOperation({
         </p>
       ) : (
         <>
-          <SkillSearch value={search} onChange={setSearch} />
+          <SkillSearch
+            value={search}
+            onChange={(value) => {
+              setSearch(value);
+              setFocusedSkillId(null);
+            }}
+          />
+          {focusedSkillId ? (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm text-slate-400">
+                Showing the chosen skill.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={controlsLocked}
+                onClick={() => {
+                  setFocusedSkillId(null);
+                  setSearch("");
+                }}
+              >
+                Show all skills
+              </Button>
+            </div>
+          ) : null}
           {choices.isPending ? (
             <p role="status">Loading available skills…</p>
           ) : null}
@@ -467,6 +496,7 @@ export function RepositorySkillsOperation({
             setCreating(false);
             setSelected((prior) => new Set([...prior, document.skillId]));
             setSearch(Array.from(document.name).slice(0, 100).join(""));
+            setFocusedSkillId(document.skillId);
             setSuccess("");
             apply.reset();
             void client.invalidateQueries({
