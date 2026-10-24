@@ -1,32 +1,39 @@
 import { createHash } from "node:crypto";
 import {
   canonicalJson,
-  parseRepositoryReviewPolicyOverride,
-  parseReviewConfigurationStrict,
-  resolveReviewPolicy,
-  REVIEW_POLICY_SCHEMA_VERSION,
-  type RepositoryReviewPolicyOverride,
   type ReviewConfiguration,
-  type WorkspaceReviewPolicy,
 } from "../../domain/review-configuration";
+import {
+  parseRepositoryReviewPolicy,
+  parseWorkspaceReviewPolicy,
+  resolveEffectiveReviewPolicy,
+  STORED_REVIEW_POLICY_SCHEMA_VERSION,
+  type RepositoryReviewPolicy,
+  type ReviewPolicyDocument,
+  type ReviewProviderSelection,
+  type WorkspaceReviewPolicy,
+} from "../../domain/review-policy-document";
 import type { ReviewConfigurationTarget } from "../../domain/review-configuration-target";
 import type {
   PersistedReviewConfiguration,
   ReviewPolicyHead,
   ReviewPolicyHeadReaderPort,
+  ReviewPolicyProfiles,
 } from "../ports/review-configuration-repository-port";
 
 export type ReadyReviewConfiguration = PersistedReviewConfiguration &
   Readonly<{ workspaceVersion: number; revisionToken: string }>;
 
 /**
- * `missing` means no active workspace policy. `resave_required` means an
- * active head that cannot be read in the current format. Both keep the raw
- * head versions so a legacy policy retains CAS protection.
+ * `provider_selection_required` means neither the repository nor the
+ * workspace selects a provider, including when no workspace document exists.
+ * `resave_required` means an active head that cannot be read in the current
+ * format or references an unusable profile. Both keep the raw head versions
+ * so a legacy policy retains CAS protection.
  */
 export type EffectiveReviewConfiguration =
   | (Readonly<{ status: "ready" }> & ReadyReviewConfiguration)
-  | UnresolvedReviewConfiguration<"missing">
+  | UnresolvedReviewConfiguration<"provider_selection_required">
   | UnresolvedReviewConfiguration<"resave_required">;
 
 type UnresolvedReviewConfiguration<Status extends string> = Readonly<{
@@ -39,9 +46,8 @@ export async function resolveEffectiveReviewConfiguration(
   target: ReviewConfigurationTarget,
   dependencies: { readonly policyHeads: ReviewPolicyHeadReaderPort },
 ): Promise<EffectiveReviewConfiguration> {
-  return composeEffectiveReviewConfiguration(
-    await dependencies.policyHeads.readPolicyHeads(target),
-  );
+  const heads = await dependencies.policyHeads.readPolicyHeads(target);
+  return composeEffectiveReviewConfiguration(target, heads);
 }
 
 /** Resolves the workspace and every requested repository from one head read. */
@@ -62,25 +68,31 @@ export async function resolveEffectiveReviewConfigurations(
     workspaceId: input.workspaceId,
     repositoryIds,
   });
-  const workspace = composeEffectiveReviewConfiguration({
-    workspace: heads.workspace,
-    repository: null,
-  });
+  const workspace = composeEffectiveReviewConfiguration(
+    { scope: "workspace", workspaceId: input.workspaceId },
+    { workspace: heads.workspace, repository: null, profiles: heads.profiles },
+  );
   return {
     workspace,
     repositories: new Map(
-      repositoryIds.map((repositoryId) => {
-        const repository = heads.repositories.get(repositoryId);
-        return [
-          repositoryId,
-          repository
-            ? composeEffectiveReviewConfiguration({
+      repositoryIds.map(
+        (repositoryId) =>
+          [
+            repositoryId,
+            composeEffectiveReviewConfiguration(
+              {
+                scope: "repository",
+                workspaceId: input.workspaceId,
+                repositoryId,
+              },
+              {
                 workspace: heads.workspace,
-                repository,
-              })
-            : workspace,
-        ] as const;
-      }),
+                repository: heads.repositories.get(repositoryId) ?? null,
+                profiles: heads.profiles,
+              },
+            ),
+          ] as const,
+      ),
     ),
   };
 }
@@ -99,83 +111,111 @@ export function readyReviewConfiguration(
     repositoryVersion: resolved.repositoryVersion,
     effectivePolicyDigest: resolved.effectivePolicyDigest,
     revisionToken: resolved.revisionToken,
+    selections: resolved.selections,
   };
 }
 
-export function composeEffectiveReviewConfiguration(heads: {
-  readonly workspace: ReviewPolicyHead | null;
-  readonly repository: ReviewPolicyHead | null;
-}): EffectiveReviewConfiguration {
+export function composeEffectiveReviewConfiguration(
+  target: ReviewConfigurationTarget,
+  heads: {
+    readonly workspace: ReviewPolicyHead | null;
+    readonly repository: ReviewPolicyHead | null;
+    readonly profiles: ReviewPolicyProfiles;
+  },
+): EffectiveReviewConfiguration {
   const { workspace, repository } = heads;
   const versions = {
     workspaceVersion: workspace?.version ?? null,
     repositoryVersion: repository?.version ?? null,
   };
-  if (!workspace) return { status: "missing", ...versions };
-  const workspacePolicy =
-    workspace.schemaVersion === REVIEW_POLICY_SCHEMA_VERSION
-      ? parseStoredReviewPolicy("workspace", workspace.policyJson)
-      : null;
-  const repositoryPolicy =
-    repository?.schemaVersion === REVIEW_POLICY_SCHEMA_VERSION
-      ? parseStoredReviewPolicy("repository", repository.policyJson)
-      : null;
+  // Non-provider settings come from the workspace document; without one there
+  // is nothing to select from.
+  if (!workspace) return { status: "provider_selection_required", ...versions };
+  const workspacePolicy = parseStoredReviewPolicy("workspace", workspace);
+  const repositoryPolicy = repository
+    ? parseStoredReviewPolicy("repository", repository)
+    : null;
   if (!workspacePolicy || (repository && !repositoryPolicy))
     return { status: "resave_required", ...versions };
-  let config: ReviewConfiguration;
+  let effective: ReturnType<typeof resolveEffectiveReviewPolicy>;
   try {
-    config = resolveReviewPolicy(workspacePolicy, repositoryPolicy);
+    effective = resolveEffectiveReviewPolicy({
+      target,
+      workspace: workspacePolicy,
+      repository: repositoryPolicy,
+      profiles: heads.profiles,
+    });
   } catch {
     return { status: "resave_required", ...versions };
   }
+  if (!effective) return { status: "provider_selection_required", ...versions };
   return {
     status: "ready",
-    ...persistedReviewConfiguration(
-      config,
-      repositoryPolicy ?? workspacePolicy,
-      workspace.version,
-      repository?.version ?? null,
-    ),
+    ...persistedReviewConfiguration({
+      config: effective.config,
+      selections: effective.selections,
+      policy: repositoryPolicy ?? workspacePolicy,
+      workspaceVersion: workspace.version,
+      repositoryVersion: repository?.version ?? null,
+    }),
   };
 }
 
-export function persistedReviewConfiguration(
-  config: ReviewConfiguration,
-  policy: WorkspaceReviewPolicy | RepositoryReviewPolicyOverride,
-  workspaceVersion: number,
-  repositoryVersion: number | null,
-): ReadyReviewConfiguration {
-  const digest = `sha256:${createHash("sha256").update(canonicalJson(config)).digest("hex")}`;
+export function persistedReviewConfiguration(input: {
+  readonly config: ReviewConfiguration;
+  readonly selections: readonly ReviewProviderSelection[];
+  readonly policy: ReviewPolicyDocument;
+  readonly workspaceVersion: number;
+  readonly repositoryVersion: number | null;
+}): ReadyReviewConfiguration {
+  const digest = effectiveReviewPolicyDigest(input.config);
+  const { workspaceVersion, repositoryVersion } = input;
   return {
     version: repositoryVersion ?? workspaceVersion,
-    config,
-    policy,
+    config: input.config,
+    policy: input.policy,
     source: repositoryVersion === null ? "workspace" : "repository",
     workspaceVersion,
     repositoryVersion,
     effectivePolicyDigest: digest,
     revisionToken: `policy:${workspaceVersion}:${repositoryVersion ?? 0}:${digest}`,
+    selections: input.selections,
   };
 }
 
+export function effectiveReviewPolicyDigest(
+  config: ReviewConfiguration,
+): string {
+  return `sha256:${createHash("sha256").update(canonicalJson(config)).digest("hex")}`;
+}
+
+/** A stored head in the current document format, or null. */
 export function parseStoredReviewPolicy(
   scope: "workspace",
-  policyJson: string | null,
+  head: Pick<ReviewPolicyHead, "schemaVersion" | "policyJson">,
 ): WorkspaceReviewPolicy | null;
 export function parseStoredReviewPolicy(
   scope: "repository",
-  policyJson: string | null,
-): RepositoryReviewPolicyOverride | null;
+  head: Pick<ReviewPolicyHead, "schemaVersion" | "policyJson">,
+): RepositoryReviewPolicy | null;
 export function parseStoredReviewPolicy(
   scope: "workspace" | "repository",
-  policyJson: string | null,
-): WorkspaceReviewPolicy | RepositoryReviewPolicyOverride | null {
-  if (!policyJson) return null;
+  head: Pick<ReviewPolicyHead, "schemaVersion" | "policyJson">,
+): ReviewPolicyDocument | null;
+export function parseStoredReviewPolicy(
+  scope: "workspace" | "repository",
+  head: Pick<ReviewPolicyHead, "schemaVersion" | "policyJson">,
+): ReviewPolicyDocument | null {
+  if (
+    head.schemaVersion !== STORED_REVIEW_POLICY_SCHEMA_VERSION ||
+    !head.policyJson
+  )
+    return null;
   try {
-    const parsed = JSON.parse(policyJson);
+    const parsed: unknown = JSON.parse(head.policyJson);
     return scope === "workspace"
-      ? parseReviewConfigurationStrict(parsed)
-      : parseRepositoryReviewPolicyOverride(parsed);
+      ? parseWorkspaceReviewPolicy(parsed)
+      : parseRepositoryReviewPolicy(parsed);
   } catch {
     return null;
   }

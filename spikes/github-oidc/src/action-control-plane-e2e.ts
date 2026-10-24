@@ -2,6 +2,7 @@ import {
   reviewPolicyFixture,
   fixtureProviderSettings,
 } from "./review-policy-fixture.js";
+import { systemPolicyWriteFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture.ts";
 import {
   defaultActionOidcAudience,
   githubActionsOidcIssuer,
@@ -66,22 +67,51 @@ try {
     model: "poolside/laguna-m.1:free",
   };
 
+  // OpenRouter is delivered only by the workspace's managed API key; this
+  // disposable fixture registers a placeholder one.
+  await prisma.providerApiKeyConnection.upsert({
+    where: {
+      workspaceId_providerType: {
+        workspaceId: repository.workspaceId,
+        providerType: "openrouter",
+      },
+    },
+    update: {},
+    create: {
+      workspaceId: repository.workspaceId,
+      providerType: "openrouter",
+      encryptedApiKey: "spike-e2e-placeholder-ciphertext",
+      keyVersion: 1,
+      latestOperationId: "spike-action-e2e",
+    },
+  });
   const configurations = new PrismaReviewConfigurationRepository(prisma);
+  const workspaceTarget = {
+    scope: "workspace" as const,
+    workspaceId: repository.workspaceId,
+  };
   await saveReviewConfiguration(
     {
-      target: { scope: "workspace", workspaceId: repository.workspaceId },
-      policy: reviewPolicyFixture([e2eProvider]),
+      target: workspaceTarget,
+      ...systemPolicyWriteFixture(
+        reviewPolicyFixture([e2eProvider]),
+        workspaceTarget,
+      ),
     },
     { configurations },
   );
+  const repositoryTarget = {
+    scope: "repository" as const,
+    workspaceId: repository.workspaceId,
+    repositoryId: repository.id,
+  };
   await saveReviewConfiguration(
     {
-      target: {
-        scope: "repository",
-        workspaceId: repository.workspaceId,
-        repositoryId: repository.id,
-      },
-      policy: { schemaVersion: 3, providers: [e2eProvider] },
+      target: repositoryTarget,
+      ...systemPolicyWriteFixture(
+        reviewPolicyFixture([e2eProvider]),
+        repositoryTarget,
+      ),
     },
     { configurations: new PrismaReviewConfigurationRepository(prisma) },
   );

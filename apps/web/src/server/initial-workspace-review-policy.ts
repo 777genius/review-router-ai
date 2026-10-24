@@ -1,5 +1,7 @@
 import {
+  defaultWorkspaceReviewPolicy,
   parseReviewConfiguration,
+  REVIEW_POLICY_SCHEMA_VERSION,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import {
@@ -9,7 +11,10 @@ import {
 import type { AccountsPage, AccountsResult } from "./account-gateway-accounts";
 import { getReadyGatewayAccounts } from "./dashboard-provider-setup-readiness";
 
-/** Form draft only. The existing writer revalidates authority before persistence. */
+/**
+ * Form draft only: the first ready Gateway account as the default provider,
+ * with the built-in workspace settings. The writer revalidates authority.
+ */
 export function initialWorkspaceReviewPolicyDraft(
   accounts: AccountsResult<AccountsPage> | undefined,
 ): ReviewConfiguration | null {
@@ -32,8 +37,9 @@ export function initialWorkspaceReviewPolicyDraft(
         )
       )
         continue;
+      const defaults = defaultWorkspaceReviewPolicy();
       return parseReviewConfiguration({
-        schemaVersion: 3,
+        schemaVersion: REVIEW_POLICY_SCHEMA_VERSION,
         providers: [
           {
             kind: "codex",
@@ -47,22 +53,11 @@ export function initialWorkspaceReviewPolicyDraft(
             gatewayProfileRef: account.profileId,
           },
         ],
-        execution: {
-          providerLimit: 1,
-          providerMaxParallel: 1,
-          inlineMinAgreement: 1,
-        },
-        blockingPolicy: { failOnSeverity: "critical" },
-        limits: { inlineMaxComments: 50, targetTokensPerBatch: 50000 },
-        reviewLanguage: null,
-        investigationRollout: {
-          recordingEnabled: false,
-          shadowEnabled: false,
-          contextCriticEnabled: false,
-          verifiedCleanEnabled: false,
-          crossRevisionReplayEnabled: false,
-          productionEffectsEnabled: false,
-        },
+        execution: { providerLimit: 1, ...defaults.execution },
+        blockingPolicy: defaults.blockingPolicy,
+        limits: defaults.limits,
+        reviewLanguage: defaults.reviewLanguage,
+        investigationRollout: defaults.investigationRollout,
       });
     }
   }

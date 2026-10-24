@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { canonicalJson } from "../domain/review-configuration";
 import {
+  selectionsFor,
+  systemPolicyWriteFixture,
   workspacePolicyFixture,
   workspaceProviderFixture,
 } from "./current-policy-fixture";
@@ -10,7 +12,10 @@ import { describe, expect, it } from "vitest";
 import { PrismaActionControlPlaneRepository } from "../../../action-control-plane/src/infrastructure/prisma/prisma-action-control-plane-repository";
 import { switchRepositoryConfigurationAuthMode } from "../../../workflow-provisioning/src/infrastructure/prisma/prisma-hosted-pool-configuration";
 import {
+  parseRepositoryReviewPolicy,
   parseReviewConfigurationStrict,
+  parseWorkspaceReviewPolicy,
+  providerProfileIdentityKey,
   PrismaReviewConfigurationRepository,
   PrismaReviewConfigurationTransactionRepository,
   PrismaReviewPolicyHeadReader,
@@ -20,7 +25,10 @@ import {
   saveReviewConfigurationWithOperation,
   findReviewConfigurationOperation,
   ReviewConfigurationWriteConflictError,
+  type ReviewConfiguration,
   type ReviewConfigurationOperationInput,
+  type ReviewConfigurationTarget,
+  type RepositoryReviewPolicy,
 } from "../index";
 
 const enabled = process.env.RR_REVIEW_CONFIG_GATEWAY_PG_TEST === "1";
@@ -350,6 +358,52 @@ describe.skipIf(!enabled)(
             ...workspacePolicyFixture,
             providers: [selected],
           });
+        type RepositoryTarget = Extract<
+          ReviewConfigurationTarget,
+          { scope: "repository" }
+        >;
+        // System writes store each provider row as a profile that the write
+        // finds or creates by its identity, in the document's transaction.
+        const profileCount = () => prisma!.workspaceProviderProfile.count();
+        // Operation intents hash the stored document, so replays name the
+        // profiles that earlier writes created instead of drafts.
+        const storedProfileIds = (
+          selected: ReviewConfiguration,
+          workspaceId: string,
+        ) =>
+          Promise.all(
+            selected.providers.map(async (row) => {
+              if (row.authMode !== "codex_account_gateway")
+                throw new Error("c2b_gateway_provider_expected");
+              const identityKey = providerProfileIdentityKey(
+                {
+                  kind: "gateway_binding",
+                  authMode: row.authMode,
+                  bindingId: row.gatewayBindingId,
+                  gatewayProfileRef: row.gatewayProfileRef,
+                },
+                row.model,
+              );
+              const profile =
+                await prisma!.workspaceProviderProfile.findUniqueOrThrow({
+                  where: {
+                    workspaceId_identityKey: { workspaceId, identityKey },
+                  },
+                });
+              return profile.id;
+            }),
+          );
+        const storedRepositoryDocument = async (
+          selected: ReviewConfiguration,
+          scope: RepositoryTarget,
+        ) =>
+          parseRepositoryReviewPolicy({
+            ...systemPolicyWriteFixture(selected, scope).policy,
+            providers: selectionsFor(
+              selected,
+              await storedProfileIds(selected, scope.workspaceId),
+            ),
+          });
         const config = parseReviewConfigurationStrict({
           ...workspacePolicyFixture,
           providers: [
@@ -363,11 +417,51 @@ describe.skipIf(!enabled)(
           },
         });
         const savedDefault = await saveReviewConfiguration(
-          { target: workspace, policy: config, expectedVersion: 1 },
+          {
+            target: workspace,
+            expectedVersion: 1,
+            ...systemPolicyWriteFixture(config, workspace),
+          },
           deps,
         );
         expect(savedDefault.version).toBe(2);
         expect(savedDefault.config).toEqual(config);
+        // Each provider row became one system profile (no creator) of W that
+        // names the binding and account profile; the document only selects it.
+        const defaultProfiles = await prisma.workspaceProviderProfile.findMany({
+          where: { workspaceId: "c2b-w" },
+          orderBy: { gatewayBindingId: "asc" },
+        });
+        expect(
+          defaultProfiles.map((profile) => [
+            profile.createdByUserId,
+            profile.credentialKind,
+            profile.authMode,
+            profile.gatewayBindingId,
+            profile.gatewayProfileRef,
+            profile.model,
+          ]),
+        ).toEqual([
+          [
+            null,
+            "gateway_binding",
+            "codex_account_gateway",
+            "c2b-first",
+            "profile-mimo",
+            "mimo-v2-pro",
+          ],
+          [
+            null,
+            "gateway_binding",
+            "codex_account_gateway",
+            "c2b-second",
+            "profile-openrouter",
+            "openai/gpt-5.6-sol",
+          ],
+        ]);
+        expect(savedDefault.selections.map((s) => s.profileId)).toEqual(
+          defaultProfiles.map((profile) => profile.id),
+        );
         // Nullable SQL projections must preserve omission in authoritative policy
         // JSON and runtime env without rewriting legacy high/xhigh rows.
         await prisma.workspace.create({
@@ -398,8 +492,8 @@ describe.skipIf(!enabled)(
         const noReasonSaved = await saveReviewConfiguration(
           {
             target: noReasonTarget,
-            policy: noReasonPolicy,
             expectedVersion: null,
+            ...systemPolicyWriteFixture(noReasonPolicy, noReasonTarget),
           },
           deps,
         );
@@ -409,17 +503,27 @@ describe.skipIf(!enabled)(
         expect(noReasonSaved.config.providers[0]).not.toHaveProperty(
           "reasoningEffort",
         );
+        // Schema 4 writes only the document: no first-provider or ordered
+        // provider projection rows, and the selection keeps the omission.
         const noReasonRows = await sql.query(
-          `SELECT v."reasoningEffort" AS primary_effort, p."reasoningEffort" AS ordered_effort, v."policyJson" FROM "ReviewConfigurationVersion" v JOIN "ReviewConfigurationVersionProvider" p ON p."configurationVersionId" = v.id WHERE v."workspaceId" = 'c2b-no-reason'`,
+          `SELECT v."schemaVersion", v."reasoningEffort", v."providerKind", v."policyJson",
+             (SELECT count(*)::int FROM "ReviewConfigurationVersionProvider" p
+              WHERE p."configurationVersionId" = v.id) AS projected
+           FROM "ReviewConfigurationVersion" v WHERE v."workspaceId" = 'c2b-no-reason'`,
         );
         expect(noReasonRows.rows).toHaveLength(1);
         expect(noReasonRows.rows[0]).toMatchObject({
-          primary_effort: null,
-          ordered_effort: null,
+          schemaVersion: 4,
+          reasoningEffort: null,
+          providerKind: null,
+          projected: 0,
         });
-        expect(
-          JSON.parse(noReasonRows.rows[0].policyJson).providers[0],
-        ).not.toHaveProperty("reasoningEffort");
+        const noReasonSelection = JSON.parse(noReasonRows.rows[0].policyJson)
+          .providers[0];
+        expect(noReasonSelection).not.toHaveProperty("reasoningEffort");
+        expect(noReasonSelection.profileId).toBe(
+          noReasonSaved.selections[0]?.profileId,
+        );
 
         // A retired repository head is not equivalent to no override, even with a valid workspace.
         await prisma.repositoryConnection.create({
@@ -453,7 +557,7 @@ describe.skipIf(!enabled)(
           saveReviewConfiguration(
             {
               target: opaqueTarget,
-              policy: { schemaVersion: 3 },
+              policy: { schemaVersion: 4 },
               expectedVersion: 0,
             },
             deps,
@@ -463,7 +567,7 @@ describe.skipIf(!enabled)(
           {
             target: opaqueTarget,
             policy: {
-              schemaVersion: 3,
+              schemaVersion: 4,
               limits: { inlineMaxComments: 0 },
               investigationRollout: { productionEffectsEnabled: false },
             },
@@ -525,7 +629,7 @@ describe.skipIf(!enabled)(
         const afterReset = await saveReviewConfiguration(
           {
             target: opaqueTarget,
-            policy: { schemaVersion: 3 },
+            policy: { schemaVersion: 4 },
             expectedVersion: null,
           },
           deps,
@@ -538,10 +642,21 @@ describe.skipIf(!enabled)(
         const override = configFor(
           provider("c2b-second", "profile-openrouter", "openai/gpt-5.6-sol"),
         );
+        const profilesBeforeOverride = await profileCount();
         const saved = await saveReviewConfiguration(
-          { target: repository, policy: override, expectedVersion: null },
+          {
+            target: repository,
+            expectedVersion: null,
+            ...systemPolicyWriteFixture(override, repository),
+          },
           deps,
         );
+        // The override's provider is the default's second profile, found by
+        // identity rather than created again.
+        expect(await profileCount()).toBe(profilesBeforeOverride);
+        expect(saved.selections.map((s) => s.profileId)).toEqual([
+          defaultProfiles[1]!.id,
+        ]);
         expect(
           (await resolveReviewConfiguration(repository, deps))!.source,
         ).toBe("repository");
@@ -592,32 +707,37 @@ describe.skipIf(!enabled)(
             },
             include: { providers: { orderBy: { order: "asc" } } },
           });
-        expect(firstVersion.gatewayBindingId).toBe("c2b-second");
-        expect(firstVersion.gatewayProfileRef).toBe("profile-openrouter");
+        // Schema 4 versions carry no binding projection; the stored document
+        // selects the profile, and the profile row names the binding.
+        expect(firstVersion).toMatchObject({
+          workspaceId: "c2b-w",
+          schemaVersion: 4,
+          gatewayBindingId: null,
+          gatewayProfileRef: null,
+          providerKind: null,
+          providers: [],
+        });
         expect(
-          firstVersion.providers.map((p) => [
-            p.workspaceId,
-            p.gatewayBindingId,
-            p.gatewayProfileRef,
-          ]),
-        ).toEqual([["c2b-w", "c2b-second", "profile-openrouter"]]);
+          JSON.parse(firstVersion.policyJson!).providers.map(
+            (selection: { readonly profileId: string }) => selection.profileId,
+          ),
+        ).toEqual([defaultProfiles[1]!.id]);
         const defaultVersion =
           await prisma.reviewConfigurationVersion.findFirstOrThrow({
             where: { configurationId: "c2b-legacy-config", version: 2 },
             include: { providers: { orderBy: { order: "asc" } } },
           });
+        expect(defaultVersion).toMatchObject({
+          workspaceId: "c2b-w",
+          schemaVersion: 4,
+          gatewayBindingId: null,
+          providers: [],
+        });
         expect(
-          defaultVersion.providers.map((p) => [
-            p.gatewayBindingId,
-            p.gatewayProfileRef,
-          ]),
-        ).toEqual([
-          ["c2b-first", "profile-mimo"],
-          ["c2b-second", "profile-openrouter"],
-        ]);
-        expect(defaultVersion.gatewayBindingId).toBe(
-          defaultVersion.providers[0]?.gatewayBindingId,
-        );
+          JSON.parse(defaultVersion.policyJson!).providers.map(
+            (selection: { readonly profileId: string }) => selection.profileId,
+          ),
+        ).toEqual(defaultProfiles.map((profile) => profile.id));
 
         await prisma.$disconnect();
         refetched = new PrismaClient({
@@ -630,15 +750,15 @@ describe.skipIf(!enabled)(
         expect((await fresh.findLatest(workspace))?.config).toEqual(config);
         const next = await fresh.saveNextVersion({
           target: repository,
-          policy: config,
           expectedVersion: 1,
+          ...systemPolicyWriteFixture(config, repository),
         });
         expect(next.version).toBe(2);
         await expect(
           fresh.saveNextVersion({
             target: repository,
-            policy: override,
             expectedVersion: 1,
+            ...systemPolicyWriteFixture(override, repository),
           }),
         ).rejects.toMatchObject({
           code: "review_configuration_write_conflict",
@@ -651,60 +771,71 @@ describe.skipIf(!enabled)(
           }),
         ).toEqual(firstVersion);
 
-        // Real SQL INSERTs, not Prisma validation, must fail with the intended FK/CHECK.
-        for (const table of [
-          "ReviewConfigurationVersion",
-          "ReviewConfigurationVersionProvider",
-        ] as const) {
-          const templateId =
-            table === "ReviewConfigurationVersion"
-              ? firstVersion.id
-              : firstVersion.providers[0]!.id;
-          let ordinal = 1000;
-          async function deniedInsert(
-            patch: Record<string, unknown>,
-            code: string,
-          ) {
-            ordinal += 1;
-            const overrides = {
-              id: `c2b-denied-${ordinal}`,
-              version: ordinal,
-              order: ordinal,
-              ...patch,
-            };
-            await expect(
-              sql.query(
-                `INSERT INTO "${table}" SELECT
-            (jsonb_populate_record(NULL::"${table}", to_jsonb(base) || $2::jsonb)).*
-            FROM "${table}" base WHERE base."id" = $1`,
-                [templateId, JSON.stringify(overrides)],
-              ),
-            ).rejects.toMatchObject({ code });
-          }
-          await deniedInsert({ gatewayBindingId: "c2b-foreign" }, "23503");
-          await deniedInsert(
-            { workspaceId: "c2b-x", gatewayBindingId: "c2b-foreign" },
-            "23503",
-          );
-          await deniedInsert(
-            { gatewayBindingId: null, gatewayProfileRef: null },
-            "23514",
-          );
-          await deniedInsert({ gatewayBindingId: null }, "23514");
-          await deniedInsert({ gatewayProfileRef: null }, "23514");
-          await deniedInsert({ gatewayProfileRef: "" }, "23514");
-          await deniedInsert(
-            { gatewayProfileRef: "https://private.example" },
-            "23514",
-          );
-          await deniedInsert({ gatewayProfileRef: "p".repeat(161) }, "23514");
-          await deniedInsert({ providerKind: "claude" }, "23514");
-          await deniedInsert(
-            { providerAuthMode: "codex_subscription_oauth_rotating" },
-            "23514",
-          );
-          await deniedInsert({ providerAuthMode: "unknown_gateway" }, "23514");
+        // Real SQL INSERTs, not Prisma validation, must fail with the intended
+        // FK/CHECK. The profile row is what names a binding in schema 4.
+        const templateProfileId = defaultProfiles[0]!.id;
+        let ordinal = 1000;
+        async function deniedInsert(
+          patch: Record<string, unknown>,
+          code: string,
+        ) {
+          ordinal += 1;
+          const overrides = {
+            id: `c2b-denied-${ordinal}`,
+            identityKey: `c2b-denied-${ordinal}`,
+            ...patch,
+          };
+          await expect(
+            sql.query(
+              `INSERT INTO "WorkspaceProviderProfile" SELECT
+            (jsonb_populate_record(NULL::"WorkspaceProviderProfile", to_jsonb(base) || $2::jsonb)).*
+            FROM "WorkspaceProviderProfile" base WHERE base."id" = $1`,
+              [templateProfileId, JSON.stringify(overrides)],
+            ),
+          ).rejects.toMatchObject({ code });
         }
+        // A binding of another workspace, or this binding from another one.
+        await deniedInsert({ gatewayBindingId: "c2b-foreign" }, "23503");
+        await deniedInsert({ workspaceId: "c2b-x" }, "23503");
+        // Exactly the credential kind's reference.
+        await deniedInsert(
+          { gatewayBindingId: null, gatewayProfileRef: null },
+          "23514",
+        );
+        await deniedInsert({ gatewayBindingId: null }, "23514");
+        await deniedInsert({ gatewayProfileRef: null }, "23514");
+        await deniedInsert({ repositoryId: "c2b-repo" }, "23514");
+        // Each credential kind delivers only its own auth modes.
+        await deniedInsert(
+          { authMode: "codex_subscription_oauth_rotating" },
+          "23514",
+        );
+        await deniedInsert({ authMode: "unknown_gateway" }, "23514");
+        await deniedInsert({ credentialKind: "hosted_pool" }, "23514");
+        await deniedInsert(
+          { credentialKind: "user_ci_secret", authMode: "claude_code_oauth" },
+          "23514",
+        );
+        // Names only, never credentials; archive releases the identity.
+        await deniedInsert({ gatewayProfileRef: "sk-live-secret" }, "23514");
+        await deniedInsert({ label: "ghp_secret" }, "23514");
+        await deniedInsert({ identityKey: null }, "23514");
+        await deniedInsert(
+          { identityKey: defaultProfiles[0]!.identityKey },
+          "23505",
+        );
+        // The credential source is fixed once created.
+        await expect(
+          sql.query(
+            `UPDATE "WorkspaceProviderProfile" SET "gatewayBindingId" = 'c2b-second' WHERE "id" = $1`,
+            [templateProfileId],
+          ),
+        ).rejects.toMatchObject({ code: "23514" });
+        expect(
+          await refetched.workspaceProviderProfile.findUniqueOrThrow({
+            where: { id: templateProfileId },
+          }),
+        ).toEqual(defaultProfiles[0]);
         // Detects a forged root parent assigning W's actual repository to workspace X,
         // even before it has versions that could otherwise enforce the parent scope.
         await expect(
@@ -727,19 +858,22 @@ describe.skipIf(!enabled)(
         WHERE "id" = 'c2b-legacy-config'`),
         ).rejects.toMatchObject({ code: "23503" });
 
-        // Eligibility is checked live in the same save transaction; denied saves leave no version.
+        // Eligibility is checked live in the same save transaction; denied
+        // saves leave neither a version nor a profile.
         const refused = async (
           selected: unknown,
           message = "review_configuration_gateway_binding_unavailable",
         ) => {
+          const profilesBefore = await profileCount();
           await expect(
             fresh.saveNextVersion({
               target: repository,
-              policy: configFor(selected),
               expectedVersion: 2,
+              ...systemPolicyWriteFixture(configFor(selected), repository),
             }),
           ).rejects.toThrow(message);
           expect(await fresh.findLatest(repository)).toEqual(next);
+          expect(await profileCount()).toBe(profilesBefore);
         };
         await refused(provider("c2b-missing"));
         await refused(provider("c2b-foreign"));
@@ -770,8 +904,11 @@ describe.skipIf(!enabled)(
         "fenceAckOperationId" = 'c2b-revoke-intent', "fenceAckPolicyRevision" = 2 WHERE "id" = 'c2b-revoked'`);
         const afterAck = await fresh.saveNextVersion({
           target: repository,
-          policy: configFor(provider("c2b-revoked")),
           expectedVersion: 2,
+          ...systemPolicyWriteFixture(
+            configFor(provider("c2b-revoked")),
+            repository,
+          ),
         });
         expect(afterAck.version).toBe(3); // ACK2 clears retained intent without inventing ACK3.
         await sql.query(`UPDATE "WorkspaceAccountBinding" SET "state" = 'revoked', "revision" = 4,
@@ -780,11 +917,22 @@ describe.skipIf(!enabled)(
         UPDATE "WorkspaceAccountBinding" SET "pendingFenceOperationId" = NULL,
         "pendingFencePolicySubject" = NULL, "pendingFencePolicyRevision" = NULL,
         "fenceAckOperationId" = 'c2b-revoke-again', "fenceAckPolicyRevision" = 4 WHERE "id" = 'c2b-revoked'`);
+        // A stored profile of a revoked binding is refused on every new save.
         await expect(
           fresh.saveNextVersion({
             target: repository,
-            policy: configFor(provider("c2b-revoked")),
             expectedVersion: 3,
+            ...systemPolicyWriteFixture(
+              configFor(provider("c2b-revoked")),
+              repository,
+            ),
+          }),
+        ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
+        await expect(
+          fresh.saveNextVersion({
+            target: repository,
+            expectedVersion: 3,
+            policy: afterAck.policy as RepositoryReviewPolicy,
           }),
         ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
         for (const state of [
@@ -800,8 +948,8 @@ describe.skipIf(!enabled)(
           await expect(
             fresh.saveNextVersion({
               target: repository,
-              policy: configFor(provider()),
               expectedVersion: 3,
+              ...systemPolicyWriteFixture(configFor(provider()), repository),
             }),
           ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
         }
@@ -831,21 +979,33 @@ describe.skipIf(!enabled)(
         });
         // These are DB fixtures only; they cannot become C2b personal/sharing selection.
         await binding("c2b-user-owned", "c2b-w", "profile-mimo", "c2b-user");
+        const profilesBeforePersonal = await profileCount();
         await expect(
           fresh.saveNextVersion({
             target: repository,
-            policy: configFor(provider("c2b-user-owned")),
             expectedVersion: 3,
+            ...systemPolicyWriteFixture(
+              configFor(provider("c2b-user-owned")),
+              repository,
+            ),
           }),
         ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
         await binding("c2b-personal-binding", "c2b-personal");
+        const personalTarget = {
+          scope: "workspace" as const,
+          workspaceId: "c2b-personal",
+        };
         await expect(
           fresh.saveNextVersion({
-            target: { scope: "workspace", workspaceId: "c2b-personal" },
-            policy: configFor(provider("c2b-personal-binding")),
+            target: personalTarget,
             expectedVersion: null,
+            ...systemPolicyWriteFixture(
+              configFor(provider("c2b-personal-binding")),
+              personalTarget,
+            ),
           }),
         ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
+        expect(await profileCount()).toBe(profilesBeforePersonal);
         expect(
           await fresh.findLatest({
             scope: "workspace",
@@ -875,7 +1035,7 @@ describe.skipIf(!enabled)(
         };
         const operation = {
           target: receiptTarget,
-          policy: override,
+          policy: await storedRepositoryDocument(override, receiptTarget),
           expectedVersion: null,
           operationId: "c2b-stable-batch",
         };
@@ -885,6 +1045,7 @@ describe.skipIf(!enabled)(
           receiptDeps,
         );
         expect(committed.version).toBe(1);
+        expect(committed.config).toEqual(override);
         // Readback checks original CAS intent against the scoped historical receipt.
         expect(
           await findReviewConfigurationOperation(operation, receiptDeps),
@@ -950,7 +1111,6 @@ describe.skipIf(!enabled)(
               configuration: { repositoryId: receiptTarget.repositoryId },
               operationId: operation.operationId,
             },
-            include: { providers: { orderBy: { order: "asc" } } },
           });
         expect(receiptRow.operationIntentHash).toMatch(/^[0-9a-f]{64}$/);
         const versionCount = () =>
@@ -962,29 +1122,41 @@ describe.skipIf(!enabled)(
           { ...operation, expectedVersion: 1 },
           {
             ...operation,
-            policy: parseReviewConfigurationStrict({
-              ...override,
-              limits: { ...override.limits, inlineMaxComments: 7 },
-            }),
+            policy: await storedRepositoryDocument(
+              parseReviewConfigurationStrict({
+                ...override,
+                limits: { ...override.limits, inlineMaxComments: 7 },
+              }),
+              receiptTarget,
+            ),
           },
           {
             ...operation,
-            policy: parseReviewConfigurationStrict({
-              ...override,
-              reviewLanguage: "French",
-            }),
+            policy: await storedRepositoryDocument(
+              parseReviewConfigurationStrict({
+                ...override,
+                reviewLanguage: "French",
+              }),
+              receiptTarget,
+            ),
           },
           {
             ...operation,
-            policy: parseReviewConfigurationStrict({
-              ...override,
-              investigationRollout: {
-                ...override.investigationRollout,
-                recordingEnabled: true,
-              },
-            }),
+            policy: await storedRepositoryDocument(
+              parseReviewConfigurationStrict({
+                ...override,
+                investigationRollout: {
+                  ...override.investigationRollout,
+                  recordingEnabled: true,
+                },
+              }),
+              receiptTarget,
+            ),
           },
-          { ...operation, policy: config },
+          {
+            ...operation,
+            policy: await storedRepositoryDocument(config, receiptTarget),
+          },
         ]) {
           await expect(
             saveReviewConfigurationWithOperation(changed, receiptDeps),
@@ -1006,16 +1178,19 @@ describe.skipIf(!enabled)(
         });
         await fresh.saveNextVersion({
           target: receiptTarget,
-          policy: override,
           expectedVersion: 1,
+          ...systemPolicyWriteFixture(override, receiptTarget),
         });
         const advanced = await fresh.saveNextVersion({
           target: receiptTarget,
-          policy: parseReviewConfigurationStrict({
-            ...override,
-            reviewLanguage: "German",
-          }),
           expectedVersion: 2,
+          ...systemPolicyWriteFixture(
+            parseReviewConfigurationStrict({
+              ...override,
+              reviewLanguage: "German",
+            }),
+            receiptTarget,
+          ),
         });
         expect(advanced.version).toBe(3);
         expect(
@@ -1073,14 +1248,14 @@ describe.skipIf(!enabled)(
         };
         const submitted: MutableOperationInput = {
           target: { ...receiptTarget },
-          policy: parseReviewConfigurationStrict(override),
+          policy: await storedRepositoryDocument(override, receiptTarget),
           expectedVersion: 3,
           operationId: "c2b-concurrent-batch",
         };
         const directSubmitted: MutableOperationInput = {
           ...submitted,
           target: { ...receiptTarget },
-          policy: parseReviewConfigurationStrict(override),
+          policy: await storedRepositoryDocument(override, receiptTarget),
         };
         try {
           await sql.query("BEGIN");
@@ -1228,7 +1403,7 @@ describe.skipIf(!enabled)(
         };
         const lostResponseOperation = {
           target: clearedTarget,
-          policy: override,
+          policy: await storedRepositoryDocument(override, clearedTarget),
           expectedVersion: null,
           operationId: "c2b-cleared-original",
         };
@@ -1248,7 +1423,6 @@ describe.skipIf(!enabled)(
               },
             },
             orderBy: { version: "asc" },
-            include: { providers: { orderBy: { order: "asc" } } },
           });
         const originalHistory = await retainedHistory();
         expect(originalHistory).toHaveLength(1);
@@ -1349,7 +1523,7 @@ describe.skipIf(!enabled)(
           saveReviewConfigurationWithOperation(
             {
               ...lostResponseOperation,
-              policy: config,
+              policy: await storedRepositoryDocument(config, clearedTarget),
             },
             receiptDeps,
           ),
@@ -1372,25 +1546,26 @@ describe.skipIf(!enabled)(
         await expect(
           fresh.saveNextVersion({
             target: clearedTarget,
-            policy: override,
             expectedVersion: 1,
+            ...systemPolicyWriteFixture(override, clearedTarget),
           }),
         ).rejects.toMatchObject({
           code: "review_configuration_write_conflict",
         });
         await expectCleared();
+        const newConfig = parseReviewConfigurationStrict({
+          ...override,
+          reviewLanguage: "French",
+          limits: { ...override.limits, inlineMaxComments: 7 },
+          investigationRollout: {
+            ...override.investigationRollout,
+            recordingEnabled: true,
+          },
+        });
         const newOperation = {
           ...lostResponseOperation,
           operationId: "c2b-cleared-new",
-          policy: parseReviewConfigurationStrict({
-            ...override,
-            reviewLanguage: "French",
-            limits: { ...override.limits, inlineMaxComments: 7 },
-            investigationRollout: {
-              ...override.investigationRollout,
-              recordingEnabled: true,
-            },
-          }),
+          policy: await storedRepositoryDocument(newConfig, clearedTarget),
         };
         expect(newOperation.expectedVersion).toBeNull();
         const reactivated = await saveReviewConfigurationWithOperation(
@@ -1398,7 +1573,7 @@ describe.skipIf(!enabled)(
           receiptDeps,
         );
         expect(reactivated.version).toBe(2);
-        expect(reactivated.config).toEqual(newOperation.policy);
+        expect(reactivated.config).toEqual(newConfig);
         expect(reactivated.revisionToken).toMatch(
           /^policy:2:2:sha256:[a-f0-9]{64}$/,
         );
@@ -1487,8 +1662,8 @@ describe.skipIf(!enabled)(
         await expectCleared(reactivatedHistory);
         const ordinaryAfterClear = await fresh.saveNextVersion({
           target: clearedTarget,
-          policy: override,
           expectedVersion: null,
+          ...systemPolicyWriteFixture(override, clearedTarget),
         });
         expect(ordinaryAfterClear.version).toBe(3);
         expect(
@@ -1503,12 +1678,15 @@ describe.skipIf(!enabled)(
         expect((await retainedHistory()).slice(0, 1)).toEqual(originalHistory);
 
         // Same batch ID has independent target scope, not a global ledger.
+        // A complete repository document also reads as a workspace document.
+        const workspaceScopedOperation = {
+          ...operation,
+          target: workspace,
+          policy: parseWorkspaceReviewPolicy(operation.policy),
+          expectedVersion: 2,
+        };
         const scoped = await saveReviewConfigurationWithOperation(
-          {
-            ...operation,
-            target: workspace,
-            expectedVersion: 2,
-          },
+          workspaceScopedOperation,
           receiptDeps,
         );
         expect(scoped.version).toBe(3);
@@ -1605,7 +1783,6 @@ describe.skipIf(!enabled)(
         expect(
           await refetched.reviewConfigurationVersion.findUniqueOrThrow({
             where: { id: receiptRow.id },
-            include: { providers: { orderBy: { order: "asc" } } },
           }),
         ).toEqual(receiptRow);
 
@@ -1658,21 +1835,13 @@ describe.skipIf(!enabled)(
         await expectDefault();
         expect(
           await findReviewConfigurationOperation(
-            {
-              ...operation,
-              target: workspace,
-              expectedVersion: 2,
-            },
+            workspaceScopedOperation,
             receiptDeps,
           ),
         ).toEqual(scoped);
         expect(
           await saveReviewConfigurationWithOperation(
-            {
-              ...operation,
-              target: workspace,
-              expectedVersion: 2,
-            },
+            workspaceScopedOperation,
             receiptDeps,
           ),
         ).toEqual(scoped);
@@ -1723,7 +1892,10 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
         import("../../../../../scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness"),
         import("@reviewrouter/features-provider-accounts/synchronization"),
       ]);
-      const harness = await createReviewActionV2E2EHarness(raw);
+      // The suite stores its own repository selection from version null.
+      const harness = await createReviewActionV2E2EHarness(raw, {
+        repositoryProviderSelection: "none",
+      });
       const {
         prisma: db,
         prefix,
@@ -1799,25 +1971,35 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
         };
         const repo = (actor?: string) =>
           new PrismaReviewConfigurationRepository(db, undefined, true, actor);
-        // The shared harness creates an explicit current workspace policy. These
-        // actor checks must preserve that policy on denial and use its actual CAS.
-        const baseline = await repo().findLatest(target);
-        expect(baseline).toMatchObject({
-          version: 1,
-          config: workspacePolicyFixture,
-        });
-        const baselineVersion = baseline!.version;
+        const workspaceHead = () =>
+          db.reviewConfigurationVersion.findFirstOrThrow({
+            where: {
+              workspaceId,
+              configuration: { targetKey: "workspace:default" },
+            },
+            orderBy: { version: "desc" },
+          });
+        // The shared harness stores a workspace document without a default
+        // provider. These actor checks must preserve it on denial and use its
+        // actual CAS.
+        const baseline = await workspaceHead();
+        expect(baseline.version).toBe(1);
+        expect(await repo().findLatest(target)).toBeNull();
+        const baselineVersion = baseline.version;
         const save = (actor?: string) =>
           repo(actor).saveNextVersion({
             target,
-            policy: config(binding.id),
             expectedVersion: baselineVersion,
+            ...systemPolicyWriteFixture(config(binding.id), target),
           });
+        const profileCount = () =>
+          db.workspaceProviderProfile.count({ where: { workspaceId } });
         for (const actor of [undefined, member, outsider]) {
           await expect(save(actor)).rejects.toThrow(
             "review_configuration_personal_actor_forbidden",
           );
-          expect(await repo().findLatest(target)).toEqual(baseline);
+          expect(await workspaceHead()).toEqual(baseline);
+          expect(await profileCount()).toBe(0);
         }
         expect((await save(admin)).version).toBe(baselineVersion + 1);
         const actorRow = await db.workspaceMember.findUniqueOrThrow({
@@ -1834,8 +2016,8 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
             (
               await current.saveNextVersion({
                 target,
-                policy: config(binding.id),
                 expectedVersion: baselineVersion + 1,
+                ...systemPolicyWriteFixture(config(binding.id), target),
               })
             ).version,
           ).toBe(baselineVersion + 2);
@@ -1847,12 +2029,20 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
             ),
           ).rejects.toThrow(/could not obtain lock/);
         });
-        // Durable operation and transaction writers use the same saving-actor gate.
+        // Durable operation and transaction writers use the same saving-actor
+        // gate. An operation names the profile the admin's save created.
+        const personalProfile =
+          await db.workspaceProviderProfile.findFirstOrThrow({
+            where: { workspaceId, gatewayBindingId: binding.id },
+          });
         const operation = {
           target: repository,
           operationId: `${prefix}-config-operation`,
           expectedVersion: null,
-          policy: config(binding.id),
+          policy: parseRepositoryReviewPolicy({
+            ...systemPolicyWriteFixture(config(binding.id), repository).policy,
+            providers: selectionsFor(config(binding.id), [personalProfile.id]),
+          }),
         };
         await expect(
           repo().saveNextVersionWithOperation(operation),
@@ -1871,8 +2061,8 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
         await expect(
           repo(admin).saveNextVersion({
             target,
-            policy: config(binding.id),
             expectedVersion: baselineVersion + 2,
+            ...systemPolicyWriteFixture(config(binding.id), target),
           }),
         ).rejects.toThrow("review_configuration_personal_actor_forbidden");
         await expect(
@@ -1884,8 +2074,8 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
               outsider,
             ).saveNextVersion({
               target,
-              policy: config(binding.id),
               expectedVersion: baselineVersion + 2,
+              ...systemPolicyWriteFixture(config(binding.id), target),
             }),
           ),
         ).rejects.toThrow("review_configuration_personal_actor_forbidden");
@@ -1900,16 +2090,16 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
         await expect(
           repo(admin).saveNextVersion({
             target: pTarget,
-            policy: config(ownP.id),
             expectedVersion: null,
+            ...systemPolicyWriteFixture(config(ownP.id), pTarget),
           }),
         ).rejects.toThrow("review_configuration_personal_actor_forbidden");
         expect(
           (
             await repo(donor).saveNextVersion({
               target: pTarget,
-              policy: config(ownP.id),
               expectedVersion: null,
+              ...systemPolicyWriteFixture(config(ownP.id), pTarget),
             })
           ).version,
         ).toBe(1);
@@ -1918,8 +2108,8 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
           (
             await repo().saveNextVersion({
               target,
-              policy: config(orgBinding.id),
               expectedVersion: baselineVersion + 2,
+              ...systemPolicyWriteFixture(config(orgBinding.id), target),
             })
           ).version,
         ).toBe(baselineVersion + 3);
@@ -1938,16 +2128,16 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
         await expect(
           repo().saveNextVersion({
             target,
-            policy: mixed,
             expectedVersion: baselineVersion + 3,
+            ...systemPolicyWriteFixture(mixed, target),
           }),
         ).rejects.toThrow("review_configuration_personal_actor_forbidden");
         expect(
           (
             await repo(donor).saveNextVersion({
               target,
-              policy: mixed,
               expectedVersion: baselineVersion + 3,
+              ...systemPolicyWriteFixture(mixed, target),
             })
           ).version,
         ).toBe(baselineVersion + 4);

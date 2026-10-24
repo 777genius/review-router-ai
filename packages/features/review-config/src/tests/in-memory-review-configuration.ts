@@ -1,62 +1,64 @@
-import { createHash } from "node:crypto";
 import {
-  canonicalJson,
-  parseReviewConfigurationStrict,
-  parseRepositoryReviewPolicyOverride,
-  resolveReviewPolicy,
-} from "../domain/review-configuration";
-import { reviewConfigurationTargetKey } from "../domain/review-configuration-target";
+  composeEffectiveReviewConfiguration,
+  persistedReviewConfiguration,
+  readyReviewConfiguration,
+} from "../application/use-cases/resolve-effective-review-configuration";
+import { canonicalJson } from "../domain/review-configuration";
+import {
+  parseReviewPolicyDocument,
+  resolveEffectiveReviewPolicy,
+  STORED_REVIEW_POLICY_SCHEMA_VERSION,
+  type RepositoryReviewPolicy,
+  type WorkspaceReviewPolicy,
+} from "../domain/review-policy-document";
+import {
+  reviewConfigurationTargetKey,
+  type ReviewConfigurationTarget,
+} from "../domain/review-configuration-target";
+import type { WorkspaceProviderProfile } from "../domain/workspace-provider-profile";
 import {
   ReviewConfigurationWriteConflictError,
-  type PersistedReviewConfiguration,
   type ReviewConfigurationRepositoryPort,
   type ReviewPolicyHead,
   type ReviewPolicyHeadReaderPort,
+  type SavedReviewPolicy,
 } from "../application/ports/review-configuration-repository-port";
 
+/**
+ * Stored documents and profiles of one workspace, resolved by the real
+ * domain. System writes only: no selection authority or profile drafts.
+ */
 export class InMemoryReviewConfigurationRepository
   implements ReviewConfigurationRepositoryPort, ReviewPolicyHeadReaderPort
 {
-  readonly versions = new Map<string, PersistedReviewConfiguration[]>();
+  readonly heads = new Map<string, ReviewPolicyHead[]>();
   readonly inactiveTargets = new Set<string>();
+  readonly profiles = new Map<string, WorkspaceProviderProfile>();
   saveCount = 0;
   conflictNextSave = false;
 
-  async findLatest(
-    target: Parameters<ReviewConfigurationRepositoryPort["findLatest"]>[0],
-  ) {
-    const key = reviewConfigurationTargetKey(target);
-    const own = this.inactiveTargets.has(key)
-      ? null
-      : (this.versions.get(key)?.at(-1) ?? null);
-    if (target.scope === "workspace") return own;
-    const workspace = this.inactiveTargets.has("workspace:default")
-      ? undefined
-      : this.versions.get("workspace:default")?.at(-1);
-    if (!workspace) return null;
-    const policy = own?.policy ?? { schemaVersion: 3 as const };
-    const config = resolveReviewPolicy(workspace.config, policy);
-    return {
-      ...(own ?? workspace),
-      config,
-      source: own ? ("repository" as const) : ("workspace" as const),
-      workspaceVersion: workspace.version,
-      repositoryVersion: own?.version ?? null,
-      effectivePolicyDigest: createHash("sha256")
-        .update(canonicalJson(config))
-        .digest("hex"),
-    };
+  addProfile(profile: WorkspaceProviderProfile): this {
+    this.profiles.set(profile.id, profile);
+    return this;
   }
 
-  async readPolicyHeads(
-    target: Parameters<ReviewPolicyHeadReaderPort["readPolicyHeads"]>[0],
-  ) {
+  async findLatest(target: ReviewConfigurationTarget) {
+    return readyReviewConfiguration(
+      composeEffectiveReviewConfiguration(
+        target,
+        await this.readPolicyHeads(target),
+      ),
+    );
+  }
+
+  async readPolicyHeads(target: ReviewConfigurationTarget) {
     return {
-      workspace: this.policyHead("workspace:default"),
+      workspace: this.head("workspace:default"),
       repository:
         target.scope === "repository"
-          ? this.policyHead(reviewConfigurationTargetKey(target))
+          ? this.head(reviewConfigurationTargetKey(target))
           : null,
+      profiles: this.profiles,
     };
   }
 
@@ -65,90 +67,148 @@ export class InMemoryReviewConfigurationRepository
     readonly repositoryIds: readonly string[];
   }) {
     return {
-      workspace: this.policyHead("workspace:default"),
+      workspace: this.head("workspace:default"),
       repositories: new Map(
         input.repositoryIds.flatMap((repositoryId) => {
-          const head = this.policyHead(`repo:${repositoryId}`);
+          const head = this.head(`repo:${repositoryId}`);
           return head ? [[repositoryId, head] as const] : [];
         }),
       ),
+      profiles: this.profiles,
     };
   }
 
-  private policyHead(key: string): ReviewPolicyHead | null {
-    const latest = this.inactiveTargets.has(key)
-      ? undefined
-      : this.versions.get(key)?.at(-1);
-    return latest
-      ? {
-          version: latest.version,
-          schemaVersion: latest.policy.schemaVersion,
-          policyJson: canonicalJson(latest.policy),
-        }
-      : null;
+  async readWorkspacePolicyHeads() {
+    return {
+      workspace: this.head("workspace:default"),
+      repositories: new Map(
+        [...this.heads.keys()].flatMap((key) => {
+          const head = key.startsWith("repo:") ? this.head(key) : null;
+          return head ? [[key.slice("repo:".length), head] as const] : [];
+        }),
+      ),
+      profiles: this.profiles,
+    };
+  }
+
+  async readProviderProfiles() {
+    return this.profiles;
   }
 
   async saveNextVersion(
     input: Parameters<ReviewConfigurationRepositoryPort["saveNextVersion"]>[0],
   ) {
+    const [saved] = await this.saveNextVersions({
+      workspaceId: input.target.workspaceId,
+      writes: [input],
+    });
+    if (!saved?.configuration)
+      throw new Error("review_provider_selection_required");
+    return saved.configuration;
+  }
+
+  async saveNextVersions(
+    input: Parameters<ReviewConfigurationRepositoryPort["saveNextVersions"]>[0],
+  ): Promise<readonly SavedReviewPolicy[]> {
+    if (input.profileDrafts?.length || input.selectionAuthority)
+      throw new Error("in_memory_review_configuration_system_writes_only");
     if (this.conflictNextSave) {
       this.conflictNextSave = false;
       throw new ReviewConfigurationWriteConflictError();
     }
-    const key = reviewConfigurationTargetKey(input.target);
-    const records = this.versions.get(key) ?? [];
-    if (
-      input.expectedVersion !== undefined &&
-      (this.inactiveTargets.has(key)
-        ? null
-        : (records.at(-1)?.version ?? null)) !== input.expectedVersion
-    ) {
-      throw new ReviewConfigurationWriteConflictError();
+    const writes = [...input.writes].sort(
+      (left, right) =>
+        Number(left.target.scope === "repository") -
+        Number(right.target.scope === "repository"),
+    );
+    for (const write of writes) {
+      const current = this.head(reviewConfigurationTargetKey(write.target));
+      if (
+        write.expectedVersion !== undefined &&
+        (current?.version ?? null) !== write.expectedVersion
+      )
+        throw new ReviewConfigurationWriteConflictError();
     }
-    const policy =
-      input.target.scope === "workspace"
-        ? parseReviewConfigurationStrict(input.policy)
-        : parseRepositoryReviewPolicyOverride(input.policy);
-    const workspace = this.inactiveTargets.has("workspace:default")
-      ? undefined
-      : this.versions.get("workspace:default")?.at(-1);
-    const config =
-      input.target.scope === "workspace"
-        ? parseReviewConfigurationStrict(policy)
-        : resolveReviewPolicy(workspace!.config, policy);
-    const persisted = {
-      version: (records.at(-1)?.version ?? 0) + 1,
-      policy,
-      config,
-      source: input.target.scope,
-      workspaceVersion:
-        input.target.scope === "workspace"
-          ? records.length + 1
-          : workspace!.version,
-      repositoryVersion:
-        input.target.scope === "repository" ? records.length + 1 : null,
-      effectivePolicyDigest: createHash("sha256")
-        .update(canonicalJson(config))
-        .digest("hex"),
-    } satisfies PersistedReviewConfiguration;
-    this.versions.set(key, [...records, persisted]);
-    this.inactiveTargets.delete(key);
-    this.saveCount += 1;
-    return persisted;
+    const workspaceWrite = writes.find(
+      (write) => write.target.scope === "workspace",
+    );
+    const workspace = (
+      workspaceWrite
+        ? parseReviewPolicyDocument("workspace", workspaceWrite.policy)
+        : parseStored(this.head("workspace:default"), "workspace")
+    ) as WorkspaceReviewPolicy | null;
+    if (!workspace) throw new ReviewConfigurationWriteConflictError();
+    const saved: SavedReviewPolicy[] = [];
+    let workspaceVersion = this.head("workspace:default")?.version;
+    for (const write of writes) {
+      const policy = parseReviewPolicyDocument(
+        write.target.scope,
+        write.policy,
+      );
+      const resolved = resolveEffectiveReviewPolicy({
+        target: write.target,
+        workspace,
+        repository:
+          write.target.scope === "repository"
+            ? (policy as RepositoryReviewPolicy)
+            : null,
+        profiles: this.profiles,
+      });
+      const key = reviewConfigurationTargetKey(write.target);
+      const records = this.heads.get(key) ?? [];
+      const version = (records.at(-1)?.version ?? 0) + 1;
+      if (write.target.scope === "workspace") workspaceVersion = version;
+      this.heads.set(key, [
+        ...records,
+        {
+          version,
+          schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
+          policyJson: canonicalJson(policy),
+        },
+      ]);
+      this.inactiveTargets.delete(key);
+      this.saveCount += 1;
+      saved.push({
+        target: write.target,
+        version,
+        configuration: resolved
+          ? persistedReviewConfiguration({
+              config: resolved.config,
+              selections: resolved.selections,
+              policy,
+              workspaceVersion: workspaceVersion!,
+              repositoryVersion:
+                write.target.scope === "repository" ? version : null,
+            })
+          : null,
+      });
+    }
+    return saved;
   }
 
   async deleteTarget(
-    target: Parameters<ReviewConfigurationRepositoryPort["deleteTarget"]>[0],
+    target: ReviewConfigurationTarget,
     expectedVersion?: number | null,
   ) {
     const key = reviewConfigurationTargetKey(target);
-    const current = this.inactiveTargets.has(key)
-      ? null
-      : (this.versions.get(key)?.at(-1)?.version ?? null);
+    const current = this.head(key)?.version ?? null;
     if (expectedVersion !== undefined && current !== expectedVersion)
       throw new ReviewConfigurationWriteConflictError();
     if (current === null) return false;
     this.inactiveTargets.add(key);
     return true;
   }
+
+  private head(key: string): ReviewPolicyHead | null {
+    if (this.inactiveTargets.has(key)) return null;
+    return this.heads.get(key)?.at(-1) ?? null;
+  }
+}
+
+function parseStored(
+  head: ReviewPolicyHead | null,
+  scope: ReviewConfigurationTarget["scope"],
+) {
+  if (!head?.policyJson) return null;
+  return parseReviewPolicyDocument(scope, JSON.parse(head.policyJson));
 }

@@ -1,4 +1,8 @@
-import { workspacePolicyFixture } from "../../../../packages/features/review-config/src/tests/current-policy-fixture";
+import {
+  storedPolicyHeadFixture,
+  workspacePolicyDocumentFixture,
+  workspacePolicyFixture,
+} from "../../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -13,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   readReviewConfigurationForm: vi.fn(),
   readRepositoryReviewPolicyForm: vi.fn(),
   saveReviewConfiguration: vi.fn(),
+  saveRepositoryReviewPolicy: vi.fn(),
   assertReviewConfigSaveAllowed: vi.fn(),
   assertWorkflowSetupPrAllowed: vi.fn(),
   isWorkflowSetupAlreadyCurrent: vi.fn(),
@@ -36,6 +41,7 @@ vi.mock("@reviewrouter/features-review-config", async (importOriginal) => ({
   >()),
   resolveReviewRuntimeEnv: mocks.resolveReviewRuntimeEnv,
   saveReviewConfiguration: mocks.saveReviewConfiguration,
+  saveRepositoryReviewPolicy: mocks.saveRepositoryReviewPolicy,
 }));
 vi.mock("./dashboard-action-form-readers", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./dashboard-action-form-readers")>()),
@@ -91,7 +97,11 @@ vi.mock("../../src/server/workflow-public-api-url", () => ({
 }));
 
 import { resolveReviewRouterActionRef } from "@reviewrouter/platform-config";
-import { parseReviewConfiguration } from "@reviewrouter/features-review-config";
+import {
+  effectiveReviewPolicyDigest,
+  parseReviewConfiguration,
+  reviewProviderSelectionFor,
+} from "@reviewrouter/features-review-config";
 import { renderReviewRouterReusableWorkflow } from "@reviewrouter/features-workflow-provisioning";
 import {
   createProvisioningPrisma,
@@ -112,6 +122,23 @@ const { resolveReviewRuntimeEnv: resolveSavedReviewRuntimeEnv } =
   await vi.importActual<typeof import("@reviewrouter/features-review-config")>(
     "@reviewrouter/features-review-config",
   );
+
+/** A workspace without stored provider profiles or managed API keys. */
+function emptyProviderRegistryFixture() {
+  return {
+    workspaceProviderProfile: { findMany: vi.fn(async () => []) },
+    providerApiKeyConnection: { findMany: vi.fn(async () => []) },
+    providerApiKeyRepositoryLink: { findMany: vi.fn(async () => []) },
+  };
+}
+
+/** The draft a MiMo row without a managed key becomes: the user's CI secret. */
+const mimoSecretDraft = {
+  draftId: "draft-0",
+  credential: { kind: "user_ci_secret", authMode: "mimo_token_plan_api_key" },
+  model: "mimo-v2.6-pro",
+  label: null,
+} as const;
 
 function workspacePolicyHeadsFixture() {
   return {
@@ -233,7 +260,7 @@ describe("dashboard setup PR recovery", () => {
   afterEach(() => vi.unstubAllEnvs());
 
   it.each([
-    [false, "review_workspace_policy_required"],
+    [false, "review_provider_selection_required"],
     [true, "review_policy_resave_required"],
   ] as const)(
     "reports %s workspace presence correctly when a repository policy head remains",
@@ -511,7 +538,7 @@ describe("dashboard setup PR recovery", () => {
       ...workspacePolicyFixture,
       providers: [provider],
     };
-    mocks.getPrisma.mockReturnValue({});
+    mocks.getPrisma.mockReturnValue(emptyProviderRegistryFixture());
     mocks.assertDashboardMutationAllowed.mockResolvedValue({
       actor: "user:admin",
     });
@@ -538,12 +565,18 @@ describe("dashboard setup PR recovery", () => {
       }),
       expect.anything(),
     );
+    // The row becomes a draft profile created with the selection.
     expect(mocks.saveReviewConfiguration).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         target: { scope: "workspace", workspaceId: "workspace_1" },
-        policy: config,
+        policy: workspacePolicyDocumentFixture(
+          parseReviewConfiguration(config),
+          ["draft-0"],
+        ),
         expectedVersion: 1,
-      },
+        expectedEffectivePolicyDigest: effectiveReviewPolicyDigest(config),
+        profileDrafts: [mimoSecretDraft],
+      }),
       expect.anything(),
     );
   });
@@ -563,19 +596,26 @@ describe("dashboard setup PR recovery", () => {
       providers: [provider],
     };
     mocks.getPrisma.mockReturnValue({
+      ...emptyProviderRegistryFixture(),
       reviewConfiguration: {
         ...workspacePolicyHeadsFixture(),
-        findUnique: vi.fn(async () => ({
-          active: true,
-          repositoryId: null,
-          versions: [
-            {
-              version: 1,
-              schemaVersion: 3,
-              policyJson: JSON.stringify(workspacePolicyFixture),
-            },
-          ],
-        })),
+        // The workspace has no default; the repository has no document yet.
+        findUnique: vi.fn(
+          async (input: {
+            where: { workspaceId_targetKey: { targetKey: string } };
+          }) =>
+            input.where.workspaceId_targetKey.targetKey === "workspace:default"
+              ? {
+                  active: true,
+                  repositoryId: null,
+                  versions: [
+                    storedPolicyHeadFixture(
+                      workspacePolicyDocumentFixture(workspacePolicyFixture),
+                    ),
+                  ],
+                }
+              : null,
+        ),
       },
       repositoryConnection: {
         findUnique: vi.fn(async () => ({
@@ -597,9 +637,14 @@ describe("dashboard setup PR recovery", () => {
     mocks.assertDashboardRepositoryConfigMutationAllowed.mockResolvedValue({
       actor: "user:admin",
     });
-    const policy = { schemaVersion: 3, providers: [provider] };
-    mocks.readRepositoryReviewPolicyForm.mockReturnValue(policy);
-    mocks.saveReviewConfiguration.mockResolvedValue({ version: 3, config });
+    mocks.readRepositoryReviewPolicyForm.mockReturnValue({
+      policy: { schemaVersion: 4 },
+      providers: [provider],
+    });
+    mocks.saveRepositoryReviewPolicy.mockResolvedValue({
+      version: 3,
+      configuration: { version: 3, config },
+    });
     const formData = new FormData();
     formData.set("workspaceId", "workspace_1");
     formData.set("repositoryId", "repository_1");
@@ -614,16 +659,23 @@ describe("dashboard setup PR recovery", () => {
         version: "3",
       },
     });
-    expect(mocks.saveReviewConfiguration).toHaveBeenCalledWith(
-      {
+    expect(mocks.saveRepositoryReviewPolicy).toHaveBeenCalledWith(
+      expect.objectContaining({
         target: {
           scope: "repository",
           workspaceId: "workspace_1",
           repositoryId: "repository_1",
         },
-        policy,
+        policy: {
+          schemaVersion: 4,
+          providers: [reviewProviderSelectionFor(provider, "draft-0")],
+        },
         expectedVersion: 2,
-      },
+        expectedEffectivePolicyDigest: effectiveReviewPolicyDigest(
+          parseReviewConfiguration(config),
+        ),
+        profileDrafts: [mimoSecretDraft],
+      }),
       expect.anything(),
     );
   });

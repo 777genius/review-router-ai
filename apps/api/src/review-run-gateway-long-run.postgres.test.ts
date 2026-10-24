@@ -1,4 +1,7 @@
-import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
+import {
+  systemPolicyWriteFixture,
+  workspacePolicyFixture,
+} from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import Fastify from "fastify";
@@ -218,6 +221,7 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
       try {
         harness = await createReviewActionV2E2EHarness(url.toString(), {
           modelTransport: "account_gateway",
+          repositoryProviderSelection: "none",
           oidcLifetimeSeconds: 4,
           environmentOverrides: {
             REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: JSON.stringify({
@@ -254,21 +258,24 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
           {
             target,
             expectedVersion: null,
-            policy: parseReviewConfigurationStrict({
-              ...workspacePolicyFixture,
-              providers: [
-                {
-                  kind: "codex",
-                  authMode: "codex_account_gateway",
-                  model: "mimo-v2-pro",
-                  reasoningEffort: "high",
-                  fastMode: false,
-                  agenticContext: true,
-                  gatewayBindingId: binding.id,
-                  gatewayProfileRef: connection.profileRef,
-                },
-              ],
-            }),
+            ...systemPolicyWriteFixture(
+              parseReviewConfigurationStrict({
+                ...workspacePolicyFixture,
+                providers: [
+                  {
+                    kind: "codex",
+                    authMode: "codex_account_gateway",
+                    model: "mimo-v2-pro",
+                    reasoningEffort: "high",
+                    fastMode: false,
+                    agenticContext: true,
+                    gatewayBindingId: binding.id,
+                    gatewayProfileRef: connection.profileRef,
+                  },
+                ],
+              }),
+              target,
+            ),
           },
           { configurations },
         );

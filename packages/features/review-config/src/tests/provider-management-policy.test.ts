@@ -64,7 +64,7 @@ const table: readonly {
   {
     name: "create in an attach flow with maintain on R",
     action: {
-      kind: "create_profile",
+      kind: "create_and_attach",
       profile: profile("user_ci_secret"),
       repository: maintain,
     },
@@ -86,7 +86,7 @@ const table: readonly {
   {
     name: "create in an attach flow with only write on R",
     action: {
-      kind: "create_profile",
+      kind: "create_and_attach",
       profile: profile("gateway_binding"),
       repository: write,
     },
@@ -108,7 +108,7 @@ const table: readonly {
   {
     name: "create over a personal gateway binding",
     action: {
-      kind: "create_profile",
+      kind: "create_and_attach",
       profile: profile("gateway_binding", { personalBinding: true }),
       repository: maintain,
     },
@@ -130,9 +130,57 @@ const table: readonly {
   {
     name: "create a hosted pool profile",
     action: {
-      kind: "create_profile",
+      kind: "create_and_attach",
       profile: profile("hosted_pool"),
       repository: maintain,
+    },
+    off: {
+      owner: true,
+      admin: true,
+      creator: "workspace_admin_required",
+      member: "workspace_admin_required",
+      outsider: "workspace_member_required",
+    },
+    on: {
+      owner: true,
+      admin: true,
+      creator: "access_rights_admin_only",
+      member: "access_rights_admin_only",
+      outsider: "workspace_member_required",
+    },
+  },
+  {
+    name: "create in an attach flow over a managed key applied to R",
+    action: {
+      kind: "create_and_attach",
+      profile: profile("managed_api_key"),
+      repository: maintain,
+      managedKeyApplied: true,
+    },
+    off: {
+      owner: true,
+      admin: true,
+      creator: true,
+      member: true,
+      outsider: "workspace_member_required",
+    },
+    on: {
+      owner: true,
+      admin: true,
+      creator: "access_rights_admin_only",
+      member: "access_rights_admin_only",
+      outsider: "workspace_member_required",
+    },
+  },
+  {
+    // A refused attach must not leave the profile in the workspace list, so
+    // the managed-key rule decides the creation too.
+    name: "create in an attach flow over a managed key not applied to R",
+    action: {
+      kind: "create_and_attach",
+      profile: profile("managed_api_key"),
+      repository: maintain,
+      managedKeyApplied: false,
     },
     off: {
       owner: true,
@@ -505,7 +553,7 @@ describe("provider management permission table", () => {
   it("lets only the personal owner manage personal bindings of a personal workspace", () => {
     const personal = profile("gateway_binding", { personalBinding: true });
     for (const action of [
-      { kind: "create_profile", profile: personal, repository: maintain },
+      { kind: "create_and_attach", profile: personal, repository: maintain },
       { kind: "edit_profile", profile: personal },
       { kind: "attach_profile", profile: personal, repository: maintain },
       { kind: "set_default", profile: personal },
@@ -537,7 +585,7 @@ describe("provider management permission table", () => {
     expect(
       decide(
         "member",
-        { kind: "create_profile", profile: rotating, repository: maintain },
+        { kind: "create_and_attach", profile: rotating, repository: maintain },
         off,
       ),
     ).toBe(true);

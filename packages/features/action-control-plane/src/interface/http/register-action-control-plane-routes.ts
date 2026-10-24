@@ -1170,7 +1170,7 @@ function statusCodeForActionError(message: string): number {
   if (
     [
       "review_policy_resave_required",
-      "review_workspace_policy_required",
+      "review_provider_selection_required",
     ].includes(message)
   )
     return 409;
@@ -1287,7 +1287,7 @@ function safeActionErrorCode(message: string): string {
   if (
     [
       "review_policy_resave_required",
-      "review_workspace_policy_required",
+      "review_provider_selection_required",
     ].includes(message)
   )
     return message;
@@ -1436,8 +1436,8 @@ function safeActionErrorMessage(code: string): string {
   switch (code) {
     case "review_policy_resave_required":
       return "Saved review policy uses a retired or unreadable format. Review and save it explicitly before running reviews.";
-    case "review_workspace_policy_required":
-      return "Save workspace review settings before enabling reviews.";
+    case "review_provider_selection_required":
+      return "Choose a review provider for this repository or a workspace default before running reviews.";
     case "action_control_plane_disabled":
       return "ReviewRouter action control plane is temporarily disabled.";
     case "legacy_review_mutation_blocked":

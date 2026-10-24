@@ -6,11 +6,16 @@ import { repositoryPolicyFormFields } from "./review-policy-form-contract";
 import type { ProviderSecretScope } from "@reviewrouter/features-provider-setup";
 import type { ReviewRouterDiscussionMode } from "@reviewrouter/features-workflow-provisioning";
 import {
+  parseRepositoryReviewPolicy,
   parseReviewConfigurationStrict,
-  parseRepositoryReviewPolicyOverride,
-  type RepositoryReviewPolicyOverride,
+  parseWorkspaceReviewPolicy,
   reviewProviderConfigurationSchema,
+  STORED_REVIEW_POLICY_SCHEMA_VERSION,
+  type RepositoryReviewPolicy,
   type ReviewConfiguration,
+  type ReviewProviderConfiguration,
+  type ReviewProviderSelection,
+  type WorkspaceReviewPolicy,
 } from "@reviewrouter/features-review-config";
 import type { MemoryScope } from "@reviewrouter/features-memory";
 import {
@@ -371,21 +376,57 @@ function readOptionalFormBoolean(
   throw new Error(`invalid_form_boolean:${key}`);
 }
 
-export function readRepositoryReviewPolicyForm(
-  formData: FormData,
-): RepositoryReviewPolicyOverride {
+/**
+ * The stored workspace document of a submitted workspace form, with the
+ * selections its provider rows resolved to. The provider limit is the
+ * selection count and is not stored.
+ */
+export function workspaceReviewPolicyFromConfiguration(
+  config: ReviewConfiguration,
+  selections: readonly ReviewProviderSelection[],
+): WorkspaceReviewPolicy {
+  return parseWorkspaceReviewPolicy({
+    schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
+    providers: selections,
+    execution: {
+      providerMaxParallel: config.execution.providerMaxParallel,
+      inlineMinAgreement: config.execution.inlineMinAgreement,
+    },
+    blockingPolicy: config.blockingPolicy,
+    limits: config.limits,
+    reviewLanguage: config.reviewLanguage,
+    ...(config.updatePrDescription === undefined
+      ? {}
+      : { updatePrDescription: config.updatePrDescription }),
+    investigationRollout: config.investigationRollout,
+    ...(config.contextTools === undefined
+      ? {}
+      : { contextTools: config.contextTools }),
+  });
+}
+
+/**
+ * A submitted repository form: the explicitly overridden settings as a stored
+ * document without providers, and the provider rows when providers are
+ * overridden (null inherits the workspace default).
+ */
+export function readRepositoryReviewPolicyForm(formData: FormData): Readonly<{
+  policy: RepositoryReviewPolicy;
+  providers: readonly ReviewProviderConfiguration[] | null;
+}> {
   const fields = repositoryPolicyFormFields.filter((field) => {
     const mode = readFormString(formData, `policyMode.${field.join(".")}`);
     if (mode !== "inherit" && mode !== "override")
       throw new Error("review_policy_override_mode_invalid");
     return mode === "override";
   });
-  if (fields.length === 0)
-    return parseRepositoryReviewPolicyOverride({ schemaVersion: 3 });
-  const policy: Record<string, unknown> = { schemaVersion: 3 };
+  const policy: Record<string, unknown> = {
+    schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
+  };
+  let providers: readonly ReviewProviderConfiguration[] | null = null;
   for (const [root, leaf] of fields) {
     if (root === "providers") {
-      policy.providers = readReviewProvidersForm(formData);
+      providers = readReviewProvidersForm(formData);
     } else if (root === "contextTools") {
       policy.contextTools = readContextToolsSelection(formData);
     } else if (root === "updatePrDescription") {
@@ -400,14 +441,12 @@ export function readRepositoryReviewPolicyForm(
           ? (readOptionalFormBoolean(formData, `${root}.${name}`) ?? false)
           : root === "blockingPolicy"
             ? readFormString(formData, name)
-            : name === "providerLimit"
-              ? readFormNumber(formData, "providerCount")
-              : readFormNumber(formData, name);
+            : readFormNumber(formData, name);
       const target = (policy[root] ??= {}) as Record<string, unknown>;
       target[name] = value;
     }
   }
-  return parseRepositoryReviewPolicyOverride(policy);
+  return { policy: parseRepositoryReviewPolicy(policy), providers };
 }
 
 export function readReviewPolicyExpectedVersion(

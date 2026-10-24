@@ -1,4 +1,11 @@
 import type { PrismaClient } from "@prisma/client";
+import {
+  listWorkspaceProviderProfiles,
+  listWorkspaceProviderProfileUsage,
+  reviewConfigurationTargetKey,
+  type WorkspaceProviderProfileRepositoryPort,
+} from "@reviewrouter/features-review-config";
+import { dashboardProviderProfiles } from "./dashboard-provider-selections";
 
 // Usage facts are read-only projections for the Accounts UI. Review selection is
 // exact per binding; repository secrets are workspace+profile level because the
@@ -55,6 +62,8 @@ export async function readWorkspaceAccountUsage(
     // secret usage to those repositories (rows without a repository are
     // dropped too); null keeps the workspace-wide unfiltered read.
     readonly visibleRepositoryIds?: ReadonlySet<string> | null;
+    /** The provider registry; the dashboard's own adapter by default. */
+    readonly providerProfiles?: WorkspaceProviderProfileRepositoryPort;
   },
 ): Promise<Map<string, AccountUsageView>> {
   const byKey = new Map<string, AccountUsageView>();
@@ -69,24 +78,15 @@ export async function readWorkspaceAccountUsage(
   const profiles = input.profiles.filter((profile) =>
     profileIds.includes(profile.id),
   );
-  const [configurations, secretsByProfile] = await Promise.all([
+  const [reviewsForBinding, secretsByProfile] = await Promise.all([
     bindingIds.length
-      ? prisma.reviewConfiguration.findMany({
-          where: { workspaceId: input.workspaceId, active: true },
-          select: {
-            targetKey: true,
-            repository: { select: { id: true, fullName: true } },
-            versions: {
-              orderBy: { version: "desc" },
-              take: 1,
-              select: {
-                gatewayBindingId: true,
-                providers: { select: { gatewayBindingId: true } },
-              },
-            },
-          },
+      ? readBindingReviewUsage(prisma, {
+          workspaceId: input.workspaceId,
+          bindingIds,
+          providerProfiles:
+            input.providerProfiles ?? dashboardProviderProfiles(prisma),
         })
-      : Promise.resolve([]),
+      : Promise.resolve(new Map<string, UsageReviewEntry[]>()),
     Promise.all(
       profiles.map(
         async (
@@ -141,25 +141,6 @@ export async function readWorkspaceAccountUsage(
       ),
     ),
   ]);
-  const reviewsForBinding = new Map<string, UsageReviewEntry[]>();
-  for (const configuration of configurations) {
-    const version = configuration.versions[0];
-    if (!version) continue;
-    const selected = [
-      version.gatewayBindingId,
-      ...version.providers.map((provider) => provider.gatewayBindingId),
-    ];
-    for (const bindingId of selected) {
-      if (!bindingId) continue;
-      const entry = reviewsForBinding.get(bindingId) ?? [];
-      entry.push({
-        targetKey: configuration.targetKey,
-        repositoryName: configuration.repository?.fullName ?? null,
-        repositoryId: configuration.repository?.id ?? null,
-      });
-      reviewsForBinding.set(bindingId, entry);
-    }
-  }
   const secrets = new Map<string, readonly UsageSecretEntry[]>(
     secretsByProfile,
   );
@@ -191,4 +172,76 @@ export async function readWorkspaceAccountUsage(
     });
   }
   return byKey;
+}
+
+/**
+ * Policy scopes whose stored selection uses a provider over each binding,
+ * through the same usage read as the Providers list: the workspace default
+ * (which also covers the repositories inheriting it) and every repository
+ * selecting such a provider itself.
+ */
+async function readBindingReviewUsage(
+  prisma: PrismaClient,
+  input: {
+    readonly workspaceId: string;
+    readonly bindingIds: readonly string[];
+    readonly providerProfiles: WorkspaceProviderProfileRepositoryPort;
+  },
+): Promise<Map<string, UsageReviewEntry[]>> {
+  const dependencies = { profiles: input.providerProfiles };
+  const [profiles, usage] = await Promise.all([
+    listWorkspaceProviderProfiles(input.workspaceId, dependencies),
+    listWorkspaceProviderProfileUsage(input.workspaceId, dependencies),
+  ]);
+  const bindingByProfile = new Map(
+    profiles.flatMap((profile) =>
+      profile.credential.kind === "gateway_binding" &&
+      input.bindingIds.includes(profile.credential.bindingId)
+        ? [[profile.id, profile.credential.bindingId] as const]
+        : [],
+    ),
+  );
+  const repositoryIds = [
+    ...new Set(
+      usage.flatMap((item) =>
+        bindingByProfile.has(item.profileId) ? item.repositoryIds : [],
+      ),
+    ),
+  ];
+  const repositories = repositoryIds.length
+    ? await prisma.repositoryConnection.findMany({
+        where: { workspaceId: input.workspaceId, id: { in: repositoryIds } },
+        select: { id: true, fullName: true },
+      })
+    : [];
+  const fullNames = new Map(
+    repositories.map((repository) => [repository.id, repository.fullName]),
+  );
+  const reviewsForBinding = new Map<string, UsageReviewEntry[]>();
+  for (const item of usage) {
+    const bindingId = bindingByProfile.get(item.profileId);
+    if (!bindingId) continue;
+    const entries = reviewsForBinding.get(bindingId) ?? [];
+    if (item.workspaceDefault)
+      entries.push({
+        targetKey: reviewConfigurationTargetKey({
+          scope: "workspace",
+          workspaceId: input.workspaceId,
+        }),
+        repositoryName: null,
+        repositoryId: null,
+      });
+    for (const repositoryId of item.repositoryIds)
+      entries.push({
+        targetKey: reviewConfigurationTargetKey({
+          scope: "repository",
+          workspaceId: input.workspaceId,
+          repositoryId,
+        }),
+        repositoryName: fullNames.get(repositoryId) ?? null,
+        repositoryId,
+      });
+    reviewsForBinding.set(bindingId, entries);
+  }
+  return reviewsForBinding;
 }

@@ -156,7 +156,8 @@ export class PrismaActionControlPlaneRepository implements ActionControlPlaneRep
             : new PrismaReviewPolicyHeadReader(reader),
       },
     );
-    if (resolved.status === "missing") return null;
+    // No provider selected anywhere: callers answer review_provider_selection_required.
+    if (resolved.status === "provider_selection_required") return null;
     if (resolved.status === "resave_required")
       throw new Error("review_policy_resave_required");
     return {

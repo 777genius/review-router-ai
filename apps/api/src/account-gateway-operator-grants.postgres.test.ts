@@ -1,3 +1,4 @@
+import { systemPolicyWriteFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
@@ -568,41 +569,45 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
           bindingId: string,
           expectedVersion: number | null = null,
         ) {
+          const target = { scope: "workspace" as const, workspaceId };
           return saveReviewConfiguration(
             {
-              target: { scope: "workspace", workspaceId },
+              target,
               expectedVersion,
-              policy: parseReviewConfigurationStrict({
-                schemaVersion: 3,
-                execution: {
-                  providerLimit: 1,
-                  providerMaxParallel: 1,
-                  inlineMinAgreement: 1,
-                },
-                blockingPolicy: { failOnSeverity: "critical" },
-                limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
-                reviewLanguage: null,
-                investigationRollout: {
-                  recordingEnabled: false,
-                  shadowEnabled: false,
-                  contextCriticEnabled: false,
-                  verifiedCleanEnabled: false,
-                  crossRevisionReplayEnabled: false,
-                  productionEffectsEnabled: false,
-                },
-                providers: [
-                  {
-                    kind: "codex",
-                    authMode: "codex_account_gateway",
-                    model: "mimo-v2-pro",
-                    reasoningEffort: "high",
-                    fastMode: false,
-                    agenticContext: true,
-                    gatewayBindingId: bindingId,
-                    gatewayProfileRef: profile,
+              ...systemPolicyWriteFixture(
+                parseReviewConfigurationStrict({
+                  schemaVersion: 3,
+                  execution: {
+                    providerLimit: 1,
+                    providerMaxParallel: 1,
+                    inlineMinAgreement: 1,
                   },
-                ],
-              }),
+                  blockingPolicy: { failOnSeverity: "critical" },
+                  limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
+                  reviewLanguage: null,
+                  investigationRollout: {
+                    recordingEnabled: false,
+                    shadowEnabled: false,
+                    contextCriticEnabled: false,
+                    verifiedCleanEnabled: false,
+                    crossRevisionReplayEnabled: false,
+                    productionEffectsEnabled: false,
+                  },
+                  providers: [
+                    {
+                      kind: "codex",
+                      authMode: "codex_account_gateway",
+                      model: "mimo-v2-pro",
+                      reasoningEffort: "high",
+                      fastMode: false,
+                      agenticContext: true,
+                      gatewayBindingId: bindingId,
+                      gatewayProfileRef: profile,
+                    },
+                  ],
+                }),
+                target,
+              ),
             },
             { configurations },
           );

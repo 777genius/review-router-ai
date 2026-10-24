@@ -23,9 +23,12 @@ import {
   reviewAgentProfileRequiresAgenticContext,
   reviewProviderConfigurationSchema,
   type ReviewConfiguration,
-  type RepositoryReviewPolicyOverride,
   type ReviewProviderConfiguration,
 } from "@reviewrouter/features-review-config/review-configuration";
+import {
+  STORED_REVIEW_POLICY_SCHEMA_VERSION,
+  type RepositoryReviewPolicy,
+} from "@reviewrouter/features-review-config/review-policy-document";
 import {
   codexModelSupportsReasoningEffort,
   codexModelOptions,
@@ -84,7 +87,7 @@ type RepositoryPolicyEditorRepository = {
 };
 
 type RepositoryPolicyEditorConfig = {
-  readonly policy: RepositoryReviewPolicyOverride;
+  readonly policy: RepositoryReviewPolicy;
   readonly version: number;
   readonly config: ReviewConfiguration;
 } | null;
@@ -716,7 +719,7 @@ function SecretRefreshButton({
 }
 
 function repositoryPolicySummary(
-  policy: RepositoryReviewPolicyOverride | undefined,
+  policy: RepositoryReviewPolicy | undefined,
 ): string {
   if (!policy) return "override";
   const count = repositoryPolicyFormFields.filter(([root, leaf]) => {
@@ -921,7 +924,9 @@ export function RepositoryPolicyOverrideDetails({
               action={saveRepositoryOverride}
               config={effectiveConfig}
               repositoryPolicy={
-                repositoryConfig?.policy ?? { schemaVersion: 3 }
+                repositoryConfig?.policy ?? {
+                  schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
+                }
               }
               modelOptions={modelOptions}
               gatewayAccounts={gatewayAccounts}
@@ -1092,7 +1097,11 @@ export function RepositoryPolicyEditor({
             key={String(expectedVersion ?? "none")}
             action={saveRepositorySettings}
             config={effectiveConfig}
-            repositoryPolicy={repositoryConfig?.policy ?? { schemaVersion: 3 }}
+            repositoryPolicy={
+              repositoryConfig?.policy ?? {
+                schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
+              }
+            }
             modelOptions={modelOptions}
             gatewayAccounts={gatewayAccounts}
             agentProfileOptions={agentProfileOptions}
@@ -1277,8 +1286,8 @@ function reviewConfigActionErrorText(error: string): string {
       return "Too many dashboard requests for this resource. Wait a bit before retrying.";
     case "review_policy_resave_required":
       return "Saved review policy uses a retired or unreadable format and reviews are stopped. Review and save the policy explicitly, or remove the repository override to inherit workspace settings.";
-    case "review_workspace_policy_required":
-      return "Save workspace review settings before enabling reviews.";
+    case "review_provider_selection_required":
+      return "Choose a provider for this repository, or a workspace default it can inherit.";
     case "workflow_delete_untrusted":
       return "A ReviewRouter workflow belongs to another active mode (GitHub Secrets/Hosted Pool) or was edited; it is not removed automatically. Disconnect that mode or remove the file, then retry.";
     case "invalid_form":
@@ -1388,7 +1397,7 @@ export function ReviewConfigForm({
   repositorySecretCheckTarget,
 }: {
   readonly action: DashboardFormAction;
-  readonly repositoryPolicy?: RepositoryReviewPolicyOverride;
+  readonly repositoryPolicy?: RepositoryReviewPolicy;
   readonly config: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;

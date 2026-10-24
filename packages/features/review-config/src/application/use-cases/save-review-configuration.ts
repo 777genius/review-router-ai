@@ -1,14 +1,17 @@
 import {
-  parseRepositoryReviewPolicyOverride,
-  parseReviewConfigurationStrict,
-} from "../../domain/review-configuration";
+  parseRepositoryReviewPolicy,
+  parseReviewPolicyDocument,
+  parseWorkspaceReviewPolicy,
+  type ReviewPolicyDocument,
+} from "../../domain/review-policy-document";
 import type { ReviewConfigurationTarget } from "../../domain/review-configuration-target";
 import type {
   PersistedReviewConfiguration,
+  ProviderProfileDraft,
+  ProviderSelectionAuthority,
   ReviewConfigurationRepositoryPort,
   ReviewConfigurationOperationInput,
   ReviewConfigurationOperationRepositoryPort,
-  ReviewPolicySaveInput,
 } from "../ports/review-configuration-repository-port";
 
 export async function saveReviewConfigurationWithOperation(
@@ -68,12 +71,12 @@ export function snapshotReviewConfigurationOperation(
     target.scope === "workspace"
       ? {
           target,
-          policy: parseReviewConfigurationStrict(input.policy),
+          policy: parseWorkspaceReviewPolicy(input.policy),
           ...common,
         }
       : {
           target,
-          policy: parseRepositoryReviewPolicyOverride(input.policy),
+          policy: parseRepositoryReviewPolicy(input.policy),
           ...common,
         },
   );
@@ -134,34 +137,39 @@ function freezeOperationIntent<T>(value: T): T {
   return value;
 }
 
+/**
+ * Saves one stored document. Signed-in writers pass their selection
+ * authority, which decides any change of the stored provider selection;
+ * system and operator writers omit it.
+ */
 export async function saveReviewConfiguration(
   input: {
     readonly target: ReviewConfigurationTarget;
-    readonly policy: ReviewPolicySaveInput["policy"];
+    readonly policy: ReviewPolicyDocument;
     readonly expectedVersion?: number | null;
+    readonly expectedEffectivePolicyDigest?: string;
+    readonly selectionAuthority?: ProviderSelectionAuthority;
+    /** Providers created with the selection that names them. */
+    readonly profileDrafts?: readonly ProviderProfileDraft[];
   },
   dependencies: {
     readonly configurations: ReviewConfigurationRepositoryPort;
   },
 ): Promise<PersistedReviewConfiguration> {
-  const policy = snapshotPolicy(input.target, input.policy);
-
   return dependencies.configurations.saveNextVersion({
     target: input.target,
-    policy,
+    policy: parseReviewPolicyDocument(input.target.scope, input.policy),
     ...(input.expectedVersion !== undefined
       ? { expectedVersion: input.expectedVersion }
       : {}),
+    ...(input.expectedEffectivePolicyDigest !== undefined
+      ? { expectedEffectivePolicyDigest: input.expectedEffectivePolicyDigest }
+      : {}),
+    ...(input.selectionAuthority
+      ? { selectionAuthority: input.selectionAuthority }
+      : {}),
+    ...(input.profileDrafts ? { profileDrafts: input.profileDrafts } : {}),
   });
-}
-
-function snapshotPolicy(
-  target: ReviewConfigurationTarget,
-  policy: ReviewPolicySaveInput["policy"],
-): ReviewPolicySaveInput["policy"] {
-  return target.scope === "workspace"
-    ? parseReviewConfigurationStrict(policy)
-    : parseRepositoryReviewPolicyOverride(policy);
 }
 
 export async function findReviewConfiguration(
@@ -176,13 +184,21 @@ export async function findReviewConfiguration(
 export async function clearReviewConfiguration(
   target: ReviewConfigurationTarget & {
     readonly expectedVersion?: number | null;
+    readonly selectionAuthority?: ProviderSelectionAuthority;
   },
   dependencies: {
     readonly configurations: ReviewConfigurationRepositoryPort;
   },
 ): Promise<boolean> {
   return dependencies.configurations.deleteTarget(
-    target,
+    target.scope === "repository"
+      ? {
+          scope: "repository",
+          workspaceId: target.workspaceId,
+          repositoryId: target.repositoryId,
+        }
+      : { scope: "workspace", workspaceId: target.workspaceId },
     target.expectedVersion,
+    target.selectionAuthority,
   );
 }

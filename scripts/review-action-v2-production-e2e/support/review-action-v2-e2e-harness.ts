@@ -1,4 +1,8 @@
-import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture.js";
+import {
+  systemPolicyWriteFixture,
+  workspacePolicyDocumentFixture,
+  workspacePolicyFixture,
+} from "../../../packages/features/review-config/src/tests/current-policy-fixture.js";
 import { PrismaReviewConfigurationRepository } from "../../../packages/features/review-config/src/index.js";
 import { Buffer } from "node:buffer";
 import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
@@ -169,6 +173,13 @@ export type ReviewActionV2E2EHarnessOptions = Readonly<{
   beforeFakeGitHubRead?: (request: Request) => Promise<void>;
   protocolMaxAttemptsPerSlot?: number;
   prDescriptionProfile?: boolean;
+  /**
+   * The repository's stored provider selection. The workspace has no default
+   * provider, so "rotating" (the default) stores a repository selection of
+   * its rotating Codex profile; "none" leaves the repository document unset
+   * for tests that store their own.
+   */
+  repositoryProviderSelection?: "rotating" | "none";
 }>;
 
 export class ReviewActionV2E2EHarness {
@@ -321,6 +332,8 @@ export class ReviewActionV2E2EHarness {
     try {
       await seedProductionControlPlane(prisma, {
         prefix,
+        repositoryProviderSelection:
+          options.repositoryProviderSelection ?? "rotating",
         workspaceId,
         repositoryConnectionId,
         scmRepositoryIdentityId,
@@ -1607,6 +1620,7 @@ async function seedProductionControlPlane(
     investigationProfile?: ReviewActionV2E2EInvestigationProfile;
     protocolMaxAttemptsPerSlot?: number;
     prDescriptionProfile?: boolean;
+    repositoryProviderSelection: "rotating" | "none";
   }>,
 ): Promise<void> {
   const now = new Date();
@@ -1700,10 +1714,16 @@ async function seedProductionControlPlane(
       name: "Disposable Review Action v2 E2E",
     },
   });
-  await new PrismaReviewConfigurationRepository(prisma).saveNextVersion({
-    target: { scope: "workspace", workspaceId: ids.workspaceId },
-    policy: workspacePolicyFixture,
-    expectedVersion: null,
+  const configurations = new PrismaReviewConfigurationRepository(prisma);
+  await configurations.saveNextVersions({
+    workspaceId: ids.workspaceId,
+    writes: [
+      {
+        target: { scope: "workspace", workspaceId: ids.workspaceId },
+        policy: workspacePolicyDocumentFixture(workspacePolicyFixture),
+        expectedVersion: null,
+      },
+    ],
   });
   await prisma.gitHubInstallation.create({
     data: {
@@ -1751,6 +1771,18 @@ async function seedProductionControlPlane(
       boundAt: now,
     },
   });
+  if (ids.repositoryProviderSelection === "rotating") {
+    const target = {
+      scope: "repository" as const,
+      workspaceId: ids.workspaceId,
+      repositoryId: ids.repositoryConnectionId,
+    };
+    await configurations.saveNextVersion({
+      target,
+      expectedVersion: null,
+      ...systemPolicyWriteFixture(workspacePolicyFixture, target),
+    });
+  }
   await prisma.reviewMutationAuthority.create({
     data: {
       scmRepositoryIdentityId: ids.scmRepositoryIdentityId,

@@ -23,9 +23,12 @@ describe("dashboard action form readers", () => {
     form.set("providerCount", "1");
     form.set("providerAuthMode.0", "invalid-unused-provider");
     expect(readRepositoryReviewPolicyForm(form)).toEqual({
-      schemaVersion: 3,
-      limits: { inlineMaxComments: 0 },
-      investigationRollout: { productionEffectsEnabled: false },
+      policy: {
+        schemaVersion: 4,
+        limits: { inlineMaxComments: 0 },
+        investigationRollout: { productionEffectsEnabled: false },
+      },
+      providers: null,
     });
     form.set("policyMode.providers", "override");
     expect(() => readRepositoryReviewPolicyForm(form)).toThrow(
@@ -39,8 +42,11 @@ describe("dashboard action form readers", () => {
       form.set(`policyMode.${field.join(".")}`, "inherit");
     form.set("policyMode.contextTools", "override");
     expect(readRepositoryReviewPolicyForm(form)).toEqual({
-      schemaVersion: 3,
-      contextTools: { version: 1, builtinTools: [], mcp: [] },
+      policy: {
+        schemaVersion: 4,
+        contextTools: { version: 1, builtinTools: [], mcp: [] },
+      },
+      providers: null,
     });
     const selection = {
       version: 1,
@@ -48,7 +54,7 @@ describe("dashboard action form readers", () => {
       mcp: [{ connection: "docs", tools: ["search_docs"] }],
     };
     form.set("contextTools", JSON.stringify(selection));
-    expect(readRepositoryReviewPolicyForm(form).contextTools).toEqual(
+    expect(readRepositoryReviewPolicyForm(form).policy.contextTools).toEqual(
       selection,
     );
     form.set(
@@ -77,7 +83,10 @@ describe("dashboard action form readers", () => {
     const form = new FormData();
     for (const field of repositoryPolicyFormFields)
       form.set(`policyMode.${field.join(".")}`, "inherit");
-    expect(readRepositoryReviewPolicyForm(form)).toEqual({ schemaVersion: 3 });
+    expect(readRepositoryReviewPolicyForm(form)).toEqual({
+      policy: { schemaVersion: 4 },
+      providers: null,
+    });
   });
   it("keeps explicit zero, false and null without copying inherited values", () => {
     const form = reviewConfigFormData([
@@ -99,10 +108,13 @@ describe("dashboard action form readers", () => {
     form.set("investigationRollout.recordingEnabled", "false");
     form.set("reviewLanguage", "");
     expect(readRepositoryReviewPolicyForm(form)).toEqual({
-      schemaVersion: 3,
-      limits: { inlineMaxComments: 0 },
-      investigationRollout: { recordingEnabled: false },
-      reviewLanguage: null,
+      policy: {
+        schemaVersion: 4,
+        limits: { inlineMaxComments: 0 },
+        investigationRollout: { recordingEnabled: false },
+        reviewLanguage: null,
+      },
+      providers: null,
     });
   });
   it("refuses missing inheritance intent rather than guessing from values", () => {

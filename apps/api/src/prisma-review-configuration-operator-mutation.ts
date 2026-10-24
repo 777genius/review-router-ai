@@ -2,12 +2,12 @@ import type { PrismaClient } from "@prisma/client";
 import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log";
 import {
   acquireReviewConfigurationWriteScope,
-  isPrismaReviewConfigurationSerializationConflict,
   isPrismaReviewConfigurationWriteConflict,
   isReviewConfigurationWriteConflictError,
   PrismaReviewConfigurationTransactionRepository,
   resolveReviewConfiguration,
   ReviewConfigurationWriteConflictError,
+  runReviewConfigurationTransaction,
   type ReviewConfigurationOperatorMutationPort,
 } from "@reviewrouter/features-review-config";
 import { ReviewConfigurationOperatorAudit } from "./review-configuration-operator-audit.js";
@@ -22,68 +22,49 @@ export class PrismaReviewConfigurationOperatorMutation implements ReviewConfigur
   async commit(
     input: Parameters<ReviewConfigurationOperatorMutationPort["commit"]>[0],
   ) {
-    for (let attempt = 1; attempt <= MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
-      try {
-        return await this.prisma.$transaction(
-          async (transaction) => {
-            await acquireReviewConfigurationWriteScope(
+    try {
+      return await runReviewConfigurationTransaction(
+        this.prisma,
+        async (transaction) => {
+          await acquireReviewConfigurationWriteScope(transaction, input.target);
+          const configurations =
+            new PrismaReviewConfigurationTransactionRepository(
               transaction,
-              input.target,
+              this.operatorWorkspaceId,
+              this.personalAccountsEnabled,
             );
-            const configurations =
-              new PrismaReviewConfigurationTransactionRepository(
-                transaction,
-                this.operatorWorkspaceId,
-                this.personalAccountsEnabled,
-              );
-            const current = await resolveReviewConfiguration(input.target, {
-              configurations,
-            });
-            if (
-              !current ||
-              current.revisionToken !== input.expectedRevisionToken
-            ) {
-              throw new ReviewConfigurationWriteConflictError();
-            }
+          const current = await resolveReviewConfiguration(input.target, {
+            configurations,
+          });
+          if (!current || current.revisionToken !== input.expectedRevisionToken)
+            throw new ReviewConfigurationWriteConflictError();
 
-            const saved = await configurations.saveNextVersion({
-              target: input.target,
-              policy: input.policy,
-              expectedVersion:
-                current.source === "repository" ? current.version : null,
-            });
-            await new ReviewConfigurationOperatorAudit(
-              new PrismaAuditLogRepository(transaction),
-            ).record({
-              ...input.auditEvent,
-              metadata: {
-                ...input.auditEvent.metadata,
-                version: saved.version,
-              },
-            });
-            return saved;
-          },
-          { isolationLevel: "Serializable" },
-        );
-      } catch (error) {
-        if (
-          isReviewConfigurationWriteConflictError(error) ||
-          isPrismaReviewConfigurationWriteConflict(error)
-        ) {
-          throw new ReviewConfigurationWriteConflictError();
-        }
-        if (
-          !isPrismaReviewConfigurationSerializationConflict(error) ||
-          attempt === MAX_TRANSACTION_ATTEMPTS
-        ) {
-          throw error;
-        }
-      }
+          const saved = await configurations.saveNextVersion({
+            target: input.target,
+            policy: input.policy,
+            expectedVersion:
+              current.source === "repository" ? current.version : null,
+          });
+          await new ReviewConfigurationOperatorAudit(
+            new PrismaAuditLogRepository(transaction),
+          ).record({
+            ...input.auditEvent,
+            metadata: {
+              ...input.auditEvent.metadata,
+              version: saved.version,
+            },
+          });
+          return saved;
+        },
+        { isolationLevel: "Serializable" },
+      );
+    } catch (error) {
+      if (
+        isReviewConfigurationWriteConflictError(error) ||
+        isPrismaReviewConfigurationWriteConflict(error)
+      )
+        throw new ReviewConfigurationWriteConflictError();
+      throw error;
     }
-    throw new Error(
-      "review_configuration_operator_transaction_retry_exhausted",
-    );
   }
 }
-
-const MAX_TRANSACTION_ATTEMPTS = 3;

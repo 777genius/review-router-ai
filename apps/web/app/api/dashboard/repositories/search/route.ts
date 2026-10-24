@@ -31,6 +31,7 @@ import {
   loadDashboardPersonalAccounts,
 } from "../../../../../src/server/dashboard-gateway-accounts";
 import {
+  dashboardRepositoryConfigs,
   gatewayReviewRepositoryIds,
   resolveDashboardRepositoryReadiness,
 } from "../../../../../src/server/dashboard-repository-readiness";
@@ -193,20 +194,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         workspace.id,
       ),
     ]);
-  const configs = {
-    activeConfig:
-      policies.workspace.status === "ready" ? policies.workspace.config : null,
-    repositoryConfigs: repositoryIds.map((repositoryId) => {
-      const policy = policies.repositories.get(repositoryId);
-      return {
-        repositoryId,
-        config:
-          policy?.status === "ready" && policy.source === "repository"
-            ? policy
-            : null,
-      };
-    }),
-  };
+  const configs = dashboardRepositoryConfigs(policies.repositories);
   const gatewayRepositoryIds = gatewayReviewRepositoryIds({
     ...configs,
     repositoryIds,

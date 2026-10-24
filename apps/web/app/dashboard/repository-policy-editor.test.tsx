@@ -16,6 +16,7 @@ import {
   readReviewPolicyExpectedVersion,
 } from "./dashboard-action-form-readers";
 import {
+  reviewProviderSelectionFor,
   type ReviewConfiguration,
   type ReviewProviderConfiguration,
 } from "@reviewrouter/features-review-config";
@@ -325,7 +326,7 @@ describe("ReviewConfigForm", () => {
       <ReviewConfigForm
         action={vi.fn()}
         config={{ ...workspacePolicy, updatePrDescription: false }}
-        repositoryPolicy={{ schemaVersion: 3 }}
+        repositoryPolicy={{ schemaVersion: 4 }}
         hiddenFields={[]}
         modelOptions={modelOptions}
         mutationsEnabled={true}
@@ -336,22 +337,23 @@ describe("ReviewConfigForm", () => {
       name: "Update PR description",
     }) as HTMLInputElement;
     const form = container.querySelector("form")!;
-    const saved = () => readRepositoryReviewPolicyForm(new FormData(form));
+    const saved = () =>
+      readRepositoryReviewPolicyForm(new FormData(form)).policy;
     expect(toggle.checked).toBe(false);
     expect(toggle.disabled).toBe(true);
-    expect(saved()).toEqual({ schemaVersion: 3 });
+    expect(saved()).toEqual({ schemaVersion: 4 });
     addOverrideField("Update Pr Description");
     expect(toggle.disabled).toBe(false);
     fireEvent.click(toggle);
-    expect(saved()).toEqual({ schemaVersion: 3, updatePrDescription: true });
+    expect(saved()).toEqual({ schemaVersion: 4, updatePrDescription: true });
     fireEvent.click(toggle);
-    expect(saved()).toEqual({ schemaVersion: 3, updatePrDescription: false });
+    expect(saved()).toEqual({ schemaVersion: 4, updatePrDescription: false });
     fireEvent.change(
       form.querySelector('select[name="policyMode.updatePrDescription"]')!,
       { target: { value: "inherit" } },
     );
     expect(toggle.disabled).toBe(true);
-    expect(saved()).toEqual({ schemaVersion: 3 });
+    expect(saved()).toEqual({ schemaVersion: 4 });
   });
 
   it("keeps explicit zero and false overrides and removes them when reset to inherit", () => {
@@ -363,7 +365,7 @@ describe("ReviewConfigForm", () => {
           limits: { ...workspacePolicy.limits, inlineMaxComments: 0 },
         }}
         repositoryPolicy={{
-          schemaVersion: 3,
+          schemaVersion: 4,
           limits: { inlineMaxComments: 0 },
           investigationRollout: { productionEffectsEnabled: false },
         }}
@@ -383,14 +385,18 @@ describe("ReviewConfigForm", () => {
     expect(zeroMode.value).toBe("override");
     expect(falseMode.value).toBe("override");
     expect(readRepositoryReviewPolicyForm(new FormData(form))).toEqual({
-      schemaVersion: 3,
-      limits: { inlineMaxComments: 0 },
-      investigationRollout: { productionEffectsEnabled: false },
+      policy: {
+        schemaVersion: 4,
+        limits: { inlineMaxComments: 0 },
+        investigationRollout: { productionEffectsEnabled: false },
+      },
+      providers: null,
     });
     fireEvent.change(zeroMode, { target: { value: "inherit" } });
     fireEvent.change(falseMode, { target: { value: "inherit" } });
     expect(readRepositoryReviewPolicyForm(new FormData(form))).toEqual({
-      schemaVersion: 3,
+      policy: { schemaVersion: 4 },
+      providers: null,
     });
   });
 
@@ -400,7 +406,7 @@ describe("ReviewConfigForm", () => {
         action={vi.fn()}
         config={workspacePolicy}
         repositoryPolicy={{
-          schemaVersion: 3,
+          schemaVersion: 4,
           limits: { inlineMaxComments: 0 },
         }}
         hiddenFields={[]}
@@ -418,8 +424,11 @@ describe("ReviewConfigForm", () => {
     ).toBeNull();
     expect(providersMode()).toBe("inherit");
     expect(readRepositoryReviewPolicyForm(new FormData(form))).toEqual({
-      schemaVersion: 3,
-      limits: { inlineMaxComments: workspacePolicy.limits.inlineMaxComments },
+      policy: {
+        schemaVersion: 4,
+        limits: { inlineMaxComments: workspacePolicy.limits.inlineMaxComments },
+      },
+      providers: null,
     });
 
     addOverrideField("Providers");
@@ -427,8 +436,10 @@ describe("ReviewConfigForm", () => {
       form.querySelector('select[name="policyMode.providers"]'),
     ).not.toBeNull();
     expect(readRepositoryReviewPolicyForm(new FormData(form))).toEqual({
-      schemaVersion: 3,
-      limits: { inlineMaxComments: workspacePolicy.limits.inlineMaxComments },
+      policy: {
+        schemaVersion: 4,
+        limits: { inlineMaxComments: workspacePolicy.limits.inlineMaxComments },
+      },
       providers: workspacePolicy.providers,
     });
   });
@@ -843,7 +854,7 @@ describe("ReviewConfigForm", () => {
       } else {
         expect(submitted.get("repositoryId")).toBe("repo_1");
         expect(readRepositoryReviewPolicyForm(submitted)).toEqual({
-          schemaVersion: 3,
+          policy: { schemaVersion: 4 },
           providers: config.providers,
         });
       }
@@ -877,7 +888,7 @@ describe("ReviewConfigForm", () => {
         },
         repositoryConfig: {
           version: 3,
-          policy: { schemaVersion: 3 as const },
+          policy: { schemaVersion: 4 as const },
           config,
         },
         effectiveConfig: config,
@@ -910,7 +921,8 @@ describe("ReviewConfigForm", () => {
         expectedVersion === null ? "none" : "11",
       );
       expect(readRepositoryReviewPolicyForm(submitted)).toEqual({
-        schemaVersion: 3,
+        policy: { schemaVersion: 4 },
+        providers: null,
       });
       expect(clearRepositoryReviewConfigClientAction).not.toHaveBeenCalled();
     },
@@ -930,8 +942,8 @@ describe("ReviewConfigForm", () => {
         action={vi.fn()}
         config={{ ...workspacePolicy, providers: [provider] }}
         repositoryPolicy={{
-          schemaVersion: 3,
-          providers: [provider],
+          schemaVersion: 4,
+          providers: [reviewProviderSelectionFor(provider, "profile_gateway")],
           investigationRollout: { productionEffectsEnabled: false },
         }}
         modelOptions={modelOptions}
@@ -962,8 +974,11 @@ describe("ReviewConfigForm", () => {
         new FormData(document.querySelector("form")!),
       ),
     ).toEqual({
-      schemaVersion: 3,
-      investigationRollout: { productionEffectsEnabled: false },
+      policy: {
+        schemaVersion: 4,
+        investigationRollout: { productionEffectsEnabled: false },
+      },
+      providers: null,
     });
   });
 
@@ -1089,7 +1104,12 @@ describe("ReviewConfigForm", () => {
       },
       repositoryConfig: {
         version: 1,
-        policy: { schemaVersion: 3 as const, providers: config.providers },
+        policy: {
+          schemaVersion: 4 as const,
+          providers: config.providers.map((provider, index) =>
+            reviewProviderSelectionFor(provider, `profile_${index}`),
+          ),
+        },
         config,
       },
       expectedVersion: 1,
@@ -1651,7 +1671,7 @@ describe("ReviewConfigForm", () => {
           action={action}
           config={{ ...workspacePolicy, providers: [provider] }}
           {...(inherited
-            ? { repositoryPolicy: { schemaVersion: 3 as const } }
+            ? { repositoryPolicy: { schemaVersion: 4 as const } }
             : {})}
           modelOptions={modelOptions}
           gatewayAccounts={{
@@ -2348,7 +2368,7 @@ describe("ReviewConfigForm", () => {
 
     renderRepositoryPolicyOverrideDetails({
       repositoryConfig: {
-        policy: { schemaVersion: 3 },
+        policy: { schemaVersion: 4 },
         version: 6,
         config: duplicateOpenRouterReviewConfiguration(),
       },
@@ -2474,7 +2494,7 @@ function renderReviewConfigForm(input?: {
 
 function renderRepositoryPolicyOverrideDetails(input?: {
   readonly repositoryConfig?: {
-    readonly policy: { readonly schemaVersion: 3 };
+    readonly policy: { readonly schemaVersion: 4 };
     readonly version: number;
     readonly config: ReviewConfiguration;
   } | null;

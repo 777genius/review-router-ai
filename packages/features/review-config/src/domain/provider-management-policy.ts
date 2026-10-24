@@ -37,11 +37,20 @@ export type ProviderProfileFacts = Readonly<{
 }>;
 
 export type ProviderManagementAction =
-  /** Without a repository the profile is created from the Providers list. */
+  /** Created from the Providers list, without attaching it anywhere. */
   | Readonly<{
       kind: "create_profile";
       profile: Omit<ProviderProfileFacts, "createdByUserId">;
-      repository?: ProviderRepositoryFacts;
+    }>
+  /**
+   * Created inside an attach flow for one repository: one decision for both,
+   * so a refused attach never leaves a profile in the workspace list.
+   */
+  | Readonly<{
+      kind: "create_and_attach";
+      profile: Omit<ProviderProfileFacts, "createdByUserId">;
+      repository: ProviderRepositoryFacts;
+      managedKeyApplied?: boolean;
     }>
   | Readonly<{ kind: "edit_profile"; profile: ProviderProfileFacts }>
   | Readonly<{ kind: "archive_profile"; profile: ProviderProfileFacts }>
@@ -54,6 +63,7 @@ export type ProviderManagementAction =
     }>
   | Readonly<{ kind: "clear_selection"; repository: ProviderRepositoryFacts }>
   | Readonly<{ kind: "set_default"; profile: ProviderProfileFacts }>
+  | Readonly<{ kind: "clear_default" }>
   | Readonly<{ kind: "manage_managed_key" }>
   | Readonly<{ kind: "install_ci_secret"; repository: ProviderRepositoryFacts }>
   | Readonly<{ kind: "change_access_rights" }>;
@@ -111,23 +121,49 @@ export function decideProviderManagement(input: {
   const directConfig = (repository: ProviderRepositoryFacts) =>
     admin || repository.capability === "direct_config";
 
+  const attach = (
+    profile: Omit<ProviderProfileFacts, "createdByUserId">,
+    repository: ProviderRepositoryFacts,
+    managedKeyApplied: boolean | undefined,
+  ): ProviderManagementDecision => {
+    if (adminOnly) return denied("access_rights_admin_only");
+    if (!personalOwner(profile))
+      return denied("personal_binding_owner_required");
+    if (
+      profile.credentialKind === "repository_rotating" &&
+      profile.repositoryId !== repository.repositoryId
+    )
+      return denied("rotating_profile_repository_only");
+    // Hosted pool and applying a managed key keep their admin-only flows.
+    if (
+      profile.credentialKind === "hosted_pool" ||
+      (profile.credentialKind === "managed_api_key" &&
+        managedKeyApplied !== true)
+    )
+      return admin ? allowed : denied("workspace_admin_required");
+    return directConfig(repository)
+      ? allowed
+      : denied("repository_direct_config_required");
+  };
+
   switch (action.kind) {
     case "create_profile": {
       if (actor.role === null) return denied("workspace_member_required");
       if (adminOnly) return denied("access_rights_admin_only");
       if (!personalOwner(action.profile))
         return denied("personal_binding_owner_required");
-      const { repository, profile } = action;
-      if (profile.credentialKind === "repository_rotating") {
-        if (!repository || repository.repositoryId !== profile.repositoryId)
-          return denied("rotating_profile_repository_only");
-      }
-      if (profile.credentialKind === "hosted_pool" || !repository)
-        return admin ? allowed : denied("workspace_admin_required");
-      return directConfig(repository)
-        ? allowed
-        : denied("repository_direct_config_required");
+      // A rotating credential exists only inside its repository's attach flow.
+      if (action.profile.credentialKind === "repository_rotating")
+        return denied("rotating_profile_repository_only");
+      return admin ? allowed : denied("workspace_admin_required");
     }
+    case "create_and_attach":
+      if (actor.role === null) return denied("workspace_member_required");
+      return attach(
+        action.profile,
+        action.repository,
+        action.managedKeyApplied,
+      );
     case "edit_profile":
     case "archive_profile": {
       if (actor.role === null) return denied("workspace_member_required");
@@ -138,27 +174,12 @@ export function decideProviderManagement(input: {
         ? allowed
         : denied("profile_creator_required");
     }
-    case "attach_profile": {
-      if (adminOnly) return denied("access_rights_admin_only");
-      const { profile, repository } = action;
-      if (!personalOwner(profile))
-        return denied("personal_binding_owner_required");
-      if (
-        profile.credentialKind === "repository_rotating" &&
-        profile.repositoryId !== repository.repositoryId
-      )
-        return denied("rotating_profile_repository_only");
-      // Hosted pool and applying a managed key keep their admin-only flows.
-      if (
-        profile.credentialKind === "hosted_pool" ||
-        (profile.credentialKind === "managed_api_key" &&
-          action.managedKeyApplied !== true)
-      )
-        return admin ? allowed : denied("workspace_admin_required");
-      return directConfig(repository)
-        ? allowed
-        : denied("repository_direct_config_required");
-    }
+    case "attach_profile":
+      return attach(
+        action.profile,
+        action.repository,
+        action.managedKeyApplied,
+      );
     case "clear_selection":
       if (adminOnly) return denied("access_rights_admin_only");
       return directConfig(action.repository)
@@ -175,10 +196,27 @@ export function decideProviderManagement(input: {
       return admin || action.repository.capability !== null
         ? allowed
         : denied("repository_manager_required");
+    case "clear_default":
     case "manage_managed_key":
     case "change_access_rights":
       return admin ? allowed : denied("workspace_admin_required");
   }
+}
+
+/**
+ * The part of an edit, rename or archive decision that does not depend on the
+ * profile. Checked before the profile is read, so neither a non-member nor a
+ * member under admin-only access rights learns whether a profile ID exists.
+ */
+export function decideProviderProfileManagementGate(input: {
+  readonly actor: ProviderManagementActor;
+  readonly workspace: ProviderManagementWorkspace;
+}): ProviderManagementDecision {
+  const admin = input.actor.role === "owner" || input.actor.role === "admin";
+  if (input.actor.role === null) return denied("workspace_member_required");
+  if (input.workspace.providerManagementAdminOnly && !admin)
+    return denied("access_rights_admin_only");
+  return allowed;
 }
 
 export function assertProviderManagementAllowed(

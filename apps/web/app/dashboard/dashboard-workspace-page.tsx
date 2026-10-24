@@ -31,7 +31,6 @@ import type {
 import type { WorkspaceHealthSummary } from "../../src/server/repository-health-view";
 import {
   isCodexRotatingOAuthAllowedForRepository,
-  isCodexRotatingOAuthAllowedForWorkspaceDefault,
   isClaudeCodeProviderEnabled,
   isHostedCodexPoolEnabled,
   requireReviewRouterDatabaseRecoveryWitness,
@@ -72,6 +71,7 @@ import {
   PrismaWorkspaceReviewSettings,
   readyReviewConfiguration,
   resolveEffectiveReviewConfigurations,
+  type EffectiveReviewConfiguration,
   type PersistedReviewConfiguration,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
@@ -348,12 +348,18 @@ type DashboardWorkspaceData = {
   gatewayReadiness: ReadonlyMap<string, GatewayReviewV2RepositoryReadiness>;
   entitlement: ReturnType<typeof freeBetaEntitlement>;
   reviewConfig: PersistedReviewConfiguration | null;
+  /** Why the workspace has no ready configuration; null when not read. */
+  reviewConfigStatus: EffectiveReviewConfiguration["status"] | null;
   reviewConfigExpectedVersion: number | null;
   reviewDraftPullRequests?: boolean;
   canEditOtherSettings?: boolean;
   repositoryConfigs: readonly {
     readonly repositoryId: string;
+    /** The repository's own stored document, when it is readable. */
     readonly config: PersistedReviewConfiguration | null;
+    /** The configuration the repository reviews with; null selects none. */
+    readonly effective: ReviewConfiguration | null;
+    readonly status: EffectiveReviewConfiguration["status"] | null;
     readonly expectedVersion: number | null;
   }[];
   outboxFailures: Awaited<ReturnType<typeof listWorkspaceOutboxFailures>>;
@@ -565,6 +571,8 @@ export async function loadDashboardSectionData(
         policy?.status === "ready" && policy.source === "repository"
           ? readyReviewConfiguration(policy)
           : null,
+      effective: policy?.status === "ready" ? policy.config : null,
+      status: policy?.status ?? null,
       expectedVersion: policy?.repositoryVersion ?? null,
     };
   });
@@ -574,8 +582,7 @@ export async function loadDashboardSectionData(
         workspaceId: workspace.id,
         repositoryIds: gatewayReviewRepositoryIds({
           repositoryIds,
-          activeConfig: reviewConfig?.config ?? null,
-          repositoryConfigs,
+          ...repositoryEffectiveConfigs(repositoryConfigs),
         }),
       })
     : new Map<string, GatewayReviewV2RepositoryReadiness>();
@@ -638,12 +645,28 @@ export async function loadDashboardSectionData(
     entitlement,
     health,
     reviewConfig,
+    reviewConfigStatus: policies?.workspace.status ?? null,
     reviewConfigExpectedVersion: policies?.workspace.workspaceVersion ?? null,
     repositoryConfigs,
     outboxFailures,
     supportDiagnostics,
     orgRuleset,
     hostedPool,
+  };
+}
+
+/** The resolver's effective configuration of each repository, for readiness. */
+function repositoryEffectiveConfigs(
+  repositoryConfigs: DashboardWorkspaceData["repositoryConfigs"],
+): Readonly<{
+  effectiveConfigs: ReadonlyMap<string, ReviewConfiguration | null>;
+}> {
+  return {
+    effectiveConfigs: new Map(
+      repositoryConfigs.map(
+        (item) => [item.repositoryId, item.effective] as const,
+      ),
+    ),
   };
 }
 
@@ -1675,7 +1698,7 @@ export function WorkspaceCard({
             <h2 className="text-2xl font-semibold text-cyan-50">
               {dashboardSectionMeta[selectedSection].title}
             </h2>
-            {data.reviewConfigExpectedVersion !== null ? (
+            {data.reviewConfigStatus === "resave_required" ? (
               <p role="alert">
                 Saved workspace policy v{data.reviewConfigExpectedVersion} uses
                 a retired format and is not applied — reviews are stopped. The
@@ -1683,7 +1706,10 @@ export function WorkspaceCard({
                 Review and save explicitly.
               </p>
             ) : (
-              <p>Save workspace review settings before enabling reviews.</p>
+              <p>
+                Choose a workspace default provider. Repositories without a
+                provider of their own review with it.
+              </p>
             )}
             {!hasWorkspaceWideAccess ? (
               <p>A workspace owner or admin needs to complete review setup.</p>
@@ -1705,7 +1731,7 @@ export function WorkspaceCard({
             workspaceId={workspace.id}
             expectedVersion={data.reviewConfigExpectedVersion}
             submitLabel={
-              data.reviewConfigExpectedVersion !== null
+              data.reviewConfigStatus === "resave_required"
                 ? `Replace legacy policy v${data.reviewConfigExpectedVersion}`
                 : undefined
             }
@@ -1714,7 +1740,7 @@ export function WorkspaceCard({
             gatewayAccounts={gatewayAccounts}
             agentProfileOptions={agentProfileOptions}
             contextConnections={contextConnections}
-            codexRotatingOAuthEnabled={isCodexRotatingOAuthAllowedForWorkspaceDefault()}
+            codexRotatingOAuthEnabled={false}
             claudeCodeProviderEnabled={claudeCodeProviderEnabled}
             mutationsEnabled={mutationsEnabled}
           />
@@ -1741,13 +1767,13 @@ export function WorkspaceCard({
     repositoryConfigs.some(
       (item) =>
         item.repositoryId === selectedRepository.id &&
-        !item.config &&
+        item.status === "resave_required" &&
         item.expectedVersion != null,
     );
   const selectedRepositoryConfig =
     repositoryConfigs.find(
       (item) => item.repositoryId === selectedRepository?.id,
-    )?.config?.config ?? activeConfig;
+    )?.effective ?? null;
   const selectedInstallation = selectedRepository
     ? findInstallationForRepository(workspace, selectedRepository)
     : null;
@@ -1782,8 +1808,7 @@ export function WorkspaceCard({
     }),
     health,
     providerSetup,
-    activeConfig,
-    repositoryConfigs,
+    ...repositoryEffectiveConfigs(repositoryConfigs),
     hostedRepositories: hostedPool.repositories,
     gatewayAccounts,
     gatewayReadiness,
@@ -1800,7 +1825,7 @@ export function WorkspaceCard({
     selectedInstallation &&
     providerGuidanceSet ? (
       !selectedRepositoryLegacy &&
-      selectedRepositoryConfig.providers.some(
+      selectedRepositoryConfig?.providers.some(
         (provider) => provider.authMode === "codex_account_gateway",
       ) ? (
         <LinkButton
@@ -1952,7 +1977,7 @@ export function WorkspaceCard({
                   gatewayAccounts={gatewayAccounts}
                   agentProfileOptions={agentProfileOptions}
                   contextConnections={contextConnections}
-                  codexRotatingOAuthEnabled={isCodexRotatingOAuthAllowedForWorkspaceDefault()}
+                  codexRotatingOAuthEnabled={false}
                   claudeCodeProviderEnabled={claudeCodeProviderEnabled}
                   mutationsEnabled={mutationsEnabled}
                 />
@@ -2020,8 +2045,10 @@ export function WorkspaceCard({
                       (item) => item.repositoryId === repository.id,
                     );
                     const repositoryConfig = repositoryPolicy?.config ?? null;
+                    // Form display only; an unresolvable repository is
+                    // marked legacy and shows the workspace settings.
                     const effectiveConfig =
-                      repositoryConfig?.config ?? activeConfig;
+                      repositoryPolicy?.effective ?? activeConfig;
                     const configVersion =
                       repositoryConfig?.version ?? activeConfigVersion;
                     const canEditRepositorySettings =
@@ -2488,7 +2515,7 @@ function RepositoryTable({
   readonly gatewayReadiness: DashboardWorkspaceData["gatewayReadiness"];
 }): React.ReactElement {
   const repositoryConfigById = new Map(
-    repositoryConfigs.map((item) => [item.repositoryId, item.config] as const),
+    repositoryConfigs.map((item) => [item.repositoryId, item] as const),
   );
   const repositoryHealthById = new Map(
     health.map((item) => [item.repositoryId, item] as const),
@@ -2612,9 +2639,14 @@ function RepositoryTable({
               workflowCurrent,
               setupProgressStep,
             }) => {
-              const repositoryConfig =
-                repositoryConfigById.get(repository.id) ?? null;
-              const effectiveConfig = repositoryConfig?.config ?? activeConfig;
+              const repositoryPolicy = repositoryConfigById.get(repository.id);
+              const repositoryConfig = repositoryPolicy?.config ?? null;
+              // What the repository reviews with; forms fall back to the
+              // workspace settings for display only.
+              const reviewProviders =
+                repositoryPolicy?.effective?.providers ?? [];
+              const effectiveConfig =
+                repositoryPolicy?.effective ?? activeConfig;
               const canEditRepositorySettings =
                 directConfigRepositoryIds === null ||
                 directConfigRepositoryIds.has(repository.id);
@@ -2692,7 +2724,7 @@ function RepositoryTable({
                         gatewayReviewV2Ready={isGatewayReviewV2RepositoryReady(
                           gatewayReadiness.get(repository.id),
                         )}
-                        expectedProviderAuthModes={effectiveConfig.providers.map(
+                        expectedProviderAuthModes={reviewProviders.map(
                           (provider) => provider.authMode,
                         )}
                       />
@@ -2730,7 +2762,7 @@ function RepositoryTable({
                     gatewayReviewV2Ready={isGatewayReviewV2RepositoryReady(
                       gatewayReadiness.get(repository.id),
                     )}
-                    expectedProviderAuthModes={effectiveConfig.providers.map(
+                    expectedProviderAuthModes={reviewProviders.map(
                       (provider) => provider.authMode,
                     )}
                   >

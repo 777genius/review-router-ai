@@ -3,14 +3,16 @@ import {
   reviewConfigurationTargetKey,
   type ReviewConfigurationTarget,
 } from "../../domain/review-configuration-target";
+import { storedReviewPolicyProfileIds } from "../../domain/review-policy-document";
 import type {
   ReviewPolicyHead,
   ReviewPolicyHeadReaderPort,
 } from "../../application/ports/review-configuration-repository-port";
+import { readProviderProfiles } from "./prisma-provider-profile-rows";
 
 export type ReviewPolicyReader = Pick<
   PrismaClient | Prisma.TransactionClient,
-  "reviewConfiguration"
+  "reviewConfiguration" | "workspaceProviderProfile"
 >;
 
 const policyHeadSelect = {
@@ -23,7 +25,7 @@ const policyHeadSelect = {
 export class PrismaReviewPolicyHeadReader implements ReviewPolicyHeadReaderPort {
   constructor(private readonly reader: ReviewPolicyReader) {}
 
-  /** Reads all heads of one call in a single RepeatableRead snapshot. */
+  /** Reads all heads and profiles of one call in a single RepeatableRead snapshot. */
   static snapshot(prisma: PrismaClient): ReviewPolicyHeadReaderPort {
     const inSnapshot = <T>(
       read: (heads: PrismaReviewPolicyHeadReader) => Promise<T>,
@@ -37,6 +39,10 @@ export class PrismaReviewPolicyHeadReader implements ReviewPolicyHeadReaderPort 
         inSnapshot((heads) => heads.readPolicyHeads(target)),
       readRepositoryPolicyHeads: (input) =>
         inSnapshot((heads) => heads.readRepositoryPolicyHeads(input)),
+      readWorkspacePolicyHeads: (workspaceId) =>
+        inSnapshot((heads) => heads.readWorkspacePolicyHeads(workspaceId)),
+      readProviderProfiles: (input) =>
+        new PrismaReviewPolicyHeadReader(prisma).readProviderProfiles(input),
     };
   }
 
@@ -52,25 +58,55 @@ export class PrismaReviewPolicyHeadReader implements ReviewPolicyHeadReaderPort 
             targetKey: reviewConfigurationTargetKey(target),
           })
         : null;
-    return { workspace, repository };
+    const profiles = await readProviderProfiles(
+      this.reader,
+      target.workspaceId,
+      referencedProfileIds([workspace, repository]),
+    );
+    return { workspace, repository, profiles };
   }
 
-  async readRepositoryPolicyHeads(input: {
+  readRepositoryPolicyHeads(input: {
     readonly workspaceId: string;
     readonly repositoryIds: readonly string[];
   }) {
-    const workspace = await readActivePolicyHead(this.reader, {
-      workspaceId: input.workspaceId,
-      targetKey: workspaceTargetKey(input.workspaceId),
-    });
     const repositoryIds = [...new Set(input.repositoryIds)];
+    return this.readHeads(input.workspaceId, repositoryIds);
+  }
+
+  readWorkspacePolicyHeads(workspaceId: string) {
+    return this.readHeads(workspaceId, null);
+  }
+
+  readProviderProfiles(input: {
+    readonly workspaceId: string;
+    readonly profileIds: readonly string[];
+  }) {
+    return readProviderProfiles(
+      this.reader,
+      input.workspaceId,
+      input.profileIds,
+    );
+  }
+
+  /** Null repository IDs read every active repository head. */
+  private async readHeads(
+    workspaceId: string,
+    repositoryIds: readonly string[] | null,
+  ) {
+    const workspace = await readActivePolicyHead(this.reader, {
+      workspaceId,
+      targetKey: workspaceTargetKey(workspaceId),
+    });
     const records =
-      repositoryIds.length === 0
+      repositoryIds?.length === 0
         ? []
         : await this.reader.reviewConfiguration.findMany({
             where: {
-              workspaceId: input.workspaceId,
-              repositoryId: { in: repositoryIds },
+              workspaceId,
+              repositoryId: repositoryIds
+                ? { in: [...repositoryIds] }
+                : { not: null },
               active: true,
             },
             orderBy: { repositoryId: "asc" },
@@ -83,22 +119,25 @@ export class PrismaReviewPolicyHeadReader implements ReviewPolicyHeadReaderPort 
               },
             },
           });
-    return {
-      workspace,
-      repositories: new Map(
-        records.flatMap((record) =>
-          record.repositoryId && record.versions[0]
-            ? [[record.repositoryId, record.versions[0]] as const]
-            : [],
-        ),
+    const repositories = new Map(
+      records.flatMap((record) =>
+        record.repositoryId && record.versions[0]
+          ? [[record.repositoryId, record.versions[0]] as const]
+          : [],
       ),
-    };
+    );
+    const profiles = await readProviderProfiles(
+      this.reader,
+      workspaceId,
+      referencedProfileIds([workspace, ...repositories.values()]),
+    );
+    return { workspace, repositories, profiles };
   }
 }
 
 /** The raw head of one active target, including heads in retired formats. */
 export async function readActivePolicyHead(
-  reader: ReviewPolicyReader,
+  reader: Pick<ReviewPolicyReader, "reviewConfiguration">,
   scope: { readonly workspaceId: string; readonly targetKey: string },
 ): Promise<ReviewPolicyHead | null> {
   const configuration = await reader.reviewConfiguration.findUnique({
@@ -118,6 +157,16 @@ export async function readActivePolicyHead(
     },
   });
   return configuration?.versions[0] ?? null;
+}
+
+export function referencedProfileIds(
+  heads: readonly (ReviewPolicyHead | null)[],
+): readonly string[] {
+  return [
+    ...new Set(
+      heads.flatMap((head) => (head ? storedReviewPolicyProfileIds(head) : [])),
+    ),
+  ];
 }
 
 function workspaceTargetKey(workspaceId: string): string {

@@ -3,7 +3,10 @@ import {
   type EffectiveProviderReadiness,
 } from "@reviewrouter/features-provider-setup";
 import type { RepositoryHealthStatus } from "@reviewrouter/features-repo-health";
-import type { ReviewConfiguration } from "@reviewrouter/features-review-config";
+import type {
+  EffectiveReviewConfiguration,
+  ReviewConfiguration,
+} from "@reviewrouter/features-review-config";
 import {
   comparableWorkflowRequirement,
   requiredWorkflowRequirement,
@@ -27,14 +30,30 @@ import {
   type RepositorySearchReadiness,
 } from "./repository-search";
 
-/** Saved policies as the dashboard reads them for one workspace. */
+/**
+ * The effective configuration of each repository as the single resolver
+ * reads it; null when the repository selects no provider (nor inherits one)
+ * or its policy must be saved again. Nothing falls back to the workspace.
+ */
 export type DashboardRepositoryConfigs = Readonly<{
-  activeConfig: ReviewConfiguration | null;
-  repositoryConfigs: readonly Readonly<{
-    repositoryId: string;
-    config: { readonly config: ReviewConfiguration } | null;
-  }>[];
+  effectiveConfigs: ReadonlyMap<string, ReviewConfiguration | null>;
 }>;
+
+export function dashboardRepositoryConfigs(
+  repositories: ReadonlyMap<string, EffectiveReviewConfiguration>,
+): DashboardRepositoryConfigs {
+  return {
+    effectiveConfigs: new Map(
+      [...repositories].map(
+        ([repositoryId, resolved]) =>
+          [
+            repositoryId,
+            resolved.status === "ready" ? resolved.config : null,
+          ] as const,
+      ),
+    ),
+  };
+}
 
 export type DashboardReadinessRepository = Readonly<{
   id: string;
@@ -78,7 +97,8 @@ export function resolveDashboardRepositoryReadiness<
       providerSecretCheckFailedRepositoryFullName: string | null;
     }>,
 ): readonly DashboardRepositoryReadiness<Repository>[] {
-  const effectiveConfig = effectiveRepositoryConfigs(input);
+  const effectiveConfig = (repositoryId: string) =>
+    input.effectiveConfigs.get(repositoryId) ?? null;
   const healthByRepositoryId = new Map(
     input.health.map((item) => [item.repositoryId, item] as const),
   );
@@ -146,24 +166,13 @@ export function gatewayReviewRepositoryIds(
   input: DashboardRepositoryConfigs &
     Readonly<{ repositoryIds: readonly string[] }>,
 ): string[] {
-  const effectiveConfig = effectiveRepositoryConfigs(input);
   return input.repositoryIds.filter((repositoryId) =>
-    effectiveConfig(repositoryId)?.providers.some(
-      (provider) => provider.authMode === "codex_account_gateway",
-    ),
+    input.effectiveConfigs
+      .get(repositoryId)
+      ?.providers.some(
+        (provider) => provider.authMode === "codex_account_gateway",
+      ),
   );
-}
-
-// A repository without a readable override of its own follows the workspace.
-function effectiveRepositoryConfigs(
-  configs: DashboardRepositoryConfigs,
-): (repositoryId: string) => ReviewConfiguration | null {
-  const overrides = new Map(
-    configs.repositoryConfigs.map(
-      (item) => [item.repositoryId, item.config?.config] as const,
-    ),
-  );
-  return (repositoryId) => overrides.get(repositoryId) ?? configs.activeConfig;
 }
 
 function knownWorkflowRequirement(

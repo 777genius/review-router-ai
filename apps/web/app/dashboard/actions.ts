@@ -1,12 +1,8 @@
 "use server";
 
-import {
-  assertDashboardContextSelectionAllowed,
-  contextToolsWorkflowSecrets,
-} from "../../src/server/context-tools";
+import { contextToolsWorkflowSecrets } from "../../src/server/context-tools";
 
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
-import { resolveReviewPolicy } from "@reviewrouter/features-review-config";
 
 import { createHash, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
@@ -34,12 +30,14 @@ import {
 } from "@reviewrouter/features-org-ruleset-provisioning";
 import {
   clearReviewConfiguration,
-  isOpenRouterDirectConfiguration,
+  effectiveReviewPolicyDigest,
+  previewEffectiveReviewConfiguration,
   PrismaReviewConfigurationRepository,
   PrismaReviewPolicyHeadReader,
-  resolveEffectiveReviewConfiguration,
+  providerSelectionAuthority,
   resolveReviewRuntimeEnv,
   type ResolvedReviewRuntimeEnv,
+  saveRepositoryReviewPolicy,
   saveReviewConfiguration,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
@@ -51,8 +49,6 @@ import {
   type HostedAccountSafeSummary,
 } from "@reviewrouter/features-hosted-account-pool";
 import {
-  isCodexRotatingOAuthAllowedForRepository,
-  isCodexRotatingOAuthAllowedForWorkspaceDefault,
   isConflictReviewFallbackAllowedForRepository,
   isWorkflowProvisioningEnabled,
   isHostedCodexPoolEnabled,
@@ -148,6 +144,7 @@ import {
   readReviewPolicyExpectedVersion,
   readReviewDiscussionMode,
   readWorkflowStyle,
+  workspaceReviewPolicyFromConfiguration,
 } from "./dashboard-action-form-readers";
 import {
   dashboardUntrustedWorkflowPathFromError,
@@ -167,10 +164,15 @@ import {
 } from "../../src/server/hosted-pool-dashboard";
 import { createPrismaHostedPoolDashboardMutationPort } from "../../src/server/prisma-hosted-pool-mutations";
 import {
-  assertGatewayReviewConfigCatalogAllowed,
-  assertGatewayReviewAgentProfileContextAllowed,
-} from "../../src/server/gateway-review-config-catalog";
-import { loadApprovedGatewayAgentProfiles } from "../../src/server/gateway-agent-profile-options";
+  assertCodexRotatingOAuthRepositoryAllowed,
+  assertCodexRotatingReviewConfigAllowed,
+  validateDashboardEffectiveConfiguration,
+} from "../../src/server/dashboard-review-configuration-validation";
+import {
+  dashboardProviderActor,
+  dashboardProviderSelectionsFromRows,
+  dashboardRepositoryCapability,
+} from "../../src/server/dashboard-provider-selections";
 import { provisionGatewayReviewV2Repository } from "../../src/server/prisma-gateway-review-v2-provisioning";
 
 export async function requestInstallationSyncAction(
@@ -2762,34 +2764,39 @@ async function saveWorkspaceReviewConfigMutation(
       workspaceId,
     });
     const config = readReviewConfigurationForm(formData);
-    await assertDashboardContextSelectionAllowed(
-      workspaceId,
-      config.contextTools,
-    );
-    isOpenRouterDirectConfiguration(config);
-    assertGatewayReviewAgentProfileContextAllowed(
-      config,
-      loadApprovedGatewayAgentProfiles,
-    );
-    assertCodexRotatingReviewConfigAllowed({
-      config,
-      repository: null,
-    });
     if (
-      await assertGatewayReviewConfigCatalogAllowed(config, () =>
-        loadGatewayReviewProfiles(workspaceId),
-      )
+      (
+        await validateDashboardEffectiveConfiguration({
+          workspaceId,
+          repository: null,
+          config,
+        })
+      ).gatewayCatalogChecked
     ) {
       const freshActor = await assertDashboardMutationAllowed(workspaceId);
       assertGatewayReviewActorUnchanged(actor, freshActor);
       actor = freshActor;
     }
-
+    const providers = await dashboardProviderSelectionsFromRows({
+      prisma,
+      workspaceId,
+      repositoryId: null,
+      rows: config.providers,
+    });
     const saved = await saveReviewConfiguration(
       {
         target: { scope: "workspace", workspaceId },
-        policy: config,
+        policy: workspaceReviewPolicyFromConfiguration(
+          config,
+          providers.selections,
+        ),
         expectedVersion: readReviewPolicyExpectedVersion(formData),
+        // The write must materialize exactly the validated configuration.
+        expectedEffectivePolicyDigest: effectiveReviewPolicyDigest(config),
+        selectionAuthority: providerSelectionAuthority({
+          actor: dashboardProviderActor(actor),
+        }),
+        profileDrafts: providers.drafts,
       },
       {
         configurations: new PrismaReviewConfigurationRepository(
@@ -2884,35 +2891,41 @@ async function saveRepositoryReviewConfigMutation(
       workspaceId,
       resourceId: repositoryId,
     });
-    const workspace = await resolveEffectiveReviewConfiguration(
-      { scope: "workspace", workspaceId },
-      { policyHeads: new PrismaReviewPolicyHeadReader(prisma) },
-    );
-    if (workspace.status !== "ready")
-      throw new Error(
-        workspace.status === "resave_required"
-          ? "review_policy_resave_required"
-          : "review_workspace_policy_required",
-      );
-    const policy = readRepositoryReviewPolicyForm(formData);
-    const config = resolveReviewPolicy(workspace.config, policy);
-    await assertDashboardContextSelectionAllowed(
+    const target = {
+      scope: "repository" as const,
       workspaceId,
-      config.contextTools,
+      repositoryId,
+    };
+    const policyHeads = new PrismaReviewPolicyHeadReader(prisma);
+    const form = readRepositoryReviewPolicyForm(formData);
+    const providers = form.providers
+      ? await dashboardProviderSelectionsFromRows({
+          prisma,
+          workspaceId,
+          repositoryId,
+          rows: form.providers,
+        })
+      : null;
+    const policy = providers
+      ? { ...form.policy, providers: [...providers.selections] }
+      : form.policy;
+    const candidate = await previewEffectiveReviewConfiguration(
+      {
+        target,
+        repositoryPolicy: policy,
+        profiles: providers?.draftProfiles ?? [],
+      },
+      { policyHeads },
     );
-    isOpenRouterDirectConfiguration(config);
-    assertGatewayReviewAgentProfileContextAllowed(
-      config,
-      loadApprovedGatewayAgentProfiles,
-    );
-    assertCodexRotatingReviewConfigAllowed({
-      config,
-      repository,
-    });
+    if (!candidate) throw new Error("review_provider_selection_required");
     if (
-      await assertGatewayReviewConfigCatalogAllowed(config, () =>
-        loadGatewayReviewProfiles(workspaceId),
-      )
+      (
+        await validateDashboardEffectiveConfiguration({
+          workspaceId,
+          repository,
+          config: candidate.config,
+        })
+      ).gatewayCatalogChecked
     ) {
       const current = await loadRepositoryForWorkspace({
         prisma,
@@ -2928,11 +2941,20 @@ async function saveRepositoryReviewConfigMutation(
       actor = freshActor;
     }
 
-    const saved = await saveReviewConfiguration(
+    const savedPolicy = await saveRepositoryReviewPolicy(
       {
-        target: { scope: "repository", workspaceId, repositoryId },
+        target,
         policy,
         expectedVersion: readReviewPolicyExpectedVersion(formData),
+        // The write must materialize exactly the validated configuration.
+        expectedEffectivePolicyDigest: effectiveReviewPolicyDigest(
+          candidate.config,
+        ),
+        selectionAuthority: providerSelectionAuthority({
+          actor: dashboardProviderActor(actor),
+          repositoryCapability: dashboardRepositoryCapability(actor),
+        }),
+        ...(providers ? { profileDrafts: providers.drafts } : {}),
       },
       {
         configurations: new PrismaReviewConfigurationRepository(
@@ -2941,8 +2963,11 @@ async function saveRepositoryReviewConfigMutation(
           readPersonalAccountSharingEnabled(process.env),
           actor.userId,
         ),
+        policyHeads,
       },
     );
+    const saved = savedPolicy.configuration;
+    if (!saved) throw new Error("review_provider_selection_required");
 
     await recordAuditEvent(
       {
@@ -3030,6 +3055,11 @@ async function clearRepositoryReviewConfigMutation(
         workspaceId,
         repositoryId,
         expectedVersion: readReviewPolicyExpectedVersion(formData),
+        // Removing overrides also removes a provider selection of its own.
+        selectionAuthority: providerSelectionAuthority({
+          actor: dashboardProviderActor(actor),
+          repositoryCapability: dashboardRepositoryCapability(actor),
+        }),
       },
       {
         configurations: new PrismaReviewConfigurationRepository(prisma),
@@ -3134,27 +3164,6 @@ async function retryOutboxEventMutation(
   }
 
   return params;
-}
-
-async function loadGatewayReviewProfiles(workspaceId: string) {
-  const { productionPersonalAccounts } =
-    await import("../../src/server/personal-account-composition");
-  const personal = await productionPersonalAccounts();
-  if (personal) {
-    const allowed = await personal
-      .workspaceAccess(workspaceId)
-      .catch(() => null);
-    if (allowed) {
-      return personal.reviewProfiles(workspaceId);
-    }
-  }
-  const { loadAccountsBootstrap } =
-    await import("../../src/server/account-gateway-accounts");
-  const { page } = await loadAccountsBootstrap(workspaceId);
-  if (page.status === "denied") throw new Error("gateway_review_config_denied");
-  if (page.status !== "ok")
-    throw new Error("gateway_review_catalog_unavailable");
-  return page.value.profiles;
 }
 
 function assertGatewayReviewActorUnchanged(
@@ -3900,7 +3909,6 @@ function resolveCodexRotatingProviderInstanceId(input: {
 }): string {
   assertCodexRotatingOAuthRepositoryAllowed({
     repositoryFullName: input.repositoryFullName,
-    repositoryVisibility: input.repositoryVisibility,
   });
   const rotatingProviders = input.config.providers.filter(
     (provider) => provider.authMode === "codex_subscription_oauth_rotating",
@@ -3925,46 +3933,6 @@ function assertCodexRotatingProviderSetupAllowed(input: {
     return;
   }
   assertCodexRotatingOAuthRepositoryAllowed(input);
-}
-
-function assertCodexRotatingReviewConfigAllowed(input: {
-  readonly config: ReviewConfiguration;
-  readonly repository: {
-    readonly fullName: string;
-    readonly visibility: string;
-  } | null;
-}): void {
-  const rotatingProviders = input.config.providers.filter(
-    (provider) => provider.authMode === "codex_subscription_oauth_rotating",
-  );
-  if (rotatingProviders.length === 0) {
-    return;
-  }
-  if (!input.repository) {
-    if (!isCodexRotatingOAuthAllowedForWorkspaceDefault()) {
-      throw new Error("codex_rotating_repository_scope_required");
-    }
-  } else {
-    assertCodexRotatingOAuthRepositoryAllowed({
-      repositoryFullName: input.repository.fullName,
-      repositoryVisibility: input.repository.visibility,
-    });
-  }
-  if (
-    rotatingProviders.length !== 1 ||
-    rotatingProviders[0]?.kind !== "codex"
-  ) {
-    throw new Error("codex_rotating_single_provider_required");
-  }
-}
-
-function assertCodexRotatingOAuthRepositoryAllowed(input: {
-  readonly repositoryFullName: string;
-  readonly repositoryVisibility: string;
-}): void {
-  if (!isCodexRotatingOAuthAllowedForRepository(input.repositoryFullName)) {
-    throw new Error("codex_rotating_not_enabled");
-  }
 }
 
 async function markRepositoryWorkflowSetupNeedsAttention(input: {

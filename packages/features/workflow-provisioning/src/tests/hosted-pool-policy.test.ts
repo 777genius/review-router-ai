@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { parseReviewConfiguration } from "@reviewrouter/features-review-config";
+import {
+  parseReviewConfiguration,
+  reviewProviderSelectionFor,
+} from "@reviewrouter/features-review-config";
 import { switchRepositoryConfigurationAuthMode } from "../infrastructure/prisma/prisma-hosted-pool-configuration";
 
 const mocks = vi.hoisted(() => ({ find: vi.fn(), save: vi.fn() }));
@@ -8,9 +11,10 @@ vi.mock("@reviewrouter/features-review-config", async (importOriginal) => ({
     typeof import("@reviewrouter/features-review-config")
   >()),
   acquireReviewConfigurationWriteScope: vi.fn(),
-  PrismaReviewConfigurationTransactionRepository: class {},
+  PrismaReviewConfigurationTransactionRepository: class {
+    saveNextVersions = mocks.save;
+  },
   findReviewConfiguration: mocks.find,
-  saveReviewConfiguration: mocks.save,
 }));
 const config = parseReviewConfiguration({
   schemaVersion: 3,
@@ -61,27 +65,44 @@ describe("hosted pool current policy", () => {
     );
     expect(mocks.save).not.toHaveBeenCalled();
   });
-  it("switches providers while retaining sparse overrides and CAS", async () => {
-    mocks.find
-      .mockResolvedValueOnce({
-        version: 7,
-        source: "repository",
-        repositoryVersion: 7,
-        config,
-        policy: { schemaVersion: 3, limits: { inlineMaxComments: 0 } },
-      })
-      .mockResolvedValueOnce({ version: 2, config, policy: config });
+  it("selects a hosted pool profile while retaining sparse overrides and CAS", async () => {
+    const selection = reviewProviderSelectionFor(
+      config.providers[0]!,
+      "profile_rotating",
+    );
+    mocks.find.mockResolvedValueOnce({
+      version: 7,
+      source: "repository",
+      repositoryVersion: 7,
+      config,
+      policy: {
+        schemaVersion: 4,
+        limits: { inlineMaxComments: 0 },
+        providers: [selection],
+      },
+      selections: [selection],
+    });
     await expect(switchRepositoryConfigurationAuthMode(input)).resolves.toBe(
       true,
     );
     const saved = mocks.save.mock.calls[0]![0];
-    expect(saved.expectedVersion).toBe(7);
-    expect(saved.policy).toEqual({
-      schemaVersion: 3,
+    expect(saved.writes).toHaveLength(1);
+    expect(saved.writes[0].expectedVersion).toBe(7);
+    // Only the selected profile changes; settings and sparse fields remain.
+    expect(saved.writes[0].policy).toEqual({
+      schemaVersion: 4,
       limits: { inlineMaxComments: 0 },
-      providers: [{ ...config.providers[0], authMode: input.authMode }],
+      providers: [{ ...selection, profileId: "hosted-switch-0" }],
     });
-    expect(saved.policy.reviewLanguage).toBeUndefined();
-    expect(saved.config).toBeUndefined();
+    expect(saved.profileDrafts).toEqual([
+      {
+        draftId: "hosted-switch-0",
+        credential: { kind: "hosted_pool" },
+        model: config.providers[0]!.model,
+        label: null,
+      },
+    ]);
+    // A system write: the hosted pool profile has no creator.
+    expect(saved.profileCreatorUserId).toBeNull();
   });
 });

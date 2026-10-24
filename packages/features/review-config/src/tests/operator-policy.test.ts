@@ -1,14 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  parseReviewConfiguration,
-  resolveReviewPolicy,
-} from "../domain/review-configuration";
+import { parseReviewConfiguration } from "../domain/review-configuration";
 import { ReviewReasoningEffort } from "../domain/review-reasoning-effort";
 import {
   setOperatorReviewReasoningEffort,
   type OperatorReviewConfigurationDependencies,
 } from "../application/use-cases/manage-operator-review-configuration";
 import type { PersistedReviewConfiguration } from "../application/ports/review-configuration-repository-port";
+import {
+  selectionsFor,
+  workspacePolicyDocumentFixture,
+} from "./current-policy-fixture";
 
 const workspace = parseReviewConfiguration({
   schemaVersion: 3,
@@ -38,6 +39,7 @@ const workspace = parseReviewConfiguration({
     productionEffectsEnabled: false,
   },
 });
+const selections = selectionsFor(workspace, ["profile_rotating"]);
 const input = {
   credential: "test-only",
   repositoryFullName: "owner/repo",
@@ -49,13 +51,14 @@ function fixture(current: PersistedReviewConfiguration | null) {
     OperatorReviewConfigurationDependencies["mutations"]["commit"]
   >(async (command) => ({
     version: 1,
-    config: resolveReviewPolicy(workspace, command.policy),
+    config: workspace,
     policy: command.policy,
     source: "repository",
     workspaceVersion: 1,
     repositoryVersion: 1,
     effectivePolicyDigest: "sha256:test",
     revisionToken: "saved-revision",
+    selections: command.policy.providers ?? selections,
   }));
   const dependencies: OperatorReviewConfigurationDependencies = {
     authorization: {
@@ -79,6 +82,9 @@ function fixture(current: PersistedReviewConfiguration | null) {
       saveNextVersion: async () => {
         throw new Error("unexpected write");
       },
+      saveNextVersions: async () => {
+        throw new Error("unexpected write");
+      },
       deleteTarget: async () => false,
     },
     mutations: { commit },
@@ -89,22 +95,25 @@ function fixture(current: PersistedReviewConfiguration | null) {
 function persisted(
   source: "workspace" | "repository",
 ): PersistedReviewConfiguration {
-  const policy =
-    source === "repository"
-      ? { schemaVersion: 3 as const, limits: { inlineMaxComments: 0 } }
-      : workspace;
   return {
     source,
-    policy,
+    policy:
+      source === "repository"
+        ? { schemaVersion: 4, limits: { inlineMaxComments: 0 } }
+        : workspacePolicyDocumentFixture(workspace, ["profile_rotating"]),
     config:
       source === "repository"
-        ? resolveReviewPolicy(workspace, policy)
+        ? parseReviewConfiguration({
+            ...workspace,
+            limits: { ...workspace.limits, inlineMaxComments: 0 },
+          })
         : workspace,
     version: 1,
     workspaceVersion: 1,
     repositoryVersion: source === "repository" ? 1 : null,
     effectivePolicyDigest: "sha256:test",
     revisionToken: "expected-revision",
+    selections,
   };
 }
 describe("operator writes sparse current policy", () => {
@@ -124,12 +133,12 @@ describe("operator writes sparse current policy", () => {
       commit.mock.calls[0]?.[0].policy.providers?.[0]?.reasoningEffort,
     ).toBe("high");
   });
-  it("keeps workspace settings inherited when changing provider effort", async () => {
+  it("keeps workspace settings inherited and the same profile when changing provider effort", async () => {
     const { dependencies, commit } = fixture(persisted("workspace"));
     await setOperatorReviewReasoningEffort(input, dependencies);
     expect(commit.mock.calls[0]?.[0].policy).toEqual({
-      schemaVersion: 3,
-      providers: [{ ...workspace.providers[0], reasoningEffort: "high" }],
+      schemaVersion: 4,
+      providers: [{ ...selections[0], reasoningEffort: "high" }],
     });
     expect(commit.mock.calls[0]?.[0].expectedRevisionToken).toBe(
       "expected-revision",
@@ -143,7 +152,7 @@ describe("operator writes sparse current policy", () => {
     });
     expect(commit.mock.calls[0]?.[0].policy.blockingPolicy).toBeUndefined();
   });
-  it("denies missing workspace policy before any mutation", async () => {
+  it("denies a repository without a usable configuration before any mutation", async () => {
     const { dependencies, commit } = fixture(null);
     await expect(
       setOperatorReviewReasoningEffort(input, dependencies),

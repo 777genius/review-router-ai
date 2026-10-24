@@ -48,8 +48,7 @@ function updateRequired(input: {
   readonly hosted: { readonly activation: "pending" | "active" } | null;
 }): boolean {
   const [result] = resolveDashboardRepositoryReadiness({
-    activeConfig: input.policy,
-    repositoryConfigs: [],
+    effectiveConfigs: new Map([["repo_1", input.policy]]),
     repositories: [
       {
         id: "repo_1",

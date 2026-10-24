@@ -2067,7 +2067,7 @@ describe("action control plane", () => {
           clock,
         },
       ),
-    ).rejects.toThrow("review_workspace_policy_required");
+    ).rejects.toThrow("review_provider_selection_required");
   });
 
   it("propagates opaque policy readiness instead of treating it as missing configuration", async () => {

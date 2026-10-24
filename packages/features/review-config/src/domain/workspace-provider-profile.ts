@@ -6,6 +6,7 @@ import {
 } from "@reviewrouter/features-review-providers";
 import { looksLikeSecretValue } from "@reviewrouter/shared";
 import { z } from "zod";
+import type { ReviewProviderConfiguration } from "./review-configuration";
 
 export const providerCredentialKinds = [
   "gateway_binding",
@@ -46,10 +47,16 @@ export const managedApiKeyProviderTypes = {
 /**
  * What a creator selects. The server resolves the stored references: the
  * gateway profile ref from the binding and the key from the auth mode, so a
- * request can never name another workspace's key or a stale profile ref.
+ * request can never name another workspace's key or store a stale profile
+ * ref. A gateway request may name the account profile its requester saw; a
+ * different current one is refused instead of silently creating a provider.
  */
 export type ProviderCredentialRequest =
-  | { readonly kind: "gateway_binding"; readonly bindingId: string }
+  | {
+      readonly kind: "gateway_binding";
+      readonly bindingId: string;
+      readonly gatewayProfileRef?: string | undefined;
+    }
   | {
       readonly kind: "managed_api_key";
       readonly authMode: ManagedApiKeyAuthMode;
@@ -106,10 +113,26 @@ export type ProviderProfileErrorCode =
   | "provider_profile_invalid"
   | "provider_profile_not_found"
   | "provider_profile_workspace_unavailable"
-  | "provider_profile_credential_unavailable";
+  | "provider_profile_credential_unavailable"
+  | "provider_profile_duplicate"
+  | "provider_profile_in_use"
+  | "provider_profile_model_incompatible";
+
+/** Policy scopes whose stored selections use one profile. */
+export type ProviderProfileUsage = Readonly<{
+  profileId: string;
+  /** The profile is (part of) the workspace default. */
+  workspaceDefault: boolean;
+  /** Repositories selecting the profile themselves, sorted. */
+  repositoryIds: readonly string[];
+}>;
 
 export class ProviderProfileError extends Error {
-  constructor(readonly code: ProviderProfileErrorCode) {
+  constructor(
+    readonly code: ProviderProfileErrorCode,
+    /** The scopes that block an archive or a model edit. */
+    readonly affected?: ProviderProfileUsage,
+  ) {
     super(code);
     this.name = "ProviderProfileError";
   }
@@ -122,6 +145,7 @@ export const providerCredentialRequestSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("gateway_binding"),
       bindingId: opaqueReferenceSchema,
+      gatewayProfileRef: opaqueReferenceSchema.optional(),
     })
     .strict(),
   z
@@ -208,10 +232,13 @@ export function defaultProviderProfileLabel(
 }
 
 /**
- * Unique per workspace: `credentialKind:credentialRef-or-authMode:normalizedModel`.
+ * Unique per workspace: `credentialKind:credentialRef-or-authMode:model`.
  * A gateway source contributes `bindingId/gatewayProfileRef`, so a changed
  * account profile is a distinct provider. Segments are URI-encoded, which
  * keeps the key injective although references and models may contain `:`.
+ * The model is only trimmed: provider APIs and the runtime configuration
+ * treat model IDs as case-sensitive, so `Model-X` and `model-x` are two
+ * providers rather than one profile silently answering for the other.
  */
 export function providerProfileIdentityKey(
   credential: ProviderCredentialSource,
@@ -220,7 +247,7 @@ export function providerProfileIdentityKey(
   return [
     credential.kind,
     credentialIdentity(credential),
-    encodeURIComponent(model.trim().toLowerCase()),
+    encodeURIComponent(model.trim()),
   ].join(":");
 }
 
@@ -236,6 +263,57 @@ function credentialIdentity(credential: ProviderCredentialSource): string {
     case "user_ci_secret":
       return credential.authMode;
   }
+}
+
+/**
+ * The credential source a runtime provider row stands for. Used by forms that
+ * still submit provider rows and by the one-time profile migration: rotating
+ * belongs to the target repository, and an API key is the server-managed key
+ * only where that key serves the target.
+ */
+export function providerCredentialRequestFor(
+  provider: Pick<ReviewProviderConfiguration, "authMode"> & {
+    readonly gatewayBindingId?: string | undefined;
+    readonly gatewayProfileRef?: string | undefined;
+  },
+  target: Readonly<{
+    repositoryId: string | null;
+    managedApiKey: (authMode: ManagedApiKeyAuthMode) => boolean;
+  }>,
+): ProviderCredentialRequest {
+  switch (provider.authMode) {
+    case "codex_account_gateway":
+      if (!provider.gatewayBindingId)
+        throw new ProviderProfileError("provider_profile_invalid");
+      return {
+        kind: "gateway_binding",
+        bindingId: provider.gatewayBindingId,
+        ...(provider.gatewayProfileRef
+          ? { gatewayProfileRef: provider.gatewayProfileRef }
+          : {}),
+      };
+    case "codex_subscription_oauth_hosted_pool":
+      return { kind: "hosted_pool" };
+    case "codex_subscription_oauth_rotating":
+      if (!target.repositoryId)
+        throw new ProviderProfileError("provider_profile_invalid");
+      return { kind: "repository_rotating", repositoryId: target.repositoryId };
+    case "mimo_token_plan_api_key":
+      return target.managedApiKey(provider.authMode)
+        ? { kind: "managed_api_key", authMode: provider.authMode }
+        : { kind: "user_ci_secret", authMode: provider.authMode };
+    case "openrouter_api_key":
+      // Only the server-managed key delivers OpenRouter.
+      return { kind: "managed_api_key", authMode: provider.authMode };
+    case "claude_code_oauth":
+      return { kind: "user_ci_secret", authMode: provider.authMode };
+  }
+}
+
+export function isManagedApiKeyAuthMode(
+  authMode: string,
+): authMode is ManagedApiKeyAuthMode {
+  return isOneOf(credentialAuthModes.managed_api_key, authMode);
 }
 
 /** Rebuilds a stored source; an inconsistent row is refused, never repaired. */
@@ -302,10 +380,17 @@ function isOneOf<T extends string>(
 
 /** Audit entry of a profile write. Only names and kinds, never a credential. */
 export function providerProfileAuditEvent(input: {
-  readonly action: "provider_profile.created" | "provider_profile.renamed";
+  readonly action:
+    | "provider_profile.created"
+    | "provider_profile.renamed"
+    | "provider_profile.model_changed"
+    | "provider_profile.archived";
   readonly profile: WorkspaceProviderProfile;
   readonly actor: string;
   readonly previousLabel?: string;
+  readonly previousModel?: string;
+  /** Scopes whose effective configuration changed without a new version. */
+  readonly affected?: ProviderProfileUsage;
 }) {
   const { profile } = input;
   return {
@@ -322,6 +407,15 @@ export function providerProfileAuditEvent(input: {
       ...(input.previousLabel === undefined
         ? {}
         : { previousLabel: input.previousLabel }),
+      ...(input.previousModel === undefined
+        ? {}
+        : { previousModel: input.previousModel }),
+      ...(input.affected === undefined
+        ? {}
+        : {
+            affectedWorkspaceDefault: input.affected.workspaceDefault,
+            affectedRepositoryIds: [...input.affected.repositoryIds],
+          }),
     },
   };
 }

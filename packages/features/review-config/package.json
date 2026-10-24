@@ -18,6 +18,11 @@
       "types": "./src/domain/review-configuration.ts",
       "production": "./dist/domain/review-configuration.js",
       "default": "./src/domain/review-configuration.ts"
+    },
+    "./review-policy-document": {
+      "types": "./src/domain/review-policy-document.ts",
+      "production": "./dist/domain/review-policy-document.js",
+      "default": "./src/domain/review-policy-document.ts"
     }
   },
   "dependencies": {

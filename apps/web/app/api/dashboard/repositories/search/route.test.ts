@@ -1,4 +1,17 @@
-import { workspacePolicyFixture } from "../../../../../../../packages/features/review-config/src/tests/current-policy-fixture";
+import {
+  credentialSourceFixture,
+  providerProfileFixture,
+  providerProfileRowFixture,
+  repositoryPolicyDocumentFixture,
+  storedPolicyHeadFixture,
+  workspacePolicyDocumentFixture,
+  workspacePolicyFixture,
+  workspaceProviderFixture,
+} from "../../../../../../../packages/features/review-config/src/tests/current-policy-fixture";
+import {
+  parseReviewConfigurationStrict,
+  type WorkspaceProviderProfile,
+} from "@reviewrouter/features-review-config";
 import { projectRepositorySetupStatus } from "@reviewrouter/features-workflow-provisioning";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { isSetupRecoveryIssue } from "../../../../dashboard/dashboard-copy";
@@ -19,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   providerSetupFindMany: vi.fn(),
   reviewConfigurationFindUnique: vi.fn(),
   reviewConfigurationFindMany: vi.fn(),
+  providerProfileFindMany: vi.fn(),
   repositoryConnectionFindMany: vi.fn(),
   workspaceFindMany: vi.fn(),
   loadHostedPoolDashboardView: vi.fn(),
@@ -107,6 +121,7 @@ vi.mock("../../../../../src/server/prisma", () => ({
       findUnique: mocks.reviewConfigurationFindUnique,
       findMany: mocks.reviewConfigurationFindMany,
     },
+    workspaceProviderProfile: { findMany: mocks.providerProfileFindMany },
     repositoryConnection: { findMany: mocks.repositoryConnectionFindMany },
     workspace: { findMany: mocks.workspaceFindMany },
   }),
@@ -148,20 +163,32 @@ describe("dashboard repository search route", () => {
       status: "unavailable",
     });
     mocks.readGatewayReviewV2RepositoryReadiness.mockResolvedValue(new Map());
+    // The workspace has no default provider; every repository selects its
+    // own rotating Codex profile unless a test stores another selection.
+    testProfiles.clear();
     mocks.reviewConfigurationFindUnique.mockResolvedValue({
       active: true,
       repositoryId: null,
       versions: [
-        {
-          id: "workspace-policy-1",
-          version: 1,
-          schemaVersion: 3,
-          policyJson: JSON.stringify(workspacePolicyFixture),
-          providers: [],
-        },
+        storedPolicyHeadFixture(
+          workspacePolicyDocumentFixture(workspacePolicyFixture),
+        ),
       ],
     });
-    mocks.reviewConfigurationFindMany.mockResolvedValue([]);
+    mocks.reviewConfigurationFindMany.mockImplementation(
+      async (input: RepositoryHeadsQuery) =>
+        input.where.repositoryId.in.map((repositoryId) => ({
+          repositoryId,
+          versions: [repositoryPolicyRow(repositoryId)],
+        })),
+    );
+    mocks.providerProfileFindMany.mockImplementation(
+      async (input: { readonly where: { readonly id: { in: string[] } } }) =>
+        input.where.id.in.flatMap((id) => {
+          const profile = testProfiles.get(id);
+          return profile ? [providerProfileRowFixture(profile)] : [];
+        }),
+    );
     mocks.listWorkspaceRepositoryHealth.mockResolvedValue([]);
     mocks.deriveDashboardProviderSetupReadiness.mockImplementation(
       async (input: { readonly providerSetup: readonly unknown[] }) =>
@@ -456,10 +483,14 @@ describe("dashboard repository search route", () => {
       {
         repositoryId: "repo_missing",
         versions: [
-          reviewConfigurationVersionRow({
-            providerKind: "openrouter",
-            providerAuthMode: "openrouter_api_key",
+          repositoryPolicyRow("repo_missing", {
+            kind: "openrouter",
+            authMode: "openrouter_api_key",
             model: "poolside/laguna-m.1:free",
+            reasoningEffort: "medium",
+            agenticContext: true,
+            fastMode: false,
+            requiredHealthy: true,
           }),
         ],
       },
@@ -604,11 +635,16 @@ describe("dashboard repository search route", () => {
     mocks.repositoryConnectionFindMany.mockResolvedValue(rows);
     mocks.listWorkspaceRepositoryHealth.mockResolvedValue(health);
     mocks.providerSetupFindMany.mockResolvedValue(providerSetup);
-    mocks.reviewConfigurationFindMany.mockResolvedValue(
-      [...gatewayReadiness.keys()].map((repositoryId) => ({
-        repositoryId,
-        versions: [gatewayRepositoryPolicyRow()],
-      })),
+    mocks.reviewConfigurationFindMany.mockImplementation(
+      async (input: RepositoryHeadsQuery) =>
+        input.where.repositoryId.in.map((repositoryId) => ({
+          repositoryId,
+          versions: [
+            gatewayReadiness.has(repositoryId)
+              ? repositoryPolicyRow(repositoryId, gatewayProvider)
+              : repositoryPolicyRow(repositoryId),
+          ],
+        })),
     );
     mocks.loadHostedPoolDashboardView.mockResolvedValue(hostedView);
     mocks.loadDashboardGatewayAccounts.mockResolvedValue(accounts);
@@ -634,13 +670,17 @@ describe("dashboard repository search route", () => {
     }
     // Composed as the dashboard page composes it for its table and summary.
     const pageReadiness = resolveDashboardRepositoryReadiness({
-      activeConfig: workspacePolicyFixture,
-      repositoryConfigs: [...gatewayReadiness.keys()].map((repositoryId) => ({
-        repositoryId,
-        config: {
-          config: { ...workspacePolicyFixture, providers: [gatewayProvider] },
-        },
-      })),
+      effectiveConfigs: new Map(
+        rows.map((repository) => [
+          repository.id,
+          gatewayReadiness.has(repository.id)
+            ? parseReviewConfigurationStrict({
+                ...workspacePolicyFixture,
+                providers: [gatewayProvider],
+              })
+            : workspacePolicyFixture,
+        ]),
+      ),
       repositories: rows.map((repository) => ({
         ...repository,
         setupStatus: projectRepositorySetupStatus({
@@ -722,17 +762,39 @@ const gatewayProvider = {
   requiredHealthy: true,
 } as const;
 
-function gatewayRepositoryPolicyRow() {
-  return {
-    id: "repository-policy-gateway",
-    version: 1,
-    schemaVersion: 3,
-    policyJson: JSON.stringify({
-      schemaVersion: 3,
-      providers: [gatewayProvider],
+type RepositoryHeadsQuery = {
+  readonly where: { readonly repositoryId: { readonly in: string[] } };
+};
+
+/** Profiles the stored repository selections of a test reference. */
+const testProfiles = new Map<string, WorkspaceProviderProfile>();
+
+/**
+ * The stored head of a repository selecting one profile of the provider's
+ * credential source; the workspace settings stay inherited.
+ */
+function repositoryPolicyRow(
+  repositoryId: string,
+  provider: unknown = workspaceProviderFixture,
+) {
+  const config = parseReviewConfigurationStrict({
+    ...workspacePolicyFixture,
+    providers: [provider],
+  });
+  const profiles = config.providers.map((row) =>
+    providerProfileFixture({
+      id: `profile_${row.authMode}_${repositoryId}`,
+      credential: credentialSourceFixture(row, repositoryId),
+      model: row.model,
     }),
-    providers: [],
-  };
+  );
+  for (const profile of profiles) testProfiles.set(profile.id, profile);
+  return storedPolicyHeadFixture(
+    repositoryPolicyDocumentFixture(
+      config,
+      profiles.map((profile) => profile.id),
+    ),
+  );
 }
 
 function gatewayAccounts(): AccountsResult<AccountsPage> {
@@ -868,35 +930,5 @@ function providerSetupRow(input: {
     authMode: input.authMode,
     state: input.state ?? "configured",
     updatedAt: new Date("2026-01-02T00:00:00Z"),
-  };
-}
-
-function reviewConfigurationVersionRow(input: {
-  readonly providerKind: "codex" | "claude" | "openrouter";
-  readonly providerAuthMode:
-    | "claude_code_oauth"
-    | "codex_subscription_oauth_rotating"
-    | "openrouter_api_key";
-  readonly model: string;
-}) {
-  return {
-    id: "repository-policy-1",
-    version: 1,
-    schemaVersion: 3,
-    policyJson: JSON.stringify({
-      schemaVersion: 3,
-      providers: [
-        {
-          kind: input.providerKind,
-          authMode: input.providerAuthMode,
-          model: input.model,
-          reasoningEffort: "medium",
-          agenticContext: true,
-          fastMode: false,
-          requiredHealthy: true,
-        },
-      ],
-    }),
-    providers: [],
   };
 }

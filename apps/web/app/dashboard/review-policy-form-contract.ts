@@ -1,7 +1,6 @@
 /** Explicit repository override fields; no value comparison decides inheritance. */
 export const repositoryPolicyFormFields = [
   ["providers"],
-  ["execution", "providerLimit"],
   ["execution", "providerMaxParallel"],
   ["execution", "inlineMinAgreement"],
   ["blockingPolicy", "failOnSeverity"],

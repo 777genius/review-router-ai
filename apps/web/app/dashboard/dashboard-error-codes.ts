@@ -17,6 +17,12 @@ export function safeDashboardErrorCode(error: unknown): string {
   if (message.startsWith("rate_limit_exceeded:")) {
     return "rate_limited";
   }
+  if (message.startsWith("provider_management_forbidden:")) {
+    return "provider_management_forbidden";
+  }
+  if (message === "review_configuration_write_conflict") {
+    return "dashboard_action_stale";
+  }
   if (message.startsWith("github_user_token_request_failed:401")) {
     return "repository_access_token_revoked";
   }
@@ -37,7 +43,7 @@ export function safeDashboardErrorCode(error: unknown): string {
   if (
     [
       "review_policy_resave_required",
-      "review_workspace_policy_required",
+      "review_provider_selection_required",
       "workflow_delete_untrusted",
       "repository_access_token_missing",
       "repository_access_token_revoked",

@@ -1,64 +1,95 @@
-import {
-  PrismaAuditLogRepository,
-  recordAuditEvent,
-} from "@reviewrouter/features-audit-log";
-import { lockProviderAccountBindingUses } from "@reviewrouter/features-provider-accounts";
+import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
+import type { Prisma, PrismaClient } from "@prisma/client";
+import type { WorkspacePolicyHeads } from "../../application/ports/review-configuration-repository-port";
 import type {
-  Prisma,
-  PrismaClient,
-  WorkspaceProviderProfile as WorkspaceProviderProfileRow,
-} from "@prisma/client";
-import type {
-  ProviderProfileActor,
-  ProviderProfileAuthorityFacts,
+  ProviderProfileModelChangeScope,
   WorkspaceProviderProfileRepositoryPort,
 } from "../../application/ports/workspace-provider-profile-repository-port";
-import type { ProviderProfileFacts } from "../../domain/provider-management-policy";
 import {
-  defaultProviderProfileLabel,
-  managedApiKeyProviderTypes,
-  providerCredentialSourceFromStorage,
-  providerProfileAuditEvent,
+  composeEffectiveReviewConfiguration,
+  parseStoredReviewPolicy,
+} from "../../application/use-cases/resolve-effective-review-configuration";
+import {
+  providerProfileUsageOf,
+  type RepositoryReviewPolicy,
+} from "../../domain/review-policy-document";
+import type { ReviewConfigurationTarget } from "../../domain/review-configuration-target";
+import {
   providerProfileIdentityKey,
   ProviderProfileError,
-  type ProviderCredentialRequest,
-  type ProviderCredentialSource,
+  type ProviderProfileUsage,
   type WorkspaceProviderProfile,
 } from "../../domain/workspace-provider-profile";
+import { readSelectableGatewayProfileRef } from "./prisma-gateway-binding-authority";
 import {
-  lockPersonalWriteActor,
-  readSelectableGatewayProfileRef,
-} from "./prisma-gateway-binding-authority";
-import { isPrismaReviewConfigurationSerializationConflict } from "./prisma-review-configuration-repository";
+  lockProviderAuthority,
+  providerProfileFacts,
+  type LockedProviderAuthority,
+} from "./prisma-provider-authority";
+import {
+  findOrCreateProviderProfileIn,
+  lockGatewayBindings,
+  readPersonalBindingIds,
+  recordProviderProfileAudit,
+  requestedProfileFacts,
+  resolveProviderCredential,
+  type ProviderProfileWriteOptions,
+} from "./prisma-provider-profile-writes";
+import { toProviderProfile } from "./prisma-provider-profile-rows";
+import { PrismaReviewPolicyHeadReader } from "./prisma-review-policy-head-reader";
+import {
+  isPrismaReviewConfigurationWriteConflict,
+  runReviewConfigurationTransaction,
+} from "./prisma-transaction-retry";
 
-type Input<Method extends "findOrCreate" | "rename"> = Parameters<
-  WorkspaceProviderProfileRepositoryPort[Method]
->[0];
-
-const MAX_TRANSACTION_ATTEMPTS = 3;
+type Input<
+  Method extends "findOrCreate" | "rename" | "changeModel" | "archive",
+> = Parameters<WorkspaceProviderProfileRepositoryPort[Method]>[0];
 
 /**
- * Lock order of every profile write: Workspace -> personal actor and donors ->
- * gateway connection and binding -> profile row. This extends the admission
- * order, so profile writes serialize with admissions, saves and the Access
- * rights toggle without new locks on those paths.
+ * Lock order of every profile write: (model edits and archives: workspace
+ * scope guard) -> Workspace -> personal actor and donors -> gateway connection
+ * and binding -> ReviewConfiguration rows -> profile row. This extends the
+ * admission order, so profile writes serialize with admissions, selection
+ * saves and the Access rights toggle. Label edits change no configuration
+ * and take no scope guard.
  */
 export class PrismaWorkspaceProviderProfileRepository implements WorkspaceProviderProfileRepositoryPort {
   constructor(
     private readonly prisma: PrismaClient,
-    // Trusted backend composition, never request data.
-    private readonly options: Readonly<{
-      operatorWorkspaceId?: string;
-      personalAccountsEnabled?: boolean;
-    }> = {},
+    // Trusted backend composition, never request data; deliberately required.
+    private readonly options: ProviderProfileWriteOptions,
   ) {}
 
   findOrCreate(input: Input<"findOrCreate">) {
-    return this.transaction((tx) => this.findOrCreateIn(tx, input));
+    return runReviewConfigurationTransaction(this.prisma, (tx) =>
+      this.findOrCreateIn(tx, input),
+    );
   }
 
   rename(input: Input<"rename">) {
-    return this.transaction((tx) => renameIn(tx, input));
+    return runReviewConfigurationTransaction(this.prisma, (tx) =>
+      renameIn(tx, input),
+    );
+  }
+
+  async changeModel(input: Input<"changeModel">) {
+    try {
+      return await runReviewConfigurationTransaction(this.prisma, (tx) =>
+        this.changeModelIn(tx, input),
+      );
+    } catch (error) {
+      // Only a creator that bypassed the workspace lock can collide here.
+      if (isPrismaReviewConfigurationWriteConflict(error))
+        throw new ProviderProfileError("provider_profile_duplicate");
+      throw error;
+    }
+  }
+
+  archive(input: Input<"archive">) {
+    return runReviewConfigurationTransaction(this.prisma, (tx) =>
+      this.archiveIn(tx, input),
+    );
   }
 
   async list(workspaceId: string) {
@@ -66,235 +97,284 @@ export class PrismaWorkspaceProviderProfileRepository implements WorkspaceProvid
       where: { workspaceId, archivedAt: null },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
-    return rows.map(toProfile);
+    return rows.flatMap((row) => {
+      try {
+        return [toProviderProfile(row)];
+      } catch (error) {
+        // The SQL CHECKs keep rows consistent; never let one row hide the list.
+        if (error instanceof ProviderProfileError) return [];
+        throw error;
+      }
+    });
+  }
+
+  async listUsage(workspaceId: string) {
+    const heads = await PrismaReviewPolicyHeadReader.snapshot(
+      this.prisma,
+    ).readWorkspacePolicyHeads(workspaceId);
+    return [...storedUsage(heads).values()];
   }
 
   private async findOrCreateIn(
     tx: Prisma.TransactionClient,
     input: Input<"findOrCreate">,
   ) {
-    const facts = await lockAuthorityFacts(tx, input.workspaceId, input.actor);
-    const { credential } = input;
-    const personalBindings =
-      credential.kind === "gateway_binding"
-        ? await lockPersonalWriteActor(
-            tx,
-            input.workspaceId,
-            [credential.bindingId],
-            input.actor.userId,
-          )
-        : new Set<string>();
-    input.authorize({
-      ...facts,
-      profile: {
-        credentialKind: credential.kind,
-        createdByUserId: input.actor.userId,
-        personalBinding:
-          credential.kind === "gateway_binding" &&
-          personalBindings.has(credential.bindingId),
-        repositoryId:
-          credential.kind === "repository_rotating"
-            ? credential.repositoryId
-            : null,
-      },
-    });
-    if (
-      input.repository &&
-      !(await tx.repositoryConnection.findFirst({
-        where: {
-          id: input.repository.repositoryId,
-          workspaceId: input.workspaceId,
-        },
-        select: { id: true },
-      }))
-    )
-      throw new ProviderProfileError("provider_profile_invalid");
-    const source = await this.resolveCredential(
+    const authority = await lockProviderAuthority(
       tx,
       input.workspaceId,
+      input.actor,
+    );
+    const { credential } = input;
+    const bindingIds =
+      credential.kind === "gateway_binding" ? [credential.bindingId] : [];
+    input.authorize({
+      ...authority,
+      profile: await requestedProfileFacts(tx, {
+        workspaceId: input.workspaceId,
+        creatorUserId: input.actor.userId,
+        credential,
+        personalBindings: await readPersonalBindingIds(
+          tx,
+          input.workspaceId,
+          bindingIds,
+        ),
+        repositoryId: null,
+      }),
+    });
+    const personalBindings = await lockGatewayBindings(
+      tx,
+      input.workspaceId,
+      bindingIds,
+      input.actor.userId,
+      this.options,
+    );
+    const source = await resolveProviderCredential(tx, {
+      workspaceId: input.workspaceId,
       credential,
       personalBindings,
+      options: this.options,
+    });
+    return findOrCreateProviderProfileIn(tx, {
+      workspaceId: input.workspaceId,
+      creatorUserId: input.actor.userId,
+      auditActor: input.actor.auditActor,
+      source,
+      model: input.model,
+      label: input.label,
+    });
+  }
+
+  private async changeModelIn(
+    tx: Prisma.TransactionClient,
+    input: Input<"changeModel">,
+  ) {
+    const { profile, personalBindings } = await this.lockProfileWrite(
+      tx,
+      input,
     );
-    const identityKey = providerProfileIdentityKey(source, input.model);
-    const where = {
-      workspaceId_identityKey: { workspaceId: input.workspaceId, identityKey },
+    const previousModel = profile.model;
+    const changed: WorkspaceProviderProfile = {
+      ...profile,
+      model: input.model,
     };
-    const existing = await tx.workspaceProviderProfile.findUnique({ where });
-    if (existing) return { profile: toProfile(existing), created: false };
-    // Never catch a unique violation inside the interactive transaction: a
-    // concurrent creator that bypassed the workspace lock wins and is read back.
-    const inserted = await tx.workspaceProviderProfile.createMany({
-      data: [
-        {
+    const heads = await new PrismaReviewPolicyHeadReader(
+      tx,
+    ).readWorkspacePolicyHeads(input.workspaceId);
+    const profiles = new Map(heads.profiles).set(profile.id, changed);
+    const affected = storedUsage(heads).get(profile.id) ?? emptyUsage(profile);
+    const incompatible = {
+      workspaceDefault: false,
+      repositoryIds: [] as string[],
+    };
+    const scopes: ProviderProfileModelChangeScope[] = [];
+    for (const target of affectedTargets(
+      input.workspaceId,
+      heads,
+      profile.id,
+    )) {
+      const resolved = composeEffectiveReviewConfiguration(target, {
+        workspace: heads.workspace,
+        repository:
+          target.scope === "repository"
+            ? (heads.repositories.get(target.repositoryId) ?? null)
+            : null,
+        profiles,
+      });
+      if (resolved.status !== "ready") {
+        if (target.scope === "workspace") incompatible.workspaceDefault = true;
+        else incompatible.repositoryIds.push(target.repositoryId);
+        continue;
+      }
+      scopes.push({ target, config: resolved.config });
+    }
+    if (incompatible.workspaceDefault || incompatible.repositoryIds.length)
+      throw new ProviderProfileError("provider_profile_model_incompatible", {
+        profileId: profile.id,
+        workspaceDefault: incompatible.workspaceDefault,
+        repositoryIds: incompatible.repositoryIds.sort(),
+      });
+    for (const scope of scopes) input.validateScope?.(scope);
+    if (
+      profile.credential.kind === "gateway_binding" &&
+      (await readSelectableGatewayProfileRef(tx, {
+        workspaceId: input.workspaceId,
+        bindingId: profile.credential.bindingId,
+        personalBindings,
+        operatorWorkspaceId: this.options.operatorWorkspaceId,
+        personalAccountsEnabled: this.options.personalAccountsEnabled,
+      })) !== profile.credential.gatewayProfileRef
+    )
+      throw new Error("review_configuration_gateway_profile_mismatch");
+    const identityKey = providerProfileIdentityKey(
+      profile.credential,
+      input.model,
+    );
+    const duplicate = await tx.workspaceProviderProfile.findUnique({
+      where: {
+        workspaceId_identityKey: {
           workspaceId: input.workspaceId,
-          createdByUserId: input.actor.userId,
-          credentialKind: source.kind,
-          authMode: source.authMode,
-          gatewayBindingId:
-            source.kind === "gateway_binding" ? source.bindingId : null,
-          gatewayProfileRef:
-            source.kind === "gateway_binding" ? source.gatewayProfileRef : null,
-          apiKeyConnectionId:
-            source.kind === "managed_api_key"
-              ? source.apiKeyConnectionId
-              : null,
-          repositoryId:
-            source.kind === "repository_rotating" ? source.repositoryId : null,
-          model: input.model,
-          label:
-            input.label ?? defaultProviderProfileLabel(source, input.model),
           identityKey,
         },
-      ],
-      skipDuplicates: true,
+      },
+      select: { id: true },
     });
-    const profile = toProfile(
-      await tx.workspaceProviderProfile.findUniqueOrThrow({ where }),
+    if (duplicate && duplicate.id !== profile.id)
+      throw new ProviderProfileError("provider_profile_duplicate");
+    if (previousModel === input.model)
+      return { profile, previousModel, affected };
+    const updated = await tx.workspaceProviderProfile.updateMany({
+      where: {
+        id: profile.id,
+        workspaceId: input.workspaceId,
+        archivedAt: null,
+      },
+      data: { model: input.model, identityKey },
+    });
+    if (updated.count !== 1)
+      throw new ProviderProfileError("provider_profile_not_found");
+    const saved = toProviderProfile(
+      await tx.workspaceProviderProfile.findUniqueOrThrow({
+        where: { id: profile.id },
+      }),
     );
-    if (inserted.count === 1)
-      await audit(tx, {
-        action: "provider_profile.created",
-        profile,
-        actor: input.actor.auditActor,
-      });
-    return { profile, created: inserted.count === 1 };
+    // No policy version changes, so the audit event names every scope.
+    await recordProviderProfileAudit(tx, {
+      action: "provider_profile.model_changed",
+      profile: saved,
+      actor: input.actor.auditActor,
+      previousModel,
+      affected,
+    });
+    return { profile: saved, previousModel, affected };
   }
 
-  /** Resolves server-owned references; the request never names them itself. */
-  private async resolveCredential(
+  private async archiveIn(
     tx: Prisma.TransactionClient,
-    workspaceId: string,
-    credential: ProviderCredentialRequest,
-    personalBindings: ReadonlySet<string>,
-  ): Promise<ProviderCredentialSource> {
-    switch (credential.kind) {
-      case "gateway_binding": {
-        const personalAccountsEnabled =
-          this.options.personalAccountsEnabled ?? false;
-        await lockProviderAccountBindingUses(
-          tx,
-          workspaceId,
-          [credential.bindingId],
-          personalAccountsEnabled,
-        );
-        const gatewayProfileRef = await readSelectableGatewayProfileRef(tx, {
-          workspaceId,
-          bindingId: credential.bindingId,
-          personalBindings,
-          operatorWorkspaceId: this.options.operatorWorkspaceId,
-          personalAccountsEnabled,
-        });
-        if (!gatewayProfileRef)
-          throw new ProviderProfileError(
-            "provider_profile_credential_unavailable",
-          );
-        return {
-          kind: "gateway_binding",
-          authMode: "codex_account_gateway",
-          bindingId: credential.bindingId,
-          gatewayProfileRef,
-        };
-      }
-      case "managed_api_key": {
-        const key = await tx.providerApiKeyConnection.findUnique({
-          where: {
-            workspaceId_providerType: {
-              workspaceId,
-              providerType: managedApiKeyProviderTypes[credential.authMode],
-            },
-          },
-          select: { id: true },
-        });
-        if (!key)
-          throw new ProviderProfileError(
-            "provider_profile_credential_unavailable",
-          );
-        return {
-          kind: "managed_api_key",
-          authMode: credential.authMode,
-          apiKeyConnectionId: key.id,
-        };
-      }
-      case "repository_rotating":
-        if (
-          !(await tx.repositoryConnection.findFirst({
-            where: { id: credential.repositoryId, workspaceId },
-            select: { id: true },
-          }))
-        )
-          throw new ProviderProfileError(
-            "provider_profile_credential_unavailable",
-          );
-        return {
-          kind: "repository_rotating",
-          authMode: "codex_subscription_oauth_rotating",
-          repositoryId: credential.repositoryId,
-        };
-      case "hosted_pool":
-        return {
-          kind: "hosted_pool",
-          authMode: "codex_subscription_oauth_hosted_pool",
-        };
-      case "user_ci_secret":
-        return { kind: "user_ci_secret", authMode: credential.authMode };
-    }
+    input: Input<"archive">,
+  ) {
+    const { profile } = await this.lockProfileWrite(tx, input);
+    const heads = await new PrismaReviewPolicyHeadReader(
+      tx,
+    ).readWorkspacePolicyHeads(input.workspaceId);
+    const usage = storedUsage(heads).get(profile.id);
+    if (usage && (usage.workspaceDefault || usage.repositoryIds.length > 0))
+      throw new ProviderProfileError("provider_profile_in_use", usage);
+    const archivedAt = new Date();
+    const updated = await tx.workspaceProviderProfile.updateMany({
+      where: {
+        id: profile.id,
+        workspaceId: input.workspaceId,
+        archivedAt: null,
+      },
+      // Archiving releases the identity so the provider can be created again.
+      data: { archivedAt, identityKey: null },
+    });
+    if (updated.count !== 1)
+      throw new ProviderProfileError("provider_profile_not_found");
+    const archived = { ...profile, archivedAt };
+    await recordProviderProfileAudit(tx, {
+      action: "provider_profile.archived",
+      profile: archived,
+      actor: input.actor.auditActor,
+    });
+    return archived;
   }
 
-  private async transaction<Result>(
-    run: (tx: Prisma.TransactionClient) => Promise<Result>,
-  ): Promise<Result> {
-    for (let attempt = 1; ; attempt += 1) {
-      try {
-        return await this.prisma.$transaction(run);
-      } catch (error) {
-        // Deadlock victims against lock-order-inverting writers retry whole.
-        if (
-          !isPrismaReviewConfigurationSerializationConflict(error) ||
-          attempt === MAX_TRANSACTION_ATTEMPTS
-        )
-          throw error;
-      }
-    }
+  /**
+   * The documented order for writes that change effective configurations:
+   * workspace guard, Workspace, decision, personal actor, bindings, every
+   * ReviewConfiguration row, then the profile itself, reread after its lock.
+   */
+  private async lockProfileWrite(
+    tx: Prisma.TransactionClient,
+    input: Input<"archive">,
+  ): Promise<
+    Readonly<{
+      profile: WorkspaceProviderProfile;
+      personalBindings: ReadonlySet<string>;
+    }>
+  > {
+    await acquireCurrentScopeGuards(tx, [
+      { scope: "workspace", workspaceId: input.workspaceId, mode: "exclusive" },
+    ]);
+    const authority = await lockProviderAuthority(
+      tx,
+      input.workspaceId,
+      input.actor,
+    );
+    const candidate = await authorizeProfileWrite(tx, input, authority);
+    const bindingIds =
+      candidate.credential.kind === "gateway_binding"
+        ? [candidate.credential.bindingId]
+        : [];
+    const personalBindings = await lockGatewayBindings(
+      tx,
+      input.workspaceId,
+      bindingIds,
+      input.actor.userId,
+      this.options,
+    );
+    await tx.$queryRaw`
+      SELECT "id" FROM "ReviewConfiguration"
+      WHERE "workspaceId" = ${input.workspaceId} AND "active" = true
+      ORDER BY "id" FOR UPDATE`;
+    const locked = await tx.$queryRaw<readonly { id: string }[]>`
+      SELECT "id" FROM "WorkspaceProviderProfile"
+      WHERE "id" = ${candidate.id} AND "workspaceId" = ${input.workspaceId}
+        AND "archivedAt" IS NULL
+      FOR UPDATE`;
+    if (locked.length !== 1)
+      throw new ProviderProfileError("provider_profile_not_found");
+    const profile = toProviderProfile(
+      await tx.workspaceProviderProfile.findUniqueOrThrow({
+        where: { id: candidate.id },
+      }),
+    );
+    return { profile, personalBindings };
   }
 }
 
 async function renameIn(tx: Prisma.TransactionClient, input: Input<"rename">) {
-  const facts = await lockAuthorityFacts(tx, input.workspaceId, input.actor);
-  const where = {
-    id: input.profileId,
-    workspaceId: input.workspaceId,
-    archivedAt: null,
-  };
-  const current = await tx.workspaceProviderProfile.findFirst({ where });
-  if (!current) throw new ProviderProfileError("provider_profile_not_found");
-  const profile = toProfile(current);
-  const personalBindings =
-    profile.credential.kind === "gateway_binding"
-      ? await lockPersonalWriteActor(
-          tx,
-          input.workspaceId,
-          [profile.credential.bindingId],
-          input.actor.userId,
-        )
-      : new Set<string>();
-  input.authorize({
-    ...facts,
-    profile: profileFacts(profile, personalBindings),
-  });
+  const authority = await lockProviderAuthority(
+    tx,
+    input.workspaceId,
+    input.actor,
+  );
+  const profile = await authorizeProfileWrite(tx, input, authority);
   if (profile.label === input.label) return profile;
   // The conditional update locks the row and rechecks it is still active.
   const updated = await tx.workspaceProviderProfile.updateMany({
-    where,
+    where: { id: profile.id, workspaceId: input.workspaceId, archivedAt: null },
     data: { label: input.label },
   });
   if (updated.count !== 1)
     throw new ProviderProfileError("provider_profile_not_found");
-  const renamed = toProfile(
+  const renamed = toProviderProfile(
     await tx.workspaceProviderProfile.findUniqueOrThrow({
-      where: { id: input.profileId },
+      where: { id: profile.id },
     }),
   );
-  await audit(tx, {
+  await recordProviderProfileAudit(tx, {
     action: "provider_profile.renamed",
     profile: renamed,
     actor: input.actor.auditActor,
@@ -303,71 +383,130 @@ async function renameIn(tx: Prisma.TransactionClient, input: Input<"rename">) {
   return renamed;
 }
 
-/** Locks the workspace row, then reads the facts every decision needs. */
-async function lockAuthorityFacts(
+/**
+ * The profile-independent gate first, then the profile and the decision, all
+ * before any credential read or personal-actor lock can answer instead.
+ */
+async function authorizeProfileWrite(
   tx: Prisma.TransactionClient,
+  input: Input<"archive">,
+  authority: LockedProviderAuthority,
+): Promise<WorkspaceProviderProfile> {
+  input.gate(authority);
+  const row = await tx.workspaceProviderProfile.findFirst({
+    where: {
+      id: input.profileId,
+      workspaceId: input.workspaceId,
+      archivedAt: null,
+    },
+  });
+  if (!row) throw new ProviderProfileError("provider_profile_not_found");
+  const profile = toProviderProfile(row);
+  input.authorize({
+    ...authority,
+    profile: providerProfileFacts(
+      profile,
+      await readPersonalBindingIds(
+        tx,
+        input.workspaceId,
+        profile.credential.kind === "gateway_binding"
+          ? [profile.credential.bindingId]
+          : [],
+      ),
+    ),
+  });
+  return profile;
+}
+
+function storedUsage(
+  heads: WorkspacePolicyHeads,
+): ReadonlyMap<string, ProviderProfileUsage> {
+  const repositories = new Map<string, RepositoryReviewPolicy>();
+  for (const [repositoryId, head] of heads.repositories) {
+    const policy = parseStoredReviewPolicy("repository", head);
+    if (policy) repositories.set(repositoryId, policy);
+  }
+  return providerProfileUsageOf({
+    workspace: heads.workspace
+      ? parseStoredReviewPolicy("workspace", heads.workspace)
+      : null,
+    repositories,
+  });
+}
+
+/**
+ * Targets whose effective configuration uses the profile: the workspace
+ * default and every repository document resolving to it, explicitly or by
+ * inheritance. A repository without a document resolves like the workspace.
+ */
+function affectedTargets(
   workspaceId: string,
-  actor: ProviderProfileActor,
-): Promise<Omit<ProviderProfileAuthorityFacts, "profile">> {
-  // NO KEY UPDATE serializes with admission (FOR UPDATE), other profile writes
-  // and the Access rights toggle, but not with foreign-key checks of inserts.
-  const locked = await tx.$queryRaw<readonly { id: string }[]>`
-    SELECT "id" FROM "Workspace"
-    WHERE "id" = ${workspaceId} AND "deletionState" = 'active'
-    FOR NO KEY UPDATE`;
-  if (locked.length !== 1)
-    throw new ProviderProfileError("provider_profile_workspace_unavailable");
-  const workspace = await tx.workspace.findUniqueOrThrow({
-    where: { id: workspaceId },
-    select: { personalOwnerUserId: true, providerManagementAdminOnly: true },
-  });
-  const member = await tx.workspaceMember.findUnique({
-    where: { workspaceId_userId: { workspaceId, userId: actor.userId } },
-    select: { role: true },
-  });
-  return {
-    actor: { userId: actor.userId, role: member?.role ?? null },
-    workspace,
-  };
+  heads: WorkspacePolicyHeads,
+  profileId: string,
+): readonly ReviewConfigurationTarget[] {
+  const workspace = heads.workspace
+    ? parseStoredReviewPolicy("workspace", heads.workspace)
+    : null;
+  const defaultUses =
+    workspace?.providers?.some(
+      (selection) => selection.profileId === profileId,
+    ) ?? false;
+  const targets: ReviewConfigurationTarget[] = defaultUses
+    ? [{ scope: "workspace", workspaceId }]
+    : [];
+  for (const [repositoryId, head] of heads.repositories) {
+    const policy = parseStoredReviewPolicy("repository", head);
+    const selections =
+      policy?.providers ?? (policy ? workspace?.providers : []);
+    if (selections?.some((selection) => selection.profileId === profileId))
+      targets.push({ scope: "repository", workspaceId, repositoryId });
+  }
+  return targets;
 }
 
-function profileFacts(
-  profile: WorkspaceProviderProfile,
-  personalBindings: ReadonlySet<string>,
-): ProviderProfileFacts {
-  const { credential } = profile;
-  return {
-    credentialKind: credential.kind,
-    createdByUserId: profile.createdByUserId,
-    personalBinding:
-      credential.kind === "gateway_binding" &&
-      personalBindings.has(credential.bindingId),
-    repositoryId:
-      credential.kind === "repository_rotating"
-        ? credential.repositoryId
-        : null,
-  };
+function emptyUsage(profile: WorkspaceProviderProfile): ProviderProfileUsage {
+  return { profileId: profile.id, workspaceDefault: false, repositoryIds: [] };
 }
 
-async function audit(
+/** System creators (operator API, hosted activation, the one-time migration). */
+export async function findOrCreateSystemProviderProfile(
   tx: Prisma.TransactionClient,
-  input: Parameters<typeof providerProfileAuditEvent>[0],
+  input: Readonly<{
+    workspaceId: string;
+    credential: Parameters<typeof resolveProviderCredential>[1]["credential"];
+    model: string;
+    label?: string | null;
+    /** The user a personal gateway binding is validated for; none otherwise. */
+    personalWriteActorUserId?: string;
+    /** Creator of a new profile; null is a system creator. */
+    creatorUserId: string | null;
+    auditActor: string;
+    options: ProviderProfileWriteOptions;
+  }>,
 ) {
-  await recordAuditEvent(providerProfileAuditEvent(input), {
-    auditLog: new PrismaAuditLogRepository(tx),
+  const bindingIds =
+    input.credential.kind === "gateway_binding"
+      ? [input.credential.bindingId]
+      : [];
+  const personalBindings = await lockGatewayBindings(
+    tx,
+    input.workspaceId,
+    bindingIds,
+    input.personalWriteActorUserId,
+    input.options,
+  );
+  const source = await resolveProviderCredential(tx, {
+    workspaceId: input.workspaceId,
+    credential: input.credential,
+    personalBindings,
+    options: input.options,
   });
-}
-
-function toProfile(row: WorkspaceProviderProfileRow): WorkspaceProviderProfile {
-  return {
-    id: row.id,
-    workspaceId: row.workspaceId,
-    createdByUserId: row.createdByUserId,
-    credential: providerCredentialSourceFromStorage(row),
-    model: row.model,
-    label: row.label,
-    archivedAt: row.archivedAt,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
+  return findOrCreateProviderProfileIn(tx, {
+    workspaceId: input.workspaceId,
+    creatorUserId: input.creatorUserId,
+    auditActor: input.auditActor,
+    source,
+    model: input.model,
+    label: input.label ?? null,
+  });
 }

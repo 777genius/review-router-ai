@@ -83,7 +83,7 @@ export async function getActionRuntimeConfig(
       throw new Error("conflict_review_config_snapshot_mismatch");
     }
   }
-  if (!record) throw new Error("review_workspace_policy_required");
+  if (!record) throw new Error("review_provider_selection_required");
   const config = record.config;
   assertStandardRuntimeProviderSupport(config, session, repository);
   if (session.reviewKind === "conflict-head") {

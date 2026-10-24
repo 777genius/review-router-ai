@@ -17,10 +17,15 @@ const gateway = (
 });
 
 describe("workspace provider profile identity", () => {
-  it("keys by credential source and normalized model, never by label", () => {
+  it("keys by credential source and trimmed model, never by label", () => {
     expect(
-      providerProfileIdentityKey(gateway("b1", "p1"), " GPT-5.6-Sol "),
+      providerProfileIdentityKey(gateway("b1", "p1"), " gpt-5.6-sol "),
     ).toBe("gateway_binding:b1/p1:gpt-5.6-sol");
+    // Model IDs are case-sensitive at the provider and in the runtime
+    // configuration, so a differently cased model is another provider.
+    expect(providerProfileIdentityKey(gateway("b1", "p1"), "Model-X")).not.toBe(
+      providerProfileIdentityKey(gateway("b1", "p1"), "model-x"),
+    );
     expect(
       providerProfileIdentityKey(
         { kind: "user_ci_secret", authMode: "claude_code_oauth" },
@@ -67,12 +72,12 @@ describe("workspace provider profile input", () => {
     ["a URL model", { model: "https://example.com/model" }],
     ["a token model", { model: "ghp_0123456789abcdefghijklmn" }],
     [
-      "a caller-chosen gateway profile ref",
+      "a secret-shaped expected gateway profile ref",
       {
         credential: {
           kind: "gateway_binding",
           bindingId: "b1",
-          gatewayProfileRef: "p1",
+          gatewayProfileRef: "sk-proj-0123456789",
         },
       },
     ],

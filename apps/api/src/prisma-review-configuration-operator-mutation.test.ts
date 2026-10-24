@@ -1,51 +1,49 @@
-import { createHash } from "node:crypto";
-import { canonicalJson } from "@reviewrouter/features-review-config";
-import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
+import {
+  effectiveReviewPolicyDigest,
+  parseReviewConfigurationStrict,
+} from "@reviewrouter/features-review-config";
+import {
+  providerProfileFixture,
+  providerProfileRowFixture,
+  selectionsFor,
+  storedPolicyHeadFixture,
+  workspacePolicyDocumentFixture,
+  workspacePolicyFixture,
+  workspaceProviderFixture,
+} from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import type { Prisma } from "@prisma/client";
 import { ReviewConfigurationWriteConflictError } from "@reviewrouter/features-review-config";
 import { describe, expect, it } from "vitest";
 import { PrismaReviewConfigurationOperatorMutation } from "./prisma-review-configuration-operator-mutation.js";
 
-type ProviderRow = {
-  gatewayBindingId: string | null;
-  gatewayProfileRef: string | null;
-  providerKind: string;
-  providerAuthMode: string;
-  model: string;
-  reasoningEffort: string;
-  agenticContext: boolean;
-  fastMode: boolean;
-  requiredHealthy: boolean;
-};
+// The workspace default is a hosted pool Codex provider.
+const hostedProfile = providerProfileFixture({
+  id: "profile_hosted",
+  credential: {
+    kind: "hosted_pool",
+    authMode: "codex_subscription_oauth_hosted_pool",
+  },
+  model: workspaceProviderFixture.model,
+});
+function workspaceConfig(effort: "high" | "xhigh") {
+  return parseReviewConfigurationStrict({
+    ...workspacePolicyFixture,
+    providers: [
+      {
+        ...workspaceProviderFixture,
+        authMode: "codex_subscription_oauth_hosted_pool",
+        reasoningEffort: effort,
+      },
+    ],
+  });
+}
 
 type VersionRow = {
   id: string;
   workspaceId: string;
-  gatewayBindingId: string | null;
-  gatewayProfileRef: string | null;
   version: number;
   schemaVersion: number;
   policyJson: string;
-  providerKind: string;
-  providerAuthMode: string;
-  model: string;
-  reasoningEffort: string;
-  agenticContext: boolean;
-  fastMode: boolean;
-  failOnSeverity: string;
-  inlineMaxComments: number;
-  providerLimit: number;
-  providerMaxParallel: number;
-  inlineMinAgreement: number;
-  targetTokensPerBatch: number;
-  reviewLanguage: string | null;
-  investigationRecordingEnabled: boolean;
-  investigationShadowEnabled: boolean;
-  investigationContextCriticEnabled: boolean;
-  investigationVerifiedCleanEnabled: boolean;
-  investigationCrossRevisionReplayEnabled: boolean;
-  investigationProductionEffectsEnabled: boolean;
-  providers: ProviderRow[];
 };
 
 type ConfigurationRow = {
@@ -153,7 +151,6 @@ function cloneState(state: State): State {
           ...configuration,
           versions: configuration.versions.map((version) => ({
             ...version,
-            providers: version.providers.map((provider) => ({ ...provider })),
           })),
         },
       ]),
@@ -166,9 +163,22 @@ function cloneState(state: State): State {
 
 function createTransactionClient(state: State, events: string[]) {
   return {
-    async $queryRaw(sql: Prisma.Sql) {
-      events.push(sql.text.includes("lock_shared(") ? "shared" : "exclusive");
+    // Guards pass a Prisma.Sql; the profile lock is a tagged template.
+    async $queryRaw(sql: Prisma.Sql | TemplateStringsArray) {
+      const text = "text" in sql ? sql.text : sql.join("?");
+      events.push(
+        text.includes("WorkspaceProviderProfile")
+          ? "profile-lock"
+          : text.includes("lock_shared(")
+            ? "shared"
+            : "exclusive",
+      );
       return [];
+    },
+    workspaceProviderProfile: {
+      async findMany() {
+        return [providerProfileRowFixture(hostedProfile)];
+      },
     },
     reviewConfiguration: {
       async findUnique(input: {
@@ -256,21 +266,14 @@ function createTransactionClient(state: State, events: string[]) {
         return latest ? { version: latest.version } : null;
       },
       async create(input: {
-        data: Omit<VersionRow, "id" | "providers"> & {
-          configurationId: string;
-          providers: { create: ProviderRow[] };
-        };
+        data: Omit<VersionRow, "id"> & { configurationId: string };
       }) {
         const record = [...state.configurations.values()].find(
           (configuration) => configuration.id === input.data.configurationId,
         )!;
         if (record.workspaceId !== input.data.workspaceId)
           throw new Error("fixture_version_workspace_mismatch");
-        const created = {
-          ...input.data,
-          id: `version_${state.nextId++}`,
-          providers: input.data.providers.create,
-        };
+        const created = { ...input.data, id: `version_${state.nextId++}` };
         record.versions.push(created);
         return created;
       },
@@ -292,70 +295,31 @@ function versionRow(
   version: number,
   effort: "high" | "xhigh",
 ): VersionRow {
-  const provider = workspacePolicyFixture.providers[0]!;
   return {
     id,
     workspaceId: "workspace_1",
-    gatewayBindingId: null,
-    gatewayProfileRef: null,
-    version,
-    schemaVersion: 3,
-    policyJson: canonicalJson({
-      ...workspacePolicyFixture,
-      providers: [{ ...provider, reasoningEffort: effort }],
-    }),
-    providerKind: provider.kind,
-    providerAuthMode: provider.authMode,
-    model: provider.model,
-    reasoningEffort: effort,
-    agenticContext: provider.agenticContext,
-    fastMode: provider.fastMode,
-    failOnSeverity: workspacePolicyFixture.blockingPolicy.failOnSeverity,
-    inlineMaxComments: workspacePolicyFixture.limits.inlineMaxComments,
-    providerLimit: 1,
-    providerMaxParallel: 1,
-    inlineMinAgreement: 1,
-    targetTokensPerBatch: workspacePolicyFixture.limits.targetTokensPerBatch,
-    reviewLanguage: null,
-    investigationRecordingEnabled: false,
-    investigationShadowEnabled: false,
-    investigationContextCriticEnabled: false,
-    investigationVerifiedCleanEnabled: false,
-    investigationCrossRevisionReplayEnabled: false,
-    investigationProductionEffectsEnabled: false,
-    providers: [
-      {
-        gatewayBindingId: null,
-        gatewayProfileRef: null,
-        providerKind: provider.kind,
-        providerAuthMode: provider.authMode,
-        model: provider.model,
-        reasoningEffort: effort,
-        agenticContext: provider.agenticContext,
-        fastMode: provider.fastMode,
-        requiredHealthy: true,
-      },
-    ],
+    ...storedPolicyHeadFixture(
+      workspacePolicyDocumentFixture(workspaceConfig(effort), [
+        hostedProfile.id,
+      ]),
+      version,
+    ),
   };
 }
 
 function mutationInput() {
-  const provider = {
-    ...workspacePolicyFixture.providers[0]!,
-    reasoningEffort: "high" as const,
-  };
   return {
     target: {
       scope: "repository" as const,
       workspaceId: "workspace_1",
       repositoryId: "repo_1",
     },
-    expectedRevisionToken: `policy:1:0:sha256:${createHash("sha256")
-      .update(versionRow("workspace_v1", 1, "xhigh").policyJson)
-      .digest("hex")}`,
+    expectedRevisionToken: `policy:1:0:${effectiveReviewPolicyDigest(
+      workspaceConfig("xhigh"),
+    )}`,
     policy: {
-      ...workspacePolicyFixture,
-      providers: [provider],
+      schemaVersion: 4 as const,
+      providers: selectionsFor(workspaceConfig("high"), [hostedProfile.id]),
       investigationRollout: {
         recordingEnabled: true,
         shadowEnabled: true,
@@ -395,16 +359,12 @@ describe("Prisma review configuration operator mutation", () => {
     expect(
       stub.state().configurations.get(repositoryKey)?.versions,
     ).toHaveLength(1);
-    expect(
-      stub.state().configurations.get(repositoryKey)?.versions[0],
-    ).toMatchObject({
-      investigationRecordingEnabled: true,
-      investigationShadowEnabled: true,
-      investigationContextCriticEnabled: false,
-      investigationVerifiedCleanEnabled: false,
-      investigationCrossRevisionReplayEnabled: false,
-      investigationProductionEffectsEnabled: false,
-    });
+    const stored = stub.state().configurations.get(repositoryKey)!.versions[0]!;
+    // Schema 4 stores only the document: no first-provider projection.
+    expect(stored).toMatchObject({ schemaVersion: 4 });
+    expect(stored).not.toHaveProperty("providerKind");
+    expect(stored).not.toHaveProperty("providers");
+    expect(JSON.parse(stored.policyJson)).toEqual(mutationInput().policy);
     expect(stub.state().audits).toHaveLength(1);
     expect(stub.events.slice(0, 4)).toEqual([
       "shared",

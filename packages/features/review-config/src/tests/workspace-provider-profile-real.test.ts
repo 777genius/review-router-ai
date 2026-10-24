@@ -33,10 +33,6 @@ databaseTests("WorkspaceProviderProfile PostgreSQL storage", () => {
   const bindingA = `${prefix}-binding-a`;
   const bindingB = `${prefix}-binding-b`;
   const keyB = `${prefix}-key-b`;
-  const maintain = {
-    repositoryId: repositoryA,
-    capability: "direct_config",
-  } as const;
   const deps = () => ({ profiles });
   const gatewayDraft = (bindingId: string, model = "gpt-5.6-sol") => ({
     credential: { kind: "gateway_binding", bindingId },
@@ -45,7 +41,10 @@ databaseTests("WorkspaceProviderProfile PostgreSQL storage", () => {
 
   beforeAll(async () => {
     prisma = createPrismaClient({ databaseUrl: databaseUrl!, poolMax: 10 });
-    profiles = new PrismaWorkspaceProviderProfileRepository(prisma);
+    profiles = new PrismaWorkspaceProviderProfileRepository(prisma, {
+      operatorWorkspaceId: undefined,
+      personalAccountsEnabled: false,
+    });
     for (const id of [workspaceA, workspaceB])
       await prisma.workspace.create({ data: { id, slug: id, name: id } });
     for (const user of [owner, creator, member])
@@ -269,10 +268,9 @@ databaseTests("WorkspaceProviderProfile PostgreSQL storage", () => {
     const { profile } = await createWorkspaceProviderProfile(
       {
         workspaceId: workspaceA,
-        actor: creator,
+        actor: owner,
         credential: { kind: "user_ci_secret", authMode: "claude_code_oauth" },
         model: "sonnet",
-        repository: maintain,
       },
       deps(),
     );
@@ -317,16 +315,20 @@ databaseTests("WorkspaceProviderProfile PostgreSQL storage", () => {
   });
 
   it("lets the creator rename until Access rights restrict it to admins", async () => {
-    const { profile } = await createWorkspaceProviderProfile(
-      {
+    // A member creates profiles only inside an attach flow; insert one here.
+    const profile = await prisma.workspaceProviderProfile.create({
+      data: {
         workspaceId: workspaceA,
-        actor: creator,
-        ...gatewayDraft(bindingA, "gpt-5.5"),
+        createdByUserId: creator.userId,
+        credentialKind: "gateway_binding",
+        authMode: "codex_account_gateway",
+        gatewayBindingId: bindingA,
+        gatewayProfileRef: "profile-ref-1",
+        model: "gpt-5.5",
         label: "Team gateway",
-        repository: maintain,
+        identityKey: `${prefix}-creator-gateway`,
       },
-      deps(),
-    );
+    });
     const rename = (actor: typeof owner, label: string) =>
       renameWorkspaceProviderProfile(
         { workspaceId: workspaceA, profileId: profile.id, actor, label },
@@ -353,7 +355,6 @@ databaseTests("WorkspaceProviderProfile PostgreSQL storage", () => {
             workspaceId: workspaceA,
             actor: member,
             ...gatewayDraft(bindingA, "gpt-5.4"),
-            repository: maintain,
           },
           deps(),
         ),

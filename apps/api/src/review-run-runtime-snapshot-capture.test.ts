@@ -9,6 +9,7 @@ import {
   ReviewTrustDomain,
   type VerifiedScmRunIdentity,
 } from "@reviewrouter/features-review-run-control";
+import { storedPolicyForConfiguration } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import {
   readServerApprovedReviewRunGatewayPolicy,
   readServerReviewAgentProfileRef,
@@ -124,14 +125,18 @@ function gatewayPolicyJson(options: {
 type PolicyRow = {
   readonly version: number;
   readonly schemaVersion: number;
-  readonly policyJson: string;
+  readonly policyJson: string | null;
 };
 
 function fakeRuntimeReader(input: {
   readonly workspace: PolicyRow | null;
   readonly repository?: PolicyRow | null;
+  readonly profileRows?: readonly unknown[];
 }) {
   return {
+    workspaceProviderProfile: {
+      findMany: async () => input.profileRows ?? [],
+    },
     reviewConfiguration: {
       findUnique: async (args: {
         where: { workspaceId_targetKey: { targetKey: string } };
@@ -176,7 +181,9 @@ function fakeRuntimeReader(input: {
     },
   } as unknown as Pick<
     PrismaClient,
-    "reviewConfiguration" | "workspaceAccountBinding"
+    | "reviewConfiguration"
+    | "workspaceProviderProfile"
+    | "workspaceAccountBinding"
   >;
 }
 
@@ -222,9 +229,16 @@ function captureInput(options?: {
   };
 }
 
+/** The stored documents and profiles that materialize this configuration. */
 function readerFor(policyJson: string) {
+  const stored = storedPolicyForConfiguration(
+    parseReviewConfigurationStrict(JSON.parse(policyJson)),
+    { workspaceId, repositoryId: repositoryConnectionId },
+  );
   return fakeRuntimeReader({
-    workspace: { version: 1, schemaVersion: 3, policyJson },
+    workspace: stored.workspaceHead,
+    repository: stored.repositoryHead,
+    profileRows: stored.profileRows,
   });
 }
 

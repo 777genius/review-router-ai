@@ -39,7 +39,7 @@ const fixtures = vi.hoisted(() => {
         >;
       }> => {
         const missing = {
-          status: "missing",
+          status: "provider_selection_required",
           workspaceVersion: null,
           repositoryVersion: null,
         } as const;
@@ -360,7 +360,13 @@ describe("dashboard server loading boundaries", () => {
     expect(data.reviewConfig).toBeNull();
     expect(data.reviewConfigExpectedVersion).toBe(3);
     expect(data.repositoryConfigs).toEqual([
-      { repositoryId: "repo-a", config: null, expectedVersion: 11 },
+      {
+        repositoryId: "repo-a",
+        config: null,
+        effective: null,
+        status: "resave_required",
+        expectedVersion: 11,
+      },
     ]);
   });
 
@@ -368,7 +374,7 @@ describe("dashboard server loading boundaries", () => {
     const ready = {
       status: "ready",
       config: {},
-      policy: { schemaVersion: 3 },
+      policy: { schemaVersion: 4 },
       effectivePolicyDigest: "sha256:test",
       revisionToken: "policy:test",
     } as unknown as Extract<EffectiveReviewConfiguration, { status: "ready" }>;

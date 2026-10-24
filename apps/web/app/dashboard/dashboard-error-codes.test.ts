@@ -104,7 +104,7 @@ describe("safeDashboardErrorCode", () => {
 describe("policy readiness errors", () => {
   it.each([
     "review_policy_resave_required",
-    "review_workspace_policy_required",
+    "review_provider_selection_required",
   ])("preserves %s", (code) => {
     expect(safeDashboardErrorCode(new Error(code))).toBe(code);
   });

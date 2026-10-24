@@ -35,9 +35,13 @@ import {
   reviewActionV2PublishedSchemaDigest,
 } from "../../../packages/protocol-review-action-v2/src/index.js";
 import {
+  parseReviewConfigurationStrict,
   PrismaReviewConfigurationRepository,
-  saveReviewConfiguration,
 } from "../../../packages/features/review-config/src/index.js";
+import {
+  systemPolicyWriteFixture,
+  workspacePolicyDocumentFixture,
+} from "../../../packages/features/review-config/src/tests/current-policy-fixture.js";
 import { createApiApp } from "../../../apps/api/src/app.js";
 import {
   composeReviewActionV2ProductionRoutes,
@@ -867,42 +871,63 @@ async function seedControlPlane(
       boundAt: now,
     },
   });
-  await saveReviewConfiguration(
-    {
-      target: { scope: "workspace", workspaceId: input.workspaceId },
-      policy: {
-        schemaVersion: 3,
-        providers: [
-          {
-            kind: "codex",
-            authMode: "codex_subscription_oauth_rotating",
-            model: "gpt-paired-e2e",
-            reasoningEffort: "xhigh",
-            agenticContext: true,
-            fastMode: false,
-            requiredHealthy: false,
-          },
-        ],
-        execution: {
-          providerLimit: 1,
-          providerMaxParallel: 1,
-          inlineMinAgreement: 1,
-        },
-        blockingPolicy: { failOnSeverity: "major" },
-        limits: { inlineMaxComments: 5, targetTokensPerBatch: 12000 },
-        reviewLanguage: null,
-        investigationRollout: {
-          recordingEnabled: true,
-          shadowEnabled: true,
-          contextCriticEnabled: true,
-          verifiedCleanEnabled: true,
-          crossRevisionReplayEnabled: true,
-          productionEffectsEnabled: true,
-        },
+  // Rotating is repository-only: the workspace document keeps the settings
+  // without a default and the repository selects its rotating profile.
+  const pairedConfig = parseReviewConfigurationStrict({
+    schemaVersion: 3,
+    providers: [
+      {
+        kind: "codex",
+        authMode: "codex_subscription_oauth_rotating",
+        model: "gpt-paired-e2e",
+        reasoningEffort: "xhigh",
+        agenticContext: true,
+        fastMode: false,
+        requiredHealthy: false,
       },
+    ],
+    execution: {
+      providerLimit: 1,
+      providerMaxParallel: 1,
+      inlineMinAgreement: 1,
     },
-    { configurations: new PrismaReviewConfigurationRepository(prisma) },
+    blockingPolicy: { failOnSeverity: "major" },
+    limits: { inlineMaxComments: 5, targetTokensPerBatch: 12000 },
+    reviewLanguage: null,
+    investigationRollout: {
+      recordingEnabled: true,
+      shadowEnabled: true,
+      contextCriticEnabled: true,
+      verifiedCleanEnabled: true,
+      crossRevisionReplayEnabled: true,
+      productionEffectsEnabled: true,
+    },
+  });
+  const repositoryTarget = {
+    scope: "repository" as const,
+    workspaceId: input.workspaceId,
+    repositoryId: input.repositoryConnectionId,
+  };
+  const repositoryWrite = systemPolicyWriteFixture(
+    pairedConfig,
+    repositoryTarget,
   );
+  await new PrismaReviewConfigurationRepository(prisma).saveNextVersions({
+    workspaceId: input.workspaceId,
+    writes: [
+      {
+        target: { scope: "workspace", workspaceId: input.workspaceId },
+        policy: workspacePolicyDocumentFixture(pairedConfig),
+        expectedVersion: null,
+      },
+      {
+        target: repositoryTarget,
+        policy: repositoryWrite.policy,
+        expectedVersion: null,
+      },
+    ],
+    profileDrafts: repositoryWrite.profileDrafts,
+  });
   await prisma.reviewMutationAuthority.create({
     data: {
       scmRepositoryIdentityId: input.scmRepositoryIdentityId,
