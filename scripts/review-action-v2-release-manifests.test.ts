@@ -280,6 +280,7 @@ describe("review Action v2 release manifests", () => {
           modelTransports: ["account_gateway"],
           contextGateway: true,
           cancellation: true,
+          reviewSkillsVersion: 1,
         },
       ],
       handoffManifest: handoff,
@@ -305,7 +306,11 @@ describe("review Action v2 release manifests", () => {
     expect(parseReleaseManifest(canonicalJson(release))).toEqual(release);
     expect(buildReleaseRegistrationCandidateFields(release)).toMatchObject({
       agentProfiles: [
-        { profileRef: "fixture-codex", binarySha256: "a".repeat(64) },
+        {
+          profileRef: "fixture-codex",
+          binarySha256: "a".repeat(64),
+          reviewSkillsVersion: 1,
+        },
       ],
       contextGatewayPolicyVersion: "context-gateway-v4",
       reviewInvestigationProfile: {

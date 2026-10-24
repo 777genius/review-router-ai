@@ -6,6 +6,7 @@ import { Tabs } from "@base-ui/react/tabs";
 import {
   Activity,
   Brain,
+  BookOpen,
   Cpu,
   GitPullRequest,
   Settings2,
@@ -16,6 +17,7 @@ import { dashboardClientNavigationHref } from "./dashboard-section";
 
 const dashboardSectionIcons: Record<string, LucideIcon> = {
   repositories: GitPullRequest,
+  skills: BookOpen,
   memory: Brain,
   setup: Settings2,
   policy: Cpu,

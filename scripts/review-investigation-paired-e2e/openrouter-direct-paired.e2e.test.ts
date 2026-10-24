@@ -332,6 +332,10 @@ const hash = (value: string) =>
       process.env.OPENROUTER_API_KEY = "disposable-pairing-no-provider-call";
       process.chdir(root);
       const prepared = await planModule.prepareSingleT0ReviewPlan({
+        admittedAgent: JSON.parse(
+          checkout.runtimeConfig.runtimeEnv.REVIEW_ROUTER_AGENT_PROFILE_JSON,
+        ),
+        reviewSkills: { kind: "legacy" },
         authorization,
         config: admitted,
         provider,

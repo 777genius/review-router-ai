@@ -31,6 +31,7 @@
     "@reviewrouter/features-review-progress": "workspace:*",
     "@reviewrouter/features-review-publishing": "workspace:*",
     "@reviewrouter/features-review-run-control": "workspace:*",
+    "@reviewrouter/features-review-skills": "workspace:*",
     "@reviewrouter/features-review-snapshots": "workspace:*",
     "@reviewrouter/features-system-health": "workspace:*",
     "@reviewrouter/features-workflow-provisioning": "workspace:*",

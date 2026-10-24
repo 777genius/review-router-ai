@@ -34,6 +34,8 @@ afterEach(async () => {
 async function fixture(
   outputBytes: number,
   streamBytes = 0,
+  maxSessions = 2,
+  requestTimeoutMs = 5000,
   controlledStream?: (response: ServerResponse) => Promise<void>,
 ) {
   const deadline = new Date(Date.now() + 120_000).toISOString();
@@ -93,56 +95,78 @@ async function fixture(
       inlineMinAgreement: 1,
     },
   });
-  const canonical = canonicalJson({
-    snapshotVersion: 3,
-    configurationSource: "workspace",
-    configurationVersion: 1,
-    workspaceConfigurationVersion: 1,
-    repositoryConfigurationVersion: null,
-    effectivePolicyDigest: `sha256:${"a".repeat(64)}`,
-    agent: {
-      profileRef: "codex-default",
-      agentKind: "codex",
-      binarySha256: "a".repeat(64),
-      packageVersion: "0.147.0",
-      modelTransports: ["account_gateway"],
-      contextGateway: true,
-      cancellation: true,
-    },
-    agentProfileDigest: "b".repeat(64),
-    producer: {
-      producerReleaseId: "release-1",
-      actionCommitSha: "c".repeat(40),
-      runtimeCommitSha: "d".repeat(40),
-    },
-    configurationCanonicalJson: canonicalJson(config),
-    deadline,
-    gateway,
-  });
-  let active = true;
-  const authorization = () =>
+  const canonical = (id: string) =>
+    canonicalJson({
+      snapshotVersion: 3,
+      configurationSource: "workspace",
+      configurationVersion: 1,
+      workspaceConfigurationVersion: 1,
+      repositoryConfigurationVersion: null,
+      effectivePolicyDigest: `sha256:${"a".repeat(64)}`,
+      agent: {
+        profileRef: "codex-default",
+        agentKind: "codex",
+        binarySha256: "a".repeat(64),
+        packageVersion: "0.147.0",
+        modelTransports: ["account_gateway"],
+        contextGateway: true,
+        cancellation: true,
+      },
+      agentProfileDigest: "b".repeat(64),
+      producer: {
+        producerReleaseId: "release-1",
+        actionCommitSha: "c".repeat(40),
+        runtimeCommitSha: "d".repeat(40),
+      },
+      configurationCanonicalJson: canonicalJson(config),
+      deadline,
+      gateway: {
+        ...gateway,
+        invocationId: `invocation-${id}`,
+        attemptId: `attempt-${id}`,
+        operationId: `operation-${id}`,
+      },
+    });
+  const revoked = new Set<string>();
+  const overrides = new Map<string, Partial<ReviewRunAuthorization>>();
+  const lookupFailures = new Set<string>();
+  const lookups: string[] = [];
+  const authorization = (id = "authorization-1") =>
     ({
       ...identity,
-      authorizationId: "authorization-1",
-      state: active
+      sourceRunId: `run-${id}`,
+      authorizationId: id,
+      state: !revoked.has(id)
         ? ReviewRunAuthorizationState.Active
         : ReviewRunAuthorizationState.Revoked,
       expiresAt: new Date(deadline),
       maxExpiresAt: new Date(deadline),
-      runtimeSnapshotCanonicalJson: canonical,
+      runtimeSnapshotCanonicalJson: canonical(id),
+      ...overrides.get(id),
     }) as ReviewRunAuthorization;
-  let binding: ReviewRunGatewayExecutionBinding | null = null;
+  const savedBindings = new Map<string, ReviewRunGatewayExecutionBinding>();
   const bindings = {
-    read: async () => ({ status: "live" as const, binding }),
+    read: async (owner: { authorizationId: string }) => ({
+      status: "live" as const,
+      binding: savedBindings.get(owner.authorizationId) ?? null,
+    }),
     attach: async (
-      _owner: unknown,
+      owner: { authorizationId: string },
       value: ReviewRunGatewayExecutionBinding,
     ) => {
-      binding = value;
+      savedBindings.set(owner.authorizationId, value);
       return { status: "attached" as const, binding: value };
     },
   };
-  const snapshots = { capture: async () => null, isLive: async () => active };
+  const snapshots = { capture: async () => null, isLive: async () => true };
+  const nativeExecutions = new Map<string, "active" | "closed">();
+  const nativeCloses: string[] = [];
+  let closeState: "applied" | "unknown" = "applied";
+  let closeGate: Promise<void> | undefined;
+  let closeStarted: (() => void) | undefined;
+  let prepareGate: Promise<void> | undefined;
+  let prepareStarted: (() => void) | undefined;
+  let prepareFailure = false;
   const intents: c.Prepare[] = [];
   const admissions: c.Admission[] = [];
   const effects: { requestRef: string; effect: c.RequestStatus["effect"] }[] =
@@ -154,6 +178,14 @@ async function fixture(
     if (req.url === "/internal/v1/run-access") {
       const intent = JSON.parse(raw) as c.Prepare;
       intents.push(intent);
+      const executionRef = `execution-${intent.operationId}`;
+      nativeExecutions.set(executionRef, "active");
+      prepareStarted?.();
+      await prepareGate;
+      if (prepareFailure) {
+        res.writeHead(503).end();
+        return;
+      }
       res.writeHead(200, { "content-type": "application/json" }).end(
         JSON.stringify({
           operation: {
@@ -161,7 +193,7 @@ async function fixture(
             state: "applied",
             result: {
               kind: "execution",
-              executionRef: "execution-1",
+              executionRef,
               accountRef: "account-1",
               authorizationEpoch: 1,
               deadline,
@@ -185,7 +217,10 @@ async function fixture(
       );
       return;
     }
-    if (req.url === "/v1/executions/execution-1/requests") {
+    const execution = /^\/v1\/executions\/([^/]+)\/(requests|close)$/.exec(
+      req.url ?? "",
+    );
+    if (execution?.[2] === "requests") {
       admissions.push(JSON.parse(String(req.headers["x-gateway-admission"])));
       res.writeHead(200, {
         "content-type": "text/event-stream",
@@ -221,11 +256,16 @@ async function fixture(
       if (!res.destroyed) res.end();
       return;
     }
-    if (req.url === "/v1/executions/execution-1/close") {
+    if (execution?.[2] === "close") {
+      nativeCloses.push(execution[1]!);
+      closeStarted?.();
+      await closeGate;
+      if (closeState === "applied")
+        nativeExecutions.set(execution[1]!, "closed");
       res.writeHead(200, { "content-type": "application/json" }).end(
         JSON.stringify({
           operationRef: JSON.parse(raw).operationId,
-          state: "applied",
+          state: closeState,
         }),
       );
       return;
@@ -240,11 +280,15 @@ async function fixture(
     timeoutMs: 5000,
   };
   const queries = {
-    findReviewRunAuthorizationById: async () => authorization(),
+    findReviewRunAuthorizationById: async (id: string) => {
+      lookups.push(id);
+      if (lookupFailures.has(id)) throw Error("authorization_read_failed");
+      return authorization(id);
+    },
   };
   const preparation = createReviewRunGatewayPreparation({
     authorizationId: "authorization-1",
-    identity,
+    identity: authorization(),
     runAccess,
     authorizations: queries as never,
     snapshots,
@@ -264,26 +308,35 @@ async function fixture(
         },
       ],
       ingressBytes: 4096,
-      requestTimeoutMs: 5000,
+      requestTimeoutMs,
       waitBudgetMs: 0,
       maxWaits: 0,
-      maxSessions: 2,
+      maxSessions,
       maxInFlight: 2,
     },
     runAccess,
     authorizations: {
-      resolveReviewRunAuthorizationToken: async () => ({
+      resolveReviewRunAuthorizationToken: async ({ token }) => ({
         status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
-        authorization: authorization(),
+        authorization: authorization(
+          token === "local-authorization-token" ? undefined : token,
+        ),
       }),
-      expireOrRevokeReviewRunAuthorization: async () => {
-        active = false;
+      expireOrRevokeReviewRunAuthorization: async ({
+        authorizationId,
+        state,
+      }) => {
+        const current = authorization(authorizationId).state;
+        if (current !== ReviewRunAuthorizationState.Active && current !== state)
+          throw Error("authorization_terminal_state_conflict");
+        revoked.add(authorizationId);
         return {} as never;
       },
     },
     queries: queries as never,
-    checkAuthority: async () => active,
-    confirmAuthority: async () => active,
+    checkAuthority: async (auth) => !revoked.has(auth.authorizationId),
+    confirmAuthority: async (_token, auth) =>
+      !revoked.has(auth.authorizationId),
     snapshots,
     bindings,
     usage: {
@@ -293,7 +346,65 @@ async function fixture(
       },
     },
   });
-  return { preparation, relay, intents, admissions, limits, effects };
+  return {
+    preparation,
+    relay,
+    intents,
+    admissions,
+    limits,
+    effects,
+    nativeExecutions,
+    nativeCloses,
+    authorization,
+    overrides,
+    lookupFailures,
+    lookups,
+    revoke(id: string) {
+      revoked.add(id);
+    },
+    setCloseState(state: typeof closeState) {
+      closeState = state;
+    },
+    setPrepareFailure() {
+      prepareFailure = true;
+    },
+    holdPrepare() {
+      let release!: () => void;
+      const started = new Promise<void>((resolve) => {
+        prepareStarted = resolve;
+      });
+      prepareGate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { started, release };
+    },
+    holdClose() {
+      let release!: () => void;
+      const started = new Promise<void>((resolve) => {
+        closeStarted = resolve;
+      });
+      closeGate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { started, release };
+    },
+    async completeExternally(id: string) {
+      revoked.add(id);
+      const binding = savedBindings.get(id)!;
+      const response = await fetch(
+        `${runAccess.origin}/v1/executions/${binding.executionRef}/close`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            operationId: `external-close-${id}`,
+            reason: "completed",
+          }),
+        },
+      );
+      expect(await response.json()).toMatchObject({ state: "applied" });
+    },
+  };
 }
 
 it.each([
@@ -364,6 +475,292 @@ it("rejects unsupported captured output before run-access or inference", async (
     expect(f.intents).toHaveLength(0);
     expect(f.admissions).toHaveLength(0);
   } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("admits a new run after four streamed runs are externally revoked and natively closed", async () => {
+  const f = await fixture(MiB, 0, 4);
+  try {
+    const completed = [1, 2, 3, 4].map((i) => `authorization-${i}`);
+    for (const id of completed) {
+      expect(await streamRun(f, id)).toBe("stream");
+      await f.completeExternally(id);
+    }
+    expect(completed.map((id) => f.authorization(id).state)).toEqual(
+      Array(4).fill("revoked"),
+    );
+    expect([...f.nativeExecutions.values()]).toEqual(Array(4).fill("closed"));
+    expect(f.nativeCloses).toHaveLength(4);
+    expect(f.intents).toHaveLength(4);
+    expect(f.admissions).toHaveLength(4);
+    // The fifth run is valid and has never prepared. Completed streams alone do
+    // not inform the relay that another control-plane owner closed these runs.
+    expect(f.authorization("authorization-5").state).toBe("active");
+    await expect(streamRun(f, "authorization-5")).resolves.toBe("stream");
+    expect(f.intents).toHaveLength(5);
+    expect(f.admissions).toHaveLength(5);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+async function streamRun(f: Awaited<ReturnType<typeof fixture>>, id: string) {
+  const body = new TextEncoder().encode(
+    JSON.stringify({
+      model: "gpt-5.6-sol",
+      input: [],
+      stream: true,
+      max_output_tokens: 32768,
+    }),
+  );
+  const response = await f.relay.responses(id, body, new AbortController());
+  if (response.kind !== "stream") throw Error("expected_stream");
+  for await (const _chunk of response.body) {
+    expect(_chunk.byteLength).toBeGreaterThan(0);
+  }
+  return response.kind;
+}
+
+it.each(["active", "different_identity", "read_failure"] as const)(
+  "retains a capacity session with %s authority",
+  async (mode) => {
+    const f = await fixture(MiB, 0, 1);
+    try {
+      await streamRun(f, "authorization-1");
+      if (mode === "active") {
+        // A renewable short TTL alone is not the immutable run deadline.
+        f.overrides.set("authorization-1", { expiresAt: new Date(0) });
+      } else {
+        f.revoke("authorization-1");
+        if (mode === "different_identity")
+          f.overrides.set("authorization-1", { sourceRunId: "another-run" });
+        else f.lookupFailures.add("authorization-1");
+      }
+      await expect(streamRun(f, "authorization-2")).rejects.toMatchObject({
+        code: "relay_saturated",
+        effect: "not_dispatched",
+      });
+      expect(f.nativeCloses).toHaveLength(0);
+      expect(f.intents).toHaveLength(1);
+      expect(f.admissions).toHaveLength(1);
+    } finally {
+      f.lookupFailures.clear();
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("retains an unknown native close and denies the old run without replay", async () => {
+  const f = await fixture(MiB, 0, 1);
+  try {
+    await streamRun(f, "authorization-1");
+    f.revoke("authorization-1");
+    f.setCloseState("unknown");
+    await expect(streamRun(f, "authorization-2")).rejects.toMatchObject({
+      code: "relay_saturated",
+      effect: "not_dispatched",
+    });
+    expect(f.nativeCloses).toHaveLength(1);
+    expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+    await expect(streamRun(f, "authorization-1")).rejects.toMatchObject({
+      code: "authorization_denied",
+    });
+    expect(f.intents).toHaveLength(1);
+    expect(f.admissions).toHaveLength(1);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("shares one close under concurrent capacity pressure and admits at most one new run", async () => {
+  const f = await fixture(MiB, 0, 1);
+  let release: (() => void) | undefined;
+  try {
+    await streamRun(f, "authorization-1");
+    f.revoke("authorization-1");
+    const gate = f.holdClose();
+    release = gate.release;
+    const first = streamRun(f, "authorization-2");
+    await gate.started;
+    const second = streamRun(f, "authorization-3");
+    const pendingOutcomes = Promise.allSettled([first, second]);
+    // Resolve is asynchronous; the second admission reaches the same cleanup
+    // while its native acknowledgement is deliberately held at the boundary.
+    await setImmediate();
+    expect(f.nativeCloses).toHaveLength(1);
+    gate.release();
+    const outcomes = await pendingOutcomes;
+    expect(outcomes.filter((o) => o.status === "fulfilled")).toHaveLength(1);
+    expect(outcomes.filter((o) => o.status === "rejected")).toMatchObject([
+      { reason: { code: "relay_saturated" } },
+    ]);
+    expect(f.intents).toHaveLength(2);
+    expect(f.admissions).toHaveLength(2);
+    expect(f.nativeCloses).toHaveLength(1);
+  } finally {
+    release?.();
+    await f.relay.shutdown();
+  }
+});
+
+it("bounds a capacity scan and advances fairly past active sessions", async () => {
+  const f = await fixture(MiB, 0, 4);
+  try {
+    for (let i = 1; i <= 4; i++) await streamRun(f, `authorization-${i}`);
+    f.revoke("authorization-4");
+    f.lookups.length = 0;
+    await expect(streamRun(f, "authorization-5")).rejects.toMatchObject({
+      code: "relay_saturated",
+    });
+    expect(f.lookups).toEqual(["authorization-1", "authorization-2"]);
+    expect(f.nativeCloses).toHaveLength(0);
+    await expect(streamRun(f, "authorization-5")).resolves.toBe("stream");
+    expect(f.nativeCloses).toEqual(["execution-operation-authorization-4"]);
+    expect(f.intents).toHaveLength(5);
+    expect(f.admissions).toHaveLength(5);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("bounds an unresponsive pressure close without freeing its uncertain slot", async () => {
+  const f = await fixture(MiB, 0, 1, 100);
+  let release: (() => void) | undefined;
+  try {
+    await streamRun(f, "authorization-1");
+    f.revoke("authorization-1");
+    const gate = f.holdClose();
+    release = gate.release;
+    const started = Date.now();
+    await expect(streamRun(f, "authorization-2")).rejects.toMatchObject({
+      code: "relay_saturated",
+      effect: "not_dispatched",
+    });
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(f.nativeCloses).toHaveLength(1);
+    expect(f.intents).toHaveLength(1);
+    expect(f.admissions).toHaveLength(1);
+  } finally {
+    release?.();
+    await f.relay.shutdown();
+  }
+});
+
+it("aborts a pending-prepare close wait while retaining its eventual native capability", async () => {
+  const f = await fixture(MiB);
+  const gate = f.holdPrepare();
+  let prepared: ReturnType<typeof f.preparation.prepare> | undefined;
+  try {
+    prepared = f.preparation.prepare();
+    await gate.started;
+    expect(f.preparation.isPreparing()).toBe(true);
+    await expect(
+      f.preparation.close("cancelled", { signal: AbortSignal.timeout(50) }),
+    ).rejects.toMatchObject({ effect: "effect_unknown" });
+    expect(f.preparation.isPreparing()).toBe(true);
+    expect(f.nativeCloses).toHaveLength(0);
+    gate.release();
+    await prepared;
+    await expect(f.preparation.close("cancelled")).resolves.toMatchObject({
+      state: "applied",
+    });
+    expect(f.nativeCloses).toHaveLength(1);
+    expect(f.intents).toHaveLength(1);
+    expect(f.admissions).toHaveLength(0);
+  } finally {
+    gate.release();
+    await prepared;
+    await f.relay.shutdown();
+  }
+});
+
+it("preserves an expired authorization terminal state during pressure cleanup", async () => {
+  const f = await fixture(MiB, 0, 1);
+  try {
+    await streamRun(f, "authorization-1");
+    f.overrides.set("authorization-1", {
+      state: ReviewRunAuthorizationState.Expired,
+    });
+    await expect(streamRun(f, "authorization-2")).resolves.toBe("stream");
+    expect(f.nativeCloses).toHaveLength(1);
+    expect(f.intents).toHaveLength(2);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("releases a provably unstarted revoked session after malformed input", async () => {
+  const f = await fixture(MiB, 0, 1);
+  try {
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        new TextEncoder().encode("{"),
+        new AbortController(),
+      ),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    f.revoke("authorization-1");
+    expect(f.intents).toHaveLength(0);
+    await expect(streamRun(f, "authorization-2")).resolves.toBe("stream");
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("releases an unstarted revoked status session without calling native close", async () => {
+  const f = await fixture(MiB, 0, 1);
+  try {
+    await expect(
+      f.relay.status("authorization-1", "request-1"),
+    ).rejects.toMatchObject({ code: "same_operation_recovery_required" });
+    f.revoke("authorization-1");
+    expect(f.intents).toHaveLength(0);
+    await expect(streamRun(f, "authorization-2")).resolves.toBe("stream");
+    expect(f.intents).toHaveLength(1);
+    expect(f.nativeCloses).toHaveLength(0);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("retains a lost Prepare result and never retries it during capacity cleanup", async () => {
+  const f = await fixture(MiB, 0, 1);
+  try {
+    f.setPrepareFailure();
+    await expect(streamRun(f, "authorization-1")).rejects.toBeDefined();
+    f.revoke("authorization-1");
+    await expect(streamRun(f, "authorization-2")).rejects.toMatchObject({
+      code: "relay_saturated",
+    });
+    expect(f.intents).toHaveLength(1);
+    expect(f.admissions).toHaveLength(0);
+    expect(f.nativeCloses).toHaveLength(0);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("does not wait for an already pending explicit close under capacity pressure", async () => {
+  const f = await fixture(MiB, 0, 1);
+  let release: (() => void) | undefined;
+  let closing: ReturnType<typeof f.relay.closeRun> | undefined;
+  try {
+    await streamRun(f, "authorization-1");
+    const gate = f.holdClose();
+    release = gate.release;
+    closing = f.relay.closeRun("authorization-1", "completed");
+    await gate.started;
+    const started = Date.now();
+    await expect(streamRun(f, "authorization-2")).rejects.toMatchObject({
+      code: "relay_saturated",
+    });
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(f.nativeCloses).toHaveLength(1);
+    expect(f.intents).toHaveLength(1);
+  } finally {
+    release?.();
+    await closing;
     await f.relay.shutdown();
   }
 });
@@ -516,7 +913,7 @@ it("allows a real client to disconnect on released terminal bytes after SDK comp
   const terminalWritten = deferred();
   const upstreamClosures: boolean[] = [];
   let calls = 0;
-  const f = await fixture(MiB, 0, async (response) => {
+  const f = await fixture(MiB, 0, 2, 5000, async (response) => {
     response.once("close", () => upstreamClosures.push(response.writableEnded));
     response.write(progressFrame);
     response.write(completedFrame, () => terminalWritten.resolve());
@@ -565,7 +962,7 @@ it("allows a real client to disconnect on released terminal bytes after SDK comp
 
 it("cancels the real SDK request when the client disconnects before upstream EOF", async () => {
   const upstreamClosed = deferred<boolean>();
-  const f = await fixture(MiB, 0, async (response) => {
+  const f = await fixture(MiB, 0, 2, 5000, async (response) => {
     response.once("close", () =>
       upstreamClosed.resolve(response.writableEnded),
     );
@@ -590,7 +987,7 @@ it("cancels the real SDK request when the client disconnects before upstream EOF
 
 it("never releases buffered terminal bytes when the real SDK transport fails before EOF", async () => {
   const failTransport = deferred();
-  const f = await fixture(MiB, 0, async (response) => {
+  const f = await fixture(MiB, 0, 2, 5000, async (response) => {
     response.write(progressFrame);
     response.write(completedFrame);
     await failTransport.promise;

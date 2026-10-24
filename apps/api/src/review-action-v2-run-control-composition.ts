@@ -1519,6 +1519,9 @@ function denialFailure(
     case ReviewRunAuthorizationDenialReason.ContextToolsUnavailable:
     case ReviewRunAuthorizationDenialReason.ProviderVoteLaneUnavailable:
     case ReviewRunAuthorizationDenialReason.ReviewInvestigationIncompatible:
+    case ReviewRunAuthorizationDenialReason.SkillsUnavailable:
+    case ReviewRunAuthorizationDenialReason.SkillsEngineUnsupported:
+    case ReviewRunAuthorizationDenialReason.SkillsLimitsExceeded:
       return routeFailure(
         422,
         ReviewActionV2ProtocolErrorCode.InvariantViolation,

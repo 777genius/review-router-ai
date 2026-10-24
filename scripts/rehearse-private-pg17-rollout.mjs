@@ -344,6 +344,8 @@ const preReleaseMigrationBoundary = Object.freeze({
     "000134_review_provider_kind_v2_ocr",
     "000135_review_run_checkout_repository_lock",
     "000136_provider_usage",
+    "000136_review_skills",
+    "000137_review_skills_capture",
     "000138_pr_description",
     "000139_review_context_tools",
     "000140_personal_oauth_method",

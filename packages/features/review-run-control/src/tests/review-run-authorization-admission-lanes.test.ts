@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  canonicalReviewSkillsJson,
+  createCapturedReviewSkills,
+} from "@reviewrouter/shared/review-skills-contract";
+import type { ReviewRunSkillsSnapshotPort } from "../application/ports/review-run-skills-snapshot-port";
+import {
   ManageReviewRunAuthorizations,
   ReviewRunAuthorizationDenialReason,
   ReviewRunAuthorizationUseCaseStatus,
@@ -115,7 +120,10 @@ class RecordingSafetyDecisions implements ReviewSafetyDecisionResolverPort {
   }
 }
 
-async function admissionSetup(snapshots: ReviewRunRuntimeSnapshotPort) {
+async function admissionSetup(
+  snapshots: ReviewRunRuntimeSnapshotPort,
+  skillsSnapshots?: ReviewRunSkillsSnapshotPort,
+) {
   const kit = createReviewRunControlTestKit();
   const fixture = await provisionV2AuthorizationContext(kit);
   const safety = new RecordingSafetyDecisions(
@@ -128,6 +136,7 @@ async function admissionSetup(snapshots: ReviewRunRuntimeSnapshotPort) {
   );
   const useCase = new ManageReviewRunAuthorizations({
     runtimeSnapshots: snapshots,
+    ...(skillsSnapshots ? { skillsSnapshots } : {}),
     clock: kit.clock,
     identifiers: kit.identifiers,
     digest: kit.digest,
@@ -210,6 +219,157 @@ const claudeCapabilityRow = {
 };
 
 describe("ReviewRunAuthorization engine admission lanes", () => {
+  it("freezes Skills for restoration and renewal without reading the current source again", async () => {
+    const runtime = new FakeRuntimeSnapshots((input) =>
+      snapshotFor({ ...ocrAgent, reviewSkillsVersion: 1 }, input.deadline),
+    );
+    const capture = vi.fn<ReviewRunSkillsSnapshotPort["capture"]>(
+      async ({ identity }) => ({
+        canonicalJson: canonicalReviewSkillsJson(
+          createCapturedReviewSkills({
+            baseSha: identity.baseSha,
+            webSkills: [
+              {
+                skillId: "skill-one",
+                revisionId: "revision-one",
+                sourceWorkspaceId: "source-one",
+                name: "Security",
+                description: "Security rules",
+                instructions: "Require input validation.",
+                includePaths: ["src/**"],
+                excludePaths: [],
+              },
+            ],
+            gitSources: [],
+          }),
+        ),
+      }),
+    );
+    const { kit, fixture, useCase } = await admissionSetup(runtime, {
+      capture,
+    });
+    const input = inputFor(fixture, {
+      providerVoteLanes: [ocrLane],
+      authorizationTtlMs: 10_000,
+      maxAuthorizationLifetimeMs: 30_000,
+    });
+    const first = authorizationOf(await useCase.authorizeReviewRun(input));
+    capture.mockImplementation(async () => {
+      throw new Error("revoked source must not be reread");
+    });
+    const restored = authorizationOf(await useCase.authorizeReviewRun(input));
+    kit.clock.advance(5_000);
+    const renewed = authorizationOf(
+      await useCase.renewReviewRunAuthorization({
+        authorizationId: first.authorization.authorizationId,
+        verifiedIdentity: fixture.verifiedIdentity,
+        renewalReplayKeyHash: hashC,
+        requestedTtlMs: 20_000,
+      }),
+    );
+    expect(restored.status).toBe(ReviewRunAuthorizationUseCaseStatus.Restored);
+    expect(renewed.status).toBe(ReviewRunAuthorizationUseCaseStatus.Renewed);
+    expect(restored.authorization.skillsSnapshotCanonicalJson).toBe(
+      first.authorization.skillsSnapshotCanonicalJson,
+    );
+    expect(renewed.authorization.skillsSnapshotCanonicalJson).toBe(
+      first.authorization.skillsSnapshotCanonicalJson,
+    );
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(runtime.captures).toBe(1);
+  });
+
+  it.each([
+    [
+      "skills_unavailable",
+      ReviewRunAuthorizationDenialReason.SkillsUnavailable,
+    ],
+    [
+      "skills_engine_unsupported",
+      ReviewRunAuthorizationDenialReason.SkillsEngineUnsupported,
+    ],
+    [
+      "skills_limits_exceeded",
+      ReviewRunAuthorizationDenialReason.SkillsLimitsExceeded,
+    ],
+  ] as const)(
+    "refuses a new %s admission without writing authorization",
+    async (captureDenied, reason) => {
+      const runtime = new FakeRuntimeSnapshots((input) =>
+        snapshotFor(ocrAgent, input.deadline),
+      );
+      const { kit, fixture, useCase } = await admissionSetup(runtime, {
+        capture: async () => ({ captureDenied }),
+      });
+      const write = vi.spyOn(
+        kit.store,
+        "createOrRestoreReviewRunAuthorizationAtomically",
+      );
+      expect(
+        await useCase.authorizeReviewRun(
+          inputFor(fixture, { providerVoteLanes: [ocrLane] }),
+        ),
+      ).toEqual({ status: ReviewRunAuthorizationUseCaseStatus.Denied, reason });
+      expect(write).not.toHaveBeenCalled();
+    },
+  );
+
+  it("restores a concurrent captured winner before returning a mutable-source denial", async () => {
+    const runtime = new FakeRuntimeSnapshots((input) =>
+      snapshotFor({ ...ocrAgent, reviewSkillsVersion: 1 }, input.deadline),
+    );
+    const capture = vi.fn<ReviewRunSkillsSnapshotPort["capture"]>(
+      async ({ identity }) => ({
+        canonicalJson: canonicalReviewSkillsJson(
+          createCapturedReviewSkills({
+            baseSha: identity.baseSha,
+            webSkills: [],
+            gitSources: [],
+          }),
+        ),
+      }),
+    );
+    const { kit, fixture, useCase } = await admissionSetup(runtime, {
+      capture,
+    });
+    const input = inputFor(fixture, { providerVoteLanes: [ocrLane] });
+    const winner = authorizationOf(await useCase.authorizeReviewRun(input));
+    // The loser performed its first lookup just before the winner committed.
+    vi.spyOn(
+      kit.store,
+      "findReviewRunAuthorizationForAdmission",
+    ).mockResolvedValueOnce(null);
+    capture.mockResolvedValueOnce({ captureDenied: "skills_unavailable" });
+    const restored = authorizationOf(await useCase.authorizeReviewRun(input));
+    expect(restored.status).toBe(ReviewRunAuthorizationUseCaseStatus.Restored);
+    expect(restored.authorization.authorizationId).toBe(
+      winner.authorization.authorizationId,
+    );
+    expect(restored.authorization.skillsSnapshotCanonicalJson).toBe(
+      winner.authorization.skillsSnapshotCanonicalJson,
+    );
+    expect(restored.authorization.maxExpiresAt).toEqual(
+      winner.authorization.maxExpiresAt,
+    );
+  });
+
+  it("preserves legacy null after Skills become available", async () => {
+    const runtime = new FakeRuntimeSnapshots((input) =>
+      snapshotFor(ocrAgent, input.deadline),
+    );
+    const capture = vi.fn<ReviewRunSkillsSnapshotPort["capture"]>(async () => ({
+      canonicalJson: null,
+    }));
+    const { fixture, useCase } = await admissionSetup(runtime, { capture });
+    const input = inputFor(fixture, { providerVoteLanes: [ocrLane] });
+    const first = authorizationOf(await useCase.authorizeReviewRun(input));
+    capture.mockResolvedValue({ captureDenied: "skills_engine_unsupported" });
+    const restored = authorizationOf(await useCase.authorizeReviewRun(input));
+    expect(first.authorization.skillsSnapshotCanonicalJson).toBeNull();
+    expect(restored.authorization.skillsSnapshotCanonicalJson).toBeNull();
+    expect(capture).toHaveBeenCalledTimes(1);
+  });
+
   it("authorizes only the captured OCR engine lane from a mixed allowlist", async () => {
     const snapshots = new FakeRuntimeSnapshots((input) =>
       snapshotFor(ocrAgent, input.deadline),

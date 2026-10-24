@@ -747,6 +747,7 @@ const executableFiles = Object.freeze([
   "scripts/lib/secret-safe-command-boundary.mjs",
   "scripts/lib/verify-historical89-already96.mjs",
   "scripts/reconcile-codex-rotating-legacy-ambiguity.mjs",
+  "scripts/review-skills-runtime-grants.ts",
   "scripts/run-codex-rotating-release-migration.mjs",
   "scripts/run-historical89-inplace-operation.mjs",
 ]);

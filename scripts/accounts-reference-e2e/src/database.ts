@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, open, rm, readFile, readdir } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
@@ -316,6 +316,8 @@ export function applicationEnvironment(input: {
     REVIEW_ROUTER_API_URL: input.gatewayUrl,
     REVIEW_ROUTER_PUBLIC_WEB_URL: input.appUrl,
     REVIEW_ROUTER_ENABLE_DASHBOARD_MUTATIONS: "1",
+    REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS:
+      randomBytes(32).toString("base64url"),
     // Synthetic operator authority for usage acceptance, including full-suite runs.
     ...(!process.env.ACCOUNTS_REFERENCE_E2E_GREP ||
     process.env.ACCOUNTS_REFERENCE_E2E_GREP.includes("provider usage")
@@ -363,6 +365,7 @@ async function seedFixtures(
   await client.connect();
   try {
     await client.query("BEGIN");
+    await client.query("SET LOCAL TIME ZONE 'UTC'");
     await client.query(SQL_SEED);
     if (process.argv.includes("--limits-fixture"))
       await client.query(`

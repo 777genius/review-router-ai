@@ -973,6 +973,12 @@ export async function createApiApp(
   if (reviewRunControlV2Dependencies) {
     await registerReviewRunControlV2Routes(app, reviewRunControlV2Dependencies);
   }
+  if (productionReviewActionV2Dependencies?.reviewSkills) {
+    await registerReviewRunSkillsRoute(
+      app,
+      productionReviewActionV2Dependencies.reviewSkills,
+    );
+  }
   if (
     providerUsageDependencies?.providerUsageRecovery ||
     providerUsageDependencies?.providerUsageNative
@@ -1485,3 +1491,4 @@ function resolveActionOwnerRepo(actionRef: string | undefined): string {
   }
   return ownerRepo;
 }
+import { registerReviewRunSkillsRoute } from "./review-run-skills";

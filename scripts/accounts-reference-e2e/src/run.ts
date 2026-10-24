@@ -1,3 +1,8 @@
+import { seedSkillsFixtures } from "./skills-fixtures.ts";
+import {
+  startSkillsGitHubFixture,
+  SKILLS_MANAGER_EXTERNAL_ID,
+} from "./skills-github-fixture.ts";
 import { execFile } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { cpus, freemem, totalmem } from "node:os";
@@ -8,6 +13,7 @@ import { promisify } from "node:util";
 import { parseCliOptions } from "./cli.ts";
 import {
   BASELINE_REVISION,
+  SKILLS_FIXTURE_BOUNDARY,
   PROBE_FIXTURE_BOUNDARY,
   LIMITS_FIXTURE_BOUNDARY,
   SUBSCRIPTION_FIXTURE_BOUNDARY,
@@ -31,13 +37,15 @@ type TestSummary = {
 };
 
 async function main(): Promise<void> {
-  const fixtureBoundary = process.argv.includes("--subscription-fixture")
-    ? SUBSCRIPTION_FIXTURE_BOUNDARY
-    : process.argv.includes("--limits-fixture")
-      ? LIMITS_FIXTURE_BOUNDARY
-      : process.argv.includes("--probe-fixture")
-        ? PROBE_FIXTURE_BOUNDARY
-        : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
+  const fixtureBoundary = process.argv.includes("--skills-fixture")
+    ? SKILLS_FIXTURE_BOUNDARY
+    : process.argv.includes("--subscription-fixture")
+      ? SUBSCRIPTION_FIXTURE_BOUNDARY
+      : process.argv.includes("--limits-fixture")
+        ? LIMITS_FIXTURE_BOUNDARY
+        : process.argv.includes("--probe-fixture")
+          ? PROBE_FIXTURE_BOUNDARY
+          : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
   const options = parseCliOptions(process.argv);
   await ensureWorkDir(options.workDir);
   const revision = await readRevision(options.repoRoot);
@@ -68,6 +76,9 @@ async function main(): Promise<void> {
     personalControlToken: randomBytes(32).toString("base64url"),
   };
   const resources = await inspectResources(options.repoRoot, options.workDir);
+  let skillsGitHub: Awaited<
+    ReturnType<typeof startSkillsGitHubFixture>
+  > | null = null;
   let database: Awaited<ReturnType<typeof createDatabaseFixture>> | null = null;
   let gateway: Awaited<ReturnType<typeof startGatewayFixture>> | null = null;
   let app: Awaited<ReturnType<typeof startNextApp>> | null = null;
@@ -80,6 +91,11 @@ async function main(): Promise<void> {
       databaseUrl: options.databaseUrl,
       isolatedPglite: options.isolatedPglite,
     });
+    if (process.argv.includes("--skills-fixture")) {
+      if (!process.argv.includes("--resume-own-fixtures"))
+        await seedSkillsFixtures(database.databaseUrl);
+      skillsGitHub = await startSkillsGitHubFixture();
+    }
     gateway = await startGatewayFixture({
       repoRoot: options.repoRoot,
       databaseUrl: database.databaseUrl,
@@ -93,6 +109,7 @@ async function main(): Promise<void> {
       gatewayUrl: gateway.url,
       secrets,
       browserExecutable: options.browserExecutable,
+      ...(skillsGitHub ? { skillsGitHub } : {}),
     });
     const viewer = await createSessionCookie(
       viewerIdentity(),
@@ -100,6 +117,19 @@ async function main(): Promise<void> {
       app.url,
     );
     const other = await createSessionCookie(otherIdentity(), secrets, app.url);
+    const manager = skillsGitHub
+      ? await createSessionCookie(
+          {
+            userId: FIXTURES.users.foreign,
+            sourceProvider: "github",
+            externalUserId: SKILLS_MANAGER_EXTERNAL_ID,
+            sourceLogin: FIXTURES.identities.foreign.login,
+            sourceAvatarUrl: null,
+          },
+          secrets,
+          app.url,
+        )
+      : null;
     const descriptor: RuntimeDescriptor = {
       appUrl: app.url,
       gatewayUrl: gateway.url,
@@ -124,6 +154,7 @@ async function main(): Promise<void> {
         resultJson: join(options.workDir, "playwright-result.json"),
         viewerCookie: viewer.header,
         otherCookie: other.header,
+        managerCookie: manager?.header ?? "",
         browserExecutable: options.browserExecutable,
       });
     }
@@ -131,6 +162,12 @@ async function main(): Promise<void> {
     failure = error instanceof Error ? error.message : String(error);
   } finally {
     await app?.stop().catch(() => undefined);
+    if (skillsGitHub)
+      await writeJson(
+        join(options.workDir, "skills-github-requests.json"),
+        skillsGitHub.requests,
+      );
+    await skillsGitHub?.stop().catch(() => undefined);
     await gateway?.stop().catch(() => undefined);
     await database?.close().catch(() => undefined);
   }
@@ -143,7 +180,9 @@ async function main(): Promise<void> {
       process.argv.includes("--restored-empty-baseline") ||
       process.argv.includes("--resume-own-fixtures")
         ? "schema-only restored checked source roster; not fresh migration proof"
-        : "fresh migrated",
+        : database
+          ? "fresh migrated"
+          : "migration/boot incomplete",
     databaseMode: database?.descriptor.databaseMode ?? "unknown",
     fixtureBoundary,
     externalNetworkAllowed: false,
@@ -232,6 +271,7 @@ async function runPlaywright(input: {
   resultJson: string;
   viewerCookie: string;
   otherCookie: string;
+  managerCookie: string;
   browserExecutable: string | null;
 }): Promise<TestSummary> {
   const playwrightBin = join(harnessRoot, "node_modules", ".bin", "playwright");
@@ -267,6 +307,12 @@ async function runPlaywright(input: {
           ACCOUNTS_REFERENCE_E2E_RESULT_JSON: input.resultJson,
           ACCOUNTS_REFERENCE_E2E_VIEWER_COOKIE: input.viewerCookie,
           ACCOUNTS_REFERENCE_E2E_OTHER_COOKIE: input.otherCookie,
+          ACCOUNTS_REFERENCE_E2E_MANAGER_COOKIE: input.managerCookie,
+          ACCOUNTS_REFERENCE_E2E_SKILLS: process.argv.includes(
+            "--skills-fixture",
+          )
+            ? "1"
+            : "0",
           ...(input.browserExecutable
             ? {
                 ACCOUNTS_REFERENCE_E2E_BROWSER_EXECUTABLE:

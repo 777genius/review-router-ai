@@ -108,6 +108,20 @@ export async function generateReviewActionV2Protocol(input = {}) {
   if (wireBoundary < 0) throw new Error("usage_wire_boundary_missing");
   const files = new Map([
     [
+      "generated/review-skills-contract.ts",
+      await format(
+        "// Generated from shared/src/review-skills-contract.ts. Do not edit.\n" +
+          (await readFile(
+            join(
+              repositoryRoot,
+              "packages/shared/src/review-skills-contract.ts",
+            ),
+            "utf8",
+          )),
+        { parser: "typescript" },
+      ),
+    ],
+    [
       "generated/review-action-v2-legacy.ts",
       await readFile(
         join(

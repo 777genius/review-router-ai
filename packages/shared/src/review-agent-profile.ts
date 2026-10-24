@@ -5,9 +5,11 @@ type ReviewAgentProfileCommon = Readonly<{
   packageVersion: string;
   modelTransports: readonly ("account_gateway" | "provider_api")[];
   cancellation: true;
+  /** Registered immutable producer capability; absence preserves historical profiles. */
+  reviewSkillsVersion?: 1;
 }>;
 
-/** Correlated union keyed by agentKind; always the same seven keys. */
+/** Correlated union keyed by agentKind; seven legacy keys plus an explicit capability. */
 export type ReviewAgentProfile = Readonly<
   | (ReviewAgentProfileCommon & {
       agentKind: "codex";
@@ -43,6 +45,11 @@ export function parseReviewAgentProfiles(
         "contextGateway",
         "cancellation",
       ];
+      if (Object.hasOwn(row, "reviewSkillsVersion")) {
+        if (row.reviewSkillsVersion !== 1)
+          invalid("review_agent_skills_capability_invalid");
+        names.push("reviewSkillsVersion");
+      }
       if (
         Object.keys(row).length !== names.length ||
         names.some((name) => !Object.hasOwn(row, name))
@@ -103,6 +110,9 @@ export function parseReviewAgentProfiles(
         ]) as ReviewAgentProfile["modelTransports"],
         contextGateway,
         cancellation: true,
+        ...(row.reviewSkillsVersion === 1
+          ? { reviewSkillsVersion: 1 as const }
+          : {}),
       } as ReviewAgentProfile);
     }),
   );

@@ -149,7 +149,7 @@ describe("private dependency installer", () => {
     expect(existsSync(capturePath)).toBe(false);
   });
 
-  it("uses a required key without forwarding the control flag or secret", () => {
+  it("accepts the checked-in workspace before validating key material", () => {
     const { capturePath, directory } = createFakePnpm();
     const invalidPrivateKey = [
       "-----BEGIN OPENSSH PRIVATE KEY-----",
@@ -167,7 +167,13 @@ describe("private dependency installer", () => {
       "is not a valid OpenSSH private key",
     );
     expect(existsSync(capturePath)).toBe(false);
+    expect(invalidResult.stderr).toContain(
+      "private dependency credential teardown verified",
+    );
+  });
 
+  it("uses a required key without forwarding the control flag or secret", () => {
+    const { capturePath, directory } = createFakePnpm();
     const keyPath = join(directory, "test-key");
     const generatedKey = spawnSync(
       "ssh-keygen",
@@ -259,7 +265,15 @@ describe("private dependency installer", () => {
     'allowBuilds:\n  "@vioxen/subscription-runtime": true\n',
     'allowBuilds:\n  "@vioxen/subscription-runtime@git+https://github.com/777genius/ar.git": true\n',
     'allowBuilds:\n  "@vioxen/subscription-runtime@https://codeload.github.com/777genius/ar/tar.gz/0000000000000000000000000000000000000000": true\n',
-  ])("rejects workspace hook redirection before pnpm", (addition) => {
+    'minimumReleaseAgeExclude:\n  - "@get-modular/assembly@0.7.1"\n',
+    'minimumReleaseAgeExclude:\n  - "@get-modular/conformance@0.5.1"\n',
+    'minimumReleaseAgeExclude:\n  - "@get-modular/core@0.7.1"\n',
+    'minimumReleaseAgeExclude:\n  - "@get-modular/resources@0.2.2"\n',
+    'minimumReleaseAgeExclude:\n  - "@get-modular/unreviewed@0.7.0"\n',
+    'minimumReleaseAgeExclude:\n  - "@get-modular/core@*"\n',
+    'minimumReleaseAgeExclude:\n  - "@get-modular/core@https://example.test/core.tgz"\n',
+    'minimumReleaseAgeExclude:\n  - { "@get-modular/core@0.7.0": true }\n',
+  ])("rejects unreviewed workspace configuration before pnpm", (addition) => {
     const { capturePath, directory } = createFakePnpm();
     const repository = mkdtempSync(
       join(tmpdir(), "reviewrouter-workspace-test-"),

@@ -1,0 +1,42 @@
+{
+  "name": "@reviewrouter/features-review-skills",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "production": "./dist/index.js",
+      "default": "./src/index.ts"
+    },
+    "./composition": {
+      "types": "./src/composition/index.ts",
+      "production": "./dist/composition/index.js",
+      "default": "./src/composition/index.ts"
+    },
+    "./testing": {
+      "types": "./src/testing/index.ts",
+      "production": "./dist/testing/index.js",
+      "default": "./src/testing/index.ts"
+    }
+  },
+  "dependencies": {
+    "@prisma/client": "7.8.0",
+    "@reviewrouter/shared": "workspace:*",
+    "@get-modular/core": "0.7.0",
+    "@get-modular/assembly": "0.7.0"
+  },
+  "devDependencies": {
+    "@get-modular/conformance": "0.5.0",
+    "@get-modular/resources": "0.2.1",
+    "@prisma/adapter-pg": "7.8.0",
+    "pg": "8.23.0",
+    "@types/pg": "8.23.1"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:native": "node ../../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json",
+    "test": "vitest run --root ../../.. packages/features/review-skills/src/tests"
+  }
+}

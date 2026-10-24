@@ -19,6 +19,10 @@ export async function startNextApp(input: {
   readonly gatewayUrl: string;
   readonly secrets: FixtureSecrets;
   readonly browserExecutable: string | null;
+  readonly skillsGitHub?: {
+    readonly origin: string;
+    readonly privateKey: string;
+  };
 }): Promise<AppFixture> {
   for (const directory of [input.repoRoot, join(input.repoRoot, "apps/web")]) {
     for (const name of [
@@ -47,6 +51,14 @@ export async function startNextApp(input: {
     secrets: input.secrets,
     tmpDir: join(input.workDir, "app-tmp"),
   });
+  if (input.skillsGitHub)
+    Object.assign(environment, {
+      REVIEW_ROUTER_SKILLS_E2E: "1",
+      REVIEW_ROUTER_GITHUB_APP_TEST_ORIGIN: input.skillsGitHub.origin,
+      GITHUB_APP_ID: "990001",
+      GITHUB_APP_PRIVATE_KEY: input.skillsGitHub.privateKey,
+      NODE_OPTIONS: `--import=${join(input.repoRoot, "scripts/accounts-reference-e2e/src/skills-network-guard.ts")}`,
+    });
   const nextBin = join(
     input.repoRoot,
     "node_modules",

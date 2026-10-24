@@ -1,4 +1,5 @@
 import type { ReviewRunRuntimeSnapshotPort } from "../application/ports/review-run-runtime-snapshot-port";
+import type { ReviewRunSkillsSnapshotPort } from "../application/ports/review-run-skills-snapshot-port";
 import type {
   ClockPort,
   IdentifierFactoryPort,
@@ -53,6 +54,7 @@ import {
 
 export type ReviewRunControlCompositionDependencies = {
   readonly runtimeSnapshots?: ReviewRunRuntimeSnapshotPort;
+  readonly skillsSnapshots?: ReviewRunSkillsSnapshotPort;
   readonly clock: ClockPort;
   readonly identifiers: IdentifierFactoryPort;
   readonly digest: Sha256DigestPort;
@@ -136,6 +138,9 @@ export function composeReviewRunControl(
     }),
     safetyResolver,
     authorizations: new ManageReviewRunAuthorizations({
+      ...(dependencies.skillsSnapshots
+        ? { skillsSnapshots: dependencies.skillsSnapshots }
+        : {}),
       ...(dependencies.runtimeSnapshots
         ? { runtimeSnapshots: dependencies.runtimeSnapshots }
         : {}),

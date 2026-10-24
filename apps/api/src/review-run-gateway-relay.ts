@@ -161,6 +161,8 @@ export function createReviewRunGatewayRelay(input: {
   let closeAuthorityInFlight = 0;
   const closing = new Map<string, ReturnType<typeof cleanup>>();
   let stopping = false;
+  let capacityCleanup: Promise<void> | undefined;
+  let cleanupCursor = sessions.entries();
   function reserve() {
     if (stopping || inFlight >= policy.maxInFlight)
       throw new RelayFailure("relay_saturated", 503);
@@ -227,7 +229,66 @@ export function createReviewRunGatewayRelay(input: {
     )
       throw new RelayFailure("authorization_denied", 401);
   }
-  function sessionFor(auth: ReviewRunAuthorization) {
+  function reclaimCapacity() {
+    if (capacityCleanup) return capacityCleanup;
+    capacityCleanup = (async () => {
+      // Pressure only: one shared, fair batch. Do not turn a POST into a scan of
+      // every retained capability or poll/replay an unresolved native operation.
+      const budget = Math.min(sessions.size, policy.maxInFlight, 16);
+      const deadline = Date.now() + Math.min(policy.requestTimeoutMs, 30_000);
+      for (let i = 0; i < budget && sessions.size >= policy.maxSessions; i++) {
+        if (Date.now() >= deadline) break;
+        let next = cleanupCursor.next();
+        if (next.done) {
+          cleanupCursor = sessions.entries();
+          next = cleanupCursor.next();
+        }
+        if (next.done) break;
+        const [authorizationId, session] = next.value;
+        if (closing.has(authorizationId) || session.preparation.isPreparing())
+          continue;
+        try {
+          const row =
+            await input.queries.findReviewRunAuthorizationById(authorizationId);
+          if (
+            !row ||
+            row.authorizationId !== authorizationId ||
+            row.runtimeSnapshotCanonicalJson !== session.canonical ||
+            canonicalJson(reviewRunGatewayOwnedIdentity(row)) !==
+              session.identity ||
+            row.maxExpiresAt.getTime() !== session.deadline ||
+            (row.state !== ReviewRunAuthorizationState.Revoked &&
+              row.state !== ReviewRunAuthorizationState.Expired &&
+              Date.now() < session.deadline)
+          )
+            continue;
+          // Keep durable deny-first and the exact retained-capability close.
+          // Unknown attempted prepares/closes never release a memory slot.
+          if (
+            Date.now() >= deadline ||
+            closing.has(authorizationId) ||
+            session.preparation.isPreparing()
+          )
+            continue;
+          await closeRun(
+            authorizationId,
+            row.state === ReviewRunAuthorizationState.Expired ||
+              (row.state === ReviewRunAuthorizationState.Active &&
+                Date.now() >= session.deadline)
+              ? "deadline"
+              : "cancelled",
+            deadline,
+          );
+        } catch {
+          // Missing authority/failed read/unknown close cannot justify eviction.
+        }
+      }
+    })().finally(() => {
+      capacityCleanup = undefined;
+    });
+    return capacityCleanup;
+  }
+  async function sessionFor(auth: ReviewRunAuthorization) {
     const canonical = auth.runtimeSnapshotCanonicalJson;
     const snapshot = parseReviewRunRuntimeSnapshot(canonical);
     if (
@@ -237,16 +298,24 @@ export function createReviewRunGatewayRelay(input: {
     )
       throw new RelayFailure("gateway_unavailable", 403);
     const identity = canonicalJson(reviewRunGatewayOwnedIdentity(auth));
-    let session = sessions.get(auth.authorizationId);
-    if (session) {
+    const existing = () => {
+      const session = sessions.get(auth.authorizationId);
       if (
-        session.canonical !== canonical ||
-        session.identity !== identity ||
-        session.closed
+        session &&
+        (session.canonical !== canonical ||
+          session.identity !== identity ||
+          session.closed)
       )
         throw new RelayFailure("authorization_denied", 401);
       return session;
-    }
+    };
+    let session = existing();
+    if (session) return session;
+    if (!stopping && sessions.size >= policy.maxSessions)
+      await reclaimCapacity();
+    // Another admission can have won the slot while cleanup awaited SQL/native.
+    session = existing();
+    if (session) return session;
     if (stopping || sessions.size >= policy.maxSessions)
       throw new RelayFailure("relay_saturated", 503);
     const deadline = Date.parse(snapshot.deadline);
@@ -277,7 +346,11 @@ export function createReviewRunGatewayRelay(input: {
     sessions.set(auth.authorizationId, session);
     return session;
   }
-  function closeRun(authorizationId: string, reason: c.Close["reason"]) {
+  function closeRun(
+    authorizationId: string,
+    reason: c.Close["reason"],
+    deadline?: number,
+  ) {
     const session = sessions.get(authorizationId);
     if (session) {
       session.closed = true;
@@ -288,9 +361,11 @@ export function createReviewRunGatewayRelay(input: {
     }
     const pending = closing.get(authorizationId);
     if (pending) return pending;
-    const work = cleanup(authorizationId, reason, session).finally(() => {
-      closing.delete(authorizationId);
-    });
+    const work = cleanup(authorizationId, reason, session, deadline).finally(
+      () => {
+        closing.delete(authorizationId);
+      },
+    );
     closing.set(authorizationId, work);
     return work;
   }
@@ -298,6 +373,7 @@ export function createReviewRunGatewayRelay(input: {
     authorizationId: string,
     reason: c.Close["reason"],
     session?: Session,
+    deadline?: number,
   ) {
     // Existing RR lifecycle commits local denial first. Failure is never "closed".
     await input.authorizations.expireOrRevokeReviewRunAuthorization({
@@ -318,11 +394,21 @@ export function createReviewRunGatewayRelay(input: {
       throw new RelayFailure("close_pending", 409, "effect_unknown");
     cleanupInFlight++;
     try {
+      const remaining =
+        deadline === undefined
+          ? policy.requestTimeoutMs
+          : deadline - Date.now();
+      if (remaining <= 0)
+        throw new RelayFailure("close_pending", 409, "effect_unknown");
       const operation = await session.preparation.close(reason, {
-        signal: AbortSignal.timeout(policy.requestTimeoutMs),
+        signal: AbortSignal.timeout(remaining),
       });
       // Retain unresolved evidence/capability for explicit same-close readback.
-      if (operation.state === "applied") sessions.delete(authorizationId);
+      if (
+        operation.state === "applied" ||
+        session.preparation.canReleaseWithoutRemoteClose()
+      )
+        sessions.delete(authorizationId);
       return operation;
     } finally {
       cleanupInFlight--;
@@ -340,7 +426,7 @@ export function createReviewRunGatewayRelay(input: {
     const finish = reserve();
     try {
       const auth = await resolve(token);
-      const session = sessionFor(auth);
+      const session = await sessionFor(auth);
       const snapshot = parseReviewRunRuntimeSnapshot(session.canonical)!;
       const gateway = snapshot.gateway!;
       const configuration = parseReviewConfigurationStrict(
@@ -637,7 +723,7 @@ export function createReviewRunGatewayRelay(input: {
     recoverSameOperation: (token: string) =>
       bounded(async () => {
         const auth = await resolve(token);
-        const session = sessionFor(auth);
+        const session = await sessionFor(auth);
         const result = await session.preparation.recoverSameOperation();
         await check(token, auth, session);
         return result;
@@ -645,7 +731,7 @@ export function createReviewRunGatewayRelay(input: {
     status: (token: string, requestRef: string) =>
       bounded(async () => {
         const auth = await resolve(token);
-        const session = sessionFor(auth);
+        const session = await sessionFor(auth);
         if (!session.preparation.hasSession())
           throw new RelayFailure(
             "same_operation_recovery_required",

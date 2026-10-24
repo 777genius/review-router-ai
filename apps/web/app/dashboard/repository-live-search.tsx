@@ -19,7 +19,10 @@ import {
   repositorySetupStepPillClassName,
   type SetupStep,
 } from "./repository-setup-optimistic-status";
-import { RepositoryActionSelectionCheckbox } from "./gateway-repository-batch-controls";
+import {
+  RepositorySelectionCheckbox as RepositoryActionSelectionCheckbox,
+  RepositorySelectionToolbar,
+} from "./repository-action-selection";
 import {
   RepositoryNameLink,
   RepositoryStarsBadge,
@@ -291,6 +294,8 @@ export function RepositoryLiveSearch({
           })}
         </div>
       </div>
+
+      <RepositorySelectionToolbar matchingIds={matchingIds} />
 
       {hasActiveFilter && matchingCount === 0 ? (
         <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/[0.055] p-3">
