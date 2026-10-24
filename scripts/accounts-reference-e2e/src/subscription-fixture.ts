@@ -161,7 +161,7 @@ export function createSubscriptionFixture(accounts: WireAccount[]) {
                   : "api_key",
               ],
               completionInputKind:
-                profile.provider === "grok" ? "callback_url" : "none",
+                profile.provider === "grok" ? "authorization_code" : "none",
               availability: "enabled",
               oauthCallbackMode:
                 profile.provider === "grok" ? "manual_callback_url" : null,
@@ -348,12 +348,13 @@ export function createSubscriptionFixture(accounts: WireAccount[]) {
         if (operations.get(operationId)?.state === "applied")
           return { status: 200, body: operations.get(operationId) };
         const original = pending.get(operationId);
-        if (
-          !original ||
-          typeof input.callbackURL !== "string" ||
-          new URL(input.callbackURL).searchParams.get("state") !== state
-        )
-          return denied();
+        const codeValid =
+          input.authorizationCode === "synthetic-browser-grok-code" ||
+          input.authorizationCode === "synthetic-browser-grok-reconnect-code";
+        const callbackValid =
+          typeof input.callbackURL === "string" &&
+          new URL(input.callbackURL).searchParams.get("state") === state;
+        if (!original || (!codeValid && !callbackValid)) return denied();
         stats.completes++;
         return {
           status: 200,

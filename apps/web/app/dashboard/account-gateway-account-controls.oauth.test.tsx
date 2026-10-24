@@ -96,9 +96,12 @@ function safeOperation(
       completion: {
         providerLabel:
           page?.profiles.find((p) => p.authKind === "oauth")?.label ?? "Codex",
-        inputKind: page?.profiles.some((p) => p.provider === "claude")
-          ? "authorization_code"
-          : "callback_url",
+        inputKind:
+          page?.profiles.find((p) => p.authKind === "oauth")?.connection
+            ?.completionInputKind ??
+          (page?.profiles.some((p) => p.provider === "claude")
+            ? "authorization_code"
+            : "callback_url"),
       },
     },
   };
@@ -1850,64 +1853,76 @@ test.each([
   },
 );
 
-test("Grok's saved callback grammar survives reload and never guesses a code from pasted text", async () => {
-  page.profiles = [
-    {
-      id: "grok-subscription-responses-oauth-v1",
-      label: "Grok",
-      provider: "codex",
-      authKind: "oauth",
-      oauthMethods: ["browser"],
-      protocol: "openai-responses",
-      models: ["qualified-grok"],
-      connection: {
-        provider: "grok",
-        planLabel: "Subscription",
-        regionLabel: "Global",
-        completionInputKind: "callback_url",
-        personalOnly: false,
-        limitsContract: "account-limits/v2",
-        modelSettings: [],
+test.each(["authorization_code", "callback_url"] as const)(
+  "Grok's saved %s grammar survives reload and clears pasted input without guessing its representation",
+  async (inputKind) => {
+    page.profiles = [
+      {
+        id: "grok-subscription-responses-oauth-v1",
+        label: "Grok",
+        provider: "codex",
+        authKind: "oauth",
+        oauthMethods: ["browser"],
+        protocol: "openai-responses",
+        models: ["qualified-grok"],
+        connection: {
+          provider: "grok",
+          planLabel: "Subscription",
+          regionLabel: "Global",
+          completionInputKind: "authorization_code",
+          personalOnly: false,
+          limitsContract: "account-limits/v2",
+          modelSettings: [],
+        },
       },
-    },
-  ];
-  page.accounts = [];
-  sessionStorage.setItem(storageKey, JSON.stringify([savedNonce]));
-  vi.mocked(readGatewayOperation).mockResolvedValue({
-    status: "ok",
-    value: {
-      nonce: savedNonce,
-      state: "pending",
-      cleanup: "unresolved",
-      oauthMethod: "browser",
-      completion: { providerLabel: "Grok", inputKind: "callback_url" },
-    },
-  });
-  vi.mocked(completeGatewayOAuth).mockResolvedValue(
-    safeOperation(savedNonce, "applied"),
-  );
-  render(
-    <AccountGatewayControls
-      connectOnly
-      bootstrap={{ context, page: { status: "ok", value: page } }}
-    />,
-  );
-  const field = await screen.findByLabelText("Authorization result address");
-  const pasted = `looks-like-code#${"a".repeat(64)}`;
-  fireEvent.change(field, { target: { value: pasted } });
-  fireEvent.click(
-    screen.getByRole("button", { name: "Complete authorization" }),
-  );
-  await waitFor(() =>
-    expect(completeGatewayOAuth).toHaveBeenCalledWith(context, {
-      nonce: savedNonce,
-      callbackURL: pasted,
-    }),
-  );
-  expect((field as HTMLInputElement).value).toBe("");
-  for (const client of clients) expect(caches(client)).not.toContain(pasted);
-  expect(JSON.stringify(storageWrites.mock.calls)).not.toContain(pasted);
-});
+    ];
+    page.accounts = [];
+    sessionStorage.setItem(storageKey, JSON.stringify([savedNonce]));
+    vi.mocked(readGatewayOperation).mockResolvedValue({
+      status: "ok",
+      value: {
+        nonce: savedNonce,
+        state: "pending",
+        cleanup: "unresolved",
+        oauthMethod: "browser",
+        completion: { providerLabel: "Grok", inputKind },
+      },
+    });
+    vi.mocked(completeGatewayOAuth).mockResolvedValue(
+      safeOperation(savedNonce, "applied"),
+    );
+    render(
+      <AccountGatewayControls
+        connectOnly
+        bootstrap={{ context, page: { status: "ok", value: page } }}
+      />,
+    );
+    const field = await screen.findByLabelText(
+      inputKind === "authorization_code"
+        ? "Authorization code"
+        : "Authorization result address",
+    );
+    const pasted =
+      inputKind === "authorization_code"
+        ? "synthetic-grok-plain-code"
+        : `looks-like-code#${"a".repeat(64)}`;
+    fireEvent.change(field, { target: { value: pasted } });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Complete authorization" }),
+    );
+    await waitFor(() =>
+      expect(completeGatewayOAuth).toHaveBeenCalledWith(context, {
+        nonce: savedNonce,
+        ...(inputKind === "authorization_code"
+          ? { authorizationCode: pasted }
+          : { callbackURL: pasted }),
+      }),
+    );
+    expect((field as HTMLInputElement).value).toBe("");
+    for (const client of clients) expect(caches(client)).not.toContain(pasted);
+    expect(JSON.stringify(storageWrites.mock.calls)).not.toContain(pasted);
+  },
+);
 
 test("Grok offers one browser sign-in with no OpenAI setup or method wizard", async () => {
   page.profiles = [
@@ -1923,7 +1938,7 @@ test("Grok offers one browser sign-in with no OpenAI setup or method wizard", as
         provider: "grok",
         planLabel: "Subscription",
         regionLabel: "Global",
-        completionInputKind: "callback_url",
+        completionInputKind: "authorization_code",
         personalOnly: false,
         limitsContract: "account-limits/v2",
         modelSettings: [],
@@ -1951,7 +1966,7 @@ test("Grok offers one browser sign-in with no OpenAI setup or method wizard", as
     method: "browser",
   });
   expect(handoff).toHaveBeenCalledTimes(1);
-  await screen.findByLabelText("Authorization result address");
+  await screen.findByLabelText("Authorization code");
   assertNoCapability();
 });
 
@@ -2016,7 +2031,7 @@ test("delayed Grok reconnect resumes browser enrollment with the same nonce afte
         provider: "grok",
         planLabel: "Subscription",
         regionLabel: "Global",
-        completionInputKind: "callback_url",
+        completionInputKind: "authorization_code",
         personalOnly: false,
         limitsContract: "account-limits/v2",
         modelSettings: [],
@@ -2031,7 +2046,7 @@ test("delayed Grok reconnect resumes browser enrollment with the same nonce afte
       nonce: savedNonce,
       state: "pending",
       cleanup: "unresolved",
-      completion: { providerLabel: "Grok", inputKind: "callback_url" },
+      completion: { providerLabel: "Grok", inputKind: "authorization_code" },
     },
   };
   const ready: AccountsResult<AccountOperationView> = {
@@ -2056,7 +2071,7 @@ test("delayed Grok reconnect resumes browser enrollment with the same nonce afte
         state: "pending",
         cleanup: "unresolved",
         oauthMethod: "browser",
-        completion: { providerLabel: "Grok", inputKind: "callback_url" },
+        completion: { providerLabel: "Grok", inputKind: "authorization_code" },
       },
       authorizationURL: capability,
     },
@@ -2100,7 +2115,7 @@ test("delayed Grok reconnect resumes browser enrollment with the same nonce afte
     savedNonce,
   ]);
   expect(handoff).toHaveBeenCalledTimes(1);
-  await screen.findByLabelText("Authorization result address");
+  await screen.findByLabelText("Authorization code");
   assertNoCapability();
 });
 

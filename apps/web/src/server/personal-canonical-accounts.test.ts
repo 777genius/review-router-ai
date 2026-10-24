@@ -332,7 +332,7 @@ function fixture(options: { grok?: boolean; disabled?: boolean } = {}) {
                 provider: "grok" as const,
                 planLabel: "Subscription",
                 regionLabel: "Global",
-                completionInputKind: "callback_url" as const,
+                completionInputKind: "authorization_code" as const,
                 personalOnly: false,
                 limitsContract: "account-limits/v2" as const,
                 modelSettings: [],
@@ -836,69 +836,87 @@ describe("personal canonical UI server boundary", () => {
 });
 
 describe("qualified personal OAuth reconnect", () => {
-  it("fences once, recovers the saved Grok grammar and never repeats begin during readback", async () => {
-    const f = fixture({ grok: true });
-    const request = {
-      nonce,
-      connectionId: "own-source",
-      mirrorRevision: 10,
-      gatewayRevision: 23,
-      method: "browser" as const,
-    };
-    const pending = await f.api.beginGatewayOAuth("", request);
-    expect(pending.status).toBe("ok");
-    expect(f.control.beginOAuthReconnect).not.toHaveBeenCalled();
-    f.ack();
-    const begun = await f.api.beginGatewayOAuth("", request);
-    expect(begun).toMatchObject({
-      status: "ok",
-      value: {
-        operation: {
-          completion: { providerLabel: "Grok", inputKind: "callback_url" },
+  it.each(["authorization_code", "callback_url"] as const)(
+    "fences once, restores saved Grok code presentation and completes %s without repeating begin",
+    async (representation) => {
+      const f = fixture({ grok: true });
+      const request = {
+        nonce,
+        connectionId: "own-source",
+        mirrorRevision: 10,
+        gatewayRevision: 23,
+        method: "browser" as const,
+      };
+      const pending = await f.api.beginGatewayOAuth("", request);
+      expect(pending.status).toBe("ok");
+      expect(f.control.beginOAuthReconnect).not.toHaveBeenCalled();
+      f.ack();
+      const begun = await f.api.beginGatewayOAuth("", request);
+      expect(begun).toMatchObject({
+        status: "ok",
+        value: {
+          operation: {
+            completion: {
+              providerLabel: "Grok",
+              inputKind: "authorization_code",
+            },
+          },
+          authorizationURL:
+            "https://auth.x.ai/oauth2/authorize?one-off-handoff",
         },
-        authorizationURL: "https://auth.x.ai/oauth2/authorize?one-off-handoff",
-      },
-    });
-    expect(f.control.beginOAuthReconnect).toHaveBeenCalledTimes(1);
-    const readback = await f.api.readGatewayOperation("", nonce);
-    expect(readback).toMatchObject({
-      status: "ok",
-      value: {
-        completion: { providerLabel: "Grok", inputKind: "callback_url" },
-      },
-    });
-    await f.api.beginGatewayOAuth("", request);
-    expect(f.control.beginOAuthReconnect).toHaveBeenCalledTimes(1);
-    const wrong = await f.api.completeGatewayOAuth("", {
-      nonce,
-      callbackURL:
-        "http://localhost:1455/auth/callback?code=synthetic-code&state=" +
-        "b".repeat(64),
-    });
-    expect(wrong.status).toBe("denied");
-    expect(f.control.completeOAuth).not.toHaveBeenCalled();
-    const completed = await f.api.completeGatewayOAuth("", {
-      nonce,
-      callbackURL:
-        "http://127.0.0.1:56121/callback?code=synthetic-code&state=" +
-        "b".repeat(64),
-    });
-    expect(completed).toMatchObject({
-      status: "ok",
-      value: { state: "applied" },
-    });
-    expect(f.control.completeOAuth).toHaveBeenCalledTimes(1);
-    await f.api.completeGatewayOAuth("", {
-      nonce,
-      callbackURL:
-        "http://127.0.0.1:56121/callback?code=synthetic-code&state=" +
-        "b".repeat(64),
-    });
-    expect(f.control.completeOAuth).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(f.intents)).not.toMatch(
-      /synthetic-code|callbackURL|one-off-handoff/,
-    );
-  });
+      });
+      expect(f.control.beginOAuthReconnect).toHaveBeenCalledTimes(1);
+      const readback = await f.api.readGatewayOperation("", nonce);
+      expect(readback).toMatchObject({
+        status: "ok",
+        value: {
+          completion: {
+            providerLabel: "Grok",
+            inputKind: "authorization_code",
+          },
+        },
+      });
+      await f.api.beginGatewayOAuth("", request);
+      expect(f.control.beginOAuthReconnect).toHaveBeenCalledTimes(1);
+      const wrong = await f.api.completeGatewayOAuth("", {
+        nonce,
+        callbackURL:
+          "http://localhost:1455/auth/callback?code=synthetic-code&state=" +
+          "b".repeat(64),
+      });
+      expect(wrong.status).toBe("denied");
+      expect(f.control.completeOAuth).not.toHaveBeenCalled();
+      expect(
+        await f.api.completeGatewayOAuth("", {
+          nonce,
+          authorizationCode: `synthetic-claude-code#${"a".repeat(64)}`,
+        }),
+      ).toMatchObject({ status: "denied" });
+      expect(f.control.completeOAuth).not.toHaveBeenCalled();
+      const credential =
+        representation === "authorization_code"
+          ? { authorizationCode: "synthetic-grok-plain-code" }
+          : {
+              callbackURL:
+                "http://127.0.0.1:56121/callback?code=synthetic-code&state=" +
+                "b".repeat(64),
+            };
+      const completed = await f.api.completeGatewayOAuth("", {
+        nonce,
+        ...credential,
+      });
+      expect(completed).toMatchObject({
+        status: "ok",
+        value: { state: "applied" },
+      });
+      expect(f.control.completeOAuth).toHaveBeenCalledTimes(1);
+      await f.api.completeGatewayOAuth("", { nonce, ...credential });
+      expect(f.control.completeOAuth).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(f.intents)).not.toMatch(
+        /synthetic-code|synthetic-grok-plain-code|authorizationCode|callbackURL|one-off-handoff/,
+      );
+    },
+  );
 });
 
 it("retains existing account cleanup when its qualified profile is disabled", async () => {

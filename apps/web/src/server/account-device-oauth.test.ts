@@ -25,6 +25,7 @@ import {
 } from "./account-gateway-accounts";
 
 const profileId = "openai-codex-oauth-responses-v1";
+const grokProfileId = "grok-subscription-responses-oauth-v1";
 const claudeProfileId = "anthropic-claude-oauth-messages-v1";
 const authorizationCode = `synthetic-claude-code#${"c".repeat(64)}`;
 const handoff = {
@@ -39,10 +40,25 @@ afterEach(async () => {
 });
 
 async function fixture(
-  selectedProfileId: typeof profileId | typeof claudeProfileId = profileId,
+  selectedProfileId:
+    | typeof profileId
+    | typeof claudeProfileId
+    | typeof grokProfileId = profileId,
 ) {
   const profileId = selectedProfileId;
   const claude = profileId === claudeProfileId;
+  const grok = profileId === grokProfileId;
+  const grokAuthorization = new URL("https://auth.x.ai/oauth2/authorize");
+  grokAuthorization.search = new URLSearchParams({
+    response_type: "code",
+    redirect_uri: "http://127.0.0.1:56121/callback",
+    code_challenge_method: "S256",
+    scope: "openid profile email offline_access grok-cli:access api:access",
+    client_id: "synthetic-grok-browser",
+    state: "c".repeat(64),
+    code_challenge: "b".repeat(43),
+    nonce: "d".repeat(43),
+  }).toString();
   const claudeAuthorization = new URL("https://claude.com/cai/oauth/authorize");
   claudeAuthorization.search = new URLSearchParams({
     code: "true",
@@ -136,9 +152,11 @@ async function fixture(
       response.end(
         JSON.stringify({
           operation,
-          ...(claude
-            ? { authorizationURL: claudeAuthorization.href }
-            : { deviceAuthorization: handoff }),
+          ...(grok
+            ? { authorizationURL: grokAuthorization.href }
+            : claude
+              ? { authorizationURL: claudeAuthorization.href }
+              : { deviceAuthorization: handoff }),
         }),
       );
     } else if (request.url === "/v1/accounts/oauth/complete") {
@@ -290,6 +308,28 @@ async function fixture(
       store,
       control,
       profiles: new Map([[profileId, "oauth-begin"]]),
+      ...(grok
+        ? {
+            connectionProfiles: [
+              {
+                id: grokProfileId,
+                label: "Grok",
+                authKind: "oauth" as const,
+                canReconnect: true,
+                oauthMethods: ["browser"] as const,
+                connection: {
+                  provider: "grok" as const,
+                  planLabel: "Subscription",
+                  regionLabel: "Global",
+                  completionInputKind: "authorization_code" as const,
+                  personalOnly: false,
+                  limitsContract: "account-limits/v2" as const,
+                  modelSettings: [],
+                },
+              },
+            ],
+          }
+        : {}),
     });
   type WorkspaceInput = Parameters<typeof createAccountsAdapter>[0];
   const unused = new Proxy(
@@ -515,6 +555,12 @@ test("Claude personal browser completion is bound to the saved profile and owner
     }),
   ).rejects.toMatchObject({ code: "connection_unavailable" });
   expect(f.completions).toHaveLength(0);
+  await expect(
+    f
+      .personal()
+      .completeOAuth({ nonce, authorizationCode: "synthetic-grok-plain-code" }),
+  ).rejects.toMatchObject({ code: "connection_unavailable" });
+  expect(f.completions).toHaveLength(0);
   f.actor("foreign-owner");
   await expect(
     f.personal().completeOAuth({ nonce, authorizationCode }),
@@ -575,3 +621,52 @@ test("Claude workspace enrollment defaults to browser, denies device, and forwar
   ).toMatchObject({ status: "invalid" });
   expect(f.completions).toHaveLength(1);
 });
+
+test.each(["plain_code", "callback_url"] as const)(
+  "Grok personal browser completion forwards %s only under the saved Grok profile and owner",
+  async (representation) => {
+    const f = await fixture(grokProfileId);
+    const nonce = randomUUID();
+    await f
+      .personal()
+      .connect({
+        nonce,
+        profileId: grokProfileId,
+        label: "Own Grok",
+        method: "browser",
+      });
+    expect((await f.personal().operation(nonce)).completion).toMatchObject({
+      providerLabel: "Grok",
+      inputKind: "authorization_code",
+    });
+    await expect(
+      f.personal().completeOAuth({ nonce, authorizationCode }),
+    ).rejects.toMatchObject({ code: "connection_unavailable" });
+    expect(f.completions).toHaveLength(0);
+    const credential =
+      representation === "plain_code"
+        ? { authorizationCode: "synthetic-grok-plain-code" }
+        : {
+            callbackURL: `http://127.0.0.1:56121/callback?code=synthetic-grok&state=${"c".repeat(64)}`,
+          };
+    f.actor("foreign-owner");
+    await expect(
+      f.personal().completeOAuth({ nonce, ...credential }),
+    ).rejects.toMatchObject({ code: "connection_unavailable" });
+    expect(f.completions).toHaveLength(0);
+    f.actor("device-owner");
+    expect(
+      (await f.personal().completeOAuth({ nonce, ...credential })).phase,
+    ).toBe("submitted");
+    expect(f.completions).toEqual([
+      {
+        operationId: personalOperationId("device-owner", nonce),
+        ownerRef: accountGatewayUserOwnerRef("device-owner"),
+        ...credential,
+      },
+    ]);
+    expect(JSON.stringify([...f.rows.values()])).not.toMatch(
+      /synthetic-grok|authorizationCode|callbackURL|auth.x.ai/,
+    );
+  },
+);
