@@ -23,4 +23,23 @@ describe("mapWithConcurrency", () => {
       "map_with_concurrency_limit_invalid",
     );
   });
+
+  it("starts no further mapper after the first rejection", async () => {
+    const started: number[] = [];
+    await expect(
+      mapWithConcurrency(
+        Array.from({ length: 20 }, (_, index) => index),
+        3,
+        async (value) => {
+          started.push(value);
+          if (value === 1) throw new Error("permission_check_failed");
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          return value;
+        },
+      ),
+    ).rejects.toThrow("permission_check_failed");
+    // Let anything still running settle before counting.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(started).toEqual([0, 1, 2]);
+  });
 });
