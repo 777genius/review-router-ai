@@ -17,6 +17,32 @@ export class PrismaWorkspaceReviewSettings {
     return workspace?.reviewDraftPullRequests === true;
   }
 
+  /**
+   * The workspace settings of Dashboard -> Other in one read: draft reviews
+   * and Access rights (only owners and admins manage providers). Access
+   * rights are written only through the provider profile repository. The
+   * review runtime keeps reading drafts alone through `reviewDrafts`.
+   */
+  async otherSettings(workspaceId: string): Promise<
+    Readonly<{
+      reviewDraftPullRequests: boolean;
+      providerManagementAdminOnly: boolean;
+    }>
+  > {
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: {
+        reviewDraftPullRequests: true,
+        providerManagementAdminOnly: true,
+      },
+    });
+    return {
+      reviewDraftPullRequests: workspace?.reviewDraftPullRequests === true,
+      providerManagementAdminOnly:
+        workspace?.providerManagementAdminOnly === true,
+    };
+  }
+
   async reviewDraftsForGitHubInstallation(
     githubInstallationId: string,
   ): Promise<boolean> {

@@ -380,6 +380,8 @@ type DashboardWorkspaceData = {
   /** Active workspace providers by ID, for naming selections. */
   providerProfiles: ReadonlyMap<string, WorkspaceProviderProfile>;
   reviewDraftPullRequests?: boolean;
+  /** Access rights: only owners and admins manage providers. */
+  providerManagementAdminOnly?: boolean;
   canEditOtherSettings?: boolean;
   repositoryConfigs: readonly {
     readonly repositoryId: string;
@@ -645,9 +647,9 @@ export async function loadDashboardSectionData(
   const otherSettings =
     section === "other"
       ? {
-          reviewDraftPullRequests: await new PrismaWorkspaceReviewSettings(
-            prisma,
-          ).reviewDrafts(workspace.id),
+          ...(await new PrismaWorkspaceReviewSettings(prisma).otherSettings(
+            workspace.id,
+          )),
           canEditOtherSettings: await canDashboardActorAdminWorkspace({
             actor: signedInActor,
             workspaceId: workspace.id,
@@ -1698,7 +1700,11 @@ export function WorkspaceCard({
         <WorkspaceOtherSettings
           workspaceId={workspace.id}
           reviewDraftPullRequests={data.reviewDraftPullRequests === true}
+          providerManagementAdminOnly={
+            data.providerManagementAdminOnly === true
+          }
           canEdit={mutationsEnabled && data.canEditOtherSettings === true}
+          mutationsEnabled={mutationsEnabled}
         />
       </div>
     );
