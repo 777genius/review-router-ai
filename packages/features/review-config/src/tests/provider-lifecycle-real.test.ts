@@ -1,0 +1,522 @@
+import { randomUUID } from "node:crypto";
+import {
+  createPrismaClient,
+  type PrismaClient,
+} from "@reviewrouter/platform-db";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  archiveWorkspaceProviderProfile,
+  changeWorkspaceProviderProfileModel,
+  createWorkspaceProviderProfile,
+  renameWorkspaceProviderProfile,
+} from "../application/use-cases/manage-workspace-provider-profiles";
+import {
+  assignProviderProfileToRepositories,
+  clearRepositoryProviderSelection,
+  providerSelectionAuthority,
+  saveRepositoryReviewPolicy,
+  setWorkspaceDefaultProvider,
+} from "../application/use-cases/manage-provider-selections";
+import { ProviderManagementDeniedError } from "../domain/provider-management-policy";
+import { ProviderProfileError } from "../domain/workspace-provider-profile";
+import { PrismaReviewConfigurationRepository } from "../infrastructure/prisma/prisma-review-configuration-repository";
+import { PrismaReviewPolicyHeadReader } from "../infrastructure/prisma/prisma-review-policy-head-reader";
+import { PrismaWorkspaceProviderProfileRepository } from "../infrastructure/prisma/prisma-workspace-provider-profile-repository";
+
+const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
+const databaseTests = databaseUrl ? describe : describe.skip;
+
+databaseTests("provider profile lifecycle on PostgreSQL", () => {
+  let prisma: PrismaClient;
+  const prefix = `lifecycle-${randomUUID().slice(0, 8)}`;
+  const workspaceId = `${prefix}-w`;
+  const actor = (name: string) => ({
+    userId: `${prefix}-${name}`,
+    auditActor: `user:github:${name}`,
+  });
+  const owner = actor("owner");
+  const member = actor("member");
+  const outsider = actor("outsider");
+  const repoA = `${prefix}-repo-a`;
+  const repoB = `${prefix}-repo-b`;
+  const secret = `sk-${prefix}-plaintext-secret`;
+  const settings = {
+    reasoningEffort: "high",
+    agenticContext: true,
+    fastMode: false,
+    requiredHealthy: true,
+  } as const;
+  let deps: {
+    configurations: PrismaReviewConfigurationRepository;
+    policyHeads: PrismaReviewPolicyHeadReader;
+  };
+  let profiles: { profiles: PrismaWorkspaceProviderProfileRepository };
+  const countProfiles = () =>
+    prisma.workspaceProviderProfile.count({ where: { workspaceId } });
+  const countVersions = () =>
+    prisma.reviewConfigurationVersion.count({ where: { workspaceId } });
+  const hostedProfile = async (model: string) =>
+    (
+      await createWorkspaceProviderProfile(
+        {
+          workspaceId,
+          actor: owner,
+          credential: { kind: "hosted_pool" },
+          model,
+        },
+        profiles,
+      )
+    ).profile;
+  const denialOf = async (promise: Promise<unknown>) => {
+    const error = await promise.then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+    if (!(error instanceof ProviderManagementDeniedError))
+      throw error ?? new Error("provider_management_denial_expected");
+    return error.reason;
+  };
+
+  beforeAll(async () => {
+    prisma = createPrismaClient({ databaseUrl: databaseUrl!, poolMax: 10 });
+    deps = {
+      configurations: new PrismaReviewConfigurationRepository(prisma),
+      policyHeads: new PrismaReviewPolicyHeadReader(prisma),
+    };
+    profiles = {
+      profiles: new PrismaWorkspaceProviderProfileRepository(prisma, {
+        operatorWorkspaceId: undefined,
+        personalAccountsEnabled: false,
+      }),
+    };
+    await prisma.workspace.create({
+      data: { id: workspaceId, slug: workspaceId, name: workspaceId },
+    });
+    for (const user of [owner, member, outsider])
+      await prisma.user.create({ data: { id: user.userId } });
+    await prisma.workspaceMember.createMany({
+      data: [
+        { workspaceId, userId: owner.userId, role: "owner" },
+        { workspaceId, userId: member.userId, role: "member" },
+      ],
+    });
+    for (const id of [repoA, repoB])
+      await prisma.repositoryConnection.create({
+        data: {
+          id,
+          workspaceId,
+          externalRepositoryId: id,
+          owner: "acme",
+          name: id,
+          fullName: `acme/${id}`,
+          defaultBranch: "main",
+          visibility: "private",
+        },
+      });
+    // A managed MiMo key that is not applied to any repository yet.
+    await prisma.providerApiKeyConnection.create({
+      data: {
+        workspaceId,
+        providerType: "mimo",
+        encryptedApiKey: secret,
+        keyVersion: 1,
+        latestOperationId: `${prefix}-key-operation`,
+      },
+    });
+  });
+
+  afterAll(async () => {
+    if (!prisma) return;
+    await prisma.workspace.deleteMany({ where: { id: workspaceId } });
+    await prisma.user.deleteMany({ where: { id: { startsWith: prefix } } });
+    await prisma.$disconnect();
+  });
+
+  it("decides a new provider together with its attach, leaving nothing on refusal", async () => {
+    const save = (
+      who: typeof owner,
+      capability: "repo_manager" | "direct_config" | null,
+      credential: unknown,
+      model: string,
+    ) =>
+      saveRepositoryReviewPolicy(
+        {
+          target: { scope: "repository", workspaceId, repositoryId: repoA },
+          policy: {
+            schemaVersion: 4,
+            providers: [{ profileId: "draft-0", ...settings }],
+          },
+          expectedVersion: null,
+          selectionAuthority: providerSelectionAuthority({
+            actor: who,
+            repositoryCapability: capability,
+          }),
+          profileDrafts: [
+            {
+              draftId: "draft-0",
+              credential: credential as never,
+              model,
+              label: null,
+            },
+          ],
+        },
+        deps,
+      );
+    const before = {
+      profiles: await countProfiles(),
+      versions: await countVersions(),
+    };
+    const claude = { kind: "user_ci_secret", authMode: "claude_code_oauth" };
+    const mimo = {
+      kind: "managed_api_key",
+      authMode: "mimo_token_plan_api_key",
+    };
+    expect(await denialOf(save(member, null, claude, "opus"))).toBe(
+      "repository_direct_config_required",
+    );
+    // Applying a managed key stays an admin flow.
+    expect(
+      await denialOf(save(member, "direct_config", mimo, "mimo-v2.6-pro")),
+    ).toBe("workspace_admin_required");
+    expect(
+      await denialOf(save(outsider, "direct_config", claude, "opus")),
+    ).toBe("workspace_member_required");
+    // No profile, no workspace document and no repository version.
+    expect({
+      profiles: await countProfiles(),
+      versions: await countVersions(),
+    }).toEqual(before);
+
+    const saved = await save(member, "direct_config", claude, "opus");
+    expect(saved.configuration?.config.providers).toEqual([
+      expect.objectContaining({
+        kind: "claude",
+        authMode: "claude_code_oauth",
+      }),
+    ]);
+    const created = await prisma.workspaceProviderProfile.findMany({
+      where: { workspaceId },
+    });
+    expect(created).toEqual([
+      expect.objectContaining({
+        credentialKind: "user_ci_secret",
+        createdByUserId: member.userId,
+      }),
+    ]);
+    // The first attach created the workspace document without a default.
+    expect(
+      (
+        await deps.policyHeads.readPolicyHeads({
+          scope: "workspace",
+          workspaceId,
+        })
+      ).workspace,
+    ).toMatchObject({ version: 1, schemaVersion: 4 });
+    await clearRepositoryProviderSelection(
+      {
+        workspaceId,
+        actor: member,
+        repository: { repositoryId: repoA, capability: "direct_config" },
+      },
+      deps,
+    );
+  });
+
+  it("lets only owners and admins set the default, never a rotating profile", async () => {
+    const profile = await hostedProfile("gpt-5.5");
+    const set = (who: typeof owner, profileId: string | null) =>
+      setWorkspaceDefaultProvider(
+        {
+          workspaceId,
+          actor: who,
+          selection: profileId ? { profileId, ...settings } : null,
+        },
+        deps,
+      );
+    expect(await denialOf(set(member, profile.id))).toBe(
+      "workspace_admin_required",
+    );
+    const saved = await set(owner, profile.id);
+    expect(saved.configuration?.config.providers).toEqual([
+      expect.objectContaining({
+        authMode: "codex_subscription_oauth_hosted_pool",
+        model: "gpt-5.5",
+      }),
+    ]);
+    // Repositories without a selection follow the default.
+    expect(
+      (
+        await deps.policyHeads.readPolicyHeads({
+          scope: "repository",
+          workspaceId,
+          repositoryId: repoB,
+        })
+      ).repository,
+    ).toBeNull();
+    const rotating = await saveRepositoryReviewPolicy(
+      {
+        target: { scope: "repository", workspaceId, repositoryId: repoB },
+        policy: {
+          schemaVersion: 4,
+          providers: [{ profileId: "draft-0", ...settings }],
+        },
+        expectedVersion: null,
+        selectionAuthority: providerSelectionAuthority({
+          actor: owner,
+          repositoryCapability: "direct_config",
+        }),
+        profileDrafts: [
+          {
+            draftId: "draft-0",
+            credential: { kind: "repository_rotating", repositoryId: repoB },
+            model: "gpt-5.5",
+            label: null,
+          },
+        ],
+      },
+      deps,
+    );
+    const rotatingProfileId = rotating.configuration!.selections[0]!.profileId;
+    expect(await denialOf(set(owner, rotatingProfileId))).toBe(
+      "rotating_profile_not_default",
+    );
+    expect(await denialOf(set(member, null))).toBe("workspace_admin_required");
+    expect((await set(owner, null)).configuration).toBeNull();
+    await clearRepositoryProviderSelection(
+      {
+        workspaceId,
+        actor: owner,
+        repository: { repositoryId: repoB, capability: "direct_config" },
+      },
+      deps,
+    );
+  });
+
+  it("refuses to archive a used profile and never both archives and attaches it", async () => {
+    const used = await hostedProfile("gpt-5.4");
+    await setWorkspaceDefaultProvider(
+      {
+        workspaceId,
+        actor: owner,
+        selection: { profileId: used.id, ...settings },
+      },
+      deps,
+    );
+    const archive = (profileId: string) =>
+      archiveWorkspaceProviderProfile(
+        { workspaceId, profileId, actor: owner },
+        profiles,
+      );
+    await expect(archive(used.id)).rejects.toMatchObject({
+      code: "provider_profile_in_use",
+    });
+    await setWorkspaceDefaultProvider(
+      { workspaceId, actor: owner, selection: null },
+      deps,
+    );
+    await expect(archive(used.id)).resolves.toMatchObject({
+      archivedAt: expect.any(Date),
+    });
+
+    // Concurrent archive and assignment: exactly one of them wins.
+    for (let round = 0; round < 4; round += 1) {
+      // The previous round archived its profile, releasing the identity.
+      const profile = await hostedProfile("gpt-5.4-mini");
+      const [archived, assigned] = await Promise.allSettled([
+        archive(profile.id),
+        assignProviderProfileToRepositories(
+          {
+            workspaceId,
+            actor: owner,
+            profileId: profile.id,
+            settings,
+            repositories: [
+              { repositoryId: repoA, capability: "direct_config" },
+            ],
+          },
+          deps,
+        ),
+      ]);
+      const attached =
+        assigned.status === "fulfilled" &&
+        assigned.value[0]?.status === "applied";
+      expect(archived.status === "fulfilled" && attached).toBe(false);
+      if (archived.status === "rejected")
+        expect(archived.reason).toMatchObject({
+          code: "provider_profile_in_use",
+        });
+      // A repository never keeps a selection of an archived profile.
+      const resolved = await deps.policyHeads.readPolicyHeads({
+        scope: "repository",
+        workspaceId,
+        repositoryId: repoA,
+      });
+      const stored = resolved.repository?.policyJson
+        ? (JSON.parse(resolved.repository.policyJson) as {
+            readonly providers?: readonly { readonly profileId: string }[];
+          })
+        : null;
+      for (const selection of stored?.providers ?? [])
+        expect(
+          resolved.profiles.get(selection.profileId)?.archivedAt,
+        ).toBeNull();
+      await clearRepositoryProviderSelection(
+        {
+          workspaceId,
+          actor: owner,
+          repository: { repositoryId: repoA, capability: "direct_config" },
+        },
+        deps,
+      );
+      if (archived.status === "rejected") await archive(profile.id);
+    }
+  });
+
+  it("edits a model in place for every scope, refusing settings that do not fit", async () => {
+    const profile = await hostedProfile("gpt-5.6-sol");
+    // Only the default Codex model accepts the max effort.
+    await setWorkspaceDefaultProvider(
+      {
+        workspaceId,
+        actor: owner,
+        selection: {
+          profileId: profile.id,
+          ...settings,
+          reasoningEffort: "max",
+        },
+      },
+      deps,
+    );
+    await assignProviderProfileToRepositories(
+      {
+        workspaceId,
+        actor: owner,
+        profileId: profile.id,
+        settings,
+        repositories: [{ repositoryId: repoB, capability: "direct_config" }],
+      },
+      deps,
+    );
+    const edit = (model: string) =>
+      changeWorkspaceProviderProfileModel(
+        { workspaceId, profileId: profile.id, actor: owner, model },
+        profiles,
+      );
+    const versions = await countVersions();
+    const refused = await edit("gpt-5.5").then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(refused).toBeInstanceOf(ProviderProfileError);
+    expect(refused).toMatchObject({
+      code: "provider_profile_model_incompatible",
+      // Repository A inherits the default through its own document.
+      affected: {
+        profileId: profile.id,
+        workspaceDefault: true,
+        repositoryIds: [repoA],
+      },
+    });
+    expect(await countVersions()).toBe(versions);
+    await setWorkspaceDefaultProvider(
+      {
+        workspaceId,
+        actor: owner,
+        selection: { profileId: profile.id, ...settings },
+      },
+      deps,
+    );
+    const changed = await edit("gpt-5.3-codex-spark");
+    expect(changed).toMatchObject({
+      previousModel: "gpt-5.6-sol",
+      affected: { workspaceDefault: true, repositoryIds: [repoB] },
+    });
+    // In place: the documents keep their versions and select the same ID.
+    expect(await countVersions()).toBe(versions + 1);
+    const effective = await deps.configurations.findLatest({
+      scope: "repository",
+      workspaceId,
+      repositoryId: repoB,
+    });
+    expect(effective?.config.providers[0]).toMatchObject({
+      model: "gpt-5.3-codex-spark",
+    });
+    // The hosted gpt-5.5 profile of an earlier test has that identity.
+    await expect(edit("gpt-5.5")).rejects.toMatchObject({
+      code: "provider_profile_duplicate",
+    });
+    await setWorkspaceDefaultProvider(
+      { workspaceId, actor: owner, selection: null },
+      deps,
+    );
+    await clearRepositoryProviderSelection(
+      {
+        workspaceId,
+        actor: owner,
+        repository: { repositoryId: repoB, capability: "direct_config" },
+      },
+      deps,
+    );
+  });
+
+  it("answers outsiders before telling whether a profile exists", async () => {
+    const profile = await hostedProfile("gpt-5.2");
+    for (const profileId of [profile.id, `${prefix}-missing`]) {
+      expect(
+        await denialOf(
+          renameWorkspaceProviderProfile(
+            { workspaceId, profileId, actor: outsider, label: "Mine" },
+            profiles,
+          ),
+        ),
+      ).toBe("workspace_member_required");
+      expect(
+        await denialOf(
+          archiveWorkspaceProviderProfile(
+            { workspaceId, profileId, actor: outsider },
+            profiles,
+          ),
+        ),
+      ).toBe("workspace_member_required");
+    }
+    // A member sees not_found only for an ID that truly does not exist.
+    await expect(
+      renameWorkspaceProviderProfile(
+        {
+          workspaceId,
+          profileId: `${prefix}-missing`,
+          actor: member,
+          label: "x",
+        },
+        profiles,
+      ),
+    ).rejects.toMatchObject({ code: "provider_profile_not_found" });
+  });
+
+  it("stores references only: no secret in any document, profile or audit event", async () => {
+    const rows = [
+      ...(
+        await prisma.reviewConfigurationVersion.findMany({
+          where: { workspaceId },
+          select: { policyJson: true },
+        })
+      ).map((row) => row.policyJson ?? ""),
+      ...(
+        await prisma.workspaceProviderProfile.findMany({
+          where: { workspaceId },
+        })
+      ).map((row) => JSON.stringify(row)),
+      ...(
+        await prisma.auditEvent.findMany({
+          where: { workspaceId },
+          select: { metadata: true },
+        })
+      ).map((row) => JSON.stringify(row.metadata)),
+    ];
+    expect(rows.length).toBeGreaterThan(10);
+    for (const row of rows) {
+      expect(row).not.toContain(secret);
+      expect(row).not.toMatch(/encryptedApiKey|"apiKey"|sk-[A-Za-z0-9]/);
+    }
+  });
+});

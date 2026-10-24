@@ -10,6 +10,7 @@ import {
   listWorkspaceProviderProfiles,
   renameWorkspaceProviderProfile,
 } from "../application/use-cases/manage-workspace-provider-profiles";
+import { providerProfileIdentityKey } from "../domain/workspace-provider-profile";
 import { PrismaWorkspaceProviderProfileRepository } from "../infrastructure/prisma/prisma-workspace-provider-profile-repository";
 
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
@@ -155,6 +156,85 @@ databaseTests("WorkspaceProviderProfile PostgreSQL storage", () => {
         (profile) => profile.id,
       ),
     ).toEqual([results[0]!.profile.id]);
+  });
+
+  it("reads back a profile a writer outside the workspace lock inserted first", async () => {
+    // A writer that bypasses the workspace lock holds the same identity
+    // uncommitted: the app path misses it, waits on the unique index, inserts
+    // nothing (skipDuplicates) and returns that row without a creation audit.
+    // A hosted pool profile has no parent row the app path locks, so the
+    // wait is on the index itself.
+    const model = "gpt-race-bypass";
+    const identityKey = providerProfileIdentityKey(
+      { kind: "hosted_pool", authMode: "codex_subscription_oauth_hosted_pool" },
+      model,
+    );
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let inserted!: (id: string) => void;
+    const insertedId = new Promise<string>((resolve) => {
+      inserted = resolve;
+    });
+    const bypass = prisma.$transaction(
+      async (tx) => {
+        const row = await tx.workspaceProviderProfile.create({
+          data: {
+            workspaceId: workspaceA,
+            createdByUserId: creator.userId,
+            credentialKind: "hosted_pool",
+            authMode: "codex_subscription_oauth_hosted_pool",
+            model,
+            label: "Bypass",
+            identityKey,
+          },
+        });
+        inserted(row.id);
+        await released;
+      },
+      { timeout: 20_000 },
+    );
+    const bypassId = await insertedId;
+    const auditsBefore = await prisma.auditEvent.count({
+      where: { workspaceId: workspaceA, action: "provider_profile.created" },
+    });
+    const racing = createWorkspaceProviderProfile(
+      {
+        workspaceId: workspaceA,
+        actor: owner,
+        credential: { kind: "hosted_pool" },
+        model,
+      },
+      deps(),
+    );
+    try {
+      await expect
+        .poll(
+          async () =>
+            (
+              await prisma.$queryRaw<readonly { count: number }[]>`
+                SELECT count(*)::int AS count FROM pg_stat_activity
+                WHERE datname = current_database() AND wait_event_type = 'Lock'
+                  AND query LIKE '%WorkspaceProviderProfile%'`
+            )[0]?.count,
+          { timeout: 10_000, interval: 20 },
+        )
+        .toBe(1);
+    } finally {
+      release();
+    }
+    await bypass;
+    await expect(racing).resolves.toMatchObject({
+      created: false,
+      profile: { id: bypassId, createdByUserId: creator.userId },
+    });
+    expect(
+      await prisma.auditEvent.count({
+        where: { workspaceId: workspaceA, action: "provider_profile.created" },
+      }),
+    ).toBe(auditsBefore);
+    await prisma.workspaceProviderProfile.delete({ where: { id: bypassId } });
   });
 
   it("rejects references of another workspace by composite keys", async () => {
