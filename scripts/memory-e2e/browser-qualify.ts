@@ -134,7 +134,7 @@ try {
   const appUrl = `http://127.0.0.1:${port}`;
   const environment = {
     ...cleanEnvironment(),
-    NODE_ENV: "development",
+    NODE_ENV: "development" as const,
     NEXT_TELEMETRY_DISABLED: "1",
     NEXT_PRIVATE_TEST_MODE: "1",
     DATABASE_URL: appDatabaseUrl,
@@ -747,8 +747,8 @@ async function createReadOnlyAppRole(): Promise<string> {
   return appUrl.toString();
 }
 
-function cleanEnvironment(): NodeJS.ProcessEnv {
-  const output: NodeJS.ProcessEnv = {};
+function cleanEnvironment(): Record<string, string | undefined> {
+  const output: Record<string, string | undefined> = {};
   for (const key of [
     "PATH",
     "HOME",

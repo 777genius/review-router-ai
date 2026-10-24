@@ -291,6 +291,23 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Statistics storage is checkout-only. Admit this exact complete checkout146
+  // before reducing to the unchanged reviewed Skills/main145 authority gates.
+  const statisticsMigration = catalog.find(
+    (row) => row.migrationName === "000144_review_statistics",
+  );
+  if (statisticsMigration) {
+    if (
+      statisticsMigration.checksum !==
+        "fded494bbdeed9164c6704f29b3ae17a19b9670e323942a28348d8ba22a8af19" ||
+      manifest(catalog) !==
+        "sha256:28c55f9026bfb1bd139bc25925571ea62e2c454a10e151ef6149aae0358a4178"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== statisticsMigration),
+    );
+  }
   // Skills accompany only an exact reviewed base. Strip the immutable pair
   // before the existing main143/142/141 and historical authority reductions.
   // Match both named rows: other additive migrations now sort around this pair.

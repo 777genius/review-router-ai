@@ -101,8 +101,8 @@ describe.skipIf(!enabled)(
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
         // Replay every current migration, including both additive Skills rows.
-        expect(names).toHaveLength(145);
-        expect(names.slice(-10)).toEqual([
+        expect(names).toHaveLength(146);
+        expect(names.slice(-11)).toEqual([
           "000135_review_run_checkout_repository_lock",
           "000136_provider_usage",
           "000136_review_skills",
@@ -113,6 +113,7 @@ describe.skipIf(!enabled)(
           "000141_memory_search_projections",
           "000142_optional_gateway_reasoning",
           "000143_workspace_draft_review_setting",
+          "000144_review_statistics",
         ]);
         let legacyBefore: unknown;
         for (const name of names) {

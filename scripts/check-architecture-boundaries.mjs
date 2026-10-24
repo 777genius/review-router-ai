@@ -560,6 +560,7 @@ async function checkRevisionAwareReviewRatchet(violations) {
     strictContext("review-evidence", true),
     strictContext("review-executions", true),
     strictContext("review-processes", false),
+    strictContext("review-statistics", false),
     strictV2Context("review-publishing"),
     strictV2Context("review-snapshots"),
     {

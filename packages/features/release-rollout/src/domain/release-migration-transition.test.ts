@@ -94,7 +94,7 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps checkout145 source admission separate from historical96 and managed92 authority", () => {
+  it("keeps checkout146 source admission separate from historical96 and managed92 authority", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
     const current = names.map((migrationName) => ({
@@ -103,7 +103,7 @@ describe("canonical release migration transition", () => {
         readFileSync(`${migrationRoot}/${migrationName}/migration.sql`),
       ).slice(7),
     }));
-    expect(current).toHaveLength(145);
+    expect(current).toHaveLength(146);
     expect(
       current.filter((row) =>
         renderReviewSkillsCheckoutExtension.some(
@@ -111,7 +111,10 @@ describe("canonical release migration transition", () => {
         ),
       ),
     ).toEqual(renderReviewSkillsCheckoutExtension);
-    const full = current.filter(
+    const previous145 = current.filter(
+      (row) => row.migrationName !== "000144_review_statistics",
+    );
+    const full = previous145.filter(
       (row) =>
         !renderReviewSkillsCheckoutExtension.some(
           (skill) => row.migrationName === skill.migrationName,
@@ -123,6 +126,10 @@ describe("canonical release migration transition", () => {
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
     expect(manifest(current)).toBe(
+      "sha256:28c55f9026bfb1bd139bc25925571ea62e2c454a10e151ef6149aae0358a4178",
+    );
+    expect(previous145).toHaveLength(145);
+    expect(manifest(previous145)).toBe(
       "sha256:33e264e0296d1a14920007a0dfdfcd297e79337132f374ec02859fda3c7680af",
     );
     expect(full).toHaveLength(143);

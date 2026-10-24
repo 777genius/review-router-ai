@@ -26,8 +26,8 @@
     }
   },
   "dependencies": {
-    "@get-modular/core": "0.2.0",
-    "@get-modular/assembly": "0.2.0",
+    "@get-modular/core": "0.7.0",
+    "@get-modular/assembly": "0.7.0",
     "@infinity-context/sdk": "https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz",
     "@prisma/client": "^7.8.0",
     "@reviewrouter/features-entitlements": "workspace:*",
@@ -35,8 +35,8 @@
     "@reviewrouter/shared": "workspace:*"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "build": "node ../../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",
+    "typecheck": "node ../../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json"
   },
   "devDependencies": {
     "vitest": "4.1.10",

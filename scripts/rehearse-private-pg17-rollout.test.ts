@@ -1285,10 +1285,11 @@ describe("disposable dual-version rehearsal", () => {
     const currentMigrationNames = migrationNames;
     const legacyMigrationNames = currentMigrationNames.filter(
       (name) =>
+        name !== "000144_review_statistics" &&
         name !== "000136_review_skills" &&
         name !== "000137_review_skills_capture",
     );
-    expect(currentMigrationNames).toHaveLength(145);
+    expect(currentMigrationNames).toHaveLength(146);
     expect(
       [...currentMigrationNames]
         .sort()
@@ -1322,6 +1323,7 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000140_personal_oauth_method" &&
         name !== "000141_memory_search_projections" &&
         name !== "000142_optional_gateway_reasoning" &&
+        name !== "000144_review_statistics" &&
         name !== "000143_workspace_draft_review_setting" &&
         name !== "000133_allow_first_time_scm_identity_bind",
     );
@@ -1378,7 +1380,7 @@ describe("disposable dual-version rehearsal", () => {
       "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
     );
     expect(migrationManifestIdentity(currentMigrationNames)).toBe(
-      "sha256:33e264e0296d1a14920007a0dfdfcd297e79337132f374ec02859fda3c7680af",
+      "sha256:28c55f9026bfb1bd139bc25925571ea62e2c454a10e151ef6149aae0358a4178",
     );
     expect(legacyMigrationNames).toHaveLength(143);
     expect(migrationManifestIdentity(legacyMigrationNames)).toBe(
@@ -1498,6 +1500,7 @@ describe("disposable dual-version rehearsal", () => {
       "000141_memory_search_projections",
       "000142_optional_gateway_reasoning",
       "000143_workspace_draft_review_setting",
+      "000144_review_statistics",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1623,9 +1626,10 @@ describe("disposable dual-version rehearsal", () => {
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
     const exactTail = "000121_review_run_gateway_execution_binding";
-    const currentTail = "000143_workspace_draft_review_setting";
+    const currentTail = "000144_review_statistics";
     for (const candidate of [
       names.filter((name) => name !== currentTail),
+      names.filter((name) => name !== "000143_workspace_draft_review_setting"),
       names.filter((name) => name !== "000136_review_skills"),
       names.filter((name) => name !== "000137_review_skills_capture"),
       names.filter((name) => name !== "000142_optional_gateway_reasoning"),
@@ -1639,7 +1643,7 @@ describe("disposable dual-version rehearsal", () => {
       [...names, currentTail],
       [...names, "000142_optional_gateway_reasoning"],
       [...names, "000140_personal_oauth_method"],
-      names.map((name) => (name === currentTail ? "000143_relabelled" : name)),
+      names.map((name) => (name === currentTail ? "000144_relabelled" : name)),
       names.map((name) =>
         name === "000142_optional_gateway_reasoning"
           ? "000142_relabelled"
@@ -1729,6 +1733,7 @@ describe("disposable dual-version rehearsal", () => {
     "000141_memory_search_projections",
     "000142_optional_gateway_reasoning",
     "000143_workspace_draft_review_setting",
+    "000144_review_statistics",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1803,6 +1808,7 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000140_personal_oauth_method" &&
                 name !== "000141_memory_search_projections" &&
                 name !== "000142_optional_gateway_reasoning" &&
+                name !== "000144_review_statistics" &&
                 name !== "000143_workspace_draft_review_setting" &&
                 name !== "000133_allow_first_time_scm_identity_bind",
               "000102_sdk_growth_current_authority",

@@ -1,5 +1,9 @@
 import { compileComposition, defineModule, required } from "@get-modular/core";
-import { assemblyFor, type CapabilityContract } from "@get-modular/assembly";
+import {
+  assemblyFor,
+  implement,
+  type CapabilityContract,
+} from "@get-modular/assembly";
 import type { AccountLimitsReader } from "./application/ports/account-limits-reader";
 import { readAccountLimits } from "./application/use-cases/read-account-limits";
 
@@ -49,11 +53,11 @@ export async function createAccountLimits(dependencies: {
   if (!dependencies.reader || typeof dependencies.reader.read !== "function")
     throw new Error("account_limits_binding_invalid");
   const assembly = assemblyFor<Capabilities>();
-  const source = assembly.bindFactory(adapter, async () => ({
+  const source = implement<Capabilities>()(adapter, async () => ({
     instance: dependencies.reader,
     capabilities: { "reviewrouter/account-limits-reader": dependencies.reader },
   }));
-  const root = assembly.bindFactory(feature, async (deps) => ({
+  const root = implement<Capabilities>()(feature, async (deps) => ({
     instance: {
       reader: deps.reader,
       read: (input: Omit<Parameters<typeof readAccountLimits>[0], "reader">) =>
@@ -84,7 +88,7 @@ export async function createAccountLimits(dependencies: {
   if (!composition.ok) throw new Error("account_limits_composition_invalid");
   const preparation = await assembly.prepare({
     composition,
-    factories: [source, root],
+    modules: [source, root],
     roots: { limits: root },
   });
   if (preparation.status !== "prepared")

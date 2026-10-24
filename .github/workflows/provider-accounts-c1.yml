@@ -57,6 +57,8 @@ jobs:
         run: |
           npm install --global pnpm@11.28.7
           pnpm install --frozen-lockfile --ignore-scripts
+      - name: Prepare pinned native TypeScript compiler
+        run: pnpm compiler:prepare
       - name: Generate and validate actual Prisma schema
         run: |
           pnpm --filter @reviewrouter/platform-db db:generate

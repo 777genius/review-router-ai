@@ -352,6 +352,7 @@ const preReleaseMigrationBoundary = Object.freeze({
     "000141_memory_search_projections",
     "000142_optional_gateway_reasoning",
     "000143_workspace_draft_review_setting",
+    "000144_review_statistics",
   ]),
   retained: Object.freeze([
     "000067_review_live_progress",
