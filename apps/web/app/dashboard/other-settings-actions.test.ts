@@ -16,7 +16,10 @@ vi.mock("@reviewrouter/features-audit-log", () => ({
   recordAuditEvent: mocks.audit,
   PrismaAuditLogRepository: class {},
 }));
-import { saveWorkspaceOtherSettingsClientAction } from "./other-settings-actions";
+import {
+  saveWorkspaceAccessRightsClientAction,
+  saveWorkspaceOtherSettingsClientAction,
+} from "./other-settings-actions";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -57,6 +60,56 @@ describe("workspace Other settings authority", () => {
     form.set("workspaceId", "workspace-other");
     await expect(
       saveWorkspaceOtherSettingsClientAction(form),
+    ).resolves.toMatchObject({
+      params: { section: "other", error: "workspace_mutation_forbidden" },
+    });
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.audit).not.toHaveBeenCalled();
+  });
+});
+
+describe("workspace Access rights authority", () => {
+  it.each([true, false])(
+    "persists only the Access rights column = %s",
+    async (adminOnly) => {
+      const form = new FormData();
+      form.set("workspaceId", "workspace-selected");
+      if (adminOnly) form.set("providerManagementAdminOnly", "on");
+      // A stale draft review field in the same form never reaches storage.
+      form.set("reviewDraftPullRequests", "on");
+      await expect(
+        saveWorkspaceAccessRightsClientAction(form),
+      ).resolves.toEqual({
+        params: {
+          workspace: "workspace-selected",
+          section: "other",
+          notice: "workspace_access_rights_saved",
+        },
+      });
+      expect(mocks.authorize).toHaveBeenCalledWith("workspace-selected");
+      expect(mocks.update).toHaveBeenCalledExactlyOnceWith({
+        where: { id: "workspace-selected" },
+        data: { providerManagementAdminOnly: adminOnly },
+      });
+      expect(mocks.audit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "workspace.access_rights_saved",
+          metadata: { providerManagementAdminOnly: adminOnly },
+        }),
+        expect.anything(),
+      );
+    },
+  );
+
+  it("rejects members before persistence or audit", async () => {
+    mocks.authorize.mockRejectedValueOnce(
+      new Error("workspace_mutation_forbidden:insufficient_role"),
+    );
+    const form = new FormData();
+    form.set("workspaceId", "workspace-other");
+    form.set("providerManagementAdminOnly", "on");
+    await expect(
+      saveWorkspaceAccessRightsClientAction(form),
     ).resolves.toMatchObject({
       params: { section: "other", error: "workspace_mutation_forbidden" },
     });

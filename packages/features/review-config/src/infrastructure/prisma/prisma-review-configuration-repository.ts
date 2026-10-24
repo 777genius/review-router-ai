@@ -1,12 +1,6 @@
 import { createHash } from "node:crypto";
 import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
-import {
-  readProviderAccountBinding,
-  lockProviderAccountBindingUses,
-  selectBinding,
-  ProviderAccountError,
-  assertOpaqueReference,
-} from "@reviewrouter/features-provider-accounts";
+import { lockProviderAccountBindingUses } from "@reviewrouter/features-provider-accounts";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   canonicalJson,
@@ -48,6 +42,10 @@ import {
   readActivePolicyHead,
   type ReviewPolicyReader,
 } from "./prisma-review-policy-head-reader";
+import {
+  lockPersonalWriteActor,
+  readSelectableGatewayProfileRef,
+} from "./prisma-gateway-binding-authority";
 
 export class PrismaReviewConfigurationRepository
   implements
@@ -619,61 +617,6 @@ function derivedPolicyProjection(config: ReviewConfiguration) {
   };
 }
 
-/** Capture and lock the saving actor together with all selected donors before
- * any Source/Binding lock. This preserves C2's sorted Member -> Source order.
- * Readonly receipt replay returns before this fresh-write authorization check.
- */
-async function lockPersonalWriteActor(
-  prisma: Prisma.TransactionClient,
-  workspaceId: string,
-  bindingIds: readonly string[],
-  actorUserId: string | undefined,
-): Promise<ReadonlySet<string>> {
-  if (!bindingIds.length) return new Set<string>();
-  const rows = await prisma.workspaceAccountBinding.findMany({
-    where: {
-      workspaceId,
-      id: { in: [...new Set(bindingIds)] },
-      connection: { ownerUserId: { not: null } },
-    },
-    select: { id: true, connection: { select: { ownerUserId: true } } },
-  });
-  if (!rows.length) return new Set<string>();
-  if (actorUserId === undefined)
-    throw new Error("review_configuration_personal_actor_forbidden");
-  assertOpaqueReference(actorUserId);
-  const scope = await prisma.workspace.findUnique({
-    where: { id: workspaceId },
-    select: { personalOwnerUserId: true, deletionState: true },
-  });
-  if (!scope || scope.deletionState !== "active")
-    throw new Error("review_configuration_personal_actor_forbidden");
-  const users = [
-    ...new Set([
-      actorUserId,
-      ...rows.flatMap((row) =>
-        row.connection.ownerUserId ? [row.connection.ownerUserId] : [],
-      ),
-    ]),
-  ];
-  const members = await prisma.$queryRaw<
-    { userId: string | null; role: string }[]
-  >`
-    SELECT "userId", "role" FROM "WorkspaceMember" WHERE "workspaceId" = ${workspaceId}
-      AND "userId" = ANY(${users}::text[]) ORDER BY "id" FOR SHARE`;
-  if (
-    scope.personalOwnerUserId !== null
-      ? scope.personalOwnerUserId !== actorUserId
-      : !members.some(
-          (row) =>
-            row.userId === actorUserId &&
-            (row.role === "owner" || row.role === "admin"),
-        )
-  )
-    throw new Error("review_configuration_personal_actor_forbidden");
-  return new Set(rows.map((row) => row.id));
-}
-
 async function assertGatewaySelections(
   prisma: Prisma.TransactionClient,
   workspaceId: string,
@@ -701,35 +644,14 @@ async function assertGatewaySelections(
     personalAccountsEnabled,
   );
   for (const provider of providers) {
-    const bindingId = provider.gatewayBindingId!;
-    const selection = await readProviderAccountBinding(
-      prisma,
-      { workspaceId, bindingId },
+    const profileRef = await readSelectableGatewayProfileRef(prisma, {
+      workspaceId,
+      bindingId: provider.gatewayBindingId!,
+      personalBindings,
+      operatorWorkspaceId,
       personalAccountsEnabled,
-    );
-    let selected: ReturnType<typeof selectBinding>;
-    try {
-      selected = selectBinding(
-        workspaceId,
-        bindingId,
-        selection,
-        operatorWorkspaceId,
-      );
-    } catch (error) {
-      if (error instanceof ProviderAccountError)
-        throw new Error("review_configuration_gateway_binding_unavailable", {
-          cause: error,
-        });
-      throw error;
-    }
-    // A row absent from the preliminary immutable-owner read cannot acquire
-    // personal write authority by appearing during a later awaited read.
-    if (
-      selection?.connection.owner.kind === "user" &&
-      !personalBindings.has(bindingId)
-    )
-      throw new Error("review_configuration_personal_actor_forbidden");
-    if (selected.profileRef !== provider.gatewayProfileRef)
+    });
+    if (profileRef !== provider.gatewayProfileRef)
       throw new Error("review_configuration_gateway_profile_mismatch");
   }
 }
