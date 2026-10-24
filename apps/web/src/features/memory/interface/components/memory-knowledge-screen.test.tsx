@@ -146,4 +146,56 @@ describe("memory screen", () => {
       ),
     );
   });
+  it("keeps unrelated memory controls available while stored-copy cleanup is pending", async () => {
+    const { api } = fixture();
+    const cleanupResult = (commandId: string) => ({
+      id: commandId,
+      entryId: "mem_queries",
+      revision: "r2",
+      state: "cleanup_pending" as const,
+      message:
+        "Removed from new reviews. Stored-copy cleanup is still pending.",
+    });
+    vi.mocked(api.mutate).mockImplementation(async (input) =>
+      cleanupResult(input.commandId),
+    );
+    vi.mocked(api.progress).mockImplementation(async (input) =>
+      cleanupResult(input.commandId),
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: "Forget" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "Forget memory" }));
+    await screen.findByText(cleanupResult("unused").message);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(
+      (screen.getByRole("button", { name: "Add memory" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+    const affected = screen
+      .getByText(/Use parameterized queries/)
+      .closest("article")!;
+    expect(
+      (
+        within(affected).getByRole("button", {
+          name: "Forget",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    const unrelated = screen
+      .getByText(/Changes to payment calculations/)
+      .closest("article")!;
+    expect(
+      (
+        within(unrelated).getByRole("button", {
+          name: "Edit",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+    expect(
+      (
+        within(unrelated).getByRole("button", {
+          name: "Stop using",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+  });
 });

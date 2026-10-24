@@ -321,7 +321,6 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
         createdAt: timestamp,
         updatedAt: timestamp,
       };
-      const blockedByPrior = Boolean(current?.pendingCommandId);
       metadata = {
         ...metadata,
         revision: String(revision),
@@ -362,7 +361,6 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
             commandId: command.commandId,
             generation: command.generation,
             scope: command.ref.scope,
-            blockedByPrior,
           },
           occurredAt: input.now,
         },

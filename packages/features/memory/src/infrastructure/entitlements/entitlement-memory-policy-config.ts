@@ -3,7 +3,7 @@ import {
   freeBetaEntitlement,
   type EntitlementRepositoryPort,
 } from "@reviewrouter/features-entitlements";
-import { memoryError } from "../../domain/memory-errors";
+import { MemoryKnowledgeError } from "../../domain/memory-knowledge";
 import {
   createMemoryPolicyConfig,
   type MemoryPolicyConfig,
@@ -34,7 +34,7 @@ export class EntitlementMemoryPolicyConfig implements MemoryPolicyConfigPort {
   }): Promise<MemoryPolicyConfig> {
     const workspaceId = input.workspaceId.trim();
     if (!workspaceId) {
-      throw memoryError("memory_input_invalid");
+      throw new MemoryKnowledgeError("invalid_input");
     }
 
     const basePolicy = createMemoryPolicyConfig(this.defaults);

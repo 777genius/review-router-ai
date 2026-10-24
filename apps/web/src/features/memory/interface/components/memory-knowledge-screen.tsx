@@ -96,7 +96,12 @@ export function MemoryKnowledgeScreen({
     selection.repositoryId,
   ]);
   const page = pageQuery.data;
-  const busy = pending(operation.data?.state);
+  const busy =
+    pending(operation.data?.state) &&
+    operation.data?.state !== "cleanup_pending";
+  const pendingEntryId = pending(operation.data?.state)
+    ? operation.data?.entryId
+    : null;
   const accepted = async (result: MemoryOperationView) => {
     client.setQueryData(memoryOperationKey(selection, result.id), result);
     setCommandId(result.id);
@@ -332,6 +337,7 @@ export function MemoryKnowledgeScreen({
                           !page.writesEnabled ||
                           busy ||
                           !!entry.pendingCommandId ||
+                          entry.id === pendingEntryId ||
                           entry.body === null
                         }
                         onClick={() => setDialog({ action: "save", entry })}
@@ -341,7 +347,11 @@ export function MemoryKnowledgeScreen({
                       <Button
                         size="sm"
                         variant="ghost"
-                        disabled={busy || !!entry.pendingCommandId}
+                        disabled={
+                          busy ||
+                          !!entry.pendingCommandId ||
+                          entry.id === pendingEntryId
+                        }
                         onClick={() => setDialog({ action: "retire", entry })}
                       >
                         Stop using
@@ -355,6 +365,7 @@ export function MemoryKnowledgeScreen({
                     disabled={
                       busy ||
                       !!entry.pendingCommandId ||
+                      entry.id === pendingEntryId ||
                       entry.status === "forget_pending"
                     }
                     onClick={() => setDialog({ action: "forget", entry })}
