@@ -6,7 +6,10 @@ import type {
   ReviewSkillBindingView,
   ReviewSkillSourceRoot,
 } from "../../src/features/review-skills/contracts";
-import { requestReviewSkills } from "../../src/features/review-skills/client-adapter";
+import {
+  requestReviewSkills,
+  ReviewSkillsClientError,
+} from "../../src/features/review-skills/client-adapter";
 import { reviewSkillsKeys } from "../../src/features/review-skills/query-keys";
 import { SkillsError, skillFieldClass } from "./review-skills-ui";
 
@@ -125,24 +128,56 @@ export function RepositorySkillSettings({
 }
 export function SkillBindingPaths({
   workspaceId,
+  viewerId,
   repositoryId,
   binding,
   onSaved,
 }: {
   readonly workspaceId: string;
+  readonly viewerId: string;
   readonly repositoryId: string;
   readonly binding: ReviewSkillBindingView;
   readonly onSaved: () => void;
 }) {
   const [include, setInclude] = useState(binding.scope.includePaths.join("\n"));
   const [exclude, setExclude] = useState(binding.scope.excludePaths.join("\n"));
+  const [expectedVersion, setExpectedVersion] = useState(binding.version);
+  const [showComparison, setShowComparison] = useState(false);
+  const currentPaths = useQuery({
+    queryKey: [
+      ...reviewSkillsKeys.workspace(viewerId, workspaceId),
+      "binding-paths",
+      repositoryId,
+      binding.skillId,
+    ],
+    queryFn: async () => {
+      const settings = await requestReviewSkills(
+        "loadRepositorySkillSettings",
+        {
+          workspaceId,
+          repositoryId,
+        },
+      );
+      const current = settings.bindings.find(
+        (value) => value.skillId === binding.skillId,
+      );
+      if (!current)
+        throw new Error(
+          "This assignment was removed. Close and refresh assignments before adding it again.",
+        );
+      return current;
+    },
+    enabled: false,
+    staleTime: 0,
+    retry: false,
+  });
   const save = useMutation({
     mutationFn: () =>
       requestReviewSkills("updateBindingScope", {
         workspaceId,
         repositoryId,
         skillId: binding.skillId,
-        expectedVersion: binding.version,
+        expectedVersion,
         scope: {
           includePaths: include
             .split("\n")
@@ -154,8 +189,28 @@ export function SkillBindingPaths({
             .filter(Boolean),
         },
       }),
-    onSuccess: onSaved,
+    onSuccess: (saved) => {
+      setExpectedVersion(saved.version);
+      setInclude(saved.scope.includePaths.join("\n"));
+      setExclude(saved.scope.excludePaths.join("\n"));
+      setShowComparison(false);
+      onSaved();
+    },
   });
+  const conflict =
+    save.error instanceof ReviewSkillsClientError &&
+    save.error.code === "conflict";
+  const reconcile = (useSaved: boolean) => {
+    if (!currentPaths.data || currentPaths.isFetching || currentPaths.isError)
+      return;
+    if (useSaved) {
+      setInclude(currentPaths.data.scope.includePaths.join("\n"));
+      setExclude(currentPaths.data.scope.excludePaths.join("\n"));
+    }
+    setExpectedVersion(currentPaths.data.version);
+    setShowComparison(false);
+    save.reset();
+  };
   return (
     <details className="border-t border-cyan-200/10 pt-3">
       <summary className="cursor-pointer text-sm">Paths</summary>
@@ -165,6 +220,7 @@ export function SkillBindingPaths({
           <textarea
             className={`${skillFieldClass} mt-2 font-mono`}
             rows={2}
+            disabled={save.isPending}
             value={include}
             onChange={(event) => setInclude(event.target.value)}
           />
@@ -174,6 +230,7 @@ export function SkillBindingPaths({
           <textarea
             className={`${skillFieldClass} mt-2 font-mono`}
             rows={2}
+            disabled={save.isPending}
             value={exclude}
             onChange={(event) => setExclude(event.target.value)}
           />
@@ -181,12 +238,73 @@ export function SkillBindingPaths({
         <Button
           type="button"
           variant="outline"
-          disabled={save.isPending}
+          disabled={save.isPending || conflict}
           onClick={() => save.mutate()}
         >
           Save paths
         </Button>
         <SkillsError error={save.error} />
+        {conflict ? (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={currentPaths.isFetching}
+            onClick={() => {
+              setShowComparison(true);
+              void currentPaths.refetch();
+            }}
+          >
+            Keep draft and compare current paths
+          </Button>
+        ) : null}
+        {showComparison ? (
+          <>
+            {currentPaths.isFetching ? (
+              <p role="status">Loading current saved paths…</p>
+            ) : null}
+            <SkillsError error={currentPaths.error} />
+            {currentPaths.data &&
+            !currentPaths.isFetching &&
+            !currentPaths.isError ? (
+              <section
+                aria-label="Current saved paths"
+                className="space-y-3 border-t border-cyan-200/20 pt-3"
+              >
+                <h4 className="font-semibold">Current saved paths</h4>
+                <p className="text-xs text-slate-400">
+                  Your draft remains above. Compare it with these saved paths
+                  before choosing how to proceed.
+                </p>
+                <dl className="space-y-2 text-xs">
+                  <dt className="text-slate-400">Include paths</dt>
+                  <dd className="whitespace-pre-wrap break-all font-mono">
+                    {currentPaths.data.scope.includePaths.join("\n")}
+                  </dd>
+                  <dt className="text-slate-400">Exclude paths</dt>
+                  <dd className="whitespace-pre-wrap break-all font-mono">
+                    {currentPaths.data.scope.excludePaths.join("\n") || "None"}
+                  </dd>
+                </dl>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => reconcile(true)}
+                  >
+                    Use current saved paths
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => reconcile(false)}
+                  >
+                    Keep reconciled paths
+                  </Button>
+                </div>
+              </section>
+            ) : null}
+          </>
+        ) : null}
       </div>
     </details>
   );

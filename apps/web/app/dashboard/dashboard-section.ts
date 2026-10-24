@@ -16,8 +16,8 @@ export const DASHBOARD_SECTIONS = [
   "policy",
   "diagnostics",
   "usage",
-  "skills",
   "other",
+  "skills",
   "memory",
 ] as const satisfies readonly DashboardSection[];
 
