@@ -25,8 +25,6 @@ export {
   saveReviewConfiguration,
   findReviewConfiguration,
   clearReviewConfiguration,
-  saveReviewConfigurationWithOperation,
-  findReviewConfigurationOperation,
 } from "./application/use-cases/save-review-configuration";
 export * from "./infrastructure/operator/hashed-review-configuration-operator-authorization";
 export * from "./infrastructure/prisma/prisma-review-configuration-operator-repository";

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   PrismaAuditLogRepository,
   recordAuditEvent,
@@ -7,14 +6,12 @@ import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   canonicalJson,
-  parseReviewConfigurationStrict,
   type ReviewConfiguration,
 } from "../../domain/review-configuration";
 import {
   parseReviewPolicyDocument,
   resolveEffectiveReviewPolicy,
   ReviewPolicyMaterializationError,
-  reviewProviderSelectionSchema,
   sameProviderSelections,
   STORED_REVIEW_POLICY_SCHEMA_VERSION,
   withProviderSelections,
@@ -36,25 +33,18 @@ import type {
   ProviderProfileDraft,
   ProviderSelectionAuthority,
   ReviewConfigurationRepositoryPort,
-  ReviewConfigurationOperationInput,
-  ReviewConfigurationOperationRepositoryPort,
   ReviewPolicyHead,
   ReviewPolicyWrite,
   SavedReviewPolicy,
   SelectedProviderProfileFacts,
 } from "../../application/ports/review-configuration-repository-port";
 import {
-  composeEffectiveReviewConfiguration,
   effectiveReviewPolicyDigest,
   parseStoredReviewPolicy,
   persistedReviewConfiguration,
   readyReviewConfiguration,
   resolveEffectiveReviewConfiguration,
 } from "../../application/use-cases/resolve-effective-review-configuration";
-import {
-  snapshotReviewConfigurationOperation,
-  snapshotReviewConfigurationOperationLookup,
-} from "../../application/use-cases/save-review-configuration";
 import {
   isReviewConfigurationWriteConflictError,
   ReviewConfigurationWriteConflictError as WriteConflict,
@@ -92,13 +82,7 @@ type WriterOptions = Readonly<{
   personalWriteActorUserId: string | undefined;
 }>;
 
-type Receipt = Readonly<{ operationId: string; operationIntentHash: string }>;
-
-export class PrismaReviewConfigurationRepository
-  implements
-    ReviewConfigurationRepositoryPort,
-    ReviewConfigurationOperationRepositoryPort
-{
+export class PrismaReviewConfigurationRepository implements ReviewConfigurationRepositoryPort {
   private readonly options: WriterOptions;
 
   constructor(
@@ -177,90 +161,6 @@ export class PrismaReviewConfigurationRepository
       ),
     );
   }
-
-  async findOperation(
-    input: Parameters<
-      ReviewConfigurationOperationRepositoryPort["findOperation"]
-    >[0],
-  ): Promise<PersistedReviewConfiguration | null> {
-    const intent = snapshotReviewConfigurationOperationLookup(input);
-    const receipt = await findOperationReceipt(
-      this.prisma,
-      intent.target,
-      intent.operationId,
-    );
-    if (!receipt) return null;
-    const policy = parseStoredReviewPolicy(intent.target.scope, receipt);
-    if (!policy) throw new Error("review_configuration_receipt_invalid");
-    return matchOperationReceipt(
-      receipt,
-      operationIntentHash({
-        target: intent.target,
-        expectedVersion: intent.expectedVersion,
-        policy,
-      }),
-    );
-  }
-
-  async saveNextVersionWithOperation(
-    input: ReviewConfigurationOperationInput,
-  ): Promise<PersistedReviewConfiguration> {
-    const intent = snapshotReviewConfigurationOperation(input);
-    const receipt = {
-      operationId: intent.operationId,
-      operationIntentHash: operationIntentHash(intent),
-    };
-    for (let attempt = 1; attempt <= MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
-      try {
-        return await this.prisma.$transaction(
-          async (tx) => {
-            await acquireReviewConfigurationWriteScope(tx, intent.target);
-            const original = await findOperationReceipt(
-              tx,
-              intent.target,
-              intent.operationId,
-            );
-            if (original)
-              return matchOperationReceipt(
-                original,
-                receipt.operationIntentHash,
-              );
-            const [saved] = await saveReviewPolicyWrites(
-              tx,
-              { workspaceId: intent.target.workspaceId, writes: [intent] },
-              this.options,
-              { requireProvider: true, receipt },
-            );
-            return requireConfiguration(saved!);
-          },
-          { isolationLevel: "Serializable" },
-        );
-      } catch (error) {
-        if (
-          isPrismaReviewConfigurationWriteConflict(error) ||
-          isPrismaReviewConfigurationSerializationConflict(error)
-        ) {
-          const original = await findOperationReceipt(
-            this.prisma,
-            intent.target,
-            intent.operationId,
-          );
-          if (original) {
-            return matchOperationReceipt(original, receipt.operationIntentHash);
-          }
-          if (isPrismaReviewConfigurationWriteConflict(error))
-            throw new WriteConflict();
-        }
-        if (
-          !isPrismaReviewConfigurationSerializationConflict(error) ||
-          attempt === MAX_TRANSACTION_ATTEMPTS
-        ) {
-          throw error;
-        }
-      }
-    }
-    throw new Error("review_configuration_transaction_retry_exhausted");
-  }
 }
 
 export class PrismaReviewConfigurationTransactionRepository implements ReviewConfigurationRepositoryPort {
@@ -335,11 +235,6 @@ function assertOperatorWorkspaceId(value: string | undefined): void {
     throw new Error("review_configuration_operator_workspace_id_invalid");
   }
 }
-
-type ReviewConfigurationPrismaClient = Pick<
-  PrismaClient | Prisma.TransactionClient,
-  "reviewConfiguration" | "reviewConfigurationVersion"
->;
 
 async function findLatestReviewConfiguration(
   reader: ReviewPolicyReader,
@@ -433,13 +328,10 @@ async function saveReviewPolicyWrites(
   tx: Prisma.TransactionClient,
   input: Parameters<ReviewConfigurationRepositoryPort["saveNextVersions"]>[0],
   options: WriterOptions,
-  mode: Readonly<{ requireProvider: boolean; receipt?: Receipt }>,
+  mode: Readonly<{ requireProvider: boolean }>,
 ): Promise<readonly SavedReviewPolicy[]> {
-  const { receipt } = mode;
   const workspaceId = input.workspaceId;
   const writes = planWrites(workspaceId, input.writes);
-  if (receipt && writes.length !== 1)
-    throw new Error("review_configuration_receipt_invalid");
   await acquireCurrentScopeGuards(
     tx,
     writes.map((write) => ({ ...write.target, mode: "exclusive" as const })),
@@ -726,19 +618,10 @@ async function saveReviewPolicyWrites(
     const head = await tx.reviewConfigurationVersion.create({
       data: {
         configurationId: configuration.id,
-        ...receipt,
         workspaceId,
         version,
         schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
         policyJson: canonicalJson(write.policy),
-        operationSnapshotJson:
-          receipt && resolved
-            ? canonicalJson({
-                workspaceVersion,
-                config: resolved.config,
-                selections: resolved.selections,
-              })
-            : null,
       },
       select: { version: true, schemaVersion: true, policyJson: true },
     });
@@ -921,99 +804,6 @@ async function deleteReviewConfigurationTarget(
   return result.count > 0;
 }
 
-function operationIntentHash(
-  intent: Pick<
-    ReviewConfigurationOperationInput,
-    "target" | "expectedVersion" | "policy"
-  >,
-): string {
-  return createHash("sha256")
-    .update(
-      canonicalJson({
-        target: intent.target,
-        expectedVersion: intent.expectedVersion,
-        policy: intent.policy,
-      }),
-    )
-    .digest("hex");
-}
-
-function matchOperationReceipt(
-  original: VersionRecord & {
-    readonly operationIntentHash: string | null;
-    readonly operationSnapshotJson: string | null;
-  },
-  intentHash: string,
-): PersistedReviewConfiguration {
-  if (original.operationIntentHash !== intentHash) throw new WriteConflict();
-  // A lost ACK resolves to the committed result, independently of later edits,
-  // clear, or revocation. This historical receipt never supplies run authority.
-  try {
-    const snapshot: unknown = JSON.parse(original.operationSnapshotJson ?? "");
-    if (
-      !snapshot ||
-      typeof snapshot !== "object" ||
-      Array.isArray(snapshot) ||
-      Object.keys(snapshot).sort().join(",") !==
-        "config,selections,workspaceVersion" ||
-      !("workspaceVersion" in snapshot) ||
-      !("config" in snapshot) ||
-      !("selections" in snapshot) ||
-      typeof snapshot.workspaceVersion !== "number" ||
-      !Number.isSafeInteger(snapshot.workspaceVersion) ||
-      snapshot.workspaceVersion < 1 ||
-      (!original.repositoryId && snapshot.workspaceVersion !== original.version)
-    )
-      throw new Error("invalid_receipt_snapshot");
-    const config: ReviewConfiguration = parseReviewConfigurationStrict(
-      snapshot.config,
-    );
-    const selections = reviewProviderSelectionSchema
-      .array()
-      .parse(snapshot.selections);
-    const policy = parseStoredReviewPolicy(
-      original.repositoryId ? "repository" : "workspace",
-      original,
-    );
-    if (!policy || selections.length !== config.providers.length)
-      throw new Error("invalid_receipt_policy");
-    return persistedReviewConfiguration({
-      config,
-      selections,
-      policy,
-      workspaceVersion: snapshot.workspaceVersion,
-      repositoryVersion: original.repositoryId ? original.version : null,
-    });
-  } catch {
-    throw new Error("review_configuration_receipt_invalid");
-  }
-}
-
-async function findOperationReceipt(
-  prisma: ReviewConfigurationPrismaClient,
-  target: ReviewConfigurationTarget,
-  operationId: string,
-) {
-  const record = await prisma.reviewConfigurationVersion.findFirst({
-    where: {
-      operationId,
-      configuration: {
-        workspaceId: target.workspaceId,
-        targetKey: reviewConfigurationTargetKey(target),
-      },
-    },
-    select: {
-      ...versionSelect,
-      operationIntentHash: true,
-      operationSnapshotJson: true,
-      configuration: { select: { repositoryId: true } },
-    },
-  });
-  return record
-    ? { ...record, repositoryId: record.configuration.repositoryId }
-    : null;
-}
-
 function snapshotTarget(
   target: ReviewConfigurationTarget,
 ): ReviewConfigurationTarget {
@@ -1074,30 +864,4 @@ async function assertGatewaySelections(
       throw new Error("review_configuration_gateway_profile_mismatch");
   }
   return personalBindings;
-}
-
-const versionSelect = {
-  id: true,
-  version: true,
-  schemaVersion: true,
-  policyJson: true,
-} as const;
-
-type VersionRecord = {
-  readonly id: string;
-  readonly repositoryId?: string | null;
-  readonly version: number;
-  readonly schemaVersion: number;
-  readonly policyJson: string | null;
-};
-
-/** Effective configuration of one target as stored now, for transaction readers. */
-export async function readEffectiveReviewConfiguration(
-  tx: Prisma.TransactionClient,
-  target: ReviewConfigurationTarget,
-) {
-  return composeEffectiveReviewConfiguration(
-    target,
-    await new PrismaReviewPolicyHeadReader(tx).readPolicyHeads(target),
-  );
 }

@@ -19,7 +19,6 @@ import {
   PrismaWorkspaceProviderProfileRepository,
   parseReviewConfigurationStrict,
   saveReviewConfiguration,
-  saveReviewConfigurationWithOperation,
 } from "@reviewrouter/features-review-config";
 import {
   canonicalJson,
@@ -545,8 +544,8 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         await expect(save(bx.id, 2)).rejects.toThrow(
           "review_configuration_gateway_binding_unavailable",
         );
-        // Operation receipts name stored profiles and create none: the
-        // donor, an admin of X again, registers the BX2 provider first.
+        // The donor, an admin of X again, registers the BX2 provider first;
+        // the save then selects that stored profile.
         const { profile: bx2Profile } = await createWorkspaceProviderProfile(
           {
             workspaceId: x,
@@ -565,30 +564,22 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
           config(bx2.id),
           target,
         ).policy;
-        const operation = {
-          target,
-          expectedVersion: 2,
-          operationId: `${prefix}-select-bx2`,
-          policy: {
-            ...bx2Policy,
-            providers: bx2Policy.providers!.map((selection) => ({
-              ...selection,
-              profileId: bx2Profile.id,
-            })),
-          },
-        };
         expect(
           (
-            await saveReviewConfigurationWithOperation(operation, {
-              configurations,
-            })
-          ).version,
-        ).toBe(3);
-        expect(
-          (
-            await saveReviewConfigurationWithOperation(operation, {
-              configurations,
-            })
+            await saveReviewConfiguration(
+              {
+                target,
+                expectedVersion: 2,
+                policy: {
+                  ...bx2Policy,
+                  providers: bx2Policy.providers!.map((selection) => ({
+                    ...selection,
+                    profileId: bx2Profile.id,
+                  })),
+                },
+              },
+              { configurations },
+            )
           ).version,
         ).toBe(3);
         const bx2Pin = await capture();

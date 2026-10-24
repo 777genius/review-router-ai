@@ -221,8 +221,6 @@ export class ReviewPolicyMaterializationError extends Error {
 export type EffectiveReviewPolicy = Readonly<{
   config: ReviewConfiguration;
   selections: readonly ReviewProviderSelection[];
-  /** Where the selections come from; the workspace default when inherited. */
-  selectionSource: "workspace" | "repository";
 }>;
 
 /**
@@ -284,7 +282,7 @@ export function resolveEffectiveReviewPolicy(input: {
       ...definedOnly(repository?.investigationRollout),
     },
   });
-  return { config, selections, selectionSource };
+  return { config, selections };
 }
 
 /** The selection that keeps a runtime provider row's settings for a profile. */

@@ -14,20 +14,12 @@ import { switchRepositoryConfigurationAuthMode } from "../../../workflow-provisi
 import {
   parseRepositoryReviewPolicy,
   parseReviewConfigurationStrict,
-  parseWorkspaceReviewPolicy,
-  providerProfileIdentityKey,
   PrismaReviewConfigurationRepository,
   PrismaReviewConfigurationTransactionRepository,
   PrismaReviewPolicyHeadReader,
   resolveEffectiveReviewConfigurations,
   resolveReviewConfiguration,
   saveReviewConfiguration,
-  saveReviewConfigurationWithOperation,
-  findReviewConfigurationOperation,
-  ReviewConfigurationWriteConflictError,
-  type ReviewConfiguration,
-  type ReviewConfigurationOperationInput,
-  type ReviewConfigurationTarget,
   type RepositoryReviewPolicy,
 } from "../index";
 
@@ -358,52 +350,9 @@ describe.skipIf(!enabled)(
             ...workspacePolicyFixture,
             providers: [selected],
           });
-        type RepositoryTarget = Extract<
-          ReviewConfigurationTarget,
-          { scope: "repository" }
-        >;
         // System writes store each provider row as a profile that the write
         // finds or creates by its identity, in the document's transaction.
         const profileCount = () => prisma!.workspaceProviderProfile.count();
-        // Operation intents hash the stored document, so replays name the
-        // profiles that earlier writes created instead of drafts.
-        const storedProfileIds = (
-          selected: ReviewConfiguration,
-          workspaceId: string,
-        ) =>
-          Promise.all(
-            selected.providers.map(async (row) => {
-              if (row.authMode !== "codex_account_gateway")
-                throw new Error("c2b_gateway_provider_expected");
-              const identityKey = providerProfileIdentityKey(
-                {
-                  kind: "gateway_binding",
-                  authMode: row.authMode,
-                  bindingId: row.gatewayBindingId,
-                  gatewayProfileRef: row.gatewayProfileRef,
-                },
-                row.model,
-              );
-              const profile =
-                await prisma!.workspaceProviderProfile.findUniqueOrThrow({
-                  where: {
-                    workspaceId_identityKey: { workspaceId, identityKey },
-                  },
-                });
-              return profile.id;
-            }),
-          );
-        const storedRepositoryDocument = async (
-          selected: ReviewConfiguration,
-          scope: RepositoryTarget,
-        ) =>
-          parseRepositoryReviewPolicy({
-            ...systemPolicyWriteFixture(selected, scope).policy,
-            providers: selectionsFor(
-              selected,
-              await storedProfileIds(selected, scope.workspaceId),
-            ),
-          });
         const config = parseReviewConfigurationStrict({
           ...workspacePolicyFixture,
           providers: [
@@ -1013,407 +962,32 @@ describe.skipIf(!enabled)(
           }),
         ).toBeNull();
 
-        // Plausible failures: a lost commit response causes a second version,
-        // stale CAS hides a committed receipt, partial hashes accept changed intent,
-        // a later writer replaces readback, or foreign scopes disclose the receipt.
-        // Use the SAME real Prisma/PG boundary; no second mock or unit layer.
+        // Clearing an override deactivates it and retains its history: reads
+        // and CI fall back to the workspace document, a stale CAS cannot
+        // reactivate it, and the next save continues the version sequence.
         await refetched.repositoryConnection.create({
           data: {
-            id: "c2b-receipt-repo",
+            id: "c2b-cleared-repo",
             workspaceId: "c2b-w",
-            externalRepositoryId: "c2b-receipt-repo",
+            externalRepositoryId: "c2b-cleared-repo",
             owner: "synthetic",
-            name: "receipt",
-            fullName: "synthetic/receipt",
-            defaultBranch: "main",
-            visibility: "private",
-          },
-        });
-        const receiptTarget = {
-          ...repository,
-          repositoryId: "c2b-receipt-repo",
-        };
-        const operation = {
-          target: receiptTarget,
-          policy: await storedRepositoryDocument(override, receiptTarget),
-          expectedVersion: null,
-          operationId: "c2b-stable-batch",
-        };
-        const receiptDeps = { configurations: fresh };
-        const committed = await saveReviewConfigurationWithOperation(
-          operation,
-          receiptDeps,
-        );
-        expect(committed.version).toBe(1);
-        expect(committed.config).toEqual(override);
-        // Readback checks original CAS intent against the scoped historical receipt.
-        expect(
-          await findReviewConfigurationOperation(operation, receiptDeps),
-        ).toEqual(committed);
-        await expect(
-          findReviewConfigurationOperation(
-            {
-              ...operation,
-              expectedVersion: 1,
-            },
-            receiptDeps,
-          ),
-        ).rejects.toBeInstanceOf(ReviewConfigurationWriteConflictError);
-        await expect(
-          fresh.findOperation({
-            ...operation,
-            expectedVersion: 1,
-          }),
-        ).rejects.toBeInstanceOf(ReviewConfigurationWriteConflictError);
-        for (const expectedVersion of [
-          undefined,
-          0,
-          -1,
-          1.5,
-          NaN,
-          Number.MAX_SAFE_INTEGER + 1,
-        ]) {
-          const invalidLookup = {
-            target: receiptTarget,
-            operationId: operation.operationId,
-            expectedVersion,
-          } as unknown as Parameters<typeof fresh.findOperation>[0];
-          await expect(
-            findReviewConfigurationOperation(invalidLookup, receiptDeps),
-          ).rejects.toThrow("review_configuration_expected_version_invalid");
-          await expect(fresh.findOperation(invalidLookup)).rejects.toThrow(
-            "review_configuration_expected_version_invalid",
-          );
-        }
-        for (const [invalidLookup, message] of [
-          [
-            { ...operation, operationId: "bad\n" },
-            "review_configuration_operation_id_invalid",
-          ],
-          [
-            { ...operation, target: { ...receiptTarget, workspaceId: "" } },
-            "review_configuration_target_invalid",
-          ],
-        ] as const) {
-          await expect(
-            findReviewConfigurationOperation(invalidLookup, receiptDeps),
-          ).rejects.toThrow(message);
-          await expect(fresh.findOperation(invalidLookup)).rejects.toThrow(
-            message,
-          );
-        }
-        expect(
-          await saveReviewConfigurationWithOperation(operation, receiptDeps),
-        ).toEqual(committed);
-        const receiptRow =
-          await refetched.reviewConfigurationVersion.findFirstOrThrow({
-            where: {
-              configuration: { repositoryId: receiptTarget.repositoryId },
-              operationId: operation.operationId,
-            },
-          });
-        expect(receiptRow.operationIntentHash).toMatch(/^[0-9a-f]{64}$/);
-        const versionCount = () =>
-          refetched!.reviewConfigurationVersion.count({
-            where: { configurationId: receiptRow.configurationId },
-          });
-        expect(await versionCount()).toBe(1);
-        for (const changed of [
-          { ...operation, expectedVersion: 1 },
-          {
-            ...operation,
-            policy: await storedRepositoryDocument(
-              parseReviewConfigurationStrict({
-                ...override,
-                limits: { ...override.limits, inlineMaxComments: 7 },
-              }),
-              receiptTarget,
-            ),
-          },
-          {
-            ...operation,
-            policy: await storedRepositoryDocument(
-              parseReviewConfigurationStrict({
-                ...override,
-                reviewLanguage: "French",
-              }),
-              receiptTarget,
-            ),
-          },
-          {
-            ...operation,
-            policy: await storedRepositoryDocument(
-              parseReviewConfigurationStrict({
-                ...override,
-                investigationRollout: {
-                  ...override.investigationRollout,
-                  recordingEnabled: true,
-                },
-              }),
-              receiptTarget,
-            ),
-          },
-          {
-            ...operation,
-            policy: await storedRepositoryDocument(config, receiptTarget),
-          },
-        ]) {
-          await expect(
-            saveReviewConfigurationWithOperation(changed, receiptDeps),
-          ).rejects.toMatchObject({
-            code: "review_configuration_write_conflict",
-          });
-        }
-        expect(await versionCount()).toBe(1);
-        await expect(
-          saveReviewConfigurationWithOperation(
-            {
-              ...operation,
-              operationId: "c2b-distinct-batch",
-            },
-            receiptDeps,
-          ),
-        ).rejects.toMatchObject({
-          code: "review_configuration_write_conflict",
-        });
-        await fresh.saveNextVersion({
-          target: receiptTarget,
-          expectedVersion: 1,
-          ...systemPolicyWriteFixture(override, receiptTarget),
-        });
-        const advanced = await fresh.saveNextVersion({
-          target: receiptTarget,
-          expectedVersion: 2,
-          ...systemPolicyWriteFixture(
-            parseReviewConfigurationStrict({
-              ...override,
-              reviewLanguage: "German",
-            }),
-            receiptTarget,
-          ),
-        });
-        expect(advanced.version).toBe(3);
-        expect(
-          await saveReviewConfigurationWithOperation(operation, receiptDeps),
-        ).toEqual(committed);
-        expect(
-          await findReviewConfigurationOperation(operation, receiptDeps),
-        ).toEqual(committed);
-        expect(await fresh.findLatest(receiptTarget)).toEqual(advanced);
-        expect(await versionCount()).toBe(3);
-        for (const target of [
-          { ...receiptTarget, workspaceId: "c2b-x" },
-          repository,
-          workspace,
-        ]) {
-          expect(
-            await findReviewConfigurationOperation(
-              {
-                target,
-                operationId: operation.operationId,
-                expectedVersion: null,
-              },
-              receiptDeps,
-            ),
-          ).toBeNull();
-        }
-
-        // Actual SQL row lock holds both requests in-flight. Observing TWO SQL
-        // lock waits avoids a scheduler-dependent Promise.all concurrency claim.
-        // While blocked, mutate caller input to detect reading it after await.
-        const raceClient = new PrismaClient({
-          adapter: new PrismaPg({
-            ...target,
-            application_name: "rr_receipt_race",
-          }),
-          transactionOptions: { maxWait: 10_000, timeout: 20_000 },
-        });
-        const raceRepo = new PrismaReviewConfigurationRepository(raceClient);
-        type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
-        type MutableOperationInput = Omit<
-          Mutable<
-            Extract<
-              ReviewConfigurationOperationInput,
-              { target: { scope: "repository" } }
-            >
-          >,
-          "target"
-        > & {
-          target: Mutable<
-            Extract<
-              ReviewConfigurationOperationInput["target"],
-              { scope: "repository" }
-            >
-          >;
-        };
-        const submitted: MutableOperationInput = {
-          target: { ...receiptTarget },
-          policy: await storedRepositoryDocument(override, receiptTarget),
-          expectedVersion: 3,
-          operationId: "c2b-concurrent-batch",
-        };
-        const directSubmitted: MutableOperationInput = {
-          ...submitted,
-          target: { ...receiptTarget },
-          policy: await storedRepositoryDocument(override, receiptTarget),
-        };
-        try {
-          await sql.query("BEGIN");
-          await sql.query(
-            'SELECT "id" FROM "ReviewConfiguration" WHERE "id" = $1 FOR UPDATE',
-            [receiptRow.configurationId],
-          );
-          const racing = Promise.allSettled([
-            saveReviewConfigurationWithOperation(submitted, {
-              configurations: raceRepo,
-            }),
-            raceRepo.saveNextVersionWithOperation(directSubmitted),
-          ]);
-          try {
-            await expect
-              .poll(
-                async () => {
-                  // This observer also holds the row lock in an open transaction;
-                  // discard its cached activity snapshot before each observation.
-                  await sql.query("SELECT pg_stat_clear_snapshot()");
-                  const observed = await sql.query<{ count: number }>(`
-                SELECT count(*)::int AS count FROM pg_stat_activity
-                WHERE datname = current_database() AND application_name = 'rr_receipt_race'
-                  AND wait_event_type = 'Lock'`);
-                  return observed.rows[0]?.count;
-                },
-                { timeout: 5_000, interval: 20 },
-              )
-              .toBe(2);
-            for (const mutable of [submitted, directSubmitted]) {
-              mutable.target.workspaceId = "c2b-x";
-              mutable.policy.limits!.inlineMaxComments = 7;
-              mutable.expectedVersion = 99;
-              mutable.operationId = "c2b-mutated-batch";
-            }
-          } finally {
-            await sql.query("ROLLBACK");
-            // Drain on observation failures as well; no leaked/unhandled work.
-            await racing;
-          }
-          const results = await racing;
-          for (const result of results) {
-            if (result.status !== "fulfilled") throw result.reason;
-            expect(result.value).toMatchObject({
-              version: 4,
-              config: override,
-            });
-          }
-          expect(results[0]).toEqual(results[1]);
-          expect(await versionCount()).toBe(4);
-
-          // Hold actual receipt SELECTs at the SQL boundary. Both use-case and
-          // direct repository ingress must own original lookup fields before I/O.
-          const lookupSubmitted: MutableOperationInput = {
-            ...operation,
-            target: { ...receiptTarget },
-          };
-          const directLookupSubmitted: MutableOperationInput = {
-            ...operation,
-            target: { ...receiptTarget },
-          };
-          await sql.query("BEGIN");
-          await sql.query(
-            'LOCK TABLE "ReviewConfigurationVersion" IN ACCESS EXCLUSIVE MODE',
-          );
-          const reading = Promise.allSettled([
-            findReviewConfigurationOperation(lookupSubmitted, {
-              configurations: raceRepo,
-            }),
-            raceRepo.findOperation(directLookupSubmitted),
-          ]);
-          try {
-            await expect
-              .poll(
-                async () => {
-                  await sql.query("SELECT pg_stat_clear_snapshot()");
-                  const observed = await sql.query<{ count: number }>(`
-                SELECT count(*)::int AS count FROM pg_stat_activity
-                WHERE datname = current_database() AND application_name = 'rr_receipt_race'
-                  AND wait_event_type = 'Lock'`);
-                  return observed.rows[0]?.count;
-                },
-                { timeout: 5_000, interval: 20 },
-              )
-              .toBe(2);
-            for (const mutable of [lookupSubmitted, directLookupSubmitted]) {
-              mutable.target.workspaceId = "c2b-x";
-              mutable.expectedVersion = 1;
-              mutable.operationId = "c2b-mutated-lookup";
-            }
-          } finally {
-            await sql.query("ROLLBACK");
-            await reading;
-          }
-          for (const result of await reading) {
-            if (result.status !== "fulfilled") throw result.reason;
-            expect(result.value).toEqual(committed);
-          }
-          expect(await versionCount()).toBe(4);
-        } finally {
-          await sql.query("ROLLBACK");
-          await raceClient.$disconnect();
-        }
-        expect(
-          await findReviewConfigurationOperation(
-            {
-              target: receiptTarget,
-              operationId: "c2b-mutated-batch",
-              expectedVersion: 3,
-            },
-            receiptDeps,
-          ),
-        ).toBeNull();
-        const readClient = new PrismaClient({ adapter: new PrismaPg(target) });
-        try {
-          expect(
-            await findReviewConfigurationOperation(operation, {
-              configurations: new PrismaReviewConfigurationRepository(
-                readClient,
-              ),
-            }),
-          ).toEqual(committed);
-        } finally {
-          await readClient.$disconnect();
-        }
-
-        // Lost save ACK followed by clear used to cascade-delete the receipt:
-        // retry could resurrect the override or accept a different full intent.
-        // Exercise that lifecycle in this existing isolated, actual SQL fixture.
-        await refetched.repositoryConnection.create({
-          data: {
-            id: "c2b-cleared-receipt-repo",
-            workspaceId: "c2b-w",
-            externalRepositoryId: "c2b-cleared-receipt-repo",
-            owner: "synthetic",
-            name: "cleared-receipt",
-            fullName: "synthetic/cleared-receipt",
+            name: "cleared",
+            fullName: "synthetic/cleared",
             defaultBranch: "main",
             visibility: "private",
           },
         });
         const clearedTarget = {
           ...repository,
-          repositoryId: "c2b-cleared-receipt-repo",
+          repositoryId: "c2b-cleared-repo",
         };
-        const lostResponseOperation = {
+        const freshDeps = { configurations: fresh };
+        const original = await fresh.saveNextVersion({
           target: clearedTarget,
-          policy: await storedRepositoryDocument(override, clearedTarget),
           expectedVersion: null,
-          operationId: "c2b-cleared-original",
-        };
-        // A committed result withheld from the caller models lost response;
-        // there is no transport mock or inference that absence means no effect.
-        const lostResponseReceipt = await saveReviewConfigurationWithOperation(
-          lostResponseOperation,
-          receiptDeps,
-        );
-        expect(lostResponseReceipt.version).toBe(1);
+          ...systemPolicyWriteFixture(override, clearedTarget),
+        });
+        expect(original.version).toBe(1);
         const retainedHistory = () =>
           refetched!.reviewConfigurationVersion.findMany({
             where: {
@@ -1465,10 +1039,10 @@ describe.skipIf(!enabled)(
             repositoryVersion: null,
           });
           expect(
-            await resolveReviewConfiguration(clearedTarget, receiptDeps),
+            await resolveReviewConfiguration(clearedTarget, freshDeps),
           ).toMatchObject({ source: "workspace", version: 2, config });
-          // CI must ignore retained receipt history on both regular reads and
-          // strict admission reads using the existing transaction port.
+          // CI must ignore retained override history on both regular reads
+          // and strict admission reads using the existing transaction port.
           expect(
             await runtimeConfigs.findRuntimeReviewConfiguration(runtimeTarget),
           ).toEqual({
@@ -1507,31 +1081,6 @@ describe.skipIf(!enabled)(
         expect(await fresh.deleteTarget(clearedTarget)).toBe(true);
         await expectCleared();
         expect(
-          await findReviewConfigurationOperation(
-            lostResponseOperation,
-            receiptDeps,
-          ),
-        ).toEqual(lostResponseReceipt);
-        expect(
-          await saveReviewConfigurationWithOperation(
-            lostResponseOperation,
-            receiptDeps,
-          ),
-        ).toEqual(lostResponseReceipt);
-        await expectCleared();
-        await expect(
-          saveReviewConfigurationWithOperation(
-            {
-              ...lostResponseOperation,
-              policy: await storedRepositoryDocument(config, clearedTarget),
-            },
-            receiptDeps,
-          ),
-        ).rejects.toMatchObject({
-          code: "review_configuration_write_conflict",
-        });
-        await expectCleared();
-        expect(
           await refetched.$transaction(async (tx) => {
             const transactionConfigs =
               new PrismaReviewConfigurationTransactionRepository(tx);
@@ -1542,7 +1091,7 @@ describe.skipIf(!enabled)(
           }),
         ).toBe(false);
         // Inactive override has expectedVersion=null, while stored sequence is
-        // monotonic. Failed CAS cannot reactivate; new operations may do so.
+        // monotonic. Failed CAS cannot reactivate; a new save may do so.
         await expect(
           fresh.saveNextVersion({
             target: clearedTarget,
@@ -1562,103 +1111,22 @@ describe.skipIf(!enabled)(
             recordingEnabled: true,
           },
         });
-        const newOperation = {
-          ...lostResponseOperation,
-          operationId: "c2b-cleared-new",
-          policy: await storedRepositoryDocument(newConfig, clearedTarget),
-        };
-        expect(newOperation.expectedVersion).toBeNull();
-        const reactivated = await saveReviewConfigurationWithOperation(
-          newOperation,
-          receiptDeps,
-        );
+        const reactivated = await fresh.saveNextVersion({
+          target: clearedTarget,
+          expectedVersion: null,
+          ...systemPolicyWriteFixture(newConfig, clearedTarget),
+        });
         expect(reactivated.version).toBe(2);
         expect(reactivated.config).toEqual(newConfig);
         expect(reactivated.revisionToken).toMatch(
           /^policy:2:2:sha256:[a-f0-9]{64}$/,
         );
-        expect(reactivated.revisionToken).not.toBe(
-          lostResponseReceipt.revisionToken,
-        );
-        expect(
-          await findReviewConfigurationOperation(newOperation, receiptDeps),
-        ).toEqual(reactivated);
-        expect(await fresh.findOperation(newOperation)).toEqual(reactivated);
-        expect(
-          await saveReviewConfigurationWithOperation(newOperation, receiptDeps),
-        ).toEqual(reactivated);
-        await expect(
-          findReviewConfigurationOperation(
-            {
-              ...newOperation,
-              expectedVersion: 1,
-            },
-            receiptDeps,
-          ),
-        ).rejects.toBeInstanceOf(ReviewConfigurationWriteConflictError);
-        await expect(
-          saveReviewConfigurationWithOperation(
-            {
-              ...newOperation,
-              expectedVersion: 1,
-            },
-            receiptDeps,
-          ),
-        ).rejects.toBeInstanceOf(ReviewConfigurationWriteConflictError);
-        expect(
-          await findReviewConfigurationOperation(
-            lostResponseOperation,
-            receiptDeps,
-          ),
-        ).toEqual(lostResponseReceipt);
-        expect(
-          await saveReviewConfigurationWithOperation(
-            lostResponseOperation,
-            receiptDeps,
-          ),
-        ).toEqual(lostResponseReceipt);
+        expect(reactivated.revisionToken).not.toBe(original.revisionToken);
         expect(await fresh.findLatest(clearedTarget)).toEqual(reactivated);
         const reactivatedHistory = await retainedHistory();
         expect(reactivatedHistory).toHaveLength(2);
         expect(reactivatedHistory.slice(0, 1)).toEqual(originalHistory);
         expect(await fresh.deleteTarget(clearedTarget)).toBe(true);
-        await expectCleared(reactivatedHistory);
-        expect(
-          await findReviewConfigurationOperation(newOperation, receiptDeps),
-        ).toEqual(reactivated);
-        expect(
-          await saveReviewConfigurationWithOperation(newOperation, receiptDeps),
-        ).toEqual(reactivated);
-        expect(
-          await findReviewConfigurationOperation(
-            lostResponseOperation,
-            receiptDeps,
-          ),
-        ).toEqual(lostResponseReceipt);
-        expect(
-          await saveReviewConfigurationWithOperation(
-            lostResponseOperation,
-            receiptDeps,
-          ),
-        ).toEqual(lostResponseReceipt);
-        await expect(
-          findReviewConfigurationOperation(
-            {
-              ...newOperation,
-              expectedVersion: 1,
-            },
-            receiptDeps,
-          ),
-        ).rejects.toBeInstanceOf(ReviewConfigurationWriteConflictError);
-        await expect(
-          saveReviewConfigurationWithOperation(
-            {
-              ...newOperation,
-              expectedVersion: 1,
-            },
-            receiptDeps,
-          ),
-        ).rejects.toBeInstanceOf(ReviewConfigurationWriteConflictError);
         await expectCleared(reactivatedHistory);
         const ordinaryAfterClear = await fresh.saveNextVersion({
           target: clearedTarget,
@@ -1666,127 +1134,94 @@ describe.skipIf(!enabled)(
           ...systemPolicyWriteFixture(override, clearedTarget),
         });
         expect(ordinaryAfterClear.version).toBe(3);
-        expect(
-          await saveReviewConfigurationWithOperation(
-            lostResponseOperation,
-            receiptDeps,
-          ),
-        ).toEqual(lostResponseReceipt);
         expect(await fresh.findLatest(clearedTarget)).toEqual(
           ordinaryAfterClear,
         );
         expect((await retainedHistory()).slice(0, 1)).toEqual(originalHistory);
 
-        // Same batch ID has independent target scope, not a global ledger.
-        // A complete repository document also reads as a workspace document.
-        const workspaceScopedOperation = {
-          ...operation,
+        // A cleared override follows the current workspace head, not the one
+        // it was cleared against.
+        const workspaceAdvanced = await fresh.saveNextVersion({
           target: workspace,
-          policy: parseWorkspaceReviewPolicy(operation.policy),
           expectedVersion: 2,
-        };
-        const scoped = await saveReviewConfigurationWithOperation(
-          workspaceScopedOperation,
-          receiptDeps,
-        );
-        expect(scoped.version).toBe(3);
-        expect(scoped.revisionToken).not.toBe(committed.revisionToken);
-        // A stored receipt remains historical even when its selection is revoked;
-        // NEW saves retain the existing live binding/profile guards.
+          ...systemPolicyWriteFixture(override, workspace),
+        });
+        expect(workspaceAdvanced.version).toBe(3);
+        expect(workspaceAdvanced.config).toEqual(override);
+        // Stored history stays readable when its selection is revoked; NEW
+        // saves retain the existing live binding/profile guards.
         await sql.query(`UPDATE "WorkspaceAccountBinding" SET "state" = 'revoked', "revision" = 2,
         "policyRevision" = 2, "pendingFenceOperationId" = 'c2b-second-revoke-intent',
         "pendingFencePolicySubject" = 'c2b-second', "pendingFencePolicyRevision" = 2 WHERE "id" = 'c2b-second'`);
-        // Receipt survives clearing even when the latest version was ordinary;
-        // a revoked selection cannot reactivate through a NEW operation.
+        // A revoked selection cannot reactivate a cleared override, not even
+        // by resubmitting the stored document of its latest version.
         expect(await fresh.deleteTarget(clearedTarget)).toBe(true);
-        expect(
-          await findReviewConfigurationOperation(newOperation, receiptDeps),
-        ).toEqual(reactivated);
-        expect(await fresh.findOperation(newOperation)).toEqual(reactivated);
-        expect(
-          await saveReviewConfigurationWithOperation(newOperation, receiptDeps),
-        ).toEqual(reactivated);
         await expect(
-          findReviewConfigurationOperation(
-            {
-              ...newOperation,
-              expectedVersion: 1,
-            },
-            receiptDeps,
-          ),
-        ).rejects.toBeInstanceOf(ReviewConfigurationWriteConflictError);
-        expect(
-          await findReviewConfigurationOperation(
-            lostResponseOperation,
-            receiptDeps,
-          ),
-        ).toEqual(lostResponseReceipt);
-        expect(
-          await saveReviewConfigurationWithOperation(
-            lostResponseOperation,
-            receiptDeps,
-          ),
-        ).toEqual(lostResponseReceipt);
-        await expect(
-          saveReviewConfigurationWithOperation(
-            {
-              ...lostResponseOperation,
-              operationId: "c2b-cleared-revoked-new",
-            },
-            receiptDeps,
-          ),
+          fresh.saveNextVersion({
+            target: clearedTarget,
+            expectedVersion: null,
+            policy: ordinaryAfterClear.policy as RepositoryReviewPolicy,
+          }),
         ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
         expect(await fresh.findLatest(clearedTarget)).toMatchObject({
           source: "workspace",
-          version: scoped.version,
-          config: scoped.config,
+          version: workspaceAdvanced.version,
+          config: workspaceAdvanced.config,
         });
-        expect(
-          await findReviewConfigurationOperation(
-            {
-              target: clearedTarget,
-              operationId: "c2b-cleared-revoked-new",
-              expectedVersion: null,
-            },
-            receiptDeps,
-          ),
-        ).toBeNull();
         const historyAfterDeniedReactivation = await retainedHistory();
         expect(historyAfterDeniedReactivation).toHaveLength(3);
         expect(historyAfterDeniedReactivation.slice(0, 1)).toEqual(
           originalHistory,
         );
+
+        // With workspace policy cleared, execution remains unconfigured and
+        // the retained override history does not recreate it.
+        expect(await fresh.deleteTarget(workspace)).toBe(true);
+        expect(await fresh.findLatest(workspace)).toBeNull();
+        expect(await fresh.findLatest(clearedTarget)).toBeNull();
         expect(
-          await saveReviewConfigurationWithOperation(operation, receiptDeps),
-        ).toEqual(committed);
-        await expect(
-          saveReviewConfigurationWithOperation(
-            {
-              ...operation,
-              expectedVersion: 4,
-              operationId: "c2b-revoked-batch",
-            },
-            receiptDeps,
-          ),
-        ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
+          await resolveReviewConfiguration(clearedTarget, freshDeps),
+        ).toBeNull();
         expect(
-          await findReviewConfigurationOperation(
-            {
-              target: receiptTarget,
-              operationId: "c2b-revoked-batch",
-              expectedVersion: 4,
-            },
-            receiptDeps,
+          await runtimeConfigs.findRuntimeReviewConfiguration(runtimeTarget),
+        ).toBeNull();
+        expect(
+          await refetched.$transaction((tx) =>
+            runtimeConfigs.findRuntimeReviewConfiguration(runtimeTarget, tx),
           ),
         ).toBeNull();
-        expect(await versionCount()).toBe(4);
-        expect(
-          await refetched.reviewConfigurationVersion.findUniqueOrThrow({
-            where: { id: receiptRow.id },
-          }),
-        ).toEqual(receiptRow);
+        expect(await retainedHistory()).toEqual(historyAfterDeniedReactivation);
 
-        // SQL bypass must enforce a strict pair and scoped uniqueness itself.
+        // Ordinary writes leave the retained operation columns empty. A row
+        // inserted directly over SQL must still satisfy their strict pair and
+        // per-configuration uniqueness. Last, so no read above sees the rows.
+        expect(
+          historyAfterDeniedReactivation.map((row) => [
+            row.operationId,
+            row.operationIntentHash,
+            row.operationSnapshotJson,
+          ]),
+        ).toEqual([
+          [null, null, null],
+          [null, null, null],
+          [null, null, null],
+        ]);
+        const insertVersionCopy = (
+          templateId: string,
+          patch: Record<string, unknown>,
+        ) =>
+          sql.query(
+            `INSERT INTO "ReviewConfigurationVersion" SELECT
+            (jsonb_populate_record(NULL::"ReviewConfigurationVersion", to_jsonb(base) || $2::jsonb)).*
+            FROM "ReviewConfigurationVersion" base WHERE base."id" = $1`,
+            [templateId, JSON.stringify(patch)],
+          );
+        await insertVersionCopy(historyAfterDeniedReactivation[0]!.id, {
+          id: "c2b-historical-receipt",
+          version: 2000,
+          operationId: "c2b-historical-batch",
+          operationIntentHash: "a".repeat(64),
+        });
         let receiptOrdinal = 2000;
         for (const [patch, code] of [
           [{ operationId: null }, "23514"],
@@ -1799,66 +1234,13 @@ describe.skipIf(!enabled)(
         ] as const) {
           receiptOrdinal += 1;
           await expect(
-            sql.query(
-              `INSERT INTO "ReviewConfigurationVersion" SELECT
-            (jsonb_populate_record(NULL::"ReviewConfigurationVersion", to_jsonb(base) || $2::jsonb)).*
-            FROM "ReviewConfigurationVersion" base WHERE base."id" = $1`,
-              [
-                receiptRow.id,
-                JSON.stringify({
-                  id: `c2b-receipt-denied-${receiptOrdinal}`,
-                  version: receiptOrdinal,
-                  ...patch,
-                }),
-              ],
-            ),
+            insertVersionCopy("c2b-historical-receipt", {
+              id: `c2b-receipt-denied-${receiptOrdinal}`,
+              version: receiptOrdinal,
+              ...patch,
+            }),
           ).rejects.toMatchObject({ code });
         }
-        // With workspace policy cleared, execution remains unconfigured.
-        // Replaying a receipt must not recreate execution policy.
-        expect(await fresh.deleteTarget(workspace)).toBe(true);
-        const expectDefault = async () => {
-          expect(await fresh.findLatest(workspace)).toBeNull();
-          expect(await fresh.findLatest(clearedTarget)).toBeNull();
-          expect(
-            await resolveReviewConfiguration(clearedTarget, receiptDeps),
-          ).toBeNull();
-          expect(
-            await runtimeConfigs.findRuntimeReviewConfiguration(runtimeTarget),
-          ).toBeNull();
-          expect(
-            await refetched!.$transaction((tx) =>
-              runtimeConfigs.findRuntimeReviewConfiguration(runtimeTarget, tx),
-            ),
-          ).toBeNull();
-        };
-        await expectDefault();
-        expect(
-          await findReviewConfigurationOperation(
-            workspaceScopedOperation,
-            receiptDeps,
-          ),
-        ).toEqual(scoped);
-        expect(
-          await saveReviewConfigurationWithOperation(
-            workspaceScopedOperation,
-            receiptDeps,
-          ),
-        ).toEqual(scoped);
-        expect(
-          await saveReviewConfigurationWithOperation(
-            lostResponseOperation,
-            receiptDeps,
-          ),
-        ).toEqual(lostResponseReceipt);
-        expect(
-          await findReviewConfigurationOperation(newOperation, receiptDeps),
-        ).toEqual(reactivated);
-        expect(
-          await saveReviewConfigurationWithOperation(newOperation, receiptDeps),
-        ).toEqual(reactivated);
-        await expectDefault();
-        expect(await retainedHistory()).toEqual(historyAfterDeniedReactivation);
       } finally {
         await refetched?.$disconnect();
         if (prisma !== refetched) await prisma?.$disconnect();
@@ -2029,27 +1411,29 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
             ),
           ).rejects.toThrow(/could not obtain lock/);
         });
-        // Durable operation and transaction writers use the same saving-actor
-        // gate. An operation names the profile the admin's save created.
+        // A repository document that only selects the profile the admin's save
+        // created passes the same saving-actor gate as a drafted one.
         const personalProfile =
           await db.workspaceProviderProfile.findFirstOrThrow({
             where: { workspaceId, gatewayBindingId: binding.id },
           });
-        const operation = {
-          target: repository,
-          operationId: `${prefix}-config-operation`,
-          expectedVersion: null,
-          policy: parseRepositoryReviewPolicy({
-            ...systemPolicyWriteFixture(config(binding.id), repository).policy,
-            providers: selectionsFor(config(binding.id), [personalProfile.id]),
-          }),
-        };
-        await expect(
-          repo().saveNextVersionWithOperation(operation),
-        ).rejects.toThrow("review_configuration_personal_actor_forbidden");
-        expect(
-          (await repo(admin).saveNextVersionWithOperation(operation)).version,
-        ).toBe(1);
+        const repositoryPolicy = parseRepositoryReviewPolicy({
+          ...systemPolicyWriteFixture(config(binding.id), repository).policy,
+          providers: selectionsFor(config(binding.id), [personalProfile.id]),
+        });
+        const saveRepository = (
+          actor: string | undefined,
+          expectedVersion: number | null,
+        ) =>
+          repo(actor).saveNextVersion({
+            target: repository,
+            expectedVersion,
+            policy: repositoryPolicy,
+          });
+        await expect(saveRepository(undefined, null)).rejects.toThrow(
+          "review_configuration_personal_actor_forbidden",
+        );
+        expect((await saveRepository(admin, null)).version).toBe(1);
         await personal.changeEligibility({
           actorUserId: donor,
           workspaceId,
@@ -2082,10 +1466,11 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
         expect((await repo().findLatest(target))?.version).toBe(
           baselineVersion + 2,
         );
-        // Original committed receipts remain readonly; role loss never creates a new save.
-        expect(
-          (await repo(admin).saveNextVersionWithOperation(operation)).version,
-        ).toBe(1);
+        // Role loss refuses a new repository save as well; the head stays.
+        await expect(saveRepository(admin, 1)).rejects.toThrow(
+          "review_configuration_personal_actor_forbidden",
+        );
+        expect((await repo().findLatest(repository))?.version).toBe(1);
         const pTarget = { scope: "workspace" as const, workspaceId: p };
         await expect(
           repo(admin).saveNextVersion({

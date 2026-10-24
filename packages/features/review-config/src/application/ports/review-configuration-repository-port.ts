@@ -1,9 +1,7 @@
 import type { ReviewConfiguration } from "../../domain/review-configuration";
 import type {
-  RepositoryReviewPolicy,
   ReviewPolicyDocument,
   ReviewProviderSelection,
-  WorkspaceReviewPolicy,
 } from "../../domain/review-policy-document";
 import type { ReviewConfigurationTarget } from "../../domain/review-configuration-target";
 import type {
@@ -30,28 +28,6 @@ export type PersistedReviewConfiguration = {
   /** Effective provider selections, in the order of `config.providers`. */
   readonly selections: readonly ReviewProviderSelection[];
 };
-
-export type ReviewPolicySaveInput =
-  | {
-      readonly target: Extract<
-        ReviewConfigurationTarget,
-        { scope: "workspace" }
-      >;
-      readonly policy: WorkspaceReviewPolicy;
-    }
-  | {
-      readonly target: Extract<
-        ReviewConfigurationTarget,
-        { scope: "repository" }
-      >;
-      readonly policy: RepositoryReviewPolicy;
-    };
-
-export type ReviewConfigurationOperationInput = Readonly<{
-  expectedVersion: number | null;
-  operationId: string;
-}> &
-  ReviewPolicySaveInput;
 
 /** A profile a changed selection uses, with the facts its decision needs. */
 export type SelectedProviderProfileFacts = ProviderProfileFacts &
@@ -99,22 +75,6 @@ export type ProviderSelectionAuthority = Readonly<{
   localAdminOverride?: boolean;
   authorize: (facts: ProviderSelectionAuthorityFacts) => void;
 }>;
-
-/** Callers must authorize the target against live membership on EVERY call.
- * A receipt records a historical write; it never authorizes selection/execution.
- */
-export interface ReviewConfigurationOperationRepositoryPort {
-  saveNextVersionWithOperation(
-    input: ReviewConfigurationOperationInput,
-  ): Promise<PersistedReviewConfiguration>;
-
-  findOperation(input: {
-    readonly target: ReviewConfigurationTarget;
-    readonly operationId: string;
-    /** Original CAS intent, independent of the retained result version. */
-    readonly expectedVersion: number | null;
-  }): Promise<PersistedReviewConfiguration | null>;
-}
 
 /** Latest version of an active target, read before its document is parsed. */
 export type ReviewPolicyHead = Readonly<{
