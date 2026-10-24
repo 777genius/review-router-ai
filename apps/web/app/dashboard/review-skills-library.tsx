@@ -11,6 +11,7 @@ import { ActionToast } from "../action-toast";
 import type {
   ReviewSkillCapabilities,
   ReviewSkillDocument,
+  ReviewSkillLibraryEntry,
   ReviewSkillSummary,
   ReviewSkillsPage,
 } from "../../src/features/review-skills/contracts";
@@ -29,6 +30,10 @@ import {
   skillCellClass,
 } from "./review-skills-ui";
 
+type RepositorySkill = Pick<ReviewSkillSummary, "skillId" | "name"> & {
+  readonly available?: boolean;
+};
+
 export function ReviewSkillsLibrary({
   workspaceId,
   viewerId,
@@ -39,7 +44,7 @@ export function ReviewSkillsLibrary({
   readonly workspaceId: string;
   readonly workspaceKey: string;
   readonly viewerId: string;
-  readonly initialPage: ReviewSkillsPage<ReviewSkillSummary>;
+  readonly initialPage: ReviewSkillsPage<ReviewSkillLibraryEntry>;
   readonly capabilities: ReviewSkillCapabilities;
   readonly initialSkillId: string;
 }) {
@@ -49,7 +54,7 @@ export function ReviewSkillsLibrary({
   );
   const [linking, setLinking] = useState(false);
   const [access, setAccess] = useState<ReviewSkillSummary | null>(null);
-  const [repositories, setRepositories] = useState<ReviewSkillSummary | null>(
+  const [repositories, setRepositories] = useState<RepositorySkill | null>(
     null,
   );
   const [error, setError] = useState<unknown>(null);
@@ -90,7 +95,7 @@ export function ReviewSkillsLibrary({
     if (initialSkillId) void open(initialSkillId);
   }, [initialSkillId]);
   const remove = useMutation({
-    mutationFn: (skill: ReviewSkillSummary) =>
+    mutationFn: (skill: ReviewSkillLibraryEntry) =>
       skill.linked
         ? requestReviewSkills("unlinkSkill", {
             destinationWorkspaceId: workspaceId,
@@ -151,29 +156,52 @@ export function ReviewSkillsLibrary({
             {rows.map((skill) => (
               <tr key={skill.skillId} className="border-b border-cyan-200/10">
                 <td className={skillCellClass}>
-                  <button
-                    type="button"
-                    className="text-left font-semibold text-cyan-100 underline-offset-4 hover:underline"
-                    onClick={() => {
-                      void open(skill.skillId);
-                    }}
-                  >
-                    {skill.name}
-                  </button>
-                  <p className="mt-1 max-w-sm whitespace-pre-wrap text-slate-400">
-                    {skill.description}
-                  </p>
-                  <p className="mt-2 text-xs text-slate-500">
-                    Updated {new Date(skill.updatedAt).toLocaleDateString()}
-                  </p>
+                  {skill.available ? (
+                    <>
+                      <button
+                        type="button"
+                        className="text-left font-semibold text-cyan-100 underline-offset-4 hover:underline"
+                        onClick={() => {
+                          void open(skill.skillId);
+                        }}
+                      >
+                        {skill.name}
+                      </button>
+                      <p className="mt-1 max-w-sm whitespace-pre-wrap text-slate-400">
+                        {skill.description}
+                      </p>
+                      <p className="mt-2 text-xs text-slate-500">
+                        Updated {new Date(skill.updatedAt).toLocaleDateString()}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-semibold text-amber-100">
+                        {skill.name}
+                      </p>
+                      <p className="mt-1 max-w-sm text-slate-400">
+                        Access to the original is unavailable. Remove its
+                        repository assignments, then remove this workspace link.
+                      </p>
+                      <code className="mt-2 block break-all text-xs text-slate-500">
+                        {skill.skillId}
+                      </code>
+                    </>
+                  )}
                 </td>
                 <td className={`${skillCellClass} text-slate-300`}>
-                  {skill.authorName}
+                  {skill.available ? skill.authorName : "—"}
                 </td>
                 <td className={`${skillCellClass} text-slate-400`}>
-                  {skill.sourceWorkspaceName}
+                  {skill.available
+                    ? skill.sourceWorkspaceName
+                    : "Unavailable source"}
                   <span className="mt-1 block text-xs">
-                    {skill.linked ? "Live link" : "Original"}
+                    {skill.available
+                      ? skill.linked
+                        ? "Live link"
+                        : "Original"
+                      : "Link unavailable"}
                   </span>
                 </td>
                 <td className={`${skillCellClass} text-slate-400`}>
@@ -196,7 +224,7 @@ export function ReviewSkillsLibrary({
                 </td>
                 <td className={skillCellClass}>
                   <div className="flex flex-wrap gap-2">
-                    {skill.capabilities.canEdit ? (
+                    {skill.available && skill.capabilities.canEdit ? (
                       skill.linked ? (
                         <Link
                           className="text-sm text-cyan-200 underline"
@@ -223,9 +251,11 @@ export function ReviewSkillsLibrary({
                       size="sm"
                       onClick={() => setRepositories(skill)}
                     >
-                      Repositories
+                      {skill.available ? "Repositories" : "Remove assignments"}
                     </Button>
-                    {skill.capabilities.canGrant && !skill.linked ? (
+                    {skill.available &&
+                    skill.capabilities.canGrant &&
+                    !skill.linked ? (
                       <Button
                         type="button"
                         variant="ghost"
@@ -236,9 +266,11 @@ export function ReviewSkillsLibrary({
                       </Button>
                     ) : null}
                     {(
-                      skill.linked
-                        ? capabilities.canAdmin
-                        : skill.capabilities.canDelete
+                      skill.available
+                        ? skill.linked
+                          ? capabilities.canAdmin
+                          : skill.capabilities.canDelete
+                        : skill.canUnlink
                     ) ? (
                       <Button
                         type="button"
@@ -348,7 +380,7 @@ function SkillRepositoriesDialog({
 }: {
   readonly workspaceId: string;
   readonly viewerId: string;
-  readonly skill: ReviewSkillSummary;
+  readonly skill: RepositorySkill;
   readonly canCreate: boolean;
   readonly onClose: () => void;
 }) {
@@ -384,6 +416,12 @@ function SkillRepositoriesDialog({
         repositoryIds={captured}
         canCreate={canCreate}
         initialSkillIds={[skill.skillId]}
+        initialMode={skill.available === false ? "remove" : "add"}
+        initialSearch={
+          skill.available === false
+            ? skill.skillId
+            : Array.from(skill.name).slice(0, 100).join("")
+        }
         onClose={onClose}
       />
     );
@@ -391,8 +429,16 @@ function SkillRepositoriesDialog({
     <SkillsDialog
       open
       onClose={onClose}
-      title="Assign skill to repositories"
-      description={`Choose repository targets for “${skill.name}”, then add or remove assignments. No existing assignments are preselected.`}
+      title={
+        skill.available === false
+          ? "Remove skill assignments"
+          : "Assign skill to repositories"
+      }
+      description={
+        skill.available === false
+          ? `Choose assigned repositories to remove unavailable skill ${skill.skillId}. The original remains unchanged.`
+          : `Choose repository targets for “${skill.name}”, then add or remove assignments. No existing assignments are preselected.`
+      }
       footer={
         <Button
           type="button"
@@ -409,6 +455,16 @@ function SkillRepositoriesDialog({
         label="Search repositories"
       />
       <SkillsError error={targets.error} />
+      {targets.isPending ? <p role="status">Loading repositories…</p> : null}
+      {!targets.isPending &&
+      !targets.isError &&
+      targets.data?.pages.every((page) => page.items.length === 0) ? (
+        <p className="text-sm text-slate-400">
+          {skill.available === false
+            ? "No matching assigned repositories are available. Clear the search to check the remaining assignments, or close and remove the workspace link once all assignments are cleared."
+            : "No matching repositories are available. Change the search or check your repository access."}
+        </p>
+      ) : null}
       <div className="divide-y divide-cyan-200/10">
         {targets.data?.pages
           .flatMap((page) => page.items)
@@ -441,6 +497,7 @@ function SkillRepositoriesDialog({
         <Button
           type="button"
           variant="outline"
+          disabled={targets.isFetchingNextPage}
           onClick={() => {
             void targets.fetchNextPage();
           }}

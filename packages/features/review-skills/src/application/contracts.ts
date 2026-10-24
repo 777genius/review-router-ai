@@ -35,6 +35,20 @@ export type ReviewSkillSummary = Readonly<{
   usedIn: readonly Readonly<{ repositoryId: string; name: string }>[];
   capabilities: ReviewSkillCapabilities;
 }>;
+/** A retained local link may outlive its source permission. Its cleanup view
+ * deliberately carries no source, author, or current revision metadata. */
+export type ReviewSkillUnavailableSummary = Readonly<{
+  skillId: string;
+  available: false;
+  linked: true;
+  name: "Unavailable skill";
+  unavailableReason: "unavailable";
+  usedIn: ReviewSkillSummary["usedIn"];
+  canUnlink: boolean;
+}>;
+export type ReviewSkillLibraryEntry =
+  | (ReviewSkillSummary & Readonly<{ available: true }>)
+  | ReviewSkillUnavailableSummary;
 export type ReviewSkillDocument = ReviewSkillSummary &
   Readonly<{
     instructions: string;
@@ -121,7 +135,7 @@ export interface ReviewSkillsService {
   ): Promise<ReviewSkillCapabilities>;
   listWorkspaceSkills(
     input: MemberInput & PageInput,
-  ): Promise<ReviewSkillsPage<ReviewSkillSummary>>;
+  ): Promise<ReviewSkillsPage<ReviewSkillLibraryEntry>>;
   loadSkill(input: SkillInput): Promise<ReviewSkillDocument>;
   createSkill(
     input: MemberInput & Readonly<{ content: ReviewSkillContent }>,

@@ -264,6 +264,280 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
       ).webSkills.find((s) => s.skillId === skill.skillId)?.name,
     ).toBe("New hidden label");
   });
+  it("retains privacy-safe unavailable links until local assignments and the link are removed", async () => {
+    const skill = await service.createSkill({
+      actor: owner,
+      workspaceId: a,
+      content: content("Unavailable cleanup original"),
+    });
+    await link(skill.skillId);
+    await service.applyAssignments({
+      actor: owner,
+      workspaceId: b,
+      repositoryIds: [repos[0]!],
+      skillIds: [skill.skillId],
+      mode: "add",
+    });
+    await service.revokeSkillGrant({
+      actor: owner,
+      sourceWorkspaceId: a,
+      destinationWorkspaceId: b,
+      skillId: skill.skillId,
+      expectedGrantVersion: 1,
+    });
+    const hiddenName = "Fresh source metadata must stay private";
+    await service.saveSkill({
+      actor: owner,
+      workspaceId: a,
+      skillId: skill.skillId,
+      expectedRevisionId: skill.revisionId,
+      content: {
+        name: hiddenName,
+        description: "Fresh private description",
+        instructions: "Fresh private instructions",
+      },
+    });
+    const library = await service.listWorkspaceSkills({
+      actor: owner,
+      workspaceId: b,
+      search: skill.skillId,
+    });
+    expect(library.items).toEqual([
+      {
+        skillId: skill.skillId,
+        available: false,
+        linked: true,
+        name: "Unavailable skill",
+        unavailableReason: "unavailable",
+        usedIn: [{ repositoryId: repos[0], name: `synthetic/${repos[0]}` }],
+        canUnlink: true,
+      },
+    ]);
+    expect(
+      (
+        await service.listWorkspaceSkills({
+          actor: owner,
+          workspaceId: b,
+          search: hiddenName,
+        })
+      ).items,
+    ).toEqual([]);
+    await expect(
+      service.loadSkill({
+        actor: owner,
+        workspaceId: b,
+        skillId: skill.skillId,
+      }),
+    ).rejects.toMatchObject({ code: "not_found" });
+    const targets = await service.listSkillRepositoryTargets({
+      actor: owner,
+      workspaceId: b,
+      skillId: skill.skillId,
+    });
+    expect(targets.items.map((target) => target.repositoryId)).toEqual([
+      repos[0],
+    ]);
+    expect(targets.items.every((target) => target.assigned)).toBe(true);
+    await expect(
+      service.unlinkSkill({
+        actor: owner,
+        destinationWorkspaceId: b,
+        skillId: skill.skillId,
+      }),
+    ).rejects.toMatchObject({ code: "dependency_exists" });
+    await expect(
+      service.listWorkspaceSkills({ actor: writer, workspaceId: b }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    await expect(
+      service.listSkillRepositoryTargets({
+        actor: writer,
+        workspaceId: b,
+        skillId: skill.skillId,
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    await prisma.workspaceMember.create({
+      data: { workspaceId: b, userId: writer.userId, role: "member" },
+    });
+    try {
+      expect(
+        (
+          await service.listWorkspaceSkills({
+            actor: writer,
+            workspaceId: b,
+            search: skill.skillId,
+          })
+        ).items,
+      ).toEqual([{ ...library.items[0], usedIn: [], canUnlink: false }]);
+      const unprivileged = await createPrismaReviewSkillsService({
+        prisma,
+        repositoryAccess: {
+          authorizeRepositoryManagement: async ({ repositoryIds }) => repositoryIds.filter((id) => id === repos[1]),
+        },
+      });
+      expect(
+        (
+          await unprivileged.listSkillRepositoryTargets({
+            actor: writer,
+            workspaceId: b,
+            skillId: skill.skillId,
+          })
+        ).items,
+      ).toEqual([]);
+      expect(
+        (
+          await service.listSkillRepositoryTargets({
+            actor: writer,
+            workspaceId: b,
+            skillId: skill.skillId,
+          })
+        ).items.map((target) => target.repositoryId),
+      ).toEqual([repos[0]]);
+      await expect(
+        service.unlinkSkill({
+          actor: writer,
+          destinationWorkspaceId: b,
+          skillId: skill.skillId,
+        }),
+      ).rejects.toMatchObject({ code: "forbidden" });
+    } finally {
+      await prisma.workspaceMember.deleteMany({
+        where: { workspaceId: b, userId: writer.userId },
+      });
+    }
+    // A tombstone preserves the local cleanup path without exposing its head.
+    await service.deleteSkill({
+      actor: owner,
+      workspaceId: a,
+      skillId: skill.skillId,
+    });
+    expect(
+      (
+        await service.listWorkspaceSkills({
+          actor: owner,
+          workspaceId: b,
+          search: skill.skillId,
+        })
+      ).items,
+    ).toEqual(library.items);
+    const choices = await service.listAssignmentChoices({
+      actor: writer,
+      workspaceId: b,
+      repositoryIds: [repos[0]!],
+      search: skill.skillId,
+    });
+    expect(choices.items.map((choice) => choice.skillId)).toEqual([
+      skill.skillId,
+    ]);
+    await service.applyAssignments({
+      actor: writer,
+      workspaceId: b,
+      repositoryIds: [repos[0]!],
+      skillIds: [skill.skillId],
+      mode: "remove",
+    });
+    expect(
+      (
+        await service.listSkillRepositoryTargets({
+          actor: owner,
+          workspaceId: b,
+          skillId: skill.skillId,
+        })
+      ).items,
+    ).toEqual([]);
+    expect(
+      (
+        await service.listWorkspaceSkills({
+          actor: owner,
+          workspaceId: b,
+          search: skill.skillId,
+        })
+      ).items,
+    ).toEqual([{ ...library.items[0], usedIn: [] }]);
+    await service.unlinkSkill({
+      actor: owner,
+      destinationWorkspaceId: b,
+      skillId: skill.skillId,
+    });
+    expect(
+      (
+        await service.listWorkspaceSkills({
+          actor: owner,
+          workspaceId: b,
+          search: skill.skillId,
+        })
+      ).items,
+    ).toEqual([]);
+    await expect(
+      service.listSkillRepositoryTargets({
+        actor: owner,
+        workspaceId: b,
+        skillId: skill.skillId,
+      }),
+    ).rejects.toMatchObject({ code: "not_found" });
+  });
+  it("paginates available and unavailable library entries in one canonical ID order", async () => {
+    const destination = `${prefix}-pagination`;
+    await prisma.workspace.create({
+      data: {
+        id: destination,
+        slug: destination,
+        name: "Pagination destination",
+      },
+    });
+    await prisma.workspaceMember.create({
+      data: { workspaceId: destination, userId: owner.userId, role: "owner" },
+    });
+    const ids = Array.from(
+      { length: 53 },
+      (_, n) => `${prefix}-page-${String(n).padStart(3, "0")}`,
+    );
+    // A bounded catalog fixture interleaves live links and revoked generations.
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`INSERT INTO "ReviewSkill" ("id","sourceWorkspaceId","authorUserId","headRevisionId") SELECT value,${a},${owner.userId},value || '-revision' FROM jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb)`;
+      await tx.$executeRaw`INSERT INTO "ReviewSkillRevision" ("id","skillId","revisionNumber","name","description","instructions","contentDigest") SELECT value || '-revision',value,1,'Pagination fixture','','Review carefully.',${`sha256:${"0".repeat(64)}`} FROM jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb)`;
+      await tx.$executeRaw`INSERT INTO "ReviewSkillGrant" ("skillId","destinationWorkspaceId","grantedBy","version","revokedAt") SELECT value,${destination},${owner.userId},CASE WHEN ordinality % 2=0 THEN 1 ELSE 2 END,CASE WHEN ordinality % 2=0 THEN NULL ELSE CURRENT_TIMESTAMP END FROM jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb) WITH ORDINALITY`;
+      await tx.$executeRaw`INSERT INTO "ReviewSkillLink" ("workspaceId","skillId","acceptedGrantVersion","acceptedBy") SELECT ${destination},value,1,${owner.userId} FROM jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb)`;
+    });
+    const first = await service.listWorkspaceSkills({
+      actor: owner,
+      workspaceId: destination,
+    });
+    expect(first.items.map((entry) => entry.skillId)).toEqual(ids.slice(0, 50));
+    expect(first.nextCursor).toBe(ids[49]);
+    expect(first.items.filter((entry) => entry.available)).toHaveLength(25);
+    const second = await service.listWorkspaceSkills({
+      actor: owner,
+      workspaceId: destination,
+      cursor: first.nextCursor,
+    });
+    expect(second.items.map((entry) => entry.skillId)).toEqual(ids.slice(50));
+    expect(second.nextCursor).toBeNull();
+    const generic = await service.listWorkspaceSkills({
+      actor: owner,
+      workspaceId: destination,
+      search: "Unavailable skill",
+    });
+    expect(generic.items.map((entry) => entry.skillId)).toEqual(
+      ids.filter((_, n) => n % 2 === 0),
+    );
+    expect(generic.items.every((entry) => !entry.available)).toBe(true);
+    expect(
+      (
+        await service.listWorkspaceSkills({
+          actor: owner,
+          workspaceId: destination,
+          search: ids[52],
+        })
+      ).items.map((entry) => entry.skillId),
+    ).toEqual([ids[52]]);
+    await expect(
+      service.listWorkspaceSkills({
+        actor: owner,
+        workspaceId: destination,
+        search: "x".repeat(201),
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+  });
   it("bulk delta preserves unrelated scopes, rolls back forbidden selection, CAS source settings", async () => {
     const one = await service.createSkill({
       actor: owner,

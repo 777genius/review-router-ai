@@ -87,13 +87,17 @@ export function RepositorySkillsOperation({
   canCreate,
   onClose,
   initialSkillIds = [],
+  initialMode = "add",
+  initialSearch = "",
 }: CapturedSelection & {
   readonly workspaceId: string;
   readonly onClose: () => void;
   readonly initialSkillIds?: readonly string[];
+  readonly initialMode?: "add" | "remove";
+  readonly initialSearch?: string;
 }) {
-  const [mode, setMode] = useState<"add" | "remove">("add");
-  const [search, setSearch] = useState("");
+  const [mode, setMode] = useState<"add" | "remove">(initialMode);
+  const [search, setSearch] = useState(initialSearch);
   const [selected, setSelected] = useState<ReadonlySet<string>>(
     () => new Set(initialSkillIds),
   );
@@ -205,6 +209,13 @@ export function RepositorySkillsOperation({
               ) : null}
             </div>
           ) : null}
+          {selected.size > 100 ? (
+            <p role="alert" className="text-sm text-amber-100">
+              All {selected.size} checked skills are preserved. You can update
+              up to 100 skills at once. Uncheck skills or clear the selection
+              before applying.
+            </p>
+          ) : null}
           <SkillsError error={apply.error} />
           {apply.isError ? (
             <Button
@@ -312,7 +323,7 @@ export function RepositorySkillsOperation({
                   <tr key={row.skillId} className="border-b border-cyan-200/10">
                     <td className={skillCellClass}>
                       <Checkbox
-                        aria-label={`Select skill ${row.name}`}
+                        aria-label={`Select skill ${row.name}${row.available ? "" : ` ${row.skillId}`}`}
                         checked={selected.has(row.skillId)}
                         disabled={
                           controlsLocked ||
@@ -328,6 +339,11 @@ export function RepositorySkillsOperation({
                     </td>
                     <td className={skillCellClass}>
                       <p className="font-semibold text-cyan-50">{row.name}</p>
+                      {!row.available ? (
+                        <code className="mt-1 block break-all text-xs text-slate-500">
+                          {row.skillId}
+                        </code>
+                      ) : null}
                       <p className="mt-1 max-w-sm text-slate-400">
                         {row.available
                           ? row.description
@@ -337,8 +353,9 @@ export function RepositorySkillsOperation({
                       row.available &&
                       row.bindings[0] ? (
                         <SkillBindingPaths
-                          key={`${row.skillId}:${row.bindings[0].version}`}
+                          key={row.skillId}
                           workspaceId={workspaceId}
+                          viewerId={viewerId}
                           repositoryId={repositoryIds[0]!}
                           binding={row.bindings[0]}
                           onSaved={() => {
@@ -438,7 +455,12 @@ export function RepositorySkillsOperation({
           onSaved={(document) => {
             setCreating(false);
             setSelected((prior) => new Set([...prior, document.skillId]));
-            void choices.refetch();
+            setSearch(Array.from(document.name).slice(0, 100).join(""));
+            setSuccess("");
+            apply.reset();
+            void client.invalidateQueries({
+              queryKey: reviewSkillsKeys.workspace(viewerId, workspaceId),
+            });
           }}
         />
       ) : null}
