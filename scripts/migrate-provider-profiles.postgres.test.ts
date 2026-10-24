@@ -13,6 +13,7 @@ import {
 } from "../packages/features/review-config/src/index";
 import { workspacePolicyFixture } from "../packages/features/review-config/src/tests/current-policy-fixture";
 import {
+  assertProviderProfileMigrationSchema,
   migrateProviderProfiles,
   PROVIDER_PROFILE_MIGRATION_ACTOR,
   type WorkspaceMigrationReport,
@@ -41,6 +42,7 @@ databaseTests("one-time provider profile migration", () => {
   const options = {
     operatorWorkspaceId: undefined,
     personalAccountsEnabled: false,
+    rotatingAllowed: () => true,
     workspaceIds,
   };
 
@@ -367,21 +369,33 @@ databaseTests("one-time provider profile migration", () => {
         `repo:${repo("retired")}: schema 2 is not convertible; left unconverted`,
         `repo:${repo("openrouter")}: OpenRouter has no managed API key here; left unconverted`,
       ],
+      failures: [],
     });
     expect(dryRun.get(org)?.converted).toEqual(reports.get(org)?.converted);
     // A rotating default cannot stay a default: its settings are kept and
-    // the inheriting repository is named.
+    // the inheriting repository selects its own rotating profile.
     expect(reports.get(rotatingOrg)).toMatchObject({
       status: "converted",
       creatorUserId: admin,
-      converted: ["workspace:default"],
-      profilesCreated: 0,
+      converted: ["workspace:default", `repo:${repo("rotating-inherits")}`],
+      profilesCreated: 1,
       installedRequirementsFilled: 1,
       warnings: [
         "workspace:default: rotating Codex cannot be a workspace default; stored without a default provider",
-        `repositories that inherited the workspace default now select no provider: ${repo("rotating-inherits")}`,
       ],
     });
+    const inherited = await resolveEffectiveReviewConfigurations(
+      { workspaceId: rotatingOrg, repositoryIds: [repo("rotating-inherits")] },
+      { policyHeads: new PrismaReviewPolicyHeadReader(prisma) },
+    );
+    expect(inherited.workspace.status).toBe("provider_selection_required");
+    expect(inherited.repositories.get(repo("rotating-inherits"))).toMatchObject(
+      {
+        status: "ready",
+        source: "repository",
+        config: workspaceConfig([provider.rotating]),
+      },
+    );
     expect(reports.get(orphan)).toMatchObject({
       status: "skipped",
       converted: [],
@@ -493,5 +507,254 @@ databaseTests("one-time provider profile migration", () => {
       ].sort(([left], [right]) => left!.localeCompare(right!)),
     );
     expect(await snapshot()).toEqual(converted);
+  });
+
+  it("reports Gateway rows the write would refuse and converts the rest of the workspace", async () => {
+    // The reviewer's case: a Claude default, a plain override and Gateway
+    // overrides with a changed account profile, an unavailable binding and a
+    // personal account while sharing is disabled; plus an override whose
+    // configuration no longer materializes, found by the failure diagnosis.
+    const w = `${prefix}-gateway-rows`;
+    const owner2 = `${prefix}-owner2`;
+    const donor = `${prefix}-donor`;
+    const donorPersonal = `${prefix}-donor-personal`;
+    await prisma.user.createMany({ data: [{ id: owner2 }, { id: donor }] });
+    await prisma.workspace.create({ data: { id: w, slug: w, name: w } });
+    // A personal account source needs its owner's personal workspace.
+    await prisma.workspace.create({
+      data: {
+        id: donorPersonal,
+        slug: donorPersonal,
+        name: donorPersonal,
+        personalOwnerUserId: donor,
+      },
+    });
+    await prisma.workspaceMember.createMany({
+      data: [
+        { workspaceId: w, userId: owner2, role: "owner" },
+        { workspaceId: w, userId: donor, role: "admin" },
+      ],
+    });
+    const gatewayBinding = async (
+      id: string,
+      profileRef: string,
+      owner: { ownerWorkspaceId: string } | { ownerUserId: string },
+      connectionState: "active" | "disabled" = "active",
+    ) => {
+      const connection = await prisma.providerAccountConnection.create({
+        data: {
+          ...owner,
+          gatewayAccountRef: `${id}-account`,
+          profileRef,
+          displayName: id,
+          state: connectionState,
+        },
+      });
+      await prisma.workspaceAccountBinding.create({
+        data: {
+          id,
+          workspaceId: w,
+          connectionId: connection.id,
+          state: "active",
+        },
+      });
+    };
+    const stale = `${prefix}-stale-binding`;
+    const disabled = `${prefix}-disabled-binding`;
+    const personalBinding = `${prefix}-personal-binding`;
+    await gatewayBinding(stale, "profile-new", { ownerWorkspaceId: w });
+    await gatewayBinding(
+      disabled,
+      "profile-new",
+      { ownerWorkspaceId: w },
+      "disabled",
+    );
+    await gatewayBinding(personalBinding, "profile-new", {
+      ownerUserId: donor,
+    });
+    const names = ["plain", "stale", "disabled", "personal", "broken"] as const;
+    for (const name of names) await repository(w, repo(`gw-${name}`));
+    await storeHead({
+      workspaceId: w,
+      version: 1,
+      schemaVersion: 3,
+      policy: workspaceConfig([provider.claude]),
+    });
+    const gatewayOverride = (bindingId: string, profileRef: string) => ({
+      schemaVersion: 3,
+      providers: [
+        {
+          ...provider.gateway,
+          gatewayBindingId: bindingId,
+          gatewayProfileRef: profileRef,
+        },
+      ],
+    });
+    const overrides = {
+      plain: { schemaVersion: 3, limits: { inlineMaxComments: 2 } },
+      stale: gatewayOverride(stale, "profile-old"),
+      disabled: gatewayOverride(disabled, "profile-new"),
+      personal: gatewayOverride(personalBinding, "profile-new"),
+      // One provider cannot need two agreeing votes.
+      broken: { schemaVersion: 3, execution: { inlineMinAgreement: 2 } },
+    };
+    for (const name of names)
+      await storeHead({
+        workspaceId: w,
+        repositoryId: repo(`gw-${name}`),
+        version: 1,
+        schemaVersion: 3,
+        policy: overrides[name],
+      });
+    try {
+      const [report] = await migrateProviderProfiles(prisma, {
+        ...options,
+        workspaceIds: [w],
+        dryRun: false,
+      });
+      expect(report).toEqual({
+        workspaceId: w,
+        status: "converted",
+        creatorUserId: owner2,
+        converted: ["workspace:default", `repo:${repo("gw-plain")}`],
+        profilesCreated: 1,
+        // The installed workflows of the refused Gateway overrides are
+        // still recorded from schema 3; the broken one has no configuration.
+        installedRequirementsFilled: 4,
+        warnings: [
+          `repo:${repo("gw-disabled")}: gateway binding ${disabled} is not selectable (review_configuration_gateway_binding_unavailable); left unconverted`,
+          `repo:${repo("gw-personal")}: gateway binding ${personalBinding} is a personal account while personal account sharing is disabled; left unconverted`,
+          `repo:${repo("gw-stale")}: gateway binding ${stale} now serves account profile profile-new, not the stored profile-old; left unconverted`,
+          `repo:${repo("gw-broken")}: write failed (review execution limits do not match providers); left unconverted`,
+        ],
+        failures: [
+          {
+            target: `repo:${repo("gw-broken")}`,
+            error: "review execution limits do not match providers",
+          },
+        ],
+      });
+      const resolved = await resolveEffectiveReviewConfigurations(
+        {
+          workspaceId: w,
+          repositoryIds: names.map((name) => repo(`gw-${name}`)),
+        },
+        { policyHeads: new PrismaReviewPolicyHeadReader(prisma) },
+      );
+      expect(resolved.repositories.get(repo("gw-plain"))).toMatchObject({
+        status: "ready",
+        config: {
+          providers: [expect.objectContaining({ kind: "claude" })],
+          limits: { inlineMaxComments: 2 },
+        },
+      });
+      for (const name of ["stale", "disabled", "personal", "broken"])
+        expect(resolved.repositories.get(repo(`gw-${name}`))?.status).toBe(
+          "resave_required",
+        );
+      // With sharing enabled, a donor who left the workspace no longer
+      // authorizes the personal binding; the rerun refuses it the same way.
+      await prisma.workspaceMember.deleteMany({
+        where: { workspaceId: w, userId: donor },
+      });
+      const [rerun] = await migrateProviderProfiles(prisma, {
+        ...options,
+        personalAccountsEnabled: true,
+        workspaceIds: [w],
+        dryRun: false,
+      });
+      expect(rerun).toMatchObject({
+        status: "unchanged",
+        converted: [],
+        failures: [
+          { target: `repo:${repo("gw-broken")}`, error: expect.any(String) },
+        ],
+      });
+      expect(rerun!.warnings).toContainEqual(
+        expect.stringMatching(
+          new RegExp(
+            `^repo:${repo("gw-personal")}: gateway binding ${personalBinding} (is not selectable|is a personal account the creator)`,
+          ),
+        ),
+      );
+    } finally {
+      await prisma.workspaceProviderProfile.deleteMany({
+        where: { workspaceId: w },
+      });
+      await prisma.workspaceAccountBinding.deleteMany({
+        where: { workspaceId: w },
+      });
+      await prisma.providerAccountConnection.deleteMany({
+        where: { OR: [{ ownerWorkspaceId: w }, { ownerUserId: donor }] },
+      });
+      await prisma.workspace.deleteMany({
+        where: { id: { in: [w, donorPersonal] } },
+      });
+    }
+  });
+
+  it("skips workspaces being deleted and refuses a database that applied an earlier 000144", async () => {
+    const deleting = `${prefix}-deleting`;
+    await prisma.workspace.create({
+      data: {
+        id: deleting,
+        slug: deleting,
+        name: deleting,
+        deletionState: "delete_pending",
+      },
+    });
+    await storeHead({
+      workspaceId: deleting,
+      version: 1,
+      schemaVersion: 3,
+      policy: workspaceConfig([provider.claude]),
+    });
+    try {
+      expect(
+        await migrateProviderProfiles(prisma, {
+          ...options,
+          workspaceIds: [deleting],
+          dryRun: false,
+        }),
+      ).toEqual([
+        expect.objectContaining({
+          workspaceId: deleting,
+          status: "skipped",
+          warnings: [
+            "workspace is being deleted (delete_pending); left unconverted",
+          ],
+        }),
+      ]);
+      expect(
+        await prisma.reviewConfigurationVersion.count({
+          where: { workspaceId: deleting, schemaVersion: 4 },
+        }),
+      ).toBe(0);
+    } finally {
+      await prisma.workspace.delete({ where: { id: deleting } });
+    }
+    // Prisma records the SHA-256 of the migration file it applied.
+    const ledger = await prisma.$queryRaw<readonly { checksum: string }[]>`
+      SELECT "checksum" FROM "_prisma_migrations"
+      WHERE "migration_name" = '000144_workspace_provider_profiles'`;
+    expect(ledger).toHaveLength(1);
+    await expect(
+      assertProviderProfileMigrationSchema(prisma),
+    ).resolves.toBeUndefined();
+    await prisma.$executeRaw`
+      UPDATE "_prisma_migrations" SET "checksum" = ${"0".repeat(64)}
+      WHERE "migration_name" = '000144_workspace_provider_profiles'`;
+    try {
+      await expect(
+        migrateProviderProfiles(prisma, { ...options, dryRun: true }),
+      ).rejects.toMatchObject({
+        name: "ProviderProfileMigrationPreflightError",
+        message: "provider_profile_migration_stale_000144",
+      });
+    } finally {
+      await prisma.$executeRaw`
+        UPDATE "_prisma_migrations" SET "checksum" = ${ledger[0]!.checksum}
+        WHERE "migration_name" = '000144_workspace_provider_profiles'`;
+    }
   });
 });

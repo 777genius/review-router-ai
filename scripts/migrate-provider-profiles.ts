@@ -8,16 +8,34 @@
  *
  * Already converted documents are skipped, so a rerun changes nothing. A head
  * it cannot convert keeps its schema 3 version and fails closed in the app
- * (`review_policy_resave_required`). `--dry-run` runs the same transaction and
- * rolls it back.
+ * (`review_policy_resave_required`); so does a provider list with a row the
+ * app would refuse (an unavailable or personal Gateway binding, a changed
+ * account profile, OpenRouter without a managed key), which is reported as a
+ * warning while the rest of the workspace converts. A rotating workspace
+ * default cannot stay a default: each repository that inherited it gets its
+ * own rotating selection where the deployment allows rotating for it. A
+ * target that still fails is found, reported and left unconverted.
+ * `--dry-run` runs the same transactions and rolls them back.
+ *
+ * Preflight: the database must have applied the current 000144. It was
+ * corrected in place before release, and `prisma migrate deploy` does not
+ * reapply a migration whose checksum changed, so a database that applied the
+ * earlier text is refused and must be recreated.
  *
  * Order for each environment: take a pg_dump, apply migrations, stop writers,
  * run this script, start the new app. Never run it against a production
  * database without the owner's explicit instruction.
  */
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { readPersonalAccountSharingEnabled } from "../packages/features/provider-accounts/src/composition.js";
+import {
+  lockPersonalWriteActor,
+  readSelectableGatewayProfileRef,
+} from "../packages/features/review-config/src/infrastructure/prisma/prisma-gateway-binding-authority.js";
+import { readPersonalBindingIds } from "../packages/features/review-config/src/infrastructure/prisma/prisma-provider-profile-writes.js";
 import {
   canonicalJson,
   managedApiKeyProviderTypes,
@@ -39,8 +57,10 @@ import {
   type ReviewPolicyHead,
   type ReviewPolicyWrite,
   type ReviewProviderConfiguration,
+  type ReviewProviderSelection,
 } from "../packages/features/review-config/src/index.js";
 import { requiredWorkflowRequirement } from "../packages/features/workflow-provisioning/src/index.js";
+import { isCodexRotatingOAuthAllowedForRepository } from "../packages/platform/config/src/index.js";
 import { createPrismaClient } from "../packages/platform/db/src/index.js";
 
 export const PROVIDER_PROFILE_MIGRATION_ACTOR =
@@ -51,16 +71,24 @@ export type ProviderProfileMigrationOptions = Readonly<{
   dryRun: boolean;
   operatorWorkspaceId: string | undefined;
   personalAccountsEnabled: boolean;
+  /** The deployment's rule for rotating Codex on one repository. */
+  rotatingAllowed: (repositoryFullName: string) => boolean;
   /** Limits the run to these workspaces; every workspace when omitted. */
   workspaceIds?: readonly string[];
+}>;
+
+/** A target the migration left unconverted because its write failed. */
+export type TargetMigrationFailure = Readonly<{
+  target: string;
+  error: string;
 }>;
 
 export type WorkspaceMigrationReport = Readonly<{
   workspaceId: string;
   /**
    * `converted` wrote at least one document or requirement, `unchanged` found
-   * nothing to do, `skipped` had no user to create profiles for and `failed`
-   * rolled back on an error.
+   * nothing to do, `skipped` had no user to create profiles for or is being
+   * deleted, and `failed` rolled back because its workspace document failed.
    */
   status: "converted" | "unchanged" | "skipped" | "failed";
   creatorUserId: string | null;
@@ -69,29 +97,120 @@ export type WorkspaceMigrationReport = Readonly<{
   profilesCreated: number;
   installedRequirementsFilled: number;
   warnings: readonly string[];
+  /** Targets whose write failed and stay on their stored version. */
+  failures: readonly TargetMigrationFailure[];
   error?: string;
 }>;
+
+/** The database cannot be migrated as it is; nothing was read or written. */
+export class ProviderProfileMigrationPreflightError extends Error {
+  constructor(
+    code: string,
+    readonly detail: string,
+  ) {
+    super(code);
+    this.name = "ProviderProfileMigrationPreflightError";
+  }
+}
+
+const WORKSPACE_PROVIDER_PROFILES_MIGRATION =
+  "000144_workspace_provider_profiles";
+
+/**
+ * Refuses a database that applied an earlier text of 000144: the migration
+ * was corrected in place, and `prisma migrate deploy` reports no pending
+ * migration for a changed checksum. The expected checksum is Prisma's, the
+ * SHA-256 of this checkout's migration file (pinned by the schema handoff
+ * policy test).
+ */
+export async function assertProviderProfileMigrationSchema(
+  prisma: Pick<PrismaClient, "$queryRaw">,
+): Promise<void> {
+  const expected = createHash("sha256")
+    .update(
+      await readFile(
+        new URL(
+          `../packages/platform/db/prisma/migrations/${WORKSPACE_PROVIDER_PROFILES_MIGRATION}/migration.sql`,
+          import.meta.url,
+        ),
+      ),
+    )
+    .digest("hex");
+  // The migration ledger is not part of the Prisma schema.
+  const applied = await prisma.$queryRaw<readonly { checksum: string }[]>`
+    SELECT "checksum" FROM "_prisma_migrations"
+    WHERE "migration_name" = ${WORKSPACE_PROVIDER_PROFILES_MIGRATION}
+      AND "finished_at" IS NOT NULL AND "rolled_back_at" IS NULL`;
+  if (applied.length === 0)
+    throw new ProviderProfileMigrationPreflightError(
+      "provider_profile_migration_schema_missing",
+      `${WORKSPACE_PROVIDER_PROFILES_MIGRATION} is not applied; run prisma migrate deploy first`,
+    );
+  const stale = applied.find((row) => row.checksum !== expected);
+  if (stale)
+    throw new ProviderProfileMigrationPreflightError(
+      "provider_profile_migration_stale_000144",
+      `this database applied an earlier ${WORKSPACE_PROVIDER_PROFILES_MIGRATION} (checksum ${stale.checksum}, expected ${expected}); prisma migrate deploy does not reapply it. Recreate the development database (or restore a dump taken before 000144) and apply the migrations again`,
+    );
+}
 
 export async function migrateProviderProfiles(
   prisma: PrismaClient,
   options: ProviderProfileMigrationOptions,
 ): Promise<readonly WorkspaceMigrationReport[]> {
+  await assertProviderProfileMigrationSchema(prisma);
   const workspaces = await prisma.workspace.findMany({
     where: options.workspaceIds
       ? { id: { in: [...options.workspaceIds] } }
       : {},
     orderBy: { id: "asc" },
-    select: { id: true, personalOwnerUserId: true },
+    select: { id: true, personalOwnerUserId: true, deletionState: true },
   });
   const reports: WorkspaceMigrationReport[] = [];
   for (const workspace of workspaces)
-    reports.push(await migrateWorkspace(prisma, workspace, options));
+    reports.push(
+      workspace.deletionState === "active"
+        ? await migrateWorkspace(prisma, workspace, options)
+        : {
+            ...emptyReport(workspace.id, "skipped"),
+            warnings: [
+              `workspace is being deleted (${workspace.deletionState}); left unconverted`,
+            ],
+          },
+    );
   return reports;
 }
 
-class DryRunRollback extends Error {
-  constructor(readonly report: WorkspaceMigrationReport) {
-    super("provider_profile_migration_dry_run");
+function emptyReport(
+  workspaceId: string,
+  status: WorkspaceMigrationReport["status"],
+): WorkspaceMigrationReport {
+  return {
+    workspaceId,
+    status,
+    creatorUserId: null,
+    converted: [],
+    profilesCreated: 0,
+    installedRequirementsFilled: 0,
+    warnings: [],
+    failures: [],
+  };
+}
+
+/** Which repository documents one transaction writes. */
+type TargetSelection =
+  | Readonly<{ kind: "all"; excluded: ReadonlySet<string> }>
+  /** Plans and writes nothing; reports the targets it would write. */
+  | Readonly<{ kind: "plan" }>
+  /** The workspace document and at most this repository document. */
+  | Readonly<{ kind: "only"; target: string | null }>;
+
+type WorkspacePass = WorkspaceMigrationReport &
+  Readonly<{ planned: readonly string[] }>;
+
+class Rollback extends Error {
+  constructor(readonly report: WorkspacePass) {
+    super("provider_profile_migration_rollback");
   }
 }
 
@@ -103,29 +222,117 @@ async function migrateWorkspace(
   },
   options: ProviderProfileMigrationOptions,
 ): Promise<WorkspaceMigrationReport> {
+  const pass = async (selection: TargetSelection, rollback: boolean) => {
+    try {
+      return await runReviewConfigurationTransaction(
+        prisma,
+        async (tx) => {
+          const report = await migrateWorkspaceIn(
+            tx,
+            workspace,
+            options,
+            selection,
+          );
+          if (rollback) throw new Rollback(report);
+          return report;
+        },
+        { isolationLevel: "Serializable" },
+      );
+    } catch (error) {
+      if (error instanceof Rollback) return error.report;
+      throw error;
+    }
+  };
+  const report = ({ planned: _planned, ...rest }: WorkspacePass) => {
+    void _planned;
+    return rest;
+  };
   try {
-    return await runReviewConfigurationTransaction(
-      prisma,
-      async (tx) => {
-        const report = await migrateWorkspaceIn(tx, workspace, options);
-        if (options.dryRun) throw new DryRunRollback(report);
-        return report;
-      },
-      { isolationLevel: "Serializable" },
+    return report(
+      await pass({ kind: "all", excluded: new Set() }, options.dryRun),
     );
   } catch (error) {
-    if (error instanceof DryRunRollback) return error.report;
-    return {
-      workspaceId: workspace.id,
-      status: "failed",
-      creatorUserId: null,
-      converted: [],
-      profilesCreated: 0,
-      installedRequirementsFilled: 0,
-      warnings: [],
-      error: error instanceof Error ? error.message : String(error),
-    };
+    // Find the failing targets, each alone with the workspace document, in
+    // transactions that roll back, then convert everything else.
+    let plan: WorkspacePass;
+    try {
+      plan = await pass({ kind: "plan" }, true);
+    } catch (planError) {
+      return failedReport(workspace.id, null, [
+        { target: "workspace:default", error: messageOf(planError) },
+      ]);
+    }
+    const failures: TargetMigrationFailure[] = [];
+    try {
+      await pass({ kind: "only", target: null }, true);
+    } catch (workspaceError) {
+      return failedReport(workspace.id, plan.creatorUserId, [
+        { target: "workspace:default", error: messageOf(workspaceError) },
+      ]);
+    }
+    for (const target of plan.planned) {
+      if (target === "workspace:default") continue;
+      try {
+        await pass({ kind: "only", target }, true);
+      } catch (targetError) {
+        failures.push({ target, error: messageOf(targetError) });
+      }
+    }
+    if (failures.length === 0)
+      return failedReport(workspace.id, plan.creatorUserId, [
+        { target: "workspace", error: messageOf(error) },
+      ]);
+    try {
+      const converted = await pass(
+        {
+          kind: "all",
+          excluded: new Set(failures.map((failure) => failure.target)),
+        },
+        options.dryRun,
+      );
+      return {
+        ...report(converted),
+        warnings: [
+          ...converted.warnings,
+          ...failures.map(
+            (failure) =>
+              `${failure.target}: write failed (${failure.error}); left unconverted`,
+          ),
+        ],
+        failures,
+      };
+    } catch (retryError) {
+      return failedReport(workspace.id, plan.creatorUserId, [
+        ...failures,
+        { target: "workspace", error: messageOf(retryError) },
+      ]);
+    }
   }
+}
+
+function failedReport(
+  workspaceId: string,
+  creatorUserId: string | null,
+  failures: readonly TargetMigrationFailure[],
+): WorkspaceMigrationReport {
+  return {
+    ...emptyReport(workspaceId, "failed"),
+    creatorUserId,
+    failures,
+    error: failures
+      .map((failure) => `${failure.target}: ${failure.error}`)
+      .join("; "),
+  };
+}
+
+/** A short reason: validation issues by message, other errors by message. */
+function messageOf(error: unknown): string {
+  const issues = (error as { readonly issues?: unknown } | null)?.issues;
+  if (Array.isArray(issues) && issues.length > 0)
+    return issues
+      .map((issue) => String((issue as { message?: unknown }).message))
+      .join("; ");
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function migrateWorkspaceIn(
@@ -135,7 +342,8 @@ async function migrateWorkspaceIn(
     readonly personalOwnerUserId: string | null;
   },
   options: ProviderProfileMigrationOptions,
-): Promise<WorkspaceMigrationReport> {
+  selection: TargetSelection,
+): Promise<WorkspacePass> {
   const workspaceId = workspace.id;
   const warnings: string[] = [];
   const heads = await new PrismaReviewPolicyHeadReader(
@@ -156,32 +364,55 @@ async function migrateWorkspaceIn(
   const pending = legacyWorkspace !== undefined || legacyRepositories.size > 0;
   if (pending && !creatorUserId) {
     return {
-      workspaceId,
-      status: "skipped",
-      creatorUserId: null,
-      converted: [],
-      profilesCreated: 0,
-      installedRequirementsFilled: 0,
+      ...emptyReport(workspaceId, "skipped"),
       warnings: [
         ...warnings,
         "no personal owner, owner or admin to create the profiles; workspace left unconverted",
       ],
+      planned: [],
     };
   }
   const workspaceConfig = legacyWorkspace?.config ?? null;
-  const credentials = await credentialFacts(tx, workspaceId);
-  const drafts: ProviderProfileDraft[] = [];
+  const drafts = new DraftPlan(tx, {
+    workspaceId,
+    creatorUserId,
+    options,
+    credentials: await credentialFacts(tx, workspaceId),
+    warnings,
+  });
   const writes: ReviewPolicyWrite[] = [];
   const workspaceTarget = { scope: "workspace" as const, workspaceId };
+  const repositoryTarget = (repositoryId: string) => ({
+    scope: "repository" as const,
+    workspaceId,
+    repositoryId,
+  });
+  const repositories = await tx.repositoryConnection.findMany({
+    where: { workspaceId },
+    orderBy: { id: "asc" },
+    select: { id: true, fullName: true },
+  });
+  // Repositories that review with the workspace default: no own providers.
+  const inheriting = repositories.filter(
+    (repository) =>
+      !unreadableRepositories.has(repository.id) &&
+      !legacyRepositories.get(repository.id)?.override.providers &&
+      !currentRepositorySelects(heads.repositories.get(repository.id)),
+  );
+  // A rotating default gives each inheriting repository its own selection.
+  const inheritedSelections = new Map<
+    string,
+    readonly ReviewProviderSelection[]
+  >();
 
   if (legacyWorkspace) {
-    const selections = draftSelections({
-      providers: legacyWorkspace.config.providers,
-      target: workspaceTarget,
-      credentials,
-      drafts,
-      warnings,
-    });
+    const defaultProviders = legacyWorkspace.config.providers;
+    const rotatingDefault = defaultProviders.some(
+      (provider) => provider.authMode === "codex_subscription_oauth_rotating",
+    );
+    const selections = rotatingDefault
+      ? null
+      : await drafts.selections(defaultProviders, workspaceTarget);
     writes.push({
       target: workspaceTarget,
       expectedVersion: legacyWorkspace.version,
@@ -191,23 +422,29 @@ async function migrateWorkspaceIn(
         ...storedSettings(legacyWorkspace.config),
       }),
     });
-    if (!selections) {
-      const repositories = await tx.repositoryConnection.findMany({
-        where: { workspaceId },
-        orderBy: { id: "asc" },
-        select: { id: true },
-      });
-      const inheriting = repositories
-        .map((repository) => repository.id)
-        .filter(
-          (repositoryId) =>
-            !legacyRepositories.get(repositoryId)?.override.providers &&
-            !currentRepositorySelects(heads.repositories.get(repositoryId)),
-        );
-      if (inheriting.length)
+    if (rotatingDefault) {
+      warnings.push(
+        "workspace:default: rotating Codex cannot be a workspace default; stored without a default provider",
+      );
+      const disabled: string[] = [];
+      for (const repository of inheriting) {
+        const target = repositoryTarget(repository.id);
+        if (!selected(selection, targetKey(target))) continue;
+        if (!options.rotatingAllowed(repository.fullName)) {
+          disabled.push(repository.id);
+          continue;
+        }
+        const own = await drafts.selections(defaultProviders, target);
+        if (own) inheritedSelections.set(repository.id, own);
+      }
+      if (disabled.length)
         warnings.push(
-          `repositories that inherited the workspace default now select no provider: ${inheriting.join(", ")}`,
+          `rotating Codex is not allowed for these repositories; they now select no provider: ${disabled.join(", ")}`,
         );
+    } else if (!selections && inheriting.length) {
+      warnings.push(
+        `repositories that inherited the workspace default now select no provider: ${inheriting.map((repository) => repository.id).join(", ")}`,
+      );
     }
   } else if (legacyRepositories.size > 0 && !heads.workspace) {
     warnings.push(
@@ -217,6 +454,8 @@ async function migrateWorkspaceIn(
   }
 
   for (const [repositoryId, legacy] of legacyRepositories) {
+    const target = repositoryTarget(repositoryId);
+    if (!selected(selection, targetKey(target))) continue;
     if (
       !workspaceConfig &&
       heads.workspace?.schemaVersion !== STORED_REVIEW_POLICY_SCHEMA_VERSION
@@ -226,20 +465,9 @@ async function migrateWorkspaceIn(
       );
       continue;
     }
-    const target = {
-      scope: "repository" as const,
-      workspaceId,
-      repositoryId,
-    };
     const selections = legacy.override.providers
-      ? draftSelections({
-          providers: legacy.override.providers,
-          target,
-          credentials,
-          drafts,
-          warnings,
-        })
-      : undefined;
+      ? await drafts.selections(legacy.override.providers, target)
+      : inheritedSelections.get(repositoryId);
     // A provider list that cannot be kept as a whole is not converted.
     if (selections === null) continue;
     writes.push({
@@ -252,6 +480,26 @@ async function migrateWorkspaceIn(
       }),
     });
   }
+  // Inheriting repositories without a document of their own.
+  for (const [repositoryId, selections] of inheritedSelections) {
+    if (heads.repositories.has(repositoryId)) continue;
+    writes.push({
+      target: repositoryTarget(repositoryId),
+      expectedVersion: null,
+      policy: parseRepositoryReviewPolicy({
+        schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
+        providers: selections,
+      }),
+    });
+  }
+  const planned = writes.map((write) => targetKey(write.target));
+  if (selection.kind === "plan")
+    return {
+      ...emptyReport(workspaceId, "unchanged"),
+      creatorUserId,
+      warnings,
+      planned,
+    };
 
   const profilesBefore = await tx.workspaceProviderProfile.count({
     where: { workspaceId },
@@ -265,7 +513,7 @@ async function migrateWorkspaceIn(
       ).saveNextVersions({
         workspaceId,
         writes,
-        profileDrafts: drafts,
+        profileDrafts: drafts.forWrites(writes),
         profileCreatorUserId: creatorUserId,
         audit: {
           actor: PROVIDER_PROFILE_MIGRATION_ACTOR,
@@ -307,23 +555,37 @@ async function migrateWorkspaceIn(
   const installedRequirementsFilled = await fillInstalledRequirements(tx, {
     workspaceId,
     legacyEffective: (repositoryId) =>
-      legacyEffective({ scope: "repository", workspaceId, repositoryId }),
+      legacyEffective(repositoryTarget(repositoryId)),
     warnings,
   });
 
   const converted = saved.map((result) => targetKey(result.target));
   return {
-    workspaceId,
-    status:
+    ...emptyReport(
+      workspaceId,
       converted.length > 0 || installedRequirementsFilled > 0
         ? "converted"
         : "unchanged",
+    ),
     creatorUserId,
     converted,
     profilesCreated,
     installedRequirementsFilled,
     warnings,
+    planned,
   };
+}
+
+/** Whether a repository document of this target is written by the pass. */
+function selected(selection: TargetSelection, target: string): boolean {
+  switch (selection.kind) {
+    case "all":
+      return !selection.excluded.has(target);
+    case "plan":
+      return true;
+    case "only":
+      return selection.target === target;
+  }
 }
 
 function targetKey(target: ReviewConfigurationTarget): string {
@@ -461,14 +723,13 @@ function currentRepositorySelects(head: ReviewPolicyHead | undefined): boolean {
 type CredentialFacts = Readonly<{
   managedKeys: ReadonlyMap<string, string>;
   appliedKeys: ReadonlySet<string>;
-  bindings: ReadonlySet<string>;
 }>;
 
 async function credentialFacts(
   tx: Prisma.TransactionClient,
   workspaceId: string,
 ): Promise<CredentialFacts> {
-  const [keys, links, bindings] = await Promise.all([
+  const [keys, links] = await Promise.all([
     tx.providerApiKeyConnection.findMany({
       where: { workspaceId },
       select: { id: true, providerType: true },
@@ -476,10 +737,6 @@ async function credentialFacts(
     tx.providerApiKeyRepositoryLink.findMany({
       where: { workspaceId, appliedKeyVersion: { not: null } },
       select: { providerApiKeyConnectionId: true, repositoryId: true },
-    }),
-    tx.workspaceAccountBinding.findMany({
-      where: { workspaceId, state: "active" },
-      select: { id: true },
     }),
   ]);
   return {
@@ -489,80 +746,182 @@ async function credentialFacts(
         (link) => `${link.repositoryId}:${link.providerApiKeyConnectionId}`,
       ),
     ),
-    bindings: new Set(bindings.map((binding) => binding.id)),
   };
 }
 
 /**
- * Selections of draft profiles for a provider list, keeping each row's review
- * settings; null when a row cannot be kept (the list is then left as is).
- * The managed key rule is the dashboard's: a workspace default uses a
- * workspace key whenever it exists, a repository once the key is applied.
+ * Draft profiles of the provider lists a pass converts, checked with the
+ * write path's own rules before the write so that a row the app would refuse
+ * is reported instead of rolling back the whole workspace.
  */
-function draftSelections(input: {
-  readonly providers: readonly ReviewProviderConfiguration[];
-  readonly target: ReviewConfigurationTarget;
-  readonly credentials: CredentialFacts;
-  readonly drafts: ProviderProfileDraft[];
-  readonly warnings: string[];
-}) {
-  const { target, credentials } = input;
-  const scope = targetKey(target);
-  const repositoryId =
-    target.scope === "repository" ? target.repositoryId : null;
-  const refuse = (reason: string) => {
-    input.warnings.push(
-      target.scope === "workspace"
-        ? `${scope}: ${reason}; stored without a default provider`
-        : `${scope}: ${reason}; left unconverted`,
-    );
-    return null;
-  };
-  const drafts: ProviderProfileDraft[] = [];
-  const selections = [];
-  for (const [index, provider] of input.providers.entries()) {
-    if (
-      provider.authMode === "codex_subscription_oauth_rotating" &&
-      !repositoryId
-    )
-      return refuse("rotating Codex cannot be a workspace default");
-    if (
-      provider.authMode === "codex_account_gateway" &&
-      !credentials.bindings.has(provider.gatewayBindingId)
-    )
-      return refuse(
-        `gateway binding ${provider.gatewayBindingId} is not active`,
+class DraftPlan {
+  private readonly drafts: ProviderProfileDraft[] = [];
+  private readonly gatewayChecks = new Map<string, string | null>();
+
+  constructor(
+    private readonly tx: Prisma.TransactionClient,
+    private readonly input: Readonly<{
+      workspaceId: string;
+      creatorUserId: string | null;
+      options: ProviderProfileMigrationOptions;
+      credentials: CredentialFacts;
+      warnings: string[];
+    }>,
+  ) {}
+
+  /**
+   * Selections of draft profiles keeping each row's review settings; null
+   * when a row cannot be kept, so the list is left as it is. The managed key
+   * rule is the dashboard's: a workspace default uses a workspace key
+   * whenever it exists, a repository once the key is applied there.
+   */
+  async selections(
+    providers: readonly ReviewProviderConfiguration[],
+    target: ReviewConfigurationTarget,
+  ): Promise<ReviewProviderSelection[] | null> {
+    const { credentials, warnings } = this.input;
+    const scope = targetKey(target);
+    const repositoryId =
+      target.scope === "repository" ? target.repositoryId : null;
+    const refuse = (reason: string) => {
+      warnings.push(
+        target.scope === "workspace"
+          ? `${scope}: ${reason}; stored without a default provider`
+          : `${scope}: ${reason}; left unconverted`,
       );
-    const managedKey = (authMode: keyof typeof managedApiKeyProviderTypes) => {
-      const keyId = credentials.managedKeys.get(
-        managedApiKeyProviderTypes[authMode],
-      );
-      return (
-        keyId !== undefined &&
-        (!repositoryId ||
-          credentials.appliedKeys.has(`${repositoryId}:${keyId}`))
-      );
+      return null;
     };
-    // Only the server-managed key delivers OpenRouter.
-    if (
-      provider.authMode === "openrouter_api_key" &&
-      !managedKey(provider.authMode)
-    )
-      return refuse("OpenRouter has no managed API key here");
-    const draftId = `migration:${scope}:${index}`;
-    drafts.push({
-      draftId,
-      credential: providerCredentialRequestFor(provider, {
-        repositoryId,
-        managedApiKey: managedKey,
-      }),
-      model: provider.model,
-      label: null,
-    });
-    selections.push(reviewProviderSelectionFor(provider, draftId));
+    const drafts: ProviderProfileDraft[] = [];
+    const selections: ReviewProviderSelection[] = [];
+    for (const [index, provider] of providers.entries()) {
+      if (
+        provider.authMode === "codex_subscription_oauth_rotating" &&
+        !repositoryId
+      )
+        return refuse("rotating Codex cannot be a workspace default");
+      if (provider.authMode === "codex_account_gateway") {
+        const refusal = await this.gatewayRefusal(
+          provider.gatewayBindingId,
+          provider.gatewayProfileRef,
+        );
+        if (refusal) return refuse(refusal);
+      }
+      const managedKey = (
+        authMode: keyof typeof managedApiKeyProviderTypes,
+      ) => {
+        const keyId = credentials.managedKeys.get(
+          managedApiKeyProviderTypes[authMode],
+        );
+        return (
+          keyId !== undefined &&
+          (!repositoryId ||
+            credentials.appliedKeys.has(`${repositoryId}:${keyId}`))
+        );
+      };
+      // Only the server-managed key delivers OpenRouter.
+      if (
+        provider.authMode === "openrouter_api_key" &&
+        !managedKey(provider.authMode)
+      )
+        return refuse("OpenRouter has no managed API key here");
+      const draftId = `migration:${scope}:${index}`;
+      drafts.push({
+        draftId,
+        credential: providerCredentialRequestFor(provider, {
+          repositoryId,
+          managedApiKey: managedKey,
+        }),
+        model: provider.model,
+        label: null,
+      });
+      selections.push(reviewProviderSelectionFor(provider, draftId));
+    }
+    this.drafts.push(...drafts);
+    return selections;
   }
-  input.drafts.push(...drafts);
-  return selections;
+
+  /** The drafts the given documents reference, as the write requires. */
+  forWrites(writes: readonly ReviewPolicyWrite[]): ProviderProfileDraft[] {
+    const referenced = new Set(
+      writes.flatMap(
+        (write) =>
+          write.policy.providers?.map((selection) => selection.profileId) ?? [],
+      ),
+    );
+    return this.drafts.filter((draft) => referenced.has(draft.draftId));
+  }
+
+  /**
+   * Why the write would refuse a Gateway row, decided by the same functions
+   * the write calls: the binding must be selectable for this workspace, a
+   * personal binding needs sharing enabled and the creator as its personal
+   * write actor, and the account profile must still be the stored one.
+   */
+  private async gatewayRefusal(
+    bindingId: string,
+    gatewayProfileRef: string,
+  ): Promise<string | null> {
+    const key = JSON.stringify([bindingId, gatewayProfileRef]);
+    if (!this.gatewayChecks.has(key))
+      this.gatewayChecks.set(
+        key,
+        await this.checkGateway(bindingId, gatewayProfileRef),
+      );
+    return this.gatewayChecks.get(key)!;
+  }
+
+  private async checkGateway(
+    bindingId: string,
+    gatewayProfileRef: string,
+  ): Promise<string | null> {
+    const { workspaceId, creatorUserId, options } = this.input;
+    const binding = `gateway binding ${bindingId}`;
+    const personal = await readPersonalBindingIds(this.tx, workspaceId, [
+      bindingId,
+    ]);
+    let personalBindings: ReadonlySet<string> = new Set();
+    if (personal.size > 0) {
+      if (!options.personalAccountsEnabled)
+        return `${binding} is a personal account while personal account sharing is disabled`;
+      try {
+        // The writers are stopped, so locking before the scope guards is safe.
+        personalBindings = await lockPersonalWriteActor(
+          this.tx,
+          workspaceId,
+          [bindingId],
+          creatorUserId ?? undefined,
+        );
+      } catch (error) {
+        if (
+          messageOf(error) === "review_configuration_personal_actor_forbidden"
+        )
+          return `${binding} is a personal account the creator ${creatorUserId ?? "(none)"} may not select`;
+        throw error;
+      }
+    }
+    let current: string | null;
+    try {
+      current = await readSelectableGatewayProfileRef(this.tx, {
+        workspaceId,
+        bindingId,
+        personalBindings,
+        operatorWorkspaceId: options.operatorWorkspaceId,
+        personalAccountsEnabled: options.personalAccountsEnabled,
+      });
+    } catch (error) {
+      const code = messageOf(error);
+      if (
+        code === "review_configuration_gateway_binding_unavailable" ||
+        code === "review_configuration_personal_actor_forbidden"
+      )
+        return `${binding} is not selectable (${code})`;
+      throw error;
+    }
+    if (!current) return `${binding} is not selectable`;
+    if (current !== gatewayProfileRef)
+      return `${binding} now serves account profile ${current}, not the stored ${gatewayProfileRef}`;
+    return null;
+  }
 }
 
 /** Every stored setting of a schema 3 workspace configuration. */
@@ -731,11 +1090,27 @@ async function main(): Promise<void> {
   }
   const prisma = createPrismaClient({ databaseUrl, poolMax: 2 });
   try {
-    const reports = await migrateProviderProfiles(prisma, {
-      ...args,
-      operatorWorkspaceId: process.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
-      personalAccountsEnabled: readPersonalAccountSharingEnabled(process.env),
-    });
+    let reports: readonly WorkspaceMigrationReport[];
+    try {
+      reports = await migrateProviderProfiles(prisma, {
+        ...args,
+        operatorWorkspaceId: process.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
+        personalAccountsEnabled: readPersonalAccountSharingEnabled(process.env),
+        rotatingAllowed: (repositoryFullName) =>
+          isCodexRotatingOAuthAllowedForRepository(
+            repositoryFullName,
+            process.env,
+          ),
+      });
+    } catch (error) {
+      if (!(error instanceof ProviderProfileMigrationPreflightError))
+        throw error;
+      process.stderr.write(
+        `${JSON.stringify({ error: error.message, detail: error.detail })}\n`,
+      );
+      process.exitCode = 2;
+      return;
+    }
     for (const report of reports)
       process.stdout.write(`${JSON.stringify(report)}\n`);
     const count = (status: WorkspaceMigrationReport["status"]) =>
