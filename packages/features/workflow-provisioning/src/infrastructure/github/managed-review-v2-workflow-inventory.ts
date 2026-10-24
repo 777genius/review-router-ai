@@ -687,7 +687,6 @@ export class ManagedReviewV2WorkflowInventory {
   }
 }
 
-
 function decodeRepositoryDefaultBranch(
   data: unknown,
   expectedRepositoryId: string,

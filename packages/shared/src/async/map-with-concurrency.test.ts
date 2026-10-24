@@ -18,9 +18,7 @@ describe("mapWithConcurrency", () => {
     );
     expect(result).toEqual(["0:30", "1:5", "2:20", "3:1", "4:10"]);
     expect(peak).toBe(2);
-    await expect(mapWithConcurrency([], 3, async () => 1)).resolves.toEqual(
-      [],
-    );
+    await expect(mapWithConcurrency([], 3, async () => 1)).resolves.toEqual([]);
     await expect(mapWithConcurrency([1], 0, async () => 1)).rejects.toThrow(
       "map_with_concurrency_limit_invalid",
     );

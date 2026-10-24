@@ -358,4 +358,3 @@ function isRateLimitError(error: unknown, status: number | null): boolean {
   ).response?.headers;
   return headers?.["x-ratelimit-remaining"] === "0";
 }
-
