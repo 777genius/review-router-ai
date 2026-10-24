@@ -12,7 +12,8 @@ const mocks = vi.hoisted(() => ({
   findRepositories: vi.fn(),
   setDefault: vi.fn(),
   authority: {
-    role: "member" as WorkspaceMemberRole | null,
+    /** `none`: the workspace is unavailable to the actor. */
+    role: "member" as WorkspaceMemberRole | null | "none",
     adminOnly: false,
     createdBy: "user_owner" as string | null,
   },
@@ -92,6 +93,17 @@ vi.mock(
       >()),
       dashboardSelectionDependencies: () => ({}),
       dashboardProviderProfiles: () => ({
+        readManagementFacts: async () =>
+          mocks.authority.role === "none"
+            ? null
+            : {
+                actor: { userId: "user", role: mocks.authority.role },
+                workspace: {
+                  personalOwnerUserId: null,
+                  providerManagementAdminOnly: mocks.authority.adminOnly,
+                },
+                personalBindingIds: new Set<string>(),
+              },
         list: async () => [profile],
         rename: async (input: Input) => {
           decide(input);
@@ -125,6 +137,8 @@ vi.mock("@reviewrouter/features-review-config", async (importOriginal) => ({
 import {
   archiveProviderProfileAction,
   clearWorkspaceDefaultProviderAction,
+  createProviderProfileAction,
+  saveProviderSetupAction,
   updateProviderProfileAction,
 } from "./provider-setup-actions";
 
@@ -215,6 +229,38 @@ describe("Providers list actions decide with the provider policy", () => {
     });
   });
 
+  it("refuses non-members and admin-only Access rights before the rate limit, entitlement and reads", async () => {
+    const archive = () =>
+      archiveProviderProfileAction({
+        workspaceId: "workspace_1",
+        profileId: "profile_1",
+      });
+    mocks.authority.role = null;
+    await expect(archive()).resolves.toEqual({
+      status: "error",
+      error: "provider_management_forbidden",
+      reason: "workspace_member_required",
+    });
+    // An unavailable workspace answers like an unknown profile would.
+    mocks.authority.role = "none";
+    await expect(edit()).resolves.toEqual({
+      status: "error",
+      error: "provider_management_forbidden",
+      reason: "workspace_member_required",
+    });
+    mocks.authority.role = "member";
+    mocks.authority.adminOnly = true;
+    await expect(edit()).resolves.toEqual({
+      status: "error",
+      error: "provider_management_forbidden",
+      reason: "access_rights_admin_only",
+    });
+    expect(mocks.rateLimit).not.toHaveBeenCalled();
+    expect(mocks.entitlement).not.toHaveBeenCalled();
+    expect(mocks.findRepositories).not.toHaveBeenCalled();
+    expect(mocks.writes).toEqual([]);
+  });
+
   it("keeps clearing the default behind the owner/admin gate", async () => {
     await expect(
       clearWorkspaceDefaultProviderAction({ workspaceId: "workspace_1" }),
@@ -223,5 +269,52 @@ describe("Providers list actions decide with the provider policy", () => {
       error: "workspace_mutation_forbidden",
     });
     expect(mocks.setDefault).not.toHaveBeenCalled();
+  });
+});
+
+describe("the provider dialog never selects a hosted Codex pool", () => {
+  const settings = {
+    reasoningEffort: "high",
+    agenticContext: true,
+    fastMode: false,
+  } as const;
+
+  beforeEach(() => {
+    mocks.adminGate.mockResolvedValue({
+      userId: "user_owner",
+      actor: "user:github:owner",
+      githubLogin: "owner",
+    });
+  });
+
+  it("refuses it as the default or as a new provider of the list", async () => {
+    await expect(
+      saveProviderSetupAction({
+        workspaceId: "workspace_1",
+        target: { kind: "workspace" },
+        provider: {
+          kind: "new",
+          credential: { kind: "hosted_pool" },
+          model: "gpt-5.5",
+        },
+        settings,
+      }),
+    ).resolves.toEqual({
+      status: "error",
+      error: "hosted_pool_session_source_required",
+    });
+    await expect(
+      createProviderProfileAction({
+        workspaceId: "workspace_1",
+        credential: { kind: "hosted_pool" },
+        model: "gpt-5.5",
+      }),
+    ).resolves.toEqual({
+      status: "error",
+      error: "hosted_pool_session_source_required",
+    });
+    expect(mocks.setDefault).not.toHaveBeenCalled();
+    // Only the default's write reached its entitlement check.
+    expect(mocks.entitlement).toHaveBeenCalledTimes(1);
   });
 });

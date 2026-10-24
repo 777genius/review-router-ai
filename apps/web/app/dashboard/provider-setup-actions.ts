@@ -4,10 +4,12 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import {
   archiveWorkspaceProviderProfile,
+  assertProviderProfileManagementGate,
   assignProviderProfileToRepositories,
   changeWorkspaceProviderProfileModel,
   clearRepositoryProviderSelection,
   createWorkspaceProviderProfile,
+  parseProviderProfileDraft,
   parseProviderProfileLabel,
   ProviderManagementDeniedError,
   ProviderProfileError,
@@ -24,6 +26,7 @@ import {
   type DashboardMutationActor,
 } from "../../src/server/dashboard-mutations";
 import {
+  assertDialogSelectableCredential,
   dashboardProviderActor,
   dashboardProviderProfiles,
   dashboardProviderSelection,
@@ -40,7 +43,11 @@ import {
   type DashboardRepository,
 } from "../../src/server/dashboard-repository-guards";
 import { getPrisma } from "../../src/server/prisma";
-import { PROVIDER_SETUP_MAX_REPOSITORIES } from "../../src/features/provider-setup/provider-setup-model";
+import {
+  managedKeyDenial,
+  PROVIDER_SETUP_MAX_REPOSITORIES,
+  type ProviderSetupDenialReason,
+} from "../../src/features/provider-setup/provider-setup-model";
 import { safeDashboardErrorCode } from "./dashboard-error-codes";
 
 /** Outcome of one repository of a provider assignment. */
@@ -48,8 +55,8 @@ export type ProviderSetupAssignmentResult = Readonly<{
   repositoryId: string;
   fullName: string;
   status: "applied" | "denied" | "conflict" | "failed";
-  /** Policy reason of a denial. */
-  reason?: ProviderManagementDenialReason;
+  /** Policy reason of a denial, as the dialog explains it. */
+  reason?: ProviderSetupDenialReason;
   /** Error code of a failure. */
   error?: string;
 }>;
@@ -174,12 +181,13 @@ export async function saveProviderSetupAction(
       revalidateDashboard();
       return { status: "saved", results: authorized.refused };
     }
-    const { selection, draft } = await dashboardProviderSelection({
-      prisma,
-      workspaceId,
-      provider,
-      settings: selectionSettings,
-    });
+    const { selection, draft, credentialKind } =
+      await dashboardProviderSelection({
+        prisma,
+        workspaceId,
+        provider,
+        settings: selectionSettings,
+      });
     const byId = new Map(
       authorized.allowed.map((item) => [item.repository.id, item] as const),
     );
@@ -242,15 +250,22 @@ export async function saveProviderSetupAction(
           case "applied":
           case "conflict":
             return [{ repositoryId, fullName, status: assignment.status }];
-          case "denied":
+          case "denied": {
+            const decision = credentialKind
+              ? managedKeyDenial(credentialKind, {
+                  allowed: false,
+                  reason: assignment.reason,
+                })
+              : { allowed: false as const, reason: assignment.reason };
             return [
               {
                 repositoryId,
                 fullName,
                 status: "denied",
-                reason: assignment.reason,
+                ...(decision.allowed ? {} : { reason: decision.reason }),
               },
             ];
+          }
           case "failed":
             return [
               {
@@ -367,6 +382,9 @@ export async function createProviderProfileAction(
   const prisma = getPrisma();
   try {
     const actor = await assertDashboardMutationAllowed(workspaceId);
+    assertDialogSelectableCredential(
+      parseProviderProfileDraft({ credential, model }).credential.kind,
+    );
     await assertDashboardEntitlement({
       prisma,
       workspaceId,
@@ -418,12 +436,18 @@ export async function updateProviderProfileAction(
   try {
     if (label !== undefined) parseProviderProfileLabel(label);
     const actor = await assertDashboardSignedInMutationActor();
+    const providerActor = dashboardProviderActor(actor);
+    const profiles = dashboardProviderProfiles(prisma);
+    // Who may manage providers here at all is decided before the rate limit,
+    // the entitlement and any read about the profile.
+    await assertProviderProfileManagementGate(
+      { workspaceId, actor: providerActor },
+      { profiles },
+    );
     await createDashboardRateLimitPolicy(prisma).assertReviewConfigSaveAllowed({
       workspaceId,
       resourceId: profileId,
     });
-    const providerActor = dashboardProviderActor(actor);
-    const profiles = dashboardProviderProfiles(prisma);
     if (model !== undefined) {
       await assertDashboardEntitlement({
         prisma,
@@ -480,13 +504,19 @@ export async function archiveProviderProfileAction(
   const prisma = getPrisma();
   try {
     const actor = await assertDashboardSignedInMutationActor();
+    const providerActor = dashboardProviderActor(actor);
+    const profiles = dashboardProviderProfiles(prisma);
+    await assertProviderProfileManagementGate(
+      { workspaceId, actor: providerActor },
+      { profiles },
+    );
     await createDashboardRateLimitPolicy(prisma).assertReviewConfigSaveAllowed({
       workspaceId,
       resourceId: profileId,
     });
     await archiveWorkspaceProviderProfile(
-      { workspaceId, profileId, actor: dashboardProviderActor(actor) },
-      { profiles: dashboardProviderProfiles(prisma) },
+      { workspaceId, profileId, actor: providerActor },
+      { profiles },
     );
     revalidateDashboard();
     return { status: "saved" };

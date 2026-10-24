@@ -113,10 +113,11 @@ describe("provider setup view", () => {
     ).toEqual({
       allowed: true,
     });
+    // A key not installed here: the reason names the key, not just the role.
     expect(
       sourceOf(view, "managed_api_key:mimo_token_plan_api_key"),
     ).toMatchObject({
-      decision: { allowed: false, reason: "workspace_admin_required" },
+      decision: { allowed: false, reason: "managed_key_admin_required" },
       managedKey: {
         uploaded: false,
         install: { allowed: false, reason: "managed_key_admin_required" },

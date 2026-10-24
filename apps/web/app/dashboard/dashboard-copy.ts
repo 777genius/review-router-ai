@@ -419,6 +419,8 @@ export function dashboardErrorText(error: string): string {
       return "A rotating Codex provider belongs to its own repository and cannot be used anywhere else.";
     case "review_configuration_gateway_profile_mismatch":
       return "The account behind this provider now uses another profile. Choose the account again to create a new provider.";
+    case "hosted_pool_session_source_required":
+      return "A hosted Codex pool is turned on for each repository with its session source setting, so it cannot be chosen here or made the default.";
     case "provider_profile_invalid":
       return "The provider details are invalid. Check the model and label, then try again.";
     case "provider_profile_not_found":
@@ -436,7 +438,7 @@ export function dashboardErrorText(error: string): string {
     case "review_provider_settings_incompatible":
       return "The reasoning or fast settings do not fit this provider's model. Choose the provider again and check its settings.";
     case "review_execution_limits_incompatible":
-      return "The parallel review or agreement limits name more providers than are selected. Lower them in the review settings, then try again.";
+      return "The saved parallel review or agreement limits name more providers than are selected. Choose the provider again in its provider dialog: that fits the limits to it.";
     case "provider_management_forbidden":
       return "Your role cannot manage this provider. Ask a workspace owner or admin.";
     case "workflow_delete_untrusted":

@@ -150,21 +150,31 @@ export async function dashboardProviderSelection(input: {
   Readonly<{
     selection: ReviewProviderSelection;
     draft?: ProviderSelectionDraft;
+    /** The credential kind of the chosen provider, when it is known here. */
+    credentialKind?: ProviderCredentialSource["kind"];
   }>
 > {
   const { prisma, workspaceId, provider } = input;
   const settings = { ...input.settings };
-  if (provider.kind === "profile")
+  if (provider.kind === "profile") {
+    const chosen = (
+      await dashboardProviderProfiles(prisma).list(workspaceId)
+    ).find((profile) => profile.id === provider.profileId);
+    // A missing profile is refused by the write with the policy's reason.
+    if (chosen) assertDialogSelectableCredential(chosen.credential.kind);
     return {
       selection: reviewProviderSelectionSchema.parse({
         ...settings,
         profileId: provider.profileId,
       }),
+      ...(chosen ? { credentialKind: chosen.credential.kind } : {}),
     };
+  }
   const { credential, model } = parseProviderProfileDraft({
     credential: provider.credential,
     model: provider.model,
   });
+  assertDialogSelectableCredential(credential.kind);
   const [profiles, keys] = await Promise.all([
     dashboardProviderProfiles(prisma).list(workspaceId),
     credential.kind === "managed_api_key"
@@ -192,9 +202,11 @@ export async function dashboardProviderSelection(input: {
         ...settings,
         profileId: existing.id,
       }),
+      credentialKind: credential.kind,
     };
   const draftId = "draft-provider";
   return {
+    credentialKind: credential.kind,
     selection: reviewProviderSelectionSchema.parse({
       ...settings,
       profileId: draftId,
@@ -214,6 +226,18 @@ export async function dashboardProviderSelection(input: {
       },
     },
   };
+}
+
+/**
+ * The hosted Codex pool is chosen per repository through its session source
+ * flow, which checks the deployment flag, the entitlement and the repository
+ * visibility; the provider dialog and the Providers list never select it.
+ */
+export function assertDialogSelectableCredential(
+  kind: ProviderCredentialSource["kind"],
+): void {
+  if (kind === "hosted_pool")
+    throw new Error("hosted_pool_session_source_required");
 }
 
 /** The source a request resolves to when its references are as expected. */

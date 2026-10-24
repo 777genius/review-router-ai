@@ -225,16 +225,19 @@ export function buildProviderSetupView(
           },
         ];
       const { decision, refused } = acrossRepositories((repository) =>
-        decide({
-          kind: "attach_profile",
-          profile: profileFacts,
-          repository: repositoryFacts(repository),
-          managedKeyApplied: managedKeyInstalled(
-            facts,
-            profile.authMode,
-            repository.id,
-          ),
-        }),
+        managedKeyDenial(
+          profile.credentialKind,
+          decide({
+            kind: "attach_profile",
+            profile: profileFacts,
+            repository: repositoryFacts(repository),
+            managedKeyApplied: managedKeyInstalled(
+              facts,
+              profile.authMode,
+              repository.id,
+            ),
+          }),
+        ),
       );
       return [{ ...option, decision, refusedRepositoryCount: refused }];
     },
@@ -262,16 +265,19 @@ export function buildProviderSetupView(
       });
     }
     return acrossRepositories((repository) =>
-      decide({
-        kind: "create_and_attach",
-        profile: profileFacts,
-        repository: repositoryFacts(repository),
-        managedKeyApplied: managedKeyInstalled(
-          facts,
-          profile.authMode,
-          repository.id,
-        ),
-      }),
+      managedKeyDenial(
+        profile.credentialKind,
+        decide({
+          kind: "create_and_attach",
+          profile: profileFacts,
+          repository: repositoryFacts(repository),
+          managedKeyApplied: managedKeyInstalled(
+            facts,
+            profile.authMode,
+            repository.id,
+          ),
+        }),
+      ),
     ).decision;
   };
 
@@ -406,6 +412,21 @@ function managedKeyInstalled(
   );
 }
 
+/**
+ * A member may use a saved key only where it is installed; elsewhere the
+ * policy's owner/admin refusal means "install the key first", so say that.
+ */
+export function managedKeyDenial(
+  credentialKind: ProviderCredentialKind,
+  decision: ProviderSetupDecision,
+): ProviderSetupDecision {
+  return credentialKind === "managed_api_key" &&
+    !decision.allowed &&
+    decision.reason === "workspace_admin_required"
+    ? { allowed: false, reason: "managed_key_admin_required" }
+    : decision;
+}
+
 function toDecision(
   decision: ProviderManagementDecision,
 ): ProviderSetupDecision {
@@ -440,7 +461,7 @@ export function providerSetupDenialText(
     case "managed_key_not_installed":
       return "The key is not saved yet. An owner or admin installs it in a repository first.";
     case "managed_key_admin_required":
-      return "Only workspace owners and admins install keys.";
+      return "The key is not installed in this repository yet, and only workspace owners and admins install keys.";
   }
 }
 
