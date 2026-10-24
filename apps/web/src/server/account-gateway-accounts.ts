@@ -261,10 +261,14 @@ const oauthCredentialCompletionSchema = z.union([
   }),
   z.strictObject({
     nonce: uuid,
-    authorizationCode: z.union([
-      secretSubmission.claudeOAuthAuthorizationCode,
-      secretSubmission.grokOAuthAuthorizationCode,
-    ]),
+    authorizationCode: z
+      .string()
+      .refine(
+        (value) =>
+          secretSubmission.claudeOAuthAuthorizationCode.safeParse(value)
+            .success ||
+          secretSubmission.grokOAuthAuthorizationCode.safeParse(value).success,
+      ),
   }),
 ]);
 const oauthCompletionSchema = z.union([

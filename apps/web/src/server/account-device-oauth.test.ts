@@ -314,8 +314,6 @@ async function fixture(
               {
                 id: grokProfileId,
                 label: "Grok",
-                authKind: "oauth" as const,
-                canReconnect: true,
                 oauthMethods: ["browser"] as const,
                 connection: {
                   provider: "grok" as const,
