@@ -555,6 +555,50 @@ Done when: a member sees the toggle disabled with the reason; with the setting o
 a member's attach is refused (policy test); the Providers list shows only the row
 actions the policy allows.
 
+As built: "Providers" is a dashboard section between Accounts and Model. Each
+row shows the name, where the credential comes from (a workspace account by
+name, a shared personal account unnamed), the model, the Default badge, the
+repositories that chose it, and who added it. `buildProviderListView` decides
+every row action with `ProviderManagementPolicy` on the server: Edit (name and
+model; the credential is shown as unchangeable), Make default (the shared
+dialog opened on that provider), Remove as default, Remove (disabled while the
+default or a repository uses it; the write's refusal names them) and, for a
+managed key, Replace key (owner/admin, through the existing apply flow, which
+is the consumer of `GET /api/dashboard/provider-keys`). An action the viewer
+cannot take stays visible and disabled with its reason; a reason every row
+shares is stated once above the list. "Add provider" is the shared dialog in
+an `add` mode: it creates the profile and can also make it the default,
+preselected only while there is none. Editing and removing pass a signed-in
+gate instead of the admin gate so a member who added a provider can change
+it; the policy decides under the write's locks. A model edit is validated by
+`dashboardProfileModelChangeValidator`: the Gateway catalog before the
+transaction, the save-time rules a model can change per affected scope inside
+it, and a scope whose stored depth or fast mode the new model does not support
+is refused as `provider_profile_model_incompatible` with its name. A label that
+is still the generated one follows an edited model, so the default line and
+the list never name an old model. The Model section keeps the default line,
+which opens the same dialog, and links to Providers (the plan had the default
+change only in the list; one shared dialog keeps one implementation and saves
+a detour). Other gets an "Access rights" section with its own form and the
+existing action; the policy reason reads "Only workspace owners and admins can
+manage providers". The fixture preview takes
+`?screen=providers&list=several|empty&viewer=owner|member&access=on|off` and
+`?screen=other&viewer=owner|member&access=on|off`, and the S5 screens take `viewer` and
+`access` too.
+
+Deferred follow-up (no migration in S6): dropping the v1-v3 projection columns
+of `ReviewConfigurationVersion` and the `ReviewConfigurationVersionProvider`
+table. A search on 2026-10-24 found no reader or writer of the child table
+outside tests (`gateway-configuration.postgres.test.ts`) and the generated
+activation catalog artifact, and no writer of the projection columns since
+S4, but one stale reader: `scripts/run-hosted-pool-production-canary.ts`
+requires the latest version's `providerAuthMode`, `fastMode` and child rows to
+name the hosted pool. On a schema 4 version they are NULL or absent, so that
+canary now refuses with `hosted_pool_canary_hosted_dependency_contract_invalid`.
+Fix that reader to resolve the effective configuration first, then drop the
+columns and the table in one migration with the handoff inventories it needs
+(about eleven files, see the Database Release Rule).
+
 ### S7 - Visual and end-to-end qualification, defect fixes
 
 The existing accounts-reference harness blocks all external network, seeds
