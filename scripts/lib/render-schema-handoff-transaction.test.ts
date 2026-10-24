@@ -43,9 +43,9 @@ const input = () => ({
 });
 
 describe("bounded managed89-to92 transaction construction", () => {
-  it("keeps the reader-to-builder boundary at92 for the exact checkout142", () => {
+  it("keeps the reader-to-builder boundary at92 for the exact checkout143", () => {
     expect(readdirSync("packages/platform/db/prisma/migrations")).toHaveLength(
-      142,
+      143,
     );
     expect(catalog).toHaveLength(92);
     const sql = renderSchemaHandoffTransaction(input());
@@ -213,6 +213,7 @@ describe("bounded managed89-to92 transaction construction", () => {
         "000140_personal_oauth_method",
         "000141_memory_search_projections",
         "000142_optional_gateway_reasoning",
+        "000143_workspace_draft_review_setting",
       ].map((migrationName) => ({
         migrationName,
         checksum: createHash("sha256")

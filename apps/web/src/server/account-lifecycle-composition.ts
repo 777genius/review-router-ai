@@ -162,8 +162,6 @@ export async function productionAccountLifecycle(workspaceId: string) {
       command: Parameters<ReturnType<typeof boundGateway>["submit"]>[0],
     ) {
       const receipt = await store.read(userId, command.operationId);
-      if (process.env.REVIEW_ROUTER_ACCOUNT_LIFECYCLE_ENABLED !== "1")
-        throw new ProviderAccountError("connection_unavailable");
       const selected = settingsFor(receipt.intent.personalWorkspaceId !== null);
       const capability = await checked(() =>
         createLifecycleClient({
@@ -233,7 +231,6 @@ export async function productionAccountLifecycle(workspaceId: string) {
         throw new ProviderAccountError("workspace_forbidden");
       return { personalWorkspaceId: null, owningWorkspaceId: workspaceId };
     },
-    enabled: () => process.env.REVIEW_ROUTER_ACCOUNT_LIFECYCLE_ENABLED === "1",
     compatible: async (_workspaceId, scope) => {
       const selected = settingsFor(scope.personalWorkspaceId !== null);
       const capability = await checked(() =>

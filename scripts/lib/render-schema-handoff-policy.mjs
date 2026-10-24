@@ -275,6 +275,23 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // The workspace draft-review flag is a checkout-only constant-default column.
+  // Admit the exact SQL and checkout143 before reducing to checkout142.
+  const workspaceDraftReviewMigration = catalog.find(
+    (row) => row.migrationName === "000143_workspace_draft_review_setting",
+  );
+  if (workspaceDraftReviewMigration) {
+    if (
+      workspaceDraftReviewMigration.checksum !==
+        "cc23c19feb97dd122d89cf080ee04fd49a95252dcbc4400b4cfa64704d430654" ||
+      manifest(catalog) !==
+        "sha256:4fe4b459218a0cc56c8638b6f6d5a33d08d09579205d612b72d2781a7a0962bf"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== workspaceDraftReviewMigration),
+    );
+  }
   // Optional reasoning changes only checkout nullability, not managed92 authority.
   const optionalReasoningMigration = catalog.find(
     (row) => row.migrationName === "000142_optional_gateway_reasoning",
