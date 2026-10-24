@@ -199,9 +199,11 @@ No new package.
   - `repository_rotating`: composite FK to the repository (cascade); usable only
     for that repository, never the default;
   - `user_ci_secret`: no reference (verified per repository).
+
   The same-workspace rule is enforced by composite foreign keys; the key and
   binding references use `NoAction` so cascading workspace deletion is not
   blocked.
+
 - Identity key: `credentialKind:credentialRef-or-authMode:normalizedModel`,
   unique per workspace and recomputed on edit; for `gateway_binding` the
   credentialRef part is `bindingId/gatewayProfileRef` (the captured ref), so a
@@ -215,9 +217,10 @@ No new package.
   uses `createMany({ skipDuplicates: true })` and reads back.
 - Stored policy document schema is `v4`; the runtime `ReviewConfiguration`
   schemaVersion stays 3 (separate constants). In `v4`, `providers` is a list of
-  selections `{ profileId, reasoningEffort, fastMode, agenticContext,
-  requiredHealthy, agentProfileRef? }`. The workspace list is optional (absent =
-  no default); the repository list is optional (absent = inherit).
+  selections
+  `{ profileId, reasoningEffort, fastMode, agenticContext, requiredHealthy, agentProfileRef? }`.
+  The workspace list is optional (absent = no default); the repository list is
+  optional (absent = inherit).
   `execution.providerLimit` is derived from the selection count and not stored.
 - `resolveEffectiveReviewConfiguration` is the single resolver; it keeps the
   RepeatableRead root-client behavior and a transaction-reader overload for
@@ -282,19 +285,19 @@ No new package.
 Capabilities: `repo_manager` (write and above), `direct_config` (maintain and
 above), as today.
 
-| Action | Who (setting off) | Who (setting on) |
-|---|---|---|
-| Create a profile from the Providers list (gateway binding, existing managed key, user CI secret) | owner/admin | owner/admin |
-| Create a profile inside an attach flow for repository R | workspace member with `direct_config` on R | owner/admin |
-| Create, attach, set default or edit a profile over a personal gateway binding | owner/admin (in a personal workspace, its owner), as `lockPersonalWriteActor` requires | same |
-| Upload/rotate a managed API key | owner/admin | owner/admin |
-| Edit model/label, archive | creator who is still a workspace member; owner/admin | owner/admin |
-| Attach a gateway or user-CI-secret profile to repository R / clear selection | `direct_config` on R | owner/admin |
-| Attach a managed-key profile to repository R | `direct_config` on R if the key is already applied to R, otherwise owner/admin (applies the key) | owner/admin |
-| Attach a hosted-pool profile | owner/admin through the existing hosted session-source flow (entitlement, visibility) | owner/admin |
-| Set workspace default | owner/admin | owner/admin |
-| Install/verify a user CI secret in repository R | `repo_manager` on R | `repo_manager` on R |
-| Change the Access rights setting | owner/admin | owner/admin |
+| Action                                                                                           | Who (setting off)                                                                                | Who (setting on)    |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ | ------------------- |
+| Create a profile from the Providers list (gateway binding, existing managed key, user CI secret) | owner/admin                                                                                      | owner/admin         |
+| Create a profile inside an attach flow for repository R                                          | workspace member with `direct_config` on R                                                       | owner/admin         |
+| Create, attach, set default or edit a profile over a personal gateway binding                    | owner/admin (in a personal workspace, its owner), as `lockPersonalWriteActor` requires           | same                |
+| Upload/rotate a managed API key                                                                  | owner/admin                                                                                      | owner/admin         |
+| Edit model/label, archive                                                                        | creator who is still a workspace member; owner/admin                                             | owner/admin         |
+| Attach a gateway or user-CI-secret profile to repository R / clear selection                     | `direct_config` on R                                                                             | owner/admin         |
+| Attach a managed-key profile to repository R                                                     | `direct_config` on R if the key is already applied to R, otherwise owner/admin (applies the key) | owner/admin         |
+| Attach a hosted-pool profile                                                                     | owner/admin through the existing hosted session-source flow (entitlement, visibility)            | owner/admin         |
+| Set workspace default                                                                            | owner/admin                                                                                      | owner/admin         |
+| Install/verify a user CI secret in repository R                                                  | `repo_manager` on R                                                                              | `repo_manager` on R |
+| Change the Access rights setting                                                                 | owner/admin                                                                                      | owner/admin         |
 
 A single pure `ProviderManagementPolicy` decides these and returns a reason for
 each denial so the UI can explain disabled controls. Repository save and clear
@@ -525,6 +528,7 @@ focused unit tests; for S3 the PostgreSQL 17 migration checks. Heavy runs
 directory.
 
 Tests are limited to risky invariants:
+
 1. Resolver variants and precedence.
 2. Attaching registers the profile and never changes the default; find-or-create
    is idempotent under a unique-key race.

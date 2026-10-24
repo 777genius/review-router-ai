@@ -789,7 +789,7 @@ describe("dashboard server loading boundaries", () => {
     expect(html).toContain('checked=""');
     expect(html).not.toContain("Metadata only");
     expect(html).not.toContain("Save workspace review settings");
-    expect(spies.config).not.toHaveBeenCalled();
+    expect(spies.policies).not.toHaveBeenCalled();
     expect(spies.health).not.toHaveBeenCalled();
   });
 
@@ -822,7 +822,7 @@ describe("dashboard server loading boundaries", () => {
         actor,
         workspaceId: "workspace-a",
       });
-      expect(spies.config).not.toHaveBeenCalled();
+      expect(spies.policies).not.toHaveBeenCalled();
       expect(spies.health).not.toHaveBeenCalled();
     },
   );
