@@ -214,6 +214,30 @@ describe("dashboard repository search route", () => {
     );
   });
 
+  it("lists repositories without readiness, hosted pool or Gateway reads when nothing filters", async () => {
+    mocks.getDashboardWorkspaceScope.mockResolvedValue({ kind: "all" });
+    mocks.repositoryConnectionFindMany.mockResolvedValue([
+      repositoryRow({ id: "repo_1", fullName: "fin-int/tvaity" }),
+    ]);
+
+    const response = await GET(
+      nextRequest(
+        "http://localhost/api/dashboard/repositories/search?workspace=fin-int",
+      ),
+    );
+
+    await expect(response.json()).resolves.toMatchObject({
+      repositoryIds: ["repo_1"],
+      total: 1,
+      filter: "all",
+    });
+    expect(mocks.listWorkspaceRepositoryHealth).not.toHaveBeenCalled();
+    expect(mocks.reviewConfigurationFindUnique).not.toHaveBeenCalled();
+    expect(mocks.loadHostedPoolDashboardView).not.toHaveBeenCalled();
+    expect(mocks.loadDashboardGatewayAccounts).not.toHaveBeenCalled();
+    expect(mocks.readGatewayReviewV2RepositoryReadiness).not.toHaveBeenCalled();
+  });
+
   it("keeps workspace-admin search unrestricted by repository permission cache", async () => {
     mocks.getDashboardWorkspaceScope.mockResolvedValue({
       kind: "workspace_ids",

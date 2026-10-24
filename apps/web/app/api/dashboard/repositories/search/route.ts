@@ -150,6 +150,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       stargazersCount: true,
     },
   });
+  const tokens = tokenizeRepositorySearch(query);
+  // Readiness decides the setup filters and its health status is searchable
+  // text; a plain repository list needs neither, nor the hosted pool and
+  // Gateway reads behind them.
+  if (filter === "all" && tokens.length === 0)
+    return repositorySearchResponse({
+      matching: repositories,
+      total: repositories.length,
+      query,
+      filter,
+    });
   const repositoryIds = repositories.map((repository) => repository.id);
   const [health, cachedProviderSetup, policies, storedEntitlement] =
     await Promise.all([
@@ -262,7 +273,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     health.map((item) => [item.repositoryId, item] as const),
   );
 
-  const tokens = tokenizeRepositorySearch(query);
   const matchingRepositories = repositoryReadiness
     .filter(({ repository, healthStatus, readiness }) => {
       if (!repositoryMatchesSearchFilter({ repository, readiness }, filter)) {
@@ -286,16 +296,34 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     })
     .map(({ repository }) => repository);
 
+  return repositorySearchResponse({
+    matching: matchingRepositories,
+    total: repositories.length,
+    query,
+    filter,
+  });
+}
+
+function repositorySearchResponse(input: {
+  readonly matching: readonly {
+    readonly id: string;
+    readonly fullName: string;
+    readonly provider: string;
+  }[];
+  readonly total: number;
+  readonly query: string;
+  readonly filter: RepositorySearchFilter;
+}): NextResponse {
   return NextResponse.json({
-    repositoryIds: matchingRepositories.map((repository) => repository.id),
-    repositories: matchingRepositories.map((repository) => ({
+    repositoryIds: input.matching.map((repository) => repository.id),
+    repositories: input.matching.map((repository) => ({
       id: repository.id,
       fullName: repository.fullName,
       provider: repository.provider,
     })),
-    total: repositories.length,
-    query,
-    filter,
+    total: input.total,
+    query: input.query,
+    filter: input.filter,
   });
 }
 
