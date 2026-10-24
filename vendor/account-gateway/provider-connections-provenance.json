@@ -17,13 +17,18 @@
   "qualification": {
     "installedSDKReceipt": "grok-code-130ca3f00dcc-sdk-receipt.json",
     "rrInstalledChecks": {
-      "status": "pending"
+      "status": "passed",
+      "receipt": "grok-code-130ca3f00dcc-rr-qualification.json",
+      "qualifiedSourceCommit": "93c6c4d0e13379b6810a636d5bf086cc843108a1"
     },
     "grokCodeNativeAndGatewayRuntime": {
       "status": "pending",
       "historicalReceipt": "provider-connections-ef8884317a26-qualification.json",
       "historicalSDKArchiveSHA256": "ef8884317a26c10d5c35be27f0ee07bb5103bdd5ce2b238629a025d350c3f2c3",
-      "historicalRuntimeReceiptRelabeled": false
+      "historicalRuntimeReceiptRelabeled": false,
+      "gatewayMergedSource": "c45fe305128d10358747b5829a1b0e28a2acad3b",
+      "nativeMergedSource": "ebeb45ff113b223f3c20ba60ab198667af0fb54d",
+      "nativeActualEntrySHA256": "f23364f5b4bde3aef2cf5a6f592276a0f47ae1f1b1459ada751bae046a4320b3"
     },
     "liveProviderCodeOnlyCanary": false
   },
