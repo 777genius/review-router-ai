@@ -177,14 +177,18 @@ export async function reveal(locator: Locator): Promise<void> {
 }
 
 /**
- * Types a model and leaves the field, as a user does: the suggestion list
- * closes instead of covering the buttons below it.
+ * Types a model as a user does and closes the suggestions, which would cover
+ * the buttons below: picks the listed model, or leaves the field for one
+ * that is not listed.
  */
 export async function chooseModel(
   container: Locator,
   model: string,
 ): Promise<void> {
-  const input = container.getByRole("textbox", { name: "Model" });
-  await input.fill(model);
-  await input.press("Tab");
+  await container.getByRole("textbox", { name: "Model" }).fill(model);
+  const listed = container.getByRole("option").filter({
+    has: container.page().getByText(model, { exact: true }),
+  });
+  if ((await listed.count()) > 0) await listed.first().click();
+  else await container.getByRole("heading").first().click();
 }
