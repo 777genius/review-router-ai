@@ -191,6 +191,53 @@ test("selects accounts across pages and shares independently with exact predeces
     expect(request).not.toHaveProperty("expectedGatewayRevision");
 });
 
+test.each([
+  { organizationCount: 5, hasRestrictedAccess: false, expected: "Access" },
+  { organizationCount: 4, hasRestrictedAccess: true, expected: "Access" },
+  {
+    organizationCount: 4,
+    hasRestrictedAccess: false,
+    expected: "Add to workspace",
+  },
+])(
+  "workspace shortcut label requires a complete visible summary ($organizationCount/$hasRestrictedAccess)",
+  async ({ organizationCount, hasRestrictedAccess, expected }) => {
+    const { bootstrap, api } = fixture();
+    api.listAccessSummaries.mockResolvedValue({
+      status: "ok",
+      value: {
+        summaries: [
+          {
+            sourceId: "source-0",
+            organizationCount,
+            hasRestrictedAccess,
+            organizations: Array.from({ length: 4 }, (_, i) => ({
+              workspaceId: `visible-org-${i}`,
+              label: `Visible organization ${i}`,
+            })),
+            personalWorkspaceId: "personal-owner",
+            complete: true,
+          },
+        ],
+      },
+    });
+    render(
+      <PersonalAccountControls
+        bootstrap={bootstrap}
+        api={api}
+        currentWorkspaceId="selected-not-in-preview"
+      />,
+    );
+    await screen.findByText("Visible organization 0");
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: `${expected}: Personal source-0` }),
+      ).toBeTruthy(),
+    );
+    expect(api.attach).not.toHaveBeenCalled();
+  },
+);
+
 test.each([null, "Organization X"])(
   "revokes the exact own grant and labels its request only with the authorized organization name (%s)",
   async (organizationLabel) => {

@@ -29,6 +29,16 @@ export function AccountsWorkspaceTabs({
           </AccountsWorkspaceTab>
         </Tabs.List>
         <Tabs.Panel value="available" className="pt-5">
+          <p className="mb-4 text-sm text-slate-400">
+            Connections enabled for reviews here.{" "}
+            <button
+              type="button"
+              className="text-cyan-200 underline underline-offset-2"
+              onClick={() => setView("own")}
+            >
+              Add from My connections
+            </button>
+          </p>
           {available}
         </Tabs.Panel>
         <Tabs.Panel value="own" className="pt-5">
