@@ -33,12 +33,21 @@ export function isPrismaReviewConfigurationSerializationConflict(
   return /(?:^|\D)(?:40001|40P01)(?:\D|$)/u.test(details);
 }
 
-/** Runs one interactive transaction and retries it whole after a conflict. */
+/**
+ * Runs one interactive transaction and retries it whole after a conflict,
+ * after a short random pause so that the transactions that collided do not
+ * collide again at once.
+ */
 export async function runReviewConfigurationTransaction<Result>(
   prisma: PrismaClient,
   run: (tx: Prisma.TransactionClient) => Promise<Result>,
-  options: Readonly<{
+  {
+    attempts = MAX_TRANSACTION_ATTEMPTS,
+    ...options
+  }: Readonly<{
     isolationLevel?: Prisma.TransactionIsolationLevel;
+    /** Defaults to MAX_TRANSACTION_ATTEMPTS. */
+    attempts?: number;
   }> = {},
 ): Promise<Result> {
   for (let attempt = 1; ; attempt += 1) {
@@ -47,12 +56,18 @@ export async function runReviewConfigurationTransaction<Result>(
     } catch (error) {
       if (
         !isPrismaReviewConfigurationSerializationConflict(error) ||
-        attempt === MAX_TRANSACTION_ATTEMPTS
+        attempt >= attempts
       )
         throw error;
     }
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.random() * RETRY_PAUSE_MS * attempt),
+    );
   }
 }
+
+/** Upper bound of the pause before the first retry; it grows per attempt. */
+const RETRY_PAUSE_MS = 25;
 
 function hasPrismaErrorCode(error: unknown, code: string): boolean {
   return (

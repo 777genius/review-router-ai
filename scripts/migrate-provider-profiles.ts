@@ -210,6 +210,13 @@ type TargetSelection =
 type WorkspacePass = WorkspaceMigrationReport &
   Readonly<{ planned: readonly string[] }>;
 
+/**
+ * A workspace's Serializable pass fails spuriously while other workspaces
+ * write the same tables (PostgreSQL tracks reads per index page, not per
+ * row), so this one-time batch retries longer than an interactive write.
+ */
+const SERIALIZABLE_PASS_ATTEMPTS = 10;
+
 class Rollback extends Error {
   constructor(readonly report: WorkspacePass) {
     super("provider_profile_migration_rollback");
@@ -238,7 +245,10 @@ async function migrateWorkspace(
           if (rollback) throw new Rollback(report);
           return report;
         },
-        { isolationLevel: "Serializable" },
+        {
+          isolationLevel: "Serializable",
+          attempts: SERIALIZABLE_PASS_ATTEMPTS,
+        },
       );
     } catch (error) {
       if (error instanceof Rollback) return error.report;
