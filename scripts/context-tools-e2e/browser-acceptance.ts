@@ -22,7 +22,7 @@ export interface ContextToolsBrowserAcceptanceInput {
     /** Omit when this endpoint is not in the immutable upstream UAP catalog. */
     catalogName?: string;
   }[];
-  /** Optional real HTTPS fixture known to return HTTP401 without credentials. */
+  /** Optional real HTTPS fixture known to return HTTP 401 without credentials. */
   authenticationFailureEndpoint?: string;
 }
 
@@ -340,34 +340,78 @@ export async function runContextToolsBrowserAcceptance(
         cleanupErrors.push(connectionId);
       }
     }
-    await page.evaluate((theme) => {
-      if (theme === null) localStorage.removeItem("reviewrouter-theme");
-      else localStorage.setItem("reviewrouter-theme", theme);
-    }, originalTheme);
-    if (originalViewport) await page.setViewportSize(originalViewport);
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await writeFile(
-      resolve(outputDirectory, "acceptance.public.json"),
-      JSON.stringify(
-        {
-          status: failure || cleanupErrors.length ? "INCOMPLETE" : "PASSED",
-          visual,
-          cases,
-          invalidEndpointsTested: !failure,
-          authenticationFailureTested:
-            !failure && !!input.authenticationFailureEndpoint,
-          staleRevisionTested: !failure && !!input.stalePage,
-          cleanupErrors,
-          modelCalls: 0,
-          toolCalls: 0,
-          actualOcrProof: "separate required canary",
-          credentialValuesRead: false,
-        },
-        null,
-        2,
-      ),
-      { mode: 0o600 },
-    );
+    const restoreErrors: string[] = [];
+    const writeEvidence = (restoring: boolean) =>
+      writeFile(
+        resolve(outputDirectory, "acceptance.public.json"),
+        JSON.stringify(
+          {
+            status:
+              restoring ||
+              failure ||
+              cleanupErrors.length ||
+              restoreErrors.length
+                ? "INCOMPLETE"
+                : "PASSED",
+            visual,
+            cases,
+            invalidEndpointsTested: !failure,
+            authenticationFailureTested:
+              !failure && !!input.authenticationFailureEndpoint,
+            staleRevisionTested: !failure && !!input.stalePage,
+            cleanupErrors,
+            restoreErrors,
+            modelCalls: 0,
+            toolCalls: 0,
+            actualOcrProof: "separate required canary",
+            credentialValuesRead: false,
+          },
+          null,
+          2,
+        ),
+        { mode: 0o600 },
+      );
+    // Preserve cleanup IDs before touching a possibly closed or crashed page.
+    try {
+      await writeEvidence(true);
+    } catch (error) {
+      failure ??= error;
+    }
+    const restoreSteps: readonly (readonly [string, () => Promise<unknown>])[] =
+      [
+        [
+          "theme",
+          () =>
+            page.evaluate((theme) => {
+              if (theme === null) localStorage.removeItem("reviewrouter-theme");
+              else localStorage.setItem("reviewrouter-theme", theme);
+            }, originalTheme),
+        ],
+        [
+          "viewport",
+          async () => {
+            if (originalViewport) await page.setViewportSize(originalViewport);
+          },
+        ],
+        ["reload", () => page.reload({ waitUntil: "domcontentloaded" })],
+      ];
+    for (const [name, restore] of restoreSteps) {
+      try {
+        await restore();
+      } catch {
+        restoreErrors.push(name);
+      }
+    }
+    try {
+      await writeEvidence(false);
+    } catch (error) {
+      failure ??= error;
+    }
+    if (restoreErrors.length && !failure) {
+      failure = new Error(
+        `Browser restoration failed: ${restoreErrors.join(", ")}`,
+      );
+    }
   }
   if (failure) throw failure;
   assert.deepEqual(

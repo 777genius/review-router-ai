@@ -35,7 +35,7 @@ await runContextToolsBrowserAcceptance({
       // its picker and provenance-driven prefill, rather than custom entry.
     },
   ],
-  // Set only when a real public HTTPS fixture's unauthenticated HTTP401 response
+  // Set only when a real public HTTPS fixture's unauthenticated HTTP 401 response
   // has been independently established. Omission is reported as untested.
   // authenticationFailureEndpoint: "https://owned-test-fixture.example/mcp",
 });
@@ -52,7 +52,7 @@ the actual form to initialize/discover a remote anonymous MCP server, approves
 one discovered tool, roundtrips through Advanced JSON, saves, reloads, and verifies
 the persisted definition. It rejects private/loopback/insecure endpoints through
 the actual form. With `stalePage`, it submits and probes an obsolete saved
-revision and requires the visible conflict error. A real optional401 fixture
+revision and requires the visible conflict error. A real optional 401 fixture
 checks the visible authentication error without using an API key.
 
 Created connections are disabled through the UI after each case and during
@@ -67,7 +67,7 @@ handshake is not proof of an OCR invocation or API-key authentication. Retain
 the separate disposable-repository policy/OCR canary's exact producer, PR/head,
 workflow run, native tool receipt and cleanup evidence. API-key success needs
 its own isolated HTTPS fixture and throwaway credential; do not substitute a
-mock or a failed401 response as that proof.
+mock or a failed 401 response as that proof.
 
 For the owner's existing Brave session, use the installed `brave-real-browser`
 plugin with a unique task ID and its explicitly returned owned target. Follow
