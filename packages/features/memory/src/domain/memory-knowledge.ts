@@ -28,7 +28,11 @@ export type MemoryObservationRef = {
 };
 export type MemoryKnowledgeKind = "rule" | "exception" | "observation";
 export type MemoryKnowledgeLifecycle =
-  "active" | "retired" | "expired" | "forget_pending" | "forgotten";
+  | "active"
+  | "retired"
+  | "expired"
+  | "forget_pending"
+  | "forgotten";
 export type MemoryKnowledgeOperationState =
   | "queued"
   | "submitted"
@@ -143,6 +147,16 @@ export type MemoryKnowledgeCommand = MemoryKnowledgeCommandContext &
     | { readonly kind: "retire" | "expire" | "forget" }
   );
 
+/** Reject every non-identifier character, including terminal line separators. */
+function isMemoryScopeIdentifier(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 160 &&
+    !/[^a-zA-Z0-9_-]/.test(value)
+  );
+}
+
 export function memoryKnowledgeScopeKey(scope: MemoryKnowledgeScope): string {
   assertKeys(scope, [
     "kind",
@@ -155,8 +169,6 @@ export function memoryKnowledgeScopeKey(scope: MemoryKnowledgeScope): string {
   ]);
   if (!["workspace", "repository", "user_preference"].includes(scope.kind))
     throw new MemoryKnowledgeError("invalid_input");
-  if (!scope.workspaceId || /[\u0000-\u001f]/.test(scope.workspaceId))
-    throw new MemoryKnowledgeError("invalid_input");
   const subject =
     scope.kind === "repository"
       ? scope.repositoryId
@@ -164,9 +176,8 @@ export function memoryKnowledgeScopeKey(scope: MemoryKnowledgeScope): string {
         ? scope.userId
         : "";
   if (
-    (scope.kind !== "workspace" && !subject) ||
-    !/^[a-zA-Z0-9_-]{1,160}$/.test(scope.workspaceId) ||
-    (subject && !/^[a-zA-Z0-9_-]{1,160}$/.test(subject))
+    !isMemoryScopeIdentifier(scope.workspaceId) ||
+    (scope.kind !== "workspace" && !isMemoryScopeIdentifier(subject))
   )
     throw new MemoryKnowledgeError("invalid_input");
   return JSON.stringify([scope.workspaceId, scope.kind, subject]);

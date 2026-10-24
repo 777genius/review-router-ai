@@ -120,9 +120,11 @@ function fixture() {
       async (
         _input: unknown,
         _controls: MemoryRequestControls,
-      ): Promise<readonly MemoryProviderRecallItem[]> => [
-        { type: "entry", entry },
-      ],
+      ): Promise<readonly MemoryProviderRecallItem[]> => {
+        void _input;
+        void _controls;
+        return [{ type: "entry", entry }];
+      },
     ),
   };
   const access = {

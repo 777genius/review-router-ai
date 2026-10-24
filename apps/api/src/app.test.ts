@@ -698,11 +698,6 @@ describe("API app", () => {
           ApiDemo: {},
           ApiIndex: {},
           ReadyResponse: {},
-          ActionMemoryBundle: {},
-          ActionMemoryCandidateRequest: {},
-          ActionMemoryCommandRequest: {},
-          ActionMemoryCommandResponse: {},
-          ActionMemoryMutationResponse: {},
         },
       },
       paths: {
@@ -710,9 +705,13 @@ describe("API app", () => {
         "/demo.md": {},
         "/docs": {},
         "/api/action/v1/session/exchange": {},
-        "/api/action/v1/memory": {},
-        "/api/action/v1/memory-candidates": {},
-        "/api/action/v1/memory-commands": {},
+        "/api/action/v1/memory": { get: { responses: { "410": {} } } },
+        "/api/action/v1/memory-candidates": {
+          post: { responses: { "410": {} } },
+        },
+        "/api/action/v1/memory-commands": {
+          post: { responses: { "410": {} } },
+        },
       },
     });
   });
