@@ -93,12 +93,7 @@
     "actualPostgreSQL": true,
     "providerShapedFixture": true,
     "liveProviderAccount": false,
-    "providers": [
-      "kimi",
-      "glm",
-      "minimax",
-      "grok"
-    ],
+    "providers": ["kimi", "glm", "minimax", "grok"],
     "controlledTextAndFunctionToolRoundTrip": true,
     "reconnectRetainsAccount": true,
     "canonicalErasure": true,

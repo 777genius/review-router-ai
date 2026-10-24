@@ -22,10 +22,7 @@
     "fail": 0,
     "log": "review-focused-green2.log"
   },
-  "installedConsumers": [
-    "Node26.11.1",
-    "Node24.21.0"
-  ],
+  "installedConsumers": ["Node26.11.1", "Node24.21.0"],
   "installedBehaviorTests": {
     "Node26.11.1": 22,
     "Node24.21.0": 21
