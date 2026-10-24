@@ -1,4 +1,11 @@
-import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
+import {
+  providerProfileFixture,
+  providerProfileRowFixture,
+  storedPolicyHeadFixture,
+  workspacePolicyDocumentFixture,
+  workspacePolicyFixture,
+} from "../../../packages/features/review-config/src/tests/current-policy-fixture";
+import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
 import { randomBytes } from "node:crypto";
 import type {
   Prisma,
@@ -526,45 +533,58 @@ function queryFixture() {
     managedWorkflowInventoryHash: null,
     activationSafetyDecisionHash: null,
   };
+  // The workspace default selects a Gateway profile; schema 4 writes no
+  // first-provider projection columns.
+  const gatewayProfile = providerProfileFixture({
+    id: "profile-gateway",
+    workspaceId: "workspace-1",
+    credential: {
+      kind: "gateway_binding",
+      authMode: "codex_account_gateway",
+      bindingId: "binding-safe",
+      gatewayProfileRef: "profile-mimo",
+    },
+    model: "mimo-v2-pro",
+  });
+  const head = storedPolicyHeadFixture(
+    workspacePolicyDocumentFixture(
+      parseReviewConfigurationStrict({
+        ...workspacePolicyFixture,
+        providers: [
+          {
+            kind: "codex",
+            authMode: "codex_account_gateway",
+            gatewayBindingId: "binding-safe",
+            gatewayProfileRef: "profile-mimo",
+            model: "mimo-v2-pro",
+            reasoningEffort: "high",
+            agenticContext: false,
+            fastMode: false,
+          },
+        ],
+        limits: { ...workspacePolicyFixture.limits, inlineMaxComments: 50 },
+      }),
+      [gatewayProfile.id],
+    ),
+    7,
+  );
   const version = {
     id: "config-version-7",
     configurationId: "config-1",
     operationId: null,
     operationIntentHash: null,
     operationSnapshotJson: null,
-    policyJson: JSON.stringify({
-      ...workspacePolicyFixture,
-      providers: [
-        {
-          kind: "codex",
-          authMode: "codex_account_gateway",
-          gatewayBindingId: "binding-safe",
-          gatewayProfileRef: "profile-mimo",
-          model: "mimo-v2-pro",
-          reasoningEffort: "high",
-          agenticContext: false,
-          fastMode: false,
-        },
-      ],
-      limits: { ...workspacePolicyFixture.limits, inlineMaxComments: 50 },
-    }),
+    policyJson: head.policyJson,
     workspaceId: "workspace-1",
-    version: 7,
-    schemaVersion: 3,
-    providerKind: "codex",
-    providerAuthMode: "codex_account_gateway",
-    gatewayBindingId: "binding-safe",
-    gatewayProfileRef: "profile-mimo",
-    model: "mimo-v2-pro",
-    reasoningEffort: "high",
+    version: head.version,
+    schemaVersion: head.schemaVersion,
+    gatewayBindingId: null,
+    gatewayProfileRef: null,
     agenticContext: false,
     fastMode: false,
-    failOnSeverity: "critical",
-    inlineMaxComments: 50,
     providerLimit: 1,
     providerMaxParallel: 1,
     inlineMinAgreement: 1,
-    targetTokensPerBatch: 50000,
     reviewLanguage: null,
     investigationRecordingEnabled: false,
     investigationShadowEnabled: false,
@@ -688,6 +708,9 @@ function queryFixture() {
     $queryRaw: queryRaw,
     repositoryConnection: { findFirst: repositoryFind },
     reviewConfiguration: { findUnique: configFind },
+    workspaceProviderProfile: {
+      findMany: vi.fn(async () => [providerProfileRowFixture(gatewayProfile)]),
+    },
     workspaceEntitlement: { findUnique: entitlementFind },
     scmRepositoryIdentity: { findUnique: identityFind },
     reviewMutationAuthority: { findUnique: vi.fn(async () => authority) },

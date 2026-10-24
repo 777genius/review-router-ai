@@ -23,7 +23,7 @@ const secondWorkKey = "2".repeat(64);
 describe("Codex OAuth review execution checkpoint routes", () => {
   it.each([
     "review_policy_resave_required",
-    "review_workspace_policy_required",
+    "review_provider_selection_required",
   ])("maps %s to an actionable conflict", async (code) => {
     const { app, access } = await buildRouteContext();
     vi.mocked(

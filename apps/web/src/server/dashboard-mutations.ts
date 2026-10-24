@@ -166,6 +166,16 @@ export async function assertDashboardMutationAllowed(
   return withWorkspaceAdminAccess(actor);
 }
 
+/**
+ * The signed-in user of a dashboard write whose authority is decided later,
+ * under the write's own locks (provider profile edits and removals, where a
+ * member who added a provider may change it). Refuses like every other
+ * dashboard write when changes are off or nobody is signed in.
+ */
+export async function assertDashboardSignedInMutationActor(): Promise<DashboardMutationActor> {
+  return readDashboardMutationActor();
+}
+
 export async function assertDashboardRepositoryMutationAllowed(
   workspaceId: string,
   repository: {
@@ -688,6 +698,19 @@ export async function assertDashboardWorkspaceAdminAllowed(
     githubLogin: githubLoginForIdentity(identity),
     actor: `user:${identity.sourceProvider}:${identity.sourceLogin}`,
   };
+}
+
+/**
+ * The owner/admin gate of a write that does not go through the dashboard's
+ * other mutation gates (managed key uploads): refused like every dashboard
+ * write while changes are off for the deployment.
+ */
+export async function assertDashboardWorkspaceAdminMutationAllowed(
+  workspaceId: string,
+): Promise<DashboardWorkspaceAdminActor> {
+  if (!dashboardMutationsEnabled())
+    throw new DashboardMutationRefusedError("dashboard_mutations_disabled");
+  return assertDashboardWorkspaceAdminAllowed(workspaceId);
 }
 
 export async function getDashboardWorkspaceScope(): Promise<DashboardWorkspaceScope> {

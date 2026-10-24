@@ -11,7 +11,7 @@ import {
 } from "@reviewrouter/features-provider-setup";
 import { requireGitHubAppPrivateKey } from "@reviewrouter/platform-config";
 import { z } from "zod";
-import { assertDashboardWorkspaceAdminAllowed } from "../../../../../src/server/dashboard-mutations";
+import { assertDashboardWorkspaceAdminMutationAllowed } from "../../../../../src/server/dashboard-mutations";
 import { getPrisma } from "../../../../../src/server/prisma";
 import { createProviderApiKeyServiceDependencies } from "../../../../../src/server/provider-api-keys";
 
@@ -44,7 +44,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const actor = await assertDashboardWorkspaceAdminAllowed(
+    const actor = await assertDashboardWorkspaceAdminMutationAllowed(
       parsed.data.workspaceId,
     );
     const prisma = getPrisma();
@@ -65,6 +65,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         providerType: parsed.data.providerType,
         ...(parsed.data.apiKey ? { apiKey: parsed.data.apiKey } : {}),
         repositoryIds: parsed.data.repositoryIds,
+        actor: actor.actor,
       },
       createProviderApiKeyServiceDependencies({
         prisma,
@@ -100,6 +101,7 @@ function applyProviderApiKeyErrorCode(error: unknown): string {
     case "dashboard_auth_misconfigured":
     case "dashboard_admin_requires_sign_in":
     case "dashboard_admin_forbidden":
+    case "dashboard_mutations_disabled":
     case "workspace_admin_forbidden":
     case "github_app_id_not_configured":
     case "github_app_private_key_not_configured":
@@ -122,6 +124,7 @@ function applyProviderApiKeyErrorStatus(error: unknown): number {
     case "dashboard_admin_requires_sign_in":
       return 401;
     case "dashboard_admin_forbidden":
+    case "dashboard_mutations_disabled":
     case "workspace_admin_forbidden":
       return 403;
     case "github_app_id_not_configured":

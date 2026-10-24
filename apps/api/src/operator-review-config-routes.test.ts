@@ -2,20 +2,22 @@ import { createHash } from "node:crypto";
 import Fastify from "fastify";
 import {
   HashedReviewConfigurationOperatorAuthorization,
-  reviewConfigurationTargetKey,
+  parseRepositoryReviewPolicy,
+  resolveEffectiveReviewPolicy,
   resolveReviewConfiguration,
   ReviewConfigurationWriteConflictError,
   parseReviewConfigurationStrict,
-  parseRepositoryReviewPolicyOverride,
-  resolveReviewPolicy,
-  canonicalJson,
   type OperatorReviewConfigurationDependencies,
-  type PersistedReviewConfiguration,
+  type ReviewConfiguration,
   type ReviewInvestigationRolloutConfiguration,
   type ReviewConfigurationOperatorAuditEvent,
-  type ReviewConfigurationRepositoryPort,
 } from "@reviewrouter/features-review-config";
 import { afterEach, describe, expect, it } from "vitest";
+import { InMemoryReviewConfigurationRepository } from "../../../packages/features/review-config/src/tests/in-memory-review-configuration";
+import {
+  providerProfileFixture,
+  workspacePolicyDocumentFixture,
+} from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { registerOperatorReviewConfigRoutes } from "./operator-review-config-routes.js";
 
 const workspacePolicy = parseReviewConfigurationStrict({
@@ -23,7 +25,7 @@ const workspacePolicy = parseReviewConfigurationStrict({
   providers: [
     {
       kind: "codex",
-      authMode: "codex_subscription_oauth_rotating",
+      authMode: "codex_subscription_oauth_hosted_pool",
       model: "gpt-5.6-sol",
       reasoningEffort: "xhigh",
       agenticContext: true,
@@ -48,8 +50,26 @@ const workspacePolicy = parseReviewConfigurationStrict({
     productionEffectsEnabled: true,
   },
 });
-const digest = (config: unknown) =>
-  createHash("sha256").update(canonicalJson(config)).digest("hex");
+
+/** Stores the configuration as the workspace default over a hosted profile. */
+async function seedWorkspace(
+  configurations: InMemoryReviewConfigurationRepository,
+  config: ReviewConfiguration,
+) {
+  const profile = providerProfileFixture({
+    id: `profile_hosted_${config.providers[0]!.model}`,
+    credential: {
+      kind: "hosted_pool",
+      authMode: "codex_subscription_oauth_hosted_pool",
+    },
+    model: config.providers[0]!.model,
+  });
+  configurations.addProfile(profile);
+  await configurations.saveNextVersion({
+    target: { scope: "workspace", workspaceId: "workspace_1" },
+    policy: workspacePolicyDocumentFixture(config, [profile.id]),
+  });
+}
 
 const credential = "route-operator-credential-with-32-characters";
 const disabledRollout = {
@@ -74,75 +94,34 @@ const fullRollout = {
   productionEffectsEnabled: true,
 } as const;
 
-function createHarness() {
-  const versions = new Map<string, PersistedReviewConfiguration[]>();
-  versions.set("workspace:default", [
-    {
-      version: 1,
-      config: workspacePolicy,
-      policy: workspacePolicy,
-      source: "workspace",
-      workspaceVersion: 1,
-      repositoryVersion: null,
-      effectivePolicyDigest: digest(workspacePolicy),
-    },
-  ]);
+async function createHarness() {
+  const configurations = new InMemoryReviewConfigurationRepository();
+  await seedWorkspace(configurations, workspacePolicy);
   const auditEvents: ReviewConfigurationOperatorAuditEvent[] = [];
-  const configurations: ReviewConfigurationRepositoryPort = {
-    async findLatest(target) {
-      const own =
-        versions.get(reviewConfigurationTargetKey(target))?.at(-1) ?? null;
-      if (target.scope === "workspace") return own;
-      const workspace = versions.get("workspace:default")?.at(-1);
-      if (!workspace) return null;
-      const config = resolveReviewPolicy(workspace.config, own?.policy ?? null);
-      return {
-        ...(own ?? workspace),
-        config,
-        source: own ? ("repository" as const) : ("workspace" as const),
-        workspaceVersion: workspace.version,
-        repositoryVersion: own?.version ?? null,
-        effectivePolicyDigest: digest(config),
-      };
-    },
-    async saveNextVersion(input) {
-      const key = reviewConfigurationTargetKey(input.target);
-      const records = versions.get(key) ?? [];
-      if (
-        input.expectedVersion !== undefined &&
-        (records.at(-1)?.version ?? null) !== input.expectedVersion
-      ) {
-        throw new ReviewConfigurationWriteConflictError();
-      }
-      const policy =
-        input.target.scope === "workspace"
-          ? parseReviewConfigurationStrict(input.policy)
-          : parseRepositoryReviewPolicyOverride(input.policy);
-      const workspace = versions.get("workspace:default")?.at(-1);
-      const config =
-        input.target.scope === "workspace"
-          ? parseReviewConfigurationStrict(policy)
-          : resolveReviewPolicy(workspace!.config, policy);
-      const persisted = {
-        version: (records.at(-1)?.version ?? 0) + 1,
-        config,
-        policy,
-        source: input.target.scope,
-        workspaceVersion:
-          input.target.scope === "workspace"
-            ? records.length + 1
-            : workspace!.version,
-        repositoryVersion:
-          input.target.scope === "repository" ? records.length + 1 : null,
-        effectivePolicyDigest: digest(config),
-      } satisfies PersistedReviewConfiguration;
-      versions.set(key, [...records, persisted]);
-      return persisted;
-    },
-    async deleteTarget(target) {
-      return versions.delete(reviewConfigurationTargetKey(target));
-    },
-  };
+  /** Effective configuration of every stored repository version, in order. */
+  const repositoryHistory = () =>
+    [...configurations.heads.entries()]
+      .filter(([key]) => key.startsWith("repo:"))
+      .flatMap(([key, heads]) =>
+        heads.map(
+          (head) =>
+            resolveEffectiveReviewPolicy({
+              target: {
+                scope: "repository",
+                workspaceId: "workspace_1",
+                repositoryId: key.slice("repo:".length),
+              },
+              workspace: JSON.parse(
+                configurations.heads.get("workspace:default")!.at(-1)!
+                  .policyJson!,
+              ),
+              repository: parseRepositoryReviewPolicy(
+                JSON.parse(head.policyJson!),
+              ),
+              profiles: configurations.profiles,
+            })!.config,
+        ),
+      );
   const mutations: OperatorReviewConfigurationDependencies["mutations"] = {
     async commit(input) {
       const current = await resolveReviewConfiguration(input.target, {
@@ -197,11 +176,11 @@ function createHarness() {
       },
     },
   } satisfies OperatorReviewConfigurationDependencies;
-  return { dependencies, versions, auditEvents };
+  return { dependencies, configurations, repositoryHistory, auditEvents };
 }
 
-function createDependencies(): OperatorReviewConfigurationDependencies {
-  return createHarness().dependencies;
+async function createDependencies(): Promise<OperatorReviewConfigurationDependencies> {
+  return (await createHarness()).dependencies;
 }
 
 const apps: ReturnType<typeof Fastify>[] = [];
@@ -213,14 +192,14 @@ afterEach(async () => {
 async function createApp() {
   const app = Fastify({ logger: false });
   apps.push(app);
-  await registerOperatorReviewConfigRoutes(app, createDependencies());
+  await registerOperatorReviewConfigRoutes(app, await createDependencies());
   return app;
 }
 
 describe("operator review config routes", () => {
   it("returns conflict for missing workspace policy without writing", async () => {
-    const harness = createHarness();
-    harness.versions.clear();
+    const harness = await createHarness();
+    harness.configurations.heads.clear();
     const app = Fastify({ logger: false });
     apps.push(app);
     await registerOperatorReviewConfigRoutes(app, harness.dependencies);
@@ -234,7 +213,7 @@ describe("operator review config routes", () => {
     expect(response.json()).toEqual({
       error: { code: "configuration_missing" },
     });
-    expect(harness.versions.size).toBe(0);
+    expect(harness.configurations.heads.size).toBe(0);
     expect(harness.auditEvents).toEqual([]);
   });
 
@@ -254,7 +233,7 @@ describe("operator review config routes", () => {
   it("sets and reads a repository-specific effort", async () => {
     const app = Fastify({ logger: false });
     apps.push(app);
-    const dependencies = createDependencies();
+    const dependencies = await createDependencies();
     await registerOperatorReviewConfigRoutes(app, dependencies);
 
     const patch = await app.inject({
@@ -288,18 +267,14 @@ describe("operator review config routes", () => {
   it("rejects ultra for a Codex model that does not support it", async () => {
     const app = Fastify({ logger: false });
     apps.push(app);
-    const harness = createHarness();
-    const provider = {
-      ...workspacePolicy.providers[0]!,
-      model: "gpt-5.5",
-    };
-    await harness.dependencies.configurations.saveNextVersion({
-      target: { scope: "workspace", workspaceId: "workspace_1" },
-      policy: {
+    const harness = await createHarness();
+    await seedWorkspace(
+      harness.configurations,
+      parseReviewConfigurationStrict({
         ...workspacePolicy,
-        providers: [provider],
-      },
-    });
+        providers: [{ ...workspacePolicy.providers[0]!, model: "gpt-5.5" }],
+      }),
+    );
     await registerOperatorReviewConfigRoutes(app, harness.dependencies);
 
     const response = await app.inject({
@@ -321,7 +296,7 @@ describe("operator review config routes", () => {
   it("creates and reads a repository-scoped investigation rollout version", async () => {
     const app = Fastify({ logger: false });
     apps.push(app);
-    const harness = createHarness();
+    const harness = await createHarness();
     await registerOperatorReviewConfigRoutes(app, harness.dependencies);
 
     const response = await putRollout(app, {
@@ -346,10 +321,7 @@ describe("operator review config routes", () => {
       repositoryVersion: 1,
       investigationRollout: fullRollout,
     });
-    const saved = [...harness.versions.entries()]
-      .filter(([key]) => key.startsWith("repo:"))
-      .flatMap(([, versions]) => versions)
-      .at(-1)?.config;
+    const saved = harness.repositoryHistory().at(-1);
     expect(saved?.providers).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ model: "gpt-5.6-sol" }),
@@ -408,7 +380,7 @@ describe("operator review config routes", () => {
   it("fails closed for a stale expected repository version", async () => {
     const app = Fastify({ logger: false });
     apps.push(app);
-    const harness = createHarness();
+    const harness = await createHarness();
     await registerOperatorReviewConfigRoutes(app, harness.dependencies);
     await putRollout(app, {
       expectedCurrentVersion: null,
@@ -424,18 +396,14 @@ describe("operator review config routes", () => {
     expect(stale.json()).toEqual({
       error: { code: "configuration_changed" },
     });
-    expect(
-      [...harness.versions.entries()]
-        .filter(([key]) => key.startsWith("repo:"))
-        .flatMap(([, versions]) => versions),
-    ).toHaveLength(1);
+    expect(harness.repositoryHistory()).toHaveLength(1);
     expect(harness.auditEvents).toHaveLength(1);
   });
 
   it("rolls a canary back by creating another immutable version", async () => {
     const app = Fastify({ logger: false });
     apps.push(app);
-    const harness = createHarness();
+    const harness = await createHarness();
     await registerOperatorReviewConfigRoutes(app, harness.dependencies);
     const enabled = await putRollout(app, {
       expectedCurrentVersion: null,
@@ -455,18 +423,16 @@ describe("operator review config routes", () => {
       previousInvestigationRollout: shadowRollout,
       investigationRollout: disabledRollout,
     });
-    const history = [...harness.versions.entries()]
-      .filter(([key]) => key.startsWith("repo:"))
-      .flatMap(([, versions]) => versions);
+    const history = harness.repositoryHistory();
     expect(history).toHaveLength(2);
-    expect(history[0]?.config.investigationRollout).toEqual(shadowRollout);
-    expect(history[1]?.config.investigationRollout).toEqual(disabledRollout);
+    expect(history[0]?.investigationRollout).toEqual(shadowRollout);
+    expect(history[1]?.investigationRollout).toEqual(disabledRollout);
   });
 
   it("requires authorization and audits only the accepted rollout mutation", async () => {
     const app = Fastify({ logger: false });
     apps.push(app);
-    const harness = createHarness();
+    const harness = await createHarness();
     await registerOperatorReviewConfigRoutes(app, harness.dependencies);
 
     const unauthorized = await app.inject({

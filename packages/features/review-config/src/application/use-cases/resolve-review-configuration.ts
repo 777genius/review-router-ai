@@ -1,10 +1,13 @@
 import { type ReviewConfiguration } from "../../domain/review-configuration";
+import type { ReviewProviderSelection } from "../../domain/review-policy-document";
 import type { ReviewConfigurationTarget } from "../../domain/review-configuration-target";
 import type {
   PersistedReviewConfiguration,
   ReviewConfigurationRepositoryPort,
+  ReviewPolicyHeadReaderPort,
 } from "../ports/review-configuration-repository-port";
 import { mapConfigToRuntimeEnv } from "./map-config-to-runtime-env";
+import { resolveEffectiveReviewConfiguration } from "./resolve-effective-review-configuration";
 
 export type ResolvedReviewConfigurationSource =
   | "repository"
@@ -20,6 +23,7 @@ export type ResolvedReviewConfiguration = {
   readonly revisionToken: string;
   readonly config: ReviewConfiguration;
   readonly policy: PersistedReviewConfiguration["policy"];
+  readonly selections: readonly ReviewProviderSelection[];
 };
 
 export type ResolvedReviewRuntimeEnv = ResolvedReviewConfiguration & {
@@ -50,20 +54,25 @@ function toResolvedConfiguration(
       `policy:${persisted.workspaceVersion ?? 0}:${persisted.repositoryVersion ?? 0}:${persisted.effectivePolicyDigest}`,
     config: persisted.config,
     policy: persisted.policy,
+    selections: persisted.selections,
   };
 }
 
 export async function resolveReviewRuntimeEnv(
   target: ReviewConfigurationTarget,
-  dependencies: {
-    readonly configurations: ReviewConfigurationRepositoryPort;
-  },
+  dependencies: { readonly policyHeads: ReviewPolicyHeadReaderPort },
 ): Promise<ResolvedReviewRuntimeEnv> {
-  const resolved = await resolveReviewConfiguration(target, dependencies);
-  if (!resolved) throw new Error("review_workspace_policy_required");
+  const resolved = await resolveEffectiveReviewConfiguration(
+    target,
+    dependencies,
+  );
+  if (resolved.status === "resave_required")
+    throw new Error("review_policy_resave_required");
+  if (resolved.status === "provider_selection_required")
+    throw new Error("review_provider_selection_required");
 
   return {
-    ...resolved,
+    ...toResolvedConfiguration(resolved),
     runtimeEnv: mapConfigToRuntimeEnv(resolved.config),
   };
 }

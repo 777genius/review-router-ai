@@ -44,7 +44,7 @@ import { reviewRunGatewayMaxResponseBytes } from "./account-gateway-run-access";
 
 type RuntimeReader = Pick<
   PrismaClient,
-  "reviewConfiguration" | "workspaceAccountBinding"
+  "reviewConfiguration" | "workspaceProviderProfile" | "workspaceAccountBinding"
 > &
   Partial<Pick<PrismaClient, "reviewContextConnection" | "producerRelease">>;
 

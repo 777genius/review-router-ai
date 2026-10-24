@@ -707,13 +707,6 @@ export async function runBindingFencePostgresTests(
             schemaVersion: 2,
             gatewayBindingId: bx.id,
             gatewayProfileRef: connect.profileId,
-            providerKind: "codex",
-            providerAuthMode: "codex_account_gateway",
-            model: "fixture",
-            reasoningEffort: "high",
-            failOnSeverity: "high",
-            inlineMaxComments: 10,
-            targetTokensPerBatch: 1000,
           },
         });
         const revoke = (

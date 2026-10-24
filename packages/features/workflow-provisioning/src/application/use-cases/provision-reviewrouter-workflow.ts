@@ -1,6 +1,5 @@
 import {
   resolveReviewConfiguration,
-  isOpenRouterDirectConfiguration,
   type ReviewConfigurationRepositoryPort,
 } from "@reviewrouter/features-review-config";
 import {
@@ -22,9 +21,13 @@ import {
 } from "../../domain/workflow-template";
 import {
   createProvisionWorkflowPlan,
-  isAccountGatewayConfiguration,
   type ProvisionWorkflowInput,
 } from "../../domain/workflow-provisioning";
+import {
+  renderedWorkflowRequirement,
+  requiredWorkflowTransport,
+  type WorkflowTransport,
+} from "../../domain/workflow-transport";
 import type { WorkflowProvisioningRepositoryPort } from "../ports/workflow-provisioning-repository-port";
 import type { WorkflowSetupGatewayPort } from "../ports/workflow-setup-gateway-port";
 
@@ -54,12 +57,9 @@ export async function provisionReviewRouterWorkflow(
         { configurations: dependencies.configurations },
       )
     : undefined;
-  const gatewaySelected = saved
-    ? isAccountGatewayConfiguration(saved.config)
-    : false;
-  const providerApiSelected = saved
-    ? isOpenRouterDirectConfiguration(saved.config)
-    : false;
+  const transport = saved ? requiredWorkflowTransport(saved.config) : null;
+  const gatewaySelected = transport === "gateway";
+  const providerApiSelected = transport === "provider_api";
   if (
     !gatewaySelected &&
     input.mcpSecrets &&
@@ -151,6 +151,18 @@ export async function provisionReviewRouterWorkflow(
     });
   }
 
+  // What the workflow this attempt renders requires, not what the policy does.
+  const attemptTransport: WorkflowTransport = gatewaySelected
+    ? "gateway"
+    : providerApiSelected
+      ? "provider_api"
+      : plan.codexRotatingProviderInstanceId
+        ? "rotating"
+        : "ci_secrets";
+  const attemptRequirement = renderedWorkflowRequirement(
+    attemptTransport,
+    plan.staticRuntimeEnv,
+  );
   const attempt = await dependencies.provisioning.beginAttempt({
     workspaceId: plan.workspaceId,
     repositoryId: plan.repositoryId,
@@ -160,6 +172,7 @@ export async function provisionReviewRouterWorkflow(
     workflowPath: plan.workflowPath,
     workflowStyle: plan.workflowStyle,
     actionVersion,
+    workflowRequirement: attemptRequirement,
   });
 
   if (dependencies.enabled === false) {
@@ -172,6 +185,7 @@ export async function provisionReviewRouterWorkflow(
       workflowPath: plan.workflowPath,
       workflowStyle: plan.workflowStyle,
       actionVersion,
+      workflowRequirement: attemptRequirement,
       pullRequestUrl: null,
       errorMessage: "workflow_provisioning_disabled",
     });
@@ -299,6 +313,7 @@ export async function provisionReviewRouterWorkflow(
       workflowPath: plan.workflowPath,
       workflowStyle: plan.workflowStyle,
       actionVersion,
+      workflowRequirement: attemptRequirement,
       pullRequestUrl: pullRequest.url,
       pullRequestHeadSha: pullRequest.headSha,
       errorMessage: null,
@@ -336,6 +351,7 @@ export async function provisionReviewRouterWorkflow(
       workflowPath: plan.workflowPath,
       workflowStyle: plan.workflowStyle,
       actionVersion,
+      workflowRequirement: attemptRequirement,
       pullRequestUrl: null,
       errorMessage: message,
     });

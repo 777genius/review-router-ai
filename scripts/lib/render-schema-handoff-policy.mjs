@@ -291,6 +291,43 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Dropping the schema 1-3 review configuration projection is checkout-only:
+  // its columns and table entered after the managed catalog. Admit the exact
+  // SQL and checkout148 before reducing to checkout147.
+  const reviewConfigurationProjectionMigration = catalog.find(
+    (row) =>
+      row.migrationName === "000146_drop_review_configuration_projection",
+  );
+  if (reviewConfigurationProjectionMigration) {
+    if (
+      reviewConfigurationProjectionMigration.checksum !==
+        "d42d8143d918aaf8bf3ac90c1488ec317bcdd3795c529c05f6a216da0931f5d9" ||
+      manifest(catalog) !==
+        "sha256:000decc06ca41637beceb84da74858f434d2300c3c4c3af8c96dcac0aee3efba"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== reviewConfigurationProjectionMigration),
+    );
+  }
+  // Provider profiles add checkout-only tables, nullable columns and relaxed
+  // projection nullability. Admit the exact SQL and checkout147 before
+  // reducing to the statistics checkout146.
+  const workspaceProviderProfilesMigration = catalog.find(
+    (row) => row.migrationName === "000145_workspace_provider_profiles",
+  );
+  if (workspaceProviderProfilesMigration) {
+    if (
+      workspaceProviderProfilesMigration.checksum !==
+        "e0e26a524c9bd14b20f1c6f51556afb6aea89de0fc79faadd61021ac6b6ada2c" ||
+      manifest(catalog) !==
+        "sha256:bf77d4720a7c41e4e9f427595e1a6ecc044149a74ec5a243aaacbbd5ba886cab"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== workspaceProviderProfilesMigration),
+    );
+  }
   // Statistics storage is checkout-only. Admit this exact complete checkout146
   // before reducing to the unchanged reviewed Skills/main145 authority gates.
   const statisticsMigration = catalog.find(

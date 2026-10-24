@@ -661,6 +661,7 @@ describe("provider API key persistence", () => {
         }
       });
       const dependencies = {
+        audit: { record: async () => undefined },
         providerApiKeys: store,
         providerApiKeyRepositories: repositories,
         storageCipher: {
@@ -693,6 +694,7 @@ describe("provider API key persistence", () => {
             providerType: "mimo",
             apiKey,
             repositoryIds: ["repo_adapter"],
+            actor: "user:github:owner",
           },
           dependencies,
         );

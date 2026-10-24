@@ -23,35 +23,33 @@ type Selection = {
   readonly toggle: (id: string) => void;
   readonly selectMany: (ids: readonly string[]) => void;
   readonly clear: () => void;
-  readonly refresh: () => void;
-  readonly setOperationLocked: (locked: boolean) => void;
 };
 const Context = createContext<Selection | null>(null);
 export const useRepositorySelection = () => useContext(Context);
 
-/** Shared exact-ID selection. Action-specific limits and versions belong to adapters. */
+/**
+ * Shared exact-ID selection of the repository table for its bulk actions
+ * (Skills, providers). Action-specific limits and eligibility belong to the
+ * actions.
+ */
 export function RepositorySelectionProvider({
   workspaceId,
   inventory,
   disabled = false,
-  refresh,
   children,
 }: {
   readonly workspaceId: string;
   readonly inventory: readonly RepositorySelectionItem[];
   readonly disabled?: boolean;
-  readonly refresh: () => void;
   readonly children: ReactNode;
 }): React.ReactElement {
   const [ids, setIds] = useState<readonly string[]>([]);
-  const [operationLocked, setOperationLocked] = useState(false);
   const [ready, setReady] = useState(false);
   useEffect(() => {
     setIds([]);
-    setOperationLocked(false);
     setReady(true);
   }, [workspaceId]);
-  const locked = disabled || operationLocked || !ready;
+  const locked = disabled || !ready;
   const available = useMemo(
     () =>
       new Set(
@@ -95,8 +93,6 @@ export function RepositorySelectionProvider({
         toggle,
         selectMany,
         clear,
-        refresh,
-        setOperationLocked,
       }}
     >
       {children}
@@ -117,6 +113,7 @@ export function RepositorySelectionCheckbox({
   const checked = selection.ids.includes(repositoryId);
   return (
     <div
+      data-ignore-repository-row-toggle
       className="flex h-full min-h-[3.25rem] items-start justify-center pt-3"
       onClick={(event) => event.stopPropagation()}
     >

@@ -69,7 +69,7 @@ export async function finalizeCodexRotatingOAuthLease(
       workspaceId: result.repository.workspaceId,
       repositoryId: result.repository.repositoryId,
     });
-  if (!runtimeConfig) throw new Error("review_workspace_policy_required");
+  if (!runtimeConfig) throw new Error("review_provider_selection_required");
   const runtimeEnv = mapConfigToRuntimeEnv(runtimeConfig.config);
   const ledgerKey = dependencies.ledgerKeys?.deriveLedgerKey?.({
     workspaceId: result.repository.workspaceId,

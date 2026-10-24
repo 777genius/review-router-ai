@@ -11,9 +11,7 @@ import {
 import { z } from "zod";
 
 const providerSecretKinds = [
-  "codex_oauth",
   "codex_oauth_rotating",
-  "openai_api_key",
   "mimo_token_plan_api_key",
   "claude_code_oauth",
   "openrouter_api_key",
@@ -53,8 +51,6 @@ export type ProviderSecretSetupGuidance = {
   readonly warnings: readonly string[];
 };
 
-export const defaultCodexSeedScriptUrl =
-  "https://raw.githubusercontent.com/777genius/review-router/main/scripts/seed-codex-auth.sh";
 export const defaultCodexRotatingSeedScriptUrl =
   "https://raw.githubusercontent.com/777genius/review-router/main/scripts/seed-codex-rotating-auth.sh";
 
@@ -62,7 +58,6 @@ export function buildProviderSecretSetupGuidance(input: {
   readonly provider: ProviderSecretKind;
   readonly repoFullName: string;
   readonly organizationLogin?: string | null;
-  readonly seedScriptUrl?: string;
   readonly rotatingSetup?: {
     readonly installerUrl: string;
     readonly installerVersion: string;
@@ -116,90 +111,6 @@ export function buildProviderSecretSetupGuidance(input: {
         ? { setupManifestUrl: input.rotatingSetup.setupManifestUrl }
         : {}),
     });
-  }
-
-  if (input.provider === "codex_oauth") {
-    const seedScriptUrl = shellQuote(
-      input.seedScriptUrl ?? defaultCodexSeedScriptUrl,
-    );
-    return {
-      provider: "codex_oauth",
-      recommendedScope: organizationLogin
-        ? "organization_selected_repositories"
-        : "repository",
-      commands: [
-        ...(organizationLogin
-          ? [
-              {
-                scope: "organization_selected_repositories" as const,
-                title: "Recommended: org secret scoped to this repository",
-                description:
-                  "Stores CODEX_AUTH_JSON as an organization secret available only to this repository.",
-                command: `curl -fsSL ${seedScriptUrl} | bash -s -- --confirm-write --scope org --org ${shellQuote(owner)} --visibility selected --repos ${shellQuote(repo)}`,
-                storesSecretIn: "github_org_secret" as const,
-                targetLabel: `${owner} organization secret, selected repo ${repo}`,
-                secretNames: ["CODEX_AUTH_JSON"],
-                selectedRepositories: [`${owner}/${repo}`],
-                validatesBeforeWrite: true,
-                failureRecovery:
-                  "If validation says reseed auth.json, run codex login on this trusted machine and rerun this exact command.",
-                sendsSecretToReviewRouter: false as const,
-              },
-              {
-                scope: "organization_private_repositories" as const,
-                title: "Organization secret for private repositories",
-                description:
-                  "Stores CODEX_AUTH_JSON as an organization secret available to private repositories in this organization.",
-                command: `curl -fsSL ${seedScriptUrl} | bash -s -- --confirm-write --scope org --org ${shellQuote(owner)} --visibility private`,
-                storesSecretIn: "github_org_secret" as const,
-                targetLabel: `${owner} organization secret, private repositories`,
-                secretNames: ["CODEX_AUTH_JSON"],
-                selectedRepositories: [],
-                validatesBeforeWrite: true,
-                failureRecovery:
-                  "If validation says reseed auth.json, run codex login on this trusted machine and rerun this exact command.",
-                sendsSecretToReviewRouter: false as const,
-              },
-              {
-                scope: "organization_all_repositories" as const,
-                title: "Organization secret for all repositories",
-                description:
-                  "Stores CODEX_AUTH_JSON as an organization secret available to all repositories in this organization.",
-                command: `curl -fsSL ${seedScriptUrl} | bash -s -- --confirm-write --scope org --org ${shellQuote(owner)} --visibility all`,
-                storesSecretIn: "github_org_secret" as const,
-                targetLabel: `${owner} organization secret, all repositories`,
-                secretNames: ["CODEX_AUTH_JSON"],
-                selectedRepositories: [],
-                validatesBeforeWrite: true,
-                failureRecovery:
-                  "If validation says reseed auth.json, run codex login on this trusted machine and rerun this exact command.",
-                sendsSecretToReviewRouter: false as const,
-              },
-            ]
-          : []),
-        {
-          scope: "repository",
-          title: "Repository secret",
-          description:
-            "Stores CODEX_AUTH_JSON directly in this repository's Actions secrets.",
-          command: `curl -fsSL ${seedScriptUrl} | bash -s -- --confirm-write --scope repo --repo ${shellQuote(input.repoFullName)}`,
-          storesSecretIn: "github_repository_secret",
-          targetLabel: `${input.repoFullName} repository secret`,
-          secretNames: ["CODEX_AUTH_JSON"],
-          selectedRepositories: [input.repoFullName],
-          validatesBeforeWrite: true,
-          failureRecovery:
-            "If validation says reseed auth.json, run codex login on this trusted machine and rerun this exact command.",
-          sendsSecretToReviewRouter: false,
-        },
-      ],
-      warnings: [
-        "Run this on a trusted machine where Codex CLI is already logged in with ChatGPT subscription auth. The seed script detects both legacy ~/.codex/auth.json and the active ~/.codex/accounts/*.auth.json account.",
-        "The generated command includes --confirm-write and explicit target flags so non-interactive curl usage can write GitHub secrets only after the target is clear in the command.",
-        "ReviewRouter SaaS never receives CODEX_AUTH_JSON; the script writes directly to GitHub Actions secrets through gh.",
-        "For public repositories, fork pull requests are skipped for secret-backed provider execution by default.",
-      ],
-    };
   }
 
   const secretName = secretNameForProviderSetup(input.provider);

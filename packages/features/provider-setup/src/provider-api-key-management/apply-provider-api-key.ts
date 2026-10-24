@@ -1,4 +1,5 @@
 import { encryptApiKeyForGitHubSecret } from "@reviewrouter/features-codex-oauth-rotating";
+import { mapWithConcurrency } from "@reviewrouter/shared";
 import {
   isProviderApiKeySecretPutOutcomeUnknownError,
   providerApiKeySecretName,
@@ -7,6 +8,7 @@ import {
   type ProviderApiKeyRepositoryResult,
 } from "./provider-api-key";
 import type {
+  ProviderApiKeyAuditPort,
   ProviderApiKeyErrorClassifier,
   ProviderApiKeyGitHubSecretGatewayPort,
   ProviderApiKeyLockPort,
@@ -28,8 +30,11 @@ export async function applyProviderApiKey(
     readonly providerType: ProviderApiKeyProvider;
     readonly apiKey?: string;
     readonly repositoryIds: readonly string[];
+    /** Audit actor of the owner or admin who asked. */
+    readonly actor: string;
   },
   dependencies: {
+    readonly audit: ProviderApiKeyAuditPort;
     readonly providerApiKeys: ProviderApiKeyStorePort;
     readonly providerApiKeyRepositories: ProviderApiKeyRepositoryPort;
     readonly storageCipher: ProviderApiKeyStorageCipherPort;
@@ -263,10 +268,26 @@ export async function applyProviderApiKey(
           keyVersion: session.keyVersion,
         }),
       );
-      return {
-        providerType,
-        results: [...deniedResults, ...results, ...blockedResults],
-      };
+      const all = [...deniedResults, ...results, ...blockedResults];
+      const applied = all.filter((result) => result.status === "applied");
+      try {
+        await dependencies.audit.record({
+          workspaceId,
+          actor: input.actor,
+          action: encryptedApiKey
+            ? "provider_api_key.saved"
+            : "provider_api_key.installed",
+          providerType,
+          operationId: session.operationId,
+          keyVersion: session.keyVersion,
+          appliedRepositoryCount: applied.length,
+          unappliedRepositoryCount: all.length - applied.length,
+        });
+      } catch {
+        // The key is stored and installed by now: an audit failure must not
+        // turn that into an error (the adapter logs it).
+      }
+      return { providerType, results: all };
     },
   );
 }
@@ -341,26 +362,4 @@ function isRateLimitError(error: unknown, status: number | null): boolean {
     }
   ).response?.headers;
   return headers?.["x-ratelimit-remaining"] === "0";
-}
-
-async function mapWithConcurrency<Input, Output>(
-  values: readonly Input[],
-  concurrency: number,
-  mapper: (value: Input) => Promise<Output>,
-): Promise<Output[]> {
-  const output = new Array<Output>(values.length);
-  let nextIndex = 0;
-  await Promise.all(
-    Array.from(
-      { length: Math.min(concurrency, Math.max(values.length, 1)) },
-      async () => {
-        while (nextIndex < values.length) {
-          const currentIndex = nextIndex++;
-          const value = values[currentIndex];
-          if (value !== undefined) output[currentIndex] = await mapper(value);
-        }
-      },
-    ),
-  );
-  return output;
 }
