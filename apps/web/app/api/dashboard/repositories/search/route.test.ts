@@ -627,8 +627,8 @@ describe("dashboard repository search route", () => {
         setupNeedsAttention: isSetupRecoveryIssue(
           repository.provisioning[0]?.errorMessage ?? null,
         ),
-        installedTransport:
-          repository.provisioning[0]?.installedTransport ?? null,
+        installedWorkflowRequirement:
+          repository.provisioning[0]?.installedWorkflowRequirement ?? null,
       })),
       health,
       providerSetup,
@@ -804,7 +804,7 @@ function repositoryRow(input: {
           {
             status: input.provisioningStatus,
             errorMessage: input.errorMessage ?? null,
-            installedTransport: null,
+            installedWorkflowRequirement: null,
           },
         ]
       : [],

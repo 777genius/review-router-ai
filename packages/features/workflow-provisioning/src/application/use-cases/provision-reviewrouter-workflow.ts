@@ -24,6 +24,7 @@ import {
   type ProvisionWorkflowInput,
 } from "../../domain/workflow-provisioning";
 import {
+  renderedWorkflowRequirement,
   requiredWorkflowTransport,
   type WorkflowTransport,
 } from "../../domain/workflow-transport";
@@ -150,7 +151,7 @@ export async function provisionReviewRouterWorkflow(
     });
   }
 
-  // The transport of the workflow this attempt renders, not of the policy.
+  // What the workflow this attempt renders requires, not what the policy does.
   const attemptTransport: WorkflowTransport = gatewaySelected
     ? "gateway"
     : providerApiSelected
@@ -158,6 +159,10 @@ export async function provisionReviewRouterWorkflow(
       : plan.codexRotatingProviderInstanceId
         ? "rotating"
         : "ci_secrets";
+  const attemptRequirement = renderedWorkflowRequirement(
+    attemptTransport,
+    plan.staticRuntimeEnv,
+  );
   const attempt = await dependencies.provisioning.beginAttempt({
     workspaceId: plan.workspaceId,
     repositoryId: plan.repositoryId,
@@ -167,7 +172,7 @@ export async function provisionReviewRouterWorkflow(
     workflowPath: plan.workflowPath,
     workflowStyle: plan.workflowStyle,
     actionVersion,
-    transport: attemptTransport,
+    workflowRequirement: attemptRequirement,
   });
 
   if (dependencies.enabled === false) {
@@ -180,7 +185,7 @@ export async function provisionReviewRouterWorkflow(
       workflowPath: plan.workflowPath,
       workflowStyle: plan.workflowStyle,
       actionVersion,
-      transport: attemptTransport,
+      workflowRequirement: attemptRequirement,
       pullRequestUrl: null,
       errorMessage: "workflow_provisioning_disabled",
     });
@@ -308,7 +313,7 @@ export async function provisionReviewRouterWorkflow(
       workflowPath: plan.workflowPath,
       workflowStyle: plan.workflowStyle,
       actionVersion,
-      transport: attemptTransport,
+      workflowRequirement: attemptRequirement,
       pullRequestUrl: pullRequest.url,
       pullRequestHeadSha: pullRequest.headSha,
       errorMessage: null,
@@ -346,7 +351,7 @@ export async function provisionReviewRouterWorkflow(
       workflowPath: plan.workflowPath,
       workflowStyle: plan.workflowStyle,
       actionVersion,
-      transport: attemptTransport,
+      workflowRequirement: attemptRequirement,
       pullRequestUrl: null,
       errorMessage: message,
     });

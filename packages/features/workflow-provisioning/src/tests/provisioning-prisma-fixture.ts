@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { vi } from "vitest";
-import type { WorkflowTransport } from "../domain/workflow-transport";
+import type { WorkflowRequirement } from "../domain/workflow-transport";
 
 export const scope = {
   workspaceId: "workspace_1",
@@ -15,7 +15,7 @@ export const record = {
   workflowPath: ".github/workflows/reviewrouter-review.yml",
   workflowStyle: "reusable" as const,
   actionVersion: "a".repeat(40),
-  transport: "ci_secrets" as const,
+  workflowRequirement: "ci_secrets",
   pullRequestHeadSha: "b".repeat(40),
 };
 export const identity = {
@@ -39,8 +39,8 @@ export const initialCandidate = {
     | "configured",
   pullRequestUrl: "https://github.com/acme/widget/pull/7" as string | null,
   errorMessage: null as string | null,
-  attemptTransport: "ci_secrets" as WorkflowTransport | null,
-  installedTransport: null as WorkflowTransport | null,
+  attemptWorkflowRequirement: "ci_secrets" as WorkflowRequirement | null,
+  installedWorkflowRequirement: null as WorkflowRequirement | null,
 };
 export type Candidate = typeof initialCandidate;
 export function conflict() {

@@ -39,9 +39,12 @@ export type EffectiveProviderReadinessFacts = Readonly<{
         authMode: ProviderAuthMode;
       }>[]
     | null;
-  /** Workflow transports are only compared; null means unknown. */
-  requiredTransport: string | null;
-  installedTransport: string | null;
+  /**
+   * What the configuration needs the workflow to be rendered for, and what
+   * the installed workflow was rendered for. Only compared; null is unknown.
+   */
+  requiredWorkflowRequirement: string | null;
+  installedWorkflowRequirement: string | null;
   setupStatus: string;
   setupNeedsAttention: boolean;
   healthStatus: ProviderReadinessHealthStatus | undefined;
@@ -75,9 +78,9 @@ export function resolveEffectiveProviderReadiness(
   facts: EffectiveProviderReadinessFacts,
 ): EffectiveProviderReadiness {
   const workflowUpdateRequired =
-    facts.requiredTransport !== null &&
-    facts.installedTransport !== null &&
-    facts.requiredTransport !== facts.installedTransport;
+    facts.requiredWorkflowRequirement !== null &&
+    facts.installedWorkflowRequirement !== null &&
+    facts.requiredWorkflowRequirement !== facts.installedWorkflowRequirement;
   const gatewayProvider =
     facts.providers?.some(
       (provider) => provider.authMode === "codex_account_gateway",

@@ -39,8 +39,8 @@ function facts(
 ): EffectiveProviderReadinessFacts {
   return {
     providers: rotating,
-    requiredTransport: null,
-    installedTransport: null,
+    requiredWorkflowRequirement: null,
+    installedWorkflowRequirement: null,
     setupStatus: "configured",
     setupNeedsAttention: false,
     healthStatus: "healthy",
@@ -245,7 +245,7 @@ describe("resolveEffectiveProviderReadiness", () => {
     [
       "an unknown installed transport never requires a workflow update",
       {
-        requiredTransport: "rotating",
+        requiredWorkflowRequirement: "rotating",
         providerSetup: [row("codex", rotating[0].authMode)],
       },
       ready,
@@ -253,8 +253,8 @@ describe("resolveEffectiveProviderReadiness", () => {
     [
       "the same installed transport keeps the workflow current",
       {
-        requiredTransport: "rotating",
-        installedTransport: "rotating",
+        requiredWorkflowRequirement: "rotating",
+        installedWorkflowRequirement: "rotating",
         providerSetup: [row("codex", rotating[0].authMode)],
       },
       ready,
@@ -262,8 +262,8 @@ describe("resolveEffectiveProviderReadiness", () => {
     [
       "a different installed transport requires a workflow update",
       {
-        requiredTransport: "gateway",
-        installedTransport: "ci_secrets",
+        requiredWorkflowRequirement: "gateway",
+        installedWorkflowRequirement: "ci_secrets",
         providers: gateway,
         gatewayAccountReady: true,
         gatewayAuthorizationReady: true,
@@ -278,8 +278,8 @@ describe("resolveEffectiveProviderReadiness", () => {
     [
       "an open setup PR carries the workflow update",
       {
-        requiredTransport: "gateway",
-        installedTransport: "ci_secrets",
+        requiredWorkflowRequirement: "gateway",
+        installedWorkflowRequirement: "ci_secrets",
         setupStatus: "setup_pr_open",
       },
       { workflowUpdateRequired: true, step: "merge_setup_pr" },

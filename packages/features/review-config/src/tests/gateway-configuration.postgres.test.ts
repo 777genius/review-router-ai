@@ -198,7 +198,7 @@ describe.skipIf(!enabled)(
         expect(
           (
             await sql.query(`
-            SELECT p."status", p."attemptTransport", p."installedTransport",
+            SELECT p."status", p."attemptWorkflowRequirement", p."installedWorkflowRequirement",
                    w."providerManagementAdminOnly"
             FROM "WorkflowProvisioning" p JOIN "Workspace" w ON w."id" = p."workspaceId"
             WHERE p."id" = 'c2b-pre144-provisioning'`)
@@ -206,8 +206,8 @@ describe.skipIf(!enabled)(
         ).toEqual([
           {
             status: "configured",
-            attemptTransport: null,
-            installedTransport: null,
+            attemptWorkflowRequirement: null,
+            installedWorkflowRequirement: null,
             providerManagementAdminOnly: false,
           },
         ]);

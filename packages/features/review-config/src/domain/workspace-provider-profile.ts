@@ -24,11 +24,9 @@ const credentialAuthModes = {
   managed_api_key: ["mimo_token_plan_api_key", "openrouter_api_key"],
   hosted_pool: ["codex_subscription_oauth_hosted_pool"],
   repository_rotating: ["codex_subscription_oauth_rotating"],
-  user_ci_secret: [
-    "mimo_token_plan_api_key",
-    "claude_code_oauth",
-    "openrouter_api_key",
-  ],
+  // A single OpenRouter provider runs over the provider API with the
+  // server-managed key, never with a repository secret of the user.
+  user_ci_secret: ["mimo_token_plan_api_key", "claude_code_oauth"],
 } as const satisfies Record<
   ProviderCredentialKind,
   readonly ProviderAuthMode[]

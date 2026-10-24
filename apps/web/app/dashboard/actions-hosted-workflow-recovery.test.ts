@@ -1609,8 +1609,8 @@ describe("hosted setup recovery composition", () => {
         expect(f.state.current()).toEqual({
           ...before,
           status: "configured",
-          // The verified generic workflow delivers provider CI secrets.
-          installedTransport: "ci_secrets",
+          // The verified generic workflow delivers the MiMo CI secret.
+          installedWorkflowRequirement: "ci_secrets+codex-mimo",
           revision: 2,
         });
         expect(f.state.workflowProvisioning.updateMany).toHaveBeenCalledTimes(
@@ -1846,7 +1846,7 @@ describe("hosted setup recovery composition", () => {
       expect(f.state.current()).toEqual({
         ...f.historical,
         status: "configured",
-        installedTransport: "hosted_pool",
+        installedWorkflowRequirement: "hosted_pool",
         revision: f.historical.revision + 1,
       });
       expect(f.updateBinding).toHaveBeenCalledTimes(1);

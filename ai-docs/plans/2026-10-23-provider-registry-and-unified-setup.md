@@ -242,23 +242,31 @@ No new package.
 - `resolveEffectiveProviderReadiness` is the single pure readiness function used
   by the dashboard page and the search route; it lives in
   `provider-setup/domain`, takes plain facts, including the required and
-  installed transport, and imports nothing from `review-config` or
+  installed workflow requirement, and imports nothing from `review-config` or
   `workflow-provisioning`; the app layer composes the facts.
 - `requiredWorkflowTransport(config)` lives in `workflow-provisioning/domain`
-  and replaces the scattered transport predicates. `WorkflowProvisioning` is one
-  row per repository, so it gets two nullable columns, `attemptTransport` and
-  `installedTransport`. `attemptTransport` is written together with
-  `workflowPath` by every attempt writer: `beginAttempt` and the hosted resume in
-  `hosted-pool-operator-connect.ts:319-333`. `markConfigured` copies it to
-  `installedTransport`. `confirmInstalledWorkflow` (create branch and transition)
-  sets `installedTransport` directly from the transport of the config it
-  verified (its caller at `actions.ts:2357` passes `requiredWorkflowTransport`).
-  Transfer invalidations leave `installedTransport` unchanged. Values: gateway,
-  provider_api, rotating, hosted_pool, ci_secrets. Existing rows stay NULL,
-  meaning unknown and treated as "no update required"; the S4 script fills
-  `installedTransport` from the v3 effective config only for rows with
+  and replaces the scattered transport predicates. The transport alone is too
+  coarse to decide whether a workflow must be updated (a CI-secret workflow
+  forwards the MiMo key only when MiMo is selected), so the domain also owns the
+  workflow requirement: the transport plus the provider kinds the rendered file
+  carries, e.g. `ci_secrets+codex-mimo` or `rotating+claude`
+  (`requiredWorkflowRequirement`, `renderedWorkflowRequirement`).
+  `WorkflowProvisioning` is one row per repository, so it gets two nullable
+  TEXT columns with a format CHECK, `attemptWorkflowRequirement` and
+  `installedWorkflowRequirement`. The attempt requirement is written together
+  with `workflowPath` by every attempt writer: `beginAttempt` (from the static
+  runtime env the template renders from) and the hosted resume in
+  `hosted-pool-operator-connect.ts`. `markConfigured` copies it to the installed
+  requirement. `confirmInstalledWorkflow` (create branch and transition) sets
+  the installed requirement from the artifact it actually verified, not from
+  the policy read before the hosted/rotating activation switched it. Transfer
+  invalidations leave it unchanged. Existing rows stay NULL, meaning unknown and
+  treated as "no update required"; the S4 script fills the installed
+  requirement from the v3 effective config only for rows with
   `status = configured`. "Workflow update required" is derived by comparing
-  required and installed transport, never stored as a flag.
+  the required and installed requirement, never stored as a flag; while a
+  hosted pool binding exists the hosted and rotating workflows count as one
+  family, because the policy and the workflow switch at different moments.
 - Concurrency: profile edit, archive and set-default take the workspace-exclusive
   scope guard, then `Workspace FOR UPDATE`, then `lockPersonalWriteActor` for the
   actor and donors, then the binding locks of the affected bindings
@@ -357,28 +365,28 @@ Done when: the old helpers are gone (`rg`); for one fixture table the page and
 the search route produce the same readiness including gateway; the readiness
 test passes.
 
-### S3 - Registry storage, permissions, setting, installedTransport
+### S3 - Registry storage, permissions, setting, installed workflow requirement
 
 One migration (the only one in this plan): `WorkspaceProviderProfile` with
 composite FKs and the exactly-one-reference CHECK; the workspace setting
-`providerManagementAdminOnly` (default false); `attemptTransport` and
-`installedTransport` (NULL for existing rows); `DROP NOT NULL` on
+`providerManagementAdminOnly` (default false); `attemptWorkflowRequirement` and
+`installedWorkflowRequirement` (NULL for existing rows); `DROP NOT NULL` on
 `ReviewConfigurationVersion.providerKind, providerAuthMode, model,
 reasoningEffort, failOnSeverity, inlineMaxComments, targetTokensPerBatch` (the
 child table is unchanged; CHECKs stay, a NULL passes them; v4 writers omit all
 projection columns and the defaulted ones carry meaningless defaults on
 schemaVersion 4 rows that nobody reads). Prisma adapter,
 find-or-create (race-safe on the unique key), list without usage, label edit,
-`ProviderManagementPolicy`, audit events, recording the attempt transport and
-copying it to `installedTransport`, wiring it into readiness. No set-default,
+`ProviderManagementPolicy`, audit events, recording the attempt requirement and
+copying it to the installed requirement, wiring it into readiness. No set-default,
 assign, clear, usage, archive or model-edit logic (they need selections and land
 in S4). The v1-v3 projection columns and child rows stay as historical data of
 existing versions; nothing new is written to them after S4.
 
 Done when: migration smoke and architecture checks pass; handoff files updated;
 Postgres tests prove a cross-workspace insert is rejected by the FK, a
-find-or-create race yields one row, and an attempt's transport reaches
-`installedTransport`.
+find-or-create race yields one row, and an attempt's workflow requirement
+reaches `installedWorkflowRequirement`.
 
 ### S3b - Dead auth modes
 
@@ -434,7 +442,7 @@ No new migration.
   then repository heads, under the up-front guard declaration above; a v3
   workspace default that uses rotating is
   skipped with a warning; v1/v2 history and unmappable providers are skipped with
-  a warning; fills `installedTransport` from the v3 effective config; prints a
+  a warning; fills `installedWorkflowRequirement` from the v3 effective config; prints a
   per-workspace summary; skipping already-v4 documents makes reruns safe. An
   unconverted v3 head makes the new app fail closed with `resave_required`. Order
   for each environment (developer database, hosted beta, any other): apply

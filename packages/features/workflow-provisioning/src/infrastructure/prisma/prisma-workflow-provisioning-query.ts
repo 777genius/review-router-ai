@@ -42,7 +42,7 @@ export class PrismaWorkflowProvisioningQuery implements WorkflowProvisioningQuer
         actionVersion: row.actionVersion,
         pullRequestUrl: row.pullRequestUrl,
         errorMessage: row.errorMessage,
-        installedTransport: row.installedTransport,
+        installedWorkflowRequirement: row.installedWorkflowRequirement,
         updatedAt: row.updatedAt,
       });
     }

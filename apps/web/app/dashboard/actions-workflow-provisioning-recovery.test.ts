@@ -1038,7 +1038,7 @@ describe("dashboard setup PR recovery", () => {
         expect(state.current()).toEqual({
           ...historical,
           status: "configured",
-          installedTransport: "ci_secrets",
+          installedWorkflowRequirement: "ci_secrets+codex-mimo",
           revision: historical.revision + 1,
         });
         expect(state.workflowProvisioning.updateMany).toHaveBeenCalledTimes(1);

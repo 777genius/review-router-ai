@@ -284,9 +284,9 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (workspaceProviderProfilesMigration) {
     if (
       workspaceProviderProfilesMigration.checksum !==
-        "9111addbe91c566b47b7e8cc8929931e47cbdc1f8cb68c9fce655f4545b70149" ||
+        "e0e26a524c9bd14b20f1c6f51556afb6aea89de0fc79faadd61021ac6b6ada2c" ||
       manifest(catalog) !==
-        "sha256:fd377b4126a14bba021e8dcaecf027cefa5e7863b49c5c16ea22bb0673096172"
+        "sha256:24006c61e30b1d814fa60f9a1cba43e5fa4e2fe8441f333917a1d416f35609b6"
     )
       fail("checkout_extension");
     return partitionRenderSchemaHandoffCheckout(

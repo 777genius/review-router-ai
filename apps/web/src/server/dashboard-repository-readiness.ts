@@ -5,8 +5,8 @@ import {
 import type { RepositoryHealthStatus } from "@reviewrouter/features-repo-health";
 import type { ReviewConfiguration } from "@reviewrouter/features-review-config";
 import {
-  requiredWorkflowTransport,
-  type WorkflowTransport,
+  requiredWorkflowRequirement,
+  type WorkflowRequirement,
 } from "@reviewrouter/features-workflow-provisioning";
 import type { AccountsPage, AccountsResult } from "./account-gateway-accounts";
 import {
@@ -40,8 +40,8 @@ export type DashboardReadinessRepository = Readonly<{
   fullName: string;
   setupStatus: string;
   setupNeedsAttention: boolean;
-  /** Transport of the installed workflow; null when not recorded. */
-  installedTransport: WorkflowTransport | null;
+  /** What the installed workflow was rendered for; null when not recorded. */
+  installedWorkflowRequirement: WorkflowRequirement | null;
 }>;
 
 export type DashboardRepositoryReadiness<
@@ -101,8 +101,10 @@ export function resolveDashboardRepositoryReadiness<
     const health = healthByRepositoryId.get(repository.id);
     const readiness = resolveEffectiveProviderReadiness({
       providers: config?.providers ?? null,
-      requiredTransport: config ? knownWorkflowTransport(config) : null,
-      installedTransport: repository.installedTransport,
+      requiredWorkflowRequirement: config
+        ? knownWorkflowRequirement(config)
+        : null,
+      installedWorkflowRequirement: repository.installedWorkflowRequirement,
       setupStatus: repository.setupStatus,
       setupNeedsAttention: repository.setupNeedsAttention,
       healthStatus: health?.status,
@@ -158,11 +160,11 @@ function effectiveRepositoryConfigs(
   return (repositoryId) => overrides.get(repositoryId) ?? configs.activeConfig;
 }
 
-function knownWorkflowTransport(
+function knownWorkflowRequirement(
   config: ReviewConfiguration,
-): WorkflowTransport | null {
+): WorkflowRequirement | null {
   try {
-    return requiredWorkflowTransport(config);
+    return requiredWorkflowRequirement(config);
   } catch {
     // Setup refuses an unsupported provider mix with its own error.
     return null;

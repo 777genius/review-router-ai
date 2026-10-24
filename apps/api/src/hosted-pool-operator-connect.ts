@@ -330,7 +330,7 @@ export function createHostedPoolOperatorConnect(
                   status: "not_started",
                   errorMessage: null,
                   actionVersion: input.actionRef,
-                  attemptTransport: record.transport,
+                  attemptWorkflowRequirement: record.workflowRequirement,
                 },
               });
               if (resumed.count !== 1)

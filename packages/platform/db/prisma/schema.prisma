@@ -3166,10 +3166,11 @@ model WorkflowProvisioning {
   pullRequestHeadSha String?
   pullRequestUrl     String?
   errorMessage       String?
-  // Credential transport of the current attempt's workflow and of the workflow
-  // last confirmed installed. NULL means unknown (rows before 000144).
-  attemptTransport   WorkflowTransport?
-  installedTransport WorkflowTransport?
+  // What the current attempt's workflow and the workflow last confirmed
+  // installed are rendered for (transport plus provider kinds, e.g.
+  // ci_secrets+claude). NULL means unknown (rows before 000144).
+  attemptWorkflowRequirement   String?
+  installedWorkflowRequirement String?
   createdAt          DateTime                   @default(now())
   updatedAt          DateTime                   @updatedAt
 
@@ -4028,14 +4029,6 @@ enum WorkflowProvisioningStatus {
   setup_pr_open
   configured
   failed
-}
-
-enum WorkflowTransport {
-  gateway
-  provider_api
-  rotating
-  hosted_pool
-  ci_secrets
 }
 
 enum ProviderCredentialKind {

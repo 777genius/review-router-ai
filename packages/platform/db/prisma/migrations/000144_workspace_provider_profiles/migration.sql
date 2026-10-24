@@ -2,7 +2,6 @@
 -- columns become nullable for later writers, new columns are NULL or default.
 BEGIN;
 
-CREATE TYPE "WorkflowTransport" AS ENUM ('gateway', 'provider_api', 'rotating', 'hosted_pool', 'ci_secrets');
 CREATE TYPE "ProviderCredentialKind" AS ENUM ('gateway_binding', 'managed_api_key', 'hosted_pool', 'repository_rotating', 'user_ci_secret');
 
 ALTER TABLE "Workspace" ADD COLUMN "providerManagementAdminOnly" BOOLEAN NOT NULL DEFAULT false;
@@ -17,11 +16,18 @@ ALTER TABLE "ReviewConfigurationVersion"
   ALTER COLUMN "inlineMaxComments" DROP NOT NULL,
   ALTER COLUMN "targetTokensPerBatch" DROP NOT NULL;
 
--- NULL is an unknown transport: rows before this migration never derive a
--- required workflow update.
+-- What the attempt's and the last confirmed workflow were rendered for: the
+-- transport plus the provider kinds the file carries, e.g. ci_secrets+claude.
+-- NULL is unknown: rows before this migration never derive a required update.
 ALTER TABLE "WorkflowProvisioning"
-  ADD COLUMN "attemptTransport" "WorkflowTransport",
-  ADD COLUMN "installedTransport" "WorkflowTransport";
+  ADD COLUMN "attemptWorkflowRequirement" TEXT,
+  ADD COLUMN "installedWorkflowRequirement" TEXT,
+  ADD CONSTRAINT "WorkflowProvisioning_workflow_requirement" CHECK (
+    ("attemptWorkflowRequirement" IS NULL
+      OR "attemptWorkflowRequirement" ~ '^(gateway|provider_api|rotating|hosted_pool|ci_secrets)(\+[a-z][a-z0-9-]{0,31}){0,4}$')
+    AND ("installedWorkflowRequirement" IS NULL
+      OR "installedWorkflowRequirement" ~ '^(gateway|provider_api|rotating|hosted_pool|ci_secrets)(\+[a-z][a-z0-9-]{0,31}){0,4}$')
+  );
 
 CREATE TABLE "WorkspaceProviderProfile" (
     "id" TEXT NOT NULL,
@@ -41,6 +47,18 @@ CREATE TABLE "WorkspaceProviderProfile" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "WorkspaceProviderProfile_pkey" PRIMARY KEY ("id"),
+    -- Each credential kind delivers only its own auth modes.
+    CONSTRAINT "WorkspaceProviderProfile_auth_mode" CHECK (
+      ("credentialKind" = 'gateway_binding' AND "authMode" = 'codex_account_gateway')
+      OR ("credentialKind" = 'managed_api_key'
+        AND "authMode" IN ('mimo_token_plan_api_key', 'openrouter_api_key'))
+      OR ("credentialKind" = 'hosted_pool'
+        AND "authMode" = 'codex_subscription_oauth_hosted_pool')
+      OR ("credentialKind" = 'repository_rotating'
+        AND "authMode" = 'codex_subscription_oauth_rotating')
+      OR ("credentialKind" = 'user_ci_secret'
+        AND "authMode" IN ('mimo_token_plan_api_key', 'claude_code_oauth'))
+    ),
     -- Exactly the reference of the credential kind is set.
     CONSTRAINT "WorkspaceProviderProfile_credential_reference" CHECK (
       ("gatewayBindingId" IS NOT NULL) = ("credentialKind" = 'gateway_binding')

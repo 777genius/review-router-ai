@@ -43,7 +43,6 @@ import {
   saveReviewConfiguration,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
-import type { ProviderKind } from "@reviewrouter/features-review-providers";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import { resolveApprovedSecretsRuntimeActionRef } from "../../src/server/workflow-provisioning/approved-secrets-action-ref";
 import {
@@ -90,6 +89,8 @@ import {
   workflowChecksOutReviewRouterRuntime,
   WorkflowSourceTrust,
   type ReviewRouterWorkflowStyle,
+  ciSecretsWorkflowProviderKind,
+  requiredWorkflowRequirement,
   requiredWorkflowTransport,
   validateAccountGatewayActionRef,
   reviewRouterWorkflowContract,
@@ -1259,7 +1260,7 @@ async function createSetupPullRequestMutation(
     });
     const workflowProviderKind = managedReview
       ? undefined
-      : workflowReadinessProviderKind(resolvedRuntime.config);
+      : ciSecretsWorkflowProviderKind(resolvedRuntime.config);
     const codexRotatingProviderInstanceId =
       transport === "rotating"
         ? resolveCodexRotatingProviderInstanceId({
@@ -1920,7 +1921,7 @@ async function confirmSetupPullRequestMergedMutation(
       throw new Error("hosted_pool_binding_activation_conflict");
     const workflowProviderKind = managedReview
       ? undefined
-      : workflowReadinessProviderKind(resolvedRuntime.config);
+      : ciSecretsWorkflowProviderKind(resolvedRuntime.config);
     const codexRotatingProviderInstanceId =
       codexWorkflow && !hostedWorkflowRequired && codexTransport
         ? resolveCodexRotatingProviderInstanceId({
@@ -2350,7 +2351,9 @@ async function confirmSetupPullRequestMergedMutation(
         workflowPath: verifiedWorkflowArtifact.workflowPath,
         workflowStyle: verifiedWorkflowArtifact.workflowStyle,
         actionVersion: verifiedWorkflowArtifact.actionVersion,
-        transport,
+        workflowRequirement: requiredWorkflowRequirement(
+          resolvedRuntime.config,
+        ),
       });
     }
     await recordAuditEvent(
@@ -3621,17 +3624,6 @@ async function loadResolvedReviewRuntime(input: {
     },
     { policyHeads: new PrismaReviewPolicyHeadReader(input.prisma) },
   );
-}
-
-function workflowReadinessProviderKind(
-  config: ReviewConfiguration,
-): ProviderKind | undefined {
-  if (config.providers.some((provider) => provider.kind === "codex-mimo")) {
-    return "codex-mimo";
-  }
-  return config.providers.some((provider) => provider.kind === "claude")
-    ? "claude"
-    : undefined;
 }
 
 async function resolveCodexWorkflowSecretNamespace(input: {

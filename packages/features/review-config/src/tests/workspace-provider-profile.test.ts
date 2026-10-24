@@ -85,6 +85,14 @@ describe("workspace provider profile input", () => {
         },
       },
     ],
+    [
+      // A single OpenRouter provider runs over the provider API with the
+      // server-managed key; a repository secret of the user is never read.
+      "an OpenRouter repository secret",
+      {
+        credential: { kind: "user_ci_secret", authMode: "openrouter_api_key" },
+      },
+    ],
   ])("refuses %s", (_name, override) => {
     expect(() =>
       parseProviderProfileDraft({

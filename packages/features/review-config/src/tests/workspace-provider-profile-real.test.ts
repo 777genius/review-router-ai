@@ -246,6 +246,19 @@ databaseTests("WorkspaceProviderProfile PostgreSQL storage", () => {
         label: "ghp_looks-like-a-token",
         identityKey: `${prefix}-secret-label`,
       },
+      // Each kind delivers only its own auth modes.
+      {
+        ...base,
+        credentialKind: "user_ci_secret" as const,
+        authMode: "openrouter_api_key",
+        identityKey: `${prefix}-openrouter-secret`,
+      },
+      {
+        ...base,
+        credentialKind: "hosted_pool" as const,
+        authMode: "codex_subscription_oauth_rotating",
+        identityKey: `${prefix}-hosted-rotating`,
+      },
     ])
       await expect(
         prisma.workspaceProviderProfile.create({ data }),
