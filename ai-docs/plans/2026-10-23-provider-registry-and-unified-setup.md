@@ -572,6 +572,15 @@ docs that describe setup: `ai-docs/architecture/62-*` and this plan's status.
 Done when: the full scenario set is captured and reviewed, Playwright is green on
 the hosted worker, and leftover references to deleted code are gone.
 
+Prepared ahead of S5/S6: (b) and (c) are a separate seed and runner rather than
+an extension of the accounts-reference harness, see
+[provider setup visual qualification](../operations/provider-setup-visual-qualification.md).
+The seed writes profiles and selections through the `review-config` use cases;
+a GitHub HTTP fixture inside the Next server answers the repository permission
+checks, so owner, admin and member flows run in the real app. The S5/S6
+scenarios are listed there as pending until their UI lands; (a) remains for
+states the fixture cannot produce.
+
 ## Explicitly out of scope
 
 GitLab implementation; impact-preview dialog, acknowledgement digest and batch
