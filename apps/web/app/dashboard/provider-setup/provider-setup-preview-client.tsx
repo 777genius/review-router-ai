@@ -102,7 +102,7 @@ const gatewayAccounts: AccountsResult<AccountsPage> = {
 const profiles: ProviderSetupFacts["profiles"] = [
   {
     id: "profile-team",
-    label: "Team ChatGPT · gpt-5.6-sol",
+    label: "Team ChatGPT",
     model: "gpt-5.6-sol",
     authMode: "codex_account_gateway",
     credentialKind: "gateway_binding",
@@ -113,7 +113,7 @@ const profiles: ProviderSetupFacts["profiles"] = [
   },
   {
     id: "profile-claude",
-    label: "Claude Code · opus",
+    label: "Claude Code (opus)",
     model: "opus",
     authMode: "claude_code_oauth",
     credentialKind: "user_ci_secret",
@@ -126,18 +126,33 @@ const profiles: ProviderSetupFacts["profiles"] = [
 
 export type ProviderSetupPreviewState = "default" | "no-default";
 
+/** Who looks at the preview, and the workspace's Access rights. */
+export type ProviderSetupPreviewViewer = Readonly<{
+  role: "owner" | "member";
+  adminOnly: boolean;
+}>;
+
+const ownerViewer: ProviderSetupPreviewViewer = {
+  role: "owner",
+  adminOnly: false,
+};
+
 function facts(
   state: ProviderSetupPreviewState,
   target: ProviderSetupFacts["target"],
   repositoryIds: readonly string[],
+  viewer: ProviderSetupPreviewViewer,
 ): ProviderSetupFacts {
   return {
     workspaceId,
     target,
-    actor: { userId: "user-owner", role: "owner" },
+    actor:
+      viewer.role === "owner"
+        ? { userId: "user-owner", role: "owner" }
+        : { userId: "user-member", role: "member" },
     workspace: {
       personalOwnerUserId: null,
-      providerManagementAdminOnly: false,
+      providerManagementAdminOnly: viewer.adminOnly,
     },
     profiles: state === "no-default" ? [] : profiles,
     defaultSelection:
@@ -179,7 +194,10 @@ function facts(
   };
 }
 
-function previewQueryClient(state: ProviderSetupPreviewState): QueryClient {
+function previewQueryClient(
+  state: ProviderSetupPreviewState,
+  viewer: ProviderSetupPreviewViewer,
+): QueryClient {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -195,7 +213,7 @@ function previewQueryClient(state: ProviderSetupPreviewState): QueryClient {
     client.setQueryData(
       providerSetupQueryKeys.view(workspaceId, ids),
       buildProviderSetupView(
-        facts(state, ids.length ? "repositories" : "workspace", ids),
+        facts(state, ids.length ? "repositories" : "workspace", ids, viewer),
       ),
       { updatedAt },
     );
@@ -266,10 +284,12 @@ function previewGuidance(
 
 export function ProviderSetupPreviewClient({
   state,
+  viewer = ownerViewer,
 }: {
   readonly state: ProviderSetupPreviewState;
+  readonly viewer?: ProviderSetupPreviewViewer;
 }): React.ReactElement {
-  const [client] = useState(() => previewQueryClient(state));
+  const [client] = useState(() => previewQueryClient(state, viewer));
   const dialog = {
     workspaceId,
     mutationsEnabled: true,
@@ -278,7 +298,7 @@ export function ProviderSetupPreviewClient({
     agentProfileOptions: [],
   } as const;
   const team = {
-    label: "Team ChatGPT · gpt-5.6-sol",
+    label: "Team ChatGPT",
     model: "gpt-5.6-sol",
     authMode: "codex_account_gateway",
     credentialKind: "gateway_binding",
@@ -295,7 +315,7 @@ export function ProviderSetupPreviewClient({
           "repo-api": {
             source: "repository",
             profile: {
-              label: "Claude Code · opus",
+              label: "Claude Code (opus)",
               model: "opus",
               authMode: "claude_code_oauth",
               credentialKind: "user_ci_secret",
