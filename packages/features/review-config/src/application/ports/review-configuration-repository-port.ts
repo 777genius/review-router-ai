@@ -154,10 +154,14 @@ export type ReviewPolicyWrite = Readonly<{
   expectedVersion?: number | null;
   /** The validated effective digest; null expects the target to select none. */
   expectedEffectivePolicyDigest?: string | null;
+  /**
+   * A document written only because the subject needs it (the workspace
+   * document a first attach creates); the batch's audit skips it.
+   */
+  implicit?: boolean;
 }>;
 
-/** Recorded once per written document inside the write transaction. */
-/** One audit event of a batch, recorded for its last write (the subject). */
+/** Recorded once per written document, except implicit ones. */
 export type ReviewPolicyWriteAudit = Readonly<{
   actor: string;
   action: string;

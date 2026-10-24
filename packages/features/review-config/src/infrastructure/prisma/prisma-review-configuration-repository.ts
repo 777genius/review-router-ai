@@ -320,6 +320,7 @@ type PlannedWrite = Readonly<{
   policy: ReviewPolicyDocument;
   expectedVersion?: number | null;
   expectedEffectivePolicyDigest?: string | null;
+  implicit?: boolean;
 }>;
 
 /** Selections of a head; "unreadable" when a retired head may hold some. */
@@ -649,9 +650,7 @@ async function saveReviewPolicyWrites(
           })
         : null,
     });
-    // The audit names the batch's subject, its last write; a workspace
-    // document a first attach creates alongside it is not a second event.
-    if (input.audit && write === effective.at(-1)?.write)
+    if (input.audit && !write.implicit)
       await recordAuditEvent(
         {
           workspaceId,
@@ -721,6 +720,7 @@ function planWrites(
         : {
             expectedEffectivePolicyDigest: write.expectedEffectivePolicyDigest,
           }),
+      ...(write.implicit ? { implicit: true } : {}),
     };
   });
   if (new Set(planned.map((write) => write.targetKey)).size !== planned.length)

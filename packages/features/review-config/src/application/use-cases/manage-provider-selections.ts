@@ -529,6 +529,7 @@ async function saveRepositorySelection(
         target: { scope: "workspace", workspaceId: input.workspaceId },
         policy: defaultWorkspaceReviewPolicy(),
         expectedVersion: heads.workspace?.version ?? null,
+        implicit: true,
       });
     writes.push({
       target,
