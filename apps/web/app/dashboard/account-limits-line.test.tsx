@@ -122,6 +122,32 @@ test("summarizes at most two known plan windows and keeps monthly/rate observati
   expect(details.textContent).toContain("Plan quota · credits");
 });
 
+test("shows a provider billing reset even when the remaining quota was not reported", () => {
+  const value = snapshot();
+  if (value.status !== "snapshot") throw new Error();
+  const { props } = fixture({
+    ...value,
+    windows: [
+      {
+        ...value.windows[0]!,
+        label: "Month",
+        dimension: "plan_quota",
+        unit: "unknown",
+        usedPercent: null,
+        remainingPercent: null,
+        progressPercent: null,
+        resetAt: "2026-10-22T12:15:00.000Z",
+      },
+    ],
+  });
+  render(<AccountLimitsLine {...props} />);
+  expect(
+    screen.getByText("Remaining not reported").closest("details"),
+  ).toBeNull();
+  expect(screen.getByText("Resets in 2h 15m").closest("details")).toBeNull();
+  expect(screen.queryByRole("progressbar")).toBeNull();
+});
+
 test("remaining and reset stay in the compact summary, with saved observations in Details", () => {
   const value = snapshot();
   if (value.status !== "snapshot") throw new Error();

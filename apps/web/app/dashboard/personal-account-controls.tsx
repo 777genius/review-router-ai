@@ -729,6 +729,7 @@ function PersonalControls({
           {inventory.map((id) => {
             const source = sourcesById.get(id);
             const account = managementById.get(id);
+            const accessSummary = summaryBySource.get(id);
             const label = account?.label ?? source!.label;
             const personalOnly = account?.connection?.personalOnly === true;
             const canAdd =
@@ -830,7 +831,7 @@ function PersonalControls({
                 {personalOnly ? (
                   <span className="text-xs text-slate-400">Personal use</span>
                 ) : (
-                  <AccessSummaryChips summary={summaryBySource.get(id)} />
+                  <AccessSummaryChips summary={accessSummary} />
                 )}
                 <p className="text-sm text-slate-300">
                   <AccountStatusLine {...status} />
@@ -854,6 +855,20 @@ function PersonalControls({
                       }
                       revoke={revoke}
                       currentWorkspace={currentWorkspaceId ?? currentWorkspace}
+                      addToWorkspace={Boolean(
+                        canAdd &&
+                        accessSummary &&
+                        !accessSummary.hasRestrictedAccess &&
+                        accessSummary.organizationCount ===
+                          accessSummary.organizations.length &&
+                        accessSummary.personalWorkspaceId !==
+                          (currentWorkspaceId ?? currentWorkspace) &&
+                        !accessSummary.organizations.some(
+                          (organization) =>
+                            organization.workspaceId ===
+                            (currentWorkspaceId ?? currentWorkspace),
+                        ),
+                      )}
                       message={sourceMessages[source.sourceId]}
                     />
                   ) : null}
@@ -1202,6 +1217,7 @@ function WorkspaceAccess({
   share,
   revoke,
   currentWorkspace,
+  addToWorkspace,
   message,
 }: {
   scope: string;
@@ -1222,6 +1238,7 @@ function WorkspaceAccess({
   ): Promise<void>;
   revoke(source: PersonalSource, grant: OwnAccountGrant): Promise<void>;
   currentWorkspace: string;
+  addToWorkspace: boolean;
   message: string | undefined;
 }) {
   const [open, setOpen] = useState(false);
@@ -1299,9 +1316,9 @@ function WorkspaceAccess({
     >
       <Dialog.Trigger
         render={<Button variant="outline" size="sm" disabled={disabled} />}
-        aria-label={`Access: ${source.label}`}
+        aria-label={`${addToWorkspace ? "Add to workspace" : accountsCopy.access}: ${source.label}`}
       >
-        {accountsCopy.access}
+        {addToWorkspace ? "Add to workspace" : accountsCopy.access}
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Backdrop />
