@@ -4,8 +4,9 @@ Tooling for stage S7 of the
 [provider registry plan](../plans/2026-10-23-provider-registry-and-unified-setup.md):
 one command seeds a fixed workspace data set, starts the real web app, signs
 in fixture users with real session cookies and captures every scenario at
-390 and 1440 px (dialogs also at 900 px) in the light and dark themes.
-Source: `scripts/provider-setup-visual/`.
+390 and 1440 px (dialogs also at 900 px) in the light and dark themes. With
+`--flows` it also drives the end-to-end flows and checks what the
+review-config store holds afterwards. Source: `scripts/provider-setup-visual/`.
 
 ## What is real and what is a fixture
 
@@ -19,9 +20,13 @@ setup workflow and secret facts) are plain Prisma writes.
 
 Fixtures, inside the run only: a preload in the Next server
 (`github-fixture.ts`) answers the GitHub REST calls the dashboard makes
-(installation token, `collaborators/{user}/permission`, organization plan,
-user repository discovery, the open setup pull request) from the data set and
-fails every other external request as offline; the public model catalog is
+(installation token, repository metadata, `collaborators/{user}/permission`,
+organization plan, user repository discovery, the open setup pull request and
+repository secret metadata) from the data set and fails every other external
+request as offline. Which repository secrets exist is read on every request
+from `github-state.json`, which the runner rewrites after each reseed (the
+secrets of repositories whose setup is confirmed) and a flow extends when it
+adds a secret; the public model catalog is
 served by the existing `accounts-reference-e2e` catalog fixture. The browser
 blocks every non-app request. There is no Account Gateway, so Gateway
 providers never become ready. Secrets, private key and recovery witness are
@@ -49,10 +54,11 @@ rebuilds the same data.
 - `Visual Empty`: no providers, no default, no managed key; every repository
   needs a provider selection.
 
-Until S5, the repositories section of a workspace without a default renders
-no repository table at all (`Visual Locked`, `Visual Empty`), and the model
-catalog is the synthetic one of the catalog fixture, so real model IDs show
-as "not in the current catalog".
+The model catalog is the synthetic one of the catalog fixture, so real model
+IDs show as "not in the current catalog" or "not in the list". With
+`--rotating` the rotating Codex selection uses the deepest review depth, which
+only the default Codex model supports, so a model edit of that provider is
+refused naming the repository.
 
 ## Run on the hosted worker
 
@@ -73,12 +79,22 @@ cd src
 pnpm install --frozen-lockfile --store-dir /srv/workers/adhoc/iliya/.pnpm-store
 node node_modules/playwright-core/cli.js install --only-shell chromium   # once
 export PROVIDER_VISUAL_DATABASE_URL=postgresql://fixture_owner@127.0.0.1:35711/reviewrouter_provider_setup_visual
-pnpm provider-setup:visual --out "$PWD/../out/<run>" --port 35712
+pnpm provider-setup:visual --out "$PWD/../out/<run>" --port 35712 --flows
 pnpm provider-setup:visual --out "$PWD/../out/<run>-rotating" --port 35712 --rotating \
-  --only '^(workspace-repositories|stepper-rotating|dialog-rotating-.*)$'
+  --only '^(workspace-repositories|stepper-rotating|dialog-rotating-.*|providers-model-edit-refused)$'
 ```
 
-`--only REGEX` selects scenario IDs. The database guard accepts only a
+`--only REGEX` selects scenario and flow IDs; `--flows-only` skips the
+screenshots. `--no-personal-sharing` turns personal account sharing off,
+leaves the provider over the admin's personal account out of the data set
+and serves the Account Gateway profile catalog from a loopback fixture
+(`gateway-catalog-fixture.ts`), so a Gateway selection validates; its flow
+runs only in that variant:
+
+````bash
+pnpm provider-setup:visual --out "$PWD/../out/<run>-no-sharing" --port 35712 \
+  --no-personal-sharing --flows-only --only '^flow-member-gateway-attach$'
+``` The database guard accepts only a
 loopback URL whose database is `reviewrouter_provider_setup_visual`. Each run
 migrates it and, before every shot, removes the fixture rows by their fixed
 IDs and seeds them again, so nothing a shot, a background refresh or an
@@ -94,9 +110,11 @@ against the visual database while no run is active:
 
 ## Output
 
-`out/<run>/screens/<scenario>--<user>--<width>--<theme>.png` and
-`manifest.json`: revision, flags, summary, network summary (GitHub fixture
-calls, unhandled GitHub paths, blocked hosts) and one record per shot with
+`out/<run>/screens/<scenario>--<user>--<width>--<theme>.png`,
+`out/<run>/flows/<flow>--<step>.png` and `manifest.json`: revision, flags,
+summary, flow summary, network summary (GitHub fixture calls, unhandled
+GitHub paths, blocked hosts), one record per flow with each check, its
+detail and screenshots, and one record per shot with
 HTTP status, final path, heading, page and console errors, blocked browser
 requests and `probe` facts (repository screens record each row's step pill
 beside the contract's expected step and list the workspace's repositories the
@@ -105,24 +123,25 @@ page does not show). `seed.json`, `next-app.log`, `migrate.log` and
 
 A shot is `suspect` when the page shows an error, redirected away, rendered
 the wrong theme, threw a page error, raised a Next dev overlay issue or
-overflows horizontally. Exit `0`: every runnable shot captured cleanly;
-`2`: a shot failed or is suspect; `1`: setup failed. Always look at the images:
-the runner does not assert anything about the new provider UI.
+overflows horizontally. A flow fails at its first failed check and keeps a
+screenshot of every open page. Exit `0`: every runnable shot captured cleanly
+and every flow passed; `2`: a shot failed or is suspect, or a flow failed;
+`1`: setup failed. Shots assert nothing about the provider UI: look at them.
 
-## Adding S5/S6 steps
+## Scenarios and flows
 
-`scenarios.ts` lists the S5 dialog and S6 Providers/Access rights scenarios
-with `pendingUntil`. When the UI lands, write the scenario's `prepare` step
-(open the dialog, pick the option) against the shipped roles and labels, set
-the final route if it differs, and remove `pendingUntil`. New data states go
-into `fixture-contract.ts`; the seed and the seed test pick them up.
+`scenarios.ts` lists the screens; a scenario's `prepare` opens the dialog or
+list action through the shared locators of `ui.ts` (the shipped roles and
+labels). `flows.ts` holds the end-to-end flows; each starts from a fresh seed
+and checks both the page and the stored result. New data states go into
+`fixture-contract.ts`; the seed and the seed test pick them up.
 
 ## Cleanup
 
 ```bash
 sudo -n docker rm -f TEST-rr-provider-s7-pg   # the PostgreSQL container and its data
 rm -rf out/<run>                              # screenshots and logs of a run
-```
+````
 
 Ctrl-C or SIGTERM stops a run together with its Next process group (checked
 on the worker). After a `kill -9` of the runner, stop the leftover server by

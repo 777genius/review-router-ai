@@ -63,6 +63,33 @@ A workspace binding permits use according to workspace policy; it does not trans
 
 UI copy must distinguish explicit ownership restrictions from unavailable data or failed authorization. A generic failure must not assert that the viewer is not the owner.
 
+## Workspace providers and their selection
+
+Implemented by the [provider registry plan](../plans/2026-10-23-provider-registry-and-unified-setup.md).
+A connected account is not yet a reviewer: a workspace provider profile
+(`review-config`, `WorkspaceProviderProfile`) pairs one immutable credential
+source (Gateway binding, managed key, CI secret, hosted pool or a repository's
+rotating Codex) with a model. Policy documents (stored schema 4) select
+profiles: the workspace document may name a default, a repository document may
+name its own provider; a repository without one follows the default. The
+runtime configuration is materialized from those selections and keeps its
+contract with the action.
+
+`ProviderManagementPolicy` decides every create, edit, archive, attach and
+default change from verified facts; Dashboard -> Other -> Access rights limits
+provider management to owners and admins. Writes decide again under their
+locks, and the profile-independent part of an edit or archive runs before any
+rate limit or network check.
+
+UI: one `ProviderSetupDialog` with a fixed target (one repository, several, or
+the workspace) is opened from the provider line above a repository's setup
+steps, the row line, step 3 (on the credential the provider needs), the table's
+bulk action, the Model section and the Providers list. Dashboard -> Providers
+lists the profiles with usage, creator and the actions the viewer may take. A
+hosted Codex pool is never chosen there; its session source flow selects it per
+repository. Screens and end-to-end flows are qualified with
+`pnpm provider-setup:visual` ([operations guide](../operations/provider-setup-visual-qualification.md)).
+
 ## Delivery sequence
 
 1. Deliver the visibility/copy correction with owner-versus-recipient regression coverage.

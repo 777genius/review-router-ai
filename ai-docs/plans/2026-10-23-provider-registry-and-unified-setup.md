@@ -586,7 +586,7 @@ manage providers". The fixture preview takes
 `?screen=other&viewer=owner|member&access=on|off`, and the S5 screens take `viewer` and
 `access` too.
 
-Deferred follow-up (no migration in S6): dropping the v1-v3 projection columns
+Deferred follow-up (no migration in S6, done in S7 by migration 000145): dropping the v1-v3 projection columns
 of `ReviewConfigurationVersion` and the `ReviewConfigurationVersionProvider`
 table. A search on 2026-10-24 found no reader or writer of the child table
 outside tests (`gateway-configuration.postgres.test.ts`) and the generated
@@ -616,6 +616,29 @@ docs that describe setup: `ai-docs/architecture/62-*` and this plan's status.
 Done when: the full scenario set is captured and reviewed, Playwright is green on
 the hosted worker, and leftover references to deleted code are gone.
 
+As built: the qualification runs on the real app and PostgreSQL 17 with the
+seed written through the `review-config` use cases. `pnpm provider-setup:visual
+--flows` captures every scenario (step 3 and every other entry point of the
+dialog, new providers of each credential kind, member and Access-rights
+refusals, the Providers list and its dialogs, Other) at 390/1440 px (dialogs
+also 900 px) in both themes, then runs seven end-to-end flows that check the
+page and the stored result; an eighth runs with personal account sharing off
+against a Gateway catalog fixture. Fixes from that review: the bulk dialog
+keeps its target until it closes; a dialog without providers opens on the new
+provider form; a refusal shared by every choice is said once; the Providers
+list leaves out actions refused for a reason it states once; an opened
+repository shows its provider line once; plain-language step 3; read-only Other
+without save buttons; the Model badge no longer widens phones. Independent
+review findings closed in S7: the profile gate runs before rate limits,
+entitlements and network checks; selection writes replace retired documents;
+Gateway validation reads the deployment catalog without the owner/admin
+Accounts context; the dialog never selects a hosted pool; managed key saves
+are audited and refused while changes are off; GitHub permission checks of a
+bulk view are bounded and the Gateway catalog is read once per write. The
+hosted pool canary resolves the effective configuration, and migration 000145
+drops the schema 1-3 projection columns and `ReviewConfigurationVersionProvider`
+(checkout-only; registration as for 000144).
+
 Prepared ahead of S5/S6: (b) and (c) are a separate seed and runner rather than
 an extension of the accounts-reference harness, see
 [provider setup visual qualification](../operations/provider-setup-visual-qualification.md).
@@ -631,7 +654,7 @@ GitLab implementation; impact-preview dialog, acknowledgement digest and batch
 "update N setup PRs"; automatic setup PRs or secret writes on default change;
 multi-provider UI; hosted pool redesign; rotating redesign (it is moved, not
 rewritten); wider UI primitive migration; renaming the runtime config schema;
-dropping the historical v1-v3 projection columns and child table (retained as
+dropping the remaining historical v1-v3 projection columns (retained as
 history of existing versions, owner `review-config`, no new writes); changes to
 the action repository `777genius/review-router`; changes to the Memory section.
 
