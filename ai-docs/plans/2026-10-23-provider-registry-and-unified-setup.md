@@ -474,9 +474,9 @@ No new migration.
   fills `installedWorkflowRequirement` from the v3 effective config; prints a
   per-workspace summary; skipping already-v4 documents makes reruns safe. An
   unconverted v3 head makes the new app fail closed with `resave_required`. Order
-  for each environment (developer database, hosted beta, any other): apply
-  migrations, stop writers, run the script, start the new app. Take a `pg_dump`
-  first. Preflight: 000144 was corrected in place before release and
+  for each environment (developer database, hosted beta, any other): stop
+  writers (the whole old fleet), apply migrations, run the script, start the new
+  app. Take a `pg_dump` first. Preflight: 000144 was corrected in place before release and
   `prisma migrate deploy` does not reapply a migration whose checksum changed, so
   the script refuses a database whose `_prisma_migrations` checksum for 000144
   differs from the SHA-256 of the checkout's file
