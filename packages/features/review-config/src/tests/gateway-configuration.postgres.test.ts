@@ -120,7 +120,7 @@ describe.skipIf(!enabled)(
           "000146_drop_review_configuration_projection",
         ]);
         let legacyBefore: unknown;
-        let legacyBefore145: unknown;
+        let legacyBefore146: unknown;
         for (const name of names) {
           if (name === "000119_review_configuration_gateway_binding") {
             // Real pre-119 data detects destructive backfill or parent-scope guessing.
@@ -147,15 +147,15 @@ describe.skipIf(!enabled)(
             ).rows;
           }
           if (name === "000146_drop_review_configuration_projection") {
-            // Through 144 the legacy rows kept every value.
-            const legacy144 = await sql.query(`
+            // Through 145 the legacy rows kept every value.
+            const legacy145 = await sql.query(`
             SELECT (SELECT to_jsonb(v) - 'workspaceId' - 'gatewayBindingId' - 'gatewayProfileRef'
                       - 'operationId' - 'operationIntentHash' - 'policyJson' - 'operationSnapshotJson'
                     FROM "ReviewConfigurationVersion" v WHERE v."id" = 'c2b-legacy-version') AS v,
                    (SELECT to_jsonb(p) - 'workspaceId' - 'gatewayBindingId' - 'gatewayProfileRef'
                     FROM "ReviewConfigurationVersionProvider" p WHERE p."id" = 'c2b-legacy-provider') AS p`);
-            expect(legacy144.rows).toEqual(legacyBefore);
-            legacyBefore145 = (
+            expect(legacy145.rows).toEqual(legacyBefore);
+            legacyBefore146 = (
               await sql.query(`
               SELECT to_jsonb(v) - 'providerKind' - 'providerAuthMode' - 'model' - 'reasoningEffort'
                        - 'failOnSeverity' - 'inlineMaxComments' - 'targetTokensPerBatch' AS v
@@ -163,15 +163,15 @@ describe.skipIf(!enabled)(
             ).rows;
           }
           if (name === "000145_workspace_provider_profiles") {
-            // A configured repository of the 143 schema keeps every value.
+            // A configured repository of the 144 schema keeps every value.
             await sql.query(`
             INSERT INTO "RepositoryConnection" ("id", "workspaceId", "externalRepositoryId",
               "owner", "name", "fullName", "defaultBranch", "visibility", "updatedAt") VALUES
-              ('c2b-pre144-repo', 'c2b-x', 'c2b-pre144-repo', 'synthetic', 'pre144',
-               'synthetic/pre144', 'main', 'private', now());
+              ('c2b-pre145-repo', 'c2b-x', 'c2b-pre145-repo', 'synthetic', 'pre145',
+               'synthetic/pre145', 'main', 'private', now());
             INSERT INTO "WorkflowProvisioning" ("id", "attemptId", "workspaceId", "repositoryId",
               "status", "branch", "workflowPath", "actionVersion", "updatedAt") VALUES
-              ('c2b-pre144-provisioning', 'c2b-pre144-attempt', 'c2b-x', 'c2b-pre144-repo',
+              ('c2b-pre145-provisioning', 'c2b-pre145-attempt', 'c2b-x', 'c2b-pre145-repo',
                'configured', 'reviewrouter/setup', '.github/workflows/reviewrouter-review.yml',
                'v1', now());`);
           }
@@ -218,22 +218,22 @@ describe.skipIf(!enabled)(
             `migration ${name} failed: ${applied.stderr}`,
           ).toBe(0);
         }
-        // 000145 drops only the projection: the rest of a legacy version stays.
+        // 000146 drops only the projection: the rest of a legacy version stays.
         expect(
           (
             await sql.query(`
             SELECT to_jsonb(v) AS v FROM "ReviewConfigurationVersion" v
             WHERE v."id" = 'c2b-legacy-version'`)
           ).rows,
-        ).toEqual(legacyBefore145);
-        // 000144 keeps existing rows: unknown transports, Access rights off.
+        ).toEqual(legacyBefore146);
+        // 000145 keeps existing rows: unknown transports, Access rights off.
         expect(
           (
             await sql.query(`
             SELECT p."status", p."attemptWorkflowRequirement", p."installedWorkflowRequirement",
                    w."providerManagementAdminOnly"
             FROM "WorkflowProvisioning" p JOIN "Workspace" w ON w."id" = p."workspaceId"
-            WHERE p."id" = 'c2b-pre144-provisioning'`)
+            WHERE p."id" = 'c2b-pre145-provisioning'`)
           ).rows,
         ).toEqual([
           {
@@ -243,7 +243,7 @@ describe.skipIf(!enabled)(
             providerManagementAdminOnly: false,
           },
         ]);
-        // 000145: no schema 1-3 projection column and no provider rows table.
+        // 000146: no schema 1-3 projection column and no provider rows table.
         expect(
           (
             await sql.query(`

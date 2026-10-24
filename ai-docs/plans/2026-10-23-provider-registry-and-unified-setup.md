@@ -400,8 +400,9 @@ find-or-create (race-safe on the unique key), list without usage, label edit,
 `ProviderManagementPolicy`, audit events, recording the attempt requirement and
 copying it to the installed requirement, wiring it into readiness. No set-default,
 assign, clear, usage, archive or model-edit logic (they need selections and land
-in S4). The v1-v3 projection columns and child rows stay as historical data of
-existing versions; nothing new is written to them after S4.
+in S4). The v1-v3 projection columns and child rows stayed as historical data
+of existing versions and nothing new was written to them after S4; migration
+000146 (S7) drops them.
 
 Done when: migration smoke and architecture checks pass; handoff files updated;
 Postgres tests prove a cross-workspace insert is rejected by the FK, a

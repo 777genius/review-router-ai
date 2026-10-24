@@ -563,7 +563,7 @@ model ReviewConfigurationVersion {
 
 // A reusable workspace provider: an immutable credential source plus a model.
 // Never stores a secret. Exactly the reference of the credential kind is set
-// (SQL CHECK) and the credential source is immutable (SQL trigger, 000144).
+// (SQL CHECK) and the credential source is immutable (SQL trigger, 000145).
 model WorkspaceProviderProfile {
   id                 String                 @id @default(cuid())
   workspaceId        String
@@ -3144,7 +3144,7 @@ model WorkflowProvisioning {
   errorMessage       String?
   // What the current attempt's workflow and the workflow last confirmed
   // installed are rendered for (transport plus provider kinds, e.g.
-  // ci_secrets+claude). NULL means unknown (rows before 000144).
+  // ci_secrets+claude). NULL means unknown (rows before 000145).
   attemptWorkflowRequirement   String?
   installedWorkflowRequirement String?
   createdAt          DateTime                   @default(now())

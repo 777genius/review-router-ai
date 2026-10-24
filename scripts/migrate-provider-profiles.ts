@@ -17,14 +17,16 @@
  * target that still fails is found, reported and left unconverted.
  * `--dry-run` runs the same transactions and rolls them back.
  *
- * Preflight: the database must have applied the current 000144. It was
+ * Preflight: the database must have applied the current 000145. It was
  * corrected in place before release, and `prisma migrate deploy` does not
  * reapply a migration whose checksum changed, so a database that applied the
  * earlier text is refused and must be recreated.
  *
- * Order for each environment: take a pg_dump, apply migrations, stop writers,
- * run this script, start the new app. Never run it against a production
- * database without the owner's explicit instruction.
+ * Order for each environment (the Database Release Rule, "Provider registry
+ * cutover"): take a pg_dump, stop every old web, API and worker process,
+ * apply the migrations (000145 and 000146), run this script, start the new
+ * code. Never run it against a production database without the owner's
+ * explicit instruction.
  */
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -119,7 +121,7 @@ const WORKSPACE_PROVIDER_PROFILES_MIGRATION =
   "000145_workspace_provider_profiles";
 
 /**
- * Refuses a database that applied an earlier text of 000144: the migration
+ * Refuses a database that applied an earlier text of 000145: the migration
  * was corrected in place, and `prisma migrate deploy` reports no pending
  * migration for a changed checksum. The expected checksum is Prisma's, the
  * SHA-256 of this checkout's migration file (pinned by the schema handoff
@@ -152,7 +154,7 @@ export async function assertProviderProfileMigrationSchema(
   if (stale)
     throw new ProviderProfileMigrationPreflightError(
       "provider_profile_migration_stale_000145",
-      `this database applied an earlier ${WORKSPACE_PROVIDER_PROFILES_MIGRATION} (checksum ${stale.checksum}, expected ${expected}); prisma migrate deploy does not reapply it. Recreate the development database (or restore a dump taken before 000144) and apply the migrations again`,
+      `this database applied an earlier ${WORKSPACE_PROVIDER_PROFILES_MIGRATION} (checksum ${stale.checksum}, expected ${expected}); prisma migrate deploy does not reapply it. Recreate the development database (or restore a dump taken before 000145) and apply the migrations again`,
     );
 }
 
@@ -1037,7 +1039,7 @@ async function fillInstalledRequirements(
 
 export const PROVIDER_PROFILE_MIGRATION_USAGE = [
   "Usage: tsx scripts/migrate-provider-profiles.ts [--dry-run] [--workspace ID ...]",
-  "Reads DATABASE_URL. Take a pg_dump and stop writers first.",
+  "Reads DATABASE_URL. Run it after migrate deploy, with a pg_dump taken and the old fleet stopped.",
 ].join("\n");
 
 export function parseProviderProfileMigrationArgs(argv: readonly string[]): {

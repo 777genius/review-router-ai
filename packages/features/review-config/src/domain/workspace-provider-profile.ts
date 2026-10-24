@@ -171,7 +171,7 @@ export const providerCredentialRequestSchema = z.discriminatedUnion("kind", [
 
 export const providerProfileModelSchema = gatewayModelSchema.max(200);
 
-// Prefixes the SQL CHECKs of 000119 and 000144 reject as credential-shaped.
+// Prefixes the SQL CHECKs of 000119 and 000145 reject as credential-shaped.
 const secretPrefix = /^(?:sk-|ghp_|github_pat_|xox[baprs]-)/;
 
 export const providerProfileLabelSchema = z

@@ -22,7 +22,7 @@ import {
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
 const databaseTests = databaseUrl ? describe : describe.skip;
 
-// Old-policy fixture on the migrated (000144) schema: schema 3 heads with a
+// Old-policy fixture on the migrated schema (through 000146): schema 3 heads with a
 // Gateway default, sparse rotating and OpenRouter overrides, a retired
 // schema 2 head, a rotating workspace default and a workspace without anyone
 // who could own the profiles.
@@ -721,7 +721,7 @@ databaseTests("one-time provider profile migration", () => {
     }
   });
 
-  it("skips workspaces being deleted and refuses a database that applied an earlier 000144", async () => {
+  it("skips workspaces being deleted and refuses a database that applied an earlier 000145", async () => {
     const deleting = `${prefix}-deleting`;
     await prisma.workspace.create({
       data: {
