@@ -54,7 +54,7 @@ export type ReviewRequestIngressApplicationDependencies = Readonly<{
   eligibility: ReviewRequestEligibilityPort;
   digest: { digestUtf8(value: string): Promise<string> };
   clock: { now(): Date };
-  reviewDrafts: (repositoryFullName: string) => boolean;
+  reviewDrafts: (workspaceId: string) => Promise<boolean> | boolean;
 }>;
 
 export class ReviewRequestIngressApplicationService {
@@ -92,7 +92,7 @@ export class ReviewRequestIngressApplicationService {
       current.headRepositoryFullName.toLowerCase() !==
         payload.repositoryFullName.toLowerCase() ||
       (current.draft &&
-        !this.dependencies.reviewDrafts(payload.repositoryFullName))
+        !(await this.dependencies.reviewDrafts(payload.workspaceId)))
     ) {
       await this.dependencies.intents.cancelPreAdmission({
         ...payload,
