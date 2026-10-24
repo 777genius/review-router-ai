@@ -1,15 +1,12 @@
 /**
  * Screens of the provider setup visual qualification. A scenario names the
  * route, the signed-in users and, when the state needs interaction, a
- * `prepare` step that runs after the dashboard section rendered. Scenarios
- * whose screens S5/S6 still build stay `pendingUntil` that stage: once the UI
- * lands, write their `prepare` step and drop the marker.
+ * `prepare` step that runs after the dashboard section rendered: it opens
+ * the dialog or list action a user would and leaves the screen to capture.
  */
 import type { Page } from "playwright-core";
-import { dashboardPath } from "../../apps/web/app/dashboard/dashboard-section.js";
 import {
   VISUAL_REPOSITORIES,
-  VISUAL_WORKSPACES,
   visualRepositoryEnabled,
   visualRepositoryFullName,
   type VisualRepositoryKey,
@@ -17,6 +14,21 @@ import {
   type VisualUserKey,
   type VisualWorkspaceKey,
 } from "./fixture-contract.js";
+import {
+  chooseCard,
+  chooseModel,
+  chooseNewProvider,
+  chooseSource,
+  openDialog,
+  openSourceList,
+  providerListRow,
+  repositoryRoute,
+  repositoryRowHeader,
+  repositorySetupPanel,
+  reveal,
+  SOURCE,
+  workspaceRoute,
+} from "./ui.js";
 
 export type VisualTheme = "light" | "dark";
 
@@ -42,8 +54,6 @@ export type VisualScenario = Readonly<{
   widths?: readonly number[];
   /** Whole page by default; dialogs capture the viewport. */
   fullPage?: boolean;
-  /** Listed but not captured until that stage's UI exists. */
-  pendingUntil?: "S5" | "S6";
   /** Deployment flags the screen needs; other runs skip it. */
   requires?: Partial<VisualRunFlags>;
   /** Brings the screen into the state to capture. */
@@ -51,26 +61,6 @@ export type VisualScenario = Readonly<{
   /** Facts recorded in the manifest beside the screenshot. */
   probe?: (context: ScenarioContext) => Promise<unknown>;
 }>;
-
-function workspaceRoute(
-  workspace: VisualWorkspaceKey,
-  section: string,
-  extra: Readonly<Record<string, string>> = {},
-): string {
-  return dashboardPath({
-    section,
-    workspace: VISUAL_WORKSPACES[workspace].slug,
-    ...extra,
-  });
-}
-
-/** The repositories section with one repository's stepper opened. */
-function repositoryRoute(key: VisualRepositoryKey): string {
-  const repository = VISUAL_REPOSITORIES[key];
-  return workspaceRoute(repository.workspace, "repositories", {
-    repository: visualRepositoryFullName(repository),
-  });
-}
 
 /**
  * Step pill of every rendered repository row beside the contract's expected
@@ -145,8 +135,86 @@ function stepperScenario(
   };
 }
 
+/** A dialog screen: viewport only, at the dialog widths. */
+function dialogScenario(
+  scenario: Omit<VisualScenario, "widths" | "fullPage">,
+): VisualScenario {
+  return { ...scenario, widths: DIALOG_WIDTHS, fullPage: false };
+}
+
+/** The provider line above the steps of an opened repository. */
+function openFromStepperLine(
+  repository: VisualRepositoryKey,
+  action = "Use a different provider",
+) {
+  return ({ page }: ScenarioContext) =>
+    openDialog(
+      page,
+      repositorySetupPanel(page, repository).getByRole("button", {
+        name: action,
+      }),
+    );
+}
+
+/** The compact provider line in a repository row. */
+function openFromRow(
+  page: Page,
+  repository: VisualRepositoryKey,
+  action: string,
+) {
+  return openDialog(
+    page,
+    repositoryRowHeader(page, repository).getByRole("button", { name: action }),
+  );
+}
+
+/** Waits until the credential step read the repository secrets. */
+async function credentialStepSettled(page: Page): Promise<void> {
+  await page
+    .getByRole("dialog")
+    .getByText("Checking the repository secrets on GitHub...")
+    .waitFor({ state: "hidden", timeout: 30_000 });
+}
+
+/** Selects repositories in the table for "Configure providers". */
+async function selectRepositories(
+  page: Page,
+  repositories: readonly VisualRepositoryKey[],
+): Promise<void> {
+  for (const key of repositories)
+    await page
+      .getByRole("checkbox", {
+        name: `Select ${visualRepositoryFullName(VISUAL_REPOSITORIES[key])}`,
+      })
+      .check();
+}
+
+/** The member's bulk selection: one repository has the MiMo key, one not. */
+const memberBulkRepositories: readonly VisualRepositoryKey[] = [
+  "mainNeedsSecret",
+  "mainWorkflowUpdate",
+];
+const ownerBulkRepositories: readonly VisualRepositoryKey[] = [
+  "mainSetupPr",
+  "mainMergeSetupPr",
+  "mainNeedsSecret",
+];
+
+async function openBulkDialog({ page, user }: ScenarioContext) {
+  await selectRepositories(
+    page,
+    user === "member" ? memberBulkRepositories : ownerBulkRepositories,
+  );
+  const dialog = await openDialog(
+    page,
+    page.getByRole("button", { name: "Configure providers" }),
+  );
+  if (user === "member") await chooseCard(dialog, "MiMo (server key)");
+  return dialog;
+}
+
 export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
-  // Existing screens: captured now to prove seed, sign-in and capture.
+  // Repository table and the setup steps of every state.
   {
     id: "workspace-repositories",
     title: "Repository table with every stepper state",
@@ -196,6 +264,11 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
     "Repository with rotating Codex (flag on)",
     "mainRotating",
   ),
+  stepperScenario(
+    "stepper-gitlab",
+    "GitLab project: no provider line, setup not available yet",
+    "mainGitLab",
+  ),
   {
     id: "locked-repositories",
     title: "Access rights on: no default, one attached repository",
@@ -205,7 +278,7 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
   },
   {
     id: "empty-repositories",
-    title: "No providers and no default: provider selection required",
+    title: "No providers and no default: table, banner and the one action",
     users: ["owner", "member"],
     route: workspaceRoute("empty", "repositories"),
     probe: repositoryRows("empty"),
@@ -217,140 +290,296 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
     route: workspaceRoute("main", "policy"),
   },
   {
-    id: "workspace-other",
-    title: "Dashboard -> Other (draft reviews; Access rights joins in S6)",
-    users: ["owner", "member"],
-    route: workspaceRoute("main", "other"),
+    id: "workspace-model-no-default",
+    title: "Model section of a workspace without a default",
+    users: ["owner"],
+    route: workspaceRoute("empty", "policy"),
   },
 
-  // S5: unified provider dialog and the provider line.
-  {
+  // The provider dialog, opened from every entry point.
+  dialogScenario({
+    id: "dialog-step3-credential",
+    title:
+      "Original bug: step 3 'Add secret' opens the one dialog for this repository",
+    users: ["owner", "member"],
+    route: repositoryRoute("mainNeedsSecret"),
+    prepare: async ({ page }) => {
+      await openDialog(
+        page,
+        repositorySetupPanel(page, "mainNeedsSecret").getByRole("button", {
+          name: "Add secret",
+        }),
+      );
+      await credentialStepSettled(page);
+    },
+  }),
+  dialogScenario({
     id: "dialog-from-stepper-line",
-    title: "Provider line 'Change' opens the dialog for one repository",
+    title: "Provider line above the steps opens the dialog for one repository",
     users: ["owner"],
     route: repositoryRoute("mainNeedsSecret"),
-    widths: DIALOG_WIDTHS,
-    fullPage: false,
-    pendingUntil: "S5",
-  },
-  {
+    prepare: async (context) => {
+      await openFromStepperLine("mainNeedsSecret")(context);
+    },
+  }),
+  dialogScenario({
     id: "dialog-row-indicator",
-    title: "Row indicator 'Use a different provider' and back to default",
-    users: ["owner"],
-    route: repositoryRoute("mainSetupPr"),
-    widths: DIALOG_WIDTHS,
-    fullPage: false,
-    pendingUntil: "S5",
-  },
-  {
-    id: "dialog-bulk-assign",
-    title: "Table header bulk assign with one conflict",
+    title: "Row line 'Use a different provider' of an inheriting repository",
     users: ["owner"],
     route: workspaceRoute("main", "repositories"),
-    widths: DIALOG_WIDTHS,
-    fullPage: false,
-    pendingUntil: "S5",
-  },
-  {
-    id: "dialog-first-provider-gateway",
-    title: "First provider of an empty workspace via the Account Gateway",
+    prepare: async ({ page }) => {
+      await openFromRow(page, "mainSetupPr", "Use a different provider");
+    },
+  }),
+  dialogScenario({
+    id: "dialog-back-to-default",
+    title: "Repository with its own provider goes back to the default",
     users: ["owner"],
-    route: workspaceRoute("empty", "repositories"),
-    widths: DIALOG_WIDTHS,
-    fullPage: false,
-    pendingUntil: "S5",
-  },
-  {
-    id: "dialog-first-provider-secret",
-    title: "First provider via a GitHub secret (CLI, not found, confirm)",
+    route: workspaceRoute("main", "repositories"),
+    prepare: async ({ page }) => {
+      const dialog = await openFromRow(page, "mainOwnGateway", "Change");
+      await chooseCard(dialog, /^Workspace default:/);
+      await reveal(
+        dialog.getByRole("button", { name: "Use the workspace default" }),
+      );
+    },
+  }),
+  dialogScenario({
+    id: "dialog-new-provider-key",
+    title: "New provider for one repository: a key ReviewRouter saves",
     users: ["owner"],
-    route: workspaceRoute("empty", "repositories"),
-    widths: DIALOG_WIDTHS,
-    fullPage: false,
-    pendingUntil: "S5",
-  },
-  {
+    route: workspaceRoute("main", "repositories"),
+    prepare: async ({ page }) => {
+      const dialog = await openFromRow(
+        page,
+        "mainSetupPr",
+        "Use a different provider",
+      );
+      await chooseNewProvider(dialog);
+      await chooseSource(page, dialog, SOURCE.openRouterKey);
+      await reveal(dialog.getByLabel("API key"));
+    },
+  }),
+  dialogScenario({
     id: "dialog-member-reasons",
-    title: "Member: personal binding and unapplied managed key disabled",
+    title: "Member: providers they cannot use stay visible with the reason",
     users: ["member"],
     route: repositoryRoute("mainNeedsSecret"),
-    widths: DIALOG_WIDTHS,
-    fullPage: false,
-    pendingUntil: "S5",
-  },
-  {
+    prepare: async (context) => {
+      await openFromStepperLine("mainNeedsSecret")(context);
+    },
+  }),
+  dialogScenario({
+    id: "dialog-member-sources",
+    title: "Member: credential sources, disabled ones say why",
+    users: ["member"],
+    route: repositoryRoute("mainNeedsSecret"),
+    prepare: async (context) => {
+      const dialog = await openFromStepperLine("mainNeedsSecret")(context);
+      await chooseNewProvider(dialog);
+      await openSourceList(context.page, dialog);
+    },
+  }),
+  dialogScenario({
+    id: "dialog-bulk-assign",
+    title:
+      "Table header 'Configure providers' (member: refused in one repository)",
+    users: ["owner", "member"],
+    route: workspaceRoute("main", "repositories"),
+    prepare: async (context) => {
+      await openBulkDialog(context);
+    },
+  }),
+  dialogScenario({
+    id: "dialog-bulk-results",
+    title: "Bulk result: set in one repository, refused in the other",
+    users: ["member"],
+    route: workspaceRoute("main", "repositories"),
+    prepare: async (context) => {
+      const dialog = await openBulkDialog(context);
+      await dialog
+        .getByRole("button", {
+          name: `Use for ${memberBulkRepositories.length} repositories`,
+        })
+        .click();
+      await dialog.getByRole("button", { name: "Done" }).waitFor();
+    },
+  }),
+  dialogScenario({
     id: "dialog-locked-member",
-    title: "Member under Access rights: attach refused with the reason",
+    title: "Member under Access rights: choices disabled with the reason",
     users: ["member"],
     route: workspaceRoute("locked", "repositories"),
-    widths: DIALOG_WIDTHS,
-    fullPage: false,
-    pendingUntil: "S5",
-  },
-  {
-    id: "dialog-gitlab",
-    title: "GitLab repository: not available yet",
-    users: ["owner"],
-    route: repositoryRoute("mainGitLab"),
-    widths: DIALOG_WIDTHS,
-    fullPage: false,
-    pendingUntil: "S5",
-  },
-  {
+    prepare: async ({ page }) => {
+      await openFromRow(page, "lockedUnselected", "Choose provider");
+    },
+  }),
+  dialogScenario({
     id: "dialog-rotating-hidden",
-    title: "Rotating Codex hidden while the flag is off",
+    title: "Credential sources without rotating Codex (flag off)",
     users: ["owner"],
     route: repositoryRoute("mainNeedsSecret"),
-    widths: DIALOG_WIDTHS,
-    fullPage: false,
     requires: { rotating: false },
-    pendingUntil: "S5",
-  },
-  {
+    prepare: async (context) => {
+      const dialog = await openFromStepperLine("mainNeedsSecret")(context);
+      await chooseNewProvider(dialog);
+      await openSourceList(context.page, dialog);
+    },
+  }),
+  dialogScenario({
     id: "dialog-rotating-visible",
-    title: "Rotating Codex offered while the flag is on",
+    title: "Credential sources with rotating Codex (flag on)",
     users: ["owner"],
     route: repositoryRoute("mainNeedsSecret"),
-    widths: DIALOG_WIDTHS,
-    fullPage: false,
     requires: { rotating: true },
-    pendingUntil: "S5",
-  },
+    prepare: async (context) => {
+      const dialog = await openFromStepperLine("mainNeedsSecret")(context);
+      await chooseNewProvider(dialog);
+      await openSourceList(context.page, dialog);
+    },
+  }),
+  dialogScenario({
+    id: "dialog-first-provider-gateway",
+    title:
+      "First default of an empty workspace: connected account, none active",
+    users: ["owner"],
+    route: workspaceRoute("empty", "repositories"),
+    prepare: async ({ page }) => {
+      const dialog = await openDialog(
+        page,
+        page.getByRole("button", { name: "Choose default provider" }),
+      );
+      await chooseNewProvider(dialog);
+    },
+  }),
+  dialogScenario({
+    id: "dialog-first-provider-secret",
+    title: "First default of an empty workspace: a GitHub secret",
+    users: ["owner"],
+    route: workspaceRoute("empty", "repositories"),
+    prepare: async ({ page }) => {
+      const dialog = await openDialog(
+        page,
+        page.getByRole("button", { name: "Choose default provider" }),
+      );
+      await chooseNewProvider(dialog);
+      await chooseSource(page, dialog, SOURCE.claudeSecret);
+    },
+  }),
+  dialogScenario({
+    id: "dialog-workspace-default",
+    title: "Model section: change the workspace default",
+    users: ["owner"],
+    route: workspaceRoute("main", "policy"),
+    prepare: async ({ page }) => {
+      await openDialog(page, page.getByRole("button", { name: "Change" }));
+    },
+  }),
+  dialogScenario({
+    id: "dialog-add-provider",
+    title: "Providers: add a provider to the list",
+    users: ["owner"],
+    route: workspaceRoute("main", "providers"),
+    prepare: async ({ page }) => {
+      const dialog = await openDialog(
+        page,
+        page.getByRole("button", { name: "Add provider" }),
+      );
+      await chooseSource(page, dialog, SOURCE.claudeSecret);
+    },
+  }),
+  dialogScenario({
+    id: "dialog-make-default",
+    title: "Providers: make a member's provider the default (admin)",
+    users: ["admin"],
+    route: workspaceRoute("main", "providers"),
+    prepare: async ({ page }) => {
+      await openDialog(
+        page,
+        providerListRow(page, "Member MiMo secret").getByRole("button", {
+          name: "Make default",
+        }),
+      );
+    },
+  }),
+  dialogScenario({
+    id: "dialog-edit-provider",
+    title: "Providers: edit the name and model of the default",
+    users: ["owner"],
+    route: workspaceRoute("main", "providers"),
+    prepare: async ({ page }) => {
+      await openDialog(
+        page,
+        providerListRow(page, "Claude Code (team default)").getByRole(
+          "button",
+          { name: "Edit" },
+        ),
+      );
+    },
+  }),
+  dialogScenario({
+    id: "providers-model-edit-refused",
+    title: "Model edit refused, naming the repository it would break",
+    users: ["owner"],
+    route: workspaceRoute("main", "providers"),
+    requires: { rotating: true },
+    prepare: async ({ page }) => {
+      const dialog = await openDialog(
+        page,
+        providerListRow(page, "Rotating Codex").getByRole("button", {
+          name: "Edit",
+        }),
+      );
+      await chooseModel(dialog, "gpt-5.5");
+      await dialog.getByRole("button", { name: "Save changes" }).click();
+      await dialog.getByRole("alert").waitFor({ timeout: 30_000 });
+    },
+  }),
+  dialogScenario({
+    id: "providers-remove-confirm",
+    title: "Remove an unused provider: the confirmation",
+    users: ["owner"],
+    route: workspaceRoute("main", "providers"),
+    prepare: async ({ page }) => {
+      await openDialog(
+        page,
+        providerListRow(page, "Hosted ChatGPT pool").getByRole("button", {
+          name: "Remove",
+          exact: true,
+        }),
+      );
+    },
+  }),
 
-  // S6: Providers list and Access rights. Routes follow S6's section names.
+  // Providers list and Access rights.
   {
     id: "providers-list",
-    title: "Providers list: default badge, usage, creator row actions",
+    title: "Providers list: default badge, usage, creator, allowed actions",
     users: ["owner", "admin", "member"],
     route: workspaceRoute("main", "providers"),
-    pendingUntil: "S6",
   },
   {
-    id: "providers-archive-refused",
-    title: "Archive of a used provider refused",
-    users: ["owner"],
-    route: workspaceRoute("main", "providers"),
-    pendingUntil: "S6",
+    id: "providers-empty",
+    title: "Providers list of a workspace without providers",
+    users: ["owner", "member"],
+    route: workspaceRoute("empty", "providers"),
   },
   {
-    id: "providers-model-edit-refused",
-    title: "Model edit refused with the repository list",
-    users: ["owner"],
-    route: workspaceRoute("main", "providers"),
-    pendingUntil: "S6",
+    id: "providers-locked",
+    title: "Providers list under Access rights",
+    users: ["admin", "member"],
+    route: workspaceRoute("locked", "providers"),
   },
   {
     id: "access-rights-off",
-    title: "Other -> Access rights off (admin edits, member disabled)",
-    users: ["admin", "member"],
+    title: "Other: Access rights off (owner and admin edit, member disabled)",
+    users: ["owner", "admin", "member"],
     route: workspaceRoute("main", "other"),
-    pendingUntil: "S6",
   },
   {
     id: "access-rights-on",
-    title: "Other -> Access rights on (admin edits, member disabled)",
+    title: "Other: Access rights on (admin edits, member disabled)",
     users: ["admin", "member"],
     route: workspaceRoute("locked", "other"),
-    pendingUntil: "S6",
   },
 ];

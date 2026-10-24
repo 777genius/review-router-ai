@@ -10,6 +10,7 @@ import { join } from "node:path";
 import {
   chromium,
   type Browser,
+  type BrowserContext,
   type Page,
   type Response,
 } from "playwright-core";
@@ -22,12 +23,7 @@ import {
   type VisualTheme,
 } from "./scenarios.js";
 
-export type ShotStatus =
-  | "captured"
-  | "suspect"
-  | "failed"
-  | "pending"
-  | "skipped";
+export type ShotStatus = "captured" | "suspect" | "failed" | "skipped";
 
 export type ShotRecord = Readonly<{
   scenario: string;
@@ -73,12 +69,7 @@ export async function captureScenarios(
 ): Promise<readonly ShotRecord[]> {
   const screensDir = join(input.outDir, "screens");
   await mkdir(screensDir, { recursive: true, mode: 0o700 });
-  const browser = await chromium.launch({
-    headless: true,
-    ...(input.browserExecutable
-      ? { executablePath: input.browserExecutable }
-      : {}),
-  });
+  const browser = await launchVisualBrowser(input.browserExecutable);
   const records: ShotRecord[] = [];
   try {
     for (const scenario of input.scenarios) {
@@ -118,15 +109,19 @@ export async function captureScenarios(
   return records;
 }
 
+export function launchVisualBrowser(
+  executablePath: string | undefined,
+): Promise<Browser> {
+  return chromium.launch({
+    headless: true,
+    ...(executablePath ? { executablePath } : {}),
+  });
+}
+
 function skipReason(
   scenario: VisualScenario,
   flags: VisualRunFlags,
 ): { readonly status: ShotStatus; readonly reason: string } | null {
-  if (scenario.pendingUntil)
-    return {
-      status: "pending",
-      reason: `steps are written once ${scenario.pendingUntil} lands`,
-    };
   for (const [flag, value] of Object.entries(scenario.requires ?? {}))
     if (flags[flag as keyof VisualRunFlags] !== value)
       return {
@@ -136,18 +131,21 @@ function skipReason(
   return null;
 }
 
-async function captureShot(
+/** A signed-in browser page of one fixture user, with the network boundary. */
+export type UserPage = Readonly<{
+  context: BrowserContext;
+  page: Page;
+  pageErrors: string[];
+  consoleErrors: string[];
+  blockedRequests: string[];
+}>;
+
+export async function openUserPage(
   browser: Browser,
-  input: CaptureInput,
-  shot: Readonly<{
-    scenario: VisualScenario;
-    user: VisualUserKey;
-    width: number;
-    theme: VisualTheme;
-    file: string;
-  }>,
-): Promise<ShotRecord> {
-  const { scenario, user, width, theme, file } = shot;
+  input: Pick<CaptureInput, "appUrl" | "sessionCookies">,
+  view: Readonly<{ user: VisualUserKey; width: number; theme: VisualTheme }>,
+): Promise<UserPage> {
+  const { user, width, theme } = view;
   const appOrigin = new URL(input.appUrl).origin;
   const context = await browser.newContext({
     baseURL: input.appUrl,
@@ -161,7 +159,6 @@ async function captureShot(
   const pageErrors: string[] = [];
   const consoleErrors: string[] = [];
   const blockedRequests: string[] = [];
-  const problems: string[] = [];
   try {
     const [name, ...value] = input.sessionCookies[user].split("=");
     await context.addCookies([
@@ -189,13 +186,50 @@ async function captureShot(
     page.on("console", (message) => {
       if (message.type() === "error") consoleErrors.push(message.text());
     });
+    return { context, page, pageErrors, consoleErrors, blockedRequests };
+  } catch (error) {
+    await context.close();
+    throw error;
+  }
+}
+
+/** Opens a route and waits until the dashboard section rendered. */
+export async function gotoDashboard(
+  page: Page,
+  route: string,
+): Promise<Response | null> {
+  const response = await page.goto(route, {
+    waitUntil: "domcontentloaded",
+    timeout: 180_000,
+  });
+  await page.waitForSelector(READY_SELECTOR, { timeout: 120_000 });
+  // Server-rendered controls ignore clicks until the client bundle hydrated.
+  await page
+    .waitForLoadState("networkidle", { timeout: 30_000 })
+    .catch(() => undefined);
+  return response;
+}
+
+async function captureShot(
+  browser: Browser,
+  input: CaptureInput,
+  shot: Readonly<{
+    scenario: VisualScenario;
+    user: VisualUserKey;
+    width: number;
+    theme: VisualTheme;
+    file: string;
+  }>,
+): Promise<ShotRecord> {
+  const { scenario, user, width, theme, file } = shot;
+  const appOrigin = new URL(input.appUrl).origin;
+  const { context, page, pageErrors, consoleErrors, blockedRequests } =
+    await openUserPage(browser, input, { user, width, theme });
+  const problems: string[] = [];
+  try {
     let response: Response | null = null;
     try {
-      response = await page.goto(scenario.route, {
-        waitUntil: "domcontentloaded",
-        timeout: 180_000,
-      });
-      await page.waitForSelector(READY_SELECTOR, { timeout: 120_000 });
+      response = await gotoDashboard(page, scenario.route);
       const scenarioContext: ScenarioContext = {
         page,
         flags: input.flags,
@@ -204,6 +238,9 @@ async function captureShot(
         theme,
       };
       await scenario.prepare?.(scenarioContext);
+      // The last click leaves the pointer over whatever opened there; a
+      // hover style is not part of the state under review.
+      await page.mouse.move(0, 0);
       await settle(page);
       const probe = scenario.probe
         ? await scenario.probe(scenarioContext)
@@ -271,7 +308,7 @@ async function captureShot(
 }
 
 /** Fonts loaded, client requests quiet, layout stable. */
-async function settle(page: Page): Promise<void> {
+export async function settle(page: Page): Promise<void> {
   await page.evaluate(() => document.fonts.ready.then(() => undefined));
   await page
     .waitForLoadState("networkidle", { timeout: 15_000 })
@@ -324,7 +361,7 @@ async function inspectPage(
 }
 
 /** The Next dev indicator is not part of the product. */
-async function hideDevOverlay(page: Page): Promise<void> {
+export async function hideDevOverlay(page: Page): Promise<void> {
   await page.addStyleTag({
     content: "nextjs-portal { display: none !important; }",
   });

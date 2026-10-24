@@ -221,6 +221,8 @@ export type VisualProfile = Readonly<{
   model: string;
   label: string;
   attachTo?: VisualRepositoryKey;
+  /** Review depth of the attach selection, when not the seeded default. */
+  attachReasoningEffort?: "max";
   /** Seeded only when the run enables rotating Codex. */
   requiresRotating?: boolean;
 }>;
@@ -278,13 +280,16 @@ export const VISUAL_PROFILES: Readonly<
     label: "Member MiMo secret",
     attachTo: "mainMemberProfile",
   },
+  // The deepest review depth only the default Codex model supports, so a
+  // model edit of this provider is refused naming the repository.
   rotating: {
     workspace: "main",
     createdBy: "owner",
     credential: { kind: "repository_rotating", repository: "mainRotating" },
-    model: "gpt-5.5",
+    model: "gpt-5.6-sol",
     label: "Rotating Codex",
     attachTo: "mainRotating",
+    attachReasoningEffort: "max",
     requiresRotating: true,
   },
   lockedGateway: {
@@ -540,6 +545,22 @@ export const VISUAL_SELECTION_SETTINGS = {
 } as const;
 
 export const VISUAL_SETUP_BRANCH_HEAD_SHA = "a".repeat(40);
+
+/**
+ * GitHub facts a run changes while the app serves it, read by the GitHub
+ * fixture on every request: the repository Actions secrets that exist, as
+ * `owner/name/SECRET_NAME`. The runner rewrites it after every reseed.
+ */
+export type GitHubFixtureState = Readonly<{
+  repositorySecrets: readonly string[];
+}>;
+
+export function visualRepositorySecretKey(
+  fullName: string,
+  secretName: string,
+): string {
+  return `${fullName}/${secretName}`.toLowerCase();
+}
 
 export type VisualRunFlags = Readonly<{
   /** Deployment flag of rotating Codex; hosted deployments keep it off. */

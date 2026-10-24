@@ -2,8 +2,9 @@
  * Harness-only network boundary of the Next server in the provider setup
  * visual qualification, preloaded with `node --import`. It answers the GitHub
  * REST calls the dashboard makes from the fixture document the runner writes
- * (installation tokens, repository permissions, organization plan, user
- * repository discovery, open setup pull requests), keeps loopback traffic and
+ * (installation tokens, repository metadata and permissions, organization plan, user
+ * repository discovery, open setup pull requests, and which repository
+ * Actions secrets exist from the run's state file), keeps loopback traffic and
  * fails every other external request as offline. Production code runs
  * unchanged; nothing here is reachable outside this preload.
  *
@@ -42,8 +43,22 @@ const GITHUB_API = "https://api.github.com";
 const USER_TOKEN_PREFIX = "rr-visual-fixture-token-";
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 
+/** Facts the runner changes during a run; see GitHubFixtureState. */
+type FixtureState = { readonly repositorySecrets: readonly string[] };
+
 const fixturePath = process.env.PROVIDER_VISUAL_GITHUB_FIXTURE;
+const statePath = process.env.PROVIDER_VISUAL_GITHUB_STATE;
 const networkLog = process.env.PROVIDER_VISUAL_NETWORK_LOG;
+
+/** Read on every request, so a flow can add a secret mid-run. */
+function readState(): FixtureState {
+  if (!statePath) return { repositorySecrets: [] };
+  try {
+    return JSON.parse(readFileSync(statePath, "utf8")) as FixtureState;
+  } catch {
+    return { repositorySecrets: [] };
+  }
+}
 
 if (fixturePath) {
   const fixture = JSON.parse(
@@ -127,6 +142,23 @@ function answerGitHub(
     });
   }
 
+  match = /^\/repos\/([^/]+)\/([^/]+)$/.exec(path);
+  if (match) {
+    const repository = findRepository(fixture, match[1]!, match[2]!);
+    return repository
+      ? json(200, {
+          id: Number(repository.id),
+          name: repository.name,
+          full_name: `${repository.owner}/${repository.name}`,
+          owner: { login: repository.owner },
+          private: true,
+          visibility: "private",
+          archived: false,
+          default_branch: "main",
+        })
+      : json(404, { message: "Not Found" });
+  }
+
   match = /^\/orgs\/([^/]+)$/.exec(path);
   if (match) {
     const org = match[1]!;
@@ -185,6 +217,24 @@ function answerGitHub(
         })
       : json(404, { message: "Not Found" });
   }
+
+  // Secret metadata only; GitHub never returns a secret value.
+  match = /^\/repos\/([^/]+)\/([^/]+)\/actions\/secrets\/([A-Za-z0-9_]+)$/.exec(
+    path,
+  );
+  if (match && match[3] !== "public-key") {
+    const key = `${match[1]}/${match[2]}/${match[3]}`.toLowerCase();
+    return readState().repositorySecrets.includes(key)
+      ? json(200, {
+          name: match[3],
+          created_at: "2026-10-01T00:00:00Z",
+          updated_at: "2026-10-01T00:00:00Z",
+        })
+      : json(404, { message: "Not Found" });
+  }
+  // The fixture organizations keep no organization secrets.
+  if (/^\/orgs\/[^/]+\/actions\/secrets\/[^/]+(\/repositories)?$/.test(path))
+    return json(404, { message: "Not Found" });
 
   // Fixture repositories have no files: no workflow is installed yet.
   if (/^\/repos\/[^/]+\/[^/]+\/contents\/.+$/.test(path))

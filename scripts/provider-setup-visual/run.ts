@@ -7,9 +7,14 @@
  *
  *   PROVIDER_VISUAL_DATABASE_URL=postgresql://user@127.0.0.1:PORT/reviewrouter_provider_setup_visual \
  *   pnpm provider-setup:visual [--out DIR] [--only REGEX] [--rotating] [--port N]
+ *     [--flows | --flows-only]
  *
- * Exit 0: every runnable shot captured cleanly. Exit 2: some shot failed or
- * is suspect (see manifest). Exit 1: setup failed before capturing.
+ * `--flows` also runs the end-to-end flows after the screenshots;
+ * `--flows-only` runs only the flows. `--only` filters both by ID.
+ *
+ * Exit 0: every runnable shot captured cleanly and every flow passed. Exit 2:
+ * a shot failed or is suspect, or a flow failed (see manifest). Exit 1: setup
+ * failed before capturing.
  */
 import { execFile, spawn } from "node:child_process";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
@@ -21,16 +26,22 @@ import { fileURLToPath } from "node:url";
 import { parseArgs, promisify } from "node:util";
 import { defaultSetupBranch } from "../../packages/features/workflow-provisioning/src/index.js";
 import { createPrismaClient } from "../../packages/platform/db/src/index.js";
-import { captureScenarios, type ShotRecord } from "./capture.js";
+import {
+  captureScenarios,
+  launchVisualBrowser,
+  type ShotRecord,
+} from "./capture.js";
 import {
   entriesOf,
   VISUAL_USERS,
   VISUAL_WORKSPACES,
   visualGitHubFixtureDocument,
   visualSharedEnvironment,
+  type GitHubFixtureState,
   type VisualRunFlags,
   type VisualUserKey,
 } from "./fixture-contract.js";
+import { runFlows, type FlowRecord } from "./flows.js";
 import { startNextApp, type NextApp } from "./next-app.js";
 import { VISUAL_SCENARIOS } from "./scenarios.js";
 import {
@@ -48,6 +59,8 @@ type RunOptions = Readonly<{
   only: RegExp | null;
   port: number | null;
   flags: VisualRunFlags;
+  shots: boolean;
+  flows: boolean;
   browserExecutable: string | undefined;
 }>;
 
@@ -55,10 +68,12 @@ async function main(): Promise<void> {
   const options = readOptions();
   await mkdir(options.outDir, { recursive: true, mode: 0o700 });
   const startedAt = new Date().toISOString();
-  const scenarios = VISUAL_SCENARIOS.filter(
-    (scenario) => !options.only || options.only.test(scenario.id),
-  );
-  if (scenarios.length === 0)
+  const scenarios = options.shots
+    ? VISUAL_SCENARIOS.filter(
+        (scenario) => !options.only || options.only.test(scenario.id),
+      )
+    : [];
+  if (scenarios.length === 0 && !options.flows)
     throw new Error("provider_visual_no_scenario_matches");
 
   await migrate(options.databaseUrl, join(options.outDir, "migrate.log"));
@@ -78,7 +93,10 @@ async function main(): Promise<void> {
     }).privateKey,
   };
   const fixturePath = join(options.outDir, "github-fixture.json");
+  const statePath = join(options.outDir, "github-state.json");
   const networkLog = join(options.outDir, "network.jsonl");
+  const writeGitHubState = (state: GitHubFixtureState) =>
+    writeJson(statePath, state);
   await writeJson(
     fixturePath,
     visualGitHubFixtureDocument(options.flags, defaultSetupBranch),
@@ -88,11 +106,15 @@ async function main(): Promise<void> {
   const port = options.port ?? (await freeLoopbackPort());
   const appUrl = `http://127.0.0.1:${port}`;
   let app: NextApp | null = null;
-  let shots: readonly ShotRecord[];
-  // Screens may change providers (and the setup PR refresher records facts),
-  // so every shot starts from a fresh seed of the data set.
-  const reseed = (): Promise<VisualSeedResult> =>
-    seedProviderSetupVisualFixtures(prisma, options.flags);
+  let shots: readonly ShotRecord[] = [];
+  let flows: readonly FlowRecord[] = [];
+  // Screens and flows change providers (and the setup PR refresher records
+  // facts), so each one starts from a fresh seed and its GitHub state.
+  const reseed = async (): Promise<VisualSeedResult> => {
+    const seed = await seedProviderSetupVisualFixtures(prisma, options.flags);
+    await writeGitHubState(seed.github);
+    return seed;
+  };
   try {
     await writeJson(join(options.outDir, "seed.json"), await reseed());
     app = await startNextApp({
@@ -118,30 +140,57 @@ async function main(): Promise<void> {
         GITHUB_APP_CLIENT_SECRET: secrets.githubClient,
         GITHUB_APP_PRIVATE_KEY: secrets.githubAppKey,
         PROVIDER_VISUAL_GITHUB_FIXTURE: fixturePath,
+        PROVIDER_VISUAL_GITHUB_STATE: statePath,
         PROVIDER_VISUAL_NETWORK_LOG: networkLog,
       },
     });
     const sessionCookies = await createSessionCookies(secrets.auth);
     await warmUp(appUrl, sessionCookies.owner);
-    shots = await captureScenarios({
-      appUrl,
-      outDir: options.outDir,
-      flags: options.flags,
-      scenarios,
-      sessionCookies,
-      beforeShot: async () => {
-        await reseed();
-      },
-      ...(options.browserExecutable
-        ? { browserExecutable: options.browserExecutable }
-        : {}),
-    });
+    if (scenarios.length > 0)
+      shots = await captureScenarios({
+        appUrl,
+        outDir: options.outDir,
+        flags: options.flags,
+        scenarios,
+        sessionCookies,
+        beforeShot: async () => {
+          await reseed();
+        },
+        ...(options.browserExecutable
+          ? { browserExecutable: options.browserExecutable }
+          : {}),
+      });
+    if (options.flows) {
+      const browser = await launchVisualBrowser(options.browserExecutable);
+      try {
+        flows = await runFlows(
+          {
+            browser,
+            appUrl,
+            sessionCookies,
+            prisma,
+            flags: options.flags,
+            outDir: options.outDir,
+            reset: reseed,
+            writeGitHubState,
+          },
+          options.only,
+        );
+      } finally {
+        await browser.close();
+      }
+    }
   } finally {
     await app?.stop();
     await prisma.$disconnect();
   }
 
   const summary = countBy(shots.map((shot) => shot.status));
+  const flowSummary = {
+    pass: flows.filter((flow) => flow.status === "pass").length,
+    fail: flows.filter((flow) => flow.status === "fail").length,
+    skipped: flows.filter((flow) => flow.status === "skipped").length,
+  };
   await writeJson(join(options.outDir, "manifest.json"), {
     startedAt,
     finishedAt: new Date().toISOString(),
@@ -149,13 +198,16 @@ async function main(): Promise<void> {
     appUrl,
     flags: options.flags,
     summary,
+    flowSummary,
     network: summarizeNetwork(await readFile(networkLog, "utf8")),
     shots,
+    flows,
   });
   process.stdout.write(
-    `${JSON.stringify({ outDir: options.outDir, summary })}\n`,
+    `${JSON.stringify({ outDir: options.outDir, summary, flowSummary })}\n`,
   );
-  if (summary.failed || summary.suspect) process.exitCode = 2;
+  if (summary.failed || summary.suspect || flowSummary.fail)
+    process.exitCode = 2;
 }
 
 function readOptions(): RunOptions {
@@ -165,6 +217,8 @@ function readOptions(): RunOptions {
       only: { type: "string" },
       port: { type: "string" },
       rotating: { type: "boolean", default: false },
+      flows: { type: "boolean", default: false },
+      "flows-only": { type: "boolean", default: false },
     },
   });
   return {
@@ -182,6 +236,8 @@ function readOptions(): RunOptions {
     only: values.only ? new RegExp(values.only) : null,
     port: values.port ? Number(values.port) : null,
     flags: { rotating: values.rotating ?? false },
+    shots: !values["flows-only"],
+    flows: Boolean(values.flows || values["flows-only"]),
     browserExecutable: process.env.PROVIDER_VISUAL_BROWSER_EXECUTABLE,
   };
 }
@@ -303,7 +359,6 @@ function countBy(values: readonly string[]): Record<string, number> {
     captured: 0,
     suspect: 0,
     failed: 0,
-    pending: 0,
     skipped: 0,
   };
   for (const value of values) counts[value] = (counts[value] ?? 0) + 1;

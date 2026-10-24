@@ -25,16 +25,17 @@ import {
   PrismaReviewConfigurationRepository,
   PrismaReviewPolicyHeadReader,
   PrismaWorkspaceProviderProfileRepository,
-  providerSelectionAuthority,
   resolveEffectiveReviewConfigurations,
-  saveRepositoryReviewPolicy,
   setWorkspaceDefaultProvider,
-  STORED_REVIEW_POLICY_SCHEMA_VERSION,
+  type EffectiveReviewConfigurationValidatorPort,
   type ProviderCredentialRequest,
+  type ProviderCredentialSource,
   type ProviderProfileActor,
   type ProviderRepositoryCapability,
+  type ProviderSelectionDraft,
   type ReviewConfiguration,
 } from "../../packages/features/review-config/src/index.js";
+import { getProviderAuthModeMetadata } from "../../packages/features/review-providers/src/index.js";
 import {
   defaultSetupBranch,
   defaultWorkflowPath,
@@ -57,7 +58,9 @@ import {
   visualGitHubPermission,
   visualRepositoryEnabled,
   visualRepositoryFullName,
+  visualRepositorySecretKey,
   visualSharedEnvironment,
+  type GitHubFixtureState,
   type VisualCredential,
   type VisualProfileKey,
   type VisualRepository,
@@ -76,6 +79,8 @@ export type VisualSeedResult = Readonly<{
     configStatus: string;
     authMode: string | null;
   }>[];
+  /** What the GitHub fixture answers: the confirmed secrets exist. */
+  github: GitHubFixtureState;
 }>;
 
 const FIXTURE_AVATAR = (fill: string) =>
@@ -115,9 +120,11 @@ export async function seedProviderSetupVisualFixtures(
     flags,
     personalAccountsEnabled: readPersonalAccountSharingEnabled(environment),
   });
+  const repositorySecrets: string[] = [];
   return {
     profileIds,
-    repositories: await seedSetupFacts(prisma, flags),
+    repositories: await seedSetupFacts(prisma, flags, repositorySecrets),
+    github: { repositorySecrets },
   };
 }
 
@@ -142,6 +149,7 @@ async function seedProviderRegistry(
       VISUAL_USERS[actor].id,
     ),
     policyHeads: new PrismaReviewPolicyHeadReader(prisma),
+    validator: fixtureValidator,
   });
   const profileIds: Partial<Record<VisualProfileKey, string>> = {};
 
@@ -152,37 +160,37 @@ async function seedProviderRegistry(
     if (profile.attachTo) {
       // Created inside the attach flow: one decision for profile and attach.
       const repository = VISUAL_REPOSITORIES[profile.attachTo];
-      await saveRepositoryReviewPolicy(
+      const draft = attachDraft(workspaceId, profile.credential, {
+        credential,
+        model: profile.model,
+        label: profile.label,
+      });
+      const [result] = await assignProviderProfileToRepositories(
         {
-          target: {
-            scope: "repository",
-            workspaceId,
-            repositoryId: repository.id,
+          workspaceId,
+          actor: providerActor(profile.createdBy),
+          profileId: draft.draft.draftId,
+          settings: {
+            ...VISUAL_SELECTION_SETTINGS,
+            ...(profile.attachReasoningEffort
+              ? { reasoningEffort: profile.attachReasoningEffort }
+              : {}),
           },
-          policy: {
-            schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
-            providers: [{ profileId: "draft-0", ...VISUAL_SELECTION_SETTINGS }],
-          },
-          expectedVersion: null,
-          selectionAuthority: providerSelectionAuthority({
-            actor: providerActor(profile.createdBy),
-            repositoryCapability: repositoryCapability(
-              profile.createdBy,
-              repository,
-            ),
-          }),
-          profileDrafts: [
+          draft,
+          repositories: [
             {
-              draftId: "draft-0",
-              credential,
-              model: profile.model,
-              label: profile.label,
+              repositoryId: repository.id,
+              capability: repositoryCapability(profile.createdBy, repository),
             },
           ],
         },
         selections(profile.createdBy),
       );
-      profileIds[key] = await createdProfileId(prisma, workspaceId, profile);
+      if (result?.status !== "applied" || !result.profileId)
+        throw new Error(
+          `provider_visual_attach_failed:${key}:${JSON.stringify(result)}`,
+        );
+      profileIds[key] = result.profileId;
       continue;
     }
     const { profile: created } = await createWorkspaceProviderProfile(
@@ -469,6 +477,7 @@ async function seedCredentials(prisma: PrismaClient): Promise<void> {
 async function seedSetupFacts(
   prisma: PrismaClient,
   flags: VisualRunFlags,
+  repositorySecrets: string[],
 ): Promise<VisualSeedResult["repositories"]> {
   const report: VisualSeedResult["repositories"][number][] = [];
   const workspaceKeys = new Set<VisualWorkspaceKey>(
@@ -512,7 +521,7 @@ async function seedSetupFacts(
         ),
       });
       if (repository.secretConfirmed && config)
-        for (const provider of config.providers)
+        for (const provider of config.providers) {
           await prisma.providerSetupState.create({
             data: {
               workspaceId,
@@ -523,6 +532,16 @@ async function seedSetupFacts(
               state: "configured",
             },
           });
+          for (const secretName of getProviderAuthModeMetadata(
+            provider.authMode,
+          ).secretNames)
+            repositorySecrets.push(
+              visualRepositorySecretKey(
+                visualRepositoryFullName(repository),
+                secretName,
+              ),
+            );
+        }
     }
   }
   return report;
@@ -622,21 +641,58 @@ function requiredProfileId(
   return id;
 }
 
-async function createdProfileId(
-  prisma: PrismaClient,
+/**
+ * The dashboard validates a candidate with the network Gateway catalog and
+ * context tools before each selection write. The fixture has neither, so the
+ * seed writes the states the dashboard stored while they were reachable; the
+ * write still checks the policy, the stored references and its own digest.
+ */
+const fixtureValidator: EffectiveReviewConfigurationValidatorPort = {
+  validate: async () => undefined,
+};
+
+/**
+ * A provider created inside an attach flow, as the dialog's "Add a new
+ * provider" sends it: the request and the in-memory profile it resolves to.
+ */
+function attachDraft(
   workspaceId: string,
-  profile: (typeof VISUAL_PROFILES)[VisualProfileKey],
-): Promise<string> {
-  const row = await prisma.workspaceProviderProfile.findFirstOrThrow({
-    where: {
+  credential: VisualCredential,
+  request: Readonly<{
+    credential: ProviderCredentialRequest;
+    model: string;
+    label: string;
+  }>,
+): ProviderSelectionDraft {
+  const draftId = "draft-provider";
+  const source: ProviderCredentialSource =
+    credential.kind === "user_ci_secret"
+      ? { kind: "user_ci_secret", authMode: credential.authMode }
+      : credential.kind === "repository_rotating"
+        ? {
+            kind: "repository_rotating",
+            authMode: "codex_subscription_oauth_rotating",
+            repositoryId: VISUAL_REPOSITORIES[credential.repository].id,
+          }
+        : unsupportedAttachCredential(credential.kind);
+  return {
+    draft: { draftId, ...request },
+    profile: {
+      id: draftId,
       workspaceId,
-      label: profile.label,
+      createdByUserId: null,
+      credential: source,
+      model: request.model,
+      label: request.label,
       archivedAt: null,
-      createdByUserId: VISUAL_USERS[profile.createdBy].id,
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
     },
-    select: { id: true },
-  });
-  return row.id;
+  };
+}
+
+function unsupportedAttachCredential(kind: string): never {
+  throw new Error(`provider_visual_attach_credential_unsupported:${kind}`);
 }
 
 async function main(): Promise<void> {
