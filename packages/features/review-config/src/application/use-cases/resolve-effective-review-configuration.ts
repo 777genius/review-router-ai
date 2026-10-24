@@ -61,6 +61,13 @@ export async function resolveEffectiveReviewConfigurations(
   Readonly<{
     workspace: EffectiveReviewConfiguration;
     repositories: ReadonlyMap<string, EffectiveReviewConfiguration>;
+    /**
+     * The stored workspace document, also when it selects no default; null
+     * when there is none or it cannot be read in the current format.
+     */
+    workspacePolicy: WorkspaceReviewPolicy | null;
+    /** Each repository's stored document, null as for the workspace. */
+    repositoryPolicies: ReadonlyMap<string, RepositoryReviewPolicy | null>;
   }>
 > {
   const repositoryIds = [...new Set(input.repositoryIds)];
@@ -74,6 +81,18 @@ export async function resolveEffectiveReviewConfigurations(
   );
   return {
     workspace,
+    workspacePolicy: heads.workspace
+      ? parseStoredReviewPolicy("workspace", heads.workspace)
+      : null,
+    repositoryPolicies: new Map(
+      repositoryIds.map((repositoryId) => {
+        const head = heads.repositories.get(repositoryId);
+        return [
+          repositoryId,
+          head ? parseStoredReviewPolicy("repository", head) : null,
+        ] as const;
+      }),
+    ),
     repositories: new Map(
       repositoryIds.map(
         (repositoryId) =>

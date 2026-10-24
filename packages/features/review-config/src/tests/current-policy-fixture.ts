@@ -165,9 +165,17 @@ export function systemPolicyWriteFixture(
     draftId: `draft-${index}`,
     credential: providerCredentialRequestFor(provider, {
       repositoryId,
-      managedApiKey: (authMode) =>
-        authMode !== "mimo_token_plan_api_key" ||
-        options.managedMimoKey === true,
+      // Only the request's credential kind matters here; the write resolves
+      // the stored key itself.
+      managedApiKeys: {
+        keyIds: new Map([
+          ["openrouter", "fixture-openrouter-key"],
+          ...(options.managedMimoKey === true
+            ? [["mimo", "fixture-mimo-key"] as const]
+            : []),
+        ]),
+        applied: () => true,
+      },
     }),
     model: provider.model,
     label: null,

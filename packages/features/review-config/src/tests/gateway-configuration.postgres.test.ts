@@ -251,7 +251,12 @@ describe.skipIf(!enabled)(
           adapter: new PrismaPg(target),
           transactionOptions: { maxWait: 10_000, timeout: 20_000 },
         });
-        const configs = new PrismaReviewConfigurationRepository(prisma);
+        const configs = new PrismaReviewConfigurationRepository(
+          prisma,
+          undefined,
+          false,
+          undefined,
+        );
         const workspace = { scope: "workspace", workspaceId: "c2b-w" } as const;
         await prisma.repositoryConnection.create({
           data: {
@@ -694,7 +699,12 @@ describe.skipIf(!enabled)(
           transactionOptions: { maxWait: 10_000, timeout: 20_000 },
         });
         prisma = refetched;
-        const fresh = new PrismaReviewConfigurationRepository(refetched);
+        const fresh = new PrismaReviewConfigurationRepository(
+          refetched,
+          undefined,
+          false,
+          undefined,
+        );
         expect(await fresh.findLatest(repository)).toEqual(saved);
         expect((await fresh.findLatest(workspace))?.config).toEqual(config);
         const next = await fresh.saveNextVersion({
@@ -1083,7 +1093,12 @@ describe.skipIf(!enabled)(
         expect(
           await refetched.$transaction(async (tx) => {
             const transactionConfigs =
-              new PrismaReviewConfigurationTransactionRepository(tx);
+              new PrismaReviewConfigurationTransactionRepository(
+                tx,
+                undefined,
+                false,
+                undefined,
+              );
             expect(
               await transactionConfigs.findLatest(clearedTarget),
             ).toMatchObject({ source: "workspace", version: 2, config });

@@ -9,15 +9,19 @@ import {
 } from "../../domain/provider-management-policy";
 import {
   defaultWorkspaceReviewPolicy,
+  fitExecutionLimits,
   parseRepositoryReviewPolicy,
+  parseWorkspaceReviewPolicy,
   reviewProviderSelectionSchema,
   resolveEffectiveReviewPolicy,
   STORED_REVIEW_POLICY_SCHEMA_VERSION,
   withProviderSelections,
   type EffectiveReviewPolicy,
   type RepositoryReviewPolicy,
+  type RepositoryReviewSettings,
   type ReviewProviderSelection,
   type WorkspaceReviewPolicy,
+  type WorkspaceReviewSettings,
 } from "../../domain/review-policy-document";
 import type { WorkspaceProviderProfile } from "../../domain/workspace-provider-profile";
 import {
@@ -50,10 +54,14 @@ export interface EffectiveReviewConfigurationValidatorPort {
   ): Promise<void>;
 }
 
+/**
+ * Every signed-in selection write validates its candidate with the caller's
+ * checks and then requires the write to materialize exactly that result.
+ */
 type SelectionDependencies = Readonly<{
   configurations: ReviewConfigurationRepositoryPort;
   policyHeads: ReviewPolicyHeadReaderPort;
-  validator?: EffectiveReviewConfigurationValidatorPort;
+  validator: EffectiveReviewConfigurationValidatorPort;
 }>;
 
 /** One provider selection without its profile, as a request supplies it. */
@@ -61,6 +69,17 @@ export type ProviderSelectionSettings = Omit<
   ReviewProviderSelection,
   "profileId"
 >;
+
+/**
+ * A provider a selection write creates (or finds by its identity) together
+ * with the selection naming it by `draft.draftId`. `profile` is the in-memory
+ * profile the draft resolves to, so the candidate configuration is validated
+ * before the write; the write itself resolves the stored references again.
+ */
+export type ProviderSelectionDraft = Readonly<{
+  draft: ProviderProfileDraft;
+  profile: WorkspaceProviderProfile;
+}>;
 
 const MAX_SELECTION_ATTEMPTS = 3;
 
@@ -204,12 +223,15 @@ export async function setWorkspaceDefaultProvider(
     actor: ProviderProfileActor;
     /** Null clears the default. */
     selection: ReviewProviderSelection | null;
+    /** A new provider the selection names by its draft ID. */
+    draft?: ProviderSelectionDraft;
   }>,
   dependencies: SelectionDependencies,
 ) {
   const selection = input.selection
     ? reviewProviderSelectionSchema.parse(input.selection)
     : null;
+  const draft = draftFor(selection, input.draft);
   const target = {
     scope: "workspace" as const,
     workspaceId: input.workspaceId,
@@ -219,10 +241,9 @@ export async function setWorkspaceDefaultProvider(
     const current = heads.workspace
       ? requireCurrent(parseStoredReviewPolicy("workspace", heads.workspace))
       : defaultWorkspaceReviewPolicy();
-    const next = withProviderSelections(
-      current,
-      selection ? [selection] : null,
-    );
+    const next = selection
+      ? fitExecutionLimits(withProviderSelections(current, [selection]), 1)
+      : withProviderSelections(current, null);
     const [saved] = await dependencies.configurations.saveNextVersions({
       workspaceId: input.workspaceId,
       writes: [
@@ -230,16 +251,24 @@ export async function setWorkspaceDefaultProvider(
           target,
           policy: next,
           expectedVersion: heads.workspace?.version ?? null,
-          ...(await validated(target, { workspacePolicy: next }, dependencies)),
+          ...(await validated(
+            target,
+            {
+              workspacePolicy: next,
+              ...(draft ? { profiles: [draft.profile] } : {}),
+            },
+            dependencies,
+          )),
         },
       ],
       selectionAuthority: providerSelectionAuthority({ actor: input.actor }),
+      ...(draft ? { profileDrafts: [draft.draft] } : {}),
       audit: {
         actor: input.actor.auditActor,
         action: selection
           ? "provider_selection.default_set"
           : "provider_selection.default_cleared",
-        metadata: selection ? { profileId: selection.profileId } : {},
+        metadata: selection && !draft ? { profileId: selection.profileId } : {},
       },
     });
     return saved!;
@@ -247,59 +276,135 @@ export async function setWorkspaceDefaultProvider(
 }
 
 /**
- * Saves a repository document submitted by a form. A workspace without a
- * document gets one with built-in settings and no default in the same
- * transaction, so selecting a provider never needs workspace settings first.
+ * Saves the workspace settings of the Models form. The stored default
+ * provider stays as it is, so a form opened before a default change never
+ * reverts it; a workspace without a document gets one, and a retired document
+ * is replaced (its selection cannot be read, so none is kept).
  */
-export async function saveRepositoryReviewPolicy(
+export async function saveWorkspaceReviewSettings(
   input: Readonly<{
-    target: Extract<ReviewConfigurationTarget, { scope: "repository" }>;
-    policy: RepositoryReviewPolicy;
+    workspaceId: string;
+    actor: ProviderProfileActor;
+    settings: WorkspaceReviewSettings;
+    /** The version the form was opened with; null when there was none. */
     expectedVersion: number | null;
-    expectedEffectivePolicyDigest?: string | null;
-    selectionAuthority?: ProviderSelectionAuthority;
-    profileDrafts?: readonly ProviderProfileDraft[];
   }>,
-  dependencies: Pick<SelectionDependencies, "configurations" | "policyHeads">,
+  dependencies: SelectionDependencies,
 ): Promise<SavedReviewPolicy> {
-  const heads = await dependencies.policyHeads.readPolicyHeads(input.target);
-  const saved = await dependencies.configurations.saveNextVersions({
-    workspaceId: input.target.workspaceId,
+  const target = {
+    scope: "workspace" as const,
+    workspaceId: input.workspaceId,
+  };
+  const heads = await dependencies.policyHeads.readPolicyHeads(target);
+  const current = heads.workspace
+    ? parseStoredReviewPolicy("workspace", heads.workspace)
+    : null;
+  const next = withProviderSelections(
+    parseWorkspaceReviewPolicy({
+      ...input.settings,
+      schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
+    }),
+    current?.providers ?? null,
+  );
+  const [saved] = await dependencies.configurations.saveNextVersions({
+    workspaceId: input.workspaceId,
     writes: [
-      ...(heads.workspace
+      {
+        target,
+        policy: next,
+        expectedVersion: input.expectedVersion,
+        ...(await validated(target, { workspacePolicy: next }, dependencies)),
+      },
+    ],
+    selectionAuthority: providerSelectionAuthority({ actor: input.actor }),
+  });
+  return saved!;
+}
+
+/**
+ * Saves the repository overrides of its settings form; an empty set removes
+ * them all. The repository's own provider selection stays as it is, and a
+ * retired document is replaced, so the repository then follows the default.
+ * A workspace without a document gets one with built-in settings and no
+ * default in the same transaction.
+ */
+export async function saveRepositoryReviewSettings(
+  input: Readonly<{
+    workspaceId: string;
+    actor: ProviderProfileActor;
+    repository: ProviderRepositoryFacts;
+    settings: RepositoryReviewSettings;
+    /** The version the form was opened with; null when there was none. */
+    expectedVersion: number | null;
+  }>,
+  dependencies: SelectionDependencies,
+): Promise<SavedReviewPolicy> {
+  const target = {
+    scope: "repository" as const,
+    workspaceId: input.workspaceId,
+    repositoryId: input.repository.repositoryId,
+  };
+  const heads = await dependencies.policyHeads.readPolicyHeads(target);
+  const workspace = heads.workspace
+    ? requireCurrent(parseStoredReviewPolicy("workspace", heads.workspace))
+    : null;
+  const current = heads.repository
+    ? parseStoredReviewPolicy("repository", heads.repository)
+    : null;
+  const next = withProviderSelections(
+    parseRepositoryReviewPolicy({
+      ...input.settings,
+      schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
+    }),
+    current?.providers ?? null,
+  );
+  const saved = await dependencies.configurations.saveNextVersions({
+    workspaceId: input.workspaceId,
+    writes: [
+      ...(workspace
         ? []
         : [
             {
               target: {
                 scope: "workspace" as const,
-                workspaceId: input.target.workspaceId,
+                workspaceId: input.workspaceId,
               },
               policy: defaultWorkspaceReviewPolicy(),
               expectedVersion: null,
             },
           ]),
       {
-        target: input.target,
-        policy: input.policy,
+        target,
+        policy: next,
         expectedVersion: input.expectedVersion,
-        ...(input.expectedEffectivePolicyDigest === undefined
-          ? {}
-          : {
-              expectedEffectivePolicyDigest:
-                input.expectedEffectivePolicyDigest,
-            }),
+        ...(await validated(
+          target,
+          {
+            ...(workspace
+              ? {}
+              : { workspacePolicy: defaultWorkspaceReviewPolicy() }),
+            repositoryPolicy: next,
+          },
+          dependencies,
+        )),
       },
     ],
-    ...(input.selectionAuthority
-      ? { selectionAuthority: input.selectionAuthority }
-      : {}),
-    ...(input.profileDrafts ? { profileDrafts: input.profileDrafts } : {}),
+    selectionAuthority: providerSelectionAuthority({
+      actor: input.actor,
+      repositoryCapability: input.repository.capability,
+    }),
   });
   return saved.at(-1)!;
 }
 
 export type ProviderSelectionAssignment =
-  | Readonly<{ repositoryId: string; status: "applied"; version: number }>
+  | Readonly<{
+      repositoryId: string;
+      status: "applied";
+      version: number;
+      /** The selected profile; a created one when the request was a draft. */
+      profileId: string | null;
+    }>
   | Readonly<{
       repositoryId: string;
       status: "denied";
@@ -318,32 +423,45 @@ export async function assignProviderProfileToRepositories(
   input: Readonly<{
     workspaceId: string;
     actor: ProviderProfileActor;
+    /** An existing profile, or the draft ID of `draft`. */
     profileId: string;
     settings: ProviderSelectionSettings;
+    /**
+     * A new provider: created with the first assignment that succeeds, as one
+     * decision with that attach; later repositories select the created one.
+     */
+    draft?: ProviderSelectionDraft;
     /** Verified capability of the actor on each repository. */
     repositories: readonly ProviderRepositoryFacts[];
   }>,
   dependencies: SelectionDependencies,
 ): Promise<readonly ProviderSelectionAssignment[]> {
-  const selection = reviewProviderSelectionSchema.parse({
+  let selection = reviewProviderSelectionSchema.parse({
     ...input.settings,
     profileId: input.profileId,
   });
+  let draft = draftFor(selection, input.draft);
   const results: ProviderSelectionAssignment[] = [];
-  for (const repository of input.repositories)
-    results.push(
-      await assignmentResult(repository.repositoryId, () =>
-        saveRepositorySelection(
-          {
-            workspaceId: input.workspaceId,
-            actor: input.actor,
-            repository,
-            selections: [selection],
-          },
-          dependencies,
-        ),
+  for (const repository of input.repositories) {
+    const pending = draft;
+    const result = await assignmentResult(repository.repositoryId, () =>
+      saveRepositorySelection(
+        {
+          workspaceId: input.workspaceId,
+          actor: input.actor,
+          repository,
+          selections: [selection],
+          ...(pending ? { draft: pending } : {}),
+        },
+        dependencies,
       ),
     );
+    if (pending && result.status === "applied" && result.profileId) {
+      selection = { ...selection, profileId: result.profileId };
+      draft = undefined;
+    }
+    results.push(result);
+  }
   return results;
 }
 
@@ -368,9 +486,11 @@ async function saveRepositorySelection(
     actor: ProviderProfileActor;
     repository: ProviderRepositoryFacts;
     selections: readonly ReviewProviderSelection[] | null;
+    draft?: ProviderSelectionDraft;
   }>,
   dependencies: SelectionDependencies,
-) {
+): Promise<SavedReviewPolicy> {
+  const { draft } = input;
   const target = {
     scope: "repository" as const,
     workspaceId: input.workspaceId,
@@ -386,7 +506,13 @@ async function saveRepositorySelection(
       : parseRepositoryReviewPolicy({
           schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
         });
-    const next = withProviderSelections(current, input.selections);
+    // The repository's own limits follow the providers it reviews with now.
+    const providerCount =
+      input.selections?.length ?? workspace?.providers?.length ?? 0;
+    const next = fitExecutionLimits(
+      withProviderSelections(current, input.selections),
+      providerCount,
+    );
     const writes: ReviewPolicyWrite[] = [];
     // The first attach creates the workspace document, never a default.
     if (!workspace)
@@ -406,6 +532,7 @@ async function saveRepositorySelection(
             ? {}
             : { workspacePolicy: defaultWorkspaceReviewPolicy() }),
           repositoryPolicy: next,
+          ...(draft ? { profiles: [draft.profile] } : {}),
         },
         dependencies,
       )),
@@ -417,30 +544,45 @@ async function saveRepositorySelection(
         actor: input.actor,
         repositoryCapability: input.repository.capability,
       }),
+      ...(draft ? { profileDrafts: [draft.draft] } : {}),
       audit: {
         actor: input.actor.auditActor,
         action: input.selections
           ? "provider_selection.assigned"
           : "provider_selection.cleared",
-        metadata: input.selections
-          ? { profileId: input.selections[0]!.profileId }
-          : {},
+        metadata:
+          input.selections && !draft
+            ? { profileId: input.selections[0]!.profileId }
+            : {},
       },
     });
     return saved.at(-1)!;
   });
 }
 
-/** The validated digest a write must reproduce, when a validator runs. */
+/** The draft a selection names, refused when the two do not match. */
+function draftFor(
+  selection: ReviewProviderSelection | null,
+  draft: ProviderSelectionDraft | undefined,
+): ProviderSelectionDraft | undefined {
+  if (!draft) return undefined;
+  if (
+    selection?.profileId !== draft.draft.draftId ||
+    draft.profile.id !== draft.draft.draftId
+  )
+    throw new Error("provider_selection_draft_mismatch");
+  return draft;
+}
+
+/** Validates the candidate; the write must reproduce its digest. */
 async function validated(
   target: ReviewConfigurationTarget,
   replacement: Pick<
     Parameters<typeof previewEffectiveReviewConfiguration>[0],
-    "workspacePolicy" | "repositoryPolicy"
+    "workspacePolicy" | "repositoryPolicy" | "profiles"
   >,
   dependencies: SelectionDependencies,
-): Promise<{ readonly expectedEffectivePolicyDigest?: string | null }> {
-  if (!dependencies.validator) return {};
+): Promise<{ readonly expectedEffectivePolicyDigest: string | null }> {
   const candidate = await previewEffectiveReviewConfiguration(
     { target, ...replacement },
     dependencies,
@@ -473,10 +615,16 @@ async function withSelectionRetry<Result>(
 
 async function assignmentResult(
   repositoryId: string,
-  run: () => Promise<{ readonly version: number }>,
+  run: () => Promise<SavedReviewPolicy>,
 ): Promise<ProviderSelectionAssignment> {
   try {
-    return { repositoryId, status: "applied", version: (await run()).version };
+    const saved = await run();
+    return {
+      repositoryId,
+      status: "applied",
+      version: saved.version,
+      profileId: saved.configuration?.selections[0]?.profileId ?? null,
+    };
   } catch (error) {
     if (error instanceof ProviderManagementDeniedError)
       return { repositoryId, status: "denied", reason: error.reason };

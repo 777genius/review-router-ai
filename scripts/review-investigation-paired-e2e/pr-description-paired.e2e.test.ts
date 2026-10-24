@@ -81,6 +81,9 @@ const hash = (value: string | Uint8Array) =>
       };
       await new PrismaReviewConfigurationRepository(
         fixture.prisma,
+        undefined,
+        false,
+        undefined,
       ).saveNextVersion({
         target: workspaceTarget,
         expectedVersion: 1,

@@ -37,6 +37,8 @@ const fixtures = vi.hoisted(() => {
           string,
           EffectiveReviewConfiguration
         >;
+        readonly workspacePolicy: null;
+        readonly repositoryPolicies: ReadonlyMap<string, null>;
       }> => {
         const missing = {
           status: "provider_selection_required",
@@ -48,6 +50,8 @@ const fixtures = vi.hoisted(() => {
           repositories: new Map(
             input.repositoryIds.map((repositoryId) => [repositoryId, missing]),
           ),
+          workspacePolicy: null,
+          repositoryPolicies: new Map(),
         };
       },
     ),
@@ -142,6 +146,13 @@ vi.mock("../../src/server/prisma", () => ({
       findMany: fixtures.spies.requestedCandidates,
     },
   }),
+}));
+vi.mock("./provider-setup-actions", () => ({
+  inheritWorkspaceDefaultProviderAction: vi.fn(),
+  saveProviderSetupAction: vi.fn(),
+}));
+vi.mock("../../src/server/dashboard-provider-selections", () => ({
+  dashboardProviderProfiles: () => ({ list: async () => [] }),
 }));
 vi.mock("../../src/server/dashboard-mutations", () => ({
   createGitHubAppInstallationOctokit: async () => ({
@@ -347,6 +358,8 @@ describe("dashboard server loading boundaries", () => {
           },
         ],
       ]),
+      workspacePolicy: null,
+      repositoryPolicies: new Map([["repo-a", null]]),
     });
     const data = await loadDashboardSectionData(
       { ...workspace, hasWorkspaceWideAccess: false },
@@ -366,6 +379,7 @@ describe("dashboard server loading boundaries", () => {
         effective: null,
         status: "resave_required",
         expectedVersion: 11,
+        policy: null,
       },
     ]);
   });
@@ -398,6 +412,8 @@ describe("dashboard server loading boundaries", () => {
           },
         ],
       ]),
+      workspacePolicy: null,
+      repositoryPolicies: new Map([["repo-a", null]]),
     });
     const data = await loadDashboardSectionData(
       { ...workspace, hasWorkspaceWideAccess: false },
@@ -753,7 +769,6 @@ describe("dashboard server loading boundaries", () => {
           workspaceKey="acme"
           appInstallUrl={null}
           modelOptions={[]}
-          claudeCodeProviderEnabled={false}
         />,
       );
       expect(html).toContain("Accounts in acme");
@@ -786,7 +801,6 @@ describe("dashboard server loading boundaries", () => {
         workspaceKey="acme"
         appInstallUrl={null}
         modelOptions={[]}
-        claudeCodeProviderEnabled={false}
       />,
     );
     expect(html).toContain(">Other</h2>");

@@ -118,6 +118,16 @@ export type RepositoryReviewPolicy = z.infer<
 export type ReviewPolicyDocument =
   | WorkspaceReviewPolicy
   | RepositoryReviewPolicy;
+/** The settings of a workspace document besides its provider selection. */
+export type WorkspaceReviewSettings = Omit<
+  WorkspaceReviewPolicy,
+  "schemaVersion" | "providers"
+>;
+/** The overrides of a repository document besides its provider selection. */
+export type RepositoryReviewSettings = Omit<
+  RepositoryReviewPolicy,
+  "schemaVersion" | "providers"
+>;
 
 export function parseWorkspaceReviewPolicy(
   input: unknown,
@@ -209,7 +219,11 @@ const storedProfileReferencesSchema = z.object({
 
 export type ReviewPolicyMaterializationErrorCode =
   | "review_provider_profile_unavailable"
-  | "rotating_profile_repository_only";
+  | "rotating_profile_repository_only"
+  /** A selection's review settings do not fit its profile's model. */
+  | "review_provider_settings_incompatible"
+  /** Stored execution limits name more providers than are selected. */
+  | "review_execution_limits_incompatible";
 
 export class ReviewPolicyMaterializationError extends Error {
   constructor(readonly code: ReviewPolicyMaterializationErrorCode) {
@@ -255,15 +269,81 @@ export function resolveEffectiveReviewPolicy(input: {
       rotatingRepositoryId,
     ),
   );
-  const updatePrDescription =
-    repository?.updatePrDescription ?? workspace.updatePrDescription;
-  const contextTools = repository?.contextTools ?? workspace.contextTools;
-  const config = parseReviewConfiguration({
-    ...(updatePrDescription === undefined ? {} : { updatePrDescription }),
+  const { execution, ...settings } = effectiveReviewSettings(
+    workspace,
+    repository,
+  );
+  const config = materialize({
+    ...settings,
     schemaVersion: REVIEW_POLICY_SCHEMA_VERSION,
     providers,
     execution: {
       providerLimit: providers.length,
+      ...(selectionSource === "repository"
+        ? inheritedExecutionLimits(execution, repository, providers.length)
+        : execution),
+    },
+  });
+  return { config, selections };
+}
+
+/**
+ * A repository that selects its own providers inherits the workspace limits
+ * as upper bounds: it runs, and agrees, with at most as many providers as it
+ * selects. Limits a document stores itself next to the selection they govern
+ * are never fitted, so an inconsistent document stays invalid.
+ */
+function inheritedExecutionLimits(
+  execution: WorkspaceReviewSettings["execution"],
+  repository: RepositoryReviewPolicy | null,
+  providerCount: number,
+): WorkspaceReviewSettings["execution"] {
+  const fit = (field: keyof WorkspaceReviewSettings["execution"]) =>
+    repository?.execution?.[field] !== undefined
+      ? execution[field]
+      : Math.min(execution[field], providerCount);
+  return {
+    providerMaxParallel: fit("providerMaxParallel"),
+    inlineMinAgreement: fit("inlineMinAgreement"),
+  };
+}
+
+/**
+ * The document with its own stored execution limits lowered to the number of
+ * providers its target selects after a selection change, so replacing the
+ * providers never leaves limits no selection can meet. Limits are never
+ * raised; only selection writes use it, other writes of an inconsistent
+ * document are refused.
+ */
+export function fitExecutionLimits<Document extends ReviewPolicyDocument>(
+  document: Document,
+  providerCount: number,
+): Document {
+  const execution = document.execution;
+  if (!execution || providerCount < 1) return document;
+  const fitted = Object.fromEntries(
+    Object.entries(execution).map(([field, value]) => [
+      field,
+      typeof value === "number" ? Math.min(value, providerCount) : value,
+    ]),
+  );
+  return { ...document, execution: fitted } as Document;
+}
+
+/**
+ * The settings a target reviews with besides its providers: the workspace
+ * document with the repository's explicit overrides on top.
+ */
+export function effectiveReviewSettings(
+  workspace: WorkspaceReviewPolicy,
+  repository: RepositoryReviewPolicy | null,
+): WorkspaceReviewSettings {
+  const updatePrDescription =
+    repository?.updatePrDescription ?? workspace.updatePrDescription;
+  const contextTools = repository?.contextTools ?? workspace.contextTools;
+  return {
+    ...(updatePrDescription === undefined ? {} : { updatePrDescription }),
+    execution: {
       ...workspace.execution,
       ...definedOnly(repository?.execution),
     },
@@ -281,8 +361,52 @@ export function resolveEffectiveReviewPolicy(input: {
       ...workspace.investigationRollout,
       ...definedOnly(repository?.investigationRollout),
     },
-  });
-  return { config, selections };
+  };
+}
+
+/**
+ * Parses the materialized runtime configuration. Stored documents are valid
+ * on their own, so a failure comes from combining them: a model edit can
+ * leave a selection's reasoning or fast settings unsupported, or stored
+ * execution limits can name more providers than are selected.
+ */
+function materialize(input: unknown): ReviewConfiguration {
+  try {
+    return parseReviewConfiguration(input);
+  } catch (error) {
+    if (!(error instanceof z.ZodError)) throw error;
+    throw new ReviewPolicyMaterializationError(
+      error.issues.every((issue) => issue.path[0] === "providers")
+        ? "review_provider_settings_incompatible"
+        : "review_execution_limits_incompatible",
+    );
+  }
+}
+
+/**
+ * The stored settings a runtime configuration was materialized from: the
+ * inverse of the settings part of materialization, for converting schema 3
+ * workspace configurations.
+ */
+export function workspaceReviewSettingsFromConfiguration(
+  config: ReviewConfiguration,
+): WorkspaceReviewSettings {
+  return {
+    execution: {
+      providerMaxParallel: config.execution.providerMaxParallel,
+      inlineMinAgreement: config.execution.inlineMinAgreement,
+    },
+    blockingPolicy: config.blockingPolicy,
+    limits: config.limits,
+    reviewLanguage: config.reviewLanguage,
+    ...(config.updatePrDescription === undefined
+      ? {}
+      : { updatePrDescription: config.updatePrDescription }),
+    investigationRollout: config.investigationRollout,
+    ...(config.contextTools === undefined
+      ? {}
+      : { contextTools: config.contextTools }),
+  };
 }
 
 /** The selection that keeps a runtime provider row's settings for a profile. */
@@ -389,8 +513,10 @@ function runtimeProvider(
   };
 }
 
-function definedOnly<T extends object>(value: T | undefined): Partial<T> {
+function definedOnly<T extends object>(
+  value: T | undefined,
+): { [Key in keyof T]?: Exclude<T[Key], undefined> } {
   return Object.fromEntries(
     Object.entries(value ?? {}).filter(([, child]) => child !== undefined),
-  ) as Partial<T>;
+  ) as { [Key in keyof T]?: Exclude<T[Key], undefined> };
 }

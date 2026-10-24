@@ -23,6 +23,7 @@ import {
   RepositoryNameLink,
   RepositoryStarsBadge,
 } from "../repository-row-display";
+import { RepositorySelectionCheckbox } from "./provider-setup/repository-selection";
 import { RepositoryVisibilityBadge } from "../repository-visibility-badge";
 import {
   SourceProviderLogo,
@@ -71,6 +72,7 @@ export function RepositoryLiveSearch({
   totalRepositoryCount,
   rowLimit,
   richRowIds,
+  selectable = false,
   children,
 }: {
   readonly workspaceKey: string;
@@ -83,6 +85,8 @@ export function RepositoryLiveSearch({
   readonly totalRepositoryCount: number;
   readonly rowLimit: number;
   readonly richRowIds: readonly string[];
+  /** Rows carry a checkbox of the table-wide repository selection. */
+  readonly selectable?: boolean;
   readonly children: React.ReactNode;
 }): React.ReactElement {
   const router = useRouter();
@@ -329,13 +333,18 @@ export function RepositoryLiveSearch({
               className={
                 visible
                   ? [
-                      "grid items-start",
+                      selectable
+                        ? "grid grid-cols-[2.75rem_minmax(0,1fr)] items-start"
+                        : "grid items-start",
                       "border-t border-cyan-200/10 transition-colors",
                       stripeClass,
                     ].join(" ")
                   : "hidden"
               }
             >
+              {selectable ? (
+                <RepositorySelectionCheckbox repositoryId={id} />
+              ) : null}
               <div className="min-w-0">
                 {richRow ??
                   (item ? (

@@ -7,160 +7,73 @@ import type { ProviderSecretScope } from "@reviewrouter/features-provider-setup"
 import type { ReviewRouterDiscussionMode } from "@reviewrouter/features-workflow-provisioning";
 import {
   parseRepositoryReviewPolicy,
-  parseReviewConfigurationStrict,
   parseWorkspaceReviewPolicy,
-  reviewProviderConfigurationSchema,
   STORED_REVIEW_POLICY_SCHEMA_VERSION,
-  type RepositoryReviewPolicy,
-  type ReviewConfiguration,
-  type ReviewProviderConfiguration,
-  type ReviewProviderSelection,
-  type WorkspaceReviewPolicy,
+  type RepositoryReviewSettings,
+  type WorkspaceReviewSettings,
 } from "@reviewrouter/features-review-config";
 import type { MemoryScope } from "@reviewrouter/features-memory";
 import {
   getProviderSecretNames,
   providerAuthModeBelongsToKind,
   providerAuthModeSchema,
-  providerKindForAuthMode,
   providerKindSchema,
   type ProviderAuthMode,
   type ProviderKind,
 } from "@reviewrouter/features-review-providers";
 
-function readReviewProvidersForm(
+/**
+ * The workspace settings of the Models form. Providers are chosen in the
+ * provider dialog and never travel with this form, so a form opened before a
+ * provider change cannot revert it.
+ */
+export function readWorkspaceReviewSettingsForm(
   formData: FormData,
-): ReviewConfiguration["providers"] {
-  const providerCount = readFormNumber(formData, "providerCount");
-  if (!Number.isInteger(providerCount) || providerCount < 1) {
-    throw new Error("invalid_form_value:providerCount");
-  }
-  const providers = Array.from({ length: providerCount }, (_, index) => {
-    const authMode = readProviderAuthMode(
-      formData,
-      `providerAuthMode.${index}`,
-    );
-
-    return reviewProviderConfigurationSchema.parse({
-      kind: providerKindForAuthMode(authMode),
-      authMode,
-      model: readFormString(formData, `providerModel.${index}`),
-      reasoningEffort: (authMode === "codex_account_gateway"
-        ? (readOptionalFormString(
-            formData,
-            `providerReasoningEffort.${index}`,
-          ) ?? undefined)
-        : readFormString(
-            formData,
-            `providerReasoningEffort.${index}`,
-          )) as ReviewConfiguration["providers"][number]["reasoningEffort"],
-      agenticContext: readFormBoolean(
-        formData,
-        `providerAgenticContext.${index}`,
-      ),
-      fastMode: readFormBoolean(formData, `providerFastMode.${index}`),
-      requiredHealthy:
-        readOptionalFormBoolean(formData, `providerRequiredHealthy.${index}`) ??
-        index === 0,
-
-      gatewayBindingId:
-        readOptionalFormString(formData, `providerGatewayBindingId.${index}`) ??
-        undefined,
-      gatewayProfileRef:
-        readOptionalFormString(
-          formData,
-          `providerGatewayProfileRef.${index}`,
-        ) ?? undefined,
-      // Engine selection is serialized only from the Account Gateway row. The
-      // shared schema keeps every explicit selection readable; the per-kind
-      // save rule (agent_profile_requires_agentic_context) rejects only an
-      // OCR-eligible selection beside agenticContext=false.
-      ...readOptionalAgentProfileRef(formData, index),
-    });
-  });
-
-  return providers;
-}
-
-function readOptionalAgentProfileRef(
-  formData: FormData,
-  index: number,
-): { readonly agentProfileRef?: string } {
-  const agentProfileRef = readOptionalFormString(
-    formData,
-    `providerAgentProfileRef.${index}`,
-  );
-  // Omit the key entirely when empty so legacy provider rows keep their
-  // canonical JSON byte-identical (no materialized agentProfileRef field).
-  return agentProfileRef === null ? {} : { agentProfileRef };
-}
-
-export function readReviewConfigurationForm(
-  formData: FormData,
-): ReviewConfiguration {
-  const providers = readReviewProvidersForm(formData);
+): WorkspaceReviewSettings {
   const updatePrDescription = readOptionalFormBoolean(
     formData,
     "updatePrDescription",
   );
-
-  return parseReviewConfigurationStrict({
-    ...(updatePrDescription === undefined ? {} : { updatePrDescription }),
-    schemaVersion: 3,
-    providers,
-    execution: {
-      providerLimit: providers.length,
-      providerMaxParallel: readFormNumber(formData, "providerMaxParallel"),
-      inlineMinAgreement: readFormNumber(formData, "inlineMinAgreement"),
-    },
-    blockingPolicy: {
-      failOnSeverity: readFormString(
-        formData,
-        "failOnSeverity",
-      ) as ReviewConfiguration["blockingPolicy"]["failOnSeverity"],
-    },
-    limits: {
-      inlineMaxComments: readFormNumber(formData, "inlineMaxComments"),
-      targetTokensPerBatch: readFormNumber(formData, "targetTokensPerBatch"),
-    },
-    reviewLanguage: readOptionalFormString(formData, "reviewLanguage") ?? null,
-    ...(readOptionalFormString(formData, "contextTools")
-      ? { contextTools: readContextToolsSelection(formData) }
-      : {}),
-    investigationRollout: {
-      recordingEnabled:
-        readOptionalFormBoolean(
-          formData,
-          "investigationRollout.recordingEnabled",
-        ) ?? false,
-      shadowEnabled:
-        readOptionalFormBoolean(
-          formData,
-          "investigationRollout.shadowEnabled",
-        ) ?? false,
-      contextCriticEnabled:
-        readOptionalFormBoolean(
-          formData,
-          "investigationRollout.contextCriticEnabled",
-        ) ?? false,
-      verifiedCleanEnabled:
-        readOptionalFormBoolean(
-          formData,
-          "investigationRollout.verifiedCleanEnabled",
-        ) ?? false,
-      crossRevisionReplayEnabled:
-        readOptionalFormBoolean(
-          formData,
-          "investigationRollout.crossRevisionReplayEnabled",
-        ) ?? false,
-      productionEffectsEnabled:
-        readOptionalFormBoolean(
-          formData,
-          "investigationRollout.productionEffectsEnabled",
-        ) ?? false,
-    },
-  });
+  const { schemaVersion: _schemaVersion, ...settings } =
+    parseWorkspaceReviewPolicy({
+      schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
+      ...(updatePrDescription === undefined ? {} : { updatePrDescription }),
+      execution: {
+        providerMaxParallel: readFormNumber(formData, "providerMaxParallel"),
+        inlineMinAgreement: readFormNumber(formData, "inlineMinAgreement"),
+      },
+      blockingPolicy: {
+        failOnSeverity: readFormString(formData, "failOnSeverity"),
+      },
+      limits: {
+        inlineMaxComments: readFormNumber(formData, "inlineMaxComments"),
+        targetTokensPerBatch: readFormNumber(formData, "targetTokensPerBatch"),
+      },
+      reviewLanguage:
+        readOptionalFormString(formData, "reviewLanguage") ?? null,
+      ...(readOptionalFormString(formData, "contextTools")
+        ? { contextTools: readContextToolsSelection(formData) }
+        : {}),
+      investigationRollout: Object.fromEntries(
+        investigationRolloutFields.map((name) => [
+          name,
+          readOptionalFormBoolean(formData, `investigationRollout.${name}`) ??
+            false,
+        ]),
+      ),
+    });
+  void _schemaVersion;
+  return settings;
 }
+
+const investigationRolloutFields = [
+  "recordingEnabled",
+  "shadowEnabled",
+  "contextCriticEnabled",
+  "verifiedCleanEnabled",
+  "crossRevisionReplayEnabled",
+  "productionEffectsEnabled",
+] as const;
 
 export function readFormString(formData: FormData, key: string): string {
   const value = formData.get(key);
@@ -333,19 +246,6 @@ function readMemoryScopeValue(value: string): MemoryScope {
   throw new Error("invalid_form_value:memoryScope");
 }
 
-function readProviderAuthMode(
-  formData: FormData,
-  key: string,
-): ProviderAuthMode {
-  const authMode = providerAuthModeSchema.safeParse(
-    readFormString(formData, key),
-  );
-  if (!authMode.success) {
-    throw new Error(`invalid_form_value:${key}`);
-  }
-  return authMode.data;
-}
-
 function readFormNumber(formData: FormData, key: string): number {
   const value = Number(readFormString(formData, key));
   if (!Number.isFinite(value)) {
@@ -377,43 +277,12 @@ function readOptionalFormBoolean(
 }
 
 /**
- * The stored workspace document of a submitted workspace form, with the
- * selections its provider rows resolved to. The provider limit is the
- * selection count and is not stored.
+ * The repository overrides of its settings form; fields left to inherit are
+ * absent. Its provider selection is changed only in the provider dialog.
  */
-export function workspaceReviewPolicyFromConfiguration(
-  config: ReviewConfiguration,
-  selections: readonly ReviewProviderSelection[],
-): WorkspaceReviewPolicy {
-  return parseWorkspaceReviewPolicy({
-    schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
-    providers: selections,
-    execution: {
-      providerMaxParallel: config.execution.providerMaxParallel,
-      inlineMinAgreement: config.execution.inlineMinAgreement,
-    },
-    blockingPolicy: config.blockingPolicy,
-    limits: config.limits,
-    reviewLanguage: config.reviewLanguage,
-    ...(config.updatePrDescription === undefined
-      ? {}
-      : { updatePrDescription: config.updatePrDescription }),
-    investigationRollout: config.investigationRollout,
-    ...(config.contextTools === undefined
-      ? {}
-      : { contextTools: config.contextTools }),
-  });
-}
-
-/**
- * A submitted repository form: the explicitly overridden settings as a stored
- * document without providers, and the provider rows when providers are
- * overridden (null inherits the workspace default).
- */
-export function readRepositoryReviewPolicyForm(formData: FormData): Readonly<{
-  policy: RepositoryReviewPolicy;
-  providers: readonly ReviewProviderConfiguration[] | null;
-}> {
+export function readRepositoryReviewSettingsForm(
+  formData: FormData,
+): RepositoryReviewSettings {
   const fields = repositoryPolicyFormFields.filter((field) => {
     const mode = readFormString(formData, `policyMode.${field.join(".")}`);
     if (mode !== "inherit" && mode !== "override")
@@ -423,11 +292,8 @@ export function readRepositoryReviewPolicyForm(formData: FormData): Readonly<{
   const policy: Record<string, unknown> = {
     schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
   };
-  let providers: readonly ReviewProviderConfiguration[] | null = null;
   for (const [root, leaf] of fields) {
-    if (root === "providers") {
-      providers = readReviewProvidersForm(formData);
-    } else if (root === "contextTools") {
+    if (root === "contextTools") {
       policy.contextTools = readContextToolsSelection(formData);
     } else if (root === "updatePrDescription") {
       policy.updatePrDescription = readFormBoolean(formData, root);
@@ -446,7 +312,10 @@ export function readRepositoryReviewPolicyForm(formData: FormData): Readonly<{
       target[name] = value;
     }
   }
-  return { policy: parseRepositoryReviewPolicy(policy), providers };
+  const { schemaVersion: _schemaVersion, ...settings } =
+    parseRepositoryReviewPolicy(policy);
+  void _schemaVersion;
+  return settings;
 }
 
 export function readReviewPolicyExpectedVersion(

@@ -1,6 +1,9 @@
-/** Explicit repository override fields; no value comparison decides inheritance. */
+/**
+ * Explicit repository override fields; no value comparison decides
+ * inheritance. Providers are not among them: a repository's provider is
+ * chosen in the provider dialog.
+ */
 export const repositoryPolicyFormFields = [
-  ["providers"],
   ["execution", "providerMaxParallel"],
   ["execution", "inlineMinAgreement"],
   ["blockingPolicy", "failOnSeverity"],

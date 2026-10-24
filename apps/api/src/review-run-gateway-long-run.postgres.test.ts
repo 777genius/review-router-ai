@@ -248,7 +248,12 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
           expectedRevision: 0,
           state: "active",
         });
-        const configurations = new PrismaReviewConfigurationRepository(prisma);
+        const configurations = new PrismaReviewConfigurationRepository(
+          prisma,
+          undefined,
+          false,
+          undefined,
+        );
         const target = {
           scope: "repository" as const,
           workspaceId,

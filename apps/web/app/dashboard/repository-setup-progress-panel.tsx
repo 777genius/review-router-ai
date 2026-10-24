@@ -51,6 +51,7 @@ export function RepositorySetupProgressPanel({
   mutationsEnabled,
   initialStep,
   expectedProviderAuthModes = [],
+  providerLine,
   enableReviewAction,
   providerSetupBeforeWorkflow = false,
   gatewayReviewV2Readiness,
@@ -67,6 +68,8 @@ export function RepositorySetupProgressPanel({
   readonly mutationsEnabled: boolean;
   readonly initialStep: SetupStep;
   readonly expectedProviderAuthModes?: readonly ProviderAuthMode[];
+  /** "Provider: X · Change" above the steps. */
+  readonly providerLine?: ReactNode;
   readonly enableReviewAction?: ReactNode;
   readonly providerSetupBeforeWorkflow?: boolean;
   readonly gatewayReviewV2Readiness?:
@@ -301,6 +304,7 @@ export function RepositorySetupProgressPanel({
 
   return (
     <section className="mb-4 pt-1">
+      {providerLine ? <div className="mb-4">{providerLine}</div> : null}
       {gatewayBlocked &&
       setupStepNumber[displayStep] >= setupStepNumber.provider ? (
         <p className="mb-3 text-sm text-slate-300" role="status">

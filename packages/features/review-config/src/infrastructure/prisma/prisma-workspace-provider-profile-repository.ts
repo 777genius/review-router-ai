@@ -28,6 +28,7 @@ import { readSelectableGatewayProfileRef } from "./prisma-gateway-binding-author
 import {
   lockProviderAuthority,
   providerProfileFacts,
+  readProviderAuthority,
   type LockedProviderAuthority,
 } from "./prisma-provider-authority";
 import {
@@ -47,7 +48,12 @@ import {
 } from "./prisma-transaction-retry";
 
 type Input<
-  Method extends "findOrCreate" | "rename" | "changeModel" | "archive",
+  Method extends
+    | "findOrCreate"
+    | "rename"
+    | "changeModel"
+    | "archive"
+    | "readManagementFacts",
 > = Parameters<WorkspaceProviderProfileRepositoryPort[Method]>[0];
 
 /**
@@ -148,6 +154,23 @@ export class PrismaWorkspaceProviderProfileRepository implements WorkspaceProvid
         throw error;
       }
     });
+  }
+
+  async readManagementFacts(input: Input<"readManagementFacts">) {
+    const authority = await readProviderAuthority(
+      this.prisma,
+      input.workspaceId,
+      input.actor,
+    );
+    if (!authority) return null;
+    return {
+      ...authority,
+      personalBindingIds: await readPersonalBindingIds(
+        this.prisma,
+        input.workspaceId,
+        input.bindingIds,
+      ),
+    };
   }
 
   async listUsage(workspaceId: string) {
@@ -255,7 +278,7 @@ export class PrismaWorkspaceProviderProfileRepository implements WorkspaceProvid
         workspaceDefault: incompatible.workspaceDefault,
         repositoryIds: incompatible.repositoryIds.sort(),
       });
-    for (const scope of scopes) input.validateScope?.(scope);
+    for (const scope of scopes) input.validateScope(scope);
     if (
       profile.credential.kind === "gateway_binding" &&
       (await readSelectableGatewayProfileRef(tx, {

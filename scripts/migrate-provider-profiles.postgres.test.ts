@@ -512,8 +512,9 @@ databaseTests("one-time provider profile migration", () => {
   it("reports Gateway rows the write would refuse and converts the rest of the workspace", async () => {
     // The reviewer's case: a Claude default, a plain override and Gateway
     // overrides with a changed account profile, an unavailable binding and a
-    // personal account while sharing is disabled; plus an override whose
-    // configuration no longer materializes, found by the failure diagnosis.
+    // personal account while sharing is disabled; plus an override schema 3
+    // could not apply (refused while planning) and one whose model the
+    // provider registry refuses, found by the failure diagnosis.
     const w = `${prefix}-gateway-rows`;
     const owner2 = `${prefix}-owner2`;
     const donor = `${prefix}-donor`;
@@ -572,7 +573,14 @@ databaseTests("one-time provider profile migration", () => {
     await gatewayBinding(personalBinding, "profile-new", {
       ownerUserId: donor,
     });
-    const names = ["plain", "stale", "disabled", "personal", "broken"] as const;
+    const names = [
+      "plain",
+      "stale",
+      "disabled",
+      "personal",
+      "broken",
+      "badmodel",
+    ] as const;
     for (const name of names) await repository(w, repo(`gw-${name}`));
     await storeHead({
       workspaceId: w,
@@ -595,8 +603,14 @@ databaseTests("one-time provider profile migration", () => {
       stale: gatewayOverride(stale, "profile-old"),
       disabled: gatewayOverride(disabled, "profile-new"),
       personal: gatewayOverride(personalBinding, "profile-new"),
-      // One provider cannot need two agreeing votes.
+      // One provider cannot need two agreeing votes: schema 3 could not
+      // apply this override, so it is reported and never repaired.
       broken: { schemaVersion: 3, execution: { inlineMinAgreement: 2 } },
+      // Schema 3 accepts any model text; a provider profile does not.
+      badmodel: {
+        schemaVersion: 3,
+        providers: [{ ...provider.claude, model: "opus latest" }],
+      },
     };
     for (const name of names)
       await storeHead({
@@ -618,20 +632,22 @@ databaseTests("one-time provider profile migration", () => {
         creatorUserId: owner2,
         converted: ["workspace:default", `repo:${repo("gw-plain")}`],
         profilesCreated: 1,
-        // The installed workflows of the refused Gateway overrides are
-        // still recorded from schema 3; the broken one has no configuration.
-        installedRequirementsFilled: 4,
+        // The installed workflows of the refused overrides are still
+        // recorded from schema 3; the broken one has no configuration.
+        installedRequirementsFilled: 5,
         warnings: [
+          `repo:${repo("gw-broken")}: the schema 3 override does not form a valid configuration with the workspace policy; left unconverted`,
           `repo:${repo("gw-disabled")}: gateway binding ${disabled} is not selectable (review_configuration_gateway_binding_unavailable); left unconverted`,
           `repo:${repo("gw-personal")}: gateway binding ${personalBinding} is a personal account while personal account sharing is disabled; left unconverted`,
           `repo:${repo("gw-stale")}: gateway binding ${stale} now serves account profile profile-new, not the stored profile-old; left unconverted`,
-          `repo:${repo("gw-broken")}: write failed (review execution limits do not match providers); left unconverted`,
+          expect.stringMatching(
+            new RegExp(
+              `^repo:${repo("gw-badmodel")}: write failed \\(.+\\); left unconverted$`,
+            ),
+          ),
         ],
         failures: [
-          {
-            target: `repo:${repo("gw-broken")}`,
-            error: "review execution limits do not match providers",
-          },
+          { target: `repo:${repo("gw-badmodel")}`, error: expect.any(String) },
         ],
       });
       const resolved = await resolveEffectiveReviewConfigurations(
@@ -648,7 +664,13 @@ databaseTests("one-time provider profile migration", () => {
           limits: { inlineMaxComments: 2 },
         },
       });
-      for (const name of ["stale", "disabled", "personal", "broken"])
+      for (const name of [
+        "stale",
+        "disabled",
+        "personal",
+        "broken",
+        "badmodel",
+      ])
         expect(resolved.repositories.get(repo(`gw-${name}`))?.status).toBe(
           "resave_required",
         );
@@ -663,11 +685,17 @@ databaseTests("one-time provider profile migration", () => {
         workspaceIds: [w],
         dryRun: false,
       });
+      // The workspace is on schema 4 now, so the broken override has no
+      // schema 3 configuration to compare with; the write refuses it.
       expect(rerun).toMatchObject({
         status: "unchanged",
         converted: [],
         failures: [
-          { target: `repo:${repo("gw-broken")}`, error: expect.any(String) },
+          { target: `repo:${repo("gw-badmodel")}`, error: expect.any(String) },
+          {
+            target: `repo:${repo("gw-broken")}`,
+            error: "review_execution_limits_incompatible",
+          },
         ],
       });
       expect(rerun!.warnings).toContainEqual(

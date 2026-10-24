@@ -85,7 +85,12 @@ try {
       latestOperationId: "spike-action-e2e",
     },
   });
-  const configurations = new PrismaReviewConfigurationRepository(prisma);
+  const configurations = new PrismaReviewConfigurationRepository(
+    prisma,
+    undefined,
+    false,
+    undefined,
+  );
   const workspaceTarget = {
     scope: "workspace" as const,
     workspaceId: repository.workspaceId,
@@ -113,7 +118,14 @@ try {
         repositoryTarget,
       ),
     },
-    { configurations: new PrismaReviewConfigurationRepository(prisma) },
+    {
+      configurations: new PrismaReviewConfigurationRepository(
+        prisma,
+        undefined,
+        false,
+        undefined,
+      ),
+    },
   );
   const runId = `local-e2e-${Date.now()}`;
   const oidcJti = `local-e2e-jti-${Date.now()}`;

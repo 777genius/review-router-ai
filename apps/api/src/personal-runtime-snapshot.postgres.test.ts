@@ -176,6 +176,9 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         );
         const closedConfigurations = new PrismaReviewConfigurationRepository(
           db,
+          undefined,
+          false,
+          undefined,
         );
         const accounts = new PrismaProviderAccountRepository(
           db,
@@ -361,6 +364,9 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
           db.$transaction((tx) =>
             new PrismaReviewConfigurationTransactionRepository(
               tx,
+              undefined,
+              false,
+              undefined,
             ).saveNextVersion({
               target: { scope: "workspace", workspaceId: y.id },
               expectedVersion: null,

@@ -44,17 +44,48 @@ export async function lockProviderAuthority(
     SELECT "role" FROM "WorkspaceMember"
     WHERE "workspaceId" = ${workspaceId} AND "userId" = ${actor.userId}
     FOR SHARE`;
-  const role = members[0]?.role ?? null;
   return {
-    actor: {
-      userId: actor.userId,
-      role:
-        actor.localAdminOverride === true && role !== "owner" ? "admin" : role,
-    },
+    actor: providerManagementActor(actor, members[0]?.role ?? null),
     workspace: {
       personalOwnerUserId: workspace.personalOwnerUserId,
       providerManagementAdminOnly: workspace.providerManagementAdminOnly,
     },
+  };
+}
+
+/**
+ * The same facts for display, without locks: the dashboard explains disabled
+ * controls with them and every write decides again under its own locks.
+ */
+export async function readProviderAuthority(
+  prisma: Prisma.TransactionClient,
+  workspaceId: string,
+  actor: Readonly<{ userId: string; localAdminOverride?: boolean }>,
+): Promise<LockedProviderAuthority | null> {
+  const workspace = await prisma.workspace.findFirst({
+    where: { id: workspaceId, deletionState: "active" },
+    select: { personalOwnerUserId: true, providerManagementAdminOnly: true },
+  });
+  if (!workspace) return null;
+  const member = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId: actor.userId } },
+    select: { role: true },
+  });
+  return {
+    actor: providerManagementActor(actor, member?.role ?? null),
+    workspace,
+  };
+}
+
+/** The local-admin override acts as an admin; an owner stays an owner. */
+function providerManagementActor(
+  actor: Readonly<{ userId: string; localAdminOverride?: boolean }>,
+  role: WorkspaceMemberRole | null,
+): ProviderManagementActor {
+  return {
+    userId: actor.userId,
+    role:
+      actor.localAdminOverride === true && role !== "owner" ? "admin" : role,
   };
 }
 

@@ -38,7 +38,7 @@ import {
 import { readPersonalBindingIds } from "../packages/features/review-config/src/infrastructure/prisma/prisma-provider-profile-writes.js";
 import {
   canonicalJson,
-  managedApiKeyProviderTypes,
+  managedApiKeyServes,
   parseRepositoryReviewPolicy,
   parseReviewConfigurationStrict,
   parseWorkspaceReviewPolicy,
@@ -51,6 +51,8 @@ import {
   reviewProviderSelectionFor,
   runReviewConfigurationTransaction,
   STORED_REVIEW_POLICY_SCHEMA_VERSION,
+  workspaceReviewSettingsFromConfiguration,
+  type ManagedApiKeyFacts,
   type ProviderProfileDraft,
   type ReviewConfiguration,
   type ReviewConfigurationTarget,
@@ -419,7 +421,7 @@ async function migrateWorkspaceIn(
       policy: parseWorkspaceReviewPolicy({
         schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
         ...(selections ? { providers: selections } : {}),
-        ...storedSettings(legacyWorkspace.config),
+        ...workspaceReviewSettingsFromConfiguration(legacyWorkspace.config),
       }),
     });
     if (rotatingDefault) {
@@ -462,6 +464,16 @@ async function migrateWorkspaceIn(
     ) {
       warnings.push(
         `repo:${repositoryId}: workspace policy is not readable; left unconverted`,
+      );
+      continue;
+    }
+    // An override schema 3 could not apply is left as it is, never repaired.
+    if (
+      workspaceConfig &&
+      !legacyEffectiveConfiguration(workspaceConfig, legacy.raw)
+    ) {
+      warnings.push(
+        `repo:${repositoryId}: the schema 3 override does not form a valid configuration with the workspace policy; left unconverted`,
       );
       continue;
     }
@@ -720,15 +732,10 @@ function currentRepositorySelects(head: ReviewPolicyHead | undefined): boolean {
   );
 }
 
-type CredentialFacts = Readonly<{
-  managedKeys: ReadonlyMap<string, string>;
-  appliedKeys: ReadonlySet<string>;
-}>;
-
 async function credentialFacts(
   tx: Prisma.TransactionClient,
   workspaceId: string,
-): Promise<CredentialFacts> {
+): Promise<ManagedApiKeyFacts> {
   const [keys, links] = await Promise.all([
     tx.providerApiKeyConnection.findMany({
       where: { workspaceId },
@@ -739,13 +746,14 @@ async function credentialFacts(
       select: { providerApiKeyConnectionId: true, repositoryId: true },
     }),
   ]);
-  return {
-    managedKeys: new Map(keys.map((key) => [key.providerType, key.id])),
-    appliedKeys: new Set(
-      links.map(
-        (link) => `${link.repositoryId}:${link.providerApiKeyConnectionId}`,
-      ),
+  const applied = new Set(
+    links.map(
+      (link) => `${link.repositoryId}:${link.providerApiKeyConnectionId}`,
     ),
+  );
+  return {
+    keyIds: new Map(keys.map((key) => [key.providerType, key.id])),
+    applied: (repositoryId, keyId) => applied.has(`${repositoryId}:${keyId}`),
   };
 }
 
@@ -764,16 +772,15 @@ class DraftPlan {
       workspaceId: string;
       creatorUserId: string | null;
       options: ProviderProfileMigrationOptions;
-      credentials: CredentialFacts;
+      credentials: ManagedApiKeyFacts;
       warnings: string[];
     }>,
   ) {}
 
   /**
    * Selections of draft profiles keeping each row's review settings; null
-   * when a row cannot be kept, so the list is left as it is. The managed key
-   * rule is the dashboard's: a workspace default uses a workspace key
-   * whenever it exists, a repository once the key is applied there.
+   * when a row cannot be kept, so the list is left as it is. Whether a
+   * managed key serves the target is the domain rule `managedApiKeyServes`.
    */
   async selections(
     providers: readonly ReviewProviderConfiguration[],
@@ -806,22 +813,10 @@ class DraftPlan {
         );
         if (refusal) return refuse(refusal);
       }
-      const managedKey = (
-        authMode: keyof typeof managedApiKeyProviderTypes,
-      ) => {
-        const keyId = credentials.managedKeys.get(
-          managedApiKeyProviderTypes[authMode],
-        );
-        return (
-          keyId !== undefined &&
-          (!repositoryId ||
-            credentials.appliedKeys.has(`${repositoryId}:${keyId}`))
-        );
-      };
       // Only the server-managed key delivers OpenRouter.
       if (
         provider.authMode === "openrouter_api_key" &&
-        !managedKey(provider.authMode)
+        !managedApiKeyServes(credentials, provider.authMode, repositoryId)
       )
         return refuse("OpenRouter has no managed API key here");
       const draftId = `migration:${scope}:${index}`;
@@ -829,7 +824,7 @@ class DraftPlan {
         draftId,
         credential: providerCredentialRequestFor(provider, {
           repositoryId,
-          managedApiKey: managedKey,
+          managedApiKeys: credentials,
         }),
         model: provider.model,
         label: null,
@@ -922,24 +917,6 @@ class DraftPlan {
       return `${binding} now serves account profile ${current}, not the stored ${gatewayProfileRef}`;
     return null;
   }
-}
-
-/** Every stored setting of a schema 3 workspace configuration. */
-function storedSettings(config: ReviewConfiguration) {
-  return {
-    execution: {
-      providerMaxParallel: config.execution.providerMaxParallel,
-      inlineMinAgreement: config.execution.inlineMinAgreement,
-    },
-    blockingPolicy: config.blockingPolicy,
-    limits: config.limits,
-    reviewLanguage: config.reviewLanguage,
-    ...(config.updatePrDescription === undefined
-      ? {}
-      : { updatePrDescription: config.updatePrDescription }),
-    investigationRollout: config.investigationRollout,
-    ...(config.contextTools ? { contextTools: config.contextTools } : {}),
-  };
 }
 
 /** The schema 3 merge of a repository override over the workspace policy. */

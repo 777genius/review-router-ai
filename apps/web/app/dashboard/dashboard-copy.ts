@@ -433,6 +433,10 @@ export function dashboardErrorText(error: string): string {
       return "This provider is still selected by the workspace default or a repository. Choose another provider there first.";
     case "provider_profile_model_incompatible":
       return "The new model does not support the reasoning or fast settings some repositories use with this provider.";
+    case "review_provider_settings_incompatible":
+      return "The reasoning or fast settings do not fit this provider's model. Choose the provider again and check its settings.";
+    case "review_execution_limits_incompatible":
+      return "The parallel review or agreement limits name more providers than are selected. Lower them in the review settings, then try again.";
     case "provider_management_forbidden":
       return "Your role cannot manage this provider. Ask a workspace owner or admin.";
     case "workflow_delete_untrusted":

@@ -265,11 +265,34 @@ function credentialIdentity(credential: ProviderCredentialSource): string {
   }
 }
 
+/** The workspace's server-managed keys and where each is applied. */
+export type ManagedApiKeyFacts = Readonly<{
+  /** Key ID by `ProviderApiKeyConnection.providerType`. */
+  keyIds: ReadonlyMap<string, string>;
+  applied: (repositoryId: string, keyId: string) => boolean;
+}>;
+
 /**
- * The credential source a runtime provider row stands for. Used by forms that
- * still submit provider rows and by the one-time profile migration: rotating
- * belongs to the target repository, and an API key is the server-managed key
- * only where that key serves the target.
+ * Whether the server-managed key of a provider serves a target: the
+ * workspace default uses it whenever it exists, a repository once the key is
+ * applied there.
+ */
+export function managedApiKeyServes(
+  facts: ManagedApiKeyFacts,
+  authMode: ManagedApiKeyAuthMode,
+  repositoryId: string | null,
+): boolean {
+  const keyId = facts.keyIds.get(managedApiKeyProviderTypes[authMode]);
+  return (
+    keyId !== undefined &&
+    (repositoryId === null || facts.applied(repositoryId, keyId))
+  );
+}
+
+/**
+ * The credential source a schema 3 runtime provider row stands for, for the
+ * one-time profile migration: rotating belongs to the target repository, and
+ * an API key is the server-managed key only where that key serves the target.
  */
 export function providerCredentialRequestFor(
   provider: Pick<ReviewProviderConfiguration, "authMode"> & {
@@ -278,7 +301,7 @@ export function providerCredentialRequestFor(
   },
   target: Readonly<{
     repositoryId: string | null;
-    managedApiKey: (authMode: ManagedApiKeyAuthMode) => boolean;
+    managedApiKeys: ManagedApiKeyFacts;
   }>,
 ): ProviderCredentialRequest {
   switch (provider.authMode) {
@@ -299,7 +322,11 @@ export function providerCredentialRequestFor(
         throw new ProviderProfileError("provider_profile_invalid");
       return { kind: "repository_rotating", repositoryId: target.repositoryId };
     case "mimo_token_plan_api_key":
-      return target.managedApiKey(provider.authMode)
+      return managedApiKeyServes(
+        target.managedApiKeys,
+        provider.authMode,
+        target.repositoryId,
+      )
         ? { kind: "managed_api_key", authMode: provider.authMode }
         : { kind: "user_ci_secret", authMode: provider.authMode };
     case "openrouter_api_key":

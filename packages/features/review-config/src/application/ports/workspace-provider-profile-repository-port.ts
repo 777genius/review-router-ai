@@ -44,6 +44,10 @@ export type ProviderProfileGateFacts = Readonly<{
   workspace: ProviderManagementWorkspace;
 }>;
 
+/** Decision facts of a display read, with the user-owned gateway bindings. */
+export type ProviderManagementFacts = ProviderProfileGateFacts &
+  Readonly<{ personalBindingIds: ReadonlySet<string> }>;
+
 type ProfileWrite = Readonly<{
   workspaceId: string;
   profileId: string;
@@ -93,8 +97,11 @@ export interface WorkspaceProviderProfileRepositoryPort {
     input: ProfileWrite &
       Readonly<{
         model: string;
-        /** Pure configuration checks of one affected scope. */
-        validateScope?: (scope: ProviderProfileModelChangeScope) => void;
+        /**
+         * Pure configuration checks of one affected scope, run inside the
+         * write; required so no edit skips the caller's save-time rules.
+         */
+        validateScope: (scope: ProviderProfileModelChangeScope) => void;
       }>,
   ): Promise<
     Readonly<{
@@ -129,6 +136,20 @@ export interface WorkspaceProviderProfileRepositoryPort {
 
   /** Active profiles of the workspace in creation order. */
   list(workspaceId: string): Promise<readonly WorkspaceProviderProfile[]>;
+
+  /**
+   * The facts the provider policy decides with, read without locks so the
+   * dashboard can explain disabled controls. Every write reads them again
+   * under its locks. Null when the workspace is unavailable.
+   */
+  readManagementFacts(
+    input: Readonly<{
+      workspaceId: string;
+      actor: ProviderProfileActor;
+      /** Gateway bindings whose owner the caller needs to know. */
+      bindingIds: readonly string[];
+    }>,
+  ): Promise<ProviderManagementFacts | null>;
 
   /** Stored selections of every active profile of the workspace. */
   listUsage(workspaceId: string): Promise<readonly ProviderProfileUsage[]>;

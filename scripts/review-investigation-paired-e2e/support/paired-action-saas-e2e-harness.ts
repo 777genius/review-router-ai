@@ -912,7 +912,12 @@ async function seedControlPlane(
     pairedConfig,
     repositoryTarget,
   );
-  await new PrismaReviewConfigurationRepository(prisma).saveNextVersions({
+  await new PrismaReviewConfigurationRepository(
+    prisma,
+    undefined,
+    false,
+    undefined,
+  ).saveNextVersions({
     workspaceId: input.workspaceId,
     writes: [
       {

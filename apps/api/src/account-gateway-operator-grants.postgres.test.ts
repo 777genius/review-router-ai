@@ -530,6 +530,8 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
         const configurations = new PrismaReviewConfigurationRepository(
           db,
           operator,
+          false,
+          undefined,
         );
         const snapshots = new ProductionReviewRunRuntimeSnapshot(
           db,

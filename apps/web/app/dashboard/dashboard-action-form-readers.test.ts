@@ -2,17 +2,15 @@ import { repositoryPolicyFormFields } from "./review-policy-form-contract";
 import { describe, expect, it } from "vitest";
 import {
   readProviderSetupSelection,
-  readReviewConfigurationForm,
-  readRepositoryReviewPolicyForm,
-  readReviewPolicyExpectedVersion,
+  readRepositoryReviewSettingsForm,
   readReviewDiscussionMode,
+  readReviewPolicyExpectedVersion,
+  readWorkspaceReviewSettingsForm,
 } from "./dashboard-action-form-readers";
 
 describe("dashboard action form readers", () => {
-  it("does not validate unused provider drafts when saving sparse inherited providers", () => {
-    const form = new FormData();
-    for (const field of repositoryPolicyFormFields)
-      form.set(`policyMode.${field.join(".")}`, "inherit");
+  it("reads repository overrides only and never a provider", () => {
+    const form = inheritAll();
     form.set("policyMode.limits.inlineMaxComments", "override");
     form.set("inlineMaxComments", "0");
     form.set(
@@ -20,33 +18,21 @@ describe("dashboard action form readers", () => {
       "override",
     );
     form.set("investigationRollout.productionEffectsEnabled", "false");
-    form.set("providerCount", "1");
-    form.set("providerAuthMode.0", "invalid-unused-provider");
-    expect(readRepositoryReviewPolicyForm(form)).toEqual({
-      policy: {
-        schemaVersion: 4,
-        limits: { inlineMaxComments: 0 },
-        investigationRollout: { productionEffectsEnabled: false },
-      },
-      providers: null,
-    });
+    // Provider fields of an old page are ignored, not read as a selection.
     form.set("policyMode.providers", "override");
-    expect(() => readRepositoryReviewPolicyForm(form)).toThrow(
-      "invalid_form_value:providerAuthMode.0",
-    );
+    form.set("providerCount", "1");
+    form.set("providerAuthMode.0", "claude_code_oauth");
+    expect(readRepositoryReviewSettingsForm(form)).toEqual({
+      limits: { inlineMaxComments: 0 },
+      investigationRollout: { productionEffectsEnabled: false },
+    });
   });
 
   it("preserves optional context selection and an explicit repository off override", () => {
-    const form = new FormData();
-    for (const field of repositoryPolicyFormFields)
-      form.set(`policyMode.${field.join(".")}`, "inherit");
+    const form = inheritAll();
     form.set("policyMode.contextTools", "override");
-    expect(readRepositoryReviewPolicyForm(form)).toEqual({
-      policy: {
-        schemaVersion: 4,
-        contextTools: { version: 1, builtinTools: [], mcp: [] },
-      },
-      providers: null,
+    expect(readRepositoryReviewSettingsForm(form)).toEqual({
+      contextTools: { version: 1, builtinTools: [], mcp: [] },
     });
     const selection = {
       version: 1,
@@ -54,14 +40,14 @@ describe("dashboard action form readers", () => {
       mcp: [{ connection: "docs", tools: ["search_docs"] }],
     };
     form.set("contextTools", JSON.stringify(selection));
-    expect(readRepositoryReviewPolicyForm(form).policy.contextTools).toEqual(
+    expect(readRepositoryReviewSettingsForm(form).contextTools).toEqual(
       selection,
     );
     form.set(
       "contextTools",
       JSON.stringify({ ...selection, rawSecret: "must-not-echo" }),
     );
-    expect(() => readRepositoryReviewPolicyForm(form)).toThrow(
+    expect(() => readRepositoryReviewSettingsForm(form)).toThrow(
       "context_connection_invalid",
     );
   });
@@ -79,25 +65,8 @@ describe("dashboard action form readers", () => {
     }
   });
 
-  it("resets all repository fields by removing overrides", () => {
-    const form = new FormData();
-    for (const field of repositoryPolicyFormFields)
-      form.set(`policyMode.${field.join(".")}`, "inherit");
-    expect(readRepositoryReviewPolicyForm(form)).toEqual({
-      policy: { schemaVersion: 4 },
-      providers: null,
-    });
-  });
   it("keeps explicit zero, false and null without copying inherited values", () => {
-    const form = reviewConfigFormData([
-      {
-        authMode: "codex_subscription_oauth_rotating",
-        model: "gpt-5.5",
-        reasoningEffort: "high",
-      },
-    ]);
-    for (const field of repositoryPolicyFormFields)
-      form.set(`policyMode.${field.join(".")}`, "inherit");
+    const form = inheritAll();
     for (const field of [
       "limits.inlineMaxComments",
       "investigationRollout.recordingEnabled",
@@ -107,95 +76,40 @@ describe("dashboard action form readers", () => {
     form.set("inlineMaxComments", "0");
     form.set("investigationRollout.recordingEnabled", "false");
     form.set("reviewLanguage", "");
-    expect(readRepositoryReviewPolicyForm(form)).toEqual({
-      policy: {
-        schemaVersion: 4,
-        limits: { inlineMaxComments: 0 },
-        investigationRollout: { recordingEnabled: false },
-        reviewLanguage: null,
-      },
-      providers: null,
+    expect(readRepositoryReviewSettingsForm(form)).toEqual({
+      limits: { inlineMaxComments: 0 },
+      investigationRollout: { recordingEnabled: false },
+      reviewLanguage: null,
     });
   });
+
   it("refuses missing inheritance intent rather than guessing from values", () => {
-    expect(() => readRepositoryReviewPolicyForm(new FormData())).toThrow();
+    expect(() => readRepositoryReviewSettingsForm(new FormData())).toThrow();
+    expect(readRepositoryReviewSettingsForm(inheritAll())).toEqual({});
   });
 
-  it("preserves explicit gateway binding and profile references in policy submissions", () => {
-    const formData = reviewConfigFormData([
-      {
-        authMode: "codex_account_gateway",
-        model: "mimo-v2-pro",
-        reasoningEffort: "xhigh",
+  it("reads the workspace settings without any provider field", () => {
+    const form = workspaceSettingsFormData();
+    form.set("providerCount", "1");
+    form.set("providerAuthMode.0", "invalid-old-page-field");
+    expect(readWorkspaceReviewSettingsForm(form)).toEqual({
+      execution: { providerMaxParallel: 1, inlineMinAgreement: 1 },
+      blockingPolicy: { failOnSeverity: "critical" },
+      limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
+      reviewLanguage: null,
+      investigationRollout: {
+        recordingEnabled: false,
+        shadowEnabled: false,
+        contextCriticEnabled: false,
+        verifiedCleanEnabled: false,
+        crossRevisionReplayEnabled: false,
+        productionEffectsEnabled: false,
       },
-    ]);
-    formData.set("providerGatewayBindingId.0", "binding-mimo");
-    formData.set("providerGatewayProfileRef.0", "profile-mimo");
-    expect(readReviewConfigurationForm(formData).providers[0]).toMatchObject({
-      kind: "codex",
-      authMode: "codex_account_gateway",
-      model: "mimo-v2-pro",
-      gatewayBindingId: "binding-mimo",
-      gatewayProfileRef: "profile-mimo",
     });
-    formData.delete("providerGatewayBindingId.0");
-    expect(() => readReviewConfigurationForm(formData)).toThrow();
-  });
-
-  it("keeps optional policy fields absent from legacy form submissions", () => {
-    const formData = reviewConfigFormData([
-      {
-        authMode: "codex_account_gateway",
-        model: "mimo-v2-pro",
-        reasoningEffort: "xhigh",
-      },
-    ]);
-    formData.set("providerGatewayBindingId.0", "binding-mimo");
-    formData.set("providerGatewayProfileRef.0", "profile-mimo");
-    // readOptionalFormString omits the key entirely when absent or blank so
-    // legacy provider rows keep their canonical JSON byte-identical.
-    for (const submitted of [undefined, "   "]) {
-      if (submitted !== undefined)
-        formData.set("providerAgentProfileRef.0", submitted);
-      const configuration = readReviewConfigurationForm(formData);
-      expect(Object.hasOwn(configuration, "updatePrDescription")).toBe(false);
-      const provider = configuration.providers[0]!;
-      expect(Object.hasOwn(provider, "agentProfileRef")).toBe(false);
-      expect(JSON.stringify(provider)).not.toContain("agentProfileRef");
-    }
-    formData.set("providerAgentProfileRef.0", "approved-codex");
-    expect(
-      readReviewConfigurationForm(formData).providers[0]?.agentProfileRef,
-    ).toBe("approved-codex");
-  });
-
-  it("rejects stale legacy auth instead of silently converting policy", () => {
-    const formData = reviewConfigFormData([
-      {
-        authMode: "codex_subscription_oauth",
-        model: "gpt-5.5",
-        reasoningEffort: "high",
-      },
-      {
-        authMode: "openrouter_api_key",
-        model: "openai/gpt-5.3-codex",
-        reasoningEffort: "medium",
-      },
-    ]);
-
-    expect(() => readReviewConfigurationForm(formData)).toThrow(
-      "invalid_form_value:providerAuthMode.0",
-    );
   });
 
   it("preserves explicitly enabled investigation rollout flags", () => {
-    const formData = reviewConfigFormData([
-      {
-        authMode: "openrouter_api_key",
-        model: "openai/gpt-5.3-codex",
-        reasoningEffort: "medium",
-      },
-    ]);
+    const form = workspaceSettingsFormData();
     for (const flag of [
       "recordingEnabled",
       "shadowEnabled",
@@ -203,11 +117,12 @@ describe("dashboard action form readers", () => {
       "verifiedCleanEnabled",
       "crossRevisionReplayEnabled",
       "productionEffectsEnabled",
-    ]) {
-      formData.set(`investigationRollout.${flag}`, "true");
-    }
+    ])
+      form.set(`investigationRollout.${flag}`, "true");
+    form.set("updatePrDescription", "false");
 
-    expect(readReviewConfigurationForm(formData).investigationRollout).toEqual({
+    const settings = readWorkspaceReviewSettingsForm(form);
+    expect(settings.investigationRollout).toEqual({
       recordingEnabled: true,
       shadowEnabled: true,
       contextCriticEnabled: true,
@@ -215,6 +130,7 @@ describe("dashboard action form readers", () => {
       crossRevisionReplayEnabled: true,
       productionEffectsEnabled: true,
     });
+    expect(settings.updatePrDescription).toBe(false);
   });
 
   it.each(["codex_subscription_oauth", "codex_openai_api_key"])(
@@ -230,25 +146,6 @@ describe("dashboard action form readers", () => {
     },
   );
 
-  it("rejects duplicate provider rows from policy submissions", () => {
-    const formData = reviewConfigFormData([
-      {
-        authMode: "openrouter_api_key",
-        model: "openai/gpt-5.3-codex",
-        reasoningEffort: "medium",
-      },
-      {
-        authMode: "openrouter_api_key",
-        model: "openai/gpt-5.3-codex",
-        reasoningEffort: "high",
-      },
-    ]);
-
-    expect(() => readReviewConfigurationForm(formData)).toThrow(
-      "duplicate review provider",
-    );
-  });
-
   it("defaults review discussion replies off unless setup explicitly opts in", () => {
     const formData = new FormData();
 
@@ -260,29 +157,19 @@ describe("dashboard action form readers", () => {
   });
 });
 
-function reviewConfigFormData(
-  providers: readonly {
-    readonly authMode: string;
-    readonly model: string;
-    readonly reasoningEffort: string;
-  }[],
-): FormData {
+function inheritAll(): FormData {
+  const form = new FormData();
+  for (const field of repositoryPolicyFormFields)
+    form.set(`policyMode.${field.join(".")}`, "inherit");
+  return form;
+}
+
+function workspaceSettingsFormData(): FormData {
   const formData = new FormData();
-  formData.set("providerCount", String(providers.length));
-  formData.set("providerMaxParallel", String(providers.length));
-  formData.set("inlineMinAgreement", String(providers.length));
+  formData.set("providerMaxParallel", "1");
+  formData.set("inlineMinAgreement", "1");
   formData.set("failOnSeverity", "critical");
   formData.set("inlineMaxComments", "5");
   formData.set("targetTokensPerBatch", "50000");
-
-  providers.forEach((provider, index) => {
-    formData.set(`providerAuthMode.${index}`, provider.authMode);
-    formData.set(`providerModel.${index}`, provider.model);
-    formData.set(`providerReasoningEffort.${index}`, provider.reasoningEffort);
-    formData.set(`providerAgenticContext.${index}`, "true");
-    formData.set(`providerFastMode.${index}`, "false");
-    formData.set(`providerRequiredHealthy.${index}`, String(index === 0));
-  });
-
   return formData;
 }

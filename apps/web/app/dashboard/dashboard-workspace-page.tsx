@@ -8,7 +8,6 @@ import {
   RepositoryNameLink,
   RepositoryStarsBadge,
 } from "../repository-row-display";
-import { initialWorkspaceReviewPolicyDraft } from "../../src/server/initial-workspace-review-policy";
 import {
   loadGatewayAgentProfileOptions,
   type GatewayAgentProfileOption,
@@ -31,7 +30,6 @@ import type {
 import type { WorkspaceHealthSummary } from "../../src/server/repository-health-view";
 import {
   isCodexRotatingOAuthAllowedForRepository,
-  isClaudeCodeProviderEnabled,
   isHostedCodexPoolEnabled,
   requireReviewRouterDatabaseRecoveryWitness,
   resolveReviewRouterActionRef,
@@ -67,13 +65,20 @@ import {
 } from "@reviewrouter/features-workflow-provisioning";
 import { redirect } from "next/navigation";
 import {
+  defaultWorkspaceReviewPolicy,
+  effectiveReviewSettings,
   PrismaReviewPolicyHeadReader,
   PrismaWorkspaceReviewSettings,
   readyReviewConfiguration,
   resolveEffectiveReviewConfigurations,
   type EffectiveReviewConfiguration,
   type PersistedReviewConfiguration,
+  type RepositoryReviewPolicy,
+  type RepositoryReviewSettings,
   type ReviewConfiguration,
+  type ReviewProviderSelection,
+  type WorkspaceProviderProfile,
+  type WorkspaceReviewPolicy,
 } from "@reviewrouter/features-review-config";
 import {
   getWorkspaceSupportDiagnostics,
@@ -148,7 +153,24 @@ import {
   resolveDashboardSection,
   type DashboardSection,
 } from "./dashboard-section";
-import { ProviderSecretSetupDialog } from "./provider-secret-setup-dialog";
+import {
+  ProviderLine,
+  type ProviderLineSummary,
+} from "./provider-setup/provider-line";
+import {
+  ProviderSetupDialog,
+  type ProviderSetupRepositoryContext,
+} from "./provider-setup/provider-setup-dialog";
+import {
+  BulkProviderSetupAction,
+  RepositorySelectionProvider,
+} from "./provider-setup/repository-selection";
+import {
+  credentialStepLabel,
+  credentialStepOf,
+  PROVIDER_SETUP_MAX_REPOSITORIES,
+} from "../../src/features/provider-setup/provider-setup-model";
+import { dashboardProviderProfiles } from "../../src/server/dashboard-provider-selections";
 import {
   RepositoryLiveSearch,
   type RepositorySearchFilter,
@@ -161,8 +183,7 @@ import {
 import { RepositorySetupProgressPanel as RepositorySetupProgressPanelClient } from "./repository-setup-progress-panel";
 import {
   RepositoryPolicyEditor,
-  RepositoryPolicyOverrideDetails,
-  WorkspaceReviewConfigForm,
+  WorkspaceReviewSettingsForm,
 } from "./repository-policy-editor";
 import { RepositorySetupStatusRefresher } from "./repository-setup-status-refresher";
 import { MemoryDevelopmentNotice } from "./memory-development-notice";
@@ -351,6 +372,13 @@ type DashboardWorkspaceData = {
   /** Why the workspace has no ready configuration; null when not read. */
   reviewConfigStatus: EffectiveReviewConfiguration["status"] | null;
   reviewConfigExpectedVersion: number | null;
+  /**
+   * The stored workspace document, also when it selects no default; null
+   * when there is none or it cannot be read.
+   */
+  workspacePolicy: WorkspaceReviewPolicy | null;
+  /** Active workspace providers by ID, for naming selections. */
+  providerProfiles: ReadonlyMap<string, WorkspaceProviderProfile>;
   reviewDraftPullRequests?: boolean;
   canEditOtherSettings?: boolean;
   repositoryConfigs: readonly {
@@ -361,6 +389,8 @@ type DashboardWorkspaceData = {
     readonly effective: ReviewConfiguration | null;
     readonly status: EffectiveReviewConfiguration["status"] | null;
     readonly expectedVersion: number | null;
+    /** Its stored document, also without a provider; null when none. */
+    readonly policy: RepositoryReviewPolicy | null;
   }[];
   outboxFailures: Awaited<ReturnType<typeof listWorkspaceOutboxFailures>>;
   supportDiagnostics: Awaited<
@@ -486,6 +516,7 @@ export async function loadDashboardSectionData(
     [workspaceHealth, orgRuleset, workspaceWideInstallations],
     [
       policies,
+      providerProfiles,
       hostedPool,
       outboxFailures,
       provisioning,
@@ -503,6 +534,9 @@ export async function loadDashboardSectionData(
             { policyHeads: new PrismaReviewPolicyHeadReader(prisma) },
           )
         : Promise.resolve(null),
+      needsConfig
+        ? dashboardProviderProfiles(prisma).list(workspace.id)
+        : Promise.resolve([]),
       loadHostedPoolDashboardView({
         workspaceId: workspace.id,
         repositories: needsReadiness
@@ -574,6 +608,7 @@ export async function loadDashboardSectionData(
       effective: policy?.status === "ready" ? policy.config : null,
       status: policy?.status ?? null,
       expectedVersion: policy?.repositoryVersion ?? null,
+      policy: policies?.repositoryPolicies.get(repositoryId) ?? null,
     };
   });
   const gatewayReadiness = needsReadiness
@@ -647,6 +682,10 @@ export async function loadDashboardSectionData(
     reviewConfig,
     reviewConfigStatus: policies?.workspace.status ?? null,
     reviewConfigExpectedVersion: policies?.workspace.workspaceVersion ?? null,
+    workspacePolicy: policies?.workspacePolicy ?? null,
+    providerProfiles: new Map(
+      providerProfiles.map((profile) => [profile.id, profile] as const),
+    ),
     repositoryConfigs,
     outboxFailures,
     supportDiagnostics,
@@ -1241,7 +1280,6 @@ export async function DashboardSectionContent({
       gatewayAccounts={gatewayAccounts}
       agentProfileOptions={agentProfileOptions}
       contextConnections={contextConnections}
-      claudeCodeProviderEnabled={isClaudeCodeProviderEnabled()}
     />
   );
   const wrappedContent = personal ? (
@@ -1554,7 +1592,6 @@ export function WorkspaceCard({
   gatewayAccounts,
   agentProfileOptions = [],
   contextConnections = [],
-  claudeCodeProviderEnabled,
 }: {
   readonly data: DashboardWorkspaceData;
   readonly mutationsEnabled: boolean;
@@ -1571,7 +1608,6 @@ export function WorkspaceCard({
   readonly agentProfileOptions?:
     | readonly GatewayAgentProfileOption[]
     | undefined;
-  readonly claudeCodeProviderEnabled: boolean;
 }): React.ReactElement {
   const {
     hasWorkspaceWideAccess,
@@ -1666,89 +1702,20 @@ export function WorkspaceCard({
         />
       </div>
     );
-  const activeConfig = data.reviewConfig?.config;
-  if (!activeConfig) {
-    const draft = hasWorkspaceWideAccess
-      ? initialWorkspaceReviewPolicyDraft(gatewayAccounts)
-      : null;
-    // reviewConfig is only loaded for policy/repositories/diagnostics. Other
-    // sections must not claim the policy is missing when it was never read.
-    const configLoaded = selectedSection !== "memory";
-    return (
-      <div id="dashboard-section-content" className="min-w-0 space-y-5">
-        <DashboardActionToast
-          params={params}
-          selectedSection={selectedSection}
-        />
-        {selectedSection === "repositories" ? (
-          <WorkspaceSourceConnectionPanel
-            workspaceId={workspace.id}
-            workspaceKey={workspaceKey}
-            installations={workspace.installations.filter(
-              (item) => item.status === "active",
-            )}
-            gitLabInstallations={workspace.gitLabInstallations}
-            repositories={repositories}
-            hasWorkspaceWideAccess={hasWorkspaceWideAccess}
-            mutationsEnabled={mutationsEnabled}
-          />
-        ) : null}
-        {configLoaded ? (
-          <>
-            <h2 className="text-2xl font-semibold text-cyan-50">
-              {dashboardSectionMeta[selectedSection].title}
-            </h2>
-            {data.reviewConfigStatus === "resave_required" ? (
-              <p role="alert">
-                Saved workspace policy v{data.reviewConfigExpectedVersion} uses
-                a retired format and is not applied — reviews are stopped. The
-                form below shows product defaults, not your previous values.
-                Review and save explicitly.
-              </p>
-            ) : (
-              <p>
-                Choose a workspace default provider. Repositories without a
-                provider of their own review with it.
-              </p>
-            )}
-            {!hasWorkspaceWideAccess ? (
-              <p>A workspace owner or admin needs to complete review setup.</p>
-            ) : null}
-          </>
-        ) : (
-          <p>
-            <a
-              className="text-cyan-200 underline"
-              href={dashboardSectionHref("policy", workspaceKey)}
-            >
-              Save Models settings
-            </a>{" "}
-            to enable reviews.
-          </p>
-        )}
-        {draft && configLoaded ? (
-          <WorkspaceReviewConfigForm
-            workspaceId={workspace.id}
-            expectedVersion={data.reviewConfigExpectedVersion}
-            submitLabel={
-              data.reviewConfigStatus === "resave_required"
-                ? `Replace legacy policy v${data.reviewConfigExpectedVersion}`
-                : undefined
-            }
-            config={draft}
-            modelOptions={modelOptions}
-            gatewayAccounts={gatewayAccounts}
-            agentProfileOptions={agentProfileOptions}
-            contextConnections={contextConnections}
-            codexRotatingOAuthEnabled={false}
-            claudeCodeProviderEnabled={claudeCodeProviderEnabled}
-            mutationsEnabled={mutationsEnabled}
-          />
-        ) : null}
-      </div>
-    );
-  }
-  const activeConfigVersion = data.reviewConfig?.version ?? 1;
+  // Settings come from the stored workspace document; a workspace without
+  // one shows the built-in settings its first save creates.
+  const workspaceSettings = effectiveReviewSettings(
+    data.workspacePolicy ?? defaultWorkspaceReviewPolicy(),
+    null,
+  );
+  const defaultSummary = workspaceProviderSummary(data);
+  const providerDialog = {
+    workspaceId: workspace.id,
+    mutationsEnabled,
+    modelOptions,
+    gatewayAccounts,
+    agentProfileOptions,
+  } as const;
   const requestedRepositoryFullName = readParam(params.repository);
   const providerSecretCheckFailedRepositoryFullName =
     isProviderSecretCheckError(readParam(params.error))
@@ -1770,21 +1737,6 @@ export function WorkspaceCard({
         item.status === "resave_required" &&
         item.expectedVersion != null,
     );
-  const selectedRepositoryConfig =
-    repositoryConfigs.find(
-      (item) => item.repositoryId === selectedRepository?.id,
-    )?.effective ?? null;
-  const selectedInstallation = selectedRepository
-    ? findInstallationForRepository(workspace, selectedRepository)
-    : null;
-  const providerGuidanceSet =
-    selectedRepository && selectedInstallation
-      ? buildProviderSecretGuidanceSet({
-          repositoryFullName: selectedRepository.fullName,
-          installation: selectedInstallation,
-          allowOrganizationSecrets: hasWorkspaceWideAccess,
-        })
-      : null;
   const provisioningByRepositoryId = new Map(
     provisioning.map((item) => [item.repositoryId, item] as const),
   );
@@ -1819,37 +1771,44 @@ export function WorkspaceCard({
   const activeInstallations = workspace.installations.filter(
     (installation) => installation.status === "active",
   );
+  const selectedProviderContext =
+    selectedRepository && !selectedRepositoryLegacy
+      ? repositoryProviderContext({
+          workspace,
+          repository: selectedRepository,
+          summary: repositoryProviderSummary(data, selectedRepository.id),
+          allowOrganizationSecrets: hasWorkspaceWideAccess,
+          canManageCredentials:
+            mutationsEnabled &&
+            selectedRepository.selected &&
+            !selectedRepository.archived,
+          currentStep: "provider",
+        })
+      : null;
+  const selectedCredentialStep = selectedProviderContext?.effective
+    ? credentialStepOf(selectedProviderContext.effective)
+    : null;
   const setupReadyEnableReviewAction =
-    readParam(params.notice) === "setup_pr_ready" &&
-    selectedRepository &&
-    selectedInstallation &&
-    providerGuidanceSet ? (
-      !selectedRepositoryLegacy &&
-      selectedRepositoryConfig?.providers.some(
-        (provider) => provider.authMode === "codex_account_gateway",
-      ) ? (
+    readParam(params.notice) === "setup_pr_ready" && selectedProviderContext ? (
+      selectedProviderContext.effective?.credentialKind ===
+      "gateway_binding" ? (
         <LinkButton
           href={dashboardSectionHref("setup", workspaceKey)}
           size="sm"
         >
           Manage accounts
         </LinkButton>
-      ) : (
-        <RepositoryProviderSecretsDialog
-          workspaceId={workspace.id}
-          repositoryId={selectedRepository.id}
-          repositoryFullName={selectedRepository.fullName}
-          repositoryVisibility={selectedRepository.visibility}
-          installation={selectedInstallation}
-          guidanceSet={providerGuidanceSet}
-          allowOrganizationSecrets={hasWorkspaceWideAccess}
-          claudeCodeProviderEnabled={claudeCodeProviderEnabled}
-          triggerLabel="Enable review"
+      ) : selectedCredentialStep ? (
+        <ProviderSetupDialog
+          {...providerDialog}
+          target={{ kind: "repository", repository: selectedProviderContext }}
+          initialStep="credentials"
+          triggerLabel={credentialStepLabel(selectedCredentialStep)}
           triggerVariant="solid"
           triggerSize="sm"
           triggerClassName="rounded-xl"
         />
-      )
+      ) : null
     ) : null;
 
   return (
@@ -1870,7 +1829,7 @@ export function WorkspaceCard({
           selectedSection={selectedSection}
           repositoryCount={repositoryCount}
           workspaceHealth={workspaceHealth}
-          activeConfig={activeConfig}
+          defaultProvider={defaultSummary}
         />
         {!hasWorkspaceWideAccess || repositoryAccess.status !== "ready" ? (
           <RepositoryAccessRefreshNotice
@@ -1901,18 +1860,36 @@ export function WorkspaceCard({
               hasWorkspaceWideAccess={hasWorkspaceWideAccess}
               mutationsEnabled={mutationsEnabled}
             />
+            {defaultSummary.profile ? null : hasWorkspaceWideAccess ? (
+              <ProviderLine
+                {...providerDialog}
+                summary={defaultSummary}
+                target={{ kind: "workspace" }}
+              />
+            ) : (
+              <p role="status" className="text-sm leading-6 text-amber-100">
+                This workspace has no default provider. Choose a provider for a
+                repository below, or ask a workspace owner or admin to set a
+                default.
+              </p>
+            )}
             <RepositoryTable
               workspace={workspace}
               repositoryReadiness={repositoryReadiness}
               health={health}
               provisioning={provisioning}
               repositoryConfigs={repositoryConfigs}
-              activeConfig={activeConfig}
-              modelOptions={modelOptions}
-              gatewayAccounts={gatewayAccounts}
-              agentProfileOptions={agentProfileOptions}
+              providerSummaries={
+                new Map(
+                  repositories.map((repository) => [
+                    repository.id,
+                    repositoryProviderSummary(data, repository.id),
+                  ]),
+                )
+              }
+              workspacePolicy={data.workspacePolicy}
+              providerDialog={providerDialog}
               contextConnections={contextConnections}
-              claudeCodeProviderEnabled={claudeCodeProviderEnabled}
               mutationsEnabled={mutationsEnabled}
               workspaceKey={workspaceKey}
               initialWorkspaceParam={readParam(params.workspace) || null}
@@ -1948,148 +1925,41 @@ export function WorkspaceCard({
 
         {selectedSection === "policy" ? (
           <section className="space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <Badge tone="accent">Review model</Badge>
-                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-                  {hasWorkspaceWideAccess
-                    ? "Workspace defaults apply to every repository unless a repository override is saved."
-                    : "Direct provider, model, reasoning, and gate edits require maintain or admin access on that repository."}
-                </p>
-              </div>
-              <span className="font-mono text-xs uppercase tracking-[0.16em] text-slate-400">
-                {hasWorkspaceWideAccess
-                  ? "Workspace default"
-                  : "Repository access"}
-              </span>
-            </div>
-
             {hasWorkspaceWideAccess ? (
-              <div className="rounded-2xl border border-cyan-200/10 bg-cyan-300/[0.04] p-4">
-                <div className="mb-4 flex flex-wrap items-center gap-2">
-                  <Badge tone="accent">Workspace default</Badge>
-                </div>
-                <WorkspaceReviewConfigForm
+              <>
+                <p className="max-w-3xl text-sm leading-6 text-slate-400">
+                  Repositories without a provider of their own review with the
+                  default provider and these settings. A repository can override
+                  both from its row in Repositories.
+                </p>
+                <ProviderLine
+                  {...providerDialog}
+                  summary={defaultSummary}
+                  target={{ kind: "workspace" }}
+                />
+                <WorkspaceReviewSettingsForm
                   workspaceId={workspace.id}
                   expectedVersion={data.reviewConfigExpectedVersion}
-                  config={activeConfig}
-                  modelOptions={modelOptions}
-                  gatewayAccounts={gatewayAccounts}
-                  agentProfileOptions={agentProfileOptions}
+                  settings={workspaceSettings}
+                  providerCount={data.workspacePolicy?.providers?.length ?? 1}
+                  primaryAuthMode={defaultSummary.profile?.authMode}
                   contextConnections={contextConnections}
-                  codexRotatingOAuthEnabled={false}
-                  claudeCodeProviderEnabled={claudeCodeProviderEnabled}
                   mutationsEnabled={mutationsEnabled}
+                  submitLabel={
+                    data.reviewConfigStatus === "resave_required" &&
+                    data.workspacePolicy === null
+                      ? "Replace retired settings"
+                      : undefined
+                  }
                 />
-              </div>
-            ) : null}
-
-            {repositories.length > 0 ? (
-              <details
-                className="group mt-4 rounded-2xl border border-cyan-200/10 bg-slate-950/65 p-4"
-                open={!hasWorkspaceWideAccess || undefined}
-              >
-                <summary className="cursor-pointer list-none rounded-xl outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-300/40">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone="accent">
-                        {hasWorkspaceWideAccess
-                          ? "Repository overrides"
-                          : "Repository settings"}
-                      </Badge>
-                      <span className="text-xs uppercase tracking-[0.16em] text-slate-400">
-                        optional per-repository provider/model/effort
-                      </span>
-                    </div>
-                    <span className="inline-flex items-center gap-2 rounded-full border border-cyan-200/30 bg-cyan-300/[0.08] px-3 py-2 font-mono text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition group-hover:border-cyan-200/50 group-hover:bg-cyan-300/[0.12]">
-                      {hasWorkspaceWideAccess ? (
-                        <>
-                          <span className="group-open:hidden">
-                            Open overrides
-                          </span>
-                          <span className="hidden group-open:inline">
-                            Hide overrides
-                          </span>
-                          <svg
-                            aria-hidden="true"
-                            viewBox="0 0 16 16"
-                            className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none"
-                            fill="none"
-                          >
-                            <path
-                              d="M4 6l4 4 4-4"
-                              stroke="currentColor"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth="1.8"
-                            />
-                          </svg>
-                        </>
-                      ) : (
-                        "Repository access"
-                      )}
-                    </span>
-                  </div>
-                  <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-                    {hasWorkspaceWideAccess
-                      ? "Most repositories should inherit the workspace default. Open this only when one repository needs a different provider, model, effort, or gate."
-                      : "Changes here affect only the repository you edit. They do not change workspace defaults or other repositories."}
-                  </p>
-                  <p className="mt-2 font-mono text-xs font-semibold uppercase tracking-[0.16em] text-cyan-200/80 group-open:hidden">
-                    Click to expand repository-specific settings
-                  </p>
-                </summary>
-                <div className="mt-4 grid gap-3">
-                  {repositories.map((repository) => {
-                    const repositoryPolicy = repositoryConfigs.find(
-                      (item) => item.repositoryId === repository.id,
-                    );
-                    const repositoryConfig = repositoryPolicy?.config ?? null;
-                    // Form display only; an unresolvable repository is
-                    // marked legacy and shows the workspace settings.
-                    const effectiveConfig =
-                      repositoryPolicy?.effective ?? activeConfig;
-                    const configVersion =
-                      repositoryConfig?.version ?? activeConfigVersion;
-                    const canEditRepositorySettings =
-                      hasWorkspaceWideAccess ||
-                      repositoryAccess.directConfigRepositoryIds.has(
-                        repository.id,
-                      );
-
-                    return (
-                      <RepositoryPolicyOverrideDetails
-                        key={`${repository.id}-review-config`}
-                        workspaceId={workspace.id}
-                        repository={repository}
-                        repositoryConfig={repositoryConfig}
-                        effectiveConfig={effectiveConfig}
-                        configVersion={configVersion}
-                        expectedVersion={
-                          repositoryPolicy?.expectedVersion ?? null
-                        }
-                        modelOptions={modelOptions}
-                        gatewayAccounts={gatewayAccounts}
-                        agentProfileOptions={agentProfileOptions}
-                        contextConnections={contextConnections}
-                        codexRotatingOAuthEnabled={isCodexRotatingOAuthEnabledForRepository(
-                          repository,
-                        )}
-                        claudeCodeProviderEnabled={claudeCodeProviderEnabled}
-                        mutationsEnabled={
-                          mutationsEnabled && canEditRepositorySettings
-                        }
-                        editDisabledReason={
-                          canEditRepositorySettings
-                            ? undefined
-                            : "Maintain or admin access is required to change repo settings directly."
-                        }
-                      />
-                    );
-                  })}
-                </div>
-              </details>
-            ) : null}
+              </>
+            ) : (
+              <p className="max-w-3xl text-sm leading-6 text-slate-400">
+                Workspace owners and admins manage the default provider and
+                workspace settings. You can change the provider and settings of
+                repositories you maintain from their rows in Repositories.
+              </p>
+            )}
           </section>
         ) : null}
 
@@ -2307,7 +2177,7 @@ function DashboardSectionHeader(
         readonly selectedSection: Exclude<DashboardSection, "setup" | "other">;
         readonly repositoryCount: number;
         readonly workspaceHealth: WorkspaceHealthSummary;
-        readonly activeConfig: ReviewConfiguration;
+        readonly defaultProvider: ProviderLineSummary;
       },
 ): React.ReactElement | null {
   const { selectedSection } = props;
@@ -2323,13 +2193,9 @@ function DashboardSectionHeader(
       : selectedSection === "repositories"
         ? `${props.repositoryCount} synced repositories`
         : selectedSection === "policy"
-          ? props.activeConfig.providers
-              .map((provider) =>
-                provider.reasoningEffort
-                  ? `${provider.model} / ${provider.reasoningEffort}`
-                  : provider.model,
-              )
-              .join(", ")
+          ? props.defaultProvider.profile
+            ? `Default: ${props.defaultProvider.profile.label} / ${props.defaultProvider.profile.model}`
+            : "No default provider"
           : selectedSection === "memory"
             ? "In development"
             : "Metadata only";
@@ -2462,18 +2328,24 @@ function summarizeWorkspaceSetupReadiness(
   };
 }
 
+type ProviderDialogProps = Readonly<{
+  workspaceId: string;
+  mutationsEnabled: boolean;
+  modelOptions: readonly ReviewModelOption[];
+  gatewayAccounts: AccountsResult<AccountsPage> | undefined;
+  agentProfileOptions: readonly GatewayAgentProfileOption[];
+}>;
+
 function RepositoryTable({
   workspace,
   repositoryReadiness,
   health,
   provisioning,
   repositoryConfigs,
-  activeConfig,
-  modelOptions,
-  gatewayAccounts,
-  agentProfileOptions = [],
+  providerSummaries,
+  workspacePolicy,
+  providerDialog,
   contextConnections = [],
-  claudeCodeProviderEnabled,
   mutationsEnabled,
   workspaceKey,
   initialWorkspaceParam,
@@ -2493,16 +2365,12 @@ function RepositoryTable({
   readonly health: DashboardWorkspaceData["health"];
   readonly provisioning: DashboardWorkspaceData["provisioning"];
   readonly repositoryConfigs: DashboardWorkspaceData["repositoryConfigs"];
-  readonly activeConfig: ReviewConfiguration;
-  readonly modelOptions: readonly ReviewModelOption[];
-  readonly agentProfileOptions?:
-    | readonly GatewayAgentProfileOption[]
-    | undefined;
-  readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
+  readonly providerSummaries: ReadonlyMap<string, ProviderLineSummary>;
+  readonly workspacePolicy: WorkspaceReviewPolicy | null;
+  readonly providerDialog: ProviderDialogProps;
   readonly contextConnections?:
     | readonly ContextConnectionMetadata[]
     | undefined;
-  readonly claudeCodeProviderEnabled: boolean;
   readonly mutationsEnabled: boolean;
   readonly workspaceKey: string;
   readonly initialWorkspaceParam: string | null;
@@ -2524,6 +2392,11 @@ function RepositoryTable({
     provisioning.map((item) => [item.repositoryId, item] as const),
   );
   const repositories = repositoryReadiness.map(({ repository }) => repository);
+  const workspaceDocument = workspacePolicy ?? defaultWorkspaceReviewPolicy();
+  const canEditSettings = (repositoryId: string) =>
+    directConfigRepositoryIds === null ||
+    directConfigRepositoryIds.has(repositoryId);
+  const noProvider: ProviderLineSummary = { source: "none", profile: null };
 
   const rows = repositoryReadiness.map(
     ({ repository, healthStatus, workflowCurrent, step, readiness }) => {
@@ -2604,122 +2477,216 @@ function RepositoryTable({
       ? [selectedRow, ...cappedRows.slice(0, MAX_RENDERED_REPOSITORY_ROWS - 1)]
       : cappedRows;
   return (
-    <div
-      data-repository-table
-      className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/62 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
+    <RepositorySelectionProvider
+      workspaceId={workspace.id}
+      limit={PROVIDER_SETUP_MAX_REPOSITORIES}
+      repositories={repositories.map((repository) => ({
+        id: repository.id,
+        fullName: repository.fullName,
+        eligible:
+          mutationsEnabled &&
+          repository.provider === "github" &&
+          repository.selected &&
+          !repository.archived &&
+          canEditSettings(repository.id),
+      }))}
     >
-      {repositories.length === 0 ? (
-        <div className="p-5">
-          <Badge tone="warning">No repositories yet</Badge>
-          <p className="mt-3 text-sm leading-6 text-slate-300">
-            No source repositories are connected to this workspace yet. Use
-            Connect source to add GitHub App repositories. GitLab is in
-            development and not available yet.
-          </p>
-        </div>
-      ) : (
-        <RepositoryLiveSearch
-          key={workspaceKey}
-          workspaceKey={workspaceKey}
-          initialWorkspaceParam={initialWorkspaceParam}
-          selectedRepositoryFullName={selectedRepositoryFullName}
-          selectedRepositoryId={selectedRow?.repository.id ?? null}
-          initialQuery={searchQuery}
-          initialFilter={searchFilter}
-          searchIndex={searchIndex}
-          totalRepositoryCount={rows.length}
-          rowLimit={MAX_RENDERED_REPOSITORY_ROWS}
-          richRowIds={displayRows.map((row) => row.repository.id)}
-        >
-          {displayRows.map(
-            ({
-              repository,
-              setupPullRequestUrl,
-              setupIssue,
-              workflowCurrent,
-              setupProgressStep,
-            }) => {
-              const repositoryPolicy = repositoryConfigById.get(repository.id);
-              const repositoryConfig = repositoryPolicy?.config ?? null;
-              // What the repository reviews with; forms fall back to the
-              // workspace settings for display only.
-              const reviewProviders =
-                repositoryPolicy?.effective?.providers ?? [];
-              const effectiveConfig =
-                repositoryPolicy?.effective ?? activeConfig;
-              const canEditRepositorySettings =
-                directConfigRepositoryIds === null ||
-                directConfigRepositoryIds.has(repository.id);
-              const repositoryUrl = repositorySourceUrl(repository);
-              const hostedRepository = hostedPool.repositories.find(
-                (candidate) => candidate.id === repository.id,
-              );
-              const setupDisclosureId = `repo-setup-${repository.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-              const isSelectedRepository =
-                repository.fullName === selectedRepositoryFullName;
-              return (
-                <div
-                  key={repository.id}
-                  data-repository-row-id={repository.id}
-                  data-repository-setup-row
-                  data-disclosure-id={setupDisclosureId}
-                  className="grid cursor-pointer gap-3 px-4 py-3 transition-colors lg:px-6 lg:py-3.5"
-                >
-                  <input
-                    id={setupDisclosureId}
-                    type="checkbox"
-                    defaultChecked={isSelectedRepository}
-                    className="repository-setup-disclosure peer sr-only"
-                  />
-                  {repository.setupStatus === "setup_pr_open" ? (
-                    <RepositorySetupStatusRefresher
-                      enabled
-                      workspaceId={workspace.id}
-                      repositoryId={repository.id}
-                      disclosureId={setupDisclosureId}
-                    />
-                  ) : null}
-                  <div className="repository-setup-row-header grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <span
-                        title={`${
-                          repository.provider === "gitlab" ? "GitLab" : "GitHub"
-                        } repository`}
-                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-cyan-200/15 bg-cyan-300/[0.07]"
+      <div
+        data-repository-table
+        className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/62 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
+      >
+        {repositories.length === 0 ? (
+          <div className="p-5">
+            <Badge tone="warning">No repositories yet</Badge>
+            <p className="mt-3 text-sm leading-6 text-slate-300">
+              No source repositories are connected to this workspace yet. Use
+              Connect source to add GitHub App repositories. GitLab is in
+              development and not available yet.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-200/10 px-4 py-3 lg:px-6">
+              <p className="text-sm font-semibold text-cyan-100">
+                Repository providers
+              </p>
+              <BulkProviderSetupAction {...providerDialog} />
+            </div>
+            <RepositoryLiveSearch
+              key={workspaceKey}
+              workspaceKey={workspaceKey}
+              initialWorkspaceParam={initialWorkspaceParam}
+              selectedRepositoryFullName={selectedRepositoryFullName}
+              selectedRepositoryId={selectedRow?.repository.id ?? null}
+              initialQuery={searchQuery}
+              initialFilter={searchFilter}
+              searchIndex={searchIndex}
+              totalRepositoryCount={rows.length}
+              rowLimit={MAX_RENDERED_REPOSITORY_ROWS}
+              richRowIds={displayRows.map((row) => row.repository.id)}
+              selectable
+            >
+              {displayRows.map(
+                ({
+                  repository,
+                  setupPullRequestUrl,
+                  setupIssue,
+                  workflowCurrent,
+                  setupProgressStep,
+                }) => {
+                  const repositoryPolicy = repositoryConfigById.get(
+                    repository.id,
+                  );
+                  const reviewProviders =
+                    repositoryPolicy?.effective?.providers ?? [];
+                  const summary =
+                    providerSummaries.get(repository.id) ?? noProvider;
+                  const canEditRepositorySettings = canEditSettings(
+                    repository.id,
+                  );
+                  const providerContext = repositoryProviderContext({
+                    workspace,
+                    repository,
+                    summary,
+                    allowOrganizationSecrets:
+                      directConfigRepositoryIds === null,
+                    canManageCredentials:
+                      mutationsEnabled &&
+                      repository.selected &&
+                      !repository.archived,
+                    currentStep: setupProgressStep,
+                  });
+                  const providerTarget = {
+                    kind: "repository",
+                    repository: providerContext,
+                  } as const;
+                  const legacy =
+                    repositoryPolicy?.status === "resave_required" &&
+                    repositoryPolicy.expectedVersion !== null &&
+                    repositoryPolicy.policy === null;
+                  const repositoryUrl = repositorySourceUrl(repository);
+                  const hostedRepository = hostedPool.repositories.find(
+                    (candidate) => candidate.id === repository.id,
+                  );
+                  const setupDisclosureId = `repo-setup-${repository.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+                  const isSelectedRepository =
+                    repository.fullName === selectedRepositoryFullName;
+                  return (
+                    <div
+                      key={repository.id}
+                      data-repository-row-id={repository.id}
+                      data-repository-setup-row
+                      data-disclosure-id={setupDisclosureId}
+                      className="grid cursor-pointer gap-3 px-4 py-3 transition-colors lg:px-6 lg:py-3.5"
+                    >
+                      <input
+                        id={setupDisclosureId}
+                        type="checkbox"
+                        defaultChecked={isSelectedRepository}
+                        className="repository-setup-disclosure peer sr-only"
+                      />
+                      {repository.setupStatus === "setup_pr_open" ? (
+                        <RepositorySetupStatusRefresher
+                          enabled
+                          workspaceId={workspace.id}
+                          repositoryId={repository.id}
+                          disclosureId={setupDisclosureId}
+                        />
+                      ) : null}
+                      <div className="repository-setup-row-header grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <span
+                            title={`${
+                              repository.provider === "gitlab"
+                                ? "GitLab"
+                                : "GitHub"
+                            } repository`}
+                            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-cyan-200/15 bg-cyan-300/[0.07]"
+                          >
+                            <SourceProviderLogo
+                              provider={
+                                repository.provider === "gitlab"
+                                  ? "gitlab"
+                                  : "github"
+                              }
+                              className="h-3.5 w-3.5"
+                            />
+                          </span>
+                          <RepositoryNameLink
+                            fullName={repository.fullName}
+                            repositoryUrl={repositoryUrl}
+                            className="min-w-0 break-words text-sm font-semibold leading-snug text-cyan-50 sm:text-[0.95rem]"
+                          />
+                          <Badge tone="neutral">
+                            {repository.provider === "gitlab"
+                              ? "GitLab"
+                              : "GitHub"}
+                          </Badge>
+                          {repository.provider === "github" ? (
+                            <RepositoryStarsBadge
+                              stargazersCount={repository.stargazersCount}
+                            />
+                          ) : null}
+                          {repository.provider === "github" ? (
+                            <span className="flex w-full min-w-0">
+                              <ProviderLine
+                                {...providerDialog}
+                                compact
+                                summary={summary}
+                                target={providerTarget}
+                              />
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="repository-setup-toggle-row flex flex-wrap items-center gap-2 peer-focus-visible:[&_.setup-toggle]:outline peer-focus-visible:[&_.setup-toggle]:outline-2 peer-focus-visible:[&_.setup-toggle]:outline-offset-2 peer-focus-visible:[&_.setup-toggle]:outline-cyan-200 sm:justify-end">
+                          <RepositoryVisibilityBadge
+                            visibility={repository.visibility}
+                          />
+                          {repository.archived ? (
+                            <Badge tone="warning">Archived</Badge>
+                          ) : null}
+                          <RepositorySetupDisclosureToggle
+                            repositoryId={repository.id}
+                            disclosureId={setupDisclosureId}
+                            currentStep={setupProgressStep}
+                            gatewayReviewV2Ready={isGatewayReviewV2RepositoryReady(
+                              gatewayReadiness.get(repository.id),
+                            )}
+                            expectedProviderAuthModes={reviewProviders.map(
+                              (provider) => provider.authMode,
+                            )}
+                          />
+                        </div>
+                      </div>
+
+                      <div
+                        className="hidden peer-checked:block"
+                        data-repository-setup-panel
                       >
-                        <SourceProviderLogo
-                          provider={
-                            repository.provider === "gitlab"
-                              ? "gitlab"
-                              : "github"
-                          }
-                          className="h-3.5 w-3.5"
-                        />
-                      </span>
-                      <RepositoryNameLink
-                        fullName={repository.fullName}
-                        repositoryUrl={repositoryUrl}
-                        className="min-w-0 break-words text-sm font-semibold leading-snug text-cyan-50 sm:text-[0.95rem]"
-                      />
-                      <Badge tone="neutral">
-                        {repository.provider === "gitlab" ? "GitLab" : "GitHub"}
-                      </Badge>
-                      {repository.provider === "github" ? (
-                        <RepositoryStarsBadge
-                          stargazersCount={repository.stargazersCount}
-                        />
-                      ) : null}
-                    </div>
-                    <div className="repository-setup-toggle-row flex flex-wrap items-center gap-2 peer-focus-visible:[&_.setup-toggle]:outline peer-focus-visible:[&_.setup-toggle]:outline-2 peer-focus-visible:[&_.setup-toggle]:outline-offset-2 peer-focus-visible:[&_.setup-toggle]:outline-cyan-200 sm:justify-end">
-                      <RepositoryVisibilityBadge
-                        visibility={repository.visibility}
-                      />
-                      {repository.archived ? (
-                        <Badge tone="warning">Archived</Badge>
-                      ) : null}
-                      <RepositorySetupDisclosureToggle
+                        <div className="rounded-2xl border border-cyan-200/10 bg-slate-950/45 px-4 pb-1 pt-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] sm:px-5">
+                          <RepositorySetupProgressPanel
+                            workspace={workspace}
+                            workspaceKey={workspaceKey}
+                            repository={repository}
+                            setupPullRequestUrl={setupPullRequestUrl}
+                            setupIssue={setupIssue}
+                            workflowCurrent={workflowCurrent}
+                            mutationsEnabled={mutationsEnabled}
+                            providerDialog={providerDialog}
+                            providerSummary={summary}
+                            providerContext={providerContext}
+                            effectiveConfig={
+                              repositoryPolicy?.effective ?? null
+                            }
+                            currentStep={setupProgressStep}
+                            gatewayReviewV2Readiness={gatewayReadiness.get(
+                              repository.id,
+                            )}
+                          />
+                        </div>
+                      </div>
+                      <RepositorySetupReadyGate
                         repositoryId={repository.id}
-                        disclosureId={setupDisclosureId}
                         currentStep={setupProgressStep}
                         gatewayReviewV2Ready={isGatewayReviewV2RepositoryReady(
                           gatewayReadiness.get(repository.id),
@@ -2727,91 +2694,54 @@ function RepositoryTable({
                         expectedProviderAuthModes={reviewProviders.map(
                           (provider) => provider.authMode,
                         )}
-                      />
+                      >
+                        <RepositoryPolicyEditor
+                          workspaceId={workspace.id}
+                          repository={repository}
+                          settings={effectiveReviewSettings(
+                            workspaceDocument,
+                            repositoryPolicy?.policy ?? null,
+                          )}
+                          overrides={repositorySettingsOverrides(
+                            repositoryPolicy?.policy ?? null,
+                          )}
+                          legacy={legacy}
+                          expectedVersion={
+                            repositoryPolicy?.expectedVersion ?? null
+                          }
+                          providerCount={Math.max(reviewProviders.length, 1)}
+                          primaryAuthMode={reviewProviders[0]?.authMode}
+                          contextConnections={contextConnections}
+                          mutationsEnabled={
+                            mutationsEnabled && canEditRepositorySettings
+                          }
+                          editDisabledReason={
+                            canEditRepositorySettings
+                              ? undefined
+                              : "Maintain or admin access is required to change repo settings directly."
+                          }
+                        />
+                      </RepositorySetupReadyGate>
+                      {hostedPool.gate === "enabled" && hostedRepository ? (
+                        <RepositorySessionSourceSelector
+                          workspaceId={workspace.id}
+                          repository={hostedRepository}
+                          action={setHostedRepositorySessionSourceClientAction}
+                          mutationsEnabled={hostedPoolMutationsEnabled}
+                          hostedPoolReady={
+                            (hostedPool.pool?.healthyAccountCount ?? 0) > 0
+                          }
+                        />
+                      ) : null}
                     </div>
-                  </div>
-
-                  <div
-                    className="hidden peer-checked:block"
-                    data-repository-setup-panel
-                  >
-                    <div className="rounded-2xl border border-cyan-200/10 bg-slate-950/45 px-4 pb-1 pt-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] sm:px-5">
-                      <RepositorySetupProgressPanel
-                        workspace={workspace}
-                        workspaceKey={workspaceKey}
-                        repository={repository}
-                        setupPullRequestUrl={setupPullRequestUrl}
-                        setupIssue={setupIssue}
-                        workflowCurrent={workflowCurrent}
-                        mutationsEnabled={mutationsEnabled}
-                        claudeCodeProviderEnabled={claudeCodeProviderEnabled}
-                        allowOrganizationSecrets={
-                          directConfigRepositoryIds === null
-                        }
-                        effectiveConfig={effectiveConfig}
-                        currentStep={setupProgressStep}
-                        gatewayReviewV2Readiness={gatewayReadiness.get(
-                          repository.id,
-                        )}
-                      />
-                    </div>
-                  </div>
-                  <RepositorySetupReadyGate
-                    repositoryId={repository.id}
-                    currentStep={setupProgressStep}
-                    gatewayReviewV2Ready={isGatewayReviewV2RepositoryReady(
-                      gatewayReadiness.get(repository.id),
-                    )}
-                    expectedProviderAuthModes={reviewProviders.map(
-                      (provider) => provider.authMode,
-                    )}
-                  >
-                    <RepositoryPolicyEditor
-                      workspaceId={workspace.id}
-                      repository={repository}
-                      repositoryConfig={repositoryConfig}
-                      expectedVersion={
-                        repositoryConfigs.find(
-                          (item) => item.repositoryId === repository.id,
-                        )?.expectedVersion ?? null
-                      }
-                      effectiveConfig={effectiveConfig}
-                      modelOptions={modelOptions}
-                      gatewayAccounts={gatewayAccounts}
-                      agentProfileOptions={agentProfileOptions}
-                      contextConnections={contextConnections}
-                      codexRotatingOAuthEnabled={isCodexRotatingOAuthEnabledForRepository(
-                        repository,
-                      )}
-                      claudeCodeProviderEnabled={claudeCodeProviderEnabled}
-                      mutationsEnabled={
-                        mutationsEnabled && canEditRepositorySettings
-                      }
-                      editDisabledReason={
-                        canEditRepositorySettings
-                          ? undefined
-                          : "Maintain or admin access is required to change repo settings directly."
-                      }
-                    />
-                  </RepositorySetupReadyGate>
-                  {hostedPool.gate === "enabled" && hostedRepository ? (
-                    <RepositorySessionSourceSelector
-                      workspaceId={workspace.id}
-                      repository={hostedRepository}
-                      action={setHostedRepositorySessionSourceClientAction}
-                      mutationsEnabled={hostedPoolMutationsEnabled}
-                      hostedPoolReady={
-                        (hostedPool.pool?.healthyAccountCount ?? 0) > 0
-                      }
-                    />
-                  ) : null}
-                </div>
-              );
-            },
-          )}
-        </RepositoryLiveSearch>
-      )}
-    </div>
+                  );
+                },
+              )}
+            </RepositoryLiveSearch>
+          </>
+        )}
+      </div>
+    </RepositorySelectionProvider>
   );
 }
 
@@ -2823,8 +2753,9 @@ function RepositorySetupProgressPanel({
   setupIssue,
   workflowCurrent,
   mutationsEnabled,
-  claudeCodeProviderEnabled,
-  allowOrganizationSecrets,
+  providerDialog,
+  providerSummary,
+  providerContext,
   effectiveConfig,
   currentStep,
   gatewayReviewV2Readiness,
@@ -2836,9 +2767,10 @@ function RepositorySetupProgressPanel({
   readonly setupIssue: string | null;
   readonly workflowCurrent: boolean;
   readonly mutationsEnabled: boolean;
-  readonly claudeCodeProviderEnabled: boolean;
-  readonly allowOrganizationSecrets: boolean;
-  readonly effectiveConfig: ReviewConfiguration;
+  readonly providerDialog: ProviderDialogProps;
+  readonly providerSummary: ProviderLineSummary;
+  readonly providerContext: ProviderSetupRepositoryContext;
+  readonly effectiveConfig: ReviewConfiguration | null;
   readonly currentStep: RepositorySetupStepId;
   readonly gatewayReviewV2Readiness?:
     | GatewayReviewV2RepositoryReadiness
@@ -2846,40 +2778,40 @@ function RepositorySetupProgressPanel({
 }): React.ReactElement {
   const canManage =
     mutationsEnabled && repository.selected && !repository.archived;
-  const providerSetupBeforeWorkflow = effectiveConfig.providers.some(
+  const providers = effectiveConfig?.providers ?? [];
+  const providerSetupBeforeWorkflow = providers.some(
     (provider) => provider.authMode === "codex_subscription_oauth_rotating",
   );
-  const gatewayProviderSetup = effectiveConfig.providers.some(
-    (provider) => provider.authMode === "codex_account_gateway",
-  );
-  const installation = findInstallationForRepository(workspace, repository);
-  const enableReviewAction = gatewayProviderSetup ? (
-    <LinkButton
-      href={dashboardSectionHref("setup", workspaceKey)}
-      variant="outline"
-      size="sm"
-      className="min-h-11 w-full min-w-0 rounded-lg px-3 sm:w-auto sm:min-w-[9.5rem] sm:px-5"
-    >
-      Manage accounts
-    </LinkButton>
-  ) : installation ? (
-    <RepositoryProviderSecretsAction
-      workspace={workspace}
-      repository={repository}
-      setupStatus={repository.setupStatus}
-      disabled={!canManage}
-      claudeCodeProviderEnabled={claudeCodeProviderEnabled}
-      allowOrganizationSecrets={allowOrganizationSecrets}
-      triggerVariant="outline"
-      triggerLabel={
-        providerSetupBeforeWorkflow ? "Set up provider" : "Enable review"
-      }
-      rotatingPreparationOnly={
-        providerSetupBeforeWorkflow && currentStep === "setup_pr"
-      }
-      triggerClassName="min-h-11 w-full min-w-0 rounded-lg px-3 sm:w-auto sm:min-w-[9.5rem] sm:px-5"
-    />
-  ) : null;
+  const target = { kind: "repository", repository: providerContext } as const;
+  const credentialStep = providerContext.effective
+    ? credentialStepOf(providerContext.effective)
+    : null;
+  const stepActionClassName =
+    "min-h-11 w-full min-w-0 rounded-lg px-3 sm:w-auto sm:min-w-[9.5rem] sm:px-5";
+  // Step 3 opens the provider dialog for this repository on its credential
+  // part when the provider needs one; without a provider the line above the
+  // steps is the one action.
+  const enableReviewAction =
+    providerContext.effective?.credentialKind === "gateway_binding" ? (
+      <LinkButton
+        href={dashboardSectionHref("setup", workspaceKey)}
+        variant="outline"
+        size="sm"
+        className={stepActionClassName}
+      >
+        Manage accounts
+      </LinkButton>
+    ) : credentialStep ? (
+      <ProviderSetupDialog
+        {...providerDialog}
+        target={target}
+        initialStep="credentials"
+        triggerLabel={credentialStepLabel(credentialStep)}
+        triggerVariant="outline"
+        triggerSize="sm"
+        triggerClassName={stepActionClassName}
+      />
+    ) : null;
 
   return (
     <RepositorySetupProgressPanelClient
@@ -2895,9 +2827,16 @@ function RepositorySetupProgressPanel({
       mutationsEnabled={mutationsEnabled}
       initialStep={currentStep}
       gatewayReviewV2Readiness={gatewayReviewV2Readiness}
-      expectedProviderAuthModes={effectiveConfig.providers.map(
-        (provider) => provider.authMode,
-      )}
+      expectedProviderAuthModes={providers.map((provider) => provider.authMode)}
+      providerLine={
+        repository.provider === "github" ? (
+          <ProviderLine
+            {...providerDialog}
+            summary={providerSummary}
+            target={target}
+          />
+        ) : null
+      }
       enableReviewAction={canManage ? enableReviewAction : null}
       providerSetupBeforeWorkflow={providerSetupBeforeWorkflow}
     />
@@ -2905,153 +2844,6 @@ function RepositorySetupProgressPanel({
 }
 
 type DashboardInstallation = DashboardWorkspace["installations"][number];
-
-type ProviderSecretGuidanceSet = {
-  readonly codexOAuthRotating: ReturnType<
-    typeof buildProviderSecretSetupGuidance
-  >;
-  readonly claudeCodeOAuth: ReturnType<typeof buildProviderSecretSetupGuidance>;
-  readonly mimoTokenPlanApiKey: ReturnType<
-    typeof buildProviderSecretSetupGuidance
-  >;
-  readonly openRouterApiKey: ReturnType<
-    typeof buildProviderSecretSetupGuidance
-  >;
-};
-
-function RepositoryProviderSecretsAction({
-  workspace,
-  repository,
-  setupStatus,
-  disabled,
-  claudeCodeProviderEnabled,
-  allowOrganizationSecrets,
-  triggerVariant,
-  triggerClassName,
-  triggerLabel = "Enable review",
-  rotatingPreparationOnly = false,
-}: {
-  readonly workspace: DashboardWorkspace;
-  readonly repository: DashboardWorkspaceData["repositories"][number];
-  readonly setupStatus: string;
-  readonly disabled: boolean;
-  readonly claudeCodeProviderEnabled: boolean;
-  readonly allowOrganizationSecrets: boolean;
-  readonly triggerVariant?: "solid" | "soft" | "outline" | "ghost";
-  readonly triggerClassName?: string;
-  readonly triggerLabel?: string;
-  readonly rotatingPreparationOnly?: boolean;
-}): React.ReactElement | null {
-  const installation = findInstallationForRepository(workspace, repository);
-  if (!installation) {
-    return null;
-  }
-
-  return (
-    <RepositoryProviderSecretsDialog
-      workspaceId={workspace.id}
-      repositoryId={repository.id}
-      repositoryFullName={repository.fullName}
-      repositoryVisibility={repository.visibility}
-      installation={installation}
-      guidanceSet={buildProviderSecretGuidanceSet({
-        repositoryFullName: repository.fullName,
-        installation,
-        allowOrganizationSecrets,
-      })}
-      allowOrganizationSecrets={allowOrganizationSecrets}
-      claudeCodeProviderEnabled={claudeCodeProviderEnabled}
-      disabled={disabled}
-      triggerLabel={triggerLabel}
-      rotatingPreparationOnly={rotatingPreparationOnly}
-      triggerVariant={
-        triggerVariant ??
-        (setupStatus === "setup_pr_open" ? "solid" : "outline")
-      }
-      triggerSize="sm"
-      triggerClassName={
-        triggerClassName ??
-        "w-full min-w-0 px-3 sm:w-auto sm:min-w-[9rem] sm:px-5"
-      }
-    />
-  );
-}
-
-function RepositoryProviderSecretsDialog({
-  workspaceId,
-  repositoryId,
-  repositoryFullName,
-  repositoryVisibility,
-  installation,
-  guidanceSet,
-  allowOrganizationSecrets,
-  claudeCodeProviderEnabled,
-  triggerLabel,
-  triggerVariant = "outline",
-  triggerSize = "sm",
-  triggerClassName,
-  disabled = false,
-  rotatingPreparationOnly = false,
-}: {
-  readonly workspaceId: string;
-  readonly repositoryId: string;
-  readonly repositoryFullName: string;
-  readonly repositoryVisibility: string;
-  readonly installation: DashboardInstallation;
-  readonly guidanceSet: ProviderSecretGuidanceSet;
-  readonly allowOrganizationSecrets: boolean;
-  readonly claudeCodeProviderEnabled: boolean;
-  readonly triggerLabel: string;
-  readonly triggerVariant?: "solid" | "soft" | "outline" | "ghost";
-  readonly triggerSize?: "sm" | "md" | "lg";
-  readonly triggerClassName?: string;
-  readonly disabled?: boolean;
-  readonly rotatingPreparationOnly?: boolean;
-}): React.ReactElement {
-  const organizationLogin =
-    allowOrganizationSecrets && installation.accountType === "Organization"
-      ? installation.accountLogin
-      : null;
-  const organizationSecretPolicy = allowOrganizationSecrets
-    ? installation.organizationSecretPolicy
-    : null;
-  const codexRotatingOAuthEnabled = isCodexRotatingOAuthEnabledForRepository({
-    fullName: repositoryFullName,
-    visibility: repositoryVisibility,
-  });
-  const effectiveGuidanceSet = codexRotatingOAuthEnabled
-    ? guidanceSet
-    : {
-        ...guidanceSet,
-        codexOAuthRotating: {
-          ...guidanceSet.codexOAuthRotating,
-          commands: [],
-          warnings: [
-            "Rotating Codex OAuth is not enabled for this ReviewRouter deployment.",
-          ],
-        },
-      };
-
-  return (
-    <ProviderSecretSetupDialog
-      workspaceId={workspaceId}
-      repositoryId={repositoryId}
-      repositoryFullName={repositoryFullName}
-      repositoryVisibility={repositoryVisibility}
-      organizationLogin={organizationLogin}
-      organizationSecretPolicy={organizationSecretPolicy}
-      guidanceSet={effectiveGuidanceSet}
-      codexRotatingOAuthEnabled={codexRotatingOAuthEnabled}
-      claudeCodeProviderEnabled={claudeCodeProviderEnabled}
-      triggerLabel={triggerLabel}
-      triggerVariant={triggerVariant}
-      triggerSize={triggerSize}
-      triggerClassName={triggerClassName}
-      disabled={disabled}
-      rotatingPreparationOnly={rotatingPreparationOnly}
-    />
-  );
-}
 
 function findInstallationForRepository(
   workspace: DashboardWorkspace,
@@ -3067,59 +2859,141 @@ function findInstallationForRepository(
   );
 }
 
-function isCodexRotatingOAuthEnabledForRepository(repository: {
-  readonly fullName: string;
-  readonly visibility: string;
-}): boolean {
-  return isCodexRotatingOAuthAllowedForRepository(repository.fullName);
-}
-
-function buildProviderSecretGuidanceSet({
-  repositoryFullName,
-  installation,
-  allowOrganizationSecrets,
-}: {
-  readonly repositoryFullName: string;
-  readonly installation: DashboardInstallation;
+/** What the provider dialog of one repository needs from the server. */
+function repositoryProviderContext(input: {
+  readonly workspace: DashboardWorkspace;
+  readonly repository: DashboardWorkspaceData["repositories"][number];
+  readonly summary: ProviderLineSummary;
   readonly allowOrganizationSecrets: boolean;
-}): ProviderSecretGuidanceSet {
+  readonly canManageCredentials: boolean;
+  readonly currentStep: RepositorySetupStepId;
+}): ProviderSetupRepositoryContext {
+  const { repository, summary } = input;
+  const installation = findInstallationForRepository(
+    input.workspace,
+    repository,
+  );
   const organizationLogin =
-    allowOrganizationSecrets && installation.accountType === "Organization"
+    installation &&
+    input.allowOrganizationSecrets &&
+    installation.accountType === "Organization"
       ? installation.accountLogin
       : null;
-
+  const rotatingEnabled = isCodexRotatingOAuthAllowedForRepository(
+    repository.fullName,
+  );
   return {
-    codexOAuthRotating:
-      buildCodexRotatingPlaceholderGuidance(repositoryFullName),
-    claudeCodeOAuth: buildProviderSecretSetupGuidance({
-      provider: "claude_code_oauth",
-      repoFullName: repositoryFullName,
-      organizationLogin,
-    }),
-    mimoTokenPlanApiKey: buildProviderSecretSetupGuidance({
-      provider: "mimo_token_plan_api_key",
-      repoFullName: repositoryFullName,
-      organizationLogin,
-    }),
-    openRouterApiKey: buildProviderSecretSetupGuidance({
-      provider: "openrouter_api_key",
-      repoFullName: repositoryFullName,
-      organizationLogin,
-    }),
+    id: repository.id,
+    fullName: repository.fullName,
+    visibility: repository.visibility,
+    canManageCredentials: input.canManageCredentials,
+    effective: summary.profile
+      ? {
+          authMode: summary.profile.authMode,
+          credentialKind: summary.profile.credentialKind,
+        }
+      : null,
+    secretGuidance: installation
+      ? {
+          claude_code_oauth: buildProviderSecretSetupGuidance({
+            provider: "claude_code_oauth",
+            repoFullName: repository.fullName,
+            organizationLogin,
+          }),
+          mimo_token_plan_api_key: buildProviderSecretSetupGuidance({
+            provider: "mimo_token_plan_api_key",
+            repoFullName: repository.fullName,
+            organizationLogin,
+          }),
+        }
+      : null,
+    organizationLogin,
+    organizationSecretPolicy:
+      installation && input.allowOrganizationSecrets
+        ? installation.organizationSecretPolicy
+        : null,
+    rotatingEnabled,
+    // Rotating Codex seeds its credential before the first setup PR.
+    rotatingPreparationOnly:
+      summary.profile?.credentialKind === "repository_rotating" &&
+      input.currentStep === "setup_pr",
   };
 }
 
-function buildCodexRotatingPlaceholderGuidance(
-  repositoryFullName: string,
-): ProviderSecretGuidanceSet["codexOAuthRotating"] {
-  return {
-    provider: "codex_oauth_rotating",
-    recommendedScope: "repository",
-    commands: [],
-    warnings: [
-      `Rotating Codex OAuth setup for ${repositoryFullName} is minted on demand with a short-lived nonce.`,
-    ],
-  };
+/** The workspace default provider, named from the workspace's providers. */
+function workspaceProviderSummary(
+  data: Pick<
+    DashboardWorkspaceData,
+    "workspacePolicy" | "providerProfiles" | "reviewConfigStatus"
+  >,
+): ProviderLineSummary {
+  const selection = data.workspacePolicy?.providers?.[0];
+  if (!data.workspacePolicy && data.reviewConfigStatus === "resave_required")
+    return { source: "unreadable", profile: null };
+  return selection
+    ? {
+        source: "workspace",
+        profile: providerProfileSummary(data.providerProfiles, selection),
+      }
+    : { source: "none", profile: null };
+}
+
+/** Where a repository's provider comes from and which one it is. */
+function repositoryProviderSummary(
+  data: Pick<
+    DashboardWorkspaceData,
+    | "workspacePolicy"
+    | "providerProfiles"
+    | "reviewConfigStatus"
+    | "repositoryConfigs"
+  >,
+  repositoryId: string,
+): ProviderLineSummary {
+  const config = data.repositoryConfigs.find(
+    (item) => item.repositoryId === repositoryId,
+  );
+  if (config?.status === "resave_required")
+    return { source: "unreadable", profile: null };
+  const own = config?.policy?.providers?.[0];
+  if (own)
+    return {
+      source: "repository",
+      profile: providerProfileSummary(data.providerProfiles, own),
+    };
+  const inherited = workspaceProviderSummary(data);
+  return inherited.source === "workspace"
+    ? inherited
+    : { source: "none", profile: null };
+}
+
+function providerProfileSummary(
+  profiles: DashboardWorkspaceData["providerProfiles"],
+  selection: ReviewProviderSelection,
+): ProviderLineSummary["profile"] {
+  const profile = profiles.get(selection.profileId);
+  return profile
+    ? {
+        label: profile.label,
+        model: profile.model,
+        authMode: profile.credential.authMode,
+        credentialKind: profile.credential.kind,
+      }
+    : null;
+}
+
+/** A repository document's overrides; null when it has none of its own. */
+function repositorySettingsOverrides(
+  policy: RepositoryReviewPolicy | null,
+): RepositoryReviewSettings | null {
+  if (!policy) return null;
+  const {
+    schemaVersion: _schemaVersion,
+    providers: _providers,
+    ...settings
+  } = policy;
+  void _schemaVersion;
+  void _providers;
+  return settings;
 }
 
 function OrgRulesetAdvancedCard({

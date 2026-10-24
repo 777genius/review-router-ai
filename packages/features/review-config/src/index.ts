@@ -18,6 +18,7 @@ export {
   resolveEffectiveReviewConfigurations,
   readyReviewConfiguration,
   effectiveReviewPolicyDigest,
+  parseStoredReviewPolicy,
   type EffectiveReviewConfiguration,
   type ReadyReviewConfiguration,
 } from "./application/use-cases/resolve-effective-review-configuration";

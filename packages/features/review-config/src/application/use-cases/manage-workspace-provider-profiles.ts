@@ -12,6 +12,7 @@ import {
   type WorkspaceProviderProfile,
 } from "../../domain/workspace-provider-profile";
 import type {
+  ProviderManagementFacts,
   ProviderProfileActor,
   ProviderProfileGateFacts,
   ProviderProfileModelChangeScope,
@@ -25,14 +26,15 @@ type Dependencies = Readonly<{
 /**
  * Checks of a model edit the caller owns, such as the Gateway catalog:
  * `beforeTransaction` may use the network, `scope` runs per affected scope
- * inside the write and must not.
+ * inside the write and must not. Both are required: a model edit changes
+ * every scope using the profile, so none may skip the save-time rules.
  */
 export type ProviderProfileModelChangeValidator = Readonly<{
-  beforeTransaction?: (input: {
+  beforeTransaction: (input: {
     readonly profile: WorkspaceProviderProfile;
     readonly model: string;
   }) => Promise<void>;
-  scope?: (scope: ProviderProfileModelChangeScope) => void;
+  scope: (scope: ProviderProfileModelChangeScope) => void;
 }>;
 
 /**
@@ -126,28 +128,26 @@ export async function changeWorkspaceProviderProfileModel(
     model: unknown;
   }>,
   dependencies: Dependencies &
-    Readonly<{ validator?: ProviderProfileModelChangeValidator }>,
+    Readonly<{ validator: ProviderProfileModelChangeValidator }>,
 ) {
   const model = providerProfileModelSchema.safeParse(input.model);
   if (!model.success)
     throw new ProviderProfileError("provider_profile_invalid");
-  if (dependencies.validator?.beforeTransaction) {
-    const profile = (await dependencies.profiles.list(input.workspaceId)).find(
-      (candidate) => candidate.id === input.profileId,
-    );
-    if (profile)
-      await dependencies.validator.beforeTransaction({
-        profile,
-        model: model.data,
-      });
-  }
-  const scope = dependencies.validator?.scope;
+  const profile = (await dependencies.profiles.list(input.workspaceId)).find(
+    (candidate) => candidate.id === input.profileId,
+  );
+  // A missing profile is refused by the write with the policy's reason first.
+  if (profile)
+    await dependencies.validator.beforeTransaction({
+      profile,
+      model: model.data,
+    });
   return dependencies.profiles.changeModel({
     workspaceId: input.workspaceId,
     profileId: input.profileId,
     actor: input.actor,
     model: model.data,
-    ...(scope ? { validateScope: scope } : {}),
+    validateScope: dependencies.validator.scope,
     gate: assertProfileGate,
     authorize: (facts) =>
       assertProviderManagementAllowed({
@@ -187,6 +187,21 @@ export function listWorkspaceProviderProfiles(
   dependencies: Dependencies,
 ): Promise<readonly WorkspaceProviderProfile[]> {
   return dependencies.profiles.list(workspaceId);
+}
+
+/**
+ * The facts the provider policy decides with for one signed-in user, for
+ * explaining disabled controls; writes decide again under their locks.
+ */
+export function readProviderManagementFacts(
+  input: Readonly<{
+    workspaceId: string;
+    actor: ProviderProfileActor;
+    bindingIds: readonly string[];
+  }>,
+  dependencies: Dependencies,
+): Promise<ProviderManagementFacts | null> {
+  return dependencies.profiles.readManagementFacts(input);
 }
 
 /**

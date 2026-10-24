@@ -1,0 +1,434 @@
+"use client";
+
+import { useId, useMemo, useState, type FocusEvent } from "react";
+import { Checkbox, SelectField } from "@reviewrouter/ui";
+import {
+  codexModelSupportsFastMode,
+  codexModelSupportsReasoningEffort,
+  providerKindForAuthMode,
+  type ProviderAuthMode,
+  type ReviewModelOption,
+} from "@reviewrouter/features-review-providers";
+import type { AccountConnectionView } from "../../../src/features/account-gateway/connection-capabilities";
+import {
+  gatewayModelDefaultReasoningEffort,
+  gatewayModelSupportsFastMode,
+  gatewayModelSupportsReasoningEffort,
+} from "../../../src/features/account-gateway/review-reasoning-capabilities";
+import type { ProviderSelectionSettings } from "../../../src/features/provider-setup/provider-setup-model";
+import type { GatewayAgentProfileOption } from "../../../src/server/gateway-agent-profile-options";
+
+type ReviewReasoningEffort = NonNullable<
+  ProviderSelectionSettings["reasoningEffort"]
+>;
+
+const reasoningEfforts = [
+  { value: "low", label: "Low", description: "Fastest and cheapest." },
+  { value: "medium", label: "Medium", description: "Balanced." },
+  { value: "high", label: "High", description: "Deeper review." },
+  { value: "xhigh", label: "Extra high", description: "Deeper still." },
+  { value: "max", label: "Max", description: "Very deep review." },
+  { value: "ultra", label: "Ultra", description: "Deepest available." },
+] as const satisfies readonly {
+  readonly value: ReviewReasoningEffort;
+  readonly label: string;
+  readonly description: string;
+}[];
+
+/** Only Codex-based providers expose reasoning, fast and file-reading controls. */
+export function providerHasReviewTuning(authMode: ProviderAuthMode): boolean {
+  return providerKindForAuthMode(authMode) === "codex";
+}
+
+function reasoningSupported(
+  authMode: ProviderAuthMode,
+  model: string,
+  effort: ReviewReasoningEffort | undefined,
+  connection: AccountConnectionView | undefined,
+): boolean {
+  return authMode === "codex_account_gateway"
+    ? gatewayModelSupportsReasoningEffort(model, effort, connection)
+    : effort !== undefined && codexModelSupportsReasoningEffort(model, effort);
+}
+
+function fastSupported(
+  authMode: ProviderAuthMode,
+  model: string,
+  connection: AccountConnectionView | undefined,
+): boolean {
+  return authMode === "codex_account_gateway"
+    ? gatewayModelSupportsFastMode(model, connection)
+    : codexModelSupportsFastMode(model);
+}
+
+/**
+ * Settings that fit the model: an unsupported reasoning depth falls back to
+ * the model's default and fast mode turns off where the model has none.
+ */
+export function fitProviderSelectionSettings(input: {
+  readonly authMode: ProviderAuthMode;
+  readonly model: string;
+  readonly settings: ProviderSelectionSettings;
+  readonly connection?: AccountConnectionView | undefined;
+}): ProviderSelectionSettings {
+  const { authMode, model, connection, settings } = input;
+  const gateway = authMode === "codex_account_gateway";
+  const effort = reasoningSupported(
+    authMode,
+    model,
+    settings.reasoningEffort,
+    connection,
+  )
+    ? settings.reasoningEffort
+    : gateway
+      ? gatewayModelDefaultReasoningEffort(model, connection)
+      : "xhigh";
+  return {
+    ...(effort === undefined ? {} : { reasoningEffort: effort }),
+    agenticContext: settings.agenticContext,
+    fastMode:
+      providerHasReviewTuning(authMode) &&
+      settings.fastMode &&
+      fastSupported(authMode, model, connection),
+    // An engine is chosen only for Account Gateway providers.
+    ...(gateway && settings.agentProfileRef !== undefined
+      ? { agentProfileRef: settings.agentProfileRef }
+      : {}),
+  };
+}
+
+/** Settings of a provider the user has not tuned yet. */
+export function defaultProviderSelectionSettings(input: {
+  readonly authMode: ProviderAuthMode;
+  readonly model: string;
+  readonly connection?: AccountConnectionView | undefined;
+}): ProviderSelectionSettings {
+  return fitProviderSelectionSettings({
+    ...input,
+    settings: {
+      reasoningEffort:
+        input.authMode === "codex_account_gateway" ? "high" : "xhigh",
+      fastMode: false,
+      agenticContext: true,
+    },
+  });
+}
+
+export type ProviderModelFieldsProps = Readonly<{
+  authMode: ProviderAuthMode;
+  model: string;
+  /** Null shows the model as fixed, as for a provider that already exists. */
+  onModelChange: ((model: string) => void) | null;
+  /** Models the credential source offers. */
+  modelOptions: readonly ReviewModelOption[];
+  /** "list" allows only the listed models; "catalog" also a typed one. */
+  modelChoice: "list" | "catalog";
+  settings: ProviderSelectionSettings;
+  onSettingsChange: (settings: ProviderSelectionSettings) => void;
+  connection?: AccountConnectionView | undefined;
+  agentProfileOptions: readonly GatewayAgentProfileOption[];
+  disabled: boolean;
+}>;
+
+/**
+ * The model and review settings of one provider. Shared by every place that
+ * chooses a provider; the settings belong to the selection, not to the
+ * provider, so the same provider can review differently per repository.
+ */
+export function ProviderModelFields({
+  authMode,
+  model,
+  onModelChange,
+  modelOptions,
+  modelChoice,
+  settings,
+  onSettingsChange,
+  connection,
+  agentProfileOptions,
+  disabled,
+}: ProviderModelFieldsProps): React.ReactElement {
+  const tuning = providerHasReviewTuning(authMode);
+  const gateway = authMode === "codex_account_gateway";
+  const reasoningOptions = reasoningEfforts.filter((option) =>
+    reasoningSupported(authMode, model, option.value, connection),
+  );
+  const showReasoning =
+    tuning &&
+    (!gateway ||
+      !connection ||
+      connection.modelSettings.find((row) => row.modelId === model)
+        ?.reasoning != null);
+  const showFast = tuning && fastSupported(authMode, model, connection);
+  const savedProfileUnavailable =
+    settings.agentProfileRef !== undefined &&
+    !agentProfileOptions.some(
+      (option) => option.profileRef === settings.agentProfileRef,
+    );
+  const update = (next: Partial<ProviderSelectionSettings>) =>
+    onSettingsChange({ ...settings, ...next });
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      {onModelChange ? (
+        modelChoice === "list" ? (
+          <SelectField
+            label="Model"
+            value={
+              modelOptions.some((option) => option.value === model) ? model : ""
+            }
+            placeholder={
+              modelOptions.length === 0
+                ? "Choose an account first"
+                : "Choose a model"
+            }
+            disabled={disabled || modelOptions.length === 0}
+            options={modelOptions.map((option) => ({
+              value: option.value,
+              label: option.label,
+              ...(option.disabled ? { disabled: true } : {}),
+              ...(option.description
+                ? { description: option.description }
+                : {}),
+            }))}
+            onValueChange={onModelChange}
+            className="sm:col-span-2"
+          />
+        ) : (
+          <ProviderModelInput
+            value={model}
+            options={modelOptions}
+            disabled={disabled}
+            onValueChange={onModelChange}
+          />
+        )
+      ) : (
+        <div className="grid gap-1 sm:col-span-2">
+          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+            Model
+          </span>
+          <span className="text-sm text-cyan-50">{model}</span>
+        </div>
+      )}
+      {showReasoning ? (
+        <SelectField
+          label="Review depth"
+          value={settings.reasoningEffort ?? ""}
+          placeholder="Choose a depth"
+          disabled={disabled || reasoningOptions.length === 0}
+          options={reasoningOptions}
+          onValueChange={(value) =>
+            update({ reasoningEffort: value as ReviewReasoningEffort })
+          }
+          hint="Deeper reviews find more and take longer."
+        />
+      ) : null}
+      {gateway &&
+      (agentProfileOptions.length > 0 || savedProfileUnavailable) ? (
+        <SelectField
+          label="Review engine"
+          value={settings.agentProfileRef ?? defaultEngine}
+          disabled={disabled}
+          options={[
+            {
+              value: defaultEngine,
+              label: "Default",
+              description: "The managed review engine ReviewRouter recommends.",
+            },
+            ...agentProfileOptions.map((option) => ({
+              value: option.profileRef,
+              label: option.label,
+              description: option.description,
+            })),
+            ...(savedProfileUnavailable
+              ? [
+                  {
+                    value: settings.agentProfileRef!,
+                    label: "Saved engine unavailable",
+                    description:
+                      "It is no longer offered. Your saved choice stays until you change it.",
+                    disabled: true,
+                  },
+                ]
+              : []),
+          ]}
+          onValueChange={(value) => {
+            const { agentProfileRef: _previous, ...rest } = settings;
+            void _previous;
+            onSettingsChange(
+              value === defaultEngine
+                ? rest
+                : { ...rest, agentProfileRef: value },
+            );
+          }}
+        />
+      ) : null}
+      {tuning ? (
+        <div className="grid gap-3 sm:col-span-2">
+          {showFast ? (
+            <CheckboxRow
+              checked={settings.fastMode}
+              disabled={disabled}
+              onChange={(fastMode) => update({ fastMode })}
+              label="Fast mode"
+              hint="Shorter, quicker review passes."
+            />
+          ) : null}
+          <CheckboxRow
+            checked={settings.agenticContext}
+            disabled={disabled}
+            onChange={(agenticContext) => update({ agenticContext })}
+            label="Read related files"
+            hint="The reviewer may open other files of the repository, read-only, instead of looking only at the change."
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const defaultEngine = "__default__";
+
+function CheckboxRow({
+  checked,
+  disabled,
+  onChange,
+  label,
+  hint,
+}: {
+  readonly checked: boolean;
+  readonly disabled: boolean;
+  readonly onChange: (checked: boolean) => void;
+  readonly label: string;
+  readonly hint: string;
+}): React.ReactElement {
+  return (
+    <label className="flex cursor-pointer items-start gap-3 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60">
+      <Checkbox
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-0.5"
+      />
+      <span className="grid gap-0.5">
+        <span className="font-semibold text-cyan-50">{label}</span>
+        <span className="text-xs leading-5 text-slate-400">{hint}</span>
+      </span>
+    </label>
+  );
+}
+
+/** A model name with suggestions from the catalog; any typed name is kept. */
+function ProviderModelInput({
+  value,
+  options,
+  disabled,
+  onValueChange,
+}: {
+  readonly value: string;
+  readonly options: readonly ReviewModelOption[];
+  readonly disabled: boolean;
+  readonly onValueChange: (value: string) => void;
+}): React.ReactElement {
+  const [open, setOpen] = useState(false);
+  const listboxId = useId();
+  const selected = options.find((option) => option.value === value);
+  const filtered = useMemo(() => {
+    const query = value.trim().toLowerCase();
+    if (!query || selected) return options;
+    return options.filter((option) =>
+      [option.label, option.value, option.description ?? ""].some((text) =>
+        text.toLowerCase().includes(query),
+      ),
+    );
+  }, [options, selected, value]);
+
+  function closeWhenFocusLeaves(event: FocusEvent<HTMLLabelElement>): void {
+    const next = event.relatedTarget;
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
+    setOpen(false);
+  }
+
+  return (
+    <label
+      className="relative grid min-w-0 gap-2 text-sm text-slate-300 sm:col-span-2"
+      onBlur={closeWhenFocusLeaves}
+    >
+      <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+        Model
+      </span>
+      <span className="relative block">
+        <input
+          value={value}
+          disabled={disabled}
+          onChange={(event) => onValueChange(event.target.value)}
+          onFocus={() => setOpen(true)}
+          aria-controls={listboxId}
+          aria-expanded={open}
+          aria-autocomplete="list"
+          aria-label="Model"
+          autoComplete="off"
+          spellCheck={false}
+          className="min-h-11 w-full rounded-xl border border-cyan-200/15 bg-slate-950/80 px-3 py-2 pr-12 text-cyan-50 outline-none transition placeholder:text-slate-500 hover:border-cyan-200/30 focus:border-cyan-300/55 focus:ring-2 focus:ring-cyan-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+        />
+        <button
+          type="button"
+          disabled={disabled}
+          aria-label="Show models"
+          onClick={() => setOpen((current) => !current)}
+          className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-cyan-100/80 transition hover:bg-cyan-300/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <span aria-hidden="true">⌄</span>
+        </button>
+      </span>
+      {value && !selected ? (
+        <span className="text-xs text-slate-400">
+          Not in the list; this name is used as typed.
+        </span>
+      ) : null}
+      {open ? (
+        <div
+          id={listboxId}
+          role="listbox"
+          className="absolute left-0 right-0 top-full z-[70] mt-2 max-h-72 overflow-y-auto rounded-xl border border-cyan-200/20 bg-[var(--rr-surface-menu)] p-1 shadow-[var(--rr-shadow-elevated)]"
+        >
+          {filtered.length === 0 ? (
+            <div className="px-3 py-3 text-sm text-slate-400">
+              No listed model matches. The typed name is used.
+            </div>
+          ) : null}
+          {filtered.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="option"
+              aria-selected={option.value === value}
+              disabled={option.disabled}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                if (option.disabled) return;
+                onValueChange(option.value);
+                setOpen(false);
+              }}
+              className={[
+                "grid w-full gap-0.5 rounded-lg px-3 py-2 text-left transition hover:bg-cyan-300/[0.08] disabled:cursor-not-allowed disabled:opacity-55",
+                option.value === value
+                  ? "bg-cyan-300/[0.1] text-cyan-50"
+                  : "text-slate-300",
+              ].join(" ")}
+            >
+              <span className="flex min-w-0 items-center justify-between gap-3 text-sm font-semibold">
+                <span className="min-w-0 truncate">{option.label}</span>
+                {option.badge ? (
+                  <span className="rounded-md border border-cyan-300/30 px-1.5 py-0.5 text-[0.62rem] font-bold uppercase leading-none text-cyan-100">
+                    {option.badge}
+                  </span>
+                ) : null}
+              </span>
+              <span className="text-xs text-slate-500">{option.value}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </label>
+  );
+}

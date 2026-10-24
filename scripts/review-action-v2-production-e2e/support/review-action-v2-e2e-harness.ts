@@ -1714,7 +1714,12 @@ async function seedProductionControlPlane(
       name: "Disposable Review Action v2 E2E",
     },
   });
-  const configurations = new PrismaReviewConfigurationRepository(prisma);
+  const configurations = new PrismaReviewConfigurationRepository(
+    prisma,
+    undefined,
+    false,
+    undefined,
+  );
   await configurations.saveNextVersions({
     workspaceId: ids.workspaceId,
     writes: [

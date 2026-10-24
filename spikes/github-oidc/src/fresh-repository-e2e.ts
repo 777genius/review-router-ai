@@ -379,7 +379,12 @@ async function saveRequestedReviewConfiguration(input: {
     return;
   }
 
-  const configurations = new PrismaReviewConfigurationRepository(input.prisma);
+  const configurations = new PrismaReviewConfigurationRepository(
+    input.prisma,
+    undefined,
+    false,
+    undefined,
+  );
   const workspaceTarget = {
     scope: "workspace" as const,
     workspaceId: input.workspaceId,

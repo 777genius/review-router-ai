@@ -32,6 +32,7 @@ export class PrismaReviewConfigurationOperatorMutation implements ReviewConfigur
               transaction,
               this.operatorWorkspaceId,
               this.personalAccountsEnabled,
+              undefined,
             );
           const current = await resolveReviewConfiguration(input.target, {
             configurations,

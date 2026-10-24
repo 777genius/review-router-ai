@@ -85,11 +85,17 @@ type WriterOptions = Readonly<{
 export class PrismaReviewConfigurationRepository implements ReviewConfigurationRepositoryPort {
   private readonly options: WriterOptions;
 
+  /**
+   * Every option is trusted backend composition and deliberately required:
+   * the Account Gateway operator workspace, whether personal accounts may be
+   * used, and the signed-in user personal bindings are validated for (none
+   * for system writers).
+   */
   constructor(
     private readonly prisma: PrismaClient,
-    operatorWorkspaceId?: string,
-    personalAccountsEnabled = false,
-    personalWriteActorUserId?: string,
+    operatorWorkspaceId: string | undefined,
+    personalAccountsEnabled: boolean,
+    personalWriteActorUserId: string | undefined,
   ) {
     assertOperatorWorkspaceId(operatorWorkspaceId);
     this.options = {
@@ -166,11 +172,12 @@ export class PrismaReviewConfigurationRepository implements ReviewConfigurationR
 export class PrismaReviewConfigurationTransactionRepository implements ReviewConfigurationRepositoryPort {
   private readonly options: WriterOptions;
 
+  /** The same required options as PrismaReviewConfigurationRepository. */
   constructor(
     private readonly prisma: Prisma.TransactionClient,
-    operatorWorkspaceId?: string,
-    personalAccountsEnabled = false,
-    personalWriteActorUserId?: string,
+    operatorWorkspaceId: string | undefined,
+    personalAccountsEnabled: boolean,
+    personalWriteActorUserId: string | undefined,
   ) {
     assertOperatorWorkspaceId(operatorWorkspaceId);
     this.options = {
@@ -522,15 +529,17 @@ async function saveReviewPolicyWrites(
 
   const effective = resolvedWrites.map((write) => ({
     write,
-    resolved: resolveEffectiveReviewPolicy({
-      target: write.target,
-      workspace: nextWorkspace,
-      repository:
-        write.target.scope === "repository"
-          ? (write.policy as RepositoryReviewPolicy)
-          : null,
-      profiles,
-    }),
+    resolved: materializeWrite(write, () =>
+      resolveEffectiveReviewPolicy({
+        target: write.target,
+        workspace: nextWorkspace,
+        repository:
+          write.target.scope === "repository"
+            ? (write.policy as RepositoryReviewPolicy)
+            : null,
+        profiles,
+      }),
+    ),
   }));
   for (const descendant of descendants) {
     const policy = parseStoredReviewPolicy("repository", descendant.head);
@@ -664,6 +673,28 @@ async function saveReviewPolicyWrites(
   // snapshot fails the lock as a serialization conflict and is reread.
   await lockSelectedProfiles(tx, workspaceId, [...profiles.keys()]);
   return saved;
+}
+
+/**
+ * A write whose effective result the caller validated no longer materializes
+ * only when a concurrent profile edit or archive committed after that
+ * validation; the caller rereads and validates again, so the refusal reaches
+ * it with the reason, never as a raw parse error.
+ */
+function materializeWrite<Result>(
+  write: PlannedWrite,
+  resolve: () => Result,
+): Result {
+  try {
+    return resolve();
+  } catch (error) {
+    if (
+      error instanceof ReviewPolicyMaterializationError &&
+      write.expectedEffectivePolicyDigest !== undefined
+    )
+      throw new WriteConflict();
+    throw error;
+  }
 }
 
 function planWrites(

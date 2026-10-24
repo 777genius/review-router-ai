@@ -13,12 +13,17 @@ import {
 import {
   assignProviderProfileToRepositories,
   clearRepositoryProviderSelection,
-  providerSelectionAuthority,
-  saveRepositoryReviewPolicy,
   setWorkspaceDefaultProvider,
+  type EffectiveReviewConfigurationValidatorPort,
+  type ProviderSelectionDraft,
 } from "../application/use-cases/manage-provider-selections";
+import type { ProviderProfileModelChangeValidator } from "../application/use-cases/manage-workspace-provider-profiles";
 import { ProviderManagementDeniedError } from "../domain/provider-management-policy";
-import { ProviderProfileError } from "../domain/workspace-provider-profile";
+import { defaultWorkspaceReviewPolicy } from "../domain/review-policy-document";
+import {
+  ProviderProfileError,
+  type ProviderCredentialSource,
+} from "../domain/workspace-provider-profile";
 import { PrismaReviewConfigurationRepository } from "../infrastructure/prisma/prisma-review-configuration-repository";
 import { PrismaReviewPolicyHeadReader } from "../infrastructure/prisma/prisma-review-policy-head-reader";
 import { PrismaWorkspaceProviderProfileRepository } from "../infrastructure/prisma/prisma-workspace-provider-profile-repository";
@@ -46,9 +51,18 @@ databaseTests("provider profile lifecycle on PostgreSQL", () => {
     fastMode: false,
     requiredHealthy: true,
   } as const;
+  // The caller-owned environment checks are not under test here.
+  const acceptAll: EffectiveReviewConfigurationValidatorPort = {
+    validate: async () => {},
+  };
+  const acceptModelChange: ProviderProfileModelChangeValidator = {
+    beforeTransaction: async () => {},
+    scope: () => {},
+  };
   let deps: {
     configurations: PrismaReviewConfigurationRepository;
     policyHeads: PrismaReviewPolicyHeadReader;
+    validator: EffectiveReviewConfigurationValidatorPort;
   };
   let profiles: { profiles: PrismaWorkspaceProviderProfileRepository };
   const countProfiles = () =>
@@ -67,6 +81,49 @@ databaseTests("provider profile lifecycle on PostgreSQL", () => {
         profiles,
       )
     ).profile;
+  /** A new provider requested together with its first attach. */
+  const draftOf = (
+    credential: unknown,
+    source: ProviderCredentialSource,
+    model: string,
+  ): ProviderSelectionDraft => ({
+    draft: {
+      draftId: "draft-0",
+      credential: credential as never,
+      model,
+      label: null,
+    },
+    profile: {
+      id: "draft-0",
+      workspaceId,
+      createdByUserId: null,
+      credential: source,
+      model,
+      label: "draft-0",
+      archivedAt: null,
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+    },
+  });
+  const attachDraft = async (
+    who: typeof owner,
+    capability: "repo_manager" | "direct_config" | null,
+    repositoryId: string,
+    draft: ProviderSelectionDraft,
+  ) => {
+    const [result] = await assignProviderProfileToRepositories(
+      {
+        workspaceId,
+        actor: who,
+        profileId: draft.draft.draftId,
+        settings,
+        draft,
+        repositories: [{ repositoryId, capability }],
+      },
+      deps,
+    );
+    return result!;
+  };
   const denialOf = async (promise: Promise<unknown>) => {
     const error = await promise.then(
       () => null,
@@ -80,8 +137,14 @@ databaseTests("provider profile lifecycle on PostgreSQL", () => {
   beforeAll(async () => {
     prisma = createPrismaClient({ databaseUrl: databaseUrl!, poolMax: 10 });
     deps = {
-      configurations: new PrismaReviewConfigurationRepository(prisma),
+      configurations: new PrismaReviewConfigurationRepository(
+        prisma,
+        undefined,
+        false,
+        undefined,
+      ),
       policyHeads: new PrismaReviewPolicyHeadReader(prisma),
+      validator: acceptAll,
     };
     profiles = {
       profiles: new PrismaWorkspaceProviderProfileRepository(prisma, {
@@ -133,62 +196,55 @@ databaseTests("provider profile lifecycle on PostgreSQL", () => {
   });
 
   it("decides a new provider together with its attach, leaving nothing on refusal", async () => {
-    const save = (
-      who: typeof owner,
-      capability: "repo_manager" | "direct_config" | null,
-      credential: unknown,
-      model: string,
-    ) =>
-      saveRepositoryReviewPolicy(
-        {
-          target: { scope: "repository", workspaceId, repositoryId: repoA },
-          policy: {
-            schemaVersion: 4,
-            providers: [{ profileId: "draft-0", ...settings }],
-          },
-          expectedVersion: null,
-          selectionAuthority: providerSelectionAuthority({
-            actor: who,
-            repositoryCapability: capability,
-          }),
-          profileDrafts: [
-            {
-              draftId: "draft-0",
-              credential: credential as never,
-              model,
-              label: null,
-            },
-          ],
-        },
-        deps,
-      );
     const before = {
       profiles: await countProfiles(),
       versions: await countVersions(),
     };
-    const claude = { kind: "user_ci_secret", authMode: "claude_code_oauth" };
-    const mimo = {
-      kind: "managed_api_key",
-      authMode: "mimo_token_plan_api_key",
-    };
-    expect(await denialOf(save(member, null, claude, "opus"))).toBe(
-      "repository_direct_config_required",
+    const claude = draftOf(
+      { kind: "user_ci_secret", authMode: "claude_code_oauth" },
+      { kind: "user_ci_secret", authMode: "claude_code_oauth" },
+      "opus",
     );
+    const key = await prisma.providerApiKeyConnection.findFirstOrThrow({
+      where: { workspaceId, providerType: "mimo" },
+    });
+    const mimo = draftOf(
+      { kind: "managed_api_key", authMode: "mimo_token_plan_api_key" },
+      {
+        kind: "managed_api_key",
+        authMode: "mimo_token_plan_api_key",
+        apiKeyConnectionId: key.id,
+      },
+      "mimo-v2.6-pro",
+    );
+    expect(await attachDraft(member, null, repoA, claude)).toMatchObject({
+      status: "denied",
+      reason: "repository_direct_config_required",
+    });
     // Applying a managed key stays an admin flow.
     expect(
-      await denialOf(save(member, "direct_config", mimo, "mimo-v2.6-pro")),
-    ).toBe("workspace_admin_required");
+      await attachDraft(member, "direct_config", repoA, mimo),
+    ).toMatchObject({ status: "denied", reason: "workspace_admin_required" });
     expect(
-      await denialOf(save(outsider, "direct_config", claude, "opus")),
-    ).toBe("workspace_member_required");
+      await attachDraft(outsider, "direct_config", repoA, claude),
+    ).toMatchObject({ status: "denied", reason: "workspace_member_required" });
     // No profile, no workspace document and no repository version.
     expect({
       profiles: await countProfiles(),
       versions: await countVersions(),
     }).toEqual(before);
 
-    const saved = await save(member, "direct_config", claude, "opus");
-    expect(saved.configuration?.config.providers).toEqual([
+    const saved = await attachDraft(member, "direct_config", repoA, claude);
+    expect(saved).toMatchObject({ status: "applied" });
+    expect(
+      (
+        await deps.configurations.findLatest({
+          scope: "repository",
+          workspaceId,
+          repositoryId: repoA,
+        })
+      )?.config.providers,
+    ).toEqual([
       expect.objectContaining({
         kind: "claude",
         authMode: "claude_code_oauth",
@@ -253,33 +309,28 @@ databaseTests("provider profile lifecycle on PostgreSQL", () => {
         })
       ).repository,
     ).toBeNull();
-    const rotating = await saveRepositoryReviewPolicy(
-      {
-        target: { scope: "repository", workspaceId, repositoryId: repoB },
-        policy: {
-          schemaVersion: 4,
-          providers: [{ profileId: "draft-0", ...settings }],
+    const rotating = await attachDraft(
+      owner,
+      "direct_config",
+      repoB,
+      draftOf(
+        { kind: "repository_rotating", repositoryId: repoB },
+        {
+          kind: "repository_rotating",
+          authMode: "codex_subscription_oauth_rotating",
+          repositoryId: repoB,
         },
-        expectedVersion: null,
-        selectionAuthority: providerSelectionAuthority({
-          actor: owner,
-          repositoryCapability: "direct_config",
-        }),
-        profileDrafts: [
-          {
-            draftId: "draft-0",
-            credential: { kind: "repository_rotating", repositoryId: repoB },
-            model: "gpt-5.5",
-            label: null,
-          },
-        ],
-      },
-      deps,
+        "gpt-5.5",
+      ),
     );
-    const rotatingProfileId = rotating.configuration!.selections[0]!.profileId;
-    expect(await denialOf(set(owner, rotatingProfileId))).toBe(
-      "rotating_profile_not_default",
-    );
+    if (rotating.status !== "applied" || !rotating.profileId)
+      throw new Error("rotating_attach_expected");
+    const rotatingProfileId = rotating.profileId;
+    // The candidate is validated before the write decides with the policy;
+    // a rotating profile cannot even materialize as a default.
+    await expect(set(owner, rotatingProfileId)).rejects.toMatchObject({
+      code: "rotating_profile_repository_only",
+    });
     expect(await denialOf(set(member, null))).toBe("workspace_admin_required");
     expect((await set(owner, null)).configuration).toBeNull();
     await clearRepositoryProviderSelection(
@@ -400,7 +451,7 @@ databaseTests("provider profile lifecycle on PostgreSQL", () => {
     const edit = (model: string) =>
       changeWorkspaceProviderProfileModel(
         { workspaceId, profileId: profile.id, actor: owner, model },
-        profiles,
+        { ...profiles, validator: acceptModelChange },
       );
     const versions = await countVersions();
     const refused = await edit("gpt-5.5").then(
@@ -454,6 +505,142 @@ databaseTests("provider profile lifecycle on PostgreSQL", () => {
         workspaceId,
         actor: owner,
         repository: { repositoryId: repoB, capability: "direct_config" },
+      },
+      deps,
+    );
+  });
+
+  it("refuses a validated selection that a concurrent model edit no longer fits", async () => {
+    // Only the default Codex model accepts the max effort; the profile is
+    // unused while the selection is validated, so the edit is allowed.
+    const profile = await hostedProfile("gpt-5.6-sol");
+    let edited = false;
+    const racing = {
+      ...deps,
+      validator: {
+        validate: async () => {
+          if (edited) return;
+          edited = true;
+          await changeWorkspaceProviderProfileModel(
+            {
+              workspaceId,
+              profileId: profile.id,
+              actor: owner,
+              model: "gpt-5.1",
+            },
+            { ...profiles, validator: acceptModelChange },
+          );
+        },
+      },
+    };
+    const versions = await countVersions();
+    // The write sees the new model, reports a conflict, and the reread
+    // refuses with the reason instead of a raw parse error.
+    await expect(
+      setWorkspaceDefaultProvider(
+        {
+          workspaceId,
+          actor: owner,
+          selection: {
+            profileId: profile.id,
+            ...settings,
+            reasoningEffort: "max",
+          },
+        },
+        racing,
+      ),
+    ).rejects.toMatchObject({ code: "review_provider_settings_incompatible" });
+    expect(edited).toBe(true);
+    expect(await countVersions()).toBe(versions);
+    expect(
+      (await profiles.profiles.list(workspaceId)).find(
+        (candidate) => candidate.id === profile.id,
+      )?.model,
+    ).toBe("gpt-5.1");
+  });
+
+  it("fits a document's limits when its providers shrink, never an inconsistent write", async () => {
+    const first = await hostedProfile("gpt-5.4-nano");
+    const second = await hostedProfile("gpt-5.0");
+    const workspaceTarget = { scope: "workspace" as const, workspaceId };
+    const selection = (profileId: string) => ({ profileId, ...settings });
+    const storedWorkspace = async () =>
+      JSON.parse(
+        (await deps.policyHeads.readPolicyHeads(workspaceTarget)).workspace!
+          .policyJson!,
+      ) as { readonly execution: unknown };
+    // A default of two providers that run in parallel and must both agree.
+    await deps.configurations.saveNextVersions({
+      workspaceId,
+      writes: [
+        {
+          target: workspaceTarget,
+          policy: {
+            ...defaultWorkspaceReviewPolicy(),
+            providers: [selection(first.id), selection(second.id)],
+            execution: { providerMaxParallel: 2, inlineMinAgreement: 2 },
+          },
+        },
+      ],
+    });
+    // A repository with one provider of its own runs with at most one.
+    await assignProviderProfileToRepositories(
+      {
+        workspaceId,
+        actor: owner,
+        profileId: first.id,
+        settings,
+        repositories: [{ repositoryId: repoA, capability: "direct_config" }],
+      },
+      deps,
+    );
+    expect(
+      (
+        await deps.configurations.findLatest({
+          scope: "repository",
+          workspaceId,
+          repositoryId: repoA,
+        })
+      )?.config.execution,
+    ).toEqual({
+      providerLimit: 1,
+      providerMaxParallel: 1,
+      inlineMinAgreement: 1,
+    });
+    // A default of one provider lowers the workspace's own limits with it.
+    await setWorkspaceDefaultProvider(
+      { workspaceId, actor: owner, selection: selection(first.id) },
+      deps,
+    );
+    expect((await storedWorkspace()).execution).toEqual({
+      providerMaxParallel: 1,
+      inlineMinAgreement: 1,
+    });
+    // Any other write of limits its own providers cannot meet is refused.
+    await expect(
+      deps.configurations.saveNextVersions({
+        workspaceId,
+        writes: [
+          {
+            target: workspaceTarget,
+            policy: {
+              ...defaultWorkspaceReviewPolicy(),
+              providers: [selection(first.id)],
+              execution: { providerMaxParallel: 2, inlineMinAgreement: 2 },
+            },
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "review_execution_limits_incompatible" });
+    await setWorkspaceDefaultProvider(
+      { workspaceId, actor: owner, selection: null },
+      deps,
+    );
+    await clearRepositoryProviderSelection(
+      {
+        workspaceId,
+        actor: owner,
+        repository: { repositoryId: repoA, capability: "direct_config" },
       },
       deps,
     );

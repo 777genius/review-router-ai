@@ -1,5 +1,6 @@
 import {
   isOpenRouterDirectConfiguration,
+  type EffectiveReviewConfigurationValidatorPort,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import { isCodexRotatingOAuthAllowedForRepository } from "@reviewrouter/platform-config";
@@ -47,6 +48,38 @@ export async function validateDashboardEffectiveConfiguration(input: {
       input.config,
       () => loadGatewayReviewProfiles(input.workspaceId),
     ),
+  };
+}
+
+/**
+ * The dashboard checks as the validator of the selection use cases. When the
+ * network Gateway catalog was consulted, `afterGatewayCatalogCheck` runs
+ * before the write so the caller can confirm its actor is unchanged.
+ */
+export function dashboardSelectionValidator(input: {
+  readonly workspaceId: string;
+  readonly repositories: ReadonlyMap<string, DashboardValidatedRepository>;
+  readonly afterGatewayCatalogCheck?: (
+    target: Parameters<
+      EffectiveReviewConfigurationValidatorPort["validate"]
+    >[0]["target"],
+  ) => Promise<void>;
+}): EffectiveReviewConfigurationValidatorPort {
+  return {
+    async validate({ target, config }) {
+      const repository =
+        target.scope === "repository"
+          ? input.repositories.get(target.repositoryId)
+          : null;
+      if (repository === undefined) throw new Error("repository_not_found");
+      const { gatewayCatalogChecked } =
+        await validateDashboardEffectiveConfiguration({
+          workspaceId: input.workspaceId,
+          repository,
+          config,
+        });
+      if (gatewayCatalogChecked) await input.afterGatewayCatalogCheck?.(target);
+    },
   };
 }
 

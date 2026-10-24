@@ -176,6 +176,9 @@ describe("production config and entitlement scope writers", () => {
     const h = harness();
     const saved = await new PrismaReviewConfigurationRepository(
       h.client,
+      undefined,
+      false,
+      undefined,
     ).saveNextVersion({
       target,
       policy: { schemaVersion: 4, providers: selections },
@@ -213,6 +216,9 @@ describe("production config and entitlement scope writers", () => {
     h.events.push("upstream-row-lock");
     const repository = new PrismaReviewConfigurationTransactionRepository(
       h.transaction,
+      undefined,
+      false,
+      undefined,
     );
     await repository.saveNextVersion({
       target,
@@ -242,9 +248,12 @@ describe("production config and entitlement scope writers", () => {
     async (scope) => {
       const h = harness();
       expect(
-        await new PrismaReviewConfigurationRepository(h.client).deleteTarget(
-          scope,
-        ),
+        await new PrismaReviewConfigurationRepository(
+          h.client,
+          undefined,
+          false,
+          undefined,
+        ).deleteTarget(scope),
       ).toBe(false);
       expect(h.events).toEqual([
         "begin",
@@ -261,7 +270,12 @@ describe("production config and entitlement scope writers", () => {
   it("checks reset CAS after acquiring current scope guards before deactivation", async () => {
     const h = harness();
     await expect(
-      new PrismaReviewConfigurationRepository(h.client).deleteTarget(target, 1),
+      new PrismaReviewConfigurationRepository(
+        h.client,
+        undefined,
+        false,
+        undefined,
+      ).deleteTarget(target, 1),
     ).rejects.toMatchObject({ code: "review_configuration_write_conflict" });
     expect(h.events).toEqual([
       "begin",
@@ -278,7 +292,12 @@ describe("production config and entitlement scope writers", () => {
   it("preserves expected-version conflicts and rolls back the target insertion", async () => {
     const h = harness();
     await expect(
-      new PrismaReviewConfigurationRepository(h.client).saveNextVersion({
+      new PrismaReviewConfigurationRepository(
+        h.client,
+        undefined,
+        false,
+        undefined,
+      ).saveNextVersion({
         target,
         policy: { schemaVersion: 4, providers: selections },
         expectedVersion: 2,
@@ -298,7 +317,12 @@ describe("production config and entitlement scope writers", () => {
     h.prisma.$transaction.mockImplementationOnce(async (work) =>
       work(retry.tx),
     );
-    await new PrismaReviewConfigurationRepository(h.client).saveNextVersion({
+    await new PrismaReviewConfigurationRepository(
+      h.client,
+      undefined,
+      false,
+      undefined,
+    ).saveNextVersion({
       target,
       policy: { schemaVersion: 4, providers: selections },
     });
@@ -312,7 +336,12 @@ describe("production config and entitlement scope writers", () => {
     const h = harness();
     h.tx.$queryRaw.mockRejectedValueOnce(new Error("lock failed"));
     await expect(
-      new PrismaReviewConfigurationRepository(h.client).saveNextVersion({
+      new PrismaReviewConfigurationRepository(
+        h.client,
+        undefined,
+        false,
+        undefined,
+      ).saveNextVersion({
         target,
         policy: { schemaVersion: 4, providers: selections },
       }),

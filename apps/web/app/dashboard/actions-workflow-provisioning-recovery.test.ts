@@ -1,8 +1,4 @@
-import {
-  storedPolicyHeadFixture,
-  workspacePolicyDocumentFixture,
-  workspacePolicyFixture,
-} from "../../../../packages/features/review-config/src/tests/current-policy-fixture";
+import { workspacePolicyFixture } from "../../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -14,10 +10,10 @@ const mocks = vi.hoisted(() => ({
   createGitHubAppInstallationOctokit: vi.fn(),
   getPrisma: vi.fn(),
   recordAuditEvent: vi.fn(),
-  readReviewConfigurationForm: vi.fn(),
-  readRepositoryReviewPolicyForm: vi.fn(),
-  saveReviewConfiguration: vi.fn(),
-  saveRepositoryReviewPolicy: vi.fn(),
+  readWorkspaceReviewSettingsForm: vi.fn(),
+  readRepositoryReviewSettingsForm: vi.fn(),
+  saveWorkspaceReviewSettings: vi.fn(),
+  saveRepositoryReviewSettings: vi.fn(),
   assertReviewConfigSaveAllowed: vi.fn(),
   assertWorkflowSetupPrAllowed: vi.fn(),
   isWorkflowSetupAlreadyCurrent: vi.fn(),
@@ -40,13 +36,13 @@ vi.mock("@reviewrouter/features-review-config", async (importOriginal) => ({
     typeof import("@reviewrouter/features-review-config")
   >()),
   resolveReviewRuntimeEnv: mocks.resolveReviewRuntimeEnv,
-  saveReviewConfiguration: mocks.saveReviewConfiguration,
-  saveRepositoryReviewPolicy: mocks.saveRepositoryReviewPolicy,
+  saveWorkspaceReviewSettings: mocks.saveWorkspaceReviewSettings,
+  saveRepositoryReviewSettings: mocks.saveRepositoryReviewSettings,
 }));
 vi.mock("./dashboard-action-form-readers", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./dashboard-action-form-readers")>()),
-  readReviewConfigurationForm: mocks.readReviewConfigurationForm,
-  readRepositoryReviewPolicyForm: mocks.readRepositoryReviewPolicyForm,
+  readWorkspaceReviewSettingsForm: mocks.readWorkspaceReviewSettingsForm,
+  readRepositoryReviewSettingsForm: mocks.readRepositoryReviewSettingsForm,
 }));
 vi.mock("../../src/server/dashboard-rate-limits", () => ({
   createDashboardRateLimitPolicy: () => ({
@@ -97,11 +93,7 @@ vi.mock("../../src/server/workflow-public-api-url", () => ({
 }));
 
 import { resolveReviewRouterActionRef } from "@reviewrouter/platform-config";
-import {
-  effectiveReviewPolicyDigest,
-  parseReviewConfiguration,
-  reviewProviderSelectionFor,
-} from "@reviewrouter/features-review-config";
+import { parseReviewConfiguration } from "@reviewrouter/features-review-config";
 import { renderReviewRouterReusableWorkflow } from "@reviewrouter/features-workflow-provisioning";
 import {
   createProvisioningPrisma,
@@ -122,23 +114,6 @@ const { resolveReviewRuntimeEnv: resolveSavedReviewRuntimeEnv } =
   await vi.importActual<typeof import("@reviewrouter/features-review-config")>(
     "@reviewrouter/features-review-config",
   );
-
-/** A workspace without stored provider profiles or managed API keys. */
-function emptyProviderRegistryFixture() {
-  return {
-    workspaceProviderProfile: { findMany: vi.fn(async () => []) },
-    providerApiKeyConnection: { findMany: vi.fn(async () => []) },
-    providerApiKeyRepositoryLink: { findMany: vi.fn(async () => []) },
-  };
-}
-
-/** The draft a MiMo row without a managed key becomes: the user's CI secret. */
-const mimoSecretDraft = {
-  draftId: "draft-0",
-  credential: { kind: "user_ci_secret", authMode: "mimo_token_plan_api_key" },
-  model: "mimo-v2.6-pro",
-  label: null,
-} as const;
 
 function workspacePolicyHeadsFixture() {
   return {
@@ -486,64 +461,19 @@ describe("dashboard setup PR recovery", () => {
     },
   );
 
-  it("rejects a direct OCR policy save without native context before persistence", async () => {
+  it("saves the workspace settings of the form and never a provider", async () => {
+    const settings = { blockingPolicy: { failOnSeverity: "major" } } as const;
     mocks.getPrisma.mockReturnValue({});
     mocks.assertDashboardMutationAllowed.mockResolvedValue({
       actor: "user:admin",
+      userId: "user_admin",
     });
-    mocks.readReviewConfigurationForm.mockReturnValue({
-      ...workspacePolicyFixture,
-      providers: [
-        {
-          kind: "codex",
-          authMode: "codex_account_gateway",
-          model: "mimo-v2.6-pro",
-          gatewayBindingId: "binding-1",
-          gatewayProfileRef: "profile-1",
-          agentProfileRef: "ocr-managed-v2",
-          agenticContext: false,
-          reasoningEffort: "high",
-          fastMode: false,
-          requiredHealthy: true,
-        },
-      ],
+    mocks.readWorkspaceReviewSettingsForm.mockReturnValue(settings);
+    mocks.saveWorkspaceReviewSettings.mockResolvedValue({
+      target: { scope: "workspace", workspaceId: "workspace_1" },
+      version: 2,
+      configuration: null,
     });
-    mocks.loadApprovedGatewayAgentProfiles.mockReturnValue([
-      {
-        profileRef: "ocr-managed-v2",
-        agentKind: "ocr",
-        label: "OCR",
-        description: "OCR",
-      },
-    ]);
-    const formData = new FormData();
-    formData.set("workspaceId", "workspace_1");
-    const result = await saveWorkspaceReviewConfigClientAction(formData);
-    expect(result.params.error).toBe("agent_profile_requires_agentic_context");
-    expect(mocks.saveReviewConfiguration).not.toHaveBeenCalled();
-    expect(mocks.assertDashboardMutationAllowed).toHaveBeenCalled();
-  });
-
-  it("saves a workspace MiMo review configuration without an operator grant", async () => {
-    const provider = {
-      kind: "codex-mimo",
-      authMode: "mimo_token_plan_api_key",
-      model: "mimo-v2.6-pro",
-      reasoningEffort: "medium",
-      agenticContext: true,
-      fastMode: false,
-      requiredHealthy: true,
-    } as const;
-    const config = {
-      ...workspacePolicyFixture,
-      providers: [provider],
-    };
-    mocks.getPrisma.mockReturnValue(emptyProviderRegistryFixture());
-    mocks.assertDashboardMutationAllowed.mockResolvedValue({
-      actor: "user:admin",
-    });
-    mocks.readReviewConfigurationForm.mockReturnValue(config);
-    mocks.saveReviewConfiguration.mockResolvedValue({ version: 2, config });
     const formData = new FormData();
     formData.set("workspaceId", "workspace_1");
     formData.set("policyExpectedVersion", "1");
@@ -565,58 +495,20 @@ describe("dashboard setup PR recovery", () => {
       }),
       expect.anything(),
     );
-    // The row becomes a draft profile created with the selection.
-    expect(mocks.saveReviewConfiguration).toHaveBeenCalledWith(
-      expect.objectContaining({
-        target: { scope: "workspace", workspaceId: "workspace_1" },
-        policy: workspacePolicyDocumentFixture(
-          parseReviewConfiguration(config),
-          ["draft-0"],
-        ),
+    expect(mocks.saveWorkspaceReviewSettings).toHaveBeenCalledWith(
+      {
+        workspaceId: "workspace_1",
+        actor: expect.objectContaining({ userId: "user_admin" }),
+        settings,
         expectedVersion: 1,
-        expectedEffectivePolicyDigest: effectiveReviewPolicyDigest(config),
-        profileDrafts: [mimoSecretDraft],
-      }),
-      expect.anything(),
+      },
+      // The dashboard validates every candidate before the write.
+      expect.objectContaining({ validator: expect.anything() }),
     );
   });
 
-  it("saves a repository MiMo review configuration without an operator grant", async () => {
-    const provider = {
-      kind: "codex-mimo",
-      authMode: "mimo_token_plan_api_key",
-      model: "mimo-v2.6-pro",
-      reasoningEffort: "medium",
-      agenticContext: true,
-      fastMode: false,
-      requiredHealthy: true,
-    } as const;
-    const config = {
-      ...workspacePolicyFixture,
-      providers: [provider],
-    };
+  it("saves the repository overrides of the form with the actor's capability", async () => {
     mocks.getPrisma.mockReturnValue({
-      ...emptyProviderRegistryFixture(),
-      reviewConfiguration: {
-        ...workspacePolicyHeadsFixture(),
-        // The workspace has no default; the repository has no document yet.
-        findUnique: vi.fn(
-          async (input: {
-            where: { workspaceId_targetKey: { targetKey: string } };
-          }) =>
-            input.where.workspaceId_targetKey.targetKey === "workspace:default"
-              ? {
-                  active: true,
-                  repositoryId: null,
-                  versions: [
-                    storedPolicyHeadFixture(
-                      workspacePolicyDocumentFixture(workspacePolicyFixture),
-                    ),
-                  ],
-                }
-              : null,
-        ),
-      },
       repositoryConnection: {
         findUnique: vi.fn(async () => ({
           id: "repository_1",
@@ -635,15 +527,21 @@ describe("dashboard setup PR recovery", () => {
       },
     });
     mocks.assertDashboardRepositoryConfigMutationAllowed.mockResolvedValue({
-      actor: "user:admin",
+      actor: "user:maintainer",
+      userId: "user_maintainer",
+      accessSource: { source: "repo_manager", capability: "direct_config" },
     });
-    mocks.readRepositoryReviewPolicyForm.mockReturnValue({
-      policy: { schemaVersion: 4 },
-      providers: [provider],
+    mocks.readRepositoryReviewSettingsForm.mockReturnValue({
+      limits: { inlineMaxComments: 2 },
     });
-    mocks.saveRepositoryReviewPolicy.mockResolvedValue({
+    mocks.saveRepositoryReviewSettings.mockResolvedValue({
+      target: {
+        scope: "repository",
+        workspaceId: "workspace_1",
+        repositoryId: "repository_1",
+      },
       version: 3,
-      configuration: { version: 3, config },
+      configuration: null,
     });
     const formData = new FormData();
     formData.set("workspaceId", "workspace_1");
@@ -659,24 +557,18 @@ describe("dashboard setup PR recovery", () => {
         version: "3",
       },
     });
-    expect(mocks.saveRepositoryReviewPolicy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        target: {
-          scope: "repository",
-          workspaceId: "workspace_1",
+    expect(mocks.saveRepositoryReviewSettings).toHaveBeenCalledWith(
+      {
+        workspaceId: "workspace_1",
+        actor: expect.objectContaining({ userId: "user_maintainer" }),
+        repository: {
           repositoryId: "repository_1",
+          capability: "direct_config",
         },
-        policy: {
-          schemaVersion: 4,
-          providers: [reviewProviderSelectionFor(provider, "draft-0")],
-        },
+        settings: { limits: { inlineMaxComments: 2 } },
         expectedVersion: 2,
-        expectedEffectivePolicyDigest: effectiveReviewPolicyDigest(
-          parseReviewConfiguration(config),
-        ),
-        profileDrafts: [mimoSecretDraft],
-      }),
-      expect.anything(),
+      },
+      expect.objectContaining({ validator: expect.anything() }),
     );
   });
 

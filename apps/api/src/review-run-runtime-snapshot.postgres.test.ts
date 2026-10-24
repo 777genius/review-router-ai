@@ -468,7 +468,12 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         workspaceId: harness.workspaceId,
         repositoryId: harness.repositoryConnectionId,
       };
-      await new PrismaReviewConfigurationRepository(prisma).saveNextVersion({
+      await new PrismaReviewConfigurationRepository(
+        prisma,
+        undefined,
+        false,
+        undefined,
+      ).saveNextVersion({
         target: mixedTarget,
         ...systemPolicyWriteFixture(mixedPolicy, mixedTarget),
       });
@@ -960,7 +965,12 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         expectedRevision: 0,
         state: "active",
       });
-      const configurations = new PrismaReviewConfigurationRepository(prisma);
+      const configurations = new PrismaReviewConfigurationRepository(
+        prisma,
+        undefined,
+        false,
+        undefined,
+      );
       const target = {
         scope: "repository" as const,
         workspaceId,

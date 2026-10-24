@@ -101,7 +101,12 @@ try {
     select: { id: true, owner: true, githubRepositoryId: true, fullName: true },
   });
 
-  const configurations = new PrismaReviewConfigurationRepository(prisma);
+  const configurations = new PrismaReviewConfigurationRepository(
+    prisma,
+    undefined,
+    false,
+    undefined,
+  );
   const workspaceProvider = {
     ...fixtureProviderSettings,
     kind: "openrouter" as const,

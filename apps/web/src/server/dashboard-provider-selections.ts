@@ -2,23 +2,28 @@ import type { PrismaClient } from "@prisma/client";
 import { canAdminWorkspace } from "@reviewrouter/features-auth";
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import {
-  isManagedApiKeyAuthMode,
   managedApiKeyProviderTypes,
+  parseProviderProfileDraft,
+  PrismaReviewConfigurationRepository,
+  PrismaReviewPolicyHeadReader,
   PrismaWorkspaceProviderProfileRepository,
-  providerCredentialRequestFor,
   providerProfileIdentityKey,
-  reviewProviderSelectionFor,
+  ProviderProfileError,
+  reviewProviderSelectionSchema,
   type ProviderCredentialRequest,
   type ProviderCredentialSource,
   type ProviderProfileActor,
-  type ProviderProfileDraft,
   type ProviderProfileWriteOptions,
   type ProviderRepositoryCapability,
-  type ReviewProviderConfiguration,
+  type ProviderSelectionDraft,
+  type ProviderSelectionSettings,
   type ReviewProviderSelection,
-  type WorkspaceProviderProfile,
 } from "@reviewrouter/features-review-config";
 import type { DashboardMutationActor } from "./dashboard-mutations";
+import {
+  dashboardSelectionValidator,
+  type DashboardValidatedRepository,
+} from "./dashboard-review-configuration-validation";
 
 /** The deployment's trusted composition of provider profile writers. */
 export function dashboardProviderProfileWriteOptions(
@@ -37,6 +42,51 @@ export function dashboardProviderProfiles(
     prisma,
     dashboardProviderProfileWriteOptions(),
   );
+}
+
+/** The dashboard's review policy store for one signed-in user. */
+export function dashboardReviewConfigurations(
+  prisma: PrismaClient,
+  actorUserId: string,
+): PrismaReviewConfigurationRepository {
+  const options = dashboardProviderProfileWriteOptions();
+  return new PrismaReviewConfigurationRepository(
+    prisma,
+    options.operatorWorkspaceId,
+    options.personalAccountsEnabled,
+    actorUserId,
+  );
+}
+
+/**
+ * Dependencies of a signed-in dashboard write of review policy: the writer
+ * validates personal bindings for the actor, and every candidate passes the
+ * dashboard's save-time checks before the write. `recheck` runs after a
+ * network-bound check and must confirm the actor may still write the target
+ * (null is the workspace).
+ */
+export function dashboardSelectionDependencies(input: {
+  readonly prisma: PrismaClient;
+  readonly workspaceId: string;
+  readonly actor: DashboardMutationActor;
+  readonly repositories: ReadonlyMap<string, DashboardValidatedRepository>;
+  readonly recheck: (repositoryId: string | null) => Promise<void>;
+}) {
+  return {
+    configurations: dashboardReviewConfigurations(
+      input.prisma,
+      input.actor.userId,
+    ),
+    policyHeads: new PrismaReviewPolicyHeadReader(input.prisma),
+    validator: dashboardSelectionValidator({
+      workspaceId: input.workspaceId,
+      repositories: input.repositories,
+      afterGatewayCatalogCheck: (target) =>
+        input.recheck(
+          target.scope === "repository" ? target.repositoryId : null,
+        ),
+    }),
+  };
 }
 
 /**
@@ -76,105 +126,94 @@ export function dashboardRepositoryCapability(
     : "repo_manager";
 }
 
-export type ProviderSelectionsFromRows = Readonly<{
-  selections: readonly ReviewProviderSelection[];
-  /** Providers the write creates together with the selection. */
-  drafts: readonly ProviderProfileDraft[];
-  /** In-memory profiles of the drafts, for validating the candidate. */
-  draftProfiles: readonly WorkspaceProviderProfile[];
-}>;
+/** A dialog request for one provider of a selection. */
+export type DashboardProviderRequest =
+  | Readonly<{ kind: "profile"; profileId: string }>
+  | Readonly<{
+      kind: "new";
+      credential: ProviderCredentialRequest;
+      model: string;
+    }>;
 
 /**
- * The provider rows the current forms submit, as selections of workspace
- * profiles: a row naming an existing profile's credential source and model
- * selects it, any other row becomes a draft the write creates with the
- * selection in one decision. An unchanged form therefore leaves the stored
- * selection unchanged.
+ * The selection a dialog request makes: an existing workspace profile, or a
+ * draft the write creates together with the selection, decided as one. A
+ * new provider whose credential source and model already exist selects that
+ * profile instead, so repeating a request never adds a second one.
  */
-export async function dashboardProviderSelectionsFromRows(input: {
+export async function dashboardProviderSelection(input: {
   readonly prisma: PrismaClient;
   readonly workspaceId: string;
-  /** The repository of a repository form; null for the workspace default. */
-  readonly repositoryId: string | null;
-  readonly rows: readonly ReviewProviderConfiguration[];
-}): Promise<ProviderSelectionsFromRows> {
-  const { prisma, workspaceId, repositoryId } = input;
-  const [profiles, keys, appliedLinks] = await Promise.all([
+  readonly provider: DashboardProviderRequest;
+  readonly settings: ProviderSelectionSettings;
+}): Promise<
+  Readonly<{
+    selection: ReviewProviderSelection;
+    draft?: ProviderSelectionDraft;
+  }>
+> {
+  const { prisma, workspaceId, provider } = input;
+  const settings = { ...input.settings };
+  if (provider.kind === "profile")
+    return {
+      selection: reviewProviderSelectionSchema.parse({
+        ...settings,
+        profileId: provider.profileId,
+      }),
+    };
+  const { credential, model } = parseProviderProfileDraft({
+    credential: provider.credential,
+    model: provider.model,
+  });
+  const [profiles, keys] = await Promise.all([
     dashboardProviderProfiles(prisma).list(workspaceId),
-    prisma.providerApiKeyConnection.findMany({
-      where: { workspaceId },
-      select: { id: true, providerType: true },
-    }),
-    repositoryId
-      ? prisma.providerApiKeyRepositoryLink.findMany({
+    credential.kind === "managed_api_key"
+      ? prisma.providerApiKeyConnection.findMany({
           where: {
             workspaceId,
-            repositoryId,
-            appliedKeyVersion: { not: null },
+            providerType: managedApiKeyProviderTypes[credential.authMode],
           },
-          select: { providerApiKeyConnectionId: true },
+          select: { id: true },
         })
       : Promise.resolve([]),
   ]);
-  const keyFor = (authMode: string) =>
-    isManagedApiKeyAuthMode(authMode)
-      ? keys.find(
-          (key) => key.providerType === managedApiKeyProviderTypes[authMode],
-        )
-      : undefined;
-  const applied = new Set(
-    appliedLinks.map((link) => link.providerApiKeyConnectionId),
+  const source = expectedCredentialSource(credential, keys[0]?.id);
+  // The write refuses an unavailable credential with its own error code.
+  if (!source) throw new ProviderProfileError("provider_profile_invalid");
+  const identity = providerProfileIdentityKey(source, model);
+  const existing = profiles.find(
+    (profile) =>
+      providerProfileIdentityKey(profile.credential, profile.model) ===
+      identity,
   );
-  const byIdentity = new Map(
-    profiles.map(
-      (profile) =>
-        [
-          providerProfileIdentityKey(profile.credential, profile.model),
-          profile,
-        ] as const,
-    ),
-  );
-  const selections: ReviewProviderSelection[] = [];
-  const drafts: ProviderProfileDraft[] = [];
-  const draftProfiles: WorkspaceProviderProfile[] = [];
-  input.rows.forEach((row, index) => {
-    const credential = providerCredentialRequestFor(row, {
-      repositoryId,
-      // A repository uses the managed key once it is applied there; the
-      // workspace default uses it whenever it exists.
-      managedApiKey: (authMode) => {
-        const key = keyFor(authMode);
-        return key !== undefined && (!repositoryId || applied.has(key.id));
-      },
-    });
-    const source = expectedCredentialSource(
-      credential,
-      keyFor(row.authMode)?.id,
-    );
-    const existing = source
-      ? byIdentity.get(providerProfileIdentityKey(source, row.model))
-      : undefined;
-    if (existing) {
-      selections.push(reviewProviderSelectionFor(row, existing.id));
-      return;
-    }
-    const draftId = `draft-${index}`;
-    drafts.push({ draftId, credential, model: row.model, label: null });
-    if (source)
-      draftProfiles.push({
+  if (existing)
+    return {
+      selection: reviewProviderSelectionSchema.parse({
+        ...settings,
+        profileId: existing.id,
+      }),
+    };
+  const draftId = "draft-provider";
+  return {
+    selection: reviewProviderSelectionSchema.parse({
+      ...settings,
+      profileId: draftId,
+    }),
+    draft: {
+      draft: { draftId, credential, model, label: null },
+      profile: {
         id: draftId,
         workspaceId,
         createdByUserId: null,
         credential: source,
-        model: row.model,
+        model,
         label: draftId,
         archivedAt: null,
         createdAt: new Date(0),
         updatedAt: new Date(0),
-      });
-    selections.push(reviewProviderSelectionFor(row, draftId));
-  });
-  return { selections, drafts, draftProfiles };
+      },
+    },
+  };
 }
 
 /** The source a request resolves to when its references are as expected. */

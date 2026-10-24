@@ -23,6 +23,16 @@
       "types": "./src/domain/review-policy-document.ts",
       "production": "./dist/domain/review-policy-document.js",
       "default": "./src/domain/review-policy-document.ts"
+    },
+    "./provider-management-policy": {
+      "types": "./src/domain/provider-management-policy.ts",
+      "production": "./dist/domain/provider-management-policy.js",
+      "default": "./src/domain/provider-management-policy.ts"
+    },
+    "./workspace-provider-profile": {
+      "types": "./src/domain/workspace-provider-profile.ts",
+      "production": "./dist/domain/workspace-provider-profile.js",
+      "default": "./src/domain/workspace-provider-profile.ts"
     }
   },
   "dependencies": {

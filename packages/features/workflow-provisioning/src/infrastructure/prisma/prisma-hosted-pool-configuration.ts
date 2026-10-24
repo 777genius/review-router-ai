@@ -23,10 +23,12 @@ export async function switchRepositoryConfigurationAuthMode(input: {
     | "codex_subscription_oauth_hosted_pool"
     | "codex_subscription_oauth_rotating";
 }): Promise<boolean> {
+  // Hosted activation is a system write: no signed-in user.
   const configurations = new PrismaReviewConfigurationTransactionRepository(
     input.transaction,
     undefined,
     readPersonalAccountSharingEnabled(process.env),
+    undefined,
   );
   const repositoryTarget = {
     scope: "repository" as const,
