@@ -201,10 +201,12 @@ async function loadGatewayReviewProfiles(workspaceId: string) {
       return personal.reviewProfiles(workspaceId);
     }
   }
-  const { loadAccountsBootstrap } = await import("./account-gateway-accounts");
-  const { page } = await loadAccountsBootstrap(workspaceId);
-  if (page.status === "denied") throw new Error("gateway_review_config_denied");
-  if (page.status !== "ok")
+  // The workspace catalog needs no Accounts admin context: the caller already
+  // authorized the selection, and members may attach Gateway providers.
+  const { accountsServerAdapter } = await import("./account-gateway-accounts");
+  try {
+    return await (await accountsServerAdapter()).reviewCatalog();
+  } catch {
     throw new Error("gateway_review_catalog_unavailable");
-  return page.value.profiles;
+  }
 }

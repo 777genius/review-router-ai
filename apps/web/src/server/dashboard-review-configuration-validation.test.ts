@@ -19,22 +19,20 @@ vi.mock("./gateway-review-config-catalog", async (importOriginal) => ({
 vi.mock("./personal-account-composition", () => ({
   productionPersonalAccounts: async () => null,
 }));
+// Sharing off and a member signed in: the Accounts bootstrap is owner/admin
+// only, so validation must read the catalog without it.
 vi.mock("./account-gateway-accounts", () => ({
-  loadAccountsBootstrap: async () => ({
-    page: {
-      status: "ok",
-      value: {
-        profiles: [
-          {
-            id: "profile-1",
-            label: "MiMo",
-            provider: "codex",
-            protocol: "openai-responses",
-            models: ["mimo-v2.6-pro"],
-          },
-        ],
+  loadAccountsBootstrap: async () => ({ page: { status: "denied" } }),
+  accountsServerAdapter: async () => ({
+    reviewCatalog: async () => [
+      {
+        id: "profile-1",
+        label: "MiMo",
+        provider: "codex",
+        protocol: "openai-responses",
+        models: ["mimo-v2.6-pro"],
       },
-    },
+    ],
   }),
 }));
 
