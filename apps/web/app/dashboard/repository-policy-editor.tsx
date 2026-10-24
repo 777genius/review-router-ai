@@ -51,6 +51,7 @@ import {
   type ProviderSecretAvailabilityStatus,
 } from "./provider-secret-status-cache";
 import { ProviderAuthLogoFrame } from "./provider-auth-logo";
+import { AccountProviderLogo } from "./account-identity";
 import type {
   AccountsPage,
   AccountsResult,
@@ -350,6 +351,7 @@ type DashboardSelectOption = {
   readonly label: string;
   readonly description?: string;
   readonly providerAuthMode?: ProviderAuthMode;
+  readonly profileLabel?: string;
   readonly disabled?: boolean;
 };
 
@@ -2275,6 +2277,7 @@ export function ReviewConfigForm({
                           options={matchingGatewayAccounts.map((account) => ({
                             value: account.binding!.id,
                             label: account.label,
+                            profileLabel: account.profileLabel,
                             description: [
                               account.profileLabel,
                               personalAccountOriginText(account),
@@ -3144,7 +3147,11 @@ function DashboardSelectField({
         >
           <RadixSelect.Value placeholder={placeholder}>
             <span className="flex min-w-0 items-center gap-2">
-              {selectedOption?.providerAuthMode ? (
+              {selectedOption?.profileLabel ? (
+                <AccountProviderLogo
+                  profileLabel={selectedOption.profileLabel}
+                />
+              ) : selectedOption?.providerAuthMode ? (
                 <ProviderAuthLogoFrame
                   authMode={selectedOption.providerAuthMode}
                 />
@@ -3177,7 +3184,9 @@ function DashboardSelectField({
                   <RadixSelect.ItemIndicator className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center text-emerald-300">
                     ✓
                   </RadixSelect.ItemIndicator>
-                  {option.providerAuthMode ? (
+                  {option.profileLabel ? (
+                    <AccountProviderLogo profileLabel={option.profileLabel} />
+                  ) : option.providerAuthMode ? (
                     <ProviderAuthLogoFrame authMode={option.providerAuthMode} />
                   ) : null}
                   <RadixSelect.ItemText>
