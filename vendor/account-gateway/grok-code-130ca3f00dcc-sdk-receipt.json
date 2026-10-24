@@ -1,0 +1,25 @@
+{
+  "contract": "grok-code-sdk-candidate/v1",
+  "sdkSourceCommit": "1ea1c42a0a7c98d6efc2d0d667899e439f098a86",
+  "gatewaySourceCommit": "7d8d6042b38b744244b1a42e2f3976cd1a0eef45",
+  "candidate": "agent-teams-account-gateway-0.1.0-grok-code-130ca3f00dcc.tgz",
+  "sha256": "130ca3f00dcc66eafcc23fecec9ddc9a9c351341f0cd2273d9e87e02fc05e446",
+  "sourceHashes": {
+    "packages/account-gateway/src/contracts/index.ts": "5c32215f697476a9cfebc045feb7ff96853028127d47bf0b6bfb93bdedf0f72a",
+    "packages/account-gateway/src/features/facade-client/contracts/index.ts": "74eb924934f33a8a05d454f5905893731ac89ae85c8a34f24a5d5286750081c9",
+    "packages/account-gateway/src/features/facade-client/http/index.ts": "84c873d6e4dfd3909bfd133f5d5bb07b1f586c7fb845182fada0dcf0c8914db8",
+    "packages/account-gateway/src/features/facade-client/http/ingress.ts": "ce4b4f68ec88104aca2bf7158f527d3e5e8e30b7551278cb08c4dabeb0926498",
+    "packages/account-gateway/src/get-modular/index.ts": "e6ea38b7b03cab7ef80bfa19e8027c579908eaaf695f3e576e6189c1ee69c614",
+    "packages/account-gateway/src/http/index.ts": "e4ebce88f63243c11312fd5aafd2e9495e3e3c40e21c6330dcad311002bb1405",
+    "packages/account-gateway/src/index.ts": "337933a146db8dd1efcb5b608cfd961e4728bff896d860b920d93f2c9fa42399"
+  },
+  "qualification": {
+    "node26": "v26.11.1",
+    "node24": "v24.21.0",
+    "installedBoth": "passed two consumers, behavior/type/export/limits/namespace separation",
+    "focusedBoth": "54 passed, 1 optional preexisting joined skip",
+    "strictServiceAndSDKTests": "passed",
+    "nativeAdapterRedGreen": "old bounded denial; new completed exact authorizationCode body",
+    "reviewDiffSha256": "f6f4099097cdf0ecc7ac39b965633d97c692504e9bcf0e7d5eaccea73bcdb662"
+  }
+}

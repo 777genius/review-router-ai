@@ -289,9 +289,10 @@ Subscription connections use `--subscription-fixture` with
 qualified Kimi/GLM/MiniMax/Grok metadata, key/OAuth operations and cached v2 limits
 from the existing loopback Gateway fixture. It exercises real RR SSR, session,
 canonical storage, server actions and the installed SDK. The single xAI browser
-authorization document is intercepted and fulfilled with synthetic HTML; no
-provider network request is made. Synthetic subscription keys and callback values
-are test data. This does not prove live provider eligibility, native transport,
+authorization document is intercepted and fulfilled with synthetic HTML showing
+one plain authorization code. The test pastes that code after reload and again
+for reconnect; no provider network request is made. Synthetic subscription keys
+and authorization codes are test data. This does not prove live provider eligibility, native transport,
 refresh, credentials or actual subscription quota; those require the separate
 native/Gateway/Codex qualification.
 The controlled case also reconnects the same Grok account and removes it through

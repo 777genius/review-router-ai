@@ -21,6 +21,7 @@ import {
 } from "@reviewrouter/features-provider-accounts/synchronization";
 import {
   snapshotOAuthCompletion,
+  oauthCompletionMatchesProfile,
   accountGatewayUserOwnerRef,
   type AccountIntent,
   type AccountOAuthIntent,
@@ -592,17 +593,7 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
       !input.control.completeOAuth
     )
       throw new Denied();
-    const completion = operationCompletion(profile);
-    if (completion.inputKind === "authorization_code") {
-      if (!("authorizationCode" in request)) throw new Denied();
-    } else if (completion.inputKind === "callback_url") {
-      if (!("callbackURL" in request)) throw new Denied();
-      const grammar =
-        profile.connection?.provider === "grok"
-          ? secretSubmission.grokOAuthCallbackURL
-          : secretSubmission.oauthCallbackURL;
-      if (!grammar.safeParse(request.callbackURL).success) throw new Denied();
-    } else throw new Denied();
+    if (!oauthCompletionMatchesProfile(profile, request)) throw new Denied();
     if (["submitted", "unknown"].includes(original.phase)) {
       const operation = await scope.checked(() =>
         input.control.operation(original.id),

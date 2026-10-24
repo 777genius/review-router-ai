@@ -1,0 +1,44 @@
+{
+  "contract": "provider-plan-sdk-review-candidate/v1",
+  "sdkSourceCommit": "90b29b2d24ae7d68e386bbea391056aca7012431",
+  "version": "0.1.0",
+  "candidate": "agent-teams-account-gateway-0.1.0-provider-plan-ef8884317a26.tgz",
+  "sha256": "ef8884317a26c10d5c35be27f0ee07bb5103bdd5ce2b238629a025d350c3f2c3",
+  "sourceHashes": {
+    "packages/account-gateway/src/contracts/index.ts": "5c32215f697476a9cfebc045feb7ff96853028127d47bf0b6bfb93bdedf0f72a",
+    "packages/account-gateway/src/features/facade-client/contracts/index.ts": "74eb924934f33a8a05d454f5905893731ac89ae85c8a34f24a5d5286750081c9",
+    "packages/account-gateway/src/features/facade-client/http/index.ts": "84c873d6e4dfd3909bfd133f5d5bb07b1f586c7fb845182fada0dcf0c8914db8",
+    "packages/account-gateway/src/features/facade-client/http/ingress.ts": "95f0adbe914b652027f4743f26cf03553d3f1e6088d7d1547e50419fe5a0de99",
+    "packages/account-gateway/src/get-modular/index.ts": "e6ea38b7b03cab7ef80bfa19e8027c579908eaaf695f3e576e6189c1ee69c614",
+    "packages/account-gateway/src/http/index.ts": "e4ebce88f63243c11312fd5aafd2e9495e3e3c40e21c6330dcad311002bb1405",
+    "packages/account-gateway/src/index.ts": "337933a146db8dd1efcb5b608cfd961e4728bff896d860b920d93f2c9fa42399"
+  },
+  "sourceFilesMatchCommit": true,
+  "build": true,
+  "serviceTypecheck": true,
+  "testTypecheck": true,
+  "focusedTests": {
+    "pass": 94,
+    "fail": 0,
+    "log": "review-focused-green2.log"
+  },
+  "installedConsumers": ["Node26.11.1", "Node24.21.0"],
+  "installedBehaviorTests": {
+    "Node26.11.1": 22,
+    "Node24.21.0": 21
+  },
+  "removedUnusedNormalization": true,
+  "wireContractsUnchanged": true,
+  "publicPublished": false,
+  "host": "workers-fsn1-01",
+  "machineId": "d856d40da5ad4e23b4f67773e5942842",
+  "installedChecks": [
+    "runtime exports",
+    "browser export denial",
+    "typed role separation",
+    "v1/v2 limits and provider capabilities closure",
+    "actual Codex/Claude original browser scopes",
+    "Grok delimiter rejection"
+  ],
+  "installedLog": "installed-review.log"
+}

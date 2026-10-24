@@ -147,12 +147,12 @@ describe("qualified connection catalog", () => {
           provider: "grok",
           planLabel: "Subscription",
           regionLabel: "Global",
-          completionInputKind: "callback_url",
+          completionInputKind: "authorization_code",
           personalOnly: false,
           limitsContract: "account-limits/v2",
           modelSettings: [],
         },
       }),
-    ).toEqual({ providerLabel: "Grok", inputKind: "callback_url" });
+    ).toEqual({ providerLabel: "Grok", inputKind: "authorization_code" });
   });
 });

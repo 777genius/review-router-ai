@@ -52,7 +52,7 @@ test("subscription connections use real server actions for all four providers an
     authorizationDocuments++;
     await route.fulfill({
       contentType: "text/html",
-      body: "<!doctype html><title>Synthetic subscription authorization</title><p>Controlled browser handoff fixture</p>",
+      body: `<!doctype html><title>Synthetic subscription authorization</title><p>Authorization code</p><code>${authorizationDocuments === 1 ? "synthetic-browser-grok-code" : "synthetic-browser-grok-reconnect-code"}</code>`,
     });
   });
   await openAccounts(page, "rr-e2e-personal-viewer");
@@ -125,20 +125,25 @@ test("subscription connections use real server actions for all four providers an
   await enrollment.getByRole("button", { name: "Sign in to Grok" }).click();
   const authorization = await popup;
   await expect.poll(() => authorizationDocuments).toBe(1);
+  const authorizationCode = await authorization.locator("code").innerText();
   await authorization.close();
   await page.reload({ waitUntil: "domcontentloaded" });
-  // Readback restores original Grok callback grammar, not transient React state.
+  // Readback restores original Grok plain-code grammar, not transient React state.
   await page.getByRole("button", { name: "Resume authorization" }).click();
-  const callback = `http://127.0.0.1:56121/callback?code=synthetic-browser-grok-code&state=${"a".repeat(64)}`;
   const completion = page.getByRole("dialog", {
     name: "Complete authorization",
   });
-  await completion.getByLabel("Authorization result address").fill(callback);
+  await expect(
+    completion.getByLabel("Authorization result address"),
+  ).toHaveCount(0);
+  await completion
+    .getByLabel("Authorization code", { exact: true })
+    .fill(authorizationCode);
   await completion
     .getByRole("button", { name: "Complete authorization" })
     .click();
   await expect(sourceRow(page, "Browser Grok subscription")).toBeVisible();
-  await noSecrets(page, [...secrets, callback, "synthetic-browser-grok-code"]);
+  await noSecrets(page, [...secrets, authorizationCode]);
   const grokRow = sourceRow(page, "Browser Grok subscription");
   await grokRow
     .getByRole("button", { name: "Actions for Browser Grok subscription" })
@@ -151,17 +156,16 @@ test("subscription connections use real server actions for all four providers an
     .click();
   const reconnectAuthorization = await reconnectPopup;
   await expect.poll(() => authorizationDocuments).toBe(2);
+  const reconnectCode = await reconnectAuthorization
+    .locator("code")
+    .innerText();
   await reconnectAuthorization.close();
-  const reconnectCallback = callback.replace(
-    "synthetic-browser-grok-code",
-    "synthetic-browser-grok-reconnect-code",
-  );
   const reconnectCompletion = page.getByRole("dialog", {
     name: "Complete authorization",
   });
   await reconnectCompletion
-    .getByLabel("Authorization result address")
-    .fill(reconnectCallback);
+    .getByLabel("Authorization code", { exact: true })
+    .fill(reconnectCode);
   await reconnectCompletion
     .getByRole("button", { name: "Complete authorization" })
     .click();
@@ -173,11 +177,7 @@ test("subscription connections use real server actions for all four providers an
           .completes,
     )
     .toBe(2);
-  await noSecrets(page, [
-    ...secrets,
-    reconnectCallback,
-    "synthetic-browser-grok-reconnect-code",
-  ]);
+  await noSecrets(page, [...secrets, reconnectCode]);
   await expect(grokRow).toContainText("Ready");
   await expect(grokRow.getByRole("progressbar")).toHaveCount(2);
   const glmReceipt = page.getByRole("status").filter({
