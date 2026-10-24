@@ -99,6 +99,7 @@ export type ReviewSkillAssignmentChoice = Readonly<{
 export type ReviewSkillRepositoryTarget = Readonly<{
   repositoryId: string;
   name: string;
+  active: boolean;
   assigned: boolean;
   bindingVersion: number | null;
 }>;

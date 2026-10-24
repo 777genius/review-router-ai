@@ -46,7 +46,7 @@ const messages: Record<string, string> = {
   unavailable:
     "A selected skill or repository is unavailable. Remove it from the selection and try again.",
   dependency_exists:
-    "Remove repository assignments and active sharing grants before deleting or unlinking.",
+    "Remove repository assignments first. To delete an original, its source workspace administrator must also revoke active sharing grants.",
   limit_exceeded:
     "This operation exceeds a Skills limit. Select up to 1000 repositories and 100 skills; each repository supports up to 32 skills.",
   invalid_input:

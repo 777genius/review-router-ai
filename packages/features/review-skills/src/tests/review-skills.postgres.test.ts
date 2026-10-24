@@ -371,7 +371,8 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
       const unprivileged = await createPrismaReviewSkillsService({
         prisma,
         repositoryAccess: {
-          authorizeRepositoryManagement: async ({ repositoryIds }) => repositoryIds.filter((id) => id === repos[1]),
+          authorizeRepositoryManagement: async ({ repositoryIds }) =>
+            repositoryIds.filter((id) => id === repos[1]),
         },
       });
       expect(
@@ -526,7 +527,7 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
         await service.listWorkspaceSkills({
           actor: owner,
           workspaceId: destination,
-          search: ids[52],
+          search: ids[52]!,
         })
       ).items.map((entry) => entry.skillId),
     ).toEqual([ids[52]]);
@@ -537,6 +538,263 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
         search: "x".repeat(201),
       }),
     ).rejects.toMatchObject({ code: "invalid_input" });
+  });
+  it("lets only current workspace admins remove retained bindings from inactive local repositories", async () => {
+    const localRepos = ["archived", "unselected", "active", "unassigned"].map(
+      (state) => `${prefix}-cleanup-${state}`,
+    );
+    const foreign = `${prefix}-cleanup-foreign`;
+    for (const id of [...localRepos, foreign])
+      await prisma.repositoryConnection.create({
+        data: {
+          id,
+          workspaceId: id === foreign ? a : b,
+          externalRepositoryId: id,
+          owner: "synthetic",
+          name: id,
+          fullName: `synthetic/${id}`,
+          defaultBranch: "main",
+          visibility: "private",
+        },
+      });
+    const original = await service.createSkill({
+      actor: owner,
+      workspaceId: b,
+      content: content("Inactive local original"),
+    });
+    const shared = await service.createSkill({
+      actor: owner,
+      workspaceId: a,
+      content: content("Inactive shared link"),
+    });
+    await link(shared.skillId);
+    const assigned = localRepos.slice(0, 3);
+    const skillIds = [original.skillId, shared.skillId];
+    await service.applyAssignments({
+      actor: owner,
+      workspaceId: b,
+      repositoryIds: assigned,
+      skillIds,
+      mode: "add",
+    });
+    await prisma.repositoryConnection.update({
+      where: { id: localRepos[0]! },
+      data: { archived: true },
+    });
+    await prisma.repositoryConnection.update({
+      where: { id: localRepos[1]! },
+      data: { selected: false },
+    });
+    await prisma.repositoryConnection.update({
+      where: { id: localRepos[3]! },
+      data: { archived: true },
+    });
+    await service.revokeSkillGrant({
+      actor: owner,
+      sourceWorkspaceId: a,
+      destinationWorkspaceId: b,
+      skillId: shared.skillId,
+      expectedGrantVersion: 1,
+    });
+    const originalTargets = (
+      await service.listSkillRepositoryTargets({
+        actor: owner,
+        workspaceId: b,
+        skillId: original.skillId,
+      })
+    ).items;
+    expect(
+      originalTargets
+        .filter((target) => assigned.includes(target.repositoryId))
+        .map(({ repositoryId, active, assigned }) => ({
+          repositoryId,
+          active,
+          assigned,
+        })),
+    ).toEqual(
+      assigned
+        .map((repositoryId, index) => ({
+          repositoryId,
+          active: index === 2,
+          assigned: true,
+        }))
+        .sort((left, right) =>
+          left.repositoryId < right.repositoryId ? -1 : 1,
+        ),
+    );
+    expect(
+      originalTargets.some(
+        (target) =>
+          target.repositoryId === localRepos[3] ||
+          target.repositoryId === foreign,
+      ),
+    ).toBe(false);
+    expect(
+      (
+        await service.listSkillRepositoryTargets({
+          actor: owner,
+          workspaceId: b,
+          skillId: shared.skillId,
+        })
+      ).items.map((target) => target.repositoryId),
+    ).toEqual([...assigned].sort());
+    expect(
+      (
+        await service.listAssignmentChoices({
+          actor: owner,
+          workspaceId: b,
+          repositoryIds: assigned,
+        })
+      ).items
+        .filter((choice) => skillIds.includes(choice.skillId))
+        .map((choice) => choice.assignedCount),
+    ).toEqual([3, 3]);
+    const countBindings = async () =>
+      Number(
+        (
+          await prisma.$queryRaw<
+            readonly { count: bigint }[]
+          >`SELECT count(*) FROM "ReviewSkillBinding" WHERE "skillId" IN (${original.skillId},${shared.skillId})`
+        )[0]?.count,
+      );
+    await expect(
+      service.applyAssignments({
+        actor: owner,
+        workspaceId: b,
+        repositoryIds: [localRepos[0]!, foreign],
+        skillIds,
+        mode: "remove",
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    expect(await countBindings()).toBe(6);
+    await expect(
+      service.applyAssignments({
+        actor: owner,
+        workspaceId: b,
+        repositoryIds: [localRepos[0]!],
+        skillIds: [original.skillId],
+        mode: "add",
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    await expect(
+      service.updateBindingScope({
+        actor: owner,
+        workspaceId: b,
+        repositoryId: localRepos[0]!,
+        skillId: original.skillId,
+        expectedVersion: 1,
+        scope: { includePaths: ["src/**"], excludePaths: [] },
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    await expect(
+      service.setRepositorySources({
+        actor: owner,
+        workspaceId: b,
+        repositoryId: localRepos[1]!,
+        expectedVersion: 0,
+        roots: [".agents/skills"],
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    const scmWriter = await createPrismaReviewSkillsService({
+      prisma,
+      repositoryAccess: {
+        authorizeRepositoryManagement: async ({ repositoryIds }) =>
+          repositoryIds,
+      },
+    });
+    await expect(
+      scmWriter.listAssignmentChoices({
+        actor: writer,
+        workspaceId: b,
+        repositoryIds: assigned,
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    await expect(
+      scmWriter.applyAssignments({
+        actor: writer,
+        workspaceId: b,
+        repositoryIds: assigned,
+        skillIds,
+        mode: "remove",
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    expect(await countBindings()).toBe(6);
+    const demoted = await createPrismaReviewSkillsService({
+      prisma,
+      repositoryAccess: {
+        authorizeRepositoryManagement: async () => {
+          await prisma.workspaceMember.updateMany({
+            where: { workspaceId: b, userId: owner.userId },
+            data: { role: "member" },
+          });
+          return [];
+        },
+      },
+    });
+    try {
+      await expect(
+        demoted.applyAssignments({
+          actor: owner,
+          workspaceId: b,
+          repositoryIds: assigned,
+          skillIds,
+          mode: "remove",
+        }),
+      ).rejects.toMatchObject({ code: "forbidden" });
+      const memberTargets = await scmWriter.listSkillRepositoryTargets({
+        actor: owner,
+        workspaceId: b,
+        skillId: original.skillId,
+      });
+      expect(
+        memberTargets.items.some(
+          (target) =>
+            target.repositoryId === localRepos[0] ||
+            target.repositoryId === localRepos[1],
+        ),
+      ).toBe(false);
+      expect(await countBindings()).toBe(6);
+    } finally {
+      await prisma.workspaceMember.updateMany({
+        where: { workspaceId: b, userId: owner.userId },
+        data: { role: "owner" },
+      });
+    }
+    expect(
+      (
+        await service.applyAssignments({
+          actor: owner,
+          workspaceId: b,
+          repositoryIds: assigned,
+          skillIds,
+          mode: "remove",
+        })
+      ).removed,
+    ).toBe(6);
+    expect(
+      (
+        await service.listSkillRepositoryTargets({
+          actor: owner,
+          workspaceId: b,
+          skillId: shared.skillId,
+        })
+      ).items,
+    ).toEqual([]);
+    await service.unlinkSkill({
+      actor: owner,
+      destinationWorkspaceId: b,
+      skillId: shared.skillId,
+    });
+    await service.deleteSkill({
+      actor: owner,
+      workspaceId: b,
+      skillId: original.skillId,
+    });
+    await service.deleteSkill({
+      actor: owner,
+      workspaceId: a,
+      skillId: shared.skillId,
+    });
   });
   it("bulk delta preserves unrelated scopes, rolls back forbidden selection, CAS source settings", async () => {
     const one = await service.createSkill({

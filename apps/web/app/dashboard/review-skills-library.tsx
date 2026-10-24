@@ -385,10 +385,14 @@ function SkillRepositoriesDialog({
   readonly onClose: () => void;
 }) {
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<ReadonlySet<string>>(
-    () => new Set(),
+  const [selected, setSelected] = useState<ReadonlyMap<string, boolean>>(
+    () => new Map(),
   );
-  const [captured, setCaptured] = useState<readonly string[] | null>(null);
+  const [captured, setCaptured] = useState<{
+    readonly repositoryIds: readonly string[];
+    readonly removalOnly: boolean;
+  } | null>(null);
+  const selectedInactive = [...selected.values()].some((active) => !active);
   const targets = useInfiniteQuery({
     queryKey: [
       ...reviewSkillsKeys.workspace(viewerId, workspaceId),
@@ -413,10 +417,13 @@ function SkillRepositoriesDialog({
       <RepositorySkillsOperation
         workspaceId={workspaceId}
         viewerId={viewerId}
-        repositoryIds={captured}
+        repositoryIds={captured.repositoryIds}
         canCreate={canCreate}
         initialSkillIds={[skill.skillId]}
-        initialMode={skill.available === false ? "remove" : "add"}
+        initialMode={
+          skill.available === false || captured.removalOnly ? "remove" : "add"
+        }
+        removalOnly={captured.removalOnly}
         initialSearch={
           skill.available === false
             ? skill.skillId
@@ -443,7 +450,12 @@ function SkillRepositoriesDialog({
         <Button
           type="button"
           disabled={selected.size === 0}
-          onClick={() => setCaptured([...selected])}
+          onClick={() =>
+            setCaptured({
+              repositoryIds: [...selected.keys()],
+              removalOnly: selectedInactive,
+            })
+          }
         >
           Manage selected repositories ({selected.size})
         </Button>
@@ -455,6 +467,12 @@ function SkillRepositoriesDialog({
         label="Search repositories"
       />
       <SkillsError error={targets.error} />
+      {selectedInactive ? (
+        <p role="status" className="text-sm text-amber-100">
+          This selection includes inactive repositories. Only removing skill
+          assignments is available.
+        </p>
+      ) : null}
       {targets.isPending ? <p role="status">Loading repositories…</p> : null}
       {!targets.isPending &&
       !targets.isError &&
@@ -476,19 +494,28 @@ function SkillRepositoriesDialog({
               <Checkbox
                 checked={selected.has(repo.repositoryId)}
                 aria-label={`Select ${repo.name}`}
+                aria-description={
+                  repo.active
+                    ? undefined
+                    : "Inactive repository. Assignments can only be removed."
+                }
                 onChange={() =>
                   setSelected((prior) => {
-                    const next = new Set(prior);
+                    const next = new Map(prior);
                     if (next.has(repo.repositoryId))
                       next.delete(repo.repositoryId);
-                    else next.add(repo.repositoryId);
+                    else next.set(repo.repositoryId, repo.active);
                     return next;
                   })
                 }
               />
               <span className="min-w-0 flex-1 break-all">{repo.name}</span>
               <span className="text-xs text-slate-400">
-                {repo.assigned ? "Assigned" : "Not assigned"}
+                {repo.active
+                  ? repo.assigned
+                    ? "Assigned"
+                    : "Not assigned"
+                  : "Inactive · remove assignments only"}
               </span>
             </label>
           ))}

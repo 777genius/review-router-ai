@@ -89,14 +89,18 @@ export function RepositorySkillsOperation({
   initialSkillIds = [],
   initialMode = "add",
   initialSearch = "",
+  removalOnly = false,
 }: CapturedSelection & {
   readonly workspaceId: string;
   readonly onClose: () => void;
   readonly initialSkillIds?: readonly string[];
   readonly initialMode?: "add" | "remove";
   readonly initialSearch?: string;
+  readonly removalOnly?: boolean;
 }) {
-  const [mode, setMode] = useState<"add" | "remove">(initialMode);
+  const [mode, setMode] = useState<"add" | "remove">(
+    removalOnly ? "remove" : initialMode,
+  );
   const [search, setSearch] = useState(initialSearch);
   const [selected, setSelected] = useState<ReadonlySet<string>>(
     () => new Set(initialSkillIds),
@@ -263,6 +267,12 @@ export function RepositorySkillsOperation({
         </Button>
       }
     >
+      {removalOnly ? (
+        <p role="status" className="text-sm text-amber-100">
+          This selection includes inactive repositories. Only removing skill
+          assignments is available.
+        </p>
+      ) : null}
       <p className="text-xs leading-5 text-slate-400">
         Review Skills require a supporting ReviewRouter runtime. Reviews with
         unavailable skills or unsupported runtimes stop with an actionable
@@ -278,7 +288,7 @@ export function RepositorySkillsOperation({
             key={value}
             type="button"
             variant={mode === value ? "solid" : "outline"}
-            disabled={controlsLocked}
+            disabled={controlsLocked || (removalOnly && value === "add")}
             aria-pressed={mode === value}
             onClick={() => {
               setMode(value);
@@ -350,6 +360,7 @@ export function RepositorySkillsOperation({
                           : "Unavailable — remove assignments to allow new reviews."}
                       </p>
                       {repositoryIds.length === 1 &&
+                      !removalOnly &&
                       row.available &&
                       row.bindings[0] ? (
                         <SkillBindingPaths
@@ -439,7 +450,7 @@ export function RepositorySkillsOperation({
               </label>
             </details>
           ) : null}
-          {repositoryIds.length === 1 ? (
+          {repositoryIds.length === 1 && !removalOnly ? (
             <RepositorySkillSettings
               workspaceId={workspaceId}
               viewerId={viewerId}
