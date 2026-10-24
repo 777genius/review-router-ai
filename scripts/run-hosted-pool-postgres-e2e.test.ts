@@ -98,6 +98,25 @@ describe("hosted pool PostgreSQL migration ordering", () => {
     );
   });
 
+  it("stages the provider registry migrations after the provider key tables", () => {
+    for (const migration of [
+      "000145_workspace_provider_profiles",
+      "000146_drop_review_configuration_projection",
+    ])
+      expect(source.match(new RegExp(migration, "gu"))).toHaveLength(1);
+    expect(
+      section("function prepareMigrationRehearsal", "function addMigration"),
+    ).toContain("...providerRegistryMigrations");
+    expect(
+      section(
+        "addMigration(rehearsalDirectory, v4RelayTurnMigration)",
+        "const migrationCount =",
+      ),
+    ).toMatch(
+      /addMigration\(rehearsalDirectory, sdkGrowthSourceBindingMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*for \(const migrationName of providerRegistryMigrations\) \{\s*addMigration\(rehearsalDirectory, migrationName\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*\}/u,
+    );
+  });
+
   it("hands off authority before V5 in the full PostgreSQL E2E", () => {
     const postgresMode = section("if (runPostgresE2e) {", "} finally {");
     expect(postgresMode).toContain("excludeHostedPoolMigrations: false");

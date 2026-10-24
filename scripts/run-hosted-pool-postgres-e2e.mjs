@@ -118,6 +118,12 @@ const sdkGrowthApprovalLedgerMigration = "000113_sdk_growth_approval_ledger";
 const sdkGrowthV3ToolArtifactMigration = "000114_sdk_growth_v3_tool_artifact";
 const sdkGrowthV3ApprovedManifestMigration =
   "000115_sdk_growth_v3_approved_manifest";
+// Provider profiles reference ProviderApiKeyConnection from 000110, which
+// this rehearsal stages late, so both provider registry migrations follow it.
+const providerRegistryMigrations = Object.freeze([
+  "000145_workspace_provider_profiles",
+  "000146_drop_review_configuration_projection",
+]);
 
 const codexOAuthV5Migrations = [
   "000087_codex_oauth_v4_v5_workflow_reattestation",
@@ -197,6 +203,10 @@ try {
     runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
     addMigration(rehearsalDirectory, sdkGrowthSourceBindingMigration);
     runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
+    for (const migrationName of providerRegistryMigrations) {
+      addMigration(rehearsalDirectory, migrationName);
+      runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
+    }
 
     const migrationCount = await countAppliedMigrations(migrationDatabaseUrl);
     runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
@@ -783,6 +793,7 @@ function prepareMigrationRehearsal({ excludeHostedPoolMigrations }) {
           sdkGrowthApprovalLedgerMigration,
           sdkGrowthV3ToolArtifactMigration,
           sdkGrowthV3ApprovedManifestMigration,
+          ...providerRegistryMigrations,
         ]
       : []),
   ]);
