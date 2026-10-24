@@ -10,6 +10,7 @@ model Workspace {
   id        String   @id @default(cuid())
   slug      String   @unique
   name      String
+  reviewDraftPullRequests Boolean @default(true)
   deletionState WorkspaceDeletionState @default(active)
   deletionRevision Int @default(1)
   deletionTombstonedAt DateTime?

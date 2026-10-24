@@ -28,6 +28,7 @@ const originalHistory = readRenderManagedCheckoutInventory()
       row.migrationName !== "000140_personal_oauth_method" &&
       row.migrationName !== "000141_memory_search_projections" &&
       row.migrationName !== "000142_optional_gateway_reasoning" &&
+      row.migrationName !== "000143_workspace_draft_review_setting" &&
       row.migrationName !== "000133_allow_first_time_scm_identity_bind",
   )
   .map((row) =>
