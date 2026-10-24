@@ -69,11 +69,16 @@ export function RadioCard({
   className,
   children,
 }: RadioCardProps): React.ReactElement {
-  // The radio is named by its title and described by its description or
-  // the reason it is disabled, instead of reading the whole row as a name.
+  // The radio is named by its title and described by its details (such as
+  // "Default" or "In use") and its description, or the reason it is
+  // disabled, instead of reading the whole row as a name.
   const titleId = useId();
+  const metaId = useId();
   const descriptionId = useId();
   const explanation = disabled && disabledReason ? disabledReason : description;
+  const describedBy = [meta ? metaId : null, explanation ? descriptionId : null]
+    .filter(Boolean)
+    .join(" ");
   return (
     <label
       data-disabled={disabled ? "" : undefined}
@@ -90,7 +95,7 @@ export function RadioCard({
         value={value}
         disabled={disabled}
         aria-labelledby={titleId}
-        {...(explanation ? { "aria-describedby": descriptionId } : {})}
+        {...(describedBy ? { "aria-describedby": describedBy } : {})}
         className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border border-cyan-200/40 bg-slate-950 outline-none transition data-[checked]:border-cyan-300 data-[disabled]:border-slate-600"
       >
         <Radio.Indicator className="h-2 w-2 rounded-full bg-cyan-300" />
@@ -108,7 +113,9 @@ export function RadioCard({
             {title}
           </span>
           {meta ? (
-            <span className="flex flex-wrap items-center gap-1.5">{meta}</span>
+            <span id={metaId} className="flex flex-wrap items-center gap-1.5">
+              {meta}
+            </span>
           ) : null}
         </span>
         {explanation ? (
