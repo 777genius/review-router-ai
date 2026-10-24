@@ -48,7 +48,37 @@ export async function readCleanupInventory(path: string, binding: HindsightClean
   return verifyCleanupInventory(JSON.parse(await readFile(path, 'utf8')), binding, keyId, publicPem);
 }
 
-export interface CleanupOperation { operation_id: string; status: string; task_payload?: unknown; result_metadata?: { parent_operation_id?: string }; child_operations?: CleanupOperation[] }
+export interface CleanupOperation { operation_id: string; operation_type?: string; status: string; task_payload?: unknown; result_metadata?: { parent_operation_id?: string; readonly [key: string]: unknown }; child_operations?: CleanupOperation[] }
+const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+function documentIds(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(documentIds);
+  if (!object(value)) return [];
+  return Object.entries(value).flatMap(([key, item]) => key === 'document_id' && typeof item === 'string' ? [item] : documentIds(item));
+}
+function consolidationEvent(value: unknown): boolean {
+  if (!object(value) || Object.keys(value).some(key => !['document_id', 'kind', 'created_at', 'operation_id', 'fact_id', 'facts_added', 'facts_removed', 'observations_created', 'observations_updated', 'observations_removed'].includes(key))) return false;
+  if (typeof value.document_id !== 'string' || !/^[a-zA-Z0-9_.:-]{1,200}$/.test(value.document_id) || value.kind !== 'consolidation' || typeof value.created_at !== 'string' || !Number.isFinite(Date.parse(value.created_at)) || value.operation_id != null || value.fact_id != null || value.facts_added !== 0 || value.facts_removed !== 0) return false;
+  return ['observations_created', 'observations_updated', 'observations_removed'].every(key => {
+    const sample = value[key];
+    return object(sample) && Object.keys(sample).length === 2 && Object.keys(sample).every(field => field === 'count' || field === 'ids') && Number.isSafeInteger(sample.count) && Number(sample.count) >= 0 && validIds(sample.ids, 100) && Number(sample.count) >= sample.ids.length;
+  });
+}
+/**
+ * Retain payloads must name this document alone. Pinned native consolidation
+ * history has one ID/count-only event per source of a shared observation; those
+ * events are deletion evidence, not another document's executable retain batch.
+ */
+export function assertCleanupOperationSources(operation: CleanupOperation | undefined, document: string, bank: string): void {
+  if (documentIds(operation).every(value => value === document)) return;
+  assert(operation?.operation_type === 'consolidation', 'Mixed-source native retain batch is unsupported by the first cleanup profile');
+  const payload = operation.task_payload;
+  assert(object(payload) && payload.type === 'consolidation' && payload.operation_id === operation.operation_id && payload.bank_id === bank && Object.keys(payload).every(key => ['type', 'operation_id', 'bank_id', '_tenant_id', '_api_key_id', 'observation_scopes', 'pending_refresh_tags', 'caller_requested'].includes(key)), 'Unreviewed consolidation task payload cannot use the shared-history exception');
+  const metadata = operation.result_metadata;
+  assert(object(metadata) && Array.isArray(metadata.document_events) && metadata.document_events.length <= 10_000 && metadata.document_events.every(consolidationEvent), 'Shared consolidation history must contain only pinned native ID/count events');
+  const { document_events: _events, ...remaining } = metadata;
+  assert(documentIds({ ...operation, result_metadata: remaining }).every(value => value === document), 'Foreign document outside consolidation ID/count history');
+}
+
 /** Fixed point includes ancestors, descendants and reverse parent references. */
 export function operationClosure(operations: ReadonlyMap<string, CleanupOperation>, seeds: Iterable<string>): Set<string> {
   const related = new Set(seeds);

@@ -7,7 +7,7 @@ import { canonicalHindsightCleanup, hindsightCleanupBankDigest, hindsightCleanup
 import { dockerCommand as docker, eventually, freePort, pause } from './native-runtime.ts';
 import { acquireDeploymentLock } from './deployment-lock.ts';
 import { assertExecutorPhase, nativeSqlObserverArguments, type DockerExecutorInspection } from './operator-host.ts';
-import { leafFirstOperations, operationClosure, persistCleanupInventory, readCleanupInventory, signCleanupInventory, type CleanupOperation } from './cleanup-inventory.ts';
+import { assertCleanupOperationSources, leafFirstOperations, operationClosure, persistCleanupInventory, readCleanupInventory, signCleanupInventory, type CleanupOperation } from './cleanup-inventory.ts';
 
 interface OperatorPlan {
   readonly profile: 'docker-complete-inventory-v1';
@@ -37,11 +37,6 @@ function containsId(value: unknown, ids: ReadonlySet<string>): boolean {
   if (typeof value === 'string') return ids.has(value);
   if (Array.isArray(value)) return value.some(item => containsId(item, ids));
   return !!value && typeof value === 'object' && Object.values(value).some(item => containsId(item, ids));
-}
-function documentIds(value: unknown): string[] {
-  if (Array.isArray(value)) return value.flatMap(documentIds);
-  if (!value || typeof value !== 'object') return [];
-  return Object.entries(value).flatMap(([key, item]) => key === 'document_id' && typeof item === 'string' ? [item] : documentIds(item));
 }
 
 /** Real Docker host observations only; no caller-provided exit/absence booleans. */
@@ -185,7 +180,7 @@ async function runLockedCleanup(plan: OperatorPlan, credentials: { readonly nati
     for (const operation of full.values()) if (containsDocument(operation, document)) seeds.add(operation.operation_id);
     const related = operationClosure(full, seeds);
     if (priorInventory) assert([...related].every(operationId => priorInventory.operationIds.includes(operationId)), 'Native operation inventory changed after durable capture');
-    for (const operationId of related) assert(documentIds(full.get(operationId)).every(value => value === document), 'Mixed-source native retain batch is unsupported by the first cleanup profile');
+    for (const operationId of related) assertCleanupOperationSources(full.get(operationId), document, plan.nativeBankId);
     const observationIds = new Set(priorInventory?.observationIds ?? []);
     for (const state of ['valid', 'invalidated']) for (const observation of await list<Fact>(`/memories/list?type=observation&state=${state}`)) {
       const history = await request<unknown>(`${bankPath()}/memories/${observation.id}/history`, 'GET', undefined, [200, 404]);

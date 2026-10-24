@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { acquireDeploymentLock } from './deployment-lock.ts';
-import { leafFirstOperations, operationClosure, persistCleanupInventory, readCleanupInventory, signCleanupInventory, verifyCleanupInventory, type CleanupOperation, type CleanupSourceInventory } from './cleanup-inventory.ts';
+import { assertCleanupOperationSources, leafFirstOperations, operationClosure, persistCleanupInventory, readCleanupInventory, signCleanupInventory, verifyCleanupInventory, type CleanupOperation, type CleanupSourceInventory } from './cleanup-inventory.ts';
 
 const { privateKey, publicKey } = generateKeyPairSync('ed25519');
 const privatePem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
@@ -76,4 +76,22 @@ test('same-ID executor restart during stopped phase and unexpected post-restart 
   assert.doesNotThrow(() => assertExecutorPhase([restarted], ['executor'], 'restarted'));
   assert.throws(() => assertExecutorPhase([restarted], [], 'restarted'));
   assert.throws(() => assertExecutorPhase([{ ...stopped, HostConfig: { RestartPolicy: { Name: 'always' } } }], ['executor'], 'stopped'));
+});
+
+
+test('shared native consolidation ID/count history is cleanup evidence while mixed retain payloads stay forbidden', () => {
+  const operationId = randomUUID(); const observationId = randomUUID(); const target = 'entry-target'; const support = 'supporting-source'; const bank = 'native-cleanup';
+  const sample = { count: 1, ids: [observationId] };
+  const event = (document_id: string) => ({ document_id, kind: 'consolidation', created_at: '2026-10-23T12:00:00Z', operation_id: null, fact_id: null, facts_added: 0, facts_removed: 0, observations_created: { count: 0, ids: [] }, observations_updated: sample, observations_removed: { count: 0, ids: [] } });
+  const consolidation: CleanupOperation = { operation_id: operationId, operation_type: 'consolidation', status: 'completed', task_payload: { type: 'consolidation', operation_id: operationId, bank_id: bank, observation_scopes: [['kind:rule']] }, result_metadata: { document_events: [event(target), event(support)] } };
+  assert.doesNotThrow(() => assertCleanupOperationSources(consolidation, target, bank));
+  assert.throws(() => assertCleanupOperationSources({ ...consolidation, operation_type: 'retain' }, target, bank));
+  assert.throws(() => assertCleanupOperationSources({ ...consolidation, task_payload: { ...(consolidation.task_payload as object), contents: [{ document_id: target }, { document_id: support }] } }, target, bank));
+  assert.throws(() => assertCleanupOperationSources({ ...consolidation, result_metadata: { ...consolidation.result_metadata, document_id: support } }, target, bank));
+  assert.throws(() => assertCleanupOperationSources({ ...consolidation, result_metadata: { document_events: [event(target), { ...event(support), body: 'Unreviewed source text' }] } }, target, bank));
+  assert.throws(() => assertCleanupOperationSources({ ...consolidation, result_metadata: { document_events: [{ ...event(support), observations_updated: { count: 0, ids: [observationId] } }] } }, target, bank));
+  assert.throws(() => assertCleanupOperationSources(consolidation, target, 'different-native-bank'));
+  const retain: CleanupOperation = { operation_id: operationId, operation_type: 'retain', status: 'completed', task_payload: { contents: [{ document_id: target }, { document_id: support }] } };
+  assert.throws(() => assertCleanupOperationSources(retain, target, bank));
+  assert.doesNotThrow(() => assertCleanupOperationSources({ ...retain, task_payload: { contents: [{ document_id: target }] } }, target, bank));
 });
