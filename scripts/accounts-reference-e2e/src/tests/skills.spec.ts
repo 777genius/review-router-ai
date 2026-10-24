@@ -1282,7 +1282,9 @@ test.describe("Skills real Next and PostgreSQL", () => {
       .getByRole("button", { name: "Close", exact: true })
       .click();
     page.once("dialog", (confirmation) => confirmation.accept());
-    await access.getByRole("button", { name: "Revoke", exact: true }).click();
+    await access
+      .getByRole("button", { name: "Revoke access", exact: true })
+      .click();
     await expect(access.getByText("Revoked", { exact: true })).toBeVisible();
     await openLibrary(receiver, "rr-e2e-personal-other");
     await receiver
