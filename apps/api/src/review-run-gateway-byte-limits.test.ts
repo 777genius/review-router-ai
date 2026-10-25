@@ -205,7 +205,9 @@ it("companion chunks use local authority while phase and EOF status retain full 
       (mode) => mode === "full",
     ).length;
     eof.resolve();
-    while (!(await reader.read()).done) {}
+    while (!(await reader.read()).done) {
+      // Drain the remaining chunks before checking native EOF settlement.
+    }
     expect(
       f.authorityChecks.filter((mode) => mode === "full").length,
     ).toBeGreaterThan(fullBeforeEOF);
