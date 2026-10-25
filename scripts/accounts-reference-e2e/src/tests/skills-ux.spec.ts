@@ -435,9 +435,18 @@ test.describe("Skills real Next UX resilience", () => {
       exact: true,
     });
     await expect(git).toBeVisible();
+    if (await git.isChecked()) {
+      await git.click();
+      await expect(git).not.toBeChecked();
+      await expect(
+        dialog.getByRole("button", { name: "Close", exact: true }),
+      ).toBeEnabled();
+    }
     const sourceGate = await holdAction(page, "setRepositorySources");
     try {
-      await git.check();
+      // This setting renders confirmed persistence rather than an optimistic
+      // toggle, so the held response intentionally delays its checked state.
+      await git.click();
       await sourceGate.wait();
       await expectParentLocked(dialog);
       await expect(
