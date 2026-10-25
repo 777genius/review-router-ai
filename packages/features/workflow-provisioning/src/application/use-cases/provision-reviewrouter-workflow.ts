@@ -1,5 +1,6 @@
 import {
   resolveReviewConfiguration,
+  providerApiConfigurationMode,
   type ReviewConfigurationRepositoryPort,
 } from "@reviewrouter/features-review-config";
 import {
@@ -60,6 +61,10 @@ export async function provisionReviewRouterWorkflow(
   const transport = saved ? requiredWorkflowTransport(saved.config) : null;
   const gatewaySelected = transport === "gateway";
   const providerApiSelected = transport === "provider_api";
+  const selectedProviderApiMode =
+    providerApiSelected && saved
+      ? providerApiConfigurationMode(saved.config)
+      : undefined;
   if (
     !gatewaySelected &&
     input.mcpSecrets &&
@@ -70,7 +75,7 @@ export async function provisionReviewRouterWorkflow(
     throw new Error("openrouter_direct_requires_single_provider");
   if (
     providerApiSelected &&
-    (input.providerApiAuthMode !== "openrouter-api" ||
+    (input.providerApiAuthMode !== selectedProviderApiMode ||
       input.codexSessionMode !== undefined ||
       input.runtimeConfigMode !== "oidc" ||
       input.staticRuntimeEnv !== undefined ||
@@ -133,6 +138,9 @@ export async function provisionReviewRouterWorkflow(
       })
     : providerApiSelected
       ? renderProviderApiWorkflow({
+          ...(selectedProviderApiMode
+            ? { providerApiAuthMode: selectedProviderApiMode }
+            : {}),
           actionRef: input.actionRef,
           apiUrl: input.apiUrl,
         })
@@ -162,6 +170,7 @@ export async function provisionReviewRouterWorkflow(
   const attemptRequirement = renderedWorkflowRequirement(
     attemptTransport,
     plan.staticRuntimeEnv,
+    selectedProviderApiMode,
   );
   const attempt = await dependencies.provisioning.beginAttempt({
     workspaceId: plan.workspaceId,

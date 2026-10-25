@@ -12,7 +12,12 @@ import type {
   UserCiSecretAuthMode,
 } from "@reviewrouter/features-review-config/workspace-provider-profile";
 import type { ReviewProviderSelection } from "@reviewrouter/features-review-config/review-policy-document";
-import type { ProviderAuthMode } from "@reviewrouter/features-review-providers";
+import {
+  apiKeyProviders,
+  apiKeyProviderForAuthMode,
+  getApiKeyProvider,
+  type ProviderAuthMode,
+} from "@reviewrouter/features-review-providers";
 
 /**
  * View model of the provider dialog. Built on the server from verified facts
@@ -57,6 +62,7 @@ export type ProviderProfileOption = Readonly<{
   authMode: ProviderAuthMode;
   credentialKind: ProviderCredentialKind;
   gatewayBindingId: string | null;
+  gatewayProfileRef?: string | null;
   isDefault: boolean;
   decision: ProviderSetupDecision;
   /** Selected repositories that refuse it; the others accept it. */
@@ -70,6 +76,8 @@ export type ProviderSourceKey =
   | "managed_api_key:openrouter_api_key"
   | "user_ci_secret:claude_code_oauth"
   | "user_ci_secret:mimo_token_plan_api_key"
+  | "user_ci_secret:openrouter_api_key"
+  | "user_ci_secret:kimi_code_api_key"
   | "repository_rotating";
 
 export type ProviderSourceOption = Readonly<{
@@ -123,6 +131,7 @@ export type ProviderSetupFacts = Readonly<{
     credentialKind: ProviderCredentialKind;
     createdByUserId: string | null;
     gatewayBindingId: string | null;
+    gatewayProfileRef?: string | null;
     personalBinding: boolean;
     rotatingRepositoryId: string | null;
   }>[];
@@ -150,7 +159,9 @@ const allowed: ProviderSetupDecision = { allowed: true };
 
 const ciSecretSources = [
   "user_ci_secret:claude_code_oauth",
-  "user_ci_secret:mimo_token_plan_api_key",
+  ...apiKeyProviders.map(
+    (provider) => `user_ci_secret:${provider.directAuthMode}` as const,
+  ),
 ] as const;
 
 export function buildProviderSetupView(
@@ -219,6 +230,7 @@ export function buildProviderSetupView(
         authMode: profile.authMode,
         credentialKind: profile.credentialKind,
         gatewayBindingId: profile.gatewayBindingId,
+        gatewayProfileRef: profile.gatewayProfileRef ?? null,
         isDefault: facts.defaultSelection?.profileId === profile.id,
       };
       if (facts.target === "workspace")
@@ -509,13 +521,13 @@ export function sourceTitle(
     case "gateway_binding":
       return "Connected account";
     case "managed_api_key":
-      return authMode === "openrouter_api_key"
-        ? "OpenRouter key saved by ReviewRouter"
-        : "MiMo Token Plan key saved by ReviewRouter";
-    case "user_ci_secret":
-      return authMode === "claude_code_oauth"
-        ? "Claude Code subscription, GitHub secret of each repository"
-        : "MiMo Token Plan, GitHub secret of each repository";
+      return "GitHub Secrets · managed by ReviewRouter";
+    case "user_ci_secret": {
+      const provider = apiKeyProviderForAuthMode(authMode);
+      return provider
+        ? `${getApiKeyProvider(provider).label} · GitHub Secrets`
+        : "Claude Code subscription, GitHub secret of each repository";
+    }
     case "repository_rotating":
       return "Codex subscription for this repository";
     case "hosted_pool":

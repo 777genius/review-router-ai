@@ -75,6 +75,9 @@ export function fitProviderSelectionSettings(input: {
   readonly connection?: AccountConnectionView | undefined;
 }): ProviderSelectionSettings {
   const { authMode, model, connection, settings } = input;
+  if (authMode === "kimi_code_api_key") {
+    return { agenticContext: settings.agenticContext, fastMode: false };
+  }
   const gateway = authMode === "codex_account_gateway";
   const effort = reasoningSupported(
     authMode,

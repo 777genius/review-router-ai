@@ -177,17 +177,27 @@ wrong/mixed secret inputs, wrong caller mode, model/prefix mismatch and redirect
 destinations. Remove unselected provider credentials before child process launch.
 
 Kimi keeps the qualified capability subset: function tools only; omit reasoning
-and fast/service-tier settings. Represent omission explicitly through the Codex
+controls and fast/service-tier settings. The approved Codex 0.147.0 serializes
+an empty `reasoning: {}` envelope even when no controls are set. Qualification
+permits an omitted envelope or exactly that empty object, and rejects any
+effort, summary, context, or other reasoning field. Set the finite Kimi model
+metadata to `use_responses_lite: false` so native requests retain standard
+function tools. Do not rewrite native request bodies. Represent omission through the Codex
 protocol/configuration path, rather than patching outbound JSON after selection.
 Preserve existing OpenRouter behavior and MiMo's applicable model/effort rules.
 Use honest client identity; do not impersonate another tool.
 
-Before product implementation, run a bounded Kimi wire spike with the approved
+Before completing direct Kimi implementation, run a bounded Kimi wire spike with the approved
 Codex `0.147.0` executable and its verified profile digest. The old checked-in
 `action-dist/codex/linux-x64` archive contains `0.135.0` and cannot qualify this
 behavior. Use existing exact-version preparation. Prove actual outgoing fields,
 including native defaults, with finite model metadata where needed. A fake
 Codex executable or omitted app-server field alone is insufficient evidence.
+The credential-free fixture is published in runtime PR #340. Its clean runner
+is needed because this interactive host's newer global hooks cannot be parsed by
+the pinned client. Independent UI and control-plane work can proceed while the
+CI job is queued; no direct Kimi completion or merge claim precedes the native
+receipt. This sequencing avoids coupling unrelated work to runner availability.
 
 Rebuild the checked-in runtime bundle. A new executable needs its real producer
 identity; never relabel old bytes or bypass admission. Pin the actual companion
@@ -266,11 +276,11 @@ workspace-context propagation, safe upstream identity for edit continuations,
 OIDC caller/vendor correlation, provider-specific workflow requirement comparison,
 Kimi settings defaults and actual pinned-Codex wire qualification. Those bounded
 corrections are incorporated above. Runtime review accepted the design with the
-native Kimi spike as a pre-implementation gate; final frontend/backend readback
+native Kimi spike as an implementation qualification gate; final frontend/backend readback
 is recorded with the implementation checkpoint.
 Frontend follow-up also required an explicit enrollment/access return boundary
 and removal of legacy managed-key creation from the two-choice UI; both are now
 included. Its verdict is GO after these corrections.
 Backend follow-up accepted the design after the three P1 corrections. Its narrow
 SQL/legacy-read/replay clarifications are included; native Kimi wire remains the
-only pre-implementation uncertainty.
+only native-client uncertainty and remains a required merge gate.

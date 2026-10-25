@@ -1,3 +1,5 @@
+import { providerApiModeForAuthMode } from "@reviewrouter/features-review-providers";
+import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import {
   lifecycleVerificationContract,
   lifecycleVerificationDescriptorDigest,
@@ -25,7 +27,7 @@ import {
   parseReviewConfigurationStrict,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config/review-configuration";
-import { assertOpenRouterDirectConfigurationSupported } from "@reviewrouter/features-review-config";
+import { assertProviderApiDirectConfigurationSupported } from "@reviewrouter/features-review-config";
 import {
   canonicalJson,
   parseReviewRunRuntimeSnapshot,
@@ -253,7 +255,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       readonly identity: VerifiedScmRunIdentity;
       readonly deadline: Date;
       readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
-      readonly providerApiAuthMode?: "openrouter-api";
+      readonly providerApiAuthMode?: ProviderApiAuthMode;
       readonly producerRelease: Parameters<
         ReviewRunRuntimeSnapshotPort["capture"]
       >[0]["producerRelease"];
@@ -310,10 +312,23 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     } catch {
       return null;
     }
+    // A finite direct selection requires its verified canonical caller. A
+    // legacy reusable path or repository key presence is not that proof.
+    if (
+      modelTransport === "provider_api" &&
+      input.providerApiAuthMode === undefined &&
+      providerApiModeForAuthMode(configuration.providers[0]?.authMode ?? "") !==
+        undefined
+    )
+      return null;
     if (input.providerApiAuthMode !== undefined) {
       if (modelTransport !== "provider_api") return null;
       try {
-        assertOpenRouterDirectConfigurationSupported(configuration);
+        if (
+          assertProviderApiDirectConfigurationSupported(configuration) !==
+          input.providerApiAuthMode
+        )
+          return null;
       } catch {
         return null;
       }
@@ -354,8 +369,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
             )
           : modelTransport === "provider_api"
             ? selectProviderApiReviewAgentProfile(agentProfiles, {
-                reviewSkillsDelivery:
-                  input.providerApiAuthMode === "openrouter-api",
+                reviewSkillsDelivery: input.providerApiAuthMode !== undefined,
               })
             : selected?.provider.agenticContext === false
               ? selectSuppliedDiffReviewAgentProfile(agentProfiles)
@@ -727,13 +741,13 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     if (!original) return false;
     if (original.producer.producerReleaseId !== candidate.producerReleaseId)
       return false;
-    let providerApiAuthMode: "openrouter-api" | undefined;
+    let providerApiAuthMode: ProviderApiAuthMode | undefined;
     // The fence replays the original delivery capability, never a fresh caller
     // flag or configuration-only guess. A non-Gateway Skills profile was
     // admitted only through the verified direct OpenRouter route.
     if (!original.gateway && original.agent.reviewSkillsVersion === 1) {
       try {
-        assertOpenRouterDirectConfigurationSupported(
+        providerApiAuthMode = assertProviderApiDirectConfigurationSupported(
           parseReviewConfigurationStrict(
             JSON.parse(original.configurationCanonicalJson),
           ),
@@ -741,7 +755,6 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       } catch {
         return false;
       }
-      providerApiAuthMode = "openrouter-api";
     }
     const producer = await transaction.producerRelease.findUnique({
       where: { producerReleaseId: candidate.producerReleaseId },

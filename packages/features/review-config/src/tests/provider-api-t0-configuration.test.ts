@@ -1,3 +1,11 @@
+import {
+  providerApiAuthModes,
+  providerApiDescriptors,
+} from "@reviewrouter/shared";
+import {
+  assertProviderApiDirectConfigurationSupported,
+  providerApiConfigurationMode,
+} from "../domain/provider-api-t0-configuration";
 import { expect, it } from "vitest";
 import {
   assertOpenRouterDirectConfigurationSupported,
@@ -111,3 +119,65 @@ it("keeps managed OpenRouter and secondary OpenRouter policies on their existing
     }),
   ).toThrow("openrouter_direct_requires_single_provider");
 });
+
+it.each(providerApiAuthModes)(
+  "captures only the finite single provider policy for %s",
+  (mode) => {
+    const descriptor = providerApiDescriptors[mode];
+    const provider = {
+      kind: descriptor.providerKind,
+      authMode: descriptor.authMode,
+      model: descriptor.defaultModel,
+      ...(mode === "kimi-code-api" ? {} : { reasoningEffort: "high" }),
+      fastMode: false,
+      agenticContext: true,
+      requiredHealthy: true,
+    };
+    const policy = parseReviewConfigurationStrict({
+      ...configuration,
+      providers: [provider],
+    });
+    expect(assertProviderApiDirectConfigurationSupported(policy)).toBe(mode);
+    expect(providerApiConfigurationMode(policy)).toBe(mode);
+    const env = mapConfigToRuntimeEnv(policy);
+    expect(env.REVIEW_AUTH_MODE).toBe(mode);
+    expect(env.REVIEW_PROVIDERS).toBe(
+      `${descriptor.runtimePrefix}/${descriptor.defaultModel}`,
+    );
+    expect(env).not.toHaveProperty(descriptor.secretName);
+    if (mode === "kimi-code-api") {
+      expect(policy.providers[0]).not.toHaveProperty("reasoningEffort");
+      expect(env).not.toHaveProperty("CODEX_REASONING_EFFORT");
+    }
+    expect(() =>
+      assertProviderApiDirectConfigurationSupported({
+        ...policy,
+        providers: [...policy.providers, ...configuration.providers],
+      }),
+    ).toThrow();
+  },
+);
+it.each([
+  { reasoningEffort: "xhigh" },
+  { fastMode: true },
+  { model: "unqualified" },
+])(
+  "Kimi rejects unsupported tuning/model instead of adding defaults",
+  (override) => {
+    expect(() =>
+      parseReviewConfigurationStrict({
+        ...configuration,
+        providers: [
+          {
+            kind: "kimi",
+            authMode: "kimi_code_api_key",
+            model: "k3-256k",
+            agenticContext: true,
+            fastMode: false,
+            ...override,
+          },
+        ],
+      }),
+    ).toThrow();
+  },
+);

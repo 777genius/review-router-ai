@@ -1,5 +1,5 @@
 import {
-  isOpenRouterDirectConfiguration,
+  isProviderApiDirectConfiguration,
   ProviderProfileError,
   type EffectiveReviewConfigurationValidatorPort,
   type ProviderProfileModelChangeValidator,
@@ -47,7 +47,7 @@ export async function validateDashboardEffectiveConfiguration(input: {
     input.workspaceId,
     input.config.contextTools,
   );
-  isOpenRouterDirectConfiguration(input.config);
+  isProviderApiDirectConfiguration(input.config);
   assertGatewayReviewAgentProfileContextAllowed(
     input.config,
     loadApprovedGatewayAgentProfiles,
@@ -160,7 +160,7 @@ export function dashboardProfileModelChangeValidator(input: {
       };
     },
     scope({ target, config }) {
-      isOpenRouterDirectConfiguration(config);
+      isProviderApiDirectConfiguration(config);
       assertGatewayReviewAgentProfileContextAllowed(
         config,
         loadApprovedGatewayAgentProfiles,

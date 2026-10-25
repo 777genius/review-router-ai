@@ -10,6 +10,7 @@ import {
 } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 import { useContext } from "react";
+import { apiKeyProviders } from "@reviewrouter/features-review-providers";
 import {
   AccountLimitsLine,
   AccountLimitsReadContext,
@@ -82,6 +83,61 @@ let reserved: {
   close: ReturnType<typeof vi.fn<() => void>>;
   closed: boolean;
 };
+
+test.each(apiKeyProviders)(
+  "$label storage switch clears the key and continues in the selected workspace without enrollment",
+  async (provider) => {
+    const bootstrap = {
+      context,
+      page: {
+        status: "ok" as const,
+        value: {
+          accounts: [],
+          nextCursor: null,
+          profiles: [
+            {
+              id: `profile-${provider.id}`,
+              label: provider.label,
+              authKind: "api_key" as const,
+              provider: provider.directProviderKind,
+              protocol: "openai-responses" as const,
+              models: [provider.defaultModel],
+            },
+          ],
+        },
+      },
+    };
+    render(
+      <AccountGatewayControls
+        bootstrap={bootstrap}
+        connectOnly
+        workspaceId="workspace-selected"
+        setupIntent={{
+          provider: provider.id,
+          storage: "reviewrouter",
+          workspaceId: "workspace-selected",
+          repositoryIds: ["repo-kept"],
+        }}
+      />,
+    );
+    const input = await screen.findByLabelText("API key");
+    fireEvent.change(input, { target: { value: "synthetic-transient-key" } });
+    fireEvent.click(screen.getByRole("radio", { name: "GitHub Secrets" }));
+    expect(screen.queryByLabelText("API key")).toBeNull();
+    const link = screen.getByRole("link", {
+      name: "Continue to provider setup",
+    });
+    const url = new URL(link.getAttribute("href")!, "https://example.test");
+    expect(url.searchParams.get("workspace")).toBe("workspace-selected");
+    expect(url.searchParams.get("keyProvider")).toBe(provider.id);
+    expect(url.searchParams.getAll("keyRepository")).toEqual(["repo-kept"]);
+    expect(url.href).not.toContain("synthetic-transient-key");
+    fireEvent.click(screen.getByRole("radio", { name: "ReviewRouter" }));
+    expect(screen.getByLabelText("API key")).toHaveProperty("value", "");
+    expect(submitGatewayApiKey).not.toHaveBeenCalled();
+    expect(beginGatewayOAuth).not.toHaveBeenCalled();
+  },
+);
 
 function safeOperation(
   nonce: string,

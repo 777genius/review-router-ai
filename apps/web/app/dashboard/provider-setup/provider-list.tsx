@@ -31,6 +31,11 @@ import {
   type ProviderListView,
 } from "../../../src/features/provider-setup/provider-list-model";
 import { sourceTitle } from "../../../src/features/provider-setup/provider-setup-model";
+import {
+  apiKeyProviderForCredential,
+  apiKeySetupHref,
+  apiKeyStorageLabel,
+} from "../../../src/features/provider-setup/api-key-storage";
 import type {
   AccountsPage,
   AccountsResult,
@@ -186,9 +191,8 @@ export function ProviderList(props: ProviderListProps): React.ReactElement {
 
       {view.rows.length === 0 ? (
         <p className="text-sm leading-6 text-slate-300">
-          Add the first provider to start reviewing. It can use an account
-          connected in Accounts, a key ReviewRouter saves, or a GitHub secret of
-          each repository.
+          Add the first provider to start reviewing. Choose your provider and
+          where its key is stored.
         </p>
       ) : (
         <ul className="grid divide-y divide-cyan-200/10">
@@ -492,6 +496,19 @@ function ProviderProfileEditForm({
   const gatewayAccount = getReadyGatewayAccounts(gatewayOptions.accounts).find(
     (account) => account.binding?.id === row.gatewayBindingId,
   );
+  const replacementProvider = apiKeyProviderForCredential({
+    authMode: row.authMode,
+    profile:
+      gatewayOptions.profileFor(gatewayAccount) ??
+      (gatewayOptions.accounts?.status === "ok"
+        ? gatewayOptions.accounts.value.profiles.find(
+            (profile) => profile.id === row.gatewayProfileRef,
+          )
+        : undefined),
+  });
+  const storageLabel = replacementProvider
+    ? apiKeyStorageLabel(row.credentialKind)
+    : null;
   const modelOptions: readonly ReviewModelOption[] = gateway
     ? (gatewayOptions.profileFor(gatewayAccount)?.models ?? []).map(
         (value) => ({ value, label: value, provider: "codex" }),
@@ -574,10 +591,31 @@ function ProviderProfileEditForm({
           Credential
         </span>
         <span className="text-sm text-cyan-50">{providerSourceText(row)}</span>
+        {storageLabel ? (
+          <span className="text-sm text-slate-300">
+            Key storage: {storageLabel}
+          </span>
+        ) : null}
         <span className="text-xs leading-5 text-slate-400">
           The credential cannot change. To use a different one, add a new
           provider.
         </span>
+        {replacementProvider ? (
+          <a
+            className="mt-1 w-fit text-sm text-cyan-200 underline"
+            href={apiKeySetupHref("providers", {
+              provider: replacementProvider,
+              storage:
+                row.credentialKind === "gateway_binding"
+                  ? "github_secrets"
+                  : "reviewrouter",
+              workspaceId: dialog.workspaceId,
+              repositoryIds: [],
+            })}
+          >
+            Add with different storage
+          </a>
+        ) : null}
       </div>
       {error ? (
         <p role="alert" className="text-sm leading-6 text-red-100">

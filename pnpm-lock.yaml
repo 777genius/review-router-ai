@@ -1095,6 +1095,9 @@ importers:
       '@get-modular/core':
         specifier: 0.7.0
         version: 0.7.0
+      '@reviewrouter/shared':
+        specifier: workspace:*
+        version: link:../../shared
       zod:
         specifier: ^4.4.2
         version: 4.4.2

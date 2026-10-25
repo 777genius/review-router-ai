@@ -1,6 +1,10 @@
+import {
+  providerApiDescriptors,
+  type ProviderApiAuthMode,
+} from "@reviewrouter/shared";
 import { codexRotatingAuthMode } from "@reviewrouter/features-codex-oauth-rotating";
 import {
-  isOpenRouterDirectConfiguration,
+  isProviderApiDirectConfiguration,
   parseReviewConfigurationStrict,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
@@ -50,7 +54,7 @@ export function requiredWorkflowTransport(
     }
     return "gateway";
   }
-  if (isOpenRouterDirectConfiguration(config)) return "provider_api";
+  if (isProviderApiDirectConfiguration(config)) return "provider_api";
   if (
     config.providers.some(
       (provider) => provider.authMode === codexRotatingAuthMode,
@@ -89,6 +93,8 @@ export function workflowProviderVariants(
   transport: WorkflowTransport,
   config: ReviewConfiguration,
 ): readonly ProviderKind[] {
+  if (transport === "provider_api")
+    return config.providers[0] ? [config.providers[0].kind] : [];
   if (transport === "ci_secrets") {
     const providerKind = ciSecretsWorkflowProviderKind(config);
     return providerKind ? [providerKind] : [];
@@ -126,7 +132,15 @@ export function rotatingWorkflowSecretProviderKinds(
 export function renderedWorkflowRequirement(
   transport: WorkflowTransport,
   staticRuntimeEnv: Readonly<Record<string, string>> | undefined,
+  providerApiAuthMode?: ProviderApiAuthMode,
 ): WorkflowRequirement {
+  if (transport === "provider_api")
+    return workflowRequirement(
+      transport,
+      providerApiAuthMode
+        ? [providerApiDescriptors[providerApiAuthMode].providerKind]
+        : [],
+    );
   if (transport !== "ci_secrets" && transport !== "rotating")
     return workflowRequirement(transport, []);
   const secrets =
@@ -169,6 +183,7 @@ export function workflowRequirement(
 export function verifiedWorkflowRequirement(input: {
   /** The managed route (Gateway, provider API) the verified caller uses. */
   readonly managedTransport: "gateway" | "provider_api" | null;
+  readonly providerApiAuthMode?: ProviderApiAuthMode;
   /** A verified Codex subscription workflow; null for a CI-secret workflow. */
   readonly codexWorkflow: Readonly<{ hosted: boolean }> | null;
   readonly config: ReviewConfiguration;
@@ -182,7 +197,11 @@ export function verifiedWorkflowRequirement(input: {
       : "ci_secrets");
   return workflowRequirement(
     transport,
-    workflowProviderVariants(transport, input.config),
+    transport === "provider_api"
+      ? input.providerApiAuthMode
+        ? [providerApiDescriptors[input.providerApiAuthMode].providerKind]
+        : []
+      : workflowProviderVariants(transport, input.config),
   );
 }
 

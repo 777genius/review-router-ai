@@ -8,9 +8,12 @@ import type {
   ProviderSecretSetupGuidance,
 } from "@reviewrouter/features-provider-setup";
 import {
+  apiKeyProviderForAuthMode,
+  getApiKeyProvider,
   getProviderAuthModeMetadata,
   type ProviderAuthMode,
 } from "@reviewrouter/features-review-providers";
+import type { UserCiSecretAuthMode } from "@reviewrouter/features-review-config/workspace-provider-profile";
 import { Badge, Button, Checkbox, CodeBlock } from "@reviewrouter/ui";
 import { providerSetupConfirmedEvent } from "../repository-setup-optimistic-events";
 import {
@@ -147,7 +150,7 @@ export function CiSecretDelivery({
 }: DeliveryRepository &
   Readonly<{
     repositoryVisibility: string;
-    authMode: "claude_code_oauth" | "mimo_token_plan_api_key";
+    authMode: UserCiSecretAuthMode;
     guidance: ProviderSecretSetupGuidance;
     organizationLogin: string | null;
     organizationSecretPolicy: OrganizationSecretPolicy | null;
@@ -796,7 +799,7 @@ function rotatingCommand(
 }
 
 function ciSecretDetails(
-  authMode: "claude_code_oauth" | "mimo_token_plan_api_key",
+  authMode: UserCiSecretAuthMode,
   repositoryFullName: string,
 ): Readonly<{
   title: string;
@@ -805,6 +808,18 @@ function ciSecretDetails(
   footnote: string;
   link: Readonly<{ label: string; url: string }> | null;
 }> {
+  const provider = apiKeyProviderForAuthMode(authMode);
+  if (provider) {
+    const label = getApiKeyProvider(provider).label;
+    return {
+      title: `Add your ${label} key`,
+      body: `Store its API key as a GitHub Actions secret of ${repositoryFullName}.`,
+      prompt: "Paste the key when the command asks for it.",
+      footnote:
+        "The key stays in GitHub Secrets and is not sent to ReviewRouter.",
+      link: null,
+    };
+  }
   return authMode === "claude_code_oauth"
     ? {
         title: "Add your Claude Code token",

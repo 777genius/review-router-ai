@@ -23,6 +23,7 @@ describe("provider catalog", () => {
       "codex-mimo",
       "claude",
       "openrouter",
+      "kimi",
     ]);
     expect(
       allProviderAuthModeMetadata().map((entry) => entry.authMode),
@@ -33,6 +34,7 @@ describe("provider catalog", () => {
       "mimo_token_plan_api_key",
       "claude_code_oauth",
       "openrouter_api_key",
+      "kimi_code_api_key",
     ]);
     expect(allProviderCatalogEntries()).toHaveLength(
       reviewProviderKinds.length,

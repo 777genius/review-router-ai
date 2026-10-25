@@ -17,6 +17,7 @@ import {
   ProviderSetupDialog,
   type ProviderSetupDialogProps,
 } from "./provider-setup-dialog";
+import { apiKeyProviders } from "@reviewrouter/features-review-providers";
 import { BulkProviderSetupAction } from "./repository-selection";
 import {
   RepositorySelectionCheckbox,
@@ -130,7 +131,10 @@ const repositoryTarget: ProviderSetupDialogProps["target"] = {
   },
 };
 
-function renderDialog(target: ProviderSetupDialogProps["target"]) {
+function renderDialog(
+  target: ProviderSetupDialogProps["target"],
+  props: Partial<ProviderSetupDialogProps> = {},
+) {
   render(
     <QueryClientProvider client={new QueryClient()}>
       <ProviderSetupDialog
@@ -141,6 +145,7 @@ function renderDialog(target: ProviderSetupDialogProps["target"]) {
         modelOptions={[]}
         gatewayAccounts={undefined}
         agentProfileOptions={[]}
+        {...props}
       />
     </QueryClientProvider>,
   );
@@ -154,6 +159,79 @@ async function choose(text: string | RegExp): Promise<void> {
 }
 
 describe("ProviderSetupDialog", () => {
+  it.each(apiKeyProviders)(
+    "offers exactly two storage choices for $label and preserves the repository on account continuation",
+    async (provider) => {
+      view = {
+        ...view,
+        sources: [
+          {
+            key: "gateway_binding",
+            credentialKind: "gateway_binding",
+            authMode: "codex_account_gateway",
+            decision: { allowed: true },
+          },
+          ...apiKeyProviders.map((row) => ({
+            key: `user_ci_secret:${row.directAuthMode}` as const,
+            credentialKind: "user_ci_secret" as const,
+            authMode: row.directAuthMode,
+            decision: { allowed: true as const },
+          })),
+          {
+            key: "managed_api_key:openrouter_api_key",
+            credentialKind: "managed_api_key",
+            authMode: "openrouter_api_key",
+            decision: { allowed: true },
+          },
+        ],
+      };
+      renderDialog(repositoryTarget, {
+        gatewayAccounts: {
+          status: "ok",
+          value: {
+            accounts: [],
+            nextCursor: null,
+            profiles: apiKeyProviders.map((row) => ({
+              id: `gateway-${row.id}`,
+              label: row.label,
+              authKind: "api_key",
+              provider: row.directProviderKind,
+              protocol: "openai-responses",
+              models: [row.defaultModel],
+            })),
+          },
+        },
+        initialIntent: {
+          provider: provider.id,
+          storage: "github_secrets",
+          workspaceId: "workspace_1",
+          repositoryIds: ["repo_1"],
+        },
+      });
+      const github = await screen.findByRole("radio", {
+        name: "GitHub Secrets",
+      });
+      expect(github.getAttribute("aria-checked")).toBe("true");
+      expect(
+        screen.getByRole("combobox", { name: "Provider" }).textContent,
+      ).toContain(provider.label);
+      expect(screen.queryByLabelText("API key")).toBeNull();
+      fireEvent.click(screen.getByRole("radio", { name: "ReviewRouter" }));
+      const link = screen.getByRole("link", {
+        name: "Connect account",
+      });
+      const url = new URL(link.getAttribute("href")!, "https://example.test");
+      expect(url.pathname).toBe("/dashboard/setup");
+      expect(url.searchParams.get("keyProvider")).toBe(provider.id);
+      expect(url.searchParams.getAll("keyRepository")).toEqual(["repo_1"]);
+      expect(
+        screen.getAllByRole("radio", {
+          name: /^(GitHub Secrets|ReviewRouter)$/,
+        }),
+      ).toHaveLength(2);
+      expect(saveProviderSetupAction).not.toHaveBeenCalled();
+    },
+  );
   it("shows the inherited workspace default as already chosen for a repository", async () => {
     renderDialog(repositoryTarget);
     const inherited = (

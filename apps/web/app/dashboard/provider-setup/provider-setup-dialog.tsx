@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ProviderSecretSetupGuidance } from "@reviewrouter/features-provider-setup";
 import {
+  apiKeyProviders,
+  getApiKeyProvider,
+  type ApiKeyProviderId,
   getDefaultProviderConfigForAuthMode,
   providerKindForAuthMode,
   type ProviderAuthMode,
@@ -26,6 +29,15 @@ import {
   TextField,
 } from "@reviewrouter/ui";
 import type { ProviderCredentialKind } from "@reviewrouter/features-review-config/workspace-provider-profile";
+import type { UserCiSecretAuthMode } from "@reviewrouter/features-review-config/workspace-provider-profile";
+import {
+  apiKeyProviderForGatewayProfile,
+  apiKeySetupHref,
+  consumeApiKeySetupIntent,
+  type ApiKeySetupIntent,
+  type ApiKeyStorage,
+} from "../../../src/features/provider-setup/api-key-storage";
+import { ApiKeyStorageChoice } from "./api-key-storage-choice";
 import {
   credentialStepLabel,
   credentialStepOf,
@@ -88,10 +100,9 @@ export type ProviderSetupRepositoryContext = Readonly<{
     authMode: ProviderAuthMode;
     credentialKind: ProviderCredentialKind;
   }> | null;
-  secretGuidance: Readonly<{
-    claude_code_oauth: ProviderSecretSetupGuidance;
-    mimo_token_plan_api_key: ProviderSecretSetupGuidance;
-  }> | null;
+  secretGuidance: Readonly<
+    Partial<Record<UserCiSecretAuthMode, ProviderSecretSetupGuidance>>
+  > | null;
   organizationLogin: string | null;
   organizationSecretPolicy: OrganizationSecretPolicy | null;
   rotatingEnabled: boolean;
@@ -134,6 +145,9 @@ export type ProviderSetupDialogProps = Readonly<{
   agentProfileOptions: readonly GatewayAgentProfileOption[];
   /** Called once the dialog closes after it saved something. */
   onSaved?: () => void;
+  /** Validated navigation hints; never an authorization source. */
+  initialIntent?: ApiKeySetupIntent | undefined;
+  initiallyOpen?: boolean;
 }>;
 
 type Choice =
@@ -158,7 +172,10 @@ const defaultChoice = "__default__";
 export function ProviderSetupDialog(
   props: ProviderSetupDialogProps,
 ): React.ReactElement {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(props.initiallyOpen === true);
+  useEffect(() => {
+    if (props.initiallyOpen) consumeApiKeySetupIntent();
+  }, [props.initiallyOpen]);
   const [locked, setLocked] = useState(false);
   // The target the dialog opened with: a selection the page clears after a
   // save must not retarget the dialog or the results it still shows.
@@ -233,6 +250,7 @@ function ProviderSetupDialogBody({
   onSaved,
   onLockedChange,
   onClose,
+  initialIntent,
 }: ProviderSetupDialogProps &
   Readonly<{
     onLockedChange: (locked: boolean) => void;
@@ -371,6 +389,7 @@ function ProviderSetupDialogBody({
             gatewayAccounts={gatewayAccounts}
             agentProfileOptions={agentProfileOptions}
             onLockedChange={onLockedChange}
+            initialIntent={initialIntent}
             onSaved={async (outcome) => {
               await completion.complete();
               onSaved?.();
@@ -448,6 +467,7 @@ function ProviderChoiceStep({
   agentProfileOptions,
   onLockedChange,
   onSaved,
+  initialIntent,
 }: {
   readonly workspaceId: string;
   readonly target: ProviderSetupDialogTarget;
@@ -461,6 +481,7 @@ function ProviderChoiceStep({
   readonly agentProfileOptions: readonly GatewayAgentProfileOption[];
   readonly onLockedChange: (locked: boolean) => void;
   readonly onSaved: (outcome: SaveOutcome) => Promise<void>;
+  readonly initialIntent?: ApiKeySetupIntent | undefined;
 }): React.ReactElement {
   const repositoryView =
     target.kind === "repository" ? (view.repositories[0] ?? null) : null;
@@ -474,6 +495,14 @@ function ProviderChoiceStep({
   // Nothing to choose from yet: the dialog opens straight on a new provider.
   const firstProvider = !adding && view.profiles.length === 0 && !offersDefault;
   const initialChoice = useMemo<Choice | null>(() => {
+    if (initialIntent) {
+      const key: ProviderSourceKey =
+        initialIntent.storage === "reviewrouter"
+          ? "gateway_binding"
+          : `user_ci_secret:${getApiKeyProvider(initialIntent.provider).directAuthMode}`;
+      if (view.sources.some((source) => source.key === key))
+        return { kind: "new", source: key };
+    }
     if (adding || firstProvider) {
       const first = firstAllowedSource(view.sources);
       return first ? { kind: "new", source: first.key } : null;
@@ -499,6 +528,7 @@ function ProviderChoiceStep({
     view.defaultSelection,
     view.profiles,
     view.sources,
+    initialIntent,
   ]);
   /** The draft and settings a choice starts with. */
   const startOf = (
@@ -551,6 +581,19 @@ function ProviderChoiceStep({
     };
   };
   const [choice, setChoice] = useState<Choice | null>(initialChoice);
+  const [apiKeyProvider, setApiKeyProvider] = useState<ApiKeyProviderId | null>(
+    initialIntent?.provider ??
+      (initialChoice?.kind === "new"
+        ? (apiKeyProviders.find(
+            (provider) =>
+              initialChoice.source ===
+              `user_ci_secret:${provider.directAuthMode}`,
+          )?.id ?? null)
+        : null),
+  );
+  const [keyStorage, setKeyStorage] = useState<ApiKeyStorage>(
+    initialIntent?.storage ?? "github_secrets",
+  );
   const [draft, setDraft] = useState<DraftProvider>(
     () => startOf(initialChoice).draft,
   );
@@ -590,7 +633,11 @@ function ProviderChoiceStep({
     gatewayPage?.profiles.some(
       (profile) =>
         profile.id === account.profileId &&
-        profile.protocol === "openai-responses",
+        profile.protocol === "openai-responses" &&
+        (!source ||
+          (apiKeyProvider
+            ? apiKeyProviderForGatewayProfile(profile) === apiKeyProvider
+            : !apiKeyProviderForGatewayProfile(profile))),
     ),
   );
   const catalogs = useProviderModelCatalogs(modelOptions);
@@ -637,15 +684,45 @@ function ProviderChoiceStep({
       ? (repositoryView?.useDefault ?? { allowed: true })
       : (profile?.decision ?? sourceDecision);
 
-  function choose(next: Choice): void {
+  function choose(
+    next: Choice,
+    provider: ApiKeyProviderId | null = null,
+    storage: ApiKeyStorage = "github_secrets",
+  ): void {
     setChoice(next);
     setError(null);
     setNotice(null);
+    setApiKeyProvider(
+      provider ??
+        (next.kind === "new"
+          ? (apiKeyProviders.find(
+              (row) => next.source === `user_ci_secret:${row.directAuthMode}`,
+            )?.id ?? null)
+          : null),
+    );
+    setKeyStorage(storage);
     if (next.kind === "new" && !view.sources.some((s) => s.key === next.source))
       return;
     const start = startOf(next);
     if (next.kind === "new") setDraft(start.draft);
     setSettings(start.settings);
+  }
+
+  function chooseApiKey(
+    provider: ApiKeyProviderId,
+    storage: ApiKeyStorage,
+  ): void {
+    choose(
+      {
+        kind: "new",
+        source:
+          storage === "reviewrouter"
+            ? "gateway_binding"
+            : `user_ci_secret:${getApiKeyProvider(provider).directAuthMode}`,
+      },
+      provider,
+      storage,
+    );
   }
 
   const unchanged =
@@ -809,7 +886,9 @@ function ProviderChoiceStep({
     }
   }
 
-  const visibleSources = view.sources;
+  const visibleSources = view.sources.filter(
+    (option) => option.credentialKind !== "managed_api_key",
+  );
   // Adding to the list only: the review settings belong to selections.
   const modelOnly = adding && !makeDefault;
   const groupValue =
@@ -954,21 +1033,101 @@ function ProviderChoiceStep({
           }
         >
           <SelectField
-            label="Where the credential comes from"
-            value={choice.source}
-            options={visibleSources.map((option) => ({
-              value: option.key,
-              label: sourceTitle(option.credentialKind, option.authMode),
-              description: option.decision.allowed
-                ? sourceDescription(option)
-                : deniedText(option.decision),
-              disabled: !option.decision.allowed,
-            }))}
+            label="Provider"
+            value={apiKeyProvider ? `api_key:${apiKeyProvider}` : choice.source}
+            options={[
+              ...apiKeyProviders.map((provider) => ({
+                value: `api_key:${provider.id}`,
+                label: provider.label,
+                disabled:
+                  !view.sources.some(
+                    (candidate) =>
+                      candidate.key ===
+                        `user_ci_secret:${provider.directAuthMode}` &&
+                      candidate.decision.allowed,
+                  ) &&
+                  !view.sources.some(
+                    (candidate) =>
+                      candidate.key === "gateway_binding" &&
+                      candidate.decision.allowed,
+                  ),
+              })),
+              ...visibleSources
+                .filter(
+                  (option) =>
+                    !apiKeyProviders.some(
+                      (provider) => option.authMode === provider.directAuthMode,
+                    ),
+                )
+                .map((option) => ({
+                  value: option.key,
+                  label: sourceTitle(option.credentialKind, option.authMode),
+                  description: option.decision.allowed
+                    ? sourceDescription(option)
+                    : deniedText(option.decision),
+                  disabled: !option.decision.allowed,
+                })),
+            ]}
             disabled={pending}
-            onValueChange={(value) =>
-              choose({ kind: "new", source: value as ProviderSourceKey })
-            }
+            onValueChange={(value) => {
+              const provider = apiKeyProviders.find(
+                (row) => value === `api_key:${row.id}`,
+              );
+              if (provider) chooseApiKey(provider.id, "github_secrets");
+              else choose({ kind: "new", source: value as ProviderSourceKey });
+            }}
           />
+          {apiKeyProvider ? (
+            <ApiKeyStorageChoice
+              value={keyStorage}
+              onValueChange={(storage) => chooseApiKey(apiKeyProvider, storage)}
+              disabled={pending}
+              githubUnavailable={
+                view.sources.find(
+                  (option) =>
+                    option.key ===
+                    `user_ci_secret:${getApiKeyProvider(apiKeyProvider).directAuthMode}`,
+                )?.decision.allowed
+                  ? undefined
+                  : "You cannot use this provider in GitHub Secrets here."
+              }
+              reviewRouterUnavailable={
+                view.sources.find((option) => option.key === "gateway_binding")
+                  ?.decision.allowed
+                  ? gatewayPage?.profiles.some(
+                      (profile) =>
+                        profile.availability !==
+                          "deployment_configuration_required" &&
+                        apiKeyProviderForGatewayProfile(profile) ===
+                          apiKeyProvider,
+                    )
+                    ? undefined
+                    : "ReviewRouter storage is not available for this provider yet."
+                  : "You cannot use a connected account here."
+              }
+            />
+          ) : null}
+          {apiKeyProvider &&
+          keyStorage === "reviewrouter" &&
+          gatewayAccountList.length === 0 ? (
+            <div className="grid gap-2 text-sm text-slate-300">
+              <p>
+                Connect an account and give this workspace access, then return
+                here.
+              </p>
+              <a
+                className="w-fit font-semibold text-cyan-200 underline"
+                href={apiKeySetupHref("accounts", {
+                  provider: apiKeyProvider,
+                  storage: "reviewrouter",
+                  workspaceId,
+                  repositoryIds: repositoryIds(target),
+                })}
+              >
+                Connect account
+              </a>
+            </div>
+          ) : null}
           {source?.key === "gateway_binding" ? (
             <SelectField
               label="Account"
@@ -1066,9 +1225,7 @@ function ProviderChoiceStep({
         >
           {modelOnly ? null : (
             <h3 className="text-sm font-semibold text-cyan-50">
-              {adding
-                ? "Model and review settings of the default"
-                : "Model and review settings"}
+              Model and review settings
             </h3>
           )}
           {modelOnly ? (
@@ -1282,9 +1439,7 @@ function CredentialStep({
   };
   switch (credentialStep) {
     case "ci_secret": {
-      const ciAuthMode = authMode as
-        | "claude_code_oauth"
-        | "mimo_token_plan_api_key";
+      const ciAuthMode = authMode as UserCiSecretAuthMode;
       const guidance = repository.secretGuidance?.[ciAuthMode];
       return guidance ? (
         <CiSecretDelivery
@@ -1452,7 +1607,10 @@ function credentialRequest(
 function firstAllowedSource(
   sources: readonly ProviderSourceOption[],
 ): ProviderSourceOption | undefined {
-  return sources.find((source) => source.decision.allowed);
+  return sources.find(
+    (source) =>
+      source.credentialKind !== "managed_api_key" && source.decision.allowed,
+  );
 }
 
 function repositoryIds(target: ProviderSetupDialogTarget): readonly string[] {

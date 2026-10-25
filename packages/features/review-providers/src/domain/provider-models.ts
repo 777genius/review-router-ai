@@ -109,6 +109,20 @@ export const mimoModelOptions: readonly ReviewModelOption[] = [
   },
 ];
 
+export const kimiModelOptions: readonly ReviewModelOption[] = [
+  {
+    value: "k3-256k",
+    label: "k3-256k",
+    provider: "kimi",
+    description: "Kimi Code model.",
+  },
+];
+
 export function listStaticReviewModelOptions(): readonly ReviewModelOption[] {
-  return [...codexModelOptions, ...mimoModelOptions, ...claudeModelOptions];
+  return [
+    ...codexModelOptions,
+    ...mimoModelOptions,
+    ...kimiModelOptions,
+    ...claudeModelOptions,
+  ];
 }

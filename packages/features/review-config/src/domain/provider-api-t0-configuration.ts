@@ -1,3 +1,8 @@
+import {
+  providerApiDescriptors,
+  type ProviderApiAuthMode,
+} from "@reviewrouter/shared";
+import { providerApiModeForAuthMode } from "@reviewrouter/features-review-providers";
 import type { ReviewConfiguration } from "./review-configuration";
 
 export const openRouterDirectPolicyIssue =
@@ -33,4 +38,53 @@ export function assertOpenRouterDirectConfigurationSupported(
   ) {
     throw new Error(openRouterDirectPolicyIssue);
   }
+}
+
+/** Exact direct selection. Legacy secondary rows never choose a transport. */
+export function providerApiConfigurationMode(
+  configuration: Pick<ReviewConfiguration, "providers" | "execution">,
+): ProviderApiAuthMode | undefined {
+  const mode = providerApiModeForAuthMode(
+    configuration.providers[0]?.authMode ?? "",
+  );
+  if (mode === undefined) return undefined;
+  return assertProviderApiDirectConfigurationSupported(configuration);
+}
+export function isProviderApiDirectConfiguration(
+  configuration: Pick<ReviewConfiguration, "providers" | "execution">,
+): boolean {
+  return providerApiConfigurationMode(configuration) !== undefined;
+}
+export function assertProviderApiDirectConfigurationSupported(
+  configuration: Pick<ReviewConfiguration, "providers" | "execution">,
+): ProviderApiAuthMode {
+  const provider = configuration.providers[0];
+  const mode = providerApiModeForAuthMode(provider?.authMode ?? "");
+  const descriptor =
+    mode === undefined ? undefined : providerApiDescriptors[mode];
+  if (
+    !provider ||
+    !mode ||
+    !descriptor ||
+    configuration.providers.length !== 1 ||
+    provider.kind !== descriptor.providerKind ||
+    configuration.execution.providerLimit !== 1 ||
+    configuration.execution.providerMaxParallel !== 1 ||
+    configuration.execution.inlineMinAgreement !== 1 ||
+    (mode === "openrouter-api"
+      ? provider.model.length > 512 ||
+        !/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(
+          provider.model,
+        )
+      : provider.model !== descriptor.defaultModel) ||
+    (mode === "kimi-code-api" &&
+      (provider.reasoningEffort !== undefined || provider.fastMode))
+  ) {
+    throw new Error(
+      mode === "openrouter-api"
+        ? openRouterDirectPolicyIssue
+        : "provider_api_direct_requires_single_provider",
+    );
+  }
+  return mode;
 }

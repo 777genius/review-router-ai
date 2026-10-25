@@ -1,3 +1,7 @@
+import {
+  providerApiAuthModes,
+  providerApiDescriptors,
+} from "@reviewrouter/shared";
 import { lifecycleVerificationDescriptorDigest } from "@reviewrouter/shared";
 import { describe, expect, it } from "vitest";
 import type { PrismaClient } from "@prisma/client";
@@ -281,6 +285,9 @@ describe("PR description capture availability", () => {
             authMode === "codex_account_gateway"
               ? "account_gateway"
               : "provider_api",
+          ...(authMode === "openrouter_api_key"
+            ? { providerApiAuthMode: "openrouter-api" as const }
+            : {}),
           producerRelease: {
             ...captureInput().producerRelease,
             agentProfiles: parseReviewAgentProfiles([codexDefaultProfile]),
@@ -840,3 +847,81 @@ describe("server scoped Gateway request ceilings", () => {
     expect((await captured(instance)).gateway?.limits.requests).toBe(9);
   });
 });
+
+it.each(
+  providerApiAuthModes.flatMap((saved) =>
+    providerApiAuthModes.map((caller) => ({ saved, caller })),
+  ),
+)(
+  "captures only canonical caller $caller correlated with saved provider $saved",
+  async ({ saved, caller }) => {
+    const base = JSON.parse(gatewayPolicyJson({}));
+    const descriptor = providerApiDescriptors[saved];
+    base.providers = [
+      {
+        kind: descriptor.providerKind,
+        authMode: descriptor.authMode,
+        model: descriptor.defaultModel,
+        ...(saved === "kimi-code-api" ? {} : { reasoningEffort: "high" }),
+        fastMode: false,
+        agenticContext: true,
+        requiredHealthy: true,
+      },
+    ];
+    const input = {
+      ...captureInput(),
+      modelTransport: "provider_api" as const,
+      providerApiAuthMode: caller,
+      producerRelease: {
+        ...captureInput().producerRelease,
+        agentProfiles: parseReviewAgentProfiles([codexDefaultProfile]),
+      },
+    };
+    const result = await snapshotSource().capture(
+      input,
+      readerFor(canonicalJson(parseReviewConfigurationStrict(base))),
+    );
+    if (caller !== saved) expect(result).toBeNull();
+    else
+      expect(result).toMatchObject({
+        gateway: null,
+        configurationCanonicalJson: canonicalJson(
+          parseReviewConfigurationStrict(base),
+        ),
+        agent: { agentKind: "codex" },
+      });
+  },
+);
+
+it.each(providerApiAuthModes)(
+  "legacy caller cannot bootstrap direct policy without canonical proof: %s",
+  async (mode) => {
+    const base = JSON.parse(gatewayPolicyJson({}));
+    const d = providerApiDescriptors[mode];
+    base.providers = [
+      {
+        kind: d.providerKind,
+        authMode: d.authMode,
+        model: d.defaultModel,
+        ...(mode === "kimi-code-api" ? {} : { reasoningEffort: "high" }),
+        fastMode: false,
+        agenticContext: true,
+        requiredHealthy: true,
+      },
+    ];
+    const input = {
+      ...captureInput(),
+      modelTransport: "provider_api" as const,
+      producerRelease: {
+        ...captureInput().producerRelease,
+        agentProfiles: parseReviewAgentProfiles([codexDefaultProfile]),
+      },
+    };
+    expect(
+      await snapshotSource().capture(
+        input,
+        readerFor(canonicalJson(parseReviewConfigurationStrict(base))),
+      ),
+    ).toBeNull();
+  },
+);
