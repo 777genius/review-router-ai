@@ -4,12 +4,42 @@ import {
   createPrismaClient,
   type PrismaClient,
 } from "@reviewrouter/platform-db";
-import { canonicalJson } from "../domain/review-run-control-types";
-import type { ReviewRunCompanionDispatchClaim } from "../application/ports/review-run-companion-dispatch-port";
-import { PrismaReviewRunCompanionDispatchRepository } from "../infrastructure/prisma/prisma-review-run-companion-dispatch-repository";
-import { limits, sloThresholds } from "./fixtures";
-import { ReviewInvocationLeasePurpose } from "../../../review-executions/src/domain/review-execution";
-import { PrismaReviewExecutionStore } from "../../../review-executions/src/infrastructure/prisma/prisma-review-execution-store";
+import {
+  canonicalJson,
+  type ReviewOperationalSloThresholds,
+  type ReviewProtocolLimits,
+  type ReviewRunCompanionDispatchClaim,
+} from "@reviewrouter/features-review-run-control";
+import { PrismaReviewRunCompanionDispatchRepository } from "@reviewrouter/features-review-run-control/composition";
+import { ReviewInvocationLeasePurpose } from "@reviewrouter/features-review-executions";
+import { PrismaReviewExecutionStore } from "@reviewrouter/features-review-executions/composition";
+
+const limits: ReviewProtocolLimits = {
+  maxWorkSlots: 200,
+  maxAttemptsPerSlot: 4,
+  maxObservationBytes: 1_000_000,
+  maxObservationFindings: 1_000,
+  maxProjectionBytes: 2_000_000,
+  maxProjectionFindings: 2_000,
+  maxPublicationOperations: 500,
+  maxPublicationChunks: 500,
+  maxPublicationBodyBytes: 2_000_000,
+  maxRequestBatchSize: 100,
+  maxLeaseDurationMs: 600_000,
+  maxResultReportDurationMs: 1_200_000,
+  maxReconciliationDurationMs: 3_600_000,
+};
+
+const sloThresholds: ReviewOperationalSloThresholds = {
+  integrationEventDeliveryMs: 60_000,
+  outboxClaimAgeMs: 120_000,
+  missingCompletionProcessMs: 300_000,
+  dueCompletionProcessMs: 300_000,
+  publicationReconciliationMs: 600_000,
+  v1DrainMs: 3_600_000,
+  admissionMs: 30_000,
+  pruningBacklogAgeMs: 86_400_000,
+};
 
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;

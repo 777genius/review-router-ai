@@ -69,45 +69,42 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
       // Lock the stream and lease too: their writers do not use the auth lock.
       await tx.$queryRaw`SELECT "activeExecutionId" FROM "ReviewExecutionStreamV2" WHERE "workspaceId" = ${auth.workspaceId} AND "repositoryConnectionId" = ${auth.repositoryConnectionId} AND "scmRepositoryIdentityId" = ${auth.scmRepositoryIdentityId} AND "pullRequestNumber" = ${auth.pullRequestNumber} FOR SHARE`;
       await tx.$queryRaw`SELECT "leaseId" FROM "ReviewInvocationLeaseV2" WHERE "leaseId" = ${input.leaseId} FOR SHARE`;
-      const [execution, lease, stream, slot, release, mutation] =
-        await Promise.all([
-          tx.reviewExecutionV2.findUnique({
-            where: { executionId: input.executionId },
-          }),
-          tx.reviewInvocationLeaseV2.findUnique({
-            where: { leaseId: input.leaseId },
-          }),
-          tx.reviewExecutionStreamV2.findUnique({
-            where: {
-              workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
-                {
-                  workspaceId: auth.workspaceId,
-                  repositoryConnectionId: auth.repositoryConnectionId,
-                  scmRepositoryIdentityId: auth.scmRepositoryIdentityId,
-                  pullRequestNumber: auth.pullRequestNumber,
-                },
+      const execution = await tx.reviewExecutionV2.findUnique({
+        where: { executionId: input.executionId },
+      });
+      const lease = await tx.reviewInvocationLeaseV2.findUnique({
+        where: { leaseId: input.leaseId },
+      });
+      const stream = await tx.reviewExecutionStreamV2.findUnique({
+        where: {
+          workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
+            {
+              workspaceId: auth.workspaceId,
+              repositoryConnectionId: auth.repositoryConnectionId,
+              scmRepositoryIdentityId: auth.scmRepositoryIdentityId,
+              pullRequestNumber: auth.pullRequestNumber,
             },
-          }),
-          tx.reviewExecutionWorkSlotV2.findUnique({
-            where: {
-              executionId_workSlotId: {
-                executionId: input.executionId,
-                workSlotId: input.workSlotId,
-              },
-            },
-          }),
-          tx.producerRelease.findUnique({
-            where: { producerReleaseId: auth.producerReleaseId },
-          }),
-          tx.reviewMutationAuthority.findUnique({
-            where: {
-              scmRepositoryIdentityId_laneKind: {
-                scmRepositoryIdentityId: auth.scmRepositoryIdentityId,
-                laneKind: "hosted_reviewrouter_app",
-              },
-            },
-          }),
-        ]);
+        },
+      });
+      const slot = await tx.reviewExecutionWorkSlotV2.findUnique({
+        where: {
+          executionId_workSlotId: {
+            executionId: input.executionId,
+            workSlotId: input.workSlotId,
+          },
+        },
+      });
+      const release = await tx.producerRelease.findUnique({
+        where: { producerReleaseId: auth.producerReleaseId },
+      });
+      const mutation = await tx.reviewMutationAuthority.findUnique({
+        where: {
+          scmRepositoryIdentityId_laneKind: {
+            scmRepositoryIdentityId: auth.scmRepositoryIdentityId,
+            laneKind: "hosted_reviewrouter_app",
+          },
+        },
+      });
       const [{ now } = {}] = await tx.$queryRaw<
         readonly { now: Date }[]
       >`SELECT (clock_timestamp() AT TIME ZONE 'UTC') AS "now"`;
