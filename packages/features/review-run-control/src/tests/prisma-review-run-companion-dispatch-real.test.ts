@@ -8,6 +8,8 @@ import { canonicalJson } from "../domain/review-run-control-types";
 import type { ReviewRunCompanionDispatchClaim } from "../application/ports/review-run-companion-dispatch-port";
 import { PrismaReviewRunCompanionDispatchRepository } from "../infrastructure/prisma/prisma-review-run-companion-dispatch-repository";
 import { limits, sloThresholds } from "./fixtures";
+import { ReviewInvocationLeasePurpose } from "../../../review-executions/src/domain/review-execution";
+import { PrismaReviewExecutionStore } from "../../../review-executions/src/infrastructure/prisma/prisma-review-execution-store";
 
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;
@@ -23,6 +25,9 @@ describeDatabase("PostgreSQL companion dispatch reservation", () => {
   let repository: PrismaReviewRunCompanionDispatchRepository;
   let claims: ReviewRunCompanionDispatchClaim[];
   let executionId: string;
+  let executions: PrismaReviewExecutionStore;
+  let acquireClaim: (index: number) => Promise<ReviewRunCompanionDispatchClaim>;
+  const providerVoteIdentityHash = digest(`${prefix}-vote`);
 
   beforeAll(async () => {
     const url = new URL(databaseUrl!);
@@ -32,6 +37,7 @@ describeDatabase("PostgreSQL companion dispatch reservation", () => {
     )
       throw new Error("companion_dispatch_disposable_database_required");
     prisma = createPrismaClient({ databaseUrl: databaseUrl!, poolMax: 8 });
+    executions = new PrismaReviewExecutionStore(prisma);
     repository = new PrismaReviewRunCompanionDispatchRepository(prisma, {
       lockSelection: async () => true,
       validateManifest(_authorization, slot, manifest) {
@@ -154,7 +160,10 @@ describeDatabase("PostgreSQL companion dispatch reservation", () => {
         operationalSloProfileId: `${prefix}-slo`,
         mutationEpoch: 1n,
         providerVoteLanes: [
-          { providerKind: "codex", providerVoteIdentityHash: digest("vote") },
+          {
+            providerKind: "codex",
+            providerVoteIdentityHash,
+          },
         ],
         runtimeSnapshotCanonicalJson: snapshot,
         authorizationSafetyDecisionHash: digest("safety"),
@@ -216,7 +225,7 @@ describeDatabase("PostgreSQL companion dispatch reservation", () => {
         planOrdinal: 0,
         taskKind: "finding_discovery",
         providerKind: "codex",
-        providerVoteIdentityHash: digest("vote"),
+        providerVoteIdentityHash,
         shardKey: "discovery",
         required: true,
         attemptBudget: 1,
@@ -227,7 +236,6 @@ describeDatabase("PostgreSQL companion dispatch reservation", () => {
     claims = [];
     for (let index = 1; index <= 3; index++) {
       const workSlotId = `lifecycle-${index}`;
-      const leaseId = `${prefix}-lease-${index}`;
       await prisma.reviewExecutionWorkSlotV2.create({
         data: {
           executionId,
@@ -235,50 +243,60 @@ describeDatabase("PostgreSQL companion dispatch reservation", () => {
           planOrdinal: index,
           taskKind: "lifecycle_revalidation",
           providerKind: "codex",
-          providerVoteIdentityHash: digest("vote"),
+          providerVoteIdentityHash,
           shardKey: workSlotId,
           required: false,
           attemptBudget: 1,
           retryPolicyVersion: "test-v1",
-          state: "leased",
-          activeLeaseId: leaseId,
+          state: "pending",
         },
       });
-      const lease = await prisma.reviewInvocationLeaseV2.create({
-        data: {
-          ...scope,
-          leaseId,
-          executionId,
-          executionGeneration: 1n,
-          providerInvocationKey: digest(`${prefix}-invocation-${index}`),
-          preparedManifestCanonicalJson: canonicalJson({
-            taskKindSet: ["lifecycle_revalidation"],
-            providerRequestEnvelopeHash: digest("request"),
-          }),
-          preparedManifestKey: digest(`${prefix}-manifest-${index}`),
-          providerVoteIdentityHash: digest("vote"),
-          workSlotId,
-          purpose: "provider_execution",
-          authorizationId,
-          producerReleaseId: `${prefix}-release`,
-          reviewRevisionHash: digest("revision"),
-          mutationEpoch: 1n,
-          leaseSafetyDecisionHash: digest("safety"),
-          attemptId: `${prefix}-attempt-${index}`,
-          attemptOrdinal: 1,
-          acquireRequestIdHash: digest(`${prefix}-acquire-${index}`),
-          acquireRequestHash: digest(`${prefix}-acquire-body-${index}`),
-          ownerIdHash: digest("owner"),
-          leaseCapabilityId: `${prefix}-cap-${index}`,
-          capabilitySigningKeyId: "test-key",
-          acquiredAt: now,
-          renewedAt: now,
-          expiresAt: deadline,
-          resultReportUntil: deadline,
-          retainUntil: deadline,
+    }
+    // Companion packets run after discovery and sequentially on the admitted
+    // vote identity. The mixed-fleet guard must stay enabled: concurrent
+    // dispatch claims below share ONE current lease, not three active leases.
+    acquireClaim = async (index) => {
+      const workSlotId = `lifecycle-${index}`;
+      const leaseId = `${prefix}-lease-${index}`;
+      const requestedAt = new Date();
+      const acquired = await executions.acquireLease({
+        scope,
+        leaseId,
+        executionId,
+        workSlotId,
+        purpose: ReviewInvocationLeasePurpose.ProviderExecution,
+        providerInvocationKey: digest(`${prefix}-invocation-${index}`),
+        preparedManifestCanonicalJson: canonicalJson({
+          taskKindSet: ["lifecycle_revalidation"],
+          providerRequestEnvelopeHash: digest("request"),
+        }),
+        preparedManifestKey: digest(`${prefix}-manifest-${index}`),
+        providerVoteIdentityHash,
+        attemptId: `${prefix}-attempt-${index}`,
+        sourceObservationId: null,
+        acquireRequestIdHash: digest(`${prefix}-acquire-${index}`),
+        acquireRequestHash: digest(`${prefix}-acquire-body-${index}`),
+        ownerIdHash: digest("owner"),
+        leaseCapabilityId: `${prefix}-cap-${index}`,
+        capabilitySigningKeyId: "test-key",
+        leaseSafetyDecisionHash: digest("safety"),
+        now: requestedAt,
+        expiresAt: new Date(requestedAt.getTime() + 60_000),
+        resultReportUntil: new Date(requestedAt.getTime() + 120_000),
+        retainUntil: deadline,
+        limits: {
+          profileId: `${prefix}-limits`,
+          maxWorkSlots: limits.maxWorkSlots,
+          maxAttemptBudget: limits.maxAttemptsPerSlot,
+          maxProjectionBytes: limits.maxProjectionBytes,
+          maxFindingCount: limits.maxProjectionFindings,
+          maxLeaseDurationMs: limits.maxLeaseDurationMs,
+          maxResultReportDurationMs: limits.maxResultReportDurationMs,
         },
       });
-      claims.push({
+      expect(acquired.status).toBe("acquired");
+      const lease = acquired.lease!;
+      return {
         authorizationId,
         runtimeSnapshotCanonicalJson: snapshot,
         dispatchId: `${prefix}-dispatch-${index}`,
@@ -292,13 +310,26 @@ describeDatabase("PostgreSQL companion dispatch reservation", () => {
         leaseCapabilityId: lease.leaseCapabilityId,
         ownerIdHash: lease.ownerIdHash,
         providerInvocationKey: lease.providerInvocationKey,
-        ownershipExpiresAt: deadline,
+        ownershipExpiresAt: lease.expiresAt,
         capabilityMutationEpoch: 1n,
         capabilityReviewRevisionHash: digest("revision"),
         capabilityScopeHash: digest(canonicalJson(scope)),
-      });
-    }
+      };
+    };
+    claims.push(await acquireClaim(1));
   });
+
+  async function releaseClaim(claim: ReviewRunCompanionDispatchClaim) {
+    const released = await executions.releaseLease({
+      leaseId: claim.leaseId,
+      ownerIdHash: claim.ownerIdHash,
+      leaseCapabilityId: claim.leaseCapabilityId,
+      fencingToken: claim.fencingToken,
+      now: new Date(),
+    });
+    expect(released.status).toBe("applied");
+    expect(released.lease?.state).toBe("released");
+  }
 
   afterAll(async () => {
     if (!prisma) return;
@@ -411,7 +442,11 @@ describeDatabase("PostgreSQL companion dispatch reservation", () => {
       status: "restored",
       dispatch: { state: "not_dispatched" },
     });
+    await releaseClaim(claims[0]!);
+    claims[1] = await acquireClaim(2);
     await repository.claim(claims[1]!);
+    await releaseClaim(claims[1]!);
+    claims[2] = await acquireClaim(3);
     await expect(repository.claim(claims[2]!)).rejects.toMatchObject({
       code: "companion_dispatch_limit",
     });
