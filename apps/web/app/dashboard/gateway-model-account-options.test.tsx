@@ -275,7 +275,7 @@ test.each(["unavailable", "transport"] as const)(
     );
     expect(await screen.findByText("Models:first-model")).toBeTruthy();
     fireEvent.click(
-      screen.getByRole("button", { name: "Refresh models", exact: true }),
+      screen.getByRole("button", { name: /^Refresh models$/ }),
     );
     await waitFor(() =>
       expect(screen.getByRole("status").textContent).toContain(
@@ -287,8 +287,7 @@ test.each(["unavailable", "transport"] as const)(
       (screen.getByLabelText("Saved model") as HTMLInputElement).value,
     ).toBe("historical-model");
     const retry = screen.getByRole("button", {
-      name: "Refresh models",
-      exact: true,
+      name: /^Refresh models$/,
     }) as HTMLButtonElement;
     expect(retry.disabled).toBe(false);
     fireEvent.click(retry);
@@ -299,11 +298,11 @@ test.each(["unavailable", "transport"] as const)(
     ]);
     get.mockResolvedValueOnce({ status: "denied" });
     fireEvent.click(
-      screen.getByRole("button", { name: "Refresh models", exact: true }),
+      screen.getByRole("button", { name: /^Refresh models$/ }),
     );
     await waitFor(() =>
       expect(
-        screen.queryByRole("button", { name: "Refresh models", exact: true }),
+        screen.queryByRole("button", { name: /^Refresh models$/ }),
       ).toBeNull(),
     );
     expect(screen.getByText("Models:")).toBeTruthy();
