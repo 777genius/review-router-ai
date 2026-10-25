@@ -198,6 +198,7 @@ export function createGatewayModelAccountOptions(input: {
     let modelCatalog: ModelAccount["modelCatalog"];
     if (
       readModels &&
+      input.env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED === "1" &&
       profile.id === "openai-codex-oauth-responses-v1" &&
       profile.authKind === "oauth"
     ) {

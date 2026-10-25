@@ -1313,6 +1313,8 @@ export function composeReviewActionV2ProductionRoutes(input: {
   const accountGatewayRelay = accountGatewayRelayPolicy
     ? createReviewRunGatewayRelay({
         policy: accountGatewayRelayPolicy,
+        accountModelCatalogEnabled:
+          input.env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED === "1",
         companionDispatches: createReviewRunCompanionDispatchAdmission({
           prisma,
           verifyLease: (token, now) => capabilities.verifyLease(token, now),

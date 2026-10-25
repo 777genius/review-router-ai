@@ -78,16 +78,16 @@ export function readReviewRunGatewayRelayPolicy(raw: string) {
     throw new Error("review_run_gateway_relay_policy_invalid");
   }
 }
-/** Codex's immutable profile model is an anchor. Its authorized account
- * catalog is enforced by Gateway/native immediately before Responses entry;
- * RR still pins the exact profile/account/epoch and request model. Other
- * profiles retain their fixed configured model allowlist. */
+/** Account models require an explicitly enabled, compatible Gateway/native.
+ * Otherwise every profile retains its configured model allowlist. */
 export function gatewayProfileAcceptsRequestedModel(
   profile: c.Profile,
   model: string,
+  accountModelCatalogEnabled = false,
 ): boolean {
   return (
-    (profile.profileId === "openai-codex-oauth-responses-v1" &&
+    (accountModelCatalogEnabled &&
+      profile.profileId === "openai-codex-oauth-responses-v1" &&
       profile.authKinds.includes("oauth")) ||
     profile.modelIds.includes(model)
   );
@@ -130,6 +130,7 @@ type Session = {
  * authority/selected facts. Absence NEVER replays inference or auto-recovers. */
 export function createReviewRunGatewayRelay(input: {
   readonly policy: ReviewRunGatewayRelayPolicy;
+  readonly accountModelCatalogEnabled?: boolean;
   readonly runAccess: RunAccessConfig;
   readonly authorizations: Pick<
     ManageReviewRunAuthorizations,
@@ -659,6 +660,7 @@ export function createReviewRunGatewayRelay(input: {
         !gatewayProfileAcceptsRequestedModel(
           qualified[0]!.profile,
           provider.model,
+          input.accountModelCatalogEnabled,
         ) ||
         gateway.limits.tokens > qualified[0]!.outputTokens
       )
