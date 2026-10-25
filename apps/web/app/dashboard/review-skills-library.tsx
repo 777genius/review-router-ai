@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   useInfiniteQuery,
   useMutation,
@@ -28,6 +28,8 @@ import {
   SkillsError,
   SkillSearch,
   skillCellClass,
+  skillMobileLabelClass,
+  skillResponsiveCellClass,
 } from "./review-skills-ui";
 
 type RepositorySkill = Pick<ReviewSkillSummary, "skillId" | "name"> & {
@@ -59,6 +61,8 @@ export function ReviewSkillsLibrary({
   );
   const [error, setError] = useState<unknown>(null);
   const [savedRevisionId, setSavedRevisionId] = useState("");
+  const [openingSkillId, setOpeningSkillId] = useState<string | null>(null);
+  const editorRequest = useRef(0);
   const client = useQueryClient();
   const library = useInfiniteQuery({
     queryKey: reviewSkillsKeys.library(viewerId, workspaceId, search),
@@ -81,19 +85,42 @@ export function ReviewSkillsLibrary({
     client.invalidateQueries({
       queryKey: reviewSkillsKeys.workspace(viewerId, workspaceId),
     });
-  const open = async (skillId: string) => {
+  const open = useCallback(
+    async (skillId: string) => {
+      const request = ++editorRequest.current;
+      setOpeningSkillId(skillId);
+      setError(null);
+      try {
+        const document = await requestReviewSkills("loadSkill", {
+          workspaceId,
+          skillId,
+        });
+        if (request === editorRequest.current) setEditor(document);
+      } catch (cause) {
+        if (request === editorRequest.current) setError(cause);
+      } finally {
+        if (request === editorRequest.current) setOpeningSkillId(null);
+      }
+    },
+    [workspaceId],
+  );
+  const closeEditor = () => {
+    ++editorRequest.current;
+    setOpeningSkillId(null);
+    setEditor(null);
+  };
+  const createEditor = () => {
+    ++editorRequest.current;
+    setOpeningSkillId(null);
     setError(null);
-    try {
-      setEditor(
-        await requestReviewSkills("loadSkill", { workspaceId, skillId }),
-      );
-    } catch (cause) {
-      setError(cause);
-    }
+    setEditor("create");
   };
   useEffect(() => {
     if (initialSkillId) void open(initialSkillId);
-  }, [initialSkillId]);
+    return () => {
+      ++editorRequest.current;
+    };
+  }, [initialSkillId, open]);
   const remove = useMutation({
     mutationFn: (skill: ReviewSkillLibraryEntry) =>
       skill.linked
@@ -120,7 +147,7 @@ export function ReviewSkillsLibrary({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
           {capabilities.canCreate ? (
-            <Button type="button" onClick={() => setEditor("create")}>
+            <Button type="button" onClick={createEditor}>
               Create skill
             </Button>
           ) : null}
@@ -140,34 +167,60 @@ export function ReviewSkillsLibrary({
       </div>
       <SkillSearch value={search} onChange={setSearch} />
       <SkillsError error={error ?? library.error ?? remove.error} />
+      {openingSkillId ? <p role="status">Opening skill…</p> : null}
+      {library.isPending ? <p role="status">Loading skills…</p> : null}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[48rem] border-collapse">
+        <table
+          role="table"
+          className="block w-full border-collapse lg:table lg:min-w-[48rem]"
+        >
           <caption className="sr-only">Workspace review skills</caption>
-          <thead>
-            <tr className="border-b border-cyan-200/20 text-slate-400">
-              <th className={skillCellClass}>Name / description</th>
-              <th className={skillCellClass}>Author</th>
-              <th className={skillCellClass}>Source</th>
-              <th className={skillCellClass}>Used in this workspace</th>
-              <th className={skillCellClass}>Actions</th>
+          <thead role="rowgroup" className="hidden lg:table-header-group">
+            <tr
+              role="row"
+              className="border-b border-cyan-200/20 text-slate-400"
+            >
+              <th role="columnheader" scope="col" className={skillCellClass}>
+                Name / description
+              </th>
+              <th role="columnheader" scope="col" className={skillCellClass}>
+                Author
+              </th>
+              <th role="columnheader" scope="col" className={skillCellClass}>
+                Source
+              </th>
+              <th role="columnheader" scope="col" className={skillCellClass}>
+                Used in this workspace
+              </th>
+              <th role="columnheader" scope="col" className={skillCellClass}>
+                Actions
+              </th>
             </tr>
           </thead>
-          <tbody>
+          <tbody role="rowgroup" className="block lg:table-row-group">
             {rows.map((skill) => (
-              <tr key={skill.skillId} className="border-b border-cyan-200/10">
-                <td className={skillCellClass}>
+              <tr
+                role="row"
+                key={skill.skillId}
+                className="grid grid-cols-2 gap-x-4 border-b border-cyan-200/15 py-3 lg:table-row lg:border-cyan-200/10 lg:py-0"
+              >
+                <td
+                  role="cell"
+                  className={`${skillResponsiveCellClass} col-span-2`}
+                >
                   {skill.available ? (
                     <>
                       <button
                         type="button"
-                        className="text-left font-semibold text-cyan-100 underline-offset-4 hover:underline"
+                        className="max-w-full break-words text-left font-semibold text-cyan-100 underline-offset-4 hover:underline"
+                        aria-busy={openingSkillId === skill.skillId}
                         onClick={() => {
                           void open(skill.skillId);
                         }}
                       >
                         {skill.name}
                       </button>
-                      <p className="mt-1 max-w-sm whitespace-pre-wrap text-slate-400">
+                      <p className="mt-1 max-w-sm whitespace-pre-wrap break-words text-slate-400">
                         {skill.description}
                       </p>
                       <p className="mt-2 text-xs text-slate-500">
@@ -189,10 +242,18 @@ export function ReviewSkillsLibrary({
                     </>
                   )}
                 </td>
-                <td className={`${skillCellClass} text-slate-300`}>
+                <td
+                  role="cell"
+                  className={`${skillResponsiveCellClass} break-words text-slate-300`}
+                >
+                  <span className={skillMobileLabelClass}>Author</span>
                   {skill.available ? skill.authorName : "—"}
                 </td>
-                <td className={`${skillCellClass} text-slate-400`}>
+                <td
+                  role="cell"
+                  className={`${skillResponsiveCellClass} break-words text-slate-400`}
+                >
+                  <span className={skillMobileLabelClass}>Source</span>
                   {skill.available
                     ? skill.sourceWorkspaceName
                     : "Unavailable source"}
@@ -204,25 +265,43 @@ export function ReviewSkillsLibrary({
                       : "Link unavailable"}
                   </span>
                 </td>
-                <td className={`${skillCellClass} text-slate-400`}>
-                  <span>
-                    {skill.usedIn.length}{" "}
-                    {skill.usedIn.length === 1 ? "repository" : "repositories"}
+                <td
+                  role="cell"
+                  className={`${skillResponsiveCellClass} col-span-2 text-slate-400`}
+                >
+                  <span className={skillMobileLabelClass}>
+                    Used in this workspace
                   </span>
-                  {skill.usedIn.length ? (
-                    <details className="mt-1">
-                      <summary className="cursor-pointer text-xs">
-                        Show repositories
-                      </summary>
-                      <ul className="mt-2 space-y-1">
-                        {skill.usedIn.map((repo) => (
-                          <li key={repo.repositoryId}>{repo.name}</li>
-                        ))}
-                      </ul>
-                    </details>
-                  ) : null}
+                  {capabilities.canAdmin ? (
+                    <>
+                      <span>
+                        {skill.usedIn.length}{" "}
+                        {skill.usedIn.length === 1
+                          ? "repository"
+                          : "repositories"}
+                      </span>
+                      {skill.usedIn.length ? (
+                        <details className="mt-1">
+                          <summary className="cursor-pointer text-xs">
+                            Show repositories
+                          </summary>
+                          <ul className="mt-2 space-y-1">
+                            {skill.usedIn.map((repo) => (
+                              <li key={repo.repositoryId}>{repo.name}</li>
+                            ))}
+                          </ul>
+                        </details>
+                      ) : null}
+                    </>
+                  ) : (
+                    <span>Workspace admins can see repository usage.</span>
+                  )}
                 </td>
-                <td className={skillCellClass}>
+                <td
+                  role="cell"
+                  className={`${skillResponsiveCellClass} col-span-2`}
+                >
+                  <span className={skillMobileLabelClass}>Actions</span>
                   <div className="flex flex-wrap gap-2">
                     {skill.available && skill.capabilities.canEdit ? (
                       skill.linked ? (
@@ -328,9 +407,9 @@ export function ReviewSkillsLibrary({
           key={editor === "create" ? "create" : editor.revisionId}
           workspaceId={workspaceId}
           {...(editor === "create" ? {} : { document: editor })}
-          onClose={() => setEditor(null)}
+          onClose={closeEditor}
           onSaved={(document) => {
-            setEditor(null);
+            closeEditor();
             if (editor === "create") setRepositories(document);
             else setSavedRevisionId(document.revisionId);
             void invalidate();
@@ -461,6 +540,7 @@ function SkillRepositoriesDialog({
         value={search}
         onChange={setSearch}
         label="Search repositories"
+        placeholder="Owner or repository name"
       />
       <SkillsError error={targets.error} />
       {selectedInactive ? (

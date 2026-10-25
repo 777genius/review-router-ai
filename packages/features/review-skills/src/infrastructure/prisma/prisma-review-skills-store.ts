@@ -47,6 +47,7 @@ type Grant = {
 type Binding = {
   skillId: string;
   repositoryConnectionId: string;
+  generation: string;
   version: number;
   includePaths: unknown;
   excludePaths: unknown;
@@ -192,12 +193,13 @@ async function bindings(
 ) {
   return q<Binding>(
     reader,
-    Prisma.sql`SELECT "skillId", "repositoryConnectionId", "version", "includePaths", "excludePaths" FROM "ReviewSkillBinding" WHERE "workspaceId"=${workspaceId} ${repositoryIds ? Prisma.sql`AND "repositoryConnectionId" IN (${Prisma.join(repositoryIds)})` : Prisma.empty} ORDER BY "repositoryConnectionId", "skillId"`,
+    Prisma.sql`SELECT "skillId", "repositoryConnectionId", "generation", "version", "includePaths", "excludePaths" FROM "ReviewSkillBinding" WHERE "workspaceId"=${workspaceId} ${repositoryIds ? Prisma.sql`AND "repositoryConnectionId" IN (${Prisma.join(repositoryIds)})` : Prisma.empty} ORDER BY "repositoryConnectionId", "skillId"`,
   );
 }
 const bindingView = (b: Binding): C.ReviewSkillBindingView => ({
   skillId: b.skillId,
   repositoryId: b.repositoryConnectionId,
+  generation: b.generation,
   version: b.version,
   scope: parseReviewSkillScope({
     includePaths: b.includePaths,
@@ -411,9 +413,27 @@ export class PrismaReviewSkillsStore implements ReviewSkillsStore {
   async createSkill(i: Arg<"createSkill">) {
     return this.transaction([i.workspaceId], async (tx) => {
       await member(tx, i.workspaceId, i.actor, false, true);
+      // The immutable first revision identifies this creation intent even after
+      // subsequent edits. The workspace fence serializes concurrent exact retries.
+      const prior = (
+        await q<C.ReviewSkillContent & { id: string; deletedAt: Date | null }>(
+          tx,
+          Prisma.sql`SELECT s."id",s."deletedAt",v."name",v."description",v."instructions" FROM "ReviewSkill" s JOIN "ReviewSkillRevision" v ON v."skillId"=s."id" AND v."revisionNumber"=1 WHERE s."sourceWorkspaceId"=${i.workspaceId} AND s."authorUserId"=${i.actor.userId} AND s."createOperationId"=${i.createOperationId}`,
+        )
+      )[0];
+      if (prior) {
+        if (prior.deletedAt) error(Code.Unavailable);
+        if (
+          prior.name !== i.content.name ||
+          prior.description !== i.content.description ||
+          prior.instructions !== i.content.instructions
+        )
+          error(Code.Conflict);
+        return this.document(tx, { ...i, skillId: prior.id });
+      }
       const skillId = randomUUID(),
         revisionId = randomUUID();
-      await tx.$executeRaw`INSERT INTO "ReviewSkill" ("id","sourceWorkspaceId","authorUserId","headRevisionId") VALUES (${skillId},${i.workspaceId},${i.actor.userId},${revisionId})`;
+      await tx.$executeRaw`INSERT INTO "ReviewSkill" ("id","sourceWorkspaceId","authorUserId","headRevisionId","createOperationId") VALUES (${skillId},${i.workspaceId},${i.actor.userId},${revisionId},${i.createOperationId})`;
       await this.insertRevision(tx, skillId, revisionId, 1, i.content);
       await this.audit(tx, i.workspaceId, i.actor, "created", skillId, {
         revisionId,
@@ -946,7 +966,7 @@ export class PrismaReviewSkillsStore implements ReviewSkillsStore {
         if (!(await available(tx, i.workspaceId, i.skillId)).length)
           error(Code.Unavailable);
         const n =
-          await tx.$executeRaw`UPDATE "ReviewSkillBinding" SET "includePaths"=${JSON.stringify(i.scope.includePaths)}::jsonb,"excludePaths"=${JSON.stringify(i.scope.excludePaths)}::jsonb,"version"="version"+1 WHERE "workspaceId"=${i.workspaceId} AND "repositoryConnectionId"=${i.repositoryId} AND "skillId"=${i.skillId} AND "version"=${i.expectedVersion}`;
+          await tx.$executeRaw`UPDATE "ReviewSkillBinding" SET "includePaths"=${JSON.stringify(i.scope.includePaths)}::jsonb,"excludePaths"=${JSON.stringify(i.scope.excludePaths)}::jsonb,"version"="version"+1 WHERE "workspaceId"=${i.workspaceId} AND "repositoryConnectionId"=${i.repositoryId} AND "skillId"=${i.skillId} AND "generation"=${i.expectedGeneration} AND "version"=${i.expectedVersion}`;
         if (!n) error(Code.Conflict);
         await this.audit(
           tx,

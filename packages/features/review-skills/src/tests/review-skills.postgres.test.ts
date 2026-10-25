@@ -92,8 +92,189 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
       destinationWorkspaceId: b,
       skillId,
     });
+  it("reuses an exact creation intent across concurrent retries and later revisions", async () => {
+    const createOperationId = randomUUID();
+    const input = {
+      actor: owner,
+      workspaceId: b,
+      createOperationId,
+      content: content("  Exact creation retry  "),
+    };
+    const [first, concurrent] = await Promise.all([
+      service.createSkill(input),
+      service.createSkill(input),
+    ]);
+    expect(concurrent.skillId).toBe(first.skillId);
+    expect(concurrent.revisionId).toBe(first.revisionId);
+    expect(first.name).toBe("Exact creation retry");
+    expect(
+      await prisma.reviewSkill.count({ where: { createOperationId } }),
+    ).toBe(1);
+    expect(
+      await prisma.reviewSkillRevision.count({
+        where: { skillId: first.skillId },
+      }),
+    ).toBe(1);
+    expect(
+      await prisma.auditEvent.count({
+        where: { action: "review_skills.created", targetId: first.skillId },
+      }),
+    ).toBe(1);
+
+    const saved = await service.saveSkill({
+      actor: owner,
+      workspaceId: b,
+      skillId: first.skillId,
+      expectedRevisionId: first.revisionId,
+      content: content("Later canonical revision"),
+    });
+    const retried = await service.createSkill(input);
+    expect(retried.skillId).toBe(first.skillId);
+    expect(retried.revisionId).toBe(saved.revisionId);
+    expect(retried.name).toBe(saved.name);
+    await expect(
+      service.createSkill({ ...input, content: content("Different intent") }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(
+      await prisma.reviewSkillRevision.count({
+        where: { skillId: first.skillId },
+      }),
+    ).toBe(2);
+
+    await service.deleteSkill({
+      actor: owner,
+      workspaceId: b,
+      skillId: first.skillId,
+    });
+    await expect(service.createSkill(input)).rejects.toMatchObject({
+      code: "unavailable",
+    });
+    expect(
+      await prisma.reviewSkill.count({ where: { createOperationId } }),
+    ).toBe(1);
+  });
+
+  it("scopes creation identities to the current author/workspace and rechecks replay authority", async () => {
+    const user = { userId: `${prefix}-creation-retry-member` };
+    await prisma.user.create({
+      data: { id: user.userId, githubLogin: user.userId },
+    });
+    await prisma.workspaceMember.create({
+      data: { workspaceId: b, userId: user.userId, role: "member" },
+    });
+    const createOperationId = randomUUID();
+    const input = {
+      workspaceId: b,
+      createOperationId,
+      content: content("Scoped creation retry"),
+    };
+    const original = await service.createSkill({ ...input, actor: owner });
+    const otherAuthor = await service.createSkill({ ...input, actor: user });
+    const otherWorkspace = await service.createSkill({
+      ...input,
+      actor: owner,
+      workspaceId: c,
+    });
+    expect(
+      new Set([original.skillId, otherAuthor.skillId, otherWorkspace.skillId])
+        .size,
+    ).toBe(3);
+    await prisma.workspaceMember.delete({
+      where: { workspaceId_userId: { workspaceId: b, userId: user.userId } },
+    });
+    await expect(
+      service.createSkill({ ...input, actor: user }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+  });
+
+  it("rejects a Paths CAS from an earlier assignment generation after remove and re-add", async () => {
+    const repositoryId = `${prefix}-paths-generation`;
+    await prisma.repositoryConnection.create({
+      data: {
+        id: repositoryId,
+        workspaceId: b,
+        externalRepositoryId: repositoryId,
+        owner: "synthetic",
+        name: repositoryId,
+        fullName: `synthetic/${repositoryId}`,
+        defaultBranch: "main",
+        visibility: "private",
+      },
+    });
+    const skill = await service.createSkill({
+      actor: owner,
+      workspaceId: b,
+      createOperationId: randomUUID(),
+      content: content("Assignment generation"),
+    });
+    const assignment = {
+      actor: owner,
+      workspaceId: b,
+      repositoryIds: [repositoryId],
+      skillIds: [skill.skillId],
+    };
+    const load = async () =>
+      (
+        await service.loadRepositorySkillSettings({
+          actor: owner,
+          workspaceId: b,
+          repositoryId,
+        })
+      ).bindings[0]!;
+    await service.applyAssignments({
+      ...assignment,
+      mode: "add",
+      scope: { includePaths: ["old/**"], excludePaths: [] },
+    });
+    const before = await load();
+    await service.applyAssignments({ ...assignment, mode: "remove" });
+    await service.applyAssignments({
+      ...assignment,
+      mode: "add",
+      scope: { includePaths: ["new/**"], excludePaths: [] },
+    });
+    const recreated = await load();
+    expect(recreated.version).toBe(before.version);
+    expect(recreated.generation).not.toBe(before.generation);
+    await expect(
+      service.updateBindingScope({
+        actor: owner,
+        workspaceId: b,
+        repositoryId,
+        skillId: skill.skillId,
+        expectedGeneration: before.generation,
+        expectedVersion: before.version,
+        scope: { includePaths: ["stale/**"], excludePaths: [] },
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect((await load()).scope.includePaths).toEqual(["new/**"]);
+    const saved = await service.updateBindingScope({
+      actor: owner,
+      workspaceId: b,
+      repositoryId,
+      skillId: skill.skillId,
+      expectedGeneration: recreated.generation,
+      expectedVersion: recreated.version,
+      scope: { includePaths: ["current/**"], excludePaths: [] },
+    });
+    expect(saved.generation).toBe(recreated.generation);
+    expect(saved.version).toBe(recreated.version + 1);
+    expect(saved.scope.includePaths).toEqual(["current/**"]);
+    await expect(
+      service.updateBindingScope({
+        actor: owner,
+        workspaceId: b,
+        repositoryId,
+        skillId: skill.skillId,
+        expectedGeneration: recreated.generation,
+        expectedVersion: recreated.version,
+        scope: { includePaths: ["stale-version/**"], excludePaths: [] },
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+  });
   it("author-only CAS, immutable revisions, membership departure preserves consumption", async () => {
     const skill = await service.createSkill({
+      createOperationId: randomUUID(),
       actor: author,
       workspaceId: a,
       content: content("Author skill"),
@@ -169,6 +350,7 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
   });
   it("grant generations fence stale accept and revoked metadata, existing captured bytes stay stable", async () => {
     const skill = await service.createSkill({
+      createOperationId: randomUUID(),
       actor: owner,
       workspaceId: a,
       content: content("Original secret label"),
@@ -266,6 +448,7 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
   });
   it("retains privacy-safe unavailable links until local assignments and the link are removed", async () => {
     const skill = await service.createSkill({
+      createOperationId: randomUUID(),
       actor: owner,
       workspaceId: a,
       content: content("Unavailable cleanup original"),
@@ -682,11 +865,13 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
         },
       });
     const original = await service.createSkill({
+      createOperationId: randomUUID(),
       actor: owner,
       workspaceId: b,
       content: content("Inactive local original"),
     });
     const shared = await service.createSkill({
+      createOperationId: randomUUID(),
       actor: owner,
       workspaceId: a,
       content: content("Inactive shared link"),
@@ -806,6 +991,7 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
         workspaceId: b,
         repositoryId: localRepos[0]!,
         skillId: original.skillId,
+        expectedGeneration: randomUUID(),
         expectedVersion: 1,
         scope: { includePaths: ["src/**"], excludePaths: [] },
       }),
@@ -922,11 +1108,13 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
   });
   it("bulk delta preserves unrelated scopes, rolls back forbidden selection, CAS source settings", async () => {
     const one = await service.createSkill({
+      createOperationId: randomUUID(),
       actor: owner,
       workspaceId: b,
       content: content("One"),
     });
     const two = await service.createSkill({
+      createOperationId: randomUUID(),
       actor: owner,
       workspaceId: b,
       content: content("Two"),
@@ -1019,6 +1207,7 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
       baseSha,
     });
     const skill = await service.createSkill({
+      createOperationId: randomUUID(),
       actor: owner,
       workspaceId: c,
       content: content("Third source"),
@@ -1049,6 +1238,7 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
   });
   it("rechecks DB admin after preflight and rejects lost SCM proof without partial writes", async () => {
     const skill = await service.createSkill({
+      createOperationId: randomUUID(),
       actor: owner,
       workspaceId: b,
       content: content("Demotion guard"),
@@ -1124,11 +1314,13 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
   });
   it("opposite-direction dual-admin sharing uses the same sorted workspace order", async () => {
     const left = await service.createSkill({
+      createOperationId: randomUUID(),
       actor: owner,
       workspaceId: a,
       content: content("Left"),
     });
     const right = await service.createSkill({
+      createOperationId: randomUUID(),
       actor: owner,
       workspaceId: b,
       content: content("Right"),
@@ -1155,6 +1347,7 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
       large.push(
         (
           await service.createSkill({
+            createOperationId: randomUUID(),
             actor: owner,
             workspaceId: b,
             content: {
@@ -1189,6 +1382,7 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
   });
   it("unavailable source workspace does not prevent removal of the stale local assignment", async () => {
     const skill = await service.createSkill({
+      createOperationId: randomUUID(),
       actor: owner,
       workspaceId: c,
       content: content("Retired source"),

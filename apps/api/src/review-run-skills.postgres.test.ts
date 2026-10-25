@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import Fastify from "fastify";
@@ -174,6 +175,7 @@ describe.skipIf(!databaseUrl)(
     });
     async function assigned() {
       const skill = await service.createSkill({
+        createOperationId: randomUUID(),
         actor,
         workspaceId: sourceWorkspaceId,
         content: content("ONE"),

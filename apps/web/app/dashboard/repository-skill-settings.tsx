@@ -13,14 +13,50 @@ import {
 import { reviewSkillsKeys } from "../../src/features/review-skills/query-keys";
 import { SkillsError, skillFieldClass } from "./review-skills-ui";
 
+export type SkillBindingPathsDraft = {
+  readonly include: string;
+  readonly exclude: string;
+  readonly savedInclude: string;
+  readonly savedExclude: string;
+  readonly expectedVersion: number;
+  readonly expectedGeneration: string;
+};
+
+export function skillBindingPathsDraftIsDirty(draft: SkillBindingPathsDraft) {
+  return (
+    draft.include !== draft.savedInclude || draft.exclude !== draft.savedExclude
+  );
+}
+
+function bindingPathsDraft(
+  binding: ReviewSkillBindingView,
+): SkillBindingPathsDraft {
+  const include = binding.scope.includePaths.join("\n");
+  const exclude = binding.scope.excludePaths.join("\n");
+  return {
+    include,
+    exclude,
+    savedInclude: include,
+    savedExclude: exclude,
+    expectedVersion: binding.version,
+    expectedGeneration: binding.generation,
+  };
+}
+
+type PendingChange = (key: string, pending: boolean) => void;
+
 export function RepositorySkillSettings({
   workspaceId,
   viewerId,
   repositoryId,
+  locked,
+  onPendingChange,
 }: {
   readonly workspaceId: string;
   readonly viewerId: string;
   readonly repositoryId: string;
+  readonly locked: boolean;
+  readonly onPendingChange: PendingChange;
 }) {
   const [enabled, setEnabled] = useState(false);
   const client = useQueryClient();
@@ -41,6 +77,7 @@ export function RepositorySkillSettings({
     retry: false,
   });
   const sources = useMutation({
+    onMutate: () => onPendingChange(`repository-sources:${repositoryId}`, true),
     mutationFn: (roots: readonly ReviewSkillSourceRoot[]) =>
       requestReviewSkills("setRepositorySources", {
         workspaceId,
@@ -51,6 +88,8 @@ export function RepositorySkillSettings({
     onSuccess: (value) => {
       client.setQueryData(key, value);
     },
+    onSettled: () =>
+      onPendingChange(`repository-sources:${repositoryId}`, false),
   });
   return (
     <details
@@ -73,6 +112,9 @@ export function RepositorySkillSettings({
           <p role="status">Loading repository settings…</p>
         ) : null}
         <SkillsError error={settings.error ?? sources.error} />
+        {sources.isPending ? (
+          <p role="status">Saving repository sources…</p>
+        ) : null}
         {sources.isError ? (
           <Button
             type="button"
@@ -87,7 +129,10 @@ export function RepositorySkillSettings({
         ) : null}
         {settings.data ? (
           <>
-            <fieldset disabled={sources.isPending} className="grid gap-3">
+            <fieldset
+              disabled={sources.isPending || locked}
+              className="grid gap-3"
+            >
               <legend className="mb-3 text-sm font-semibold">
                 Use skills from repository
               </legend>
@@ -131,17 +176,34 @@ export function SkillBindingPaths({
   viewerId,
   repositoryId,
   binding,
+  draft,
+  locked,
+  onDraftChange,
+  onPendingChange,
   onSaved,
 }: {
   readonly workspaceId: string;
   readonly viewerId: string;
   readonly repositoryId: string;
   readonly binding: ReviewSkillBindingView;
-  readonly onSaved: () => void;
+  readonly draft?: SkillBindingPathsDraft;
+  readonly locked: boolean;
+  readonly onDraftChange: (
+    skillId: string,
+    draft: SkillBindingPathsDraft,
+  ) => void;
+  readonly onPendingChange: PendingChange;
+  readonly onSaved: (
+    skillId: string,
+    draft: SkillBindingPathsDraft,
+  ) => Promise<void>;
 }) {
-  const [include, setInclude] = useState(binding.scope.includePaths.join("\n"));
-  const [exclude, setExclude] = useState(binding.scope.excludePaths.join("\n"));
-  const [expectedVersion, setExpectedVersion] = useState(binding.version);
+  // Editing snapshots survive filtering and retain their CAS tokens through
+  // background refreshes. Untouched rows continue to read query data directly.
+  const current = draft ?? bindingPathsDraft(binding);
+  const { include, exclude, expectedVersion, expectedGeneration } = current;
+  const updateDraft = (changes: Partial<SkillBindingPathsDraft>) =>
+    onDraftChange(binding.skillId, { ...current, ...changes });
   const [showComparison, setShowComparison] = useState(false);
   const currentPaths = useQuery({
     queryKey: [
@@ -172,12 +234,14 @@ export function SkillBindingPaths({
     retry: false,
   });
   const save = useMutation({
+    onMutate: () => onPendingChange(`binding-paths:${binding.skillId}`, true),
     mutationFn: () =>
       requestReviewSkills("updateBindingScope", {
         workspaceId,
         repositoryId,
         skillId: binding.skillId,
         expectedVersion,
+        expectedGeneration,
         scope: {
           includePaths: include
             .split("\n")
@@ -189,13 +253,13 @@ export function SkillBindingPaths({
             .filter(Boolean),
         },
       }),
-    onSuccess: (saved) => {
-      setExpectedVersion(saved.version);
-      setInclude(saved.scope.includePaths.join("\n"));
-      setExclude(saved.scope.excludePaths.join("\n"));
+    onSuccess: async (saved) => {
+      const acknowledged = bindingPathsDraft(saved);
+      onDraftChange(binding.skillId, acknowledged);
       setShowComparison(false);
-      onSaved();
+      await onSaved(binding.skillId, acknowledged);
     },
+    onSettled: () => onPendingChange(`binding-paths:${binding.skillId}`, false),
   });
   const conflict =
     save.error instanceof ReviewSkillsClientError &&
@@ -203,11 +267,10 @@ export function SkillBindingPaths({
   const reconcile = (useSaved: boolean) => {
     if (!currentPaths.data || currentPaths.isFetching || currentPaths.isError)
       return;
-    if (useSaved) {
-      setInclude(currentPaths.data.scope.includePaths.join("\n"));
-      setExclude(currentPaths.data.scope.excludePaths.join("\n"));
-    }
-    setExpectedVersion(currentPaths.data.version);
+    const saved = bindingPathsDraft(currentPaths.data);
+    const reconciled = useSaved ? saved : { ...saved, include, exclude };
+    onDraftChange(binding.skillId, reconciled);
+    void onSaved(binding.skillId, reconciled);
     setShowComparison(false);
     save.reset();
   };
@@ -220,9 +283,9 @@ export function SkillBindingPaths({
           <textarea
             className={`${skillFieldClass} mt-2 font-mono`}
             rows={2}
-            disabled={save.isPending}
+            disabled={save.isPending || locked}
             value={include}
-            onChange={(event) => setInclude(event.target.value)}
+            onChange={(event) => updateDraft({ include: event.target.value })}
           />
         </label>
         <label className="block text-sm">
@@ -230,25 +293,25 @@ export function SkillBindingPaths({
           <textarea
             className={`${skillFieldClass} mt-2 font-mono`}
             rows={2}
-            disabled={save.isPending}
+            disabled={save.isPending || locked}
             value={exclude}
-            onChange={(event) => setExclude(event.target.value)}
+            onChange={(event) => updateDraft({ exclude: event.target.value })}
           />
         </label>
         <Button
           type="button"
           variant="outline"
-          disabled={save.isPending || conflict}
+          disabled={save.isPending || locked || conflict}
           onClick={() => save.mutate()}
         >
-          Save paths
+          {save.isPending ? "Saving paths…" : "Save paths"}
         </Button>
         <SkillsError error={save.error} />
         {conflict ? (
           <Button
             type="button"
             variant="outline"
-            disabled={currentPaths.isFetching}
+            disabled={currentPaths.isFetching || locked}
             onClick={() => {
               setShowComparison(true);
               void currentPaths.refetch();
@@ -289,6 +352,7 @@ export function SkillBindingPaths({
                   <Button
                     type="button"
                     variant="outline"
+                    disabled={locked}
                     onClick={() => reconcile(true)}
                   >
                     Use current saved paths
@@ -296,6 +360,7 @@ export function SkillBindingPaths({
                   <Button
                     type="button"
                     variant="outline"
+                    disabled={locked}
                     onClick={() => reconcile(false)}
                   >
                     Keep reconciled paths

@@ -102,9 +102,9 @@ describe.skipIf(!enabled)(
         const names = (await readdir(migrations))
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
-        // Replay every current migration, including both additive Skills rows.
-        expect(names).toHaveLength(148);
-        expect(names.slice(-13)).toEqual([
+        // Replay every current migration, including the Skills identity migration.
+        expect(names).toHaveLength(149);
+        expect(names.slice(-14)).toEqual([
           "000135_review_run_checkout_repository_lock",
           "000136_provider_usage",
           "000136_review_skills",
@@ -118,6 +118,7 @@ describe.skipIf(!enabled)(
           "000144_review_statistics",
           "000145_workspace_provider_profiles",
           "000146_drop_review_configuration_projection",
+          "000147_review_skills_mutation_identity",
         ]);
         let legacyBefore: unknown;
         let legacyBefore146: unknown;

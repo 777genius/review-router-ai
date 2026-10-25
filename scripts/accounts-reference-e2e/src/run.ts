@@ -261,6 +261,28 @@ async function verifyBoot(
   )
     throw new Error("accounts_reference_e2e_generated_session_not_authorized");
   checks.push("generated-session-ok");
+  if (process.argv.includes("--skills-fixture")) {
+    // Compile the authenticated Skills route during bounded fixture setup;
+    // browser navigation and acceptance assertions retain their own timeouts.
+    const skills = await fetch(
+      `${appUrl}/dashboard?section=skills&workspace=rr-e2e-personal-viewer`,
+      {
+        headers: { cookie: viewerCookie },
+        redirect: "manual",
+        signal: AbortSignal.timeout(120_000),
+      },
+    );
+    const skillsHtml = await skills.text();
+    if (
+      skills.status !== 200 ||
+      skillsHtml.includes("NEXT_REDIRECT") ||
+      !/<h2\b[^>]*\bid="review-skills-title"[^>]*>\s*Skills\s*<\/h2>/u.test(
+        skillsHtml,
+      )
+    )
+      throw new Error("accounts_reference_e2e_skills_warmup_not_authorized");
+    checks.push("skills-authenticated-render-warmed");
+  }
   return { ok: true, checks };
 }
 
