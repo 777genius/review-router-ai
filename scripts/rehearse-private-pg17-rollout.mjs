@@ -356,6 +356,7 @@ const preReleaseMigrationBoundary = Object.freeze({
     "000145_workspace_provider_profiles",
     "000146_drop_review_configuration_projection",
     "000147_review_skills_mutation_identity",
+    "000148_lifecycle_verification",
   ]),
   retained: Object.freeze([
     "000067_review_live_progress",

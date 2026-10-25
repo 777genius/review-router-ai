@@ -291,6 +291,23 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Lifecycle verification is a checkout-only additive schema extension. Admit
+  // its exact source catalog before preserving the reviewed checkout149 gate.
+  const lifecycleVerificationMigration = catalog.find(
+    (row) => row.migrationName === "000148_lifecycle_verification",
+  );
+  if (lifecycleVerificationMigration) {
+    if (
+      lifecycleVerificationMigration.checksum !==
+        "00e6dca21ae3dcd9c61f729bb93e0319caf5b204ae67e29ba2889259e5db1b60" ||
+      manifest(catalog) !==
+        "sha256:ae1f73631c1ae9e359a22c421d7bb83751fd831f22ba77304be1d20d01878472"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== lifecycleVerificationMigration),
+    );
+  }
   // Mutation identities change only checkout Skills tables. Admit the exact
   // checkout149 source, then preserve the unchanged reviewed checkout148 gate.
   const reviewSkillsMutationIdentityMigration = catalog.find(
