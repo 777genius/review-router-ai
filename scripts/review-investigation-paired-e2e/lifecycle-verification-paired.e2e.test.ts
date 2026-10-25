@@ -764,6 +764,7 @@ lifecycleCase.each([
         },
       );
       await owned.processFinalizedOutbox();
+      let deniedMaintenanceStartedAt: Date | undefined;
       if (scenario === "unknown") {
         try {
           await owned.runWorkerUntilSettled(1);
@@ -772,6 +773,13 @@ lifecycleCase.each([
             "review_v2_e2e_worker_did_not_settle",
           );
         }
+      } else if (scenario === "denied") {
+        deniedMaintenanceStartedAt = new Date();
+        // The summary/check already have real effects: a per-thread denial
+        // cannot turn the whole publication into a no-effect success.
+        await expect(owned.runWorkerUntilSettled(1)).rejects.toThrow(
+          "review_v2_e2e_worker_did_not_settle",
+        );
       } else await owned.runWorkerUntilSettled();
       const after =
         await owned.prisma.finalizedReviewProjectionArtifactV2.findFirstOrThrow(
@@ -810,6 +818,101 @@ lifecycleCase.each([
         expect(threads.resolveCalls()).toBeLessThanOrEqual(2);
       }
       expect(receipts).toHaveLength(scenario === "success" ? 2 : 0);
+      if (scenario === "denied") {
+        expect(threads.resolveCalls()).toBe(2);
+        const publicationAttemptId = operations[0]!.publicationAttemptId;
+        const deniedIds = operations.map(
+          (operation) => operation.publicationOperationId,
+        );
+        const readDeniedProofs = () =>
+          owned.prisma.reviewPublicationOperationAttemptV2.findMany({
+            where: { publicationOperationId: { in: deniedIds } },
+            orderBy: { publicationOperationId: "asc" },
+          });
+        const proofs = await readDeniedProofs();
+        expect(proofs).toHaveLength(2);
+        for (const proof of proofs)
+          expect(proof).toMatchObject({
+            state: "no_effect_proven",
+            noEffectProofId: expect.any(String),
+            noEffectProofHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+            noEffectReason: "definitely_no_effect:github_mutation_http_403",
+            noEffectProvenAt: expect.any(Date),
+          });
+        expect(
+          await owned.prisma.reviewPublicationExternalEffectV2.count({
+            where: { publicationOperationId: { in: deniedIds } },
+          }),
+        ).toBe(0);
+        expect(
+          await owned.prisma.reviewPublicationReceiptV2.count({
+            where: {
+              publicationAttemptId,
+              publicationOperationId: { notIn: deniedIds },
+              status: "succeeded",
+            },
+          }),
+        ).toBeGreaterThan(0);
+        expect(
+          await owned.prisma.reviewPublicationAttemptV2.findUniqueOrThrow({
+            where: { publicationAttemptId },
+            select: { state: true, terminalOutcome: true },
+          }),
+        ).toEqual({ state: "publishing", terminalOutcome: null });
+        expect(
+          await owned.prisma.reviewCompletionProcess.findUniqueOrThrow({
+            where: { executionId: second.execution.executionId },
+            select: { state: true, lastSafeReason: true },
+          }),
+        ).toEqual({
+          state: "awaiting_publication",
+          lastSafeReason: "publication_pending",
+        });
+        for (const operation of operations)
+          expect(operation).toMatchObject({
+            state: "in_flight",
+            lastErrorCode: "github_mutation_http_403",
+            retryCount: expect.any(Number),
+          });
+        expect(
+          operations.every(
+            (operation) =>
+              operation.retryCount > 0 &&
+              operation.nextEligibleAt > deniedMaintenanceStartedAt! &&
+              operation.reconcileUntil > new Date(),
+          ),
+        ).toBe(true);
+        const deniedThreadIds = envelope.publishing.lifecycle
+          .filter(
+            (entry: { mutationEligible: boolean }) => entry.mutationEligible,
+          )
+          .map((entry: { threadId: string }) => entry.threadId);
+        const deniedHistory = await history.read(
+          {
+            workspaceId: owned.workspaceId,
+            repositoryConnectionId: owned.repositoryConnectionId,
+            scmRepositoryIdentityId: owned.scmRepositoryIdentityId,
+            pullRequestNumber: 42,
+          },
+          deniedThreadIds,
+        );
+        expect(deniedHistory).toHaveLength(2);
+        expect(
+          deniedHistory.every(
+            (fact) => fact.pending.length === 0 && fact.confirmed === null,
+          ),
+        ).toBe(true);
+        const nativeCalls = threads.resolveCalls();
+        // A second ordinary maintenance pass preserves the original denial proof
+        // and never requests a new resolve operation. No deadlines are rewritten.
+        await expect(owned.runWorkerUntilSettled(1)).rejects.toThrow(
+          "review_v2_e2e_worker_did_not_settle",
+        );
+        expect(await readDeniedProofs()).toEqual(proofs);
+        expect(threads.resolveCalls()).toBe(nativeCalls);
+        expect(threads.closed()).toHaveLength(0);
+      }
+
       const snapshotAfter = await owned.prisma.reviewSnapshot.findFirstOrThrow({
         where: {
           workspaceId: owned.workspaceId,
