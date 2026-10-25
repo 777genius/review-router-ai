@@ -78,6 +78,24 @@ describe("authorized Skills response enrichment", () => {
     );
     expect(settings.readiness.reason).toBe("workflow_unconfirmed");
   });
+  it("does not repeat repository readiness reads for assignment continuation pages", async () => {
+    const read = vi.fn();
+    const page = { items: [], nextCursor: "next-skill" };
+    const result = await enrichReviewSkillsResponse(
+      "listAssignmentChoices",
+      {
+        workspaceId: "workspace",
+        repositoryIds: ["repo"],
+        assignedOnly: true,
+        cursor: "previous-skill",
+      },
+      page,
+      read,
+    );
+    expect(result).toEqual({ ...page, repositoryReadiness: [] });
+    expect(result.items).toBe(page.items);
+    expect(read).not.toHaveBeenCalled();
+  });
   it("does not add capability reads to mutations", async () => {
     const read = vi.fn();
     const value = { added: 1, removed: 0, unchanged: 0 };

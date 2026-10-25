@@ -6,7 +6,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   parseReviewConfigurationStrict,
   type EffectiveReviewConfiguration,
+  type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
+import {
+  contextToolsDescriptorDigest,
+  type ProducerContextToolsProfile,
+} from "@reviewrouter/features-review-context-tools";
 import { reviewActionV2SupportedContracts } from "@reviewrouter/protocol-review-action-v2";
 import { readRepositorySkillsReadiness } from "./repository-skills-readiness";
 
@@ -42,6 +47,7 @@ const contract = reviewActionV2SupportedContracts()[0]!;
 const attestation = (
   suffix = "a",
   agentProfiles: readonly unknown[] | null = [legacy, supporting, ocr],
+  contextToolsProfile?: ProducerContextToolsProfile,
 ) => ({
   producerReleaseId: `release-${suffix}`,
   distributionKind: "public_reusable",
@@ -52,6 +58,7 @@ const attestation = (
   contextGatewayPolicyVersion: null,
   contextGatewayEntrypointDigest: null,
   agentProfiles,
+  ...(contextToolsProfile === undefined ? {} : { contextToolsProfile }),
   schemaDigest: contract.schemaDigest,
   canonicalizerDigest: contract.canonicalizerDigest,
   capabilityProfile: "exact_revision_v2",
@@ -84,11 +91,15 @@ function config(
     authMode?: string;
     agentProfileRef?: string;
     agenticContext?: boolean;
+    contextTools?: ReviewConfiguration["contextTools"];
   } = {},
 ) {
   const authMode = input.authMode ?? "codex_account_gateway";
   return parseReviewConfigurationStrict({
     schemaVersion: 3,
+    ...(input.contextTools === undefined
+      ? {}
+      : { contextTools: input.contextTools }),
     providers: [
       {
         kind: "codex",
@@ -270,6 +281,74 @@ describe("repository Skills support advisory", () => {
         releases: [attestation("a", [legacy])],
       }).run(),
     ).toMatchObject([{ status: "blocked", reason: "engine_unsupported" }]);
+  });
+  it("keeps admission-incompatible context tool selections unconfirmed", async () => {
+    const selections: NonNullable<ReviewConfiguration["contextTools"]>[] = [
+      { version: 1, builtinTools: ["repository.docs.read"], mcp: [] },
+      {
+        version: 1,
+        builtinTools: [],
+        mcp: [{ connection: "docs", tools: ["read"] }],
+      },
+    ];
+    const capability: ProducerContextToolsProfile = {
+      extensionId: "context-tools.v1",
+      descriptorDigest: contextToolsDescriptorDigest,
+    };
+    for (const contextTools of selections) {
+      for (const policy of [
+        effective({ agentProfileRef: supporting.profileRef, contextTools }),
+        effective({ agenticContext: false, contextTools }),
+      ])
+        expect(
+          await fixture({
+            policy,
+            releases: [attestation("a", undefined, capability)],
+          }).run(),
+        ).toMatchObject([{ status: "unknown", reason: "runtime_unconfirmed" }]);
+      for (const agentProfileRef of [undefined, ocr.profileRef])
+        expect(
+          await fixture({
+            policy: effective({
+              ...(agentProfileRef === undefined ? {} : { agentProfileRef }),
+              contextTools,
+            }),
+          }).run(),
+        ).toMatchObject([{ status: "unknown", reason: "runtime_unconfirmed" }]);
+      expect(
+        await fixture({
+          policy: effective({ contextTools }),
+          releases: [
+            attestation("a", undefined, {
+              ...capability,
+              descriptorDigest: `sha256:${"f".repeat(64)}`,
+            }),
+          ],
+        }).run(),
+      ).toMatchObject([{ status: "unknown", reason: "runtime_unconfirmed" }]);
+      expect(
+        await fixture({
+          policy: effective({ contextTools }),
+          releases: [attestation("a", undefined, capability)],
+        }).run(),
+      ).toMatchObject([{ status: "ready", reason: "supported" }]);
+      expect(
+        await fixture({
+          policy: effective({ contextTools }),
+          releases: [attestation("a", undefined, capability), attestation("d")],
+        }).run(),
+      ).toMatchObject([{ status: "unknown", reason: "runtime_unconfirmed" }]);
+    }
+  });
+  it("does not require context tool capability for an empty selection", async () => {
+    expect(
+      await fixture({
+        policy: effective({
+          agentProfileRef: supporting.profileRef,
+          contextTools: { version: 1, builtinTools: [], mcp: [] },
+        }),
+      }).run(),
+    ).toMatchObject([{ status: "ready", reason: "supported" }]);
   });
   it("never takes a happy subset of mixed, missing-profile or ambiguous candidates", async () => {
     for (const second of [

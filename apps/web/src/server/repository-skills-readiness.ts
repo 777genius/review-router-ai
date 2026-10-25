@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { supportsContextToolsV1 } from "@reviewrouter/features-review-context-tools";
 import {
   PrismaReviewPolicyHeadReader,
   resolveEffectiveReviewConfigurations,
@@ -216,6 +217,14 @@ function candidateSupport(
       // must also match; live source/OIDC verification remains admission-owned.
       reviewSkillsDelivery: transport === "provider_api",
     });
+    const contextTools = configuration.contextTools;
+    if (
+      contextTools &&
+      contextTools.builtinTools.length + contextTools.mcp.length > 0 &&
+      (selected.agentKind !== "ocr" ||
+        !supportsContextToolsV1(release.contextToolsProfile))
+    )
+      return "unknown";
     if (selected.agentKind === "ocr" && gateway?.agenticContext === false)
       return "unavailable";
     return selected.reviewSkillsVersion === 1 ? "supported" : "unsupported";

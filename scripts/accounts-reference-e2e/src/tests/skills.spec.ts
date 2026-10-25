@@ -324,7 +324,7 @@ test.describe("Skills real Next and PostgreSQL", () => {
     });
     await expect(
       editor.getByText(
-        "SKILL.md must be 64 KiB or smaller; instructions are limited to 32 KiB.",
+        "Import not applied. Your current draft is unchanged. SKILL.md must be 64 KiB or smaller; instructions are limited to 32 KiB.",
         { exact: true },
       ),
     ).toBeVisible();

@@ -121,6 +121,13 @@ describe("single-file Skills portability", () => {
     "- Outer\n  - Inner\n      [Guide](references/guide.md)",
     "[Guide](\nreferences/guide.md\n)",
     "[Guide]\n\n[Guide]:\n  references/guide.md",
+    "See the [reference\nguide](references/guide.md)",
+    "![architecture\ndiagram](assets/architecture.png)",
+    "[reference\nguide][rules]\n\n[rules]: references/guide.md",
+    "[guide][review\nrules]\n\n[review rules]: references/guide.md",
+    "[review\nrules][]\n\n[review rules]: references/guide.md",
+    "[review\nrules]\n\n[review rules]: references/guide.md",
+    "[guide][review rules]\n\n[review\nrules]: references/guide.md",
   ])(
     "rejects actual companion references and offers draft-only export: %s",
     async (instructions) => {
@@ -153,6 +160,12 @@ describe("single-file Skills portability", () => {
     "- ```md\n  [Example](references/guide.md)\n  ```",
     "\\[Escaped](references/guide.md)",
     "Run scripts/check.sh as a manual example.\nUse references/guide.md as example prose.",
+    "[review\nguide](https://example.test)\n\n[review guide]: references/unused.md",
+    "[review\nguide][remote]\n\n[review guide]: references/unused.md\n[remote]: https://example.test",
+    "Literal [open\n\nclose](references/guide.md)",
+    "Literal [open\n \t\nclose](references/guide.md)",
+    "[open\n```\nexample\n```\nclose](references/guide.md)",
+    "```md\n[reference\nguide](references/guide.md)\n```",
   ])(
     "keeps inert examples and external references importable: %s",
     async (instructions) => {

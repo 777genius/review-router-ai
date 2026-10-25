@@ -24,10 +24,12 @@ export async function enrichReviewSkillsResponse<K extends ReviewSkillsMethod>(
     const page = value as ServiceValue<"listAssignmentChoices">;
     return {
       ...page,
-      repositoryReadiness: await readReadiness({
-        workspaceId: request.workspaceId,
-        repositoryIds: request.repositoryIds,
-      }),
+      repositoryReadiness: request.cursor
+        ? []
+        : await readReadiness({
+            workspaceId: request.workspaceId,
+            repositoryIds: request.repositoryIds,
+          }),
     } as ReviewSkillsValue<K>;
   }
   if (method === "loadRepositorySkillSettings") {

@@ -706,7 +706,7 @@ test.describe("Skills real Next UX resilience", () => {
     });
     for (const name of [
       "Edit",
-      "Repositories",
+      "Assign to repositories",
       "Manage access",
       "Delete original",
     ]) {
@@ -1225,7 +1225,7 @@ test.describe("Skills real Next UX resilience", () => {
     );
     await editor
       .getByLabel("Import SKILL.md", { exact: false })
-      .setInputFiles(file("", "[Guide](references/guide.md)"));
+      .setInputFiles(file("", "[Reference\nguide](references/guide.md)"));
     await expect(editor.getByRole("alert")).toContainText("companion files");
     await expect(editor.getByRole("alert")).toContainText(
       "Import not applied. Your current draft is unchanged.",

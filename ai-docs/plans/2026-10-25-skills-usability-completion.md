@@ -1,6 +1,6 @@
 # Skills usability completion
 
-Status: implementation complete in both working branches; independent source review approved after corrections. Focused checks passed. Final published-head browser/visual, build, CI, and merge qualification remain in progress.
+Status: implemented and independently reviewed. Final published-head browser/visual results, required CI, review disposition, and merge evidence are tracked in [control-plane PR #704](https://github.com/777genius/review-router-ai/pull/704) and [runtime PR #338](https://github.com/777genius/review-router/pull/338).
 
 ## Goal and evidence
 
@@ -161,4 +161,13 @@ Other tasks share the host. Record only this task's service PIDs, command lines,
 - Completed local evidence so far: control-plane selector/API/readiness/enrichment/composition 51 tests, real PostgreSQL Skills 14 tests, and final portable/readiness/authorization recheck 64 tests. Web typecheck passed. The real manifest-qualified OCR lane passed 11 CLI cases without skips, with receipt and error suites also passing. Later runtime counter refinements still require the coordinated final rerun/build.
 - The existing case-distinct OCR fixture remains an engine transport proof. A second real invocation with a case-unique inventory is used for canonical publication because the existing projection rejects case-fold duplicates. No unrelated path-normalization policy was changed.
 
-Final exact-head E2E/visual qualification, runtime build/dist, CI, PR comments/review, and merges remain pending. Update this record with completed evidence and actual limits; do not mark unfinished work done.
+### Review corrections and integration
+
+- Actual desktop/mobile inspection led to shorter readiness labels in repository rows, an explicit disabled **Added** state after linking, and an import-error prefix that confirms the current draft is unchanged. Full readiness explanations remain in the selected-repository summary. Repository names wrap at natural word boundaries.
+- External review identified multiline Markdown labels, known context-tools incompatibility, invalid raw deployment settings, and a generated Next.js type-path change. Multiline inline/full/collapsed/shortcut references now use one bounded soft-line-break grammar; configured tools require an OCR profile and the existing producer capability; invalid profile references fail before hosted API requests; the generated type import is restored. Assignment continuation pages also avoid repeating unused readiness queries.
+- The corrected portable suite passed 63 tests. Readiness/enrichment/authorization/selector checks passed 31 tests, and the full deployment contract file passed 92 tests. Web, API, and harness typechecks passed before these focused review corrections; final CI is recorded in PR #704. Skills architecture passed 82 shared cases and its rejecting mutation, and the main architecture scan passed 604 domain/application files.
+- A fresh PG17 browser run on `292697e4` applied all 149 migrations and verified the new flows. It exposed two stale expected UI strings; those assertions were updated without weakening their persistence, privacy, size, or layout checks. The complete rerun after all review corrections is recorded in PR #704, including any failures rather than treating this earlier partial run as qualification.
+- Runtime main advanced to `fb13bd1` while this work was in progress. Integration had no source overlap; all 15 Skills source/test/doc files remained byte-identical. The final normal build regenerated the Action and plan artifacts. To avoid duplicated debug-source text, `build:action:main` omits only source-map `sourcesContent`: executable JavaScript and all other map metadata are verified identical, while the map decreased from 16,659,681 to 4,846,381 bytes. The README documents the matching-checkout/dependencies requirement for original-source viewing.
+- Runtime qualification passed 203 focused cases and all 11 required actual OCR CLI cases with the manifest-qualified binary, without unfiltered skips. After main integration, typecheck, the normal build, and 60 receipt/projection/Action-handler cases passed again. All published blobs were checked against their local Git object hashes.
+
+The linked PRs carry the final exact revision and browser/visual evidence, review replies, required-check results, and merge commits. Source/unit success alone is not final merge qualification; production release-tag promotion remains a separate operation.

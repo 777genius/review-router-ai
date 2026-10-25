@@ -155,10 +155,15 @@ function localDestination(raw: string): boolean {
 export function hasCompanionFiles(markdown: string): boolean {
   const text = withoutCodeExamples(markdown);
   const definitions = new Map<string, string>();
+  // Labels may wrap within a paragraph, but never cross a blank/code block.
+  const labelCharacter = String.raw`(?:[^\]\n]|\n(?!\n))`;
   const normalize = (id: string) =>
     id.trim().replace(/\s+/gu, " ").toLowerCase();
   const uses = text.replace(
-    /^ {0,3}\[([^\]\n]+)\]:[ \t]*(?:\n[ \t]+)?(.+)$/gmu,
+    new RegExp(
+      String.raw`^ {0,3}\[(${labelCharacter}+)\]:[ \t]*(?:\n[ \t]+)?(.+)$`,
+      "gmu",
+    ),
     (_match, id: string, destination: string) => {
       if (!definitions.has(normalize(id)))
         definitions.set(normalize(id), destination);
@@ -168,18 +173,24 @@ export function hasCompanionFiles(markdown: string): boolean {
   // Looking at the closing label also handles nested labels. Destinations may
   // have a title or angle brackets; only their local/remote identity is needed.
   for (const match of uses.matchAll(/\]\(\s*([^)]*)\)/gu)) {
-    const lineStart = uses.lastIndexOf("\n", match.index);
+    const paragraphStart = uses.lastIndexOf("\n\n", match.index);
     if (
-      uses.lastIndexOf("[", match.index) > lineStart &&
+      uses.lastIndexOf("[", match.index) > paragraphStart &&
       localDestination(match[1]!)
     )
       return true;
   }
   let localReference = false;
   const referenceUses = uses
-    .replace(/!?\[[^\]\n]*\]\([^)]*\)/gu, "")
     .replace(
-      /!?\[([^\]\n]*)\]\[([^\]\n]*)\]/gu,
+      new RegExp(String.raw`!?\[${labelCharacter}*\]\([^)]*\)`, "gu"),
+      "",
+    )
+    .replace(
+      new RegExp(
+        String.raw`!?\[(${labelCharacter}*)\]\[(${labelCharacter}*)\]`,
+        "gu",
+      ),
       (_match, label: string, id: string) => {
         const target = definitions.get(normalize(id || label));
         if (target && localDestination(target)) localReference = true;
@@ -187,7 +198,9 @@ export function hasCompanionFiles(markdown: string): boolean {
       },
     );
   if (localReference) return true;
-  for (const match of referenceUses.matchAll(/\[([^\]\n]+)\]/gu)) {
+  for (const match of referenceUses.matchAll(
+    new RegExp(String.raw`\[(${labelCharacter}+)\]`, "gu"),
+  )) {
     const target = definitions.get(normalize(match[1]!));
     if (target && localDestination(target)) return true;
   }

@@ -727,7 +727,7 @@ function SkillRepositoriesDialog({
                 }
               />
               <span className="min-w-0 flex-1">
-                <span className="block break-all">{repo.name}</span>
+                <span className="block break-words">{repo.name}</span>
                 {repo.readiness.status !== "ready" ? (
                   <span className="mt-1 block text-xs leading-5 text-slate-400">
                     {skillsReadinessLabel(repo.readiness)}
