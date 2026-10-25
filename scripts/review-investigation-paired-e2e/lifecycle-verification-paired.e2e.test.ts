@@ -533,6 +533,18 @@ lifecycleCase.each([
         native.facts.headSha,
       );
       expect(prompt.revalidationTargets).toHaveLength(4);
+      // Seed the canonical App comment format, then verify the actual public
+      // native inventory recovered the known severities and unchanged claim IDs.
+      expect(
+        prompt.revalidationTargets.map(
+          (target: { severity: string }) => target.severity,
+        ),
+      ).toEqual(["major", "major", "major", "major"]);
+      expect(
+        prompt.revalidationTargets
+          .map((target: { title: string }) => target.title)
+          .sort(),
+      ).toEqual(oldClaims.map((claim) => claim[0]).sort());
       const revalidation = await verifierModule.planFindingRevalidation(
         {
           scope: {
@@ -685,6 +697,15 @@ lifecycleCase.each([
           noBaseline.projectionEnvelopeCanonicalJson,
         );
         expect(noBaselineEnvelope.occurrences).toHaveLength(1);
+        // Only an accepted, known-severity confirmation may block without a
+        // lineage baseline; unknown/unverified history must remain non-blocking.
+        const noBaselineConfirmedOpen =
+          noBaselineEnvelope.publishing.lifecycle.filter(
+            (entry: { verification: { confirmationState: string } }) =>
+              entry.verification.confirmationState === "confirmed_open",
+          );
+        expect(noBaselineConfirmedOpen).toHaveLength(1);
+        expect(noBaselineConfirmedOpen[0].verification.severity).toBe("major");
         expect(noBaselineEnvelope.mergeGate.conclusion).toBe("fail");
         expect(noBaselineEnvelope.mergeGate.blockingLineageIds).toEqual([]);
         expect(
@@ -1606,7 +1627,9 @@ function nativeThreads(github: FakeGitHubTransport, scenario: Scenario) {
             databaseId: 800 + index,
             viewerDidAuthor: true,
             author: { login: "reviewrouter-e2e[bot]", __typename: "Bot" },
-            body: `<!-- reviewrouter:finding:v2:${hint.lineageId} -->\n**${hint.title}**\n**Severity: major**\n${hint.message}`,
+            // Synthesis emits this compact severity header; canonical App
+            // publishing preserves it and appends the hidden finding marker.
+            body: `_🟡 Major_\n\n**${hint.title}**\n\n${hint.message}\n\n<!-- reviewrouter:finding:v2:${hint.lineageId} -->`,
             createdAt: parentCreatedAt,
             updatedAt: parentCreatedAt,
             path: filePath,
