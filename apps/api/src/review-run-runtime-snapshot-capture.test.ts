@@ -1,3 +1,4 @@
+import { lifecycleVerificationDescriptorDigest } from "@reviewrouter/shared";
 import { describe, expect, it } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import {
@@ -13,6 +14,7 @@ import { storedPolicyForConfiguration } from "../../../packages/features/review-
 import {
   readServerApprovedReviewRunGatewayPolicy,
   readServerReviewAgentProfileRef,
+  readServerReviewRunGatewayRequestCaps,
   ProductionReviewRunRuntimeSnapshot,
 } from "./review-run-runtime-snapshot";
 
@@ -577,5 +579,264 @@ describe("direct OpenRouter admission", () => {
     await expect(
       snapshotSource().capture(input, readerFor(gatewayPolicyJson({}))),
     ).resolves.toBeNull();
+  });
+});
+
+describe("lifecycle verification capture", () => {
+  const profile = {
+    extensionId: "lifecycle-verification.v1" as const,
+    descriptorDigest: lifecycleVerificationDescriptorDigest,
+  };
+  const qualified = [
+    {
+      profile: {
+        profileId: gatewayProfileRef,
+        protocol: "openai-responses",
+        modelIds: ["mimo-v2-pro"],
+      },
+      outputTokens: 2048,
+    },
+  ];
+  function source(qualification = qualified) {
+    return new ProductionReviewRunRuntimeSnapshot(
+      {} as PrismaClient,
+      {
+        profiles: [
+          {
+            profileRef: gatewayProfileRef,
+            limits: {
+              requests: 9,
+              concurrency: 1,
+              requestBytes: 64000,
+              outputBytes: 20000,
+              tokens: 4096,
+            },
+          },
+        ],
+      },
+      undefined,
+      false,
+      "codex-default",
+      false,
+      { profiles: qualification, ingressBytes: 32000, requestTimeoutMs: 30000 },
+    );
+  }
+  it("captures the saved model and lower qualified bounds without partitioning R", async () => {
+    const captured = await source().capture(
+      {
+        ...captureInput(),
+        producerRelease: {
+          ...captureInput().producerRelease,
+          lifecycleVerificationProfile: profile,
+        },
+      },
+      readerFor(gatewayPolicyJson({})),
+    );
+    expect(captured).toMatchObject({
+      gateway: { limits: { requests: 9 } },
+      lifecycleVerificationCapability: {
+        ...profile,
+        providerIndex: 0,
+        providerKind: "codex",
+        model: "mimo-v2-pro",
+        maxOutputTokens: 2048,
+        maxPromptBytes: 32000,
+        deadlineMs: 30000,
+        maxResponseBytes: 20000,
+        maxDispatches: 2,
+        attemptBudget: 1,
+      },
+    });
+    expect(captured).not.toHaveProperty(
+      "lifecycleVerificationUnavailableReason",
+    );
+  });
+  it("keeps direct OpenRouter unavailable even with an approved verifier producer", async () => {
+    const configuration = parseReviewConfigurationStrict(
+      JSON.parse(gatewayPolicyJson({})),
+    );
+    configuration.providers = [
+      {
+        kind: "openrouter",
+        authMode: "openrouter_api_key",
+        model: "openai/gpt-5.4",
+        reasoningEffort: "high",
+        agenticContext: true,
+        fastMode: false,
+        requiredHealthy: true,
+      },
+    ];
+    const captured = await source().capture(
+      {
+        ...captureInput(),
+        modelTransport: "provider_api",
+        providerApiAuthMode: "openrouter-api",
+        producerRelease: {
+          ...captureInput().producerRelease,
+          agentProfiles: parseReviewAgentProfiles([codexDefaultProfile]),
+          lifecycleVerificationProfile: profile,
+        },
+      },
+      readerFor(canonicalJson(configuration)),
+    );
+    expect(captured).not.toHaveProperty("captureDenied");
+    expect(captured).not.toHaveProperty("lifecycleVerificationCapability");
+    expect(captured).toHaveProperty(
+      "lifecycleVerificationUnavailableReason",
+      "verification_unavailable",
+    );
+  });
+  it("preserves discovery on invalid approval and unavailable model qualification", async () => {
+    for (const [approval, qualification, reason] of [
+      [
+        { ...profile, descriptorDigest: `sha256:${"f".repeat(64)}` },
+        qualified,
+        "verification_configuration_invalid",
+      ],
+      [profile, [], "verification_unavailable"],
+      [
+        profile,
+        [{ ...qualified[0]!, outputTokens: 1023 }],
+        "verification_unavailable",
+      ],
+    ] as const) {
+      const captured = await source([...qualification]).capture(
+        {
+          ...captureInput(),
+          producerRelease: {
+            ...captureInput().producerRelease,
+            lifecycleVerificationProfile: approval,
+          },
+        },
+        readerFor(gatewayPolicyJson({})),
+      );
+      expect(captured).not.toHaveProperty("captureDenied");
+      expect(captured).toHaveProperty(
+        "lifecycleVerificationUnavailableReason",
+        reason,
+      );
+      expect(captured).not.toHaveProperty("lifecycleVerificationCapability");
+    }
+    const legacy = await source().capture(
+      captureInput(),
+      readerFor(gatewayPolicyJson({})),
+    );
+    expect(legacy).not.toHaveProperty("lifecycleVerificationCapability");
+    expect(legacy).not.toHaveProperty("lifecycleVerificationUnavailableReason");
+  });
+});
+
+describe("server scoped Gateway request ceilings", () => {
+  const rule = {
+    workspaceId,
+    repositoryConnectionId,
+    scmRepositoryIdentityId: identity.scmRepositoryIdentityId,
+    pullRequestNumber: identity.pullRequestNumber,
+    profileRef: gatewayProfileRef,
+    bindingId,
+    maxRequests: 9,
+  };
+  function source(rules: readonly (typeof rule)[]) {
+    return new ProductionReviewRunRuntimeSnapshot(
+      {} as PrismaClient,
+      {
+        profiles: [
+          {
+            profileRef: gatewayProfileRef,
+            limits: {
+              requests: 640,
+              concurrency: 1,
+              requestBytes: 98304,
+              outputBytes: 196608,
+              tokens: 4096,
+            },
+          },
+        ],
+      },
+      undefined,
+      false,
+      "codex-default",
+      false,
+      {
+        profiles: [],
+        ingressBytes: 98304,
+        requestTimeoutMs: 60000,
+        requestCaps: rules,
+      },
+    );
+  }
+  async function captured(s = source([rule]), input = captureInput()) {
+    const result = await s.capture(input, readerFor(gatewayPolicyJson({})));
+    if (!result || "captureDenied" in result) throw new Error("capture failed");
+    return result;
+  }
+  it("lowers only the exact server-scoped PR grant and ignores caller cap fields", async () => {
+    expect((await captured()).gateway?.limits.requests).toBe(9);
+    for (const changed of [
+      { workspaceId: "other" },
+      { repositoryConnectionId: "other" },
+      { scmRepositoryIdentityId: "other" },
+      { pullRequestNumber: 2 },
+      { profileRef: "other" },
+      { bindingId: "other" },
+    ]) {
+      expect(
+        (await captured(source([{ ...rule, ...changed }]))).gateway?.limits
+          .requests,
+      ).toBe(640);
+    }
+    expect(
+      (await captured(source([{ ...rule, maxRequests: 1000 }]))).gateway?.limits
+        .requests,
+    ).toBe(640);
+    const forged = {
+      ...captureInput(),
+      requestCaps: [{ ...rule, maxRequests: 1000 }],
+      maxRequests: 1000,
+    };
+    expect(
+      (await captured(source([rule]), forged)).gateway?.limits.requests,
+    ).toBe(9);
+    expect(
+      (await captured(source([]), { ...captureInput(), ...{ maxRequests: 1 } }))
+        .gateway?.limits.requests,
+    ).toBe(640);
+  });
+  it("keeps captured R9 through restore and rejects only over-cap existing grants in that exact scope", async () => {
+    const bounded = await captured();
+    const old = await captured(source([]));
+    const live = (s: ReturnType<typeof source>, snapshot: typeof bounded) =>
+      s.isLive(
+        { snapshot, identity, now: new Date("2026-10-25T00:00:00.000Z") },
+        readerFor(gatewayPolicyJson({})),
+      );
+    expect(await live(source([rule]), bounded)).toBe(true);
+    expect(await live(source([]), bounded)).toBe(true);
+    expect(bounded.gateway?.limits.requests).toBe(9);
+    expect(await live(source([rule]), old)).toBe(false);
+    expect(
+      await live(
+        source([{ ...rule, repositoryConnectionId: "unrelated" }]),
+        old,
+      ),
+    ).toBe(true);
+  });
+  it("strictly validates finite operator rules and detaches them from later mutation", async () => {
+    expect(readServerReviewRunGatewayRequestCaps(undefined)).toEqual([]);
+    for (const value of [
+      [{ ...rule, callerCanRaise: true }],
+      [{ ...rule, maxRequests: 0 }],
+      [{ ...rule, maxRequests: 1.5 }],
+      [{ ...rule, pullRequestNumber: 0 }],
+      [rule, rule],
+      { rules: [rule] },
+    ])
+      expect(() =>
+        readServerReviewRunGatewayRequestCaps(JSON.stringify(value)),
+      ).toThrow("review_run_gateway_request_caps_invalid");
+    const mutable = { ...rule };
+    const instance = source([mutable]);
+    mutable.maxRequests = 640;
+    expect((await captured(instance)).gateway?.limits.requests).toBe(9);
   });
 });

@@ -1514,6 +1514,7 @@ async function createHarness(
       agentProfilesJson: true,
       prDescriptionProfile: true,
       contextToolsProfile: true,
+      lifecycleVerificationProfile: true,
     },
     data: {
       producerReleaseId,

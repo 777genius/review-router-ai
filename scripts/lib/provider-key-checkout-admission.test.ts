@@ -33,6 +33,8 @@ const originalHistory = readRenderManagedCheckoutInventory()
       row.migrationName !== "000144_review_statistics" &&
       row.migrationName !== "000143_workspace_draft_review_setting" &&
       row.migrationName !== "000145_workspace_provider_profiles" &&
+      row.migrationName !== "000148_lifecycle_verification" &&
+      row.migrationName !== "000147_review_skills_mutation_identity" &&
       row.migrationName !== "000146_drop_review_configuration_projection" &&
       row.migrationName !== "000133_allow_first_time_scm_identity_bind",
   )

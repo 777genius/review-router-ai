@@ -1,4 +1,9 @@
 import {
+  lifecycleVerificationContract,
+  lifecycleVerificationDescriptorDigest,
+  type LifecycleVerificationCapabilityV1,
+} from "@reviewrouter/shared";
+import {
   captureContextToolsPlan,
   PrismaContextConnectionStore,
   supportsContextToolsV1,
@@ -25,6 +30,8 @@ import {
   canonicalJson,
   parseReviewRunRuntimeSnapshot,
   parseProducerPrDescriptionProfile,
+  parseProducerLifecycleVerificationProfile,
+  reviewAgentExecutionProviderKind,
   parseReviewAgentProfiles,
   parseProducerContextToolsProfile,
   selectReviewAgentProfile,
@@ -95,6 +102,48 @@ export function readServerApprovedReviewRunGatewayPolicy(
   }
 }
 
+export type ServerReviewRunGatewayRequestCap = Readonly<{
+  workspaceId: string;
+  repositoryConnectionId: string;
+  scmRepositoryIdentityId: string;
+  pullRequestNumber: number;
+  profileRef: string;
+  bindingId: string;
+  maxRequests: number;
+}>;
+
+/** Server-owned cost ceilings for an exact saved connection and PR. No caller input. */
+export function readServerReviewRunGatewayRequestCaps(
+  raw: string | undefined,
+): readonly ServerReviewRunGatewayRequestCap[] {
+  if (raw === undefined) return [];
+  try {
+    if (new TextEncoder().encode(raw).byteLength > 32768) throw new Error();
+    const rules = z
+      .array(
+        z.strictObject({
+          workspaceId: c.reference,
+          repositoryConnectionId: c.reference,
+          scmRepositoryIdentityId: c.reference,
+          pullRequestNumber: z.number().int().min(1).max(2147483647),
+          profileRef: c.reference,
+          bindingId: c.reference,
+          maxRequests: c.limits.shape.requests,
+        }),
+      )
+      .max(128)
+      .parse(JSON.parse(raw));
+    const identities = rules.map(({ maxRequests: _cap, ...scope }) => {
+      void _cap;
+      return canonicalJson(scope);
+    });
+    if (new Set(identities).size !== identities.length) throw new Error();
+    return Object.freeze(rules.map((rule) => Object.freeze(rule)));
+  } catch {
+    throw new Error("review_run_gateway_request_caps_invalid");
+  }
+}
+
 /** System-owned selection after real OIDC admission policy, without a user actor.
  * No Gateway HTTP call, credential, epoch inference or allowance is created here.
  */
@@ -102,6 +151,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
   private readonly repositories: PrismaActionControlPlaneRepository;
   private readonly accounts: PrismaProviderAccountRepository;
   private readonly approvedLimits: ReadonlyMap<string, ReviewRunGatewayLimits>;
+  private readonly requestCaps: readonly ServerReviewRunGatewayRequestCap[];
   constructor(
     private readonly prisma: PrismaClient,
     policy?: ServerApprovedReviewRunGatewayPolicy,
@@ -109,6 +159,19 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     private readonly personalAccountsEnabled = false,
     private readonly agentProfileRef = defaultReviewAgentProfileRef,
     private readonly preferSkillsProfile = false,
+    private readonly qualifiedRelayPolicy?: {
+      readonly profiles: readonly {
+        readonly profile: {
+          readonly profileId: string;
+          readonly protocol: string;
+          readonly modelIds: readonly string[];
+        };
+        readonly outputTokens: number;
+      }[];
+      readonly ingressBytes: number;
+      readonly requestTimeoutMs: number;
+      readonly requestCaps?: readonly ServerReviewRunGatewayRequestCap[];
+    },
   ) {
     assertOpaqueReference(agentProfileRef);
     if (operatorWorkspaceId !== undefined)
@@ -132,12 +195,39 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       throw new Error("review_run_gateway_policy_invalid");
     }
     this.approvedLimits = profiles;
+    this.requestCaps = readServerReviewRunGatewayRequestCaps(
+      JSON.stringify(qualifiedRelayPolicy?.requestCaps ?? []),
+    );
     this.repositories = new PrismaActionControlPlaneRepository(prisma);
     this.accounts = new PrismaProviderAccountRepository(
       prisma,
       operatorWorkspaceId,
       personalAccountsEnabled,
     );
+  }
+
+  private cappedRequests(
+    identity: Pick<
+      VerifiedScmRunIdentity,
+      | "workspaceId"
+      | "repositoryConnectionId"
+      | "scmRepositoryIdentityId"
+      | "pullRequestNumber"
+    >,
+    profileRef: string,
+    bindingId: string,
+    approvedRequests: number,
+  ): number {
+    const rule = this.requestCaps.find(
+      (rule) =>
+        rule.workspaceId === identity.workspaceId &&
+        rule.repositoryConnectionId === identity.repositoryConnectionId &&
+        rule.scmRepositoryIdentityId === identity.scmRepositoryIdentityId &&
+        rule.pullRequestNumber === identity.pullRequestNumber &&
+        rule.profileRef === profileRef &&
+        rule.bindingId === bindingId,
+    );
+    return Math.min(approvedRequests, rule?.maxRequests ?? approvedRequests);
   }
 
   private selectImplicitGatewayProfile(
@@ -350,8 +440,95 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
           ? { expectedAuthorizationEpoch: binding.expectedAuthorizationEpoch }
           : {}),
         ...reviewRunGatewayPreparationIdentity(identity),
-        limits: { ...limits },
+        limits: {
+          ...limits,
+          requests: this.cappedRequests(
+            identity,
+            selected.provider.gatewayProfileRef,
+            bindingId,
+            limits.requests,
+          ),
+        },
       };
+    }
+    let lifecycleVerificationUnavailableReason: ReviewRunRuntimeSnapshot["lifecycleVerificationUnavailableReason"];
+    if (input.producerRelease.lifecycleVerificationProfile != null)
+      lifecycleVerificationUnavailableReason = "verification_unavailable";
+    let lifecycleVerificationCapability:
+      | LifecycleVerificationCapabilityV1
+      | undefined;
+    if (
+      input.producerRelease.lifecycleVerificationProfile != null &&
+      gateway &&
+      (agent.agentKind === "ocr" || agent.agentKind === "codex")
+    ) {
+      // Model/account selection stays exclusively in saved policy; qualification
+      // supplies a bound for that model, never a fallback route.
+      try {
+        const profile = parseProducerLifecycleVerificationProfile(
+          input.producerRelease.lifecycleVerificationProfile,
+        );
+        if (profile.descriptorDigest !== lifecycleVerificationDescriptorDigest)
+          throw new Error("verification_configuration_invalid");
+        const provider = selected!.provider;
+        const qualified = (this.qualifiedRelayPolicy?.profiles ?? []).filter(
+          (entry) =>
+            entry.profile.profileId === gateway!.profileRef &&
+            entry.profile.protocol === "openai-responses" &&
+            entry.profile.modelIds.includes(provider.model),
+        );
+        if (qualified.length > 1)
+          throw new Error("verification_configuration_invalid");
+        if (qualified.length === 1) {
+          for (const bound of [
+            qualified[0]!.outputTokens,
+            this.qualifiedRelayPolicy!.ingressBytes,
+            this.qualifiedRelayPolicy!.requestTimeoutMs,
+          ]) {
+            if (!Number.isSafeInteger(bound) || bound < 1)
+              throw new Error("verification_configuration_invalid");
+          }
+          const maxOutputTokens = Math.min(
+            lifecycleVerificationContract.maxOutputTokens,
+            gateway.limits.tokens,
+            qualified[0]!.outputTokens,
+          );
+          if (
+            Number.isSafeInteger(maxOutputTokens) &&
+            maxOutputTokens >=
+              lifecycleVerificationContract.minOutputTokensPerTarget
+          ) {
+            lifecycleVerificationUnavailableReason = undefined;
+            lifecycleVerificationCapability = {
+              ...profile,
+              executor: lifecycleVerificationContract.executor,
+              modelTransport: "account_gateway",
+              providerIndex: gateway.providerIndex,
+              providerKind: reviewAgentExecutionProviderKind(agent),
+              model: provider.model,
+              maxDispatches: 2,
+              maxPromptBytes: Math.min(
+                lifecycleVerificationContract.maxPromptBytes,
+                gateway.limits.requestBytes,
+                this.qualifiedRelayPolicy!.ingressBytes,
+              ),
+              maxResponseBytes: Math.min(
+                lifecycleVerificationContract.maxResponseBytes,
+                gateway.limits.outputBytes,
+              ),
+              maxOutputTokens,
+              deadlineMs: Math.min(
+                lifecycleVerificationContract.deadlineMs,
+                this.qualifiedRelayPolicy!.requestTimeoutMs,
+              ),
+              attemptBudget: 1,
+            };
+          }
+        }
+      } catch {
+        lifecycleVerificationUnavailableReason =
+          "verification_configuration_invalid";
+      }
     }
     try {
       return parseReviewRunRuntimeSnapshot(
@@ -366,6 +543,12 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
                   input.producerRelease.prDescriptionProfile,
                 ),
               }
+            : {}),
+          ...(lifecycleVerificationCapability
+            ? { lifecycleVerificationCapability }
+            : {}),
+          ...(lifecycleVerificationUnavailableReason
+            ? { lifecycleVerificationUnavailableReason }
             : {}),
           snapshotVersion: 3,
           configurationSource: current.source,
@@ -460,6 +643,18 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     if (input.now >= new Date(snapshot.deadline)) return false;
     const original = snapshot.gateway;
     if (!original) return gatewayProviders.length === 0;
+    // A new lower ceiling revokes an over-budget old grant in exactly this scope.
+    // Removing/raising a ceiling never enlarges an already captured finite grant.
+    if (
+      original.limits.requests !==
+      this.cappedRequests(
+        identity,
+        original.profileRef,
+        original.bindingId,
+        original.limits.requests,
+      )
+    )
+      return false;
     const provider = configuration.providers[original.providerIndex];
     if (
       gatewayProviders.length !== 1 ||
@@ -557,6 +752,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         agentProfilesJson: true,
         contextToolsProfile: true,
         prDescriptionProfile: true,
+        lifecycleVerificationProfile: true,
       },
     });
     if (
@@ -595,6 +791,14 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
                   contextToolsProfile: parseProducerContextToolsProfile(
                     producer.contextToolsProfile,
                   ),
+                }),
+            ...(producer.lifecycleVerificationProfile == null
+              ? {}
+              : {
+                  lifecycleVerificationProfile:
+                    parseProducerLifecycleVerificationProfile(
+                      producer.lifecycleVerificationProfile,
+                    ),
                 }),
             ...(producer.prDescriptionProfile == null
               ? {}

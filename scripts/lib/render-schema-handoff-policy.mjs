@@ -291,6 +291,40 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Lifecycle verification is a checkout-only additive schema extension. Admit
+  // its exact source catalog before preserving the reviewed checkout149 gate.
+  const lifecycleVerificationMigration = catalog.find(
+    (row) => row.migrationName === "000148_lifecycle_verification",
+  );
+  if (lifecycleVerificationMigration) {
+    if (
+      lifecycleVerificationMigration.checksum !==
+        "00e6dca21ae3dcd9c61f729bb93e0319caf5b204ae67e29ba2889259e5db1b60" ||
+      manifest(catalog) !==
+        "sha256:ae1f73631c1ae9e359a22c421d7bb83751fd831f22ba77304be1d20d01878472"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== lifecycleVerificationMigration),
+    );
+  }
+  // Mutation identities change only checkout Skills tables. Admit the exact
+  // checkout149 source, then preserve the unchanged reviewed checkout148 gate.
+  const reviewSkillsMutationIdentityMigration = catalog.find(
+    (row) => row.migrationName === "000147_review_skills_mutation_identity",
+  );
+  if (reviewSkillsMutationIdentityMigration) {
+    if (
+      reviewSkillsMutationIdentityMigration.checksum !==
+        "d5f36bdcddbfa3f252e61e3b4961b7e6102d5a2a4324850089e6bfec442d2883" ||
+      manifest(catalog) !==
+        "sha256:597739d44aa5f10551930c1349bed5c1a634b868fd55f9738b32b33ac230e897"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== reviewSkillsMutationIdentityMigration),
+    );
+  }
   // Dropping the schema 1-3 review configuration projection is checkout-only:
   // its columns and table entered after the managed catalog. Admit the exact
   // SQL and checkout148 before reducing to checkout147.
