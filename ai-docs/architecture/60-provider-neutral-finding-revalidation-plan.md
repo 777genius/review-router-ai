@@ -43,14 +43,29 @@ Verifier получает **один** авторизованный vote identit
 
 ```ts
 type VerifyPacket = Readonly<{
-  version: 1; scope: ScopeAndExactRevision;
-  participant: { voteIdentityHash: string; capabilityDigest: string; model: string };
-  targets: readonly TargetWitness[]; sources: readonly ImmutableSource[];
-  policyDigest: string; packetHash: string;
+  version: 1;
+  scope: ScopeAndExactRevision;
+  participant: {
+    voteIdentityHash: string;
+    capabilityDigest: string;
+    model: string;
+  };
+  targets: readonly TargetWitness[];
+  sources: readonly ImmutableSource[];
+  policyDigest: string;
+  packetHash: string;
 }>;
 type LifecycleInference = {
-  infer(prepared: PreparedPacket, lease: ExistingInvocationLease, signal: AbortSignal):
-    Promise<{ body: Uint8Array; actualModel: string; requestHash: string; nativeUsage: Usage }>;
+  infer(
+    prepared: PreparedPacket,
+    lease: ExistingInvocationLease,
+    signal: AbortSignal,
+  ): Promise<{
+    body: Uint8Array;
+    actualModel: string;
+    requestHash: string;
+    nativeUsage: Usage;
+  }>;
 };
 ```
 
@@ -144,14 +159,14 @@ Coverage разделить: discovery file completeness как прежде; li
 
 **Explicit confirmation representation:** добавить narrow `LifecycleVerificationFact` в projection lifecycle row и application queries: `{targetId, lineageId?, semanticVerdict, confirmationState, severity, observationIds, providerVoteKeys, reasonCodes, mutationStatus}`. Эти факты выводятся только из accepted scoped observations и fresh bindings; входят в canonical projection hash/new producer render policy и shared validator. Старые envelopes без extension читаются как прежде. Не полагаться на current `priorOccurrenceState` (StillValid/Resolved оба CarriedUnverified) или legacy report_mode→Uncertain mapping.
 
-| Вход нового companion | confirmationState / summary | Merge gate / mutation |
-|---|---|---|
-| valid still_valid | confirmed_open, прежние target/lineage/severity и verifier provenance | учитывается failOnSeverity даже вне diff; resolve veto; summary-only, без нового inline/unresolve |
-| valid resolved, report | fix_confirmed_thread_open, mutationStatus=report_only **as of projection** | нейтральное «исправление проверено»; native Resolved/closed lineage не выводится |
-| valid resolved, resolve + complete discovery | fix_confirmed_thread_open, pending canonical effect **as of projection** | только semantic candidate; native effect зависит от §8, его последующий исход не меняет этот artifact |
-| valid resolved + partial discovery | fix_confirmed_thread_open, blocked_partial_review **as of projection** | 0 mutations; partial/inconclusive gate сохраняется |
-| uncertain/missing/stale/capped | unverified с конкретной причиной | 0 mutations; no All Clear, без severity failure только из этой неопределённости |
-| native closed + соответствующий confirmed effect уже видны при **позднейшей обычной projection** | native_resolved | только эта последующая projection может добавить closed lineage/count; current-publication candidates этого не делают |
+| Вход нового companion                                                                            | confirmationState / summary                                                | Merge gate / mutation                                                                                                 |
+| ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| valid still_valid                                                                                | confirmed_open, прежние target/lineage/severity и verifier provenance      | учитывается failOnSeverity даже вне diff; resolve veto; summary-only, без нового inline/unresolve                     |
+| valid resolved, report                                                                           | fix_confirmed_thread_open, mutationStatus=report_only **as of projection** | нейтральное «исправление проверено»; native Resolved/closed lineage не выводится                                      |
+| valid resolved, resolve + complete discovery                                                     | fix_confirmed_thread_open, pending canonical effect **as of projection**   | только semantic candidate; native effect зависит от §8, его последующий исход не меняет этот artifact                 |
+| valid resolved + partial discovery                                                               | fix_confirmed_thread_open, blocked_partial_review **as of projection**     | 0 mutations; partial/inconclusive gate сохраняется                                                                    |
+| uncertain/missing/stale/capped                                                                   | unverified с конкретной причиной                                           | 0 mutations; no All Clear, без severity failure только из этой неопределённости                                       |
+| native closed + соответствующий confirmed effect уже видны при **позднейшей обычной projection** | native_resolved                                                            | только эта последующая projection может добавить closed lineage/count; current-publication candidates этого не делают |
 
 `ProjectReviewPresentationQuery` и `EvaluateMergeGateQuery` явно получают эти confirmation facts. **Identity без baseline допустима:** confirmation всегда имеет native targetId/threadId/fingerprint; lineageId указан только при реальном prior hint/существующем occurrence, synthetic occurrence/lineage запрещён. При known lineage existing blockingLineageIds ссылаются только на настоящие occurrences; narrow extension отдельно несёт `blockingConfirmedLifecycleTargetIds` + reason/provenance и валидирует их по confirmed_open facts. Gate=Fail при непустом любом blocking set, даже когда occurrences/lineageIds пусты. `validateMergeGateDecision`/`applyBlockingDecision` сохраняют старый occurrence invariant и отдельно проверяют/применяют target blocking facts.
 
