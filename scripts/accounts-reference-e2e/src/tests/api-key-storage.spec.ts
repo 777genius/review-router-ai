@@ -68,9 +68,10 @@ async function savedProfiles(): Promise<Profile[]> {
 }
 
 async function choose(page: Page, label: string, value: string) {
-  const control = page
-    .getByRole("dialog")
-    .getByRole("combobox", { name: label, exact: true });
+  const control = page.getByRole("dialog").getByRole("combobox", {
+    name: label === "Account" ? /^Account\b/ : label,
+    exact: true,
+  });
   // First request compiles the real Next route and reads its authorized view.
   await expect(control).toBeVisible({ timeout: 60_000 });
   await control.click();
