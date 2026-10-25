@@ -508,7 +508,7 @@ describe("Review Action v2 production composition", () => {
     ).not.toThrow();
   });
 
-  it("finalizes and renders both producer policies while the configured server policy remains v5", async () => {
+  it("finalizes and renders compatible producer policies while the configured server policy remains v5", async () => {
     const compose = vi.spyOn(
       executionComposition,
       "composeReviewActionV2ExecutionRoutes",
@@ -551,6 +551,10 @@ describe("Review Action v2 production composition", () => {
         [
           reviewActionV2PublishedSchemaDigest,
           "review-projection-policy.v6-comparison",
+        ],
+        [
+          reviewActionV2PublishedSchemaDigest,
+          "review-projection-policy.v7-lifecycle-verification",
         ],
       ]) {
         const authorization = {
@@ -623,7 +627,7 @@ describe("Review Action v2 production composition", () => {
         const expectedArtifactHash = sha(
           `rr.review-artifact.v1\0${canonicalJson({ operationsCanonicalJson: canonicalJson(publishing), projectionHash })}`,
         );
-        const resolved = await facts.resolve({
+        const finalization = {
           authorization,
           execution: {
             ...authorization,
@@ -646,7 +650,28 @@ describe("Review Action v2 production composition", () => {
           } as never,
           maxReconciliationDurationMs: 30_000,
           now,
-        });
+        };
+        const resolved = await facts.resolve(finalization);
+        if (
+          projectionPolicyVersion ===
+          "review-projection-policy.v7-lifecycle-verification"
+        ) {
+          const forged = {
+            ...projection,
+            mergeGate: {
+              blockingConfirmedLifecycleTargetIds: ["unconfirmed-target"],
+            },
+          };
+          await expect(
+            facts.resolve({
+              ...finalization,
+              projectionEnvelope: forged,
+              projectionCanonicalJson: canonicalJson(forged),
+            }),
+          ).rejects.toMatchObject({
+            issues: ["projection_verification_blocking_targets_invalid"],
+          });
+        }
         expect(resolved.projectionPolicyVersion).toBe(projectionPolicyVersion);
         expect(resolved.expectedArtifactHash).toBe(expectedArtifactHash);
         expect(
