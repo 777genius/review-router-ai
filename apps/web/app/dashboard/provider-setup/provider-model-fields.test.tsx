@@ -46,7 +46,7 @@ it("renders and preserves legacy Ultra without silently choosing a new saved eff
   };
   const view = render(<ProviderModelFields {...props} />);
   expect(
-    screen.getByRole("combobox", { name: "Review depth" }).textContent,
+    screen.getByRole("combobox", { name: /^Review depth/ }).textContent,
   ).toContain("Ultra");
   view.rerender(<ProviderModelFields {...props} />);
   expect(onSettingsChange).not.toHaveBeenCalled();

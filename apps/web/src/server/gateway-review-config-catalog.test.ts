@@ -260,7 +260,7 @@ test("resolves catalog membership and reasoning separately for each binding", as
   ).rejects.toThrow("gateway_review_model_unsupported");
 });
 
-it("preserves a saved Codex Ultra selection against canonical Max capabilities", async () => {
+test("preserves a saved Codex Ultra selection against canonical Max capabilities", async () => {
   const selected = {
     ...gateway,
     gatewayProfileRef: "openai-codex-oauth-responses-v1",
