@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   useInfiniteQuery,
   useMutation,
@@ -19,11 +19,15 @@ import {
   SkillSearch,
   skillCellClass,
   skillFieldClass,
+  skillMobileLabelClass,
+  skillResponsiveCellClass,
 } from "./review-skills-ui";
 import { SkillEditorDialog } from "./skill-editor-dialog";
 import {
   RepositorySkillSettings,
   SkillBindingPaths,
+  skillBindingPathsDraftIsDirty,
+  type SkillBindingPathsDraft,
 } from "./repository-skill-settings";
 
 type CapturedSelection = {
@@ -113,6 +117,26 @@ export function RepositorySkillsOperation({
   const [include, setInclude] = useState("**");
   const [exclude, setExclude] = useState("");
   const [success, setSuccess] = useState("");
+  const [pathDrafts, setPathDrafts] = useState<
+    ReadonlyMap<string, SkillBindingPathsDraft>
+  >(() => new Map());
+  const [nestedPending, setNestedPending] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const updatePathDraft = useCallback(
+    (skillId: string, draft: SkillBindingPathsDraft) =>
+      setPathDrafts((prior) => new Map(prior).set(skillId, draft)),
+    [],
+  );
+  const updateNestedPending = useCallback((key: string, pending: boolean) => {
+    setNestedPending((prior) => {
+      if (prior.has(key) === pending) return prior;
+      const next = new Set(prior);
+      if (pending) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
   const client = useQueryClient();
   const overLimit = repositoryIds.length > 1000;
   const choices = useInfiniteQuery({
@@ -166,6 +190,12 @@ export function RepositorySkillsOperation({
         `${result.added} added, ${result.removed} removed, ${result.unchanged} already in the requested state.`,
       );
       setSelected(new Set());
+      if (mode === "remove")
+        setPathDrafts((prior) => {
+          const next = new Map(prior);
+          for (const skillId of selected) next.delete(skillId);
+          return next;
+        });
       await client.invalidateQueries({
         queryKey: reviewSkillsKeys.workspace(viewerId, workspaceId),
       });
@@ -174,7 +204,36 @@ export function RepositorySkillsOperation({
   const completionUnknown =
     apply.error instanceof ReviewSkillsClientError &&
     apply.error.code === "unknown";
-  const controlsLocked = apply.isPending || completionUnknown;
+  const controlsLocked =
+    apply.isPending || completionUnknown || nestedPending.size > 0;
+  const dirtyPathCount = [...pathDrafts.values()].filter(
+    skillBindingPathsDraftIsDirty,
+  ).length;
+  const close = () => {
+    if (apply.isPending || nestedPending.size > 0) return;
+    if (
+      dirtyPathCount > 0 &&
+      !window.confirm("Discard your unsaved skill path changes?")
+    )
+      return;
+    onClose();
+  };
+  const acknowledgePathDraft = async (
+    skillId: string,
+    acknowledged: SkillBindingPathsDraft,
+  ) => {
+    const refreshed = await choices.refetch();
+    if (!refreshed.isSuccess || skillBindingPathsDraftIsDirty(acknowledged))
+      return;
+    // Once query data includes the readback, clean forms resume using it.
+    // A user edit during readback replaces this object and remains preserved.
+    setPathDrafts((prior) => {
+      if (prior.get(skillId) !== acknowledged) return prior;
+      const next = new Map(prior);
+      next.delete(skillId);
+      return next;
+    });
+  };
   const toggle = (id: string) =>
     setSelected((prior) => {
       const next = new Set(prior);
@@ -185,8 +244,8 @@ export function RepositorySkillsOperation({
   return (
     <SkillsDialog
       open
-      onClose={onClose}
-      pending={apply.isPending}
+      onClose={close}
+      pending={apply.isPending || nestedPending.size > 0}
       title={
         mode === "add"
           ? "Add skills to repositories"
@@ -224,6 +283,13 @@ export function RepositorySkillsOperation({
               before applying.
             </p>
           ) : null}
+          {dirtyPathCount > 0 ? (
+            <p role="status" className="text-sm text-amber-100">
+              Unsaved path changes for {dirtyPathCount}{" "}
+              {dirtyPathCount === 1 ? "skill" : "skills"}. Search keeps these
+              drafts. Use Save paths for each edited skill to apply them.
+            </p>
+          ) : null}
           <SkillsError error={apply.error} />
           {apply.isError ? (
             <Button
@@ -250,6 +316,7 @@ export function RepositorySkillsOperation({
           type="button"
           disabled={
             apply.isPending ||
+            nestedPending.size > 0 ||
             selected.size === 0 ||
             selected.size > 100 ||
             overLimit ||
@@ -257,6 +324,17 @@ export function RepositorySkillsOperation({
             choices.isError
           }
           onClick={() => {
+            if (
+              mode === "remove" &&
+              [...selected].some((skillId) => {
+                const draft = pathDrafts.get(skillId);
+                return draft && skillBindingPathsDraftIsDirty(draft);
+              }) &&
+              !window.confirm(
+                "Remove these skill assignments and discard their unsaved path changes?",
+              )
+            )
+              return;
             setSuccess("");
             apply.mutate();
           }}
@@ -315,6 +393,7 @@ export function RepositorySkillsOperation({
         <>
           <SkillSearch
             value={search}
+            disabled={controlsLocked}
             onChange={(value) => {
               setSearch(value);
               setFocusedSkillId(null);
@@ -344,23 +423,61 @@ export function RepositorySkillsOperation({
           ) : null}
           <SkillsError error={choices.error} />
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[36rem] border-collapse">
+            <table
+              role="table"
+              className="block w-full border-collapse lg:table lg:min-w-[36rem]"
+            >
               <caption className="sr-only">
                 Skill operation choices; assigned counts cover all{" "}
                 {repositoryIds.length} selected repositories.
               </caption>
-              <thead>
-                <tr className="border-b border-cyan-200/20 text-slate-400">
-                  <th className={skillCellClass}>Select</th>
-                  <th className={skillCellClass}>Name and description</th>
-                  <th className={skillCellClass}>Author / source</th>
-                  <th className={skillCellClass}>Assigned</th>
+              <thead role="rowgroup" className="hidden lg:table-header-group">
+                <tr
+                  role="row"
+                  className="border-b border-cyan-200/20 text-slate-400"
+                >
+                  <th
+                    role="columnheader"
+                    scope="col"
+                    className={skillCellClass}
+                  >
+                    Select
+                  </th>
+                  <th
+                    role="columnheader"
+                    scope="col"
+                    className={skillCellClass}
+                  >
+                    Name and description
+                  </th>
+                  <th
+                    role="columnheader"
+                    scope="col"
+                    className={skillCellClass}
+                  >
+                    Author / source
+                  </th>
+                  <th
+                    role="columnheader"
+                    scope="col"
+                    className={skillCellClass}
+                  >
+                    Assigned
+                  </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody role="rowgroup" className="block lg:table-row-group">
                 {rows.map((row) => (
-                  <tr key={row.skillId} className="border-b border-cyan-200/10">
-                    <td className={skillCellClass}>
+                  <tr
+                    role="row"
+                    key={row.skillId}
+                    className="grid grid-cols-2 gap-x-4 border-b border-cyan-200/15 py-3 lg:table-row lg:border-cyan-200/10 lg:py-0"
+                  >
+                    <td
+                      role="cell"
+                      className={`${skillResponsiveCellClass} col-span-2`}
+                    >
+                      <span className={skillMobileLabelClass}>Select</span>
                       <Checkbox
                         aria-label={`Select skill ${row.name}${row.available ? "" : ` ${row.skillId}`}`}
                         checked={selected.has(row.skillId)}
@@ -376,14 +493,19 @@ export function RepositorySkillsOperation({
                         onChange={() => toggle(row.skillId)}
                       />
                     </td>
-                    <td className={skillCellClass}>
-                      <p className="font-semibold text-cyan-50">{row.name}</p>
+                    <td
+                      role="cell"
+                      className={`${skillResponsiveCellClass} col-span-2`}
+                    >
+                      <p className="break-words font-semibold text-cyan-50">
+                        {row.name}
+                      </p>
                       {!row.available ? (
                         <code className="mt-1 block break-all text-xs text-slate-500">
                           {row.skillId}
                         </code>
                       ) : null}
-                      <p className="mt-1 max-w-sm text-slate-400">
+                      <p className="mt-1 max-w-sm break-words text-slate-400">
                         {row.available
                           ? row.description
                           : "Unavailable — remove assignments to allow new reviews."}
@@ -398,20 +520,32 @@ export function RepositorySkillsOperation({
                           viewerId={viewerId}
                           repositoryId={repositoryIds[0]!}
                           binding={row.bindings[0]}
-                          onSaved={() => {
-                            void choices.refetch();
-                          }}
+                          {...(pathDrafts.has(row.skillId)
+                            ? { draft: pathDrafts.get(row.skillId)! }
+                            : {})}
+                          locked={controlsLocked}
+                          onDraftChange={updatePathDraft}
+                          onPendingChange={updateNestedPending}
+                          onSaved={acknowledgePathDraft}
                         />
                       ) : null}
                     </td>
-                    <td className={`${skillCellClass} text-slate-400`}>
+                    <td
+                      role="cell"
+                      className={`${skillResponsiveCellClass} break-words text-slate-400`}
+                    >
+                      <span className={skillMobileLabelClass}>
+                        Author / source
+                      </span>
                       {row.authorName ?? "—"}
                       <br />
                       {row.sourceWorkspaceName ?? "Unavailable source"}
                     </td>
                     <td
-                      className={`${skillCellClass} whitespace-nowrap text-cyan-100`}
+                      role="cell"
+                      className={`${skillResponsiveCellClass} text-cyan-100`}
                     >
+                      <span className={skillMobileLabelClass}>Assigned</span>
                       {row.assignedCount}/{row.repositoryCount}
                     </td>
                   </tr>
@@ -484,6 +618,8 @@ export function RepositorySkillsOperation({
               workspaceId={workspaceId}
               viewerId={viewerId}
               repositoryId={repositoryIds[0]!}
+              locked={controlsLocked}
+              onPendingChange={updateNestedPending}
             />
           ) : null}
         </>

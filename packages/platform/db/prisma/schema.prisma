@@ -4521,6 +4521,7 @@ model ReviewSkill {
   id String @id
   sourceWorkspaceId String
   authorUserId String
+  createOperationId String?
   headRevisionId String
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @db.Timestamptz(3)
@@ -4532,6 +4533,7 @@ model ReviewSkill {
   links ReviewSkillLink[]
   bindings ReviewSkillBinding[]
   @@index([sourceWorkspaceId, id])
+  @@unique([sourceWorkspaceId, authorUserId, createOperationId])
 }
 
 model ReviewSkillRevision {
@@ -4580,6 +4582,7 @@ model ReviewSkillBinding {
   skillId String
   includePaths Json
   excludePaths Json
+  generation String @default(dbgenerated("gen_random_uuid()::text"))
   version Int @default(1)
   repository RepositoryConnection @relation(fields: [repositoryConnectionId, workspaceId], references: [id, workspaceId], onDelete: Restrict, onUpdate: Restrict)
   skill ReviewSkill @relation(fields: [skillId], references: [id], onDelete: Restrict, onUpdate: Restrict)

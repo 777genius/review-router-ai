@@ -80,6 +80,7 @@ export type ReviewSkillLinkChoice = ReviewSkillSummary &
 export type ReviewSkillBindingView = Readonly<{
   skillId: string;
   repositoryId: string;
+  generation: string;
   version: number;
   scope: ReviewSkillScope;
 }>;
@@ -139,7 +140,8 @@ export interface ReviewSkillsService {
   ): Promise<ReviewSkillsPage<ReviewSkillLibraryEntry>>;
   loadSkill(input: SkillInput): Promise<ReviewSkillDocument>;
   createSkill(
-    input: MemberInput & Readonly<{ content: ReviewSkillContent }>,
+    input: MemberInput &
+      Readonly<{ createOperationId: string; content: ReviewSkillContent }>,
   ): Promise<ReviewSkillDocument>;
   saveSkill(
     input: SkillInput &
@@ -218,6 +220,7 @@ export interface ReviewSkillsService {
     input: RepositoryInput &
       Readonly<{
         skillId: string;
+        expectedGeneration: string;
         expectedVersion: number;
         scope: ReviewSkillScope;
       }>,

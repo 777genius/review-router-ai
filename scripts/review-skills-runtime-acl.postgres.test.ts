@@ -203,6 +203,7 @@ describe.skipIf(!databaseUrl)(
 
     it("web manages exact feature mutations, API captures and prelocks, worker has no feature authority", async () => {
       const created = await service.createSkill({
+        createOperationId: randomUUID(),
         actor,
         workspaceId: source,
         content: content("ACL original"),
@@ -233,12 +234,20 @@ describe.skipIf(!databaseUrl)(
         skillIds: [created.skillId],
         mode: "add",
       });
+      const binding = (
+        await service.loadRepositorySkillSettings({
+          actor,
+          workspaceId: destination,
+          repositoryId: repository,
+        })
+      ).bindings.find((value) => value.skillId === created.skillId)!;
       await service.updateBindingScope({
         actor,
         workspaceId: destination,
         repositoryId: repository,
         skillId: created.skillId,
-        expectedVersion: 1,
+        expectedGeneration: binding.generation,
+        expectedVersion: binding.version,
         scope: { includePaths: ["src/**"], excludePaths: [] },
       });
       await service.setRepositorySources({
@@ -278,6 +287,12 @@ describe.skipIf(!databaseUrl)(
       ).rejects.toThrow(/permission denied/);
       await expect(
         api.$executeRaw`UPDATE "ReviewSkillRevision" SET name=name WHERE false`,
+      ).rejects.toThrow(/permission denied/);
+      await expect(
+        web.$executeRaw`UPDATE "ReviewSkill" SET "createOperationId"="createOperationId" WHERE false`,
+      ).rejects.toThrow(/permission denied/);
+      await expect(
+        web.$executeRaw`UPDATE "ReviewSkillBinding" SET generation=generation WHERE false`,
       ).rejects.toThrow(/permission denied/);
       await expect(
         web.$executeRaw`UPDATE "ReviewSkillRevision" SET name=name WHERE id=${saved.revisionId}`,
@@ -339,6 +354,7 @@ describe.skipIf(!databaseUrl)(
 
     it("rejects a SERIALIZABLE snapshot established before waiting behind a committed revoke", async () => {
       const skill = await service.createSkill({
+        createOperationId: randomUUID(),
         actor,
         workspaceId: source,
         content: content("Snapshot fence"),

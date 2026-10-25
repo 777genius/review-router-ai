@@ -50,6 +50,16 @@ export function normalizeSkillScope(value: unknown) {
     throw new ReviewSkillsError(Code.InvalidInput);
   }
 }
+function mutationIdentity(value: string): string {
+  if (
+    typeof value !== "string" ||
+    !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(
+      value,
+    )
+  )
+    throw new ReviewSkillsError(Code.InvalidInput);
+  return value;
+}
 export function exactIds(
   ids: readonly string[],
   maximum: number,
@@ -93,6 +103,7 @@ export function createReviewSkillsService(
     createSkill: (i) =>
       store.createSkill({
         ...i,
+        createOperationId: mutationIdentity(i.createOperationId),
         content: validateReviewSkillContent(i.content),
       }),
     saveSkill: (i) =>
@@ -146,7 +157,11 @@ export function createReviewSkillsService(
     },
     updateBindingScope: async (i) =>
       store.updateBindingScope(
-        { ...i, scope: normalizeSkillScope(i.scope) },
+        {
+          ...i,
+          expectedGeneration: mutationIdentity(i.expectedGeneration),
+          scope: normalizeSkillScope(i.scope),
+        },
         await authorize(i, [i.repositoryId]),
       ),
     setRepositorySources: async (i) => {
