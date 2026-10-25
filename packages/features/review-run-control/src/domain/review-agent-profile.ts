@@ -5,6 +5,55 @@ import {
 } from "@reviewrouter/shared";
 export type { ReviewAgentProfile } from "@reviewrouter/shared";
 
+/** Read the raw deployment value: an explicit default still disables preference. */
+export function readImplicitReviewAgentSelection(raw: string | undefined) {
+  const profileRef = raw ?? "ocr-managed-v2";
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/.test(profileRef))
+    invalid("review_agent_profile_ref_invalid");
+  return Object.freeze({ profileRef, preferSkillsProfile: raw === undefined });
+}
+
+/** One selection policy for admission and advisory support reads. */
+export function selectReviewRunAgentProfile(
+  input: Readonly<{
+    profiles: readonly ReviewAgentProfile[];
+    modelTransport: ReviewAgentProfile["modelTransports"][number];
+    explicitProfileRef?: string;
+    suppliedDiffOnly: boolean;
+    defaultProfileRef: string;
+    preferSkillsProfile: boolean;
+    reviewSkillsDelivery: boolean;
+  }>,
+): ReviewAgentProfile {
+  if (input.explicitProfileRef !== undefined)
+    return selectReviewAgentProfile(
+      input.profiles,
+      input.explicitProfileRef,
+      input.modelTransport,
+    );
+  if (input.modelTransport === "provider_api")
+    return selectProviderApiReviewAgentProfile(input.profiles, {
+      reviewSkillsDelivery: input.reviewSkillsDelivery,
+    });
+  if (input.suppliedDiffOnly)
+    return selectSuppliedDiffReviewAgentProfile(input.profiles);
+  if (input.preferSkillsProfile) {
+    const supporting = input.profiles.filter(
+      (profile) =>
+        profile.agentKind === "ocr" &&
+        profile.reviewSkillsVersion === 1 &&
+        profile.modelTransports.includes(input.modelTransport),
+    );
+    if (supporting.length > 1) invalid("review_agent_profile_unavailable");
+    if (supporting[0]) return supporting[0];
+  }
+  return selectReviewAgentProfile(
+    input.profiles,
+    input.defaultProfileRef,
+    input.modelTransport,
+  );
+}
+
 /** Execution identity comes from the captured engine, never from provider rows. */
 export function reviewAgentExecutionProviderKind(
   profile: ReviewAgentProfile,

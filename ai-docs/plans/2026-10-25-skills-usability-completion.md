@@ -1,6 +1,6 @@
 # Skills usability completion
 
-Status: implementation plan approved by independent architecture, UX/portability, and runtime critics after the corrections recorded below. Implementation and qualification pending.
+Status: implementation complete in both working branches; independent source review approved after corrections. Focused checks passed. Final published-head browser/visual, build, CI, and merge qualification remain in progress.
 
 ## Goal and evidence
 
@@ -152,4 +152,13 @@ Other tasks share the host. Record only this task's service PIDs, command lines,
 - UX/portability critic: GO after five corrections: shared import/export resource eligibility, legacy blank-description/name compatibility, readiness retention on Git save, stable scope/CAS draft ownership, and full direct-picker retry/limit protections.
 - Runtime critic: GO after fresh supply is witnessed per execution, missing evidence is unconfirmed rather than inferred reuse, and per-field plus aggregate byte fallback is explicit. Investigation restore and OCR cumulative counters are specifically covered.
 
-Implementation, qualification, and PR merge remain pending. Update this section with concrete completed evidence and actual limits; do not mark incomplete work done.
+### Implementation/source review checkpoint
+
+- Assigned-first repository management, direct known-skill assignment, shared-link continuation, compact readiness, and explicit save feedback are implemented using the existing commands and permissions.
+- Portable import/export preserves legacy app content, acknowledges omitted metadata, distinguishes text-only export from draft recovery, and retains visible Markdown bytes. Independent criticism found ordinary Markdown indentation/whitespace edge cases; targeted fixes and regression cases resolved them.
+- Shared raw runtime selection, conservative compiled-contract authority checks, and authorized batched readiness enrichment are implemented. The source critic required the existing RepeatableRead policy-head wrapper; that correction is applied.
+- Runtime source review approved the actual-request/accepted-evidence receipt, conservative unconfirmed investigation provenance, safe pre-hash byte fallback, and typed Actions failure diagnostics. No protocol/cache identity change is required.
+- Completed local evidence so far: control-plane selector/API/readiness/enrichment/composition 51 tests, real PostgreSQL Skills 14 tests, and final portable/readiness/authorization recheck 64 tests. Web typecheck passed. The real manifest-qualified OCR lane passed 11 CLI cases without skips, with receipt and error suites also passing. Later runtime counter refinements still require the coordinated final rerun/build.
+- The existing case-distinct OCR fixture remains an engine transport proof. A second real invocation with a case-unique inventory is used for canonical publication because the existing projection rejects case-fold duplicates. No unrelated path-normalization policy was changed.
+
+Final exact-head E2E/visual qualification, runtime build/dist, CI, PR comments/review, and merges remain pending. Update this record with completed evidence and actual limits; do not mark unfinished work done.

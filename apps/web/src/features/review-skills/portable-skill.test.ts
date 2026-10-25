@@ -1,0 +1,208 @@
+import { describe, expect, it } from "vitest";
+import {
+  hasCompanionFiles,
+  parseSkillImport,
+  portableSkillName,
+  skillContentIssues,
+  skillDownload,
+} from "./portable-skill";
+
+const content = {
+  name: "Readable review guidance",
+  description: "Check ownership boundaries.",
+  instructions: "\n## Review\n\n  Keep whitespace.  \n\n",
+};
+const file = (body = content.instructions, header = "") =>
+  `---\nname: ${JSON.stringify(content.name)}\ndescription: ${JSON.stringify(content.description)}\n${header}---\n${body}`;
+
+describe("single-file Skills portability", () => {
+  it("imports legacy names and blank descriptions without rewriting the draft", async () => {
+    const legacy = { ...content, name: "Проверка API 🙂", description: "" };
+    const parsed = await parseSkillImport(
+      `---\nname: ${JSON.stringify(legacy.name)}\ndescription: ""\n---\n${legacy.instructions}`,
+    );
+    expect(parsed).toEqual({ content: legacy, omittedFields: [] });
+    const download = skillDownload(legacy);
+    expect(download.portableName).toBe("api");
+    expect(download.usesFallbackDescription).toBe(true);
+    expect(download.exportDescription).toBe(
+      "Review guidance for Проверка API 🙂.",
+    );
+    expect((await parseSkillImport(download.text)).content).toEqual({
+      ...legacy,
+      name: "api",
+      description: download.exportDescription,
+    });
+    expect(legacy.description).toBe("");
+  });
+
+  it("reports actual optional fields for an explicit omission acknowledgment", async () => {
+    const parsed = await parseSkillImport(
+      file(
+        undefined,
+        "license: MIT\ncompatibility: ReviewRouter\nmetadata:\n  author: example\n",
+      ),
+    );
+    expect(parsed.omittedFields).toEqual([
+      "license",
+      "compatibility",
+      "metadata",
+    ]);
+    expect(parsed.content).toEqual(content);
+    expect(
+      await parseSkillImport(file(undefined, 'license: ""\n')),
+    ).toMatchObject({
+      omittedFields: ["license"],
+    });
+  });
+
+  it.each([
+    "allowed-tools: Bash\n",
+    "tools: [Bash]\n",
+    "scripts: run.sh\n",
+    "dependencies: package\n",
+    "custom: value\n",
+  ])("refuses unsupported frontmatter %s", async (header) => {
+    await expect(parseSkillImport(file(undefined, header))).rejects.toThrow(
+      "Unsupported frontmatter",
+    );
+  });
+
+  it.each([
+    "name: &value example\ndescription: *value",
+    "name: !!str example\ndescription: text",
+    "name: example\ndescription: text\n<<: {license: MIT}",
+    "name: example\nname: duplicate\ndescription: text",
+    "name: example\ndescription: text\nmetadata: [a, b]",
+    "name: example\ndescription: text\nmetadata:\n  nested: {a: b}",
+  ])(
+    "rejects unsafe or unsupported YAML without returning a draft",
+    async (header) => {
+      await expect(
+        parseSkillImport(`---\n${header}\n---\nReview.`),
+      ).rejects.toThrow();
+    },
+  );
+
+  it("bounds file and app content sizes before import", async () => {
+    await expect(parseSkillImport("x".repeat(64 * 1024 + 1))).rejects.toThrow(
+      "64 KiB",
+    );
+    await expect(parseSkillImport(file("x".repeat(32769)))).rejects.toThrow(
+      "32768 UTF-8 bytes",
+    );
+    await expect(parseSkillImport(file("\0"))).rejects.toThrow(
+      "null characters",
+    );
+    await expect(parseSkillImport(file(" \n"))).rejects.toThrow("Add Markdown");
+    expect(
+      skillContentIssues({ ...content, name: "x".repeat(121) }),
+    ).toHaveProperty("name");
+    expect(
+      skillContentIssues({ ...content, description: "x".repeat(1025) }),
+    ).toHaveProperty("description");
+  });
+
+  it.each([
+    "[Guide](references/guide.md)",
+    "[A [nested] label](<references/guide.md>)",
+    '![Diagram](assets/diagram.png "Architecture")',
+    "[Guide][rules]\n\n[rules]: references/guide.md",
+    "[Guide][]\n\n[Guide]: references/guide.md",
+    "![Diagram]\n\n[Diagram]: assets/diagram.png",
+    '<a href="references/guide.md">Guide</a>',
+    "<img src='assets/diagram.png'>",
+    "<img src=assets/diagram.png>",
+    "[Local](file:///tmp/guide.md)",
+    "[Windows](C:\\guide.md)",
+    "[Root](/guide.md)",
+    "- Read this:\n    [Guide](references/guide.md)",
+    "A continued paragraph\n    [Guide](references/guide.md)",
+    "- Outer\n  - Inner\n      [Guide](references/guide.md)",
+    "[Guide](\nreferences/guide.md\n)",
+    "[Guide]\n\n[Guide]:\n  references/guide.md",
+  ])(
+    "rejects actual companion references and offers draft-only export: %s",
+    async (instructions) => {
+      expect(hasCompanionFiles(instructions)).toBe(true);
+      await expect(parseSkillImport(file(instructions))).rejects.toThrow(
+        "companion files",
+      );
+      const download = skillDownload({ ...content, instructions });
+      expect(download.filename).toBe("SKILL.draft.md");
+      expect(download.issue).toContain("companion files");
+      expect(download.text.endsWith(instructions)).toBe(true);
+    },
+  );
+
+  it.each([
+    "[Web](https://example.test/guide.md)",
+    "![Diagram](//example.test/diagram.png)",
+    "[Section](#review)",
+    '<a href="https://example.test/guide.md">Web</a><img src="#inline">',
+    "[Unused]: references/guide.md\n\nSelf-contained instructions.",
+    "[local][remote]\n\n[local]: references/unused.md\n[remote]: https://example.test",
+    "`[Example](references/guide.md)`",
+    "``[Example](references/guide.md) `code` ``",
+    "```md\n[Example](references/guide.md)\n```",
+    "~~~~md\n[Example](references/guide.md)\n~~~\n[Still code](references/guide.md)\n~~~~",
+    "    [Example](references/guide.md)\n\t<img src=example.png>",
+    "- A list with an indented code example:\n\n      [Example](references/guide.md)",
+    "> ```md\n> [Example](references/guide.md)\n> ```",
+    "# Example\n    [Guide](references/guide.md)",
+    "- ```md\n  [Example](references/guide.md)\n  ```",
+    "\\[Escaped](references/guide.md)",
+    "Run scripts/check.sh as a manual example.\nUse references/guide.md as example prose.",
+  ])(
+    "keeps inert examples and external references importable: %s",
+    async (instructions) => {
+      expect(hasCompanionFiles(instructions)).toBe(false);
+      const imported = await parseSkillImport(file(instructions));
+      const download = skillDownload(imported.content);
+      expect(download.filename).toBe("SKILL.md");
+      expect((await parseSkillImport(download.text)).content.instructions).toBe(
+        instructions,
+      );
+    },
+  );
+
+  it("exports the exact visible 32 KiB body with an intentionally portable header", async () => {
+    const prefix = "    Indented example.\r\n\n## Review\n";
+    const suffix = "  \n\n";
+    const instructions =
+      prefix + "x".repeat(32768 - Buffer.byteLength(prefix + suffix)) + suffix;
+    const maximum = { ...content, instructions };
+    const downloaded = skillDownload(maximum);
+    expect(downloaded.filename).toBe("SKILL.md");
+    expect(downloaded.text.split("\n---\n")[1]).toBe(instructions);
+    expect((await parseSkillImport(downloaded.text)).content).toEqual({
+      ...maximum,
+      name: "readable-review-guidance",
+    });
+  });
+
+  it("derives bounded names and labels incomplete recovery as a draft", () => {
+    for (const name of [
+      "---A___B---",
+      "éclair",
+      "界🙂",
+      "a".repeat(63) + "  trailing",
+      "a".repeat(200),
+    ]) {
+      const slug = portableSkillName(name);
+      expect(slug.length).toBeLessThanOrEqual(64);
+      expect(slug).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
+    }
+    expect(portableSkillName("界🙂")).toBe("review-skill");
+    const incomplete = {
+      name: "",
+      description: "",
+      instructions: "Unfinished draft.",
+    };
+    expect(skillDownload(incomplete)).toMatchObject({
+      filename: "SKILL.draft.md",
+      issue: "Enter a name for this skill.",
+      text: '---\nname: ""\ndescription: ""\n---\nUnfinished draft.',
+    });
+  });
+});

@@ -774,7 +774,22 @@ export const reviewV2SharedRuntimeEnvNames = Object.freeze([
   "REVIEW_ROUTER_REVIEW_V2_WORKFLOW_PROVISIONING_MODE",
   ...reviewV2RequiredRuntimeEnvNames,
   reviewV2ProjectionPolicyVersionEnvKey,
+  "REVIEW_ROUTER_AGENT_PROFILE",
 ]);
+
+/** Skills support reads and admission must share the raw selection authority.
+ * Missing is intentionally distinct from an explicit default profile. */
+export function assertReviewV2WebApiSelectionEnvConvergence(webEnv, apiEnv) {
+  for (const key of [
+    "REVIEW_ROUTER_AGENT_PROFILE",
+    "REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON",
+  ]) {
+    if (webEnv[key] !== apiEnv[key])
+      throw new Error(
+        `Review v2 web/API selection environment drift for ${key}`,
+      );
+  }
+}
 
 function reviewV2RuntimeActive(env) {
   return (
@@ -974,6 +989,9 @@ function reviewV2RuntimeEnvForRole(env, role) {
     ...flags,
     REVIEW_ROUTER_REVIEW_V2_WORKFLOW_PROVISIONING_MODE: provisioningMode,
     ...common,
+    ...(env.REVIEW_ROUTER_AGENT_PROFILE === undefined
+      ? {}
+      : { REVIEW_ROUTER_AGENT_PROFILE: env.REVIEW_ROUTER_AGENT_PROFILE }),
   };
   if (role === "api") {
     Object.assign(
@@ -2216,6 +2234,10 @@ export async function main() {
   assertReviewV2ApiWorkerEnvConvergence(
     convergedEnvByRole.api,
     convergedEnvByRole.worker,
+  );
+  assertReviewV2WebApiSelectionEnvConvergence(
+    convergedEnvByRole.web,
+    convergedEnvByRole.api,
   );
   for (const { service, spec } of services)
     await convergeImmutableRuntimeImage(client, service, spec, imageUrl);

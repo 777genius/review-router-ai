@@ -135,6 +135,8 @@ export function createReviewSkillsService(
       ),
     listAssignmentChoices: async (i) => {
       const repositoryIds = exactIds(i.repositoryIds, 1000);
+      if (i.assignedOnly !== undefined && typeof i.assignedOnly !== "boolean")
+        throw new ReviewSkillsError(Code.InvalidInput);
       return store.listAssignmentChoices(
         { ...i, repositoryIds },
         await authorize(i, repositoryIds),

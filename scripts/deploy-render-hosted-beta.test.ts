@@ -14,6 +14,7 @@ import { canonicalProviderJson } from "./codex-rotating-provider-provenance.mjs"
 import {
   addToEnvironment,
   assertReviewV2ApiWorkerEnvConvergence,
+  assertReviewV2WebApiSelectionEnvConvergence,
   assertRuntimeReleaseCommit,
   assertHostedDeployEnv,
   assertMigrationEvidence,
@@ -1229,6 +1230,35 @@ describe("Render hosted deploy hardening", () => {
     expect(() => assertReviewV2ApiWorkerEnvConvergence(api, worker)).toThrow(
       "Review v2 API/worker environment drift for REVIEW_ROUTER_REVIEW_V2_PROVIDER_VOTE_LANES_JSON",
     );
+  });
+
+  it("preserves raw engine selection and checks web/API authority parity", () => {
+    const registry = {
+      REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON: "[]",
+    };
+    expect(() =>
+      assertReviewV2WebApiSelectionEnvConvergence(registry, registry),
+    ).not.toThrow();
+    for (const value of [
+      "codex-default",
+      "codex-skills-v1",
+      "ocr-managed-v3",
+      "invalid/profile",
+    ]) {
+      const explicit = { ...registry, REVIEW_ROUTER_AGENT_PROFILE: value };
+      expect(() =>
+        assertReviewV2WebApiSelectionEnvConvergence(explicit, explicit),
+      ).not.toThrow();
+      expect(() =>
+        assertReviewV2WebApiSelectionEnvConvergence(registry, explicit),
+      ).toThrow("REVIEW_ROUTER_AGENT_PROFILE");
+    }
+    expect(() =>
+      assertReviewV2WebApiSelectionEnvConvergence(registry, {
+        ...registry,
+        REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON: "changed",
+      }),
+    ).toThrow("ATTESTATIONS_JSON");
   });
 
   it("fails closed when an active review v2 tuple is incomplete", () => {

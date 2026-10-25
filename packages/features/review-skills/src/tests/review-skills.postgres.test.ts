@@ -777,6 +777,21 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
       skillIds: [focusedId],
       mode: "add",
     });
+    const assigned = await service.listAssignmentChoices({
+      ...choicesInput,
+      assignedOnly: true,
+    });
+    expect(assigned.items.map((item) => item.skillId)).toEqual([focusedId]);
+    expect(assigned.nextCursor).toBeNull();
+    expect(
+      (
+        await service.listAssignmentChoices({
+          ...choicesInput,
+          assignedOnly: true,
+          search: "does-not-match",
+        })
+      ).items,
+    ).toEqual([]);
     await service.revokeSkillGrant({
       actor: owner,
       sourceWorkspaceId: a,
@@ -836,6 +851,73 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
         })
       ).items,
     ).toEqual([]);
+    expect(
+      (
+        await service.listAssignmentChoices({
+          ...choicesInput,
+          assignedOnly: true,
+        })
+      ).items,
+    ).toMatchObject([
+      {
+        skillId: focusedId,
+        available: false,
+        name: "Unavailable skill",
+        sourceWorkspaceId: null,
+        authorName: null,
+      },
+    ]);
+    await expect(
+      service.listAssignmentChoices({
+        ...choicesInput,
+        assignedOnly: true,
+        repositoryIds: [repos[0]!],
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    // Assigned pagination is independent of the first library page. A run may
+    // select several repositories while each keeps its own 32-Skill limit.
+    const secondRepositoryId = `${repositoryId}-second`;
+    await prisma.repositoryConnection.create({
+      data: {
+        id: secondRepositoryId,
+        workspaceId: destination,
+        externalRepositoryId: secondRepositoryId,
+        owner: "synthetic",
+        name: secondRepositoryId,
+        fullName: `synthetic/${secondRepositoryId}`,
+        defaultBranch: "main",
+        visibility: "private",
+      },
+    });
+    await service.applyAssignments({
+      ...choicesInput,
+      skillIds: ids.slice(0, 26),
+      mode: "add",
+    });
+    await service.applyAssignments({
+      ...choicesInput,
+      repositoryIds: [secondRepositoryId],
+      skillIds: ids.slice(26, 52),
+      mode: "add",
+    });
+    const allAssignedInput = {
+      ...choicesInput,
+      repositoryIds: [repositoryId, secondRepositoryId],
+      assignedOnly: true,
+    };
+    const assignedFirst = await service.listAssignmentChoices(allAssignedInput);
+    expect(assignedFirst.items.map((item) => item.skillId)).toEqual(
+      ids.slice(0, 50),
+    );
+    expect(assignedFirst.nextCursor).toBe(ids[49]);
+    const assignedSecond = await service.listAssignmentChoices({
+      ...allAssignedInput,
+      cursor: assignedFirst.nextCursor,
+    });
+    expect(assignedSecond.items.map((item) => item.skillId)).toEqual(
+      ids.slice(50),
+    );
+    expect(assignedSecond.nextCursor).toBeNull();
     expect(
       (
         await service.listWorkspaceSkills({

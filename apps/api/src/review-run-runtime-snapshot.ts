@@ -27,9 +27,8 @@ import {
   parseProducerPrDescriptionProfile,
   parseReviewAgentProfiles,
   parseProducerContextToolsProfile,
-  selectReviewAgentProfile,
-  selectProviderApiReviewAgentProfile,
-  selectSuppliedDiffReviewAgentProfile,
+  selectReviewRunAgentProfile,
+  readImplicitReviewAgentSelection,
   type ReviewRunAuthorizationCandidate,
   type ReviewRunGatewaySelection,
   type ReviewRunGatewayLimits,
@@ -54,9 +53,7 @@ const defaultReviewAgentProfileRef = "ocr-managed-v2";
 export function readServerReviewAgentProfileRef(
   raw: string | undefined,
 ): string {
-  const profileRef = raw ?? defaultReviewAgentProfileRef;
-  assertOpaqueReference(profileRef);
-  return profileRef;
+  return readImplicitReviewAgentSelection(raw).profileRef;
 }
 
 /** Backend configuration only. Never sourced from CI/OIDC/request DTOs. */
@@ -138,24 +135,6 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       operatorWorkspaceId,
       personalAccountsEnabled,
     );
-  }
-
-  private selectImplicitGatewayProfile(
-    profiles: readonly ReviewAgentProfile[],
-    transport: ReviewAgentProfile["modelTransports"][number],
-  ): ReviewAgentProfile {
-    if (this.preferSkillsProfile) {
-      const supporting = profiles.filter(
-        (profile) =>
-          profile.agentKind === "ocr" &&
-          profile.reviewSkillsVersion === 1 &&
-          profile.modelTransports.includes(transport),
-      );
-      if (supporting.length > 1)
-        throw new Error("review_agent_profile_unavailable");
-      if (supporting[0]) return supporting[0];
-    }
-    return selectReviewAgentProfile(profiles, this.agentProfileRef, transport);
   }
 
   async capture(
@@ -255,24 +234,17 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       return null;
     let agent: ReviewAgentProfile;
     try {
-      agent =
-        explicitAgentProfileRef !== undefined
-          ? selectReviewAgentProfile(
-              agentProfiles,
-              explicitAgentProfileRef,
-              modelTransport,
-            )
-          : modelTransport === "provider_api"
-            ? selectProviderApiReviewAgentProfile(agentProfiles, {
-                reviewSkillsDelivery:
-                  input.providerApiAuthMode === "openrouter-api",
-              })
-            : selected?.provider.agenticContext === false
-              ? selectSuppliedDiffReviewAgentProfile(agentProfiles)
-              : this.selectImplicitGatewayProfile(
-                  agentProfiles,
-                  modelTransport,
-                );
+      agent = selectReviewRunAgentProfile({
+        profiles: agentProfiles,
+        modelTransport,
+        ...(explicitAgentProfileRef !== undefined
+          ? { explicitProfileRef: explicitAgentProfileRef }
+          : {}),
+        suppliedDiffOnly: selected?.provider.agenticContext === false,
+        defaultProfileRef: this.agentProfileRef,
+        preferSkillsProfile: this.preferSkillsProfile,
+        reviewSkillsDelivery: input.providerApiAuthMode === "openrouter-api",
+      });
     } catch {
       return explicitAgentProfileRef !== undefined ||
         modelTransport === "account_gateway"

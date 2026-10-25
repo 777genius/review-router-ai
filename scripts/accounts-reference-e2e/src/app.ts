@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { applicationEnvironment } from "./database.ts";
 import type { FixtureSecrets } from "./contracts.ts";
+import { skillsReadinessFixtureEnv } from "./skills-readiness-fixture.ts";
 
 export type AppFixture = {
   readonly url: string;
@@ -53,6 +54,7 @@ export async function startNextApp(input: {
   });
   if (input.skillsGitHub)
     Object.assign(environment, {
+      ...skillsReadinessFixtureEnv(),
       REVIEW_ROUTER_SKILLS_E2E: "1",
       REVIEW_ROUTER_GITHUB_APP_TEST_ORIGIN: input.skillsGitHub.origin,
       GITHUB_APP_ID: "990001",
