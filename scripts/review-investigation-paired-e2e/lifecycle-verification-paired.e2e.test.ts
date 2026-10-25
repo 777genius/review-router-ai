@@ -53,6 +53,8 @@ const hash = (value: string | Uint8Array) =>
   createHash("sha256").update(value).digest("hex");
 const filePath = "src/review-file-000.ts";
 const model = "gpt-5-codex";
+// The real relay requires a 16–1024 character run-control bearer.
+const lifecycleGatewayFixtureControlBearer = "paired-control-token";
 const source = [
   "export function tax(subtotal, rate, exempt, regionalRule) {",
   "  if (subtotal === 0) return 0;",
@@ -129,7 +131,8 @@ lifecycleCase.each([
           REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED: "1",
           REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN: upstream.origin,
           REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN: upstream.origin,
-          REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER: "paired-control",
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER:
+            lifecycleGatewayFixtureControlBearer,
           REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: JSON.stringify({
             profiles: [
               {
@@ -1339,7 +1342,9 @@ async function controlledGateway(scenario: Scenario) {
           .writeHead(status, { "content-type": "application/json" })
           .end(JSON.stringify(value));
       if (request.url === "/internal/v1/run-access") {
-        expect(request.headers.authorization).toBe("Bearer paired-control");
+        expect(request.headers.authorization).toBe(
+          `Bearer ${lifecycleGatewayFixtureControlBearer}`,
+        );
         const intent = body;
         const executionRef = `paired-native-${randomUUID()}`;
         const admission = {
