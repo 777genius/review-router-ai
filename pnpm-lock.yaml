@@ -181,8 +181,8 @@ importers:
   apps/api:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-grok-code-130ca3f00dcc.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-grok-code-130ca3f00dcc.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -328,8 +328,8 @@ importers:
   apps/web:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-grok-code-130ca3f00dcc.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-grok-code-130ca3f00dcc.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -1365,8 +1365,8 @@ packages:
   '@actions/io@3.0.2':
     resolution: {integrity: sha512-nRBchcMM+QK1pdjO7/idu86rbJI5YHUKCvKs0KxnSYbVe3F51UfGxuZX4Qy/fWlp6l7gWFwIkrOzN+oUK03kfw==}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-grok-code-130ca3f00dcc.tgz':
-    resolution: {integrity: sha512-zrA5gRtVGw9Qw6fRi08RpzQ3M0ZQbMnfZfyWoMbtk97vXMHPlJnaYfml1IL9/UTp3iutZmzsRVysptkiZJC9Ew==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-grok-code-130ca3f00dcc.tgz}
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz':
+    resolution: {integrity: sha512-GKTPdvYaxHif8Eue93M5Vd17rSMpChvPEvdYl/V8WuIZmDO02/JhojqoVyNujK+fgllwUjUTlga8/ytTh5ezZQ==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz}
     version: 0.1.0
     engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
 
@@ -6513,7 +6513,7 @@ snapshots:
 
   '@actions/io@3.0.2': {}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-grok-code-130ca3f00dcc.tgz':
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz':
     dependencies:
       '@get-modular/assembly': 0.2.0
       '@get-modular/core': 0.2.0

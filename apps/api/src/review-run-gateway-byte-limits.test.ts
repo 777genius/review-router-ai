@@ -37,6 +37,7 @@ async function fixture(
   maxSessions = 2,
   requestTimeoutMs = 5000,
   controlledStream?: (response: ServerResponse) => Promise<void>,
+  selection = { profileId: "profile-1", model: "gpt-5.6-sol" },
 ) {
   const deadline = new Date(Date.now() + 120_000).toISOString();
   const limits = {
@@ -54,7 +55,7 @@ async function fixture(
     policySubject: "binding-1",
     policyRevision: 1,
     permittedAccountRef: "account-1",
-    profileRef: "profile-1",
+    profileRef: selection.profileId,
     invocationId: "invocation-1",
     attemptId: "attempt-1",
     operationId: "operation-1",
@@ -80,7 +81,7 @@ async function fixture(
       {
         kind: "codex",
         authMode: "codex_account_gateway",
-        model: "gpt-5.6-sol",
+        model: selection.model,
         reasoningEffort: "high",
         fastMode: false,
         agenticContext: true,
@@ -169,6 +170,7 @@ async function fixture(
   let prepareFailure = false;
   const intents: c.Prepare[] = [];
   const admissions: c.Admission[] = [];
+  const requestModels: string[] = [];
   const effects: { requestRef: string; effect: c.RequestStatus["effect"] }[] =
     [];
   const server = createServer(async (req, res) => {
@@ -221,6 +223,7 @@ async function fixture(
       req.url ?? "",
     );
     if (execution?.[2] === "requests") {
+      requestModels.push((JSON.parse(raw) as { model: string }).model);
       admissions.push(JSON.parse(String(req.headers["x-gateway-admission"])));
       res.writeHead(200, {
         "content-type": "text/event-stream",
@@ -299,7 +302,7 @@ async function fixture(
       profiles: [
         {
           profile: {
-            profileId: "profile-1",
+            profileId: selection.profileId,
             protocol: "openai-responses",
             modelIds: ["gpt-5.6-sol"],
             authKinds: ["oauth"],
@@ -351,6 +354,7 @@ async function fixture(
     relay,
     intents,
     admissions,
+    requestModels,
     limits,
     effects,
     nativeExecutions,
@@ -1008,3 +1012,88 @@ it("never releases buffered terminal bytes when the real SDK transport fails bef
     await http.app.close();
   }
 }, 10000);
+
+// RED if the immutable Codex anchor rejects an account-catalog model before
+// the normal owned-run preparation/native admission path.
+it.each([
+  ["openai-codex-oauth-responses-v1", true],
+  ["profile-1", false],
+  ["grok-subscription-responses-oauth-v1", false],
+] as const)(
+  "account model %s keeps the authorized Responses path (dynamic=%s)",
+  async (profileId, dynamic) => {
+    const model = "authorized-account-model-not-in-anchor";
+    const f = await fixture(MiB, 0, 2, 5000, undefined, { profileId, model });
+    try {
+      const response = f.relay.responses(
+        "local-authorization-token",
+        new TextEncoder().encode(
+          JSON.stringify({
+            model,
+            input: [],
+            stream: true,
+            max_output_tokens: 100,
+          }),
+        ),
+        new AbortController(),
+      );
+      if (!dynamic) {
+        await expect(response).rejects.toMatchObject({
+          code: "gateway_unavailable",
+          effect: "not_dispatched",
+        });
+        expect(f.intents).toHaveLength(0);
+        expect(f.admissions).toHaveLength(0);
+        return;
+      }
+      const result = await response;
+      if (result.kind !== "stream") throw new Error("expected_stream");
+      for await (const chunk of result.body) {
+        void chunk;
+        /* Drain the single real HTTP response. */
+      }
+      expect(f.intents).toHaveLength(1);
+      expect(f.intents[0]).toMatchObject({
+        accountRefs: ["account-1"],
+        profileId,
+      });
+      expect(f.requestModels).toEqual([model]);
+    } finally {
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("revocation while preparing a dynamic Codex model still prevents inference", async () => {
+  const model = "authorized-account-model-not-in-anchor";
+  const f = await fixture(MiB, 0, 2, 5000, undefined, {
+    profileId: "openai-codex-oauth-responses-v1",
+    model,
+  });
+  const held = f.holdPrepare();
+  try {
+    const response = f.relay.responses(
+      "local-authorization-token",
+      new TextEncoder().encode(
+        JSON.stringify({
+          model,
+          input: [],
+          stream: true,
+          max_output_tokens: 100,
+        }),
+      ),
+      new AbortController(),
+    );
+    await held.started;
+    f.revoke("authorization-1");
+    held.release();
+    await expect(response).rejects.toMatchObject({
+      code: "authorization_denied",
+    });
+    expect(f.admissions).toHaveLength(0);
+    expect(f.requestModels).toHaveLength(0);
+  } finally {
+    held.release();
+    await f.relay.shutdown();
+  }
+});

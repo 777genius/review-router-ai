@@ -19,20 +19,29 @@ vi.mock("./gateway-review-config-catalog", async (importOriginal) => ({
 vi.mock("./personal-account-composition", () => ({
   productionPersonalAccounts: async () => null,
 }));
-// Sharing off and a member signed in: the Accounts bootstrap is owner/admin
-// only, so validation must read the catalog without it.
-vi.mock("./account-gateway-accounts", () => ({
-  loadAccountsBootstrap: async () => ({ page: { status: "denied" } }),
-  accountsServerAdapter: async () => ({
-    reviewCatalog: async () => [
-      {
-        id: "profile-1",
-        label: "MiMo",
-        provider: "codex",
-        protocol: "openai-responses",
-        models: ["mimo-v2.6-pro"],
-      },
-    ],
+// A member-authorized exact binding reader works with sharing disabled too.
+vi.mock("./gateway-model-account-composition", () => ({
+  productionGatewayModelAccounts: async () => ({
+    scope: "viewer",
+    reader: {
+      get: async (bindingId: string) => ({
+        status: "ok",
+        value: {
+          account: {
+            state: "active",
+            profileId: "profile-1",
+            binding: { id: bindingId },
+          },
+          profile: {
+            id: "profile-1",
+            label: "MiMo",
+            provider: "codex",
+            protocol: "openai-responses",
+            models: ["mimo-v2.6-pro"],
+          },
+        },
+      }),
+    },
   }),
 }));
 

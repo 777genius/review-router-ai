@@ -23,9 +23,10 @@ import {
   loadDashboardPersonalAccounts,
 } from "../../src/server/dashboard-gateway-accounts";
 import {
-  listPersonalModelAccounts,
-  getPersonalModelAccount,
-} from "./personal-account-actions";
+  listGatewayModelAccounts,
+  getGatewayModelAccount,
+} from "./gateway-model-account-actions";
+import { productionGatewayModelAccounts } from "../../src/server/gateway-model-account-composition";
 import type {
   AccountsPage,
   AccountsResult,
@@ -1333,18 +1334,25 @@ export async function DashboardSectionContent({
       contextConnections={contextConnections}
     />
   );
-  const wrappedContent = personal ? (
+  const modelAccountScope =
+    personal?.scope ??
+    (wantsAccounts
+      ? await productionGatewayModelAccounts(selectedWorkspace.workspace.id)
+          .then((value) => value.scope)
+          .catch(() => null)
+      : null);
+  const wrappedContent = modelAccountScope ? (
     <GatewayModelAccountsProvider
-      scope={`${personal.scope}:workspace:${selectedWorkspace.workspace.id}`}
+      scope={`${modelAccountScope}:workspace:${selectedWorkspace.workspace.id}`}
       api={{
-        list: listPersonalModelAccounts.bind(
+        list: listGatewayModelAccounts.bind(
           null,
-          personal.scope,
+          modelAccountScope,
           selectedWorkspace.workspace.id,
         ),
-        get: getPersonalModelAccount.bind(
+        get: getGatewayModelAccount.bind(
           null,
-          personal.scope,
+          modelAccountScope,
           selectedWorkspace.workspace.id,
         ),
       }}

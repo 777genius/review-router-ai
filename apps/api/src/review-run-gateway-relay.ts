@@ -70,6 +70,20 @@ export function readReviewRunGatewayRelayPolicy(raw: string) {
     throw new Error("review_run_gateway_relay_policy_invalid");
   }
 }
+/** Codex's immutable profile model is an anchor. Its authorized account
+ * catalog is enforced by Gateway/native immediately before Responses entry;
+ * RR still pins the exact profile/account/epoch and request model. Other
+ * profiles retain their fixed configured model allowlist. */
+export function gatewayProfileAcceptsRequestedModel(
+  profile: c.Profile,
+  model: string,
+): boolean {
+  return (
+    (profile.profileId === "openai-codex-oauth-responses-v1" &&
+      profile.authKinds.includes("oauth")) ||
+    profile.modelIds.includes(model)
+  );
+}
 class RelayFailure extends Error {
   constructor(
     readonly code: string,
@@ -441,7 +455,10 @@ export function createReviewRunGatewayRelay(input: {
       if (
         qualified.length !== 1 ||
         qualified[0]!.profile.protocol !== "openai-responses" ||
-        !qualified[0]!.profile.modelIds.includes(provider.model) ||
+        !gatewayProfileAcceptsRequestedModel(
+          qualified[0]!.profile,
+          provider.model,
+        ) ||
         gateway.limits.tokens > qualified[0]!.outputTokens
       )
         throw new RelayFailure("gateway_unavailable", 403);

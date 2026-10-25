@@ -317,6 +317,11 @@ async function runPlaywright(input: {
           )
             ? "1"
             : "0",
+          ACCOUNTS_REFERENCE_E2E_ACCOUNT_MODELS: process.argv.includes(
+            "--account-models-fixture",
+          )
+            ? "1"
+            : "0",
           ACCOUNTS_REFERENCE_E2E_CATALOG: process.argv.includes(
             "--catalog-fixture",
           )
