@@ -210,6 +210,32 @@ describe("review execution domain", () => {
     ).toThrow("review_lifecycle_assignment_bounds_invalid");
   });
 
+  it("rejects array-valued lifecycle witness enums", () => {
+    const invalidSeverity = lifecycleAssignmentFixture();
+    Reflect.set(invalidSeverity.lifecyclePlan.targets[0]!, "severity", [
+      "major",
+    ]);
+    expect(() =>
+      validateReviewAssignmentManifest(invalidSeverity, [
+        "slot-1",
+        "slot-verifier",
+      ]),
+    ).toThrow("review_lifecycle_assignment_severity_invalid");
+
+    const invalidHistory = lifecycleAssignmentFixture();
+    Reflect.set(
+      invalidHistory.lifecyclePlan.targets[0]!.resolutionHistory,
+      "state",
+      ["effect_unknown"],
+    );
+    expect(() =>
+      validateReviewAssignmentManifest(invalidHistory, [
+        "slot-1",
+        "slot-verifier",
+      ]),
+    ).toThrow("review_lifecycle_assignment_history_invalid");
+  });
+
   it("domain-separates manifest and manifest-bound plan hashes", () => {
     expect(canonicalReviewAssignmentManifestHashPreimage("{}")).toBe(
       "rr.review-assignment-manifest.v1\0{}",

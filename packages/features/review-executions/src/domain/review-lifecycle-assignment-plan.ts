@@ -149,9 +149,8 @@ export function validateReviewLifecycleAssignmentPlan(
     for (const key of ["originalLine", "currentLine"])
       if (target[key] !== null) integer(target[key], 1);
     if (
-      !["critical", "major", "minor", "unknown"].includes(
-        String(target.severity),
-      )
+      typeof target.severity !== "string" ||
+      !["critical", "major", "minor", "unknown"].includes(target.severity)
     )
       fail("severity");
     const history = row(target.resolutionHistory);
@@ -159,13 +158,14 @@ export function validateReviewLifecycleAssignmentPlan(
     text(history.historyCut);
     decimal(history.guardVersion);
     if (
+      typeof history.state !== "string" ||
       ![
         "no_prior_since_creation",
         "before_cut_unobserved",
         "previously_resolved",
         "effect_unknown",
         "unavailable",
-      ].includes(String(history.state))
+      ].includes(history.state)
     )
       fail("history");
   }
