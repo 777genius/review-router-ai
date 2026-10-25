@@ -329,13 +329,16 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
     await app.close();
   });
 
-  it("joins a source artifact to its successful native lifecycle receipt before returning applied resolutions", async () => {
+  it.each([
+    "review-projection-policy.v6-comparison",
+    "review-projection-policy.v7-lifecycle-verification",
+  ])("restores receipt-bound %s resolutions", async (policy) => {
     const lineageId = `rrl_${"a".repeat(32)}`;
     const targetId = `rrt_${"d".repeat(16)}`;
     const threadId = "PRRT_thread";
     const projection = {
       envelopeVersion: "review_projection.v1",
-      projectionPolicyVersion: "review-projection-policy.v6-comparison",
+      projectionPolicyVersion: policy,
       scope: {
         scmRepositoryIdentityId: snapshot.scmRepositoryIdentityId,
         pullRequestNumber: snapshot.pullRequestNumber,
@@ -392,7 +395,11 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
       projectionHash: prior.payload.projectionHash,
       projectionEnvelopeJson: canonicalJson(projection),
       // Native artifact mapping spreads execution fields into the typed permit.
-      publicationPermit: { ...sourcePermit, state: "completed", workSlots: [] },
+      publicationPermit: {
+        ...sourcePermit,
+        state: "completed",
+        workSlots: [],
+      },
     };
     const sha = (value: string) =>
       createHash("sha256").update(value).digest("hex");
@@ -447,6 +454,9 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
       undefined,
       {
         snapshot: prior,
+        ...(policy === "review-projection-policy.v7-lifecycle-verification"
+          ? { authorization: verifierAuthorization() }
+          : {}),
         publications: { findByPermitIdentity, findById: async () => null },
       },
     );
@@ -457,9 +467,13 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
       purpose: ReviewSnapshotRestorePurpose.ComparisonBaselineV1,
     });
     expect(response.result.status).toBe("found");
-    expect(
-      JSON.parse(response.result.payloadCanonicalJson!).appliedResolutions,
-    ).toEqual([
+    const responsePayload = JSON.parse(response.result.payloadCanonicalJson!);
+    const baseline =
+      policy === "review-projection-policy.v7-lifecycle-verification"
+        ? responsePayload.baseline
+        : responsePayload;
+    expect(baseline.projectionPolicyVersion).toBe(policy);
+    expect(baseline.appliedResolutions).toEqual([
       {
         lineageId,
         targetId,
@@ -484,8 +498,14 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
       reviewRevisionHash: authorization.reviewRevisionHash,
       purpose: ReviewSnapshotRestorePurpose.ComparisonBaselineV1,
     });
+    const mismatchedPayload = JSON.parse(
+      mismatched.result.payloadCanonicalJson!,
+    );
     expect(
-      JSON.parse(mismatched.result.payloadCanonicalJson!).appliedResolutions,
+      (policy === "review-projection-policy.v7-lifecycle-verification"
+        ? mismatchedPayload.baseline
+        : mismatchedPayload
+      ).appliedResolutions,
     ).toEqual([]);
   });
 
