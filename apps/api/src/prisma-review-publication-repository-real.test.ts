@@ -24,19 +24,23 @@ import {
   TerminalizeUnknownReviewPublicationStatus,
   planReviewPublicationOperations,
   publishedReviewProjectionPublicationEnvelopeVersion,
+  canonicalReviewPublicationNoEffectProof,
+  retiredLegacyWriterExecutorSetHash,
+  retiredLegacyWriterQualificationProofHash,
+  type RetiredLegacyWritersQuarantineQualification,
   type ReviewPublicationOperationPlan,
   type ReviewPublicationOperationCapabilityFacts,
   type ReviewPublicationPermitIdentity,
-} from "../index";
-import { PrismaReviewPublicationRepository } from "../infrastructure/prisma/prisma-review-publication-repository";
-import { reviewPublicationNoEffectProofHash } from "../infrastructure/review-publication-no-effect-proof";
-import { PrismaReviewThreadResolutionHistory } from "../infrastructure/prisma/prisma-review-thread-resolution-history";
-import { controlledRetiredWriterProof } from "./resolution-history-fixtures";
+} from "@reviewrouter/features-review-publishing/v2";
+import {
+  PrismaReviewPublicationRepository,
+  PrismaReviewThreadResolutionHistory,
+} from "@reviewrouter/features-review-publishing/v2/composition";
 import {
   canonicalReviewAssignmentManifestHashPreimage,
   canonicalReviewAssignmentManifestJson,
   validateReviewAssignmentManifest,
-} from "../../../../review-executions/src/domain/review-execution";
+} from "@reviewrouter/features-review-executions";
 
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
@@ -404,7 +408,9 @@ describeWithDatabase("PrismaReviewPublicationRepository real database", () => {
     } as const;
     const proofCommand = {
       ...proofFacts,
-      noEffectProofHash: reviewPublicationNoEffectProofHash(proofFacts),
+      noEffectProofHash: digest(
+        canonicalReviewPublicationNoEffectProof(proofFacts),
+      ),
       provenAt: new Date(),
     } as const;
 
@@ -1518,4 +1524,35 @@ async function cleanupFixture(
 
 function digest(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+/** App-owned integration inputs; this receipt describes only the disposable controlled fixture. */
+function controlledRetiredWriterProof(): RetiredLegacyWritersQuarantineQualification {
+  const retiredAt = new Date(Date.now() - 2_000).toISOString();
+  const executors = [
+    {
+      executorId: "controlled-retired-executor",
+      binaryDigest: digest("controlled-old-binary"),
+      retiredAt,
+      acceptsNewRequests: false as const,
+      restartable: false as const,
+    },
+  ];
+  const facts = {
+    qualificationSource: "retired_legacy_writers_quarantine.v1" as const,
+    writerDigest: digest("controlled-new-writer"),
+    scopeKind: "all_managed_legacy_resolution_writers" as const,
+    inventoryComplete: true as const,
+    retiredAt,
+    executors,
+    executorSetHash: retiredLegacyWriterExecutorSetHash(executors, digest),
+    ingress: {
+      observedAt: new Date(Date.now() - 1_000).toISOString(),
+      oldExecutorIds: [],
+    },
+  };
+  return {
+    ...facts,
+    proofHash: retiredLegacyWriterQualificationProofHash(facts, digest),
+  };
 }
