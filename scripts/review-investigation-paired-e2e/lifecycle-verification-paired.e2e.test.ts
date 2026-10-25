@@ -178,7 +178,80 @@ lifecycleCase.each([
         "REVIEW_THREAD_LIFECYCLE_TRUSTED_AUTHORS",
         "reviewrouter-e2e[bot]",
       );
-      await registerReviewExecutionV2Routes(app, owned.routes.execution);
+      // Keep failure evidence before the disposable database is reset. This
+      // decorator rethrows the original error and never records request data.
+      const originalStart = owned.routes.execution.start;
+      if (!originalStart) throw new Error("paired_lifecycle_start_required");
+      let startOrdinal = 0;
+      await registerReviewExecutionV2Routes(app, {
+        ...owned.routes.execution,
+        recordProtocolRejection: (diagnostic) => {
+          console.error("paired_lifecycle_protocol_rejection", {
+            operationId: diagnostic.operationId,
+            protocolErrorCode: diagnostic.protocolErrorCode,
+            statusCode: diagnostic.statusCode,
+            internalFailureClass: diagnostic.internalFailureClass,
+            internalFailureCode: diagnostic.internalFailureCode,
+            internalFailureCauseCode: diagnostic.internalFailureCauseCode,
+            internalFailureStage: diagnostic.internalFailureStage,
+          });
+        },
+        start: {
+          ...originalStart,
+          execute: async (request) => {
+            const ordinal = ++startOrdinal;
+            try {
+              return await originalStart.execute(request);
+            } catch (error) {
+              let executionPersisted: boolean | "query_failed" = "query_failed";
+              try {
+                executionPersisted =
+                  (await owned.prisma.reviewExecutionV2.findUnique({
+                    where: { executionId: request.executionId },
+                    select: { executionId: true },
+                  })) !== null;
+              } catch {
+                // Preserve the original failure even if diagnostics cannot read.
+              }
+              const sourceFrame =
+                error instanceof Error
+                  ? error.stack
+                      ?.split("\n")
+                      .filter((line) => /^\s+at /.test(line))
+                      .map((line) =>
+                        line.match(
+                          /((?:apps\/api|packages\/features\/review-executions)\/src\/[A-Za-z0-9_./-]+\.ts):([0-9]+):[0-9]+/,
+                        ),
+                      )
+                      .find((match) => match !== null)
+                  : undefined;
+              const safeFailureCode =
+                error instanceof Error &&
+                new Set([
+                  "restore_artifact_scope_mismatch",
+                  "review_execution_work_slot_count_out_of_bounds",
+                  "review_execution_attempt_budget_out_of_bounds",
+                  "review_execution_duplicate_work_slot_id",
+                  "review_execution_duplicate_work_slot_semantics",
+                  "review_execution_task_kind_invalid",
+                  "review_execution_shard_key_invalid",
+                  "review_execution_retry_policy_version_invalid",
+                ]).has(error.message)
+                  ? error.message
+                  : undefined;
+              console.error("paired_lifecycle_start_failure", {
+                startOrdinal: ordinal,
+                executionPersisted,
+                ...(safeFailureCode ? { failureCode: safeFailureCode } : {}),
+                ...(sourceFrame
+                  ? { sourcePath: sourceFrame[1], sourceLine: sourceFrame[2] }
+                  : {}),
+              });
+              throw error;
+            }
+          },
+        },
+      });
       await registerReviewEvidenceV2Routes(app, owned.routes.evidence);
       await registerReviewSnapshotReadV2Routes(app, owned.routes.snapshot);
       await registerReviewPublicationRequestV2Routes(
