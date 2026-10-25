@@ -105,6 +105,7 @@ export function assertGatewayReviewConfigSupported(
           row.reasoningEffort,
           profiles.find((profile) => profile.id === row.gatewayProfileRef)
             ?.connection,
+          row.gatewayProfileRef,
         ),
     )
   )

@@ -46,9 +46,15 @@ function reasoningSupported(
   model: string,
   effort: ReviewReasoningEffort | undefined,
   connection: AccountConnectionView | undefined,
+  gatewayProfileRef?: string,
 ): boolean {
   return authMode === "codex_account_gateway"
-    ? gatewayModelSupportsReasoningEffort(model, effort, connection)
+    ? gatewayModelSupportsReasoningEffort(
+        model,
+        effort,
+        connection,
+        gatewayProfileRef,
+      )
     : effort !== undefined &&
         effort !== "minimal" &&
         codexModelSupportsReasoningEffort(model, effort);
@@ -73,6 +79,7 @@ export function fitProviderSelectionSettings(input: {
   readonly model: string;
   readonly settings: ProviderSelectionSettings;
   readonly connection?: AccountConnectionView | undefined;
+  readonly gatewayProfileRef?: string | undefined;
 }): ProviderSelectionSettings {
   const { authMode, model, connection, settings } = input;
   const gateway = authMode === "codex_account_gateway";
@@ -81,6 +88,7 @@ export function fitProviderSelectionSettings(input: {
     model,
     settings.reasoningEffort,
     connection,
+    input.gatewayProfileRef,
   )
     ? settings.reasoningEffort
     : gateway
@@ -105,6 +113,7 @@ export function defaultProviderSelectionSettings(input: {
   readonly authMode: ProviderAuthMode;
   readonly model: string;
   readonly connection?: AccountConnectionView | undefined;
+  readonly gatewayProfileRef?: string | undefined;
 }): ProviderSelectionSettings {
   return fitProviderSelectionSettings({
     ...input,
@@ -129,6 +138,7 @@ export type ProviderModelFieldsProps = Readonly<{
   settings: ProviderSelectionSettings;
   onSettingsChange: (settings: ProviderSelectionSettings) => void;
   connection?: AccountConnectionView | undefined;
+  gatewayProfileRef?: string | undefined;
   agentProfileOptions: readonly GatewayAgentProfileOption[];
   disabled: boolean;
 }>;
@@ -147,13 +157,26 @@ export function ProviderModelFields({
   settings,
   onSettingsChange,
   connection,
+  gatewayProfileRef,
   agentProfileOptions,
   disabled,
 }: ProviderModelFieldsProps): React.ReactElement {
   const tuning = providerHasReviewTuning(authMode);
   const gateway = authMode === "codex_account_gateway";
-  const reasoningOptions = reasoningEfforts.filter((option) =>
-    reasoningSupported(authMode, model, option.value, connection),
+  const reasoningOptions = reasoningEfforts.filter(
+    (option) =>
+      !(
+        gatewayProfileRef === "openai-codex-oauth-responses-v1" &&
+        option.value === "ultra" &&
+        settings.reasoningEffort !== "ultra"
+      ) &&
+      reasoningSupported(
+        authMode,
+        model,
+        option.value,
+        connection,
+        gatewayProfileRef,
+      ),
   );
   const showReasoning =
     tuning &&

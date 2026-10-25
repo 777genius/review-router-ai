@@ -259,3 +259,40 @@ test("resolves catalog membership and reasoning separately for each binding", as
     ),
   ).rejects.toThrow("gateway_review_model_unsupported");
 });
+
+it("preserves a saved Codex Ultra selection against canonical Max capabilities", async () => {
+  const selected = {
+    ...gateway,
+    gatewayProfileRef: "openai-codex-oauth-responses-v1",
+    reasoningEffort: "ultra" as const,
+  };
+  const connection = {
+    provider: "openai" as const,
+    planLabel: "Codex",
+    regionLabel: "Global",
+    completionInputKind: "none" as const,
+    personalOnly: false,
+    limitsContract: "none" as const,
+    modelSettings: [
+      {
+        modelId: gateway.model,
+        reasoning: { allowed: ["max"], default: "max" },
+        fast: { allowed: ["balanced"], default: "balanced" },
+        tools: { allowed: ["function" as const], default: "function" as const },
+      },
+    ],
+  };
+  await expect(
+    assertGatewayReviewConfigCatalogAllowed(
+      { providers: [selected] },
+      async () => [{ ...profile, id: selected.gatewayProfileRef, connection }],
+    ),
+  ).resolves.toBe(true);
+  expect(selected.reasoningEffort).toBe("ultra");
+  await expect(
+    assertGatewayReviewConfigCatalogAllowed(
+      { providers: [{ ...selected, gatewayProfileRef: profile.id }] },
+      async () => [{ ...profile, connection }],
+    ),
+  ).rejects.toThrow("gateway_review_reasoning_effort_unsupported");
+});
