@@ -27,6 +27,7 @@ export interface ReviewRunRuntimeSnapshotPort {
       | "agentProfiles"
       | "contextToolsProfile"
       | "prDescriptionProfile"
+      | "lifecycleVerificationProfile"
     >;
   }): Promise<ReviewRunRuntimeSnapshot | ReviewRunRuntimeCaptureDenial | null>;
   /** Recheck original binding, never today's repository configuration. */

@@ -51,6 +51,37 @@ export function parseProducerPrDescriptionProfile(
   });
 }
 
+export const lifecycleVerificationExtensionIdV1 = "lifecycle-verification.v1";
+
+export type ProducerLifecycleVerificationProfile = Readonly<{
+  extensionId: typeof lifecycleVerificationExtensionIdV1;
+  descriptorDigest: string;
+}>;
+
+/** Exact immutable extension identity; absence keeps legacy approval bytes. */
+export function parseProducerLifecycleVerificationProfile(
+  value: unknown,
+): ProducerLifecycleVerificationProfile {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).sort().join(",") !== "descriptorDigest,extensionId"
+  )
+    invalid("producer_lifecycle_verification_profile_invalid");
+  const profile = value as Record<string, unknown>;
+  if (
+    profile.extensionId !== lifecycleVerificationExtensionIdV1 ||
+    typeof profile.descriptorDigest !== "string" ||
+    !/^sha256:[a-f0-9]{64}$/.test(profile.descriptorDigest)
+  )
+    invalid("producer_lifecycle_verification_profile_invalid");
+  return Object.freeze({
+    extensionId: lifecycleVerificationExtensionIdV1,
+    descriptorDigest: profile.descriptorDigest,
+  });
+}
+
 export const reviewInvestigationCapabilityV1 = "review_investigation_v1";
 
 export type ProducerContextToolsProfile = Readonly<{
@@ -141,6 +172,7 @@ export type ProducerRelease = {
   readonly reviewInvestigationProfile: ProducerReviewInvestigationProfile | null;
   readonly agentProfiles: readonly ReviewAgentProfile[] | null;
   readonly prDescriptionProfile?: ProducerPrDescriptionProfile | null;
+  readonly lifecycleVerificationProfile?: ProducerLifecycleVerificationProfile | null;
   readonly schemaDigest: string;
   readonly capabilityProfile: ReviewCapabilityProfile;
   readonly protocolLimitsProfileId: string;
@@ -345,6 +377,14 @@ export function createProducerRelease(
             candidate.prDescriptionProfile,
           ),
         }),
+    ...(candidate.lifecycleVerificationProfile == null
+      ? {}
+      : {
+          lifecycleVerificationProfile:
+            parseProducerLifecycleVerificationProfile(
+              candidate.lifecycleVerificationProfile,
+            ),
+        }),
     producerReleaseId: candidate.producerReleaseId,
     distributionKind: candidate.distributionKind,
     actionCommitSha: candidate.actionCommitSha,
@@ -405,6 +445,14 @@ export function producerReleaseImmutableKey(
             release.prDescriptionProfile,
           ),
         }),
+    ...(release.lifecycleVerificationProfile == null
+      ? {}
+      : {
+          lifecycleVerificationProfile:
+            parseProducerLifecycleVerificationProfile(
+              release.lifecycleVerificationProfile,
+            ),
+        }),
     distributionKind: release.distributionKind,
     actionCommitSha: release.actionCommitSha,
     runtimeCommitSha: release.runtimeCommitSha,
@@ -452,6 +500,14 @@ export function cloneProducerRelease(
           prDescriptionProfile: parseProducerPrDescriptionProfile(
             release.prDescriptionProfile,
           ),
+        }),
+    ...(release.lifecycleVerificationProfile == null
+      ? {}
+      : {
+          lifecycleVerificationProfile:
+            parseProducerLifecycleVerificationProfile(
+              release.lifecycleVerificationProfile,
+            ),
         }),
     agentProfiles:
       release.agentProfiles == null

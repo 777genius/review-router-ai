@@ -1,5 +1,6 @@
 import {
   parseProducerPrDescriptionProfile,
+  parseProducerLifecycleVerificationProfile,
   parseProducerContextToolsProfile,
   parseReviewAgentProfiles,
 } from "@reviewrouter/features-review-run-control";
@@ -1320,12 +1321,19 @@ export function parseReviewV2ReleaseBundleCandidate(
 ): ReviewV2ReleaseBundleCandidate {
   const hasContextToolsProfile = Object.hasOwn(input, "contextToolsProfile");
   const hasPrDescriptionProfile = Object.hasOwn(input, "prDescriptionProfile");
+  const hasLifecycleVerificationProfile = Object.hasOwn(
+    input,
+    "lifecycleVerificationProfile",
+  );
   requireExactKeys(
     input,
     [
       ...releaseBundleCandidateKeys,
       ...(hasContextToolsProfile ? ["contextToolsProfile"] : []),
       ...(hasPrDescriptionProfile ? ["prDescriptionProfile"] : []),
+      ...(hasLifecycleVerificationProfile
+        ? ["lifecycleVerificationProfile"]
+        : []),
     ],
     "candidate",
   );
@@ -1383,6 +1391,16 @@ export function parseReviewV2ReleaseBundleCandidate(
           contextToolsProfile: parseProducerContextToolsProfile(
             input.contextToolsProfile,
           ),
+        }
+      : {}),
+    ...(hasLifecycleVerificationProfile
+      ? {
+          lifecycleVerificationProfile:
+            input.lifecycleVerificationProfile === null
+              ? null
+              : parseProducerLifecycleVerificationProfile(
+                  input.lifecycleVerificationProfile,
+                ),
         }
       : {}),
     ...(hasPrDescriptionProfile
