@@ -101,7 +101,8 @@ type Scenario =
 // Real public modules, signed admission/lease/evidence HTTP, production relay,
 // PostgreSQL, worker and GitHub App adapter. The two external boundaries are a
 // controlled local Gateway server and synthetic native GitHub observations.
-(enabled && databaseUrl && actionSourceDir ? it.each : it.skip.each)([
+const lifecycleCase = enabled && databaseUrl && actionSourceDir ? it : it.skip;
+lifecycleCase.each([
   "success",
   "denied",
   "unknown",
