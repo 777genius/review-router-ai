@@ -8,6 +8,7 @@ import {
 } from "@reviewrouter/features-review-config";
 import {
   prDescriptionContract,
+  lifecycleVerificationContract,
   providerApiCheckoutCompanionContract,
 } from "@reviewrouter/shared";
 import {
@@ -321,6 +322,15 @@ function createReviewRunCheckout(
       if (snapshot.prDescriptionCapability !== undefined) {
         runtimeEnv[prDescriptionContract.capabilityRuntimeEnvKey] =
           canonicalJson(snapshot.prDescriptionCapability);
+      }
+      if (snapshot.lifecycleVerificationCapability !== undefined) {
+        runtimeEnv[lifecycleVerificationContract.capabilityRuntimeEnvKey] =
+          canonicalJson(snapshot.lifecycleVerificationCapability);
+      }
+      if (snapshot.lifecycleVerificationUnavailableReason !== undefined) {
+        runtimeEnv[
+          lifecycleVerificationContract.unavailableReasonRuntimeEnvKey
+        ] = snapshot.lifecycleVerificationUnavailableReason;
       }
       // Protected server observation policy; no lifecycle mutation permission.
       if (observationAuthorsJson !== undefined) {

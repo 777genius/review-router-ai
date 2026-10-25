@@ -194,7 +194,9 @@ export class StartReviewExecution {
         compatibilityKey: input.compatibilityKey,
         planHash: input.planHash,
         assignmentManifestVersion:
-          input.assignmentManifestCanonicalJson == null ? null : 1,
+          input.assignmentManifestCanonicalJson == null
+            ? null
+            : JSON.parse(input.assignmentManifestCanonicalJson).manifestVersion,
         assignmentManifestHash: input.assignmentManifestHash ?? null,
         assignmentManifestCanonicalJson:
           input.assignmentManifestCanonicalJson ?? null,

@@ -167,6 +167,49 @@ describe("review execution domain", () => {
     ).toThrowError("review_assignment_manifest_eligible_unaccounted");
   });
 
+  it("binds bounded lifecycle ownership without adding discovery coverage", () => {
+    const candidate = lifecycleAssignmentFixture();
+    const parsed = validateReviewAssignmentManifest(candidate, [
+      "slot-1",
+      "slot-verifier",
+    ]);
+    expect(parsed.manifestVersion).toBe(2);
+    expect(parsed.eligiblePaths).toEqual(["src/a.ts"]);
+    expect(parsed.assignments[1]?.paths).toEqual([]);
+    expect(
+      canonicalReviewAssignmentManifestHashPreimage(
+        canonicalReviewAssignmentManifestJson(parsed),
+      ),
+    ).toBe(
+      `rr.review-assignment-manifest.v2\0${canonicalReviewAssignmentManifestJson(parsed)}`,
+    );
+    candidate.lifecyclePlan.targets[0]!.parentId = "changed-after-parse";
+    expect(parsed.lifecyclePlan?.targets[0]?.parentId).toBe("parent-1");
+    const coverageTheft = lifecycleAssignmentFixture();
+    coverageTheft.assignments[1]!.paths = ["src/a.ts"];
+    expect(() =>
+      validateReviewAssignmentManifest(coverageTheft, [
+        "slot-1",
+        "slot-verifier",
+      ]),
+    ).toThrow("review_lifecycle_assignment_slot_invalid");
+    const duplicate = lifecycleAssignmentFixture();
+    duplicate.lifecyclePlan.assignments[0]!.targetIds.push("target-1");
+    expect(() =>
+      validateReviewAssignmentManifest(duplicate, ["slot-1", "slot-verifier"]),
+    ).toThrow("review_lifecycle_assignment_target_assignment_invalid");
+    const wrongCount = lifecycleAssignmentFixture();
+    wrongCount.lifecyclePlan.inventoryCount = 2;
+    expect(() =>
+      validateReviewAssignmentManifest(wrongCount, ["slot-1", "slot-verifier"]),
+    ).toThrow("review_lifecycle_assignment_accounting_invalid");
+    const oversized = lifecycleAssignmentFixture();
+    oversized.lifecyclePlan.targets[0]!.parentId = "x".repeat(64 * 1024);
+    expect(() =>
+      validateReviewAssignmentManifest(oversized, ["slot-1", "slot-verifier"]),
+    ).toThrow("review_lifecycle_assignment_bounds_invalid");
+  });
+
   it("domain-separates manifest and manifest-bound plan hashes", () => {
     expect(canonicalReviewAssignmentManifestHashPreimage("{}")).toBe(
       "rr.review-assignment-manifest.v1\0{}",
@@ -1155,6 +1198,54 @@ describe("start and admission saga", () => {
       state: ReviewRequestedIntentState.Dispatched,
       authorizationId: "authorization-1",
       executionId: "execution-1",
+    });
+  });
+
+  it("persists v2 zero-work lifecycle inventory under the same admitted plan identity", async () => {
+    const store = new InMemoryReviewExecutionStore();
+    const useCase = startUseCase(store, {
+      authorizationRevision: revision,
+      revisions: [revision, revision],
+    });
+    const base = startInput("execution-manifest-v2");
+    const candidate = lifecycleAssignmentFixture();
+    candidate.lifecyclePlan.targets = [];
+    candidate.lifecyclePlan.assignments = [];
+    candidate.lifecyclePlan.inventoryCount = 1;
+    candidate.lifecyclePlan.dispositionCounts.eligible = 0;
+    candidate.lifecyclePlan.dispositionCounts.manual = 1;
+    candidate.assignments = [candidate.assignments[0]!];
+    const canonical = canonicalReviewAssignmentManifestJson(
+      validateReviewAssignmentManifest(candidate, ["slot-1"]),
+    );
+    const assignmentManifestHash = createHash("sha256")
+      .update(canonicalReviewAssignmentManifestHashPreimage(canonical))
+      .digest("hex");
+    const planHash = createHash("sha256")
+      .update(
+        canonicalReviewExecutionPlanHashPreimage({
+          assignmentManifestHash,
+          compatibilityKey: hash("b"),
+          reviewRevisionHash: revision.reviewRevisionHash,
+          workSlots: base.workSlots,
+        }),
+      )
+      .digest("hex");
+    const result = await useCase.execute({
+      ...base,
+      compatibilityKey: hash("b"),
+      planHash,
+      assignmentManifestHash,
+      assignmentManifestCanonicalJson: canonical,
+    });
+    expect(result.status).toBe(StartReviewExecutionStatus.Admitted);
+    expect(
+      (await store.findExecution(base.executionId))?.execution,
+    ).toMatchObject({
+      assignmentManifestVersion: 2,
+      assignmentManifestHash,
+      assignmentManifestCanonicalJson: canonical,
+      planHash,
     });
   });
 
@@ -2979,4 +3070,67 @@ function plus(milliseconds: number): Date {
 
 function hash(character: string): string {
   return character.repeat(64).slice(0, 64);
+}
+
+function lifecycleAssignmentFixture() {
+  return {
+    manifestVersion: 2,
+    assignments: [
+      { workSlotId: "slot-1", paths: ["src/a.ts"] },
+      { workSlotId: "slot-verifier", paths: [] as string[] },
+    ],
+    eligiblePaths: ["src/a.ts"],
+    uncoveredPaths: [],
+    excludedPaths: [],
+    lifecyclePlan: {
+      version: 1,
+      capabilityHash: hash("a"),
+      descriptorDigest: `sha256:${hash("b")}`,
+      policyDigest: hash("c"),
+      inventoryHash: hash("d"),
+      inventoryCount: 1,
+      dispositionCounts: {
+        eligible: 1,
+        manual: 0,
+        unsupported: 0,
+        capped: 0,
+        unavailable: 0,
+        resolved: 0,
+      },
+      participantRoster: [{ providerVoteIdentityHash: hash("c") }],
+      targets: [
+        {
+          targetId: "target-1",
+          threadId: "thread-1",
+          fingerprint: "rrl_" + "f".repeat(32),
+          parentId: "parent-1",
+          parentCreatedAt: "2026-10-20T00:00:00.000Z",
+          parentUpdatedAt: "2026-10-20T00:00:00.000Z",
+          parentBodyHash: hash("a"),
+          claimHash: hash("b"),
+          commentStateHash: hash("c"),
+          ledgerWatermark: "0",
+          originalPath: "src/outside-diff.ts",
+          currentPath: "src/outside-diff.ts",
+          originalLine: 1,
+          currentLine: 1,
+          severity: "major",
+          resolutionHistory: {
+            historyCut: "2026-10-19T00:00:00.000Z",
+            guardVersion: "0",
+            state: "before_cut_unobserved",
+          },
+        },
+      ],
+      assignments: [
+        {
+          workSlotId: "slot-verifier",
+          packetHash: hash("e"),
+          targetIds: ["target-1"],
+          lifecycleTargetSetHash: hash("f"),
+          liveLifecycleStateHash: hash("a"),
+        },
+      ],
+    },
+  };
 }
