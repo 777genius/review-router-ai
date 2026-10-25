@@ -208,15 +208,20 @@ async function readAssignmentManifest(
     return null;
   }
   if (
-    row.assignmentManifestVersion !== 1 ||
+    (row.assignmentManifestVersion !== 1 &&
+      row.assignmentManifestVersion !== 2) ||
     row.assignmentManifestJson === null
   ) {
     throw new Error("review_assignment_manifest_persisted_invalid");
   }
-  return validateReviewAssignmentManifest(
+  const manifest = validateReviewAssignmentManifest(
     row.assignmentManifestJson,
     execution.workSlots.map((slot) => slot.workSlotId),
   );
+  if (manifest.manifestVersion !== row.assignmentManifestVersion) {
+    throw new Error("review_assignment_manifest_persisted_invalid");
+  }
+  return manifest;
 }
 
 function progressManifest(
