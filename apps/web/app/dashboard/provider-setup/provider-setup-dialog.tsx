@@ -1094,12 +1094,16 @@ function ProviderChoiceStep({
               reviewRouterUnavailable={
                 view.sources.find((option) => option.key === "gateway_binding")
                   ?.decision.allowed
-                  ? gatewayPage?.profiles.some(
-                      (profile) =>
-                        profile.availability !==
-                          "deployment_configuration_required" &&
-                        apiKeyProviderForGatewayProfile(profile) ===
-                          apiKeyProvider,
+                  ? (
+                      view.gatewayApiKeyProviders
+                        ? view.gatewayApiKeyProviders.includes(apiKeyProvider)
+                        : gatewayPage?.profiles.some(
+                            (profile) =>
+                              profile.availability !==
+                                "deployment_configuration_required" &&
+                              apiKeyProviderForGatewayProfile(profile) ===
+                                apiKeyProvider,
+                          )
                     )
                     ? undefined
                     : "ReviewRouter storage is not available for this provider yet."

@@ -2547,20 +2547,18 @@ function AccountForm({
         }
         if (next && mode !== "connect") setLabelValue(account?.label ?? "");
         if (next && mode === "connect") {
-          setSelectedId(
+          const profile =
             profiles.find(
               (profile) =>
                 apiKeyProviderForGatewayProfile(profile) ===
                 setup.intent?.provider,
-            )?.id ??
-              profiles[0]?.id ??
-              "",
-          );
+            ) ?? profiles[0];
+          setSelectedId(profile?.id ?? "");
           setKeyStorage("reviewrouter");
-          setBaseURL(profiles[0]?.dedicatedBaseURL ?? "");
+          setBaseURL(profile?.dedicatedBaseURL ?? "");
           setManualURL(false);
           setAutomaticLabel(true);
-          setLabelValue(suggestion(profiles[0]));
+          setLabelValue(suggestion(profile));
         }
         setOpen(next);
       }}

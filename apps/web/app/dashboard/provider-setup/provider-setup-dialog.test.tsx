@@ -164,6 +164,7 @@ describe("ProviderSetupDialog", () => {
     async (provider) => {
       view = {
         ...view,
+        gatewayApiKeyProviders: apiKeyProviders.map((row) => row.id),
         sources: [
           {
             key: "gateway_binding",
@@ -186,21 +187,6 @@ describe("ProviderSetupDialog", () => {
         ],
       };
       renderDialog(repositoryTarget, {
-        gatewayAccounts: {
-          status: "ok",
-          value: {
-            accounts: [],
-            nextCursor: null,
-            profiles: apiKeyProviders.map((row) => ({
-              id: `gateway-${row.id}`,
-              label: row.label,
-              authKind: "api_key",
-              provider: row.directProviderKind,
-              protocol: "openai-responses",
-              models: [row.defaultModel],
-            })),
-          },
-        },
         initialIntent: {
           provider: provider.id,
           storage: "github_secrets",

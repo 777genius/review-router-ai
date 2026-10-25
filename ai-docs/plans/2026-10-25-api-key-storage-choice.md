@@ -155,10 +155,26 @@ Keep OpenRouter's existing PR-description capability; do not grant it to another
 provider solely because it now shares a transport name.
 
 The generated caller uses only the selected provider's fixed repository secret.
-Extend companion transport metadata and generate public mirrors through the
-existing protocol tooling. Keep the frozen core protocol schema unchanged unless
-the reviewed implementation proves that an additive versioned extension is
-necessary; do not silently rewrite a frozen contract.
+The additive companion extension is mandatory: define the finite OpenRouter,
+MiMo and Kimi Code modes and their fixed transport descriptors in the canonical
+companion source, generate the public mirror through the existing protocol
+tooling, and require source/mirror parity. Keep the legacy OpenRouter default
+property for compatible existing callers; publish the expanded mode list and
+descriptors as separate exports so an object spread cannot add fields to the
+strict checkout request.
+
+Version this extension through the existing generated-file hashes, committed
+handoff manifest and exact producer/runtime SHA qualification. Retain workflow
+schema 2 and the unchanged two-scalar checkout request shape. The frozen core
+protocol schema and digest remain unchanged. Qualify the generated caller,
+canonical source proof, captured mode, checkout and public runtime together on
+their exact commits; unknown or mismatched modes fail closed.
+
+An older OpenRouter-only direct producer cannot execute or complete a new MiMo
+or Kimi mode: its immutable workflow/runtime rejects the unknown mode, and an
+OpenRouter checkout selector cannot match a captured different provider. The
+producer registry does not independently filter allowed modes by release SHA;
+do not describe exact SHA matching alone as that additional authorization gate.
 
 ### C. Public runtime
 

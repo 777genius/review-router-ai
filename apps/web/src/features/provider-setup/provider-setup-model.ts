@@ -17,6 +17,7 @@ import {
   apiKeyProviderForAuthMode,
   getApiKeyProvider,
   type ProviderAuthMode,
+  type ApiKeyProviderId,
 } from "@reviewrouter/features-review-providers";
 
 /**
@@ -115,6 +116,8 @@ export type ProviderSetupView = Readonly<{
   profiles: readonly ProviderProfileOption[];
   sources: readonly ProviderSourceOption[];
   viewerIsAdmin: boolean;
+  /** Enrollment capabilities, independent of whether an account exists yet. */
+  gatewayApiKeyProviders?: readonly ApiKeyProviderId[];
 }>;
 
 /** Verified facts of one dialog read. */
@@ -153,6 +156,7 @@ export type ProviderSetupFacts = Readonly<{
     >
   >;
   claudeCodeEnabled: boolean;
+  gatewayApiKeyProviders?: readonly ApiKeyProviderId[];
 }>;
 
 const allowed: ProviderSetupDecision = { allowed: true };
@@ -414,6 +418,9 @@ export function buildProviderSetupView(
     profiles,
     sources,
     viewerIsAdmin: admin,
+    ...(facts.gatewayApiKeyProviders
+      ? { gatewayApiKeyProviders: facts.gatewayApiKeyProviders }
+      : {}),
   };
 }
 
