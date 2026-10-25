@@ -139,6 +139,7 @@ export type RuntimeDescriptor = {
     | typeof SUBSCRIPTION_FIXTURE_BOUNDARY
     | typeof LIMITS_FIXTURE_BOUNDARY
     | typeof PROBE_FIXTURE_BOUNDARY
+    | typeof ACCOUNT_MODELS_FIXTURE_BOUNDARY
     | "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof"
     | "not-used";
 };
