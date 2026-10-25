@@ -105,8 +105,8 @@ function headline(input: ReviewBannerInput): Headline {
       ? {
           first: "Review update is incomplete",
           second:
-            input.update.open > 0
-              ? `${input.update.open} known ${issue(input.update.open)} still open`
+            input.update.unverified > 0
+              ? `${input.update.unverified} previous ${issue(input.update.unverified)} not verified`
               : "No reliable conclusion yet",
           note: "Review incomplete. Do not treat this as a pass.",
         }
@@ -120,31 +120,33 @@ function headline(input: ReviewBannerInput): Headline {
         };
   }
   if (input.variant === "update") {
-    const { resolved, open, unverified } = input.update;
+    const { new: added, resolved, open, unverified } = input.update;
+    // The installed URL contract includes uncertain prior issues in `open`.
+    // Keep that contract, but never describe them as confirmed current issues.
+    const confirmedOpen = Math.max(0, open - unverified);
     return {
       first:
-        resolved > 0
-          ? `${resolved} ${issue(resolved)} resolved.`
-          : open > 0
-            ? `${open} ${issue(open)} ${open === 1 ? "remains" : "remain"} open.`
-            : "No open issues",
-      ...(resolved > 0
-        ? {
-            second:
-              open > 0
-                ? unverified > 0
-                  ? `${open} still open; ${unverified} unverified.`
-                  : `${open} still ${open === 1 ? "needs" : "need"} a fix.`
-                : "No open issues.",
-          }
-        : unverified > 0
+        added > 0
+          ? `${added} new ${issue(added)} found`
+          : resolved > 0
+            ? `${resolved} ${issue(resolved)} resolved`
+            : confirmedOpen > 0 || unverified > 0
+              ? "No new issues found"
+              : "No open issues",
+      ...(added > 0 && resolved > 0
+        ? { second: `${resolved} ${issue(resolved)} resolved` }
+        : confirmedOpen > added
           ? {
-              second: `${unverified} ${unverified === 1 ? "needs" : "need"} verification.`,
+              second: `${confirmedOpen - added} confirmed ${issue(confirmedOpen - added)} still open`,
             }
-          : {}),
+          : resolved > 0 && confirmedOpen === 0 && unverified === 0
+            ? {
+                second: "No open issues",
+              }
+            : {}),
       note:
         unverified > 0
-          ? `${unverified} not rechecked · included in open`
+          ? `${unverified} previous ${issue(unverified)} not verified`
           : "Compared with the previous completed review",
     };
   }
@@ -249,11 +251,14 @@ function renderBanner(input: ReviewBannerInput): string {
       : input.variant === "update"
         ? updateKeys
             .filter(
-              (key) => key !== "unverified" || input.update.unverified > 0,
-            )
-            .map(
               (key) =>
-                `${input.update[key]} ${key === "unverified" ? "not rechecked" : key}`,
+                key !== "unverified" ||
+                (input.state === "incomplete" && input.update.unverified > 0),
+            )
+            .map((key) =>
+              key === "open"
+                ? `${Math.max(0, input.update.open - input.update.unverified)} confirmed open`
+                : `${input.update[key]} ${key === "unverified" ? "not verified" : key}`,
             )
         : severities
             .filter((key) => input.counts[key] > 0)
@@ -266,28 +271,15 @@ function renderBanner(input: ReviewBannerInput): string {
         ? `${title.first} ${title.second}`
         : title.first;
   const headlineSecond =
-    compact &&
-    input.variant === "update" &&
-    input.update.resolved > 0 &&
-    input.update.open > 0 &&
-    input.update.unverified > 0
-      ? `${input.update.open} open; ${input.update.unverified} unverified`
-      : action && input.state === "complete" && !compact
-        ? undefined
-        : title.second;
-  const note =
-    compact && input.variant === "update" && input.state === "incomplete"
-      ? input.update.open > 0
-        ? "Unconfirmed issues remain in the open count."
-        : "Review the remaining files before merging."
-      : title.note;
+    action && input.state === "complete" && !compact ? undefined : title.second;
+  const note = title.note;
   const logoEffect = compact
     ? ""
     : `<defs><radialGradient id="logoHalo"><stop stop-color="${accent}" stop-opacity="${themeValue("halo-opacity", ".14", ".09")}"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient><filter id="logoGlow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="13"/></filter><g id="brandLogo">${reviewBannerLogo}</g></defs><g aria-hidden="true"><ellipse cx="1050" cy="134" rx="148" ry="110" fill="url(#logoHalo)"/><g opacity="${themeValue("glow-opacity", ".20", ".13")}" filter="url(#logoGlow)"><use href="#brandLogo" transform="translate(976 63) scale(.287109375)"/></g><use href="#brandLogo" transform="translate(976 63) scale(.287109375)" opacity="${themeValue("logo-opacity", ".30", ".22")}"/></g>`;
   const svgTitle = [status, headlineFirst, headlineSecond, coverage, ...metrics]
     .filter(Boolean)
     .join(" · ");
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="title"><title id="title">${escapeXml(svgTitle)}</title><defs><linearGradient id="background"><stop stop-color="${tint}"/><stop offset="1" stop-color="${background}"/></linearGradient></defs><rect width="${width}" height="${height}" rx="8" fill="url(#background)"/>${action ? `<path d="M2 8V${height - 8}" stroke="${accent}" stroke-width="4"/>` : ""}${logoEffect}<g font-family="Arial,Helvetica,sans-serif">${text(left, compact ? 38 : 43, status, 22, muted, ' font-weight="600" letter-spacing="2"')}${coverage ? text(compact ? left : width - left, compact ? 73 : 43, coverage, compact ? 22 : 20, muted, compact ? "" : ' text-anchor="end"') : ""}${text(left, compact ? 126 : 112, headlineFirst, compact ? 32 : 40, ink, ' font-weight="600" letter-spacing="-0.6"')}${headlineSecond ? text(left, compact ? 168 : 159, headlineSecond, compact ? 28 : 40, ink, ' font-weight="600" letter-spacing="-0.6"') : ""}${text(left, compact ? 211 : 195, note, 22, muted)}${metrics.length > 0 ? `<path d="M${left} ${compact ? 236 : 216}H${width - left}" stroke="${line}"/>` : ""}${metrics.map((metric, index) => text(left + (compact ? (index % 2) * ((width - left * 2) / 2) : index * 282), compact ? 277 + Math.floor(index / 2) * 48 : 255, metric, Math.min(compact ? 26 : 25, Math.floor((compact ? 200 : 264) / (metric.length * 0.58))), input.variant === "first" ? (metric.endsWith(" critical") ? themeValue("critical", "#ff8f96", "#ad2333") : metric.endsWith(" major") ? themeValue("major", "#e3b341", "#7d4e00") : metric.endsWith(" info") ? muted : themeValue("minor", "#79c0ff", "#0969da")) : metric.endsWith(" resolved") ? (input.update.resolved > 0 ? themeValue("resolved", "#7ee787", "#1a7f37") : muted) : metric.endsWith("not rechecked") ? themeValue("unverified", "#e3b341", "#7d4e00") : accent, ' font-weight="600"')).join("")}</g></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="title"><title id="title">${escapeXml(svgTitle)}</title><defs><linearGradient id="background"><stop stop-color="${tint}"/><stop offset="1" stop-color="${background}"/></linearGradient></defs><rect width="${width}" height="${height}" rx="8" fill="url(#background)"/>${action ? `<path d="M2 8V${height - 8}" stroke="${accent}" stroke-width="4"/>` : ""}${logoEffect}<g font-family="Arial,Helvetica,sans-serif">${text(left, compact ? 38 : 43, status, 22, muted, ' font-weight="600" letter-spacing="2"')}${coverage ? text(compact ? left : width - left, compact ? 73 : 43, coverage, compact ? 22 : 20, muted, compact ? "" : ' text-anchor="end"') : ""}${text(left, compact ? 126 : 112, headlineFirst, compact ? 32 : 40, ink, ' font-weight="600" letter-spacing="-0.6"')}${headlineSecond ? text(left, compact ? 168 : 159, headlineSecond, compact ? 28 : 40, ink, ' font-weight="600" letter-spacing="-0.6"') : ""}${text(left, compact ? 211 : 195, note, 22, muted)}${metrics.length > 0 ? `<path d="M${left} ${compact ? 236 : 216}H${width - left}" stroke="${line}"/>` : ""}${metrics.map((metric, index) => text(left + (compact ? (index % 2) * ((width - left * 2) / 2) : index * 282), compact ? 277 + Math.floor(index / 2) * 48 : 255, metric, Math.min(compact ? 26 : 25, Math.floor((compact ? 200 : 264) / (metric.length * 0.58))), input.variant === "first" ? (metric.endsWith(" critical") ? themeValue("critical", "#ff8f96", "#ad2333") : metric.endsWith(" major") ? themeValue("major", "#e3b341", "#7d4e00") : metric.endsWith(" info") ? muted : themeValue("minor", "#79c0ff", "#0969da")) : metric.endsWith(" resolved") ? (input.update.resolved > 0 ? themeValue("resolved", "#7ee787", "#1a7f37") : muted) : metric.endsWith("not verified") ? themeValue("unverified", "#e3b341", "#7d4e00") : accent, ' font-weight="600"')).join("")}</g></svg>`;
   if (!auto) return svg;
   // Build declarations after metric rows have registered their colors too.
   const declarations = (theme: "light" | "dark") =>

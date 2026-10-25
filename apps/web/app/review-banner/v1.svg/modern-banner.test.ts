@@ -43,11 +43,11 @@ describe("canonical modern review banner", () => {
   it("renders trusted update counts with correct singular/plural and zero wording", async () => {
     const svg = await GET(request(update)).text();
     expect(svg).toContain("REVIEW UPDATED");
+    expect(svg).toContain("1 new issue found");
     expect(svg).toContain("2 issues resolved");
-    expect(svg).toContain("1 still needs a fix");
     expect(svg).toContain("1 new");
     expect(svg).toContain("2 resolved");
-    expect(svg).toContain("1 open");
+    expect(svg).toContain("1 confirmed open");
     expect(svg).not.toContain("0 unverified");
     const clean = await GET(
       request(
@@ -68,14 +68,33 @@ describe("canonical modern review banner", () => {
         "state=complete&variant=update&new=0&resolved=0&open=1&unverified=1",
       ),
     ).text();
-    expect(unverified).toContain("1 issue remains open");
-    expect(unverified).toContain("1 needs verification");
-    expect(unverified).toContain("1 not rechecked · included in open");
+    expect(unverified).toContain("No new issues found");
+    expect(unverified).toContain("1 previous issue not verified");
+    expect(unverified).not.toMatch(
+      /remains open|needs verification|included in open/,
+    );
     expect(unverified).not.toContain("needs a fix");
     const auto = await GET(request(`${update}&theme=auto`)).text();
     expect(auto).toContain('fill="var(--resolved,#1a7f37)"');
     expect(auto).toContain("--resolved:#7ee787");
   });
+
+  it.each(["wide", "compact"])(
+    "prioritizes the new finding and separates unchecked prior issues in %s layout",
+    async (layout) => {
+      const svg = await GET(
+        request(
+          `state=complete&variant=update&new=1&resolved=0&open=5&unverified=4&critical=2&major=1&minor=2&layout=${layout}`,
+        ),
+      ).text();
+      expect(svg).toContain("1 new issue found");
+      expect(svg).toContain("4 previous issues not verified");
+      expect(svg).toContain("1 confirmed open");
+      expect(svg).not.toMatch(
+        /5 open|5 issues remain open|need verification|included in open/,
+      );
+    },
+  );
 
   it.each(["wide", "compact"])(
     "adapts the %s auto palette to the embedding page without changing layout",
@@ -139,8 +158,9 @@ describe("canonical modern review banner", () => {
       );
       expect(svg).toContain("Coverage checked: 12 / 12 files");
       if (variant === "update") {
-        expect(svg).toContain("3 not rechecked");
-        expect(svg).toContain("3 open");
+        expect(svg).toContain("3 not verified");
+        expect(svg).toContain("3 previous issues not verified");
+        expect(svg).not.toContain("3 known issues still open");
         expect(svg).not.toContain("still need a fix");
       }
     },
@@ -233,7 +253,7 @@ describe("canonical modern review banner", () => {
             ? 'viewBox="0 0 1200 280"'
             : 'viewBox="0 0 480 360"',
         );
-        expect(svg).toContain("9999 not rechecked");
+        expect(svg).toContain("9999 not verified");
       }
   });
 
