@@ -87,13 +87,25 @@ export function RepositorySkillsOperation({
   canCreate,
   onClose,
   initialSkillIds = [],
+  initialMode = "add",
+  initialSearch = "",
+  removalOnly = false,
 }: CapturedSelection & {
   readonly workspaceId: string;
   readonly onClose: () => void;
   readonly initialSkillIds?: readonly string[];
+  readonly initialMode?: "add" | "remove";
+  readonly initialSearch?: string;
+  readonly removalOnly?: boolean;
 }) {
-  const [mode, setMode] = useState<"add" | "remove">("add");
-  const [search, setSearch] = useState("");
+  const [mode, setMode] = useState<"add" | "remove">(
+    removalOnly ? "remove" : initialMode,
+  );
+  const [search, setSearch] = useState(initialSearch);
+  const [focusedSkillId, setFocusedSkillId] = useState<string | null>(() =>
+    initialSkillIds.length === 1 ? initialSkillIds[0]! : null,
+  );
+  const effectiveSearch = focusedSkillId ?? search;
   const [selected, setSelected] = useState<ReadonlySet<string>>(
     () => new Set(initialSkillIds),
   );
@@ -108,14 +120,14 @@ export function RepositorySkillsOperation({
       viewerId,
       workspaceId,
       repositoryIds,
-      search,
+      effectiveSearch,
     ),
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) =>
       requestReviewSkills("listAssignmentChoices", {
         workspaceId,
         repositoryIds,
-        search,
+        search: effectiveSearch,
         cursor: pageParam,
       }),
     getNextPageParam: (page) => page.nextCursor ?? undefined,
@@ -205,6 +217,13 @@ export function RepositorySkillsOperation({
               ) : null}
             </div>
           ) : null}
+          {selected.size > 100 ? (
+            <p role="alert" className="text-sm text-amber-100">
+              All {selected.size} checked skills are preserved. You can update
+              up to 100 skills at once. Uncheck skills or clear the selection
+              before applying.
+            </p>
+          ) : null}
           <SkillsError error={apply.error} />
           {apply.isError ? (
             <Button
@@ -252,6 +271,12 @@ export function RepositorySkillsOperation({
         </Button>
       }
     >
+      {removalOnly ? (
+        <p role="status" className="text-sm text-amber-100">
+          This selection includes inactive repositories. Only removing skill
+          assignments is available.
+        </p>
+      ) : null}
       <p className="text-xs leading-5 text-slate-400">
         Review Skills require a supporting ReviewRouter runtime. Reviews with
         unavailable skills or unsupported runtimes stop with an actionable
@@ -267,7 +292,7 @@ export function RepositorySkillsOperation({
             key={value}
             type="button"
             variant={mode === value ? "solid" : "outline"}
-            disabled={controlsLocked}
+            disabled={controlsLocked || (removalOnly && value === "add")}
             aria-pressed={mode === value}
             onClick={() => {
               setMode(value);
@@ -288,7 +313,32 @@ export function RepositorySkillsOperation({
         </p>
       ) : (
         <>
-          <SkillSearch value={search} onChange={setSearch} />
+          <SkillSearch
+            value={search}
+            onChange={(value) => {
+              setSearch(value);
+              setFocusedSkillId(null);
+            }}
+          />
+          {focusedSkillId ? (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm text-slate-400">
+                Showing the chosen skill.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={controlsLocked}
+                onClick={() => {
+                  setFocusedSkillId(null);
+                  setSearch("");
+                }}
+              >
+                Show all skills
+              </Button>
+            </div>
+          ) : null}
           {choices.isPending ? (
             <p role="status">Loading available skills…</p>
           ) : null}
@@ -312,7 +362,7 @@ export function RepositorySkillsOperation({
                   <tr key={row.skillId} className="border-b border-cyan-200/10">
                     <td className={skillCellClass}>
                       <Checkbox
-                        aria-label={`Select skill ${row.name}`}
+                        aria-label={`Select skill ${row.name}${row.available ? "" : ` ${row.skillId}`}`}
                         checked={selected.has(row.skillId)}
                         disabled={
                           controlsLocked ||
@@ -328,17 +378,24 @@ export function RepositorySkillsOperation({
                     </td>
                     <td className={skillCellClass}>
                       <p className="font-semibold text-cyan-50">{row.name}</p>
+                      {!row.available ? (
+                        <code className="mt-1 block break-all text-xs text-slate-500">
+                          {row.skillId}
+                        </code>
+                      ) : null}
                       <p className="mt-1 max-w-sm text-slate-400">
                         {row.available
                           ? row.description
                           : "Unavailable — remove assignments to allow new reviews."}
                       </p>
                       {repositoryIds.length === 1 &&
+                      !removalOnly &&
                       row.available &&
                       row.bindings[0] ? (
                         <SkillBindingPaths
-                          key={`${row.skillId}:${row.bindings[0].version}`}
+                          key={row.skillId}
                           workspaceId={workspaceId}
+                          viewerId={viewerId}
                           repositoryId={repositoryIds[0]!}
                           binding={row.bindings[0]}
                           onSaved={() => {
@@ -422,7 +479,7 @@ export function RepositorySkillsOperation({
               </label>
             </details>
           ) : null}
-          {repositoryIds.length === 1 ? (
+          {repositoryIds.length === 1 && !removalOnly ? (
             <RepositorySkillSettings
               workspaceId={workspaceId}
               viewerId={viewerId}
@@ -438,7 +495,13 @@ export function RepositorySkillsOperation({
           onSaved={(document) => {
             setCreating(false);
             setSelected((prior) => new Set([...prior, document.skillId]));
-            void choices.refetch();
+            setSearch(Array.from(document.name).slice(0, 100).join(""));
+            setFocusedSkillId(document.skillId);
+            setSuccess("");
+            apply.reset();
+            void client.invalidateQueries({
+              queryKey: reviewSkillsKeys.workspace(viewerId, workspaceId),
+            });
           }}
         />
       ) : null}

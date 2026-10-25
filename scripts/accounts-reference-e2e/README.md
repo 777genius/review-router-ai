@@ -241,17 +241,23 @@ ACCOUNTS_REFERENCE_E2E_GREP='Skills real Next' \
   --skills-fixture
 ```
 
-The seven browser scenarios cover real creation and explicit Save, mobile navigation,
-dirty-close cancellation, portable text-only SKILL.md import and export,
+The ten browser scenarios cover real creation and explicit Save, mobile navigation,
+keyboard focus trapping and return, dirty-close cancellation, a maximum-size
+text-only SKILL.md export/import round trip with exact Markdown whitespace,
 concurrent-editor CAS conflicts with retained draft and explicit reconciliation,
 a genuine server-action replay by a different current source admin, all 125
 current repository IDs with mixed assignment counts, skill pagination and search
-selection, additive Add/Remove, the explicit 1001-target rejection, a committed
+selection, empty-bulk creation retaining exact repositories even with 51 matching
+name prefixes, additive Add/Remove, the explicit 1001-target rejection, a committed
 Apply whose response is deliberately lost and then retried with the same delta,
 canonical cross-workspace linking, author edits opened from a linked name with
 source and destination library refresh, separate grant and destination acceptance,
-local usage isolation, and the repository-only
-writer removing a revoked dependency without seeing subsequent source changes.
+revocation and unlink, local usage isolation, and the repository-only writer
+removing a revoked dependency without seeing subsequent source changes. Single
+repository checks exercise invalid and valid path scopes, two-editor scope CAS
+reconciliation, repeated Add preserving existing scopes, and persisted Git-root
+opt-in/out. Destination admins also remove an unavailable assignment from an
+inactive repository and unlink its generic workspace row without source metadata.
 
 The lane captures populated library and bulk-dialog screenshots on desktop and
 at a 390×844 mobile viewport under its `browser-artifacts/` directory. Synthetic
