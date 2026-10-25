@@ -9,9 +9,17 @@ import {
   ReviewRunAuthorizationState,
   ReviewRunAuthorizationTokenResolutionStatus,
   ReviewTrustDomain,
+  ReviewRunCompanionDispatchFailure,
+  type ReviewRunCompanionDispatchAdmission,
+  type ReviewRunCompanionDispatch,
   type ReviewRunAuthorization,
   type ReviewRunGatewayExecutionBinding,
 } from "@reviewrouter/features-review-run-control";
+import {
+  lifecycleVerificationContract,
+  lifecycleVerificationDescriptorDigest,
+  type ReviewCompanionDispatchContextV1,
+} from "@reviewrouter/shared";
 import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
 import { createReviewRunGatewayPreparation } from "./review-run-gateway-preparation";
@@ -23,6 +31,269 @@ import {
 } from "./review-run-gateway-relay";
 
 const MiB = 1024 * 1024;
+
+function companionReservation() {
+  const rows = new Map<string, ReviewRunCompanionDispatch>();
+  let claims = 0;
+  const admission: ReviewRunCompanionDispatchAdmission = {
+    async claim(auth, context, providerRequestEnvelopeHash) {
+      claims++;
+      const existing = rows.get(context.dispatchId);
+      if (existing) {
+        if (
+          existing.providerRequestEnvelopeHash !== providerRequestEnvelopeHash
+        )
+          throw new ReviewRunCompanionDispatchFailure(
+            "companion_dispatch_conflict",
+          );
+        return {
+          status: "restored",
+          dispatch: existing,
+          notAfter: new Date(Date.now() + 120000),
+        };
+      }
+      if (
+        [...rows.values()].some((row) => row.workSlotId === context.workSlotId)
+      )
+        throw new ReviewRunCompanionDispatchFailure(
+          "companion_slot_already_claimed",
+        );
+      const dispatch: ReviewRunCompanionDispatch = {
+        authorizationId: auth.authorizationId,
+        dispatchId: context.dispatchId,
+        executionId: context.executionId,
+        workSlotId: context.workSlotId,
+        attemptOrdinal: context.attemptOrdinal,
+        leaseId: context.leaseId,
+        fencingToken: BigInt(context.fencingToken),
+        preparedManifestKey: context.preparedManifestKey,
+        providerRequestEnvelopeHash,
+        nativeRequestRef: "stored-companion-native-ref",
+        role: "lifecycle_verification",
+        state: "dispatch_may_have_started",
+      };
+      rows.set(context.dispatchId, dispatch);
+      return {
+        status: "claimed",
+        dispatch,
+        notAfter: new Date(Date.now() + 120000),
+      };
+    },
+    async read(_authorizationId, dispatchId) {
+      return rows.get(dispatchId) ?? null;
+    },
+    async settle(_authorizationId, dispatchId, state) {
+      const row = rows.get(dispatchId)!;
+      if (row.state !== "completed" && row.state !== "not_dispatched")
+        rows.set(dispatchId, { ...row, state });
+    },
+  };
+  return { admission, rows, claimCount: () => claims };
+}
+const companionContext: ReviewCompanionDispatchContextV1 = {
+  dispatchId: "companion-dispatch-1",
+  executionId: "execution-1",
+  workSlotId: "lifecycle-1",
+  attemptOrdinal: 1,
+  leaseId: "lease-1",
+  leaseCapability: "signed-lease",
+  fencingToken: "1",
+  preparedManifestKey: "a".repeat(64),
+};
+const companionEnvelope = () =>
+  Buffer.from(
+    JSON.stringify({
+      input: "bounded-packet",
+      model: "gpt-5.6-sol",
+      stream: true,
+      store: false,
+      service_tier: "default",
+      max_output_tokens: 4096,
+    }),
+  );
+
+it("companion forwards the exact hashed bytes with the stored native ref and settles native completion", async () => {
+  const state = companionReservation();
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: state.admission,
+  });
+  try {
+    const bytes = companionEnvelope();
+    const response = await f.relay.responses(
+      "authorization-1",
+      bytes,
+      new AbortController(),
+      undefined,
+      companionContext,
+    );
+    expect(response.kind).toBe("stream");
+    if (response.kind !== "stream") throw new Error("stream_expected");
+    const reader = response.body.getReader();
+    while (!(await reader.read()).done) {
+      /* Consume the bounded native response. */
+    }
+    expect(f.requestBodies).toEqual([bytes.toString()]);
+    expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "completed",
+    );
+    expect(
+      await f.relay.companionDispatch(
+        "authorization-1",
+        companionContext.dispatchId,
+      ),
+    ).toMatchObject({
+      state: "completed",
+      requestRef: "stored-companion-native-ref",
+      providerRequestEnvelopeHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("forwards the captured nine-request native grant unchanged through actual prepare and Responses admission", async () => {
+  const f = await fixture(32768, 0, 2, 5000, undefined, undefined, 9);
+  try {
+    const response = await f.relay.responses(
+      "authorization-1",
+      Buffer.from("{}"),
+      new AbortController(),
+    );
+    expect(f.intents).toHaveLength(1);
+    expect(f.intents[0]!.limits.requests).toBe(9);
+    expect(f.admissions).toHaveLength(1);
+    expect(f.admissions[0]!.limits.requests).toBe(9);
+    if (response.kind === "stream") await response.cancel();
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("companion local unpaid admission consumes one reservation and one SDK request across restore", async () => {
+  const state = companionReservation();
+  const first = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: state.admission,
+    unpaid: true,
+  });
+  try {
+    await expect(
+      first.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({
+      requestRef: "stored-companion-native-ref",
+      effect: "not_dispatched",
+    });
+    expect(first.admissions).toHaveLength(1);
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "not_dispatched",
+    );
+    // A fresh relay has no process counter, yet the same reservation cannot forward.
+    const restored = await fixture(32768, 0, 2, 5000, undefined, {
+      admission: state.admission,
+      unpaid: true,
+    });
+    try {
+      await expect(
+        restored.relay.responses(
+          "authorization-1",
+          companionEnvelope(),
+          new AbortController(),
+          undefined,
+          companionContext,
+        ),
+      ).rejects.toMatchObject({
+        code: "companion_dispatch_already_claimed",
+        requestRef: "stored-companion-native-ref",
+      });
+      await expect(
+        restored.relay.responses(
+          "authorization-1",
+          companionEnvelope(),
+          new AbortController(),
+          undefined,
+          { ...companionContext, dispatchId: "another-id" },
+        ),
+      ).rejects.toMatchObject({ code: "companion_slot_already_claimed" });
+      expect(restored.admissions).toHaveLength(0);
+      expect(restored.intents).toHaveLength(0);
+    } finally {
+      await restored.relay.shutdown();
+    }
+  } finally {
+    await first.relay.shutdown();
+  }
+});
+
+it("companion rejects a silently clamped envelope before reservation or SDK dispatch", async () => {
+  const state = companionReservation();
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: state.admission,
+  });
+  try {
+    const bytes = Buffer.from(
+      companionEnvelope()
+        .toString()
+        .replace('"max_output_tokens":4096', '"max_output_tokens":8192'),
+    );
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        bytes,
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({ code: "envelope_not_normalized" });
+    expect(state.claimCount()).toBe(0);
+    expect(f.admissions).toHaveLength(0);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("companion usage failure after SDK forward stays unknown without a second SDK request", async () => {
+  const state = companionReservation();
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: state.admission,
+    failUsageOutcome: true,
+  });
+  try {
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({
+      effect: "effect_unknown",
+      requestRef: "stored-companion-native-ref",
+    });
+    expect(f.admissions).toHaveLength(1);
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "effect_unknown",
+    );
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({ code: "companion_dispatch_already_claimed" });
+    expect(f.admissions).toHaveLength(1);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
 const servers: Server[] = [];
 afterEach(async () => {
   for (const server of servers.splice(0)) {
@@ -37,10 +308,16 @@ async function fixture(
   maxSessions = 2,
   requestTimeoutMs = 5000,
   controlledStream?: (response: ServerResponse) => Promise<void>,
+  companionOptions?: {
+    admission: ReviewRunCompanionDispatchAdmission;
+    unpaid?: boolean;
+    failUsageOutcome?: boolean;
+  },
+  capturedRequests = 128,
 ) {
   const deadline = new Date(Date.now() + 120_000).toISOString();
   const limits = {
-    requests: 128,
+    requests: capturedRequests,
     concurrency: 1,
     requestBytes: 4096,
     outputBytes,
@@ -98,6 +375,25 @@ async function fixture(
   const canonical = (id: string) =>
     canonicalJson({
       snapshotVersion: 3,
+      ...(companionOptions
+        ? {
+            lifecycleVerificationCapability: {
+              extensionId: lifecycleVerificationContract.extensionId,
+              descriptorDigest: lifecycleVerificationDescriptorDigest,
+              executor: lifecycleVerificationContract.executor,
+              modelTransport: "account_gateway",
+              providerIndex: 0,
+              providerKind: "codex",
+              model: "gpt-5.6-sol",
+              maxDispatches: 2,
+              maxPromptBytes: 4096,
+              maxResponseBytes: 32768,
+              maxOutputTokens: 4096,
+              deadlineMs: 60000,
+              attemptBudget: 1,
+            },
+          }
+        : {}),
       configurationSource: "workspace",
       configurationVersion: 1,
       workspaceConfigurationVersion: 1,
@@ -169,6 +465,8 @@ async function fixture(
   let prepareFailure = false;
   const intents: c.Prepare[] = [];
   const admissions: c.Admission[] = [];
+  const requestBodies: string[] = [];
+  const requestRefs: string[] = [];
   const effects: { requestRef: string; effect: c.RequestStatus["effect"] }[] =
     [];
   const server = createServer(async (req, res) => {
@@ -222,6 +520,20 @@ async function fixture(
     );
     if (execution?.[2] === "requests") {
       admissions.push(JSON.parse(String(req.headers["x-gateway-admission"])));
+      requestBodies.push(raw);
+      requestRefs.push(String(req.headers["x-gateway-request-id"]));
+      if (companionOptions?.unpaid) {
+        res.writeHead(429, { "content-type": "application/json" }).end(
+          JSON.stringify({
+            code: "admission_limited",
+            traceRef: "fixture-trace",
+            requestRef: String(req.headers["x-gateway-request-id"]),
+            effect: "not_dispatched",
+            retry: { kind: "after", milliseconds: 1 },
+          }),
+        );
+        return;
+      }
       res.writeHead(200, {
         "content-type": "text/event-stream",
         "x-gateway-request-ref": String(req.headers["x-gateway-request-id"]),
@@ -254,6 +566,20 @@ async function fixture(
           });
       }
       if (!res.destroyed) res.end();
+      return;
+    }
+    if (
+      companionOptions &&
+      req.method === "GET" &&
+      req.url?.includes("/requests/")
+    ) {
+      res.writeHead(200, { "content-type": "application/json" }).end(
+        JSON.stringify({
+          requestRef: req.url.split("/").at(-1),
+          effect: "completed",
+          status: "completed",
+        }),
+      );
       return;
     }
     if (execution?.[2] === "close") {
@@ -339,10 +665,15 @@ async function fixture(
       !revoked.has(auth.authorizationId),
     snapshots,
     bindings,
+    ...(companionOptions
+      ? { companionDispatches: companionOptions.admission }
+      : {}),
     usage: {
       prepare: async () => undefined,
       outcome: async ({ requestRef, effect }) => {
         effects.push({ requestRef, effect });
+        if (companionOptions?.failUsageOutcome)
+          throw new Error("fixture_usage_write_failed");
       },
     },
   });
@@ -351,6 +682,8 @@ async function fixture(
     relay,
     intents,
     admissions,
+    requestBodies,
+    requestRefs,
     limits,
     effects,
     nativeExecutions,
