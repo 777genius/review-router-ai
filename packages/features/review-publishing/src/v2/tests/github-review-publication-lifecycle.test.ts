@@ -94,6 +94,9 @@ describe("GitHubReviewPublicationLifecycleAdapter", () => {
           isResolved: false,
           parentOwnedByIntegration: true,
           hasRelevantInteractionAfterParent: true,
+          parentCommentId: "parent-1",
+          parentBodyHash:
+            "33b81b8f35e12f3eb2449d9b8da555a017fc90f4878dd8be6da15fe87362cc34",
           parentCreatedAt: new Date("2026-07-23T10:00:00Z"),
           lastRelevantChangeAt: new Date("2026-07-23T10:00:02Z"),
         },

@@ -38,6 +38,104 @@ const targets = [
 ] as const;
 
 describe("ResolveCurrentPublicationLifecycle", () => {
+  it("permits sequential exact own A/B progress and rejects own reopen or foreign B changes", async () => {
+    const identity = (suffix: string) => ({
+      sourceKind: "canonical_operation" as const,
+      operationId: `resolve-${suffix}`,
+      publicationAttemptId: "publication",
+      executionId: "execution",
+      generation: "1",
+      reviewedHeadSha: headSha,
+      bodyHash: suffix.repeat(64),
+    });
+    const ownA = identity("a");
+    const ownB = identity("b");
+    const expectation = {
+      ...expectationWithObservation(),
+      targets: expectationWithObservation().targets.map((target, index) => ({
+        ...target,
+        mutationEligible: true,
+        ownResolutionOperation: index === 0 ? ownA : ownB,
+      })),
+    };
+    const aHistory = {
+      threadId: targets[0].threadId,
+      version: 2,
+      historyCut: {
+        activatedAt: "2026-07-23T08:00:00.000Z",
+        activationVersion: 1,
+        writerDigest: "f".repeat(64),
+      },
+      confirmed: {
+        ...ownA,
+        effectId: "effect-A",
+        observedAt: "2026-07-23T10:01:00.000Z",
+      },
+      pending: [],
+    };
+    const bHistory = {
+      ...aHistory,
+      threadId: targets[1].threadId,
+      version: 0,
+      confirmed: null,
+    };
+    let native = liveTargets().map((target, index) => ({
+      ...target,
+      isResolved: index === 0,
+    }));
+    let b: import("../domain/review-thread-resolution-history").ResolutionHistory =
+      bHistory;
+    const service = new ResolveCurrentPublicationLifecycle({
+      expectations: {
+        async resolve() {
+          return expectation;
+        },
+      },
+      live: {
+        async resolve() {
+          return availableLive({ targets: native });
+        },
+      },
+      resolutionHistory: {
+        async read() {
+          return [aHistory, b];
+        },
+      },
+    });
+    expect((await service.resolve(scope)).status).toBe(
+      CurrentPublicationLifecycleStatus.Current,
+    );
+    native = native.map((target) => ({ ...target, isResolved: false }));
+    expect((await service.resolve(scope)).status).toBe(
+      CurrentPublicationLifecycleStatus.Changed,
+    );
+    native = native.map((target, index) => ({
+      ...target,
+      isResolved: index === 0,
+    }));
+    b = {
+      ...bHistory,
+      pending: [
+        {
+          ...ownB,
+          operationId: "foreign-B",
+          state: "effect_unknown",
+          enteredAt: "2026-07-23T10:02:00.000Z",
+        },
+      ],
+    };
+    expect((await service.resolve(scope)).status).toBe(
+      CurrentPublicationLifecycleStatus.Changed,
+    );
+    b = bHistory;
+    native = native.map((target, index) =>
+      index === 1 ? { ...target, threadStateHash: "9".repeat(64) } : target,
+    );
+    expect((await service.resolve(scope)).status).toBe(
+      CurrentPublicationLifecycleStatus.Changed,
+    );
+  });
+
   it("returns the persisted tuple only when the live inventory is unchanged", async () => {
     const result = await resolver().resolve(scope);
 

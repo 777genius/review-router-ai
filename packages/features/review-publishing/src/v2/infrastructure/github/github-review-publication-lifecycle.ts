@@ -317,6 +317,10 @@ async function loadInventory(
         hasRelevantInteractionAfterParent:
           comments.length > 1 || parentTimestampChange.hasRelevantChange,
         parentCreatedAt,
+        parentCommentId: parent.id,
+        parentBodyHash: createHash("sha256")
+          .update(parent.body ?? "")
+          .digest("hex"),
         lastRelevantChangeAt,
       });
     }

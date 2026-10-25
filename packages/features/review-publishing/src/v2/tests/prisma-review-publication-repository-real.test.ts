@@ -30,6 +30,8 @@ import {
 } from "../index";
 import { PrismaReviewPublicationRepository } from "../infrastructure/prisma/prisma-review-publication-repository";
 import { reviewPublicationNoEffectProofHash } from "../infrastructure/review-publication-no-effect-proof";
+import { PrismaReviewThreadResolutionHistory } from "../infrastructure/prisma/prisma-review-thread-resolution-history";
+import { controlledRetiredWriterProof } from "./resolution-history-fixtures";
 
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
@@ -708,6 +710,255 @@ describeWithDatabase("PrismaReviewPublicationRepository real database", () => {
       }),
     ).toBe(2);
   });
+  it.each(["managed", "retired_quarantine"] as const)(
+    "persists pending capabilities and retains %s activation + facts after detailed pruning",
+    async (mode) => {
+      const isolatedFixture = await seedFixture(prisma);
+      try {
+        const base = requestCommand(
+          isolatedFixture,
+          `resolution-guard-${randomUUID()}`,
+        );
+        const threadId = `guard-thread-${randomUUID()}`;
+        const targetId = `guard-target-${randomUUID()}`;
+        const operation = {
+          ...base.operations[0]!,
+          publicationKind: ReviewPublicationKind.ThreadLifecycle,
+          effectStrategy: ReviewPublicationEffectStrategy.ReversibleLifecycle,
+          targetCommitId: base.permit.reviewedHeadSha,
+          markerHash: digest(`reviewrouter-lifecycle:${targetId}:resolved`),
+          bodyHash: digest(JSON.stringify({ resolve: true, threadId })),
+        };
+        const threadB = `${threadId}-B`;
+        const targetB = `${targetId}-B`;
+        const operationB = {
+          ...operation,
+          publicationOperationId: `${operation.publicationOperationId}-B`,
+          chunkIndex: 1,
+          markerHash: digest(`reviewrouter-lifecycle:${targetB}:resolved`),
+          bodyHash: digest(
+            JSON.stringify({ resolve: true, threadId: threadB }),
+          ),
+        };
+        const command = { ...base, operations: [operation, operationB] };
+        const history = new PrismaReviewThreadResolutionHistory(prisma);
+        if (mode === "retired_quarantine") {
+          await history.beginDrain(base.permit);
+          await history.activate(base.permit, controlledRetiredWriterProof());
+          const cut = (await history.read(base.permit, [threadId]))[0]!
+            .historyCut!.activatedAt;
+          // The reader consumes original captured witness fields, never a fresh or inferred timestamp.
+          await prisma.reviewExecutionV2.update({
+            where: { executionId: isolatedFixture.executionId },
+            data: {
+              assignmentManifestVersion: 2,
+              assignmentManifestJson: {
+                manifestVersion: 2,
+                lifecyclePlan: {
+                  targets: [
+                    {
+                      targetId,
+                      threadId,
+                      parentCreatedAt: new Date(
+                        Date.parse(cut) + 1,
+                      ).toISOString(),
+                    },
+                    {
+                      targetId: targetB,
+                      threadId: threadB,
+                      parentCreatedAt: "2020-01-01T00:00:00.000Z",
+                    },
+                  ],
+                },
+              },
+            },
+          });
+        }
+        const projection = {
+          publishing: {
+            lifecycle: [
+              {
+                targetId,
+                threadId,
+                verdict: "resolved",
+                mutationEligible: true,
+              },
+              {
+                targetId: targetB,
+                threadId: threadB,
+                verdict: "resolved",
+                mutationEligible: true,
+              },
+            ],
+          },
+        };
+        await prisma.finalizedReviewProjectionArtifactV2.create({
+          data: {
+            artifactId: `guard-artifact-${randomUUID()}`,
+            executionId: isolatedFixture.executionId,
+            artifactHash: digest("guard-artifact"),
+            generation: base.permit.generation,
+            reviewedHeadSha: base.permit.reviewedHeadSha,
+            reviewRevisionHash: base.permit.reviewRevisionHash,
+            coverageState: "completed",
+            projectionEnvelopeVersion: 1,
+            projectionEnvelope: projection,
+            projectionEnvelopeCanonicalJson: JSON.stringify(projection),
+            projectionHash: base.permit.projectionHash,
+            byteCount: 100,
+            findingCount: 0,
+            lifecycleStateHash: base.permit.lifecycleStateHash,
+            commandLedgerWatermark: base.permit.commandLedgerWatermark,
+            projectionPolicyVersion: "test",
+            authorizationId: isolatedFixture.authorizationId,
+            producerReleaseId: isolatedFixture.producerReleaseId,
+            permitEpoch: base.permit.permitEpoch,
+            publicationSafetyDecisionHash:
+              base.permit.publicationSafetyDecisionHash,
+            publicationNotAfter: base.permit.publicationNotAfter,
+            createdAt: new Date(),
+            retainUntil: base.retainUntil,
+          },
+        });
+        await repository.request(command);
+        const claim = await repository.claim(
+          claimCommand(command.publicationAttemptId),
+        );
+        if (claim.status !== ClaimReviewPublicationStatus.Acquired)
+          throw new Error("test_claim_missing");
+        const begun = await repository.begin(
+          beginCommand(
+            command.publicationAttemptId,
+            operation.publicationOperationId,
+            {
+              expectedAttemptVersion: claim.attempt.version,
+              claimId: claim.claim.claimId,
+              claimFencingToken: claim.claim.fencingToken,
+            },
+          ),
+        );
+        if (begun.status !== BeginReviewPublicationOperationStatus.Begun)
+          throw new Error("test_operation_missing");
+        const beginB = () =>
+          repository.begin(
+            beginCommand(
+              command.publicationAttemptId,
+              operationB.publicationOperationId,
+              {
+                expectedAttemptVersion: begun.attempt.version,
+                claimId: claim.claim.claimId,
+                claimFencingToken: claim.claim.fencingToken,
+              },
+            ),
+          );
+        if (mode === "retired_quarantine") {
+          await expect(beginB()).rejects.toMatchObject({
+            reason: "lifecycle_not_current",
+          });
+          expect(
+            await prisma.reviewPublicationOperationAttemptV2.count({
+              where: {
+                publicationOperationId: operationB.publicationOperationId,
+              },
+            }),
+          ).toBe(0);
+        } else {
+          expect((await beginB()).status).toBe(
+            BeginReviewPublicationOperationStatus.Begun,
+          );
+        }
+        const pending = (await history.read(base.permit, [threadId]))[0]!;
+        expect(pending.pending).toMatchObject([
+          {
+            operationId: operation.publicationOperationId,
+            publicationAttemptId: command.publicationAttemptId,
+            bodyHash: operation.bodyHash,
+          },
+        ]);
+        if (mode === "managed") {
+          await history.beginDrain(base.permit);
+          await history.activate(base.permit, {
+            writerDigest: digest("qualified-writer"),
+            qualificationSource: "managed_executor_handler_settlement.v1",
+            executors: [
+              {
+                executorId: "controlled-test-writer",
+                binaryDigest: digest("instrumented-source"),
+                acceptsNewRequests: false,
+                handlerSettlement: "terminal_or_exact_durable_pending",
+              },
+            ],
+          });
+        }
+        expect(
+          (await history.read(base.permit, [threadId]))[0]!.pending,
+        ).toHaveLength(1);
+        const activation = (await history.read(base.permit, [threadId]))[0]!
+          .historyCut!;
+        expect(activation.bootstrap?.qualificationSource).toBe(
+          mode === "retired_quarantine"
+            ? "retired_legacy_writers_quarantine.v1"
+            : undefined,
+        );
+        const effect = {
+          ...effectCommand(begun.capability),
+          externalObjectId: `thread:${threadId}`,
+        };
+        await expect(repository.record(effect)).resolves.toMatchObject({
+          status: RecordReviewExternalEffectStatus.Recorded,
+        });
+        const current = await repository.findById(command.publicationAttemptId);
+        await repository.complete(
+          completeCommand(
+            command.publicationAttemptId,
+            operation.publicationOperationId,
+            {
+              expectedAttemptVersion: current!.attempt.version,
+              claimId: claim.claim.claimId,
+              claimFencingToken: claim.claim.fencingToken,
+              canonicalEffectId: effect.effectId,
+            },
+          ),
+        );
+        await prisma.reviewPublicationReceiptV2.deleteMany({
+          where: { publicationAttemptId: command.publicationAttemptId },
+        });
+        await prisma.reviewPublicationExternalEffectV2.deleteMany({
+          where: { publicationAttemptId: command.publicationAttemptId },
+        });
+        await prisma.reviewPublicationOperationAttemptV2.deleteMany({
+          where: { publicationOperationId: operationB.publicationOperationId },
+        });
+        const retainedB = (await history.read(base.permit, [threadB]))[0]!;
+        if (mode === "managed")
+          expect(retainedB.pending).toMatchObject([
+            {
+              operationId: operationB.publicationOperationId,
+              state: "may_have_started",
+            },
+          ]);
+        else {
+          expect(retainedB.pending).toEqual([]);
+          expect(retainedB.confirmed).toBeNull();
+          expect(retainedB.historyCut).toEqual(activation);
+        }
+        const restored = (
+          await new PrismaReviewThreadResolutionHistory(prisma).read(
+            base.permit,
+            [threadId],
+          )
+        )[0]!;
+        expect(restored.pending).toEqual([]);
+        expect(restored.confirmed).toMatchObject({
+          operationId: operation.publicationOperationId,
+          effectId: effect.effectId,
+        });
+        expect(restored.historyCut).toEqual(activation);
+      } finally {
+        await cleanupFixture(prisma, isolatedFixture);
+      }
+    },
+  );
 });
 
 function siblingOperation(
@@ -1155,6 +1406,12 @@ async function cleanupFixture(
   });
   await prisma.reviewPublicationAttemptV2.deleteMany({
     where: { publicationAttemptId: { in: attemptIds } },
+  });
+  await prisma.finalizedReviewProjectionArtifactV2.deleteMany({
+    where: { executionId: fixture.executionId },
+  });
+  await prisma.reviewThreadResolutionGuardV1.deleteMany({
+    where: { repositoryConnectionId: fixture.repositoryConnectionId },
   });
   await prisma.reviewExecutionV2.deleteMany({
     where: {
