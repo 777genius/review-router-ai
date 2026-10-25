@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["@777genius/subscription-runtime"],
   transpilePackages: [
     "@reviewrouter/ui",
+    "@reviewrouter/features-review-statistics",
     "@reviewrouter/features-hosted-account-pool",
   ],
   turbopack: {

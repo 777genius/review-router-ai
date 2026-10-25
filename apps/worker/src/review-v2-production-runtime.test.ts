@@ -104,6 +104,7 @@ describe("review v2 production worker composition", () => {
           env,
           githubAppId: "1",
           githubPrivateKey: privateKey,
+          settlementHook: async () => {},
         }),
     });
 
@@ -123,6 +124,7 @@ describe("review v2 production worker composition", () => {
         env: {},
         githubAppId: "1",
         githubPrivateKey: "unused",
+        settlementHook: async () => {},
       }),
     ).toThrow(
       `review_v2_worker_config_missing:${reviewV2CapabilityActiveKeyIdEnv}`,

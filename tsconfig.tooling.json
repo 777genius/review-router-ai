@@ -14,7 +14,12 @@
     "scripts/local-checks/lint-format-*.ts",
     "scripts/local-checks/lint-format-*.mts",
     "scripts/memory-foundation/**/*.ts",
-    "scripts/memory-e2e/**/*.ts"
+    "scripts/memory-e2e/**/*.ts",
+    "scripts/statistics-foundation/**/*.ts",
+    "scripts/statistics-e2e/**/*.ts",
+    "scripts/migrate-provider-profiles.ts",
+    "scripts/provider-setup-visual/**/*.ts",
+    "scripts/migrate-provider-profiles.postgres.test.ts"
   ],
   "exclude": ["node_modules", "dist", ".next"]
 }

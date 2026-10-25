@@ -26,8 +26,8 @@
     }
   },
   "dependencies": {
-    "@get-modular/core": "0.2.0",
-    "@get-modular/assembly": "0.2.0",
+    "@get-modular/core": "0.7.0",
+    "@get-modular/assembly": "0.7.0",
     "@prisma/client": "7.8.0",
     "@reviewrouter/features-auth": "workspace:*"
   },
@@ -38,8 +38,8 @@
     "pg": "8.23.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.tests.json",
+    "build": "node ../../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",
+    "typecheck": "node ../../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json && node ../../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.tests.json",
     "test": "node --import ./tests/register-source-loader.mjs --test tests/use-cases.test.mts tests/database-target.test.mts tests/fences.test.mts tests/binding-policy.test.mts tests/account-lifecycle.test.mts",
     "test:postgres": "node --import tsx --import ./tests/register-source-loader.mjs --test tests/postgres.test.mts"
   }

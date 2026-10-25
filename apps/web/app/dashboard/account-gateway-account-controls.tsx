@@ -1042,6 +1042,54 @@ function Controls({
           {statusText(data?.status ?? "unavailable", managementScope)}
         </p>
       ) : null}
+      {nonces.length ? (
+        <div className="space-y-2 border-t border-cyan-200/10 pt-4">
+          {!connectOnly ? (
+            <h4 className="text-sm font-semibold text-cyan-50">
+              Connection status
+            </h4>
+          ) : null}
+          {!connectOnly ? (
+            <p className="text-xs text-slate-400">
+              Recent requests update automatically. You can close this view and
+              return to the same request.
+            </p>
+          ) : null}
+          {nonces
+            .filter((nonce) => !connectOnly || nonce === activeNonce)
+            .map((nonce) => (
+              <OperationReadback
+                key={nonce}
+                context={context}
+                scope={scope}
+                nonce={nonce}
+                dismiss={() => {
+                  dismiss(nonce);
+                  if (activeNonce === nonce) setActiveNonce(null);
+                }}
+                refresh={refresh}
+                listFailed={page.isError || Boolean(failure)}
+                deviceAuthorization={deviceHandoffs[nonce]}
+                completionProvider={completionProviders[nonce]}
+                beginContinuation={(intent) => beginOAuth(intent, nonce)}
+                inline={connectOnly}
+                startAnother={() => setActiveNonce(null)}
+                autoOpenCompletion={completionHandoff === nonce}
+                consumeCompletionHandoff={() => consumeCompletionHandoff(nonce)}
+                oauthEnabled={
+                  data?.status === "ok" &&
+                  data.value.profiles.some(
+                    (p) =>
+                      p.authKind === "oauth" &&
+                      (personal || !p.connection?.personalOnly),
+                  )
+                }
+                api={api}
+                managementScope={managementScope}
+              />
+            ))}
+        </div>
+      ) : null}
       {connectOnly ? null : renderAccounts ? (
         renderAccounts(
           data?.status === "ok" ? data.value.accounts : [],
@@ -1166,54 +1214,6 @@ function Controls({
         >
           Load more connection details
         </Button>
-      ) : null}
-      {nonces.length ? (
-        <div className="space-y-2 border-t border-cyan-200/10 pt-4">
-          {!connectOnly ? (
-            <h4 className="text-sm font-semibold text-cyan-50">
-              Connection status
-            </h4>
-          ) : null}
-          {!connectOnly ? (
-            <p className="text-xs text-slate-400">
-              Recent requests update automatically. You can close this view and
-              return to the same request.
-            </p>
-          ) : null}
-          {nonces
-            .filter((nonce) => !connectOnly || nonce === activeNonce)
-            .map((nonce) => (
-              <OperationReadback
-                key={nonce}
-                context={context}
-                scope={scope}
-                nonce={nonce}
-                dismiss={() => {
-                  dismiss(nonce);
-                  if (activeNonce === nonce) setActiveNonce(null);
-                }}
-                refresh={refresh}
-                listFailed={page.isError || Boolean(failure)}
-                deviceAuthorization={deviceHandoffs[nonce]}
-                completionProvider={completionProviders[nonce]}
-                beginContinuation={(intent) => beginOAuth(intent, nonce)}
-                inline={connectOnly}
-                startAnother={() => setActiveNonce(null)}
-                autoOpenCompletion={completionHandoff === nonce}
-                consumeCompletionHandoff={() => consumeCompletionHandoff(nonce)}
-                oauthEnabled={
-                  data?.status === "ok" &&
-                  data.value.profiles.some(
-                    (p) =>
-                      p.authKind === "oauth" &&
-                      (personal || !p.connection?.personalOnly),
-                  )
-                }
-                api={api}
-                managementScope={managementScope}
-              />
-            ))}
-        </div>
       ) : null}
     </div>
   );

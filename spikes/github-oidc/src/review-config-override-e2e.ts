@@ -2,6 +2,7 @@ import {
   reviewPolicyFixture,
   fixtureProviderSettings,
 } from "./review-policy-fixture.js";
+import { systemPolicyWriteFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture.ts";
 import {
   defaultActionOidcAudience,
   githubActionsOidcIssuer,
@@ -100,7 +101,12 @@ try {
     select: { id: true, owner: true, githubRepositoryId: true, fullName: true },
   });
 
-  const configurations = new PrismaReviewConfigurationRepository(prisma);
+  const configurations = new PrismaReviewConfigurationRepository(
+    prisma,
+    undefined,
+    false,
+    undefined,
+  );
   const workspaceProvider = {
     ...fixtureProviderSettings,
     kind: "openrouter" as const,
@@ -126,33 +132,54 @@ try {
       requiredHealthy: false,
     },
   ];
+  // OpenRouter is delivered only by the workspace's managed API key; this
+  // disposable fixture registers a placeholder one.
+  await prisma.providerApiKeyConnection.create({
+    data: {
+      workspaceId: workspace.id,
+      providerType: "openrouter",
+      encryptedApiKey: "spike-e2e-placeholder-ciphertext",
+      keyVersion: 1,
+      latestOperationId: `spike-config-e2e-${marker}`,
+    },
+  });
+  const workspaceTarget = {
+    scope: "workspace" as const,
+    workspaceId: workspace.id,
+  };
   const workspaceConfig = await saveReviewConfiguration(
     {
-      target: { scope: "workspace", workspaceId: workspace.id },
-      policy: {
-        ...reviewPolicyFixture([workspaceProvider]),
-        blockingPolicy: { failOnSeverity: "critical" },
-      },
+      target: workspaceTarget,
+      ...systemPolicyWriteFixture(
+        {
+          ...reviewPolicyFixture([workspaceProvider]),
+          blockingPolicy: { failOnSeverity: "critical" },
+        },
+        workspaceTarget,
+      ),
     },
     { configurations },
   );
+  const repositoryTarget = {
+    scope: "repository" as const,
+    workspaceId: workspace.id,
+    repositoryId: repository.id,
+  };
   const repositoryConfig = await saveReviewConfiguration(
     {
-      target: {
-        scope: "repository",
-        workspaceId: workspace.id,
-        repositoryId: repository.id,
-      },
-      policy: {
-        schemaVersion: 3,
-        providers: repositoryProviders,
-        execution: {
-          providerLimit: 2,
-          providerMaxParallel: 2,
-          inlineMinAgreement: 2,
+      target: repositoryTarget,
+      ...systemPolicyWriteFixture(
+        {
+          ...reviewPolicyFixture(repositoryProviders),
+          execution: {
+            providerLimit: 2,
+            providerMaxParallel: 2,
+            inlineMinAgreement: 2,
+          },
+          blockingPolicy: { failOnSeverity: "major" },
         },
-        blockingPolicy: { failOnSeverity: "major" },
-      },
+        repositoryTarget,
+      ),
     },
     { configurations },
   );

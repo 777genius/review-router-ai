@@ -94,7 +94,7 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps checkout145 source admission separate from historical96 and managed92 authority", () => {
+  it("keeps checkout148 source admission separate from historical96 and managed92 authority", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
     const current = names.map((migrationName) => ({
@@ -103,7 +103,7 @@ describe("canonical release migration transition", () => {
         readFileSync(`${migrationRoot}/${migrationName}/migration.sql`),
       ).slice(7),
     }));
-    expect(current).toHaveLength(145);
+    expect(current).toHaveLength(148);
     expect(
       current.filter((row) =>
         renderReviewSkillsCheckoutExtension.some(
@@ -111,7 +111,17 @@ describe("canonical release migration transition", () => {
         ),
       ),
     ).toEqual(renderReviewSkillsCheckoutExtension);
-    const full = current.filter(
+    const previous147 = current.filter(
+      (row) =>
+        row.migrationName !== "000146_drop_review_configuration_projection",
+    );
+    const previous146 = previous147.filter(
+      (row) => row.migrationName !== "000145_workspace_provider_profiles",
+    );
+    const previous145 = previous146.filter(
+      (row) => row.migrationName !== "000144_review_statistics",
+    );
+    const full = previous145.filter(
       (row) =>
         !renderReviewSkillsCheckoutExtension.some(
           (skill) => row.migrationName === skill.migrationName,
@@ -123,6 +133,18 @@ describe("canonical release migration transition", () => {
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
     expect(manifest(current)).toBe(
+      "sha256:000decc06ca41637beceb84da74858f434d2300c3c4c3af8c96dcac0aee3efba",
+    );
+    expect(previous147).toHaveLength(147);
+    expect(manifest(previous147)).toBe(
+      "sha256:bf77d4720a7c41e4e9f427595e1a6ecc044149a74ec5a243aaacbbd5ba886cab",
+    );
+    expect(previous146).toHaveLength(146);
+    expect(manifest(previous146)).toBe(
+      "sha256:28c55f9026bfb1bd139bc25925571ea62e2c454a10e151ef6149aae0358a4178",
+    );
+    expect(previous145).toHaveLength(145);
+    expect(manifest(previous145)).toBe(
       "sha256:33e264e0296d1a14920007a0dfdfcd297e79337132f374ec02859fda3c7680af",
     );
     expect(full).toHaveLength(143);

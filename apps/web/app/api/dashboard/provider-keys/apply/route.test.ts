@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "./route";
 
 const mocks = vi.hoisted(() => ({
-  assertDashboardWorkspaceAdminAllowed: vi.fn(),
+  assertDashboardWorkspaceAdminMutationAllowed: vi.fn(),
   assertProviderApiKeyWorkspaceGranted: vi.fn(),
   assertWorkspaceFeatureEntitlement: vi.fn(),
   createProviderApiKeyServiceDependencies: vi.fn(),
+  audit: vi.fn(),
   githubSecrets: {
     getRepositoryActionsPublicKey: vi.fn(),
     putEncryptedRepositorySecret: vi.fn(),
@@ -13,8 +14,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../../../../src/server/dashboard-mutations", () => ({
-  assertDashboardWorkspaceAdminAllowed:
-    mocks.assertDashboardWorkspaceAdminAllowed,
+  assertDashboardWorkspaceAdminMutationAllowed:
+    mocks.assertDashboardWorkspaceAdminMutationAllowed,
 }));
 
 vi.mock("@reviewrouter/features-entitlements", () => ({
@@ -43,7 +44,7 @@ describe("POST /api/dashboard/provider-keys/apply", () => {
     process.env.GITHUB_APP_ID = "123";
     process.env.REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY =
       "fake-encryption-key-that-is-at-least-32-chars";
-    mocks.assertDashboardWorkspaceAdminAllowed.mockResolvedValue({
+    mocks.assertDashboardWorkspaceAdminMutationAllowed.mockResolvedValue({
       actor: "user:admin",
     });
     mocks.assertProviderApiKeyWorkspaceGranted.mockResolvedValue(undefined);
@@ -56,6 +57,7 @@ describe("POST /api/dashboard/provider-keys/apply", () => {
       status: "accepted",
     });
     mocks.createProviderApiKeyServiceDependencies.mockReturnValue({
+      audit: { record: mocks.audit },
       providerApiKeys: {
         findEncryptedApiKey: vi.fn(),
         findConnectedRepositoryIds: vi.fn().mockResolvedValue([]),
@@ -137,7 +139,7 @@ describe("POST /api/dashboard/provider-keys/apply", () => {
     ["dashboard_admin_requires_sign_in", 401],
     ["workspace_admin_forbidden", 403],
   ] as const)("rejects %s before storing a key", async (error, status) => {
-    mocks.assertDashboardWorkspaceAdminAllowed.mockRejectedValue(
+    mocks.assertDashboardWorkspaceAdminMutationAllowed.mockRejectedValue(
       new Error(error),
     );
 
@@ -150,6 +152,36 @@ describe("POST /api/dashboard/provider-keys/apply", () => {
     ).not.toHaveBeenCalled();
     expect(
       mocks.githubSecrets.putEncryptedRepositorySecret,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("audits who replaced the key, never the key", async () => {
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(mocks.audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: expect.any(String),
+        actor: "user:admin",
+        action: expect.stringMatching(/^provider_api_key\./),
+        appliedRepositoryCount: 1,
+      }),
+    );
+  });
+
+  it("refuses a key upload while dashboard changes are off", async () => {
+    mocks.assertDashboardWorkspaceAdminMutationAllowed.mockRejectedValue(
+      new Error("dashboard_mutations_disabled"),
+    );
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "dashboard_mutations_disabled",
+    });
+    expect(
+      mocks.createProviderApiKeyServiceDependencies,
     ).not.toHaveBeenCalled();
   });
 

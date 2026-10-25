@@ -2067,7 +2067,7 @@ describe("action control plane", () => {
           clock,
         },
       ),
-    ).rejects.toThrow("review_workspace_policy_required");
+    ).rejects.toThrow("review_provider_selection_required");
   });
 
   it("propagates opaque policy readiness instead of treating it as missing configuration", async () => {
@@ -2354,14 +2354,6 @@ describe("action control plane", () => {
   });
 
   it.each([
-    {
-      authMode: "codex_subscription_oauth" as const,
-      expectedCode: "codex_legacy_auth_requires_reconnect",
-    },
-    {
-      authMode: "codex_openai_api_key" as const,
-      expectedCode: "codex_provider_requires_rotating_workflow",
-    },
     {
       authMode: "codex_subscription_oauth_rotating" as const,
       expectedCode: "codex_provider_requires_rotating_workflow",

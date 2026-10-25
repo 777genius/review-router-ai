@@ -1,4 +1,5 @@
 import {
+  systemPolicyWriteFixture,
   workspacePolicyFixture,
   workspaceProviderFixture,
 } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
@@ -12,11 +13,12 @@ import {
 } from "@reviewrouter/features-provider-accounts";
 import { PrismaPersonalAccountOperations } from "../../../packages/features/provider-accounts/src/infrastructure/prisma/prisma-personal-account-operations";
 import {
+  createWorkspaceProviderProfile,
   PrismaReviewConfigurationRepository,
   PrismaReviewConfigurationTransactionRepository,
+  PrismaWorkspaceProviderProfileRepository,
   parseReviewConfigurationStrict,
   saveReviewConfiguration,
-  saveReviewConfigurationWithOperation,
 } from "@reviewrouter/features-review-config";
 import {
   canonicalJson,
@@ -174,6 +176,9 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         );
         const closedConfigurations = new PrismaReviewConfigurationRepository(
           db,
+          undefined,
+          false,
+          undefined,
         );
         const accounts = new PrismaProviderAccountRepository(
           db,
@@ -202,9 +207,14 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
           workspaceId: x,
           repositoryId,
         };
+        // The harness stores repository version 1 (its rotating selection).
         const save = (bindingId: string, expectedVersion: number | null) =>
           saveReviewConfiguration(
-            { target, policy: config(bindingId), expectedVersion },
+            {
+              target,
+              expectedVersion,
+              ...systemPolicyWriteFixture(config(bindingId), target),
+            },
             { configurations },
           );
         const capture = async () => {
@@ -238,26 +248,34 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
 
         await expect(
           saveReviewConfiguration(
-            { target, policy: config(bx.id), expectedVersion: null },
+            {
+              target,
+              expectedVersion: 1,
+              ...systemPolicyWriteFixture(config(bx.id), target),
+            },
             { configurations: closedConfigurations },
           ),
         ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
+        // The refused write stored neither a version nor a profile.
         expect(
-          await db.reviewConfiguration.findUnique({
+          await db.reviewConfigurationVersion.count({
             where: {
-              workspaceId_targetKey: {
-                workspaceId: x,
-                targetKey: `repo:${repositoryId}`,
-              },
+              workspaceId: x,
+              configuration: { targetKey: `repo:${repositoryId}` },
             },
           }),
-        ).toBeNull();
+        ).toBe(1);
+        expect(
+          await db.workspaceProviderProfile.count({
+            where: { workspaceId: x, gatewayBindingId: bx.id },
+          }),
+        ).toBe(0);
         await expect(
           closedAccounts
             .findBinding({ workspaceId: x, bindingId: bx.id })
             .then((selection) => selectBinding(x, bx.id, selection)),
         ).rejects.toMatchObject({ code: "connection_unavailable" });
-        await save(bx.id, null);
+        await save(bx.id, 1);
         expect(
           await closedSnapshots.capture({
             modelTransport: "account_gateway",
@@ -331,8 +349,11 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         await saveReviewConfiguration(
           {
             target: { scope: "workspace", workspaceId: p },
-            policy: config(bp.id),
             expectedVersion: null,
+            ...systemPolicyWriteFixture(config(bp.id), {
+              scope: "workspace",
+              workspaceId: p,
+            }),
           },
           { configurations },
         );
@@ -343,10 +364,16 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
           db.$transaction((tx) =>
             new PrismaReviewConfigurationTransactionRepository(
               tx,
+              undefined,
+              false,
+              undefined,
             ).saveNextVersion({
               target: { scope: "workspace", workspaceId: y.id },
-              policy: config(by.id),
               expectedVersion: null,
+              ...systemPolicyWriteFixture(config(by.id), {
+                scope: "workspace",
+                workspaceId: y.id,
+              }),
             }),
           ),
         ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
@@ -358,30 +385,36 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
             u,
           ).saveNextVersion({
             target: { scope: "workspace", workspaceId: y.id },
-            policy: config(by.id),
             expectedVersion: null,
+            ...systemPolicyWriteFixture(config(by.id), {
+              scope: "workspace",
+              workspaceId: y.id,
+            }),
           }),
         );
         const persisted = await configurations.findLatest(target);
         expect(persisted?.config.providers[0]?.gatewayBindingId).toBe(bx.id);
         expect(persisted?.config.providers[0]?.gatewayBindingId).toBe(bx.id);
-        await expect(save(by.id, 1)).rejects.toThrow(
+        await expect(save(by.id, 2)).rejects.toThrow(
           "review_configuration_gateway_binding_unavailable",
         );
         await expect(
           saveReviewConfiguration(
             {
               target,
-              policy: parseReviewConfigurationStrict({
-                ...config(bx.id),
-                providers: [
-                  {
-                    ...config(bx.id).providers[0],
-                    gatewayProfileRef: "wrong-profile",
-                  },
-                ],
-              }),
-              expectedVersion: 1,
+              expectedVersion: 2,
+              ...systemPolicyWriteFixture(
+                parseReviewConfigurationStrict({
+                  ...config(bx.id),
+                  providers: [
+                    {
+                      ...config(bx.id).providers[0],
+                      gatewayProfileRef: "wrong-profile",
+                    },
+                  ],
+                }),
+                target,
+              ),
             },
             { configurations },
           ),
@@ -400,7 +433,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         });
         expect(await capture()).toBeNull();
         expect(await live(pin)).toBe(false);
-        await expect(save(bx.id, 1)).rejects.toThrow(
+        await expect(save(bx.id, 2)).rejects.toThrow(
           "review_configuration_gateway_binding_unavailable",
         );
         await db.providerAccountConnection.update({
@@ -483,7 +516,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         });
         expect(await live(freshPin)).toBe(false);
         expect(await capture()).toBeNull();
-        await expect(save(bx.id, 1)).rejects.toThrow(
+        await expect(save(bx.id, 2)).rejects.toThrow(
           "review_configuration_personal_actor_forbidden",
         );
         for (const [workspaceId, bindingId] of [
@@ -514,55 +547,76 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         const bx2 = await makeBinding(x);
         expect(await capture()).toBeNull();
         expect(await live(freshPin)).toBe(false);
-        await expect(save(bx.id, 1)).rejects.toThrow(
+        await expect(save(bx.id, 2)).rejects.toThrow(
           "review_configuration_gateway_binding_unavailable",
         );
-        const operation = {
+        // The donor, an admin of X again, registers the BX2 provider first;
+        // the save then selects that stored profile.
+        const { profile: bx2Profile } = await createWorkspaceProviderProfile(
+          {
+            workspaceId: x,
+            actor: { userId: u, auditActor: `user:${u}` },
+            credential: { kind: "gateway_binding", bindingId: bx2.id },
+            model: "mimo-v2-pro",
+          },
+          {
+            profiles: new PrismaWorkspaceProviderProfileRepository(db, {
+              operatorWorkspaceId: undefined,
+              personalAccountsEnabled: true,
+            }),
+          },
+        );
+        const bx2Policy = systemPolicyWriteFixture(
+          config(bx2.id),
           target,
-          policy: config(bx2.id),
-          expectedVersion: 1,
-          operationId: `${prefix}-select-bx2`,
-        };
+        ).policy;
         expect(
           (
-            await saveReviewConfigurationWithOperation(operation, {
-              configurations,
-            })
+            await saveReviewConfiguration(
+              {
+                target,
+                expectedVersion: 2,
+                policy: {
+                  ...bx2Policy,
+                  providers: bx2Policy.providers!.map((selection) => ({
+                    ...selection,
+                    profileId: bx2Profile.id,
+                  })),
+                },
+              },
+              { configurations },
+            )
           ).version,
-        ).toBe(2);
-        expect(
-          (
-            await saveReviewConfigurationWithOperation(operation, {
-              configurations,
-            })
-          ).version,
-        ).toBe(2);
+        ).toBe(3);
         const bx2Pin = await capture();
         expect(bx2Pin?.gateway?.bindingId).toBe(bx2.id);
         expect(await live(freshPin)).toBe(false);
-        await expect(save(bx2.id, 1)).rejects.toThrow(
+        await expect(save(bx2.id, 2)).rejects.toThrow(
           "review_configuration_write_conflict",
         );
         // The legacy pool switch has no verified saving User.id. Even with
         // consumption enabled it must leave a mixed personal config unchanged.
         await configurations.saveNextVersion({
           target,
-          expectedVersion: 2,
-          policy: parseReviewConfigurationStrict({
-            ...config(bx2.id),
-            execution: {
-              ...workspacePolicyFixture.execution,
-              providerLimit: 2,
-              providerMaxParallel: 2,
-            },
-            providers: [
-              ...config(bx2.id).providers,
-              {
-                ...workspaceProviderFixture,
-                authMode: "codex_subscription_oauth_rotating",
+          expectedVersion: 3,
+          ...systemPolicyWriteFixture(
+            parseReviewConfigurationStrict({
+              ...config(bx2.id),
+              execution: {
+                ...workspacePolicyFixture.execution,
+                providerLimit: 2,
+                providerMaxParallel: 2,
               },
-            ],
-          }),
+              providers: [
+                ...config(bx2.id).providers,
+                {
+                  ...workspaceProviderFixture,
+                  authMode: "codex_subscription_oauth_rotating",
+                },
+              ],
+            }),
+            target,
+          ),
         });
         const oldGate =
           process.env.REVIEW_ROUTER_PERSONAL_ACCOUNT_SHARING_ENABLED;
@@ -587,7 +641,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
             "review_configuration_personal_actor_forbidden",
           );
           const mixed = await configurations.findLatest(target);
-          expect(mixed?.version).toBe(3);
+          expect(mixed?.version).toBe(4);
           expect(mixed?.config.providers[0]?.gatewayBindingId).toBe(bx2.id);
           expect(mixed?.config.providers[1]?.authMode).toBe(
             "codex_subscription_oauth_rotating",

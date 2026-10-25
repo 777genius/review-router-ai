@@ -18,8 +18,10 @@ import {
   type ProviderSetupConfirmedEventDetail,
   type SetupPullRequestMergedEventDetail,
 } from "./repository-setup-optimistic-events";
-
-type SetupStep = 1 | 2 | 3 | 4;
+import {
+  setupStepNumber,
+  type SetupStep,
+} from "./repository-setup-optimistic-status";
 
 type SetupToast = {
   readonly tone: "success" | "danger";
@@ -49,6 +51,7 @@ export function RepositorySetupProgressPanel({
   mutationsEnabled,
   initialStep,
   expectedProviderAuthModes = [],
+  providerLine,
   enableReviewAction,
   providerSetupBeforeWorkflow = false,
   gatewayReviewV2Readiness,
@@ -65,6 +68,8 @@ export function RepositorySetupProgressPanel({
   readonly mutationsEnabled: boolean;
   readonly initialStep: SetupStep;
   readonly expectedProviderAuthModes?: readonly ProviderAuthMode[];
+  /** "Provider: X · Change" above the steps. */
+  readonly providerLine?: ReactNode;
   readonly enableReviewAction?: ReactNode;
   readonly providerSetupBeforeWorkflow?: boolean;
   readonly gatewayReviewV2Readiness?:
@@ -86,7 +91,8 @@ export function RepositorySetupProgressPanel({
   const gatewayBlocked =
     expectedProviderAuthModes.includes("codex_account_gateway") &&
     gatewayReviewV2Readiness?.status !== "ready";
-  const displayStep = gatewayBlocked && currentStep === 4 ? 3 : currentStep;
+  const displayStep =
+    gatewayBlocked && currentStep === "ready" ? "provider" : currentStep;
 
   useEffect(() => {
     optimisticProviderAuthModesRef.current = new Set();
@@ -94,7 +100,7 @@ export function RepositorySetupProgressPanel({
     setSetupPullRequestUrl(initialSetupPullRequestUrl);
     setSetupIssue(normalizeSetupIssue(initialSetupIssue));
     setCurrentStep(initialStep);
-    if (initialStep > 2) {
+    if (setupStepNumber[initialStep] > setupStepNumber.merge_setup_pr) {
       setToast((current) =>
         current?.errorCode === "setup_pr_not_merged" ? null : current,
       );
@@ -114,7 +120,11 @@ export function RepositorySetupProgressPanel({
 
       setSetupStatus("configured");
       setSetupIssue(null);
-      setCurrentStep((current) => (current < 3 ? 3 : current));
+      setCurrentStep((current) =>
+        setupStepNumber[current] < setupStepNumber.provider
+          ? "provider"
+          : current,
+      );
     }
 
     function handleProviderSetupConfirmed(event: Event): void {
@@ -145,7 +155,7 @@ export function RepositorySetupProgressPanel({
 
       setSetupStatus("configured");
       setSetupIssue(null);
-      if (!gatewayBlocked) setCurrentStep(4);
+      if (!gatewayBlocked) setCurrentStep("ready");
     }
 
     window.addEventListener(
@@ -176,7 +186,7 @@ export function RepositorySetupProgressPanel({
       if (issue) {
         setSetupStatus("needs_attention");
         setSetupIssue(issue);
-        setCurrentStep(1);
+        setCurrentStep("setup_pr");
         router.refresh();
       }
       setToast({
@@ -193,7 +203,7 @@ export function RepositorySetupProgressPanel({
       setSetupStatus("setup_pr_open");
       setSetupPullRequestUrl(pullRequestUrl ?? null);
       setSetupIssue(null);
-      setCurrentStep(2);
+      setCurrentStep("merge_setup_pr");
       setToast({
         tone: "success",
         title: "Setup PR ready",
@@ -208,7 +218,7 @@ export function RepositorySetupProgressPanel({
     if (params.notice === "workflow_already_current") {
       setSetupStatus("configured");
       setSetupIssue(null);
-      setCurrentStep(3);
+      setCurrentStep("provider");
       router.refresh();
       setToast({
         tone: "success",
@@ -229,7 +239,7 @@ export function RepositorySetupProgressPanel({
       if (issue) {
         setSetupStatus("needs_attention");
         setSetupIssue(issue);
-        setCurrentStep(1);
+        setCurrentStep("setup_pr");
         router.refresh();
       }
       setToast({
@@ -244,7 +254,7 @@ export function RepositorySetupProgressPanel({
     if (params.notice === "setup_pr_merged") {
       setSetupStatus("configured");
       setSetupIssue(null);
-      setCurrentStep(3);
+      setCurrentStep("provider");
       window.dispatchEvent(setupPullRequestMergedEvent({ repositoryId }));
       router.refresh();
       setToast({
@@ -262,7 +272,7 @@ export function RepositorySetupProgressPanel({
   // `errorMessage` but are not recovery issues, so without this the card shows a
   // neutral "add the workflow by PR" hint on a repository that cannot proceed.
   const setupIssueGuidance =
-    displayStep === 1 &&
+    displayStep === "setup_pr" &&
     setupIssue === null &&
     normalizeSetupIssue(initialSetupIssue) === null &&
     typeof initialSetupIssue === "string" &&
@@ -294,7 +304,9 @@ export function RepositorySetupProgressPanel({
 
   return (
     <section className="mb-4 pt-1">
-      {gatewayBlocked && displayStep >= 3 ? (
+      {providerLine ? <div className="mb-4">{providerLine}</div> : null}
+      {gatewayBlocked &&
+      setupStepNumber[displayStep] >= setupStepNumber.provider ? (
         <p className="mb-3 text-sm text-slate-300" role="status">
           {gatewayReviewV2Readiness?.status === "draining"
             ? `Review migration is draining until ${gatewayReviewV2Readiness.drainNotBefore}. Reviews remain unavailable.`
@@ -348,7 +360,7 @@ export function RepositorySetupProgressPanel({
         <ol className="relative z-10 grid gap-3 md:grid-cols-4">
           {steps.map((step) => (
             <RepositorySetupProgressStepItem
-              key={step.number}
+              key={step.id}
               step={step}
               currentStep={displayStep}
             />
@@ -422,9 +434,10 @@ function buildSetupSteps({
   readonly onSetupComplete: (params: Record<string, string>) => void;
   readonly onMergeComplete: (params: Record<string, string>) => void;
 }): readonly RepositorySetupProgressStep[] {
+  const position = setupStepNumber[currentStep];
   const workflowRefresh =
-    (providerSetupBeforeWorkflow && currentStep === 3) ||
-    (gatewayProviderSetup && currentStep >= 3);
+    (providerSetupBeforeWorkflow && currentStep === "provider") ||
+    (gatewayProviderSetup && position >= setupStepNumber.provider);
   const setupPrAction =
     setupStatus === "setup_pr_open" && setupPullRequestUrl ? (
       <LinkButton
@@ -440,7 +453,7 @@ function buildSetupSteps({
           ↗
         </span>
       </LinkButton>
-    ) : currentStep === 1 || workflowRefresh ? (
+    ) : currentStep === "setup_pr" || workflowRefresh ? (
       <RepositorySetupActionButton
         workspaceId={workspaceId}
         repositoryId={repositoryId}
@@ -455,10 +468,10 @@ function buildSetupSteps({
       />
     ) : null;
   const mergeConfirmAction =
-    currentStep === 2 ||
+    currentStep === "merge_setup_pr" ||
     (gatewayProviderSetup &&
       workflowCurrent &&
-      currentStep >= 3 &&
+      position >= setupStepNumber.provider &&
       (!gatewayReviewV2Readiness ||
         gatewayReviewV2Readiness.status === "blocked" ||
         gatewayReviewV2Readiness.status === "conflict")) ? (
@@ -472,7 +485,7 @@ function buildSetupSteps({
       />
     ) : null;
   const preWorkflowProviderAction =
-    providerSetupBeforeWorkflow && currentStep === 1
+    providerSetupBeforeWorkflow && currentStep === "setup_pr"
       ? enableReviewAction
       : null;
   const setupPreparationAction = preWorkflowProviderAction ? (
@@ -484,9 +497,9 @@ function buildSetupSteps({
     setupPrAction
   );
   const shouldRenderProviderAction =
-    Boolean(enableReviewAction) && currentStep >= 3;
+    Boolean(enableReviewAction) && position >= setupStepNumber.provider;
   const lockedReviewAction =
-    currentStep < 4 ? (
+    currentStep !== "ready" ? (
       <Button
         type="button"
         variant="outline"
@@ -506,7 +519,7 @@ function buildSetupSteps({
     ? setupIssueHelperText(setupIssue)
     : setupIssueGuidance
       ? setupIssueGuidance
-      : currentStep > 1
+      : position > setupStepNumber.setup_pr
         ? "Setup PR exists."
         : providerSetupBeforeWorkflow
           ? "Seed the versioned provider namespace, then add its workflow by PR."
@@ -514,7 +527,7 @@ function buildSetupSteps({
 
   return [
     {
-      number: 1,
+      id: "setup_pr",
       title: setupIssue
         ? "Recover setup PR"
         : providerSetupBeforeWorkflow
@@ -524,37 +537,37 @@ function buildSetupSteps({
       action: setupPreparationAction,
     },
     {
-      number: 2,
+      id: "merge_setup_pr",
       title: "Merge setup PR",
       helper:
-        currentStep > 2
+        position > setupStepNumber.merge_setup_pr
           ? "Workflow is on the default branch."
           : "Merge on GitHub.",
       action: mergeConfirmAction,
     },
     {
-      number: 3,
+      id: "provider",
       title: providerSetupBeforeWorkflow
         ? "Activate provider"
         : gatewayProviderSetup
           ? "Configure account"
           : "Enable review",
       helper:
-        currentStep > 3
+        currentStep === "ready"
           ? "Provider access is configured."
-          : currentStep === 3
+          : currentStep === "provider"
             ? providerSetupBeforeWorkflow
               ? "Verify the exact activated namespace."
               : gatewayProviderSetup
                 ? "Choose an active workspace account and model. Credentials stay on the server."
-                : "Seed provider access."
+                : "Add the credential the provider needs."
             : providerSetupBeforeWorkflow
               ? "Return after merge to verify activation."
               : "Available after merge.",
       action: reviewAction,
     },
     {
-      number: 4,
+      id: "ready",
       title: "Ready",
       helper: null,
     },
@@ -562,7 +575,7 @@ function buildSetupSteps({
 }
 
 type RepositorySetupProgressStep = {
-  readonly number: SetupStep;
+  readonly id: SetupStep;
   readonly title: string;
   readonly helper: string | null;
   readonly action?: ReactNode;
@@ -573,20 +586,20 @@ function RepositorySetupProgressStepItem({
   currentStep,
 }: {
   readonly step: RepositorySetupProgressStep;
-  readonly currentStep: number;
+  readonly currentStep: SetupStep;
 }): React.ReactElement {
-  const isActive = step.number === currentStep;
-  const isComplete = step.number < currentStep;
-  const isFuture = step.number > currentStep;
+  const isActive = step.id === currentStep;
+  const isComplete = setupStepNumber[step.id] < setupStepNumber[currentStep];
+  const isFuture = setupStepNumber[step.id] > setupStepNumber[currentStep];
   const circleClass = isActive
     ? "border-cyan-200 bg-cyan-200 text-slate-950 shadow-[0_0_18px_rgba(103,232,249,0.28)]"
     : isComplete
       ? "border-cyan-300/45 bg-slate-950 text-cyan-100 shadow-[inset_0_0_18px_rgba(103,232,249,0.12)]"
       : "border-slate-700 bg-slate-950 text-slate-500";
   const desktopAlignment =
-    step.number === 1
+    step.id === "setup_pr"
       ? "md:items-start md:text-left"
-      : step.number === 4
+      : step.id === "ready"
         ? "md:items-end md:text-right"
         : "md:items-center md:text-center";
 
@@ -605,7 +618,7 @@ function RepositorySetupProgressStepItem({
             circleClass,
           ].join(" ")}
         >
-          {step.number}
+          {setupStepNumber[step.id]}
         </span>
         <div className="min-w-0 md:mt-3">
           <p
@@ -625,9 +638,9 @@ function RepositorySetupProgressStepItem({
             <div
               className={[
                 "mt-3",
-                step.number === 4
+                step.id === "ready"
                   ? "md:flex md:justify-end"
-                  : step.number === 1
+                  : step.id === "setup_pr"
                     ? "md:flex md:justify-start"
                     : "md:flex md:justify-center",
               ].join(" ")}
@@ -646,28 +659,28 @@ function repositorySetupProgressSummary(
   providerSetupBeforeWorkflow: boolean,
 ): string {
   switch (step) {
-    case 1:
+    case "setup_pr":
       return providerSetupBeforeWorkflow
         ? "1 of 4 - prepare versioned setup"
         : "1 of 4 - setup PR needed";
-    case 2:
+    case "merge_setup_pr":
       return "2 of 4 - merge setup PR";
-    case 3:
+    case "provider":
       return "3 of 4 - enable review";
-    case 4:
+    case "ready":
       return "4 of 4 - complete";
   }
 }
 
 function repositorySetupProgressTrackWidth(step: SetupStep): string {
   switch (step) {
-    case 1:
+    case "setup_pr":
       return "0";
-    case 2:
+    case "merge_setup_pr":
       return "calc(37.5% - 1rem)";
-    case 3:
+    case "provider":
       return "calc(62.5% - 1rem)";
-    case 4:
+    case "ready":
       return "calc(100% - 2rem)";
   }
 }

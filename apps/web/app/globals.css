@@ -184,6 +184,13 @@ canvas {
   transform: rotate(180deg);
 }
 
+/* An opened row shows its provider line above the setup steps only once. */
+.repository-setup-disclosure:checked
+  ~ .repository-setup-row-header
+  [data-row-provider-line] {
+  display: none;
+}
+
 :not(pre) > code {
   border: 1px solid rgba(103, 232, 249, 0.16);
   border-radius: 0.45rem;

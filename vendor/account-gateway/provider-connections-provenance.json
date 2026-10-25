@@ -30,7 +30,7 @@
       "nativeMergedSource": "ebeb45ff113b223f3c20ba60ab198667af0fb54d",
       "nativeActualEntrySHA256": "f23364f5b4bde3aef2cf5a6f592276a0f47ae1f1b1459ada751bae046a4320b3",
       "receipt": "grok-code-130ca3f00dcc-runtime-qualification.json",
-      "receiptSHA256": "dd4f2c5bc2c21dd182670dbec1f5d365e5268ff128ff43be1d9b28a40600b26a",
+      "receiptSHA256": "e7017bb44abfbce99dd3cc0e1299a342b840ccd5a6d449b317692516dad28139",
       "boundary": "Actual xAI raw-code reconnect in isolated native/Gateway runtime; same existing account, no callback URL reconstruction or production effects"
     },
     "liveProviderCodeOnlyCanary": true

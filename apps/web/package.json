@@ -51,14 +51,15 @@
     "zustand": "^5.0.12",
     "@reviewrouter/features-review-skills": "workspace:*",
     "yaml": "^2.9.0",
-    "@reviewrouter/features-review-context-tools": "workspace:*"
+    "@reviewrouter/features-review-context-tools": "workspace:*",
+    "@reviewrouter/features-review-statistics": "workspace:*"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.4.1"
   },
   "scripts": {
     "dev": "next dev -p 3000",
-    "build": "next build",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "build": "node ../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json && next build",
+    "typecheck": "node ../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json"
   }
 }

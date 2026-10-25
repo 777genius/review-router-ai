@@ -20,7 +20,7 @@ import {
   type SetupStep,
 } from "./repository-setup-optimistic-status";
 import {
-  RepositorySelectionCheckbox as RepositoryActionSelectionCheckbox,
+  RepositorySelectionCheckbox,
   RepositorySelectionToolbar,
 } from "./repository-action-selection";
 import {
@@ -75,6 +75,7 @@ export function RepositoryLiveSearch({
   totalRepositoryCount,
   rowLimit,
   richRowIds,
+  selectable = false,
   children,
 }: {
   readonly workspaceKey: string;
@@ -87,6 +88,8 @@ export function RepositoryLiveSearch({
   readonly totalRepositoryCount: number;
   readonly rowLimit: number;
   readonly richRowIds: readonly string[];
+  /** Rows carry a checkbox of the table-wide repository selection. */
+  readonly selectable?: boolean;
   readonly children: React.ReactNode;
 }): React.ReactElement {
   const router = useRouter();
@@ -295,7 +298,9 @@ export function RepositoryLiveSearch({
         </div>
       </div>
 
-      <RepositorySelectionToolbar matchingIds={matchingIds} />
+      {selectable ? (
+        <RepositorySelectionToolbar matchingIds={matchingIds} />
+      ) : null}
 
       {hasActiveFilter && matchingCount === 0 ? (
         <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/[0.055] p-3">
@@ -325,7 +330,7 @@ export function RepositoryLiveSearch({
           const stripeClass = repositoryRowStripeClass({
             rowIndex,
             selected: id === selectedRepositoryId,
-            setupComplete: item?.setupProgressStep === 4,
+            setupComplete: item?.setupProgressStep === "ready",
           });
           return (
             <div
@@ -335,16 +340,18 @@ export function RepositoryLiveSearch({
               className={
                 visible
                   ? [
-                      "grid grid-cols-[2.75rem_minmax(0,1fr)] items-start",
+                      selectable
+                        ? "grid grid-cols-[2.75rem_minmax(0,1fr)] items-start"
+                        : "grid items-start",
                       "border-t border-cyan-200/10 transition-colors",
                       stripeClass,
                     ].join(" ")
                   : "hidden"
               }
             >
-              <div className="flex justify-center pt-5">
-                <RepositoryActionSelectionCheckbox repositoryId={id} />
-              </div>
+              {selectable ? (
+                <RepositorySelectionCheckbox repositoryId={id} />
+              ) : null}
               <div className="min-w-0">
                 {richRow ??
                   (item ? (
@@ -594,7 +601,9 @@ function RepositorySummaryRow({
             title={`Open setup/settings for ${item.fullName}`}
             aria-label={`Open setup/settings for ${item.fullName}`}
             className={[
-              repositorySetupStepPillClassName(item.setupProgressStep === 4),
+              repositorySetupStepPillClassName(
+                item.setupProgressStep === "ready",
+              ),
               "disabled:cursor-wait disabled:opacity-70",
             ].join(" ")}
           >

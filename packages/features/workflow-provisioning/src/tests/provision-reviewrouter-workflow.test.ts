@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
   parseReviewConfigurationStrict,
+  reviewProviderSelectionFor,
+  type ReviewConfiguration,
   type ReviewConfigurationRepositoryPort,
 } from "@reviewrouter/features-review-config";
 import type { ProvisionWorkflowInput } from "../domain/workflow-provisioning";
@@ -197,6 +199,17 @@ it("rejects MCP bindings on other workflow modes before creating an attempt", as
   expect(setupGateway.input).toBeNull();
 });
 
+/** Selections of stand-in profiles for a saved runtime configuration. */
+function selectionsOf(config: ReviewConfiguration) {
+  return config.providers.map((provider, index) =>
+    reviewProviderSelectionFor(provider, `profile_${index}`),
+  );
+}
+
+function withSelections(config: ReviewConfiguration) {
+  return { config, selections: selectionsOf(config) };
+}
+
 function savedConfigurations(
   selection = "repository",
 ): ReviewConfigurationRepositoryPort {
@@ -213,14 +226,15 @@ function savedConfigurations(
             workspaceVersion: 1,
             repositoryVersion: selection === "workspace" ? null : 1,
             effectivePolicyDigest: "a".repeat(64),
-            policy:
-              selection === "workspace"
-                ? savedGatewayConfig
-                : { schemaVersion: 3 as const },
+            policy: { schemaVersion: 4 as const },
             config: savedGatewayConfig,
+            selections: selectionsOf(savedGatewayConfig),
           }
         : null,
     saveNextVersion: async () => {
+      throw new Error("unexpected_config_write");
+    },
+    saveNextVersions: async () => {
       throw new Error("unexpected_config_write");
     },
     deleteTarget: async () => {
@@ -350,14 +364,16 @@ it.each(["missing", "mixed"])(
         workspaceVersion: 1,
         repositoryVersion: 1,
         effectivePolicyDigest: "a".repeat(64),
-        policy: { schemaVersion: 3 },
-        config: parseReviewConfigurationStrict({
-          ...savedGatewayConfig,
-          providers: [
-            ...savedGatewayConfig.providers,
-            workspacePolicy.providers[0],
-          ],
-        }),
+        policy: { schemaVersion: 4 },
+        ...withSelections(
+          parseReviewConfigurationStrict({
+            ...savedGatewayConfig,
+            providers: [
+              ...savedGatewayConfig.providers,
+              workspacePolicy.providers[0],
+            ],
+          }),
+        ),
       });
     await expect(
       provisionReviewRouterWorkflow(gatewayInput, {
@@ -1199,7 +1215,7 @@ it("installs one exact-pinned App-first direct caller and rejects extra votes be
     ...configurations,
     findLatest: async (target) => {
       const result = await originalFind(target);
-      return result ? { ...result, policy: config, config } : null;
+      return result ? { ...result, ...withSelections(config) } : null;
     },
   };
   const { codexSessionMode, ...base } = gatewayInput;

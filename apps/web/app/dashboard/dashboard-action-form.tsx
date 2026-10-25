@@ -116,6 +116,12 @@ function dashboardActionToast(
         title: "Settings saved",
         body: "Workspace review settings were updated for every repository.",
       };
+    case "workspace_access_rights_saved":
+      return {
+        tone: "success",
+        title: "Access rights saved",
+        body: "Provider management access was updated for this workspace.",
+      };
     case "sync_requested":
       return {
         tone: "success",

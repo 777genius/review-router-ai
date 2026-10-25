@@ -18,6 +18,7 @@
     "@reviewrouter/features-review-investigation-operations": "workspace:*",
     "@reviewrouter/features-review-investigations": "workspace:*",
     "@reviewrouter/features-review-processes": "workspace:*",
+    "@reviewrouter/features-review-statistics": "workspace:*",
     "@reviewrouter/features-review-progress": "workspace:*",
     "@reviewrouter/features-review-publishing": "workspace:*",
     "@reviewrouter/features-review-run-control": "workspace:*",
@@ -35,7 +36,7 @@
   },
   "scripts": {
     "dev": "tsx watch src/worker.ts",
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "build": "node ../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",
+    "typecheck": "node ../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json"
   }
 }
