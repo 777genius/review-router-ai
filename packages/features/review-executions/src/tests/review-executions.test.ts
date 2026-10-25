@@ -1227,6 +1227,50 @@ describe("start and admission saga", () => {
     });
   });
 
+  it.each(["wrong_task", "wrong_vote", "unassigned"] as const)(
+    "rejects v2 lifecycle slot authority %s before execution is prepared",
+    async (fault) => {
+      const store = new InMemoryReviewExecutionStore();
+      const useCase = startUseCase(store, {
+        authorizationRevision: revision,
+        revisions: [revision, revision],
+      });
+      const request = lifecycleStartInput(`execution-${fault}`, fault);
+      const result = await useCase.execute(request);
+      expect(result).toMatchObject({
+        status: StartReviewExecutionStatus.AssignmentManifestRejected,
+        rejectionReason:
+          fault === "unassigned"
+            ? "review_lifecycle_assignment_slot_unassigned"
+            : "review_lifecycle_assignment_slot_authority_invalid",
+      });
+      expect(await store.findExecution(request.executionId)).toBeNull();
+    },
+  );
+
+  it("admits a v2 lifecycle assignment only with its actual lifecycle task and roster vote", async () => {
+    const store = new InMemoryReviewExecutionStore();
+    const useCase = startUseCase(store, {
+      authorizationRevision: revision,
+      revisions: [revision, revision],
+    });
+    const request = lifecycleStartInput("execution-lifecycle-authority");
+    expect((await useCase.execute(request)).status).toBe(
+      StartReviewExecutionStatus.Admitted,
+    );
+    expect(
+      (await store.findExecution(request.executionId))?.execution.workSlots,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          workSlotId: "slot-verifier",
+          taskKind: ReviewTaskKind.LifecycleRevalidation,
+          providerVoteIdentityHash: hash("c"),
+        }),
+      ]),
+    );
+  });
+
   it("persists v2 zero-work lifecycle inventory under the same admitted plan identity", async () => {
     const store = new InMemoryReviewExecutionStore();
     const useCase = startUseCase(store, {
@@ -3158,5 +3202,61 @@ function lifecycleAssignmentFixture() {
         },
       ],
     },
+  };
+}
+
+function lifecycleStartInput(
+  executionId: string,
+  fault?: "wrong_task" | "wrong_vote" | "unassigned",
+) {
+  const base = startInput(executionId);
+  const verifier = {
+    ...slotFixture("slot-verifier", false, 1),
+    taskKind:
+      fault === "wrong_task"
+        ? ReviewTaskKind.FindingDiscovery
+        : ReviewTaskKind.LifecycleRevalidation,
+    providerVoteIdentityHash: fault === "wrong_vote" ? hash("b") : hash("c"),
+  };
+  const workSlots = [
+    ...base.workSlots,
+    verifier,
+    ...(fault === "unassigned"
+      ? [
+          {
+            ...verifier,
+            workSlotId: "slot-unassigned",
+            shardKey: "unassigned-packet",
+          },
+        ]
+      : []),
+  ];
+  const canonical = canonicalReviewAssignmentManifestJson(
+    validateReviewAssignmentManifest(
+      lifecycleAssignmentFixture(),
+      workSlots.map((slot) => slot.workSlotId),
+    ),
+  );
+  const assignmentManifestHash = createHash("sha256")
+    .update(canonicalReviewAssignmentManifestHashPreimage(canonical))
+    .digest("hex");
+  const compatibilityKey = hash("b");
+  const planHash = createHash("sha256")
+    .update(
+      canonicalReviewExecutionPlanHashPreimage({
+        assignmentManifestHash,
+        compatibilityKey,
+        reviewRevisionHash: revision.reviewRevisionHash,
+        workSlots,
+      }),
+    )
+    .digest("hex");
+  return {
+    ...base,
+    workSlots,
+    compatibilityKey,
+    planHash,
+    assignmentManifestHash,
+    assignmentManifestCanonicalJson: canonical,
   };
 }
