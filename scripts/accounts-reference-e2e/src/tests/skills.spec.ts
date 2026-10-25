@@ -579,7 +579,7 @@ test.describe("Skills real Next and PostgreSQL", () => {
     const row = dialog
       .getByRole("row")
       .filter({ hasText: "Fixture skill 001" });
-    await expect(row.getByRole("cell").last()).toHaveText("1/125");
+    await expect(row.getByRole("cell").last()).toHaveAccessibleName("1/125");
     await dialog.screenshot({
       path: test.info().outputPath("skills-bulk-desktop.png"),
     });
