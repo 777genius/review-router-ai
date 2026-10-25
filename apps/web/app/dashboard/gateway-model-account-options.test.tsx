@@ -17,6 +17,7 @@ import {
   useGatewayModelAccounts,
   type GatewayModelAccountsApi,
 } from "./gateway-model-account-options";
+import { GatewayModelCatalogStatus } from "./gateway-model-catalog-status";
 import { getReadyGatewayAccounts } from "../../src/server/dashboard-provider-setup-readiness";
 
 afterEach(cleanup);
@@ -207,3 +208,104 @@ test("same-profile account catalogs remain separate, including empty snapshots a
   expect(get).toHaveBeenCalledWith("account-a", { forceRefresh: true });
   expect(get.mock.calls.filter(([id]) => id === "account-b")).toHaveLength(1);
 });
+
+function RefreshCatalogHarness() {
+  const options = useGatewayModelAccounts(
+    {
+      status: "ok",
+      value: {
+        accounts: [account("saved-binding")],
+        profiles: [profile],
+        nextCursor: null,
+      },
+    },
+    ["saved-binding"],
+  );
+  const selected = getReadyGatewayAccounts(options.accounts).find(
+    (row) => row.binding?.id === "saved-binding",
+  );
+  return (
+    <>
+      <input aria-label="Saved model" value="historical-model" readOnly />
+      <span>Models:{options.profileFor(selected)?.models.join(",")}</span>
+      <GatewayModelCatalogStatus
+        account={selected}
+        loading={options.loading}
+        canRefresh={options.canRefresh}
+        onRefresh={() => options.refreshModels("saved-binding")}
+      />
+    </>
+  );
+}
+
+// RED if a temporary refresh failure removes the retry action, retains a
+// falsely fresh catalog, or a real denial preserves the old authorized row.
+test.each(["unavailable", "transport"] as const)(
+  "manual model refresh remains retryable after %s while catalog admission fails closed",
+  async (failure) => {
+    const detail = (
+      model: string,
+    ): Awaited<ReturnType<GatewayModelAccountsApi["get"]>> => ({
+      status: "ok",
+      value: {
+        account: {
+          ...account("saved-binding"),
+          modelCatalog: {
+            status: "snapshot",
+            source: "codex",
+            models: [model],
+            fetchedAt: "2026-10-25T10:00:00.000Z",
+          },
+        },
+        profile: { ...profile, models: [model] },
+      },
+    });
+    const get = vi
+      .fn<GatewayModelAccountsApi["get"]>()
+      .mockResolvedValueOnce(detail("first-model"));
+    if (failure === "transport")
+      get.mockRejectedValueOnce(new Error("temporary transport failure"));
+    else get.mockResolvedValueOnce({ status: "unavailable" });
+    get.mockResolvedValueOnce(detail("recovered-model"));
+    const api = { list: vi.fn<GatewayModelAccountsApi["list"]>(), get };
+    render(
+      <GatewayModelAccountsProvider scope="viewer:workspace:org-x" api={api}>
+        <RefreshCatalogHarness />
+      </GatewayModelAccountsProvider>,
+    );
+    expect(await screen.findByText("Models:first-model")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Refresh models", exact: true }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain(
+        "discovery unknown",
+      ),
+    );
+    expect(screen.getByText("Models:")).toBeTruthy();
+    expect(
+      (screen.getByLabelText("Saved model") as HTMLInputElement).value,
+    ).toBe("historical-model");
+    const retry = screen.getByRole("button", {
+      name: "Refresh models",
+      exact: true,
+    }) as HTMLButtonElement;
+    expect(retry.disabled).toBe(false);
+    fireEvent.click(retry);
+    expect(await screen.findByText("Models:recovered-model")).toBeTruthy();
+    expect(get.mock.calls.slice(1)).toEqual([
+      ["saved-binding", { forceRefresh: true }],
+      ["saved-binding", { forceRefresh: true }],
+    ]);
+    get.mockResolvedValueOnce({ status: "denied" });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Refresh models", exact: true }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Refresh models", exact: true }),
+      ).toBeNull(),
+    );
+    expect(screen.getByText("Models:")).toBeTruthy();
+  },
+);

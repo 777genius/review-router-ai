@@ -284,7 +284,12 @@ async function loadGatewayReviewProfiles(
     )
       throw new Error("gateway_review_catalog_unavailable");
     return [profile];
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "gateway_review_model_unsupported"
+    )
+      throw error;
     throw new Error("gateway_review_catalog_unavailable");
   }
 }

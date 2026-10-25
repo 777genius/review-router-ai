@@ -270,11 +270,48 @@ export function useGatewayModelAccounts(
     async refreshModels(bindingId: string) {
       const queryKey = ["account-option", context.scope, bindingId] as const;
       await client.cancelQueries({ queryKey, exact: true });
+      const unavailable = () =>
+        client.setQueryData<
+          Awaited<ReturnType<GatewayModelAccountsApi["get"]>>
+        >(queryKey, (current) => {
+          if (
+            current?.status !== "ok" ||
+            current.value.account.binding?.id !== bindingId
+          )
+            return { status: "unavailable" };
+          const { account, profile } = current.value;
+          // Retain known display metadata so a transient refresh failure remains
+          // retryable, but discard catalog admission and freshness/capabilities.
+          return {
+            status: "ok",
+            value: {
+              account: {
+                ...account,
+                modelCatalog: {
+                  status: "unknown",
+                  source: "legacy_profile",
+                  models: [],
+                },
+                ...(account.connection
+                  ? { connection: { ...account.connection, modelSettings: [] } }
+                  : {}),
+              },
+              profile: {
+                ...profile,
+                models: [],
+                ...(profile.connection
+                  ? { connection: { ...profile.connection, modelSettings: [] } }
+                  : {}),
+              },
+            },
+          };
+        });
       try {
         const value = await context.api.get(bindingId, { forceRefresh: true });
-        client.setQueryData(queryKey, value);
+        if (value.status === "unavailable") unavailable();
+        else client.setQueryData(queryKey, value);
       } catch {
-        client.setQueryData(queryKey, { status: "unavailable" });
+        unavailable();
       }
     },
     canLoadMore: Boolean(pages.hasNextPage),
