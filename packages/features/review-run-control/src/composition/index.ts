@@ -8,3 +8,5 @@ export {
   ConfiguredProducerReleaseAttestationRegistry,
   readConfiguredProducerReleaseAttestations,
 } from "../infrastructure/configured-producer-release-attestation";
+
+export * from "../infrastructure/prisma/prisma-review-run-companion-dispatch-repository";
