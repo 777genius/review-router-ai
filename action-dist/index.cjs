@@ -133350,6 +133350,43 @@ var prDescriptionContract = Object.freeze({
   deadlineMs: 6e4,
   attemptBudget: 1
 });
+var lifecycleVerificationContract = Object.freeze({
+  extensionId: "lifecycle-verification.v1",
+  executor: "rr_bounded_lifecycle_verifier.v1",
+  version: 1,
+  taskKind: "lifecycle_revalidation",
+  modelTransport: "account_gateway",
+  capabilityRuntimeEnvKey: "REVIEW_ROUTER_LIFECYCLE_VERIFICATION_CAPABILITY_JSON",
+  unavailableReasonRuntimeEnvKey: "REVIEW_ROUTER_LIFECYCLE_VERIFICATION_UNAVAILABLE_REASON",
+  promptVersion: "lifecycle-verification-prompt.v1",
+  outputSchemaVersion: 1,
+  requestCanonicalizerVersion: "lifecycle-verification-request.v1",
+  policyVersion: "lifecycle-verification-policy.v1",
+  dispatchReadbackPath: "/api/action/v2/account-gateway/companion-dispatch",
+  maxTargetsPerPacket: 4,
+  maxPackets: 2,
+  maxFilesPerPacket: 6,
+  maxFileBytes: 24 * 1024,
+  maxSourceBytes: 64 * 1024,
+  maxPromptBytes: 96 * 1024,
+  maxClaimBytes: 4 * 1024,
+  maxResponseBytes: 32 * 1024,
+  maxLifecyclePlanBytes: 64 * 1024,
+  maxOutputTokens: 4096,
+  minOutputTokensPerTarget: 1024,
+  deadlineMs: 6e4,
+  attemptBudget: 1,
+  dispatchHeaders: Object.freeze({
+    dispatchId: "x-reviewrouter-companion-dispatch-id",
+    executionId: "x-reviewrouter-companion-execution-id",
+    workSlotId: "x-reviewrouter-companion-work-slot-id",
+    attemptOrdinal: "x-reviewrouter-companion-attempt-ordinal",
+    leaseId: "x-reviewrouter-companion-lease-id",
+    leaseCapability: "x-reviewrouter-companion-lease-capability",
+    fencingToken: "x-reviewrouter-companion-fencing-token",
+    preparedManifestKey: "x-reviewrouter-companion-prepared-manifest-key"
+  })
+});
 var contextToolsContract = Object.freeze({
   extensionId: "context-tools.v1",
   version: 1,
