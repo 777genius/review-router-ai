@@ -50,6 +50,7 @@ import { personalAccountOriginText } from "../../../src/features/account-gateway
 import { dashboardErrorText } from "../dashboard-copy";
 import { GatewayConnectionTest } from "../gateway-connection-test";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
+import { GatewayModelCatalogStatus } from "../gateway-model-catalog-status";
 import { AccountProviderLogo } from "../account-identity";
 import { ProviderAuthLogoFrame } from "../provider-auth-logo";
 import { useProviderModelCatalogs } from "../provider-model-catalog";
@@ -600,19 +601,12 @@ function ProviderChoiceStep({
           (account) => account.binding?.id === draft.bindingId,
         )
       : undefined;
-  const gatewayProfile = gatewayAccount
-    ? gatewayPage?.profiles.find(
-        (candidate) => candidate.id === gatewayAccount.profileId,
-      )
-    : profile?.authMode === "codex_account_gateway"
-      ? gatewayPage?.profiles.find((candidate) =>
-          gatewayPage.accounts.some(
-            (account) =>
-              account.binding?.id === profile.gatewayBindingId &&
-              account.profileId === candidate.id,
-          ),
-        )
-      : undefined;
+  const gatewayProfile = gatewayOptions.profileFor(
+    gatewayAccount ??
+      gatewayPage?.accounts.find(
+        (account) => account.binding?.id === profile?.gatewayBindingId,
+      ),
+  );
   const authMode = source?.authMode ?? profile?.authMode;
   const gatewayBindingId = source
     ? (gatewayAccount?.binding?.id ?? null)
@@ -1007,10 +1001,7 @@ function ProviderChoiceStep({
                 const account = gatewayAccountList.find(
                   (candidate) => candidate.binding?.id === bindingId,
                 );
-                const models =
-                  gatewayPage?.profiles.find(
-                    (candidate) => candidate.id === account?.profileId,
-                  )?.models ?? [];
+                const models = gatewayOptions.profileFor(account)?.models ?? [];
                 const nextModel = models.length === 1 ? models[0]! : "";
                 setDraft((current) => ({
                   ...current,
@@ -1126,6 +1117,19 @@ function ProviderChoiceStep({
               }
             />
           )}
+          {authMode === "codex_account_gateway" && gatewayBindingId ? (
+            <GatewayModelCatalogStatus
+              account={
+                gatewayAccount ??
+                gatewayPage?.accounts.find(
+                  (account) => account.binding?.id === gatewayBindingId,
+                )
+              }
+              loading={gatewayOptions.loading}
+              canRefresh={gatewayOptions.canRefresh}
+              onRefresh={() => gatewayOptions.refreshModels(gatewayBindingId)}
+            />
+          ) : null}
           {modelOnly ? (
             <p className="text-xs leading-5 text-slate-400">
               Review depth and similar settings are chosen where the provider is

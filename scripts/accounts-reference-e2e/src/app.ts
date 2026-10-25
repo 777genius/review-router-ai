@@ -70,7 +70,8 @@ export async function startNextApp(input: {
   const child: ChildProcess = spawn(
     process.execPath,
     [
-      ...(process.argv.includes("--catalog-fixture")
+      ...(process.argv.includes("--catalog-fixture") ||
+      process.argv.includes("--account-models-fixture")
         ? [
             "--import",
             join(

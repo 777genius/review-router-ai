@@ -28,6 +28,7 @@ export type GatewayModelAccountsApi = {
   }): Promise<AccountsResult<AccountsPage>>;
   get(
     bindingId: string,
+    options?: { readonly forceRefresh?: boolean },
   ): Promise<
     AccountsResult<{ account: AccountView; profile: AccountProfileView }>
   >;
@@ -175,6 +176,15 @@ export function useGatewayModelAccounts(
       loading: false,
       loadMore: () => {},
       refresh: () => {},
+      refreshModels: async (bindingId: string) => {
+        void bindingId;
+      },
+      profileFor: (account: AccountView | undefined) =>
+        initial?.status === "ok"
+          ? initial.value.profiles.find(
+              (profile) => profile.id === account?.profileId,
+            )
+          : undefined,
     };
   const availablePages = pages.data?.pages ?? [];
   const failedPage = availablePages.find((page) => page.status !== "ok");
@@ -200,7 +210,8 @@ export function useGatewayModelAccounts(
         detail.data.value.account.binding?.id === bindingId
       ) {
         accounts.set(bindingId, detail.data.value.account);
-        profiles.set(detail.data.value.profile.id, detail.data.value.profile);
+        // Account catalogs are scoped by binding, never by a shared profile ID.
+        // Global profile seeds remain unchanged.
       }
     },
   );
@@ -223,6 +234,86 @@ export function useGatewayModelAccounts(
     : (failedPage ?? { status: "unavailable" });
   return {
     accounts: result,
+    profileFor: (
+      account: AccountView | undefined,
+    ): AccountProfileView | undefined => {
+      if (!account?.binding) return undefined;
+      const index = [...new Set(selectedBindingIds.filter(Boolean))].indexOf(
+        account.binding.id,
+      );
+      const detail = index < 0 ? undefined : details[index];
+      if (
+        detail?.data?.status === "ok" &&
+        detail.data.value.account.binding?.id === account.binding.id
+      )
+        return detail.data.value.profile;
+      const seed = profiles.get(account.profileId);
+      if (!seed) return undefined;
+      if (account.modelCatalog)
+        return {
+          ...seed,
+          models: [...account.modelCatalog.models],
+          ...(account.connection ? { connection: account.connection } : {}),
+        };
+      // A selected Codex account waits for its own catalog. Other accounts
+      // retain the established profile catalog for first paint/backcompat.
+      return seed.id === "openai-codex-oauth-responses-v1"
+        ? {
+            ...seed,
+            models: [],
+            ...(seed.connection
+              ? { connection: { ...seed.connection, modelSettings: [] } }
+              : {}),
+          }
+        : seed;
+    },
+    async refreshModels(bindingId: string) {
+      const queryKey = ["account-option", context.scope, bindingId] as const;
+      await client.cancelQueries({ queryKey, exact: true });
+      const unavailable = () =>
+        client.setQueryData<
+          Awaited<ReturnType<GatewayModelAccountsApi["get"]>>
+        >(queryKey, (current) => {
+          if (
+            current?.status !== "ok" ||
+            current.value.account.binding?.id !== bindingId
+          )
+            return { status: "unavailable" };
+          const { account, profile } = current.value;
+          // Retain known display metadata so a transient refresh failure remains
+          // retryable, but discard catalog admission and freshness/capabilities.
+          return {
+            status: "ok",
+            value: {
+              account: {
+                ...account,
+                modelCatalog: {
+                  status: "unknown",
+                  source: "legacy_profile",
+                  models: [],
+                },
+                ...(account.connection
+                  ? { connection: { ...account.connection, modelSettings: [] } }
+                  : {}),
+              },
+              profile: {
+                ...profile,
+                models: [],
+                ...(profile.connection
+                  ? { connection: { ...profile.connection, modelSettings: [] } }
+                  : {}),
+              },
+            },
+          };
+        });
+      try {
+        const value = await context.api.get(bindingId, { forceRefresh: true });
+        if (value.status === "unavailable") unavailable();
+        else client.setQueryData(queryKey, value);
+      } catch {
+        unavailable();
+      }
+    },
     canLoadMore: Boolean(pages.hasNextPage),
     canRefresh: true,
     loading: pages.isFetching || details.some((detail) => detail.isFetching),

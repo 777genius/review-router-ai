@@ -229,3 +229,33 @@ test("qualified models without reasoning/fast controls save only omitted setting
     ),
   ).rejects.toThrow("gateway_review_fast_mode_unsupported");
 });
+
+// RED if two accounts sharing one profile ID can authorize each other's models.
+test("resolves catalog membership and reasoning separately for each binding", async () => {
+  const other = {
+    ...gateway,
+    gatewayBindingId: "other-binding",
+    model: "account-b-only",
+  };
+  const load = async (selection: { gatewayBindingId: string }) => [
+    {
+      ...profile,
+      models:
+        selection.gatewayBindingId === gateway.gatewayBindingId
+          ? [gateway.model]
+          : [other.model],
+    },
+  ];
+  await expect(
+    assertGatewayReviewConfigCatalogAllowed(
+      { providers: [gateway, other] },
+      load,
+    ),
+  ).resolves.toBe(true);
+  await expect(
+    assertGatewayReviewConfigCatalogAllowed(
+      { providers: [{ ...other, model: gateway.model }] },
+      load,
+    ),
+  ).rejects.toThrow("gateway_review_model_unsupported");
+});

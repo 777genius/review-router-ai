@@ -1,8 +1,8 @@
 import {
-  loadAccountsBootstrap,
   type AccountsPage,
   type AccountsResult,
 } from "./account-gateway-accounts";
+import { productionGatewayModelAccounts } from "./gateway-model-account-composition";
 import { productionPersonalAccounts } from "./personal-account-composition";
 
 export type DashboardPersonalAccounts = NonNullable<
@@ -24,7 +24,10 @@ export async function loadDashboardGatewayAccounts(
   workspaceId: string,
   personal: DashboardPersonalAccounts | null,
 ): Promise<AccountsResult<AccountsPage>> {
-  if (!personal) return (await loadAccountsBootstrap(workspaceId)).page;
+  if (!personal)
+    return productionGatewayModelAccounts(workspaceId)
+      .then(({ reader }) => reader.list({ limit: 25 }))
+      .catch(() => ({ status: "unavailable" as const }));
   return personal
     .models(workspaceId)
     .then((api) => api.list({ limit: 25 }))

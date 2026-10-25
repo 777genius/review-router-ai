@@ -15,6 +15,7 @@ import {
   BASELINE_REVISION,
   SKILLS_FIXTURE_BOUNDARY,
   PROBE_FIXTURE_BOUNDARY,
+  ACCOUNT_MODELS_FIXTURE_BOUNDARY,
   LIMITS_FIXTURE_BOUNDARY,
   SUBSCRIPTION_FIXTURE_BOUNDARY,
   FIXTURES,
@@ -39,13 +40,15 @@ type TestSummary = {
 async function main(): Promise<void> {
   const fixtureBoundary = process.argv.includes("--skills-fixture")
     ? SKILLS_FIXTURE_BOUNDARY
-    : process.argv.includes("--subscription-fixture")
-      ? SUBSCRIPTION_FIXTURE_BOUNDARY
-      : process.argv.includes("--limits-fixture")
-        ? LIMITS_FIXTURE_BOUNDARY
-        : process.argv.includes("--probe-fixture")
-          ? PROBE_FIXTURE_BOUNDARY
-          : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
+    : process.argv.includes("--account-models-fixture")
+      ? ACCOUNT_MODELS_FIXTURE_BOUNDARY
+      : process.argv.includes("--subscription-fixture")
+        ? SUBSCRIPTION_FIXTURE_BOUNDARY
+        : process.argv.includes("--limits-fixture")
+          ? LIMITS_FIXTURE_BOUNDARY
+          : process.argv.includes("--probe-fixture")
+            ? PROBE_FIXTURE_BOUNDARY
+            : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
   const options = parseCliOptions(process.argv);
   await ensureWorkDir(options.workDir);
   const revision = await readRevision(options.repoRoot);
@@ -314,6 +317,11 @@ async function runPlaywright(input: {
             : "0",
           ACCOUNTS_REFERENCE_E2E_LIMITS: process.argv.includes(
             "--limits-fixture",
+          )
+            ? "1"
+            : "0",
+          ACCOUNTS_REFERENCE_E2E_ACCOUNT_MODELS: process.argv.includes(
+            "--account-models-fixture",
           )
             ? "1"
             : "0",

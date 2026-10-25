@@ -23,6 +23,7 @@ export function gatewayModelSupportsReasoningEffort(
   }
   return (
     effort !== undefined &&
+    effort !== "minimal" &&
     (!isGatewayMiMoModel(model) ||
       effort === "low" ||
       effort === "medium" ||
@@ -33,13 +34,30 @@ export function gatewayModelSupportsReasoningEffort(
 export function gatewayModelDefaultReasoningEffort(
   model: string,
   connection?: AccountConnectionView,
-): "low" | "medium" | "high" | "xhigh" | "max" | "ultra" | undefined {
+):
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max"
+  | "ultra"
+  | undefined {
   if (connection) {
     const value = connection.modelSettings.find((row) => row.modelId === model)
       ?.reasoning?.default;
     return value &&
-      ["low", "medium", "high", "xhigh", "max", "ultra"].includes(value)
-      ? (value as "low" | "medium" | "high" | "xhigh" | "max" | "ultra")
+      ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"].includes(
+        value,
+      )
+      ? (value as
+          | "minimal"
+          | "low"
+          | "medium"
+          | "high"
+          | "xhigh"
+          | "max"
+          | "ultra")
       : undefined;
   }
   return isGatewayMiMoModel(model) ? "high" : "xhigh";
