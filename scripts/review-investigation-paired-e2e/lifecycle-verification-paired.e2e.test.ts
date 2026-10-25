@@ -1606,7 +1606,7 @@ function nativeThreads(github: FakeGitHubTransport, scenario: Scenario) {
             databaseId: 800 + index,
             viewerDidAuthor: true,
             author: { login: "reviewrouter-e2e[bot]", __typename: "Bot" },
-            body: `<!-- reviewrouter:finding:v2:${hint.lineageId} -->\n### ${hint.title}\n**Severity: major**\n${hint.message}`,
+            body: `<!-- reviewrouter:finding:v2:${hint.lineageId} -->\n**${hint.title}**\n**Severity: major**\n${hint.message}`,
             createdAt: parentCreatedAt,
             updatedAt: parentCreatedAt,
             path: filePath,
