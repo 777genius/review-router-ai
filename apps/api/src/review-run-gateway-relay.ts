@@ -536,7 +536,7 @@ export function createReviewRunGatewayRelay(input: {
             async pull(target) {
               try {
                 const chunk = await reader.read();
-                await fresh();
+                await localFresh();
                 if (signal.aborted) throw new Error("companion_cancelled");
                 if (chunk.done) {
                   // EOF alone is not native no-dispatch/completion evidence.
@@ -693,6 +693,35 @@ export function createReviewRunGatewayRelay(input: {
             createHash("sha256").update(body).digest("hex"),
           )
         : undefined;
+      const refuseBeforeForward = async (
+        failure: RelayFailure,
+      ): Promise<never> => {
+        if (claim?.status === "claimed") {
+          // This newly reserved native ref has not reached the SDK request
+          // call. Keep the one-attempt reservation; only record proven absence.
+          try {
+            await input.companionDispatches!.settle(
+              auth.authorizationId,
+              claim.dispatch.dispatchId,
+              "not_dispatched",
+            );
+          } catch {
+            throw new RelayFailure(
+              "companion_settlement_failed",
+              502,
+              "effect_unknown",
+              claim.dispatch.nativeRequestRef,
+            );
+          }
+          throw new RelayFailure(
+            failure.code,
+            failure.statusCode,
+            "not_dispatched",
+            claim.dispatch.nativeRequestRef,
+          );
+        }
+        throw failure;
+      };
       if (
         claim?.status === "claimed" &&
         claim.dispatch.role === "pr_description"
@@ -706,7 +735,9 @@ export function createReviewRunGatewayRelay(input: {
           Number(envelope.max_output_tokens) >
             prDescriptionContract.maxOutputTokens
         )
-          throw new RelayFailure("pr_description_envelope_bounds_invalid", 400);
+          return await refuseBeforeForward(
+            new RelayFailure("pr_description_envelope_bounds_invalid", 400),
+          );
       }
       if (claim?.status === "restored")
         throw new RelayFailure(
@@ -722,7 +753,10 @@ export function createReviewRunGatewayRelay(input: {
         companion ? capability!.deadlineMs : Infinity,
         claim ? claim.notAfter.getTime() - Date.now() : Infinity,
       );
-      if (remaining <= 0) throw new RelayFailure("authorization_denied", 401);
+      if (remaining <= 0)
+        return await refuseBeforeForward(
+          new RelayFailure("authorization_denied", 401),
+        );
       const requestDeadline = Date.now() + remaining;
       const signal = AbortSignal.any([
         controller.signal,
@@ -733,21 +767,36 @@ export function createReviewRunGatewayRelay(input: {
       try {
         if (!session.preparation.hasSession()) {
           if (session.preparation.needsRecovery())
-            throw new RelayFailure(
-              "same_operation_recovery_required",
-              409,
-              "effect_unknown",
+            return await refuseBeforeForward(
+              new RelayFailure(
+                "same_operation_recovery_required",
+                409,
+                "effect_unknown",
+              ),
             );
           if (diagnostic) diagnostic.stage = "prepare";
           const prepared = await session.preparation.prepare();
-          await fresh();
+          try {
+            await fresh();
+          } catch (error) {
+            if (
+              error instanceof RelayFailure &&
+              error.effect === "not_dispatched"
+            )
+              return await refuseBeforeForward(error);
+            throw error;
+          }
           if (prepared.status === "denied" || prepared.status === "conflict")
-            throw new RelayFailure("preparation_denied", 409);
+            return await refuseBeforeForward(
+              new RelayFailure("preparation_denied", 409),
+            );
           if (!session.preparation.hasSession())
-            throw new RelayFailure(
-              "same_operation_recovery_required",
-              409,
-              "effect_unknown",
+            return await refuseBeforeForward(
+              new RelayFailure(
+                "same_operation_recovery_required",
+                409,
+                "effect_unknown",
+              ),
             );
         }
         if (claim) {
