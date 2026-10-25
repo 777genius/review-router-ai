@@ -19,7 +19,11 @@
     "sdk": "Node24/26 build/type/management+consumer-control HTTP contracts and consumer pin passed",
     "gateway": "Node24/26 Checkpoint A+B and CodeQL passed on abecb4ac62b490543e8b730455d32b6b7cacb127 before squash merge",
     "native": "Hosted selected OAuth service, account-models, handler/bootstrap and full transport passed; root-only bootstrap test skipped; GitHub Actions dispatch unavailable (HTTP422)",
-    "consumer": "Hosted API/WEB types, focused configuration and relay/probe tests, bundle build/parity, foundation/lint, and real SSR/session/PG17 browser edit/refresh/add/save passed on base 73629de84c40f437fd900d09f0ead7015dc5237d with the qualified SDK. Controlled Gateway HTTP only; no live provider or production activation claim."
+    "consumer": {
+      "status": "passed",
+      "receipt": "codex-models-6eb715faf907-rr-qualification.json",
+      "qualifiedSourceCommit": "76508fbf70830719bed1f1c2f07d55447e012782"
+    }
   },
   "publicPublished": false,
   "productionActivated": false,
