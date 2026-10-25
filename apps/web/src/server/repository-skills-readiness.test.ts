@@ -67,6 +67,7 @@ function persisted(source = attestation()): PersistedRelease {
     canonicalizerDigest: _canonicalizer,
     ...rest
   } = source;
+  void _canonicalizer;
   return {
     ...rest,
     agentProfilesJson:
