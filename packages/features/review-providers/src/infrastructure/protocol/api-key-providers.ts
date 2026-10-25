@@ -2,7 +2,7 @@ import {
   providerApiDescriptors,
   type ProviderApiAuthMode,
 } from "@reviewrouter/shared";
-import type { ProviderAuthMode } from "./provider-catalog";
+import type { ProviderAuthMode } from "../../domain/provider-catalog";
 
 export type ApiKeyProviderId = "openrouter" | "mimo" | "kimi";
 const modes = {

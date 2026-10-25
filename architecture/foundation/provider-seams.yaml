@@ -117,6 +117,20 @@ boundaries:
       packages: []
       builtins: []
       runtimeReferences: []
+  # Adapt the shared wire descriptors at the protocol boundary; the catalog's
+  # domain and application layers retain no shared-package dependency.
+  - id: catalog.protocol
+    roots:
+      - packages/features/review-providers/src/infrastructure/protocol/api-key-providers.ts
+    entrypoints:
+      - packages/features/review-providers/src/infrastructure/protocol/api-key-providers.ts
+    allow:
+      boundaries:
+        - catalog.domain
+      packages:
+        - "@reviewrouter/shared"
+      builtins: []
+      runtimeReferences: []
   - id: catalog.composition
     roots:
       - packages/features/review-providers/src/composition/index.ts
@@ -142,6 +156,7 @@ boundaries:
         - catalog.domain
         - catalog.application
         - catalog.infrastructure
+        - catalog.protocol
       packages: []
       builtins: []
       runtimeReferences: []

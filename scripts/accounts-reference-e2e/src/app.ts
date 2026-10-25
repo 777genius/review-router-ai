@@ -71,7 +71,8 @@ export async function startNextApp(input: {
     process.execPath,
     [
       ...(process.argv.includes("--catalog-fixture") ||
-      process.argv.includes("--account-models-fixture")
+      process.argv.includes("--account-models-fixture") ||
+      process.argv.includes("--api-key-storage-fixture")
         ? [
             "--import",
             join(

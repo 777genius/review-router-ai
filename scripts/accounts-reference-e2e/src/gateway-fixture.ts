@@ -16,6 +16,7 @@ import { createLimitsFixture } from "./limits-fixture.ts";
 import {
   createSubscriptionFixture,
   subscriptionProfiles,
+  apiKeyStorageProfiles,
 } from "./subscription-fixture.ts";
 
 export type WireAccount = {
@@ -120,9 +121,14 @@ export async function startGatewayFixture(input: {
   const accountModels = process.argv.includes("--account-models-fixture")
     ? createAccountModelsFixture(accounts)
     : null;
-  const subscriptions = process.argv.includes("--subscription-fixture")
-    ? createSubscriptionFixture(accounts)
-    : null;
+  const connectionProfiles = process.argv.includes("--api-key-storage-fixture")
+    ? apiKeyStorageProfiles
+    : subscriptionProfiles;
+  const subscriptions =
+    process.argv.includes("--subscription-fixture") ||
+    process.argv.includes("--api-key-storage-fixture")
+      ? createSubscriptionFixture(accounts, connectionProfiles)
+      : null;
   const limits = process.argv.includes("--limits-fixture")
     ? createLimitsFixture(accounts)
     : null;
@@ -464,7 +470,7 @@ export async function startGatewayFixture(input: {
               ]
             : []),
           ...(subscriptions
-            ? subscriptionProfiles.map((profile) => ({
+            ? connectionProfiles.map((profile) => ({
                 profileId: profile.profileId,
                 protocol: "openai-responses",
                 modelIds: [profile.model],
