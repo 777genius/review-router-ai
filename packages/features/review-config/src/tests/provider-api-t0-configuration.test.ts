@@ -4,6 +4,7 @@ import {
 } from "@reviewrouter/shared";
 import {
   assertProviderApiDirectConfigurationSupported,
+  inspectProviderApiDirectConfiguration,
   providerApiConfigurationMode,
 } from "../domain/provider-api-t0-configuration";
 import { expect, it } from "vitest";
@@ -214,3 +215,43 @@ it("keeps an old MiMo effort readable but refuses unsupported direct execution w
     ).toBe("mimo-token-plan-api");
   }
 });
+
+it.each([
+  [
+    "legacy effort",
+    { reasoningEffort: "xhigh" },
+    "provider_api_reasoning_effort_unsupported",
+  ],
+  [
+    "legacy fast mode",
+    { fastMode: true },
+    "provider_api_fast_mode_unsupported",
+  ],
+] as const)(
+  "inspects %s without throwing or changing its saved bytes",
+  (_name, override, reason) => {
+    const policy = parseReviewConfigurationStrict({
+      ...configuration,
+      providers: [
+        {
+          kind: "codex-mimo",
+          authMode: "mimo_token_plan_api_key",
+          model: "mimo-v2.6-pro",
+          reasoningEffort: "high",
+          fastMode: false,
+          agenticContext: true,
+          ...override,
+        },
+      ],
+    });
+    const before = structuredClone(policy);
+    expect(inspectProviderApiDirectConfiguration(policy)).toEqual({
+      status: "unsupported",
+      reason,
+    });
+    expect(() => assertProviderApiDirectConfigurationSupported(policy)).toThrow(
+      reason,
+    );
+    expect(policy).toEqual(before);
+  },
+);

@@ -363,6 +363,48 @@ describe("ProviderSetupDialog", () => {
     expect(saveProviderSetupAction).not.toHaveBeenCalled();
   });
 
+  it("lets a repository request inheritance without editing legacy MiMo default settings", async () => {
+    const legacy = {
+      ...selection("profile_default"),
+      reasoningEffort: "xhigh" as const,
+      fastMode: true,
+    };
+    view = {
+      ...view,
+      defaultSelection: legacy,
+      profiles: [
+        {
+          ...claudeProfile("profile_default", "Team MiMo", true),
+          authMode: "mimo_token_plan_api_key",
+          model: "mimo-v2.6-pro",
+        },
+        claudeProfile("profile_other", "Second Claude"),
+      ],
+      repositories: [
+        {
+          ...view.repositories[0]!,
+          source: "repository",
+          selection: selection("profile_other"),
+        },
+      ],
+    };
+    renderDialog(repositoryTarget);
+    await choose("Workspace default: Team MiMo");
+    const inherit = screen.getByRole("button", {
+      name: "Use the workspace default",
+    });
+    expect(inherit).toHaveProperty("disabled", false);
+    fireEvent.click(inherit);
+    await waitFor(() =>
+      expect(inheritWorkspaceDefaultProviderAction).toHaveBeenCalledWith({
+        workspaceId: "workspace_1",
+        repositoryId: "repo_1",
+      }),
+    );
+    expect(saveProviderSetupAction).not.toHaveBeenCalled();
+    expect(view.defaultSelection).toEqual(legacy);
+  });
+
   it("sets the workspace default and reports each repository of a bulk change", async () => {
     view = { ...view, target: "workspace", repositories: [] };
     renderDialog({ kind: "workspace" });

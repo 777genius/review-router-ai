@@ -8,6 +8,8 @@ import { describe, expect, it } from "vitest";
 import {
   comparableWorkflowRequirement,
   renderedWorkflowRequirement,
+  inspectRequiredWorkflowTransport,
+  inspectRequiredWorkflowRequirement,
   requiredWorkflowRequirement,
   requiredWorkflowTransport,
   verifiedWorkflowRequirement,
@@ -191,3 +193,37 @@ it("requires a different verified caller after changing direct provider, even on
     }),
   ).toBe("provider_api");
 });
+
+it.each([
+  {
+    kind: "codex-mimo",
+    authMode: "mimo_token_plan_api_key",
+    model: "mimo-v2.6-pro",
+    ...settings,
+  },
+  {
+    kind: "kimi",
+    authMode: "kimi_code_api_key",
+    model: "k3-256k",
+    agenticContext: true,
+    fastMode: false,
+    requiredHealthy: true,
+  },
+] as const)(
+  "keeps a saved $kind-first mixed policy readable without selecting a legacy workflow",
+  (provider) => {
+    const policy = config([provider, hybridRotating.providers[0]!]);
+    const before = structuredClone(policy);
+    const unsupported = {
+      status: "unsupported",
+      reason: "provider_api_direct_requires_single_provider",
+    };
+    expect(inspectRequiredWorkflowTransport(policy)).toEqual(unsupported);
+    expect(inspectRequiredWorkflowRequirement(policy)).toEqual(unsupported);
+    expect(() => requiredWorkflowTransport(policy)).toThrow(unsupported.reason);
+    expect(() => requiredWorkflowRequirement(policy)).toThrow(
+      unsupported.reason,
+    );
+    expect(policy).toEqual(before);
+  },
+);

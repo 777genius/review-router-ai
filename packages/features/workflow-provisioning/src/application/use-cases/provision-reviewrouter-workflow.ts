@@ -26,7 +26,7 @@ import {
 } from "../../domain/workflow-provisioning";
 import {
   renderedWorkflowRequirement,
-  requiredWorkflowTransport,
+  inspectRequiredWorkflowTransport,
   type WorkflowTransport,
 } from "../../domain/workflow-transport";
 import type { WorkflowProvisioningRepositoryPort } from "../ports/workflow-provisioning-repository-port";
@@ -58,7 +58,11 @@ export async function provisionReviewRouterWorkflow(
         { configurations: dependencies.configurations },
       )
     : undefined;
-  const transport = saved ? requiredWorkflowTransport(saved.config) : null;
+  const transport = saved
+    ? inspectRequiredWorkflowTransport(saved.config)
+    : null;
+  if (transport !== null && typeof transport !== "string")
+    throw new Error(transport.reason);
   const gatewaySelected = transport === "gateway";
   const providerApiSelected = transport === "provider_api";
   const selectedProviderApiMode =

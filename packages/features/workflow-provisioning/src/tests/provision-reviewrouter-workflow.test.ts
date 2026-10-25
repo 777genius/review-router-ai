@@ -1350,3 +1350,59 @@ it.each([
     }
   },
 );
+
+it.each([
+  {
+    kind: "codex-mimo",
+    authMode: "mimo_token_plan_api_key",
+    model: "mimo-v2.6-pro",
+    reasoningEffort: "high",
+  },
+  { kind: "kimi", authMode: "kimi_code_api_key", model: "k3-256k" },
+] as const)(
+  "refuses a saved $kind-first mixed policy before a legacy setup attempt",
+  async (provider) => {
+    const config = parseReviewConfigurationStrict({
+      ...workspacePolicy,
+      providers: [
+        {
+          ...provider,
+          agenticContext: true,
+          fastMode: false,
+          requiredHealthy: true,
+        },
+        workspacePolicy.providers[0]!,
+      ],
+      execution: {
+        providerLimit: 2,
+        providerMaxParallel: 1,
+        inlineMinAgreement: 1,
+      },
+    });
+    const configurations = savedConfigurations();
+    const originalFind = configurations.findLatest;
+    const directConfigurations: ReviewConfigurationRepositoryPort = {
+      ...configurations,
+      findLatest: async (target) => {
+        const result = await originalFind(target);
+        return result ? { ...result, ...withSelections(config) } : null;
+      },
+    };
+    const before = structuredClone(config);
+    const { codexSessionMode, ...input } = gatewayInput;
+    expect(codexSessionMode).toBe("account-gateway");
+    const setupGateway = new CapturingSetupGateway();
+    const provisioning = new CapturingProvisioningRepository();
+    await expect(
+      provisionReviewRouterWorkflow(input, {
+        setupGateway,
+        provisioning,
+        configurations: directConfigurations,
+        trustedGithubRepositoryId: "123456",
+      }),
+    ).rejects.toThrow("provider_api_direct_requires_single_provider");
+    expect(provisioning.attempts).toBe(0);
+    expect(setupGateway.input).toBeNull();
+    expect(config).toEqual(before);
+  },
+);

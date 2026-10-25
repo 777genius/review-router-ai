@@ -746,6 +746,7 @@ function ProviderChoiceStep({
     decision?.allowed === true &&
     !draftIncomplete &&
     !(
+      choice.kind !== "default" &&
       authMode &&
       settings &&
       !source &&

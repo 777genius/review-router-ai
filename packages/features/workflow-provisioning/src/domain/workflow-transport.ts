@@ -4,7 +4,8 @@ import {
 } from "@reviewrouter/shared";
 import { codexRotatingAuthMode } from "@reviewrouter/features-codex-oauth-rotating";
 import {
-  isProviderApiDirectConfiguration,
+  inspectProviderApiDirectConfiguration,
+  type ProviderApiConfigurationUnsupported,
   parseReviewConfigurationStrict,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
@@ -37,9 +38,14 @@ const workflowRequirementPattern =
  * transport is never derived from a workflow path. A transport that owns the
  * whole review (Gateway, provider API) refuses any other provider row.
  */
-export function requiredWorkflowTransport(
+export type WorkflowTransportInspection =
+  | WorkflowTransport
+  | ProviderApiConfigurationUnsupported;
+
+/** Inspect historical policies without rewriting them or choosing a fallback. */
+export function inspectRequiredWorkflowTransport(
   config: ReviewConfiguration,
-): WorkflowTransport {
+): WorkflowTransportInspection {
   if (
     config.providers.some(
       (provider) => provider.authMode === "codex_account_gateway",
@@ -54,7 +60,9 @@ export function requiredWorkflowTransport(
     }
     return "gateway";
   }
-  if (isProviderApiDirectConfiguration(config)) return "provider_api";
+  const direct = inspectProviderApiDirectConfiguration(config);
+  if (direct.status === "unsupported") return direct;
+  if (direct.status === "supported") return "provider_api";
   if (
     config.providers.some(
       (provider) => provider.authMode === codexRotatingAuthMode,
@@ -72,15 +80,35 @@ export function requiredWorkflowTransport(
   return "ci_secrets";
 }
 
+/** Setup operations keep their existing domain-error boundary. */
+export function requiredWorkflowTransport(
+  config: ReviewConfiguration,
+): WorkflowTransport {
+  const transport = inspectRequiredWorkflowTransport(config);
+  if (typeof transport !== "string") throw new Error(transport.reason);
+  return transport;
+}
+
 /** The requirement of the workflow an effective configuration needs. */
+export function inspectRequiredWorkflowRequirement(
+  config: ReviewConfiguration,
+): WorkflowRequirement | ProviderApiConfigurationUnsupported {
+  const transport = inspectRequiredWorkflowTransport(config);
+  return typeof transport === "string"
+    ? workflowRequirement(
+        transport,
+        workflowProviderVariants(transport, config),
+      )
+    : transport;
+}
+
+/** Strict setup/migration compatibility wrapper; reads inspect the result. */
 export function requiredWorkflowRequirement(
   config: ReviewConfiguration,
 ): WorkflowRequirement {
-  const transport = requiredWorkflowTransport(config);
-  return workflowRequirement(
-    transport,
-    workflowProviderVariants(transport, config),
-  );
+  const requirement = inspectRequiredWorkflowRequirement(config);
+  if (typeof requirement !== "string") throw new Error(requirement.reason);
+  return requirement;
 }
 
 /**
