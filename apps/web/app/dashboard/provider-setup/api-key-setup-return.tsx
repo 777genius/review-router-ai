@@ -1,6 +1,7 @@
 "use client";
 
 import { getApiKeyProvider } from "@reviewrouter/features-review-providers";
+import { GatewayAccountLoadMore } from "./gateway-account-load-more";
 import { Button } from "@reviewrouter/ui";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
@@ -78,6 +79,13 @@ export function ApiKeySetupReturn({
           </Button>
         </div>
       )}
+      {!ready ? (
+        <GatewayAccountLoadMore
+          canLoadMore={options.canLoadMore}
+          loading={options.loading}
+          onLoadMore={options.loadMore}
+        />
+      ) : null}
     </section>
   );
 }

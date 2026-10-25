@@ -38,6 +38,7 @@ import {
   type ApiKeyStorage,
 } from "../../../src/features/provider-setup/api-key-storage";
 import { ApiKeyStorageChoice } from "./api-key-storage-choice";
+import { GatewayAccountLoadMore } from "./gateway-account-load-more";
 import {
   credentialStepLabel,
   credentialStepOf,
@@ -1177,6 +1178,13 @@ function ProviderChoiceStep({
                   ? "Connect and activate an account in Accounts first."
                   : "Credentials stay on the ReviewRouter server."
               }
+            />
+          ) : null}
+          {source?.key === "gateway_binding" ? (
+            <GatewayAccountLoadMore
+              canLoadMore={gatewayOptions.canLoadMore}
+              loading={gatewayOptions.loading}
+              onLoadMore={gatewayOptions.loadMore}
             />
           ) : null}
           {needsKeyUpload ? (

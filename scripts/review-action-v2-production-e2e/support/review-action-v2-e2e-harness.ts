@@ -56,7 +56,10 @@ import {
   createPrismaClient,
   type PrismaClient,
 } from "../../../packages/platform/db/src/index.js";
-import { SystemClock } from "../../../packages/shared/src/index.js";
+import {
+  SystemClock,
+  type ProviderApiAuthMode,
+} from "../../../packages/shared/src/index.js";
 import {
   ReviewActionV2OperationId,
   ReviewEvidenceCommitResultStatus,
@@ -154,7 +157,7 @@ export type ReviewActionV2E2EFlow = Readonly<{
 
 export type ReviewActionV2E2EAuthorization = Readonly<{
   result: ReviewRunAuthorizeResult;
-  providerApiAuthMode?: "openrouter-api";
+  providerApiAuthMode?: ProviderApiAuthMode;
   sourceRunAttempt?: string;
   oidcExpiresAt?: string;
   authorizationId: string;
@@ -432,7 +435,7 @@ export class ReviewActionV2E2EHarness {
   async authorize(
     input: {
       readonly sourceRunAttempt?: string;
-      readonly providerApiAuthMode?: "openrouter-api";
+      readonly providerApiAuthMode?: ProviderApiAuthMode;
     } = {},
   ): Promise<ReviewActionV2E2EAuthorization> {
     const runAttempt = input.sourceRunAttempt ?? "1";
@@ -1509,7 +1512,7 @@ export class ReviewActionV2E2EHarness {
   private async signOidcToken(
     runAttempt: string,
     expiresAt: number,
-    providerApiAuthMode?: "openrouter-api",
+    providerApiAuthMode?: ProviderApiAuthMode,
   ): Promise<string> {
     this.oidcOrdinal += 1;
     const keyPair = oidcSigningKeys.get(this.fakeGitHub.options.oidcKeyId);

@@ -62,6 +62,8 @@ export function assertProviderApiDirectConfigurationSupported(
   const mode = providerApiModeForAuthMode(provider?.authMode ?? "");
   const descriptor =
     mode === undefined ? undefined : providerApiDescriptors[mode];
+  if (mode === "mimo-token-plan-api" && provider?.fastMode)
+    throw new Error("provider_api_fast_mode_unsupported");
   if (
     mode === "mimo-token-plan-api" &&
     provider &&

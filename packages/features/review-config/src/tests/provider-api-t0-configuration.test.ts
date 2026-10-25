@@ -202,11 +202,14 @@ it("keeps an old MiMo effort readable but refuses unsupported direct execution w
     "provider_api_reasoning_effort_unsupported",
   );
   expect(policy).toEqual(before);
+  const provider = policy.providers[0];
+  if (provider?.authMode !== "mimo_token_plan_api_key")
+    throw new Error("fixture_mimo_provider_required");
   for (const reasoningEffort of ["low", "medium", "high"] as const) {
     expect(
       assertProviderApiDirectConfigurationSupported({
         ...policy,
-        providers: [{ ...policy.providers[0]!, reasoningEffort }],
+        providers: [{ ...provider, reasoningEffort }],
       }),
     ).toBe("mimo-token-plan-api");
   }

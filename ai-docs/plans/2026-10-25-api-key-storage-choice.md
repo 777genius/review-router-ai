@@ -47,8 +47,8 @@ single-provider `provider_api` path, preserving the approved Codex engine.
    add a persisted storage column, another account cache or a second key vault.
 3. Extend the existing direct provider-API route with a finite descriptor for
    OpenRouter, MiMo and Kimi Code. No arbitrary endpoint or model fallback.
-4. Keep existing managed-key profiles and rotation readable and functional;
-   new ReviewRouter custody always means Gateway.
+4. Preserve existing managed-key identity, ciphertext, key installation, rotation
+   and readable policy/profile bytes; new ReviewRouter custody always means Gateway.
    Stop offering legacy `managed_api_key` creation in the new unified choices;
    compatibility installation and rotation remain available for existing profiles.
 5. Preserve unrelated Codex, Claude, hosted-pool, memory, Skills, publication and
@@ -147,7 +147,13 @@ Reject fast mode and admit only the initial `k3-256k` model.
 
 Apply direct single-provider restrictions at save/setup/admission boundaries;
 old mixed policies remain readable and receive an actionable unsupported-state
-result where execution is requested. Preserve existing managed-profile identity.
+result where execution is requested. Preserve existing managed-profile identity,
+ciphertext, key installation and rotation, and readable policy/profile bytes.
+Current App-first MiMo execution requires an explicit supported effort (`low`,
+`medium` or `high`) and fast mode off. An unsupported legacy `xhigh`/fast selection
+needs an explicit corrected selection and resave before preparing that route.
+Do not silently coerce its saved settings or revive a legacy publication transport
+to keep an unsupported selection running.
 Replay (`matchesAdmission`) derives the direct mode from the original captured
 canonical configuration plus the approved direct agent witness, not the current
 policy or merely an absent Gateway. Capture, replay and checkout must agree.
@@ -192,13 +198,19 @@ Credentials stay in the trusted proxy, never Codex environment/files. Reject
 wrong/mixed secret inputs, wrong caller mode, model/prefix mismatch and redirected
 destinations. Remove unselected provider credentials before child process launch.
 
-Kimi keeps the qualified capability subset: function tools only; omit reasoning
-controls and fast/service-tier settings. The approved Codex 0.147.0 serializes
+Kimi keeps the qualified capability subset: function tools, including functions
+inside Codex's native namespace containers; omit reasoning controls and
+fast/service-tier settings. Tool declarations may be a top-level function or a
+named namespace containing only direct function leaves. Reject nested namespaces,
+custom/freeform tools, web search and other tool kinds in this qualification.
+The approved Codex 0.147.0 serializes
 an empty `reasoning: {}` envelope even when no controls are set. Qualification
 permits an omitted envelope or exactly that empty object, and rejects any
 effort, summary, context, or other reasoning field. Set the finite Kimi model
 metadata to `use_responses_lite: false` so native requests retain standard
-function tools. Do not rewrite native request bodies. Represent omission through the Codex
+function tools. A namespace groups function declarations and is not evidence of
+an unsupported custom tool. Do not flatten namespaces or rewrite native request
+bodies to satisfy a fixture assumption. Represent omission through the Codex
 protocol/configuration path, rather than patching outbound JSON after selection.
 Preserve existing OpenRouter behavior and MiMo's applicable model/effort rules.
 Use honest client identity; do not impersonate another tool.
@@ -209,6 +221,21 @@ Codex `0.147.0` executable and its verified profile digest. The old checked-in
 behavior. Use existing exact-version preparation. Prove actual outgoing fields,
 including native defaults, with finite model metadata where needed. A fake
 Codex executable or omitted app-server field alone is insufficient evidence.
+For both `codex exec` and app-server, the fixture must return a function call
+with the exact declared namespace and bare function name, observe exactly one
+real MCP invocation, receive its output marker in the next native HTTP request,
+and complete with the expected strict final JSON. This proves that native
+serialization, call dispatch and continuation work together; accepting a
+namespace declaration without executing its function does not pass the gate.
+
+The [official Kimi Codex guide](https://www.kimi.com/code/docs/en/third-party-tools/codex.html)
+(checked 2026-10-25) documents native Responses/function calling with Codex and
+preserves desktop MCP configuration. It does not separately specify acceptance
+of every namespace wire shape. This supports testing the unmodified native
+protocol; it is not a live receipt for our pinned client/model. The existing
+Gateway controlled receipt used Codex 0.133.0 and counted function tools without
+establishing this 0.147.0 namespace shape. Neither that receipt nor the new
+controlled upstream fixture proves live Kimi acceptance or paid-account access.
 The credential-free fixture is published in runtime PR #340. Its clean runner
 is needed because this interactive host's newer global hooks cannot be parsed by
 the pinned client. Independent UI and control-plane work can proceed while the
@@ -250,7 +277,9 @@ as a substitute for this task; #706 is already on the implementation base.
 3. Runtime wire: the actual approved, digest-verified Codex executable for each
    direct mode uses the expected fixed origin/path/model and
    only its selected key; rejection/abort releases transport; Kimi omits
-   unsupported options and retains the permitted tools.
+   unsupported options and retains function leaves in the permitted native
+   containers. Its `exec` and app-server cases both prove namespace-aware MCP
+   dispatch, the next-request function output and strict final JSON completion.
 4. Paired E2E: generated caller to captured configuration, actual compiled
    runtime and controlled upstream to App publication fixture/output. Extend
    existing paired fixtures instead of adding a parallel test framework.
