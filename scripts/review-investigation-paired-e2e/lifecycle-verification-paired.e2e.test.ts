@@ -865,7 +865,7 @@ lifecycleCase.each([
             select: { state: true, lastSafeReason: true },
           }),
         ).toEqual({
-          state: "awaiting_publication",
+          state: "pending_publication",
           lastSafeReason: "publication_pending",
         });
         for (const operation of operations)
