@@ -70,6 +70,9 @@ describe("canonical modern review banner", () => {
     ).text();
     expect(unverified).toContain("No new issues found");
     expect(unverified).toContain("1 previous issue not verified");
+    expect(
+      unverified.match(/<title id="title">([^<]*)<\/title>/)?.[1],
+    ).toContain("1 previous issue not verified");
     expect(unverified).not.toMatch(
       /remains open|needs verification|included in open/,
     );
@@ -89,6 +92,9 @@ describe("canonical modern review banner", () => {
       ).text();
       expect(svg).toContain("1 new issue found");
       expect(svg).toContain("4 previous issues not verified");
+      expect(svg.match(/<title id="title">([^<]*)<\/title>/)?.[1]).toContain(
+        "4 previous issues not verified",
+      );
       expect(svg).toContain("1 confirmed open");
       expect(svg).not.toMatch(
         /5 open|5 issues remain open|need verification|included in open/,

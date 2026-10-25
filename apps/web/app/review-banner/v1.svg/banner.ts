@@ -276,7 +276,16 @@ function renderBanner(input: ReviewBannerInput): string {
   const logoEffect = compact
     ? ""
     : `<defs><radialGradient id="logoHalo"><stop stop-color="${accent}" stop-opacity="${themeValue("halo-opacity", ".14", ".09")}"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient><filter id="logoGlow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="13"/></filter><g id="brandLogo">${reviewBannerLogo}</g></defs><g aria-hidden="true"><ellipse cx="1050" cy="134" rx="148" ry="110" fill="url(#logoHalo)"/><g opacity="${themeValue("glow-opacity", ".20", ".13")}" filter="url(#logoGlow)"><use href="#brandLogo" transform="translate(976 63) scale(.287109375)"/></g><use href="#brandLogo" transform="translate(976 63) scale(.287109375)" opacity="${themeValue("logo-opacity", ".30", ".22")}"/></g>`;
-  const svgTitle = [status, headlineFirst, headlineSecond, coverage, ...metrics]
+  const svgTitle = [
+    status,
+    headlineFirst,
+    headlineSecond,
+    coverage,
+    ...(input.variant === "update" && input.update.unverified > 0
+      ? [note]
+      : []),
+    ...metrics,
+  ]
     .filter(Boolean)
     .join(" · ");
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="title"><title id="title">${escapeXml(svgTitle)}</title><defs><linearGradient id="background"><stop stop-color="${tint}"/><stop offset="1" stop-color="${background}"/></linearGradient></defs><rect width="${width}" height="${height}" rx="8" fill="url(#background)"/>${action ? `<path d="M2 8V${height - 8}" stroke="${accent}" stroke-width="4"/>` : ""}${logoEffect}<g font-family="Arial,Helvetica,sans-serif">${text(left, compact ? 38 : 43, status, 22, muted, ' font-weight="600" letter-spacing="2"')}${coverage ? text(compact ? left : width - left, compact ? 73 : 43, coverage, compact ? 22 : 20, muted, compact ? "" : ' text-anchor="end"') : ""}${text(left, compact ? 126 : 112, headlineFirst, compact ? 32 : 40, ink, ' font-weight="600" letter-spacing="-0.6"')}${headlineSecond ? text(left, compact ? 168 : 159, headlineSecond, compact ? 28 : 40, ink, ' font-weight="600" letter-spacing="-0.6"') : ""}${text(left, compact ? 211 : 195, note, 22, muted)}${metrics.length > 0 ? `<path d="M${left} ${compact ? 236 : 216}H${width - left}" stroke="${line}"/>` : ""}${metrics.map((metric, index) => text(left + (compact ? (index % 2) * ((width - left * 2) / 2) : index * 282), compact ? 277 + Math.floor(index / 2) * 48 : 255, metric, Math.min(compact ? 26 : 25, Math.floor((compact ? 200 : 264) / (metric.length * 0.58))), input.variant === "first" ? (metric.endsWith(" critical") ? themeValue("critical", "#ff8f96", "#ad2333") : metric.endsWith(" major") ? themeValue("major", "#e3b341", "#7d4e00") : metric.endsWith(" info") ? muted : themeValue("minor", "#79c0ff", "#0969da")) : metric.endsWith(" resolved") ? (input.update.resolved > 0 ? themeValue("resolved", "#7ee787", "#1a7f37") : muted) : metric.endsWith("not verified") ? themeValue("unverified", "#e3b341", "#7d4e00") : accent, ' font-weight="600"')).join("")}</g></svg>`;
