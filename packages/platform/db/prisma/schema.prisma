@@ -367,6 +367,7 @@ model GitLabInstallation {
 }
 
 model RepositoryConnection {
+  resolutionGuards ReviewThreadResolutionGuardV1[]
   reviewSkillBindings ReviewSkillBinding[]
   reviewSkillSource ReviewSkillRepositorySource?
   id                      String                @id @default(cuid())
@@ -388,6 +389,11 @@ model RepositoryConnection {
   stargazersCount         Int                   @default(0)
   setupStatus             RepositorySetupStatus @default(not_configured)
   inventoryGeneration     BigInt                @default(0)
+  lifecycleResolutionMode String                @default("legacy_open")
+  lifecycleResolutionActivatedAt DateTime?
+  lifecycleResolutionActivationVersion Int      @default(0)
+  lifecycleResolutionWriterDigest String?
+  lifecycleResolutionBootstrapJson Json?
   lastSyncedAt            DateTime?
   createdAt               DateTime              @default(now())
   updatedAt               DateTime              @updatedAt
@@ -1133,6 +1139,7 @@ model ReviewOperationalSloProfileV2 {
 model ProducerRelease {
   contextToolsProfile                     Json?
   prDescriptionProfile                    Json?
+  lifecycleVerificationProfile            Json?
   agentProfilesJson                       String?
   producerReleaseId                      String                     @id
   distributionKind                       ProducerDistributionKindV2
@@ -4773,4 +4780,49 @@ model ReviewStatisticsIssueFact {
   @@index([workspaceId, repositoryConnectionId, caughtAt, id], map: "statistics_issue_repository_time_idx")
   @@index([workspaceId, repositoryConnectionId, severity, caughtAt, id], map: "statistics_issue_repo_severity_time_idx")
   @@index([repositoryConnectionId, workspaceId], map: "statistics_issue_repository_idx")
+}
+
+// One durable claim permits at most one native companion request per slot attempt.
+model ReviewRunCompanionDispatchV1 {
+  authorizationId String
+  dispatchId String
+  role String
+  executionId String
+  workSlotId String
+  attemptOrdinal Int
+  leaseId String
+  fencingToken BigInt
+  preparedManifestKey String
+  providerRequestEnvelopeHash String
+  nativeRequestRef String
+  state String
+  usageHash String?
+  resultHash String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  claimedAt DateTime
+  completedAt DateTime?
+  retainUntil DateTime
+
+  @@id([authorizationId, dispatchId])
+  @@unique([authorizationId, workSlotId, attemptOrdinal])
+  @@index([retainUntil])
+}
+
+// Compact target history deliberately outlives detailed publication receipts.
+model ReviewThreadResolutionGuardV1 {
+  workspaceId String
+  repositoryConnectionId String
+  scmRepositoryIdentityId String
+  pullRequestNumber Int
+  threadId String
+  version Int @default(0)
+  confirmedFactJson Json?
+  pendingFactsJson Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  repositoryConnection RepositoryConnection @relation(fields: [repositoryConnectionId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, repositoryConnectionId, scmRepositoryIdentityId, pullRequestNumber, threadId])
 }
