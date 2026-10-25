@@ -274,9 +274,7 @@ test.each(["unavailable", "transport"] as const)(
       </GatewayModelAccountsProvider>,
     );
     expect(await screen.findByText("Models:first-model")).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", { name: /^Refresh models$/ }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /^Refresh models$/ }));
     await waitFor(() =>
       expect(screen.getByRole("status").textContent).toContain(
         "discovery unknown",
@@ -297,9 +295,7 @@ test.each(["unavailable", "transport"] as const)(
       ["saved-binding", { forceRefresh: true }],
     ]);
     get.mockResolvedValueOnce({ status: "denied" });
-    fireEvent.click(
-      screen.getByRole("button", { name: /^Refresh models$/ }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /^Refresh models$/ }));
     await waitFor(() =>
       expect(
         screen.queryByRole("button", { name: /^Refresh models$/ }),
