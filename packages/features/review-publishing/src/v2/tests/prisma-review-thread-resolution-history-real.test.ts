@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 import {
   createPrismaClient,
   type PrismaClient,
@@ -25,6 +33,9 @@ describeDatabase("resolution history PostgreSQL connection fence", () => {
   let history: PrismaReviewThreadResolutionHistory;
   beforeAll(async () => {
     prisma = createPrismaClient({ databaseUrl: databaseUrl!, poolMax: 8 });
+    history = new PrismaReviewThreadResolutionHistory(prisma);
+  });
+  beforeEach(async () => {
     const id = randomUUID();
     scope = {
       workspaceId: `history-workspace-${id}`,
@@ -61,9 +72,8 @@ describeDatabase("resolution history PostgreSQL connection fence", () => {
         visibility: "private",
       },
     });
-    history = new PrismaReviewThreadResolutionHistory(prisma);
   });
-  afterAll(async () => {
+  afterEach(async () => {
     if (scope) {
       await prisma.reviewThreadResolutionGuardV1.deleteMany({
         where: { repositoryConnectionId: scope.repositoryConnectionId },
@@ -76,6 +86,8 @@ describeDatabase("resolution history PostgreSQL connection fence", () => {
       });
       await prisma.workspace.delete({ where: { id: scope.workspaceId } });
     }
+  });
+  afterAll(async () => {
     await prisma?.$disconnect();
   });
   it("accounts a paused legacy writer before drain and preserves its settlement after qualified cut", async () => {
@@ -105,7 +117,7 @@ describeDatabase("resolution history PostgreSQL connection fence", () => {
     await history.beginDrain(scope);
     await expect(
       history.enterLegacy({ ...entryInput, threadId: "new-during-drain" }),
-    ).rejects.toThrow("guarded_publication_required");
+    ).rejects.toThrow("resolution_writers_draining");
     await expect(
       history.activate(scope, {
         writerDigest: "d".repeat(64),
@@ -118,18 +130,10 @@ describeDatabase("resolution history PostgreSQL connection fence", () => {
     expect(prior.pending).toMatchObject([
       { operationId: accepted.operationId, state: "may_have_started" },
     ]);
-    await history.activate(scope, {
-      writerDigest: "d".repeat(64),
-      qualificationSource: "managed_executor_handler_settlement.v1",
-      executors: [
-        {
-          executorId: "controlled-test-executor",
-          binaryDigest: "e".repeat(64),
-          acceptsNewRequests: false,
-          handlerSettlement: "terminal_or_exact_durable_pending",
-        },
-      ],
-    });
+    await history.activate(scope, managedWriterProof());
+    await expect(
+      history.enterLegacy({ ...entryInput, threadId: "new-after-activation" }),
+    ).rejects.toThrow("guarded_publication_required");
     const pending = (await history.read(scope, [accepted.scope.threadId]))[0]!;
     expect(pending.historyCut).not.toBeNull();
     expect(
@@ -160,6 +164,8 @@ describeDatabase("resolution history PostgreSQL connection fence", () => {
     });
   });
   it("serializes canonical pending facts and keeps exact own progress independent per thread", async () => {
+    await history.beginDrain(scope);
+    await history.activate(scope, managedWriterProof());
     const operation = {
       sourceKind: "canonical_operation" as const,
       operationId: "canonical-A",
@@ -368,3 +374,18 @@ describeDatabase("resolution history PostgreSQL connection fence", () => {
     }
   });
 });
+
+function managedWriterProof() {
+  return {
+    writerDigest: "d".repeat(64),
+    qualificationSource: "managed_executor_handler_settlement.v1" as const,
+    executors: [
+      {
+        executorId: "controlled-test-executor",
+        binaryDigest: "e".repeat(64),
+        acceptsNewRequests: false as const,
+        handlerSettlement: "terminal_or_exact_durable_pending" as const,
+      },
+    ],
+  };
+}

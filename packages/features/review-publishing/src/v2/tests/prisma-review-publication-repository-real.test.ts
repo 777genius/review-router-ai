@@ -32,6 +32,11 @@ import { PrismaReviewPublicationRepository } from "../infrastructure/prisma/pris
 import { reviewPublicationNoEffectProofHash } from "../infrastructure/review-publication-no-effect-proof";
 import { PrismaReviewThreadResolutionHistory } from "../infrastructure/prisma/prisma-review-thread-resolution-history";
 import { controlledRetiredWriterProof } from "./resolution-history-fixtures";
+import {
+  canonicalReviewAssignmentManifestHashPreimage,
+  canonicalReviewAssignmentManifestJson,
+  validateReviewAssignmentManifest,
+} from "../../../../review-executions/src/domain/review-execution";
 
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
@@ -747,30 +752,94 @@ describeWithDatabase("PrismaReviewPublicationRepository real database", () => {
           await history.activate(base.permit, controlledRetiredWriterProof());
           const cut = (await history.read(base.permit, [threadId]))[0]!
             .historyCut!.activatedAt;
-          // The reader consumes original captured witness fields, never a fresh or inferred timestamp.
+          const slotId = "guard-verifier-slot";
+          // Same complete v2 shape as review-executions' lifecycleAssignmentFixture, validated before persistence.
+          const manifest = validateReviewAssignmentManifest(
+            {
+              manifestVersion: 2,
+              assignments: [{ workSlotId: slotId, paths: [] }],
+              eligiblePaths: [],
+              uncoveredPaths: [],
+              excludedPaths: [],
+              lifecyclePlan: {
+                version: 1,
+                capabilityHash: digest("guard-capability"),
+                descriptorDigest: `sha256:${digest("guard-descriptor")}`,
+                policyDigest: digest("guard-policy"),
+                inventoryHash: digest("guard-inventory"),
+                inventoryCount: 2,
+                dispositionCounts: {
+                  eligible: 2,
+                  manual: 0,
+                  unsupported: 0,
+                  capped: 0,
+                  unavailable: 0,
+                  resolved: 0,
+                },
+                participantRoster: [
+                  { providerVoteIdentityHash: digest("guard-vote") },
+                ],
+                targets: [
+                  {
+                    targetId,
+                    threadId,
+                    parentCreatedAt: new Date(
+                      Date.parse(cut) + 1,
+                    ).toISOString(),
+                  },
+                  {
+                    targetId: targetB,
+                    threadId: threadB,
+                    parentCreatedAt: "2020-01-01T00:00:00.000Z",
+                  },
+                ].map((target) => ({
+                  ...target,
+                  fingerprint: `rrl_${"f".repeat(32)}`,
+                  parentId: `parent-${target.targetId}`,
+                  parentUpdatedAt: target.parentCreatedAt,
+                  parentBodyHash: digest(`parent-${target.targetId}`),
+                  claimHash: digest(`claim-${target.targetId}`),
+                  commentStateHash: digest(`comments-${target.targetId}`),
+                  ledgerWatermark: "7",
+                  originalPath: "src/outside-diff.ts",
+                  currentPath: "src/outside-diff.ts",
+                  originalLine: 1,
+                  currentLine: 1,
+                  severity: "major",
+                  resolutionHistory: {
+                    historyCut: cut,
+                    guardVersion: "0",
+                    state:
+                      target.targetId === targetId
+                        ? "no_prior_since_creation"
+                        : "before_cut_unobserved",
+                  },
+                })),
+                assignments: [
+                  {
+                    workSlotId: slotId,
+                    packetHash: digest("guard-packet"),
+                    targetIds: [targetId, targetB],
+                    lifecycleTargetSetHash: digest("guard-targets"),
+                    liveLifecycleStateHash: digest("guard-live-state"),
+                  },
+                ],
+              },
+            },
+            [slotId],
+          );
+          const canonicalManifest =
+            canonicalReviewAssignmentManifestJson(manifest);
           await prisma.reviewExecutionV2.update({
             where: { executionId: isolatedFixture.executionId },
             data: {
-              assignmentManifestVersion: 2,
-              assignmentManifestJson: {
-                manifestVersion: 2,
-                lifecyclePlan: {
-                  targets: [
-                    {
-                      targetId,
-                      threadId,
-                      parentCreatedAt: new Date(
-                        Date.parse(cut) + 1,
-                      ).toISOString(),
-                    },
-                    {
-                      targetId: targetB,
-                      threadId: threadB,
-                      parentCreatedAt: "2020-01-01T00:00:00.000Z",
-                    },
-                  ],
-                },
-              },
+              assignmentManifestVersion: manifest.manifestVersion,
+              assignmentManifestHash: digest(
+                canonicalReviewAssignmentManifestHashPreimage(
+                  canonicalManifest,
+                ),
+              ),
+              assignmentManifestJson: JSON.parse(canonicalManifest),
             },
           });
         }
