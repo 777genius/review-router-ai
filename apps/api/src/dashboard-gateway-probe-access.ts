@@ -26,7 +26,10 @@ import {
   PrismaRateLimitStore,
   RateLimitExceededError,
 } from "@reviewrouter/features-rate-limits";
-import { readReviewRunGatewayRelayPolicy } from "./review-run-gateway-relay.js";
+import {
+  gatewayProfileAcceptsRequestedModel,
+  readReviewRunGatewayRelayPolicy,
+} from "./review-run-gateway-relay.js";
 
 /** The web's management-only credential cannot issue inference. The API mints
  * one short, fixed-budget capability after its own live binding authorization.
@@ -102,7 +105,7 @@ export function createDashboardGatewayProbeAccess(input: {
           !row ||
           !profile ||
           profile.protocol !== "openai-responses" ||
-          !profile.modelIds.includes(request.model)
+          !gatewayProfileAcceptsRequestedModel(profile, request.model)
         )
           throw new Error("denied");
         const account = c.account.parse(

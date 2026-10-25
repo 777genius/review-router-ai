@@ -10,6 +10,9 @@ export const SKILLS_FIXTURE_BOUNDARY =
 export const PROBE_FIXTURE_BOUNDARY =
   "Real browser and controlled Gateway HTTP inference transport; no live model provider or native lifecycle proof" as const;
 
+export const ACCOUNT_MODELS_FIXTURE_BOUNDARY =
+  "Real browser/session/PostgreSQL persistence and binding-scoped model selection over authenticated SDK HTTP fixtures; no live provider or native admission proof" as const;
+
 export const SUBSCRIPTION_FIXTURE_BOUNDARY =
   "Real browser and RR SSR/session/canonical actions/installed SDK over controlled Gateway capabilities/enrollment/limits; no live native/provider proof" as const;
 
@@ -136,6 +139,7 @@ export type RuntimeDescriptor = {
     | typeof SUBSCRIPTION_FIXTURE_BOUNDARY
     | typeof LIMITS_FIXTURE_BOUNDARY
     | typeof PROBE_FIXTURE_BOUNDARY
+    | typeof ACCOUNT_MODELS_FIXTURE_BOUNDARY
     | "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof"
     | "not-used";
 };
