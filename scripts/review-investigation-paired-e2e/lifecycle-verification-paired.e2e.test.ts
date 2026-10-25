@@ -233,9 +233,9 @@ lifecycleCase.each([
                   "review_execution_attempt_budget_out_of_bounds",
                   "review_execution_duplicate_work_slot_id",
                   "review_execution_duplicate_work_slot_semantics",
-                  "review_execution_task_kind_invalid",
-                  "review_execution_shard_key_invalid",
-                  "review_execution_retry_policy_version_invalid",
+                  "review_execution_invalid_task_kind",
+                  "review_execution_invalid_shard_key",
+                  "review_execution_invalid_retry_policy_version",
                 ]).has(error.message)
                   ? error.message
                   : undefined;
