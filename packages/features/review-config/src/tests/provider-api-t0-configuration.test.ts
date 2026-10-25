@@ -181,3 +181,33 @@ it.each([
     ).toThrow();
   },
 );
+
+it("keeps an old MiMo effort readable but refuses unsupported direct execution without coercion", () => {
+  const policy = parseReviewConfigurationStrict({
+    ...configuration,
+    providers: [
+      {
+        kind: "codex-mimo",
+        authMode: "mimo_token_plan_api_key",
+        model: "mimo-v2.6-pro",
+        reasoningEffort: "xhigh",
+        fastMode: false,
+        agenticContext: true,
+        requiredHealthy: true,
+      },
+    ],
+  });
+  const before = structuredClone(policy);
+  expect(() => assertProviderApiDirectConfigurationSupported(policy)).toThrow(
+    "provider_api_reasoning_effort_unsupported",
+  );
+  expect(policy).toEqual(before);
+  for (const reasoningEffort of ["low", "medium", "high"] as const) {
+    expect(
+      assertProviderApiDirectConfigurationSupported({
+        ...policy,
+        providers: [{ ...policy.providers[0]!, reasoningEffort }],
+      }),
+    ).toBe("mimo-token-plan-api");
+  }
+});

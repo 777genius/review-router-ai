@@ -38,7 +38,10 @@ const reasoningEfforts = [
 
 /** Only Codex-based providers expose reasoning, fast and file-reading controls. */
 export function providerHasReviewTuning(authMode: ProviderAuthMode): boolean {
-  return providerKindForAuthMode(authMode) === "codex";
+  return (
+    providerKindForAuthMode(authMode) === "codex" ||
+    authMode === "mimo_token_plan_api_key"
+  );
 }
 
 function reasoningSupported(
@@ -47,6 +50,8 @@ function reasoningSupported(
   effort: ReviewReasoningEffort | undefined,
   connection: AccountConnectionView | undefined,
 ): boolean {
+  if (authMode === "mimo_token_plan_api_key")
+    return effort === "low" || effort === "medium" || effort === "high";
   return authMode === "codex_account_gateway"
     ? gatewayModelSupportsReasoningEffort(model, effort, connection)
     : effort !== undefined &&
@@ -59,6 +64,7 @@ function fastSupported(
   model: string,
   connection: AccountConnectionView | undefined,
 ): boolean {
+  if (authMode === "mimo_token_plan_api_key") return false;
   return authMode === "codex_account_gateway"
     ? gatewayModelSupportsFastMode(model, connection)
     : codexModelSupportsFastMode(model);
@@ -88,7 +94,9 @@ export function fitProviderSelectionSettings(input: {
     ? settings.reasoningEffort
     : gateway
       ? gatewayModelDefaultReasoningEffort(model, connection)
-      : "xhigh";
+      : authMode === "mimo_token_plan_api_key"
+        ? "high"
+        : "xhigh";
   return {
     ...(effort === undefined ? {} : { reasoningEffort: effort }),
     agenticContext: settings.agenticContext,

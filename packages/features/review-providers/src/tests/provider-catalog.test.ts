@@ -151,7 +151,7 @@ describe("provider catalog", () => {
       kind: "codex-mimo",
       authMode: "mimo_token_plan_api_key",
       model: "mimo-v2.6-pro",
-      reasoningEffort: "xhigh",
+      reasoningEffort: "high",
       agenticContext: true,
       fastMode: false,
     });

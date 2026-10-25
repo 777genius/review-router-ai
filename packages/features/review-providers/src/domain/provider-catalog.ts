@@ -342,7 +342,9 @@ export function getDefaultProviderConfigForAuthMode<T extends ProviderAuthMode>(
   readonly model: string;
   readonly reasoningEffort: T extends "kimi_code_api_key"
     ? undefined
-    : typeof defaultProviderReasoningEffort;
+    : T extends "mimo_token_plan_api_key"
+      ? "high"
+      : typeof defaultProviderReasoningEffort;
   readonly agenticContext: boolean;
   readonly fastMode: boolean;
 } {
@@ -353,9 +355,13 @@ export function getDefaultProviderConfigForAuthMode<T extends ProviderAuthMode>(
     model: getProviderCatalogEntry(kind).defaultModel,
     reasoningEffort: (authMode === "kimi_code_api_key"
       ? undefined
-      : defaultProviderReasoningEffort) as T extends "kimi_code_api_key"
+      : authMode === "mimo_token_plan_api_key"
+        ? "high"
+        : defaultProviderReasoningEffort) as T extends "kimi_code_api_key"
       ? undefined
-      : typeof defaultProviderReasoningEffort,
+      : T extends "mimo_token_plan_api_key"
+        ? "high"
+        : typeof defaultProviderReasoningEffort,
     agenticContext: true,
     fastMode: false,
   };

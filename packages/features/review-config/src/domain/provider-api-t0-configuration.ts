@@ -63,6 +63,12 @@ export function assertProviderApiDirectConfigurationSupported(
   const descriptor =
     mode === undefined ? undefined : providerApiDescriptors[mode];
   if (
+    mode === "mimo-token-plan-api" &&
+    provider &&
+    !["low", "medium", "high"].includes(provider.reasoningEffort ?? "")
+  )
+    throw new Error("provider_api_reasoning_effort_unsupported");
+  if (
     !provider ||
     !mode ||
     !descriptor ||

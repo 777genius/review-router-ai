@@ -274,6 +274,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         : {}),
     };
     const modelTransport = input.modelTransport;
+    const providerApiAuthMode = input.providerApiAuthMode;
     const deadline = new Date(input.deadline).toISOString();
     const producer = {
       producerReleaseId: input.producerRelease.producerReleaseId,
@@ -316,17 +317,17 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     // legacy reusable path or repository key presence is not that proof.
     if (
       modelTransport === "provider_api" &&
-      input.providerApiAuthMode === undefined &&
+      providerApiAuthMode === undefined &&
       providerApiModeForAuthMode(configuration.providers[0]?.authMode ?? "") !==
         undefined
     )
       return null;
-    if (input.providerApiAuthMode !== undefined) {
+    if (providerApiAuthMode !== undefined) {
       if (modelTransport !== "provider_api") return null;
       try {
         if (
           assertProviderApiDirectConfigurationSupported(configuration) !==
-          input.providerApiAuthMode
+          providerApiAuthMode
         )
           return null;
       } catch {
@@ -369,7 +370,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
             )
           : modelTransport === "provider_api"
             ? selectProviderApiReviewAgentProfile(agentProfiles, {
-                reviewSkillsDelivery: input.providerApiAuthMode !== undefined,
+                reviewSkillsDelivery: providerApiAuthMode !== undefined,
               })
             : selected?.provider.agenticContext === false
               ? selectSuppliedDiffReviewAgentProfile(agentProfiles)
@@ -383,6 +384,8 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         ? { captureDenied: "agent_profile_unavailable" }
         : null;
     }
+    if (providerApiAuthMode !== undefined && agent.reviewSkillsVersion !== 1)
+      return { captureDenied: "agent_profile_unavailable" };
     // The first OCR profile requires agenticContext=true (native context
     // tools); explicit OCR with agenticContext=false is an actionable
     // configuration error before any inference.
@@ -744,7 +747,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     let providerApiAuthMode: ProviderApiAuthMode | undefined;
     // The fence replays the original delivery capability, never a fresh caller
     // flag or configuration-only guess. A non-Gateway Skills profile was
-    // admitted only through the verified direct OpenRouter route.
+    // admitted only through the verified direct provider-API route.
     if (!original.gateway && original.agent.reviewSkillsVersion === 1) {
       try {
         providerApiAuthMode = assertProviderApiDirectConfigurationSupported(

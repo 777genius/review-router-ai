@@ -820,23 +820,14 @@ function ciSecretDetails(
       link: null,
     };
   }
-  return authMode === "claude_code_oauth"
-    ? {
-        title: "Add your Claude Code token",
-        body: `Reviews use your Claude Code subscription. Store its token as a GitHub Actions secret of ${repositoryFullName}.`,
-        prompt:
-          "Run claude setup-token first, then paste only the printed token when the command asks for it.",
-        footnote: "Do not paste an ANTHROPIC_API_KEY or Claude config files.",
-        link: null,
-      }
-    : {
-        title: "Add your MiMo Token Plan key",
-        body: `Reviews use your MiMo Token Plan. Store its API key as a GitHub Actions secret of ${repositoryFullName}.`,
-        prompt: "Paste the key when the command asks for it.",
-        footnote:
-          "Reviews use codex-mimo with mimo-v2.6-pro and never switch to another provider.",
-        link: null,
-      };
+  return {
+    title: "Add your Claude Code token",
+    body: `Reviews use your Claude Code subscription. Store its token as a GitHub Actions secret of ${repositoryFullName}.`,
+    prompt:
+      "Run claude setup-token first, then paste only the printed token when the command asks for it.",
+    footnote: "Do not paste an ANTHROPIC_API_KEY or Claude config files.",
+    link: null,
+  };
 }
 
 /** The plain name of a key ReviewRouter saves for a managed provider. */

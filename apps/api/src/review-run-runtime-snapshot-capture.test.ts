@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   providerApiAuthModes,
   providerApiDescriptors,
@@ -57,6 +58,11 @@ const codexDefaultProfile = {
   modelTransports: ["account_gateway", "provider_api"],
   contextGateway: true as const,
   cancellation: true as const,
+};
+
+const directCodexProfile = {
+  ...codexDefaultProfile,
+  reviewSkillsVersion: 1 as const,
 };
 
 const providerApiOnlyProfile = {
@@ -290,7 +296,11 @@ describe("PR description capture availability", () => {
             : {}),
           producerRelease: {
             ...captureInput().producerRelease,
-            agentProfiles: parseReviewAgentProfiles([codexDefaultProfile]),
+            agentProfiles: parseReviewAgentProfiles([
+              authMode === "openrouter_api_key"
+                ? directCodexProfile
+                : codexDefaultProfile,
+            ]),
             ...(approved ? { prDescriptionProfile } : {}),
           },
         },
@@ -549,7 +559,7 @@ describe("direct OpenRouter admission", () => {
       producerRelease: {
         ...captureInput().producerRelease,
         agentProfiles: parseReviewAgentProfiles([
-          codexDefaultProfile,
+          directCodexProfile,
           ocrProfile,
         ]),
       },
@@ -680,7 +690,7 @@ describe("lifecycle verification capture", () => {
         providerApiAuthMode: "openrouter-api",
         producerRelease: {
           ...captureInput().producerRelease,
-          agentProfiles: parseReviewAgentProfiles([codexDefaultProfile]),
+          agentProfiles: parseReviewAgentProfiles([directCodexProfile]),
           lifecycleVerificationProfile: profile,
         },
       },
@@ -874,7 +884,7 @@ it.each(
       providerApiAuthMode: caller,
       producerRelease: {
         ...captureInput().producerRelease,
-        agentProfiles: parseReviewAgentProfiles([codexDefaultProfile]),
+        agentProfiles: parseReviewAgentProfiles([directCodexProfile]),
       },
     };
     const result = await snapshotSource().capture(
@@ -923,5 +933,129 @@ it.each(providerApiAuthModes)(
         readerFor(canonicalJson(parseReviewConfigurationStrict(base))),
       ),
     ).toBeNull();
+  },
+);
+
+it.each(providerApiAuthModes)(
+  "new direct %s capture requires a replayable approved agent witness",
+  async (mode) => {
+    const base = JSON.parse(gatewayPolicyJson({}));
+    const d = providerApiDescriptors[mode];
+    base.providers = [
+      {
+        kind: d.providerKind,
+        authMode: d.authMode,
+        model: d.defaultModel,
+        ...(mode === "kimi-code-api" ? {} : { reasoningEffort: "high" }),
+        fastMode: false,
+        agenticContext: true,
+        requiredHealthy: true,
+      },
+    ];
+    const result = await snapshotSource().capture(
+      {
+        ...captureInput(),
+        modelTransport: "provider_api",
+        providerApiAuthMode: mode,
+        producerRelease: {
+          ...captureInput().producerRelease,
+          agentProfiles: parseReviewAgentProfiles([codexDefaultProfile]),
+        },
+      },
+      readerFor(canonicalJson(parseReviewConfigurationStrict(base))),
+    );
+    expect(result).toEqual({ captureDenied: "agent_profile_unavailable" });
+  },
+);
+
+it.each(providerApiAuthModes)(
+  "admission replay preserves original %s proof and rejects a changed current provider",
+  async (mode) => {
+    const configuration = (selected: (typeof providerApiAuthModes)[number]) => {
+      const base = JSON.parse(gatewayPolicyJson({}));
+      const d = providerApiDescriptors[selected];
+      base.providers = [
+        {
+          kind: d.providerKind,
+          authMode: d.authMode,
+          model: d.defaultModel,
+          ...(selected === "kimi-code-api" ? {} : { reasoningEffort: "high" }),
+          fastMode: false,
+          agenticContext: true,
+          requiredHealthy: true,
+        },
+      ];
+      return canonicalJson(parseReviewConfigurationStrict(base));
+    };
+    const producerRelease = {
+      ...captureInput().producerRelease,
+      agentProfiles: parseReviewAgentProfiles([directCodexProfile]),
+    };
+    const source = snapshotSource();
+    const original = await source.capture(
+      {
+        ...captureInput(),
+        modelTransport: "provider_api",
+        providerApiAuthMode: mode,
+        producerRelease,
+      },
+      readerFor(configuration(mode)),
+    );
+    expect(original).toMatchObject({ agent: { reviewSkillsVersion: 1 } });
+    const candidate = {
+      ...identity,
+      producerReleaseId: producerRelease.producerReleaseId,
+      maxExpiresAt: captureInput().deadline,
+      runtimeSnapshotCanonicalJson: canonicalJson(original),
+    } as unknown as Parameters<
+      ProductionReviewRunRuntimeSnapshot["matchesAdmission"]
+    >[1];
+    const transaction = (policy: string) =>
+      ({
+        ...readerFor(policy),
+        producerRelease: {
+          findUnique: async () => ({
+            ...producerRelease,
+            agentProfilesJson: JSON.stringify(producerRelease.agentProfiles),
+            contextToolsProfile: null,
+            prDescriptionProfile: null,
+            lifecycleVerificationProfile: null,
+          }),
+        },
+        $queryRaw: async () => [{ id: workspaceId }],
+      }) as unknown as Parameters<
+        ProductionReviewRunRuntimeSnapshot["matchesAdmission"]
+      >[0];
+    expect(
+      await source.matchesAdmission(
+        transaction(configuration(mode)),
+        candidate,
+      ),
+    ).toBe(true);
+    const different = providerApiAuthModes.find((value) => value !== mode)!;
+    expect(
+      await source.matchesAdmission(
+        transaction(configuration(different)),
+        candidate,
+      ),
+    ).toBe(false);
+    // Legacy non-witness bytes remain parseable; they do not acquire new direct proof.
+    if (!original || "captureDenied" in original)
+      throw new Error("fixture_capture_missing");
+    const legacyAgent = { ...original.agent };
+    delete legacyAgent.reviewSkillsVersion;
+    const legacy = {
+      ...original,
+      agent: legacyAgent,
+      agentProfileDigest: createHash("sha256")
+        .update(canonicalJson(legacyAgent))
+        .digest("hex"),
+    };
+    expect(
+      await source.matchesAdmission(transaction(configuration(mode)), {
+        ...candidate,
+        runtimeSnapshotCanonicalJson: canonicalJson(legacy),
+      }),
+    ).toBe(false);
   },
 );
