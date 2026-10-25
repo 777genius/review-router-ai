@@ -128,6 +128,18 @@ export function defaultProviderSelectionSettings(input: {
   });
 }
 
+/** Existing MiMo selections require an explicit correction, not save-time coercion. */
+export function providerSelectionSettingsNeedCorrection(
+  input: Parameters<typeof fitProviderSelectionSettings>[0],
+): boolean {
+  if (input.authMode !== "mimo_token_plan_api_key") return false;
+  const fitted = fitProviderSelectionSettings(input);
+  return (
+    fitted.reasoningEffort !== input.settings.reasoningEffort ||
+    fitted.fastMode !== input.settings.fastMode
+  );
+}
+
 export type ProviderModelFieldsProps = Readonly<{
   authMode: ProviderAuthMode;
   model: string;
@@ -172,7 +184,22 @@ export function ProviderModelFields({
       !connection ||
       connection.modelSettings.find((row) => row.modelId === model)
         ?.reasoning != null);
-  const showFast = tuning && fastSupported(authMode, model, connection);
+  const showFast =
+    tuning &&
+    (fastSupported(authMode, model, connection) ||
+      (authMode === "mimo_token_plan_api_key" && settings.fastMode));
+  const needsCorrection = providerSelectionSettingsNeedCorrection({
+    authMode,
+    model,
+    settings,
+    connection,
+  });
+  const savedDepthUnsupported =
+    authMode === "mimo_token_plan_api_key" &&
+    settings.reasoningEffort !== undefined &&
+    !reasoningOptions.some(
+      (option) => option.value === settings.reasoningEffort,
+    );
   const savedProfileUnavailable =
     settings.agentProfileRef !== undefined &&
     !agentProfileOptions.some(
@@ -197,7 +224,18 @@ export function ProviderModelFields({
           value={settings.reasoningEffort ?? ""}
           placeholder="Choose a depth"
           disabled={disabled || reasoningOptions.length === 0}
-          options={reasoningOptions}
+          options={[
+            ...(savedDepthUnsupported
+              ? [
+                  {
+                    value: settings.reasoningEffort!,
+                    label: `${settings.reasoningEffort} (saved, unsupported)`,
+                    disabled: true,
+                  },
+                ]
+              : []),
+            ...reasoningOptions,
+          ]}
           onValueChange={(value) =>
             update({ reasoningEffort: value as ReviewReasoningEffort })
           }
@@ -252,7 +290,11 @@ export function ProviderModelFields({
               disabled={disabled}
               onChange={(fastMode) => update({ fastMode })}
               label="Fast mode"
-              hint="Shorter, quicker review passes."
+              hint={
+                authMode === "mimo_token_plan_api_key"
+                  ? "Turn off fast mode to save these settings."
+                  : "Shorter, quicker review passes."
+              }
             />
           ) : null}
           <CheckboxRow
@@ -263,6 +305,12 @@ export function ProviderModelFields({
             hint="The reviewer may open other files of the repository, read-only, instead of looking only at the change."
           />
         </div>
+      ) : null}
+      {needsCorrection ? (
+        <p role="status" className="text-sm text-amber-100 sm:col-span-2">
+          The saved review depth or fast mode is not supported. Choose a listed
+          depth and turn off fast mode before saving.
+        </p>
       ) : null}
     </div>
   );

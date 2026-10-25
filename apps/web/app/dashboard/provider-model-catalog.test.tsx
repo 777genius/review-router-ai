@@ -11,6 +11,7 @@ import type {
   ProviderModelCatalogSnapshot,
   PublicCatalogProvider,
 } from "@reviewrouter/features-review-providers";
+import { listStaticReviewModelOptions } from "@reviewrouter/features-review-providers";
 import {
   catalogStaleTime,
   ProviderModelCatalogProvider,
@@ -60,6 +61,36 @@ function Consumer({ kind }: { kind: PublicCatalogProvider }) {
 }
 afterEach(cleanup);
 describe("public model catalog query", () => {
+  it("retains static MiMo and Kimi choices beside refreshed public catalogs", () => {
+    function StaticConsumer() {
+      const catalogs = useProviderModelCatalogs(listStaticReviewModelOptions());
+      return (
+        <div data-testid="static-options">
+          {[
+            ...catalogs.optionsFor("codex-mimo", true),
+            ...catalogs.optionsFor("kimi", true),
+          ]
+            .map((option) => option.value)
+            .join(",")}
+        </div>
+      );
+    }
+    render(
+      <ProviderModelCatalogProvider
+        snapshots={[
+          snapshot("codex"),
+          snapshot("claude"),
+          snapshot("openrouter"),
+        ]}
+        api={vi.fn()}
+      >
+        <StaticConsumer />
+      </ProviderModelCatalogProvider>,
+    );
+    expect(screen.getByTestId("static-options").textContent).toBe(
+      "mimo-v2.6-pro,k3-256k",
+    );
+  });
   it("does not renew source TTL when a cooldown response reaches the client", () => {
     const fetchedAt = Date.now() - 29 * 60_000;
     expect(

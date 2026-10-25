@@ -2340,7 +2340,7 @@ function AccountForm({
         <SelectField
           name="profileId"
           label="Provider profile"
-          defaultValue={profiles[0]?.id ?? ""}
+          value={selectedId}
           onValueChange={(value) => {
             const profile = profiles.find((p) => p.id === value);
             const credential =

@@ -77,6 +77,7 @@ import {
 import {
   defaultProviderSelectionSettings,
   fitProviderSelectionSettings,
+  providerSelectionSettingsNeedCorrection,
   ProviderModelFields,
   ProviderModelPicker,
 } from "./provider-model-fields";
@@ -744,6 +745,17 @@ function ProviderChoiceStep({
     (!adding || choice.kind === "new") &&
     decision?.allowed === true &&
     !draftIncomplete &&
+    !(
+      authMode &&
+      settings &&
+      !source &&
+      providerSelectionSettingsNeedCorrection({
+        authMode,
+        model,
+        settings,
+        connection: gatewayProfile?.connection,
+      })
+    ) &&
     (settings !== null || choice.kind === "default") &&
     !(
       target.kind === "workspace" &&

@@ -139,6 +139,75 @@ test.each(apiKeyProviders)(
   },
 );
 
+test("non-inline account enrollment preserves a second-profile intent in its visible choice and submission", async () => {
+  const profiles = [
+    {
+      id: "profile-openrouter",
+      label: "OpenRouter",
+      authKind: "api_key" as const,
+      provider: "openrouter" as const,
+      protocol: "openai-responses" as const,
+      models: ["openai/model"],
+    },
+    {
+      id: "profile-mimo",
+      label: "MiMo",
+      authKind: "api_key" as const,
+      provider: "codex-mimo" as const,
+      protocol: "openai-responses" as const,
+      models: ["mimo-v2.6-pro"],
+      dedicatedBaseURL: "https://token-plan-sgp.xiaomimimo.com/v1",
+    },
+  ];
+  render(
+    <AccountGatewayControls
+      bootstrap={{
+        context,
+        page: {
+          status: "ok",
+          value: { profiles, accounts: [], nextCursor: null },
+        },
+      }}
+      workspaceId="workspace-selected"
+      setupIntent={{
+        provider: "mimo",
+        storage: "reviewrouter",
+        workspaceId: "workspace-selected",
+        repositoryIds: [],
+      }}
+    />,
+  );
+  fireEvent.keyDown(
+    await screen.findByRole("button", { name: "Add account" }),
+    { key: "ArrowDown" },
+  );
+  fireEvent.click(
+    await screen.findByRole("menuitem", { name: "Connect with API key" }),
+  );
+  const dialog = await screen.findByRole("dialog");
+  expect(
+    within(dialog).getByRole("combobox", { name: "Provider profile" })
+      .textContent,
+  ).toContain("MiMo");
+  fireEvent.change(within(dialog).getByLabelText("API key"), {
+    target: { value: "synthetic-intended-mimo-key" },
+  });
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Connect account" }),
+  );
+  await waitFor(() =>
+    expect(submitGatewayApiKey).toHaveBeenCalledWith(
+      context,
+      expect.objectContaining({
+        kind: "connect",
+        profileId: "profile-mimo",
+        baseURL: "https://token-plan-sgp.xiaomimimo.com/v1",
+      }),
+      "synthetic-intended-mimo-key",
+    ),
+  );
+});
+
 function safeOperation(
   nonce: string,
   state: AccountOperationView["state"] = "pending",

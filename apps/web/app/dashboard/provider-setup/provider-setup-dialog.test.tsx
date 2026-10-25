@@ -159,6 +159,84 @@ async function choose(text: string | RegExp): Promise<void> {
 }
 
 describe("ProviderSetupDialog", () => {
+  it("requires an explicit correction of saved unsupported MiMo settings before unrelated edits can save", async () => {
+    const legacy = {
+      profileId: "mimo-existing",
+      reasoningEffort: "xhigh" as const,
+      fastMode: true,
+      agenticContext: true,
+      requiredHealthy: true,
+    };
+    view = {
+      ...view,
+      defaultSelection: null,
+      profiles: [
+        {
+          id: "mimo-existing",
+          label: "Saved MiMo",
+          model: "mimo-v2.6-pro",
+          authMode: "mimo_token_plan_api_key",
+          credentialKind: "user_ci_secret",
+          gatewayBindingId: null,
+          isDefault: false,
+          decision: { allowed: true },
+          refusedRepositoryCount: 0,
+        },
+      ],
+      repositories: [
+        { ...view.repositories[0]!, source: "repository", selection: legacy },
+      ],
+    };
+    renderDialog(repositoryTarget);
+    await screen.findByText("Saved MiMo");
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /^Read related files/ }),
+    );
+    const save = screen.getByRole("button", {
+      name: "Use for this repository",
+    });
+    expect(save).toHaveProperty("disabled", true);
+    fireEvent.click(save);
+    expect(saveProviderSetupAction).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(/The saved review depth or fast mode is not supported/),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("combobox", { name: /^Review depth/ }));
+    const high = await screen.findByRole("option", { name: /^High/ });
+    fireEvent.mouseMove(high);
+    fireEvent.click(high);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: /^Review depth/ }).textContent,
+      ).toContain("High"),
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: /^Fast mode/ }));
+    await waitFor(() => expect(save).toHaveProperty("disabled", false));
+    vi.mocked(saveProviderSetupAction).mockResolvedValueOnce({
+      status: "saved",
+      results: [
+        { repositoryId: "repo_1", fullName: "acme/widget", status: "applied" },
+      ],
+    });
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(saveProviderSetupAction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: { kind: "profile", profileId: "mimo-existing" },
+          settings: {
+            reasoningEffort: "high",
+            fastMode: false,
+            agenticContext: false,
+          },
+        }),
+      ),
+    );
+    expect(legacy).toMatchObject({
+      reasoningEffort: "xhigh",
+      fastMode: true,
+      agenticContext: true,
+    });
+  });
   it.each(apiKeyProviders)(
     "offers exactly two storage choices for $label and preserves the repository on account continuation",
     async (provider) => {
