@@ -7,6 +7,11 @@ import {
 } from "@reviewrouter/features-review-config";
 import { isCodexRotatingOAuthAllowedForRepository } from "@reviewrouter/platform-config";
 import { assertDashboardContextSelectionAllowed } from "./context-tools";
+import type {
+  AccountProfileView,
+  AccountsResult,
+  AccountView,
+} from "./account-gateway-accounts";
 import { loadApprovedGatewayAgentProfiles } from "./gateway-agent-profile-options";
 import {
   assertGatewayReviewAgentProfileContextAllowed,
@@ -265,31 +270,30 @@ async function loadGatewayReviewProfiles(
 ) {
   const { productionGatewayModelAccounts } =
     await import("./gateway-model-account-composition");
+  let result: AccountsResult<{
+    account: AccountView;
+    profile: AccountProfileView;
+  }>;
   try {
     const { reader } = await productionGatewayModelAccounts(workspaceId);
-    const result = await reader.get(selection.gatewayBindingId);
-    if (result.status !== "ok")
-      throw new Error("gateway_review_catalog_unavailable");
-    const { account, profile } = result.value;
-    if (
-      account.state !== "active" ||
-      (selection.gatewayProfileRef !== undefined &&
-        account.profileId !== selection.gatewayProfileRef) ||
-      account.binding?.id !== selection.gatewayBindingId
-    )
-      throw new Error("gateway_review_model_unsupported");
-    if (
-      account.modelCatalog &&
-      !["snapshot", "unavailable"].includes(account.modelCatalog.status)
-    )
-      throw new Error("gateway_review_catalog_unavailable");
-    return [profile];
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message === "gateway_review_model_unsupported"
-    )
-      throw error;
+    result = await reader.get(selection.gatewayBindingId);
+  } catch {
     throw new Error("gateway_review_catalog_unavailable");
   }
+  if (result.status !== "ok")
+    throw new Error("gateway_review_catalog_unavailable");
+  const { account, profile } = result.value;
+  if (
+    account.state !== "active" ||
+    (selection.gatewayProfileRef !== undefined &&
+      account.profileId !== selection.gatewayProfileRef) ||
+    account.binding?.id !== selection.gatewayBindingId
+  )
+    throw new Error("gateway_review_model_unsupported");
+  if (
+    account.modelCatalog &&
+    !["snapshot", "unavailable"].includes(account.modelCatalog.status)
+  )
+    throw new Error("gateway_review_catalog_unavailable");
+  return [profile];
 }
