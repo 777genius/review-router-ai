@@ -32,7 +32,9 @@ import {
 
 const MiB = 1024 * 1024;
 
-function companionReservation() {
+function companionReservation(
+  role: ReviewRunCompanionDispatch["role"] = "lifecycle_verification",
+) {
   const rows = new Map<string, ReviewRunCompanionDispatch>();
   let claims = 0;
   const admission: ReviewRunCompanionDispatchAdmission = {
@@ -69,7 +71,7 @@ function companionReservation() {
         preparedManifestKey: context.preparedManifestKey,
         providerRequestEnvelopeHash,
         nativeRequestRef: "stored-companion-native-ref",
-        role: "lifecycle_verification",
+        role,
         state: "dispatch_may_have_started",
       };
       rows.set(context.dispatchId, dispatch);
@@ -167,6 +169,124 @@ it("forwards the captured nine-request native grant unchanged through actual pre
     if (response.kind === "stream") await response.cancel();
   } finally {
     await f.relay.shutdown();
+  }
+});
+
+it("companion chunks use local authority while phase and EOF status retain full freshness", async () => {
+  const state = companionReservation();
+  const eof = deferred();
+  const f = await fixture(
+    32768,
+    0,
+    2,
+    5000,
+    async (upstream) => {
+      upstream.write(": bounded progress\n\n");
+      await eof.promise;
+      upstream.end(": bounded tail\n\n");
+    },
+    { admission: state.admission },
+  );
+  let response: Awaited<ReturnType<typeof f.relay.responses>> | undefined;
+  try {
+    response = await f.relay.responses(
+      "authorization-1",
+      companionEnvelope(),
+      new AbortController(),
+      undefined,
+      companionContext,
+    );
+    if (response.kind !== "stream") throw new Error("stream_expected");
+    const reader = response.body.getReader();
+    const beforeChunk = f.authorityChecks.length;
+    expect((await reader.read()).done).toBe(false);
+    expect(f.authorityChecks.slice(beforeChunk)).toEqual(["local"]);
+    const fullBeforeEOF = f.authorityChecks.filter(
+      (mode) => mode === "full",
+    ).length;
+    eof.resolve();
+    while (!(await reader.read()).done) {}
+    expect(
+      f.authorityChecks.filter((mode) => mode === "full").length,
+    ).toBeGreaterThan(fullBeforeEOF);
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "completed",
+    );
+  } finally {
+    eof.resolve();
+    if (response?.kind === "stream") await response.cancel().catch(() => {});
+    await f.relay.shutdown();
+  }
+});
+
+it("companion proven pre-forward refusal records no dispatch without refunding its attempt", async () => {
+  const state = companionReservation("pr_description");
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: state.admission,
+  });
+  try {
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({
+      code: "pr_description_envelope_bounds_invalid",
+      effect: "not_dispatched",
+    });
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "not_dispatched",
+    );
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({
+      code: "companion_dispatch_already_claimed",
+      effect: "not_dispatched",
+    });
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        { ...companionContext, dispatchId: "new-id" },
+      ),
+    ).rejects.toMatchObject({ code: "companion_slot_already_claimed" });
+    expect(f.admissions).toHaveLength(0);
+    expect(f.intents).toHaveLength(0);
+  } finally {
+    await f.relay.shutdown();
+  }
+  const unknown = companionReservation();
+  const failedPrepare = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: unknown.admission,
+  });
+  try {
+    failedPrepare.setPrepareFailure();
+    await expect(
+      failedPrepare.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({ effect: "effect_unknown" });
+    expect(unknown.rows.get(companionContext.dispatchId)?.state).toBe(
+      "dispatch_may_have_started",
+    );
+    expect(failedPrepare.admissions).toHaveLength(0);
+  } finally {
+    await failedPrepare.relay.shutdown();
   }
 });
 
@@ -469,6 +589,7 @@ async function fixture(
   const requestRefs: string[] = [];
   const effects: { requestRef: string; effect: c.RequestStatus["effect"] }[] =
     [];
+  const authorityChecks: ("full" | "local")[] = [];
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(Buffer.from(chunk));
@@ -660,7 +781,10 @@ async function fixture(
       },
     },
     queries: queries as never,
-    checkAuthority: async (auth) => !revoked.has(auth.authorizationId),
+    checkAuthority: async (auth, freshness) => {
+      authorityChecks.push(freshness);
+      return !revoked.has(auth.authorizationId);
+    },
     confirmAuthority: async (_token, auth) =>
       !revoked.has(auth.authorizationId),
     snapshots,
@@ -686,6 +810,7 @@ async function fixture(
     requestRefs,
     limits,
     effects,
+    authorityChecks,
     nativeExecutions,
     nativeCloses,
     authorization,
