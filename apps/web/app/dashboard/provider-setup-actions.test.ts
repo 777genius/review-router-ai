@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   findRepositories: vi.fn(),
   loadRepository: vi.fn(),
   setDefault: vi.fn(),
+  gatewayModel: vi.fn(),
   authority: {
     /** `none`: the workspace is unavailable to the actor. */
     role: "member" as WorkspaceMemberRole | null | "none",
@@ -44,6 +45,7 @@ vi.mock("../../src/server/prisma", () => ({
   }),
 }));
 vi.mock("../../src/server/dashboard-review-configuration-validation", () => ({
+  assertDashboardGatewayProviderModelAllowed: mocks.gatewayModel,
   dashboardProfileModelChangeValidator: () => ({
     beforeTransaction: async () => {},
     scope: () => {},
@@ -359,4 +361,32 @@ describe("provider choices refused before quotas: hosted pools and Access rights
     expect(mocks.entitlement).not.toHaveBeenCalled();
     expect(mocks.loadRepository).not.toHaveBeenCalled();
   });
+});
+
+// RED if model-only provider creation skips its exact binding catalog.
+it("refuses a model offered only by another account before creating a provider", async () => {
+  mocks.adminGate.mockResolvedValue(member);
+  mocks.gatewayModel.mockRejectedValueOnce(
+    new Error("gateway_review_model_unsupported"),
+  );
+  await expect(
+    createProviderProfileAction({
+      workspaceId: "workspace_1",
+      credential: {
+        kind: "gateway_binding",
+        bindingId: "binding-a",
+        gatewayProfileRef: "codex-profile",
+      },
+      model: "account-b-only",
+    }),
+  ).resolves.toEqual({
+    status: "error",
+    error: "gateway_review_model_unsupported",
+  });
+  expect(mocks.gatewayModel).toHaveBeenCalledWith(
+    "workspace_1",
+    { gatewayBindingId: "binding-a", gatewayProfileRef: "codex-profile" },
+    "account-b-only",
+  );
+  expect(mocks.writes).toEqual([]);
 });

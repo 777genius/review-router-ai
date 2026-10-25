@@ -306,3 +306,23 @@ real RR lifecycle controls. Gateway retirement counters/closure are synthetic
 fixtures; native erasure and transport closure require the separate native proof.
 Use an explicit `--repo-root` when launching via `pnpm --dir` because the harness
 has its own workspace file. `--browser-executable` is forwarded to Playwright.
+
+For the account-scoped Codex catalog, run the current Providers edit/add flow
+against the real Next app, session, PostgreSQL and installed Gateway SDK:
+
+```bash
+ACCOUNTS_REFERENCE_E2E_GREP='dynamic Codex account models' \
+pnpm --dir scripts/accounts-reference-e2e run e2e -- \
+  --repo-root "$PWD" --isolated-pglite --account-models-fixture \
+  --work-dir "$PWD/tmp/accounts-reference-e2e/runs/codex-account-models"
+```
+
+The opt-in fixture advertises two authorized accounts with the same Codex
+profile and different model catalogs through `POST /v1/account-models/read`.
+It seeds the current provider registry with a historical saved model. The
+browser verifies that the model remains visible, discovers an unseen model,
+rejects a stale model now offered only by the other account, refreshes only the
+selected account, saves its refreshed model, and adds the second account's
+model. This is an HTTP dependency fixture, not a live Codex/native proof.
+Use the existing explicit `--database-url` and `--browser-executable` options
+where PostgreSQL or a preinstalled Chromium is required.

@@ -39,6 +39,7 @@ import { getReadyGatewayAccounts } from "../../../src/server/dashboard-provider-
 import type { GatewayAgentProfileOption } from "../../../src/server/gateway-agent-profile-options";
 import { dashboardErrorText } from "../dashboard-copy";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
+import { GatewayModelCatalogStatus } from "../gateway-model-catalog-status";
 import { ProviderAuthLogoFrame } from "../provider-auth-logo";
 import { useProviderModelCatalogs } from "../provider-model-catalog";
 import type { ProviderProfileActionResult } from "../provider-setup-actions";
@@ -488,19 +489,13 @@ function ProviderProfileEditForm({
     gateway && row.gatewayBindingId ? [row.gatewayBindingId] : [],
   );
   const catalogs = useProviderModelCatalogs(dialog.modelOptions);
-  const gatewayPage =
-    gatewayOptions.accounts?.status === "ok"
-      ? gatewayOptions.accounts.value
-      : null;
   const gatewayAccount = getReadyGatewayAccounts(gatewayOptions.accounts).find(
     (account) => account.binding?.id === row.gatewayBindingId,
   );
   const modelOptions: readonly ReviewModelOption[] = gateway
-    ? (
-        gatewayPage?.profiles.find(
-          (profile) => profile.id === gatewayAccount?.profileId,
-        )?.models ?? []
-      ).map((value) => ({ value, label: value, provider: "codex" }))
+    ? (gatewayOptions.profileFor(gatewayAccount)?.models ?? []).map(
+        (value) => ({ value, label: value, provider: "codex" }),
+      )
     : catalogs.optionsFor(providerKindForAuthMode(row.authMode), true);
   const trimmedLabel = label.trim();
   const trimmedModel = model.trim();
@@ -564,6 +559,16 @@ function ProviderProfileEditForm({
         emptyListPlaceholder="The account lists no models right now"
         disabled={pending}
       />
+      {gateway ? (
+        <GatewayModelCatalogStatus
+          account={gatewayAccount}
+          loading={gatewayOptions.loading}
+          canRefresh={gatewayOptions.canRefresh}
+          onRefresh={() =>
+            gatewayOptions.refreshModels(row.gatewayBindingId ?? "")
+          }
+        />
+      ) : null}
       <div className="grid gap-1 border-t border-cyan-200/10 pt-4">
         <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
           Credential

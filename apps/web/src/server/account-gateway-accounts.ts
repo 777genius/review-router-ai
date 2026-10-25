@@ -103,6 +103,7 @@ export type AccountOwnerView =
   | { kind: "organization"; label: string; avatarUrl: string | null }
   | { kind: "operator"; label: string };
 export type AccountView = {
+  modelCatalog?: import("../features/account-gateway/connection-capabilities").AccountModelCatalogView;
   connection?: AccountProfileView["connection"];
   origin?: "organization" | "personal" | "operator";
   // Display-only identity fact; never permission to manage a shared source.

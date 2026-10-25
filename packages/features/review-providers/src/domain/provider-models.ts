@@ -10,6 +10,7 @@ export type ReviewModelOption = {
 };
 
 export type CodexReasoningEffort =
+  | "minimal"
   | "low"
   | "medium"
   | "high"
@@ -22,8 +23,9 @@ export function codexModelSupportsReasoningEffort(
   effort: CodexReasoningEffort,
 ): boolean {
   return (
-    (effort !== "max" && effort !== "ultra") ||
-    model.trim() === defaultCodexModel
+    effort !== "minimal" &&
+    ((effort !== "max" && effort !== "ultra") ||
+      model.trim() === defaultCodexModel)
   );
 }
 

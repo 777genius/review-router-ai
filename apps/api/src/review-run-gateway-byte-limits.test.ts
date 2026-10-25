@@ -102,11 +102,11 @@ const companionContext: ReviewCompanionDispatchContextV1 = {
   fencingToken: "1",
   preparedManifestKey: "a".repeat(64),
 };
-const companionEnvelope = () =>
+const companionEnvelope = (model = "gpt-5.6-sol") =>
   Buffer.from(
     JSON.stringify({
       input: "bounded-packet",
-      model: "gpt-5.6-sol",
+      model,
       stream: true,
       store: false,
       service_tier: "default",
@@ -114,45 +114,64 @@ const companionEnvelope = () =>
     }),
   );
 
-it("companion forwards the exact hashed bytes with the stored native ref and settles native completion", async () => {
-  const state = companionReservation();
-  const f = await fixture(32768, 0, 2, 5000, undefined, {
-    admission: state.admission,
-  });
-  try {
-    const bytes = companionEnvelope();
-    const response = await f.relay.responses(
-      "authorization-1",
-      bytes,
-      new AbortController(),
+it.each([
+  { profileId: "profile-1", model: "gpt-5.6-sol" },
+  {
+    profileId: "openai-codex-oauth-responses-v1",
+    model: "authorized-account-model-not-in-anchor",
+  },
+])(
+  "companion forwards exact hashed bytes with the stored native ref and settles completion for $model",
+  async (selection) => {
+    const state = companionReservation();
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
       undefined,
-      companionContext,
+      {
+        admission: state.admission,
+      },
+      128,
+      selection,
     );
-    expect(response.kind).toBe("stream");
-    if (response.kind !== "stream") throw new Error("stream_expected");
-    const reader = response.body.getReader();
-    while (!(await reader.read()).done) {
-      /* Consume the bounded native response. */
-    }
-    expect(f.requestBodies).toEqual([bytes.toString()]);
-    expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
-    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
-      "completed",
-    );
-    expect(
-      await f.relay.companionDispatch(
+    try {
+      const bytes = companionEnvelope(selection.model);
+      const response = await f.relay.responses(
         "authorization-1",
-        companionContext.dispatchId,
-      ),
-    ).toMatchObject({
-      state: "completed",
-      requestRef: "stored-companion-native-ref",
-      providerRequestEnvelopeHash: expect.stringMatching(/^[a-f0-9]{64}$/),
-    });
-  } finally {
-    await f.relay.shutdown();
-  }
-});
+        bytes,
+        new AbortController(),
+        undefined,
+        companionContext,
+      );
+      expect(response.kind).toBe("stream");
+      if (response.kind !== "stream") throw new Error("stream_expected");
+      const reader = response.body.getReader();
+      while (!(await reader.read()).done) {
+        /* Consume the bounded native response. */
+      }
+      expect(f.requestBodies).toEqual([bytes.toString()]);
+      expect(f.requestModels).toEqual([selection.model]);
+      expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
+      expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+        "completed",
+      );
+      expect(
+        await f.relay.companionDispatch(
+          "authorization-1",
+          companionContext.dispatchId,
+        ),
+      ).toMatchObject({
+        state: "completed",
+        requestRef: "stored-companion-native-ref",
+        providerRequestEnvelopeHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+    } finally {
+      await f.relay.shutdown();
+    }
+  },
+);
 
 it("forwards the captured nine-request native grant unchanged through actual prepare and Responses admission", async () => {
   const f = await fixture(32768, 0, 2, 5000, undefined, undefined, 9);
@@ -436,6 +455,7 @@ async function fixture(
     failUsageOutcome?: boolean;
   },
   capturedRequests = 128,
+  selection = { profileId: "profile-1", model: "gpt-5.6-sol" },
 ) {
   const deadline = new Date(Date.now() + 120_000).toISOString();
   const limits = {
@@ -453,7 +473,7 @@ async function fixture(
     policySubject: "binding-1",
     policyRevision: 1,
     permittedAccountRef: "account-1",
-    profileRef: "profile-1",
+    profileRef: selection.profileId,
     invocationId: "invocation-1",
     attemptId: "attempt-1",
     operationId: "operation-1",
@@ -479,7 +499,7 @@ async function fixture(
       {
         kind: "codex",
         authMode: "codex_account_gateway",
-        model: "gpt-5.6-sol",
+        model: selection.model,
         reasoningEffort: "high",
         fastMode: false,
         agenticContext: true,
@@ -506,7 +526,7 @@ async function fixture(
               modelTransport: "account_gateway",
               providerIndex: 0,
               providerKind: "codex",
-              model: "gpt-5.6-sol",
+              model: selection.model,
               maxDispatches: 2,
               maxPromptBytes: 4096,
               maxResponseBytes: 32768,
@@ -587,6 +607,7 @@ async function fixture(
   let prepareFailure = false;
   const intents: c.Prepare[] = [];
   const admissions: c.Admission[] = [];
+  const requestModels: string[] = [];
   const requestBodies: string[] = [];
   const requestRefs: string[] = [];
   const effects: { requestRef: string; effect: c.RequestStatus["effect"] }[] =
@@ -642,6 +663,7 @@ async function fixture(
       req.url ?? "",
     );
     if (execution?.[2] === "requests") {
+      requestModels.push((JSON.parse(raw) as { model: string }).model);
       admissions.push(JSON.parse(String(req.headers["x-gateway-admission"])));
       requestBodies.push(raw);
       requestRefs.push(String(req.headers["x-gateway-request-id"]));
@@ -748,7 +770,7 @@ async function fixture(
       profiles: [
         {
           profile: {
-            profileId: "profile-1",
+            profileId: selection.profileId,
             protocol: "openai-responses",
             modelIds: ["gpt-5.6-sol"],
             authKinds: ["oauth"],
@@ -808,6 +830,7 @@ async function fixture(
     relay,
     intents,
     admissions,
+    requestModels,
     requestBodies,
     requestRefs,
     limits,
@@ -1468,3 +1491,91 @@ it("never releases buffered terminal bytes when the real SDK transport fails bef
     await http.app.close();
   }
 }, 10000);
+
+// RED if the immutable Codex anchor rejects an account-catalog model before
+// the normal owned-run preparation/native admission path.
+it.each([
+  ["openai-codex-oauth-responses-v1", true],
+  ["profile-1", false],
+  ["grok-subscription-responses-oauth-v1", false],
+] as const)(
+  "account model %s keeps the authorized Responses path (dynamic=%s)",
+  async (profileId, dynamic) => {
+    const model = "authorized-account-model-not-in-anchor";
+    const f = await fixture(MiB, 0, 2, 5000, undefined, undefined, 128, {
+      profileId,
+      model,
+    });
+    try {
+      const response = f.relay.responses(
+        "local-authorization-token",
+        new TextEncoder().encode(
+          JSON.stringify({
+            model,
+            input: [],
+            stream: true,
+            max_output_tokens: 100,
+          }),
+        ),
+        new AbortController(),
+      );
+      if (!dynamic) {
+        await expect(response).rejects.toMatchObject({
+          code: "gateway_unavailable",
+          effect: "not_dispatched",
+        });
+        expect(f.intents).toHaveLength(0);
+        expect(f.admissions).toHaveLength(0);
+        return;
+      }
+      const result = await response;
+      if (result.kind !== "stream") throw new Error("expected_stream");
+      for await (const chunk of result.body) {
+        void chunk;
+        /* Drain the single real HTTP response. */
+      }
+      expect(f.intents).toHaveLength(1);
+      expect(f.intents[0]).toMatchObject({
+        accountRefs: ["account-1"],
+        profileId,
+      });
+      expect(f.requestModels).toEqual([model]);
+    } finally {
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("revocation while preparing a dynamic Codex model still prevents inference", async () => {
+  const model = "authorized-account-model-not-in-anchor";
+  const f = await fixture(MiB, 0, 2, 5000, undefined, undefined, 128, {
+    profileId: "openai-codex-oauth-responses-v1",
+    model,
+  });
+  const held = f.holdPrepare();
+  try {
+    const response = f.relay.responses(
+      "local-authorization-token",
+      new TextEncoder().encode(
+        JSON.stringify({
+          model,
+          input: [],
+          stream: true,
+          max_output_tokens: 100,
+        }),
+      ),
+      new AbortController(),
+    );
+    await held.started;
+    f.revoke("authorization-1");
+    held.release();
+    await expect(response).rejects.toMatchObject({
+      code: "authorization_denied",
+    });
+    expect(f.admissions).toHaveLength(0);
+    expect(f.requestModels).toHaveLength(0);
+  } finally {
+    held.release();
+    await f.relay.shutdown();
+  }
+});

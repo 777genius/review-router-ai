@@ -23,6 +23,7 @@ type ReviewReasoningEffort = NonNullable<
 >;
 
 const reasoningEfforts = [
+  { value: "minimal", label: "Minimal", description: "Least reasoning." },
   { value: "low", label: "Low", description: "Fastest and cheapest." },
   { value: "medium", label: "Medium", description: "Balanced." },
   { value: "high", label: "High", description: "Deeper review." },
@@ -48,7 +49,9 @@ function reasoningSupported(
 ): boolean {
   return authMode === "codex_account_gateway"
     ? gatewayModelSupportsReasoningEffort(model, effort, connection)
-    : effort !== undefined && codexModelSupportsReasoningEffort(model, effort);
+    : effort !== undefined &&
+        effort !== "minimal" &&
+        codexModelSupportsReasoningEffort(model, effort);
 }
 
 function fastSupported(
@@ -294,19 +297,28 @@ export function ProviderModelPicker({
     return (
       <SelectField
         label="Model"
-        value={
-          modelOptions.some((option) => option.value === model) ? model : ""
-        }
+        value={model}
         placeholder={
           modelOptions.length === 0 ? emptyListPlaceholder : "Choose a model"
         }
         disabled={disabled || modelOptions.length === 0}
-        options={modelOptions.map((option) => ({
-          value: option.value,
-          label: option.label,
-          ...(option.disabled ? { disabled: true } : {}),
-          ...(option.description ? { description: option.description } : {}),
-        }))}
+        options={[
+          ...(model && !modelOptions.some((option) => option.value === model)
+            ? [
+                {
+                  value: model,
+                  label: `${model} (saved, unavailable)`,
+                  disabled: true,
+                },
+              ]
+            : []),
+          ...modelOptions.map((option) => ({
+            value: option.value,
+            label: option.label,
+            ...(option.disabled ? { disabled: true } : {}),
+            ...(option.description ? { description: option.description } : {}),
+          })),
+        ]}
         onValueChange={onModelChange}
         {...(className ? { className } : {})}
       />

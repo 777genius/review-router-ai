@@ -20,6 +20,7 @@ import { z } from "zod";
 export const REVIEW_POLICY_SCHEMA_VERSION = 3 as const;
 
 export const reviewReasoningEffortSchema = z.enum([
+  "minimal",
   "low",
   "medium",
   "high",
@@ -31,9 +32,9 @@ export const reviewReasoningEffortSchema = z.enum([
 const reviewProviderSettingsSchema = z.object({
   kind: providerKindSchema,
   model: z.string().trim().min(1),
-  reasoningEffort: reviewReasoningEffortSchema.default(
-    defaultProviderReasoningEffort,
-  ),
+  reasoningEffort: reviewReasoningEffortSchema
+    .exclude(["minimal"])
+    .default(defaultProviderReasoningEffort),
   agenticContext: z.boolean().default(true),
   fastMode: z.boolean().default(false),
   requiredHealthy: z.boolean().default(false),
