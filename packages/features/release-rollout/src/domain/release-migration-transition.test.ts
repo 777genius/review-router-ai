@@ -104,9 +104,6 @@ describe("canonical release migration transition", () => {
       ).slice(7),
     }));
     expect(checkout149).toHaveLength(149);
-    expect(manifest(checkout149)).toBe(
-      "sha256:597739d44aa5f10551930c1349bed5c1a634b868fd55f9738b32b33ac230e897",
-    );
     const current = checkout149.filter(
       (row) => row.migrationName !== "000147_review_skills_mutation_identity",
     );
@@ -139,6 +136,9 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
+    expect(manifest(checkout149)).toBe(
+      "sha256:597739d44aa5f10551930c1349bed5c1a634b868fd55f9738b32b33ac230e897",
+    );
     expect(manifest(current)).toBe(
       "sha256:000decc06ca41637beceb84da74858f434d2300c3c4c3af8c96dcac0aee3efba",
     );
