@@ -320,11 +320,16 @@ export function AddWorkspaceSkillDialog({
                     size="sm"
                     disabled={
                       link.isPending ||
+                      linkedSkill?.skillId === skill.skillId ||
                       (!skill.canLinkAsDualAdmin && !skill.canAccept)
                     }
                     onClick={() => link.mutate(skill)}
                   >
-                    {skill.canLinkAsDualAdmin ? "Add" : "Accept"}
+                    {linkedSkill?.skillId === skill.skillId
+                      ? "Added"
+                      : skill.canLinkAsDualAdmin
+                        ? "Add"
+                        : "Accept"}
                   </Button>
                 </td>
               </tr>

@@ -145,7 +145,11 @@ export function SkillEditorDialog({
       if (dirty || imported.omittedFields.length) setImportReview(imported);
       else applyImport(imported);
     } catch (error) {
-      setImportError(error);
+      setImportError(
+        new Error(
+          `Import not applied. Your current draft is unchanged. ${error instanceof Error ? error.message : "SKILL.md could not be imported."}`,
+        ),
+      );
     } finally {
       setImporting(false);
     }

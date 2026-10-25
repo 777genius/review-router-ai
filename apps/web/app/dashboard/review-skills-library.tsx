@@ -30,7 +30,7 @@ import {
 } from "./skill-access-dialog";
 import {
   SkillsReadiness,
-  skillsReadinessMessage,
+  skillsReadinessLabel,
 } from "./review-skills-readiness";
 import {
   SkillsDialog,
@@ -730,7 +730,7 @@ function SkillRepositoriesDialog({
                 <span className="block break-all">{repo.name}</span>
                 {repo.readiness.status !== "ready" ? (
                   <span className="mt-1 block text-xs leading-5 text-slate-400">
-                    {skillsReadinessMessage(repo.readiness)}
+                    {skillsReadinessLabel(repo.readiness)}
                   </span>
                 ) : null}
               </span>

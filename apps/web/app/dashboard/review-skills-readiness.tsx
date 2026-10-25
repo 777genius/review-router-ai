@@ -24,6 +24,22 @@ export function skillsReadinessMessage(value: RepositorySkillsReadiness) {
   }
 }
 
+const readinessLabels: Record<RepositorySkillsReadiness["reason"], string> = {
+  supported: "Runtime supports Skills",
+  unsupported_workflow: "Workflow unsupported",
+  engine_unsupported: "Engine unsupported",
+  engine_unavailable: "Engine unavailable",
+  configuration_required: "Configuration required",
+  configuration_resave_required: "Configuration needs saving",
+  workflow_update_required: "Workflow update required",
+  workflow_unconfirmed: "Workflow unconfirmed",
+  runtime_unconfirmed: "Runtime unconfirmed",
+};
+
+export function skillsReadinessLabel(value: RepositorySkillsReadiness) {
+  return readinessLabels[value.reason];
+}
+
 export function SkillsReadiness({
   values,
   workspaceId,
@@ -50,7 +66,7 @@ export function SkillsReadiness({
       <p>
         {values.length === 1
           ? skillsReadinessMessage(values[0]!)
-          : `${ready}/${values.length} configured runtimes support Skills${blocked ? ` · ${blocked} need setup changes` : ""}${uncertain ? ` · ${uncertain} unconfirmed` : ""}.`}{" "}
+          : `${ready}/${values.length} configured runtimes support Skills${blocked ? ` · ${blocked} ${blocked === 1 ? "needs" : "need"} setup changes` : ""}${uncertain ? ` · ${uncertain} unconfirmed` : ""}.`}{" "}
         {needsSetup
           ? "You can save assignments, but reviews need a supporting runtime."
           : "Support is checked again when a review starts."}

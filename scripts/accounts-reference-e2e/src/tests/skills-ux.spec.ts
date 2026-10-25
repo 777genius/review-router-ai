@@ -13,6 +13,13 @@ const workspaceId = FIXTURES.workspaces.personalViewer;
 const workspaceQuery = "rr-e2e-personal-viewer";
 const repositoryId = (suffix: string) => `rr-e2e-repo-rr-e2e-viewer-${suffix}`;
 
+async function expectDashboardReady(page: Page) {
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-dashboard-layout-ready",
+    "true",
+  );
+}
+
 async function sql<T extends pg.QueryResultRow = pg.QueryResultRow>(
   text: string,
   values: unknown[] = [],
@@ -35,10 +42,7 @@ async function openLibrary(page: Page) {
   await expect(
     page.getByRole("heading", { name: "Skills", exact: true }),
   ).toBeVisible();
-  await expect(page.locator("html")).toHaveAttribute(
-    "data-dashboard-layout-ready",
-    "true",
-  );
+  await expectDashboardReady(page);
 }
 
 async function openOperation(page: Page, suffix: string, skill: string) {
@@ -48,6 +52,7 @@ async function openOperation(page: Page, suffix: string, skill: string) {
       waitUntil: "domcontentloaded",
     },
   );
+  await expectDashboardReady(page);
   await page
     .getByRole("searchbox", { name: "Find repository", exact: true })
     .fill(`skills-project-${suffix}`);
@@ -770,6 +775,7 @@ test.describe("Skills real Next UX resilience", () => {
       `/dashboard?section=repositories&workspace=${workspaceQuery}`,
       { waitUntil: "domcontentloaded" },
     );
+    await expectDashboardReady(page);
     await page
       .getByRole("searchbox", { name: "Find repository", exact: true })
       .fill("skills-project-00");
@@ -786,7 +792,7 @@ test.describe("Skills real Next UX resilience", () => {
     const dialog = page.getByRole("dialog");
     await expect(
       dialog.getByText(/1\/3 configured runtimes support Skills/u),
-    ).toContainText("1 need setup changes · 1 unconfirmed");
+    ).toContainText("1 needs setup changes · 1 unconfirmed");
     await dialog
       .getByText("Show repositories needing attention", { exact: true })
       .click();
@@ -849,6 +855,15 @@ test.describe("Skills real Next UX resilience", () => {
     await expect(
       dialog.getByText("Changes save immediately.", { exact: true }),
     ).toBeVisible();
+    await dialog.screenshot({
+      path: test.info().outputPath("skills-assigned-sources-mobile.png"),
+    });
+    await dialog
+      .getByText(/Configured runtime supports Skills\./u)
+      .scrollIntoViewIfNeeded();
+    await expect(
+      dialog.getByRole("button", { name: "Add skills", exact: true }),
+    ).toBeInViewport({ ratio: 1 });
     await dialog.screenshot({
       path: test.info().outputPath("skills-assigned-mobile.png"),
     });
@@ -1013,6 +1028,7 @@ test.describe("Skills real Next UX resilience", () => {
     await page.goto("/dashboard?section=skills&workspace=rr-e2e-org-alpha", {
       waitUntil: "domcontentloaded",
     });
+    await expectDashboardReady(page);
     await page
       .getByRole("button", { name: "Add from workspace", exact: true })
       .click();
@@ -1027,6 +1043,9 @@ test.describe("Skills real Next UX resilience", () => {
     await expect(shared.getByRole("status")).toContainText(
       "added to this library. Choose repositories to use it.",
     );
+    await expect(
+      shared.getByRole("button", { name: "Added", exact: true }),
+    ).toBeDisabled();
     expect(
       await sql(
         `SELECT "skillId" FROM "ReviewSkillBinding" WHERE "workspaceId"=$1 AND "skillId"=$2`,
@@ -1208,6 +1227,9 @@ test.describe("Skills real Next UX resilience", () => {
       .getByLabel("Import SKILL.md", { exact: false })
       .setInputFiles(file("", "[Guide](references/guide.md)"));
     await expect(editor.getByRole("alert")).toContainText("companion files");
+    await expect(editor.getByRole("alert")).toContainText(
+      "Import not applied. Your current draft is unchanged.",
+    );
     await expect(
       editor.getByLabel("Markdown instructions", { exact: false }),
     ).toHaveValue("Original review instructions.");
