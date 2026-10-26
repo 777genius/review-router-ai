@@ -353,8 +353,15 @@ jobs:
       - name: Review Action v2 protocol drift check
         run: pnpm protocol:check
 
-      - name: Pull pinned offline fixture image
-        run: docker pull postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+      - name: Pull and verify pinned offline fixture image
+        run: |
+          # Match the fixture's trusted tool path and canonical local Docker socket.
+          env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 \
+            docker --host unix:///var/run/docker.sock pull \
+            postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+          env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 \
+            docker --host unix:///var/run/docker.sock image inspect --format '{{.Id}}' \
+            postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
 
       - name: Managed migration PG17 prerequisites (no skips)
         if: ${{ matrix.lane == 'prerequisites' }}
@@ -495,6 +502,16 @@ jobs:
       - name: Install PostgreSQL client
         uses: ./.github/actions/setup-postgresql-client
 
+      - name: Install subprocess test prerequisites
+        run: |
+          timeout --signal=TERM --kill-after=15s 5m sudo apt-get \
+            -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
+            -o Acquire::Retries=2 -o DPkg::Lock::Timeout=30 \
+            install -y --no-install-recommends openssh-client procps
+          command -v ssh-keygen
+          test -x /bin/ps
+          /bin/ps -p "$$" -o pid= >/dev/null
+
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
 
@@ -506,8 +523,15 @@ jobs:
       - name: Bootstrap contract sources for unit tests
         run: node scripts/check-review-action-v2-protocol.mjs --bootstrap-only
 
-      - name: Pull pinned offline fixture image
-        run: docker pull postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+      - name: Pull and verify pinned offline fixture image
+        run: |
+          # Match the fixture's trusted tool path and canonical local Docker socket.
+          env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 \
+            docker --host unix:///var/run/docker.sock pull \
+            postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+          env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 \
+            docker --host unix:///var/run/docker.sock image inspect --format '{{.Id}}' \
+            postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
 
       - name: Create CI databases
         env:
@@ -672,8 +696,15 @@ jobs:
         run: node scripts/generate-prisma-offline.mjs
 
       # Later offline role/schema fixtures also require this image on this runner.
-      - name: Pull pinned offline fixture image
-        run: docker pull postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+      - name: Pull and verify pinned offline fixture image
+        run: |
+          # Match the fixture's trusted tool path and canonical local Docker socket.
+          env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 \
+            docker --host unix:///var/run/docker.sock pull \
+            postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+          env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 \
+            docker --host unix:///var/run/docker.sock image inspect --format '{{.Id}}' \
+            postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
 
       - name: Disposable release-role catalog PG17 fixture (no skips)
         env:
