@@ -75,7 +75,7 @@ export function assertCleanupOperationSources(operation: CleanupOperation | unde
   assert(object(payload) && payload.type === 'consolidation' && payload.operation_id === operation.operation_id && payload.bank_id === bank && Object.keys(payload).every(key => ['type', 'operation_id', 'bank_id', '_tenant_id', '_api_key_id', 'observation_scopes', 'pending_refresh_tags', 'caller_requested'].includes(key)), 'Unreviewed consolidation task payload cannot use the shared-history exception');
   const metadata = operation.result_metadata;
   assert(object(metadata) && Array.isArray(metadata.document_events) && metadata.document_events.length <= 10_000 && metadata.document_events.every(consolidationEvent), 'Shared consolidation history must contain only pinned native ID/count events');
-  const { document_events: _events, ...remaining } = metadata;
+  const remaining = Object.fromEntries(Object.entries(metadata).filter(([key]) => key !== 'document_events'));
   assert(documentIds({ ...operation, result_metadata: remaining }).every(value => value === document), 'Foreign document outside consolidation ID/count history');
 }
 

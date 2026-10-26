@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { acquireDeploymentLock } from './deployment-lock.ts';
+import { assertNativeCleanupStatus, safeNativeRoute } from './native-http.ts';
 import { assertCleanupOperationSources, leafFirstOperations, operationClosure, persistCleanupInventory, readCleanupInventory, signCleanupInventory, verifyCleanupInventory, type CleanupOperation, type CleanupSourceInventory } from './cleanup-inventory.ts';
 
 const { privateKey, publicKey } = generateKeyPairSync('ed25519');
@@ -12,6 +13,19 @@ const privatePem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(
 const publicPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
 const binding = { namespace: 'native', generation: 'generation-1', scopeDigest: 'a'.repeat(64), bankIdDigest: 'b'.repeat(64), entryId: 'entry-1', forgetCommandId: randomUUID(), imageDigest: `sha256:${'c'.repeat(64)}`, pauseEpoch: '1' };
 const inventory: CleanupSourceInventory = { schema: 'hindsight-cleanup-inventory/v1', binding, documentId: 'entry-entry-1', capturedAt: new Date().toISOString(), sourceFactIds: [randomUUID()], observationIds: [randomUUID()], operationIds: [randomUUID()] };
+
+test('native cleanup failures report method, structural route and status without private identifiers or query', () => {
+  const privateValue = 'RR_NATIVE_PRIVATE_5C36E924';
+  const path = `/v1/default/banks/${privateValue}/operations/${privateValue}/delete?query=${privateValue}`;
+  assert.equal(safeNativeRoute(path), '/v1/default/banks/:bank/operations/:operation/delete');
+  assert.doesNotThrow(() => assertNativeCleanupStatus(path, 'DELETE', 200, [200, 404]));
+  assert.throws(() => assertNativeCleanupStatus(path, 'DELETE', 409, [200, 404]), error => {
+    assert(error instanceof Error); assert(!error.message.includes(privateValue));
+    assert.equal(error.message, 'Native cleanup DELETE /v1/default/banks/:bank/operations/:operation/delete returned HTTP 409; expected 200/404 (body suppressed)');
+    return true;
+  });
+  assert.equal(safeNativeRoute(`/unknown/${privateValue}`), 'native-endpoint');
+});
 
 test('actual Linux flock survives acquiring subprocess exit and excludes another launcher until close', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'rr-hindsight-fence-'));
