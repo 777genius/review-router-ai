@@ -87,6 +87,8 @@ export function useProviderSecretStatus(input: {
   readonly repositoryId: string;
   readonly authMode: ProviderAuthMode;
   readonly enabled: boolean;
+  /** An exact readiness read on each opening, including after a reconnect. */
+  readonly freshOnOpen?: boolean;
 }) {
   return useQuery({
     queryKey: providerSetupQueryKeys.secretStatus(
@@ -107,9 +109,106 @@ export function useProviderSecretStatus(input: {
     },
     enabled: input.enabled,
     // GitHub metadata changes outside ReviewRouter; recheck after a minute.
-    staleTime: 60_000,
+    staleTime: input.freshOnOpen ? 0 : 60_000,
+    refetchOnMount: input.freshOnOpen ? "always" : true,
     retry: false,
   });
+}
+
+export type CodexSetupCommand = Readonly<{
+  command: string;
+  expiresAt: string;
+  providerInstanceId: string;
+}>;
+
+/** Only safe codes leave this adapter; an error body may contain other data. */
+export class CodexSetupCommandError extends Error {
+  constructor(
+    readonly code: string,
+    readonly outcomeUnknown: boolean,
+  ) {
+    super(code);
+    this.name = "CodexSetupCommandError";
+  }
+}
+
+type CodexSetupTarget = Readonly<{
+  workspaceId: string;
+  repositoryId: string;
+}>;
+
+/** Imperative mutations: the short-lived command never enters a query cache. */
+export function requestCodexSetupCommand(
+  target: CodexSetupTarget,
+): Promise<CodexSetupCommand> {
+  return mutateCodexSetup("setup-command", target);
+}
+
+export function recoverCodexSetupCommand(
+  input: CodexSetupTarget &
+    Readonly<{
+      recoveryRequestId: string;
+      acknowledgement: "all_prior_installers_and_writers_are_stopped";
+    }>,
+): Promise<CodexSetupCommand> {
+  return mutateCodexSetup("setup-recovery", input);
+}
+
+async function mutateCodexSetup(
+  action: "setup-command" | "setup-recovery",
+  input: CodexSetupTarget &
+    Readonly<{ recoveryRequestId?: string; acknowledgement?: string }>,
+): Promise<CodexSetupCommand> {
+  const formData = new FormData();
+  formData.set("workspaceId", input.workspaceId);
+  formData.set("repositoryId", input.repositoryId);
+  if (input.recoveryRequestId)
+    formData.set("recoveryRequestId", input.recoveryRequestId);
+  if (input.acknowledgement)
+    formData.set("acknowledgement", input.acknowledgement);
+  try {
+    const response = await fetch(`/api/dashboard/codex-rotating/${action}`, {
+      method: "POST",
+      body: formData,
+      cache: "no-store",
+    });
+    const body: unknown = await response.json();
+    if (!response.ok) {
+      const code =
+        body &&
+        typeof body === "object" &&
+        "error" in body &&
+        typeof body.error === "string" &&
+        /^[a-z][a-z0-9_]{0,99}$/.test(body.error)
+          ? body.error
+          : "dashboard_action_failed";
+      throw new CodexSetupCommandError(code, false);
+    }
+    if (
+      !body ||
+      typeof body !== "object" ||
+      !("command" in body) ||
+      typeof body.command !== "string" ||
+      !body.command.trim() ||
+      !("expiresAt" in body) ||
+      typeof body.expiresAt !== "string" ||
+      !Number.isFinite(Date.parse(body.expiresAt)) ||
+      !("providerInstanceId" in body) ||
+      typeof body.providerInstanceId !== "string" ||
+      !body.providerInstanceId.trim()
+    ) {
+      throw new CodexSetupCommandError("codex_setup_outcome_unknown", true);
+    }
+    return {
+      command: body.command,
+      expiresAt: body.expiresAt,
+      providerInstanceId: body.providerInstanceId,
+    };
+  } catch (error) {
+    if (error instanceof CodexSetupCommandError) throw error;
+    // A lost or malformed response does not prove the mutation did not happen.
+    throw new CodexSetupCommandError("codex_setup_outcome_unknown", true);
+  }
 }
 
 /**

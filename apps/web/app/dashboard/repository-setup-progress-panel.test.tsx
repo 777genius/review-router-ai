@@ -311,7 +311,6 @@ describe("RepositorySetupProgressPanel", () => {
                   organizationLogin: null,
                   organizationSecretPolicy: null,
                   rotatingEnabled: false,
-                  rotatingPreparationOnly: false,
                 },
               }}
               initialStep="credentials"

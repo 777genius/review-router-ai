@@ -1721,7 +1721,6 @@ export function WorkspaceCard({
                   ),
                   allowOrganizationSecrets: hasWorkspaceWideAccess,
                   canManageCredentials: mutationsEnabled,
-                  currentStep: "provider",
                 }),
               }
             : {
@@ -1755,9 +1754,9 @@ export function WorkspaceCard({
         ) : null}
         <a
           className="inline-block text-sm text-cyan-200 underline"
-          href={dashboardSectionHref("policy", workspaceKey)}
+          href={dashboardSectionHref("providers", workspaceKey)}
         >
-          Choose accounts for AI reviews in Models
+          Choose providers and models for reviews
         </a>
         <AccountGatewayAccountsSection
           workspaceId={workspace.id}
@@ -1948,7 +1947,6 @@ export function WorkspaceCard({
             mutationsEnabled &&
             selectedRepository.selected &&
             !selectedRepository.archived,
-          currentStep: "provider",
         })
       : null;
   const selectedCredentialStep = selectedProviderContext?.effective
@@ -2758,7 +2756,6 @@ function RepositoryTable({
                       mutationsEnabled &&
                       repository.selected &&
                       !repository.archived,
-                    currentStep: setupProgressStep,
                   });
                   const providerTarget = {
                     kind: "repository",
@@ -3078,7 +3075,6 @@ function repositoryProviderContext(input: {
   readonly summary: ProviderLineSummary;
   readonly allowOrganizationSecrets: boolean;
   readonly canManageCredentials: boolean;
-  readonly currentStep: RepositorySetupStepId;
 }): ProviderSetupRepositoryContext {
   const { repository, summary } = input;
   const installation = findInstallationForRepository(
@@ -3128,10 +3124,6 @@ function repositoryProviderContext(input: {
         ? installation.organizationSecretPolicy
         : null,
     rotatingEnabled,
-    // Rotating Codex seeds its credential before the first setup PR.
-    rotatingPreparationOnly:
-      summary.profile?.credentialKind === "repository_rotating" &&
-      input.currentStep === "setup_pr",
   };
 }
 
