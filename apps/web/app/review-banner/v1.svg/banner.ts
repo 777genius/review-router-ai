@@ -4,6 +4,11 @@ import { reviewBannerSvgResponse } from "./response";
 
 const severities = ["critical", "major", "minor", "info"] as const;
 const updateKeys = ["new", "resolved", "open", "unverified"] as const;
+const verificationKeys = [
+  "verified",
+  "not_verified",
+  "confirmed_open",
+] as const;
 const allowed = new Set([
   "state",
   "variant",
@@ -13,6 +18,7 @@ const allowed = new Set([
   "total",
   ...severities,
   ...updateKeys,
+  ...verificationKeys,
 ]);
 type Severity = (typeof severities)[number];
 type UpdateCounts = Readonly<Record<(typeof updateKeys)[number], number>>;
@@ -22,6 +28,11 @@ export type ReviewBannerInput = {
   readonly layout: "wide" | "compact";
   readonly counts: Readonly<Record<Severity, number>>;
   readonly coverage?: { readonly reviewed: number; readonly total: number };
+  readonly verification?: {
+    readonly fixesVerified: number;
+    readonly unverified: number;
+    readonly confirmedOpen: number;
+  };
 } & (
   | { readonly variant: "first"; readonly update?: never }
   | { readonly variant: "update"; readonly update: UpdateCounts }
@@ -61,6 +72,15 @@ function parseBannerInput(url: URL): ReviewBannerInput | null {
     if (reviewed === null || total === null || reviewed > total) return null;
     coverage = { reviewed, total };
   }
+  let verification: ReviewBannerInput["verification"];
+  if (verificationKeys.some((key) => params.has(key))) {
+    const [fixesVerified, unverified, confirmedOpen] = verificationKeys.map(
+      (key) => count(params.get(key)),
+    );
+    if (fixesVerified == null || unverified == null || confirmedOpen == null)
+      return null;
+    verification = { fixesVerified, unverified, confirmedOpen };
+  }
   const common = {
     state,
     theme,
@@ -69,6 +89,7 @@ function parseBannerInput(url: URL): ReviewBannerInput | null {
       severities.map((key, index) => [key, severityValues[index]!]),
     ) as Record<Severity, number>,
     ...(coverage ? { coverage } : {}),
+    ...(verification ? { verification } : {}),
   } as const;
   if (variant === "first") {
     return updateKeys.some((key) => params.has(key))
@@ -99,6 +120,7 @@ type Headline = {
   readonly note: string;
 };
 function headline(input: ReviewBannerInput): Headline {
+  if (input.verification) return verificationHeadline(input);
   const total = severities.reduce((sum, key) => sum + input.counts[key], 0);
   if (input.state === "incomplete") {
     return input.variant === "update"
@@ -169,6 +191,81 @@ function headline(input: ReviewBannerInput): Headline {
   };
 }
 
+/** Verification is a review-time fact; its candidate count never means native closure. */
+function verificationHeadline(input: ReviewBannerInput): Headline {
+  const { verification, ...previous } = input;
+  const original = headline(previous as ReviewBannerInput);
+  if (!verification) return original;
+  const { fixesVerified, unverified, confirmedOpen } = verification;
+  const fixes = `${fixesVerified} ${fixesVerified === 1 ? "fix" : "fixes"} verified`;
+  const unknown = `${unverified} previous ${issue(unverified)} not verified`;
+  const confirmed = `${confirmedOpen} previous ${issue(confirmedOpen)} confirmed open`;
+  if (input.state === "incomplete")
+    return {
+      first:
+        input.variant === "update" && input.update.new > 0
+          ? `${input.update.new} new ${issue(input.update.new)} found`
+          : original.first,
+      ...(fixesVerified > 0
+        ? { second: fixes }
+        : unverified > 0
+          ? { second: unknown }
+          : original.second
+            ? { second: original.second }
+            : {}),
+      note:
+        unverified > 0
+          ? `${unknown}.`
+          : fixesVerified > 0
+            ? "Review remains incomplete."
+            : original.note,
+    };
+  const added = input.variant === "update" ? input.update.new : 0;
+  const resolved = input.variant === "update" ? input.update.resolved : 0;
+  const total = severities.reduce((sum, key) => sum + input.counts[key], 0);
+  const current = input.variant === "first" && total > 0;
+  const first =
+    added > 0
+      ? `${added} new ${issue(added)} found`
+      : current
+        ? original.first
+        : fixesVerified > 0
+          ? fixes
+          : resolved > 0
+            ? `${resolved} ${issue(resolved)} resolved`
+            : confirmedOpen > 0
+              ? confirmed
+              : unverified > 0
+                ? unknown
+                : original.first;
+  const second =
+    (added > 0 || current) && fixesVerified > 0
+      ? fixes
+      : fixesVerified > 0 && resolved > 0
+        ? `${resolved} ${issue(resolved)} resolved`
+        : fixesVerified > 0 && confirmedOpen > 0
+          ? confirmed
+          : unverified > 0 && first !== unknown
+            ? unknown
+            : current
+              ? original.second
+              : undefined;
+  return {
+    first,
+    ...(second ? { second } : {}),
+    note:
+      unverified > 0
+        ? first === unknown
+          ? "No all-clear established."
+          : `${unknown}.`
+        : fixesVerified > 0
+          ? "Thread closure counted separately."
+          : confirmedOpen > 0
+            ? "Previously reported findings remain confirmed."
+            : original.note,
+  };
+}
+
 function renderBanner(input: ReviewBannerInput): string {
   const compact = input.layout === "compact";
   const width = compact ? 480 : 1200;
@@ -185,19 +282,28 @@ function renderBanner(input: ReviewBannerInput): string {
   const clean =
     input.state === "complete" &&
     severities.every((key) => input.counts[key] === 0) &&
-    (input.variant === "first" || input.update.open === 0);
+    (input.variant === "first" || input.update.open === 0) &&
+    (!input.verification ||
+      Object.values(input.verification).every((count) => count === 0));
   const priority = severities.find((key) => input.counts[key] > 0);
+  const verificationWarning =
+    (input.verification?.unverified ?? 0) > 0 && priority !== "critical";
+  const verificationCritical = !!input.verification && priority === "critical";
   const lowPriority =
-    action && input.state === "complete" && !clean && priority !== "critical";
+    action &&
+    input.state === "complete" &&
+    !clean &&
+    priority !== "critical" &&
+    !input.verification?.unverified;
   const accent = lowPriority
     ? priority === "major"
       ? themeValue("accent", "#e3b341", "#7d4e00")
       : themeValue("accent", "#79c0ff", "#0969da")
-    : input.state === "incomplete"
+    : input.state === "incomplete" || verificationWarning
       ? themeValue("accent", "#e3b341", "#7d4e00")
       : clean
         ? themeValue("accent", "#7ee787", "#1a7f37")
-        : action
+        : action || verificationCritical
           ? themeValue("accent", "#ff8f96", "#ad2333")
           : themeValue("accent", "#79c0ff", "#0969da");
   const ink = themeValue("ink", "#f0f3f6", "#1f2328");
@@ -207,16 +313,25 @@ function renderBanner(input: ReviewBannerInput): string {
     ? priority === "major"
       ? themeValue("tint", "#292317", "#fff8e6")
       : themeValue("tint", "#182437", "#edf3ff")
-    : input.state === "incomplete"
+    : input.state === "incomplete" || verificationWarning
       ? themeValue("tint", "#292317", "#fff8e6")
       : clean
         ? themeValue("tint", "#14261c", "#edf8f0")
-        : action
+        : action || verificationCritical
           ? themeValue("tint", "#27191f", "#fff2f1")
           : themeValue("tint", "#182437", "#edf3ff");
   const line = themeValue("line", "#30363d", "#d1d9e0");
-  const status =
-    input.state === "incomplete"
+  const verificationUnknownOnly =
+    !!input.verification &&
+    input.verification.unverified > 0 &&
+    input.verification.fixesVerified === 0 &&
+    input.verification.confirmedOpen === 0 &&
+    severities.every((key) => input.counts[key] === 0) &&
+    (input.variant === "first" ||
+      (input.update.new === 0 && input.update.resolved === 0));
+  const status = verificationUnknownOnly
+    ? "VERIFICATION INCOMPLETE"
+    : input.state === "incomplete"
       ? "REVIEW INCOMPLETE"
       : input.variant === "update"
         ? "REVIEW UPDATED"
@@ -265,13 +380,22 @@ function renderBanner(input: ReviewBannerInput): string {
             .map((key) => `${input.counts[key]} ${key}`);
   const left = compact ? 28 : 36;
   const headlineFirst =
-    compact && input.state === "incomplete" && input.variant === "update"
+    compact &&
+    input.state === "incomplete" &&
+    input.variant === "update" &&
+    !input.verification
       ? "Update not finished"
-      : action && input.state === "complete" && title.second && !compact
+      : action &&
+          input.state === "complete" &&
+          title.second &&
+          !compact &&
+          !input.verification
         ? `${title.first} ${title.second}`
         : title.first;
   const headlineSecond =
-    action && input.state === "complete" && !compact ? undefined : title.second;
+    action && input.state === "complete" && !compact && !input.verification
+      ? undefined
+      : title.second;
   const note = title.note;
   const logoEffect = compact
     ? ""
@@ -281,7 +405,10 @@ function renderBanner(input: ReviewBannerInput): string {
     headlineFirst,
     headlineSecond,
     coverage,
-    ...(input.variant === "update" && input.update.unverified > 0
+    ...((input.variant === "update" && input.update.unverified > 0) ||
+    (input.verification &&
+      (input.verification.unverified > 0 ||
+        input.verification.fixesVerified > 0))
       ? [note]
       : []),
     ...metrics,

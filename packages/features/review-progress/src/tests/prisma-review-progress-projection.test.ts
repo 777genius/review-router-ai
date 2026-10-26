@@ -47,6 +47,84 @@ describe("Prisma review progress projection", () => {
     expect(fixture.upsertProgress).not.toHaveBeenCalled();
   });
 
+  it("captures v2 lifecycle work without inflating file coverage", async () => {
+    const current = execution();
+    const verifier = {
+      ...current.workSlots[0]!,
+      workSlotId: "slot-verifier",
+      taskKind: ReviewTaskKind.LifecycleRevalidation,
+      required: false,
+    };
+    const fixture = transactionFixture({
+      assignmentManifestVersion: 2,
+      assignmentManifestJson: lifecycleManifest(),
+    });
+
+    await captureReviewProgress(
+      fixture.transaction,
+      execution({ workSlots: [...current.workSlots, verifier] }),
+      { fileCoverageEnabled: true },
+    );
+
+    expect(fixture.upsertProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          snapshotJson: expect.objectContaining({
+            counts: expect.objectContaining({
+              total: 2,
+              requiredTotal: 1,
+              optionalTotal: 1,
+            }),
+            fileCoverage: {
+              valid: true,
+              total: 1,
+              covered: 0,
+              uncovered: 0,
+              excluded: 0,
+            },
+          }),
+        }),
+      }),
+    );
+    expect(fixture.createPublication).toHaveBeenCalledOnce();
+  });
+
+  it.each([2, 3])(
+    "rejects stored version %s when it disagrees with the v1 body",
+    async (storedVersion) => {
+      const fixture = transactionFixture({
+        assignmentManifestVersion: storedVersion,
+        assignmentManifestJson: fileManifest(),
+      });
+      await expect(
+        captureReviewProgress(fixture.transaction, execution()),
+      ).rejects.toThrow("review_assignment_manifest_persisted_invalid");
+      expect(fixture.upsertProgress).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves v1 file coverage capture", async () => {
+    const fixture = transactionFixture({
+      assignmentManifestVersion: 1,
+      assignmentManifestJson: fileManifest(),
+    });
+    await captureReviewProgress(fixture.transaction, execution(), {
+      fileCoverageEnabled: true,
+    });
+    expect(fixture.upsertProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          snapshotHash:
+            "c5b0fe3c4bd7d7741af0076f42cddaa9c13a2598c872482fd8e2623d95baa981",
+          eligibleFileCount: 1,
+          coveredFileCount: 0,
+          uncoveredFileCount: 0,
+          excludedFileCount: 0,
+        }),
+      }),
+    );
+  });
+
   it("rejects a malformed persisted progress snapshot with a stable error", async () => {
     const fixture = transactionFixture({
       existingProgress: {
@@ -213,5 +291,82 @@ function execution(overrides: Partial<ReviewExecution> = {}): ReviewExecution {
     executionDeadlineAt: new Date(now.getTime() + 120_000),
     retainUntil: new Date(now.getTime() + 86_400_000),
     ...overrides,
+  };
+}
+
+function fileManifest() {
+  return {
+    manifestVersion: 1,
+    assignments: [{ workSlotId: "slot-1", paths: ["src/a.ts"] }],
+    eligiblePaths: ["src/a.ts"],
+    uncoveredPaths: [],
+    excludedPaths: [],
+  };
+}
+
+function testHash(value: string) {
+  return value.repeat(64);
+}
+
+function lifecycleManifest() {
+  return {
+    manifestVersion: 2,
+    assignments: [
+      { workSlotId: "slot-1", paths: ["src/a.ts"] },
+      { workSlotId: "slot-verifier", paths: [] as string[] },
+    ],
+    eligiblePaths: ["src/a.ts"],
+    uncoveredPaths: [],
+    excludedPaths: [],
+    lifecyclePlan: {
+      version: 1,
+      capabilityHash: testHash("a"),
+      descriptorDigest: `sha256:${testHash("b")}`,
+      policyDigest: testHash("c"),
+      inventoryHash: testHash("d"),
+      inventoryCount: 1,
+      dispositionCounts: {
+        eligible: 1,
+        manual: 0,
+        unsupported: 0,
+        capped: 0,
+        unavailable: 0,
+        resolved: 0,
+      },
+      participantRoster: [{ providerVoteIdentityHash: testHash("c") }],
+      targets: [
+        {
+          targetId: "target-1",
+          threadId: "thread-1",
+          fingerprint: "rrl_" + "f".repeat(32),
+          parentId: "parent-1",
+          parentCreatedAt: "2026-10-20T00:00:00.000Z",
+          parentUpdatedAt: "2026-10-20T00:00:00.000Z",
+          parentBodyHash: testHash("a"),
+          claimHash: testHash("b"),
+          commentStateHash: testHash("c"),
+          ledgerWatermark: "0",
+          originalPath: "src/outside-diff.ts",
+          currentPath: "src/outside-diff.ts",
+          originalLine: 1,
+          currentLine: 1,
+          severity: "major",
+          resolutionHistory: {
+            historyCut: "2026-10-19T00:00:00.000Z",
+            guardVersion: "0",
+            state: "before_cut_unobserved",
+          },
+        },
+      ],
+      assignments: [
+        {
+          workSlotId: "slot-verifier",
+          packetHash: testHash("e"),
+          targetIds: ["target-1"],
+          lifecycleTargetSetHash: testHash("f"),
+          liveLifecycleStateHash: testHash("a"),
+        },
+      ],
+    },
   };
 }

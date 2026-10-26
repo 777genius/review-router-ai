@@ -51,6 +51,8 @@ export async function startNextApp(input: {
     secrets: input.secrets,
     tmpDir: join(input.workDir, "app-tmp"),
   });
+  if (process.argv.includes("--account-models-fixture"))
+    environment.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED = "1";
   if (input.skillsGitHub)
     Object.assign(environment, {
       REVIEW_ROUTER_SKILLS_E2E: "1",

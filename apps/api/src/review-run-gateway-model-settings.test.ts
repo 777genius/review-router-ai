@@ -24,6 +24,9 @@ import {
 function fixture(
   model = "gpt-prefix/dynamic",
   reasoningEffort?: "minimal" | "high" | "max" | "ultra",
+  options: { readonly accountModelCatalogEnabled?: boolean } = {
+    accountModelCatalogEnabled: true,
+  },
 ) {
   const configuration = parseReviewConfigurationStrict({
     ...workspacePolicyFixture,
@@ -172,6 +175,7 @@ function fixture(
     },
   );
   const readSettings = createReviewRunGatewayModelSettingsReader({
+    ...options,
     accounts: { findBinding: vi.fn(async () => structuredClone(row)) },
     control: { get, readAccountModels },
     profiles: [
@@ -271,6 +275,45 @@ function fixture(
     },
   };
 }
+
+it("without catalog opt-in preserves only authorized anchors and all live account fences without discovery", async () => {
+  const anchor = fixture("gpt-5.6-sol", "ultra", {});
+  anchor.readAccountModels.mockRejectedValue(
+    new Error("preserved_gateway_has_no_catalog_endpoint"),
+  );
+  const result = await anchor.issue();
+  expect(result.runtimeConfig.runtimeEnv.CODEX_REASONING_EFFORT).toBe("ultra");
+  expect(result.runtimeConfig.runtimeEnv).not.toHaveProperty(
+    gatewayModelSettingsRuntimeEnvKey,
+  );
+  expect(anchor.get).toHaveBeenCalledTimes(1);
+  expect(anchor.readAccountModels).not.toHaveBeenCalled();
+  expect(anchor.issuer).toHaveBeenCalledTimes(1);
+
+  const unseen = fixture("gpt-prefix/dynamic", undefined, {});
+  await expect(unseen.issue()).rejects.toThrow();
+  expect(unseen.readAccountModels).not.toHaveBeenCalled();
+  expect(unseen.issuer).not.toHaveBeenCalled();
+
+  for (const change of [
+    "foreign",
+    "remove",
+    "changeBinding",
+    "revoke",
+    "changeAuthorization",
+  ] as const) {
+    const stale = fixture("gpt-5.6-sol", "ultra", {});
+    stale.duringGet(stale[change]);
+    await expect(stale.issue()).rejects.toThrow();
+    expect(stale.readAccountModels).not.toHaveBeenCalled();
+    expect(stale.issuer).not.toHaveBeenCalled();
+  }
+  const attached = fixture("gpt-5.6-sol", "ultra", {});
+  attached.attach(8);
+  await expect(attached.issue()).rejects.toThrow();
+  expect(attached.readAccountModels).not.toHaveBeenCalled();
+  expect(attached.issuer).not.toHaveBeenCalled();
+});
 
 it("exports only deterministic exact-model settings while preserving saved effort omission and private identity", async () => {
   const f = fixture();

@@ -135,6 +135,7 @@ it.each([
       },
       128,
       selection,
+      true,
     );
     try {
       const bytes = companionEnvelope(selection.model);
@@ -456,6 +457,7 @@ async function fixture(
   },
   capturedRequests = 128,
   selection = { profileId: "profile-1", model: "gpt-5.6-sol" },
+  accountModelCatalogEnabled = false,
 ) {
   const deadline = new Date(Date.now() + 120_000).toISOString();
   const limits = {
@@ -766,6 +768,7 @@ async function fixture(
     bindings,
   });
   const relay = createReviewRunGatewayRelay({
+    accountModelCatalogEnabled,
     policy: {
       profiles: [
         {
@@ -1502,10 +1505,17 @@ it.each([
   "account model %s keeps the authorized Responses path (dynamic=%s)",
   async (profileId, dynamic) => {
     const model = "authorized-account-model-not-in-anchor";
-    const f = await fixture(MiB, 0, 2, 5000, undefined, undefined, 128, {
-      profileId,
-      model,
-    });
+    const f = await fixture(
+      MiB,
+      0,
+      2,
+      5000,
+      undefined,
+      undefined,
+      128,
+      { profileId, model },
+      true,
+    );
     try {
       const response = f.relay.responses(
         "local-authorization-token",
@@ -1548,10 +1558,17 @@ it.each([
 
 it("revocation while preparing a dynamic Codex model still prevents inference", async () => {
   const model = "authorized-account-model-not-in-anchor";
-  const f = await fixture(MiB, 0, 2, 5000, undefined, undefined, 128, {
-    profileId: "openai-codex-oauth-responses-v1",
-    model,
-  });
+  const f = await fixture(
+    MiB,
+    0,
+    2,
+    5000,
+    undefined,
+    undefined,
+    128,
+    { profileId: "openai-codex-oauth-responses-v1", model },
+    true,
+  );
   const held = f.holdPrepare();
   try {
     const response = f.relay.responses(
@@ -1579,3 +1596,47 @@ it("revocation while preparing a dynamic Codex model still prevents inference", 
     await f.relay.shutdown();
   }
 });
+
+it.each([
+  { model: "gpt-5.6-sol", allowed: true },
+  { model: "authorized-account-model-not-in-anchor", allowed: false },
+])(
+  "without catalog opt-in the relay admits only configured Codex models: $model",
+  async ({ model, allowed }) => {
+    const f = await fixture(MiB, 0, 2, 5000, undefined, undefined, 128, {
+      profileId: "openai-codex-oauth-responses-v1",
+      model,
+    });
+    try {
+      const response = f.relay.responses(
+        "local-authorization-token",
+        new TextEncoder().encode(
+          JSON.stringify({
+            model,
+            input: [],
+            stream: true,
+            max_output_tokens: 100,
+          }),
+        ),
+        new AbortController(),
+      );
+      if (!allowed) {
+        await expect(response).rejects.toMatchObject({
+          code: "gateway_unavailable",
+          effect: "not_dispatched",
+        });
+        expect(f.intents).toHaveLength(0);
+        expect(f.admissions).toHaveLength(0);
+        expect(f.requestModels).toHaveLength(0);
+        return;
+      }
+      const result = await response;
+      if (result.kind !== "stream") throw new Error("expected_stream");
+      for await (const chunk of result.body) void chunk;
+      expect(f.intents).toHaveLength(1);
+      expect(f.requestModels).toEqual([model]);
+    } finally {
+      await f.relay.shutdown();
+    }
+  },
+);

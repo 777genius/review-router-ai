@@ -90,7 +90,10 @@ describe("private dashboard probe issuer", () => {
 
 afterEach(() => vi.restoreAllMocks());
 
-function authorizedProbeFixture(profileId: string) {
+function authorizedProbeFixture(
+  profileId: string,
+  env: Readonly<Record<string, string | undefined>> = {},
+) {
   let available = true;
   let foreign = false;
   let revokeDuringGet = false;
@@ -191,7 +194,7 @@ function authorizedProbeFixture(profileId: string) {
     ],
     control: { get, runAccess },
     executionOrigin: "http://localhost:1234",
-    env: {},
+    env,
   });
   return {
     issuer,
@@ -216,7 +219,9 @@ it.each([
 ] as const)(
   "diagnostic unseen model follows only the dynamic Codex path: %s",
   async (profileId, dynamic) => {
-    const f = authorizedProbeFixture(profileId);
+    const f = authorizedProbeFixture(profileId, {
+      REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED: "1",
+    });
     const body = {
       ...request(),
       model: "authorized-account-model-not-in-anchor",
@@ -236,7 +241,9 @@ it.each([
 it.each(["foreignOwner", "revoke"] as const)(
   "diagnostic dynamic model cannot bypass account authority: %s",
   async (change) => {
-    const f = authorizedProbeFixture("openai-codex-oauth-responses-v1");
+    const f = authorizedProbeFixture("openai-codex-oauth-responses-v1", {
+      REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED: "1",
+    });
     f[change]();
     const body = {
       ...request(),
@@ -246,5 +253,28 @@ it.each(["foreignOwner", "revoke"] as const)(
       (await f.issuer(body, signGatewayProbeAccess(body, secret))).status,
     ).toBe(403);
     expect(f.runAccess).not.toHaveBeenCalled();
+  },
+);
+
+it.each([undefined, "0", "true"])(
+  "requires explicit catalog opt-in before minting a non-anchor diagnostic: %s",
+  async (flag) => {
+    const f = authorizedProbeFixture("openai-codex-oauth-responses-v1", {
+      REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED: flag,
+    });
+    const unknown = {
+      ...request(),
+      model: "authorized-account-model-not-in-anchor",
+    };
+    expect(
+      (await f.issuer(unknown, signGatewayProbeAccess(unknown, secret))).status,
+    ).toBe(403);
+    expect(f.get).not.toHaveBeenCalled();
+    expect(f.runAccess).not.toHaveBeenCalled();
+    const anchor = { ...request(), model: "frozen-anchor" };
+    expect(
+      (await f.issuer(anchor, signGatewayProbeAccess(anchor, secret))).status,
+    ).toBe(200);
+    expect(f.runAccess).toHaveBeenCalledTimes(1);
   },
 );

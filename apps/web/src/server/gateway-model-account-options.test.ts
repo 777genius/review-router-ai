@@ -5,7 +5,10 @@ import {
   type BindingSelection,
 } from "@reviewrouter/features-provider-accounts";
 import type * as c from "@agent-teams/account-gateway/contracts";
+import { GatewayError } from "@agent-teams/account-gateway/http";
+import type { ReviewProviderConfiguration } from "@reviewrouter/features-review-config";
 import { createGatewayModelAccountOptions } from "./gateway-model-account-options";
+import { assertGatewayReviewConfigSupported } from "./gateway-review-config-catalog";
 
 afterEach(() => vi.restoreAllMocks());
 const setting = (modelId: string): c.AccountModelCapability => ({
@@ -26,7 +29,10 @@ const snapshot = (models: string[]): c.AccountModels => ({
   expiresAt: "2026-10-25T10:05:00.000Z",
   models: models.map(setting),
 });
-function fixture() {
+const catalogEnabled = {
+  REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED: "1",
+};
+function fixture(env: Readonly<Record<string, string | undefined>> = {}) {
   let authorized = true;
   let revision = 1;
   let duringModels: (() => void) | undefined;
@@ -89,7 +95,7 @@ function fixture() {
   } as unknown as PrismaClient;
   const api = createGatewayModelAccountOptions({
     prisma,
-    env: {},
+    env,
     profiles: [
       {
         id: "openai-codex-oauth-responses-v1",
@@ -130,7 +136,7 @@ function fixture() {
 // RED if first paint discovers all account catalogs, a seed replaces an empty
 // snapshot, private identities escape, or a model from another source probes.
 test("discovers only selected account models and uses the same capabilities for probes", async () => {
-  const f = fixture();
+  const f = fixture(catalogEnabled);
   const page = await f.api.list();
   expect(page.status).toBe("ok");
   expect(f.readAccountModels).not.toHaveBeenCalled();
@@ -210,7 +216,7 @@ test("discovers only selected account models and uses the same capabilities for 
 test.each(["revoke", "changeBinding"] as const)(
   "discards discovery when authority changes during the await: %s",
   async (change) => {
-    const f = fixture();
+    const f = fixture(catalogEnabled);
     f[change]();
     expect(await f.api.get("binding")).toEqual({ status: "denied" });
   },
@@ -221,7 +227,7 @@ test.each(["revoke", "changeBinding"] as const)(
 test.each(["duplicate", "oversize"] as const)(
   "rejects invalid catalog bounds without seed admission: %s",
   async (mode) => {
-    const f = fixture();
+    const f = fixture(catalogEnabled);
     f.respond(
       snapshot(
         mode === "duplicate"
@@ -239,5 +245,79 @@ test.each(["duplicate", "oversize"] as const)(
     await expect(
       f.api.resolveProbe("binding", "old-seed"),
     ).rejects.toMatchObject({ code: "binding_unavailable" });
+  },
+);
+
+test.each([undefined, "0", "true"])(
+  "keeps authorized legacy save/probe choices without discovery unless opted in: %s",
+  async (flag) => {
+    const f = fixture({
+      REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED: flag,
+    });
+    f.readAccountModels.mockRejectedValue(
+      new GatewayError("transport", "not_dispatched"),
+    );
+    const result = await f.api.get("binding", { forceRefresh: true });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") throw new Error("account_expected");
+    expect(result.value.profile.models).toEqual(["old-seed"]);
+    expect(result.value.account).not.toHaveProperty("modelCatalog");
+    const provider = {
+      kind: "codex",
+      authMode: "codex_account_gateway",
+      gatewayBindingId: "binding",
+      gatewayProfileRef: "openai-codex-oauth-responses-v1",
+      model: "old-seed",
+      reasoningEffort: "high",
+      fastMode: false,
+      agenticContext: true,
+      requiredHealthy: true,
+    } satisfies ReviewProviderConfiguration;
+    expect(() =>
+      assertGatewayReviewConfigSupported({ providers: [provider] }, [
+        result.value.profile,
+      ]),
+    ).not.toThrow();
+    expect(() =>
+      assertGatewayReviewConfigSupported(
+        { providers: [{ ...provider, model: "new-authorized-model" }] },
+        [result.value.profile],
+      ),
+    ).toThrow("gateway_review_model_unsupported");
+    await expect(
+      f.api.resolveProbe("binding", "old-seed"),
+    ).resolves.toMatchObject({ bindingId: "binding" });
+    await expect(
+      f.api.resolveProbe("binding", "new-authorized-model"),
+    ).rejects.toMatchObject({ code: "binding_unavailable" });
+    expect(f.readAccountModels).not.toHaveBeenCalled();
+  },
+);
+
+test.each([401, 404, 503])(
+  "does not turn an enabled catalog HTTP %s failure into legacy authorization",
+  async (httpStatus) => {
+    const f = fixture(catalogEnabled);
+    f.readAccountModels.mockRejectedValue(
+      new GatewayError(
+        "transport",
+        "not_dispatched",
+        undefined,
+        undefined,
+        undefined,
+        httpStatus,
+      ),
+    );
+    expect(await f.api.get("binding")).toMatchObject({
+      status: "ok",
+      value: {
+        profile: { models: [] },
+        account: { modelCatalog: { status: "unknown", models: [] } },
+      },
+    });
+    await expect(
+      f.api.resolveProbe("binding", "old-seed"),
+    ).rejects.toMatchObject({ code: "binding_unavailable" });
+    expect(f.readAccountModels).toHaveBeenCalledTimes(2);
   },
 );

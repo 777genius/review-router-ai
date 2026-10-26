@@ -58,6 +58,8 @@ import {
 } from "../../../packages/platform/db/src/index.js";
 import {
   SystemClock,
+  lifecycleVerificationContract,
+  lifecycleVerificationDescriptorDigest,
   type ProviderApiAuthMode,
 } from "../../../packages/shared/src/index.js";
 import {
@@ -116,6 +118,10 @@ import {
 } from "../../../apps/worker/src/review-v2-worker-runtime.js";
 import { FakeGitHubTransport, type FakeGitHubRevision } from "./fake-github.js";
 
+const lifecycleVerificationExtensionV1 = {
+  extensionId: lifecycleVerificationContract.extensionId,
+  descriptorDigest: lifecycleVerificationDescriptorDigest,
+};
 const owner = "reviewrouter-e2e";
 const repo = "disposable-review-v2";
 const pullRequestNumber = 42;
@@ -186,6 +192,7 @@ export type ReviewActionV2E2EHarnessOptions = Readonly<{
   beforeFakeGitHubRead?: (request: Request) => Promise<void>;
   protocolMaxAttemptsPerSlot?: number;
   prDescriptionProfile?: boolean;
+  lifecycleVerificationProfile?: boolean;
   /**
    * The repository's stored provider selection. The workspace has no default
    * provider, so "rotating" (the default) stores a repository selection of
@@ -315,6 +322,9 @@ export class ReviewActionV2E2EHarness {
         protocolLimitsProfileId,
         operationalSloProfileId,
         ...(options.prDescriptionProfile ? { prDescriptionProfile: true } : {}),
+        ...(options.lifecycleVerificationProfile
+          ? { lifecycleVerificationProfile: true }
+          : {}),
         ...(options.investigationProfile
           ? { investigationProfile: options.investigationProfile }
           : {}),
@@ -368,6 +378,9 @@ export class ReviewActionV2E2EHarness {
         protocolLimitsProfileId,
         operationalSloProfileId,
         ...(options.prDescriptionProfile ? { prDescriptionProfile: true } : {}),
+        ...(options.lifecycleVerificationProfile
+          ? { lifecycleVerificationProfile: true }
+          : {}),
         ...(options.investigationProfile
           ? { investigationProfile: options.investigationProfile }
           : {}),
@@ -1598,6 +1611,8 @@ export async function resetReviewActionV2E2EDatabase(
         "ReviewExecutionStreamV2",
         "ReviewRequestedIntent",
         "ReviewEvidenceObservation",
+        "ReviewRunCompanionDispatchV1",
+        "ReviewThreadResolutionGuardV1",
         "ReviewRunAuthorizationRenewalReceipt",
         "ReviewRunAuthorization",
         "ReviewSafetyPolicySelector",
@@ -1661,6 +1676,7 @@ async function seedProductionControlPlane(
     protocolMaxAttemptsPerSlot?: number;
     agentProfiles?: readonly ReviewAgentProfile[];
     prDescriptionProfile?: boolean;
+    lifecycleVerificationProfile?: boolean;
     repositoryProviderSelection: "rotating" | "none";
   }>,
 ): Promise<void> {
@@ -1729,6 +1745,13 @@ async function seedProductionControlPlane(
       ),
       ...(ids.prDescriptionProfile
         ? { prDescriptionProfile: { ...prDescriptionExtensionV1 } }
+        : {}),
+      ...(ids.lifecycleVerificationProfile
+        ? {
+            lifecycleVerificationProfile: {
+              ...lifecycleVerificationExtensionV1,
+            },
+          }
         : {}),
       contextGatewayPolicyVersion:
         ids.investigationProfile?.gatewayPolicyVersion ??
@@ -1888,6 +1911,7 @@ function productionEnv(input: {
   readonly operationalSloProfileId: string;
   readonly investigationProfile?: ReviewActionV2E2EInvestigationProfile;
   readonly prDescriptionProfile?: boolean;
+  readonly lifecycleVerificationProfile?: boolean;
 }): Readonly<Record<string, string>> {
   const contextReplayKeyId = "review-v2-e2e-context-key";
   const signingKeys = JSON.stringify([
@@ -1919,6 +1943,9 @@ function productionEnv(input: {
         agentProfiles: input.agentProfiles ?? approvedAgentProfilesFixture,
         ...(input.prDescriptionProfile
           ? { prDescriptionProfile: prDescriptionExtensionV1 }
+          : {}),
+        ...(input.lifecycleVerificationProfile
+          ? { lifecycleVerificationProfile: lifecycleVerificationExtensionV1 }
           : {}),
         reviewInvestigationCapability: input.investigationProfile
           ? reviewInvestigationCapabilityV1
