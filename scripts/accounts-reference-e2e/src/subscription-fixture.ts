@@ -403,6 +403,29 @@ export function createSubscriptionFixture(
       if (operations.has(operationId))
         return { status: 200, body: operations.get(operationId) };
       stats.operationIds.push(operationId);
+      if (reconnect && profile.provider !== "grok") {
+        if (
+          !reconnectAccount ||
+          reconnectAccount.metadataRevision !== input.expectedMetadataRevision
+        )
+          return denied();
+        if (
+          (input.credential as { value?: unknown } | undefined)?.value !==
+          `synthetic-${profile.provider}-subscription-key`
+        )
+          return denied();
+        stats.reconnects++;
+        return {
+          status: 200,
+          body: applied(
+            operationId,
+            reconnectAccount.ownerRef,
+            profile,
+            reconnectAccount.displayName,
+            reconnectAccount.accountRef,
+          ),
+        };
+      }
       if (path.endsWith("/begin") || reconnect) {
         if (
           reconnect &&
