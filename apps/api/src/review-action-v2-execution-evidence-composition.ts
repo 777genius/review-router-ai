@@ -419,7 +419,10 @@ async function startExecution(
     authorization,
     workSlots,
     request.assignmentManifestCanonicalJson
-      ? JSON.parse(request.assignmentManifestCanonicalJson)
+      ? parseCanonicalJson(
+          request.assignmentManifestCanonicalJson,
+          "assignment_manifest_invalid",
+        )
       : null,
   );
   const now = d.now();

@@ -1,6 +1,23 @@
-# Provider-neutral revalidation предыдущих findings: implementation-ready plan, PLANNED
+# Provider-neutral revalidation предыдущих findings: IMPLEMENTED source contract
 
-Статус: **PLANNED, не реализовано**. Выбран владельцем вариант 1; финальная редакция v3 после ровно трёх кругов review/correction, по два независимых критика `gpt-6.1-sol/xhigh` на круг; автор тот же профиль. Q и plan-improve применены. Реализация, model calls, GitHub writes и deployment этим документом не выполняются. v0/v1/v2 и reviews неизменны; разборы — артефакты revision-r1.md, revision-r2.md, revision-r3.md. Четвёртого круга нет.
+Статус: **IMPLEMENTED в source и controlled qualification**. Выбранный владельцем вариант 1 реализован как отдельный bounded verifier в существующем execution. Принятый v3 прошёл ровно три круга review/correction, по два независимых критика `gpt-6.1-sol/xhigh` на круг; автор того же профиля, Q и plan-improve применены. v0/v1/v2/v3 и шесть исходных reviews остаются историческими evidence; новых кругов планирования этот статус не вводит.
+
+## Реализованный контракт и границы доказательств
+
+Source checkpoint 2026-10-26: private `642fdf35da3e310165465078a2845473e82aa556`, paired public Action `v1.0.216` / `21c54f10c891951199af621ac70325239ba4335a`. В controlled paired harness прошли все семь сценариев без skips: success, denied, unknown, missing_verdict, invalid_quote, wrong_packet, forged_claim. К этому checkpoint относятся также 58 contract/parity checks и реальные PostgreSQL dispatch/history checks. Это проверка исходников, protocol/DB composition и synthetic native observations; она не подменяет production model/GitHub canary.
+
+Реализация сохраняет разделение policy/use case и I/O: public `src/finding-revalidation`, lifecycle planning/invocation adapters и production T0 composition; private `review-lifecycle-verification.ts`, `ReviewRunCompanionDispatchAdmission`/claim repository и отдельная one-shot ветка Gateway relay. Assignment v2 хранит bounded selected witnesses и planned roster; projection содержит confirmation/target-blocking facts, raw recurrence veto и immutable verification-time summary. Resolution-history port, compact guards и canonical publication сохраняют различие semantic fix и подтверждённого native effect.
+
+- Verifier доступен только через **Account Gateway Responses**, с уже выбранными model/connection/lane, tools disabled и максимум двумя one-attempt packets внутри прежнего aggregate R после discovery. Это один verifier vote, без нового Codex engine и без budget/model fallback. Direct OpenRouter, MiMo/Kimi API credentials, Secrets и Hosted verifier routes остаются unavailable; наличие discovery transport не разрешает companion inference.
+- «N fixes verified» означает подтверждение исправления на момент projection. Actual native closure требует canonical receipt/effect и fresh native state. Текущие artifact/body hashes/snapshot не переписываются после success/denied/unknown; native-resolved counts может добавить следующая обычная projection.
+- Для **первого bootstrap неинструментированных managed writers** реализован более консервативный `retired_legacy_writers_quarantine.v1`: доказательство retirement полного старого executor set и прекращения ingress не выдаётся за terminal settlement старых promises. Parents, созданные **на cut или раньше**, manual/quarantined; положительный auto-resolve через этот bootstrap требует post-cut parent. Это явное ограничение относительно принятого ниже v3 допуска legacy-before-cut с unobserved history; остальные qualified activation semantics сохраняются. Подробности и stable repository/PR membership guard — в [implementation notes](60-provider-neutral-finding-revalidation-implementation-notes.md).
+- Для принятого R=9 canary добавлен admission-policy adapter `REVIEW_ROUTER_GATEWAY_REQUEST_CAPS_JSON`: только точный scope и снижение captured grant. Он не повышает shared R=640, не меняет чужие scopes и не добавляет partition/quota service; restore сохраняет исходный grant. Source adapter не является доказательством установки правила или live canary.
+
+Merge, private image/schema activation, producer registration и production acceptance устанавливаются отдельными exact-commit PR/release/rollout/canary receipts по [release source of truth](../operations/07-environments-and-release-management.md). Этот архитектурный статус сам по себе не доказывает доставку или включение capability у клиента.
+
+## Сохранённый принятый v3 контракт
+
+Разделы 1–10 ниже сохраняют исходные требования, acceptance criteria и planning baseline от 2026-10-25. Будущее время и исходные refs в них исторические, а не утверждение об отсутствии реализации. Реализованные уточнения bootstrap и scope-cap adapter описаны выше и в implementation notes; исходные критерии не переписаны под результаты проверок.
 
 ## 1. Результат и границы
 
@@ -12,7 +29,7 @@
 
 Первый вертикальный срез поддерживает **Account Gateway parent Responses transport с OCR или Codex discovery**. Domain/use case не зависит от этих engines. Активация direct OpenRouter provider-API companion отложена: фактический route минует RR relay и не имеет server finite-grant ledger; существующая description-only реализация не доказывает durable spend enforcement для verifier. Codex Secrets/Hosted/остальные неподдерживаемые routes также не получают SDK/API-key fallback. Прежний runtime совместим, новая capability на этих routes unavailable. Это явное ограничение первого среза, а не утверждение об одинаковой авторизации transports.
 
-## 2. Проверенная исходная база и факты
+## 2. Историческая исходная база и факты до реализации
 
 Проверено повторно 2026-10-25: public main `f92e4fff822a0fef9e0daee792d8d4cf6783277d`; public worktree `2119071edd90a311ab1e0cacf4e1750e33c021fc` имеет тот же tree `8dd74bfd4c3c904c9b70e3865c64b60c7f9a3171`. Private main `8936af66fd60c46d7db75e934e069c687c155cd9`; исследованный `fe2f0b1a56a2dc12dd14beebfa87e1efacea75ec` отличается presentation/pairing; main-side commit #693 затрагивает skills management, без lifecycle/auth delta. Primary dirty `04f0256` не база реализации, чужие правки сохраняются.
 

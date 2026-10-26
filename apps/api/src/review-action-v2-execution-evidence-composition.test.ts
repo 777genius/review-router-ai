@@ -496,6 +496,56 @@ describe("Review Action v2 execution/evidence composition", () => {
     expect(d.executions.startReviewExecution.execute).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["malformed", '{"privateManifest":"never-expose-this",'],
+    ["noncanonical", ' { "privateManifest": "never-expose-this" } '],
+  ])(
+    "rejects %s assignment JSON with a safe protocol error before admission",
+    async (_kind, assignmentManifestCanonicalJson) => {
+      const d = executionDependencies();
+      const enabled = lifecycleAuthorization();
+      d.authorizations.resolveReviewRunAuthorizationToken = vi.fn(async () => ({
+        status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+        authorization: enabled,
+      }));
+      // Start from a valid hashed envelope, then corrupt the wire field so the
+      // real protocol parser rejects it before entering the handler.
+      const request = {
+        ...(await startRequest()),
+        assignmentManifestCanonicalJson,
+        assignmentManifestHash: hash("a"),
+      };
+      const app = Fastify({ logger: false });
+      await registerReviewExecutionV2Routes(app, {
+        ...createReviewActionV2ExecutionHandlers(d),
+        readServerTime: async () => now,
+        createRequestId: () => "invalid-assignment-start",
+      });
+      try {
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/action/v2/review-executions/start",
+          payload: request,
+        });
+        expect(response.statusCode).toBe(400);
+        expect(response.json().error).toMatchObject({
+          errorCode: ReviewActionV2ProtocolErrorCode.InvalidRequest,
+          details: {
+            issues: ["field_invalid:assignmentManifestCanonicalJson"],
+          },
+        });
+        expect(response.body).not.toContain("never-expose-this");
+        expect(response.body).not.toContain("SyntaxError");
+        expect(
+          d.executions.startReviewExecution.execute,
+        ).not.toHaveBeenCalled();
+        expect(d.executions.invocationFlights.execute).not.toHaveBeenCalled();
+      } finally {
+        await app.close();
+      }
+    },
+  );
+
   it("validates and binds a canonical assignment manifest before starting", async () => {
     const d = executionDependencies();
     d.executions.startReviewExecution.execute = vi.fn(async (input) =>
