@@ -52,8 +52,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: memory-projections-${{ github.ref }}
-  cancel-in-progress: true
+  # Manual qualification must not cancel branch/PR checks or another manual mode.
+  group: memory-projections-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 jobs:
   postgres-contracts:
