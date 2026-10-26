@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { useEffect, useState } from "react";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -22,9 +23,9 @@ import {
   setupPullRequestMergedEvent,
 } from "./repository-setup-optimistic-events";
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: vi.fn() }),
-}));
+const router = vi.hoisted(() => ({ refresh: vi.fn() }));
+
+vi.mock("next/navigation", () => ({ useRouter: () => router }));
 
 vi.mock("sonner", () => ({
   toast: {
@@ -53,6 +54,74 @@ afterEach(() => {
 });
 
 describe("RepositorySetupProgressPanel", () => {
+  it.each([
+    ["openrouter_api_key", "setup_pr", "1 of 4 - setup PR needed"],
+    ["openrouter_api_key", "merge_setup_pr", "2 of 4 - merge setup PR"],
+    ["claude_code_oauth", "setup_pr", "1 of 4 - setup PR needed"],
+    ["claude_code_oauth", "merge_setup_pr", "2 of 4 - merge setup PR"],
+  ] as const)(
+    "preserves the workflow and its next action when %s is confirmed at %s",
+    (authMode, step, progress) => {
+      const view = () => (
+        <RepositorySetupProgressPanel
+          workspaceId="workspace_1"
+          repositoryId="repo_1"
+          repositoryFullName="777genius/example"
+          selected
+          archived={false}
+          initialSetupStatus={
+            step === "setup_pr" ? "needs_attention" : "setup_pr_open"
+          }
+          initialSetupPullRequestUrl="https://github.com/777genius/example/pull/1"
+          initialSetupIssue={step === "setup_pr" ? "setup_pr_closed" : null}
+          workflowCurrent={false}
+          mutationsEnabled
+          initialStep={step}
+          expectedProviderAuthModes={[authMode]}
+        />
+      );
+      const confirmed = () =>
+        providerSetupConfirmedEvent({
+          repositoryId: "repo_1",
+          repositoryFullName: "777genius/example",
+          authMode,
+        });
+      const expectWorkflowPending = () => {
+        expect(screen.getByText(progress)).toBeTruthy();
+        expect(screen.queryByText("4 of 4 - complete")).toBeNull();
+        if (step === "setup_pr") {
+          expect(screen.getByText("Recover setup PR")).toBeTruthy();
+          expect(
+            screen.getByText("Previous setup PR was closed. Recreate it."),
+          ).toBeTruthy();
+          expect(
+            screen.getByRole("button", { name: /Recreate setup PR/i }),
+          ).toBeTruthy();
+        } else {
+          expect(
+            screen.getByRole("link", { name: /Open setup PR/i }),
+          ).toBeTruthy();
+        }
+      };
+      const rendered = render(view());
+
+      fireEvent(window, confirmed());
+      expect(router.refresh).toHaveBeenCalledTimes(1);
+      expectWorkflowPending();
+      rendered.rerender(view());
+      expectWorkflowPending();
+
+      act(() => {
+        window.dispatchEvent(
+          setupPullRequestMergedEvent({ repositoryId: "repo_1" }),
+        );
+        window.dispatchEvent(confirmed());
+      });
+      expect(screen.getByText("4 of 4 - complete")).toBeTruthy();
+      expect(screen.queryByText("Recover setup PR")).toBeNull();
+    },
+  );
+
   it("shows actual Gateway draining state despite cached complete progress", () => {
     render(
       <RepositorySetupProgressPanel
@@ -104,23 +173,17 @@ describe("RepositorySetupProgressPanel", () => {
         mutationsEnabled
         initialStep="setup_pr"
         providerSetupBeforeWorkflow
-        enableReviewAction={
-          <button type="button">Set up versioned provider</button>
-        }
+        enableReviewAction={<button type="button">Connect Codex</button>}
       />,
     );
 
-    expect(screen.getByText("1 of 4 - prepare versioned setup")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Set up versioned provider" }),
-    ).toBeTruthy();
+    expect(screen.getByText("1 of 4 - connect Codex")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Connect Codex" })).toBeTruthy();
     expect(
       screen.getByRole("button", { name: /Create setup PR/i }),
     ).toBeTruthy();
     expect(
-      screen.getByText(
-        "Seed the versioned provider namespace, then add its workflow by PR.",
-      ),
+      screen.getByText("Connect Codex, then create and merge the setup PR."),
     ).toBeTruthy();
   });
 
@@ -339,7 +402,7 @@ describe("RepositorySetupProgressPanel", () => {
     expect(actionUnmounts).toBe(0);
   });
 
-  it("allows a rotating provider namespace to refresh its merged workflow", async () => {
+  it("allows Codex setup to refresh its merged workflow", async () => {
     vi.mocked(createSetupPullRequestClientAction).mockResolvedValueOnce({
       params: {
         notice: "setup_pr_ready",
