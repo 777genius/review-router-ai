@@ -49,6 +49,8 @@ export async function startNextApp(input: {
         ...input.environment,
         NODE_ENV: "development",
         NEXT_TELEMETRY_DISABLED: "1",
+        // Bound native compiler concurrency in this resource-limited harness.
+        RAYON_NUM_THREADS: "1",
       },
       // Own process group, so stop() also ends the forked dev server.
       detached: true,
