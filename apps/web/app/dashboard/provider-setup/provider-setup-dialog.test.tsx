@@ -926,6 +926,48 @@ describe("ProviderSetupDialog", () => {
     await waitFor(() => expect(document.activeElement).toBe(secretStep));
   });
 
+  it("keeps focus on the credential step when opening autofocus is still queued", async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let frameId = 0;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      const id = ++frameId;
+      frames.set(id, callback);
+      return id;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+    const flushFrame = async () => {
+      await act(async () => {
+        const pending = [...frames.values()];
+        frames.clear();
+        for (const callback of pending) callback(performance.now());
+      });
+    };
+
+    renderDialog(repositoryTarget);
+    const trigger = screen.getByText("Change provider");
+    await choose("Second Claude");
+    // The opening dialog's autofocus has not run yet. A fast save can move to
+    // credentials before that pending frame focuses the first dialog control.
+    expect(frames.size).toBeGreaterThan(0);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    );
+    const secretStep = await screen.findByRole("button", {
+      name: "2. Add secret",
+    });
+    await waitFor(() =>
+      expect(secretStep.getAttribute("aria-current")).toBe("step"),
+    );
+    await flushFrame();
+    expect(document.activeElement).toBe(secretStep);
+    await act(async () => {
+      fireEvent.keyDown(secretStep, { key: "Escape" });
+    });
+    await flushFrame();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it("returns a repository with its own provider to the workspace default", async () => {
     view = {
       ...view,
