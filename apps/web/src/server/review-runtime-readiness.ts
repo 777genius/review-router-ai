@@ -11,14 +11,23 @@ import {
 } from "@reviewrouter/features-review-run-control/composition";
 import type { ReviewRuntimeCompatibility } from "@reviewrouter/features-provider-setup";
 import {
+  resolveHostedPoolActionRelease,
+  resolveReviewRouterActionRef,
+  resolveReviewRouterCodexRotatingActionRef,
+} from "@reviewrouter/platform-config";
+import {
+  reviewModelTransports,
   selectReviewModelRoutePolicy,
   type ReviewModelDispatchProfileV2,
+  type ReviewModelTransport,
 } from "@reviewrouter/shared";
 
 /** Exact registered releases for the new behavior, never the old admission overlap list. */
 export type DashboardRuntimeRelease = Readonly<{
   modelDispatchProfile: ReviewModelDispatchProfileV2;
   agentProfiles: readonly ReviewAgentProfile[] | null;
+  /** Routes whose actual provisioning/default-producer config selects this SHA. */
+  provisioningTransports: readonly ReviewModelTransport[];
 }>;
 export type DashboardRuntimeReleases = ReadonlyMap<
   string,
@@ -31,6 +40,7 @@ export async function readDashboardRuntimeReleases(input: {
 }): Promise<DashboardRuntimeReleases | null> {
   try {
     const configured = readConfiguredProducerReleaseAttestations(input.env);
+    const targets = configuredReviewRuntimeTargets(input.env);
     const rows = await Promise.all(
       configured.map((entry) =>
         input.releases.findProducerReleaseById(entry.producerReleaseId),
@@ -69,6 +79,10 @@ export async function readDashboardRuntimeReleases(input: {
       compatible.set(attested.release.actionCommitSha.toLowerCase(), {
         modelDispatchProfile: attested.release.modelDispatchProfile,
         agentProfiles: attested.release.agentProfiles,
+        provisioningTransports: reviewModelTransports.filter(
+          (transport) =>
+            targets[transport] === attested.release.actionCommitSha,
+        ),
       });
     }
     return compatible;
@@ -78,11 +92,39 @@ export async function readDashboardRuntimeReleases(input: {
   }
 }
 
+/** Reuse exactly the selectors used by setup and producer admission. An overlap
+ * release is not an upgrade target until its complete configured tuple moves. */
+function configuredReviewRuntimeTargets(
+  env: Readonly<Record<string, string | undefined>>,
+): Partial<Record<ReviewModelTransport, string>> {
+  const targets: Partial<Record<ReviewModelTransport, string>> = {};
+  const add = (
+    transports: readonly ReviewModelTransport[],
+    resolve: () => string,
+  ) => {
+    try {
+      const sha = /^777genius\/review-router@([a-f0-9]{40})$/u.exec(
+        resolve(),
+      )?.[1];
+      if (sha) for (const transport of transports) targets[transport] = sha;
+    } catch {
+      // A partial tuple does not make another route's candidate a target.
+    }
+  };
+  add(["account_gateway", "runner_local_responses"], () =>
+    resolveReviewRouterCodexRotatingActionRef(env),
+  );
+  add(["runner_local_anthropic"], () => resolveReviewRouterActionRef(env));
+  add(["hosted_pool"], () => resolveHostedPoolActionRelease(env).actionRef);
+  return targets;
+}
+
 export function installedReviewRuntimeCompatibility(input: {
   readonly providers:
     | readonly Readonly<{
         authMode: string;
         model: string;
+        gatewayProfileRef?: string;
         agenticContext?: boolean;
         agentProfileRef?: string;
       }>[]
@@ -127,15 +169,28 @@ export function installedReviewRuntimeCompatibility(input: {
           agenticContext: provider.agenticContext !== false,
           reviewSkillsDelivery: selected.transport !== "account_gateway",
         });
-        return [[sha, selected] as const];
+        return [
+          [
+            sha,
+            {
+              ...selected,
+              provisioningTarget: release.provisioningTransports.includes(
+                selected.transport,
+              ),
+            },
+          ] as const,
+        ];
       } catch {
         return [];
       }
     }),
   );
-  // No deployed compatible target is available yet; do not offer an empty upgrade.
   if (!supported.size) return "unknown";
+  const target = [...supported.values()].find(
+    (release) => release.provisioningTarget,
+  );
   if ([...supported.values()][0]!.transport === "account_gateway") {
+    if (!target) return "unknown";
     if (provisioning.actionVersion !== "workflow-v1") return "update_required";
     return input.gatewayAuthorizationReady ? "compatible" : "unknown";
   }
@@ -143,5 +198,14 @@ export function installedReviewRuntimeCompatibility(input: {
     provisioning.actionVersion,
   )?.[1];
   if (!sha) return "unknown";
-  return supported.has(sha) ? "compatible" : "update_required";
+  // Keep compatible immutable callers valid during a configured A -> B overlap.
+  if (supported.has(sha)) return "compatible";
+  // The actual setup action must install a qualified target, not the same old
+  // pin merely because another compatible release appears in the overlap list.
+  if (!target) return "unknown";
+  // Active rotating namespaces have one attested caller. Their ordinary setup
+  // action intentionally retains that pin until a fenced namespace migration.
+  if (input.providers[0]?.authMode === "codex_subscription_oauth_rotating")
+    return "unknown";
+  return "update_required";
 }

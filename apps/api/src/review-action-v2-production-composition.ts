@@ -11,6 +11,14 @@ import {
 import { createReviewRunGatewayModelSettingsReader } from "./review-run-gateway-model-settings.js";
 import type { ReviewModelDispatchApi } from "./review-model-dispatch.js";
 import { assertReviewModelDispatchEvidence } from "./review-model-dispatch-evidence.js";
+import { confirmOriginalHostedReviewBindingForCompletion } from "./review-run-hosted-binding.js";
+import { createHostedModelDispatchProofReconciler } from "./review-model-dispatch-hosted-proof.js";
+import {
+  createReviewRunHostedModelRoute,
+  type ReviewRunHostedModelRoute,
+} from "./review-run-hosted-model-route.js";
+import type { RegisterHostedCodexRelayRoutesDependencies } from "@reviewrouter/features-hosted-account-pool";
+import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
 import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
 import { PrismaProviderAccountRepository } from "@reviewrouter/features-provider-accounts";
 import { createProviderUsageActionSessionIssuer } from "./provider-usage-action-session.js";
@@ -38,6 +46,7 @@ export { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features
 import {
   createReviewRunGatewayCheckout,
   createReviewRunProviderApiCheckout,
+  createReviewRunModelRouteCheckout,
   type ReviewRunGatewayCheckout,
   type ReviewRunGatewayCheckoutTarget,
 } from "./review-run-gateway-checkout.js";
@@ -335,6 +344,8 @@ export type ReviewActionV2ProductionRoutes = Readonly<{
   modelDispatch?: ReviewModelDispatchApi;
   accountGatewayCheckout?: ReviewRunGatewayCheckout;
   providerApiCheckout?: ReviewRunGatewayCheckout;
+  modelRouteCheckout?: ReviewRunGatewayCheckout;
+  hostedModelRoute?: ReviewRunHostedModelRoute;
   hostedV4: HostedV4ReadRoutesDependencies;
   hostedV4Relay: Readonly<{
     enabled: false;
@@ -509,6 +520,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly runtime: ReviewActionV2RouteRuntime;
   readonly prisma?: PrismaClient | undefined;
+  readonly hostedRelay?: RegisterHostedCodexRelayRoutesDependencies;
   readonly oidcAudience?: string | undefined;
   readonly ledgerHmacSecret?: string | undefined;
   readonly investigationTelemetrySamples?:
@@ -1346,6 +1358,10 @@ export function composeReviewActionV2ProductionRoutes(input: {
   const modelDispatch: ReviewModelDispatchApi = {
     authorizations: runControl.authorizations,
     admission: modelDispatchAdmission,
+    reconcileNativeProof: createHostedModelDispatchProofReconciler({
+      prisma,
+      admission: modelDispatchAdmission,
+    }),
     async checkAuthority(authorization) {
       const revision = await currentRevision.resolve(
         authorizationScope(authorization),
@@ -1357,6 +1373,13 @@ export function composeReviewActionV2ProductionRoutes(input: {
       );
     },
   };
+  const hostedModelRoute = input.hostedRelay?.enabled
+    ? createReviewRunHostedModelRoute({
+        prisma,
+        api: modelDispatch,
+        native: input.hostedRelay,
+      })
+    : undefined;
   const accountGatewayRelay = accountGatewayRelayPolicy
     ? createReviewRunGatewayRelay({
         policy: accountGatewayRelayPolicy,
@@ -1470,7 +1493,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
     readIssue: (authorization, issueNumber) =>
       issueReader.read(authorization, issueNumber),
   };
-  const providerApiCheckout = createReviewRunProviderApiCheckout({
+  const checkoutDependencies = {
     lifecycleObservationAuthors: [
       ...trustedReviewCommandLedgerAuthorsFromEnv(input.env),
     ],
@@ -1480,9 +1503,28 @@ export function composeReviewActionV2ProductionRoutes(input: {
     maxInFlight: 4,
     timeoutMs: 30_000,
     resolveRepository: resolveCheckoutRepository,
+  };
+  const providerApiCheckout =
+    createReviewRunProviderApiCheckout(checkoutDependencies);
+  const modelRouteCheckout = createReviewRunModelRouteCheckout({
+    ...checkoutDependencies,
+    async confirmHostedRoute({ authorization, snapshot }) {
+      if (!snapshot.hosted) return false;
+      return confirmOriginalHostedReviewBindingForCompletion({
+        reader: prisma,
+        identity: authorization,
+        configuration: parseReviewConfigurationStrict(
+          JSON.parse(snapshot.configurationCanonicalJson),
+        ),
+        configurationVersion: snapshot.configurationVersion,
+        now: clock.now(),
+        original: snapshot.hosted,
+      });
+    },
   });
   const accountGatewayCheckout = accountGatewayRelayPolicy
     ? createReviewRunGatewayCheckout({
+        ...checkoutDependencies,
         readSelectedModelSettings: createReviewRunGatewayModelSettingsReader({
           accountModelCatalogEnabled:
             input.env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED === "1",
@@ -1516,16 +1558,9 @@ export function composeReviewActionV2ProductionRoutes(input: {
               }
             : {}),
         }),
-        lifecycleObservationAuthors: [
-          ...trustedReviewCommandLedgerAuthorsFromEnv(input.env),
-        ],
-        authorizations: runControl.authorizations,
         bindings: gatewayBindings,
-        confirmAuthority: confirmAccountGatewayAuthority,
-        issuer: workflowInventory,
         maxInFlight: Math.min(4, accountGatewayRelayPolicy.maxInFlight),
         timeoutMs: Math.min(30_000, accountGatewayRelayPolicy.requestTimeoutMs),
-        resolveRepository: resolveCheckoutRepository,
       })
     : undefined;
   const providerUsage = createProviderUsageApi({
@@ -1570,7 +1605,9 @@ export function composeReviewActionV2ProductionRoutes(input: {
       privateKey: githubAppPrivateKey,
     }),
     providerApiCheckout,
+    modelRouteCheckout,
     modelDispatch,
+    ...(hostedModelRoute ? { hostedModelRoute } : {}),
     reviewSkills: createReviewRunSkillsReader(runControl.authorizations),
     contextTools,
     ...(accountGatewayRelay ? { accountGatewayRelay } : {}),

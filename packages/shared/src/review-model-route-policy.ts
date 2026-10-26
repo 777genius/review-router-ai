@@ -12,7 +12,10 @@ import { anthropicModelAliases } from "./review-model-dispatch-contract";
 export const codexOAuthGatewayProfileRef = "openai-codex-oauth-responses-v1";
 
 export function reviewModelWirePolicyForProvider(
-  provider: Readonly<{ authMode: string; gatewayProfileRef?: string }>,
+  provider: Readonly<{
+    authMode: string;
+    gatewayProfileRef?: string | undefined;
+  }>,
 ):
   | Readonly<{
       wireProtocol: ReviewModelWireProtocol;
@@ -80,7 +83,7 @@ export function selectReviewModelRoutePolicy(
   providers: readonly Readonly<{
     authMode: string;
     model: string;
-    gatewayProfileRef?: string;
+    gatewayProfileRef?: string | undefined;
   }>[],
 ):
   | Readonly<{

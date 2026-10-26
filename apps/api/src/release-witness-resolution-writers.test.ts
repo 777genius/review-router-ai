@@ -112,14 +112,21 @@ describe("purpose-bound resolution writer witness", () => {
       ],
     };
     const attester = new AttestResolutionWriterQualification(
-      { observe: async () => ({ ...binding, proof, observedAt: now.toISOString() }) },
+      {
+        observe: async () => ({
+          ...binding,
+          proof,
+          observedAt: now.toISOString(),
+        }),
+      },
       signer,
       { assertOrdinary: async () => {}, assertForceNew: async () => {} },
       () => now,
     );
     const receipt = await attester.execute();
-    expect(verifyResolutionWriterWitness(receipt, binding, trust, now)?.proof)
-      .toEqual(proof);
+    expect(
+      verifyResolutionWriterWitness(receipt, binding, trust, now)?.proof,
+    ).toEqual(proof);
     const cut: ResolutionHistoryCut = {
       activatedAt: new Date(now.getTime() - 60_000).toISOString(),
       activationVersion: 1,
@@ -136,13 +143,18 @@ describe("purpose-bound resolution writer witness", () => {
       trust,
       now: () => now,
     });
-    await expect(ensureResolutionHistoryActivated(scope, { activation, writers }))
-      .resolves.toEqual({ status: "guarded" });
+    await expect(
+      ensureResolutionHistoryActivated(scope, { activation, writers }),
+    ).resolves.toEqual({ status: "guarded" });
     const retired = controlledRetiredWriterProof();
-    await expect(ensureResolutionHistoryActivated(scope, {
-      activation,
-      writers: { qualify: async () => ({ status: "qualified", proof: retired }) },
-    })).resolves.toMatchObject({
+    await expect(
+      ensureResolutionHistoryActivated(scope, {
+        activation,
+        writers: {
+          qualify: async () => ({ status: "qualified", proof: retired }),
+        },
+      }),
+    ).resolves.toMatchObject({
       status: "unavailable",
       reasonCode: "resolution_activation_writer_conflict",
     });
@@ -161,18 +173,38 @@ describe("purpose-bound resolution writer witness", () => {
         purpose: receipt.purpose,
         observedAt: receipt.observedAt,
         expiresAt: receipt.expiresAt,
-        proof: { ...proof, executors: [executor] } as ManagedResolutionWriterDrainQualification,
+        proof: {
+          ...proof,
+          executors: [executor],
+        } as ManagedResolutionWriterDrainQualification,
       };
       const bindingSha256 = resolutionWriterWitnessDigest(unsigned);
-      expect(verifyResolutionWriterWitness({
-        ...unsigned, bindingSha256, signature: signer.sign(bindingSha256),
-      }, binding, trust, now)).toBeNull();
-      await expect(new AttestResolutionWriterQualification(
-        { observe: async () => ({ ...binding, proof: unsigned.proof, observedAt: now.toISOString() }) },
-        signer,
-        { assertOrdinary: async () => {}, assertForceNew: async () => {} },
-        () => now,
-      ).execute()).rejects.toThrow("resolution_writer_observation_unqualified");
+      expect(
+        verifyResolutionWriterWitness(
+          {
+            ...unsigned,
+            bindingSha256,
+            signature: signer.sign(bindingSha256),
+          },
+          binding,
+          trust,
+          now,
+        ),
+      ).toBeNull();
+      await expect(
+        new AttestResolutionWriterQualification(
+          {
+            observe: async () => ({
+              ...binding,
+              proof: unsigned.proof,
+              observedAt: now.toISOString(),
+            }),
+          },
+          signer,
+          { assertOrdinary: async () => {}, assertForceNew: async () => {} },
+          () => now,
+        ).execute(),
+      ).rejects.toThrow("resolution_writer_observation_unqualified");
     }
   });
 

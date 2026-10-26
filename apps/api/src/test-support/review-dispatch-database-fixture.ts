@@ -49,9 +49,14 @@ export async function createReviewDispatchDatabaseFixture(
     runtimeSnapshotCanonicalJson?: string;
     modelDispatchProfile?: ReviewModelDispatchProfileV2;
     skipInitialLease?: boolean;
+    sourceRunId?: string;
+    reviewRevisionHash?: string;
+    githubRepositoryId?: bigint;
   } = {},
 ) {
   const providerVoteIdentityHash = digest(`${prefix}-vote`);
+  const sourceRunId = options.sourceRunId ?? `${prefix}-run`;
+  const reviewRevisionHash = options.reviewRevisionHash ?? digest("revision");
 
   const url = new URL(databaseUrl);
   if (
@@ -131,7 +136,7 @@ export async function createReviewDispatchDatabaseFixture(
         scmRepositoryIdentityId,
         provider: "github",
         normalizedSourceBaseUrl: "https://github.com",
-        externalRepositoryId: prefix,
+        externalRepositoryId: options.githubRepositoryId?.toString() ?? prefix,
         currentWorkspaceId: workspaceId,
         currentRepositoryConnectionId: repositoryConnectionId,
         createdAt: now,
@@ -144,7 +149,10 @@ export async function createReviewDispatchDatabaseFixture(
         workspaceId,
         provider: "github",
         sourceBaseUrl: "https://github.com",
-        externalRepositoryId: prefix,
+        externalRepositoryId: options.githubRepositoryId?.toString() ?? prefix,
+        ...(options.githubRepositoryId === undefined
+          ? {}
+          : { githubRepositoryId: options.githubRepositoryId }),
         scmRepositoryIdentityId,
         owner: "disposable",
         name: prefix,
@@ -177,13 +185,13 @@ export async function createReviewDispatchDatabaseFixture(
     data: {
       ...scope,
       authorizationId,
-      sourceRunId: `${prefix}-run`,
+      sourceRunId,
       sourceRunAttempt: "1",
       workflowIdentityHash: digest("workflow"),
       baseSha: "b".repeat(40),
       mergeBaseSha: "b".repeat(40),
       headSha: "a".repeat(40),
-      reviewRevisionHash: digest("revision"),
+      reviewRevisionHash,
       trustDomain: "trusted_managed",
       producerReleaseId: `${prefix}-release`,
       selectedProtocolVersion: "review_action_v2",
@@ -217,7 +225,7 @@ export async function createReviewDispatchDatabaseFixture(
       baseSha: "b".repeat(40),
       mergeBaseSha: "b".repeat(40),
       headSha: "a".repeat(40),
-      reviewRevisionHash: digest("revision"),
+      reviewRevisionHash,
       compatibilityKey: digest("compatibility"),
       planHash: digest("plan"),
       startIdentityHash: digest(`${prefix}-start`),
@@ -228,7 +236,7 @@ export async function createReviewDispatchDatabaseFixture(
       mutationEpoch: 1n,
       admissionSafetyDecisionHash: digest("safety"),
       protocolLimitsProfileId: `${prefix}-limits`,
-      sourceRunId: `${prefix}-run`,
+      sourceRunId,
       sourceRunAttempt: "1",
       createdAt: now,
       updatedAt: now,
@@ -246,7 +254,7 @@ export async function createReviewDispatchDatabaseFixture(
       currentBaseSha: "b".repeat(40),
       currentMergeBaseSha: "b".repeat(40),
       currentHeadSha: "a".repeat(40),
-      currentReviewRevisionHash: digest("revision"),
+      currentReviewRevisionHash: reviewRevisionHash,
       updatedAt: now,
     },
   });
@@ -363,7 +371,7 @@ export async function createReviewDispatchDatabaseFixture(
       providerInvocationKey: lease.providerInvocationKey,
       ownershipExpiresAt: lease.expiresAt,
       capabilityMutationEpoch: 1n,
-      capabilityReviewRevisionHash: digest("revision"),
+      capabilityReviewRevisionHash: reviewRevisionHash,
       capabilityScopeHash: digest(canonicalJson(scope)),
     };
   };

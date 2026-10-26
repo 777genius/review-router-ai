@@ -35,6 +35,9 @@ import {
 } from "@reviewrouter/features-review-config";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import { resolveApprovedSecretsRuntimeActionRef } from "../../src/server/workflow-provisioning/approved-secrets-action-ref";
+import { resolveApprovedClaudeSubscriptionActionRef } from "../../src/server/workflow-provisioning/approved-claude-subscription-action-ref";
+import { readDashboardRuntimeReleases } from "../../src/server/review-runtime-readiness";
+import { createPrismaReviewRunControlRepositories } from "@reviewrouter/features-review-run-control/composition";
 import {
   CodexDeviceAuthGateway,
   PrismaHostedCodexDeviceLoginStore,
@@ -78,6 +81,8 @@ import {
   WorkflowSourceTrust,
   type ReviewRouterWorkflowStyle,
   ciSecretsWorkflowProviderKind,
+  isClaudeSubscriptionConfiguration,
+  readManagedReviewRouterCallerSource,
   requiredWorkflowTransport,
   verifiedWorkflowRequirement,
   validateAccountGatewayActionRef,
@@ -1364,14 +1369,49 @@ async function createSetupPullRequestMutation(
             },
           })
         : undefined;
-    const workflowPath = managedReview
-      ? reviewRouterWorkflowContract.callerPath
-      : codexRotatingProviderInstanceId
-        ? codexWorkflowPathForRepository({
-            repositoryId: githubRepository.githubRepositoryId.toString(),
-            repositoryFullName: repository.fullName,
-          })
-        : defaultWorkflowPath;
+    const claudeSubscriptionActionRef =
+      !managedReview &&
+      isClaudeSubscriptionConfiguration(resolvedRuntime.config) &&
+      !conflictReviewFallbackAllowed &&
+      workflowStyle === "reusable" &&
+      discussionMode !== "suggest"
+        ? await resolveApprovedClaudeSubscriptionActionRef(
+            {
+              actionRef,
+              configuration: resolvedRuntime.config,
+              releases: await readDashboardRuntimeReleases({
+                env: process.env,
+                releases:
+                  createPrismaReviewRunControlRepositories(prisma)
+                    .producerReleases,
+              }),
+            },
+            {
+              readExecutionWorkflow: async (commitSha) => {
+                const result = await octokit.request(
+                  "GET /repos/{owner}/{repo}/contents/{path}",
+                  {
+                    owner: "777genius",
+                    repo: "review-router",
+                    path: ".github/workflows/reviewrouter-execution-reusable.yml",
+                    ref: commitSha,
+                    request: { timeout: 15000 },
+                  },
+                );
+                return readGitHubWorkflowBlob(result.data).source;
+              },
+            },
+          )
+        : undefined;
+    const workflowPath =
+      managedReview || claudeSubscriptionActionRef
+        ? reviewRouterWorkflowContract.callerPath
+        : codexRotatingProviderInstanceId
+          ? codexWorkflowPathForRepository({
+              repositoryId: githubRepository.githubRepositoryId.toString(),
+              repositoryFullName: repository.fullName,
+            })
+          : defaultWorkflowPath;
     const workflowReady = await isWorkflowSetupAlreadyCurrent(
       {
         ...(secretsRuntimeActionRef ? { secretsRuntimeActionRef } : {}),
@@ -1382,7 +1422,7 @@ async function createSetupPullRequestMutation(
         owner: repository.owner,
         name: repository.name,
         defaultBranch: setupBaseBranch,
-        actionRef,
+        actionRef: claudeSubscriptionActionRef ?? actionRef,
         discussionMode,
         ...(accountGateway
           ? {
@@ -1391,7 +1431,9 @@ async function createSetupPullRequestMutation(
             }
           : openRouterDirect
             ? { providerApiAuthMode: providerApiAuthMode! }
-            : {}),
+            : claudeSubscriptionActionRef
+              ? { subscriptionAuthMode: "claude-oauth" as const }
+              : {}),
         conflictReviewFallbackEnabled: conflictReviewFallbackAllowed,
         ...(codexRotatingProviderInstanceId
           ? {
@@ -1403,7 +1445,9 @@ async function createSetupPullRequestMutation(
               ...(codexRotatingV2Provisioning ?? {}),
             }
           : {}),
-        ...(workflowProviderKind ? { providerKind: workflowProviderKind } : {}),
+        ...(workflowProviderKind && !claudeSubscriptionActionRef
+          ? { providerKind: workflowProviderKind }
+          : {}),
       },
       {
         workflowProbe: new OctokitRepositoryWorkflowProbe({
@@ -1477,7 +1521,7 @@ async function createSetupPullRequestMutation(
                 githubRepository.githubRepositoryId.toString(),
               repositoryFullName: repository.fullName,
               workflowPath,
-              actionRef,
+              actionRef: claudeSubscriptionActionRef ?? actionRef,
               apiUrl: resolveWorkflowPublicApiUrl(),
               runtimeConfigMode: "oidc",
               ...(accountGateway
@@ -1487,7 +1531,9 @@ async function createSetupPullRequestMutation(
                   }
                 : openRouterDirect
                   ? { providerApiAuthMode: providerApiAuthMode! }
-                  : { staticRuntimeEnv: resolvedRuntime.runtimeEnv }),
+                  : claudeSubscriptionActionRef
+                    ? { subscriptionAuthMode: "claude-oauth" as const }
+                    : { staticRuntimeEnv: resolvedRuntime.runtimeEnv }),
               workflowStyle,
               discussionMode,
               conflictReviewFallbackEnabled: conflictReviewFallbackAllowed,
@@ -1505,6 +1551,9 @@ async function createSetupPullRequestMutation(
             {
               targets: new PrismaWorkflowProvisioningTarget(prisma),
               ...(secretsRuntimeActionRef ? { secretsRuntimeActionRef } : {}),
+              ...(claudeSubscriptionActionRef
+                ? { claudeSubscriptionActionRef }
+                : {}),
               configurations: dashboardReviewConfigurations(
                 prisma,
                 actor.userId,
@@ -1747,14 +1796,60 @@ async function confirmSetupPullRequestMergedMutation(
     const providerApiAuthMode = openRouterDirect
       ? providerApiConfigurationMode(resolvedRuntime.config)
       : undefined;
-    const managedReview = accountGateway || openRouterDirect;
+    let claudeSubscriptionActionRef: string | undefined;
+    if (
+      isClaudeSubscriptionConfiguration(resolvedRuntime.config) &&
+      (!setupProvisioning ||
+        setupProvisioning.workflowPath ===
+          reviewRouterWorkflowContract.callerPath)
+    ) {
+      if (setupProvisioning) {
+        if (
+          !/^777genius\/review-router@[a-f0-9]{40}$/.test(
+            setupProvisioning.actionVersion,
+          )
+        )
+          throw new Error("workflow_provisioning_match_not_found");
+        claudeSubscriptionActionRef = setupProvisioning.actionVersion;
+      } else {
+        // Candidate recognition only. The source is pinned and independently
+        // verified below before granting execution or publication authority.
+        const installed = await octokit
+          .request("GET /repos/{owner}/{repo}/contents/{path}", {
+            owner: repository.owner,
+            repo: repository.name,
+            path: reviewRouterWorkflowContract.callerPath,
+            ref: setupBaseBranch,
+          })
+          .catch((error: unknown) => {
+            if (
+              typeof error === "object" &&
+              error !== null &&
+              "status" in error &&
+              error.status === 404
+            )
+              return null;
+            throw error;
+          });
+        if (installed) {
+          const caller = readManagedReviewRouterCallerSource(
+            readGitHubWorkflowBlob(installed.data).source,
+          );
+          if (caller.subscriptionAuthMode !== "claude-oauth")
+            throw new Error("workflow_provisioning_match_not_found");
+          claudeSubscriptionActionRef = `777genius/review-router@${caller.runtimeRef}`;
+        }
+      }
+    }
+    const managedReview =
+      accountGateway || openRouterDirect || !!claudeSubscriptionActionRef;
     const gatewayActionRef = accountGateway
       ? validateAccountGatewayActionRef(
           process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF,
         )
       : openRouterDirect
         ? resolveReviewRouterCodexRotatingActionRef()
-        : undefined;
+        : claudeSubscriptionActionRef;
     const codexTransport =
       transport === "rotating" || transport === "hosted_pool";
     const codexWorkflowExpected =
@@ -2014,7 +2109,9 @@ async function confirmSetupPullRequestMergedMutation(
                 }
               : openRouterDirect
                 ? { providerApiAuthMode: providerApiAuthMode! }
-                : {}),
+                : claudeSubscriptionActionRef
+                  ? { subscriptionAuthMode: "claude-oauth" as const }
+                  : {}),
             conflictReviewFallbackEnabled: conflictReviewFallbackAllowed,
             ...(codexRotatingProviderInstanceId
               ? {
@@ -2281,6 +2378,9 @@ async function confirmSetupPullRequestMergedMutation(
       const gatewayProvisioning = await provisionGatewayReviewV2Repository({
         prisma,
         env: process.env,
+        ...(claudeSubscriptionActionRef
+          ? { subscriptionAuthMode: "claude-oauth" as const }
+          : {}),
         command: {
           workspaceId,
           repositoryId,

@@ -20,6 +20,8 @@ export interface ReviewRunRuntimeSnapshotPort {
     readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
     /** Derived from a verified canonical caller, never a request input. */
     readonly providerApiAuthMode?: ProviderApiAuthMode;
+    /** Native subscription credential route bound by the canonical caller. */
+    readonly subscriptionAuthMode?: "claude-oauth";
     readonly producerRelease: Pick<
       ProducerRelease,
       | "producerReleaseId"

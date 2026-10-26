@@ -1,0 +1,38 @@
+# Installed runtime transition: focused review addendum
+
+Status: focused root/recovery review accepted with the conditions below. This is an implementation plan, not a production observation or rollout qualification.
+
+## Verified current boundaries
+
+- Direct API setup selects `REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF`; Hosted setup selects its paired recorded tag/SHA/dist; Gateway keeps `workflow-v1` while its selected producer uses the rotating primary. Readiness must qualify that exact target, rather than any configured overlap candidate. An already compatible immutable installed caller remains valid during a target change.
+- `resolveCodexRotatingProvisioningActionRef` preserves the exact attested active Secrets pin. Release runbook section “For a rotating A -> B release” requires a fenced drain and fresh namespace. The active namespace stores one exact workflow attestation.
+- Existing `replaceActiveWorkflowSource` permits V4→V5 with a specific bounded previous-source contract, or the isolated canary workflow. It is not a general V5 A→B upgrade primitive.
+- `issueCodexRotatingSetupCommand` already rejects pending/unknown writebacks and a live runtime lease, takes the provider lock, increments its mutation epoch, and enters `setup_pending`. It does not establish a complete GitHub queued-run drain.
+- Existing setup claims contain generation/account hashes and byte size, then accept a sealed GitHub PUT and definite outcome. The SaaS never receives auth plaintext. The existing seed installer supports explicit repo-scoped auth, `--skip-login`, and known-current auth reuse; it still needs a local auth source and GitHub public-key access.
+
+## Smallest credential-preserving route
+
+1. Qualify exact B producer/profile, installer digest and provisioning target as one existing release tuple. Keep A trusted for already admitted work. Do not invent a release SHA.
+2. Provision a narrow, exact-B `workflow_dispatch` migration caller in the same repository through the existing App-owned setup PR mechanism. It reads only the currently active namespace's GitHub secret. A cannot execute B migration code without installing this bootstrap caller first; a server cannot retrieve the existing secret's plaintext.
+3. Stop new old-workflow admissions using observed GitHub workflow disablement, then observe all queued/in-progress runs to terminal outcomes and require the existing provider lease/writeback fence to be clear. Do not cancel admitted work, expire it by assumption, or use an empty local counter as drain evidence. Recheck workflow identity and disabled state immediately before taking the provider mutation fence.
+4. Allocate the existing setup manifest under that fence, with an optional, purpose-specific migration binding to original namespace/epoch, exact generation hash/account identity, source A and target B. The existing claim persistence must compare those original facts, so stale runner secret snapshots cannot silently reseed an older generation. This is the minimum extra admission boundary; a client assertion alone is insufficient.
+5. Dispatch only a nonauthorizing migration identifier. The exact pinned bootstrap runner exchanges GitHub OIDC for the existing setup capability only after source/workflow/ref/run/namespace/fence verification; do not put a bearer setup nonce in persisted `workflow_dispatch` inputs. The runner reads the exact active secret after issuance, proves its original generation/account using the original namespace's hash salt and compaction contract, then separately computes the fresh namespace's seed hash. Never compare digests across salts or trust a client `current` flag. Reuse the existing compaction/hash/sealed PUT pipeline, perform no OAuth refresh or login, and wipe temporary plaintext. The server receives only existing hashes and sealed GitHub ciphertext. No generic secret-copy service or second queue is introduced.
+6. Confirm the fresh namespace through existing setup outcome semantics. Unknown PUT never activates or retries the same possibly applied effect; existing ambiguous retirement/recovery rules apply. Keep the old namespace and A immutable until this point.
+7. Render and verify the standard B caller against the new namespace through the existing setup PR/activation path, then re-enable its review workflow. The bootstrap migration caller is removed in that setup PR. The current primitives therefore need two reviewable setup revisions (bootstrap, then final caller), not an unsafe rewrite of an active A attestation.
+
+## Decisions required by narrow review
+
+- Is a two-revision setup migration acceptable, or is an existing reviewed automatic workflow-update port sufficient to combine finalization without bypassing PR policy? There is no currently installed migration entrypoint to dispatch.
+- Public-key facts come from the existing repository-scoped `OctokitCodexRotatingGitHubSecretGateway` public-key read, delivered by the OIDC-authorized setup response. `github.token` must not be assumed to have secret-read permissions. `OctokitReviewV2DispatchCapabilityInspector` can establish repo-scoped Actions write authority. Never send an App write token or plaintext auth to the runner unnecessarily.
+- Complete ingress/queued-run observation and binding into the setup mutation fence are new concrete adapters. No current function proves them. Existing OIDC/workflow source verification must bind the migration caller before it receives the capability; no generic browser-to-runner capability dump.
+- Persist migration binding as a narrow optional field in the existing setup manifest/claim contract, preserving older immutable installer behavior and not overloading IDs/statuses. No new attestation-history table, runtime queue, credential store, or publication engine.
+
+## Verification and delivery gates
+
+Synthetic fixtures must cover old admitted completion before fence; new admission denial while fenced; stale-generation and account mismatch; changed repository/source/target; missing/partial queue inventory; disable/dispatch/PUT unknown outcomes; expired capability; old and new namespace noninterference; exact new caller activation; and cleanup. Actual GitHub workflow disablement/dispatch/secret read+sealed write/PR merge and real OAuth validation remain final disposable-repository gates. Readiness must stay unavailable and explain migration requirements until the executable route is qualified; it must never offer a PR that reinstalls A as an alleged upgrade.
+
+## Narrow critique record
+
+Recovery: GO after P1 capability exchange and P2 original/fresh hash domains; both integrated above. Inventory must paginate completely and reject unknown/nonterminal states, with disabled workflow/source identity rechecked under the existing provider lock. Two reviewed revisions are the minimum compatible route with the current namespace attestation model.
+
+Root: GO for this bounded extension after the paired Hosted SQL gate. Two reviewable setup revisions are accepted; neither is automatically merged. Unknown GitHub disable/enable/dispatch outcomes require exact state readback before another mutation, never a blind repeat. A failed/unknown seed must not re-enable A after the ingress fence changed; retain an explicit recoverable operator state. Original generation/account comparison is server-authoritative and never carries plaintext auth. If existing native mutation/recovery ports cannot establish a required fact, expose the stopping boundary in code and the plan instead of silently expanding the architecture. Actual disable/dispatch/deploy in the user's repositories is not part of this draft implementation.

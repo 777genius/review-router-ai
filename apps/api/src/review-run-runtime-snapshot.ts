@@ -269,6 +269,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       readonly deadline: Date;
       readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
       readonly providerApiAuthMode?: ProviderApiAuthMode;
+      readonly subscriptionAuthMode?: "claude-oauth";
       readonly producerRelease: Parameters<
         ReviewRunRuntimeSnapshotPort["capture"]
       >[0]["producerRelease"];
@@ -288,6 +289,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     };
     const modelTransport = input.modelTransport;
     const providerApiAuthMode = input.providerApiAuthMode;
+    const subscriptionAuthMode = input.subscriptionAuthMode;
     const deadline = new Date(input.deadline).toISOString();
     const producer = {
       producerReleaseId: input.producerRelease.producerReleaseId,
@@ -347,6 +349,15 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         return null;
       }
     }
+    if (
+      subscriptionAuthMode !== undefined &&
+      (subscriptionAuthMode !== "claude-oauth" ||
+        providerApiAuthMode !== undefined ||
+        modelTransport !== "provider_api" ||
+        configuration.providers.length !== 1 ||
+        configuration.providers[0]?.authMode !== "claude_code_oauth")
+    )
+      return null;
     const selectedProviders = configuration.providers
       .map((provider, providerIndex) => ({ provider, providerIndex }))
       .filter(({ provider }) => provider.authMode === "codex_account_gateway");
@@ -367,6 +378,12 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         )
       : undefined;
     if (modelDispatchProfile && !preparedRoute)
+      return { captureDenied: "agent_profile_unavailable" };
+    if (
+      (subscriptionAuthMode !== undefined && !modelDispatchProfile) ||
+      (preparedRoute?.transport === "runner_local_anthropic" &&
+        subscriptionAuthMode !== "claude-oauth")
+    )
       return { captureDenied: "agent_profile_unavailable" };
     // An explicit agentProfileRef is saved policy for Account Gateway rows only
     // and resolves ONLY against the exact producer's approved profiles. An
@@ -429,6 +446,14 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     }
     if (providerApiAuthMode !== undefined && agent.reviewSkillsVersion !== 1)
       return { captureDenied: "agent_profile_unavailable" };
+    // Native Messages is qualified only for OCR. Preserve an old/internal
+    // supplied-diff preference by rejecting the incompatible route, never by
+    // silently enabling context or running Codex with a different transport.
+    if (
+      preparedRoute?.transport === "runner_local_anthropic" &&
+      agent.agentKind !== "ocr"
+    )
+      return { captureDenied: "agent_profile_incompatible" };
     // The first OCR profile requires agenticContext=true (native context
     // tools); explicit OCR with agenticContext=false is an actionable
     // configuration error before any inference.
@@ -999,6 +1024,10 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
           identity: candidate,
           modelTransport: original.gateway ? "account_gateway" : "provider_api",
           ...(providerApiAuthMode ? { providerApiAuthMode } : {}),
+          ...(original.modelDispatchCapability?.transport ===
+          "runner_local_anthropic"
+            ? { subscriptionAuthMode: "claude-oauth" as const }
+            : {}),
           deadline: candidate.maxExpiresAt,
           producerRelease: {
             producerReleaseId: producer.producerReleaseId,

@@ -48,16 +48,21 @@ const agentProfiles = reviewModelTransports.map((transport) => ({
   reviewSkillsVersion: 1 as const,
 }));
 const releases: DashboardRuntimeReleases = new Map([
-  [current, { modelDispatchProfile: profile, agentProfiles }],
+  [
+    current,
+    {
+      modelDispatchProfile: profile,
+      agentProfiles,
+      provisioningTransports: reviewModelTransports,
+    },
+  ],
 ]);
 
 const installed = (
   actionVersion = `777genius/review-router@${current}`,
   status = "configured",
 ) => ({
-  providers: [
-    { authMode: "codex_subscription_oauth_rotating", model: "gpt-5.6-sol" },
-  ],
+  providers: [{ authMode: "openrouter_api_key", model: "openai/gpt-5.4-mini" }],
   provisioning: { status, actionVersion },
   requirementMatches: true,
   releases,
@@ -144,6 +149,7 @@ describe("confirmed installed review runtime", () => {
                 transports: ["runner_local_responses"],
               },
               agentProfiles,
+              provisioningTransports: reviewModelTransports,
             },
           ],
         ]),
@@ -169,7 +175,14 @@ describe("confirmed installed review runtime", () => {
       installedReviewRuntimeCompatibility({
         ...installed(),
         releases: new Map([
-          [current, { modelDispatchProfile: profile, agentProfiles: null }],
+          [
+            current,
+            {
+              modelDispatchProfile: profile,
+              agentProfiles: null,
+              provisioningTransports: reviewModelTransports,
+            },
+          ],
         ]),
       }),
     ).toBe("unknown");
@@ -199,6 +212,92 @@ describe("confirmed installed review runtime", () => {
       }),
     ).toBe("unknown");
   });
+
+  it("does not offer an update when the registered candidate is not the actual configured setup target", () => {
+    const candidateOnly = new Map([
+      [
+        current,
+        {
+          modelDispatchProfile: profile,
+          agentProfiles,
+          provisioningTransports: [],
+        },
+      ],
+    ]);
+    expect(
+      installedReviewRuntimeCompatibility({
+        ...installed(previous),
+        releases: candidateOnly,
+      }),
+    ).toBe("unknown");
+    // Compatible A stays valid while the release configuration moves to B.
+    expect(
+      installedReviewRuntimeCompatibility({
+        ...installed(current),
+        releases: candidateOnly,
+      }),
+    ).toBe("compatible");
+    expect(
+      installedReviewRuntimeCompatibility({
+        ...installed("workflow-v1"),
+        providers: [{ authMode: "codex_account_gateway", model: "model" }],
+        releases: candidateOnly,
+        gatewayAuthorizationReady: true,
+      }),
+    ).toBe("unknown");
+  });
+
+  it("does not present an active rotating namespace's pinned caller as an ordinary same-pin upgrade", () => {
+    expect(
+      installedReviewRuntimeCompatibility({
+        ...installed(previous),
+        providers: [
+          {
+            authMode: "codex_subscription_oauth_rotating",
+            model: "gpt-5.6-sol",
+          },
+        ],
+      }),
+    ).toBe("unknown");
+    expect(
+      installedReviewRuntimeCompatibility({
+        ...installed(current),
+        providers: [
+          {
+            authMode: "codex_subscription_oauth_rotating",
+            model: "gpt-5.6-sol",
+          },
+        ],
+      }),
+    ).toBe("compatible");
+  });
+
+  it("requires the actual subscription wire support in the target profile", () => {
+    expect(
+      installedReviewRuntimeCompatibility({
+        ...installed(current),
+        providers: [
+          {
+            authMode: "codex_subscription_oauth_rotating",
+            model: "gpt-5.6-sol",
+          },
+        ],
+        releases: new Map([
+          [
+            current,
+            {
+              modelDispatchProfile: {
+                ...profile,
+                wireProtocols: ["openai-responses"],
+              },
+              agentProfiles,
+              provisioningTransports: reviewModelTransports,
+            },
+          ],
+        ]),
+      }),
+    ).toBe("unknown");
+  });
 });
 
 describe("dashboard registered runtime source", () => {
@@ -221,6 +320,11 @@ describe("dashboard registered runtime source", () => {
   };
   const { reviewInvestigationProfile: _ignored, ...wire } = candidate;
   const env = {
+    REVIEW_ROUTER_ACTION_REF: `777genius/review-router@${current}`,
+    REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: `777genius/review-router@${current}`,
+    REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG: "v1.99.0",
+    REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA: current,
+    REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: "6".repeat(64),
     REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON: JSON.stringify([
       {
         ...wire,
@@ -279,5 +383,28 @@ describe("dashboard registered runtime source", () => {
         },
       }),
     ).toBeNull();
+  });
+
+  it("qualifies actual route targets independently from admitted overlap candidates and rejects partial Hosted tuples", async () => {
+    const available = await readDashboardRuntimeReleases({
+      env: {
+        ...env,
+        REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: `777genius/review-router@${previous}`,
+      },
+      releases: {
+        async findProducerReleaseById() {
+          return release;
+        },
+      },
+    });
+    expect(available?.get(current)?.provisioningTransports).toEqual([
+      "runner_local_anthropic",
+    ]);
+    expect(
+      installedReviewRuntimeCompatibility({
+        ...installed(previous),
+        releases: available,
+      }),
+    ).toBe("unknown");
   });
 });

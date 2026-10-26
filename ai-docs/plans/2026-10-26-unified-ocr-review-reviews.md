@@ -99,6 +99,7 @@ local compilation hit the shared memory ceiling, so a PR-only pinned CI job
 builds/tests the exact candidate and preserves its binary, checksum and manifest.
 No immutable old artifact/profile is changed, and no release or deployment is
 performed by that job.
+
 ### Post-spike Claude lifetime and alias correction
 
 The transport audit confirmed that the current Secrets contract stores only

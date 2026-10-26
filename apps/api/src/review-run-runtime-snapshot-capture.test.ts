@@ -354,6 +354,9 @@ describe("one prepared route for discovery and verification", () => {
           ...captureInput(),
           modelTransport: "provider_api",
           ...(mode ? { providerApiAuthMode: mode } : {}),
+          ...(provider.authMode === "claude_code_oauth"
+            ? { subscriptionAuthMode: "claude-oauth" as const }
+            : {}),
           producerRelease: {
             ...captureInput().producerRelease,
             agentProfiles: profiles,
@@ -439,6 +442,7 @@ describe("one prepared route for discovery and verification", () => {
     const input = {
       ...captureInput(),
       modelTransport: "provider_api" as const,
+      subscriptionAuthMode: "claude-oauth" as const,
       producerRelease: {
         ...captureInput().producerRelease,
         agentProfiles: profiles,
@@ -475,6 +479,30 @@ describe("one prepared route for discovery and verification", () => {
         protocol: "anthropic-messages",
       },
       configurationCanonicalJson: canonicalJson(configuration),
+    });
+  });
+
+  it("rejects an internal Claude supplied-diff preference without silently enabling context or choosing Codex", async () => {
+    const configuration = parseReviewConfigurationStrict({
+      ...JSON.parse(gatewayPolicyJson({})),
+      providers: [{ ...providerRows.at(-1)!.provider, agenticContext: false }],
+    });
+    expect(
+      await snapshotSource().capture(
+        {
+          ...captureInput(),
+          modelTransport: "provider_api",
+          subscriptionAuthMode: "claude-oauth",
+          producerRelease: {
+            ...captureInput().producerRelease,
+            agentProfiles: profiles,
+            modelDispatchProfile: profile,
+          },
+        },
+        readerFor(canonicalJson(configuration)),
+      ),
+    ).toEqual({
+      captureDenied: "agent_profile_incompatible",
     });
   });
 

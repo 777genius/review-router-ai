@@ -230,7 +230,16 @@ function createReviewRunCheckout(
             snapshot.deadline !== auth.maxExpiresAt.toISOString()
           : snapshot.gateway !== null ||
             (input.modelTransport === "provider_api"
-              ? snapshot.agent.agentKind !== "codex"
+              ? snapshot.agent.agentKind !== "codex" &&
+                !(
+                  snapshot.agent.agentKind === "ocr" &&
+                  snapshot.modelDispatchCapability?.transport ===
+                    "runner_local_responses" &&
+                  snapshot.modelDispatchCapability.wireProtocol ===
+                    "openai-responses" &&
+                  snapshot.modelDispatchCapability.outputTokenLimit ===
+                    "upstream_request"
+                )
               : snapshot.agent.agentKind !== "ocr" ||
                 !snapshot.modelDispatchCapability ||
                 snapshot.modelDispatchCapability.transport ===

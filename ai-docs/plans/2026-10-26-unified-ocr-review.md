@@ -83,6 +83,16 @@ Out of scope:
 | Hosted Codex Pool | Hosted relay custody/grant, Action V2 explicitly disabled, legacy runtime | Outside common V2 verifier | Same V2 scenario using one original hosted lease/model |
 | Secrets Claude Code subscription | Native Claude auth/Anthropic route, `CLAUDE_CODE_OAUTH_TOKEN` | No qualified common route | Controlled native Anthropic OCR route + shared verifier semantics |
 
+The current Claude setup UI creates `agenticContext: true` and does not expose
+the `Read related files` switch for Claude (`provider-model-fields.tsx`,
+`providerHasReviewTuning`, `showRelatedFiles`, and
+`defaultProviderSelectionSettings`). A historical/internal Claude configuration
+with `agenticContext: false` is preserved, but is not qualified for this new
+native caller. Its existing explicit Claude CLI path remains the retained
+alternative; the common runtime must reject attempts to pair its Codex
+supplied-diff profile with an Anthropic credential before admission. No new OCR
+supplied-diff mode or implicit change from false to true is included.
+
 Gateway capability must also be checked per approved account/model/protocol; a
 provider catalogue entry alone does not establish an executable combination.
 Record route, authorizer, engine/profile, workflow SHA, refresh owner, transport
@@ -442,8 +452,10 @@ but do not participate in a heuristic single-candidate default. Never infer the
 default from array order, version or name. Test old plus new skills-capable OCR
 profiles together, old explicit refs and restored frozen snapshots.
 
-Preserve saved `agenticContext: false` as the explicit supported supplied-diff
-alternative using its approved Codex profile and the same common verifier/route.
+For routes qualified with a Codex supplied-diff profile, preserve saved
+`agenticContext: false` as that explicit alternative using the same common
+verifier/route. Claude's distinct historical setting is bounded by the matrix
+exception above; a Claude credential must never be handed to a Codex profile.
 It must not enable native repository tools during migration. OCR is default for
 the compatible ordinary mode; explicit OCR plus disabled context remains an
 actionable configuration error before inference. Qualifying a new OCR supplied-
@@ -656,3 +668,21 @@ upgrade overlap. Verify deployment retirement evidence separately with
 Record separately: implemented, synthetic E2E verified, real executable
 qualification, browser visually inspected, live provider verified, deployed.
 An unrun final stage must never be shown as passed.
+
+## 14. Installed-runtime transition refinement
+
+The implementation audit confirmed that an active rotating Secrets namespace
+cannot change its immutable Action pin through ordinary Update setup: that
+operation deliberately preserves its one attested workflow source. Candidate
+overlap metadata alone therefore does not make an upgrade available. Readiness
+now qualifies the exact configured provisioning/default producer target for
+each route and keeps compatible admitted immutable callers valid.
+
+The [focused installed-runtime transition addendum](./2026-10-26-installed-runtime-transition.md)
+records the existing fences and the minimum credential-preserving runner route.
+Root and recovery accepted its narrow review with OIDC-bound capability exchange,
+separate original/fresh generation-hash domains, complete observed queue drain,
+two reviewable setup revisions, and exact readback after unknown GitHub outcomes.
+No live workflow disablement, secret migration, automatic merge, or release pin
+change is authorized by a synthetic fixture. Missing concrete drain or recovery
+authority remains an explicit implementation/rollout gate.

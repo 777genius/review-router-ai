@@ -421,13 +421,24 @@ const gatewaySetupPullRequestBody = [
 ].join("\n");
 
 function resolveSetupPullRequestBody(input: WorkflowSetupGatewayInput): string {
-  if (input.setupMode === "provider_api")
+  if (input.setupMode === "claude_subscription")
     return [
-      "This PR installs the App-first ReviewRouter workflow for one OpenRouter model.",
+      "This PR installs the ReviewRouter workflow for the selected Claude subscription model.",
       "",
       "- uses GitHub OIDC, server-admitted configuration and GitHub App publication",
-      "- reads the repository's OPENROUTER_API_KEY secret only in GitHub Actions",
-      "- runs the built-in ReviewRouter engine; OpenCodeReview requires Account Gateway",
+      "- reads CLAUDE_CODE_OAUTH_TOKEN only in GitHub Actions",
+      "- uses OpenCodeReview and verifies earlier findings through the same selected model and credential",
+      "- removes legacy ReviewRouter workflows matching trusted markers",
+      "",
+      "Workflow file: `.github/workflows/reviewrouter-review.yml`.",
+    ].join("\n");
+  if (input.setupMode === "provider_api")
+    return [
+      "This PR installs the App-first ReviewRouter workflow for the selected provider model.",
+      "",
+      "- uses GitHub OIDC, server-admitted configuration and GitHub App publication",
+      "- reads only the selected provider credential in GitHub Actions",
+      "- uses the review engine approved for this immutable runtime and saved configuration",
       "- removes legacy ReviewRouter workflows matching trusted markers",
       "",
       "Workflow file: `.github/workflows/reviewrouter-review.yml`.",

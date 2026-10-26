@@ -480,7 +480,13 @@ export function dashboardErrorText(error: string): string {
     case "openrouter_direct_requires_single_provider":
       return "Direct OpenRouter reviews currently support one provider and one model. Select a single OpenRouter provider without multi-provider agreement before saving or installing the workflow. Your saved policy has not been replaced.";
     case "openrouter_direct_workflow_options_not_supported":
-      return "Direct OpenRouter requires the reusable App-first workflow without discussion or conflict fallback. Use Account Gateway for OpenCodeReview.";
+      return "Direct provider reviews require the reusable App-first workflow without discussion or conflict fallback. Use the review engine approved for your installed runtime.";
+    case "claude_subscription_runtime_not_ready":
+      return "The Claude review runtime could not be verified. Try creating the setup PR again. If this continues, ask your workspace administrator to check the configured release.";
+    case "claude_subscription_workflow_not_qualified":
+      return "The saved Claude model or review settings changed during setup, or this runtime does not support them yet. Refresh the dashboard and check the saved connection before creating the setup PR again.";
+    case "claude_subscription_workflow_options_not_supported":
+      return "Claude reviews require the reusable App-first workflow without discussion or conflict fallback. Choose those workflow settings before creating the setup PR.";
     case "gateway_review_v2_inventory_retry":
       return "GitHub is still calculating pull request mergeability, or branches changed during the workflow check. Wait a minute, then click “I merged it” again to check the setup.";
     case "gateway_review_v2_workflow_incompatible":

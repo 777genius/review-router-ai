@@ -414,7 +414,10 @@ describe("original Hosted review grant binding", () => {
       f.grant.status = "exhausted";
       mutate(f);
       await expect(
-        confirmOriginalHostedReviewBindingForCompletion({ ...f.input, original }),
+        confirmOriginalHostedReviewBindingForCompletion({
+          ...f.input,
+          original,
+        }),
       ).resolves.toBe(false);
     },
   );

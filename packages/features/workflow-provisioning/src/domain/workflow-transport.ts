@@ -143,6 +143,17 @@ export function ciSecretsWorkflowProviderKind(
     : undefined;
 }
 
+/** The native subscription caller has one credential and one selected model. */
+export function isClaudeSubscriptionConfiguration(
+  config: ReviewConfiguration,
+): boolean {
+  return (
+    config.providers.length === 1 &&
+    config.providers[0]?.kind === "claude" &&
+    config.providers[0].authMode === "claude_code_oauth"
+  );
+}
+
 /** Hybrid providers whose secrets a rotating workflow passes through. */
 export function rotatingWorkflowSecretProviderKinds(
   config: ReviewConfiguration,

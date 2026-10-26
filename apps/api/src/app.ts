@@ -14,6 +14,7 @@ import {
 import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
 import { registerReviewRunGatewayRelayRoutes } from "./review-run-gateway-relay.js";
 import { registerReviewModelDispatchRoutes } from "./review-model-dispatch.js";
+import { registerReviewRunHostedModelRoute } from "./review-run-hosted-model-route.js";
 import { createDefaultHostedPoolOperatorConnect } from "./hosted-pool-workflow-operator-composition.js";
 import {
   createHostedPoolOperatorComposition,
@@ -900,6 +901,9 @@ export async function createApiApp(
           env: reviewActionV2Env,
           runtime: disabledReviewActionV2RuntimeDependencies,
           ...(prisma ? { prisma } : {}),
+          ...(hostedCodexRelayDependencies
+            ? { hostedRelay: hostedCodexRelayDependencies }
+            : {}),
           ...(options.actionOidcAudience
             ? { oidcAudience: options.actionOidcAudience }
             : {}),
@@ -1035,6 +1039,18 @@ export async function createApiApp(
     await registerReviewRunCheckoutRoute(
       app,
       productionReviewActionV2Dependencies.providerApiCheckout,
+    );
+  }
+  if (productionReviewActionV2Dependencies?.modelRouteCheckout) {
+    await registerReviewRunCheckoutRoute(
+      app,
+      productionReviewActionV2Dependencies.modelRouteCheckout,
+    );
+  }
+  if (productionReviewActionV2Dependencies?.hostedModelRoute) {
+    await registerReviewRunHostedModelRoute(
+      app,
+      productionReviewActionV2Dependencies.hostedModelRoute,
     );
   }
   await registerHostedV4ReadRoutes(

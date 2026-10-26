@@ -215,6 +215,7 @@ export class ManageReviewRunAuthorizations {
     readonly verifiedIdentity: VerifiedScmRunIdentity;
     readonly modelTransport?: ReviewAgentProfile["modelTransports"][number];
     readonly providerApiAuthMode?: ProviderApiAuthMode;
+    readonly subscriptionAuthMode?: "claude-oauth";
     readonly producerReleaseId: string;
     readonly expectedBaseProducerRelease?: ProducerRelease;
     readonly protocolOfferHash: string;
@@ -290,6 +291,9 @@ export class ManageReviewRunAuthorizations {
         modelTransport: input.modelTransport!,
         ...(input.providerApiAuthMode
           ? { providerApiAuthMode: input.providerApiAuthMode }
+          : {}),
+        ...(input.subscriptionAuthMode
+          ? { subscriptionAuthMode: input.subscriptionAuthMode }
           : {}),
         producerRelease: base.release,
         deadline:
