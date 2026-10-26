@@ -1,0 +1,147 @@
+name: Skills browser acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/skills-browser.yml
+      - apps/web/**
+      - apps/api/src/review-action-v2-production-composition.ts
+      - apps/api/src/review-run-runtime-snapshot*
+      - packages/features/auth/**
+      - packages/features/github-installations/**
+      - packages/features/provider-accounts/**
+      - packages/features/repositories/**
+      - packages/features/review-config/**
+      - packages/features/review-context-tools/**
+      - packages/features/review-run-control/**
+      - packages/features/review-skills/**
+      - packages/features/workflow-provisioning/**
+      - packages/platform/**
+      - packages/protocol-review-action-v2/**
+      - packages/shared/**
+      - packages/ui/**
+      - vendor/**
+      - scripts/accounts-reference-e2e/**
+      - scripts/install-private-dependencies.mjs
+      - scripts/generate-prisma-offline.mjs
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - tsconfig*.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: skills-browser-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  skills-browser:
+    name: Skills real Next and PostgreSQL browser acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+        env:
+          POSTGRES_USER: fixture_owner
+          POSTGRES_PASSWORD: skills_ci_fixture_only
+          POSTGRES_DB: review_router_accounts_reference_e2e_test
+        ports:
+          - "127.0.0.1:5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U fixture_owner -d review_router_accounts_reference_e2e_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      EXPECTED_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+      DATABASE_URL: postgresql://fixture_owner:skills_ci_fixture_only@127.0.0.1:5432/review_router_accounts_reference_e2e_test?schema=public
+      ACCOUNTS_REFERENCE_E2E_GREP: Skills real Next
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/tmp/accounts-reference-e2e/browser-cache
+      NODE_OPTIONS: --max-old-space-size=4096
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.11.1
+
+      - name: Prepare owned temporary directories
+        run: mkdir -p "$GITHUB_WORKSPACE/tmp/accounts-reference-e2e/tmp" "$PLAYWRIGHT_BROWSERS_PATH"
+
+      - name: Install pinned pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+
+      - name: Install root dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+
+      - name: Install standalone browser harness
+        run: pnpm --dir scripts/accounts-reference-e2e install --frozen-lockfile
+
+      - name: Generate actual Prisma client
+        env:
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
+        run: node scripts/generate-prisma-offline.mjs
+
+      - name: Install locked Chromium
+        run: pnpm --dir scripts/accounts-reference-e2e exec playwright install --with-deps chromium
+
+      - name: Run all Skills browser scenarios
+        env:
+          TMPDIR: ${{ github.workspace }}/tmp/accounts-reference-e2e/tmp
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_REVISION"
+          git diff --exit-code HEAD
+          node --import ./scripts/accounts-reference-e2e/node_modules/tsx/dist/loader.mjs \
+            scripts/accounts-reference-e2e/src/run.ts \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --database-url "$DATABASE_URL" \
+            --work-dir "$GITHUB_WORKSPACE/tmp/accounts-reference-e2e/runs/skills-ci" \
+            --expected-revision "$EXPECTED_REVISION" \
+            --skills-fixture
+
+      - name: Verify complete acceptance receipt
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { readFileSync } from 'node:fs';
+          const directory = 'tmp/accounts-reference-e2e/runs/skills-ci';
+          const result = JSON.parse(readFileSync(`${directory}/result.json`, 'utf8'));
+          const runtime = JSON.parse(readFileSync(`${directory}/runtime.json`, 'utf8'));
+          assert.equal(result.actualRevision, process.env.EXPECTED_REVISION);
+          assert.equal(runtime.baselineExpected, process.env.EXPECTED_REVISION);
+          assert.equal(result.sourceDeltaSha256, createHash('sha256').update('').digest('hex'));
+          assert.equal(result.outcome, 'done');
+          assert.equal(result.boot.ok, true);
+          assert.equal(result.databaseMode, 'explicit-test-url');
+          assert.equal(result.databaseBaseline, 'fresh migrated');
+          assert.equal(result.externalNetworkAllowed, false);
+          assert.equal(result.tests.passed, 23);
+          assert.equal(result.tests.failed, 0);
+          assert.equal(result.tests.skipped, 0);
+          assert.deepEqual(result.tests.failures, []);
+          NODE
+
+      - name: Upload browser acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: skills-browser-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            tmp/accounts-reference-e2e/runs/skills-ci/*.json
+            tmp/accounts-reference-e2e/runs/skills-ci/*.jsonl
+            tmp/accounts-reference-e2e/runs/skills-ci/*.log
+            tmp/accounts-reference-e2e/runs/skills-ci/boot-viewer.html
+            tmp/accounts-reference-e2e/runs/skills-ci/browser-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
