@@ -173,7 +173,7 @@ export function MemoryKnowledgeScreen({
           {page.canExport ? (
             <a
               href={memoryExportHref(selection)}
-              className="inline-flex min-h-10 items-center rounded-xl border border-white/15 px-4 text-sm font-medium text-slate-200 transition hover:bg-white/5"
+              className="inline-flex min-h-11 items-center rounded-xl border border-white/15 px-4 text-sm font-medium text-slate-200 transition hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300"
             >
               Export
             </a>
@@ -261,7 +261,7 @@ export function MemoryKnowledgeScreen({
           </Button>
         ) : null}
         {page.topicId ? (
-          <p className="w-full text-xs leading-5 text-slate-400">
+          <p className="w-full break-words text-xs leading-5 text-slate-400">
             Showing stored knowledge tagged {page.topicId}. Select All entries
             to check changes that are still processing.
           </p>
@@ -277,12 +277,14 @@ export function MemoryKnowledgeScreen({
       {pageQuery.isError ? (
         <Notice>
           We could not refresh this list. The last loaded view is shown.{" "}
-          <button
-            className="font-medium text-cyan-200 underline"
+          <Button
+            size="sm"
+            variant="ghost"
+            className="underline"
             onClick={() => void pageQuery.refetch()}
           >
             Try again
-          </button>
+          </Button>
         </Notice>
       ) : null}
       {commandId ? (
@@ -299,16 +301,20 @@ export function MemoryKnowledgeScreen({
           </span>
           <div className="flex flex-wrap gap-3">
             {operation.isError ? (
-              <button
-                className="text-xs underline"
+              <Button
+                size="sm"
+                variant="ghost"
+                className="underline"
                 onClick={() => void operation.refetch()}
               >
                 Check status again
-              </button>
+              </Button>
             ) : null}
             {scopedChange ? (
-              <button
-                className="text-xs underline"
+              <Button
+                size="sm"
+                variant="ghost"
+                className="underline"
                 onClick={() => {
                   const { request, entry } = scopedChange;
                   setCommandId(request.commandId);
@@ -322,15 +328,17 @@ export function MemoryKnowledgeScreen({
                 }}
               >
                 Resume same request
-              </button>
+              </Button>
             ) : null}
             {operation.data && !pending(operation.data.state) ? (
-              <button
-                className="text-xs underline"
+              <Button
+                size="sm"
+                variant="ghost"
+                className="underline"
                 onClick={() => setCommandId(null)}
               >
                 Dismiss
-              </button>
+              </Button>
             ) : null}
           </div>
         </div>
@@ -379,13 +387,15 @@ export function MemoryKnowledgeScreen({
                         : "Rule"}
                   </Badge>
                   {entry.pendingCommandId ? (
-                    <button
+                    <Button
                       type="button"
+                      size="sm"
+                      variant="ghost"
                       className="text-xs text-amber-200 underline underline-offset-2"
                       onClick={() => setCommandId(entry.pendingCommandId)}
                     >
                       Check change status
-                    </button>
+                    </Button>
                   ) : null}
                 </div>
                 <p className="whitespace-pre-wrap break-words text-[0.95rem] leading-7 text-slate-100">
@@ -401,7 +411,7 @@ export function MemoryKnowledgeScreen({
                     {entry.topics.map((topic) => (
                       <span
                         key={topic}
-                        className="rounded-md bg-white/5 px-2 py-1 text-xs text-slate-300"
+                        className="max-w-full break-words rounded-md bg-white/5 px-2 py-1 text-xs text-slate-300"
                       >
                         {topic}
                       </span>
@@ -414,7 +424,7 @@ export function MemoryKnowledgeScreen({
                       href={entry.sourceUrl}
                       target="_blank"
                       rel="noreferrer noopener"
-                      className="text-slate-400 underline decoration-slate-600 underline-offset-2"
+                      className="inline-flex min-h-11 items-center text-slate-400 underline decoration-slate-600 underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300"
                     >
                       {entry.sourceLabel} ↗
                     </a>
