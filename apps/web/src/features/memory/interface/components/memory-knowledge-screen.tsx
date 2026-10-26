@@ -1,12 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-  type QueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import {
   Badge,
@@ -28,13 +23,13 @@ import {
   memoryPageKey,
   type MemoryDashboardApi,
 } from "../../adapters/memory-dashboard-api";
+import { redactForgottenEntryAcrossCachedPages } from "../../adapters/memory-dashboard-cache";
 import type {
   MemoryDashboardMutation,
   MemoryEntryView,
   MemoryKnowledgePage,
   MemoryOperationView,
   MemoryUnconfirmedChange,
-  MemoryScopeSelection,
 } from "../../application/memory-knowledge-view";
 
 type Dialog = (
@@ -46,49 +41,6 @@ const pending = (state?: MemoryOperationView["state"]) =>
   state !== undefined && !["published", "completed", "failed"].includes(state);
 const inputClass =
   "w-full rounded-xl border border-white/15 bg-slate-950/70 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-cyan-300 focus:ring-1 focus:ring-cyan-300 disabled:opacity-60";
-
-/** A confirmed removal must outlive a failed refresh of any cached scope page. */
-function redactForgottenEntry(
-  client: QueryClient,
-  selection: MemoryScopeSelection,
-  operation: MemoryOperationView,
-): void {
-  const queryKey = [
-    "memory-knowledge",
-    selection.workspaceId,
-    selection.repositoryId,
-  ] as const;
-  // An older in-flight read must not restore the text after this visibility fence.
-  void client.cancelQueries({ queryKey });
-  client.setQueriesData<MemoryKnowledgePage>({ queryKey }, (page) => {
-    if (
-      !page ||
-      page.workspaceId !== selection.workspaceId ||
-      page.repositoryId !== selection.repositoryId
-    )
-      return page;
-    return {
-      ...page,
-      entries: page.entries.map(
-        (entry): MemoryEntryView =>
-          entry.id === operation.entryId
-            ? {
-                ...entry,
-                body: null,
-                topics: [],
-                status:
-                  operation.state === "completed"
-                    ? "forgotten"
-                    : "forget_pending",
-                pendingCommandId:
-                  operation.state === "completed" ? null : operation.id,
-                unavailable: "unsettled",
-              }
-            : entry,
-      ),
-    };
-  });
-}
 
 export function MemoryKnowledgeScreen({
   initialData,
@@ -155,29 +107,41 @@ export function MemoryKnowledgeScreen({
         : false,
   });
   useEffect(() => {
+    let active = true;
     const progress = operation.data;
     const acknowledged = progress?.id === scopedChange?.request.commandId;
     if (progress && (acknowledged || !pending(progress.state))) {
-      if (
-        acknowledged &&
-        scopedChange?.request.action === "forget" &&
-        scopedChange.request.entryId === progress.entryId
-      )
-        redactForgottenEntry(client, selection, progress);
-      void client.invalidateQueries({
-        queryKey: [
-          "memory-knowledge",
-          selection.workspaceId,
-          selection.repositoryId,
-        ],
-      });
-      if (acknowledged) {
-        onUnconfirmedChange(null, progress.id);
-        setDialog((current) =>
-          current?.requestId === progress.id ? null : current,
-        );
-      }
+      const reconcile = async () => {
+        if (
+          acknowledged &&
+          scopedChange?.request.action === "forget" &&
+          scopedChange.request.entryId === progress.entryId
+        )
+          await redactForgottenEntryAcrossCachedPages(
+            client,
+            selection,
+            progress,
+          );
+        if (!active) return;
+        void client.invalidateQueries({
+          queryKey: [
+            "memory-knowledge",
+            selection.workspaceId,
+            selection.repositoryId,
+          ],
+        });
+        if (acknowledged) {
+          onUnconfirmedChange(null, progress.id);
+          setDialog((current) =>
+            current?.requestId === progress.id ? null : current,
+          );
+        }
+      };
+      void reconcile();
     }
+    return () => {
+      active = false;
+    };
   }, [
     client,
     operation.data?.state,
@@ -203,7 +167,7 @@ export function MemoryKnowledgeScreen({
       input.commandId === result.id &&
       input.entryId === result.entryId
     )
-      redactForgottenEntry(client, selection, result);
+      await redactForgottenEntryAcrossCachedPages(client, selection, result);
     client.setQueryData(memoryOperationKey(selection, result.id), result);
     setDialog((current) => (current?.requestId === result.id ? null : current));
     onUnconfirmedChange(null, result.id);

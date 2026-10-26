@@ -79,6 +79,14 @@ describe("memory screen", () => {
     "redacts confirmed Forget from every exact-scope cached page when refresh fails: %s",
     async (confirmation) => {
       const f = fixture();
+      let releaseDrain!: () => void;
+      const drain = new Promise<void>((resolve) => {
+        releaseDrain = resolve;
+      });
+      const cancellation = vi
+        .spyOn(f.client, "cancelQueries")
+        .mockReturnValueOnce(drain);
+      const invalidation = vi.spyOn(f.client, "invalidateQueries");
       const second = { ...f.page, cursor: "another_page" };
       const filtered = { ...f.page, topicId: "database" };
       const otherRepository = { ...f.page, repositoryId: "other_repository" };
@@ -109,6 +117,13 @@ describe("memory screen", () => {
       );
       fireEvent.click(screen.getAllByRole("button", { name: "Forget" })[0]!);
       fireEvent.click(screen.getByRole("button", { name: "Forget memory" }));
+      await waitFor(() => expect(cancellation).toHaveBeenCalledTimes(1));
+      expect(invalidation).not.toHaveBeenCalled();
+      expect(
+        f.client.getQueryData<typeof f.page>(memoryPageKey(f.page))?.entries[0]
+          ?.body,
+      ).toBe(f.page.entries[0]?.body);
+      releaseDrain();
       await screen.findByText("Forgetting");
       expect(screen.queryByText(/Use parameterized queries/)).toBeNull();
       await waitFor(
