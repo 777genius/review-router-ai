@@ -421,6 +421,10 @@ async function readTestSummary(path: string): Promise<TestSummary> {
           test.status !== "skipped",
       )
       .map((test) => test.title);
+    if (tests.length === 0 || tests.every((test) => test.status === "skipped"))
+      failures.push("playwright-no-executed-tests");
+    if (Array.isArray(raw.errors) && raw.errors.length > 0)
+      failures.push("playwright-run-errors");
     return {
       passed: tests.filter(
         (test) => test.status === "expected" || test.status === "passed",

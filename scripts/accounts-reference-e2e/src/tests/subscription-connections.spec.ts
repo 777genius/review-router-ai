@@ -107,6 +107,18 @@ test("subscription connections use real server actions for all four providers an
       await row.getByText("Details", { exact: true }).click();
     }
     await noSecrets(page, secrets);
+    if (profile.provider === "glm" || profile.provider === "minimax") {
+      await row.getByRole("button", { name: `Actions for ${label}` }).click();
+      await page.getByRole("menuitem", { name: "Update API key" }).click();
+      const reconnect = page.getByRole("dialog");
+      await reconnect.getByLabel(/Subscription key/).fill(secret);
+      await reconnect.getByLabel(/Subscription key/).press("Enter");
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      await expect(row).toBeVisible();
+      await expect(sourceRow(page, label)).toHaveCount(1);
+      await expect(row).toContainText("Ready");
+      await noSecrets(page, secrets);
+    }
   }
   await page
     .getByRole("button", { name: "Connect account", exact: true })
@@ -213,7 +225,7 @@ test("subscription connections use real server actions for all four providers an
     connects: 3,
     begins: 1,
     completes: 2,
-    reconnects: 1,
+    reconnects: 3,
     inference: 0,
     refresh: 0,
   });
@@ -246,6 +258,36 @@ test("subscription connections use real server actions for all four providers an
   await expect(
     removed.getByRole("button", { name: "Refresh Grok sign-in" }),
   ).toHaveCount(0);
+  for (const provider of ["GLM", "MiniMax"]) {
+    const label = `Browser ${provider} subscription`;
+    const row = sourceRow(page, label);
+    await row.getByRole("button", { name: `Actions for ${label}` }).click();
+    await page.getByRole("menuitem", { name: "Remove connection…" }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Remove connection permanently" })
+      .click();
+    await expect
+      .poll(
+        async () =>
+          (await row.count()) === 0 ||
+          (await row.textContent())?.includes("Retired"),
+      )
+      .toBe(true);
+    await noSecrets(page, secrets);
+  }
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get(`${gateway}/__subscription-fixture`)).json())
+          .deletes,
+    )
+    .toBe(3);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  for (const provider of ["GLM", "MiniMax"]) {
+    const row = sourceRow(page, `Browser ${provider} subscription`);
+    if (await row.count()) await expect(row).toContainText("Retired");
+  }
   await openAccounts(page, "rr-e2e-org-alpha");
   await page.getByRole("button", { name: "Add account", exact: true }).click();
   await choose(page, "Owner", "RR E2E Org Alpha · organization account");
