@@ -117,7 +117,9 @@ async function accountsReady(
     "data-dashboard-layout-ready",
     "true",
   );
-  await hydrated;
+  const summaries = await hydrated;
+  expect(summaries.ok()).toBe(true);
+  await summaries.body();
 }
 
 async function expectStorage(dialog: Locator) {
@@ -468,8 +470,26 @@ test("API key storage connects all three accounts and returns to the same provid
     const secret = `synthetic-${provider.id}-subscription-key`;
     secrets.push(secret);
     await enrollment.locator('input[type="password"]').fill(secret);
+    // Enrollment refreshes source summaries after the new row is visible.
+    // Read that response before leaving Accounts: navigation can otherwise
+    // evict its body from Chromium while the canary observer is reading it.
+    const refreshedAccess = page.waitForResponse(
+      (response) => {
+        const url = new URL(response.url());
+        return (
+          url.pathname === "/api/dashboard/accounts/access" &&
+          url.searchParams.get("view") === "summaries" &&
+          response.request().method() === "GET"
+        );
+      },
+      { timeout: 60_000 },
+    );
     await enrollment.locator('input[type="password"]').press("Enter");
     await expect(sourceRow(page, name)).toBeVisible();
+    const accessResponse = await refreshedAccess;
+    expect(accessResponse.ok()).toBe(true);
+    const accessBody = await accessResponse.text();
+    expect(secrets.some((value) => accessBody.includes(value))).toBe(false);
     await noSecrets(page, secrets);
     const back = page.getByRole("link", {
       name: "Back to provider setup",
