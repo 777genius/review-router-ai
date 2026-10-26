@@ -2,6 +2,7 @@ import {
   reviewActionV2SupportedContracts,
   type ReviewActionV2ContractDescriptor,
 } from "@reviewrouter/protocol-review-action-v2";
+import { ReviewProtocolVersion } from "@reviewrouter/features-review-run-control";
 
 const WELL_FORMED_DIGEST = /^[a-f0-9]{64}$/;
 const WELL_FORMED_PROTOCOL_VERSION = /^[0-9A-Za-z._-]{1,16}$/;
@@ -173,7 +174,11 @@ export function assessRollbackProtocolCompatibility(input: {
     requiredContracts.push({
       source: "authorization",
       consumer: authorization.authorizationId,
-      protocolVersion: authorization.selectedProtocolVersion,
+      // Authorizations persist the domain enum; descriptors use the wire version.
+      protocolVersion:
+        authorization.selectedProtocolVersion === ReviewProtocolVersion.V2
+          ? "2"
+          : authorization.selectedProtocolVersion,
       schemaDigest: authorization.schemaDigest,
       canonicalizerDigest: attestation.canonicalizerDigest,
     });
