@@ -1310,6 +1310,7 @@ function companionContext(
       : {}),
   } as Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1];
 }
+export { companionContext as readReviewRunCompanionDispatchContext };
 export type ReviewRunGatewayRelay = ReturnType<
   typeof createReviewRunGatewayRelay
 >;

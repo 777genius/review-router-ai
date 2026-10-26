@@ -33,8 +33,6 @@ export class AttestResolutionWriterQualification {
       observed < started ||
       observed > now.getTime() ||
       now.getTime() - started > 5_000 ||
-      observation.proof.qualificationSource !==
-        "retired_legacy_writers_quarantine.v1" ||
       !isQualifiedResolutionWriterProof(observation.proof, now, (value) =>
         createHash("sha256").update(value).digest("hex"),
       )

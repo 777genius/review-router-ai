@@ -26,6 +26,7 @@ const profile = {
   descriptorDigest: reviewModelDispatchDescriptorDigest,
   policyVersion: "model-dispatch-policy.v2" as const,
   transports: ["runner_local_responses" as const],
+  wireProtocols: ["openai-responses" as const, "codex-responses" as const],
   defaultAgentProfileRefs: {
     runner_local_responses: "ocr-controlled-responses",
   },
@@ -82,6 +83,9 @@ describe("versioned model dispatch approval", () => {
         transports: ["runner_local_responses", "runner_local_responses"],
       },
       { ...profile, transports: ["arbitrary_proxy"] },
+      { ...profile, wireProtocols: ["openai-responses", "openai-responses"] },
+      { ...profile, wireProtocols: ["unqualified-protocol"] },
+      { ...profile, wireProtocols: [] },
       { ...profile, defaultAgentProfileRefs: {} },
       {
         ...profile,

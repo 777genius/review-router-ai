@@ -3,12 +3,14 @@ import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
 import {
   SignedResolutionWriterQualification,
+  resolutionWriterWitnessDigest,
   verifyResolutionWriterWitness,
 } from "@reviewrouter/features-review-publishing/v2/composition";
 import {
   ensureResolutionHistoryActivated,
   type ResolutionHistoryCut,
   type ResolutionWriterWitnessBinding,
+  type ManagedResolutionWriterDrainQualification,
 } from "@reviewrouter/features-review-publishing/v2";
 import { controlledRetiredWriterProof } from "../../../packages/features/review-publishing/src/v2/tests/resolution-history-fixtures";
 import { Ed25519ReleaseWitnessSignerAdapter } from "./release-witness-adapters";
@@ -95,6 +97,85 @@ async function fixture() {
 }
 
 describe("purpose-bound resolution writer witness", () => {
+  it("revalidates an existing managed-settlement cut without replacing it with retirement history", async () => {
+    const now = new Date();
+    const proof: ManagedResolutionWriterDrainQualification = {
+      qualificationSource: "managed_executor_handler_settlement.v1",
+      writerDigest: "e".repeat(64),
+      executors: [
+        {
+          executorId: "settled-managed-handler",
+          binaryDigest: "f".repeat(64),
+          acceptsNewRequests: false,
+          handlerSettlement: "terminal_or_exact_durable_pending",
+        },
+      ],
+    };
+    const attester = new AttestResolutionWriterQualification(
+      { observe: async () => ({ ...binding, proof, observedAt: now.toISOString() }) },
+      signer,
+      { assertOrdinary: async () => {}, assertForceNew: async () => {} },
+      () => now,
+    );
+    const receipt = await attester.execute();
+    expect(verifyResolutionWriterWitness(receipt, binding, trust, now)?.proof)
+      .toEqual(proof);
+    const cut: ResolutionHistoryCut = {
+      activatedAt: new Date(now.getTime() - 60_000).toISOString(),
+      activationVersion: 1,
+      writerDigest: proof.writerDigest,
+    };
+    const activation = {
+      readActivation: async () => cut,
+      beginDrain: vi.fn(),
+      activate: vi.fn(),
+    };
+    const writers = new SignedResolutionWriterQualification({
+      readWitness: async () => receipt,
+      observeBinding: async () => binding,
+      trust,
+      now: () => now,
+    });
+    await expect(ensureResolutionHistoryActivated(scope, { activation, writers }))
+      .resolves.toEqual({ status: "guarded" });
+    const retired = controlledRetiredWriterProof();
+    await expect(ensureResolutionHistoryActivated(scope, {
+      activation,
+      writers: { qualify: async () => ({ status: "qualified", proof: retired }) },
+    })).resolves.toMatchObject({
+      status: "unavailable",
+      reasonCode: "resolution_activation_writer_conflict",
+    });
+    expect(activation.beginDrain).not.toHaveBeenCalled();
+    expect(activation.activate).not.toHaveBeenCalled();
+    expect(await activation.readActivation()).toBe(cut);
+
+    // A valid signature cannot turn an idle counter or an accepting executor
+    // into positive handler settlement evidence.
+    for (const executor of [
+      { ...proof.executors[0], handlerSettlement: "idle" },
+      { ...proof.executors[0], acceptsNewRequests: true },
+    ]) {
+      const unsigned = {
+        ...binding,
+        purpose: receipt.purpose,
+        observedAt: receipt.observedAt,
+        expiresAt: receipt.expiresAt,
+        proof: { ...proof, executors: [executor] } as ManagedResolutionWriterDrainQualification,
+      };
+      const bindingSha256 = resolutionWriterWitnessDigest(unsigned);
+      expect(verifyResolutionWriterWitness({
+        ...unsigned, bindingSha256, signature: signer.sign(bindingSha256),
+      }, binding, trust, now)).toBeNull();
+      await expect(new AttestResolutionWriterQualification(
+        { observe: async () => ({ ...binding, proof: unsigned.proof, observedAt: now.toISOString() }) },
+        signer,
+        { assertOrdinary: async () => {}, assertForceNew: async () => {} },
+        () => now,
+      ).execute()).rejects.toThrow("resolution_writer_observation_unqualified");
+    }
+  });
+
   it("signs independent observations through the existing witness route and rejects request-supplied selectors", async () => {
     const f = await fixture();
     try {

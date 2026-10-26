@@ -1,0 +1,81 @@
+name: Unified OCR review UI
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/unified-ocr-ui.yml
+      - apps/web/**
+      - packages/features/provider-setup/**
+      - packages/features/review-config/**
+      - packages/features/review-run-control/**
+      - packages/platform/db/**
+      - packages/shared/**
+      - scripts/accounts-reference-e2e/**
+      - package.json
+      - pnpm-lock.yaml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unified-ocr-ui-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  actual-next-readiness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+        env:
+          POSTGRES_USER: fixture_owner
+          POSTGRES_PASSWORD: synthetic-fixture-password
+          POSTGRES_DB: review_router_accounts_reference_e2e_test
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U fixture_owner -d review_router_accounts_reference_e2e_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Disposable service credentials only. No repository secrets or live identities.
+      DATABASE_URL: postgresql://fixture_owner:synthetic-fixture-password@127.0.0.1:5432/review_router_accounts_reference_e2e_test?schema=public
+      ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL: postgresql://fixture_owner:synthetic-fixture-password@127.0.0.1:5432/review_router_accounts_reference_e2e_test?schema=public
+      ACCOUNTS_REFERENCE_E2E_GREP: review runtime readiness
+      ACCOUNTS_REFERENCE_E2E_TRACE: "on"
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/tmp/accounts-reference-e2e/browser-cache
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.21.0
+      - name: Install the locked application and browser harness
+        run: |
+          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+          node scripts/install-private-dependencies.mjs --frozen-lockfile
+          pnpm --dir scripts/accounts-reference-e2e install --frozen-lockfile
+          pnpm --filter @reviewrouter/platform-db db:generate
+          pnpm --dir scripts/accounts-reference-e2e run check
+      - name: Install Chromium with its supported system libraries
+        run: pnpm --dir scripts/accounts-reference-e2e exec playwright install --with-deps chromium
+      - name: Migrate fresh PostgreSQL and run actual desktop and mobile Next UI
+        run: |
+          node --import ./scripts/accounts-reference-e2e/node_modules/tsx/dist/loader.mjs \
+            scripts/accounts-reference-e2e/src/run.ts \
+            --repo-root "$PWD" \
+            --database-url "$ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL" \
+            --expected-revision "$GITHUB_SHA" \
+            --work-dir "$PWD/tmp/accounts-reference-e2e/runs/unified-ocr-ui" \
+            --review-runtime-fixture --catalog-fixture
+      - name: Preserve screenshots, traces and bounded fixture diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: unified-ocr-ui-${{ github.run_id }}-${{ github.run_attempt }}
+          path: tmp/accounts-reference-e2e/runs/unified-ocr-ui/
+          if-no-files-found: warn
+          retention-days: 7

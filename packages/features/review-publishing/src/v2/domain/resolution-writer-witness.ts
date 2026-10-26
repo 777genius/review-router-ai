@@ -49,11 +49,12 @@ export type ResolutionWriterWitnessBinding = Readonly<{
   }>;
 }>;
 
-/** A retirement proof is stable; short-lived observations establish its current applicability. */
+/** A cut's original qualification remains stable; fresh observations establish
+ * its applicability without converting retirement into handler settlement. */
 export type ResolutionWriterWitnessUnsigned = ResolutionWriterWitnessBinding &
   Readonly<{
     purpose: typeof resolutionWriterWitnessPurpose;
-    proof: RetiredLegacyWritersQuarantineQualification;
+    proof: ResolutionWriterDrainQualification;
     observedAt: string;
     expiresAt: string;
   }>;
@@ -69,7 +70,7 @@ export interface ResolutionWriterFleetObservationPort {
   observe(): Promise<
     ResolutionWriterWitnessBinding &
       Readonly<{
-        proof: RetiredLegacyWritersQuarantineQualification;
+        proof: ResolutionWriterDrainQualification;
         observedAt: string;
       }>
   >;

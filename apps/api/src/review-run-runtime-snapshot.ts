@@ -57,12 +57,18 @@ import {
 } from "@reviewrouter/features-review-run-control";
 
 import { reviewRunGatewayMaxResponseBytes } from "./account-gateway-run-access";
+import {
+  captureOriginalHostedReviewBinding,
+  confirmOriginalHostedReviewBindingForCompletion,
+  type HostedReviewBindingReader,
+} from "./review-run-hosted-binding";
 
 type RuntimeReader = Pick<
   PrismaClient,
   "reviewConfiguration" | "workspaceProviderProfile" | "workspaceAccountBinding"
 > &
-  Partial<Pick<PrismaClient, "reviewContextConnection" | "producerRelease">>;
+  Partial<Pick<PrismaClient, "reviewContextConnection" | "producerRelease">> &
+  Partial<HostedReviewBindingReader>;
 
 // Exact profile identity is resolved against the admitted producer, never guessed.
 const defaultReviewAgentProfileRef = "ocr-managed-v2";
@@ -505,6 +511,18 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         },
       };
     }
+    const hosted =
+      preparedRoute?.transport === "hosted_pool"
+        ? await captureOriginalHostedReviewBinding({
+            reader: reader as HostedReviewBindingReader,
+            identity,
+            configuration,
+            configurationVersion: current.version,
+            now: new Date(),
+          })
+        : undefined;
+    if (preparedRoute?.transport === "hosted_pool" && !hosted)
+      return { captureDenied: "agent_profile_unavailable" };
     let modelDispatchCapability: ReviewModelDispatchCapabilityV2 | undefined;
     if (modelDispatchProfile && preparedRoute) {
       // The admission owns one exact model route, shared by all paid roles.
@@ -537,16 +555,34 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
               effectivePolicyDigest: current.effectivePolicyDigest,
               agentProfileDigest,
               transport: preparedRoute.transport,
+              wireProtocol: preparedRoute.wireProtocol,
+              outputTokenLimit: preparedRoute.outputTokenLimit,
               providerIndex: preparedRoute.providerIndex,
               model: preparedRoute.model,
+              ...(preparedRoute.configuredModel
+                ? { configuredModel: preparedRoute.configuredModel }
+                : {}),
               gateway,
+              ...(hosted ? { hosted } : {}),
             }),
           )
           .digest("hex"),
         transport: preparedRoute.transport,
+        wireProtocol: preparedRoute.wireProtocol,
+        outputTokenLimit: preparedRoute.outputTokenLimit,
         providerIndex: preparedRoute.providerIndex,
         model: preparedRoute.model,
-        deadline,
+        ...(preparedRoute.configuredModel
+          ? { configuredModel: preparedRoute.configuredModel }
+          : {}),
+        deadline: hosted
+          ? new Date(
+              Math.min(
+                Date.parse(deadline),
+                Date.parse(hosted.expiresAt) - 60_000,
+              ),
+            ).toISOString()
+          : deadline,
       };
     }
     let lifecycleVerificationUnavailableReason: ReviewRunRuntimeSnapshot["lifecycleVerificationUnavailableReason"];
@@ -664,10 +700,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
             version: 2,
             modelTransport: cap.transport,
             routeIdentityHash: cap.routeIdentityHash,
-            protocol:
-              cap.transport === "runner_local_anthropic"
-                ? "anthropic-messages"
-                : "openai-responses",
+            protocol: cap.wireProtocol,
             providerIndex: cap.providerIndex,
             providerKind: reviewAgentExecutionProviderKind(agent),
             model: cap.model,
@@ -730,6 +763,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
             : {}),
           deadline,
           gateway,
+          ...(hosted ? { hosted } : {}),
         }),
       );
     } catch {
@@ -806,6 +840,18 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     );
     if (gatewayProviders.length > 1) return false;
     if (input.now >= new Date(snapshot.deadline)) return false;
+    if (
+      snapshot.hosted &&
+      !(await confirmOriginalHostedReviewBindingForCompletion({
+        reader: reader as HostedReviewBindingReader,
+        identity,
+        configuration,
+        configurationVersion: snapshot.configurationVersion,
+        original: snapshot.hosted,
+        now: input.now,
+      }))
+    )
+      return false;
     const original = snapshot.gateway;
     if (!original) return gatewayProviders.length === 0;
     // A new lower ceiling revokes an over-budget old grant in exactly this scope.
@@ -896,7 +942,15 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     // The fence replays the original delivery capability, never a fresh caller
     // flag or configuration-only guess. A non-Gateway Skills profile was
     // admitted only through the verified direct provider-API route.
-    if (!original.gateway && original.agent.reviewSkillsVersion === 1) {
+    if (
+      !original.gateway &&
+      original.agent.reviewSkillsVersion === 1 &&
+      (!original.modelDispatchCapability ||
+        providerApiModeForAuthMode(
+          JSON.parse(original.configurationCanonicalJson).providers[0]
+            ?.authMode ?? "",
+        ) !== undefined)
+    ) {
       try {
         providerApiAuthMode = assertProviderApiDirectConfigurationSupported(
           parseReviewConfigurationStrict(
@@ -917,6 +971,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         contextToolsProfile: true,
         prDescriptionProfile: true,
         lifecycleVerificationProfile: true,
+        modelDispatchProfile: true,
       },
     });
     if (
@@ -949,6 +1004,13 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
             producerReleaseId: producer.producerReleaseId,
             actionCommitSha: producer.actionCommitSha,
             runtimeCommitSha: producer.runtimeCommitSha,
+            ...(producer.modelDispatchProfile == null
+              ? {}
+              : {
+                  modelDispatchProfile: parseReviewModelDispatchProfileV2(
+                    producer.modelDispatchProfile,
+                  ),
+                }),
             ...(producer.contextToolsProfile == null
               ? {}
               : {

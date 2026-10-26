@@ -96,7 +96,6 @@ export function verifyResolutionWriterWitness(
     if (
       canonicalReviewPublicationJson(binding) !==
         canonicalReviewPublicationJson(expected) ||
-      proof.qualificationSource !== "retired_legacy_writers_quarantine.v1" ||
       !isQualifiedResolutionWriterProof(proof, now, sha)
     )
       return null;
@@ -111,7 +110,8 @@ export function verifyResolutionWriterWitness(
       observed >= expires ||
       expires - observed > trust.maximumAgeMilliseconds ||
       now.getTime() - observed > trust.maximumAgeMilliseconds ||
-      Date.parse(proof.ingress.observedAt) > observed ||
+      (proof.qualificationSource === "retired_legacy_writers_quarantine.v1" &&
+        Date.parse(proof.ingress.observedAt) > observed) ||
       bindingSha256 !== resolutionWriterWitnessDigest(unsigned) ||
       !signature ||
       Object.keys(signature).sort().join(",") !== "algorithm,keyId,value" ||

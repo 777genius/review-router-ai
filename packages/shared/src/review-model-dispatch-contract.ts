@@ -1,3 +1,15 @@
+export const reviewModelWireProtocols = [
+  "openai-responses",
+  "codex-responses",
+  "anthropic-messages",
+] as const;
+export type ReviewModelWireProtocol = (typeof reviewModelWireProtocols)[number];
+export type ReviewModelOutputTokenLimit =
+  | "upstream_request"
+  | "terminal_acceptance";
+export const anthropicModelAliases = ["sonnet", "opus", "haiku"] as const;
+export type AnthropicModelAlias = (typeof anthropicModelAliases)[number];
+
 /** Versioned metadata admission. Provider credentials and prompt/response bytes
  * remain in their existing transport; only bounded receipts enter this API. */
 export const reviewModelDispatchContract = Object.freeze({
@@ -8,6 +20,12 @@ export const reviewModelDispatchContract = Object.freeze({
   basePath: "/api/action/v2/model-dispatch",
   claimPath: "/api/action/v2/model-dispatch/claim",
   receiptHeader: "x-reviewrouter-dispatch-receipt",
+  wireProtocols: Object.freeze(reviewModelWireProtocols),
+  anthropicModelAliases: Object.freeze(anthropicModelAliases),
+  outputTokenLimits: Object.freeze([
+    "upstream_request",
+    "terminal_acceptance",
+  ] as const),
   maxRequests: 32,
   maxConcurrentRequests: 1,
   maxRequestBytes: 16 * 1024 * 1024,
@@ -17,7 +35,7 @@ export const reviewModelDispatchContract = Object.freeze({
 } as const);
 
 export const reviewModelDispatchDescriptorDigest =
-  "sha256:c99c161779f7e16cbe7c96f227bb91a97538440c4c631592524240bd20fec2f1";
+  "sha256:be55241ba86af0788b6a60973ac7c55e6aa33244d18bba52a230cbc195ba4a2d";
 
 /** Native forwarding supplements the existing parent-only lease headers. */
 export const reviewModelDispatchHeaders = Object.freeze({
@@ -49,6 +67,12 @@ export type ReviewModelDispatchProfileV2 = Readonly<{
   descriptorDigest: string;
   policyVersion: "model-dispatch-policy.v2";
   transports: readonly ReviewModelTransport[];
+  wireProtocols: readonly ReviewModelWireProtocol[];
+  /** Exact native IDs qualified with this immutable producer, never a lookup
+   * against mutable CLI aliases or current account defaults at execution time. */
+  anthropicModelAliases?: Readonly<
+    Partial<Record<AnthropicModelAlias, string>>
+  >;
   defaultAgentProfileRefs: Readonly<
     Partial<Record<ReviewModelTransport, string>>
   >;
@@ -61,8 +85,12 @@ export type ReviewModelDispatchCapabilityV2 = ReviewModelDispatchLimitsV2 &
     version: 2;
     routeIdentityHash: string;
     transport: ReviewModelTransport;
+    wireProtocol: ReviewModelWireProtocol;
+    /** Codex subscription has no provider-enforced output-token field. */
+    outputTokenLimit: ReviewModelOutputTokenLimit;
     providerIndex: number;
     model: string;
+    configuredModel?: AnthropicModelAlias;
     deadline: string;
   }>;
 
@@ -203,6 +231,10 @@ export function parseReviewModelDispatchProfileV2(
       "descriptorDigest",
       "policyVersion",
       "transports",
+      "wireProtocols",
+      ...(Object.hasOwn(value, "anthropicModelAliases")
+        ? ["anthropicModelAliases"]
+        : []),
       "defaultAgentProfileRefs",
       "limits",
     ]) ||
@@ -214,6 +246,11 @@ export function parseReviewModelDispatchProfileV2(
     value.transports.length > reviewModelTransports.length ||
     value.transports.some((item) => !isReviewModelTransport(item)) ||
     new Set(value.transports).size !== value.transports.length ||
+    !Array.isArray(value.wireProtocols) ||
+    value.wireProtocols.length < 1 ||
+    value.wireProtocols.length > reviewModelWireProtocols.length ||
+    value.wireProtocols.some((item) => !isReviewModelWireProtocol(item)) ||
+    new Set(value.wireProtocols).size !== value.wireProtocols.length ||
     !record(value.defaultAgentProfileRefs) ||
     !keys(value.defaultAgentProfileRefs, value.transports)
   )
@@ -224,6 +261,23 @@ export function parseReviewModelDispatchProfileV2(
       !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/.test(ref)
     )
       invalid();
+  if (Object.hasOwn(value, "anthropicModelAliases")) {
+    const aliases = value.anthropicModelAliases;
+    if (
+      !record(aliases) ||
+      Object.keys(aliases).length < 1 ||
+      !value.transports.includes("runner_local_anthropic") ||
+      !value.wireProtocols.includes("anthropic-messages") ||
+      Object.entries(aliases).some(
+        ([alias, model]) =>
+          !(anthropicModelAliases as readonly string[]).includes(alias) ||
+          typeof model !== "string" ||
+          !/^claude-[a-z0-9][a-z0-9.-]{0,119}$/.test(model) ||
+          model.endsWith("-latest"),
+      )
+    )
+      invalid();
+  }
   return Object.freeze({
     extensionId: reviewModelDispatchContract.extensionId,
     descriptorDigest: reviewModelDispatchDescriptorDigest,
@@ -231,6 +285,16 @@ export function parseReviewModelDispatchProfileV2(
     transports: Object.freeze([
       ...value.transports,
     ]) as readonly ReviewModelTransport[],
+    wireProtocols: Object.freeze([
+      ...value.wireProtocols,
+    ]) as readonly ReviewModelWireProtocol[],
+    ...(value.anthropicModelAliases === undefined
+      ? {}
+      : {
+          anthropicModelAliases: Object.freeze({
+            ...(value.anthropicModelAliases as Record<string, string>),
+          }),
+        }),
     defaultAgentProfileRefs: Object.freeze({
       ...value.defaultAgentProfileRefs,
     }),
@@ -248,8 +312,11 @@ export function parseReviewModelDispatchCapabilityV2(
       "version",
       "routeIdentityHash",
       "transport",
+      "wireProtocol",
+      "outputTokenLimit",
       "providerIndex",
       "model",
+      ...(Object.hasOwn(value, "configuredModel") ? ["configuredModel"] : []),
       "deadline",
       "maxRequests",
       "maxConcurrentRequests",
@@ -261,12 +328,29 @@ export function parseReviewModelDispatchCapabilityV2(
     value.version !== 2 ||
     !hash(value.routeIdentityHash) ||
     !isReviewModelTransport(value.transport) ||
+    !isReviewModelWireProtocol(value.wireProtocol) ||
+    (value.outputTokenLimit !== "upstream_request" &&
+      value.outputTokenLimit !== "terminal_acceptance") ||
+    (value.wireProtocol === "codex-responses" &&
+      value.outputTokenLimit !== "terminal_acceptance") ||
+    (value.wireProtocol === "anthropic-messages" &&
+      value.outputTokenLimit !== "upstream_request") ||
+    !reviewModelWireProtocolMatchesTransport(
+      value.transport,
+      value.wireProtocol,
+    ) ||
     !Number.isSafeInteger(value.providerIndex) ||
     Number(value.providerIndex) < 0 ||
     Number(value.providerIndex) > 15 ||
     typeof value.model !== "string" ||
     !value.model.trim() ||
     value.model.length > 256 ||
+    (Object.hasOwn(value, "configuredModel") &&
+      (value.transport !== "runner_local_anthropic" ||
+        !(anthropicModelAliases as readonly unknown[]).includes(
+          value.configuredModel,
+        ) ||
+        value.configuredModel === value.model)) ||
     typeof value.deadline !== "string" ||
     !Number.isFinite(Date.parse(value.deadline)) ||
     new Date(value.deadline).toISOString() !== value.deadline
@@ -298,6 +382,47 @@ export function isReviewModelTransport(
   return (
     typeof value === "string" &&
     (reviewModelTransports as readonly string[]).includes(value)
+  );
+}
+
+export function isReviewModelWireProtocol(
+  value: unknown,
+): value is ReviewModelWireProtocol {
+  return (
+    typeof value === "string" &&
+    (reviewModelWireProtocols as readonly string[]).includes(value)
+  );
+}
+
+export function reviewModelWireProtocolMatchesTransport(
+  transport: ReviewModelTransport,
+  protocol: ReviewModelWireProtocol,
+): boolean {
+  switch (transport) {
+    case "runner_local_anthropic":
+      return protocol === "anthropic-messages";
+    case "hosted_pool":
+      return protocol === "codex-responses";
+    case "account_gateway":
+      return protocol === "openai-responses";
+    case "runner_local_responses":
+      return protocol === "openai-responses" || protocol === "codex-responses";
+  }
+}
+
+/** A terminal receipt must prove its output bound, even where the transport's
+ * field is only an outer-hop request or subscription acceptance ceiling. */
+export function reviewModelDispatchOutputUsageIsWithinLimit(
+  usage: Readonly<{ outputTokens: number | null }>,
+  maxOutputTokens: number,
+): boolean {
+  return (
+    typeof usage.outputTokens === "number" &&
+    Number.isSafeInteger(usage.outputTokens) &&
+    usage.outputTokens >= 0 &&
+    Number.isSafeInteger(maxOutputTokens) &&
+    maxOutputTokens > 0 &&
+    usage.outputTokens <= maxOutputTokens
   );
 }
 

@@ -9,6 +9,7 @@ import {
 import { ReviewActionV2ProtocolErrorCode } from "@reviewrouter/protocol-review-action-v2";
 import {
   parseReviewModelDispatchSettlementV2,
+  reviewModelDispatchOutputUsageIsWithinLimit,
   type ReviewModelDispatchRole,
 } from "@reviewrouter/shared";
 
@@ -97,8 +98,10 @@ export async function assertReviewModelDispatchEvidence(
         createHash("sha256")
           .update(canonicalJson(receipt.usage))
           .digest("hex") !== row.usageHash ||
-        (receipt.usage.outputTokens !== null &&
-          receipt.usage.outputTokens > row.maxOutputTokens)
+        !reviewModelDispatchOutputUsageIsWithinLimit(
+          receipt.usage,
+          row.maxOutputTokens,
+        )
       )
         invalid();
     } catch {

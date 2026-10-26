@@ -65,7 +65,8 @@ function primary(authorization: Authorization) {
   );
   const provider = configuration.providers[capability.providerIndex];
   requireFact(
-    provider?.model === capability.model &&
+    provider?.model ===
+      (snapshot.modelDispatchCapability?.configuredModel ?? capability.model) &&
       capability.providerKind ===
         reviewAgentExecutionProviderKind(snapshot.agent) &&
       capability.executor === lifecycleVerificationContract.executor &&
@@ -81,6 +82,7 @@ function primary(authorization: Authorization) {
           lifecycleVerificationDescriptorDigestV2 &&
         capability.routeIdentityHash === route.routeIdentityHash &&
         capability.modelTransport === route.transport &&
+        capability.protocol === route.wireProtocol &&
         capability.providerIndex === route.providerIndex &&
         capability.model === route.model,
       "lifecycle_verification_capability_invalid",
@@ -461,9 +463,9 @@ export function createReviewRunCompanionDispatchAdmission(
           if (route) {
             requireFact(
               manifest.requestedModel === route.model &&
-                manifest.providerKind === slot.providerKind &&
-                slot.providerKind ===
-                  reviewAgentExecutionProviderKind(snapshot!.agent) &&
+                String(manifest.providerKind) === String(slot.providerKind) &&
+                String(slot.providerKind) ===
+                  String(reviewAgentExecutionProviderKind(snapshot!.agent)) &&
                 manifest.taskKindSet.length === 1 &&
                 String(manifest.taskKindSet[0]) === slot.taskKind,
               "model_dispatch_manifest_route_mismatch",

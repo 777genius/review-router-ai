@@ -68,3 +68,55 @@ synthetic, browser, live-provider or deployment acceptance.
 
 Initial unchanged-source baseline: lifecycle verification and runtime snapshot
 capture suites passed 44/44 tests locally before product changes.
+
+
+## Implementation spike correction — native Codex wire, 2026-10-26
+
+The bounded S2 source check found an incompatible assumption before native-route
+qualification: pinned Codex 0.147.0 does not send `max_output_tokens`, and the
+existing direct-fork, Hosted and Gateway-probe sources intentionally omit it.
+The source audit was checked by the transport reviewer, the corrected capability
+and receipt semantics were agreed with the recovery reviewer, and the parent
+implementation owner approved this correction. This is a recorded implementation
+spike result following the three completed plan-review rounds.
+
+The accepted change is a finite native codec, with no second streaming transport
+or verifier. New route capture distinguishes `wireProtocol` and
+`outputTokenLimit: upstream_request | terminal_acceptance`. Codex native/Hosted
+use `codex-responses` and terminal acceptance; Gateway retains its outer Responses
+wire with an explicit native-profile enforcement marker. Exact native bytes are
+prepared before manifest/dispatch hashing, and the verifier's stricter acceptance
+cap is carried separately by the parent. All V2 completions require observed
+bounded output usage; missing/over-bound usage cannot clear the paid-effect fence.
+The shared permanent per-run request allowance remains authoritative. Native
+Codex is not represented as providing an upstream generated-token or spending
+ceiling. The plan's S2, shared allowance and compatibility sections now state this
+source-backed distinction explicitly.
+
+The official auth-only executable already passed its loopback OAuth fixture.
+The new managed OCR artifact remains a separate real-binary qualification gate:
+local compilation hit the shared memory ceiling, so a PR-only pinned CI job
+builds/tests the exact candidate and preserves its binary, checksum and manifest.
+No immutable old artifact/profile is changed, and no release or deployment is
+performed by that job.
+### Post-spike Claude lifetime and alias correction
+
+The transport audit confirmed that the current Secrets contract stores only
+`CLAUDE_CODE_OAUTH_TOKEN`; it contains neither refresh material nor trustworthy
+remaining expiry. Official [authentication](https://code.claude.com/docs/en/authentication#generate-a-long-lived-token)
+and [error](https://code.claude.com/docs/en/errors#oauth-token-revoked-or-expired)
+documentation supports retaining the same setup-token and requiring user
+replacement after rejection. A helper-presence check or a one-year issuance
+policy cannot prove the remaining lifetime of an existing secret. Parent and
+transport reviewer agreed to the explicit opaque lifetime mode described in S3:
+provider validation on each ordinary budgeted request, original deadline, no
+refresh/probe/fallback, and durable fencing after rejection or uncertainty.
+Known-expiry credentials retain the original deadline-plus-margin rule.
+
+The audit also found that current Claude UI choices are CLI aliases. Parent,
+transport and recovery reviewers agreed to a trusted producer's finite frozen
+alias map, with configured selection and exact native model captured separately
+in the route. Runtime model identity remains strict; live qualification must
+approve the map and honest native protocol before production activation. These
+source-backed corrections refine the existing S3 spike outcome; they do not
+introduce another review runner or change the completed three review rounds.

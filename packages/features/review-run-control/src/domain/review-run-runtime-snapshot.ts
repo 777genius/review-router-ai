@@ -5,6 +5,7 @@ import {
   parseLifecycleVerificationCapabilityV2,
   parseReviewModelDispatchCapabilityV2,
   type ReviewModelDispatchCapabilityV2,
+  reviewModelTransportForAuthMode,
 } from "@reviewrouter/shared";
 import { reviewAgentExecutionProviderKind } from "./review-agent-profile";
 import {
@@ -50,7 +51,82 @@ export type ReviewRunRuntimeSnapshot = {
   readonly contextToolsPlanCanonicalJson?: string;
   readonly deadline: string;
   readonly gateway: ReviewRunGatewaySelection | null;
+  /** Original Hosted grant identity; no token or credential material. */
+  readonly hosted?: ReviewRunHostedSelection;
 };
+
+export type ReviewRunHostedSelection = Readonly<{
+  grantId: string;
+  invocationId: string;
+  poolId: string;
+  repositoryBindingId: string;
+  activeAccountId: string;
+  reviewRequestId: string;
+  providerInvocationKey: string;
+  policyFingerprint: string;
+  model: string;
+  expiresAt: string;
+  bindingRevision: number;
+  runtimeConfigVersion: number;
+  authzEpoch: string;
+  runtimeAuthzEpoch: string;
+}>;
+
+export function parseReviewRunHostedSelection(
+  value: unknown,
+): ReviewRunHostedSelection {
+  const names = [
+    "grantId",
+    "invocationId",
+    "poolId",
+    "repositoryBindingId",
+    "activeAccountId",
+    "reviewRequestId",
+    "providerInvocationKey",
+    "policyFingerprint",
+    "model",
+    "expiresAt",
+    "bindingRevision",
+    "runtimeConfigVersion",
+    "authzEpoch",
+    "runtimeAuthzEpoch",
+  ];
+  if (!record(value) || !keys(value, names)) fail();
+  for (const name of [
+    "grantId",
+    "invocationId",
+    "poolId",
+    "repositoryBindingId",
+    "activeAccountId",
+    "reviewRequestId",
+  ])
+    if (!reference(value[name])) fail();
+  for (const name of ["providerInvocationKey", "policyFingerprint"])
+    if (typeof value[name] !== "string" || !/^[a-f0-9]{64}$/.test(value[name]))
+      fail();
+  for (const name of ["authzEpoch", "runtimeAuthzEpoch"])
+    if (
+      typeof value[name] !== "string" ||
+      !/^[1-9][0-9]{0,18}$/.test(value[name]) ||
+      BigInt(value[name]) > 9_223_372_036_854_775_807n
+    )
+      fail();
+  if (
+    typeof value.bindingRevision !== "number" ||
+    !Number.isSafeInteger(value.bindingRevision) ||
+    value.bindingRevision < 1 ||
+    !revision(value.runtimeConfigVersion) ||
+    typeof value.model !== "string" ||
+    !value.model ||
+    value.model.trim() !== value.model ||
+    value.model.length > 256 ||
+    typeof value.expiresAt !== "string" ||
+    !Number.isFinite(Date.parse(value.expiresAt)) ||
+    new Date(value.expiresAt).toISOString() !== value.expiresAt
+  )
+    fail();
+  return Object.freeze({ ...value }) as ReviewRunHostedSelection;
+}
 
 /** An explicit captured epoch is binding on both initial selection and recovery. */
 export function reviewRunGatewayEpochMatches(
@@ -138,6 +214,7 @@ export function parseReviewRunRuntimeSnapshot(
       ...(Object.hasOwn(parsed, "contextToolsPlanCanonicalJson")
         ? ["contextToolsPlanCanonicalJson"]
         : []),
+      ...(Object.hasOwn(parsed, "hosted") ? ["hosted"] : []),
       ...("lifecycleVerificationUnavailableReason" in parsed
         ? ["lifecycleVerificationUnavailableReason"]
         : []),
@@ -307,6 +384,11 @@ export function parseReviewRunRuntimeSnapshot(
     "modelDispatchCapability" in parsed
       ? parseReviewModelDispatchCapabilityV2(parsed.modelDispatchCapability)
       : undefined;
+  const hosted = Object.hasOwn(parsed, "hosted")
+    ? parseReviewRunHostedSelection(parsed.hosted)
+    : undefined;
+  if ((modelDispatchCapability?.transport === "hosted_pool") !== !!hosted)
+    fail();
   if (modelDispatchCapability) {
     const cap = modelDispatchCapability;
     const provider = Array.isArray(configuration.providers)
@@ -314,11 +396,18 @@ export function parseReviewRunRuntimeSnapshot(
       : undefined;
     if (
       !record(provider) ||
-      provider.model !== cap.model ||
+      !Array.isArray(configuration.providers) ||
+      configuration.providers.length !== 1 ||
+      typeof provider.authMode !== "string" ||
+      reviewModelTransportForAuthMode(provider.authMode) !== cap.transport ||
+      provider.model !== (cap.configuredModel ?? cap.model) ||
       Date.parse(cap.deadline) > Date.parse(deadline) ||
       (cap.transport === "account_gateway" &&
         (!gateway || gateway.providerIndex !== cap.providerIndex)) ||
-      (cap.transport !== "account_gateway" && gateway !== null)
+      (cap.transport !== "account_gateway" && gateway !== null) ||
+      (hosted &&
+        (hosted.model !== cap.model ||
+          Date.parse(cap.deadline) > Date.parse(hosted.expiresAt) - 60_000))
     )
       fail();
   }
@@ -350,7 +439,10 @@ export function parseReviewRunRuntimeSnapshot(
       : null;
     if (
       !record(provider) ||
-      provider.model !== cap.model ||
+      provider.model !==
+        (cap.extensionId === "lifecycle-verification.v2"
+          ? (modelDispatchCapability?.configuredModel ?? cap.model)
+          : cap.model) ||
       cap.providerKind !== reviewAgentExecutionProviderKind(agent) ||
       !["ocr", "codex"].includes(agent.agentKind)
     )
@@ -361,6 +453,7 @@ export function parseReviewRunRuntimeSnapshot(
         !route ||
         cap.routeIdentityHash !== route.routeIdentityHash ||
         cap.modelTransport !== route.transport ||
+        cap.protocol !== route.wireProtocol ||
         cap.providerIndex !== route.providerIndex ||
         cap.model !== route.model ||
         cap.maxPromptBytes > route.maxRequestBytes ||
@@ -384,6 +477,7 @@ export function parseReviewRunRuntimeSnapshot(
       : undefined;
   if (canonicalJson(parsed) !== value) fail();
   return {
+    ...(hosted ? { hosted } : {}),
     ...(modelDispatchCapability ? { modelDispatchCapability } : {}),
     ...(prDescriptionCapability === undefined
       ? {}

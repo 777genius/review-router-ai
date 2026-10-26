@@ -14,6 +14,7 @@ import {
   parseReviewModelDispatchProfileV2,
   parseReviewModelDispatchSettlementV2,
   reviewModelDispatchIdPreimage,
+  reviewModelDispatchOutputUsageIsWithinLimit,
   type ReviewModelDispatchCapabilityV2,
   type ReviewModelDispatchSettlementV2,
   type ReviewModelDispatchTerminalReceiptV2,
@@ -61,7 +62,9 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
     private readonly dependencies: DispatchDependencies,
   ) {}
 
-  async claim(input: ReviewRunCompanionDispatchClaim) {
+  async claim(
+    input: ReviewRunCompanionDispatchClaim,
+  ): ReturnType<ReviewRunCompanionDispatchRepository["claim"]> {
     return this.prisma.$transaction(async (tx) => {
       const first = await tx.reviewRunAuthorization.findUnique({
         where: { authorizationId: input.authorizationId },
@@ -154,6 +157,10 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
         );
         if (
           !profile.transports.includes(budget.transport) ||
+          !profile.wireProtocols.includes(budget.wireProtocol) ||
+          (budget.configuredModel !== undefined &&
+            profile.anthropicModelAliases?.[budget.configuredModel] !==
+              budget.model) ||
           [
             "maxRequests",
             "maxConcurrentRequests",
@@ -569,8 +576,10 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
             row.providerRequestEnvelopeHash ||
           receipt.actualModel !== budget.model ||
           receipt.responseBytes > budget.maxResponseBytes ||
-          (receipt.usage.outputTokens !== null &&
-            receipt.usage.outputTokens > row.maxOutputTokens!)
+          !reviewModelDispatchOutputUsageIsWithinLimit(
+            receipt.usage,
+            row.maxOutputTokens!,
+          )
         )
           fail("model_dispatch_receipt_mismatch");
       }

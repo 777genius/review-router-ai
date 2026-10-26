@@ -176,6 +176,35 @@ can be returned. Do not log app-server payloads. Lost refresh response or
 writeback ACK uses existing generation/writeback reconciliation; it never retries
 the old refresh token automatically or admits inference from uncertain auth.
 
+#### S2 executable/source finding: native Codex Responses is a separate wire
+
+The official 0.147.0 auth-only fixture succeeded against synthetic loopback OAuth
+with the pinned binary SHA-256
+`cb0a15567e9a60a5820d54b0f6ae86d504dc3805c1eab21a47f70e3eb7b73a40`.
+This proves the preparation mechanism, not real subscription access. A pure
+credential-adapter reader reuses the same identity/lifetime checks after accepted
+refresh/writeback; the review scenario receives only a prepared route.
+
+The matching official source commit is
+[`be6e8eac029b183056b7e4402879f15d2c85f61b`](https://github.com/openai/codex/tree/be6e8eac029b183056b7e4402879f15d2c85f61b).
+Its [`ResponsesApiRequest`](https://github.com/openai/codex/blob/be6e8eac029b183056b7e4402879f15d2c85f61b/codex-rs/codex-api/src/common.rs)
+has no `max_output_tokens` field. The selected
+[`ChatGPT endpoint`](https://github.com/openai/codex/blob/be6e8eac029b183056b7e4402879f15d2c85f61b/codex-rs/model-provider-info/src/lib.rs)
+is `https://chatgpt.com/backend-api/codex/responses`; the official
+[`auth provider`](https://github.com/openai/codex/blob/be6e8eac029b183056b7e4402879f15d2c85f61b/codex-rs/model-provider/src/bearer_auth_provider.rs)
+uses Bearer plus `ChatGPT-Account-ID`. Use ReviewRouter's own originator/user agent,
+without impersonating Codex. The official client supports custom originators.
+The existing direct-fork implementation, Hosted relay and Gateway connection
+probe independently omit this unsupported output field for the same route.
+
+Use a finite `codex-responses` encoder before exact-envelope hashing. It retains
+native stateless streaming semantics and removes any client output hint before
+upstream dispatch. The stricter verifier output cap remains separate parent-only
+admission metadata. It is an accepted-terminal-usage bound for this protocol,
+not an upstream generation-token limit. Do not route this case through the API-key
+wire merely because both speak Responses. The shared SSE observer and existing
+transport remain reusable; no second streaming implementation is needed.
+
 ### S3. Claude controlled native protocol
 
 Use OCR's existing native Anthropic implementation behind a controlled loopback
@@ -206,14 +235,35 @@ separate receipts. Candidate code stays non-default for production Claude until
 live qualification. Setup-token replacement stays as currently supported; no
 unsupported refresh behavior is invented.
 
-Subscription preparation also returns a verified `credentialValidUntil`. It must
-cover the original run deadline plus a fixed 60-second margin; otherwise do not
-admit model work. For opaque tokens, require a qualified helper freshness/TTL
-receipt rather than assuming token presence proves lifetime. Stop new dispatch
-at the known auth/grant boundary; Hosted uses the minimum of its original grant
-expiry and V2 deadline. Never extend a run or reselect an account to compensate.
-Test expiry after discovery but before verifier and an initially fresh token with
-insufficient remaining lifetime.
+For subscription credentials that expose verified expiry, preparation returns
+`proven_expiry` with `credentialValidUntil` covering the original run deadline
+plus a fixed 60-second margin; otherwise do not admit model work. Stop new
+dispatch at the known auth/grant boundary; Hosted uses the minimum of its original
+grant expiry and V2 deadline. Never extend a run or reselect an account.
+
+The existing Claude `setup-token` is an explicit exception to an advance lifetime
+guarantee, not a fabricated TTL receipt. The supported onboarding stores only an
+opaque token. [Official authentication documentation](https://code.claude.com/docs/en/authentication#generate-a-long-lived-token)
+describes an inference-only token printed for CI, without a remaining-lifetime
+introspection contract. [The documented rejection behavior](https://code.claude.com/docs/en/errors#oauth-token-revoked-or-expired)
+keeps that token after an authentication failure and requires user replacement.
+Preparation therefore captures one `opaque_provider_validated` credential and
+clears its input environment; each ordinary budgeted inference validates that
+same token at the provider. No extra paid probe, refresh, alternate account,
+automatic retry or deadline extension is introduced. An auth rejection or
+uncertain call fences remaining inference. Prior accepted discovery may survive;
+failed verification leaves previous findings unverified and open. Test expiry
+after discovery and before verifier, plus insufficient proven lifetime where
+expiry is available. Live native-header compatibility remains a separate gate.
+
+Existing Claude selection uses CLI aliases (`sonnet`, `opus`, `haiku`), which
+[change across versions and providers](https://code.claude.com/docs/en/model-config#model-aliases).
+The trusted producer qualification freezes a finite `anthropicModelAliases` map.
+Admission records the configured alias as `configuredModel` and the exact native
+ID as capability `model`, bound into the captured route identity. OCR and verifier
+both send that exact ID and require exact response-model equality. Runtime never
+resolves an alias from today's CLI, environment, documentation or broad prefix
+matching. Unqualified map entries cannot enable the new production Claude route.
 
 ### S4. Hosted V2 composition
 
@@ -247,11 +297,12 @@ request-envelope hash, route identity, bounded request bytes/output reservation,
 and a durable terminal receipt. No credentials or prompt bodies enter this ledger.
 
 The initial contract is one immutable `maxRequests`, bounded request/response
-bytes, a per-request output-token ceiling, and the original absolute deadline.
+bytes, a per-request output-token acceptance bound with an explicit enforcement
+mode, and the original absolute deadline.
 Direct admission is sequential (`maxConcurrentRequests = 1`). The reviewed
 shared direct-policy descriptor initially selects 32 requests, 16 MiB request,
-8 MiB response and at most 32,768 output tokens per request, clamped downward by
-the approved model/profile capability. These values are exported once from the
+8 MiB response and at most 32,768 observed output tokens per accepted request,
+clamped downward by the approved model/profile capability. These values are exported once from the
 shared policy and frozen in admission; adapters cannot select local defaults.
 Native Gateway/Hosted bounds remain additional constraints and may be lower.
 There is no new cumulative-token or dollar accounting contract in this scope.
@@ -278,10 +329,26 @@ All roles of a V2 budget-bearing authorization use V2 claims; old V1 companion
 calls are refused for that authorization so they cannot escape the shared count.
 
 Gateway/Hosted native quota remains authoritative in addition to common execution
-limits. Do not replace native quota with a local counter. Runner-local adapters
-enforce the captured output cap before dispatch and report normalized usage as
-observed evidence; absent usage remains unknown, never zero. Usage neither
-refunds nor expands the permanent request allowance.
+limits. Do not replace native quota with a local counter. Capture both
+`wireProtocol` and `outputTokenLimit` in the immutable route identity and producer
+approval. `upstream_request` means the approved protocol supports a submitted
+output-cap parameter; `terminal_acceptance` means the completed response must
+have observed output usage at or below the reserved cap. Native Codex/Hosted use
+`codex-responses` plus `terminal_acceptance`. A Gateway's outer wire remains
+`openai-responses`; a Codex-backed native Gateway profile still captures
+`terminal_acceptance` for its upstream contract.
+
+Every new V2 accepted completion requires non-null observed output tokens within
+its reserved bound. Missing or excessive usage rejects completion and retains the
+original uncertain reservation, fencing fresh paid work. The stricter verifier cap
+is supplied explicitly in parent-only dispatch context when the native body has
+no output parameter. Normalize the actual native envelope before hashing it;
+do not hash an API-shaped surrogate that is later changed. The shared durable
+request allowance, byte bounds, original deadline, native server quota and strict
+receipt acceptance remain enforceable. No hard generated-token or spending
+ceiling is claimed for native Codex: its pinned client and model catalogue expose
+no source-backed output-generation knob. Usage never refunds or expands the
+permanent request allowance.
 
 Repeated identical claims return the original state and never permission for a
 second provider call. A mismatched request/route/manifest is rejected. A claim
@@ -332,6 +399,13 @@ runner that already holds credentials.
   producers; preserve explicit saved alternatives and fail closed on unavailable
   explicit choices.
 - Do not route subscription OAuth through the API-key finite contract.
+- Capture the native wire protocol and output-limit enforcement mode explicitly;
+  the presence of a token or a Responses endpoint does not establish API-key
+  compatibility. Approve the finite wire protocols in the new producer profile.
+- Reuse the common semantic `LifecycleRequestEncoder` hook supplied by the
+  prepared route, with its captured reasoning settings. Native Codex omits the
+  unsupported output field before hashing; native Anthropic retains `max_tokens`.
+  Both use the same verifier packet, verdict and citation rules.
 - Keep cancellation and terminal/unknown receipts correlated with the exact
   prepared model route and actual provider response model.
 

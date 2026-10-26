@@ -12,6 +12,7 @@ import {
   parseReviewModelDispatchSettlementV2,
   reviewModelDispatchContract,
   type ReviewModelDispatchReadbackV2,
+  type ReviewModelDispatchSettlementV2,
 } from "@reviewrouter/shared";
 
 export type ReviewModelDispatchApi = Readonly<{
@@ -21,6 +22,10 @@ export type ReviewModelDispatchApi = Readonly<{
   >;
   admission: ReviewRunModelDispatchAdmission;
   checkAuthority(authorization: ReviewRunAuthorization): Promise<boolean>;
+  reconcileNativeProof?(
+    dispatch: ReviewRunCompanionDispatch,
+    settlement?: ReviewModelDispatchSettlementV2,
+  ): Promise<"completed" | "not_dispatched" | undefined>;
 }>;
 
 class DispatchRouteFailure extends Error {
@@ -104,6 +109,7 @@ export async function registerReviewModelDispatchRoutes(
               dispatchId,
             );
         if (!row) throw new DispatchRouteFailure("model_dispatch_missing", 404);
+        await api.reconcileNativeProof?.(row);
         reply.header("Cache-Control", "no-store");
         return { dispatch: readback(row) };
       },
@@ -119,8 +125,13 @@ export async function registerReviewModelDispatchRoutes(
             401,
           );
         const settlement = parseReviewModelDispatchSettlementV2(request.body);
+        const dispatchId = parameter(request);
+        const existing = await api.admission.readReceipt(dispatchId, token);
+        if (!existing)
+          throw new DispatchRouteFailure("model_dispatch_receipt_denied", 401);
+        await api.reconcileNativeProof?.(existing, settlement);
         const row = await api.admission.settleReceipt(
-          parameter(request),
+          dispatchId,
           token,
           settlement,
         );

@@ -5,8 +5,12 @@ import {
 } from "./companion-contracts";
 import {
   isReviewModelTransport,
+  isReviewModelWireProtocol,
+  reviewModelWireProtocols,
+  reviewModelWireProtocolMatchesTransport,
   reviewModelDispatchContract,
   type ReviewModelTransport,
+  type ReviewModelWireProtocol,
 } from "./review-model-dispatch-contract";
 
 /** The verifier's semantic packet, verdicts and citation policy stay v1. Only
@@ -16,17 +20,15 @@ export const lifecycleVerificationContractV2 = Object.freeze({
   extensionId: "lifecycle-verification.v2",
   version: 2,
   modelTransport: "prepared_route",
-  protocols: Object.freeze(["openai-responses", "anthropic-messages"] as const),
+  protocols: Object.freeze(reviewModelWireProtocols),
   requestCanonicalizerVersion: "lifecycle-verification-request.v2",
   dispatchReadbackPath: reviewModelDispatchContract.basePath,
 } as const);
 
 export const lifecycleVerificationDescriptorDigestV2 =
-  "sha256:3ba28fe8f91b9f087dfe663b8fe8e64702d81f619fa2f6bea9d9262369fe61e3";
+  "sha256:20a13b73ea31192e95c01ad66cf8df545d3714504520bf3e786f7735e818c12f";
 
-export type LifecycleVerificationProtocol =
-  | "openai-responses"
-  | "anthropic-messages";
+export type LifecycleVerificationProtocol = ReviewModelWireProtocol;
 
 export type LifecycleVerificationCapabilityV2 = Omit<
   LifecycleVerificationCapabilityV1,
@@ -77,10 +79,11 @@ export function parseLifecycleVerificationCapabilityV2(
     !isReviewModelTransport(row.modelTransport) ||
     typeof row.routeIdentityHash !== "string" ||
     !/^[a-f0-9]{64}$/.test(row.routeIdentityHash) ||
-    row.protocol !==
-      (row.modelTransport === "runner_local_anthropic"
-        ? "anthropic-messages"
-        : "openai-responses") ||
+    !isReviewModelWireProtocol(row.protocol) ||
+    !reviewModelWireProtocolMatchesTransport(
+      row.modelTransport,
+      row.protocol,
+    ) ||
     row.providerIndex !== 0 ||
     typeof row.providerKind !== "string" ||
     !row.providerKind ||

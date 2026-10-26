@@ -1,4 +1,5 @@
 import { effectiveGatewayReasoningEffort } from "@reviewrouter/features-review-providers";
+import { codexOAuthGatewayProfileRef } from "@reviewrouter/shared";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import * as c from "@agent-teams/account-gateway/contracts";
@@ -16,7 +17,7 @@ import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-co
 
 export const gatewayModelSettingsRuntimeEnvKey =
   "REVIEW_ROUTER_GATEWAY_MODEL_SETTINGS_JSON";
-export const codexOAuthModelSettingsProfile = "openai-codex-oauth-responses-v1";
+export const codexOAuthModelSettingsProfile = codexOAuthGatewayProfileRef;
 const efforts = [
   "minimal",
   "low",

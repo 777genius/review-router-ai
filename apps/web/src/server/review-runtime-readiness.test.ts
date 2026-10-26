@@ -3,6 +3,7 @@ import {
   reviewModelDispatchContract,
   reviewModelDispatchDescriptorDigest,
   reviewModelTransports,
+  reviewModelWireProtocols,
   type ReviewModelDispatchProfileV2,
 } from "@reviewrouter/shared";
 import {
@@ -24,6 +25,7 @@ const profile: ReviewModelDispatchProfileV2 = {
   policyVersion: reviewModelDispatchContract.policyVersion,
   descriptorDigest: reviewModelDispatchDescriptorDigest,
   transports: reviewModelTransports,
+  wireProtocols: reviewModelWireProtocols,
   defaultAgentProfileRefs: Object.fromEntries(
     reviewModelTransports.map((transport) => [transport, `ocr-${transport}`]),
   ),

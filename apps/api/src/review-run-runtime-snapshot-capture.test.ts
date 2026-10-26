@@ -270,6 +270,11 @@ describe("one prepared route for discovery and verification", () => {
       "runner_local_anthropic",
       "hosted_pool",
     ],
+    wireProtocols: [
+      "openai-responses",
+      "codex-responses",
+      "anthropic-messages",
+    ],
     defaultAgentProfileRefs: {
       account_gateway: "ocr-unified",
       runner_local_responses: "ocr-unified",
@@ -312,10 +317,7 @@ describe("one prepared route for discovery and verification", () => {
         requiredHealthy: true,
       },
     })),
-    ...[
-      "codex_subscription_oauth_rotating",
-      "codex_subscription_oauth_hosted_pool",
-    ].map((authMode) => ({
+    ...["codex_subscription_oauth_rotating"].map((authMode) => ({
       mode: undefined,
       provider: {
         kind: "codex",
@@ -365,6 +367,16 @@ describe("one prepared route for discovery and verification", () => {
         gateway: null,
         modelDispatchCapability: {
           transport: reviewModelTransportForAuthMode(provider.authMode),
+          wireProtocol:
+            provider.authMode === "codex_subscription_oauth_rotating"
+              ? "codex-responses"
+              : provider.authMode === "claude_code_oauth"
+                ? "anthropic-messages"
+                : "openai-responses",
+          outputTokenLimit:
+            provider.authMode === "codex_subscription_oauth_rotating"
+              ? "terminal_acceptance"
+              : "upstream_request",
           model: provider.model,
           maxRequests: 32,
         },
@@ -386,6 +398,85 @@ describe("one prepared route for discovery and verification", () => {
       );
     },
   );
+
+  it("does not infer Hosted authority from a saved connection without its original grant", async () => {
+    const configuration = parseReviewConfigurationStrict({
+      ...JSON.parse(gatewayPolicyJson({})),
+      providers: [
+        {
+          kind: "codex",
+          authMode: "codex_subscription_oauth_hosted_pool",
+          model: "gpt-5.4",
+          reasoningEffort: "high",
+          agenticContext: true,
+          fastMode: false,
+          requiredHealthy: true,
+        },
+      ],
+    });
+    expect(
+      await snapshotSource().capture(
+        {
+          ...captureInput(),
+          modelTransport: "provider_api",
+          producerRelease: {
+            ...captureInput().producerRelease,
+            agentProfiles: profiles,
+            modelDispatchProfile: profile,
+          },
+        },
+        readerFor(canonicalJson(configuration)),
+      ),
+    ).toEqual({ captureDenied: "agent_profile_unavailable" });
+  });
+
+  it("resolves a CLI alias only from the exact producer's frozen native model qualification", async () => {
+    const provider = { ...providerRows.at(-1)!.provider, model: "sonnet" };
+    const configuration = parseReviewConfigurationStrict({
+      ...JSON.parse(gatewayPolicyJson({})),
+      providers: [provider],
+    });
+    const input = {
+      ...captureInput(),
+      modelTransport: "provider_api" as const,
+      producerRelease: {
+        ...captureInput().producerRelease,
+        agentProfiles: profiles,
+        modelDispatchProfile: profile,
+      },
+    };
+    expect(
+      await snapshotSource().capture(
+        input,
+        readerFor(canonicalJson(configuration)),
+      ),
+    ).toEqual({ captureDenied: "agent_profile_unavailable" });
+    const captured = await snapshotSource().capture(
+      {
+        ...input,
+        producerRelease: {
+          ...input.producerRelease,
+          modelDispatchProfile: {
+            ...profile,
+            anthropicModelAliases: { sonnet: "claude-sonnet-4-6" },
+          },
+        },
+      },
+      readerFor(canonicalJson(configuration)),
+    );
+    expect(captured).toMatchObject({
+      modelDispatchCapability: {
+        model: "claude-sonnet-4-6",
+        configuredModel: "sonnet",
+        wireProtocol: "anthropic-messages",
+      },
+      lifecycleVerificationCapability: {
+        model: "claude-sonnet-4-6",
+        protocol: "anthropic-messages",
+      },
+      configurationCanonicalJson: canonicalJson(configuration),
+    });
+  });
 
   it("preserves supplied-diff policy and never lets retained OCR profiles choose a default", async () => {
     const provider = { ...providerRows[0]!.provider, agenticContext: false };

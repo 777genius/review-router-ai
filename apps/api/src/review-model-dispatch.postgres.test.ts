@@ -57,6 +57,16 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
       extensionId: reviewModelDispatchContract.extensionId,
       version: 2,
       transport,
+      wireProtocol:
+        transport === "account_gateway"
+          ? "openai-responses"
+          : transport === "runner_local_anthropic"
+            ? "anthropic-messages"
+            : "codex-responses",
+      outputTokenLimit:
+        transport === "runner_local_anthropic"
+          ? "upstream_request"
+          : "terminal_acceptance",
       routeIdentityHash: hash(`${prefix}-original-account-model-route`),
       providerIndex: 0,
       model: "gpt-5.5",
@@ -67,6 +77,7 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
       descriptorDigest: reviewModelDispatchDescriptorDigest,
       policyVersion: reviewModelDispatchContract.policyVersion,
       transports: [transport],
+      wireProtocols: [budget.wireProtocol],
       defaultAgentProfileRefs: { [transport]: "codex-default" },
       limits,
     };
@@ -178,7 +189,7 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
         responseBytes: 100,
         fullyConsumed: true,
         terminal: "completed",
-        usage: { inputTokens: 50, outputTokens: null, totalTokens: null },
+        usage: { inputTokens: 50, outputTokens: 25, totalTokens: 75 },
       },
     };
   }
@@ -296,6 +307,47 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
         where: { authorizationId: discovery.authorizationId },
       }),
     ).toBe(3);
+  });
+
+  it("fences further paid work when terminal output usage is unknown or exceeds its accepted ceiling", async () => {
+    const f = await fixture();
+    const base = await f.acquireClaim(0);
+    const c = claim(base, f);
+    const reservation = await f.repository.claim(c);
+    const terminal = completed(c, f);
+    if (terminal.state !== "completed") throw new Error("fixture");
+    for (const outputTokens of [null, c.maxOutputTokens! + 1]) {
+      await expect(
+        f.repository.settleReceipt(c.dispatchId, reservation.receiptToken!, {
+          ...terminal,
+          receipt: {
+            ...terminal.receipt,
+            usage: { inputTokens: null, outputTokens, totalTokens: null },
+          },
+        }),
+      ).rejects.toMatchObject({ code: "model_dispatch_receipt_mismatch" });
+      await expect(f.repository.claim(claim(base, f, 2))).rejects.toMatchObject(
+        {
+          code: "model_dispatch_effect_unresolved",
+        },
+      );
+    }
+    expect(
+      (await f.repository.readReceipt(c.dispatchId, reservation.receiptToken!))
+        ?.state,
+    ).toBe("dispatch_may_have_started");
+    // Later exact terminal proof can settle this paid request; it never causes
+    // another provider invocation or refunds the existing reservation.
+    await f.repository.settleReceipt(
+      c.dispatchId,
+      reservation.receiptToken!,
+      terminal,
+    );
+    expect(
+      await f.prisma.reviewRunCompanionDispatchV1.count({
+        where: { authorizationId: c.authorizationId },
+      }),
+    ).toBe(1);
   });
 
   it("settles after authority expiry without reopening work and rejects changed receipts, wrong rows and expired retention", async () => {

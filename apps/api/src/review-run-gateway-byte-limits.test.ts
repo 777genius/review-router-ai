@@ -630,6 +630,8 @@ async function fixture(
               extensionId: "review-model-dispatch.v2",
               version: 2,
               transport: "account_gateway",
+              wireProtocol: "openai-responses",
+              outputTokenLimit: "terminal_acceptance",
               routeIdentityHash: "e".repeat(64),
               providerIndex: 0,
               model: selection.model,
