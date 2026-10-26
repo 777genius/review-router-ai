@@ -10,7 +10,10 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { MemoryDashboardApi } from "../../adapters/memory-dashboard-api";
+import {
+  memoryPageKey,
+  type MemoryDashboardApi,
+} from "../../adapters/memory-dashboard-api";
 import type { MemoryUnconfirmedChange } from "../../application/memory-knowledge-view";
 import { memoryKnowledgePreviewData } from "./memory-knowledge-preview";
 import { MemoryKnowledgeScreen } from "./memory-knowledge-screen";
@@ -69,9 +72,81 @@ function fixture(
       <Workspace />
     </QueryClientProvider>,
   );
-  return { api, view, client };
+  return { api, view, client, page };
 }
 describe("memory screen", () => {
+  it.each(["response", "progress"] as const)(
+    "redacts confirmed Forget from every exact-scope cached page when refresh fails: %s",
+    async (confirmation) => {
+      const f = fixture();
+      const second = { ...f.page, cursor: "another_page" };
+      const filtered = { ...f.page, topicId: "database" };
+      const otherRepository = { ...f.page, repositoryId: "other_repository" };
+      const otherWorkspace = { ...f.page, workspaceId: "other_workspace" };
+      for (const page of [second, filtered, otherRepository, otherWorkspace])
+        f.client.setQueryData(memoryPageKey(page), page);
+      vi.mocked(f.api.list).mockRejectedValue(new Error("Refresh unavailable"));
+      const result = (commandId: string) => ({
+        id: commandId,
+        entryId: "mem_queries",
+        revision: "r2",
+        state:
+          confirmation === "response"
+            ? ("cleanup_pending" as const)
+            : ("unknown" as const),
+        message:
+          "Removed from new reviews. Stored-copy cleanup is still pending.",
+      });
+      vi.mocked(f.api.mutate).mockImplementation(async (input) => {
+        if (confirmation === "progress")
+          throw new TypeError("Response lost after admission");
+        return result(input.commandId);
+      });
+      vi.mocked(f.api.progress).mockImplementation((input) =>
+        confirmation === "progress"
+          ? Promise.resolve(result(input.commandId))
+          : new Promise(() => {}),
+      );
+      fireEvent.click(screen.getAllByRole("button", { name: "Forget" })[0]!);
+      fireEvent.click(screen.getByRole("button", { name: "Forget memory" }));
+      await screen.findByText("Forgetting");
+      expect(screen.queryByText(/Use parameterized queries/)).toBeNull();
+      await waitFor(
+        () =>
+          expect(
+            screen.getByText(/We could not refresh this list/),
+          ).toBeTruthy(),
+        { timeout: 5_000 },
+      );
+      for (const page of [f.page, second, filtered]) {
+        const cached = f.client.getQueryData<typeof page>(memoryPageKey(page))!;
+        expect(cached.entries[0]).toMatchObject({
+          id: "mem_queries",
+          body: null,
+          topics: [],
+          status: "forget_pending",
+        });
+        expect(cached.entries[1]).toEqual(page.entries[1]);
+      }
+      for (const page of [otherRepository, otherWorkspace])
+        expect(f.client.getQueryData(memoryPageKey(page))).toEqual(page);
+    },
+  );
+  it("keeps an unconfirmed Forget uncertain when neither response nor progress proves admission", async () => {
+    const { api } = fixture();
+    vi.mocked(api.mutate).mockRejectedValue(new TypeError("Response lost"));
+    vi.mocked(api.progress).mockRejectedValue(
+      new Error("Progress unavailable"),
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: "Forget" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "Forget memory" }));
+    await screen.findByRole("alert");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close and check status" }),
+    );
+    expect(screen.getByText(/Use parameterized queries/)).toBeTruthy();
+    expect(screen.queryByText("Forgetting")).toBeNull();
+  });
   it("renders body, source, original time and historical status for a viewer without manager controls", () => {
     fixture({ canManage: false });
     expect(screen.getByText(/Use parameterized queries/)).toBeTruthy();
