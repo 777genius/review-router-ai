@@ -94,15 +94,20 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps checkout150 admission and checkout148 proof separate from historical96 and managed92", () => {
+  it("keeps checkout151 admission and checkout148 proof separate from historical96 and managed92", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
-    const checkout150 = names.map((migrationName) => ({
+    const checkout151 = names.map((migrationName) => ({
       migrationName,
       checksum: sha256(
         readFileSync(`${migrationRoot}/${migrationName}/migration.sql`),
       ).slice(7),
     }));
+    expect(checkout151).toHaveLength(151);
+    const checkout150 = checkout151.filter(
+      (row) =>
+        row.migrationName !== "000149_api_key_repository_secret_profiles",
+    );
     expect(checkout150).toHaveLength(150);
     const checkout149 = checkout150.filter(
       (row) => row.migrationName !== "000148_lifecycle_verification",
@@ -140,6 +145,9 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
+    expect(manifest(checkout151)).toBe(
+      "sha256:bde611c1eb4753d8d21f0f5ac2b97f2c93818aaf7fb48cc9181abe28aa708035",
+    );
     expect(manifest(checkout150)).toBe(
       "sha256:ae1f73631c1ae9e359a22c421d7bb83751fd831f22ba77304be1d20d01878472",
     );
@@ -219,7 +227,7 @@ describe("canonical release migration transition", () => {
     expect(manifest(historicalFull)).toBe(
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
-    expect(checkout150).toEqual(readRenderManagedCheckoutInventory());
+    expect(checkout151).toEqual(readRenderManagedCheckoutInventory());
     expect(full.slice(-35).map((row) => row.migrationName)).toEqual([
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",

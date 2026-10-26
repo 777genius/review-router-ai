@@ -330,8 +330,8 @@ databaseTests("WorkspaceProviderProfile PostgreSQL storage", () => {
       {
         ...base,
         credentialKind: "user_ci_secret" as const,
-        authMode: "openrouter_api_key",
-        identityKey: `${prefix}-openrouter-secret`,
+        authMode: "codex_account_gateway",
+        identityKey: `${prefix}-gateway-secret`,
       },
       {
         ...base,
