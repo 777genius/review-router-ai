@@ -188,6 +188,69 @@ describe("single-file Skills portability", () => {
     },
   );
 
+  it.each([999, 1000])(
+    "honors the reference label boundary at %s Unicode characters",
+    (length) => {
+      const label = "🙂".repeat(length);
+      for (const use of [`[guide][${label}]`, `[${label}][]`, `[${label}]`]) {
+        expect(
+          hasCompanionFiles(`${use}\n\n[${label}]: references/guide.md`),
+        ).toBe(length === 999);
+      }
+    },
+  );
+
+  it("retains local and remote destinations with long link text", () => {
+    const label = "guide ".repeat(200);
+    for (const destination of ["references/guide.md", "https://example.test"]) {
+      expect(hasCompanionFiles(`[${label}](${destination})`)).toBe(
+        destination.startsWith("references/"),
+      );
+      expect(
+        hasCompanionFiles(`[${label}][guide]\n\n[guide]: ${destination}`),
+      ).toBe(destination.startsWith("references/"));
+    }
+  });
+
+  it.each([
+    {
+      part: "inline URL",
+      link: `[${"guide ".repeat(200)}](https://example.test/[local])`,
+    },
+    {
+      part: "inline title",
+      link: `[${"guide ".repeat(200)}](https://example.test "[local]")`,
+    },
+    {
+      part: "full reference display",
+      link: `[${"guide ".repeat(200)} <span title="[local]">guide</span>][remote]`,
+    },
+  ])(
+    "keeps reference-like text in a long external link's $part inert",
+    ({ link }) => {
+      const definitions =
+        "\n\n[remote]: https://example.test\n[local]: references/guide.md";
+      expect(hasCompanionFiles(`${link}${definitions}`)).toBe(false);
+      expect(hasCompanionFiles(`${link}\n\n[local]${definitions}`)).toBe(true);
+    },
+  );
+
+  it("preserves a maximum-size unmatched-label draft and still detects a following resource", async () => {
+    const instructions = "[\n".repeat(16_384);
+    expect(hasCompanionFiles(instructions)).toBe(false);
+    expect(
+      (await parseSkillImport(file(instructions))).content.instructions,
+    ).toBe(instructions);
+    const download = skillDownload({ ...content, instructions });
+    expect(download.filename).toBe("SKILL.md");
+    expect(download.text.split("\n---\n")[1]).toBe(instructions);
+    expect(
+      hasCompanionFiles(
+        `${instructions.slice(0, 32_000)}\n[guide]\n\n[guide]: references/guide.md`,
+      ),
+    ).toBe(true);
+  });
+
   it("exports the exact visible 32 KiB body with an intentionally portable header", async () => {
     const prefix = "    Indented example.\r\n\n## Review\n";
     const suffix = "  \n\n";

@@ -635,11 +635,13 @@ export function RepositorySkillsOperation({
           </div>
           {rows.length === 0 && !choices.isPending && !choices.isError ? (
             <p className="text-sm text-slate-400">
-              {assignedOnly
-                ? "No matching assigned skills. Add skills from the library or enable Skills from this repository."
-                : canCreate
-                  ? "No matching skills. Create one to add it to this repository selection."
-                  : "No matching skills are available. Ask a workspace member to create one, or an admin to link an available skill. Repository access does not allow creating or editing workspace content."}
+              {choices.isFetching || apply.isPending
+                ? "Refreshing skills…"
+                : assignedOnly
+                  ? "No matching assigned skills. Add skills from the library or enable Skills from this repository."
+                  : canCreate
+                    ? "No matching skills. Create one to add it to this repository selection."
+                    : "No matching skills are available. Ask a workspace member to create one, or an admin to link an available skill. Repository access does not allow creating or editing workspace content."}
             </p>
           ) : null}
           {choices.hasNextPage ? (

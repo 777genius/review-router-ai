@@ -162,51 +162,79 @@ function localDestination(raw: string): boolean {
 export function hasCompanionFiles(markdown: string): boolean {
   const text = withoutCodeExamples(markdown);
   const definitions = new Map<string, string>();
-  // Labels may wrap within a paragraph, but never cross a blank/code block.
-  const labelCharacter = String.raw`(?:[^\]\n]|\n(?!\n))`;
+  // Reference IDs may wrap within a paragraph and contain at most 999 Unicode
+  // characters. Link display text has no such limit and is scanned below.
+  const labelCharacter = String.raw`(?:[^\[\]\n]|\n(?!\n))`;
   const normalize = (id: string) =>
     id.trim().replace(/\s+/gu, " ").toLowerCase();
   const uses = text.replace(
     new RegExp(
-      String.raw`^ {0,3}\[(${labelCharacter}+)\]:[ \t]*(?:\n[ \t]*)?(.+)$`,
+      String.raw`^ {0,3}\[(${labelCharacter}{1,999})\]:[ \t]*(?:\n[ \t]*)?(.+)$`,
       "gmu",
     ),
     (_match, id: string, destination: string) => {
-      if (!definitions.has(normalize(id)))
-        definitions.set(normalize(id), destination);
+      const key = normalize(id);
+      if (key && !definitions.has(key)) definitions.set(key, destination);
       return "";
     },
   );
-  // Looking at the closing label also handles nested labels. Destinations may
-  // have a title or angle brackets; only their local/remote identity is needed.
-  for (const match of uses.matchAll(/\]\(\s*([^)]*)\)/gu)) {
-    const paragraphStart = uses.lastIndexOf("\n\n", match.index);
-    if (
-      uses.lastIndexOf("[", match.index) > paragraphStart &&
-      localDestination(match[1]!)
-    )
-      return true;
+  const referenceLabel = new RegExp(
+    String.raw`\[(${labelCharacter}{0,999})\]`,
+    "uy",
+  );
+  const brackets: number[] = [];
+  const masked: { start: number; end: number }[] = [];
+  let noClosingParenthesis = false;
+  // Visit closing brackets once, allowing long and nested display text. Skip
+  // complete inline destinations so their URLs/titles cannot become shortcuts.
+  for (let index = 0; index < uses.length; index++) {
+    if (uses[index] === "\n" && uses[index - 1] === "\n") brackets.length = 0;
+    if (uses[index] === "[") brackets.push(index);
+    if (uses[index] !== "]") continue;
+    const open = brackets.pop();
+    if (open === undefined) continue;
+    let end: number;
+    if (uses[index + 1] === "(" && !noClosingParenthesis) {
+      const close = uses.indexOf(")", index + 2);
+      if (close === -1) {
+        // Later candidates share this missing terminator; do not rescan it.
+        noClosingParenthesis = true;
+        continue;
+      }
+      if (localDestination(uses.slice(index + 2, close))) return true;
+      end = close + 1;
+    } else if (uses[index + 1] === "[") {
+      referenceLabel.lastIndex = index + 1;
+      const reference = referenceLabel.exec(uses);
+      if (!reference) continue;
+      end = referenceLabel.lastIndex;
+      let id = reference[1]!;
+      if (!id) {
+        referenceLabel.lastIndex = open;
+        const collapsed = referenceLabel.exec(uses);
+        if (collapsed && referenceLabel.lastIndex === index + 1)
+          id = collapsed[1]!;
+      }
+      const target = definitions.get(normalize(id));
+      if (target && localDestination(target)) return true;
+    } else continue;
+    let start = uses[open - 1] === "!" ? open - 1 : open;
+    // Nested spans end in scan order. Merge them without revisiting their text.
+    while (masked.length && masked.at(-1)!.end >= start)
+      start = Math.min(start, masked.pop()!.start);
+    masked.push({ start, end });
+    index = end - 1;
   }
-  let localReference = false;
-  const referenceUses = uses
-    .replace(
-      new RegExp(String.raw`!?\[${labelCharacter}*\]\([^)]*\)`, "gu"),
-      "",
-    )
-    .replace(
-      new RegExp(
-        String.raw`!?\[(${labelCharacter}*)\]\[(${labelCharacter}*)\]`,
-        "gu",
-      ),
-      (_match, label: string, id: string) => {
-        const target = definitions.get(normalize(id || label));
-        if (target && localDestination(target)) localReference = true;
-        return "";
-      },
-    );
-  if (localReference) return true;
+  const referenceParts: string[] = [];
+  let offset = 0;
+  for (const span of masked) {
+    referenceParts.push(uses.slice(offset, span.start), " ");
+    offset = span.end;
+  }
+  referenceParts.push(uses.slice(offset));
+  const referenceUses = referenceParts.join("");
   for (const match of referenceUses.matchAll(
-    new RegExp(String.raw`\[(${labelCharacter}+)\]`, "gu"),
+    new RegExp(String.raw`\[(${labelCharacter}{1,999})\]`, "gu"),
   )) {
     const target = definitions.get(normalize(match[1]!));
     if (target && localDestination(target)) return true;

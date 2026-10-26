@@ -93,6 +93,23 @@ async function ensurePaths(page: Page, suffix: string, skill: string) {
       .getByRole("button", { name: "Add 1 skill", exact: true })
       .click();
     await expect(operation.dialog.getByRole("status")).toContainText("1 added");
+    await expect(
+      operation.dialog.getByRole("heading", {
+        name: "Assigned skills",
+        exact: true,
+      }),
+    ).toBeVisible();
+    // The mutation receipt can arrive before the streamed Next action and
+    // invalidated choice queries finish. Wait for the real readback boundary.
+    await expect(
+      operation.dialog.getByRole("searchbox", {
+        name: "Search skills",
+        exact: true,
+      }),
+    ).toBeEnabled({ timeout: 60_000 });
+    await expect(
+      operation.row.getByText("File scope", { exact: true }),
+    ).toBeVisible();
   }
   await operation.row.getByText("File scope", { exact: true }).click();
   return operation;

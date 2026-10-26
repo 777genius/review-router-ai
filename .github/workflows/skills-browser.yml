@@ -61,7 +61,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: 26.11.1
+          node-version: 26.12.1
 
       - name: Prepare owned temporary directories
         run: mkdir -p "$GITHUB_WORKSPACE/tmp/accounts-reference-e2e/tmp" "$PLAYWRIGHT_BROWSERS_PATH"
@@ -74,6 +74,9 @@ jobs:
 
       - name: Install standalone browser harness
         run: pnpm --dir scripts/accounts-reference-e2e install --frozen-lockfile
+
+      - name: Verify portable Skills import and export
+        run: pnpm exec vitest run apps/web/src/features/review-skills/portable-skill.test.ts --maxWorkers=1 --no-file-parallelism
 
       - name: Generate actual Prisma client
         env:
