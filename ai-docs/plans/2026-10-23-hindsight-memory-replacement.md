@@ -96,8 +96,9 @@ digest and removed after verified publication or explicit terminal resolution,
 under a bounded retention policy. This closes the crash-before-provider-accept
 gap without recreating `MemoryItem` as a second writable content store.
 
-Use the existing `@reviewrouter/features-memory` boundary. Retain the reviewed
-Get Modular 0.2.0 composition and Engineering Foundation 2.1.0 scoped adoption.
+Use the existing `@reviewrouter/features-memory` boundary. Integration follows
+Get Modular 0.7.0, already adopted by current main, and retains Engineering
+Foundation 2.1.0 scoped adoption.
 Only composition imports Get Modular; only `memory.hindsight` imports the SDK.
 Extend the existing Foundation policy and rejecting fixtures for new sources.
 Do not silently adopt a newer FMS, another database library, Temporal, NATS,
@@ -1051,3 +1052,34 @@ The native Docker qualification is distinct from HTTP/crypto contract tests,
 actual PostgreSQL coordination tests, real Action orchestration and visual UI
 checks. A queued CI run is not qualification evidence. Record the completed run,
 exact provider image and data disposition before enabling the provider.
+
+### Implementation completion boundaries (2026-10-26)
+
+Execution compatibility describes the stable review configuration and captured
+skills. The exact memory receipt remains part of each invocation's prompt and
+manifest identity. A restarted execution does not capture another memory bundle.
+An uncharged pending slot may continue without memory under its persisted plan;
+an uncertain or previously charged slot retains the existing restore fence and
+attempt budget. Satisfied slots recover only their exact accepted observation
+and original invocation manifest. Reconstructed coverage must match the original
+source and context commitments before it can accompany that read-only recovery.
+This path cannot issue inference, replay, adoption or a new evidence attachment.
+
+The initial profile excludes memory from preparatory investigation. When a
+review invocation includes memory, ordinary finding inference uses the existing
+atomic memory admission in the authoritative invocation-lease transaction.
+Investigation cannot consume that memory under its separate lease or silently
+replace the memory-bearing review with a memory-free precomputed result. Captured
+skills continue to follow their existing contract. This is an implementation
+boundary within ADR-031, not a second inference-admission authority.
+
+The native operation-absence contract includes Hindsight 1.1.0's HTTP 200
+`not_found` tombstone. Cleanup accepts only the matching operation identity and
+the qualified empty tombstone shape; an error, retained payload or contradictory
+operation metadata cannot become a successful absence proof.
+
+The browser qualification runs the rendered management screen at desktop and
+narrow widths with synthetic HTTP fixtures, keyboard checks and screenshots.
+Its evidence explicitly excludes product authority, native-provider and
+real-model qualification. Actual PostgreSQL authority/lease tests and the paired
+Action HTTP proof supply separate evidence for those integration boundaries.
