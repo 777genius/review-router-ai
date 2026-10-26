@@ -905,6 +905,12 @@ describe("ProviderSetupDialog", () => {
 
   it("attaches an existing provider by its ID, never by its credential and model", async () => {
     renderDialog(repositoryTarget);
+    // Wait for opening autofocus before interacting with the modal.
+    await waitFor(() =>
+      expect(screen.getByRole("dialog").contains(document.activeElement)).toBe(
+        true,
+      ),
+    );
     await choose("Second Claude");
     fireEvent.click(
       screen.getByRole("button", { name: "Use for this repository" }),
