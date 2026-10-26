@@ -49,6 +49,11 @@ export async function startNextApp(input: {
         ...input.environment,
         NODE_ENV: "development",
         NEXT_TELEMETRY_DISABLED: "1",
+        // Next's fork checks NODE_OPTIONS before overriding its heap limit.
+        // Construct only this trusted option; never inherit parent NODE_OPTIONS.
+        ...(input.maxOldSpaceSizeMb
+          ? { NODE_OPTIONS: `--max-old-space-size=${input.maxOldSpaceSizeMb}` }
+          : {}),
         // Bound native compiler concurrency in this resource-limited harness.
         RAYON_NUM_THREADS: "1",
       },
