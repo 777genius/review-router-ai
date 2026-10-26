@@ -1,7 +1,7 @@
 # Целостная настройка провайдера и репозитория
 
 Дата: 2026-10-26. База: `4c8f2804b5e53795ec8dd51d51d3b3b6c7d28188`.
-Статус: план v3 одобрен после двух кругов критики; разрешена реализация в описанных границах.
+Статус: план v3 реализован и прошёл source review; unit/contract и component-browser проверки завершены. Обязательная real-app E2E-квалификация заблокирована памятью среды; merge не выполнен.
 Продолжение [исправления API-provider UX](2026-10-26-provider-settings-ux.md), PR #712.
 
 ## 1. Цель и критерий простоты
@@ -146,7 +146,59 @@
 - v2: перечисленные замечания исправлены; передан на круг 2.
 - Круг 2: все три критика дали GO, оставшихся P1/P2 к плану нет. Подтверждены простота удаления preparation-only copy, неизменность серверной политики и достаточность разделённых qualification boundaries. Дополнительно принят обязательный `pageErrors.length=0` в узком result gate.
 - v3: план принят; реализация начинается после двух полных review rounds. PR #717 открыт, изменения пушатся по готовности.
-- Реализация, итоговое ревью и результаты: ожидают.
+- Реализация завершена в PR #717. Application source зафиксирован в `b21af247c8c5f35d64267434a83fa49e94ea2911`; последующее изменение этого документа не меняет проверенный код.
+- Независимое source review: найденные P2 исправлены — native return на тот же URL теперь действительно перезагружает документ; unavailable API-provider option объясняет обе причины; старый успешный статус Codex не возвращается после rejected или offline-paused fresh read. Код получил GO; оставшихся подтверждённых P1/P2 в рассмотренном diff нет.
+- Итоговая qualification decision: сохранить исходный real-app gate. Component preview дополняет проверку интерфейса, но не заменяет server-action persistence, signed-session authorization, RSC refresh и раскрытие репозитория после настоящего dashboard reload. **Merge остаётся заблокирован до успешного выполнения трёх исходных app flows.**
+
+### 8.1. Что реализовано
+
+- Repositories остаётся местом завершения настройки; credential dialog возвращает к тому же workspace/repository с актуальным серверным чтением.
+- Workspace save показывает отдельный результат, фокусирует его заголовок и предлагает Finish repository setup. Сохранение профиля/default не объявляет workflow готовым.
+- Codex открывается через fresh status read. Check работает без issuance; connect/reconnect и recovery запускаются только явным действием. Срок начала команды, неизвестный сетевой исход и повтор recovery с тем же request ID отражены в UI.
+- Query/confirmation guards убирают старый зелёный статус при мутации, ошибке свежего чтения и offline pause; операции взаимно блокируются, поздний ответ не переносится в другой target.
+- Убраны preparation-only prop и повтор глобальных workflow-этапов в modal. Оба optimistic consumer сохраняют setup PR/merge шаг до действительного завершения workflow.
+- Claude сначала предлагает получить токен, затем сохранить его в GitHub. Названия subscription-вариантов сокращены; Accounts ведёт в Providers; API-key storage выбирает доступный начальный вариант и сохраняет явный incoming intent.
+- Backend authorization, persistence, secret formats, OAuth/rotation policy, workflow ABI и Action pins не изменялись.
+
+### 8.2. Фактические проверки
+
+| Проверка                                      | Результат                                                                   | Граница доказательства                                                                                                            |
+| --------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Финальный общий targeted run                  | 202 passed, 0 failed, 0 skipped; 19 файлов                                  | Изменённые UI/state guards, Codex server contracts и qualification helpers                                                        |
+| Существующий `provider-setup-actions.test.ts` | 9 passed, 0 failed, 0 skipped                                               | Policy/form/action boundary; persistence в этом наборе замокан                                                                    |
+| Уникальные unit/contract проверки             | **211 passed**                                                              | Повторные прогоны helper suites в сумму не добавлены                                                                              |
+| Финальный affected TypeScript                 | **exit 0**, native TypeScript 7.0.2                                         | Все 27 изменённых TS/TSX inputs, их зависимости, настоящий NextAuth ambient; tooling option `allowImportingTsExtensions` сохранён |
+| Full-web TypeScript                           | Более ранний run прошёл; поздние полные runs завершились SIGKILL            | Не выдаётся за успешную full-web проверку финального tree                                                                         |
+| Настоящие компоненты в Chromium               | **13/13**, 8 screenshots                                                    | 1440/390, light/dark; actual dialog/delivery/API browser adapter/React Query/shared UI/CSS/fonts; server/Next results — fixtures  |
+| Ошибки component-browser                      | 0 page errors, 0 console errors, 0 external requests, 0 horizontal overflow | Проверены focus, scroll, deadline, recovery lock/retry, native same-URL reload; не server-side persistence                        |
+| Три обязательных real-app flow                | **BLOCKED, 0 accepted passes**                                              | Next dashboard compilation не завершилась в доступной памяти; успешной app-квалификации нет                                       |
+
+Component-browser проверка подтвердила: открытие/reopen/истечение времени не выдают команду; Check доступен до issuance; команда сохраняется после start deadline; recovery требует acknowledgement и блокирует close/steps/return; unknown retry использует тот же request ID. Проверены порядок Claude instructions, focus и scope workspace receipt. Native return дал `navigation.type = reload`; fixture не доказывает реальную серверную проекцию репозитория после этого reload. Все восемь снимков просмотрены; мобильный deadline снимок исправлен так, чтобы предупреждение целиком попадало в кадр.
+
+### 8.3. Инфраструктурный блокер и provenance
+
+Общая среда ограничена 8 GiB; значительная часть памяти занята другим workspace, в том числе около 4.7 GiB tmpfs. Чужие процессы, зависимости и рабочие каталоги не изменялись. PostgreSQL 17 и миграции disposable fixture запускались успешно. Одна ранняя попытка успела отдать настоящий dashboard HTTP 200, но ни один из required flows не завершил acceptance gate.
+
+Во время диагностики исправлен дефект test runner: установленный Next проверяет heap override через `NODE_OPTIONS`, поэтому одного CLI `--max-old-space-size` недостаточно. Harness теперь формирует контролируемый child `NODE_OPTIONS`; два регрессионных теста используют настоящий установленный Next helper и проверяют отсутствие наследования parent options. Live environment дочернего сервера отдельно подтвердил лимиты 1280 и 768 MiB. При 1280 MiB сервер был остановлен системным OOM; при 768 MiB V8 сообщил heap out of memory. Последующие попытки также не дали app acceptance.
+
+Применялись ограничение native Rayon concurrency, отключение необязательных dev-server source maps, последовательные запуски и cleanup только собственного generated cache. Дополнительная попытка использовала временный compiler-only delta `config.parallelism = 1; config.cache = false;` без замены routes/actions/auth/database. Точная patch SHA-256: `491218a2304e67a3892b34d3acb4fbcedfee7886c41a709b9cb2c09d513240b2`. Она также остановилась до browser flows. Этот delta и сгенерированное изменение `next-env.d.ts` восстановлены; production config в PR не меняется.
+
+Единственный известный development probe `GET https://registry.npmjs.org/-/package/next/dist-tags` остаётся заблокированным и учитывается отдельно. Все остальные внешние запросы по-прежнему запрещены; required-flow validator не ослаблен и не принимает component preview вместо app runs.
+
+Локальные receipts сохраняются под `tmp/provider-onboarding/`: `verification-checkpoint.json`, `final-all-tests.json`, `provider-action-tests.json`, `affected-typecheck-final.log`, `tsconfig.affected.json`, `preview/browser-report.json`, `preview/screens/`, `constrained-webpack.patch`. Последняя real-app попытка: `tmp/provider-setup-visual/onboarding-final-b21af24-serial/`; это failed infrastructure evidence, не успешный manifest. SHA-256 финальной affected-typecheck config: `6924ade63c91d61c70e9d17348087065ad8d33400b59d3b77aaa5939732a6c53`.
+
+### 8.4. Остаток до merge
+
+В свободной среде с disposable PostgreSQL 17 и Chromium выполнить существующий harness без изменения application source:
+
+```sh
+pnpm provider-setup:visual --flows-only --rotating \
+  --only '^(flow-step3-create-attach|flow-no-default|flow-codex-repository-setup)$' \
+  --require-onboarding --next-heap-mb 2048 \
+  --out tmp/provider-setup-visual/onboarding-acceptance
+```
+
+`PROVIDER_VISUAL_DATABASE_URL` должен использовать loopback host и точное имя disposable database: `postgresql://<fixture-user>@127.0.0.1:<port>/reviewrouter_provider_setup_visual`. Произвольное имя базы harness отклоняет. `PROVIDER_VISUAL_BROWSER_EXECUTABLE` указывает на установленный Chromium, если он не найден автоматически; проверенный здесь runtime — Node 26.11.1. Все три flow должны быть выполнены и пройти: `flow-step3-create-attach`, `flow-no-default`, `flow-codex-repository-setup`. Далее — просмотр восьми required app screenshots, проверка manifest/provenance/network, исправление реальных замечаний при наличии, fresh main/head check и обычный merge с expected head SHA. Production deploy не входит в этот запрос. Очередь CI не подменяет локальную проверку; статусы checks не фабрикуются.
 
 ## 9. Опорные исходники
 
