@@ -46,6 +46,7 @@ export function buildReviewComparisonBaseline(
         projectionPolicyVersion: z.enum([
           "review-projection-policy.v5-t0",
           "review-projection-policy.v6-comparison",
+          "review-projection-policy.v7-lifecycle-verification",
         ]),
         scope: z.object({
           scmRepositoryIdentityId: z.string(),

@@ -84,3 +84,5 @@ export function composeReviewCompletionProcesses(
 }
 
 export * from "../infrastructure/prisma";
+
+export type { ReviewCompletionSettlementHook } from "../infrastructure/prisma/prisma-review-completion-process-repository";

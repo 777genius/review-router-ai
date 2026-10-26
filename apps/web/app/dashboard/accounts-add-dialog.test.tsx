@@ -10,9 +10,33 @@ import {
 import { afterEach, expect, test } from "vitest";
 import { Button, Dialog, SelectField } from "@reviewrouter/ui";
 import { AccountsAddDialog } from "./accounts-add-dialog";
+import { AccountsWorkspaceTabs } from "./accounts-workspace-tabs";
 import { AccountActionsMenu, AccountMenuItem } from "./account-actions-menu";
 
 afterEach(cleanup);
+
+test("workspace shortcut opens My connections without starting a connection", async () => {
+  render(
+    <AccountsWorkspaceTabs
+      available={<p>Workspace connections</p>}
+      own={<p>Personal connections</p>}
+    />,
+  );
+  expect(
+    screen.getByRole("tab", { name: "Available in this workspace" }),
+  ).toHaveProperty("ariaSelected", "true");
+  fireEvent.click(
+    screen.getByRole("button", { name: "Add from My connections" }),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("tab", { name: "My connections" })).toHaveProperty(
+      "ariaSelected",
+      "true",
+    ),
+  );
+  expect(screen.getByText("Personal connections")).toBeTruthy();
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
 
 function Connect() {
   return (

@@ -1,5 +1,5 @@
 import type { ScmProvider } from "@reviewrouter/shared";
-import type { RepositoryReviewPolicyOverride } from "../../domain/review-configuration";
+import type { RepositoryReviewPolicy } from "../../domain/review-policy-document";
 import type { ReviewConfigurationTarget } from "../../domain/review-configuration-target";
 import type { PersistedReviewConfiguration } from "./review-configuration-repository-port";
 
@@ -48,7 +48,7 @@ export interface ReviewConfigurationOperatorMutationPort {
       { readonly scope: "repository" }
     >;
     readonly expectedRevisionToken: string;
-    readonly policy: RepositoryReviewPolicyOverride;
+    readonly policy: RepositoryReviewPolicy;
     readonly auditEvent: ReviewConfigurationOperatorAuditEvent;
   }): Promise<PersistedReviewConfiguration>;
 }

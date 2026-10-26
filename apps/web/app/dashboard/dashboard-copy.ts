@@ -411,8 +411,38 @@ export function dashboardErrorText(error: string): string {
       return "Too many dashboard requests for this resource. Wait a bit before retrying.";
     case "review_policy_resave_required":
       return "Saved review policy uses a retired or unreadable format and reviews are stopped. Review and save the policy explicitly, or remove the repository override to inherit workspace settings.";
-    case "review_workspace_policy_required":
-      return "Save workspace review settings before enabling reviews.";
+    case "review_provider_selection_required":
+      return "No review provider applies here yet. Choose a workspace default or a provider for this repository before enabling reviews.";
+    case "review_provider_profile_unavailable":
+      return "The selected provider was archived or removed. Choose another provider and save again.";
+    case "rotating_profile_repository_only":
+      return "A rotating Codex provider belongs to its own repository and cannot be used anywhere else.";
+    case "review_configuration_gateway_profile_mismatch":
+      return "The account behind this provider now uses another profile. Choose the account again to create a new provider.";
+    case "review_workspace_policy_retired":
+      return "The workspace settings use a retired format. An owner or admin replaces them by choosing a default provider; then choose this repository's provider.";
+    case "hosted_pool_session_source_required":
+      return "A hosted Codex pool is turned on for each repository with its session source setting, so it cannot be chosen here or made the default.";
+    case "provider_profile_invalid":
+      return "The provider details are invalid. Check the model and label, then try again.";
+    case "provider_profile_not_found":
+      return "This provider no longer exists in the workspace. Refresh the dashboard.";
+    case "provider_profile_credential_unavailable":
+      return "The credential of this provider is not available. Connect the account or upload the managed key first.";
+    case "provider_profile_workspace_unavailable":
+      return "This workspace is being deleted, so its providers cannot change.";
+    case "provider_profile_duplicate":
+      return "A provider with the same credential and model already exists in this workspace.";
+    case "provider_profile_in_use":
+      return "This provider is still selected by the workspace default or a repository. Choose another provider there first.";
+    case "provider_profile_model_incompatible":
+      return "The new model does not support the reasoning or fast settings some repositories use with this provider.";
+    case "review_provider_settings_incompatible":
+      return "The reasoning or fast settings do not fit this provider's model. Choose the provider again and check its settings.";
+    case "review_execution_limits_incompatible":
+      return "The saved parallel review or agreement limits name more providers than are selected. Choose the provider again in its provider dialog: that fits the limits to it.";
+    case "provider_management_forbidden":
+      return "Your role cannot manage this provider. Ask a workspace owner or admin.";
     case "workflow_delete_untrusted":
       return "A ReviewRouter workflow belongs to another active mode (GitHub Secrets/Hosted Pool) or was edited, so it is not removed automatically. Disconnect that mode, or remove the exact file named in the Diagnostics audit event, then retry.";
     case "invalid_form":
@@ -441,6 +471,12 @@ export function dashboardErrorText(error: string): string {
       return "The selected Gateway model does not support this reasoning effort. Choose a supported reasoning effort in review settings and save again.";
     case "agent_profile_requires_agentic_context":
       return "OpenCodeReview needs native repository context. Enable Agentic context or choose a compatible ReviewRouter profile before saving.";
+    case "provider_api_direct_requires_single_provider":
+      return "Use one supported provider and model, then save the review settings.";
+    case "provider_api_fast_mode_unsupported":
+      return "Turn off Fast mode for MiMo and save the review settings.";
+    case "provider_api_reasoning_effort_unsupported":
+      return "Choose Low, Medium, or High review depth for MiMo, then save.";
     case "openrouter_direct_requires_single_provider":
       return "Direct OpenRouter reviews currently support one provider and one model. Select a single OpenRouter provider without multi-provider agreement before saving or installing the workflow. Your saved policy has not been replaced.";
     case "openrouter_direct_workflow_options_not_supported":

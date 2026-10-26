@@ -103,6 +103,7 @@ export type AccountOwnerView =
   | { kind: "organization"; label: string; avatarUrl: string | null }
   | { kind: "operator"; label: string };
 export type AccountView = {
+  modelCatalog?: import("../features/account-gateway/connection-capabilities").AccountModelCatalogView;
   connection?: AccountProfileView["connection"];
   origin?: "organization" | "personal" | "operator";
   // Display-only identity fact; never permission to manage a shared source.
@@ -578,7 +579,9 @@ export function createAccountsAdapter(input: {
     };
   }
   type ScopedClient = ReturnType<typeof scoped>;
-  async function profiles(client: ScopedClient): Promise<AccountProfileView[]> {
+  async function profiles(
+    client: Pick<ScopedClient, "profiles">,
+  ): Promise<AccountProfileView[]> {
     const catalogue = await client.profiles();
     return catalogue.profiles
       .filter((p) => {
@@ -1590,6 +1593,12 @@ export function createAccountsAdapter(input: {
       }
     },
     list,
+    /**
+     * The deployment's approved profiles with their live models. It holds no
+     * account or workspace data, so it needs no Accounts context: a provider
+     * selection the caller already authorized validates against it.
+     */
+    reviewCatalog: () => profiles({ profiles: () => gateway.profiles() }),
     mutate,
     beginOAuth,
     completeOAuth,

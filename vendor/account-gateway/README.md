@@ -1,10 +1,21 @@
 # Account Gateway SDK artifacts
 
 The current private provider-connections SDK is
-`agent-teams-account-gateway-0.1.0-grok-code-130ca3f00dcc.tgz`.
+`agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz`.
 `provider-connections-provenance.json` binds the archive to committed SDK source
-and `grok-code-130ca3f00dcc-sdk-receipt.json` records installed Node24/26 qualification.
-API and web use the same archive. Grok shows one plain authorization-code field;
+and records its qualification boundaries. API and web use the same archive.
+Codex model discovery is scoped to an authorized account and keeps the enrollment
+model immutable. Native and Gateway admission validate requested models before
+Responses entry; this archive alone does not activate production discovery.
+RR keeps configured profile model choices by default. Set the server-only
+`REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED=1` in API and web only after
+the Gateway/native deployment supports account model discovery and admission.
+When enabled, unknown or unsupported discovery does not authorize legacy models;
+only the Gateway's explicit unavailable response permits the configured anchor.
+
+`grok-code-130ca3f00dcc-provenance.json` and
+`grok-code-130ca3f00dcc-sdk-receipt.json` retain the previous archive's identity
+and installed qualification. Grok shows one plain authorization-code field;
 the saved original provider selects its SDK-owned code grammar. Legacy Grok callback
 URLs and Claude code#state completion remain supported.
 

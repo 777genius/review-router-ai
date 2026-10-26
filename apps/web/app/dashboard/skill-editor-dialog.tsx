@@ -9,8 +9,13 @@ import {
 } from "../../src/features/review-skills/client-adapter";
 import { SkillsDialog, SkillsError, skillFieldClass } from "./review-skills-ui";
 
-function exportSkill(document: ReviewSkillDocument) {
-  const text = `---\nname: ${JSON.stringify(document.name)}\ndescription: ${JSON.stringify(document.description)}\n---\n\n${document.instructions}\n`;
+type SkillContent = Pick<
+  ReviewSkillDocument,
+  "name" | "description" | "instructions"
+>;
+
+function exportSkill(document: SkillContent) {
+  const text = `---\nname: ${JSON.stringify(document.name)}\ndescription: ${JSON.stringify(document.description)}\n---\n${document.instructions}`;
   const url = URL.createObjectURL(
     new Blob([text], { type: "text/markdown;charset=utf-8" }),
   );
@@ -36,17 +41,29 @@ export function SkillEditorDialog({
   const [instructions, setInstructions] = useState(
     document?.instructions ?? "",
   );
+  const [savedContent, setSavedContent] = useState<SkillContent>(() => ({
+    name: document?.name ?? "",
+    description: document?.description ?? "",
+    instructions: document?.instructions ?? "",
+  }));
   const [revisionId, setRevisionId] = useState(document?.revisionId ?? "");
   const [importError, setImportError] = useState<unknown>(null);
   const [comparison, setComparison] = useState<ReviewSkillDocument | null>(
     null,
   );
   const [reconciled, setReconciled] = useState(false);
+  const [createOperationId] = useState(() =>
+    document ? "" : crypto.randomUUID(),
+  );
+  const [uncertainCreate, setUncertainCreate] = useState<SkillContent | null>(
+    null,
+  );
+  const [importing, setImporting] = useState(false);
   const editable = !document || document.canEdit;
   const dirty =
-    name !== (document?.name ?? "") ||
-    description !== (document?.description ?? "") ||
-    instructions !== (document?.instructions ?? "");
+    name !== savedContent.name ||
+    description !== savedContent.description ||
+    instructions !== savedContent.instructions;
   const bytes = new TextEncoder().encode(instructions).length;
   const valid =
     name.trim() &&
@@ -55,34 +72,54 @@ export function SkillEditorDialog({
     Array.from(description).length <= 1024 &&
     bytes <= 32768;
   const save = useMutation({
-    mutationFn: () =>
+    mutationFn: (content: SkillContent) =>
       document
         ? requestReviewSkills("saveSkill", {
             workspaceId: document.sourceWorkspaceId,
             skillId: document.skillId,
             expectedRevisionId: revisionId,
-            content: { name, description, instructions },
+            content,
           })
         : requestReviewSkills("createSkill", {
             workspaceId,
-            content: { name, description, instructions },
+            createOperationId,
+            content,
           }),
     onSuccess: onSaved,
+    onError: (error, submitted) => {
+      if (
+        !document &&
+        error instanceof ReviewSkillsClientError &&
+        error.code === "unknown"
+      )
+        setUncertainCreate(submitted);
+    },
   });
+  const fieldsLocked = save.isPending || importing || Boolean(uncertainCreate);
   const close = () => {
     if (
       !save.isPending &&
+      !importing &&
       (!editable ||
-        !dirty ||
-        window.confirm("Discard your unsaved skill changes?"))
+        (!dirty && !uncertainCreate) ||
+        window.confirm(
+          uncertainCreate
+            ? "This skill may already have been created. Close and check the Skills library before creating it again?"
+            : "Discard your unsaved skill changes?",
+        ))
     )
       onClose();
   };
   async function importFile(file: File | undefined) {
     if (!file) return;
+    setImporting(true);
     try {
-      if (file.size > 32768)
-        throw new Error("SKILL.md must be 32 KiB or smaller.");
+      // Bound parsing while leaving room for the YAML header around a valid
+      // 32 KiB body, including escaped name and description characters.
+      if (file.size > 64 * 1024)
+        throw new Error(
+          "SKILL.md must be 64 KiB or smaller; instructions are limited to 32 KiB.",
+        );
       const text = await file.text();
       const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/.exec(
         text,
@@ -123,10 +160,12 @@ export function SkillEditorDialog({
         );
       setName(fields.name);
       setDescription(fields.description);
-      setInstructions(match[2]!.trim());
+      setInstructions(match[2]!);
       setImportError(null);
     } catch (error) {
       setImportError(error);
+    } finally {
+      setImporting(false);
     }
   }
   const conflict =
@@ -136,18 +175,19 @@ export function SkillEditorDialog({
     <SkillsDialog
       open
       onClose={close}
-      pending={save.isPending}
+      pending={save.isPending || importing}
       title={
         document ? (editable ? "Edit skill" : "View skill") : "Create skill"
       }
       description="Save updates these instructions for future reviews in connected repositories. Reviews already in progress keep the instructions they started with."
       footer={
         <>
-          {document ? (
+          {document || dirty ? (
             <Button
               type="button"
               variant="outline"
-              onClick={() => exportSkill(document)}
+              className="max-w-full"
+              onClick={() => exportSkill({ name, description, instructions })}
             >
               Export SKILL.md
             </Button>
@@ -155,10 +195,24 @@ export function SkillEditorDialog({
           {editable ? (
             <Button
               type="button"
-              disabled={!valid || save.isPending || (conflict && !reconciled)}
-              onClick={() => save.mutate()}
+              disabled={
+                !valid ||
+                save.isPending ||
+                importing ||
+                (conflict && !reconciled)
+              }
+              onClick={() => {
+                setImportError(null);
+                save.mutate(
+                  uncertainCreate ?? { name, description, instructions },
+                );
+              }}
             >
-              {save.isPending ? "Saving…" : "Save"}
+              {save.isPending
+                ? "Saving…"
+                : uncertainCreate
+                  ? "Retry save"
+                  : "Save"}
             </Button>
           ) : null}
         </>
@@ -170,6 +224,7 @@ export function SkillEditorDialog({
           <input
             type="file"
             accept=".md,text/markdown,text/plain"
+            disabled={fieldsLocked}
             className="mt-2 block w-full text-sm"
             onChange={(event) => {
               void importFile(event.target.files?.[0]);
@@ -177,6 +232,14 @@ export function SkillEditorDialog({
             }}
           />
         </label>
+      ) : null}
+      {importing ? <p role="status">Importing SKILL.md…</p> : null}
+      {uncertainCreate ? (
+        <p role="status" className="text-sm text-amber-100">
+          This skill may already have been created. Retry save recovers the
+          result using the same submitted content without creating a second
+          original.
+        </p>
       ) : null}
       {!editable ? (
         <p className="text-sm text-slate-400">
@@ -190,6 +253,7 @@ export function SkillEditorDialog({
           className={`${skillFieldClass} mt-2`}
           value={name}
           readOnly={!editable}
+          disabled={fieldsLocked}
           maxLength={240}
           onChange={(event) => setName(event.target.value)}
           required
@@ -205,6 +269,7 @@ export function SkillEditorDialog({
           rows={2}
           value={description}
           readOnly={!editable}
+          disabled={fieldsLocked}
           onChange={(event) => setDescription(event.target.value)}
         />
         <span className="mt-1 block text-xs text-slate-500">
@@ -218,6 +283,7 @@ export function SkillEditorDialog({
           rows={12}
           value={instructions}
           readOnly={!editable}
+          disabled={fieldsLocked}
           onChange={(event) => setInstructions(event.target.value)}
           required
         />
@@ -231,6 +297,7 @@ export function SkillEditorDialog({
         <Button
           type="button"
           variant="outline"
+          disabled={fieldsLocked}
           onClick={() => {
             if (document)
               void requestReviewSkills("loadSkill", {
@@ -240,6 +307,7 @@ export function SkillEditorDialog({
                 .then((current) => {
                   setComparison(current);
                   setReconciled(false);
+                  setImportError(null);
                 })
                 .catch(setImportError);
           }}
@@ -268,12 +336,15 @@ export function SkillEditorDialog({
             <Button
               type="button"
               variant="outline"
+              disabled={fieldsLocked}
               onClick={() => {
                 setName(comparison.name);
                 setDescription(comparison.description);
                 setInstructions(comparison.instructions);
                 setRevisionId(comparison.revisionId);
+                setSavedContent(comparison);
                 setReconciled(true);
+                setComparison(null);
                 save.reset();
               }}
             >
@@ -282,9 +353,12 @@ export function SkillEditorDialog({
             <Button
               type="button"
               variant="outline"
+              disabled={fieldsLocked}
               onClick={() => {
                 setRevisionId(comparison.revisionId);
+                setSavedContent(comparison);
                 setReconciled(true);
+                setComparison(null);
                 save.reset();
               }}
             >

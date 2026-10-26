@@ -1,3 +1,7 @@
+import {
+  providerApiAuthModes,
+  providerApiDescriptors,
+} from "@reviewrouter/shared";
 import { workspacePolicyFixture } from "../../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,9 +14,10 @@ const mocks = vi.hoisted(() => ({
   createGitHubAppInstallationOctokit: vi.fn(),
   getPrisma: vi.fn(),
   recordAuditEvent: vi.fn(),
-  readReviewConfigurationForm: vi.fn(),
-  readRepositoryReviewPolicyForm: vi.fn(),
-  saveReviewConfiguration: vi.fn(),
+  readWorkspaceReviewSettingsForm: vi.fn(),
+  readRepositoryReviewSettingsForm: vi.fn(),
+  saveWorkspaceReviewSettings: vi.fn(),
+  saveRepositoryReviewSettings: vi.fn(),
   assertReviewConfigSaveAllowed: vi.fn(),
   assertWorkflowSetupPrAllowed: vi.fn(),
   isWorkflowSetupAlreadyCurrent: vi.fn(),
@@ -35,12 +40,13 @@ vi.mock("@reviewrouter/features-review-config", async (importOriginal) => ({
     typeof import("@reviewrouter/features-review-config")
   >()),
   resolveReviewRuntimeEnv: mocks.resolveReviewRuntimeEnv,
-  saveReviewConfiguration: mocks.saveReviewConfiguration,
+  saveWorkspaceReviewSettings: mocks.saveWorkspaceReviewSettings,
+  saveRepositoryReviewSettings: mocks.saveRepositoryReviewSettings,
 }));
 vi.mock("./dashboard-action-form-readers", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./dashboard-action-form-readers")>()),
-  readReviewConfigurationForm: mocks.readReviewConfigurationForm,
-  readRepositoryReviewPolicyForm: mocks.readRepositoryReviewPolicyForm,
+  readWorkspaceReviewSettingsForm: mocks.readWorkspaceReviewSettingsForm,
+  readRepositoryReviewSettingsForm: mocks.readRepositoryReviewSettingsForm,
 }));
 vi.mock("../../src/server/dashboard-rate-limits", () => ({
   createDashboardRateLimitPolicy: () => ({
@@ -108,6 +114,10 @@ import {
 const { isWorkflowSetupAlreadyCurrent } = await vi.importActual<
   typeof import("../../src/server/workflow-setup-readiness")
 >("../../src/server/workflow-setup-readiness");
+const { resolveReviewRuntimeEnv: resolveSavedReviewRuntimeEnv } =
+  await vi.importActual<typeof import("@reviewrouter/features-review-config")>(
+    "@reviewrouter/features-review-config",
+  );
 
 function workspacePolicyHeadsFixture() {
   return {
@@ -119,7 +129,7 @@ function workspacePolicyHeadsFixture() {
   };
 }
 
-function reusableWorkflowResponse(mimo = true) {
+function reusableWorkflowResponse(claude = true) {
   return {
     data: {
       type: "file",
@@ -130,11 +140,11 @@ function reusableWorkflowResponse(mimo = true) {
           apiUrl: "https://api.reviewrouter.test",
           runtimeConfigMode: "oidc",
           conflictReviewFallbackEnabled: true,
-          ...(mimo
+          ...(claude
             ? {
                 staticRuntimeEnv: {
-                  REVIEW_AUTH_MODE: "mimo-token-plan-api",
-                  REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+                  REVIEW_AUTH_MODE: "claude-oauth",
+                  REVIEW_PROVIDERS: "claude/sonnet",
                 },
               }
             : {}),
@@ -217,9 +227,9 @@ describe("dashboard setup PR recovery", () => {
         ...workspacePolicyFixture,
         providers: [
           {
-            kind: "codex-mimo",
-            authMode: "mimo_token_plan_api_key",
-            model: "mimo-v2.6-pro",
+            kind: "claude",
+            authMode: "claude_code_oauth",
+            model: "sonnet",
           },
         ],
       }),
@@ -229,7 +239,7 @@ describe("dashboard setup PR recovery", () => {
   afterEach(() => vi.unstubAllEnvs());
 
   it.each([
-    [false, "review_workspace_policy_required"],
+    [false, "review_provider_selection_required"],
     [true, "review_policy_resave_required"],
   ] as const)(
     "reports %s workspace presence correctly when a repository policy head remains",
@@ -250,16 +260,34 @@ describe("dashboard setup PR recovery", () => {
           })),
         },
         reviewConfiguration: {
-          findMany: vi.fn(async () => [
-            { targetKey: "repo:repository_1", versions: [{ version: 7 }] },
-            ...(workspacePresent
-              ? [{ targetKey: "workspace:default", versions: [{ version: 1 }] }]
-              : []),
-          ]),
+          findUnique: vi.fn(
+            async ({
+              where,
+            }: {
+              where: { workspaceId_targetKey: { targetKey: string } };
+            }) =>
+              where.workspaceId_targetKey.targetKey === "repo:repository_1"
+                ? {
+                    versions: [
+                      {
+                        version: 7,
+                        schemaVersion: 3,
+                        policyJson: JSON.stringify({ schemaVersion: 3 }),
+                      },
+                    ],
+                  }
+                : workspacePresent
+                  ? {
+                      versions: [
+                        { version: 1, schemaVersion: 2, policyJson: null },
+                      ],
+                    }
+                  : null,
+          ),
         },
       });
-      mocks.resolveReviewRuntimeEnv.mockRejectedValueOnce(
-        new Error("review_workspace_policy_required"),
+      mocks.resolveReviewRuntimeEnv.mockImplementationOnce(
+        resolveSavedReviewRuntimeEnv,
       );
       const form = new FormData();
       form.set("workspaceId", "workspace_1");
@@ -361,9 +389,18 @@ describe("dashboard setup PR recovery", () => {
     },
   );
 
-  it.each(["single", "multiple", "explicit"])(
-    "selects the App-first direct OpenRouter setup before effects: %s",
-    async (scenario) => {
+  it.each(
+    providerApiAuthModes.flatMap((mode) =>
+      [
+        "single",
+        "multiple",
+        "explicit",
+        ...(mode === "mimo-token-plan-api" ? ["legacy_effort"] : []),
+      ].map((scenario) => ({ mode, scenario })),
+    ),
+  )(
+    "selects the App-first direct $mode setup before effects: $scenario",
+    async ({ mode, scenario }) => {
       mocks.getPrisma.mockReturnValue({
         repositoryConnection: {
           findUnique: vi.fn(async () => ({
@@ -380,17 +417,30 @@ describe("dashboard setup PR recovery", () => {
         },
         reviewConfiguration: workspacePolicyHeadsFixture(),
       });
+      const descriptor = providerApiDescriptors[mode];
       const provider = {
-        kind: "openrouter" as const,
-        authMode: "openrouter_api_key" as const,
-        model: "openai/gpt-5",
+        kind: descriptor.providerKind,
+        authMode: descriptor.authMode,
+        model: descriptor.defaultModel,
+        ...(mode === "kimi-code-api"
+          ? {}
+          : {
+              reasoningEffort: scenario === "legacy_effort" ? "xhigh" : "high",
+            }),
       };
       mocks.resolveReviewRuntimeEnv.mockResolvedValue({
         config: parseReviewConfiguration({
           ...workspacePolicyFixture,
           providers:
             scenario === "multiple"
-              ? [provider, { ...provider, model: "anthropic/claude-sonnet-4" }]
+              ? [
+                  provider,
+                  {
+                    kind: "claude",
+                    authMode: "claude_code_oauth",
+                    model: "sonnet",
+                  },
+                ]
               : [provider],
           execution: {
             providerLimit: scenario === "multiple" ? 2 : 1,
@@ -416,7 +466,7 @@ describe("dashboard setup PR recovery", () => {
         expect(result.params.notice).toBe("workflow_already_current");
         expect(mocks.isWorkflowSetupAlreadyCurrent).toHaveBeenCalledWith(
           expect.objectContaining({
-            providerApiAuthMode: "openrouter-api",
+            providerApiAuthMode: mode,
             actionRef: `777genius/review-router@${"c".repeat(40)}`,
             conflictReviewFallbackEnabled: false,
           }),
@@ -427,9 +477,13 @@ describe("dashboard setup PR recovery", () => {
         ).not.toHaveProperty("codexSessionMode");
       } else {
         expect(result.params.error).toBe(
-          scenario === "multiple"
-            ? "openrouter_direct_requires_single_provider"
-            : "openrouter_direct_workflow_options_not_supported",
+          scenario === "legacy_effort"
+            ? "provider_api_reasoning_effort_unsupported"
+            : scenario === "multiple"
+              ? mode === "openrouter-api"
+                ? "openrouter_direct_requires_single_provider"
+                : "provider_api_direct_requires_single_provider"
+              : "openrouter_direct_workflow_options_not_supported",
         );
         expect(mocks.createGitHubAppInstallationOctokit).not.toHaveBeenCalled();
         expect(mocks.provisionGatewayReviewV2Repository).not.toHaveBeenCalled();
@@ -437,64 +491,19 @@ describe("dashboard setup PR recovery", () => {
     },
   );
 
-  it("rejects a direct OCR policy save without native context before persistence", async () => {
+  it("saves the workspace settings of the form and never a provider", async () => {
+    const settings = { blockingPolicy: { failOnSeverity: "major" } } as const;
     mocks.getPrisma.mockReturnValue({});
     mocks.assertDashboardMutationAllowed.mockResolvedValue({
       actor: "user:admin",
+      userId: "user_admin",
     });
-    mocks.readReviewConfigurationForm.mockReturnValue({
-      ...workspacePolicyFixture,
-      providers: [
-        {
-          kind: "codex",
-          authMode: "codex_account_gateway",
-          model: "mimo-v2.6-pro",
-          gatewayBindingId: "binding-1",
-          gatewayProfileRef: "profile-1",
-          agentProfileRef: "ocr-managed-v2",
-          agenticContext: false,
-          reasoningEffort: "high",
-          fastMode: false,
-          requiredHealthy: true,
-        },
-      ],
+    mocks.readWorkspaceReviewSettingsForm.mockReturnValue(settings);
+    mocks.saveWorkspaceReviewSettings.mockResolvedValue({
+      target: { scope: "workspace", workspaceId: "workspace_1" },
+      version: 2,
+      configuration: null,
     });
-    mocks.loadApprovedGatewayAgentProfiles.mockReturnValue([
-      {
-        profileRef: "ocr-managed-v2",
-        agentKind: "ocr",
-        label: "OCR",
-        description: "OCR",
-      },
-    ]);
-    const formData = new FormData();
-    formData.set("workspaceId", "workspace_1");
-    const result = await saveWorkspaceReviewConfigClientAction(formData);
-    expect(result.params.error).toBe("agent_profile_requires_agentic_context");
-    expect(mocks.saveReviewConfiguration).not.toHaveBeenCalled();
-    expect(mocks.assertDashboardMutationAllowed).toHaveBeenCalled();
-  });
-
-  it("saves a workspace MiMo review configuration without an operator grant", async () => {
-    const provider = {
-      kind: "codex-mimo",
-      authMode: "mimo_token_plan_api_key",
-      model: "mimo-v2.6-pro",
-      reasoningEffort: "medium",
-      agenticContext: true,
-      fastMode: false,
-      requiredHealthy: true,
-    } as const;
-    const config = {
-      ...workspacePolicyFixture,
-      providers: [provider],
-    };
-    mocks.getPrisma.mockReturnValue({});
-    mocks.assertDashboardMutationAllowed.mockResolvedValue({
-      actor: "user:admin",
-    });
-    mocks.readReviewConfigurationForm.mockReturnValue(config);
-    mocks.saveReviewConfiguration.mockResolvedValue({ version: 2, config });
     const formData = new FormData();
     formData.set("workspaceId", "workspace_1");
     formData.set("policyExpectedVersion", "1");
@@ -516,45 +525,20 @@ describe("dashboard setup PR recovery", () => {
       }),
       expect.anything(),
     );
-    expect(mocks.saveReviewConfiguration).toHaveBeenCalledWith(
+    expect(mocks.saveWorkspaceReviewSettings).toHaveBeenCalledWith(
       {
-        target: { scope: "workspace", workspaceId: "workspace_1" },
-        policy: config,
+        workspaceId: "workspace_1",
+        actor: expect.objectContaining({ userId: "user_admin" }),
+        settings,
         expectedVersion: 1,
       },
-      expect.anything(),
+      // The dashboard validates every candidate before the write.
+      expect.objectContaining({ validator: expect.anything() }),
     );
   });
 
-  it("saves a repository MiMo review configuration without an operator grant", async () => {
-    const provider = {
-      kind: "codex-mimo",
-      authMode: "mimo_token_plan_api_key",
-      model: "mimo-v2.6-pro",
-      reasoningEffort: "medium",
-      agenticContext: true,
-      fastMode: false,
-      requiredHealthy: true,
-    } as const;
-    const config = {
-      ...workspacePolicyFixture,
-      providers: [provider],
-    };
+  it("saves the repository overrides of the form with the actor's capability", async () => {
     mocks.getPrisma.mockReturnValue({
-      reviewConfiguration: {
-        ...workspacePolicyHeadsFixture(),
-        findUnique: vi.fn(async () => ({
-          active: true,
-          repositoryId: null,
-          versions: [
-            {
-              version: 1,
-              schemaVersion: 3,
-              policyJson: JSON.stringify(workspacePolicyFixture),
-            },
-          ],
-        })),
-      },
       repositoryConnection: {
         findUnique: vi.fn(async () => ({
           id: "repository_1",
@@ -573,11 +557,22 @@ describe("dashboard setup PR recovery", () => {
       },
     });
     mocks.assertDashboardRepositoryConfigMutationAllowed.mockResolvedValue({
-      actor: "user:admin",
+      actor: "user:maintainer",
+      userId: "user_maintainer",
+      accessSource: { source: "repo_manager", capability: "direct_config" },
     });
-    const policy = { schemaVersion: 3, providers: [provider] };
-    mocks.readRepositoryReviewPolicyForm.mockReturnValue(policy);
-    mocks.saveReviewConfiguration.mockResolvedValue({ version: 3, config });
+    mocks.readRepositoryReviewSettingsForm.mockReturnValue({
+      limits: { inlineMaxComments: 2 },
+    });
+    mocks.saveRepositoryReviewSettings.mockResolvedValue({
+      target: {
+        scope: "repository",
+        workspaceId: "workspace_1",
+        repositoryId: "repository_1",
+      },
+      version: 3,
+      configuration: null,
+    });
     const formData = new FormData();
     formData.set("workspaceId", "workspace_1");
     formData.set("repositoryId", "repository_1");
@@ -592,23 +587,24 @@ describe("dashboard setup PR recovery", () => {
         version: "3",
       },
     });
-    expect(mocks.saveReviewConfiguration).toHaveBeenCalledWith(
+    expect(mocks.saveRepositoryReviewSettings).toHaveBeenCalledWith(
       {
-        target: {
-          scope: "repository",
-          workspaceId: "workspace_1",
+        workspaceId: "workspace_1",
+        actor: expect.objectContaining({ userId: "user_maintainer" }),
+        repository: {
           repositoryId: "repository_1",
+          capability: "direct_config",
         },
-        policy,
+        settings: { limits: { inlineMaxComments: 2 } },
         expectedVersion: 2,
       },
-      expect.anything(),
+      expect.objectContaining({ validator: expect.anything() }),
     );
   });
 
   it("loads failed provisioning deterministically and confirms a reopened merged PR", async () => {
     let provisioningStatus: "failed" | "configured" = "failed";
-    let mimoWorkflow = true;
+    let claudeWorkflow = true;
     const repositoryFindUnique = vi.fn(async () => ({
       id: "repository_1",
       workspaceId: "workspace_1",
@@ -682,7 +678,7 @@ describe("dashboard setup PR recovery", () => {
     mocks.createGitHubAppInstallationOctokit.mockResolvedValue({
       request: vi.fn(async (route: string) =>
         route.includes("/contents/")
-          ? reusableWorkflowResponse(mimoWorkflow)
+          ? reusableWorkflowResponse(claudeWorkflow)
           : {
               data: {
                 merged: true,
@@ -741,14 +737,14 @@ describe("dashboard setup PR recovery", () => {
         ...workspacePolicyFixture,
         providers: [
           {
-            kind: "codex-mimo",
-            authMode: "mimo_token_plan_api_key",
-            model: "mimo-v2.6-pro",
+            kind: "claude",
+            authMode: "claude_code_oauth",
+            model: "sonnet",
           },
         ],
       }),
     });
-    mimoWorkflow = true;
+    claudeWorkflow = true;
     await expect(
       confirmSetupPullRequestMergedClientAction(formData),
     ).resolves.toMatchObject({ params: { notice: "setup_pr_merged" } });
@@ -978,8 +974,8 @@ describe("dashboard setup PR recovery", () => {
                     runtimeConfigMode: "oidc",
                     conflictReviewFallbackEnabled: true,
                     staticRuntimeEnv: {
-                      REVIEW_AUTH_MODE: "mimo-token-plan-api",
-                      REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+                      REVIEW_AUTH_MODE: "claude-oauth",
+                      REVIEW_PROVIDERS: "claude/sonnet",
                     },
                   }),
                 ).toString("base64"),
@@ -1016,6 +1012,7 @@ describe("dashboard setup PR recovery", () => {
         expect(state.current()).toEqual({
           ...historical,
           status: "configured",
+          installedWorkflowRequirement: "ci_secrets+claude",
           revision: historical.revision + 1,
         });
         expect(state.workflowProvisioning.updateMany).toHaveBeenCalledTimes(1);

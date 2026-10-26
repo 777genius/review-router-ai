@@ -1,8 +1,15 @@
-import { workspacePolicyFixture } from "../../../../packages/features/review-config/src/tests/current-policy-fixture";
+import {
+  providerProfileFixture,
+  providerProfileRowFixture,
+  workspacePolicyFixture,
+} from "../../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { createHash } from "node:crypto";
 import {
+  canonicalJson,
   mapConfigToRuntimeEnv,
   parseReviewConfiguration,
+  parseWorkspaceReviewPolicy,
+  providerProfileIdentityKey,
 } from "@reviewrouter/features-review-config";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -489,9 +496,9 @@ function fixture(
         ...workspacePolicyFixture,
         providers: [
           {
-            kind: "codex-mimo",
-            authMode: "mimo_token_plan_api_key",
-            model: "mimo-v2.6-pro",
+            kind: "claude",
+            authMode: "claude_code_oauth",
+            model: "sonnet",
           },
         ],
       }),
@@ -502,8 +509,8 @@ function fixture(
       runtimeConfigMode: "oidc",
       conflictReviewFallbackEnabled: true,
       staticRuntimeEnv: {
-        REVIEW_AUTH_MODE: "mimo-token-plan-api",
-        REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+        REVIEW_AUTH_MODE: "claude-oauth",
+        REVIEW_PROVIDERS: "claude/sonnet",
       },
     });
   }
@@ -651,82 +658,100 @@ function fixture(
     findUnique: findBinding,
     updateMany: updateBinding,
   };
+  // Profiles of the workspace with their real identity keys, so a hosted
+  // pool switch finds the profile it selects instead of creating one.
+  const profileRows = new Map(
+    [
+      providerProfileFixture({
+        id: "profile-rotating",
+        credential: {
+          kind: "repository_rotating",
+          authMode: "codex_subscription_oauth_rotating",
+          repositoryId: "repository_1",
+        },
+        model: "gpt-5.3-codex",
+      }),
+      providerProfileFixture({
+        id: "profile-hosted",
+        credential: {
+          kind: "hosted_pool",
+          authMode: "codex_subscription_oauth_hosted_pool",
+        },
+        model: "gpt-5.3-codex",
+      }),
+      providerProfileFixture({
+        id: "profile-gateway",
+        credential: {
+          kind: "gateway_binding",
+          authMode: "codex_account_gateway",
+          bindingId: "binding-account-v",
+          gatewayProfileRef: "default",
+        },
+        model: "gpt-6.1-sol",
+      }),
+    ].map((profile) => [
+      profile.id,
+      {
+        ...providerProfileRowFixture(profile),
+        identityKey: providerProfileIdentityKey(
+          profile.credential,
+          profile.model,
+        ),
+      },
+    ]),
+  );
+  const selection = gateway
+    ? {
+        profileId: "profile-gateway",
+        reasoningEffort: "high" as const,
+        agenticContext: false,
+        fastMode: false,
+        requiredHealthy: true,
+      }
+    : {
+        profileId:
+          rotating && !rotatingWithBinding
+            ? "profile-rotating"
+            : "profile-hosted",
+        reasoningEffort: "medium" as const,
+        agenticContext: false,
+        fastMode: false,
+        requiredHealthy: true,
+      };
+  // Rotating is repository-only, so a rotating workspace has no default.
+  const workspacePolicyJson = canonicalJson(
+    parseWorkspaceReviewPolicy({
+      schemaVersion: 4,
+      ...(selection.profileId === "profile-rotating"
+        ? {}
+        : { providers: [selection] }),
+      execution: { providerMaxParallel: 1, inlineMinAgreement: 1 },
+      blockingPolicy: { failOnSeverity: "off" },
+      limits: { inlineMaxComments: 10, targetTokensPerBatch: 8000 },
+      reviewLanguage: null,
+      investigationRollout: workspacePolicyFixture.investigationRollout,
+    }),
+  );
   let configurationVersion: Record<string, unknown> | null = {
     id: "configuration-version-0",
     workspaceId: "workspace_1",
-    gatewayBindingId: null,
-    gatewayProfileRef: null,
     version: 1,
-    schemaVersion: 3,
-    providerKind: "codex",
-    providerAuthMode:
-      rotating && !rotatingWithBinding
-        ? "codex_subscription_oauth_rotating"
-        : "codex_subscription_oauth_hosted_pool",
-    model: "gpt-5.3-codex",
-    reasoningEffort: "medium",
-    agenticContext: false,
-    fastMode: false,
-    failOnSeverity: "off",
-    inlineMaxComments: 10,
-    providerLimit: 1,
-    providerMaxParallel: 1,
-    inlineMinAgreement: 1,
-    targetTokensPerBatch: 8000,
-    reviewLanguage: null,
-    providers: [],
-    ...(gateway
-      ? {
-          providerAuthMode: "codex_account_gateway",
-          gatewayBindingId: "binding-account-v",
-          gatewayProfileRef: "default",
-          model: "gpt-6.1-sol",
-          reasoningEffort: "high",
-        }
-      : {}),
+    schemaVersion: 4,
+    policyJson: canonicalJson({ schemaVersion: 4, providers: [selection] }),
   };
-  if (gateway)
-    configurationVersion.providers = [
-      {
-        providerKind: configurationVersion.providerKind,
-        providerAuthMode: configurationVersion.providerAuthMode,
-        gatewayBindingId: configurationVersion.gatewayBindingId,
-        gatewayProfileRef: configurationVersion.gatewayProfileRef,
-        model: configurationVersion.model,
-        reasoningEffort: configurationVersion.reasoningEffort,
-        agenticContext: configurationVersion.agenticContext,
-        fastMode: configurationVersion.fastMode,
-        requiredHealthy: true,
-      },
-    ];
-  const workspacePolicyJson = JSON.stringify({
-    ...workspacePolicyFixture,
-    providers: [
-      {
-        kind: configurationVersion.providerKind,
-        authMode: configurationVersion.providerAuthMode,
-        model: configurationVersion.model,
-        reasoningEffort: configurationVersion.reasoningEffort,
-        agenticContext: configurationVersion.agenticContext,
-        fastMode: configurationVersion.fastMode,
-        requiredHealthy: true,
-        ...(gateway
-          ? {
-              gatewayBindingId: configurationVersion.gatewayBindingId,
-              gatewayProfileRef: configurationVersion.gatewayProfileRef,
-            }
-          : {}),
-      },
-    ],
-    blockingPolicy: { failOnSeverity: configurationVersion.failOnSeverity },
-    limits: {
-      inlineMaxComments: configurationVersion.inlineMaxComments,
-      targetTokensPerBatch: configurationVersion.targetTokensPerBatch,
-    },
-  });
-  configurationVersion.policyJson = workspacePolicyJson;
   if (gateway && scenario === "inherited_workspace")
     configurationVersion = null;
+  /** The auth mode of the first profile a stored document selects. */
+  const selectedAuthMode = (policyJson: unknown) => {
+    const providers = (
+      JSON.parse(String(policyJson)) as {
+        readonly providers?: readonly { readonly profileId: string }[];
+      }
+    ).providers;
+    return providers?.[0]
+      ? profileRows.get(providers[0].profileId)?.authMode
+      : undefined;
+  };
   const configuration = {
     id: "configuration-1",
     workspaceId: "workspace_1",
@@ -741,11 +766,10 @@ function fixture(
         data.workspaceId !== configuration.workspaceId
       )
         throw new Error("fixture_configuration_scope_mismatch");
-      events.push(`configuration_write:${data.providerAuthMode}`);
+      events.push(`configuration_write:${selectedAuthMode(data.policyJson)}`);
       configurationVersion = {
         ...data,
         id: `configuration-version-${data.version}`,
-        providers: (data.providers as { create: unknown[] }).create,
       };
       return configurationVersion;
     },
@@ -930,6 +954,26 @@ function fixture(
     repositoryConnection: { findFirst: scopedRepository },
     hostedCodexRepositoryBinding,
     hostedCodexPool: { findFirst: vi.fn(async () => ({ id: "pool-1" })) },
+    workspaceProviderProfile: {
+      findMany: vi.fn(
+        async ({ where }: { where: { id: { in: readonly string[] } } }) =>
+          where.id.in.flatMap((id) => {
+            const row = profileRows.get(id);
+            return row ? [row] : [];
+          }),
+      ),
+      findUnique: vi.fn(
+        async ({
+          where,
+        }: {
+          where: { workspaceId_identityKey: { identityKey: string } };
+        }) =>
+          [...profileRows.values()].find(
+            (row) =>
+              row.identityKey === where.workspaceId_identityKey.identityKey,
+          ) ?? null,
+      ),
+    },
     reviewConfiguration: {
       findMany: vi.fn(
         async ({
@@ -974,7 +1018,7 @@ function fixture(
                 versions: [
                   {
                     version: 1,
-                    schemaVersion: 3,
+                    schemaVersion: 4,
                     policyJson: workspacePolicyJson,
                   },
                 ],
@@ -1232,7 +1276,15 @@ function fixture(
     binding: () => binding,
     initialBinding,
     configWrites,
-    configuration: () => configurationVersion,
+    // The stored repository head with the auth mode of its selected profile.
+    configuration: () =>
+      configurationVersion
+        ? {
+            ...configurationVersion,
+            policyJson: configurationVersion.policyJson,
+            providerAuthMode: selectedAuthMode(configurationVersion.policyJson),
+          }
+        : null,
   };
 }
 
@@ -1442,15 +1494,25 @@ describe("hosted setup recovery composition", () => {
       expect(f.binding()).toEqual(f.initialBinding);
       if (scenario === "inherited_workspace")
         expect(f.configuration()).toBeNull();
-      else
+      else {
+        // The stored Gateway selection is untouched.
         expect(f.configuration()).toMatchObject({
           providerAuthMode: "codex_account_gateway",
-          gatewayBindingId: "binding-account-v",
-          gatewayProfileRef: "default",
-          model: "gpt-6.1-sol",
-          reasoningEffort: "high",
-          fastMode: false,
+          version: 1,
         });
+        expect(JSON.parse(String(f.configuration()!.policyJson))).toEqual({
+          schemaVersion: 4,
+          providers: [
+            {
+              profileId: "profile-gateway",
+              reasoningEffort: "high",
+              agenticContext: false,
+              fastMode: false,
+              requiredHealthy: true,
+            },
+          ],
+        });
+      }
     },
   );
 
@@ -1472,9 +1534,9 @@ describe("hosted setup recovery composition", () => {
         ...workspacePolicyFixture,
         providers: [
           {
-            kind: "codex-mimo" as const,
-            authMode: "mimo_token_plan_api_key" as const,
-            model: "mimo-v2.6-pro",
+            kind: "claude" as const,
+            authMode: "claude_code_oauth" as const,
+            model: "sonnet",
           },
         ],
       });
@@ -1609,6 +1671,8 @@ describe("hosted setup recovery composition", () => {
         expect(f.state.current()).toEqual({
           ...before,
           status: "configured",
+          // The verified generic workflow delivers the Claude CI secret.
+          installedWorkflowRequirement: "ci_secrets+claude",
           revision: 2,
         });
         expect(f.state.workflowProvisioning.updateMany).toHaveBeenCalledTimes(
@@ -1844,6 +1908,7 @@ describe("hosted setup recovery composition", () => {
       expect(f.state.current()).toEqual({
         ...f.historical,
         status: "configured",
+        installedWorkflowRequirement: "hosted_pool",
         revision: f.historical.revision + 1,
       });
       expect(f.updateBinding).toHaveBeenCalledTimes(1);
@@ -2046,9 +2111,9 @@ describe("hosted setup recovery composition", () => {
           ...workspacePolicyFixture,
           providers: [
             {
-              kind: "codex-mimo",
-              authMode: "mimo_token_plan_api_key",
-              model: "mimo-v2.6-pro",
+              kind: "claude",
+              authMode: "claude_code_oauth",
+              model: "sonnet",
             },
           ],
         }),

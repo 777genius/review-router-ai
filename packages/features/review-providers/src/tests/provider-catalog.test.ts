@@ -23,18 +23,18 @@ describe("provider catalog", () => {
       "codex-mimo",
       "claude",
       "openrouter",
+      "kimi",
     ]);
     expect(
       allProviderAuthModeMetadata().map((entry) => entry.authMode),
     ).toEqual([
-      "codex_subscription_oauth",
       "codex_subscription_oauth_rotating",
       "codex_subscription_oauth_hosted_pool",
       "codex_account_gateway",
-      "codex_openai_api_key",
       "mimo_token_plan_api_key",
       "claude_code_oauth",
       "openrouter_api_key",
+      "kimi_code_api_key",
     ]);
     expect(allProviderCatalogEntries()).toHaveLength(
       reviewProviderKinds.length,
@@ -45,14 +45,12 @@ describe("provider catalog", () => {
   });
 
   it("keeps auth modes owned by exactly one provider kind", () => {
-    expect(providerKindForAuthMode("codex_subscription_oauth")).toBe("codex");
     expect(providerKindForAuthMode("codex_subscription_oauth_rotating")).toBe(
       "codex",
     );
     expect(
       providerKindForAuthMode("codex_subscription_oauth_hosted_pool"),
     ).toBe("codex");
-    expect(providerKindForAuthMode("codex_openai_api_key")).toBe("codex");
     expect(providerKindForAuthMode("mimo_token_plan_api_key")).toBe(
       "codex-mimo",
     );
@@ -72,9 +70,6 @@ describe("provider catalog", () => {
       "CLAUDE_CODE_OAUTH_TOKEN",
     ]);
     expect(toLegacyRuntimeAuthMode("claude_code_oauth")).toBe("claude-oauth");
-    expect(toLegacyRuntimeAuthMode("codex_subscription_oauth")).toBe(
-      "codex-oauth",
-    );
     expect(toLegacyRuntimeAuthMode("codex_subscription_oauth_rotating")).toBe(
       "codex-oauth-rotating",
     );
@@ -87,7 +82,6 @@ describe("provider catalog", () => {
     expect(
       getProviderSecretNames("codex_subscription_oauth_hosted_pool"),
     ).toEqual([]);
-    expect(toLegacyRuntimeAuthMode("codex_openai_api_key")).toBe("openai-api");
     expect(getProviderSecretNames("mimo_token_plan_api_key")).toEqual([
       "MIMO_TOKEN_PLAN_API_KEY",
     ]);
@@ -103,9 +97,6 @@ describe("provider catalog", () => {
     expect(toProviderSetupKind("claude_code_oauth")).toBe("claude_code_oauth");
     expect(fromProviderSetupKind("claude_code_oauth")).toBe(
       "claude_code_oauth",
-    );
-    expect(fromProviderSetupKind("codex_oauth")).toBe(
-      "codex_subscription_oauth",
     );
     expect(fromProviderSetupKind("codex_oauth_rotating")).toBe(
       "codex_subscription_oauth_rotating",
@@ -160,7 +151,7 @@ describe("provider catalog", () => {
       kind: "codex-mimo",
       authMode: "mimo_token_plan_api_key",
       model: "mimo-v2.6-pro",
-      reasoningEffort: "xhigh",
+      reasoningEffort: "high",
       agenticContext: true,
       fastMode: false,
     });

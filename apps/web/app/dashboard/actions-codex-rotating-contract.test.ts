@@ -114,7 +114,7 @@ describe("dashboard rotating namespace activation contract", () => {
 
     expect(confirmation).toContain("workflowPath: true");
     expect(confirmation).toContain(
-      'provider.authMode === "codex_subscription_oauth_rotating"',
+      '!setupProvisioning?.workflowPath && transport === "rotating"',
     );
     expect(confirmation).toContain(
       "setupProvisioning?.workflowPath === isolatedQualityWorkflowPath",

@@ -30,7 +30,7 @@
     "test": "vitest run",
     "lint": "eslint .",
     "format:check": "prettier --check .",
-    "postinstall": "node scripts/prepare-pinned-subscription-runtime.ts && pnpm db:generate",
+    "postinstall": "node scripts/prepare-pinned-subscription-runtime.ts && pnpm db:generate && pnpm compiler:prepare",
     "local:bootstrap": "bash scripts/bootstrap-local.sh",
     "local:check": "bash scripts/check-local-readiness.sh",
     "hosted:check": "node scripts/check-hosted-readiness.mjs",
@@ -45,6 +45,9 @@
     "hosted-pool:e2e:postgres": "node --import tsx scripts/run-hosted-pool-postgres-e2e.mjs --postgres-only",
     "hosted-pool:production-contract": "tsc --noEmit -p tsconfig.hosted-pool-operations.json && vitest run scripts/verify-hosted-pool-action-release.test.ts scripts/hosted-pool-production-control.test.ts scripts/hosted-pool-production-github-dispatch.test.ts scripts/hosted-pool-production-evidence.test.ts scripts/hosted-pool-production-rollback-verification.test.ts scripts/run-hosted-pool-production-canary.test.ts scripts/hosted-pool-canary-phase-recovery.test.ts scripts/deploy-render-hosted-beta.test.ts packages/platform/config/src/index.test.ts packages/platform/config/src/hosted-pool-action-release-catalog.test.ts packages/platform/config/src/hosted-codex-canary-config.test.ts apps/api/src/hosted-codex-canary-fault-plan.test.ts apps/api/src/hosted-codex-canary-fault-composition.test.ts apps/api/src/hosted-codex-relay-composition.test.ts apps/api/src/hosted-pool-action-release-provision.test.ts packages/features/hosted-account-pool/src/tests/hosted-codex-quota-failover.test.ts",
     "hosted-pool:action-release:verify": "node scripts/verify-hosted-pool-action-release.mjs",
+    "provider-profiles:migrate": "tsx scripts/migrate-provider-profiles.ts",
+    "provider-setup:visual": "tsx scripts/provider-setup-visual/run.ts",
+    "provider-setup:visual:seed": "tsx scripts/provider-setup-visual/seed.ts",
     "hosted-pool:control": "tsx scripts/hosted-pool-production-control.ts",
     "hosted-pool:test-handoff:contract": "tsc --noEmit -p tsconfig.one-shot-test-handoff.json && vitest run scripts/one-shot-test-handoff/contiguous-launch.test.mts",
     "hosted-pool:canary": "tsx scripts/run-hosted-pool-production-canary.ts",
@@ -97,7 +100,7 @@
     "codex-rotating:secret-write-boundary": "node scripts/check-codex-secret-write-boundary.mjs",
     "review-v2:e2e": "REVIEW_ROUTER_REVIEW_V2_E2E=1 vitest run scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts",
     "review-investigation:e2e": "bash scripts/review-investigation-production-e2e/support/run-ci.fixture.sh",
-    "review-investigation:paired-e2e": "REVIEW_ROUTER_REVIEW_INVESTIGATION_PAIRED_E2E=1 vitest run --no-file-parallelism scripts/review-investigation-paired-e2e/review-investigation-paired.e2e.test.ts scripts/review-investigation-paired-e2e/openrouter-direct-paired.e2e.test.ts scripts/review-investigation-paired-e2e/pr-description-paired.e2e.test.ts scripts/review-investigation-paired-e2e/review-banner-comparison-paired.e2e.test.ts",
+    "review-investigation:paired-e2e": "REVIEW_ROUTER_REVIEW_INVESTIGATION_PAIRED_E2E=1 vitest run --no-file-parallelism scripts/review-investigation-paired-e2e/review-investigation-paired.e2e.test.ts scripts/review-investigation-paired-e2e/openrouter-direct-paired.e2e.test.ts scripts/review-investigation-paired-e2e/pr-description-paired.e2e.test.ts scripts/review-investigation-paired-e2e/review-banner-comparison-paired.e2e.test.ts scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts",
     "review-v2:admin": "node scripts/run-with-env.mjs node --conditions=production apps/api/dist/review-action-v2-operator-cli.js",
     "reviewrouter": "node scripts/run-with-env.mjs node --conditions=production apps/api/dist/reviewrouter-operator-cli.js",
     "reviewrouter:install": "node scripts/install-reviewrouter-cli.mjs",
@@ -126,7 +129,7 @@
     "subscription-runtime:check": "node scripts/check-external-subscription-runtime.mjs && pnpm action:artifact:check:smoke && pnpm subscription-runtime:live-e2e:smoke",
     "subscription-runtime:release-gate": "pnpm subscription-runtime:check && pnpm codex-rotating:secret-write-boundary && pnpm action:artifact:check && pnpm exec vitest run packages/features/codex-oauth-rotating/src/tests/codex-oauth-rotating.test.ts packages/features/codex-oauth-rotating/src/tests/github-action.test.ts && pnpm architecture:check && pnpm typecheck && git diff --check",
     "architecture:web-host-cms": "tsx scripts/check-web-host-cms-profile-cli.ts",
-    "architecture:check": "node scripts/check-architecture-boundaries.mjs && pnpm architecture:web-host-cms && pnpm foundation:check && pnpm foundation:assert-dev-only && pnpm foundation:assert-registry && pnpm foundation:qualify-memory",
+    "architecture:check": "node scripts/check-architecture-boundaries.mjs && pnpm architecture:web-host-cms && pnpm foundation:check && pnpm foundation:assert-dev-only && pnpm foundation:assert-registry && pnpm foundation:qualify-memory && pnpm foundation:qualify-statistics",
     "github-app:check": "node scripts/run-with-env.mjs node scripts/check-github-app-readiness.mjs",
     "github-app:create": "node scripts/create-github-app-manifest.mjs",
     "github-app:manifest:smoke": "node scripts/check-github-app-manifest-smoke.mjs",
@@ -148,7 +151,9 @@
     "foundation:assert-registry": "agent-teams-foundation assert-registry",
     "foundation:qualify": "node scripts/provider-foundation/qualify-packed.ts && tsc -p scripts/provider-foundation/tsconfig.json && node --import tsx scripts/provider-foundation/qualify-boundaries.ts",
     "subscription-runtime:prepare": "node scripts/prepare-pinned-subscription-runtime.ts",
-    "foundation:qualify-memory": "node --import tsx scripts/memory-foundation/qualify-boundaries.ts"
+    "foundation:qualify-memory": "node --import tsx scripts/memory-foundation/qualify-boundaries.ts",
+    "modular:qualify": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.modular.json && vitest run packages/features/review-providers/src/composition/index.test.ts packages/features/provider-usage/src/tests/composition.test.ts packages/features/provider-accounts/src/account-limits/composition.test.ts packages/features/memory/src/composition/index.test.ts packages/features/review-statistics/src/composition/index.test.ts",
+    "foundation:qualify-statistics": "node --import tsx scripts/statistics-foundation/qualify-boundaries.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
@@ -176,8 +181,8 @@
     "tailwindcss": "^4.2.4",
     "zod": "^4.4.2",
     "zustand": "^5.0.12",
-    "@get-modular/core": "0.2.0",
-    "@get-modular/assembly": "0.2.0"
+    "@get-modular/core": "0.7.0",
+    "@get-modular/assembly": "0.7.0"
   },
   "optionalDependencies": {
     "@777genius/subscription-runtime": "git+https://github.com/777genius/ar.git#83a7329f4383b05ac5c39356b79f82f029182d42"

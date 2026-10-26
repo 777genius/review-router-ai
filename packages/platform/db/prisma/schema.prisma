@@ -14,6 +14,8 @@ model Workspace {
   slug      String   @unique
   name      String
   reviewDraftPullRequests Boolean @default(true)
+  // Access rights: only owners and admins manage provider profiles and selections.
+  providerManagementAdminOnly Boolean @default(false)
   deletionState WorkspaceDeletionState @default(active)
   deletionRevision Int @default(1)
   deletionTombstonedAt DateTime?
@@ -55,6 +57,7 @@ model Workspace {
   providerApiKeyConnections    ProviderApiKeyConnection[]
   providerApiKeyGrants         ProviderApiKeyWorkspaceGrant[]
   deletionOperations          WorkspaceDeletionOperation[]
+  providerProfiles            WorkspaceProviderProfile[]
 }
 
 model User {
@@ -76,6 +79,7 @@ model User {
   personalWorkspaces Workspace? @relation("PersonalWorkspaceOwner")
   ownedProviderAccountConnections ProviderAccountConnection[] @relation("UserProviderAccountOwner")
   personalAccountOperations PersonalAccountOperation[]
+  createdProviderProfiles WorkspaceProviderProfile[]
 
   @@index([githubLogin])
 }
@@ -130,7 +134,7 @@ model WorkspaceAccountBinding {
   personalOperationResults PersonalAccountOperation[] @relation("PersonalOperationResultBinding")
 
   reviewConfigurationVersions ReviewConfigurationVersion[] @relation("PrimaryGatewayBinding")
-  reviewConfigurationProviders ReviewConfigurationVersionProvider[] @relation("OrderedGatewayBinding")
+  providerProfiles WorkspaceProviderProfile[]
 
   // Active pair uniqueness is a partial SQL index in 000124. Retired IDs remain.
   @@index([workspaceId, connectionId, state])
@@ -363,6 +367,7 @@ model GitLabInstallation {
 }
 
 model RepositoryConnection {
+  resolutionGuards ReviewThreadResolutionGuardV1[]
   reviewSkillBindings ReviewSkillBinding[]
   reviewSkillSource ReviewSkillRepositorySource?
   id                      String                @id @default(cuid())
@@ -384,6 +389,11 @@ model RepositoryConnection {
   stargazersCount         Int                   @default(0)
   setupStatus             RepositorySetupStatus @default(not_configured)
   inventoryGeneration     BigInt                @default(0)
+  lifecycleResolutionMode String                @default("legacy_open")
+  lifecycleResolutionActivatedAt DateTime?
+  lifecycleResolutionActivationVersion Int      @default(0)
+  lifecycleResolutionWriterDigest String?
+  lifecycleResolutionBootstrapJson Json?
   lastSyncedAt            DateTime?
   createdAt               DateTime              @default(now())
   updatedAt               DateTime              @updatedAt
@@ -407,8 +417,11 @@ model RepositoryConnection {
   codexOAuthSetupPayloadClaims CodexOAuthSetupPayloadClaim[]
   reviewSnapshots              ReviewSnapshot[]
   reviewExecutionCheckpoints   ReviewExecutionCheckpoint[]
+  statisticsReviews           ReviewStatisticsReviewFact[]
+  statisticsIssues            ReviewStatisticsIssueFact[]
   hostedCodexBindings          HostedCodexRepositoryBinding[]
   providerApiKeyLinks          ProviderApiKeyRepositoryLink[]
+  providerProfiles             WorkspaceProviderProfile[]
 
   @@unique([provider, externalRepositoryId, sourceBaseUrl])
   @@unique([workspaceId, provider, fullName, sourceBaseUrl])
@@ -432,6 +445,7 @@ model ProviderApiKeyConnection {
 
   workspace       Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   repositoryLinks ProviderApiKeyRepositoryLink[]
+  providerProfiles WorkspaceProviderProfile[]
 
   @@unique([workspaceId, providerType])
   @@unique([id, workspaceId])
@@ -528,18 +542,12 @@ model ReviewConfigurationVersion {
   version                                 Int
   schemaVersion                           Int      @default(1)
   policyJson                              String?
-  providerKind                            String
-  providerAuthMode                        String
-  model                                   String
-  reasoningEffort                         String?
+  // Left from the schema 1-3 projection; schema 4 versions keep defaults.
   agenticContext                          Boolean  @default(true)
   fastMode                                Boolean  @default(false)
-  failOnSeverity                          String
-  inlineMaxComments                       Int
   providerLimit                           Int      @default(1)
   providerMaxParallel                     Int      @default(1)
   inlineMinAgreement                      Int      @default(1)
-  targetTokensPerBatch                    Int
   reviewLanguage                          String?
   investigationRecordingEnabled           Boolean  @default(false)
   investigationShadowEnabled              Boolean  @default(false)
@@ -551,7 +559,6 @@ model ReviewConfigurationVersion {
 
   configuration ReviewConfiguration @relation(fields: [configurationId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: Restrict)
   gatewayBinding WorkspaceAccountBinding? @relation("PrimaryGatewayBinding", fields: [gatewayBindingId, workspaceId], references: [id, workspaceId], onDelete: Restrict, onUpdate: Restrict)
-  providers     ReviewConfigurationVersionProvider[]
 
   @@unique([id, workspaceId])
   @@index([gatewayBindingId, workspaceId])
@@ -560,27 +567,40 @@ model ReviewConfigurationVersion {
   @@index([configurationId, createdAt])
 }
 
-model ReviewConfigurationVersionProvider {
-  id                     String  @id @default(cuid())
-  configurationVersionId String
-  workspaceId            String
-  gatewayBindingId       String?
-  gatewayProfileRef      String?
-  order                  Int
-  providerKind           String
-  providerAuthMode       String
-  model                  String
-  reasoningEffort        String?
-  agenticContext         Boolean @default(true)
-  fastMode               Boolean @default(false)
-  requiredHealthy        Boolean @default(false)
+// A reusable workspace provider: an immutable credential source plus a model.
+// Never stores a secret. Exactly the reference of the credential kind is set
+// (SQL CHECK) and the credential source is immutable (SQL trigger, 000145).
+model WorkspaceProviderProfile {
+  id                 String                 @id @default(cuid())
+  workspaceId        String
+  // NULL is a system creator or a deleted user: only owners/admins manage it.
+  createdByUserId    String?
+  credentialKind     ProviderCredentialKind
+  authMode           String
+  gatewayBindingId   String?
+  // Captured from the binding at creation; part of the credential source.
+  gatewayProfileRef  String?
+  apiKeyConnectionId String?
+  repositoryId       String?
+  model              String
+  label              String
+  // credentialKind:credentialRef-or-authMode:normalizedModel; NULL once archived.
+  identityKey        String?
+  archivedAt         DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
 
-  configurationVersion ReviewConfigurationVersion @relation(fields: [configurationVersionId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: Restrict, map: "ReviewConfigurationVersionProvider_version_workspace_fkey")
-  gatewayBinding WorkspaceAccountBinding? @relation("OrderedGatewayBinding", fields: [gatewayBindingId, workspaceId], references: [id, workspaceId], onDelete: Restrict, onUpdate: Restrict, map: "ReviewConfigurationVersionProvider_binding_workspace_fkey")
+  workspace        Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy        User?                     @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  gatewayBinding   WorkspaceAccountBinding?  @relation(fields: [gatewayBindingId, workspaceId], references: [id, workspaceId], onDelete: NoAction, onUpdate: NoAction)
+  apiKeyConnection ProviderApiKeyConnection? @relation(fields: [apiKeyConnectionId, workspaceId], references: [id, workspaceId], onDelete: NoAction, onUpdate: NoAction)
+  repository       RepositoryConnection?     @relation(fields: [repositoryId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
 
-  @@index([gatewayBindingId, workspaceId], map: "ReviewConfigurationVersionProvider_gateway_binding_idx")
-  @@unique([configurationVersionId, order])
-  @@index([configurationVersionId])
+  @@unique([workspaceId, identityKey])
+  @@index([createdByUserId])
+  @@index([gatewayBindingId, workspaceId])
+  @@index([apiKeyConnectionId, workspaceId])
+  @@index([repositoryId, workspaceId])
 }
 
 model ProviderSetupState {
@@ -1119,6 +1139,7 @@ model ReviewOperationalSloProfileV2 {
 model ProducerRelease {
   contextToolsProfile                     Json?
   prDescriptionProfile                    Json?
+  lifecycleVerificationProfile            Json?
   agentProfilesJson                       String?
   producerReleaseId                      String                     @id
   distributionKind                       ProducerDistributionKindV2
@@ -3128,6 +3149,11 @@ model WorkflowProvisioning {
   pullRequestHeadSha String?
   pullRequestUrl     String?
   errorMessage       String?
+  // What the current attempt's workflow and the workflow last confirmed
+  // installed are rendered for (transport plus provider kinds, e.g.
+  // ci_secrets+claude). NULL means unknown (rows before 000145).
+  attemptWorkflowRequirement   String?
+  installedWorkflowRequirement String?
   createdAt          DateTime                   @default(now())
   updatedAt          DateTime                   @updatedAt
 
@@ -4083,6 +4109,14 @@ enum WorkflowProvisioningStatus {
   failed
 }
 
+enum ProviderCredentialKind {
+  gateway_binding
+  managed_api_key
+  hosted_pool
+  repository_rotating
+  user_ci_secret
+}
+
 enum OrgRulesetProvisioningStatus {
   requested
   processing
@@ -4589,6 +4623,7 @@ model ReviewSkill {
   id String @id
   sourceWorkspaceId String
   authorUserId String
+  createOperationId String?
   headRevisionId String
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @db.Timestamptz(3)
@@ -4600,6 +4635,7 @@ model ReviewSkill {
   links ReviewSkillLink[]
   bindings ReviewSkillBinding[]
   @@index([sourceWorkspaceId, id])
+  @@unique([sourceWorkspaceId, authorUserId, createOperationId])
 }
 
 model ReviewSkillRevision {
@@ -4648,6 +4684,7 @@ model ReviewSkillBinding {
   skillId String
   includePaths Json
   excludePaths Json
+  generation String @default(dbgenerated("gen_random_uuid()::text"))
   version Int @default(1)
   repository RepositoryConnection @relation(fields: [repositoryConnectionId, workspaceId], references: [id, workspaceId], onDelete: Restrict, onUpdate: Restrict)
   skill ReviewSkill @relation(fields: [skillId], references: [id], onDelete: Restrict, onUpdate: Restrict)
@@ -4798,4 +4835,89 @@ model UsageUnattributedObservation {
   @@id([sourceInstance,eventId,revision])
   @@index([receivedAt])
   @@index([resolvedAt,nextResolutionAt])
+}
+
+
+// Durable compact statistics; deliberately independent of operational retention.
+model ReviewStatisticsCoverage {
+  id String @id
+  activatedAt DateTime @db.Timestamp(3)
+}
+
+model ReviewStatisticsReviewFact {
+  executionId String @id
+  workspaceId String
+  repositoryConnectionId String
+  scmRepositoryIdentityId String
+  pullRequestNumber Int
+  settledAt DateTime @db.Timestamp(3)
+  payloadHash String
+  repository RepositoryConnection @relation(fields: [repositoryConnectionId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: Restrict, map: "ReviewStatisticsReviewFact_repository_tenant_fkey")
+  @@index([workspaceId, settledAt, executionId], map: "statistics_review_workspace_time_idx")
+  @@index([repositoryConnectionId, workspaceId], map: "statistics_review_repository_idx")
+}
+
+model ReviewStatisticsIssueFact {
+  id String @id
+  workspaceId String
+  repositoryConnectionId String
+  scmRepositoryIdentityId String
+  pullRequestNumber Int
+  lineageId String
+  severity String
+  title String
+  caughtAt DateTime @db.Timestamp(3)
+  sourceExecutionId String
+  repository RepositoryConnection @relation(fields: [repositoryConnectionId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: Restrict, map: "ReviewStatisticsIssueFact_repository_tenant_fkey")
+  @@unique([workspaceId, scmRepositoryIdentityId, pullRequestNumber, lineageId], map: "ReviewStatisticsIssueFact_lineage_key")
+  @@index([workspaceId, caughtAt, id], map: "statistics_issue_workspace_time_idx")
+  @@index([workspaceId, severity, caughtAt, id], map: "statistics_issue_severity_time_idx")
+  @@index([workspaceId, repositoryConnectionId, caughtAt, id], map: "statistics_issue_repository_time_idx")
+  @@index([workspaceId, repositoryConnectionId, severity, caughtAt, id], map: "statistics_issue_repo_severity_time_idx")
+  @@index([repositoryConnectionId, workspaceId], map: "statistics_issue_repository_idx")
+}
+
+// One durable claim permits at most one native companion request per slot attempt.
+model ReviewRunCompanionDispatchV1 {
+  authorizationId String
+  dispatchId String
+  role String
+  executionId String
+  workSlotId String
+  attemptOrdinal Int
+  leaseId String
+  fencingToken BigInt
+  preparedManifestKey String
+  providerRequestEnvelopeHash String
+  nativeRequestRef String
+  state String
+  usageHash String?
+  resultHash String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  claimedAt DateTime
+  completedAt DateTime?
+  retainUntil DateTime
+
+  @@id([authorizationId, dispatchId])
+  @@unique([authorizationId, workSlotId, attemptOrdinal])
+  @@index([retainUntil])
+}
+
+// Compact target history deliberately outlives detailed publication receipts.
+model ReviewThreadResolutionGuardV1 {
+  workspaceId String
+  repositoryConnectionId String
+  scmRepositoryIdentityId String
+  pullRequestNumber Int
+  threadId String
+  version Int @default(0)
+  confirmedFactJson Json?
+  pendingFactsJson Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  repositoryConnection RepositoryConnection @relation(fields: [repositoryConnectionId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, repositoryConnectionId, scmRepositoryIdentityId, pullRequestNumber, threadId])
 }

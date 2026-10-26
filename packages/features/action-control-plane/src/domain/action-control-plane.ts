@@ -363,7 +363,7 @@ const actionRuntimeProviderSchema = z
     authMode: providerAuthModeSchema,
     model: z.string().min(1),
     reasoningEffort: z
-      .enum(["low", "medium", "high", "xhigh", "max", "ultra"])
+      .enum(["minimal", "low", "medium", "high", "xhigh", "max", "ultra"])
       .optional(),
     agenticContext: z.boolean(),
     fastMode: z.boolean(),
@@ -371,6 +371,16 @@ const actionRuntimeProviderSchema = z
     secretBackedProviderEnabled: z.boolean(),
   })
   .superRefine((provider, context) => {
+    if (
+      provider.authMode !== "codex_account_gateway" &&
+      provider.reasoningEffort === "minimal"
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["reasoningEffort"],
+        message: "minimal reasoning requires an account-scoped Gateway catalog",
+      });
+    }
     if (
       provider.authMode !== "codex_account_gateway" &&
       provider.reasoningEffort === undefined

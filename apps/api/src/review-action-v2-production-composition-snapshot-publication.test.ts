@@ -1,3 +1,8 @@
+import { persistedReviewExecutionRestore } from "./review-execution-publication-restore.js";
+import {
+  lifecycleVerificationContract,
+  lifecycleVerificationDescriptorDigest,
+} from "@reviewrouter/shared";
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -28,6 +33,9 @@ import {
   ReviewPublicationCapability,
   ReviewPublicationAttemptState,
   CurrentPublicationLifecycleStatus,
+  LiveReviewPublicationLifecycleStatus,
+  type LiveReviewPublicationLifecyclePort,
+  type ReviewPublicationResolutionHistoryPort,
   CurrentReviewSafetyDecisionStatus,
   ReviewPublicationLifecycleExpectationStatus,
   ReviewPublicationLifecycleObservationVersion,
@@ -132,6 +140,116 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
     });
   });
 
+  it.each(["missing", "expired"] as const)(
+    "returns fresh scoped history independently of a %s comparison baseline",
+    async (state) => {
+      const history = {
+        threadId: "thread-1",
+        version: 3,
+        historyCut: {
+          activatedAt: "2026-10-01T00:00:00.000Z",
+          activationVersion: 1,
+          writerDigest: hash("a"),
+        },
+        confirmed: null,
+        pending: [],
+      };
+      const read = vi.fn(async () => [history]);
+      const routes = createRoutes(undefined, undefined, undefined, undefined, {
+        authorization: verifierAuthorization(),
+        snapshot:
+          state === "missing"
+            ? null
+            : { ...snapshot, expiresAt: new Date(now.getTime() - 1) },
+        liveLifecycle: {
+          resolve: async () => ({
+            status: LiveReviewPublicationLifecycleStatus.Available,
+            reviewedHeadSha: authorization.headSha,
+            commandLedgerWatermark: 0n,
+            targets: [liveHistoryTarget()],
+          }),
+        },
+        resolutionHistory: { read },
+      });
+      const response = await routes.snapshot.restore!.execute({
+        ...envelope("history"),
+        authorizationToken: "authorization-token",
+        reviewRevisionHash: authorization.reviewRevisionHash,
+        purpose: ReviewSnapshotRestorePurpose.ComparisonBaselineV1,
+      });
+      expect(response.result.status).toBe(
+        ReviewSnapshotRestoreResultStatus.Found,
+      );
+      if (
+        !("payloadCanonicalJson" in response.result) ||
+        typeof response.result.payloadCanonicalJson !== "string"
+      )
+        throw new Error("missing comparison wrapper");
+      expect(JSON.parse(response.result.payloadCanonicalJson)).toEqual({
+        comparisonVersion: 2,
+        baseline: null,
+        resolutionHistory: [
+          {
+            targetId: "target-1",
+            threadId: "thread-1",
+            parentCommentId: "parent-1",
+            parentCreatedAt: now.toISOString(),
+            parentBodyHash: hash("a"),
+            history,
+          },
+        ],
+      });
+      expect(read).toHaveBeenCalledWith(publicationScope(), ["thread-1"]);
+    },
+  );
+
+  it("returns explicit unavailable history after a null reader result, while legacy restore stays unchanged", async () => {
+    const read = vi.fn(async () => null as never);
+    const ports = {
+      liveLifecycle: {
+        resolve: async () => ({
+          status: LiveReviewPublicationLifecycleStatus.Available as const,
+          reviewedHeadSha: authorization.headSha,
+          commandLedgerWatermark: 0n,
+          targets: [liveHistoryTarget()],
+        }),
+      },
+      resolutionHistory: { read },
+    };
+    const request = {
+      ...envelope("null-history"),
+      authorizationToken: "authorization-token",
+      reviewRevisionHash: authorization.reviewRevisionHash,
+      purpose: ReviewSnapshotRestorePurpose.ComparisonBaselineV1,
+    };
+    const routes = createRoutes(undefined, undefined, undefined, undefined, {
+      ...ports,
+      authorization: verifierAuthorization(),
+      snapshot: null,
+    });
+    const result = (await routes.snapshot.restore!.execute(request)).result;
+    if (
+      !("payloadCanonicalJson" in result) ||
+      typeof result.payloadCanonicalJson !== "string"
+    )
+      throw new Error("missing wrapper");
+    expect(JSON.parse(result.payloadCanonicalJson)).toEqual({
+      comparisonVersion: 2,
+      baseline: null,
+      resolutionHistory: null,
+      historyUnavailableReason: "resolution_history_unavailable",
+    });
+    read.mockClear();
+    const legacy = createRoutes(undefined, undefined, undefined, undefined, {
+      ...ports,
+      snapshot: null,
+    });
+    const legacyResult = (await legacy.snapshot.restore!.execute(request))
+      .result;
+    expect(legacyResult.status).toBe(ReviewSnapshotRestoreResultStatus.Missing);
+    expect(read).not.toHaveBeenCalled();
+  });
+
   it("serves an auth-scoped empty comparison baseline on the new slot and preserves the old route contract", async () => {
     const prior = {
       ...snapshot,
@@ -211,13 +329,16 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
     await app.close();
   });
 
-  it("joins a source artifact to its successful native lifecycle receipt before returning applied resolutions", async () => {
+  it.each([
+    "review-projection-policy.v6-comparison",
+    "review-projection-policy.v7-lifecycle-verification",
+  ])("restores receipt-bound %s resolutions", async (policy) => {
     const lineageId = `rrl_${"a".repeat(32)}`;
     const targetId = `rrt_${"d".repeat(16)}`;
     const threadId = "PRRT_thread";
     const projection = {
       envelopeVersion: "review_projection.v1",
-      projectionPolicyVersion: "review-projection-policy.v6-comparison",
+      projectionPolicyVersion: policy,
       scope: {
         scmRepositoryIdentityId: snapshot.scmRepositoryIdentityId,
         pullRequestNumber: snapshot.pullRequestNumber,
@@ -274,7 +395,11 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
       projectionHash: prior.payload.projectionHash,
       projectionEnvelopeJson: canonicalJson(projection),
       // Native artifact mapping spreads execution fields into the typed permit.
-      publicationPermit: { ...sourcePermit, state: "completed", workSlots: [] },
+      publicationPermit: {
+        ...sourcePermit,
+        state: "completed",
+        workSlots: [],
+      },
     };
     const sha = (value: string) =>
       createHash("sha256").update(value).digest("hex");
@@ -329,6 +454,9 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
       undefined,
       {
         snapshot: prior,
+        ...(policy === "review-projection-policy.v7-lifecycle-verification"
+          ? { authorization: verifierAuthorization() }
+          : {}),
         publications: { findByPermitIdentity, findById: async () => null },
       },
     );
@@ -339,9 +467,13 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
       purpose: ReviewSnapshotRestorePurpose.ComparisonBaselineV1,
     });
     expect(response.result.status).toBe("found");
-    expect(
-      JSON.parse(response.result.payloadCanonicalJson!).appliedResolutions,
-    ).toEqual([
+    const responsePayload = JSON.parse(response.result.payloadCanonicalJson!);
+    const baseline =
+      policy === "review-projection-policy.v7-lifecycle-verification"
+        ? responsePayload.baseline
+        : responsePayload;
+    expect(baseline.projectionPolicyVersion).toBe(policy);
+    expect(baseline.appliedResolutions).toEqual([
       {
         lineageId,
         targetId,
@@ -366,8 +498,14 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
       reviewRevisionHash: authorization.reviewRevisionHash,
       purpose: ReviewSnapshotRestorePurpose.ComparisonBaselineV1,
     });
+    const mismatchedPayload = JSON.parse(
+      mismatched.result.payloadCanonicalJson!,
+    );
     expect(
-      JSON.parse(mismatched.result.payloadCanonicalJson!).appliedResolutions,
+      (policy === "review-projection-policy.v7-lifecycle-verification"
+        ? mismatchedPayload.baseline
+        : mismatchedPayload
+      ).appliedResolutions,
     ).toEqual([]);
   });
 
@@ -708,6 +846,50 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
       stored?.attempt.operations.map((operation) => operation.publicationKind),
     ).toEqual(["summary", "managed_check"]);
     expect(finalizedArtifact.projectionEnvelopeJson).toContain("prDescription");
+    // The same valid released description lease cannot bypass the new scoped ledger.
+    const verifier = verifierAuthorization();
+    const runtime = JSON.parse(verifier.runtimeSnapshotCanonicalJson!);
+    runtime.prDescriptionCapability = prDescriptionExtensionV1;
+    const newRepository = new InMemoryReviewPublicationRepository();
+    const newRoutes = createRoutes(
+      newRepository,
+      undefined,
+      finalizedArtifact,
+      {},
+      {
+        authorization: {
+          ...capturedAuthorization,
+          runtimeSnapshotCanonicalJson: canonicalJson(runtime),
+        },
+        executions: {
+          findExecution: async () =>
+            ({
+              artifact: finalizedArtifact,
+              execution: {
+                executionId: finalizedArtifact.executionId,
+                workSlots: [slot],
+              },
+            }) as unknown as ReviewExecutionSnapshot,
+          findLease: lookup,
+        },
+      },
+    );
+    await expect(
+      newRoutes.publication.request!.execute(
+        await publicationRequest(
+          permit,
+          canonicalJson(source),
+          finalizedArtifact.projectionHash,
+        ),
+      ),
+    ).rejects.toMatchObject({
+      issues: ["pr_description_dispatch_proof_unavailable"],
+    });
+    expect(
+      await newRepository.findByPermitIdentity(
+        finalizedArtifact.publicationPermit,
+      ),
+    ).toBeNull();
   });
 
   it("preserves structured preliminary finding counts in a partial publication operation", async () => {
@@ -1633,6 +1815,139 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
     await app.close();
   });
 
+  it("binds only the exact persisted publication's own pending resolution before evaluating history", async () => {
+    const sha256 = (value: string) =>
+      createHash("sha256").update(value).digest("hex");
+    const live = liveHistoryTarget();
+    const source = {
+      ...publishing,
+      lifecycleObservationVersion:
+        ReviewPublicationLifecycleObservationVersion.ThreadStateV1,
+      lifecycle: [
+        {
+          targetId: live.targetId,
+          threadId: live.threadId,
+          verdict: "resolved",
+          reasonCodes: [],
+          mutationEligible: true,
+          markerFingerprint: live.markerFingerprint,
+          threadStateHash: live.threadStateHash,
+        },
+      ],
+    };
+    const ownArtifact = finalizedArtifactWithPublishing(source, hash("8"));
+    const stored = {
+      artifact: ownArtifact,
+      execution: {
+        ...authorization,
+        executionId: ownArtifact.executionId,
+        generation: ownArtifact.generation,
+        revision: {
+          headSha: ownArtifact.reviewedHeadSha,
+          reviewRevisionHash: ownArtifact.reviewRevisionHash,
+        },
+        workSlots: [],
+      },
+    } as unknown as ReviewExecutionSnapshot;
+    const identity = {
+      sourceKind: "canonical_operation" as const,
+      operationId: "own-operation",
+      publicationAttemptId:
+        persistedReviewExecutionRestore(stored).artifact!.publicationAttemptId,
+      executionId: ownArtifact.executionId,
+      generation: "1",
+      reviewedHeadSha: ownArtifact.reviewedHeadSha,
+      bodyHash: sha256(
+        canonicalJson({ resolve: true, threadId: live.threadId }),
+      ),
+    };
+    const view = {
+      attempt: {
+        publicationAttemptId: identity.publicationAttemptId,
+        permit: ownArtifact.publicationPermit,
+        operations: [
+          {
+            publicationOperationId: identity.operationId,
+            publicationKind: "thread_lifecycle",
+            targetCommitId: ownArtifact.reviewedHeadSha,
+            reviewRevisionHash: ownArtifact.reviewRevisionHash,
+            bodyHash: identity.bodyHash,
+            markerHash: sha256(
+              `reviewrouter-lifecycle:${live.targetId}:resolved`,
+            ),
+          },
+        ],
+      },
+    } as unknown as ReviewPublicationAttemptView;
+    const make = (
+      restored: ReviewPublicationAttemptView | null,
+      activated = true,
+    ) =>
+      createProductionPublicationLifecyclePort({
+        executions: {
+          findStream: async () =>
+            ({ activeExecutionId: ownArtifact.executionId }) as never,
+          findExecution: async () => stored,
+        },
+        authorizationQueries: {
+          findReviewRunAuthorizationById: async () => verifierAuthorization(),
+        },
+        liveLifecycle: {
+          resolve: async () => ({
+            status: LiveReviewPublicationLifecycleStatus.Available,
+            reviewedHeadSha: authorization.headSha,
+            commandLedgerWatermark: 2n,
+            targets: [live],
+          }),
+        },
+        publications: { findByPermitIdentity: async () => restored } as never,
+        resolutionHistory: {
+          read: async () => [
+            {
+              threadId: live.threadId,
+              version: 1,
+              historyCut: activated
+                ? {
+                    activatedAt: "2026-01-01T00:00:00.000Z",
+                    activationVersion: 1,
+                    writerDigest: hash("a"),
+                  }
+                : null,
+              confirmed: null,
+              pending: activated
+                ? [
+                    {
+                      ...identity,
+                      state: "may_have_started",
+                      enteredAt: now.toISOString(),
+                    },
+                  ]
+                : [],
+            },
+          ],
+        },
+      });
+    await expect(make(view).resolve(publicationScope())).resolves.toMatchObject(
+      { status: CurrentPublicationLifecycleStatus.Current },
+    );
+    await expect(make(null).resolve(publicationScope())).resolves.toMatchObject(
+      { status: CurrentPublicationLifecycleStatus.Changed },
+    );
+    await expect(
+      make({
+        ...view,
+        attempt: { ...view.attempt, publicationAttemptId: "foreign-attempt" },
+      }).resolve(publicationScope()),
+    ).resolves.toMatchObject({
+      status: CurrentPublicationLifecycleStatus.Unavailable,
+    });
+    await expect(
+      make(view, false).resolve(publicationScope()),
+    ).resolves.toMatchObject({
+      status: CurrentPublicationLifecycleStatus.Unavailable,
+    });
+  });
+
   it("classifies malformed stored projection separately from transient repository failure", async () => {
     const malformedArtifact = finalizedArtifactWithProjectionEnvelope(
       {
@@ -1705,7 +2020,9 @@ function createRoutes(
   finalizedArtifact: FinalizedReviewProjectionArtifact = artifact,
   decisionOverrides: Partial<ReviewPublicationDecisionPorts> = {},
   overrides: {
-    readonly snapshot?: ReviewSnapshotV2Record;
+    readonly snapshot?: ReviewSnapshotV2Record | null;
+    readonly liveLifecycle?: LiveReviewPublicationLifecyclePort;
+    readonly resolutionHistory?: ReviewPublicationResolutionHistoryPort;
     readonly publications?: ReviewPublicationAttemptQueryPort;
     readonly authorization?: ReviewRunAuthorization;
     readonly executions?: Pick<ReviewExecutionQueryPort, "findExecution"> &
@@ -1771,7 +2088,9 @@ function createRoutes(
     },
     snapshots: {
       async findCurrent() {
-        return overrides.snapshot ?? snapshot;
+        return Object.hasOwn(overrides, "snapshot")
+          ? (overrides.snapshot ?? null)
+          : snapshot;
       },
     },
     publications: overrides.publications ?? publicationRepository,
@@ -1779,6 +2098,12 @@ function createRoutes(
     capabilities: capabilityAdapter(),
     digest,
     contextPolicy,
+    ...(overrides.liveLifecycle
+      ? { liveLifecycle: overrides.liveLifecycle }
+      : {}),
+    ...(overrides.resolutionHistory
+      ? { resolutionHistory: overrides.resolutionHistory }
+      : {}),
     now: () => now,
   });
 }
@@ -2168,3 +2493,102 @@ const snapshot = {
   createdAt: new Date("2026-07-23T11:00:00.000Z"),
   expiresAt: new Date("2026-07-30T12:00:00.000Z"),
 };
+
+function verifierAuthorization(): ReviewRunAuthorization {
+  const configuration = {
+    ...workspacePolicyFixture,
+    providers: [
+      {
+        ...workspaceProviderFixture,
+        authMode: "codex_account_gateway",
+        gatewayBindingId: "binding-1",
+        gatewayProfileRef: "profile-1",
+      },
+    ],
+  };
+  return {
+    ...authorization,
+    createdAt: now,
+    providerVoteLanes: [
+      {
+        providerKind: ReviewProviderKind.Codex,
+        providerVoteIdentityHash: hash("a"),
+      },
+    ],
+    runtimeSnapshotCanonicalJson: canonicalJson({
+      snapshotVersion: 3,
+      configurationSource: "repository",
+      configurationVersion: 1,
+      workspaceConfigurationVersion: 1,
+      repositoryConfigurationVersion: 1,
+      effectivePolicyDigest: `sha256:${hash("a")}`,
+      agent: {
+        profileRef: "codex-default",
+        agentKind: "codex",
+        binarySha256: hash("a"),
+        packageVersion: "1.0.0",
+        modelTransports: ["account_gateway"],
+        contextGateway: true,
+        cancellation: true,
+      },
+      agentProfileDigest: hash("b"),
+      producer: {
+        producerReleaseId: authorization.producerReleaseId,
+        actionCommitSha: producerRelease.actionCommitSha,
+        runtimeCommitSha: producerRelease.runtimeCommitSha,
+      },
+      configurationCanonicalJson: canonicalJson(configuration),
+      deadline: authorization.expiresAt.toISOString(),
+      gateway: {
+        providerIndex: 0,
+        bindingId: "binding-1",
+        connectionId: "connection-1",
+        bindingRevision: 1,
+        policySubject: "binding-1",
+        policyRevision: 1,
+        permittedAccountRef: "account-1",
+        profileRef: "profile-1",
+        invocationId: "invocation-1",
+        attemptId: "attempt-1",
+        operationId: "operation-1",
+        limits: {
+          requests: 9,
+          concurrency: 1,
+          requestBytes: 98304,
+          outputBytes: 32768,
+          tokens: 4096,
+        },
+      },
+      lifecycleVerificationCapability: {
+        extensionId: lifecycleVerificationContract.extensionId,
+        descriptorDigest: lifecycleVerificationDescriptorDigest,
+        executor: lifecycleVerificationContract.executor,
+        modelTransport: "account_gateway",
+        providerIndex: 0,
+        providerKind: "codex",
+        model: workspaceProviderFixture.model,
+        maxDispatches: 2,
+        maxPromptBytes: 98304,
+        maxResponseBytes: 32768,
+        maxOutputTokens: 4096,
+        deadlineMs: 60000,
+        attemptBudget: 1,
+      },
+    }),
+  };
+}
+function liveHistoryTarget() {
+  return {
+    targetId: "target-1",
+    threadId: "thread-1",
+    markerFingerprint: `rrl_${"a".repeat(32)}`,
+    threadStateHash: hash("a"),
+    isResolved: false,
+    parentOwnedByIntegration: true,
+    hasRelevantInteractionAfterParent: false,
+    parentCreatedAt: now,
+    parentCommentId: "parent-1",
+    parentBodyHash: hash("a"),
+    lastRelevantChangeAt: now,
+  };
+}

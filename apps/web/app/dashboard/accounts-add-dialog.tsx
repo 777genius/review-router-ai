@@ -94,7 +94,8 @@ export function AccountsAddDialog({
           </div>
           <div hidden={path !== "personal"}>
             <p className="mb-4 text-sm text-slate-400">
-              You own this account. Share it later through “Access”.
+              Saved in My connections. Use workspace access to enable reviews
+              here.
             </p>
             {personalConnect}
           </div>

@@ -9,6 +9,7 @@ import {
   BookOpen,
   Cpu,
   GitPullRequest,
+  Layers,
   Settings2,
   type LucideIcon,
 } from "lucide-react";
@@ -20,6 +21,7 @@ const dashboardSectionIcons: Record<string, LucideIcon> = {
   skills: BookOpen,
   memory: Brain,
   setup: Settings2,
+  providers: Layers,
   policy: Cpu,
   diagnostics: Activity,
 };

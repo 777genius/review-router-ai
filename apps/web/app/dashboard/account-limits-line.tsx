@@ -180,7 +180,9 @@ export function AccountLimitsLine({
               .filter(
                 (window) =>
                   window.dimension === undefined ||
-                  window.remainingPercent !== null,
+                  window.remainingPercent !== null ||
+                  (window.dimension === "plan_quota" &&
+                    window.resetAt !== null),
               )
               .sort(
                 (left, right) =>
@@ -207,7 +209,9 @@ export function AccountLimitsLine({
                     <span className="min-w-4 shrink-0">{window.label}</span>
                     <span className="min-w-20 font-semibold tabular-nums text-slate-100">
                       {window.remainingPercent === null
-                        ? "Remaining unknown"
+                        ? window.dimension === "plan_quota"
+                          ? "Remaining not reported"
+                          : "Remaining unknown"
                         : `${window.remainingPercent}% left`}
                     </span>
                     {window.remainingPercent !== null ? (

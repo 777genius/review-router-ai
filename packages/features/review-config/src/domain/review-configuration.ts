@@ -12,13 +12,28 @@ import {
 } from "@reviewrouter/features-review-providers";
 import { z } from "zod";
 
+/**
+ * Version of the runtime configuration materialized from stored policy
+ * documents and sent to the action. Stored documents have their own version,
+ * STORED_REVIEW_POLICY_SCHEMA_VERSION.
+ */
 export const REVIEW_POLICY_SCHEMA_VERSION = 3 as const;
+
+export const reviewReasoningEffortSchema = z.enum([
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "ultra",
+]);
 
 const reviewProviderSettingsSchema = z.object({
   kind: providerKindSchema,
   model: z.string().trim().min(1),
-  reasoningEffort: z
-    .enum(["low", "medium", "high", "xhigh", "max", "ultra"])
+  reasoningEffort: reviewReasoningEffortSchema
+    .exclude(["minimal"])
     .default(defaultProviderReasoningEffort),
   agenticContext: z.boolean().default(true),
   fastMode: z.boolean().default(false),
@@ -29,10 +44,25 @@ export const reviewProviderConfigurationSchema = z
   .discriminatedUnion("authMode", [
     reviewProviderSettingsSchema
       .extend({
-        authMode: providerAuthModeSchema.exclude(["codex_account_gateway"]),
+        authMode: providerAuthModeSchema.exclude([
+          "codex_account_gateway",
+          "kimi_code_api_key",
+        ]),
         gatewayBindingId: z.never().optional(),
         gatewayProfileRef: z.never().optional(),
         // Engine selection is only allowed on the Account Gateway row.
+        agentProfileRef: z.never().optional(),
+      })
+      .strict(),
+    reviewProviderSettingsSchema
+      .extend({
+        kind: z.literal("kimi"),
+        authMode: z.literal("kimi_code_api_key"),
+        model: z.literal("k3-256k"),
+        reasoningEffort: z.never().optional(),
+        fastMode: z.literal(false).default(false),
+        gatewayBindingId: z.never().optional(),
+        gatewayProfileRef: z.never().optional(),
         agentProfileRef: z.never().optional(),
       })
       .strict(),
@@ -42,9 +72,7 @@ export const reviewProviderConfigurationSchema = z
         authMode: z.literal("codex_account_gateway"),
         // A qualified upstream may expose no reasoning control. Do not inject
         // the legacy Codex default into its saved policy or runtime request.
-        reasoningEffort: z
-          .enum(["low", "medium", "high", "xhigh", "max", "ultra"])
-          .optional(),
+        reasoningEffort: reviewReasoningEffortSchema.optional(),
         model: gatewayModelSchema,
         gatewayBindingId: gatewayReferenceSchema,
         gatewayProfileRef: gatewayReferenceSchema,
@@ -64,6 +92,7 @@ export const reviewProviderConfigurationSchema = z
     }
     if (
       provider.authMode !== "codex_account_gateway" &&
+      provider.authMode !== "kimi_code_api_key" &&
       !codexModelSupportsReasoningEffort(
         provider.model,
         provider.reasoningEffort,
@@ -91,7 +120,8 @@ export const reviewProviderConfigurationSchema = z
   })
   .transform((provider) => {
     if (
-      provider.authMode === "codex_account_gateway" &&
+      (provider.authMode === "codex_account_gateway" ||
+        provider.authMode === "kimi_code_api_key") &&
       provider.reasoningEffort === undefined
     ) {
       delete provider.reasoningEffort;
@@ -222,41 +252,6 @@ export const reviewConfigurationSchema = z
     }
   });
 
-export const reviewRepositoryPolicyOverrideSchema = z
-  .object({
-    schemaVersion: z.literal(REVIEW_POLICY_SCHEMA_VERSION),
-    providers: z
-      .array(reviewProviderConfigurationSchema)
-      .min(1)
-      .max(16)
-      .optional(),
-    execution: reviewExecutionConfigurationSchema.partial().optional(),
-    blockingPolicy: blockingPolicySchema.partial().optional(),
-    limits: limitsSchema.partial().optional(),
-    reviewLanguage: reviewLanguageSchema.optional(),
-    updatePrDescription: z.boolean().optional(),
-    investigationRollout: reviewInvestigationRolloutConfigurationSchema
-      .partial()
-      .optional(),
-    contextTools: contextToolsSelectionSchema.optional(),
-  })
-  .strict()
-  .superRefine((override, context) => {
-    if (override.providers) {
-      assertProviderRowsAreExplicitAndUnique(override.providers, context);
-      if (
-        override.execution?.providerLimit !== undefined &&
-        override.execution.providerLimit !== override.providers.length
-      ) {
-        context.addIssue({
-          code: "custom",
-          path: ["execution", "providerLimit"],
-          message: "repository provider limit must match its provider array",
-        });
-      }
-    }
-  });
-
 export type ReviewProviderConfiguration = z.infer<
   typeof reviewProviderConfigurationSchema
 >;
@@ -267,13 +262,6 @@ export type ReviewInvestigationRolloutConfiguration = z.infer<
   typeof reviewInvestigationRolloutConfigurationSchema
 >;
 export type ReviewConfiguration = z.infer<typeof reviewConfigurationSchema>;
-export type WorkspaceReviewPolicy = ReviewConfiguration;
-export type RepositoryReviewPolicyOverride = z.infer<
-  typeof reviewRepositoryPolicyOverrideSchema
->;
-export type ReviewPolicyDocument =
-  | WorkspaceReviewPolicy
-  | RepositoryReviewPolicyOverride;
 
 export function parseReviewConfiguration(input: unknown): ReviewConfiguration {
   return reviewConfigurationSchema.parse(input);
@@ -283,59 +271,6 @@ export function parseReviewConfigurationStrict(
   input: unknown,
 ): ReviewConfiguration {
   return parseReviewConfiguration(input);
-}
-
-export function parseRepositoryReviewPolicyOverride(
-  input: unknown,
-): RepositoryReviewPolicyOverride {
-  return reviewRepositoryPolicyOverrideSchema.parse(input);
-}
-
-export function resolveReviewPolicy(
-  workspace: ReviewConfiguration,
-  override?: RepositoryReviewPolicyOverride | null,
-): ReviewConfiguration {
-  const parsedWorkspace = parseReviewConfiguration(workspace);
-  const parsedOverride = override
-    ? parseRepositoryReviewPolicyOverride(override)
-    : null;
-  if (!parsedOverride) return parsedWorkspace;
-
-  const updatePrDescription =
-    parsedOverride.updatePrDescription ?? parsedWorkspace.updatePrDescription;
-
-  return parseReviewConfiguration({
-    ...(updatePrDescription === undefined ? {} : { updatePrDescription }),
-    schemaVersion: REVIEW_POLICY_SCHEMA_VERSION,
-    providers: parsedOverride.providers ?? parsedWorkspace.providers,
-    execution: {
-      ...parsedWorkspace.execution,
-      ...definedOnly(parsedOverride.execution),
-    },
-    blockingPolicy: {
-      ...parsedWorkspace.blockingPolicy,
-      ...definedOnly(parsedOverride.blockingPolicy),
-    },
-    limits: {
-      ...parsedWorkspace.limits,
-      ...definedOnly(parsedOverride.limits),
-    },
-    reviewLanguage:
-      parsedOverride.reviewLanguage !== undefined
-        ? parsedOverride.reviewLanguage
-        : parsedWorkspace.reviewLanguage,
-    ...((parsedOverride.contextTools ?? parsedWorkspace.contextTools) !==
-    undefined
-      ? {
-          contextTools:
-            parsedOverride.contextTools ?? parsedWorkspace.contextTools,
-        }
-      : {}),
-    investigationRollout: {
-      ...parsedWorkspace.investigationRollout,
-      ...definedOnly(parsedOverride.investigationRollout),
-    },
-  });
 }
 
 export function canonicalJson(value: unknown): string {
@@ -352,12 +287,6 @@ export function canonicalJson(value: unknown): string {
   const encoded = JSON.stringify(value);
   if (encoded === undefined) throw new Error("review_policy_json_invalid");
   return encoded;
-}
-
-function definedOnly<T extends object>(value: T | undefined): Partial<T> {
-  return Object.fromEntries(
-    Object.entries(value ?? {}).filter(([, child]) => child !== undefined),
-  ) as Partial<T>;
 }
 
 function assertProviderRowsAreExplicitAndUnique(

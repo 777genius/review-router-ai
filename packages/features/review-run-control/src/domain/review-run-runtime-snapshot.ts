@@ -1,4 +1,10 @@
 import {
+  lifecycleVerificationContract,
+  lifecycleVerificationDescriptorDigest,
+  type LifecycleVerificationCapabilityV1,
+} from "@reviewrouter/shared";
+import { reviewAgentExecutionProviderKind } from "./review-agent-profile";
+import {
   canonicalJson,
   assertIdentifier,
   assertCommitSha,
@@ -17,6 +23,10 @@ import {
 /** Private admission data. Never included in public authorization claims/facts. */
 export type ReviewRunRuntimeSnapshot = {
   readonly snapshotVersion: 3;
+  readonly lifecycleVerificationUnavailableReason?:
+    | "verification_configuration_invalid"
+    | "verification_unavailable";
+  readonly lifecycleVerificationCapability?: LifecycleVerificationCapabilityV1;
   readonly prDescriptionCapability?: ProducerPrDescriptionProfile;
   readonly configurationSource: "workspace" | "repository";
   readonly configurationVersion: number;
@@ -123,6 +133,12 @@ export function parseReviewRunRuntimeSnapshot(
       "gateway",
       ...(Object.hasOwn(parsed, "contextToolsPlanCanonicalJson")
         ? ["contextToolsPlanCanonicalJson"]
+        : []),
+      ...("lifecycleVerificationUnavailableReason" in parsed
+        ? ["lifecycleVerificationUnavailableReason"]
+        : []),
+      ...("lifecycleVerificationCapability" in parsed
+        ? ["lifecycleVerificationCapability"]
         : []),
       ...("prDescriptionCapability" in parsed
         ? ["prDescriptionCapability"]
@@ -280,6 +296,46 @@ export function parseReviewRunRuntimeSnapshot(
       limits: parseReviewRunGatewayLimits(row.limits),
     };
   }
+  const lifecycleVerificationUnavailableReason =
+    parsed.lifecycleVerificationUnavailableReason;
+  if (
+    lifecycleVerificationUnavailableReason !== undefined &&
+    lifecycleVerificationUnavailableReason !==
+      "verification_configuration_invalid" &&
+    lifecycleVerificationUnavailableReason !== "verification_unavailable"
+  )
+    fail();
+  if (
+    lifecycleVerificationUnavailableReason !== undefined &&
+    "lifecycleVerificationCapability" in parsed
+  )
+    fail();
+  const lifecycleVerificationCapability =
+    "lifecycleVerificationCapability" in parsed
+      ? parseLifecycleVerificationCapability(
+          parsed.lifecycleVerificationCapability,
+        )
+      : undefined;
+  if (lifecycleVerificationCapability) {
+    const cap = lifecycleVerificationCapability;
+    const providers = configuration.providers;
+    const provider = Array.isArray(providers)
+      ? providers[cap.providerIndex]
+      : null;
+    if (
+      !gateway ||
+      !record(provider) ||
+      provider.authMode !== "codex_account_gateway" ||
+      gateway.providerIndex !== cap.providerIndex ||
+      provider.model !== cap.model ||
+      cap.providerKind !== reviewAgentExecutionProviderKind(agent) ||
+      !["ocr", "codex"].includes(agent.agentKind) ||
+      cap.maxPromptBytes > gateway.limits.requestBytes ||
+      cap.maxResponseBytes > gateway.limits.outputBytes ||
+      cap.maxOutputTokens > gateway.limits.tokens
+    )
+      fail();
+  }
   const prDescriptionCapability =
     "prDescriptionCapability" in parsed
       ? parseProducerPrDescriptionProfile(parsed.prDescriptionCapability)
@@ -289,6 +345,12 @@ export function parseReviewRunRuntimeSnapshot(
     ...(prDescriptionCapability === undefined
       ? {}
       : { prDescriptionCapability }),
+    ...(lifecycleVerificationCapability
+      ? { lifecycleVerificationCapability }
+      : {}),
+    ...(lifecycleVerificationUnavailableReason
+      ? { lifecycleVerificationUnavailableReason }
+      : {}),
     snapshotVersion: 3,
     configurationSource,
     configurationVersion,
@@ -342,4 +404,66 @@ function revision(value: unknown): value is number {
 }
 function fail(): never {
   throw new Error("review_run_runtime_snapshot_invalid");
+}
+
+/** Invalid enabled capability is rejected, never normalized or downgraded. */
+export function parseLifecycleVerificationCapability(
+  value: unknown,
+): LifecycleVerificationCapabilityV1 {
+  const names = [
+    "extensionId",
+    "descriptorDigest",
+    "executor",
+    "modelTransport",
+    "providerIndex",
+    "providerKind",
+    "model",
+    "maxDispatches",
+    "maxPromptBytes",
+    "maxResponseBytes",
+    "maxOutputTokens",
+    "deadlineMs",
+    "attemptBudget",
+  ];
+  if (
+    !record(value) ||
+    !keys(value, names) ||
+    value.extensionId !== lifecycleVerificationContract.extensionId ||
+    value.descriptorDigest !== lifecycleVerificationDescriptorDigest ||
+    value.executor !== lifecycleVerificationContract.executor ||
+    value.modelTransport !== "account_gateway" ||
+    !Number.isInteger(value.providerIndex) ||
+    Number(value.providerIndex) < 0 ||
+    Number(value.providerIndex) > 15 ||
+    typeof value.providerKind !== "string" ||
+    !["ocr", "codex"].includes(value.providerKind) ||
+    typeof value.model !== "string" ||
+    !value.model.trim() ||
+    value.model.length > 256 ||
+    value.maxDispatches !== 2 ||
+    value.attemptBudget !== 1
+  )
+    fail();
+  const bounds = {
+    maxPromptBytes: lifecycleVerificationContract.maxPromptBytes,
+    maxResponseBytes: lifecycleVerificationContract.maxResponseBytes,
+    maxOutputTokens: lifecycleVerificationContract.maxOutputTokens,
+    deadlineMs: lifecycleVerificationContract.deadlineMs,
+  };
+  for (const [key, ceiling] of Object.entries(bounds)) {
+    const n = value[key];
+    if (
+      typeof n !== "number" ||
+      !Number.isSafeInteger(n) ||
+      n < 1 ||
+      n > ceiling
+    )
+      fail();
+  }
+  if (
+    Number(value.maxOutputTokens) <
+    lifecycleVerificationContract.minOutputTokensPerTarget
+  )
+    fail();
+  return Object.freeze({ ...value }) as LifecycleVerificationCapabilityV1;
 }

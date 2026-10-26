@@ -5,19 +5,23 @@ export type DashboardSection =
   | "skills"
   | "memory"
   | "setup"
+  | "providers"
   | "policy"
   | "diagnostics"
   | "usage"
+  | "statistics"
   | "other";
 
 export const DASHBOARD_SECTIONS = [
   "repositories",
+  "statistics",
   "setup",
+  "providers",
   "policy",
   "diagnostics",
   "usage",
-  "skills",
   "other",
+  "skills",
   "memory",
 ] as const satisfies readonly DashboardSection[];
 
@@ -58,12 +62,26 @@ export const dashboardSectionMeta: Record<
       "Connect accounts once and choose where they are available for reviews.",
     navDescription: "Workspace provider accounts",
   },
+  providers: {
+    eyebrow: "Workspace providers",
+    title: "Providers",
+    description:
+      "Each provider is a credential and a model. Choose the workspace default and keep the list tidy.",
+    navDescription: "Credentials and models",
+  },
   policy: {
     eyebrow: "Review behavior",
     title: "Model",
     description:
-      "Choose provider auth, model, reasoning effort, context mode, and blocking severity.",
-    navDescription: "Provider, model, gates",
+      "The default provider and the review settings every repository starts with.",
+    navDescription: "Default provider, gates",
+  },
+  statistics: {
+    eyebrow: "Review activity",
+    title: "Statistics",
+    description:
+      "Published reviews, pull requests and issues caught in your workspace.",
+    navDescription: "Reviews and issues caught",
   },
   usage: {
     eyebrow: "Measured consumption",

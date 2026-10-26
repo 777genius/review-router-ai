@@ -1,3 +1,4 @@
+import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import { vi } from "vitest";
 import { createRepositoryReleaseSelector } from "./review-action-v2-repository-release-selection";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -531,7 +532,12 @@ describe("Review Action v2 run-control composition", () => {
       headSha: facts.headSha,
       reviewRevisionHash: facts.reviewRevisionHash,
     }));
-    const verify = vi.fn(async () => ({ compatible: false }));
+    const verify = vi.fn<
+      () => Promise<{
+        compatible: boolean;
+        providerApiAuthMode?: ProviderApiAuthMode;
+      }>
+    >(async () => ({ compatible: false }));
     const direct = createServerOwnedReviewActionV2AdmissionFacts({
       revisionResolver: { resolve: resolveRevision },
       releaseAttestations: {
@@ -567,7 +573,10 @@ describe("Review Action v2 run-control composition", () => {
         expectedProviderApiActionCommitSha: actionSha,
       }),
     );
-    verify.mockResolvedValue({ compatible: true });
+    verify.mockResolvedValue({
+      compatible: true,
+      providerApiAuthMode: "openrouter-api",
+    });
     await expect(direct.resolve(input)).resolves.toMatchObject({
       revision: {
         providerApiAuthMode: "openrouter-api",

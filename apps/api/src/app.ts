@@ -517,10 +517,12 @@ export async function createApiApp(
             operatorCredentialSha256,
           ),
           repositories: new PrismaReviewConfigurationOperatorRepository(prisma),
+          // The operator API writes as the system: no signed-in user.
           configurations: new PrismaReviewConfigurationRepository(
             prisma,
             reviewActionV2Env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
             readPersonalAccountSharingEnabled(reviewActionV2Env),
+            undefined,
           ),
           mutations: new PrismaReviewConfigurationOperatorMutation(
             prisma,

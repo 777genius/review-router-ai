@@ -10,7 +10,8 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import type { ProviderSecretSetupGuidance } from "@reviewrouter/features-provider-setup";
-import { ProviderSecretSetupDialog } from "./provider-secret-setup-dialog";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ProviderSetupDialog } from "./provider-setup/provider-setup-dialog";
 import {
   confirmSetupPullRequestMergedClientAction,
   createSetupPullRequestClientAction,
@@ -33,8 +34,16 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("./actions", () => ({
+  checkProviderRepositorySecretClientAction: vi.fn(async () => ({
+    status: "missing",
+  })),
   confirmSetupPullRequestMergedClientAction: vi.fn(),
   createSetupPullRequestClientAction: vi.fn(),
+}));
+
+vi.mock("./provider-setup-actions", () => ({
+  inheritWorkspaceDefaultProviderAction: vi.fn(),
+  saveProviderSetupAction: vi.fn(),
 }));
 
 afterEach(() => {
@@ -56,7 +65,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent
         mutationsEnabled
-        initialStep={4}
+        initialStep="ready"
         expectedProviderAuthModes={["codex_account_gateway"]}
         gatewayReviewV2Readiness={{
           status: "draining",
@@ -93,7 +102,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={1}
+        initialStep="setup_pr"
         providerSetupBeforeWorkflow
         enableReviewAction={
           <button type="button">Set up versioned provider</button>
@@ -127,7 +136,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={1}
+        initialStep="setup_pr"
         enableReviewAction={<button type="button">Connect provider</button>}
       />,
     );
@@ -152,7 +161,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={1}
+        initialStep="setup_pr"
         expectedProviderAuthModes={["codex_account_gateway"]}
       />,
     );
@@ -175,7 +184,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={1}
+        initialStep="setup_pr"
         expectedProviderAuthModes={["codex_subscription_oauth_rotating"]}
       />,
     );
@@ -183,66 +192,96 @@ describe("RepositorySetupProgressPanel", () => {
     expect(screen.getByText("Enable AI suggested replies")).toBeTruthy();
   });
 
-  it("keeps the real provider dialog open when confirmation advances progress", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValueOnce(
-        providerSetupResponse({
-          params: {
-            notice: "provider_setup_confirmed",
-            workspace: "workspace_1",
-            section: "repositories",
-            repository: "777genius/example",
-          },
-        }),
-      ),
+  // Regression: step 3 opened the old "Connect model credentials" dialog.
+  it("opens the unified provider dialog for this repository from step 3 and keeps it open as progress advances", async () => {
+    const fetch = vi.fn(async (url: string) =>
+      url.startsWith("/api/dashboard/provider-setup?")
+        ? ({
+            ok: true,
+            json: async () => providerSetupViewFixture(),
+          } as Response)
+        : providerSetupResponse({
+            params: {
+              notice: "provider_setup_confirmed",
+              workspace: "workspace_1",
+              section: "repositories",
+              repository: "777genius/example",
+            },
+          }),
     );
+    vi.stubGlobal("fetch", fetch);
 
     render(
-      <RepositorySetupProgressPanel
-        workspaceId="workspace_1"
-        repositoryId="repo_1"
-        repositoryFullName="777genius/example"
-        selected
-        archived={false}
-        initialSetupStatus="configured"
-        initialSetupPullRequestUrl={null}
-        workflowCurrent
-        mutationsEnabled
-        initialStep={3}
-        enableReviewAction={
-          <ProviderSecretSetupDialog
-            workspaceId="workspace_1"
-            repositoryId="repo_1"
-            repositoryFullName="777genius/example"
-            repositoryVisibility="public"
-            organizationLogin={null}
-            organizationSecretPolicy={null}
-            guidanceSet={{
-              codexOAuthRotating: rotatingGuidance(),
-              codexOAuth: guidance("CODEX_AUTH_JSON"),
-              codexApiKey: guidance("OPENAI_API_KEY"),
-              claudeCodeOAuth: guidance("CLAUDE_CODE_OAUTH_TOKEN"),
-              mimoTokenPlanApiKey: guidance("MIMO_TOKEN_PLAN_API_KEY"),
-              openRouterApiKey: guidance("OPENROUTER_API_KEY"),
-            }}
-            triggerLabel="Enable review"
-          />
-        }
-      />,
+      <QueryClientProvider client={new QueryClient()}>
+        <RepositorySetupProgressPanel
+          workspaceId="workspace_1"
+          repositoryId="repo_1"
+          repositoryFullName="777genius/example"
+          selected
+          archived={false}
+          initialSetupStatus="configured"
+          initialSetupPullRequestUrl={null}
+          workflowCurrent
+          mutationsEnabled
+          initialStep="provider"
+          expectedProviderAuthModes={["claude_code_oauth"]}
+          enableReviewAction={
+            <ProviderSetupDialog
+              workspaceId="workspace_1"
+              target={{
+                kind: "repository",
+                repository: {
+                  id: "repo_1",
+                  fullName: "777genius/example",
+                  visibility: "public",
+                  canManageCredentials: true,
+                  effective: {
+                    authMode: "claude_code_oauth",
+                    credentialKind: "user_ci_secret",
+                  },
+                  secretGuidance: {
+                    claude_code_oauth: guidance("CLAUDE_CODE_OAUTH_TOKEN"),
+                    mimo_token_plan_api_key: guidance(
+                      "MIMO_TOKEN_PLAN_API_KEY",
+                    ),
+                  },
+                  organizationLogin: null,
+                  organizationSecretPolicy: null,
+                  rotatingEnabled: false,
+                  rotatingPreparationOnly: false,
+                },
+              }}
+              initialStep="credentials"
+              triggerLabel="Add secret"
+              mutationsEnabled
+              modelOptions={[]}
+              gatewayAccounts={undefined}
+              agentProfileOptions={[]}
+            />
+          }
+        />
+      </QueryClientProvider>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Enable review" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Verify versioned setup" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Add secret" }));
+    // The dialog is fixed to this repository and opens on its credential.
+    expect(screen.getByText("Provider for 777genius/example")).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: "2. Add secret" })
+        .getAttribute("aria-current"),
+    ).toBe("step");
+    expect(screen.queryByText(/Connect model credentials/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "I added the secret" }));
 
     expect(
-      await screen.findByText(/Authorized versioned setup is active/i),
+      await screen.findByText(
+        "CLAUDE_CODE_OAUTH_TOKEN is set for 777genius/example.",
+      ),
     ).toBeTruthy();
     expect(screen.getByText("4 of 4 - complete")).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Close provider secrets dialog" }),
+      screen.getByRole("button", { name: "Close provider setup" }),
     ).toBeTruthy();
   });
 
@@ -278,7 +317,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent
         mutationsEnabled
-        initialStep={3}
+        initialStep="provider"
         enableReviewAction={<StatefulEnableReviewAction />}
       />,
     );
@@ -320,7 +359,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent
         mutationsEnabled
-        initialStep={3}
+        initialStep="provider"
         enableReviewAction={<button type="button">Set up provider</button>}
         providerSetupBeforeWorkflow
       />,
@@ -348,7 +387,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent
         mutationsEnabled
-        initialStep={3}
+        initialStep="provider"
         expectedProviderAuthModes={["codex_subscription_oauth_rotating"]}
         enableReviewAction={<button type="button">Enable review</button>}
       />,
@@ -378,7 +417,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent
         mutationsEnabled
-        initialStep={3}
+        initialStep="provider"
         expectedProviderAuthModes={["openrouter_api_key", "claude_code_oauth"]}
         enableReviewAction={<button type="button">Enable review</button>}
       />,
@@ -408,7 +447,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent
         mutationsEnabled
-        initialStep={3}
+        initialStep="provider"
         expectedProviderAuthModes={["openrouter_api_key", "claude_code_oauth"]}
         enableReviewAction={<button type="button">Enable review</button>}
       />,
@@ -460,7 +499,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent
         mutationsEnabled
-        initialStep={4}
+        initialStep="ready"
         enableReviewAction={<MountedAction />}
       />,
     );
@@ -481,7 +520,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl="https://github.com/777genius/example/pull/1"
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={2}
+        initialStep="merge_setup_pr"
         enableReviewAction={<button type="button">Enable review</button>}
       />,
     );
@@ -509,7 +548,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupIssue="setup_pr_closed"
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={1}
+        initialStep="setup_pr"
         enableReviewAction={<button type="button">Enable review</button>}
       />,
     );
@@ -536,7 +575,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupIssue="workflow_delete_untrusted"
         workflowCurrent
         mutationsEnabled
-        initialStep={1}
+        initialStep="setup_pr"
         enableReviewAction={<button type="button">Enable review</button>}
       />,
     );
@@ -558,7 +597,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupIssue="workflow_delete_untrusted"
         workflowCurrent
         mutationsEnabled
-        initialStep={2}
+        initialStep="merge_setup_pr"
         enableReviewAction={<button type="button">Enable review</button>}
       />,
     );
@@ -586,7 +625,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl="https://github.com/777genius/example/pull/1"
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={2}
+        initialStep="merge_setup_pr"
         enableReviewAction={<button type="button">Enable review</button>}
       />,
     );
@@ -626,7 +665,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl="https://github.com/777genius/example/pull/1"
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={2}
+        initialStep="merge_setup_pr"
         enableReviewAction={<button type="button">Enable review</button>}
       />,
     );
@@ -668,7 +707,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl="https://github.com/777genius/example/pull/1"
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={2}
+        initialStep="merge_setup_pr"
         enableReviewAction={<button type="button">Enable review</button>}
       />,
     );
@@ -709,7 +748,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl={null}
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={1}
+        initialStep="setup_pr"
         enableReviewAction={<button type="button">Enable review</button>}
       />,
     );
@@ -742,7 +781,7 @@ describe("RepositorySetupProgressPanel", () => {
         initialSetupPullRequestUrl="https://github.com/777genius/example/pull/1"
         workflowCurrent={false}
         mutationsEnabled
-        initialStep={2}
+        initialStep="merge_setup_pr"
         enableReviewAction={<button type="button">Enable review</button>}
       />,
     );
@@ -782,15 +821,11 @@ function hasCustomToastMessage(expected: RegExp, forbidden: string): boolean {
 function guidance(secretName: string): ProviderSecretSetupGuidance {
   return {
     provider:
-      secretName === "CODEX_AUTH_JSON"
-        ? "codex_oauth"
-        : secretName === "OPENAI_API_KEY"
-          ? "openai_api_key"
-          : secretName === "MIMO_TOKEN_PLAN_API_KEY"
-            ? "mimo_token_plan_api_key"
-            : secretName === "CLAUDE_CODE_OAUTH_TOKEN"
-              ? "claude_code_oauth"
-              : "openrouter_api_key",
+      secretName === "MIMO_TOKEN_PLAN_API_KEY"
+        ? "mimo_token_plan_api_key"
+        : secretName === "CLAUDE_CODE_OAUTH_TOKEN"
+          ? "claude_code_oauth"
+          : "openrouter_api_key",
     recommendedScope: "repository",
     commands: [
       {
@@ -811,29 +846,6 @@ function guidance(secretName: string): ProviderSecretSetupGuidance {
   };
 }
 
-function rotatingGuidance(): ProviderSecretSetupGuidance {
-  return {
-    provider: "codex_oauth_rotating",
-    recommendedScope: "repository",
-    commands: [
-      {
-        scope: "repository",
-        title: "Versioned repository setup",
-        description: "Claims one server-authorized versioned setup attempt.",
-        command: "set -euo pipefail\n# versioned rotating installer",
-        storesSecretIn: "github_repository_secret",
-        targetLabel: "777genius/example repository secret",
-        secretNames: ["Server-authorized versioned secret"],
-        selectedRepositories: ["777genius/example"],
-        validatesBeforeWrite: true,
-        failureRecovery: "Recover through the versioned setup flow.",
-        sendsSecretToReviewRouter: false,
-      },
-    ],
-    warnings: [],
-  };
-}
-
 function providerSetupResponse(body: {
   readonly params: Record<string, string>;
 }): Response {
@@ -841,4 +853,41 @@ function providerSetupResponse(body: {
     ok: true,
     json: async () => body,
   } as Response;
+}
+
+function providerSetupViewFixture() {
+  return {
+    workspaceId: "workspace_1",
+    target: "repositories",
+    repositories: [
+      {
+        id: "repo_1",
+        fullName: "777genius/example",
+        source: "repository",
+        selection: {
+          profileId: "profile_claude",
+          agenticContext: true,
+          fastMode: false,
+          requiredHealthy: true,
+        },
+        useDefault: { allowed: true },
+      },
+    ],
+    defaultSelection: null,
+    profiles: [
+      {
+        id: "profile_claude",
+        label: "Claude Code",
+        model: "opus",
+        authMode: "claude_code_oauth",
+        credentialKind: "user_ci_secret",
+        gatewayBindingId: null,
+        isDefault: false,
+        decision: { allowed: true },
+        refusedRepositoryCount: 0,
+      },
+    ],
+    sources: [],
+    viewerIsAdmin: true,
+  };
 }

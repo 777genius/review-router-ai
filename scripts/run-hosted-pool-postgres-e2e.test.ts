@@ -98,6 +98,34 @@ describe("hosted pool PostgreSQL migration ordering", () => {
     );
   });
 
+  it("stages provider registry and repository-secret profiles after the provider key tables", () => {
+    const registryMigrations = [
+      "000145_workspace_provider_profiles",
+      "000146_drop_review_configuration_projection",
+      "000149_api_key_repository_secret_profiles",
+    ];
+    for (const migration of registryMigrations)
+      expect(source.match(new RegExp(migration, "gu"))).toHaveLength(1);
+    const registry = section(
+      "const providerRegistryMigrations = Object.freeze([",
+      "const codexOAuthV5Migrations",
+    );
+    expect(
+      [...registry.matchAll(/"(\d{6}_[a-z0-9_]+)"/gu)].map((match) => match[1]),
+    ).toEqual(registryMigrations);
+    expect(
+      section("function prepareMigrationRehearsal", "function addMigration"),
+    ).toContain("...providerRegistryMigrations");
+    expect(
+      section(
+        "addMigration(rehearsalDirectory, v4RelayTurnMigration)",
+        "const migrationCount =",
+      ),
+    ).toMatch(
+      /addMigration\(rehearsalDirectory, sdkGrowthSourceBindingMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*for \(const migrationName of providerRegistryMigrations\) \{\s*addMigration\(rehearsalDirectory, migrationName\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*\}/u,
+    );
+  });
+
   it("hands off authority before V5 in the full PostgreSQL E2E", () => {
     const postgresMode = section("if (runPostgresE2e) {", "} finally {");
     expect(postgresMode).toContain("excludeHostedPoolMigrations: false");

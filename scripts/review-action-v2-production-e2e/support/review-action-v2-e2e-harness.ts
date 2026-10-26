@@ -1,4 +1,8 @@
-import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture.js";
+import {
+  systemPolicyWriteFixture,
+  workspacePolicyDocumentFixture,
+  workspacePolicyFixture,
+} from "../../../packages/features/review-config/src/tests/current-policy-fixture.js";
 import { PrismaReviewConfigurationRepository } from "../../../packages/features/review-config/src/index.js";
 import { Buffer } from "node:buffer";
 import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
@@ -33,6 +37,10 @@ import {
 } from "../../../packages/features/review-executions/src/index.js";
 import { PrismaReviewExecutionStore } from "../../../packages/features/review-executions/src/composition/index.js";
 import { createPrismaReviewProgressCapture } from "../../../packages/features/review-progress/src/composition/index.js";
+import {
+  createReviewStatisticsFeature,
+  type ReviewStatisticsFeature,
+} from "../../../packages/features/review-statistics/src/composition/index.js";
 import { ClaimReviewPublicationStatus } from "../../../packages/features/review-publishing/src/v2/index.js";
 import { PrismaReviewPublicationRepository } from "../../../packages/features/review-publishing/src/v2/composition/index.js";
 import {
@@ -48,7 +56,12 @@ import {
   createPrismaClient,
   type PrismaClient,
 } from "../../../packages/platform/db/src/index.js";
-import { SystemClock } from "../../../packages/shared/src/index.js";
+import {
+  SystemClock,
+  lifecycleVerificationContract,
+  lifecycleVerificationDescriptorDigest,
+  type ProviderApiAuthMode,
+} from "../../../packages/shared/src/index.js";
 import {
   ReviewActionV2OperationId,
   ReviewEvidenceCommitResultStatus,
@@ -94,6 +107,8 @@ import {
 } from "../../../apps/api/src/review-action-v2-production-composition.js";
 import { reviewActionV2ProjectionPolicyVersion } from "../../../apps/api/src/review-action-v2-projection-policy.js";
 import { createProductionReviewV2WorkerRuntime } from "../../../apps/worker/src/review-v2-production-runtime.js";
+import { createReviewStatisticsSettlementCapture } from "../../../apps/worker/src/review-statistics-settlement-capture.js";
+import { createReviewStatisticsSettledHandler } from "../../../apps/worker/src/review-statistics-worker-runtime.js";
 import { PrismaReviewProgressPublicationStore } from "../../../apps/worker/src/review-progress-store.js";
 import {
   createReviewV2WorkerFeature,
@@ -103,6 +118,10 @@ import {
 } from "../../../apps/worker/src/review-v2-worker-runtime.js";
 import { FakeGitHubTransport, type FakeGitHubRevision } from "./fake-github.js";
 
+const lifecycleVerificationExtensionV1 = {
+  extensionId: lifecycleVerificationContract.extensionId,
+  descriptorDigest: lifecycleVerificationDescriptorDigest,
+};
 const owner = "reviewrouter-e2e";
 const repo = "disposable-review-v2";
 const pullRequestNumber = 42;
@@ -144,7 +163,7 @@ export type ReviewActionV2E2EFlow = Readonly<{
 
 export type ReviewActionV2E2EAuthorization = Readonly<{
   result: ReviewRunAuthorizeResult;
-  providerApiAuthMode?: "openrouter-api";
+  providerApiAuthMode?: ProviderApiAuthMode;
   sourceRunAttempt?: string;
   oidcExpiresAt?: string;
   authorizationId: string;
@@ -173,6 +192,14 @@ export type ReviewActionV2E2EHarnessOptions = Readonly<{
   beforeFakeGitHubRead?: (request: Request) => Promise<void>;
   protocolMaxAttemptsPerSlot?: number;
   prDescriptionProfile?: boolean;
+  lifecycleVerificationProfile?: boolean;
+  /**
+   * The repository's stored provider selection. The workspace has no default
+   * provider, so "rotating" (the default) stores a repository selection of
+   * its rotating Codex profile; "none" leaves the repository document unset
+   * for tests that store their own.
+   */
+  repositoryProviderSelection?: "rotating" | "none";
 }>;
 
 export class ReviewActionV2E2EHarness {
@@ -188,6 +215,8 @@ export class ReviewActionV2E2EHarness {
   readonly env: Readonly<Record<string, string>>;
   readonly routes: ReturnType<typeof composeReviewActionV2ProductionRoutes>;
   private readonly worker: ReturnType<typeof createReviewV2WorkerFeature>;
+  private readonly statistics: ReviewStatisticsFeature;
+  private readonly knownOutboxHandlers: readonly OutboxHandler[];
   private readonly originalFetch: typeof globalThis.fetch;
   private oidcOrdinal = 0;
   private readonly oidcLifetimeSeconds: number;
@@ -206,6 +235,7 @@ export class ReviewActionV2E2EHarness {
     readonly env: Readonly<Record<string, string>>;
     readonly routes: ReturnType<typeof composeReviewActionV2ProductionRoutes>;
     readonly worker: ReturnType<typeof createReviewV2WorkerFeature>;
+    readonly statistics: ReviewStatisticsFeature;
     readonly originalFetch: typeof globalThis.fetch;
     readonly oidcLifetimeSeconds: number;
     readonly modelTransport: "account_gateway" | "provider_api";
@@ -222,6 +252,11 @@ export class ReviewActionV2E2EHarness {
     this.env = input.env;
     this.routes = input.routes;
     this.worker = input.worker;
+    this.statistics = input.statistics;
+    this.knownOutboxHandlers = [
+      ...input.worker.handlers,
+      createReviewStatisticsSettledHandler(input.statistics.projector),
+    ];
     this.originalFetch = input.originalFetch;
     this.oidcLifetimeSeconds = input.oidcLifetimeSeconds;
     this.modelTransport = input.modelTransport;
@@ -287,6 +322,9 @@ export class ReviewActionV2E2EHarness {
         protocolLimitsProfileId,
         operationalSloProfileId,
         ...(options.prDescriptionProfile ? { prDescriptionProfile: true } : {}),
+        ...(options.lifecycleVerificationProfile
+          ? { lifecycleVerificationProfile: true }
+          : {}),
         ...(options.investigationProfile
           ? { investigationProfile: options.investigationProfile }
           : {}),
@@ -331,6 +369,8 @@ export class ReviewActionV2E2EHarness {
           ? { agentProfiles: options.agentProfiles }
           : {}),
         prefix,
+        repositoryProviderSelection:
+          options.repositoryProviderSelection ?? "rotating",
         workspaceId,
         repositoryConnectionId,
         scmRepositoryIdentityId,
@@ -338,6 +378,9 @@ export class ReviewActionV2E2EHarness {
         protocolLimitsProfileId,
         operationalSloProfileId,
         ...(options.prDescriptionProfile ? { prDescriptionProfile: true } : {}),
+        ...(options.lifecycleVerificationProfile
+          ? { lifecycleVerificationProfile: true }
+          : {}),
         ...(options.investigationProfile
           ? { investigationProfile: options.investigationProfile }
           : {}),
@@ -356,17 +399,22 @@ export class ReviewActionV2E2EHarness {
         },
         prisma,
       });
+      const statistics = await createReviewStatisticsFeature({ prisma });
       const productionWorker = createProductionReviewV2WorkerRuntime({
         prisma,
         clock: new SystemClock(),
         env,
         githubAppId: requiredString(env.GITHUB_APP_ID),
         githubPrivateKey: requiredString(env.GITHUB_APP_PRIVATE_KEY),
+        settlementHook: createReviewStatisticsSettlementCapture(
+          statistics.outboxWriter,
+        ),
       });
       const worker = createReviewV2WorkerFeature({
         env,
         createEnabledRuntime: () => productionWorker,
       });
+      if (worker.enabled) await statistics.activateCapture();
       return new ReviewActionV2E2EHarness({
         prisma,
         fakeGitHub,
@@ -380,6 +428,7 @@ export class ReviewActionV2E2EHarness {
         env,
         routes,
         worker,
+        statistics,
         originalFetch,
         oidcLifetimeSeconds,
         modelTransport: options.modelTransport ?? "provider_api",
@@ -399,7 +448,7 @@ export class ReviewActionV2E2EHarness {
   async authorize(
     input: {
       readonly sourceRunAttempt?: string;
-      readonly providerApiAuthMode?: "openrouter-api";
+      readonly providerApiAuthMode?: ProviderApiAuthMode;
     } = {},
   ): Promise<ReviewActionV2E2EAuthorization> {
     const runAttempt = input.sourceRunAttempt ?? "1";
@@ -1031,7 +1080,7 @@ export class ReviewActionV2E2EHarness {
       {
         limit: 20,
         handlers: input.handlers ?? this.worker.handlers,
-        knownHandlers: this.worker.handlers,
+        knownHandlers: this.knownOutboxHandlers,
         claimOwnerHash: sha256(`${this.prefix}-outbox-owner`),
         processingLeaseMs: 100,
         heartbeatIntervalMs: 50,
@@ -1090,6 +1139,9 @@ export class ReviewActionV2E2EHarness {
       },
       githubAppId: requiredString(this.env.GITHUB_APP_ID),
       githubPrivateKey: requiredString(this.env.GITHUB_APP_PRIVATE_KEY),
+      settlementHook: createReviewStatisticsSettlementCapture(
+        this.statistics.outboxWriter,
+      ),
     });
     return runtime.progress?.runMaintenance();
   }
@@ -1353,7 +1405,7 @@ export class ReviewActionV2E2EHarness {
       claimOwnerHash: sha256(`${this.prefix}-abandoned-owner`),
       claimForMs: 1,
       availableHandlers: this.worker.handlers,
-      knownHandlers: this.worker.handlers,
+      knownHandlers: this.knownOutboxHandlers,
     });
     if (claimed.length !== 1) {
       throw new Error("review_v2_e2e_stale_claim_not_acquired");
@@ -1473,7 +1525,7 @@ export class ReviewActionV2E2EHarness {
   private async signOidcToken(
     runAttempt: string,
     expiresAt: number,
-    providerApiAuthMode?: "openrouter-api",
+    providerApiAuthMode?: ProviderApiAuthMode,
   ): Promise<string> {
     this.oidcOrdinal += 1;
     const keyPair = oidcSigningKeys.get(this.fakeGitHub.options.oidcKeyId);
@@ -1559,6 +1611,8 @@ export async function resetReviewActionV2E2EDatabase(
         "ReviewExecutionStreamV2",
         "ReviewRequestedIntent",
         "ReviewEvidenceObservation",
+        "ReviewRunCompanionDispatchV1",
+        "ReviewThreadResolutionGuardV1",
         "ReviewRunAuthorizationRenewalReceipt",
         "ReviewRunAuthorization",
         "ReviewSafetyPolicySelector",
@@ -1622,6 +1676,8 @@ async function seedProductionControlPlane(
     protocolMaxAttemptsPerSlot?: number;
     agentProfiles?: readonly ReviewAgentProfile[];
     prDescriptionProfile?: boolean;
+    lifecycleVerificationProfile?: boolean;
+    repositoryProviderSelection: "rotating" | "none";
   }>,
 ): Promise<void> {
   const now = new Date();
@@ -1690,6 +1746,13 @@ async function seedProductionControlPlane(
       ...(ids.prDescriptionProfile
         ? { prDescriptionProfile: { ...prDescriptionExtensionV1 } }
         : {}),
+      ...(ids.lifecycleVerificationProfile
+        ? {
+            lifecycleVerificationProfile: {
+              ...lifecycleVerificationExtensionV1,
+            },
+          }
+        : {}),
       contextGatewayPolicyVersion:
         ids.investigationProfile?.gatewayPolicyVersion ??
         "e2e-gateway-policy-v1",
@@ -1717,10 +1780,21 @@ async function seedProductionControlPlane(
       name: "Disposable Review Action v2 E2E",
     },
   });
-  await new PrismaReviewConfigurationRepository(prisma).saveNextVersion({
-    target: { scope: "workspace", workspaceId: ids.workspaceId },
-    policy: workspacePolicyFixture,
-    expectedVersion: null,
+  const configurations = new PrismaReviewConfigurationRepository(
+    prisma,
+    undefined,
+    false,
+    undefined,
+  );
+  await configurations.saveNextVersions({
+    workspaceId: ids.workspaceId,
+    writes: [
+      {
+        target: { scope: "workspace", workspaceId: ids.workspaceId },
+        policy: workspacePolicyDocumentFixture(workspacePolicyFixture),
+        expectedVersion: null,
+      },
+    ],
   });
   await prisma.gitHubInstallation.create({
     data: {
@@ -1768,6 +1842,18 @@ async function seedProductionControlPlane(
       boundAt: now,
     },
   });
+  if (ids.repositoryProviderSelection === "rotating") {
+    const target = {
+      scope: "repository" as const,
+      workspaceId: ids.workspaceId,
+      repositoryId: ids.repositoryConnectionId,
+    };
+    await configurations.saveNextVersion({
+      target,
+      expectedVersion: null,
+      ...systemPolicyWriteFixture(workspacePolicyFixture, target),
+    });
+  }
   await prisma.reviewMutationAuthority.create({
     data: {
       scmRepositoryIdentityId: ids.scmRepositoryIdentityId,
@@ -1825,6 +1911,7 @@ function productionEnv(input: {
   readonly operationalSloProfileId: string;
   readonly investigationProfile?: ReviewActionV2E2EInvestigationProfile;
   readonly prDescriptionProfile?: boolean;
+  readonly lifecycleVerificationProfile?: boolean;
 }): Readonly<Record<string, string>> {
   const contextReplayKeyId = "review-v2-e2e-context-key";
   const signingKeys = JSON.stringify([
@@ -1856,6 +1943,9 @@ function productionEnv(input: {
         agentProfiles: input.agentProfiles ?? approvedAgentProfilesFixture,
         ...(input.prDescriptionProfile
           ? { prDescriptionProfile: prDescriptionExtensionV1 }
+          : {}),
+        ...(input.lifecycleVerificationProfile
+          ? { lifecycleVerificationProfile: lifecycleVerificationExtensionV1 }
           : {}),
         reviewInvestigationCapability: input.investigationProfile
           ? reviewInvestigationCapabilityV1

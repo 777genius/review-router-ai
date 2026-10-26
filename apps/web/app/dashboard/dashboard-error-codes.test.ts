@@ -104,7 +104,7 @@ describe("safeDashboardErrorCode", () => {
 describe("policy readiness errors", () => {
   it.each([
     "review_policy_resave_required",
-    "review_workspace_policy_required",
+    "review_provider_selection_required",
   ])("preserves %s", (code) => {
     expect(safeDashboardErrorCode(new Error(code))).toBe(code);
   });
@@ -180,4 +180,12 @@ describe("dashboardUntrustedWorkflowPathFromError", () => {
     ).toBeNull();
     expect(dashboardUntrustedWorkflowPathFromError("not-an-error")).toBeNull();
   });
+});
+
+it.each([
+  "provider_api_direct_requires_single_provider",
+  "provider_api_fast_mode_unsupported",
+  "provider_api_reasoning_effort_unsupported",
+])("preserves the actionable direct-provider correction code %s", (reason) => {
+  expect(safeDashboardErrorCode(new Error(reason))).toBe(reason);
 });

@@ -241,17 +241,23 @@ ACCOUNTS_REFERENCE_E2E_GREP='Skills real Next' \
   --skills-fixture
 ```
 
-The seven browser scenarios cover real creation and explicit Save, mobile navigation,
-dirty-close cancellation, portable text-only SKILL.md import and export,
+The ten browser scenarios cover real creation and explicit Save, mobile navigation,
+keyboard focus trapping and return, dirty-close cancellation, a maximum-size
+text-only SKILL.md export/import round trip with exact Markdown whitespace,
 concurrent-editor CAS conflicts with retained draft and explicit reconciliation,
 a genuine server-action replay by a different current source admin, all 125
 current repository IDs with mixed assignment counts, skill pagination and search
-selection, additive Add/Remove, the explicit 1001-target rejection, a committed
+selection, empty-bulk creation retaining exact repositories even with 51 matching
+name prefixes, additive Add/Remove, the explicit 1001-target rejection, a committed
 Apply whose response is deliberately lost and then retried with the same delta,
 canonical cross-workspace linking, author edits opened from a linked name with
 source and destination library refresh, separate grant and destination acceptance,
-local usage isolation, and the repository-only
-writer removing a revoked dependency without seeing subsequent source changes.
+revocation and unlink, local usage isolation, and the repository-only writer
+removing a revoked dependency without seeing subsequent source changes. Single
+repository checks exercise invalid and valid path scopes, two-editor scope CAS
+reconciliation, repeated Add preserving existing scopes, and persisted Git-root
+opt-in/out. Destination admins also remove an unavailable assignment from an
+inactive repository and unlink its generic workspace row without source metadata.
 
 The lane captures populated library and bulk-dialog screenshots on desktop and
 at a 390×844 mobile viewport under its `browser-artifacts/` directory. Synthetic
@@ -300,3 +306,23 @@ real RR lifecycle controls. Gateway retirement counters/closure are synthetic
 fixtures; native erasure and transport closure require the separate native proof.
 Use an explicit `--repo-root` when launching via `pnpm --dir` because the harness
 has its own workspace file. `--browser-executable` is forwarded to Playwright.
+
+For the account-scoped Codex catalog, run the current Providers edit/add flow
+against the real Next app, session, PostgreSQL and installed Gateway SDK:
+
+```bash
+ACCOUNTS_REFERENCE_E2E_GREP='dynamic Codex account models' \
+pnpm --dir scripts/accounts-reference-e2e run e2e -- \
+  --repo-root "$PWD" --isolated-pglite --account-models-fixture \
+  --work-dir "$PWD/tmp/accounts-reference-e2e/runs/codex-account-models"
+```
+
+The opt-in fixture advertises two authorized accounts with the same Codex
+profile and different model catalogs through `POST /v1/account-models/read`.
+It seeds the current provider registry with a historical saved model. The
+browser verifies that the model remains visible, discovers an unseen model,
+rejects a stale model now offered only by the other account, refreshes only the
+selected account, saves its refreshed model, and adds the second account's
+model. This is an HTTP dependency fixture, not a live Codex/native proof.
+Use the existing explicit `--database-url` and `--browser-executable` options
+where PostgreSQL or a preinstalled Chromium is required.

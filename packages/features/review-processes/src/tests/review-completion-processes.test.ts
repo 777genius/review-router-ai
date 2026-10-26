@@ -9,6 +9,7 @@ import {
   RecoverMissingReviewCompletionProcesses,
   ReviewCompletionProcessCreateStatus,
   ReviewCompletionProcessState,
+  ReviewCompletionSafeReason,
   ReviewCompletionPublicationOutcome,
   ReviewCompletionPublicationState,
   ReviewCompletionSnapshotOutcome,
@@ -217,6 +218,42 @@ describe("review completion processes", () => {
       status: AdvanceReviewCompletionProcessStatus.CompletedSuperseded,
       process: { state: ReviewCompletionProcessState.CompletedSuperseded },
     });
+  });
+
+  it("terminalizes superseded-no-effect publication without successful settlement", async () => {
+    const fixture = await createFixture("superseded-no-effect");
+    fixture.publications.seed(
+      publication("superseded-no-effect", {
+        state: ReviewCompletionPublicationState.Terminal,
+        effectiveOutcome: ReviewCompletionPublicationOutcome.SupersededNoEffect,
+      }),
+    );
+
+    const result = await fixture.advance.execute({
+      executionId: "superseded-no-effect",
+      ownerIdHash: "worker-a",
+    });
+    expect(result).toMatchObject({
+      status: AdvanceReviewCompletionProcessStatus.PublicationNotApplied,
+      process: {
+        state: ReviewCompletionProcessState.PublicationNotApplied,
+        publicationAttemptId: "publication-superseded-no-effect",
+        snapshotCommitReceiptId: null,
+        nextActionAt: null,
+        lastSafeReason:
+          ReviewCompletionSafeReason.PublicationSupersededNoEffect,
+      },
+    });
+    expect(fixture.snapshots.commitCalls).toBe(0);
+
+    fixture.clock.advance(1_000);
+    expect(
+      await fixture.advance.execute({
+        executionId: "superseded-no-effect",
+        ownerIdHash: "worker-b",
+      }),
+    ).toEqual(result);
+    expect(fixture.snapshots.commitCalls).toBe(0);
   });
 
   it("blocks terminal_unknown and never attempts snapshot mutation", async () => {

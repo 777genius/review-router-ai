@@ -7,7 +7,7 @@ import { reviewAgentProfileAgenticContextSaveIssue } from "@reviewrouter/feature
 import type { ReviewAgentProfile } from "@reviewrouter/features-review-run-control";
 import { gatewayModelSupportsReasoningEffort } from "../features/account-gateway/review-reasoning-capabilities";
 
-type GatewaySelection = Extract<
+export type GatewaySelection = Extract<
   ReviewProviderConfiguration,
   { authMode: "codex_account_gateway" }
 >;
@@ -70,13 +70,31 @@ export function isGatewayReviewModelSupported(
  */
 export async function assertGatewayReviewConfigCatalogAllowed(
   config: Pick<ReviewConfiguration, "providers">,
-  loadProfiles: () => Promise<readonly AccountProfileView[]>,
+  loadProfiles: (
+    selection: GatewaySelection,
+  ) => Promise<readonly AccountProfileView[]>,
 ): Promise<boolean> {
-  const selections = config.providers.filter(
-    (row): row is GatewaySelection => row.authMode === "codex_account_gateway",
-  );
+  const selections = config.providers.filter(isGatewaySelection);
   if (selections.length === 0) return false;
-  const profiles = await loadProfiles();
+  // Resolve each exact binding independently, even when profile IDs coincide.
+  for (const selection of selections)
+    assertGatewayReviewConfigSupported(
+      { providers: [selection] },
+      await loadProfiles(selection),
+    );
+  return true;
+}
+
+/**
+ * The catalog rules of `assertGatewayReviewConfigCatalogAllowed` against an
+ * already loaded catalog, without I/O, for checks that run inside a write.
+ */
+export function assertGatewayReviewConfigSupported(
+  config: Pick<ReviewConfiguration, "providers">,
+  profiles: readonly AccountProfileView[],
+): void {
+  const selections = config.providers.filter(isGatewaySelection);
+  if (selections.length === 0) return;
   if (selections.some((row) => !isGatewayReviewModelSupported(row, profiles)))
     throw new Error("gateway_review_model_unsupported");
   if (
@@ -87,6 +105,7 @@ export async function assertGatewayReviewConfigCatalogAllowed(
           row.reasoningEffort,
           profiles.find((profile) => profile.id === row.gatewayProfileRef)
             ?.connection,
+          row.gatewayProfileRef,
         ),
     )
   )
@@ -104,5 +123,10 @@ export async function assertGatewayReviewConfigCatalogAllowed(
     })
   )
     throw new Error("gateway_review_fast_mode_unsupported");
-  return true;
+}
+
+function isGatewaySelection(
+  row: ReviewProviderConfiguration,
+): row is GatewaySelection {
+  return row.authMode === "codex_account_gateway";
 }

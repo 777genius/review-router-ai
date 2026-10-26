@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { ReviewSnapshotV2Record } from "@reviewrouter/features-review-snapshots/v2";
 import type { ReviewPublicationAttemptView } from "@reviewrouter/features-review-publishing/v2";
-import { appliedComparisonResolutions } from "./review-comparison-baseline-resolutions.js";
+import {
+  appliedComparisonResolutions,
+  retainedComparisonResolutionFacts,
+  bindComparisonResolutionHistory,
+} from "./review-comparison-baseline-resolutions.js";
 const lineageId = `rrl_${"a".repeat(32)}`;
 const sha = (text: string) => createHash("sha256").update(text).digest("hex");
 const markerHash = sha(
@@ -128,5 +132,59 @@ describe("comparison resolution receipt evidence", () => {
           changed as unknown as ReviewPublicationAttemptView,
         ),
       ).toEqual([]);
+  });
+  it("retains positive canonical history from a partial attempt independently of current snapshot closure", () => {
+    const partial = view();
+    const candidate = {
+      ...partial,
+      receipts: [],
+      attempt: {
+        ...partial.attempt,
+        state: "reconciling",
+        terminalOutcome: null,
+        publicationAttemptId: "publication",
+        permit: { executionId: "execution", generation: 4n },
+      },
+    } as unknown as ReviewPublicationAttemptView;
+    expect(appliedComparisonResolutions(record, candidate)).toEqual([]);
+    expect(retainedComparisonResolutionFacts(record, candidate)).toMatchObject([
+      {
+        operationId: "op",
+        effectId: "effect",
+        executionId: "execution",
+        generation: "4",
+      },
+    ]);
+    expect(
+      retainedComparisonResolutionFacts(record, { ...candidate, effects: [] }),
+    ).toEqual([]);
+  });
+  it("requires exact native parent bindings and never fabricates missing guard histories", () => {
+    const witness = {
+      targetId: "target",
+      threadId: "thread",
+      parentCommentId: "parent",
+      parentCreatedAt: "2020-01-01T00:00:00.000Z",
+      parentBodyHash: "a".repeat(64),
+    };
+    const history = {
+      threadId: "thread",
+      version: 0,
+      historyCut: null,
+      confirmed: null,
+      pending: [],
+    };
+    expect(bindComparisonResolutionHistory([witness], [history])).toEqual([
+      { ...witness, history },
+    ]);
+    expect(() => bindComparisonResolutionHistory([witness], [])).toThrow(
+      "resolution_history_target_binding_invalid",
+    );
+    expect(() =>
+      bindComparisonResolutionHistory(
+        [{ ...witness, parentBodyHash: "changed" }],
+        [history],
+      ),
+    ).toThrow("resolution_history_target_binding_invalid");
   });
 });

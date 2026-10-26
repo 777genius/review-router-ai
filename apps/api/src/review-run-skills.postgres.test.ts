@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import Fastify from "fastify";
@@ -18,7 +19,10 @@ import {
   PrismaReviewConfigurationRepository,
   parseReviewConfigurationStrict,
 } from "@reviewrouter/features-review-config";
-import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
+import {
+  systemPolicyWriteFixture,
+  workspacePolicyFixture,
+} from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { renderReviewRouterProviderApiCaller } from "@reviewrouter/protocol-review-workflow";
 
 const databaseUrl = process.env.REVIEW_SKILLS_ADMISSION_TEST_DATABASE_URL;
@@ -50,13 +54,23 @@ describe.skipIf(!databaseUrl)(
   "Skills with real PostgreSQL, signed admission and captured companion",
   () => {
     let harness: Awaited<ReturnType<typeof createReviewActionV2E2EHarness>>;
+    const configurations = () =>
+      new PrismaReviewConfigurationRepository(
+        harness.prisma,
+        undefined,
+        false,
+        undefined,
+      );
     let service: ReviewSkillsService;
     let actor: { userId: string };
     let sourceWorkspaceId: string;
     beforeEach(async () => {
       await resetReviewActionV2E2EDatabase(databaseUrl!);
+      // The workspace OpenRouter default below must not be shadowed by the
+      // harness's repository selection.
       harness = await createReviewActionV2E2EHarness(databaseUrl!, {
         agentProfiles: [legacy, supporting],
+        repositoryProviderSelection: "none",
       });
       // Stock test migrations retain the test login as table owner. Production
       // transfers ownership to this NOLOGIN role; give its helper the same narrow
@@ -64,25 +78,40 @@ describe.skipIf(!databaseUrl)(
       await harness.prisma.$executeRawUnsafe(
         'GRANT SELECT, UPDATE("id") ON TABLE public."RepositoryConnection" TO reviewrouter_release_schema_owner',
       );
-      await new PrismaReviewConfigurationRepository(
-        harness.prisma,
-      ).saveNextVersion({
-        target: { scope: "workspace", workspaceId: harness.workspaceId },
-        policy: parseReviewConfigurationStrict({
-          ...workspacePolicyFixture,
-          providers: [
-            {
-              kind: "openrouter",
-              authMode: "openrouter_api_key",
-              model: "openai/gpt-5.3-codex",
-              reasoningEffort: "high",
-              agenticContext: true,
-              fastMode: false,
-              requiredHealthy: true,
-            },
-          ],
-        }),
+      // OpenRouter is delivered only by the workspace's managed API key.
+      await harness.prisma.providerApiKeyConnection.create({
+        data: {
+          workspaceId: harness.workspaceId,
+          providerType: "openrouter",
+          encryptedApiKey: "skills-e2e-ciphertext",
+          keyVersion: 1,
+          latestOperationId: `${harness.workspaceId}-openrouter-key`,
+        },
+      });
+      const workspaceTarget = {
+        scope: "workspace" as const,
+        workspaceId: harness.workspaceId,
+      };
+      await configurations().saveNextVersion({
+        target: workspaceTarget,
         expectedVersion: 1,
+        ...systemPolicyWriteFixture(
+          parseReviewConfigurationStrict({
+            ...workspacePolicyFixture,
+            providers: [
+              {
+                kind: "openrouter",
+                authMode: "openrouter_api_key",
+                model: "openai/gpt-5.3-codex",
+                reasoningEffort: "high",
+                agenticContext: true,
+                fastMode: false,
+                requiredHealthy: true,
+              },
+            ],
+          }),
+          workspaceTarget,
+        ),
       });
       const caller = renderReviewRouterProviderApiCaller({
         runtimeRef: "a".repeat(40),
@@ -146,6 +175,7 @@ describe.skipIf(!databaseUrl)(
     });
     async function assigned() {
       const skill = await service.createSkill({
+        createOperationId: randomUUID(),
         actor,
         workspaceId: sourceWorkspaceId,
         content: content("ONE"),
@@ -397,12 +427,17 @@ describe.skipIf(!databaseUrl)(
     );
 
     it("keeps older Secrets transports legacy and refuses assigned Skills before inference", async () => {
-      await new PrismaReviewConfigurationRepository(
-        harness.prisma,
-      ).saveNextVersion({
-        target: { scope: "workspace", workspaceId: harness.workspaceId },
-        policy: workspacePolicyFixture,
-        expectedVersion: 2,
+      // The rotating Codex fixture is a repository selection (rotating is
+      // never a workspace default); it shadows the OpenRouter default.
+      const repositoryTarget = {
+        scope: "repository" as const,
+        workspaceId: harness.workspaceId,
+        repositoryId: harness.repositoryConnectionId,
+      };
+      await configurations().saveNextVersion({
+        target: repositoryTarget,
+        expectedVersion: null,
+        ...systemPolicyWriteFixture(workspacePolicyFixture, repositoryTarget),
       });
       const first = await harness.authorize();
       const row = await harness.prisma.reviewRunAuthorization.findUniqueOrThrow(

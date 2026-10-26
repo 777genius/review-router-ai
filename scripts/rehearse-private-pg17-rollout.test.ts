@@ -1285,10 +1285,16 @@ describe("disposable dual-version rehearsal", () => {
     const currentMigrationNames = migrationNames;
     const legacyMigrationNames = currentMigrationNames.filter(
       (name) =>
+        name !== "000149_api_key_repository_secret_profiles" &&
+        name !== "000148_lifecycle_verification" &&
+        name !== "000147_review_skills_mutation_identity" &&
+        name !== "000146_drop_review_configuration_projection" &&
+        name !== "000145_workspace_provider_profiles" &&
+        name !== "000144_review_statistics" &&
         name !== "000136_review_skills" &&
         name !== "000137_review_skills_capture",
     );
-    expect(currentMigrationNames).toHaveLength(145);
+    expect(currentMigrationNames).toHaveLength(151);
     expect(
       [...currentMigrationNames]
         .sort()
@@ -1322,7 +1328,13 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000140_personal_oauth_method" &&
         name !== "000141_memory_search_projections" &&
         name !== "000142_optional_gateway_reasoning" &&
+        name !== "000144_review_statistics" &&
         name !== "000143_workspace_draft_review_setting" &&
+        name !== "000145_workspace_provider_profiles" &&
+        name !== "000149_api_key_repository_secret_profiles" &&
+        name !== "000148_lifecycle_verification" &&
+        name !== "000147_review_skills_mutation_identity" &&
+        name !== "000146_drop_review_configuration_projection" &&
         name !== "000133_allow_first_time_scm_identity_bind",
     );
     const withoutProviderKey = historicalCheckout.filter(
@@ -1378,7 +1390,27 @@ describe("disposable dual-version rehearsal", () => {
       "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
     );
     expect(migrationManifestIdentity(currentMigrationNames)).toBe(
-      "sha256:33e264e0296d1a14920007a0dfdfcd297e79337132f374ec02859fda3c7680af",
+      "sha256:bde611c1eb4753d8d21f0f5ac2b97f2c93818aaf7fb48cc9181abe28aa708035",
+    );
+    expect(
+      migrationManifestIdentity(
+        currentMigrationNames.filter(
+          (name) => name !== "000149_api_key_repository_secret_profiles",
+        ),
+      ),
+    ).toBe(
+      "sha256:ae1f73631c1ae9e359a22c421d7bb83751fd831f22ba77304be1d20d01878472",
+    );
+    expect(
+      migrationManifestIdentity(
+        currentMigrationNames.filter(
+          (name) =>
+            name !== "000149_api_key_repository_secret_profiles" &&
+            name !== "000148_lifecycle_verification",
+        ),
+      ),
+    ).toBe(
+      "sha256:597739d44aa5f10551930c1349bed5c1a634b868fd55f9738b32b33ac230e897",
     );
     expect(legacyMigrationNames).toHaveLength(143);
     expect(migrationManifestIdentity(legacyMigrationNames)).toBe(
@@ -1498,6 +1530,12 @@ describe("disposable dual-version rehearsal", () => {
       "000141_memory_search_projections",
       "000142_optional_gateway_reasoning",
       "000143_workspace_draft_review_setting",
+      "000144_review_statistics",
+      "000145_workspace_provider_profiles",
+      "000146_drop_review_configuration_projection",
+      "000147_review_skills_mutation_identity",
+      "000148_lifecycle_verification",
+      "000149_api_key_repository_secret_profiles",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1623,9 +1661,15 @@ describe("disposable dual-version rehearsal", () => {
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
     const exactTail = "000121_review_run_gateway_execution_binding";
-    const currentTail = "000143_workspace_draft_review_setting";
+    const currentTail = "000149_api_key_repository_secret_profiles";
     for (const candidate of [
       names.filter((name) => name !== currentTail),
+      names.filter(
+        (name) => name !== "000146_drop_review_configuration_projection",
+      ),
+      names.filter((name) => name !== "000145_workspace_provider_profiles"),
+      names.filter((name) => name !== "000144_review_statistics"),
+      names.filter((name) => name !== "000143_workspace_draft_review_setting"),
       names.filter((name) => name !== "000136_review_skills"),
       names.filter((name) => name !== "000137_review_skills_capture"),
       names.filter((name) => name !== "000142_optional_gateway_reasoning"),
@@ -1637,9 +1681,25 @@ describe("disposable dual-version rehearsal", () => {
       names.filter((name) => name !== "000129_personal_run_snapshot_v2"),
       names.filter((name) => name !== "000127_owner_workspace_deletion"),
       [...names, currentTail],
+      [...names, "000145_workspace_provider_profiles"],
+      [...names, "000144_review_statistics"],
+      [...names, "000143_workspace_draft_review_setting"],
       [...names, "000142_optional_gateway_reasoning"],
       [...names, "000140_personal_oauth_method"],
-      names.map((name) => (name === currentTail ? "000143_relabelled" : name)),
+      names.map((name) => (name === currentTail ? "000146_relabelled" : name)),
+      names.map((name) =>
+        name === "000145_workspace_provider_profiles"
+          ? "000145_relabelled"
+          : name,
+      ),
+      names.map((name) =>
+        name === "000144_review_statistics" ? "000144_relabelled" : name,
+      ),
+      names.map((name) =>
+        name === "000143_workspace_draft_review_setting"
+          ? "000143_relabelled"
+          : name,
+      ),
       names.map((name) =>
         name === "000142_optional_gateway_reasoning"
           ? "000142_relabelled"
@@ -1729,6 +1789,12 @@ describe("disposable dual-version rehearsal", () => {
     "000141_memory_search_projections",
     "000142_optional_gateway_reasoning",
     "000143_workspace_draft_review_setting",
+    "000144_review_statistics",
+    "000145_workspace_provider_profiles",
+    "000146_drop_review_configuration_projection",
+    "000147_review_skills_mutation_identity",
+    "000148_lifecycle_verification",
+    "000149_api_key_repository_secret_profiles",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1803,7 +1869,13 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000140_personal_oauth_method" &&
                 name !== "000141_memory_search_projections" &&
                 name !== "000142_optional_gateway_reasoning" &&
+                name !== "000144_review_statistics" &&
                 name !== "000143_workspace_draft_review_setting" &&
+                name !== "000145_workspace_provider_profiles" &&
+                name !== "000149_api_key_repository_secret_profiles" &&
+                name !== "000148_lifecycle_verification" &&
+                name !== "000147_review_skills_mutation_identity" &&
+                name !== "000146_drop_review_configuration_projection" &&
                 name !== "000133_allow_first_time_scm_identity_bind",
               "000102_sdk_growth_current_authority",
             ),

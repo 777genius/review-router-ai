@@ -1,5 +1,7 @@
 import { reviewProviderConfigurationSchema } from "../domain/review-configuration";
 import {
+  providerProfileFixture,
+  workspacePolicyDocumentFixture,
   workspacePolicyFixture,
   workspaceProviderFixture,
 } from "./current-policy-fixture";
@@ -12,10 +14,9 @@ import {
   mapConfigToRuntimeEnv,
   parseReviewConfiguration,
   parseReviewConfigurationStrict,
-  PrismaReviewConfigurationRepository,
   resolveReviewConfiguration,
-  resolveReviewPolicy,
   resolveReviewRuntimeEnv,
+  resolveEffectiveReviewPolicy,
   reviewAgentProfileAgenticContextSaveIssue,
   saveReviewConfiguration,
 } from "../index";
@@ -77,12 +78,23 @@ describe("review configuration", () => {
           ? {}
           : { updatePrDescription: workspaceValue }),
       });
-      const resolved = resolveReviewPolicy(workspace, {
-        schemaVersion: 3,
-        ...(repositoryValue === undefined
-          ? {}
-          : { updatePrDescription: repositoryValue }),
-      });
+      const resolved = resolveEffectiveReviewPolicy({
+        target: {
+          scope: "repository",
+          workspaceId: "workspace_1",
+          repositoryId: "repo_1",
+        },
+        workspace: workspacePolicyDocumentFixture(workspace, [
+          "profile_hosted_55",
+        ]),
+        repository: {
+          schemaVersion: 4,
+          ...(repositoryValue === undefined
+            ? {}
+            : { updatePrDescription: repositoryValue }),
+        },
+        profiles: repositoryWithProfiles().profiles,
+      })!.config;
       expect(resolved.updatePrDescription).toBe(resolvedValue);
       expect(Object.hasOwn(resolved, "updatePrDescription")).toBe(
         resolvedValue !== undefined,
@@ -410,7 +422,7 @@ describe("review configuration", () => {
         providers: [
           {
             kind: "codex",
-            authMode: "codex_subscription_oauth",
+            authMode: "codex_subscription_oauth_rotating",
             model: "gpt-5.5",
           },
         ],
@@ -421,14 +433,14 @@ describe("review configuration", () => {
   });
 
   it("versions workspace review configuration through the repository port", async () => {
-    const configurations = new InMemoryReviewConfigurationRepository();
+    const configurations = repositoryWithProfiles();
     const target = { scope: "workspace", workspaceId: "workspace_1" } as const;
 
     await expect(
       saveReviewConfiguration(
         {
           target,
-          policy: workspacePolicyFixture,
+          policy: workspaceDocument("profile_hosted_55"),
         },
         { configurations },
       ),
@@ -437,19 +449,19 @@ describe("review configuration", () => {
     const updated = await saveReviewConfiguration(
       {
         target,
-        policy: (() => {
-          const provider = {
-            ...workspaceProviderFixture,
-            reasoningEffort: "high" as const,
-            fastMode: true,
-          };
-          return {
-            ...workspacePolicyFixture,
-
-            providers: [provider],
-            investigationRollout: disabledInvestigationRollout,
-          };
-        })(),
+        policy: {
+          ...workspaceDocument("profile_hosted_55"),
+          providers: [
+            {
+              profileId: "profile_hosted_55",
+              reasoningEffort: "high",
+              agenticContext: true,
+              fastMode: true,
+              requiredHealthy: true,
+            },
+          ],
+          investigationRollout: disabledInvestigationRollout,
+        },
       },
       { configurations },
     );
@@ -466,250 +478,8 @@ describe("review configuration", () => {
     });
   });
 
-  it("persists normalized provider rows through the Prisma repository", async () => {
-    type ProviderRow = {
-      providerKind: string;
-      providerAuthMode: string;
-      model: string;
-      reasoningEffort: string;
-      agenticContext: boolean;
-      fastMode: boolean;
-      requiredHealthy: boolean;
-    };
-    type VersionRow = {
-      id: string;
-      version: number;
-      schemaVersion: number;
-      policyJson: string;
-      providerKind: string;
-      providerAuthMode: string;
-      model: string;
-      reasoningEffort: string;
-      agenticContext: boolean;
-      fastMode: boolean;
-      failOnSeverity: string;
-      inlineMaxComments: number;
-      providerLimit: number;
-      providerMaxParallel: number;
-      inlineMinAgreement: number;
-      targetTokensPerBatch: number;
-      reviewLanguage: string | null;
-      investigationRecordingEnabled: boolean;
-      investigationShadowEnabled: boolean;
-      investigationContextCriticEnabled: boolean;
-      investigationVerifiedCleanEnabled: boolean;
-      investigationCrossRevisionReplayEnabled: boolean;
-      investigationProductionEffectsEnabled: boolean;
-      providers: ProviderRow[];
-    };
-    type ConfigurationRow = {
-      id: string;
-      workspaceId: string;
-      active: boolean;
-    };
-    type PrismaStub = {
-      $transaction<T>(
-        callback: (
-          tx: Omit<PrismaStub, "$transaction"> & {
-            $queryRaw(): Promise<unknown[]>;
-          },
-        ) => Promise<T>,
-      ): Promise<T>;
-      reviewConfiguration: {
-        upsert(): Promise<ConfigurationRow>;
-        findMany(): Promise<{ versions: { policyJson: string }[] }[]>;
-        findUnique(): Promise<{ active: boolean; versions: VersionRow[] }>;
-        update(input: {
-          where: { id: string };
-          data: { active: boolean };
-        }): Promise<ConfigurationRow>;
-        deleteMany(): Promise<{ count: number }>;
-      };
-      reviewConfigurationVersion: {
-        findFirst(): Promise<{ version: number } | null>;
-        create(input: {
-          data: Omit<VersionRow, "providers"> & {
-            providers: { create: ProviderRow[] };
-          };
-        }): Promise<VersionRow>;
-      };
-    };
-    const configuration: ConfigurationRow = {
-      id: "review_config_1",
-      workspaceId: "workspace_1",
-      active: true,
-    };
-    const versions: VersionRow[] = [];
-    const descendants: { versions: { policyJson: string }[] }[] = [];
-    let transactionAttempts = 0;
-    const prisma: PrismaStub = {
-      $transaction: async <T>(
-        callback: (
-          tx: Omit<PrismaStub, "$transaction"> & {
-            $queryRaw(): Promise<unknown[]>;
-          },
-        ) => Promise<T>,
-      ) => {
-        transactionAttempts += 1;
-        if (transactionAttempts === 1) {
-          throw { code: "P2034" };
-        }
-        return callback({
-          $queryRaw: async () => [],
-          reviewConfiguration: prisma.reviewConfiguration,
-          reviewConfigurationVersion: prisma.reviewConfigurationVersion,
-        });
-      },
-      reviewConfiguration: {
-        findMany: async () => descendants,
-        upsert: async () => ({ ...configuration }),
-        findUnique: async () => ({
-          active: configuration.active,
-          versions: versions.length ? [versions[versions.length - 1]!] : [],
-        }),
-        update: async ({ where, data }) => {
-          if (where.id !== configuration.id) {
-            throw new Error("review_configuration_not_found");
-          }
-          configuration.active = data.active;
-          return { ...configuration };
-        },
-        deleteMany: async () => ({ count: 1 }),
-      },
-      reviewConfigurationVersion: {
-        findFirst: async () =>
-          versions.length
-            ? { version: versions[versions.length - 1]!.version }
-            : null,
-        create: async ({
-          data,
-        }: {
-          data: Omit<VersionRow, "providers"> & {
-            providers: {
-              create: ProviderRow[];
-            };
-          };
-        }) => {
-          const record = {
-            id: `version_${versions.length + 1}`,
-            version: data.version,
-            schemaVersion: data.schemaVersion,
-            policyJson: data.policyJson,
-            providerKind: data.providerKind,
-            providerAuthMode: data.providerAuthMode,
-            model: data.model,
-            reasoningEffort: data.reasoningEffort,
-            agenticContext: data.agenticContext,
-            fastMode: data.fastMode,
-            failOnSeverity: data.failOnSeverity,
-            inlineMaxComments: data.inlineMaxComments,
-            providerLimit: data.providerLimit,
-            providerMaxParallel: data.providerMaxParallel,
-            inlineMinAgreement: data.inlineMinAgreement,
-            targetTokensPerBatch: data.targetTokensPerBatch,
-            reviewLanguage: data.reviewLanguage ?? null,
-            investigationRecordingEnabled: data.investigationRecordingEnabled,
-            investigationShadowEnabled: data.investigationShadowEnabled,
-            investigationContextCriticEnabled:
-              data.investigationContextCriticEnabled,
-            investigationVerifiedCleanEnabled:
-              data.investigationVerifiedCleanEnabled,
-            investigationCrossRevisionReplayEnabled:
-              data.investigationCrossRevisionReplayEnabled,
-            investigationProductionEffectsEnabled:
-              data.investigationProductionEffectsEnabled,
-            providers: data.providers.create,
-          };
-          versions.push(record);
-          return record;
-        },
-      },
-    };
-    const repository = new PrismaReviewConfigurationRepository(prisma as never);
-    const config = parseReviewConfiguration({
-      ...workspacePolicyFixture,
-      providers: [
-        {
-          kind: "codex",
-          authMode: "codex_subscription_oauth",
-          model: "gpt-5.5",
-          reasoningEffort: "high",
-          agenticContext: true,
-          fastMode: false,
-        },
-        {
-          kind: "openrouter",
-          authMode: "openrouter_api_key",
-          model: "poolside/laguna-m.1:free",
-          reasoningEffort: "medium",
-          agenticContext: true,
-          fastMode: false,
-        },
-      ],
-      execution: {
-        providerLimit: 2,
-        providerMaxParallel: 2,
-        inlineMinAgreement: 2,
-      },
-      investigationRollout: enabledInvestigationRollout,
-    });
-
-    const saved = await repository.saveNextVersion({
-      target: { scope: "workspace", workspaceId: "workspace_1" },
-      policy: config,
-    });
-    const latest = await repository.findLatest({
-      scope: "workspace",
-      workspaceId: "workspace_1",
-    });
-
-    expect(saved.config.providers).toHaveLength(2);
-    expect(latest?.config.providers.map((provider) => provider.model)).toEqual([
-      "gpt-5.5",
-      "poolside/laguna-m.1:free",
-    ]);
-    expect(versions[0]?.model).toBe("gpt-5.5");
-    expect(versions[0]?.providers.map((provider) => provider.model)).toEqual([
-      "gpt-5.5",
-      "poolside/laguna-m.1:free",
-    ]);
-    expect(
-      versions[0]?.providers.map((provider) => provider.requiredHealthy),
-    ).toEqual([false, false]);
-    expect(latest?.config.investigationRollout).toEqual(
-      enabledInvestigationRollout,
-    );
-    expect(versions[0]?.investigationProductionEffectsEnabled).toBe(true);
-    expect(transactionAttempts).toBe(2);
-    descendants.push({
-      versions: [
-        {
-          policyJson: JSON.stringify({
-            schemaVersion: 3,
-            execution: { providerLimit: 2 },
-          }),
-        },
-      ],
-    });
-    await expect(
-      repository.saveNextVersion({
-        target: { scope: "workspace", workspaceId: "workspace_1" },
-        expectedVersion: 1,
-        policy: workspacePolicyFixture,
-      }),
-    ).rejects.toThrow("review execution limits do not match providers");
-    expect(versions).toHaveLength(1);
-    const compatible = await repository.saveNextVersion({
-      target: { scope: "workspace", workspaceId: "workspace_1" },
-      expectedVersion: 1,
-      policy: { ...config, reviewLanguage: "ru" },
-    });
-    expect(compatible.version).toBe(2);
-    expect(compatible.config.reviewLanguage).toBe("ru");
-  });
-
-  it("requires workspace policy and resolves explicit repository overrides", async () => {
-    const configurations = new InMemoryReviewConfigurationRepository();
+  it("inherits the workspace default and resolves explicit repository overrides", async () => {
+    const configurations = repositoryWithProfiles();
     const workspaceTarget = {
       scope: "workspace",
       workspaceId: "workspace_1",
@@ -727,18 +497,10 @@ describe("review configuration", () => {
     await saveReviewConfiguration(
       {
         target: workspaceTarget,
-        policy: (() => {
-          const provider = {
-            ...workspaceProviderFixture,
-            model: "gpt-5.4",
-          };
-          return {
-            ...workspacePolicyFixture,
-
-            providers: [provider],
-            investigationRollout: disabledInvestigationRollout,
-          };
-        })(),
+        policy: {
+          ...workspaceDocument("profile_hosted_54"),
+          investigationRollout: disabledInvestigationRollout,
+        },
       },
       { configurations },
     );
@@ -758,25 +520,28 @@ describe("review configuration", () => {
     await saveReviewConfiguration(
       {
         target: repositoryTarget,
-        policy: (() => {
-          const provider = {
-            ...workspaceProviderFixture,
-            model: "gpt-5.4-mini",
-          };
-          return {
-            ...workspacePolicyFixture,
-
-            providers: [provider],
-            blockingPolicy: { failOnSeverity: "major" as const },
-            investigationRollout: enabledInvestigationRollout,
-          };
-        })(),
+        policy: {
+          schemaVersion: 4,
+          providers: [
+            {
+              profileId: "profile_rotating_mini",
+              reasoningEffort: "high",
+              agenticContext: true,
+              fastMode: false,
+              requiredHealthy: true,
+            },
+          ],
+          blockingPolicy: { failOnSeverity: "major" },
+          investigationRollout: enabledInvestigationRollout,
+        },
       },
       { configurations },
     );
 
     await expect(
-      resolveReviewRuntimeEnv(repositoryTarget, { configurations }),
+      resolveReviewRuntimeEnv(repositoryTarget, {
+        policyHeads: configurations,
+      }),
     ).resolves.toMatchObject({
       source: "repository",
       runtimeEnv: {
@@ -789,8 +554,8 @@ describe("review configuration", () => {
     });
   });
 
-  it("clears repository overrides and falls back to workspace config", async () => {
-    const configurations = new InMemoryReviewConfigurationRepository();
+  it("clears repository overrides and falls back to the workspace default", async () => {
+    const configurations = repositoryWithProfiles();
     const workspaceTarget = {
       scope: "workspace",
       workspaceId: "workspace_1",
@@ -804,34 +569,25 @@ describe("review configuration", () => {
     await saveReviewConfiguration(
       {
         target: workspaceTarget,
-        policy: (() => {
-          const provider = {
-            ...workspaceProviderFixture,
-            model: "gpt-5.4",
-          };
-          return {
-            ...workspacePolicyFixture,
-
-            providers: [provider],
-          };
-        })(),
+        policy: workspaceDocument("profile_hosted_54"),
       },
       { configurations },
     );
     await saveReviewConfiguration(
       {
         target: repositoryTarget,
-        policy: (() => {
-          const provider = {
-            ...workspaceProviderFixture,
-            model: "gpt-5.4-mini",
-          };
-          return {
-            ...workspacePolicyFixture,
-
-            providers: [provider],
-          };
-        })(),
+        policy: {
+          schemaVersion: 4,
+          providers: [
+            {
+              profileId: "profile_rotating_mini",
+              reasoningEffort: "high",
+              agenticContext: true,
+              fastMode: false,
+              requiredHealthy: true,
+            },
+          ],
+        },
       },
       { configurations },
     );
@@ -842,7 +598,7 @@ describe("review configuration", () => {
       source: "repository",
       config: { providers: [{ model: "gpt-5.4-mini" }] },
     });
-    const history = new Map(configurations.versions);
+    const history = new Map(configurations.heads);
     const current = await configurations.findLatest(repositoryTarget);
     await expect(
       clearReviewConfiguration(
@@ -865,9 +621,44 @@ describe("review configuration", () => {
     await expect(
       clearReviewConfiguration(repositoryTarget, { configurations }),
     ).resolves.toBe(false);
-    expect(configurations.versions).toEqual(history);
+    expect(configurations.heads).toEqual(history);
   });
 });
+
+/** Hosted pool defaults and a rotating repository provider of repo_1. */
+function repositoryWithProfiles(): InMemoryReviewConfigurationRepository {
+  const configurations = new InMemoryReviewConfigurationRepository();
+  for (const [id, model] of [
+    ["profile_hosted_55", "gpt-5.5"],
+    ["profile_hosted_54", "gpt-5.4"],
+  ] as const)
+    configurations.addProfile(
+      providerProfileFixture({
+        id,
+        credential: {
+          kind: "hosted_pool",
+          authMode: "codex_subscription_oauth_hosted_pool",
+        },
+        model,
+      }),
+    );
+  configurations.addProfile(
+    providerProfileFixture({
+      id: "profile_rotating_mini",
+      credential: {
+        kind: "repository_rotating",
+        authMode: "codex_subscription_oauth_rotating",
+        repositoryId: "repo_1",
+      },
+      model: "gpt-5.4-mini",
+    }),
+  );
+  return configurations;
+}
+
+function workspaceDocument(profileId: string) {
+  return workspacePolicyDocumentFixture(workspacePolicyFixture, [profileId]);
+}
 
 const gatewayProvider = {
   kind: "codex",
@@ -888,6 +679,7 @@ const gatewayConfigInput = (provider: unknown) => ({
 });
 
 it.each([
+  { model: "codex-dynamic-fixture", reasoningEffort: "minimal" },
   { model: "mimo-v2.6-pro", reasoningEffort: "high" },
   { model: "openai/gpt-5.6-sol", reasoningEffort: "ultra" },
 ] as const)(
@@ -998,7 +790,6 @@ it.each([
   { authMode: "unknown_gateway" },
   { authMode: "codex_subscription_oauth_rotating" },
   { authMode: "codex_subscription_oauth_hosted_pool" },
-  { authMode: "codex_openai_api_key" },
   { ownerWorkspaceId: "caller-owner" },
   { principal: "caller-user" },
   { token: "secret" },
@@ -1039,28 +830,41 @@ const legacyGatewayPolicyInput = {
   investigationRollout: disabledInvestigationRollout,
 };
 
-it("keeps legacy canonical policy JSON and digest byte-identical without optional features", async () => {
+it("materializes canonical runtime JSON and digest byte-identical to the configuration of its profiles", async () => {
   const parsed = parseReviewConfigurationStrict(legacyGatewayPolicyInput);
   expect(Object.keys(parsed.providers[0]!)).not.toContain("agentProfileRef");
   expect(Object.hasOwn(parsed, "updatePrDescription")).toBe(false);
-  expect(canonicalJson(resolveReviewPolicy(parsed, { schemaVersion: 3 }))).toBe(
-    canonicalJson(parsed),
-  );
   expect(canonicalJson(parsed)).toBe(
     '{"blockingPolicy":{"failOnSeverity":"critical"},"execution":{"inlineMinAgreement":1,"providerLimit":1,"providerMaxParallel":1},"investigationRollout":{"contextCriticEnabled":false,"crossRevisionReplayEnabled":false,"productionEffectsEnabled":false,"recordingEnabled":false,"shadowEnabled":false,"verifiedCleanEnabled":false},"limits":{"inlineMaxComments":50,"targetTokensPerBatch":50000},"providers":[{"agenticContext":true,"authMode":"codex_account_gateway","fastMode":true,"gatewayBindingId":"binding-safe","gatewayProfileRef":"profile-mimo","kind":"codex","model":"mimo-v2-pro","reasoningEffort":"high","requiredHealthy":false}],"reviewLanguage":null,"schemaVersion":3}',
   );
   const configurations = new InMemoryReviewConfigurationRepository();
+  configurations.addProfile(
+    providerProfileFixture({
+      id: "profile_gateway",
+      credential: {
+        kind: "gateway_binding",
+        authMode: "codex_account_gateway",
+        bindingId: "binding-safe",
+        gatewayProfileRef: "profile-mimo",
+      },
+      model: "mimo-v2-pro",
+    }),
+  );
   const target = { scope: "workspace", workspaceId: "workspace_1" } as const;
   await saveReviewConfiguration(
-    { target, policy: legacyGatewayPolicyInput },
+    {
+      target,
+      policy: workspacePolicyDocumentFixture(parsed, ["profile_gateway"]),
+    },
     { configurations },
   );
-  await expect(
-    findReviewConfiguration(target, { configurations }),
-  ).resolves.toMatchObject({
-    effectivePolicyDigest:
-      "14096179835af919b1664f7414fa8fb209b9261a85a855a0a43d5bbfd042cf28",
-  });
+  const resolved = await findReviewConfiguration(target, { configurations });
+  // The same bytes the previous stored format resolved to, so the digest of
+  // running reviews and snapshots does not move.
+  expect(canonicalJson(resolved?.config)).toBe(canonicalJson(parsed));
+  expect(resolved?.effectivePolicyDigest).toBe(
+    "sha256:14096179835af919b1664f7414fa8fb209b9261a85a855a0a43d5bbfd042cf28",
+  );
 });
 
 // Detects engine-selection smuggling outside the Account Gateway provider row.

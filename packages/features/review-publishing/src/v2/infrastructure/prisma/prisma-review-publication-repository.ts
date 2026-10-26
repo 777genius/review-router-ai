@@ -38,8 +38,18 @@ import {
 } from "../../domain/review-publication-attempt";
 import { reviewPublicationNoEffectProofHash } from "../review-publication-no-effect-proof";
 import {
+  canonicalResolutionTarget,
+  canonicalResolutionFact,
+  recordPendingResolution,
+  settleResolution,
+  accountIssuedResolution,
+} from "./prisma-review-thread-resolution-history";
+import {
   AdjudicateReviewPublicationOutcomeStatus,
   BeginReviewPublicationOperationStatus,
+  ReviewPublicationGateRejectedError,
+  ReviewPublicationGateRejectionReason,
+  CurrentReviewPublicationFact,
   ClaimReviewPublicationStatus,
   CompleteReviewPublicationOperationStatus,
   ProveReviewPublicationNoEffectStatus,
@@ -674,6 +684,60 @@ export class PrismaReviewPublicationRepository
         };
       }
 
+      try {
+        const guardedAttempt = await requiredAttempt(
+          transaction,
+          command.publicationAttemptId,
+        );
+        const guardedOperation = toDomainOperation(operationRow);
+        const resolutionTarget = await canonicalResolutionTarget(
+          transaction,
+          guardedAttempt,
+          guardedOperation,
+        );
+        if (resolutionTarget) {
+          await recordPendingResolution(
+            transaction,
+            { ...guardedAttempt.permit, threadId: resolutionTarget.threadId },
+            canonicalResolutionFact(guardedAttempt, guardedOperation, now),
+            resolutionTarget.parentCreatedAt
+              ? { parentCreatedAt: resolutionTarget.parentCreatedAt }
+              : {},
+          );
+        }
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "";
+        if (
+          [
+            "resolution_writers_draining",
+            "guarded_publication_required",
+            "previously_resolved_thread_reopened",
+            "resolution_effect_unknown",
+            "resolution_repository_binding_changed",
+            "untracked_legacy_possibility",
+          ].includes(code)
+        )
+          throw new ReviewPublicationGateRejectedError(
+            ReviewPublicationGateRejectionReason.LifecycleNotCurrent,
+          );
+        if (
+          [
+            "resolution_projection_missing",
+            "resolution_projection_mismatch",
+            "resolution_operation_target_invalid",
+            "resolution_connection_missing",
+            "resolution_entry_mode_invalid",
+            "resolution_parent_creation_unavailable",
+            "resolution_parent_creation_mismatch",
+          ].includes(code)
+        )
+          throw new ReviewPublicationGateRejectedError(
+            ReviewPublicationGateRejectionReason.PublicationFactsUnavailable,
+            [CurrentReviewPublicationFact.Lifecycle],
+          );
+        throw error;
+      }
+
       const operationAttemptRow =
         await transaction.reviewPublicationOperationAttemptV2.create({
           data: {
@@ -869,6 +933,19 @@ export class PrismaReviewPublicationRepository
           },
         });
       ensureUpdatedOnce(updated.count, "publication_no_effect_proof_conflict");
+      const resolutionTarget = await accountIssuedResolution(
+        transaction,
+        attempt,
+        operation,
+        operationAttempt.startedAt,
+      );
+      if (resolutionTarget)
+        await settleResolution(
+          transaction,
+          { ...attempt.permit, threadId: resolutionTarget.threadId },
+          operation.publicationOperationId,
+          "no_effect",
+        );
       const provenRow =
         await transaction.reviewPublicationOperationAttemptV2.findUniqueOrThrow(
           {
@@ -1018,6 +1095,28 @@ export class PrismaReviewPublicationRepository
             observedAt: command.observedAt,
           },
         });
+      const resolutionTarget = await accountIssuedResolution(
+        transaction,
+        attempt,
+        operation,
+        operationAttempt.startedAt,
+      );
+      if (
+        resolutionTarget &&
+        command.effectKind !== "lifecycle_compensated" &&
+        command.externalObjectId === `thread:${resolutionTarget.threadId}`
+      ) {
+        await settleResolution(
+          transaction,
+          { ...attempt.permit, threadId: resolutionTarget.threadId },
+          operation.publicationOperationId,
+          "confirmed",
+          {
+            effectId: effectRow.effectId,
+            observedAt: effectRow.observedAt.toISOString(),
+          },
+        );
+      }
       return {
         status: RecordReviewExternalEffectStatus.Recorded,
         effect: toDomainEffect(effectRow),
