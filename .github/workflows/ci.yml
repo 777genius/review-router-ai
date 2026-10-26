@@ -1145,6 +1145,44 @@ jobs:
           REVIEW_ROUTER_ACTION_SOURCE_DIR: ${{ github.workspace }}/.paired/review-router-action
         run: pnpm exec vitest run apps/api/src/review-run-skills.postgres.test.ts --testNamePattern "delivers a signed captured snapshot"
 
+      - name: Paired Review Action memory HTTP and PostgreSQL proof
+        env:
+          REVIEW_ROUTER_MEMORY_PAIRED_E2E: "1"
+          REVIEW_ROUTER_ACTION_SOURCE_DIR: ${{ github.workspace }}/.paired/review-router-action
+        run: |
+          mkdir -p tmp/memory-authority
+          pnpm exec vitest run --no-file-parallelism \
+            scripts/memory-e2e/paired-action-memory.pg.test.ts \
+            --reporter=default --reporter=json \
+            --outputFile=tmp/memory-authority/paired-action-memory.json
+          node --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          import { readFileSync } from "node:fs";
+          import path from "node:path";
+          const report = JSON.parse(readFileSync("tmp/memory-authority/paired-action-memory.json", "utf8"));
+          assert.equal(report.success, true);
+          assert.equal(report.numTotalTests, 1);
+          assert.equal(report.numPassedTests, 1);
+          assert.equal(report.numFailedTests, 0);
+          assert.equal(report.numPendingTests, 0);
+          assert.equal(report.numTodoTests, 0);
+          assert.equal(report.testResults.length, 1);
+          const [suite] = report.testResults;
+          assert.equal(path.resolve(suite.name), path.resolve("scripts/memory-e2e/paired-action-memory.pg.test.ts"));
+          assert.equal(suite.status, "passed");
+          assert.equal(suite.assertionResults.length, 1);
+          assert.equal(suite.assertionResults[0].status, "passed");
+          NODE
+
+      - name: Preserve paired Action memory proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: paired-action-memory-${{ github.sha }}
+          path: tmp/memory-authority/paired-action-memory.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Record paired Action release gate
         shell: bash
         run: |
