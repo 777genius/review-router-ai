@@ -6,6 +6,8 @@ import {
   defaultProviderSelectionSettings,
   fitProviderSelectionSettings,
   ProviderModelFields,
+  providerSelectionSettingsNeedCorrection,
+  type ProviderModelFieldsProps,
 } from "./provider-model-fields";
 
 beforeEach(() =>
@@ -136,4 +138,155 @@ it("renders and preserves legacy Ultra without silently choosing a new saved eff
       settings: { agenticContext: true, fastMode: false },
     }).reasoningEffort,
   ).toBeUndefined();
+});
+
+describe("independent review controls and unresolved account capabilities", () => {
+  const props: ProviderModelFieldsProps = {
+    authMode: "openrouter_api_key",
+    model: "vendor/model",
+    onModelChange: null,
+    modelOptions: [],
+    modelChoice: "catalog",
+    settings: {
+      reasoningEffort: "xhigh",
+      agenticContext: true,
+      fastMode: false,
+    },
+    onSettingsChange: () => {},
+    agentProfileOptions: [],
+    disabled: false,
+  };
+
+  it.each(["openrouter_api_key", "kimi_code_api_key"] as const)(
+    "exposes file reading for %s without inventing reasoning, fast or engine controls",
+    (authMode) => {
+      const onSettingsChange = vi.fn();
+      const settings =
+        authMode === "kimi_code_api_key"
+          ? { agenticContext: true, fastMode: false }
+          : props.settings;
+      render(
+        <ProviderModelFields
+          {...props}
+          authMode={authMode}
+          settings={settings}
+          onSettingsChange={onSettingsChange}
+        />,
+      );
+      expect(
+        screen.queryByRole("combobox", { name: /^Review depth/ }),
+      ).toBeNull();
+      expect(
+        screen.queryByRole("combobox", { name: /^Review engine/ }),
+      ).toBeNull();
+      expect(screen.queryByRole("checkbox", { name: /^Fast mode/ })).toBeNull();
+      fireEvent.click(
+        screen.getByRole("checkbox", { name: /^Read related files/ }),
+      );
+      expect(onSettingsChange).toHaveBeenCalledWith({
+        ...settings,
+        agenticContext: false,
+      });
+    },
+  );
+
+  it("keeps the model picker visible while new review settings wait for readiness", () => {
+    render(
+      <ProviderModelFields
+        {...props}
+        onModelChange={() => {}}
+        settingsReady={false}
+      />,
+    );
+    expect(screen.getByLabelText("Model", { exact: true })).toBeTruthy();
+    expect(
+      screen.queryByRole("checkbox", { name: /^Read related files/ }),
+    ).toBeNull();
+  });
+
+  it("shows saved gateway settings without offering invented options during a catalog outage", () => {
+    const onSettingsChange = vi.fn();
+    render(
+      <ProviderModelFields
+        {...props}
+        authMode="codex_account_gateway"
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    expect(
+      screen.getByRole("combobox", { name: /^Review depth/ }),
+    ).toHaveProperty("disabled", true);
+    expect(
+      screen.getByRole("combobox", { name: /^Review depth/ }).textContent,
+    ).toContain("saved; refresh account to edit");
+    expect(
+      screen.getByRole("checkbox", { name: /^Read related files/ }),
+    ).toHaveProperty("disabled", true);
+    expect(screen.getByText(/Review settings are shown/)).toBeTruthy();
+    expect(screen.queryByText(/saved, unsupported/)).toBeNull();
+    expect(onSettingsChange).not.toHaveBeenCalled();
+  });
+
+  it("preserves the current direct OpenRouter default while changing its file-reading preference", () => {
+    expect(
+      defaultProviderSelectionSettings({
+        authMode: "openrouter_api_key",
+        model: "vendor/model",
+      }),
+    ).toEqual({
+      reasoningEffort: "xhigh",
+      agenticContext: true,
+      fastMode: false,
+    });
+    expect(
+      fitProviderSelectionSettings({
+        authMode: "openrouter_api_key",
+        model: "vendor/model",
+        settings: { ...props.settings, agenticContext: false },
+      }),
+    ).toEqual({ ...props.settings, agenticContext: false });
+  });
+});
+
+it("preserves an omitted Codex account default and only corrects confirmed incompatible settings", () => {
+  const input = {
+    authMode: "codex_account_gateway" as const,
+    model: "account-model",
+    gatewayProfileRef: "openai-codex-oauth-responses-v1",
+    settings: { agenticContext: true, fastMode: false },
+    connection: {
+      provider: "openai" as const,
+      planLabel: "Codex",
+      regionLabel: "Global",
+      completionInputKind: "none" as const,
+      personalOnly: false,
+      limitsContract: "none" as const,
+      modelSettings: [
+        {
+          modelId: "account-model",
+          reasoning: { allowed: ["high"], default: "high" },
+          fast: null,
+          tools: {
+            allowed: ["function" as const],
+            default: "function" as const,
+          },
+        },
+      ],
+    },
+  };
+  expect(providerSelectionSettingsNeedCorrection(input)).toBe(false);
+  expect(
+    providerSelectionSettingsNeedCorrection({
+      ...input,
+      settings: { ...input.settings, fastMode: true },
+    }),
+  ).toBe(true);
+  const { connection: _connection, ...unresolved } = input;
+  void _connection;
+  expect(
+    providerSelectionSettingsNeedCorrection({
+      ...unresolved,
+      settings: { ...input.settings, fastMode: true },
+    }),
+  ).toBe(false);
 });

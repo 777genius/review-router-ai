@@ -66,7 +66,11 @@ import { useGatewayModelAccounts } from "../gateway-model-account-options";
 import { GatewayModelCatalogStatus } from "../gateway-model-catalog-status";
 import { AccountProviderLogo } from "../account-identity";
 import { ProviderAuthLogoFrame } from "../provider-auth-logo";
-import { useProviderModelCatalogs } from "../provider-model-catalog";
+import { ProviderLogo } from "../provider-logo";
+import {
+  ProviderModelCatalogStatus,
+  useProviderModelCatalogs,
+} from "../provider-model-catalog";
 import type { ProviderSetupAssignmentResult } from "../provider-setup-actions";
 import {
   CiSecretDelivery,
@@ -155,7 +159,7 @@ export type ProviderSetupDialogProps = Readonly<{
 type Choice =
   | Readonly<{ kind: "default" }>
   | Readonly<{ kind: "profile"; profileId: string }>
-  | Readonly<{ kind: "new"; source: ProviderSourceKey }>;
+  | Readonly<{ kind: "new"; source: ProviderSourceKey | null }>;
 
 type DraftProvider = Readonly<{
   model: string;
@@ -505,10 +509,7 @@ function ProviderChoiceStep({
       if (view.sources.some((source) => source.key === key))
         return { kind: "new", source: key };
     }
-    if (adding || firstProvider) {
-      const first = firstAllowedSource(view.sources);
-      return first ? { kind: "new", source: first.key } : null;
-    }
+    if (adding || firstProvider) return { kind: "new", source: null };
     if (target.kind === "workspace")
       return initialProfileId &&
         view.profiles.some((candidate) => candidate.id === initialProfileId)
@@ -650,12 +651,12 @@ function ProviderChoiceStep({
           (account) => account.binding?.id === draft.bindingId,
         )
       : undefined;
-  const gatewayProfile = gatewayOptions.profileFor(
+  const resolvedGatewayAccount =
     gatewayAccount ??
-      gatewayPage?.accounts.find(
-        (account) => account.binding?.id === profile?.gatewayBindingId,
-      ),
-  );
+    gatewayPage?.accounts.find(
+      (account) => account.binding?.id === profile?.gatewayBindingId,
+    );
+  const gatewayProfile = gatewayOptions.profileFor(resolvedGatewayAccount);
   const authMode = source?.authMode ?? profile?.authMode;
   const gatewayBindingId = source
     ? (gatewayAccount?.binding?.id ?? null)
@@ -673,6 +674,31 @@ function ProviderChoiceStep({
           providerKindForAuthMode(source.authMode),
           settings?.agenticContext ?? true,
         );
+  const gatewayReadFailed =
+    gatewayOptions.accounts?.status !== "ok" ||
+    ("pageError" in gatewayOptions && gatewayOptions.pageError);
+  const gatewayInventoryIncomplete =
+    gatewayOptions.canLoadMore || !!gatewayPage?.nextCursor;
+  const gatewayInventoryEmpty =
+    !!gatewayPage &&
+    !gatewayReadFailed &&
+    !gatewayOptions.loading &&
+    !gatewayInventoryIncomplete &&
+    gatewayAccountList.length === 0;
+  const credentialReady =
+    !!profile ||
+    (!!source && (source.key !== "gateway_binding" || !!gatewayAccount));
+  const modelAvailable =
+    !!model.trim() &&
+    (authMode !== "codex_account_gateway" ||
+      gatewayProfile?.models.includes(model.trim()) === true);
+  const settingsReady =
+    !source ||
+    (modelAvailable &&
+      (authMode !== "codex_account_gateway" ||
+        gatewayProfile?.connection?.modelSettings.some(
+          (row) => row.modelId === model.trim(),
+        ) === true));
   const sourceDecision = source
     ? source.key === "gateway_binding" && gatewayAccount?.origin === "personal"
       ? (source.personalAccountDecision ?? source.decision)
@@ -703,11 +729,33 @@ function ProviderChoiceStep({
           : null),
     );
     setKeyStorage(storage);
-    if (next.kind === "new" && !view.sources.some((s) => s.key === next.source))
-      return;
     const start = startOf(next);
     if (next.kind === "new") setDraft(start.draft);
-    setSettings(start.settings);
+    const storedSelection =
+      next.kind === "default" ||
+      (next.kind === "profile" &&
+        (repositoryView?.selection?.profileId === next.profileId ||
+          view.defaultSelection?.profileId === next.profileId));
+    const chosenProfile =
+      next.kind === "profile"
+        ? view.profiles.find((candidate) => candidate.id === next.profileId)
+        : undefined;
+    const chosenAccount = gatewayPage?.accounts.find(
+      (account) => account.binding?.id === chosenProfile?.gatewayBindingId,
+    );
+    const chosenConnection = gatewayOptions.profileFor(chosenAccount);
+    setSettings(
+      !storedSelection &&
+        chosenProfile?.authMode === "codex_account_gateway" &&
+        chosenConnection?.connection
+        ? defaultProviderSelectionSettings({
+            authMode: chosenProfile.authMode,
+            model: chosenProfile.model,
+            connection: chosenConnection.connection,
+            gatewayProfileRef: chosenConnection.id,
+          })
+        : start.settings,
+    );
   }
 
   function chooseApiKey(
@@ -736,7 +784,8 @@ function ProviderChoiceStep({
   const draftIncomplete =
     source !== undefined &&
     (!draft.model.trim() ||
-      (source.key === "gateway_binding" && !gatewayAccount) ||
+      (source.key === "gateway_binding" &&
+        (!gatewayAccount || !modelAvailable)) ||
       (needsKeyUpload && !draft.apiKey.trim()));
   const canSave =
     mutationsEnabled &&
@@ -745,6 +794,7 @@ function ProviderChoiceStep({
     (!adding || choice.kind === "new") &&
     decision?.allowed === true &&
     !draftIncomplete &&
+    (!source || (adding && !makeDefault) || settingsReady) &&
     !(
       choice.kind !== "default" &&
       authMode &&
@@ -755,6 +805,7 @@ function ProviderChoiceStep({
         model,
         settings,
         connection: gatewayProfile?.connection,
+        gatewayProfileRef: gatewayProfile?.id,
       })
     ) &&
     (settings !== null || choice.kind === "default") &&
@@ -838,13 +889,17 @@ function ProviderChoiceStep({
         await onSaved({ kind: "workspace" });
         return;
       }
-      const fitted = fitProviderSelectionSettings({
-        authMode: authMode!,
-        model,
-        settings: settings!,
-        connection: gatewayProfile?.connection,
-        gatewayProfileRef: gatewayProfile?.id,
-      });
+      // Existing selections retain their explicit saved settings. Catalog outages
+      // must not turn an omitted/default effort into a new inferred value.
+      const fitted = source
+        ? fitProviderSelectionSettings({
+            authMode: authMode!,
+            model,
+            settings: settings!,
+            connection: gatewayProfile?.connection,
+            gatewayProfileRef: gatewayProfile?.id,
+          })
+        : settings!;
       const result = await saveProviderSetup({
         workspaceId,
         target:
@@ -986,12 +1041,7 @@ function ProviderChoiceStep({
             onValueChange={(value) => {
               if (value === defaultChoice) choose({ kind: "default" });
               else if (value === newProviderChoice)
-                choose({
-                  kind: "new",
-                  source:
-                    firstAllowedSource(visibleSources)?.key ??
-                    "gateway_binding",
-                });
+                choose({ kind: "new", source: null });
               else choose({ kind: "profile", profileId: value });
             }}
           >
@@ -999,7 +1049,10 @@ function ProviderChoiceStep({
               <RadioCard
                 value={defaultChoice}
                 icon={
-                  <ProviderAuthLogoFrame authMode={defaultProfile.authMode} />
+                  <ProviderAuthLogoFrame
+                    authMode={defaultProfile.authMode}
+                    providerId={defaultProfile.providerId}
+                  />
                 }
                 title={`Workspace default: ${defaultProfile.label}`}
                 description={`${sourceTitle(defaultProfile.credentialKind, defaultProfile.authMode)} · ${defaultProfile.model}. Follows the default when it changes.`}
@@ -1049,11 +1102,17 @@ function ProviderChoiceStep({
         >
           <SelectField
             label="Provider"
-            value={apiKeyProvider ? `api_key:${apiKeyProvider}` : choice.source}
+            value={
+              apiKeyProvider
+                ? `api_key:${apiKeyProvider}`
+                : (choice.source ?? "")
+            }
+            placeholder="Choose a provider"
             options={[
               ...apiKeyProviders.map((provider) => ({
                 value: `api_key:${provider.id}`,
                 label: provider.label,
+                icon: <ProviderLogo providerId={provider.id} />,
                 disabled:
                   !view.sources.some(
                     (candidate) =>
@@ -1077,6 +1136,7 @@ function ProviderChoiceStep({
                 .map((option) => ({
                   value: option.key,
                   label: sourceTitle(option.credentialKind, option.authMode),
+                  icon: <ProviderAuthLogoFrame authMode={option.authMode} />,
                   description: option.decision.allowed
                     ? sourceDescription(option)
                     : deniedText(option.decision),
@@ -1128,7 +1188,7 @@ function ProviderChoiceStep({
           ) : null}
           {apiKeyProvider &&
           keyStorage === "reviewrouter" &&
-          gatewayAccountList.length === 0 ? (
+          gatewayInventoryEmpty ? (
             <div className="grid gap-2 text-sm text-slate-300">
               <p>
                 Connect an account and give this workspace access, then return
@@ -1147,7 +1207,8 @@ function ProviderChoiceStep({
               </a>
             </div>
           ) : null}
-          {source?.key === "gateway_binding" ? (
+          {source?.key === "gateway_binding" &&
+          gatewayAccountList.length > 0 ? (
             <SelectField
               label="Account"
               value={gatewayAccount?.binding?.id ?? ""}
@@ -1165,7 +1226,10 @@ function ProviderChoiceStep({
                   value: account.binding!.id,
                   label: account.label,
                   icon: (
-                    <AccountProviderLogo profileLabel={account.profileLabel} />
+                    <AccountProviderLogo
+                      connection={account.connection}
+                      provider={account.provider}
+                    />
                   ),
                   description: personalDenied
                     ? deniedText(source.personalAccountDecision)
@@ -1179,8 +1243,17 @@ function ProviderChoiceStep({
                 const account = gatewayAccountList.find(
                   (candidate) => candidate.binding?.id === bindingId,
                 );
-                const models = gatewayOptions.profileFor(account)?.models ?? [];
+                const nextProfile = gatewayOptions.profileFor(account);
+                const models = nextProfile?.models ?? [];
                 const nextModel = models.length === 1 ? models[0]! : "";
+                setSettings(
+                  defaultProviderSelectionSettings({
+                    authMode: source.authMode,
+                    model: nextModel,
+                    connection: nextProfile?.connection,
+                    gatewayProfileRef: nextProfile?.id,
+                  }),
+                );
                 setDraft((current) => ({
                   ...current,
                   bindingId,
@@ -1195,11 +1268,52 @@ function ProviderChoiceStep({
             />
           ) : null}
           {source?.key === "gateway_binding" ? (
-            <GatewayAccountLoadMore
-              canLoadMore={gatewayOptions.canLoadMore}
-              loading={gatewayOptions.loading}
-              onLoadMore={gatewayOptions.loadMore}
-            />
+            <>
+              {gatewayOptions.loading && !gatewayAccount ? (
+                <p role="status" className="text-sm text-slate-400">
+                  Loading available accounts…
+                </p>
+              ) : gatewayReadFailed ? (
+                <div className="grid gap-2 text-sm text-slate-400">
+                  <p role="status">
+                    {gatewayOptions.accounts?.status === "denied"
+                      ? "Account access is unavailable. Check this workspace's access before continuing."
+                      : "Accounts could not be loaded. Try again before choosing a connection."}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-fit"
+                    disabled={gatewayOptions.loading}
+                    onClick={() => gatewayOptions.refresh()}
+                  >
+                    Retry accounts
+                  </Button>
+                </div>
+              ) : gatewayAccountList.length === 0 &&
+                gatewayInventoryIncomplete ? (
+                <p role="status" className="text-sm text-slate-400">
+                  No matching accounts on this page. Load more accounts to
+                  continue.
+                </p>
+              ) : gatewayInventoryEmpty && !apiKeyProvider ? (
+                <div className="grid gap-2 text-sm text-slate-400">
+                  <p>No active accounts are available for this workspace.</p>
+                  <a
+                    className="w-fit font-semibold text-cyan-200 underline"
+                    href={`/dashboard/setup?${new URLSearchParams({ workspace: workspaceId })}`}
+                  >
+                    Connect account
+                  </a>
+                </div>
+              ) : null}
+              <GatewayAccountLoadMore
+                canLoadMore={gatewayOptions.canLoadMore}
+                loading={gatewayOptions.loading}
+                onLoadMore={gatewayOptions.loadMore}
+              />
+            </>
           ) : null}
           {needsKeyUpload ? (
             <TextField
@@ -1218,7 +1332,7 @@ function ProviderChoiceStep({
               hint="Saved encrypted on the server and installed in the selected repositories. It is never shown again."
             />
           ) : null}
-          {adding ? (
+          {adding && source ? (
             <label className="flex cursor-pointer items-start gap-3 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60">
               <Checkbox
                 checked={makeDefault}
@@ -1241,7 +1355,7 @@ function ProviderChoiceStep({
         </section>
       ) : null}
 
-      {authMode && settings && (choice?.kind !== "new" || source) ? (
+      {authMode && settings && credentialReady ? (
         <section
           className={
             modelOnly
@@ -1265,11 +1379,14 @@ function ProviderChoiceStep({
                 source?.key === "gateway_binding" ? "list" : "catalog"
               }
               disabled={pending || !mutationsEnabled}
+              emptyListPlaceholder="No models available for this account"
             />
           ) : (
             <ProviderModelFields
               authMode={authMode}
               model={model}
+              settingsReady={settingsReady}
+              emptyListPlaceholder="No models available for this account"
               onModelChange={
                 source
                   ? (next) => {
@@ -1304,15 +1421,16 @@ function ProviderChoiceStep({
           )}
           {authMode === "codex_account_gateway" && gatewayBindingId ? (
             <GatewayModelCatalogStatus
-              account={
-                gatewayAccount ??
-                gatewayPage?.accounts.find(
-                  (account) => account.binding?.id === gatewayBindingId,
-                )
-              }
+              account={resolvedGatewayAccount}
               loading={gatewayOptions.loading}
               canRefresh={gatewayOptions.canRefresh}
               onRefresh={() => gatewayOptions.refreshModels(gatewayBindingId)}
+            />
+          ) : null}
+          {source && authMode !== "codex_account_gateway" ? (
+            <ProviderModelCatalogStatus
+              status={catalogs.status(providerKindForAuthMode(authMode))}
+              publicSelection
             />
           ) : null}
           {modelOnly ? (
@@ -1324,6 +1442,7 @@ function ProviderChoiceStep({
           {authMode === "codex_account_gateway" && gatewayBindingId ? (
             <GatewayConnectionTest
               bindingId={gatewayBindingId}
+              account={resolvedGatewayAccount}
               model={model.trim()}
               available={
                 gatewayAccountList.some(
@@ -1402,7 +1521,12 @@ function ProfileCard({
   return (
     <RadioCard
       value={option.id}
-      icon={<ProviderAuthLogoFrame authMode={option.authMode} />}
+      icon={
+        <ProviderAuthLogoFrame
+          authMode={option.authMode}
+          providerId={option.providerId}
+        />
+      }
       title={option.label}
       description={
         bulk && option.refusedRepositoryCount > 0

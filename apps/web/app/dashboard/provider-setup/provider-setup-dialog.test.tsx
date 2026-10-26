@@ -17,7 +17,15 @@ import {
   ProviderSetupDialog,
   type ProviderSetupDialogProps,
 } from "./provider-setup-dialog";
-import { apiKeyProviders } from "@reviewrouter/features-review-providers";
+import {
+  apiKeyProviders,
+  type ProviderModelCatalogSnapshot,
+} from "@reviewrouter/features-review-providers";
+import type {
+  AccountsPage,
+  AccountsResult,
+} from "../../../src/server/account-gateway-accounts";
+import { ProviderModelCatalogProvider } from "../provider-model-catalog";
 import { BulkProviderSetupAction } from "./repository-selection";
 import {
   RepositorySelectionCheckbox,
@@ -134,19 +142,40 @@ const repositoryTarget: ProviderSetupDialogProps["target"] = {
 function renderDialog(
   target: ProviderSetupDialogProps["target"],
   props: Partial<ProviderSetupDialogProps> = {},
+  catalog?: {
+    snapshots: readonly ProviderModelCatalogSnapshot[];
+    api: NonNullable<
+      import("react").ComponentProps<typeof ProviderModelCatalogProvider>["api"]
+    >;
+  },
 ) {
+  const content = (
+    <ProviderSetupDialog
+      workspaceId="workspace_1"
+      target={target}
+      triggerLabel="Change provider"
+      mutationsEnabled
+      modelOptions={[]}
+      gatewayAccounts={{
+        status: "ok",
+        value: { accounts: [], profiles: [], nextCursor: null },
+      }}
+      agentProfileOptions={[]}
+      {...props}
+    />
+  );
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <ProviderSetupDialog
-        workspaceId="workspace_1"
-        target={target}
-        triggerLabel="Change provider"
-        mutationsEnabled
-        modelOptions={[]}
-        gatewayAccounts={undefined}
-        agentProfileOptions={[]}
-        {...props}
-      />
+      {catalog ? (
+        <ProviderModelCatalogProvider
+          snapshots={catalog.snapshots}
+          api={catalog.api}
+        >
+          {content}
+        </ProviderModelCatalogProvider>
+      ) : (
+        content
+      )}
     </QueryClientProvider>,
   );
   fireEvent.click(screen.getByRole("button", { name: "Change provider" }));
@@ -158,7 +187,246 @@ async function choose(text: string | RegExp): Promise<void> {
   fireEvent.click(label.querySelector('[role="radio"]')!);
 }
 
+function apiSources(): ProviderSetupView["sources"] {
+  return [
+    {
+      key: "gateway_binding",
+      credentialKind: "gateway_binding",
+      authMode: "codex_account_gateway",
+      decision: { allowed: true },
+    },
+    ...apiKeyProviders.map((provider) => ({
+      key: `user_ci_secret:${provider.directAuthMode}` as const,
+      credentialKind: "user_ci_secret" as const,
+      authMode: provider.directAuthMode,
+      decision: { allowed: true as const },
+    })),
+  ];
+}
+
+async function chooseSelect(label: string, name: string | RegExp) {
+  fireEvent.click(
+    await screen.findByRole("combobox", { name: new RegExp(`^${label}\\b`) }),
+  );
+  const option = await screen.findByRole("option", { name });
+  fireEvent.mouseMove(option);
+  fireEvent.click(option);
+}
+
+function gatewayFixture(): AccountsResult<AccountsPage> {
+  return {
+    status: "ok",
+    value: {
+      nextCursor: "more-accounts",
+      profiles: [
+        {
+          id: "openrouter-profile",
+          label: "OpenRouter",
+          protocol: "openai-responses",
+          availability: "enabled",
+          authKind: "api_key",
+          provider: "openrouter",
+          models: ["openai/account-model"],
+          connection: {
+            provider: "openrouter",
+            planLabel: "API",
+            regionLabel: "Global",
+            completionInputKind: "none",
+            personalOnly: false,
+            limitsContract: "none",
+            modelSettings: [
+              {
+                modelId: "openai/account-model",
+                reasoning: { allowed: ["medium"], default: "medium" },
+                fast: null,
+                tools: { allowed: ["function"], default: "function" },
+              },
+            ],
+          },
+        },
+      ],
+      accounts: [
+        {
+          connectionId: "connection-1",
+          label: "Selected account",
+          profileId: "openrouter-profile",
+          profileLabel: "OpenRouter",
+          state: "active",
+          gatewayRevision: 1,
+          mirrorRevision: 1,
+          binding: {
+            id: "binding-1",
+            revision: 1,
+            state: "active",
+            fencePending: false,
+          },
+        },
+      ],
+    },
+  };
+}
+
 describe("ProviderSetupDialog", () => {
+  it("starts Add provider empty and keeps tuning on selections, not model-only profile creation", async () => {
+    view = { ...view, target: "workspace", sources: apiSources() };
+    renderDialog({ kind: "workspace" }, { mode: "add" });
+    expect(
+      (await screen.findByRole("combobox", { name: "Provider" })).textContent,
+    ).toContain("Choose a provider");
+    expect(screen.queryByLabelText("Model", { exact: true })).toBeNull();
+    expect(
+      screen.queryByRole("radiogroup", { name: "Key storage" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("checkbox", { name: /Read related files/ }),
+    ).toBeNull();
+    await chooseSelect("Provider", "OpenRouter");
+    expect(
+      screen
+        .getByRole("radio", { name: "GitHub Secrets" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(screen.getByLabelText("Model", { exact: true })).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: /^Account\b/ })).toBeNull();
+    expect(
+      screen.queryByRole("checkbox", { name: /Read related files/ }),
+    ).toBeNull();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Use as workspace default/ }),
+    );
+    expect(
+      screen.getByRole("checkbox", { name: /Read related files/ }),
+    ).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Model", { exact: true }), {
+      target: { value: "" },
+    });
+    expect(
+      screen.queryByRole("checkbox", { name: /Read related files/ }),
+    ).toBeNull();
+    expect(screen.getByLabelText("Model", { exact: true })).toBeTruthy();
+  });
+
+  it.each(["denied", "unavailable"] as const)(
+    "does not confuse %s accounts with an empty inventory",
+    async (status) => {
+      view = {
+        ...view,
+        sources: apiSources(),
+        gatewayApiKeyProviders: ["openrouter"],
+      };
+      renderDialog(repositoryTarget, {
+        gatewayAccounts: { status },
+        initialIntent: {
+          provider: "openrouter",
+          storage: "reviewrouter",
+          workspaceId: "workspace_1",
+          repositoryIds: ["repo_1"],
+        },
+      });
+      expect(
+        await screen.findByRole("button", { name: "Retry accounts" }),
+      ).toBeTruthy();
+      expect(
+        screen.queryByRole("link", { name: "Connect account" }),
+      ).toBeNull();
+      expect(screen.queryByText("Model and review settings")).toBeNull();
+    },
+  );
+
+  it("does not announce no accounts for an incomplete page with no matches", async () => {
+    view = {
+      ...view,
+      sources: apiSources(),
+      gatewayApiKeyProviders: ["openrouter"],
+    };
+    renderDialog(repositoryTarget, {
+      gatewayAccounts: {
+        status: "ok",
+        value: { accounts: [], profiles: [], nextCursor: "next-page" },
+      },
+      initialIntent: {
+        provider: "openrouter",
+        storage: "reviewrouter",
+        workspaceId: "workspace_1",
+        repositoryIds: ["repo_1"],
+      },
+    });
+    expect(
+      await screen.findByText(/No matching accounts on this page/),
+    ).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Connect account" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: /^Account\b/ })).toBeNull();
+    expect(screen.queryByText("Model and review settings")).toBeNull();
+  });
+
+  it("waits for explicit account choice then uses its model capabilities without exhausting other pages", async () => {
+    view = {
+      ...view,
+      sources: apiSources(),
+      gatewayApiKeyProviders: ["openrouter"],
+    };
+    renderDialog(repositoryTarget, {
+      gatewayAccounts: gatewayFixture(),
+      initialIntent: {
+        provider: "openrouter",
+        storage: "reviewrouter",
+        workspaceId: "workspace_1",
+        repositoryIds: ["repo_1"],
+      },
+    });
+    await screen.findByRole("combobox", { name: /^Account\b/ });
+    expect(screen.queryByText("Model and review settings")).toBeNull();
+    await chooseSelect("Account", /^Selected account/);
+    expect(await screen.findByRole("combobox", { name: "Model" })).toBeTruthy();
+    expect(
+      screen.getByRole("combobox", { name: /^Review depth/ }).textContent,
+    ).toContain("Medium");
+    expect(screen.queryByRole("checkbox", { name: /^Fast mode/ })).toBeNull();
+    expect(
+      screen.getByRole("checkbox", { name: /^Read related files/ }),
+    ).toBeTruthy();
+    await chooseSelect("Provider", "MiMo Token Plan");
+    expect(screen.queryByRole("combobox", { name: /^Account\b/ })).toBeNull();
+    expect(
+      screen.getByRole("combobox", { name: /^Review depth/ }).textContent,
+    ).toContain("High");
+  });
+
+  it("mounts the public catalog refresh for editable model creation and preserves the typed model", async () => {
+    view = { ...view, target: "workspace", sources: apiSources() };
+    const snapshots: ProviderModelCatalogSnapshot[] = (
+      ["codex", "claude", "openrouter"] as const
+    ).map((providerKind) => ({
+      providerKind,
+      models: [],
+      source: "local",
+      fetchedAt: Date.now(),
+      lastAttemptAt: Date.now(),
+      state: "fresh",
+      error: null,
+      refresh: "cached",
+    }));
+    const api = vi.fn(
+      async ({ providerKind }: { providerKind: string }) =>
+        snapshots.find((row) => row.providerKind === providerKind)!,
+    );
+    renderDialog({ kind: "workspace" }, { mode: "add" }, { snapshots, api });
+    await chooseSelect("Provider", "OpenRouter");
+    const model = screen.getByLabelText("Model", { exact: true });
+    fireEvent.change(model, { target: { value: "custom/preserved-model" } });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerKind: "openrouter",
+          forceRefresh: true,
+        }),
+      ),
+    );
+    expect(model).toHaveProperty("value", "custom/preserved-model");
+    expect(saveProviderSetupAction).not.toHaveBeenCalled();
+  });
+
   it("requires an explicit correction of saved unsupported MiMo settings before unrelated edits can save", async () => {
     const legacy = {
       profileId: "mimo-existing",
