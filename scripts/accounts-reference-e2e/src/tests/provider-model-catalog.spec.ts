@@ -32,6 +32,8 @@ test("public catalogs refresh direct providers, preserve the selected ID, and ne
   await chooseSetupOption(page, "Provider", "OpenRouter");
   const model = dialog.getByRole("textbox", { name: "Model", exact: true });
   await model.fill("openrouter-saved-model");
+  await model.press("Escape");
+  await expect(dialog).toBeVisible();
 
   // Exercise the actual public API, server normalization and cache before
   // supplying the narrow browser-only stale/cooldown response below.
@@ -90,6 +92,8 @@ test("public catalogs refresh direct providers, preserve the selected ID, and ne
   ] as const) {
     await chooseSetupOption(page, "Provider", label);
     await model.fill(`${kind}-saved-model`);
+    await model.press("Escape");
+    await expect(dialog).toBeVisible();
     await dialog
       .getByRole("button", { name: "Refresh models", exact: true })
       .click();

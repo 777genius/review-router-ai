@@ -212,8 +212,7 @@ test("provider settings geometry stays aligned on desktop, mobile and narrow lay
       .check();
     await choose(page, "Model", CODEX_B_MODEL);
     const depth = dialog.getByRole("combobox", {
-      name: "Review depth",
-      exact: true,
+      name: /^Review depth\b/,
     });
     const engine = dialog.getByRole("combobox", {
       name: "Review engine",

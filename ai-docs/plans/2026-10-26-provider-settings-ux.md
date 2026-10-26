@@ -221,6 +221,30 @@ Probe делает один ограниченный запрос, перепр�
 - Проверить desktop/mobile, light/dark, клавиатуру и реальные состояния загрузки/ошибок.
 - Выпускать по существующему runbook одним связным batch, затем проверить deployed SHA и пользовательский маршрут.
 
+Обязательный browser-прогон запускается через harness, а не обычный Vitest:
+
+```bash
+ACCOUNTS_REFERENCE_E2E_GREP='API key storage|public catalogs refresh|dynamic Codex account models|provider settings geometry' \
+  node --import ./scripts/accounts-reference-e2e/node_modules/tsx/dist/loader.mjs \
+  scripts/accounts-reference-e2e/src/run.ts \
+  --repo-root "$PWD" --database-url "$ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL" \
+  --work-dir "$PWD/tmp/accounts-reference-e2e/runs/provider-settings" \
+  --api-key-storage-fixture --account-models-fixture --catalog-fixture
+```
+
+Нужны установленные зависимости root и отдельного harness, Chromium и свежая
+изолированная PostgreSQL 17+ база с точным именем
+`review_router_accounts_reference_e2e_test`. Флаг `--api-key-storage-fixture`
+включает контролируемый Gateway и передаёт дочернему Playwright
+`ACCOUNTS_REFERENCE_E2E_API_KEY_STORAGE=1`; один export без fixture не заменяет
+подготовку окружения. Этот набор обязан сообщить **5 passed, 0 failed, 0 skipped**.
+Отдельный набор `Gateway connection test|public catalogs Gateway` с
+`--probe-fixture --catalog-fixture` на второй свежей TEST-базе обязан сообщить
+**3 passed, 0 failed, 0 skipped**. Полные команды и вариант
+`--browser-executable` находятся в
+[README harness](../../scripts/accounts-reference-e2e/README.md#provider-settings-ux-integration).
+Успешный CI с пропущенным opt-in набором не считается доказательством этих E2E.
+
 UI/layout/branding и backend capability/probe audit можно выполнять параллельно с отдельным владением файлами. Изменения `ProviderSetupDialog` и `ProviderModelFields` интегрирует один владелец, чтобы избежать конкурирующих правок. Не нужен отдельный PR на каждый провайдер: это общий механизм.
 
 ## 9. Проверка и критерии приёмки
@@ -240,6 +264,25 @@ UI/layout/branding и backend capability/probe audit можно выполнят
 | Визуальный UX    | 390, 768, 1440 px; light/dark; длинные названия; у соседних actual select triggers совпадают y/height (не обязательно у wrappers с разными hints); keyboard radio/select/focus return; ошибки и загрузка; правильные логотипы в каждом entrypoint, включая переименованный connection label                        |
 
 Для настоящего backend/runtime поведения использовать реальные compiled components и controlled transport, а не mock собственной функции как доказательство E2E. Если меняется смысл captured reasoning, обязательна парная проверка с точными commits. Если меняется только UI, не запускать заново всю unrelated runtime qualification без конкретного риска или обязательного CI gate.
+
+Проверки секретов разделены по наблюдаемым каналам. `noSecrets()` в browser E2E
+проверяет URL, local/session storage, DOM и input после отправки/смены пути.
+Дополнительный canary capture проверяет HTTP/SSR-ответы, browser console/errors,
+новый `next-app.log`, маршрутный Gateway-log и JSON/HTML-снимки harness.
+Проверять нужно журнал свежего процесса после изменения конфигурации; старый
+журнал не переписывается для получения PASS. Next development logging аргументов
+Server Functions выключается через `logging.serverFunctions: false`, поскольку
+эти аргументы содержат transient API key/OAuth code; request/error logging
+сохраняется.
+
+React Query cache, mutation state, storage writes, продолжение после lost ACK и
+безопасные ошибки отдельно проверяются существующим
+[`account-gateway-account-controls.oauth.test.tsx`](../../apps/web/app/dashboard/account-gateway-account-controls.oauth.test.tsx)
+через реальные экземпляры QueryClient и canary keys. Эти assertions не заменяются
+проверкой только DOM. Снимки здесь означают сериализованные пользовательские
+read models/SSR и диагностические JSON/HTML-артефакты приложения. Тестовая
+Playwright trace намеренно записывает ввод синтетического canary и не является
+продуктовым каналом хранения ключей; живые ключи в harness не используются.
 
 Запрошенный live probe расходует квоту и доказывает один ответ выбранной модели в момент проверки. Controlled fixtures не являются live acceptance у провайдера. В итоговом отчёте отдельно указать проверенный код, смоделированные внешние системы и production delivery.
 

@@ -4,6 +4,8 @@ import {
   type Locator,
   type Page,
 } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { FIXTURES } from "../contracts.ts";
 import { withDatabase } from "../database.ts";
 import { apiKeyStorageProfiles } from "../subscription-fixture.ts";
@@ -146,6 +148,53 @@ async function noSecrets(page: Page, secrets: readonly string[]) {
   for (const secret of secrets) expect(retained).not.toContain(secret);
 }
 
+function captureSecretLeaks(page: Page, secrets: readonly string[]) {
+  const leakedChannels = new Set<string>();
+  const pending = new Set<Promise<void>>();
+  let inspectedResponses = 0;
+  const inspect = (channel: string, value: string) => {
+    if (secrets.some((secret) => value.includes(secret)))
+      leakedChannels.add(channel);
+  };
+  page.on("console", (message) => inspect("browser console", message.text()));
+  page.on("pageerror", (error) => inspect("browser error", error.message));
+  page.on("response", (response) => {
+    if (
+      !/json|text\/html|text\/x-component/.test(
+        response.headers()["content-type"] ?? "",
+      )
+    )
+      return;
+    const reading = response
+      .text()
+      .then((body) => {
+        inspectedResponses += 1;
+        inspect("HTTP/SSR response", body);
+      })
+      .catch(() => {
+        // Navigation may abort an obsolete streamed response before its body is readable.
+      })
+      .finally(() => pending.delete(reading));
+    pending.add(reading);
+  });
+  return async () => {
+    await Promise.all([...pending]);
+    expect(inspectedResponses).toBeGreaterThan(0);
+    const workDir = dirname(process.env.ACCOUNTS_REFERENCE_E2E_RESULT_JSON!);
+    for (const name of [
+      "next-app.log",
+      "gateway-requests.jsonl",
+      "runtime.json",
+      "boot-report.json",
+      "boot-viewer.html",
+    ]) {
+      inspect(name, await readFile(join(workDir, name), "utf8"));
+    }
+    // Report the channel only; never copy a secret into assertion diagnostics.
+    expect([...leakedChannels]).toEqual([]);
+  };
+}
+
 async function createWithoutDefault(page: Page, before: readonly Profile[]) {
   const dialog = page.getByRole("dialog");
   const useDefault = dialog.getByRole("checkbox", {
@@ -198,7 +247,7 @@ test("API key storage creates all three GitHub profiles and preserves identity w
     if (provider.id === "kimi") {
       await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
       await expect(
-        dialog.getByRole("combobox", { name: "Review depth", exact: true }),
+        dialog.getByRole("combobox", { name: /^Review depth\b/ }),
       ).toHaveCount(0);
       await expect(
         dialog.getByRole("checkbox", { name: /Fast mode/ }),
@@ -320,6 +369,10 @@ test("API key storage connects all three accounts and returns to the same provid
   test.setTimeout(480_000);
   const violations: string[] = [];
   const secrets: string[] = [];
+  const verifySecretChannels = captureSecretLeaks(page, [
+    "synthetic-unsent-storage-switch-key",
+    ...providers.map((provider) => `synthetic-${provider.id}-subscription-key`),
+  ]);
   await useViewerSession(context);
   await installLoopbackOnlyNetworkGuard(page, violations);
   await page.addInitScript(() =>
@@ -461,5 +514,6 @@ test("API key storage connects all three accounts and returns to the same provid
     )
   ).json();
   expect(stats).toMatchObject({ connects: 3, inference: 0, refresh: 0 });
+  await verifySecretChannels();
   await expectNetworkViolations(violations);
 });
