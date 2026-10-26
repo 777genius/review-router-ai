@@ -569,7 +569,9 @@ export function MemoryKnowledgeScreen({
           }}
           onRejected={(rejectedId) => {
             onUnconfirmedChange(null, rejectedId);
-            setCommandId(null);
+            setCommandId((current) =>
+              current === rejectedId ? null : current,
+            );
           }}
         />
       ) : null}

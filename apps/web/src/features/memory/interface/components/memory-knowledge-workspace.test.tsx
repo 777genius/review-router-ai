@@ -57,6 +57,53 @@ function fixture() {
   return { page, mutate, progress, client, view, draw };
 }
 describe("memory workspace navigation", () => {
+  it("keeps the newer command status when an older acknowledged POST later rejects", async () => {
+    const f = fixture();
+    let failPost!: (reason: Error) => void;
+    f.mutate.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          failPost = reject;
+        }),
+    );
+    f.mutate.mockImplementationOnce(async (input) => ({
+      id: input.commandId,
+      entryId: "new",
+      revision: "r1",
+      state: "queued",
+      message: "Second request waiting.",
+    }));
+    f.progress.mockImplementation(async (input) => ({
+      id: input.commandId,
+      entryId: "new",
+      revision: "r1",
+      state:
+        input.commandId === f.mutate.mock.calls[0]?.[0].commandId
+          ? "published"
+          : "queued",
+      message:
+        input.commandId === f.mutate.mock.calls[0]?.[0].commandId
+          ? "First request published."
+          : "Second request waiting.",
+    }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "Submit memory" }));
+    await screen.findByText("First request published.");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Add memory" }));
+    fireEvent.change(screen.getByLabelText("Memory text"), {
+      target: { value: "Keep the second request status." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Submit memory" }));
+    await screen.findByText("Second request waiting.");
+    failPost(new MemoryDashboardApiError("memory_conflict", 409));
+    await waitFor(() =>
+      expect(f.client.getMutationCache().getAll()[0]?.state.status).toBe(
+        "error",
+      ),
+    );
+    expect(screen.getByText("Second request waiting.")).toBeTruthy();
+  });
   it("keeps a new draft open when an older POST resolves after polling confirmed it", async () => {
     const f = fixture();
     let finishPost!: (value: MemoryOperationView) => void;
