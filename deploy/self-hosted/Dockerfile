@@ -28,7 +28,9 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends git \
   && rm -rf /var/lib/apt/lists/*
 COPY . .
-RUN node scripts/install-private-dependencies.mjs --frozen-lockfile \
+# Keep root ownership while allowing the isolated generator to read the checkout.
+RUN chmod -R a+rX /app \
+  && node scripts/install-private-dependencies.mjs --frozen-lockfile \
   && prisma_client="$(readlink -f packages/platform/db/node_modules/@prisma/client)" \
   && prisma_output="$(dirname "$(dirname "$prisma_client")")/.prisma/client" \
   && mkdir -p "$prisma_output" \
