@@ -4,9 +4,15 @@ import {
   type Locator,
   type Page,
 } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { FIXTURES } from "../contracts.ts";
 import { withDatabase } from "../database.ts";
 import { apiKeyStorageProfiles } from "../subscription-fixture.ts";
+import {
+  chooseSetupOption as choose,
+  openNewProvider,
+} from "./provider-setup-support.ts";
 import {
   expectNetworkViolations,
   installLoopbackOnlyNetworkGuard,
@@ -67,39 +73,22 @@ async function savedProfiles(): Promise<Profile[]> {
   );
 }
 
-async function choose(page: Page, label: string, value: string) {
-  const control = page.getByRole("dialog").getByRole("combobox", {
-    name: label === "Account" ? /^Account\b/ : label,
-    exact: true,
-  });
-  // First request compiles the real Next route and reads its authorized view.
-  await expect(control).toBeVisible({ timeout: 60_000 });
-  await control.click();
-  await page.getByRole("option").filter({ hasText: value }).click();
+async function savedWorkspaceUsage(): Promise<Record<string, unknown>> {
+  return withDatabase(
+    process.env.ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL!,
+    async (db) => {
+      const result = await db.query<{ policyJson: string }>(
+        `SELECT v."policyJson" FROM "ReviewConfiguration" c JOIN "ReviewConfigurationVersion" v ON v."configurationId"=c.id WHERE c."workspaceId"=$1 AND c."repositoryId" IS NULL AND c.active ORDER BY v.version DESC LIMIT 1`,
+        [workspace],
+      );
+      expect(result.rows).toHaveLength(1);
+      return JSON.parse(result.rows[0]!.policyJson).providers[0];
+    },
+  );
 }
 
 async function beginProvider(page: Page, label: string) {
-  await page.goto(`/dashboard?section=providers&workspace=${workspace}`, {
-    waitUntil: "domcontentloaded",
-    timeout: 90_000,
-  });
-  await expect(page.locator("html")).toHaveAttribute(
-    "data-dashboard-layout-ready",
-    "true",
-  );
-  // Opening is reversible. Retry only an event that preceded streamed hydration
-  // or a development full reload; no save/enrollment operation is retried here.
-  await expect(async () => {
-    if (!(await page.getByRole("dialog").isVisible()))
-      await page
-        .getByRole("button", { name: "Add provider", exact: true })
-        .click();
-    await expect(
-      page
-        .getByRole("dialog")
-        .getByRole("combobox", { name: "Provider", exact: true }),
-    ).toBeVisible({ timeout: 1000 });
-  }).toPass({ timeout: 60_000 });
+  await openNewProvider(page, workspace);
   await choose(page, "Provider", label);
   return page.getByRole("dialog");
 }
@@ -107,7 +96,7 @@ async function beginProvider(page: Page, label: string) {
 async function accountsReady(
   page: Page,
   navigate: () => Promise<unknown>,
-): Promise<void> {
+): Promise<readonly string[]> {
   // Existing Accounts reference hydration witness; keep the continuation URL.
   const hydrated = page.waitForResponse(
     (response) => {
@@ -128,7 +117,13 @@ async function accountsReady(
     "data-dashboard-layout-ready",
     "true",
   );
-  await hydrated;
+  const summaries = await hydrated;
+  expect(summaries.ok()).toBe(true);
+  await summaries.body();
+  const request = JSON.parse(
+    new URL(summaries.url()).searchParams.get("request")!,
+  ) as { sourceIds: string[] };
+  return request.sourceIds;
 }
 
 async function expectStorage(dialog: Locator) {
@@ -157,6 +152,64 @@ async function noSecrets(page: Page, secrets: readonly string[]) {
     }),
   );
   for (const secret of secrets) expect(retained).not.toContain(secret);
+}
+
+function captureSecretLeaks(page: Page, secrets: readonly string[]) {
+  const leakedChannels = new Set<string>();
+  const pending = new Set<Promise<void>>();
+  let inspectedResponses = 0;
+  const inspect = (channel: string, value: string) => {
+    if (secrets.some((secret) => value.includes(secret)))
+      leakedChannels.add(channel);
+  };
+  page.on("console", (message) => inspect("browser console", message.text()));
+  page.on("pageerror", (error) => inspect("browser error", error.message));
+  page.on("requestfinished", (request) => {
+    // Next may keep speculative navigation streams open. Inspect complete
+    // responses instead of waiting forever after their headers arrive.
+    const reading: Promise<void> = (async () => {
+      const response = await request.response();
+      if (
+        !response ||
+        !/json|text\/html|text\/x-component/.test(
+          response.headers()["content-type"] ?? "",
+        )
+      )
+        return;
+      try {
+        const body = await response.text();
+        inspectedResponses += 1;
+        inspect("HTTP/SSR response", body);
+      } catch {
+        leakedChannels.add("unreadable completed HTTP/SSR response");
+      }
+    })().finally(() => pending.delete(reading));
+    pending.add(reading);
+  });
+  const drain = async () => {
+    // A body read can finish while another completed response is queued.
+    // Drain all of them before navigation can evict the previous document.
+    while (pending.size) await Promise.all([...pending]);
+  };
+  return {
+    drain,
+    verify: async () => {
+      await drain();
+      expect(inspectedResponses).toBeGreaterThan(0);
+      const workDir = dirname(process.env.ACCOUNTS_REFERENCE_E2E_RESULT_JSON!);
+      for (const name of [
+        "next-app.log",
+        "gateway-requests.jsonl",
+        "runtime.json",
+        "boot-report.json",
+        "boot-viewer.html",
+      ]) {
+        inspect(name, await readFile(join(workDir, name), "utf8"));
+      }
+      // Report the channel only; never copy a secret into assertion diagnostics.
+      expect([...leakedChannels]).toEqual([]);
+    },
+  };
 }
 
 async function createWithoutDefault(page: Page, before: readonly Profile[]) {
@@ -202,10 +255,16 @@ test("API key storage creates all three GitHub profiles and preserves identity w
       .getByRole("checkbox", { name: /Use as workspace default/ })
       .focus();
     await expect(dialog.getByRole("listbox")).toHaveCount(0);
+    await expect(
+      dialog.getByRole("checkbox", { name: /Read related files/ }),
+    ).toBeChecked();
+    await expect(
+      dialog.getByRole("button", { name: "Test connection", exact: true }),
+    ).toHaveCount(0);
     if (provider.id === "kimi") {
       await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
       await expect(
-        dialog.getByRole("combobox", { name: "Review depth", exact: true }),
+        dialog.getByRole("combobox", { name: /^Review depth\b/ }),
       ).toHaveCount(0);
       await expect(
         dialog.getByRole("checkbox", { name: /Fast mode/ }),
@@ -268,6 +327,54 @@ test("API key storage creates all three GitHub profiles and preserves identity w
     (await savedProfiles()).find((profile) => profile.id === original.id),
   ).toEqual(original);
   expect(await savedProfiles()).toHaveLength(created.length);
+  await replacement
+    .getByRole("button", { name: "Close provider setup" })
+    .click();
+  // File reading belongs to the usage selection. Saving it must not rewrite
+  // the reusable model/credential profile or invent Kimi reasoning settings.
+  for (const profile of [created[0]!, created[2]!]) {
+    await page.goto(`/dashboard?section=providers&workspace=${workspace}`);
+    const savedRow = page
+      .getByText(profile.label, { exact: true })
+      .locator("xpath=ancestor::li");
+    await savedRow
+      .getByRole("button", { name: "Make default", exact: true })
+      .click();
+    const settings = page.getByRole("dialog");
+    await expect(
+      settings.getByRole("combobox", { name: /^Account\b/ }),
+    ).toHaveCount(0);
+    const related = settings.getByRole("checkbox", {
+      name: /Read related files/,
+    });
+    await expect(related).toBeChecked();
+    await related.uncheck();
+    await settings
+      .getByRole("button", { name: "Set as default", exact: true })
+      .click();
+    await expect(settings).toHaveCount(0);
+    await page.reload();
+    const usage = await savedWorkspaceUsage();
+    expect(usage).toMatchObject({
+      profileId: profile.id,
+      agenticContext: false,
+      fastMode: false,
+    });
+    if (profile.authMode === "openrouter_api_key")
+      expect(usage.reasoningEffort).toBe("xhigh");
+    else expect(usage).not.toHaveProperty("reasoningEffort");
+    expect(
+      (await savedProfiles()).find((value) => value.id === profile.id),
+    ).toEqual(profile);
+    const read = await page.request.get(
+      `/api/dashboard/provider-setup?workspace=${workspace}`,
+    );
+    expect(read.ok()).toBe(true);
+    expect((await read.json()).defaultSelection).toMatchObject({
+      profileId: profile.id,
+      agenticContext: false,
+    });
+  }
   await expectNetworkViolations(violations);
 });
 
@@ -279,6 +386,13 @@ test("API key storage connects all three accounts and returns to the same provid
   test.setTimeout(480_000);
   const violations: string[] = [];
   const secrets: string[] = [];
+  const { drain: drainSecretResponses, verify: verifySecretChannels } =
+    captureSecretLeaks(page, [
+      "synthetic-unsent-storage-switch-key",
+      ...providers.map(
+        (provider) => `synthetic-${provider.id}-subscription-key`,
+      ),
+    ]);
   await useViewerSession(context);
   await installLoopbackOnlyNetworkGuard(page, violations);
   await page.addInitScript(() =>
@@ -289,10 +403,14 @@ test("API key storage connects all three accounts and returns to the same provid
       (row) => row.provider === provider.id,
     )!;
     const before = await savedProfiles();
+    await drainSecretResponses();
     const dialog = await beginProvider(page, provider.label);
     await (await expectStorage(dialog))
       .getByRole("radio", { name: /^ReviewRouter/ })
       .check();
+    await expect(
+      dialog.getByRole("heading", { name: "Model and review settings" }),
+    ).toHaveCount(0);
     const connect = dialog.getByRole("link", {
       name: "Connect account",
       exact: true,
@@ -300,7 +418,8 @@ test("API key storage connects all three accounts and returns to the same provid
     const accountsHref = await connect.getAttribute("href");
     expect(accountsHref).toContain(`workspace=${workspace}`);
     expect(accountsHref).toContain(`keyProvider=${provider.id}`);
-    await accountsReady(page, () => connect.click());
+    await drainSecretResponses();
+    let previousSourceIds = await accountsReady(page, () => connect.click());
     await page
       .getByRole("button", { name: "Connect account", exact: true })
       .click();
@@ -321,6 +440,7 @@ test("API key storage connects all three accounts and returns to the same provid
       await choice.getByRole("radio", { name: /^GitHub Secrets/ }).check();
       await expect(enrollment.locator('input[type="password"]')).toHaveCount(0);
       await noSecrets(page, [erased]);
+      await drainSecretResponses();
       await enrollment
         .getByRole("link", { name: "Continue to provider setup", exact: true })
         .click();
@@ -330,7 +450,10 @@ test("API key storage connects all three accounts and returns to the same provid
           .getByRole("radio", { name: /^GitHub Secrets/ }),
       ).toBeChecked();
       expect(await savedProfiles()).toEqual(before);
-      await accountsReady(page, () => page.goto(accountsHref!));
+      await drainSecretResponses();
+      previousSourceIds = await accountsReady(page, () =>
+        page.goto(accountsHref!),
+      );
       await page
         .getByRole("button", { name: "Connect account", exact: true })
         .click();
@@ -353,8 +476,35 @@ test("API key storage connects all three accounts and returns to the same provid
     const secret = `synthetic-${provider.id}-subscription-key`;
     secrets.push(secret);
     await enrollment.locator('input[type="password"]').fill(secret);
+    // Enrollment first invalidates the old source list, then requests summaries
+    // for the new list. Wait for the newly enrolled source, not an older refresh,
+    // before navigation can evict the response the canary observer must inspect.
+    const refreshedAccess = page.waitForResponse(
+      (response) => {
+        const url = new URL(response.url());
+        if (
+          url.pathname !== "/api/dashboard/accounts/access" ||
+          url.searchParams.get("view") !== "summaries" ||
+          response.request().method() !== "GET"
+        )
+          return false;
+        const summaryRequest = JSON.parse(
+          url.searchParams.get("request") ?? "{}",
+        ) as { sourceIds?: string[] };
+        return (
+          summaryRequest.sourceIds?.some(
+            (id) => !previousSourceIds.includes(id),
+          ) === true
+        );
+      },
+      { timeout: 60_000 },
+    );
     await enrollment.locator('input[type="password"]').press("Enter");
     await expect(sourceRow(page, name)).toBeVisible();
+    const accessResponse = await refreshedAccess;
+    expect(accessResponse.ok()).toBe(true);
+    const accessBody = await accessResponse.text();
+    expect(secrets.some((value) => accessBody.includes(value))).toBe(false);
     await noSecrets(page, secrets);
     const back = page.getByRole("link", {
       name: "Back to provider setup",
@@ -365,6 +515,7 @@ test("API key storage connects all three accounts and returns to the same provid
       "href",
       new RegExp(`keyProvider=${provider.id}`),
     );
+    await drainSecretResponses();
     await back.click();
     const returned = page.getByRole("dialog");
     await expect(
@@ -417,5 +568,6 @@ test("API key storage connects all three accounts and returns to the same provid
     )
   ).json();
   expect(stats).toMatchObject({ connects: 3, inference: 0, refresh: 0 });
+  await verifySecretChannels();
   await expectNetworkViolations(violations);
 });

@@ -328,9 +328,17 @@ export function CiSecretDelivery({
                   ? "Confirmed"
                   : confirmation.verificationError
                     ? "Check again"
-                    : "I added the secret"}
+                    : "Check GitHub setup"}
           </Button>
-          {confirmation.confirmed ? <Badge tone="success">Done</Badge> : null}
+          {confirmation.confirmed ? (
+            <Badge
+              tone={confirmation.confirmed === "manual" ? "neutral" : "success"}
+            >
+              {confirmation.confirmed === "manual"
+                ? "Confirmed manually"
+                : "Secret available"}
+            </Badge>
+          ) : null}
         </div>
         {!canManage ? (
           <p className="text-xs leading-5 text-amber-100/85">
@@ -363,6 +371,7 @@ export function CiSecretDelivery({
         ) : null}
       </form>
       <p className="text-xs leading-5 text-slate-500">
+        This checks GitHub secret availability, not a response from the model.{" "}
         {details.footnote} ReviewRouter never receives this credential.
       </p>
     </div>
@@ -440,7 +449,7 @@ export function ManagedKeyDelivery({
         </h3>
         <p className="text-sm leading-6 text-slate-300">
           {installed
-            ? `ReviewRouter wrote ${secretName} to the GitHub Actions secrets of ${repositoryFullName}. Confirm it to finish this step.`
+            ? `ReviewRouter wrote ${secretName} to the GitHub Actions secrets of ${repositoryFullName}. Check its availability to finish this step.`
             : `ReviewRouter writes its saved key as ${secretName} to the GitHub Actions secrets of ${repositoryFullName}. The key is never shown in the browser.`}
         </p>
       </div>
@@ -465,8 +474,8 @@ export function ManagedKeyDelivery({
             {confirmation.submitting
               ? "Checking the secret..."
               : confirmation.confirmed
-                ? "Confirmed"
-                : "Confirm the key"}
+                ? "Checked"
+                : "Check GitHub setup"}
           </Button>
         ) : (
           <Button
@@ -483,7 +492,9 @@ export function ManagedKeyDelivery({
             {installing ? "Installing..." : "Install key"}
           </Button>
         )}
-        {confirmation.confirmed ? <Badge tone="success">Done</Badge> : null}
+        {confirmation.confirmed ? (
+          <Badge tone="success">Secret available</Badge>
+        ) : null}
       </div>
       {!installed && installDecisionReason ? (
         <p className="text-xs leading-5 text-amber-100/85">
@@ -506,6 +517,10 @@ export function ManagedKeyDelivery({
           {confirmErrorText(confirmation.submitError)}
         </p>
       ) : null}
+      <p className="text-xs leading-5 text-slate-500">
+        This checks GitHub secret availability, not a response from the model.
+        The saved key is used in GitHub Actions.
+      </p>
     </div>
   );
 }

@@ -40,29 +40,17 @@ concurrency:
 jobs:
   skills-browser:
     name: Skills real Next and PostgreSQL browser acceptance
-    runs-on: ubuntu-24.04-arm
+    runs-on: macos-15
     timeout-minutes: 40
-    services:
-      postgres:
-        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
-        env:
-          POSTGRES_USER: fixture_owner
-          POSTGRES_PASSWORD: skills_ci_fixture_only
-          POSTGRES_DB: review_router_accounts_reference_e2e_test
-        ports:
-          - "127.0.0.1:5432:5432"
-        options: >-
-          --health-cmd "pg_isready -U fixture_owner -d review_router_accounts_reference_e2e_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
       EXPECTED_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
-      DATABASE_URL: postgresql://fixture_owner:skills_ci_fixture_only@127.0.0.1:5432/review_router_accounts_reference_e2e_test?schema=public
       ACCOUNTS_REFERENCE_E2E_GREP: Skills real Next
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/tmp/accounts-reference-e2e/browser-cache
-      NODE_OPTIONS: --max-old-space-size=4096
+      SKILLS_PG_ROOT: ${{ runner.temp }}/skills-postgresql
+      NODE_OPTIONS: --max-old-space-size=3072
       NEXT_TELEMETRY_DISABLED: "1"
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
     steps:
       - name: Checkout exact candidate
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -90,7 +78,44 @@ jobs:
       - name: Generate actual Prisma client
         env:
           REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
-        run: node scripts/generate-prisma-offline.mjs
+          SKILLS_PRISMA_SANDBOX_PATH: ${{ runner.temp }}/skills-prisma-network.sb
+        run: |
+          node scripts/accounts-reference-e2e/src/verify-macos-network-sandbox.ts
+          REVIEW_ROUTER_PRISMA_NETWORK_ALREADY_ISOLATED=1 \
+            /usr/bin/sandbox-exec -f "$SKILLS_PRISMA_SANDBOX_PATH" \
+            node scripts/generate-prisma-offline.mjs
+
+      - name: Typecheck browser harness
+        run: pnpm --dir scripts/accounts-reference-e2e run check
+
+      - name: Start fresh owned PostgreSQL 17
+        run: |
+          set -euo pipefail
+          brew install postgresql@17
+          skills_pg_bin="$(brew --prefix postgresql@17)/bin"
+          skills_pg_version="$("$skills_pg_bin/postgres" --version)"
+          case "$skills_pg_version" in
+            "postgres (PostgreSQL) 17."*) ;;
+            *) echo "Expected PostgreSQL 17, received $skills_pg_version" >&2; exit 1 ;;
+          esac
+          printf '%s\n' "$skills_pg_bin" >> "$GITHUB_PATH"
+          test ! -e "$SKILLS_PG_ROOT"
+          mkdir -m 700 "$SKILLS_PG_ROOT"
+          printf '%s\n' "$skills_pg_version" > "$SKILLS_PG_ROOT/version.log"
+          "$skills_pg_bin/initdb" -D "$SKILLS_PG_ROOT/data" \
+            -U fixture_owner --auth-local=trust --auth-host=trust \
+            --encoding=UTF8 --no-locale
+          skills_pg_port="$(node --input-type=module -e 'import { createServer } from "node:net"; const server = createServer(); server.listen(0, "127.0.0.1", () => { console.log(server.address().port); server.close(); });')"
+          cat >> "$SKILLS_PG_ROOT/data/postgresql.conf" <<CONF
+          listen_addresses = '127.0.0.1'
+          port = $skills_pg_port
+          unix_socket_directories = ''
+          CONF
+          "$skills_pg_bin/pg_ctl" -D "$SKILLS_PG_ROOT/data" \
+            -l "$SKILLS_PG_ROOT/postgres.log" -w start
+          "$skills_pg_bin/createdb" -h 127.0.0.1 -p "$skills_pg_port" \
+            -U fixture_owner review_router_accounts_reference_e2e_test
+          printf 'DATABASE_URL=postgresql://fixture_owner@127.0.0.1:%s/review_router_accounts_reference_e2e_test?schema=public\n' "$skills_pg_port" >> "$GITHUB_ENV"
 
       - name: Install locked Chromium
         run: pnpm --dir scripts/accounts-reference-e2e exec playwright install --with-deps chromium
@@ -131,6 +156,23 @@ jobs:
           assert.equal(result.tests.skipped, 0);
           assert.deepEqual(result.tests.failures, []);
           NODE
+
+      - name: Stop owned PostgreSQL and retain its logs
+        if: always()
+        run: |
+          set -euo pipefail
+          skills_pg_stop_status=0
+          if [ -f "$SKILLS_PG_ROOT/data/postmaster.pid" ]; then
+            pg_ctl -D "$SKILLS_PG_ROOT/data" -m fast -w stop || skills_pg_stop_status=$?
+          fi
+          if [ -d "$SKILLS_PG_ROOT" ]; then
+            skills_evidence="$GITHUB_WORKSPACE/tmp/accounts-reference-e2e/runs/skills-ci"
+            mkdir -p "$skills_evidence"
+            for skills_log in "$SKILLS_PG_ROOT"/*.log; do
+              if [ -f "$skills_log" ]; then cp "$skills_log" "$skills_evidence/"; fi
+            done
+          fi
+          exit "$skills_pg_stop_status"
 
       - name: Upload browser acceptance evidence
         if: always()

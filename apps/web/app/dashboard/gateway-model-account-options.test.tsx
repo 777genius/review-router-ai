@@ -277,7 +277,7 @@ test.each(["unavailable", "transport"] as const)(
     fireEvent.click(screen.getByRole("button", { name: /^Refresh models$/ }));
     await waitFor(() =>
       expect(screen.getByRole("status").textContent).toContain(
-        "discovery unknown",
+        "Could not load account models. Try refreshing the model list. Your saved selection is unchanged.",
       ),
     );
     expect(screen.getByText("Models:")).toBeTruthy();

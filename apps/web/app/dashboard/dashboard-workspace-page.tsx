@@ -1,3 +1,4 @@
+import { savedProviderIdentity } from "../../src/server/provider-identity";
 import { ReviewStatisticsSection } from "./review-statistics-section";
 import { ReviewSkillsSection } from "./review-skills-section";
 import { RepositorySkillsDialog } from "./repository-skills-dialog";
@@ -3196,6 +3197,13 @@ function providerProfileSummary(
     ? {
         label: profile.label,
         model: profile.model,
+        providerId: savedProviderIdentity({
+          authMode: profile.credential.authMode,
+          gatewayProfileRef:
+            profile.credential.kind === "gateway_binding"
+              ? profile.credential.gatewayProfileRef
+              : undefined,
+        }),
         authMode: profile.credential.authMode,
         credentialKind: profile.credential.kind,
       }

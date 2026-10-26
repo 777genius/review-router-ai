@@ -8,6 +8,40 @@ export const CODEX_A_MODEL = "rr-codex-a-unseen";
 export const CODEX_A_REFRESHED = "rr-codex-a-refreshed";
 export const CODEX_B_MODEL = "rr-codex-b-only";
 
+/** Synthetic configured engine metadata for the real settings-form layout.
+ * It does not register, run or attest a production release. */
+export const ACCOUNT_MODEL_UI_ATTESTATIONS = JSON.stringify([
+  {
+    producerReleaseId: "rr-e2e-ui-release",
+    distributionKind: "public_reusable",
+    actionCommitSha: "a".repeat(40),
+    runtimeCommitSha: "b".repeat(40),
+    wrapperEntrypointDigest: null,
+    runtimeEntrypointDigest: "c".repeat(64),
+    contextGatewayPolicyVersion: null,
+    contextGatewayEntrypointDigest: null,
+    reviewInvestigationCapability: null,
+    reviewInvestigationCoverageProfileHash: null,
+    reviewInvestigationPolicyHash: null,
+    schemaDigest: "d".repeat(64),
+    canonicalizerDigest: "e".repeat(64),
+    capabilityProfile: "exact_revision_v2",
+    protocolLimitsProfileId: "rr-e2e-ui-limits",
+    operationalSloProfileId: "rr-e2e-ui-slo",
+    agentProfiles: [
+      {
+        profileRef: "rr-e2e-codex-engine",
+        agentKind: "codex",
+        binarySha256: "f".repeat(64),
+        packageVersion: "1.0.0",
+        modelTransports: ["account_gateway"],
+        cancellation: true,
+        contextGateway: true,
+      },
+    ],
+  },
+]);
+
 /** Authenticated Gateway HTTP dependency only. No browser response mocking. */
 export function createAccountModelsFixture(accounts: readonly WireAccount[]) {
   let phase = "initial";
