@@ -1,3 +1,4 @@
+import { attestCompiledReviewActionV2ProducerContract } from "./review-action-v2-producer-contract-attestation.js";
 import {
   validateReviewPublicationLifecycleVerification,
   lifecycleVerificationReviewProjectionPolicyVersion,
@@ -202,8 +203,7 @@ import {
 } from "@reviewrouter/platform-signed-capabilities";
 import {
   ReviewActionV2ProtocolErrorCode,
-  reviewActionV2CanonicalizerForSchema,
-  reviewActionV2SchemaSlot,
+  reviewActionV2ContractSlot,
 } from "@reviewrouter/protocol-review-action-v2";
 import { SystemClock } from "@reviewrouter/shared";
 import { ReviewActionV2ExecutionEvidenceCapabilityAdapter } from "./review-action-v2-execution-evidence-capabilities.js";
@@ -1642,15 +1642,11 @@ function composeProductionHostedV4ReadRoutes(input: {
           authorization.authorizationId,
         );
       if (!storedAuthorization) return null;
-      const canonicalizer = reviewActionV2CanonicalizerForSchema(
+      const attested = await attestCompiledReviewActionV2ProducerContract(
+        input.prerequisites.releaseAttestations,
+        actionCommitSha,
         storedAuthorization.schemaDigest,
       );
-      if (!canonicalizer) return null;
-      const attested = await input.prerequisites.releaseAttestations.attest({
-        actionCommitSha,
-        expectedSchemaDigest: storedAuthorization.schemaDigest,
-        expectedCanonicalizerDigest: canonicalizer,
-      });
       if (
         attested.status !== ProducerReleaseAttestationStatus.Attested ||
         attested.release.state !== ProducerReleaseState.Registered
@@ -1702,8 +1698,13 @@ export class ProductionReviewInvestigationAuthorizationCapability implements Rev
       ReviewInvestigationAuthorizationCapabilityPort["resolve"]
     >[0],
   ) {
-    const extension = reviewActionV2SchemaSlot(
+    if (
+      input.protocolContract.schemaDigest !== input.producerRelease.schemaDigest
+    )
+      return null;
+    const extension = reviewActionV2ContractSlot(
       input.producerRelease.schemaDigest,
+      input.protocolContract.canonicalizerDigest,
     )?.reviewInvestigationExtensionV1;
     if (!extension) return null;
     const profile = input.producerRelease.reviewInvestigationProfile;
