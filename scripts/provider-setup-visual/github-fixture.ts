@@ -5,7 +5,9 @@
  * (installation tokens, repository metadata and permissions, organization plan, user
  * repository discovery, open setup pull requests, and which repository
  * Actions secrets exist from the run's state file), keeps loopback traffic and
- * fails every other external request as offline. Production code runs
+ * fails every other external request as offline. The exact Next development
+ * version probe is also blocked, but reported separately from application
+ * network violations. Production code runs
  * unchanged; nothing here is reachable outside this preload.
  *
  * Node loads this file with type stripping, so it imports nothing from the
@@ -40,6 +42,8 @@ type FixtureDocument = {
 };
 
 const GITHUB_API = "https://api.github.com";
+const NEXT_DEVELOPMENT_VERSION_PROBE =
+  "https://registry.npmjs.org/-/package/next/dist-tags";
 const USER_TOKEN_PREFIX = "rr-visual-fixture-token-";
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 
@@ -81,7 +85,13 @@ if (fixturePath) {
       record(method, url, response ? "github_fixture" : "github_unhandled");
       return response ?? json(404, { message: "Not Found" });
     }
-    record(method, url, "blocked");
+    record(
+      method,
+      url,
+      method === "GET" && url.href === NEXT_DEVELOPMENT_VERSION_PROBE
+        ? "development_probe_blocked"
+        : "blocked",
+    );
     throw new TypeError("fetch failed: external network is closed");
   };
 }

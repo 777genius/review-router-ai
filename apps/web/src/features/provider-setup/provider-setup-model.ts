@@ -537,10 +537,10 @@ export function sourceTitle(
       const provider = apiKeyProviderForAuthMode(authMode);
       return provider
         ? `${getApiKeyProvider(provider).label} · GitHub Secrets`
-        : "Claude Code subscription, GitHub secret of each repository";
+        : "Claude Code · GitHub Secrets";
     }
     case "repository_rotating":
-      return "Codex subscription for this repository";
+      return "Codex · GitHub Secrets";
     case "hosted_pool":
       return "Hosted Codex pool";
   }
