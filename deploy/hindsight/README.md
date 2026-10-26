@@ -14,6 +14,19 @@ declared deterministic embeddings, reranking and consolidation protocol cases;
 an unscripted LLM call fails the run.
 
 Run `.github/workflows/hindsight-memory-qualification.yml` on the reviewed branch.
+
+The malformed-consolidation probe changes a bank from observations disabled to
+enabled, then restarts both existing worker containers before retaining its
+fault input. Native 1.1.0 caches bank configuration per process for 30 seconds;
+the API's configuration edit invalidates only the API cache. Without refreshing
+the workers, retain can skip consolidation enqueue using its previous disabled
+configuration and leave the probe waiting for the separate 300-second reconcile
+tick. The restart preserves each container's image, identity and environment;
+the probe still requires an actual malformed provider response and terminal
+native operations before checking private sinks. A source-pinned cache
+regression executes the native cache implementations and post-insert enqueue
+gate, while the Docker workflow remains the lifecycle qualification authority.
+
 It clones the exact upstream source, resolves immutable API-only/PG17 image
 inputs, verifies the bounded patch, builds the derivative and tests real HTTP
 API, two separate native workers and isolated PostgreSQL17/pgvector. It uses a

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -156,3 +157,99 @@ test("scripted consolidation update uses real candidate identity and refuses a m
     await stub.close();
   }
 });
+
+test(
+  "pinned native worker config stays stale after another process edits it and a worker restart restores consolidation enqueue",
+  { skip: !process.env.HINDSIGHT_SOURCE_CHECKOUT },
+  () => {
+    const source = resolve(
+      process.env.HINDSIGHT_SOURCE_CHECKOUT!,
+      "hindsight-api-slim/hindsight_api",
+    );
+    const config = readFileSync(resolve(source, "config.py"), "utf8");
+    assert(config.includes("DEFAULT_BANK_INFO_CACHE_TTL_SECONDS = 30.0"));
+    assert(
+      config.includes("DEFAULT_CONSOLIDATION_RECONCILE_INTERVAL_SECONDS = 300"),
+    );
+    const result = spawnSync(
+      "python",
+      [
+        "-c",
+        `
+from __future__ import annotations
+import asyncio,hashlib,importlib.util,logging,sys,textwrap,types
+from pathlib import Path
+root=Path(sys.argv[1])
+expected={
+ 'engine/bank_stats_cache.py':'77683f8730c70f72ddd799bb97ce752bd45da0157946a656a983e45c4ece2119',
+ 'engine/bank_info_cache.py':'c596d593d22477b56a005a367d20230603f63b5b6e19cfaa1caa9c708864e34a',
+ 'engine/memory_engine.py':'44d4f173e5eaf5644390055c2ed55aa254ecea635d2dec870cf949b38de33a5b',
+}
+for name,digest in expected.items():
+ assert hashlib.sha256((root/name).read_bytes()).hexdigest()==digest,name
+for name in ['hindsight_api','hindsight_api.engine']:
+ module=types.ModuleType(name); module.__path__=[]; sys.modules[name]=module
+config=types.ModuleType('hindsight_api.config')
+config.get_config=lambda:types.SimpleNamespace(bank_info_cache_ttl_seconds=30.0,bank_info_cache_max_entries=2048)
+sys.modules[config.__name__]=config
+# Only the unused distributed-cache backend dependency is stubbed. Both cache
+# implementations and the post-insert enqueue gate below are exact native code.
+db=types.ModuleType('hindsight_api.engine.db_utils')
+def unexpected_backend(*args,**kwargs): raise AssertionError('unused_distributed_backend_called')
+db.acquire_with_retry=unexpected_backend; sys.modules[db.__name__]=db
+engine=types.ModuleType('hindsight_api.engine.memory_engine')
+engine.get_current_schema=lambda:'public'; sys.modules[engine.__name__]=engine
+def load(name,file):
+ spec=importlib.util.spec_from_file_location(name,root/file)
+ module=importlib.util.module_from_spec(spec); sys.modules[name]=module
+ spec.loader.exec_module(module); return module
+load('hindsight_api.engine.bank_stats_cache','engine/bank_stats_cache.py')
+def process_cache():
+ return load('hindsight_api.engine.bank_info_cache','engine/bank_info_cache.py')
+text=(root/'engine/memory_engine.py').read_text()
+start=text.index('    async def _submit_post_insert_maintenance(')
+end=text.index('    async def _submit_vector_index_maintenance_quietly(',start)
+namespace={'logger':logging.getLogger('native-cache-regression')}
+exec('from __future__ import annotations\\n'+textwrap.dedent(text[start:end]),namespace)
+stored={'enable_observations':False,'enable_auto_consolidation':False}
+class Worker:
+ _submit_post_insert_maintenance=namespace['_submit_post_insert_maintenance']
+ def __init__(self,cache):
+  self.cache=cache; self.enqueued=0
+  self._config_resolver=types.SimpleNamespace(resolve_full_config=self.resolve)
+ async def resolve(self,bank,context):
+  async def read(): return {'config':dict(stored)}
+  row=await self.cache.get_or_load(bank,'config',read)
+  return types.SimpleNamespace(**row['config'])
+ async def submit_async_consolidation(self,**kwargs): self.enqueued+=1
+ async def submit_async_graph_maintenance(self,**kwargs): pass
+ async def _submit_vector_index_maintenance_quietly(self,*args,**kwargs): pass
+async def main():
+ api=process_cache(); workers=[Worker(process_cache()),Worker(process_cache())]
+ for worker in workers:
+  await worker._submit_post_insert_maintenance('fixture-bank',object())
+  assert worker.enqueued==0
+ stored.update(enable_observations=True,enable_auto_consolidation=True)
+ await api.invalidate('fixture-bank','config')
+ for worker in workers:
+  await worker._submit_post_insert_maintenance('fixture-bank',object())
+  assert worker.enqueued==0,'API invalidation must not clear another process cache'
+ restarted=[Worker(process_cache()),Worker(process_cache())]
+ for worker in restarted:
+  await worker._submit_post_insert_maintenance('fixture-bank',object())
+  assert worker.enqueued==1,'fresh worker must enqueue the malformed-output probe'
+ print('native_worker_config_restart_verified')
+asyncio.run(main())
+`,
+        source,
+      ],
+      { encoding: "utf8", timeout: 10_000 },
+    );
+    assert.equal(
+      result.status,
+      0,
+      `Pinned native cache regression failed: ${result.stderr}`,
+    );
+    assert.equal(result.stdout.trim(), "native_worker_config_restart_verified");
+  },
+);

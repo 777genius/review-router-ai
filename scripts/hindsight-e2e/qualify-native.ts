@@ -631,6 +631,18 @@ export async function qualifyNative() {
     await request(path("/config"), "PATCH", {
       updates: { enable_observations: true, enable_auto_consolidation: true },
     });
+    // Native 1.1.0 caches bank config for 30 seconds in each process. The API
+    // edit only invalidates its own cache; a worker that retained while these
+    // flags were false can otherwise skip enqueueing this probe permanently
+    // until the separate 300-second reconciliation tick. Restart both existing
+    // workers after the edit so this fault probe observes the new bank config.
+    // Docker restart preserves their immutable image, identity and environment.
+    await command(["restart", "--time", "10", normal[1], normal[2]]);
+    await ready(workerPort);
+    await ready(oldWorkerPort);
+    checkpoints.push(
+      "all-native-worker-config-caches-refreshed-before-malformed-consolidation-probe",
+    );
     stub.setMode("malformed");
     const beforeMalformed = stub.calls.consolidation;
     await settled(
