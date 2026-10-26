@@ -43,8 +43,11 @@ read/list/recall/export path uses this envelope as current knowledge.
 
 Claims become unknown before provider I/O. Expired claims observe the same UUID.
 Resubmission is disabled by default and allowed only within an explicitly
-qualified native UUID-retention profile. Revocation disables resubmission. An
-expired envelope leaves visible fenced operator debt, not a successful write or
+qualified native UUID-retention profile. A process exit after claim but before
+native submission is still an unknown dispatch: lease expiry alone cannot prove
+that no external mutation occurred. With resubmission disabled, it remains
+visible operator debt rather than silently submitting again. Revocation disables
+resubmission. An expired envelope leaves visible fenced operator debt, not a successful write or
 proof of remote absence. Recovery schedules command IDs into the existing outbox.
 All ten retired v1 event types are audited and quarantined for explicit operator
 disposition; they are not translated into new-provider writes.

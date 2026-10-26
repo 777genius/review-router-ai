@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
@@ -11,6 +19,7 @@ import {
   type MemoryKnowledgeCommand,
 } from "../domain/memory-knowledge";
 import { PrismaMemoryKnowledgeStore } from "../infrastructure/prisma/prisma-memory-knowledge-store";
+import { MemoryKnowledgeService } from "../application/use-cases/memory-knowledge-service";
 import type { MemoryProviderEntry } from "../application/ports/memory-knowledge-provider-port";
 
 const databaseUrl = process.env.REVIEW_ROUTER_MEMORY_TEST_DATABASE_URL;
@@ -267,6 +276,91 @@ describe.skipIf(!databaseUrl)(
           otherStore,
         ),
       ).rejects.toMatchObject({ code: "conflict" });
+    });
+
+    it("keeps a crash between claim and native submit unknown without unqualified resend", async () => {
+      const command = save();
+      await store.admit({
+        command,
+        digest: memoryKnowledgeCommandDigest(command),
+        now,
+        deliveryExpiresAt: new Date(now.getTime() + 86400000),
+        resubmitUntil: now,
+        activeEntryLimit: null,
+        pendingCommandLimit: 100,
+      });
+      const crashed = await claim(command);
+      expect(crashed?.mode).toBe("submit");
+      // Simulate process exit before any transport, with no native receipt.
+      const recoveredAt = new Date(now.getTime() + 20000);
+      const submit = vi.fn();
+      const observe = vi.fn(async () => ({
+        commandId: command.commandId,
+        state: "unknown" as const,
+        safeReason: "unknown_write" as const,
+      }));
+      const service = new MemoryKnowledgeService({
+        generation,
+        providerProfileVersion: command.providerProfileVersion,
+        store: otherStore,
+        reader: {} as never,
+        writer: { submit },
+        observer: { observe },
+        access: {} as never,
+        policy: {} as never,
+        quota: {} as never,
+        now: () => recoveredAt,
+      });
+      await expect(
+        service.deliver(
+          { scope, commandId: command.commandId },
+          { deadlineAt: new Date(recoveredAt.getTime() + 10000) },
+        ),
+      ).resolves.toMatchObject({
+        state: "unknown",
+        safeReason: "unknown_write",
+      });
+      expect(submit).not.toHaveBeenCalled();
+      expect(observe).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          command,
+          allowResubmit: false,
+          resubmitUntil: now.toISOString(),
+        }),
+        expect.anything(),
+      );
+      const unresolved = await otherStore.findEntry(command.ref, generation);
+      expect(unresolved?.pendingCommandId).toBe(command.commandId);
+      expect(
+        memoryKnowledgeBodyVisible(unresolved!, "runtime", recoveredAt),
+      ).toBe(false);
+      expect(
+        (
+          await otherStore.findCommand({
+            commandId: command.commandId,
+            scope,
+            generation,
+          })
+        )?.envelope,
+      ).toEqual(command);
+      const expiredAt = new Date(now.getTime() + 86400001);
+      expect(await claim(command, store, expiredAt)).toBeNull();
+      const expired = await store.findCommand({
+        commandId: command.commandId,
+        scope,
+        generation,
+      });
+      expect(expired).toMatchObject({
+        envelope: null,
+        operation: { state: "unknown", safeReason: "input_required" },
+      });
+      expect(
+        memoryKnowledgeBodyVisible(
+          (await store.findEntry(command.ref, generation))!,
+          "export",
+          expiredAt,
+        ),
+      ).toBe(false);
     });
 
     it("preserves urgent revocation through an older unknown write and never advances on lease expiry", async () => {
