@@ -14,12 +14,24 @@ runs:
           fi
         done
         apt_options=(-o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o Acquire::Retries=2 -o DPkg::Lock::Timeout=30)
-        sudo apt-get "${apt_options[@]}" update
+        # Bootstrap from the existing signed cache before touching an already
+        # configured PGDG source, whose stale key may prevent any update.
         sudo apt-get "${apt_options[@]}" install -y --no-install-recommends ca-certificates curl
-        sudo install -d /usr/share/postgresql-common/pgdg
-        sudo curl -fsSL --connect-timeout 10 --max-time 30 --retry 2 --retry-delay 2 --retry-max-time 60 -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        pgdg_setup_dir=$(mktemp -d)
+        trap 'rm -rf "$pgdg_setup_dir"' EXIT
+        curl -fsSL --connect-timeout 10 --max-time 30 --retry 2 --retry-delay 2 --retry-max-time 60 -o "$pgdg_setup_dir/apt.postgresql.org.asc" https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        sudo install -d -m0755 /usr/share/postgresql-common/pgdg
+        sudo install -m0644 "$pgdg_setup_dir/apt.postgresql.org.asc" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
         . /etc/os-release
-        echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+        printf 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt %s-pgdg main\n' "$VERSION_CODENAME" > "$pgdg_setup_dir/pgdg.list"
+        sudo install -m0644 "$pgdg_setup_dir/pgdg.list" /etc/apt/sources.list.d/pgdg.list
         sudo apt-get "${apt_options[@]}" update
         sudo apt-get "${apt_options[@]}" install -y --no-install-recommends postgresql-client-17
+        for tool in psql pg_dump pg_restore; do
+          binary="/usr/lib/postgresql/17/bin/$tool"
+          test -x "$binary"
+          version=$("$binary" --version)
+          printf '%s\n' "$version"
+          printf '%s\n' "$version" | grep -Eq "^$tool \\(PostgreSQL\\) 17([. ]|$)"
+        done
         BASH
