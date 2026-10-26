@@ -86,33 +86,38 @@ async function read<T>(response: Response): Promise<T> {
   }
   return response.json() as Promise<T>;
 }
-export const memoryDashboardApi: MemoryDashboardApi = {
-  async list(input, signal) {
-    return read<MemoryKnowledgePage>(
-      await fetch(`/api/dashboard/memory?${memoryQuery(input)}`, {
-        cache: "no-store",
-        ...(signal ? { signal } : {}),
-      }),
-    );
-  },
-  async progress(input, signal) {
-    return read<MemoryOperationView>(
-      await fetch(`/api/dashboard/memory?${memoryQuery(input)}`, {
-        cache: "no-store",
-        ...(signal ? { signal } : {}),
-      }),
-    );
-  },
-  async mutate(input) {
-    return read<MemoryOperationView>(
-      await fetch("/api/dashboard/memory", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      }),
-    );
-  },
-};
+export function createMemoryDashboardApi(endpoint: string): MemoryDashboardApi {
+  return {
+    async list(input, signal) {
+      return read<MemoryKnowledgePage>(
+        await fetch(`${endpoint}?${memoryQuery(input)}`, {
+          cache: "no-store",
+          ...(signal ? { signal } : {}),
+        }),
+      );
+    },
+    async progress(input, signal) {
+      return read<MemoryOperationView>(
+        await fetch(`${endpoint}?${memoryQuery(input)}`, {
+          cache: "no-store",
+          ...(signal ? { signal } : {}),
+        }),
+      );
+    },
+    async mutate(input) {
+      return read<MemoryOperationView>(
+        await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        }),
+      );
+    },
+  };
+}
+export const memoryDashboardApi = createMemoryDashboardApi(
+  "/api/dashboard/memory",
+);
 export function memoryExportHref(input: MemoryScopeSelection): string {
   return `/api/dashboard/memory/export?${memoryQuery(input)}`;
 }

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import MemoryPreviewPage from "./page";
 
 vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(),
   notFound: () => {
     throw new Error("preview-not-found");
   },

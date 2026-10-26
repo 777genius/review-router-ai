@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - apps/web/**
+      - packages/ui/**
+      - scripts/memory-ui-e2e/**
       - apps/api/**
       - apps/worker/**
       - packages/features/memory/**
@@ -28,6 +31,9 @@ on:
   push:
     branches: [main]
     paths:
+      - apps/web/**
+      - packages/ui/**
+      - scripts/memory-ui-e2e/**
       - apps/api/**
       - apps/worker/**
       - packages/features/memory/**
@@ -58,6 +64,53 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  browser-ui:
+    name: Memory rendered UI desktop narrow and keyboard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.11.1
+      - name: Install pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Install dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+      - name: Generate Prisma client
+        env:
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
+        run: node scripts/generate-prisma-offline.mjs
+      - name: Install pinned Playwright Chromium
+        run: pnpm exec playwright-core install --with-deps chromium
+      - name: Run actual rendered preview interactions with synthetic HTTP fixtures
+        env:
+          REVIEW_ROUTER_ENABLE_MEMORY_PREVIEW: "1"
+          REVIEW_ROUTER_MEMORY_UI_ORIGIN: http://127.0.0.1:3001
+          REVIEW_ROUTER_MEMORY_UI_OUTPUT: tmp/memory-ui-e2e
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: |
+          mkdir -p tmp/memory-ui-e2e
+          pnpm --filter @reviewrouter/web exec next dev --webpack -p 3001 -H 127.0.0.1 >tmp/memory-ui-e2e/next.log 2>&1 &
+          web_pid=$!
+          trap 'kill "$web_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --silent --fail http://127.0.0.1:3001/dashboard/memory-preview?fixture=http >/dev/null; then break; fi
+            sleep 1
+          done
+          node --import tsx scripts/memory-ui-e2e/browser-qualify.ts
+      - name: Preserve UI-only screenshots and qualification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: memory-ui-desktop-narrow-keyboard
+          path: tmp/memory-ui-e2e/
+          if-no-files-found: error
+          retention-days: 14
   postgres-contracts:
     name: Memory authority and delivery PostgreSQL contracts
     runs-on: ubuntu-latest
