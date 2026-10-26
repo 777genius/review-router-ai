@@ -84,7 +84,11 @@ except RuntimeError as error:
     ],
     { encoding: "utf8", timeout: 10_000 },
   );
-  assert.equal(result.status, 0, `Python privacy sink probe did not complete: signal=${result.signal ?? "none"} spawnError=${(result.error as NodeJS.ErrnoException | undefined)?.code ?? "none"}`);
+  assert.equal(
+    result.status,
+    0,
+    `Python privacy sink probe did not complete: signal=${result.signal ?? "none"} spawnError=${(result.error as NodeJS.ErrnoException | undefined)?.code ?? "none"}`,
+  );
   const output = result.stdout + result.stderr;
   assert(!output.includes(privacySentinel));
   assert(output.includes("RuntimeError"));
@@ -111,7 +115,11 @@ test(
       encoding: "utf8",
       timeout: 10_000,
     });
-    assert.equal(result.status, 0, `Python native readiness probe did not complete: signal=${result.signal ?? "none"} spawnError=${(result.error as NodeJS.ErrnoException | undefined)?.code ?? "none"}`);
+    assert.equal(
+      result.status,
+      0,
+      `Python native readiness probe did not complete: signal=${result.signal ?? "none"} spawnError=${(result.error as NodeJS.ErrnoException | undefined)?.code ?? "none"}`,
+    );
     assert.equal(result.stdout.trim(), "private_health_verified");
     assert(!(result.stdout + result.stderr).includes(privacySentinel));
   },
