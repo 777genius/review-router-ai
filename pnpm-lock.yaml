@@ -478,6 +478,9 @@ importers:
       '@electric-sql/pglite':
         specifier: 0.4.1
         version: 0.4.1
+      '@electric-sql/pglite-socket':
+        specifier: 0.1.1
+        version: 0.1.1(@electric-sql/pglite@0.4.1)
 
   apps/worker:
     dependencies:
