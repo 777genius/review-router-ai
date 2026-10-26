@@ -152,7 +152,7 @@
     "foundation:qualify": "node scripts/provider-foundation/qualify-packed.ts && tsc -p scripts/provider-foundation/tsconfig.json && node --import tsx scripts/provider-foundation/qualify-boundaries.ts",
     "subscription-runtime:prepare": "node scripts/prepare-pinned-subscription-runtime.ts",
     "foundation:qualify-memory": "node --import tsx scripts/memory-foundation/qualify-boundaries.ts",
-    "modular:qualify": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.modular.json && vitest run packages/features/review-providers/src/composition/index.test.ts packages/features/provider-usage/src/tests/composition.test.ts packages/features/provider-accounts/src/account-limits/composition.test.ts packages/features/memory/src/composition/index.test.ts packages/features/review-statistics/src/composition/index.test.ts",
+    "modular:qualify": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.modular.json && vitest run packages/features/review-providers/src/composition/index.test.ts packages/features/provider-usage/src/tests/composition.test.ts packages/features/provider-accounts/src/account-limits/composition.test.ts packages/features/memory/src/composition/memory-knowledge-runtime.test.ts packages/features/review-statistics/src/composition/index.test.ts",
     "foundation:qualify-statistics": "node --import tsx scripts/statistics-foundation/qualify-boundaries.ts"
   },
   "dependencies": {

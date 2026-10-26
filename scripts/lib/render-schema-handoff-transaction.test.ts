@@ -44,9 +44,9 @@ const input = () => ({
 });
 
 describe("bounded managed89-to92 transaction construction", () => {
-  it("keeps the reader-to-builder boundary at92 for the exact repository-secret-profiles checkout151", () => {
+  it("keeps the reader-to-builder boundary at92 for the exact memory-authority checkout153", () => {
     expect(readdirSync("packages/platform/db/prisma/migrations")).toHaveLength(
-      151,
+      153,
     );
     expect(catalog).toHaveLength(92);
     const sql = renderSchemaHandoffTransaction(input());
@@ -214,6 +214,8 @@ describe("bounded managed89-to92 transaction construction", () => {
         "000139_review_context_tools",
         "000140_personal_oauth_method",
         "000141_memory_search_projections",
+        "000142_memory_knowledge_authority",
+        "000143_memory_maintenance_fence",
         "000142_optional_gateway_reasoning",
         "000143_workspace_draft_review_setting",
         "000144_review_statistics",
