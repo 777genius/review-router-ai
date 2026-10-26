@@ -158,23 +158,26 @@ function captureSecretLeaks(page: Page, secrets: readonly string[]) {
   };
   page.on("console", (message) => inspect("browser console", message.text()));
   page.on("pageerror", (error) => inspect("browser error", error.message));
-  page.on("response", (response) => {
-    if (
-      !/json|text\/html|text\/x-component/.test(
-        response.headers()["content-type"] ?? "",
+  page.on("requestfinished", (request) => {
+    // Next may keep speculative navigation streams open. Inspect complete
+    // responses instead of waiting forever after their headers arrive.
+    const reading: Promise<void> = (async () => {
+      const response = await request.response();
+      if (
+        !response ||
+        !/json|text\/html|text\/x-component/.test(
+          response.headers()["content-type"] ?? "",
+        )
       )
-    )
-      return;
-    const reading = response
-      .text()
-      .then((body) => {
+        return;
+      try {
+        const body = await response.text();
         inspectedResponses += 1;
         inspect("HTTP/SSR response", body);
-      })
-      .catch(() => {
-        // Navigation may abort an obsolete streamed response before its body is readable.
-      })
-      .finally(() => pending.delete(reading));
+      } catch {
+        leakedChannels.add("unreadable completed HTTP/SSR response");
+      }
+    })().finally(() => pending.delete(reading));
     pending.add(reading);
   });
   return async () => {

@@ -267,7 +267,7 @@ UI/layout/branding и backend capability/probe audit можно выполнят
 
 Проверки секретов разделены по наблюдаемым каналам. `noSecrets()` в browser E2E
 проверяет URL, local/session storage, DOM и input после отправки/смены пути.
-Дополнительный canary capture проверяет HTTP/SSR-ответы, browser console/errors,
+Дополнительный canary capture проверяет завершённые HTTP/SSR-ответы, browser console/errors,
 новый `next-app.log`, маршрутный Gateway-log и JSON/HTML-снимки harness.
 Проверять нужно журнал свежего процесса после изменения конфигурации; старый
 журнал не переписывается для получения PASS. Next development logging аргументов
