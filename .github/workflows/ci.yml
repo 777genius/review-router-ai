@@ -110,6 +110,15 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - name: Install pnpm
         run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Install PostgreSQL client
+        uses: ./.github/actions/setup-postgresql-client
+      - name: Verify dedicated PostgreSQL 17 client
+        shell: bash
+        run: |
+          psql_binary=/usr/lib/postgresql/17/bin/psql
+          test -x "$psql_binary"
+          "$psql_binary" --version | grep -Eq '^psql \(PostgreSQL\) 17([. ]|$)'
+          echo "REVIEW_ROUTER_PSQL_BINARY=$psql_binary" >> "$GITHUB_ENV"
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - name: Generate Prisma client
