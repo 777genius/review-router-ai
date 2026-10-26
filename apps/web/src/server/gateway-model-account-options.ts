@@ -308,6 +308,7 @@ export function createGatewayModelAccountOptions(input: {
         label: remote.displayName,
         profileId: profile.id,
         profileLabel: profile.label,
+        ...(profile.provider ? { provider: profile.provider } : {}),
         ...(scopedProfile.connection
           ? { connection: scopedProfile.connection }
           : {}),

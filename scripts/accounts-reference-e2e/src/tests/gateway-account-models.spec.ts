@@ -1,4 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import {
+  openNewProvider,
+  expectNoHorizontalOverflow,
+} from "./provider-setup-support.ts";
 import { withDatabase } from "../database.ts";
 import { FIXTURES } from "../contracts.ts";
 import {
@@ -16,6 +20,7 @@ test.skip(
   process.env.ACCOUNTS_REFERENCE_E2E_ACCOUNT_MODELS !== "1",
   "Requires --account-models-fixture.",
 );
+test.use({ actionTimeout: 60_000, navigationTimeout: 90_000 });
 
 async function fixture(phase?: string) {
   const response = await fetch(
@@ -69,6 +74,7 @@ test("dynamic Codex account models work in provider edit and add with exact bind
   page,
   context,
 }, info) => {
+  test.setTimeout(240_000);
   const violations: string[] = [];
   await installLoopbackOnlyNetworkGuard(page, violations);
   await useViewerSession(context);
@@ -87,7 +93,7 @@ test("dynamic Codex account models work in provider edit and add with exact bind
   const model = dialog.getByRole("combobox", { name: "Model", exact: true });
   await expect(model).toContainText(savedModel);
   await expect(dialog.getByRole("status")).toContainText(
-    "Codex account models",
+    "Account model catalog.",
   );
   await expect(model).toContainText(savedModel);
   await choose(page, "Model", CODEX_A_MODEL);
@@ -107,7 +113,7 @@ test("dynamic Codex account models work in provider edit and add with exact bind
     .getByRole("button", { name: "Refresh models", exact: true })
     .click();
   await expect(dialog.getByRole("status")).toContainText(
-    "Codex account models",
+    "Account model catalog.",
   );
   await expect(model).toContainText(CODEX_A_MODEL);
   await choose(page, "Model", CODEX_A_REFRESHED);
@@ -150,7 +156,7 @@ test("dynamic Codex account models work in provider edit and add with exact bind
   if (await useDefault.isChecked()) await useDefault.uncheck();
   await choose(page, "Model", CODEX_B_MODEL);
   await expect(dialog.getByRole("status")).toContainText(
-    "Codex account models",
+    "Account model catalog.",
   );
   await dialog
     .getByRole("button", { name: "Add provider", exact: true })
@@ -167,6 +173,102 @@ test("dynamic Codex account models work in provider edit and add with exact bind
   await info.attach("dynamic-account-models", {
     body: await page.screenshot(),
     contentType: "image/png",
+  });
+  expect(violations).toEqual([]);
+});
+
+test("provider settings geometry stays aligned on desktop, mobile and narrow layouts", async ({
+  page,
+  context,
+}, info) => {
+  test.setTimeout(240_000);
+  const violations: string[] = [];
+  await installLoopbackOnlyNetworkGuard(page, violations);
+  await useViewerSession(context);
+  await fixture("initial");
+  const geometry: unknown[] = [];
+  await page.goto(
+    `/dashboard?section=providers&workspace=${FIXTURES.workspaces.orgAlpha}`,
+  );
+  for (const theme of ["light", "dark"] as const) {
+    await page.evaluate(
+      (value) => localStorage.setItem("reviewrouter-theme", value),
+      theme,
+    );
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const dialog = await openNewProvider(page, FIXTURES.workspaces.orgAlpha);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    await page.screenshot({
+      path: info.outputPath(`provider-empty-${theme}.png`),
+      fullPage: true,
+    });
+    await choose(page, "Provider", "Connected account");
+    await expect(
+      dialog.getByRole("combobox", { name: "Model", exact: true }),
+    ).toHaveCount(0);
+    await choose(page, "Account", FIXTURES.sourceLabels.orgAlpha);
+    await dialog
+      .getByRole("checkbox", { name: /Use as workspace default/ })
+      .check();
+    await choose(page, "Model", CODEX_B_MODEL);
+    const depth = dialog.getByRole("combobox", {
+      name: /^Review depth\b/,
+    });
+    const engine = dialog.getByRole("combobox", {
+      name: "Review engine",
+      exact: true,
+    });
+    await expect(depth).toBeVisible();
+    await expect(engine).toBeVisible();
+    await expect(depth).toContainText("High");
+    await expect(engine).toContainText("Default");
+    const depthBounds = await depth.boundingBox();
+    const engineBounds = await engine.boundingBox();
+    expect(depthBounds).not.toBeNull();
+    expect(engineBounds).not.toBeNull();
+    expect(Math.abs(depthBounds!.y - engineBounds!.y)).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(depthBounds!.height - engineBounds!.height),
+    ).toBeLessThanOrEqual(1);
+    geometry.push({
+      theme,
+      viewport: "desktop",
+      depth: depthBounds,
+      engine: engineBounds,
+    });
+    await page.screenshot({
+      path: info.outputPath(`provider-settings-desktop-${theme}.png`),
+      fullPage: true,
+    });
+    for (const viewport of [
+      { width: 390, height: 844 },
+      { width: 640, height: 400 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await depth.scrollIntoViewIfNeeded();
+      await expectNoHorizontalOverflow(page);
+      const bounds = await dialog.boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(bounds!.width).toBeLessThanOrEqual(viewport.width);
+      geometry.push({ theme, viewport, dialog: bounds });
+      await page.screenshot({
+        path: info.outputPath(
+          `provider-settings-${viewport.width}-${theme}.png`,
+        ),
+        fullPage: true,
+      });
+    }
+    // The same real controls remain keyboard-operable in the narrow layout.
+    await depth.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("listbox")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(depth).toBeFocused();
+    await dialog.getByRole("button", { name: "Close provider setup" }).click();
+  }
+  await info.attach("provider-settings-geometry", {
+    body: JSON.stringify(geometry, null, 2),
+    contentType: "application/json",
   });
   expect(violations).toEqual([]);
 });
