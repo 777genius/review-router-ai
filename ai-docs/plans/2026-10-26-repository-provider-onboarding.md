@@ -1,0 +1,146 @@
+# Целостная настройка провайдера и репозитория
+
+Дата: 2026-10-26. База: `4c8f2804b5e53795ec8dd51d51d3b3b6c7d28188`.
+Статус: проект плана v1; реализация начинается после двух кругов критики.
+Продолжение [исправления API-provider UX](2026-10-26-provider-settings-ux.md), PR #712.
+
+## 1. Цель и критерий простоты
+
+Пользователь понимает, где заканчивается сохранение профиля и где заканчивается настройка конкретного репозитория. Codex в GitHub Secrets является способом подключения внутри существующего repository setup, а не самостоятельным мастером с собственной готовностью. Открытие формы не меняет состояние подключения.
+
+Сохраняем существующие страницы, provider registry, общий диалог, repository stepper, серверную авторизацию и readiness. Не строим универсальный wizard, новый onboarding service или новую систему состояний. Изменения сосредоточены в представлении, навигации и явных действиях пользователя.
+
+## 2. Карта текущего продукта
+
+| Раздел                        | Ответственность                                                                                             | Что не означает завершение этого шага                                           |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Repositories                  | Выбор провайдера для конкретного репозитория, setup PR, merge, подключение credential и проверка готовности | Сохранение выбора ещё не означает установленный workflow и доступный credential |
+| Providers                     | Переиспользуемые профили: credential source, модель, workspace default, использование                       | Добавление профиля/default не устанавливает секреты во всех репозиториях        |
+| Accounts (`/dashboard/setup`) | Подключение аккаунтов и API-ключей к ReviewRouter, доступ workspace, reconnect                              | Подключённый аккаунт ещё нужно выбрать для ревью                                |
+| Model (`section=policy`)      | Workspace default и поведение ревью                                                                         | Не является отдельным способом хранения credentials                             |
+
+Каноническое место завершения: `/dashboard?section=repositories&workspace=<id>&repository=<owner/repo>`. Параметр repository уже раскрывает нужную строку из доступного серверу списка. Для workspace-result ссылка ведёт в Repositories того же workspace без выдуманного target.
+
+Существующий API-key continuation Providers → Accounts → Providers передаёт проверяемые `provider/storage/workspace/repositoryIds`. Сохраняем его и защиту от чужого target. Hosted Pool и GitLab имеют отдельные ограничения; в этом изменении их не перестраиваем.
+
+## 3. Подтверждённые проблемы
+
+1. `RotatingProviderDelivery` автоматически POST-ит `setup-command` при открытии. Это мутация: issuance может перевести активный Codex provider в `setup_pending`. Просмотр подключения должен быть чтением.
+2. `Verify setup` сейчас требует предварительно полученную команду, хотя backend умеет проверить/активировать уже установленное подключение самостоятельно. Возврат после merge не должен начинать reseed.
+3. `expiresAt` не показан. Это **срок начала команды**, а не срок жизни уже запущенного installer: после fetch действует отдельное ограниченное окно восстановления. Нельзя автоматически заменять команду по таймеру.
+4. Modal повторяет общий маршрут настройки и использует `rotatingPreparationOnly`, вычисленный по старому provider summary. При выборе нового Codex или переходе из другого entrypoint инструкции могут описывать не тот этап.
+5. Repository stepper показывает пользователю внутренние `namespace`, `seed`, `activation` формулировки.
+6. Workspace save/default закрывает форму без понятного следующего шага; несколько подписей обещают начало ревью раньше подготовки репозитория.
+7. Claude использует правильный общий secret delivery, но последовательность «выполните команду / сначала получите токен» стоит разделить. Названия subscription-вариантов перегружены.
+8. Accounts отправляет выбирать подключения в Models, хотя Providers уже является каталогом профилей.
+
+## 4. Целевой пользовательский маршрут
+
+### 4.1. Репозиторий — основной путь
+
+Пользователь раскрывает Setup у репозитория. Общий Provider dialog выбирает источник и модель; credentials открываются как подзадача этого же setup. Создание/merge workflow остаются в существующем stepper. После работы с credential явная ссылка **Back to repository setup** возвращает к той же раскрытой строке и актуальным серверным данным.
+
+Для GitHub API-ключей и Claude сохраняем порядок setup PR → merge → Add secret → Check GitHub setup. Для Codex сохраняем требуемый протоколом порядок: подключить credential → создать/merge setup PR → проверить подключение. В stepper это объясняется обычными словами, без нового отдельного списка глобальных шагов в modal.
+
+### 4.2. Codex — открыть, проверить или явно подключить
+
+- При открытии читать существующий `useProviderSecretStatus` с rotating auth mode. Этот read уже проверяет exact readiness и не выдаёт команду. Не использовать `setup-recovery.status=ready` как доказательство подключения.
+- Показать проверенное подключение, отсутствие подтверждённой готовности или невозможность прочитать статус. `missing` не доказывает, что credential отсутствует: он может ждать merge.
+- **Check GitHub setup** доступен без issuance и вызывает существующий confirmation endpoint. Он проверяет workflow/credential activation, а не ответ модели. Успех использует существующие scoped events и query invalidation.
+- **Get setup command** вызывается только явным действием. Для уже подключённого состояния переподключение — вторичное явное действие с объяснением, что оно заменяет подключение и требует повторного завершения setup. Никаких мутаций при mount, refetch, смене tab, таймере или открытии деталей.
+- После выдачи показать команду, название репозитория и **Start this command by …** в локальном времени браузера. После deadline объяснить: не начинали — запросите новую; уже запущена — дайте ей закончить и продолжите setup. Не скрывать команду и не прерывать installer по клиентским часам.
+- Запрос новой команды остаётся ручным и проходит текущую серверную проверку. Не обещать продление: сервер может вернуть ту же действующую команду, ожидание или recovery_required.
+- Если пользователь уже выполнил команду, приоритет у возврата в repository setup и проверки после merge. Не создавать новый credential ради проверки.
+- Сохранить явное recovery acknowledgement, стабильный request ID для повторной попытки, запрет конкурирующих действий и обработку поздних ответов. После неизвестного результата сети не заявлять, что сервер ничего не изменил.
+- Maintenance, mutation conflict, recovery и operator-required показывают соответствующее следующее действие. Не предлагать автоматическое recovery или бесконечный retry.
+
+### 4.3. Убрать вторую модель прогресса
+
+Предпочтительный минимальный вариант: убрать presentation-only `rotatingPreparationOnly` и условный повтор полного workflow в credential modal. Modal всегда объясняет собственную задачу, а точный следующий шаг определяется существующим repository stepper после возврата. Таким образом не нужно добавлять новый lifecycle API, передавать копию изменяемого workflow state или размораживать выбранный target.
+
+Если критики обнаружат обязательную потребность в stage-specific copy, использовать только уже разрешённый сервером setup stage; никогда не вычислять его по старому provider name. Identity открытого target и выбранный bulk-набор должны оставаться зафиксированными.
+
+### 4.4. Providers и Accounts
+
+- В Providers/default заменить обещание немедленного ревью точным описанием назначения профиля.
+- После workspace add/default — компактное подтверждение сохранения и ссылка **Finish repository setup**. Это результат существующего диалога, не новая страница/wizard. Один repository продолжает переходить в credential step; bulk сохраняет существующий result список.
+- В Provider picker: **Claude Code · GitHub Secrets**, **Codex · GitHub Secrets**. Поддерживаемые источники не меняются. Отдельная короткая подпись объясняет token для Claude и repository-only/automatic refresh для Codex. Не добавлять фиктивный выбор storage и не называть session «API key».
+- Claude: сначала получить token, затем выполнить подготовленную команду сохранения, затем проверить secret availability. API-key instructions используют те же общие компоненты.
+- Accounts cross-link ведёт в Providers с сохранением workspace. Существующий targeted API-key return остаётся приоритетным и сохраняет repositoryIds.
+- Если API-провайдеру разрешён только один storage, начальный выбор должен попадать в доступный вариант. Это локальная коррекция выбора, без изменения policy.
+
+## 5. Граница изменений и архитектура
+
+### В scope
+
+- `apps/web/app/dashboard/provider-setup/`: общий диалог, credential delivery, API adapter, результат сохранения и подписи списка.
+- `apps/web/src/features/provider-setup/`: маленькие существующие presentation helpers/labels при необходимости.
+- `dashboard-workspace-page.tsx`, `repository-setup-progress-panel.tsx`, section copy: согласованные ссылки и инструкции.
+- Существующие frontend/route tests и `scripts/provider-setup-visual`: узкие сценарии и снимки.
+- Этот план, протокол двух кругов критики и фактическая квалификация.
+
+### Вне scope
+
+- OAuth/token/secret formats, issuance/recovery policy, epoch/fence/nonce/claim semantics, refresh и runtime; новые endpoints и DB migrations.
+- Workflow ABI, Action pins, OIDC, GitHub App publication, реальный секретный material и настройки production.
+- Перенос credentials между GitHub и ReviewRouter; новая storage capability; объединение Hosted Pool/GitLab с обычным provider flow.
+- Перестройка sidebar, Pages/Accounts architecture, универсальная framework-абстракция, новые зависимости.
+- Изменения соседних PR по Memory/Skills/CI. Основание ветки обновляется с сохранением их изменений.
+
+**Правила реализации:** переиспользовать shared UI; чтения через существующий React Query adapter, чувствительную одноразовую команду держать только в памяти открытого компонента. Не помещать её в query cache, URL, local/session storage или логи. Серверные решения не дублировать в браузере. API вызовы/response validation — в существующем client adapter. Не смешивать persisted profile, secret metadata, workflow readiness и inference success.
+
+## 6. Проверки и реальные границы E2E
+
+### Критичные frontend/contract проверки
+
+1. Открытие, повторное открытие и статусный refetch Codex дают ноль issuance/recovery POST; готовое подключение не сбрасывается.
+2. Проверка после merge работает без получения команды; failure/unknown не создают Ready.
+3. Выдача только по нажатию; показ deadline; истечение/возврат вкладки не отправляют POST. Начатая команда не объявляется отменённой.
+4. Fetched/recovery_required, maintenance, conflict, network ambiguity; acknowledgment не выставляется автоматически; повтор recovery сохраняет request ID; параллельные действия блокируются.
+5. Поздний ответ не попадает в другое открытие/репозиторий; одноразовая команда очищается при закрытии.
+6. Создание workspace profile/default сохраняет идентичность и указывает реальный следующий шаг; API-key branch и bulk остаются корректными.
+7. Настройка другого provider → Codex до setup PR не использует устаревшие инструкции; возврат открывает верный репозиторий.
+8. Сохранить проверки authz, repository-only, существующих manifest/recovery/readiness контрактов. Не расширять тесты всей системы без конкретного риска.
+
+### Браузер и визуальная проверка
+
+Переиспользовать `scripts/provider-setup-visual`: реальные Next, PostgreSQL 17, подписанные sessions, server actions, профиль/настройки/авторизация; внешний GitHub — существующая ограниченная metadata fixture. Выполнять последовательно, с конкретным `--only`, без всей декартовой матрицы.
+
+- Claude: repository row → provider choice → Add secret; missing не Ready; контролируемый secret найден → check → после reload сохранённое состояние корректно.
+- Workspace add/default → подтверждение → Repositories того же workspace; сохранение не объявляет неподготовленный workflow готовым.
+- Codex: настоящая repository UI, только существующие command/recovery endpoints перехватываются для детерминированных состояний; exact request counters, deadline через browser clock, retry/recovery, read-only reopen, verify without issue, scoped return. Это browser state acceptance, не симуляция доказанного live OAuth/rotation.
+- 6–8 значимых screenshots: 1440/390, светлая/тёмная темы; Codex initial/issued/deadline/recovery, Claude instructions, workspace next step и repository progress. Проверить overflow, длинную команду, scroll, focus/keyboard, loading/error/disabled.
+- Прогнать относящиеся к границе реальные server route/manifest/recovery tests отдельно. Нативная авторизация/rotation не меняются; не строить новый native fixture ради UI и не заявлять новое live-подключение без такого прогона.
+
+Если среда ограничивает Next/PG, сначала использовать безопасно воспроизводимые собственные caches и последовательный запуск; не удалять чужие worktrees/evidence и не обходить проверки. Component preview может дать визуальное evidence, но не подменяет успешный app E2E. В итоговом отчёте точно разделить passed, blocked и controlled boundaries.
+
+## 7. Последовательность работы и критерии завершения
+
+1. Запушить этот план и открыть PR сразу; application code пока не менять.
+2. **Круг критики 1:** параллельно UX/navigation, lifecycle/regression, E2E/scope. Для каждого замечания записать решение и исправить план.
+3. **Круг критики 2:** повторно проверить исправленный план, особенно автоматические мутации, deadline, неизвестный статус, общий repository flow и размер изменений. Закрыть существенные замечания до реализации.
+4. Реализовать небольшими коммитами: shared navigation/copy; явные Codex действия/deadline/recovery; targeted browser/contract acceptance. Пушить по готовности каждого связного изменения.
+5. Запустить сфокусированные проверки и визуально просмотреть снимки. Исправить выявленные проблемы.
+6. Независимое ревью итогового diff по UX, lifecycle и доказательствам; исправить все подтверждённые замечания и повторить затронутые проверки.
+7. Сверить latest main и exact итоговый tree; записать результаты в PR. Не ждать очередь CI по ранее данному указанию пользователя: использовать фактическую локальную квалификацию, не подделывать checks и не менять branch protections. Если появились реальные CI failures — разобрать их.
+8. Замержить обычным GitHub merge с ожидаемым head SHA; проверить main и чистоту собственного checkout. Production deploy не входит в данный запрос.
+
+Готово, когда у репозитория один понятный маршрут завершения, просмотр Codex не мутирует подключение, deadline/recovery не противоречат серверу, profile save не обещает readiness, meaningful app/browser tests и ревью подтверждают итог. Откат — revert этого UX-коммита; форматы данных и runtime protocol не меняются.
+
+## 8. Протокол критики и квалификации
+
+- v1: карта текущих entrypoints и lifecycle проверена по исходникам; ожидает круг 1.
+- Круг 1: ожидает.
+- Круг 2: ожидает.
+- Реализация, итоговое ревью и результаты: ожидают.
+
+## 9. Опорные исходники
+
+- `apps/web/app/dashboard/dashboard-workspace-page.tsx`: workspace sections, repository context, progress/dialog wiring.
+- `apps/web/app/dashboard/provider-setup/provider-setup-dialog.tsx`: frozen target, save transitions, credential delivery.
+- `apps/web/app/dashboard/provider-setup/provider-credential-delivery.tsx`: shared confirmation, Claude instructions, rotating command/recovery.
+- `apps/web/app/dashboard/provider-setup/provider-setup-api.ts`: существующие status read и confirmation adapter.
+- `apps/web/app/dashboard/actions.ts`: rotating readiness inspection и confirm/activation boundary.
+- `apps/web/src/server/codex-rotating-setup-manifest.ts`: initial deadline, issued/fetched/consumed reuse, ready → setup_pending, fences.
+- `apps/web/src/server/prisma-codex-rotating-setup-recovery.ts`: recovery ownership и сроки.
+- `scripts/provider-setup-visual/{run,flows,scenarios,github-fixture,seed}.ts`: ограниченная app/browser qualification.
