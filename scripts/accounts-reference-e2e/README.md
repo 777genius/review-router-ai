@@ -272,7 +272,7 @@ Use `--resume-own-fixtures` only for bounded follow-up against this exact synthe
 fixture family; the final full lane should use fresh checked-in migrations.
 
 The `Skills browser acceptance` GitHub workflow runs this same lane on a dedicated
-hosted runner with a fresh, digest-pinned PostgreSQL 17 service and the harness's
+hosted Ubuntu ARM64 runner with a fresh, digest-pinned PostgreSQL 17 service and the harness's
 locked Chromium. It checks out the PR head explicitly, requires an unchanged
 source tree, and verifies an exact-head receipt with all 23 scenarios passing
 (the ten integration cases above plus thirteen UX resilience cases), zero

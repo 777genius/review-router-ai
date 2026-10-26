@@ -40,7 +40,7 @@ concurrency:
 jobs:
   skills-browser:
     name: Skills real Next and PostgreSQL browser acceptance
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 40
     services:
       postgres:
