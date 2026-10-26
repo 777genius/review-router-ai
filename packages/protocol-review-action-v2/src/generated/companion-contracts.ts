@@ -1,4 +1,45 @@
 // Generated from shared/src/review-action-companion-contracts.ts. Do not edit.
+/** Finite direct-provider transport metadata, shared with the public runtime. */
+export const providerApiAuthModes = [
+  "openrouter-api",
+  "mimo-token-plan-api",
+  "kimi-code-api",
+] as const;
+export type ProviderApiAuthMode = (typeof providerApiAuthModes)[number];
+export const providerApiDescriptors = Object.freeze({
+  "openrouter-api": Object.freeze({
+    providerKind: "openrouter",
+    authMode: "openrouter_api_key",
+    runtimePrefix: "openrouter",
+    secretName: "OPENROUTER_API_KEY",
+    fixedResponsesUrl: "https://openrouter.ai/api/v1/responses",
+    defaultModel: "openai/gpt-5.3-codex",
+  }),
+  "mimo-token-plan-api": Object.freeze({
+    providerKind: "codex-mimo",
+    authMode: "mimo_token_plan_api_key",
+    runtimePrefix: "codex-mimo",
+    secretName: "MIMO_TOKEN_PLAN_API_KEY",
+    fixedResponsesUrl: "https://token-plan-sgp.xiaomimimo.com/v1/responses",
+    defaultModel: "mimo-v2.6-pro",
+  }),
+  "kimi-code-api": Object.freeze({
+    providerKind: "kimi",
+    authMode: "kimi_code_api_key",
+    runtimePrefix: "kimi",
+    secretName: "KIMI_CODE_API_KEY",
+    fixedResponsesUrl: "https://api.kimi.ai/coding/v1/responses",
+    defaultModel: "k3-256k",
+  }),
+} as const);
+export function isProviderApiAuthMode(
+  value: unknown,
+): value is ProviderApiAuthMode {
+  return (
+    typeof value === "string" && Object.hasOwn(providerApiDescriptors, value)
+  );
+}
+
 /** Bearer-authorized read-only companion, outside the V2 command envelope. */
 export const providerApiCheckoutCompanionContract = Object.freeze({
   path: "/api/action/v2/provider-api/checkout",

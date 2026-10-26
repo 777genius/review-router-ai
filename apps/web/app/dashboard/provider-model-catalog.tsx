@@ -81,7 +81,10 @@ export function useProviderModelCatalogs(
   );
   const options = context
     ? [
-        ...fallback.filter((option) => option.provider === "codex-mimo"),
+        ...fallback.filter(
+          (option) =>
+            !providers.some((provider) => provider === option.provider),
+        ),
         ...queries.flatMap((query, index) =>
           query.data
             ? catalogSnapshotOptions(query.data)

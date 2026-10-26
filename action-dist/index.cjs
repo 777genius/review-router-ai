@@ -133333,6 +133333,32 @@ function isSafeGitHubBranchNameSegment(segment) {
 }
 
 // packages/shared/src/review-action-companion-contracts.ts
+var providerApiDescriptors = Object.freeze({
+  "openrouter-api": Object.freeze({
+    providerKind: "openrouter",
+    authMode: "openrouter_api_key",
+    runtimePrefix: "openrouter",
+    secretName: "OPENROUTER_API_KEY",
+    fixedResponsesUrl: "https://openrouter.ai/api/v1/responses",
+    defaultModel: "openai/gpt-5.3-codex"
+  }),
+  "mimo-token-plan-api": Object.freeze({
+    providerKind: "codex-mimo",
+    authMode: "mimo_token_plan_api_key",
+    runtimePrefix: "codex-mimo",
+    secretName: "MIMO_TOKEN_PLAN_API_KEY",
+    fixedResponsesUrl: "https://token-plan-sgp.xiaomimimo.com/v1/responses",
+    defaultModel: "mimo-v2.6-pro"
+  }),
+  "kimi-code-api": Object.freeze({
+    providerKind: "kimi",
+    authMode: "kimi_code_api_key",
+    runtimePrefix: "kimi",
+    secretName: "KIMI_CODE_API_KEY",
+    fixedResponsesUrl: "https://api.kimi.ai/coding/v1/responses",
+    defaultModel: "k3-256k"
+  })
+});
 var providerApiCheckoutCompanionContract = Object.freeze({
   path: "/api/action/v2/provider-api/checkout",
   providerApiAuthMode: "openrouter-api",

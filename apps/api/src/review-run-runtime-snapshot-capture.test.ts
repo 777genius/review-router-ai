@@ -1,3 +1,8 @@
+import { createHash } from "node:crypto";
+import {
+  providerApiAuthModes,
+  providerApiDescriptors,
+} from "@reviewrouter/shared";
 import { lifecycleVerificationDescriptorDigest } from "@reviewrouter/shared";
 import { describe, expect, it } from "vitest";
 import type { PrismaClient } from "@prisma/client";
@@ -53,6 +58,11 @@ const codexDefaultProfile = {
   modelTransports: ["account_gateway", "provider_api"],
   contextGateway: true as const,
   cancellation: true as const,
+};
+
+const directCodexProfile = {
+  ...codexDefaultProfile,
+  reviewSkillsVersion: 1 as const,
 };
 
 const providerApiOnlyProfile = {
@@ -281,9 +291,16 @@ describe("PR description capture availability", () => {
             authMode === "codex_account_gateway"
               ? "account_gateway"
               : "provider_api",
+          ...(authMode === "openrouter_api_key"
+            ? { providerApiAuthMode: "openrouter-api" as const }
+            : {}),
           producerRelease: {
             ...captureInput().producerRelease,
-            agentProfiles: parseReviewAgentProfiles([codexDefaultProfile]),
+            agentProfiles: parseReviewAgentProfiles([
+              authMode === "openrouter_api_key"
+                ? directCodexProfile
+                : codexDefaultProfile,
+            ]),
             ...(approved ? { prDescriptionProfile } : {}),
           },
         },
@@ -542,7 +559,7 @@ describe("direct OpenRouter admission", () => {
       producerRelease: {
         ...captureInput().producerRelease,
         agentProfiles: parseReviewAgentProfiles([
-          codexDefaultProfile,
+          directCodexProfile,
           ocrProfile,
         ]),
       },
@@ -673,7 +690,7 @@ describe("lifecycle verification capture", () => {
         providerApiAuthMode: "openrouter-api",
         producerRelease: {
           ...captureInput().producerRelease,
-          agentProfiles: parseReviewAgentProfiles([codexDefaultProfile]),
+          agentProfiles: parseReviewAgentProfiles([directCodexProfile]),
           lifecycleVerificationProfile: profile,
         },
       },
@@ -840,3 +857,205 @@ describe("server scoped Gateway request ceilings", () => {
     expect((await captured(instance)).gateway?.limits.requests).toBe(9);
   });
 });
+
+it.each(
+  providerApiAuthModes.flatMap((saved) =>
+    providerApiAuthModes.map((caller) => ({ saved, caller })),
+  ),
+)(
+  "captures only canonical caller $caller correlated with saved provider $saved",
+  async ({ saved, caller }) => {
+    const base = JSON.parse(gatewayPolicyJson({}));
+    const descriptor = providerApiDescriptors[saved];
+    base.providers = [
+      {
+        kind: descriptor.providerKind,
+        authMode: descriptor.authMode,
+        model: descriptor.defaultModel,
+        ...(saved === "kimi-code-api" ? {} : { reasoningEffort: "high" }),
+        fastMode: false,
+        agenticContext: true,
+        requiredHealthy: true,
+      },
+    ];
+    const input = {
+      ...captureInput(),
+      modelTransport: "provider_api" as const,
+      providerApiAuthMode: caller,
+      producerRelease: {
+        ...captureInput().producerRelease,
+        agentProfiles: parseReviewAgentProfiles([directCodexProfile]),
+      },
+    };
+    const result = await snapshotSource().capture(
+      input,
+      readerFor(canonicalJson(parseReviewConfigurationStrict(base))),
+    );
+    if (caller !== saved) expect(result).toBeNull();
+    else
+      expect(result).toMatchObject({
+        gateway: null,
+        configurationCanonicalJson: canonicalJson(
+          parseReviewConfigurationStrict(base),
+        ),
+        agent: { agentKind: "codex" },
+      });
+  },
+);
+
+it.each(providerApiAuthModes)(
+  "legacy caller cannot bootstrap direct policy without canonical proof: %s",
+  async (mode) => {
+    const base = JSON.parse(gatewayPolicyJson({}));
+    const d = providerApiDescriptors[mode];
+    base.providers = [
+      {
+        kind: d.providerKind,
+        authMode: d.authMode,
+        model: d.defaultModel,
+        ...(mode === "kimi-code-api" ? {} : { reasoningEffort: "high" }),
+        fastMode: false,
+        agenticContext: true,
+        requiredHealthy: true,
+      },
+    ];
+    const input = {
+      ...captureInput(),
+      modelTransport: "provider_api" as const,
+      producerRelease: {
+        ...captureInput().producerRelease,
+        agentProfiles: parseReviewAgentProfiles([codexDefaultProfile]),
+      },
+    };
+    expect(
+      await snapshotSource().capture(
+        input,
+        readerFor(canonicalJson(parseReviewConfigurationStrict(base))),
+      ),
+    ).toBeNull();
+  },
+);
+
+it.each(providerApiAuthModes)(
+  "new direct %s capture requires a replayable approved agent witness",
+  async (mode) => {
+    const base = JSON.parse(gatewayPolicyJson({}));
+    const d = providerApiDescriptors[mode];
+    base.providers = [
+      {
+        kind: d.providerKind,
+        authMode: d.authMode,
+        model: d.defaultModel,
+        ...(mode === "kimi-code-api" ? {} : { reasoningEffort: "high" }),
+        fastMode: false,
+        agenticContext: true,
+        requiredHealthy: true,
+      },
+    ];
+    const result = await snapshotSource().capture(
+      {
+        ...captureInput(),
+        modelTransport: "provider_api",
+        providerApiAuthMode: mode,
+        producerRelease: {
+          ...captureInput().producerRelease,
+          agentProfiles: parseReviewAgentProfiles([codexDefaultProfile]),
+        },
+      },
+      readerFor(canonicalJson(parseReviewConfigurationStrict(base))),
+    );
+    expect(result).toEqual({ captureDenied: "agent_profile_unavailable" });
+  },
+);
+
+it.each(providerApiAuthModes)(
+  "admission replay preserves original %s proof and rejects a changed current provider",
+  async (mode) => {
+    const configuration = (selected: (typeof providerApiAuthModes)[number]) => {
+      const base = JSON.parse(gatewayPolicyJson({}));
+      const d = providerApiDescriptors[selected];
+      base.providers = [
+        {
+          kind: d.providerKind,
+          authMode: d.authMode,
+          model: d.defaultModel,
+          ...(selected === "kimi-code-api" ? {} : { reasoningEffort: "high" }),
+          fastMode: false,
+          agenticContext: true,
+          requiredHealthy: true,
+        },
+      ];
+      return canonicalJson(parseReviewConfigurationStrict(base));
+    };
+    const producerRelease = {
+      ...captureInput().producerRelease,
+      agentProfiles: parseReviewAgentProfiles([directCodexProfile]),
+    };
+    const source = snapshotSource();
+    const original = await source.capture(
+      {
+        ...captureInput(),
+        modelTransport: "provider_api",
+        providerApiAuthMode: mode,
+        producerRelease,
+      },
+      readerFor(configuration(mode)),
+    );
+    expect(original).toMatchObject({ agent: { reviewSkillsVersion: 1 } });
+    const candidate = {
+      ...identity,
+      producerReleaseId: producerRelease.producerReleaseId,
+      maxExpiresAt: captureInput().deadline,
+      runtimeSnapshotCanonicalJson: canonicalJson(original),
+    } as unknown as Parameters<
+      ProductionReviewRunRuntimeSnapshot["matchesAdmission"]
+    >[1];
+    const transaction = (policy: string) =>
+      ({
+        ...readerFor(policy),
+        producerRelease: {
+          findUnique: async () => ({
+            ...producerRelease,
+            agentProfilesJson: JSON.stringify(producerRelease.agentProfiles),
+            contextToolsProfile: null,
+            prDescriptionProfile: null,
+            lifecycleVerificationProfile: null,
+          }),
+        },
+        $queryRaw: async () => [{ id: workspaceId }],
+      }) as unknown as Parameters<
+        ProductionReviewRunRuntimeSnapshot["matchesAdmission"]
+      >[0];
+    expect(
+      await source.matchesAdmission(
+        transaction(configuration(mode)),
+        candidate,
+      ),
+    ).toBe(true);
+    const different = providerApiAuthModes.find((value) => value !== mode)!;
+    expect(
+      await source.matchesAdmission(
+        transaction(configuration(different)),
+        candidate,
+      ),
+    ).toBe(false);
+    // Legacy non-witness bytes remain parseable; they do not acquire new direct proof.
+    if (!original || "captureDenied" in original)
+      throw new Error("fixture_capture_missing");
+    const legacyAgent = { ...original.agent };
+    delete legacyAgent.reviewSkillsVersion;
+    const legacy = {
+      ...original,
+      agent: legacyAgent,
+      agentProfileDigest: createHash("sha256")
+        .update(canonicalJson(legacyAgent))
+        .digest("hex"),
+    };
+    expect(
+      await source.matchesAdmission(transaction(configuration(mode)), {
+        ...candidate,
+        runtimeSnapshotCanonicalJson: canonicalJson(legacy),
+      }),
+    ).toBe(false);
+  },
+);

@@ -9,6 +9,10 @@ export * from "./validation/index";
 export { reviewRouterApiUrlsMatch } from "./reviewrouter-service-origin";
 export {
   providerApiCheckoutCompanionContract,
+  providerApiAuthModes,
+  type ProviderApiAuthMode,
+  providerApiDescriptors,
+  isProviderApiAuthMode,
   contextToolsContract,
   type ContextToolsPlanV1,
   prDescriptionContract,

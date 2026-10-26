@@ -5,6 +5,7 @@ export const reviewProviderKinds = [
   "codex-mimo",
   "claude",
   "openrouter",
+  "kimi",
 ] as const;
 
 export const reviewProviderAuthModes = [
@@ -14,6 +15,7 @@ export const reviewProviderAuthModes = [
   "mimo_token_plan_api_key",
   "claude_code_oauth",
   "openrouter_api_key",
+  "kimi_code_api_key",
 ] as const;
 
 // Product-owned opaque references only; no URL, credentials or native routing data.
@@ -51,14 +53,16 @@ export type RuntimeAuthMode =
   | "codex-account-gateway"
   | "mimo-token-plan-api"
   | "claude-oauth"
-  | "openrouter-api";
+  | "openrouter-api"
+  | "kimi-code-api";
 
 export type ProviderCliTool = "codex" | "claude";
 export type RuntimeProviderPrefix =
   | "codex"
   | "codex-mimo"
   | "claude"
-  | "openrouter";
+  | "openrouter"
+  | "kimi";
 export const defaultProviderReasoningEffort = "xhigh" as const;
 
 export type ProviderCapability =
@@ -78,7 +82,8 @@ export type ProviderSetupKind =
   | "account_gateway"
   | "mimo_token_plan_api_key"
   | "claude_code_oauth"
-  | "openrouter_api_key";
+  | "openrouter_api_key"
+  | "kimi_code_api_key";
 
 export type ProviderCatalogEntry = {
   readonly kind: ProviderKind;
@@ -102,6 +107,15 @@ export type ProviderAuthModeMetadata = {
 export const defaultCodexModel = "gpt-5.6-sol";
 
 const providerCatalog = {
+  kimi: {
+    kind: "kimi",
+    label: "Kimi Code",
+    authModes: ["kimi_code_api_key"],
+    defaultAuthMode: "kimi_code_api_key",
+    defaultModel: "k3-256k",
+    runtimeProviderPrefix: "kimi",
+    capabilities: ["static_model_catalog", "api_key", "agentic_context"],
+  },
   codex: {
     kind: "codex",
     label: "Codex",
@@ -158,6 +172,14 @@ const providerCatalog = {
 } as const satisfies Record<ProviderKind, ProviderCatalogEntry>;
 
 const authModeMetadata = {
+  kimi_code_api_key: {
+    authMode: "kimi_code_api_key",
+    providerKind: "kimi",
+    runtimeAuthMode: "kimi-code-api",
+    setupKind: "kimi_code_api_key",
+    label: "Kimi Code API key",
+    secretNames: ["KIMI_CODE_API_KEY"],
+  },
   codex_subscription_oauth_rotating: {
     authMode: "codex_subscription_oauth_rotating",
     providerKind: "codex",
@@ -307,6 +329,7 @@ export function cliToolsForProvider(
     case "claude":
       return ["claude"];
     case "openrouter":
+    case "kimi":
       return ["codex"];
   }
 }
@@ -317,7 +340,11 @@ export function getDefaultProviderConfigForAuthMode<T extends ProviderAuthMode>(
   readonly kind: ProviderKind;
   readonly authMode: T;
   readonly model: string;
-  readonly reasoningEffort: typeof defaultProviderReasoningEffort;
+  readonly reasoningEffort: T extends "kimi_code_api_key"
+    ? undefined
+    : T extends "mimo_token_plan_api_key"
+      ? "high"
+      : typeof defaultProviderReasoningEffort;
   readonly agenticContext: boolean;
   readonly fastMode: boolean;
 } {
@@ -326,7 +353,15 @@ export function getDefaultProviderConfigForAuthMode<T extends ProviderAuthMode>(
     kind,
     authMode,
     model: getProviderCatalogEntry(kind).defaultModel,
-    reasoningEffort: defaultProviderReasoningEffort,
+    reasoningEffort: (authMode === "kimi_code_api_key"
+      ? undefined
+      : authMode === "mimo_token_plan_api_key"
+        ? "high"
+        : defaultProviderReasoningEffort) as T extends "kimi_code_api_key"
+      ? undefined
+      : T extends "mimo_token_plan_api_key"
+        ? "high"
+        : typeof defaultProviderReasoningEffort,
     agenticContext: true,
     fastMode: false,
   };

@@ -92,14 +92,6 @@ describe("workspace provider profile input", () => {
         },
       },
     ],
-    [
-      // A single OpenRouter provider runs over the provider API with the
-      // server-managed key; a repository secret of the user is never read.
-      "an OpenRouter repository secret",
-      {
-        credential: { kind: "user_ci_secret", authMode: "openrouter_api_key" },
-      },
-    ],
   ])("refuses %s", (_name, override) => {
     expect(() =>
       parseProviderProfileDraft({
@@ -159,3 +151,28 @@ describe("workspace provider profile label after a model edit", () => {
     ).toBe("Team ChatGPT");
   });
 });
+
+it.each([
+  "openrouter_api_key",
+  "mimo_token_plan_api_key",
+  "kimi_code_api_key",
+] as const)(
+  "registers a user-managed repository secret without a saved workspace key: %s",
+  (authMode) => {
+    const draft = parseProviderProfileDraft({
+      credential: { kind: "user_ci_secret", authMode },
+      model: authMode === "kimi_code_api_key" ? "k3-256k" : "vendor/model",
+    });
+    expect(draft.credential).toEqual({ kind: "user_ci_secret", authMode });
+    expect(
+      providerCredentialSourceFromStorage({
+        credentialKind: "user_ci_secret",
+        authMode,
+        gatewayBindingId: null,
+        gatewayProfileRef: null,
+        apiKeyConnectionId: null,
+        repositoryId: null,
+      }),
+    ).toEqual(draft.credential);
+  },
+);

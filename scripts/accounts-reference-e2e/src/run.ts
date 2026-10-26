@@ -18,6 +18,7 @@ import {
   ACCOUNT_MODELS_FIXTURE_BOUNDARY,
   LIMITS_FIXTURE_BOUNDARY,
   SUBSCRIPTION_FIXTURE_BOUNDARY,
+  API_KEY_STORAGE_FIXTURE_BOUNDARY,
   FIXTURES,
   type FixtureSecrets,
   type RuntimeDescriptor,
@@ -38,17 +39,19 @@ type TestSummary = {
 };
 
 async function main(): Promise<void> {
-  const fixtureBoundary = process.argv.includes("--skills-fixture")
-    ? SKILLS_FIXTURE_BOUNDARY
-    : process.argv.includes("--account-models-fixture")
-      ? ACCOUNT_MODELS_FIXTURE_BOUNDARY
-      : process.argv.includes("--subscription-fixture")
-        ? SUBSCRIPTION_FIXTURE_BOUNDARY
-        : process.argv.includes("--limits-fixture")
-          ? LIMITS_FIXTURE_BOUNDARY
-          : process.argv.includes("--probe-fixture")
-            ? PROBE_FIXTURE_BOUNDARY
-            : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
+  const fixtureBoundary = process.argv.includes("--api-key-storage-fixture")
+    ? API_KEY_STORAGE_FIXTURE_BOUNDARY
+    : process.argv.includes("--skills-fixture")
+      ? SKILLS_FIXTURE_BOUNDARY
+      : process.argv.includes("--account-models-fixture")
+        ? ACCOUNT_MODELS_FIXTURE_BOUNDARY
+        : process.argv.includes("--subscription-fixture")
+          ? SUBSCRIPTION_FIXTURE_BOUNDARY
+          : process.argv.includes("--limits-fixture")
+            ? LIMITS_FIXTURE_BOUNDARY
+            : process.argv.includes("--probe-fixture")
+              ? PROBE_FIXTURE_BOUNDARY
+              : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
   const options = parseCliOptions(process.argv);
   await ensureWorkDir(options.workDir);
   const revision = await readRevision(options.repoRoot);
@@ -310,6 +313,11 @@ async function runPlaywright(input: {
           ...process.env,
           ACCOUNTS_REFERENCE_E2E_BASE_URL: input.appUrl,
           ACCOUNTS_REFERENCE_E2E_GATEWAY_URL: input.gatewayUrl,
+          ACCOUNTS_REFERENCE_E2E_API_KEY_STORAGE: process.argv.includes(
+            "--api-key-storage-fixture",
+          )
+            ? "1"
+            : "0",
           ACCOUNTS_REFERENCE_E2E_SUBSCRIPTIONS: process.argv.includes(
             "--subscription-fixture",
           )

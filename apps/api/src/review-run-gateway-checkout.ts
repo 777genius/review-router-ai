@@ -1,4 +1,9 @@
 import {
+  isProviderApiAuthMode,
+  providerApiDescriptors,
+} from "@reviewrouter/shared";
+import type { ProviderApiAuthMode } from "@reviewrouter/shared";
+import {
   codexOAuthModelSettingsProfile,
   gatewayModelSettingsRuntimeEnvKey,
   serializeSelectedGatewayModelSettings,
@@ -10,7 +15,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   mapConfigToRuntimeEnv,
   parseReviewConfigurationStrict,
-  assertOpenRouterDirectConfigurationSupported,
+  assertProviderApiDirectConfigurationSupported,
 } from "@reviewrouter/features-review-config";
 import {
   prDescriptionContract,
@@ -64,7 +69,7 @@ type CheckoutSelectors = Readonly<{
   workflowSchemaVersion: number;
 }>;
 type ProviderApiCheckoutSelectors = Readonly<{
-  providerApiAuthMode: "openrouter-api";
+  providerApiAuthMode: ProviderApiAuthMode;
   workflowSchemaVersion: 2;
 }>;
 class CheckoutFailure extends Error {
@@ -199,12 +204,14 @@ function createReviewRunCheckout(
       let directConfiguration:
         | ReturnType<typeof parseReviewConfigurationStrict>
         | undefined;
+      let directMode: ProviderApiAuthMode | undefined;
       if (input.modelTransport === "provider_api") {
         try {
           directConfiguration = parseReviewConfigurationStrict(
             JSON.parse(snapshot.configurationCanonicalJson),
           );
-          assertOpenRouterDirectConfigurationSupported(directConfiguration);
+          directMode =
+            assertProviderApiDirectConfigurationSupported(directConfiguration);
           if (
             canonicalJson(directConfiguration) !==
             snapshot.configurationCanonicalJson
@@ -275,8 +282,7 @@ function createReviewRunCheckout(
             selectors.workflowSchemaVersion !==
               CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredV2
           : !("providerApiAuthMode" in selectors) ||
-            selectors.providerApiAuthMode !==
-              providerApiCheckoutCompanionContract.providerApiAuthMode ||
+            selectors.providerApiAuthMode !== directMode ||
             selectors.workflowSchemaVersion !==
               providerApiCheckoutCompanionContract.workflowSchemaVersion
       )
@@ -397,8 +403,10 @@ function createReviewRunCheckout(
         !provider ||
         (input.modelTransport === "account_gateway"
           ? runtimeEnv.CODEX_MODEL !== provider.model
-          : runtimeEnv.REVIEW_AUTH_MODE !== "openrouter-api" ||
-            runtimeEnv.REVIEW_PROVIDERS !== `openrouter/${provider.model}`) ||
+          : runtimeEnv.REVIEW_AUTH_MODE !== directMode ||
+            !directMode ||
+            runtimeEnv.REVIEW_PROVIDERS !==
+              `${providerApiDescriptors[directMode].runtimePrefix}/${provider.model}`) ||
         runtimeEnv.CODEX_REASONING_EFFORT !== provider.reasoningEffort ||
         runtimeEnv.CODEX_AGENTIC_CONTEXT !== String(provider.agenticContext) ||
         runtimeEnv.CODEX_FAST_MODE !== String(provider.fastMode)
@@ -593,8 +601,7 @@ function parseRequest(
       Object.keys(selectors).sort().join(",") !==
         "providerApiAuthMode,workflowSchemaVersion" ||
       !("providerApiAuthMode" in selectors) ||
-      selectors.providerApiAuthMode !==
-        providerApiCheckoutCompanionContract.providerApiAuthMode ||
+      !isProviderApiAuthMode(selectors.providerApiAuthMode) ||
       !("workflowSchemaVersion" in selectors) ||
       selectors.workflowSchemaVersion !==
         providerApiCheckoutCompanionContract.workflowSchemaVersion
@@ -603,8 +610,7 @@ function parseRequest(
     return {
       token: header.slice(7),
       selectors: {
-        providerApiAuthMode:
-          providerApiCheckoutCompanionContract.providerApiAuthMode,
+        providerApiAuthMode: selectors.providerApiAuthMode,
         workflowSchemaVersion:
           providerApiCheckoutCompanionContract.workflowSchemaVersion,
       },
