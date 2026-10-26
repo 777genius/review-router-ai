@@ -16,9 +16,10 @@ import { Buffer } from "node:buffer";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import {
   reviewActionV2LegacySlot,
+  reviewActionV2SupportedContracts,
+  reviewActionV2ContractSlot,
   reviewActionV2CanonicalizerDigest,
   reviewActionV2PublishedSchemaDigest,
-  reviewInvestigationExtensionV1,
 } from "@reviewrouter/protocol-review-action-v2";
 import { ProducerReleaseState } from "@reviewrouter/features-review-run-control";
 import { describe, expect, it, vi } from "vitest";
@@ -801,63 +802,71 @@ describe("Review Action v2 production composition", () => {
     ).toBe(InvestigationRolloutDecision.OutsideCohort);
   });
 
-  it("advertises a recording-only target with an explicit V2 grant", async () => {
-    const diagnostics = vi.fn();
-    const resolveAllowedCapabilitiesForTargets = vi
-      .fn()
-      .mockResolvedValue([[InvestigationRolloutCapability.Recording]]);
-    const capability = new ProductionReviewInvestigationAuthorizationCapability(
-      {
-        resolveAllowedCapabilitiesForTargets,
-      },
-      { record: diagnostics },
-    );
-
-    await expect(
-      capability.resolve({
-        target: {
-          workspaceId: "workspace-1",
-          repositoryConnectionId: "repository-1",
-          scmRepositoryIdentityId: "scm-repository-1",
-          trustDomain: "trusted",
-          producerReleaseId: "release-1",
-          providerVoteLanes: [{ providerKind: "codex" }],
-        } as never,
-        producerRelease: {
-          schemaDigest: reviewActionV2PublishedSchemaDigest,
-          reviewInvestigationProfile: {
-            capability: "review_investigation_v1",
-            coverageProfileHash: "a".repeat(64),
-            policyHash: "b".repeat(64),
+  it.each(reviewActionV2SupportedContracts())(
+    "advertises the exact attested extension for $canonicalizerDigest",
+    async (contract) => {
+      const extension = reviewActionV2ContractSlot(
+        contract.schemaDigest,
+        contract.canonicalizerDigest,
+      )!.reviewInvestigationExtensionV1;
+      const diagnostics = vi.fn();
+      const resolveAllowedCapabilitiesForTargets = vi
+        .fn()
+        .mockResolvedValue([[InvestigationRolloutCapability.Recording]]);
+      const capability =
+        new ProductionReviewInvestigationAuthorizationCapability(
+          {
+            resolveAllowedCapabilitiesForTargets,
           },
-        } as never,
-      }),
-    ).resolves.toEqual({
-      authorizationDescriptorVersion: 3,
-      capability: "review_investigation_v1",
-      coverageProfileHash: "a".repeat(64),
-      extensionCanonicalizerDigest:
-        reviewInvestigationExtensionV1.canonicalizerDigest,
-      extensionId: reviewInvestigationExtensionV1.extensionId,
-      extensionSchemaDigest: reviewInvestigationExtensionV1.schemaDigest,
-      policyHash: "b".repeat(64),
-      providerCapabilities: [
-        {
-          providerKind: "codex",
-          capabilities: [InvestigationRolloutCapability.Recording],
-        },
-      ],
-    });
-    expect(resolveAllowedCapabilitiesForTargets).toHaveBeenCalledOnce();
-    expect(diagnostics).not.toHaveBeenCalled();
-    expect(resolveAllowedCapabilitiesForTargets).toHaveBeenCalledWith({
-      targets: [
-        expect.objectContaining({
-          provider: InvestigationRolloutProvider.Codex,
+          { record: diagnostics },
+        );
+
+      await expect(
+        capability.resolve({
+          target: {
+            workspaceId: "workspace-1",
+            repositoryConnectionId: "repository-1",
+            scmRepositoryIdentityId: "scm-repository-1",
+            trustDomain: "trusted",
+            producerReleaseId: "release-1",
+            providerVoteLanes: [{ providerKind: "codex" }],
+          } as never,
+          protocolContract: contract,
+          producerRelease: {
+            schemaDigest: contract.schemaDigest,
+            reviewInvestigationProfile: {
+              capability: "review_investigation_v1",
+              coverageProfileHash: "a".repeat(64),
+              policyHash: "b".repeat(64),
+            },
+          } as never,
         }),
-      ],
-    });
-  });
+      ).resolves.toEqual({
+        authorizationDescriptorVersion: 3,
+        capability: "review_investigation_v1",
+        coverageProfileHash: "a".repeat(64),
+        extensionCanonicalizerDigest: extension.canonicalizerDigest,
+        extensionId: extension.extensionId,
+        extensionSchemaDigest: extension.schemaDigest,
+        policyHash: "b".repeat(64),
+        providerCapabilities: [
+          {
+            providerKind: "codex",
+            capabilities: [InvestigationRolloutCapability.Recording],
+          },
+        ],
+      });
+      expect(resolveAllowedCapabilitiesForTargets).toHaveBeenCalledOnce();
+      expect(diagnostics).not.toHaveBeenCalled();
+      expect(resolveAllowedCapabilitiesForTargets).toHaveBeenCalledWith({
+        targets: [
+          expect.objectContaining({
+            provider: InvestigationRolloutProvider.Codex,
+          }),
+        ],
+      });
+    },
+  );
 
   it.each([
     {
@@ -912,6 +921,7 @@ describe("Review Action v2 production composition", () => {
           producerReleaseId: "release-secret",
           providerVoteLanes: testCase.providerVoteLanes,
         } as never,
+        protocolContract: reviewActionV2SupportedContracts()[0]!,
         producerRelease: {
           schemaDigest: reviewActionV2PublishedSchemaDigest,
           reviewInvestigationProfile: testCase.profile,
@@ -943,6 +953,7 @@ describe("Review Action v2 production composition", () => {
           producerReleaseId: "release-secret",
           providerVoteLanes: [{ providerKind: "codex" }],
         } as never,
+        protocolContract: reviewActionV2SupportedContracts()[0]!,
         producerRelease: {
           schemaDigest: reviewActionV2PublishedSchemaDigest,
           reviewInvestigationProfile: {
@@ -979,6 +990,7 @@ describe("Review Action v2 production composition", () => {
           producerReleaseId: "release-secret",
           providerVoteLanes: [{ providerKind: "codex" }],
         } as never,
+        protocolContract: reviewActionV2SupportedContracts()[0]!,
         producerRelease: {
           schemaDigest: reviewActionV2PublishedSchemaDigest,
           reviewInvestigationProfile: null,
@@ -1098,6 +1110,7 @@ describe("Review Action v2 production composition", () => {
             { providerKind: "claude_code" },
           ],
         } as never,
+        protocolContract: reviewActionV2SupportedContracts()[0]!,
         producerRelease: {
           schemaDigest: reviewActionV2PublishedSchemaDigest,
           reviewInvestigationProfile: {
