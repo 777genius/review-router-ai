@@ -990,6 +990,7 @@ describe("dashboard server loading boundaries", () => {
         workspaceId: "workspace-a",
         repositoryId: null,
         cursor: null,
+        topicId: null,
       });
       for (const spy of Object.values(spies)) {
         expect(spy).not.toHaveBeenCalled();
