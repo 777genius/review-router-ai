@@ -346,7 +346,7 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
   }),
   dialogScenario({
     id: "dialog-new-provider-key",
-    title: "New provider for one repository: a key ReviewRouter saves",
+    title: "New API-key provider for one repository: explicit storage choice",
     users: ["owner"],
     route: workspaceRoute("main", "repositories"),
     prepare: async ({ page }) => {
@@ -357,7 +357,7 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
       );
       await chooseNewProvider(dialog);
       await chooseSource(page, dialog, SOURCE.openRouterKey);
-      await reveal(dialog.getByLabel("API key"));
+      await reveal(dialog.getByRole("radiogroup", { name: "Key storage" }));
     },
   }),
   dialogScenario({
