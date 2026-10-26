@@ -37,6 +37,8 @@ export async function startNextApp(input: {
       join(input.repoRoot, "node_modules/next/dist/bin/next"),
       "dev",
       "--webpack",
+      // Browser assertions do not need the dev server's source-map cache.
+      "--disable-source-maps",
       "-H",
       "127.0.0.1",
       "-p",
