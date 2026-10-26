@@ -21,3 +21,14 @@ export function assertNativeCleanupStatus(path: string, method: string, status: 
   const safeMethod = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method) ? method : 'REQUEST';
   throw new Error(`Native cleanup ${safeMethod} ${safeNativeRoute(path)} returned HTTP ${status}; expected ${allowed.join('/')} (body suppressed)`);
 }
+
+/** Pinned native status reads use HTTP 200 + not_found for an absent operation. */
+export function assertNativeOperationAbsent(input: unknown, operationId: string): void {
+  if (input && typeof input === 'object' && !Array.isArray(input)) {
+    const value = input as Record<string, unknown>;
+    const emptyFields = ['operation_type', 'task_type', 'mental_model_id', 'created_at', 'updated_at', 'completed_at', 'error_message', 'retry_count', 'next_retry_at', 'progress', 'result_metadata', 'details', 'child_operations', 'task_payload'];
+    const allowed = new Set(['operation_id', 'status', 'id', ...emptyFields]);
+    if (value.operation_id === operationId && value.id === operationId && value.status === 'not_found' && Object.keys(value).every(key => allowed.has(key)) && emptyFields.every(key => value[key] == null)) return;
+  }
+  throw new Error('Native operation absence or payload removal could not be verified');
+}

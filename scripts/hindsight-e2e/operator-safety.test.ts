@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { acquireDeploymentLock } from './deployment-lock.ts';
-import { assertNativeCleanupStatus, safeNativeRoute } from './native-http.ts';
+import { assertNativeCleanupStatus, assertNativeOperationAbsent, safeNativeRoute } from './native-http.ts';
 import { assertCleanupOperationSources, leafFirstOperations, operationClosure, persistCleanupInventory, readCleanupInventory, signCleanupInventory, verifyCleanupInventory, type CleanupOperation, type CleanupSourceInventory } from './cleanup-inventory.ts';
 
 const { privateKey, publicKey } = generateKeyPairSync('ed25519');
@@ -25,6 +25,15 @@ test('native cleanup failures report method, structural route and status without
     return true;
   });
   assert.equal(safeNativeRoute(`/unknown/${privateValue}`), 'native-endpoint');
+});
+
+test('native HTTP 200 not_found proves operation absence only for the exact ID and empty native payload fields', () => {
+  const operationId = randomUUID();
+  const absent = { operation_id: operationId, id: operationId, status: 'not_found', operation_type: null, task_type: null, created_at: null, updated_at: null, completed_at: null, error_message: null, task_payload: null, result_metadata: null, child_operations: null };
+  assert.doesNotThrow(() => assertNativeOperationAbsent(absent, operationId));
+  for (const changed of [null, {}, { ...absent, operation_id: randomUUID() }, { ...absent, id: randomUUID() }, { ...absent, status: 'completed' }, { ...absent, status: 'pending' }, { ...absent, task_payload: { contents: ['PRIVATE_PROVIDER_RESPONSE'] } }, { ...absent, result_metadata: {} }, { ...absent, child_operations: [] }, { ...absent, body: 'PRIVATE_PROVIDER_RESPONSE' }]) {
+    assert.throws(() => assertNativeOperationAbsent(changed, operationId), error => error instanceof Error && error.message === 'Native operation absence or payload removal could not be verified');
+  }
 });
 
 test('actual Linux flock survives acquiring subprocess exit and excludes another launcher until close', async () => {

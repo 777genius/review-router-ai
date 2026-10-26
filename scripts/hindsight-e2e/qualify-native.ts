@@ -8,6 +8,7 @@ import { nativeRevision } from './prepare-hardening.ts';
 import { dockerCommand as command, eventually, freePort, pause } from './native-runtime.ts';
 import { qualifyProductionAdapter } from './production-adapter-story.ts';
 import { qualifyProductionCleanup } from './production-cleanup-story.ts';
+import { assertNativeOperationAbsent } from './native-http.ts';
 
 type Operation = { operation_id: string; status: string; task_payload?: unknown; error_message?: string | null; child_operations?: Operation[]; result_metadata?: unknown };
 type Fact = { id: string; text: string; document_id?: string; mentioned_at?: string; occurred_start?: string; state?: string; tags?: string[] };
@@ -237,7 +238,7 @@ export async function qualifyNative() {
     await request(path(`/documents/${document}`), 'DELETE');
     const ordered = [...discovered.values()].sort((a, b) => Number(Boolean(a.child_operations?.length)) - Number(Boolean(b.child_operations?.length)));
     for (const operation of ordered) await request(path(`/operations/${operation.operation_id}/delete`), 'DELETE');
-    for (const operation of discovered.values()) await request(path(`/operations/${operation.operation_id}?include_payload=true`), 'GET', undefined, 404);
+    for (const operation of discovered.values()) assertNativeOperationAbsent(await request(path(`/operations/${operation.operation_id}?include_payload=true`)), operation.operation_id);
     await request(path(`/documents/${document}`), 'GET', undefined, 404);
     assert.equal((await request<NativeList<Fact>>(path(`/memories/list?document_id=${document}`))).total, 0);
     await stopNative([cleanup]);
@@ -247,7 +248,7 @@ export async function qualifyNative() {
     await ready(workerPort);
     await pause(1500);
     await request(path(`/documents/${document}`), 'GET', undefined, 404);
-    await request(path(`/operations/${late}`), 'GET', undefined, 404);
+    assertNativeOperationAbsent(await request(path(`/operations/${late}?include_payload=true`)), late);
     assert.equal((await request<NativeList<Fact>>(path(`/memories/list?document_id=${document}`))).total, 0);
     checkpoints.push('all-executor-exit-and-db-session-closure', 'same-image-resolved-maintenance-off-no-execution', 'paginated-historical-parent-leaf-payload-cleanup', 'forget-absence-after-native-worker-restart');
     assert.equal(stub.calls.unexpected, 0, 'Unscripted native provider request occurred');

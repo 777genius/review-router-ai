@@ -8,7 +8,7 @@ import { dockerCommand as docker, eventually, freePort, pause } from './native-r
 import { acquireDeploymentLock } from './deployment-lock.ts';
 import { assertExecutorPhase, nativeSqlObserverArguments, type DockerExecutorInspection } from './operator-host.ts';
 import { assertCleanupOperationSources, leafFirstOperations, operationClosure, persistCleanupInventory, readCleanupInventory, signCleanupInventory, type CleanupOperation } from './cleanup-inventory.ts';
-import { assertNativeCleanupStatus } from './native-http.ts';
+import { assertNativeCleanupStatus, assertNativeOperationAbsent } from './native-http.ts';
 
 interface OperatorPlan {
   readonly profile: 'docker-complete-inventory-v1';
@@ -228,7 +228,7 @@ async function runLockedCleanup(plan: OperatorPlan, credentials: { readonly nati
       const sources = [...sourceIds].map(value => `content::text LIKE '%${value}%'`).join(' OR ');
       const observationMatch = knownObservations ? `observation_id IN (${knownObservations}) OR ` : '';
       assert.equal(await sql(`SELECT count(*) FROM "${schema}".observation_history WHERE bank_id='${plan.nativeBankId}' AND (${observationMatch}${sources})`), '0', 'Persisted observation history still contains forgotten evidence');
-      for (const operationId of related) await request(`${bankPath()}/operations/${operationId}?include_payload=true`, 'GET', undefined, [404]);
+      for (const operationId of related) assertNativeOperationAbsent(await request(`${bankPath()}/operations/${operationId}?include_payload=true`), operationId);
       return { documentAbsent: true, sourceFactCount: 0, evidenceSourceCount: 0, operationPayloadCount: 0, observedAt: stamp() };
     }
     const beforeRestart = await absence();
