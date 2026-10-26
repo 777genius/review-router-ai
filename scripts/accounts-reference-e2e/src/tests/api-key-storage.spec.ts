@@ -96,7 +96,7 @@ async function beginProvider(page: Page, label: string) {
 async function accountsReady(
   page: Page,
   navigate: () => Promise<unknown>,
-): Promise<void> {
+): Promise<readonly string[]> {
   // Existing Accounts reference hydration witness; keep the continuation URL.
   const hydrated = page.waitForResponse(
     (response) => {
@@ -120,6 +120,10 @@ async function accountsReady(
   const summaries = await hydrated;
   expect(summaries.ok()).toBe(true);
   await summaries.body();
+  const request = JSON.parse(
+    new URL(summaries.url()).searchParams.get("request")!,
+  ) as { sourceIds: string[] };
+  return request.sourceIds;
 }
 
 async function expectStorage(dialog: Locator) {
@@ -415,7 +419,7 @@ test("API key storage connects all three accounts and returns to the same provid
     expect(accountsHref).toContain(`workspace=${workspace}`);
     expect(accountsHref).toContain(`keyProvider=${provider.id}`);
     await drainSecretResponses();
-    await accountsReady(page, () => connect.click());
+    let previousSourceIds = await accountsReady(page, () => connect.click());
     await page
       .getByRole("button", { name: "Connect account", exact: true })
       .click();
@@ -447,7 +451,9 @@ test("API key storage connects all three accounts and returns to the same provid
       ).toBeChecked();
       expect(await savedProfiles()).toEqual(before);
       await drainSecretResponses();
-      await accountsReady(page, () => page.goto(accountsHref!));
+      previousSourceIds = await accountsReady(page, () =>
+        page.goto(accountsHref!),
+      );
       await page
         .getByRole("button", { name: "Connect account", exact: true })
         .click();
@@ -470,16 +476,25 @@ test("API key storage connects all three accounts and returns to the same provid
     const secret = `synthetic-${provider.id}-subscription-key`;
     secrets.push(secret);
     await enrollment.locator('input[type="password"]').fill(secret);
-    // Enrollment refreshes source summaries after the new row is visible.
-    // Read that response before leaving Accounts: navigation can otherwise
-    // evict its body from Chromium while the canary observer is reading it.
+    // Enrollment first invalidates the old source list, then requests summaries
+    // for the new list. Wait for the newly enrolled source, not an older refresh,
+    // before navigation can evict the response the canary observer must inspect.
     const refreshedAccess = page.waitForResponse(
       (response) => {
         const url = new URL(response.url());
+        if (
+          url.pathname !== "/api/dashboard/accounts/access" ||
+          url.searchParams.get("view") !== "summaries" ||
+          response.request().method() !== "GET"
+        )
+          return false;
+        const summaryRequest = JSON.parse(
+          url.searchParams.get("request") ?? "{}",
+        ) as { sourceIds?: string[] };
         return (
-          url.pathname === "/api/dashboard/accounts/access" &&
-          url.searchParams.get("view") === "summaries" &&
-          response.request().method() === "GET"
+          summaryRequest.sourceIds?.some(
+            (id) => !previousSourceIds.includes(id),
+          ) === true
         );
       },
       { timeout: 60_000 },
