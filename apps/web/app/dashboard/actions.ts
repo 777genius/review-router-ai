@@ -1,5 +1,7 @@
 "use server";
 
+import { providerApiConfigurationMode } from "@reviewrouter/features-review-config";
+
 import { contextToolsWorkflowSecrets } from "../../src/server/context-tools";
 
 import { createHash, randomUUID } from "node:crypto";
@@ -1232,6 +1234,9 @@ async function createSetupPullRequestMutation(
         )
       : undefined;
     const openRouterDirect = transport === "provider_api";
+    const providerApiAuthMode = openRouterDirect
+      ? providerApiConfigurationMode(resolvedRuntime.config)
+      : undefined;
     const managedReview = accountGateway || openRouterDirect;
     if (
       managedReview &&
@@ -1385,7 +1390,7 @@ async function createSetupPullRequestMutation(
               ...(mcpSecrets ? { mcpSecrets } : {}),
             }
           : openRouterDirect
-            ? { providerApiAuthMode: "openrouter-api" as const }
+            ? { providerApiAuthMode: providerApiAuthMode! }
             : {}),
         conflictReviewFallbackEnabled: conflictReviewFallbackAllowed,
         ...(codexRotatingProviderInstanceId
@@ -1481,7 +1486,7 @@ async function createSetupPullRequestMutation(
                     ...(mcpSecrets ? { mcpSecrets } : {}),
                   }
                 : openRouterDirect
-                  ? { providerApiAuthMode: "openrouter-api" as const }
+                  ? { providerApiAuthMode: providerApiAuthMode! }
                   : { staticRuntimeEnv: resolvedRuntime.runtimeEnv }),
               workflowStyle,
               discussionMode,
@@ -1739,6 +1744,9 @@ async function confirmSetupPullRequestMergedMutation(
         )
       : undefined;
     const openRouterDirect = transport === "provider_api";
+    const providerApiAuthMode = openRouterDirect
+      ? providerApiConfigurationMode(resolvedRuntime.config)
+      : undefined;
     const managedReview = accountGateway || openRouterDirect;
     const gatewayActionRef = accountGateway
       ? validateAccountGatewayActionRef(
@@ -2005,7 +2013,7 @@ async function confirmSetupPullRequestMergedMutation(
                   ...(mcpSecrets ? { mcpSecrets } : {}),
                 }
               : openRouterDirect
-                ? { providerApiAuthMode: "openrouter-api" as const }
+                ? { providerApiAuthMode: providerApiAuthMode! }
                 : {}),
             conflictReviewFallbackEnabled: conflictReviewFallbackAllowed,
             ...(codexRotatingProviderInstanceId
@@ -2358,6 +2366,7 @@ async function confirmSetupPullRequestMergedMutation(
             : openRouterDirect
               ? "provider_api"
               : null,
+          ...(providerApiAuthMode ? { providerApiAuthMode } : {}),
           codexWorkflow,
           config: resolvedRuntime.config,
         }),

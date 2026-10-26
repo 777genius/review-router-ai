@@ -104,6 +104,11 @@ export function generateReleaseManifest(input) {
     runtimeEntrypointDigest: verified.runtimeEntrypointDigest,
     contextGatewayReleaseMetadata: verified.contextGatewayReleaseMetadata,
     agentProfiles: verified.agentProfiles,
+    ...(verified.lifecycleVerificationProfile === undefined
+      ? {}
+      : {
+          lifecycleVerificationProfile: verified.lifecycleVerificationProfile,
+        }),
     ...(verified.contextToolsProfile === undefined
       ? {}
       : { contextToolsProfile: verified.contextToolsProfile }),

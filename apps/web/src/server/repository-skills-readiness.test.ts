@@ -246,41 +246,94 @@ describe("repository Skills support advisory", () => {
       }).run(),
     ).toMatchObject([{ status: "blocked", reason: "engine_unavailable" }]);
   });
-  it("enables only the canonical saved direct OpenRouter delivery seam", async () => {
-    const gateway = config();
+  it.each([
+    {
+      label: "OpenRouter",
+      installed: "provider_api+openrouter",
+      provider: {
+        kind: "openrouter",
+        authMode: "openrouter_api_key",
+        model: "openai/gpt-5.3-codex",
+        reasoningEffort: "high",
+      },
+    },
+    {
+      label: "MiMo",
+      installed: "provider_api+codex-mimo",
+      provider: {
+        kind: "codex-mimo",
+        authMode: "mimo_token_plan_api_key",
+        model: "mimo-v2.6-pro",
+        reasoningEffort: "high",
+      },
+    },
+    {
+      label: "Kimi",
+      installed: "provider_api+kimi",
+      provider: {
+        kind: "kimi",
+        authMode: "kimi_code_api_key",
+        model: "k3-256k",
+      },
+    },
+  ] as const)(
+    "requires the canonical $label delivery seam and a supporting producer",
+    async ({ provider, installed }) => {
+      const direct = parseReviewConfigurationStrict({
+        ...config(),
+        providers: [
+          {
+            ...provider,
+            agenticContext: true,
+            fastMode: false,
+            requiredHealthy: true,
+          },
+        ],
+      });
+      const policy = {
+        status: "ready",
+        config: direct,
+      } as EffectiveReviewConfiguration;
+      expect(await fixture({ policy, installed }).run()).toMatchObject([
+        { status: "ready", reason: "supported" },
+      ]);
+      for (const stale of ["provider_api", "rotating"])
+        expect(await fixture({ policy, installed: stale }).run()).toMatchObject(
+          [{ status: "blocked", reason: "workflow_update_required" }],
+        );
+      expect(
+        await fixture({
+          policy,
+          installed,
+          releases: [attestation("a", [legacy])],
+        }).run(),
+      ).toMatchObject([{ status: "blocked", reason: "engine_unsupported" }]);
+    },
+  );
+  it("does not advertise support for a saved MiMo policy with unsupported reasoning", async () => {
     const direct = parseReviewConfigurationStrict({
-      ...gateway,
+      ...config(),
       providers: [
         {
-          kind: "openrouter",
-          authMode: "openrouter_api_key",
-          model: "openai/gpt-5.3-codex",
-          reasoningEffort: "high",
+          kind: "codex-mimo",
+          authMode: "mimo_token_plan_api_key",
+          model: "mimo-v2.6-pro",
+          reasoningEffort: "xhigh",
           agenticContext: true,
           fastMode: false,
           requiredHealthy: true,
         },
       ],
     });
-    const policy = {
-      status: "ready",
-      config: direct,
-    } as EffectiveReviewConfiguration;
-    expect(
-      await fixture({ policy, installed: "provider_api" }).run(),
-    ).toMatchObject([{ status: "ready" }]);
-    expect(
-      await fixture({ policy, installed: "rotating" }).run(),
-    ).toMatchObject([
-      { status: "blocked", reason: "workflow_update_required" },
-    ]);
     expect(
       await fixture({
-        policy,
-        installed: "provider_api",
-        releases: [attestation("a", [legacy])],
+        policy: {
+          status: "ready",
+          config: direct,
+        } as EffectiveReviewConfiguration,
+        installed: "provider_api+codex-mimo",
       }).run(),
-    ).toMatchObject([{ status: "blocked", reason: "engine_unsupported" }]);
+    ).toMatchObject([{ status: "unknown", reason: "runtime_unconfirmed" }]);
   });
   it("keeps admission-incompatible context tool selections unconfirmed", async () => {
     const selections: NonNullable<ReviewConfiguration["contextTools"]>[] = [

@@ -36,7 +36,28 @@ export const subscriptionProfiles = [
     model: "grok-4.7",
   },
 ] as const;
-type Profile = (typeof subscriptionProfiles)[number];
+export const apiKeyStorageProfiles = [
+  {
+    provider: "openrouter",
+    label: "OpenRouter",
+    plan: "API key",
+    planId: "pay_as_you_go",
+    profileId: "openrouter-openai-responses-apikey-v1",
+    model: "openai/gpt-5.4-mini",
+  },
+  {
+    provider: "mimo",
+    label: "MiMo",
+    plan: "Token Plan",
+    planId: "subscription",
+    profileId: "openai-responses-apikey-v1",
+    model: "mimo-v2.6-pro",
+  },
+  subscriptionProfiles[0],
+] as const;
+type Profile =
+  | (typeof subscriptionProfiles)[number]
+  | (typeof apiKeyStorageProfiles)[number];
 type Operation = {
   operationRef: string;
   state: "pending" | "applied" | "rejected";
@@ -55,7 +76,10 @@ type Operation = {
   };
 };
 type Reply = { status: number; body: unknown };
-export function createSubscriptionFixture(accounts: WireAccount[]) {
+export function createSubscriptionFixture(
+  accounts: WireAccount[],
+  profiles: readonly Profile[] = subscriptionProfiles,
+) {
   const operations = new Map<string, Operation>();
   const credentialGenerations = new Map<string, number>();
   const pending = new Map<
@@ -147,7 +171,7 @@ export function createSubscriptionFixture(accounts: WireAccount[]) {
           status: 200,
           body: {
             contract: "provider-connections/v1",
-            capabilities: subscriptionProfiles.map((profile) => ({
+            capabilities: profiles.map((profile) => ({
               contract: "provider-connections/v1",
               profileId: profile.profileId,
               provider: { identity: profile.provider, label: profile.label },
@@ -199,7 +223,7 @@ export function createSubscriptionFixture(accounts: WireAccount[]) {
             account.ownerRef === input.ownerRef &&
             account.profileId === input.profileId,
         );
-        const profile = subscriptionProfiles.find(
+        const profile = profiles.find(
           (profile) => profile.profileId === account?.profileId,
         );
         if (!profile || !account)
@@ -370,7 +394,7 @@ export function createSubscriptionFixture(accounts: WireAccount[]) {
       const reconnectAccount = reconnect
         ? accounts.find((account) => account.accountRef === reconnect[1])
         : undefined;
-      const profile = subscriptionProfiles.find(
+      const profile = profiles.find(
         (profile) =>
           profile.profileId ===
           (reconnectAccount?.profileId ?? input.profileId),
@@ -379,6 +403,29 @@ export function createSubscriptionFixture(accounts: WireAccount[]) {
       if (operations.has(operationId))
         return { status: 200, body: operations.get(operationId) };
       stats.operationIds.push(operationId);
+      if (reconnect && profile.provider !== "grok") {
+        if (
+          !reconnectAccount ||
+          reconnectAccount.metadataRevision !== input.expectedMetadataRevision
+        )
+          return denied();
+        if (
+          (input.credential as { value?: unknown } | undefined)?.value !==
+          `synthetic-${profile.provider}-subscription-key`
+        )
+          return denied();
+        stats.reconnects++;
+        return {
+          status: 200,
+          body: applied(
+            operationId,
+            reconnectAccount.ownerRef,
+            profile,
+            reconnectAccount.displayName,
+            reconnectAccount.accountRef,
+          ),
+        };
+      }
       if (path.endsWith("/begin") || reconnect) {
         if (
           reconnect &&

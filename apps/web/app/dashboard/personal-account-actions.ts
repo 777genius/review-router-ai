@@ -163,9 +163,10 @@ export async function getPersonalModelAccount(
   context: string,
   workspaceId: string,
   bindingId: string,
+  options: { readonly forceRefresh?: boolean } = {},
 ) {
   return invoke(context, async (service) =>
-    (await service.models(workspaceId)).get(bindingId),
+    (await service.models(workspaceId)).get(bindingId, options),
   );
 }
 export async function detachRecipientPersonalAccount(

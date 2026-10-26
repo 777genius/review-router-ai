@@ -31,6 +31,11 @@ import {
   type ProviderListView,
 } from "../../../src/features/provider-setup/provider-list-model";
 import { sourceTitle } from "../../../src/features/provider-setup/provider-setup-model";
+import {
+  apiKeyProviderForCredential,
+  apiKeySetupHref,
+  apiKeyStorageLabel,
+} from "../../../src/features/provider-setup/api-key-storage";
 import type {
   AccountsPage,
   AccountsResult,
@@ -39,6 +44,7 @@ import { getReadyGatewayAccounts } from "../../../src/server/dashboard-provider-
 import type { GatewayAgentProfileOption } from "../../../src/server/gateway-agent-profile-options";
 import { dashboardErrorText } from "../dashboard-copy";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
+import { GatewayModelCatalogStatus } from "../gateway-model-catalog-status";
 import { ProviderAuthLogoFrame } from "../provider-auth-logo";
 import { useProviderModelCatalogs } from "../provider-model-catalog";
 import type { ProviderProfileActionResult } from "../provider-setup-actions";
@@ -185,9 +191,8 @@ export function ProviderList(props: ProviderListProps): React.ReactElement {
 
       {view.rows.length === 0 ? (
         <p className="text-sm leading-6 text-slate-300">
-          Add the first provider to start reviewing. It can use an account
-          connected in Accounts, a key ReviewRouter saves, or a GitHub secret of
-          each repository.
+          Add the first provider to start reviewing. Choose your provider and
+          where its key is stored.
         </p>
       ) : (
         <ul className="grid divide-y divide-cyan-200/10">
@@ -488,19 +493,26 @@ function ProviderProfileEditForm({
     gateway && row.gatewayBindingId ? [row.gatewayBindingId] : [],
   );
   const catalogs = useProviderModelCatalogs(dialog.modelOptions);
-  const gatewayPage =
-    gatewayOptions.accounts?.status === "ok"
-      ? gatewayOptions.accounts.value
-      : null;
   const gatewayAccount = getReadyGatewayAccounts(gatewayOptions.accounts).find(
     (account) => account.binding?.id === row.gatewayBindingId,
   );
+  const replacementProvider = apiKeyProviderForCredential({
+    authMode: row.authMode,
+    profile:
+      gatewayOptions.profileFor(gatewayAccount) ??
+      (gatewayOptions.accounts?.status === "ok"
+        ? gatewayOptions.accounts.value.profiles.find(
+            (profile) => profile.id === row.gatewayProfileRef,
+          )
+        : undefined),
+  });
+  const storageLabel = replacementProvider
+    ? apiKeyStorageLabel(row.credentialKind)
+    : null;
   const modelOptions: readonly ReviewModelOption[] = gateway
-    ? (
-        gatewayPage?.profiles.find(
-          (profile) => profile.id === gatewayAccount?.profileId,
-        )?.models ?? []
-      ).map((value) => ({ value, label: value, provider: "codex" }))
+    ? (gatewayOptions.profileFor(gatewayAccount)?.models ?? []).map(
+        (value) => ({ value, label: value, provider: "codex" }),
+      )
     : catalogs.optionsFor(providerKindForAuthMode(row.authMode), true);
   const trimmedLabel = label.trim();
   const trimmedModel = model.trim();
@@ -564,15 +576,46 @@ function ProviderProfileEditForm({
         emptyListPlaceholder="The account lists no models right now"
         disabled={pending}
       />
+      {gateway ? (
+        <GatewayModelCatalogStatus
+          account={gatewayAccount}
+          loading={gatewayOptions.loading}
+          canRefresh={gatewayOptions.canRefresh}
+          onRefresh={() =>
+            gatewayOptions.refreshModels(row.gatewayBindingId ?? "")
+          }
+        />
+      ) : null}
       <div className="grid gap-1 border-t border-cyan-200/10 pt-4">
         <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
           Credential
         </span>
         <span className="text-sm text-cyan-50">{providerSourceText(row)}</span>
+        {storageLabel ? (
+          <span className="text-sm text-slate-300">
+            Key storage: {storageLabel}
+          </span>
+        ) : null}
         <span className="text-xs leading-5 text-slate-400">
           The credential cannot change. To use a different one, add a new
           provider.
         </span>
+        {replacementProvider ? (
+          <a
+            className="mt-1 w-fit text-sm text-cyan-200 underline"
+            href={apiKeySetupHref("providers", {
+              provider: replacementProvider,
+              storage:
+                row.credentialKind === "gateway_binding"
+                  ? "github_secrets"
+                  : "reviewrouter",
+              workspaceId: dialog.workspaceId,
+              repositoryIds: [],
+            })}
+          >
+            Add with different storage
+          </a>
+        ) : null}
       </div>
       {error ? (
         <p role="alert" className="text-sm leading-6 text-red-100">

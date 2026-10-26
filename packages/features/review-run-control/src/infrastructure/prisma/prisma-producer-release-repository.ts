@@ -212,12 +212,17 @@ export class PrismaProducerReleaseRepository
         agentProfiles,
         contextToolsProfile,
         prDescriptionProfile,
+        lifecycleVerificationProfile,
         ...releaseRecord
       } = release;
       const created = await transaction.producerRelease.create({
         data: {
           ...releaseRecord,
           contextToolsProfile: contextToolsProfile ?? Prisma.DbNull,
+          lifecycleVerificationProfile:
+            lifecycleVerificationProfile == null
+              ? Prisma.DbNull
+              : { ...lifecycleVerificationProfile },
           prDescriptionProfile:
             prDescriptionProfile == null
               ? Prisma.DbNull
@@ -306,6 +311,12 @@ function producerReleaseTupleWhere(release: ProducerRelease) {
   return {
     contextToolsProfile: {
       equals: release.contextToolsProfile ?? Prisma.DbNull,
+    },
+    lifecycleVerificationProfile: {
+      equals:
+        release.lifecycleVerificationProfile == null
+          ? Prisma.DbNull
+          : { ...release.lifecycleVerificationProfile },
     },
     prDescriptionProfile: {
       equals:

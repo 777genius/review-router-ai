@@ -10,6 +10,8 @@ import {
   publishedReviewProjectionPublicationEnvelopeVersion,
   renderCanonicalReviewPublication,
   resolveReviewPublicationRenderPolicyVersion,
+  validateReviewPublicationLifecycleVerification,
+  type ReviewPublicationLifecycleVerificationFact,
   type PublishedReviewProjectionPublicationEnvelope,
   type ReviewPublicationOperation,
   type ReviewPublicationOccurrenceCounts,
@@ -244,6 +246,7 @@ type ProjectionEnvelope = {
       readonly threadId: string;
       readonly verdict: string;
       readonly mutationEligible: boolean;
+      readonly verification?: ReviewPublicationLifecycleVerificationFact;
     }[];
   };
   readonly snapshot: {
@@ -485,6 +488,15 @@ function parseProjection(value: string): ProjectionEnvelope {
     !Array.isArray(snapshot.lineageHints)
   ) {
     throw new Error("review_v2_projection_shape_invalid");
+  }
+  for (const entry of publishing.lifecycle) {
+    if (!isRecord(entry))
+      throw new Error("review_v2_projection_lifecycle_invalid");
+    if (entry.verification !== undefined)
+      validateReviewPublicationLifecycleVerification(
+        entry.verification,
+        requireIdentifier(entry.targetId, "target_id_invalid"),
+      );
   }
   return parsed as unknown as ProjectionEnvelope;
 }

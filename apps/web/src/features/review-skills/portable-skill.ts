@@ -113,11 +113,14 @@ function withoutCodeExamples(markdown: string): string {
           return "";
         }
       }
+      const prose = list ? line.slice(list[0].length) : line;
       paragraphOpen =
         !/^ {0,3}(?:#{1,6}(?:\s|$)|(?:[-*_]\s*){3,}$|(?:=+|-+)\s*$)/u.test(
-          line,
+          prose,
         );
-      return originalLine;
+      // Inline code cannot cross a heading, thematic break or list item even
+      // when the Markdown has no blank line between those blocks.
+      return !paragraphOpen ? `\n${prose}\n` : list ? `\n${prose}` : prose;
     })
     .join("\n");
   const runs = [...blocks.matchAll(/`+/gu)];
@@ -125,8 +128,12 @@ function withoutCodeExamples(markdown: string): string {
   let offset = 0;
   for (let index = 0; index < runs.length; index++) {
     const open = runs[index]!;
+    const paragraphEnd = blocks.indexOf("\n\n", open.index);
     const closeIndex = runs.findIndex(
-      (run, candidate) => candidate > index && run[0].length === open[0].length,
+      (run, candidate) =>
+        candidate > index &&
+        run[0].length === open[0].length &&
+        (paragraphEnd === -1 || run.index < paragraphEnd),
     );
     if (closeIndex === -1) continue;
     result += blocks.slice(offset, open.index);
@@ -161,7 +168,7 @@ export function hasCompanionFiles(markdown: string): boolean {
     id.trim().replace(/\s+/gu, " ").toLowerCase();
   const uses = text.replace(
     new RegExp(
-      String.raw`^ {0,3}\[(${labelCharacter}+)\]:[ \t]*(?:\n[ \t]+)?(.+)$`,
+      String.raw`^ {0,3}\[(${labelCharacter}+)\]:[ \t]*(?:\n[ \t]*)?(.+)$`,
       "gmu",
     ),
     (_match, id: string, destination: string) => {

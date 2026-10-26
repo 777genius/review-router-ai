@@ -1,3 +1,4 @@
+import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import { parseReviewRunRuntimeSnapshot } from "../../domain/review-run-runtime-snapshot";
 import type { ReviewRunSkillsSnapshotPort } from "../ports/review-run-skills-snapshot-port";
 import type {
@@ -213,7 +214,7 @@ export class ManageReviewRunAuthorizations {
   async authorizeReviewRun(input: {
     readonly verifiedIdentity: VerifiedScmRunIdentity;
     readonly modelTransport?: ReviewAgentProfile["modelTransports"][number];
-    readonly providerApiAuthMode?: "openrouter-api";
+    readonly providerApiAuthMode?: ProviderApiAuthMode;
     readonly producerReleaseId: string;
     readonly expectedBaseProducerRelease?: ProducerRelease;
     readonly protocolOfferHash: string;

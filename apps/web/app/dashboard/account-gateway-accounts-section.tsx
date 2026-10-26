@@ -13,17 +13,20 @@ import { AccountsWorkspaceTabs } from "./accounts-workspace-tabs";
 import { PersonalAccountControls } from "./personal-account-controls";
 import { PersonalAccountsPanel } from "./personal-accounts-panel";
 import { WorkspaceAccountsPanel } from "./workspace-accounts-panel";
+import type { ApiKeySetupIntent } from "../../src/features/provider-setup/api-key-storage";
 
 export async function AccountGatewayAccountsSection({
   workspaceId,
   workspaceName,
   personalAccounts,
   personalAccountsApi,
+  setupIntent,
 }: {
   workspaceId: string;
   workspaceName?: string;
   personalAccounts?: PersonalAccountsBootstrap;
   personalAccountsApi?: PersonalAccountsApi;
+  setupIntent?: ApiKeySetupIntent | undefined;
 }) {
   let personalService: Awaited<ReturnType<typeof productionPersonalAccounts>> =
     null;
@@ -103,6 +106,7 @@ export async function AccountGatewayAccountsSection({
         api={ownApi}
         accessReadContext={management.context}
         workspaceId={workspaceId}
+        setupIntent={setupIntent}
         management={management}
         managementApi={{
           listGatewayAccounts: personalActions.listPersonalGatewayAccounts,
@@ -158,6 +162,8 @@ export async function AccountGatewayAccountsSection({
     <AccountGatewayControls
       bootstrap={management}
       managementScope="personal"
+      workspaceId={workspaceId}
+      setupIntent={setupIntent}
       connectOnly
       api={{
         listGatewayAccounts: personalActions.listPersonalGatewayAccounts,
@@ -183,6 +189,7 @@ export async function AccountGatewayAccountsSection({
                   bootstrap={bootstrap}
                   connectOnly
                   workspaceId={workspaceId}
+                  setupIntent={setupIntent}
                 />
               ) : null
             }
@@ -215,6 +222,7 @@ export async function AccountGatewayAccountsSection({
         key={bootstrap.context || workspaceId}
         bootstrap={bootstrap}
         workspaceId={workspaceId}
+        setupIntent={setupIntent}
       />
     ) : (
       <p className="text-sm text-slate-400">

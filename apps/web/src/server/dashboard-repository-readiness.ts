@@ -9,7 +9,7 @@ import type {
 } from "@reviewrouter/features-review-config";
 import {
   comparableWorkflowRequirement,
-  requiredWorkflowRequirement,
+  inspectRequiredWorkflowRequirement,
   type WorkflowRequirement,
 } from "@reviewrouter/features-workflow-provisioning";
 import type { AccountsPage, AccountsResult } from "./account-gateway-accounts";
@@ -179,7 +179,8 @@ function knownWorkflowRequirement(
   config: ReviewConfiguration,
 ): WorkflowRequirement | null {
   try {
-    return requiredWorkflowRequirement(config);
+    const requirement = inspectRequiredWorkflowRequirement(config);
+    return typeof requirement === "string" ? requirement : null;
   } catch {
     // Setup refuses an unsupported provider mix with its own error.
     return null;

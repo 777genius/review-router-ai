@@ -212,8 +212,8 @@ function candidateSupport(
       suppliedDiffOnly: gateway?.agenticContext === false,
       defaultProfileRef: implicit.profileRef,
       preferSkillsProfile: implicit.preferSkillsProfile,
-      // requiredWorkflowTransport returns provider_api only for the existing
-      // supported direct OpenRouter configuration. The saved installed seam
+      // requiredWorkflowTransport returns provider_api only for an approved
+      // direct provider API configuration. The saved installed seam
       // must also match; live source/OIDC verification remains admission-owned.
       reviewSkillsDelivery: transport === "provider_api",
     });

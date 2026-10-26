@@ -291,6 +291,40 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Repository-secret profile identities change a checkout-only table. Admit
+  // the exact SQL and checkout151 before preserving the reviewed checkout150.
+  const repositorySecretProfilesMigration = catalog.find(
+    (row) => row.migrationName === "000149_api_key_repository_secret_profiles",
+  );
+  if (repositorySecretProfilesMigration) {
+    if (
+      repositorySecretProfilesMigration.checksum !==
+        "1884b772c85adb0663fa3895307799b91f88133fb1941fc88aec1c56bd6e5579" ||
+      manifest(catalog) !==
+        "sha256:bde611c1eb4753d8d21f0f5ac2b97f2c93818aaf7fb48cc9181abe28aa708035"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== repositorySecretProfilesMigration),
+    );
+  }
+  // Lifecycle verification is a checkout-only additive schema extension. Admit
+  // its exact source catalog before preserving the reviewed checkout149 gate.
+  const lifecycleVerificationMigration = catalog.find(
+    (row) => row.migrationName === "000148_lifecycle_verification",
+  );
+  if (lifecycleVerificationMigration) {
+    if (
+      lifecycleVerificationMigration.checksum !==
+        "00e6dca21ae3dcd9c61f729bb93e0319caf5b204ae67e29ba2889259e5db1b60" ||
+      manifest(catalog) !==
+        "sha256:ae1f73631c1ae9e359a22c421d7bb83751fd831f22ba77304be1d20d01878472"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== lifecycleVerificationMigration),
+    );
+  }
   // Mutation identities change only checkout Skills tables. Admit the exact
   // checkout149 source, then preserve the unchanged reviewed checkout148 gate.
   const reviewSkillsMutationIdentityMigration = catalog.find(

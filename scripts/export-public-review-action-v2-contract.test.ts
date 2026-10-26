@@ -1,3 +1,7 @@
+import {
+  lifecycleVerificationContract,
+  lifecycleVerificationDescriptorDigest,
+} from "../packages/protocol-review-action-v2/src/generated/companion-contracts.js";
 import { execFileSync } from "node:child_process";
 import {
   cpSync,
@@ -30,6 +34,8 @@ import {
   REVIEW_INVESTIGATION_RELEASE_COVERAGE_PROFILE_HASH,
   REVIEW_INVESTIGATION_RELEASE_POLICY_HASH,
   sha256Digest,
+  parseReleaseManifest,
+  buildReleaseRegistrationCandidateFields,
 } from "./lib/review-action-v2-release-manifests.mjs";
 
 const temporaryDirectories: string[] = [];
@@ -191,6 +197,103 @@ describe("public Review Action v2 contract handoff", () => {
       }),
     ).toThrow("refusing to overwrite a different release manifest");
   });
+
+  it.each(["supported", "unsupported", "unbound"] as const)(
+    "projects handoff-bound lifecycle bytes through normal release registration (%s)",
+    async (kind) => {
+      const fixture = createRepositories();
+      const companion = readFileSync(
+        join(
+          process.cwd(),
+          "packages/protocol-review-action-v2/src/generated/companion-contracts.ts",
+        ),
+        "utf8",
+      );
+      write(
+        join(fixture.saasRepo, sourceDirectory, "companion-contracts.ts"),
+        kind === "unsupported"
+          ? companion.replace(
+              "lifecycle-verification.v1",
+              "lifecycle-verification.v2",
+            )
+          : companion,
+      );
+      git(fixture.saasRepo, ["add", sourceDirectory]);
+      git(fixture.saasRepo, ["commit", "-m", "test: bind lifecycle contract"]);
+      fixture.saasHead = head(fixture.saasRepo);
+      await exportFixture(fixture, { write: true });
+      if (kind === "unbound")
+        write(
+          join(
+            fixture.actionRepo,
+            PUBLIC_GENERATED_DIRECTORY,
+            "companion-contracts.ts",
+          ),
+          companion + "\n",
+        );
+      write(join(fixture.actionRepo, "dist/index.js"), "fresh bundle\n");
+      write(
+        join(fixture.actionRepo, "dist/context-gateway.js"),
+        "fresh context gateway\n",
+      );
+      writeContextGatewayReleaseMetadata(fixture.actionRepo);
+      git(fixture.actionRepo, ["add", PUBLIC_GENERATED_DIRECTORY, "dist"]);
+      git(fixture.actionRepo, [
+        "commit",
+        "-m",
+        "test: release lifecycle contract",
+      ]);
+      const input = {
+        actionRepo: fixture.actionRepo,
+        targetBranch,
+        expectedHead: head(fixture.actionRepo),
+        runtimeEntrypointPath: "dist/index.js",
+        contextGatewayEntrypointPath: "dist/context-gateway.js",
+        output: join(fixture.root, "lifecycle-release.json"),
+      };
+      if (kind !== "supported") {
+        expect(() => generateReleaseManifest(input)).toThrow(
+          kind === "unbound"
+            ? "committed generated file digest mismatch"
+            : "unsupported lifecycle verification companion contract bytes",
+        );
+        return;
+      }
+      const release = generateReleaseManifest(input);
+      const expectedProfile = {
+        extensionId: lifecycleVerificationContract.extensionId,
+        descriptorDigest: lifecycleVerificationDescriptorDigest,
+      };
+      expect(release.manifest.lifecycleVerificationProfile).toEqual(
+        expectedProfile,
+      );
+      expect(parseReleaseManifest(release.bytes)).toEqual(release.manifest);
+      expect(
+        buildReleaseRegistrationCandidateFields(release.manifest)
+          .lifecycleVerificationProfile,
+      ).toEqual(expectedProfile);
+      expect(
+        checkReleaseManifest({
+          manifest: input.output,
+          saasRepo: fixture.saasRepo,
+          actionRepo: fixture.actionRepo,
+          sourceDirectory,
+        }).lifecycleVerificationProfile,
+      ).toEqual(expectedProfile);
+      expect(
+        JSON.parse(
+          readFileSync(
+            join(
+              fixture.actionRepo,
+              PUBLIC_GENERATED_DIRECTORY,
+              "manifest.json",
+            ),
+            "utf8",
+          ),
+        ),
+      ).not.toHaveProperty("lifecycleVerificationProfile");
+    },
+  );
 
   it("qualifies PR description approval from committed generated metadata and rejects a rewritten claim", async () => {
     const fixture = createRepositories();

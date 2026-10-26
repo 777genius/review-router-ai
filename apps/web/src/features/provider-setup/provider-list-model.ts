@@ -53,6 +53,7 @@ export type ProviderListRow = Readonly<{
   authMode: ProviderAuthMode;
   credentialKind: ProviderCredentialKind;
   gatewayBindingId: string | null;
+  gatewayProfileRef?: string | null;
   /** Connected accounts only. */
   account: Readonly<{
     /** Shown for workspace accounts; a shared personal account stays unnamed. */
@@ -159,6 +160,7 @@ export function buildProviderListView(
       authMode: profile.authMode,
       credentialKind: profile.credentialKind,
       gatewayBindingId: profile.gatewayBindingId,
+      gatewayProfileRef: profile.gatewayProfileRef ?? null,
       account:
         profile.credentialKind === "gateway_binding"
           ? {

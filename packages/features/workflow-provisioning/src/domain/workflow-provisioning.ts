@@ -1,3 +1,4 @@
+import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import {
   defaultCodexRotatingWorkflowPath,
   defaultSetupBranch,
@@ -68,7 +69,7 @@ export type ProvisionWorkflowInput = {
   readonly runtimeConfigMode: "oidc" | "static";
   readonly codexSessionMode?: "account-gateway";
   readonly mcpSecrets?: ReviewRouterMcpSecrets;
-  readonly providerApiAuthMode?: "openrouter-api";
+  readonly providerApiAuthMode?: ProviderApiAuthMode;
   readonly staticRuntimeEnv?: Readonly<Record<string, string>>;
   readonly workflowStyle?: ReviewRouterWorkflowStyle;
   readonly discussionMode?: ReviewRouterDiscussionMode;

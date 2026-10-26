@@ -1,3 +1,7 @@
+import {
+  validateReviewLifecycleAssignmentPlan,
+  type ReviewLifecycleAssignmentPlan,
+} from "./review-lifecycle-assignment-plan";
 export const reviewExecutionAbsoluteMaxWorkSlots = 256;
 export const reviewExecutionAbsoluteMaxAttemptBudget = 32;
 export const reviewExecutionAbsoluteMaxProjectionBytes = 2 * 1024 * 1024;
@@ -120,7 +124,8 @@ export type ReviewWorkSlot = ReviewWorkSlotPlan & {
 };
 
 export type ReviewAssignmentManifest = Readonly<{
-  manifestVersion: 1;
+  manifestVersion: 1 | 2;
+  lifecyclePlan?: ReviewLifecycleAssignmentPlan;
   assignments: readonly Readonly<{
     workSlotId: string;
     paths: readonly string[];
@@ -153,7 +158,7 @@ export type ReviewExecution = ReviewExecutionScope & {
   readonly state: ReviewExecutionState;
   readonly compatibilityKey: string;
   readonly planHash: string;
-  readonly assignmentManifestVersion?: 1 | null;
+  readonly assignmentManifestVersion?: 1 | 2 | null;
   readonly assignmentManifestHash?: string | null;
   readonly assignmentManifestCanonicalJson?: string | null;
   readonly protocolLimitsProfileId: string;
@@ -392,7 +397,20 @@ export function canonicalObjectJson(value: unknown): string {
 export function canonicalReviewAssignmentManifestHashPreimage(
   canonicalJson: string,
 ): string {
-  return `rr.review-assignment-manifest.v1\0${canonicalJson}`;
+  let version = 1;
+  try {
+    const parsed: unknown = JSON.parse(canonicalJson);
+    if (
+      parsed !== null &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      (parsed as Record<string, unknown>).manifestVersion === 2
+    )
+      version = 2;
+  } catch {
+    /* Historical v1 preimages accepted arbitrary strings. */
+  }
+  return `rr.review-assignment-manifest.v${version}\0${canonicalJson}`;
 }
 
 export function validateReviewAssignmentManifest(
@@ -406,8 +424,12 @@ export function validateReviewAssignmentManifest(
     "eligiblePaths",
     "uncoveredPaths",
     "excludedPaths",
+    ...(root.manifestVersion === 2 ? ["lifecyclePlan"] : []),
   ]);
-  if (root.manifestVersion !== 1 || !Array.isArray(root.assignments)) {
+  if (
+    (root.manifestVersion !== 1 && root.manifestVersion !== 2) ||
+    !Array.isArray(root.assignments)
+  ) {
     throw new Error("review_assignment_manifest_shape_invalid");
   }
   if (root.assignments.length > knownWorkSlotIds.length) {
@@ -480,8 +502,29 @@ export function validateReviewAssignmentManifest(
   if (pathCount > reviewAssignmentManifestMaxPaths) {
     throw new Error("review_assignment_manifest_path_count_out_of_bounds");
   }
+  if (
+    root.manifestVersion === 2 &&
+    new TextEncoder().encode(canonicalObjectJson(root.lifecyclePlan))
+      .byteLength >
+      64 * 1024
+  )
+    throw new Error("review_lifecycle_assignment_bounds_invalid");
+  const lifecyclePlan =
+    root.manifestVersion === 2
+      ? validateReviewLifecycleAssignmentPlan(
+          root.lifecyclePlan,
+          assignments,
+          knownWorkSlotIds,
+        )
+      : undefined;
+  if (
+    new TextEncoder().encode(canonicalObjectJson(root)).byteLength >
+    reviewAssignmentManifestMaxBytes
+  )
+    throw new Error("review_assignment_manifest_bytes_out_of_bounds");
   return {
-    manifestVersion: 1,
+    manifestVersion: root.manifestVersion,
+    ...(lifecyclePlan ? { lifecyclePlan } : {}),
     assignments,
     eligiblePaths,
     uncoveredPaths,

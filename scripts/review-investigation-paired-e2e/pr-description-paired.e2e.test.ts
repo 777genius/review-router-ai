@@ -38,6 +38,19 @@ const hash = (value: string | Uint8Array) =>
       prDescriptionProfile: true,
       // The workspace OpenRouter default below must not be shadowed.
       repositoryProviderSelection: "none",
+      // Canonical direct checkout captures the producer's approved Skills witness.
+      agentProfiles: [
+        {
+          profileRef: "codex-default",
+          agentKind: "codex",
+          packageVersion: "0.147.0",
+          binarySha256: "c".repeat(64),
+          modelTransports: ["provider_api"],
+          contextGateway: true,
+          cancellation: true,
+          reviewSkillsVersion: 1,
+        },
+      ],
       environmentOverrides: {
         REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED: "0",
       },

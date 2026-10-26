@@ -26,6 +26,9 @@ import {
   dashboardProviderActor,
   dashboardProviderProfiles,
 } from "./dashboard-provider-selections";
+import { productionPersonalAccounts } from "./personal-account-composition";
+import { loadAccountsBootstrap } from "./account-gateway-accounts";
+import { apiKeyProviderForGatewayProfile } from "../features/provider-setup/api-key-storage";
 
 /** GitHub permission checks one dialog view runs at once. */
 const GITHUB_PERMISSION_CHECK_CONCURRENCY = 5;
@@ -158,9 +161,33 @@ export async function loadProviderSetupView(input: {
   const orderedRepositories = repositoryIds.map(
     (id) => repositories.find((repository) => repository.id === id)!,
   );
+  // The model-account projection may have no profiles before the first account
+  // exists. Enrollment availability comes from the existing authenticated
+  // management catalog, not from that empty account inventory.
+  const personal = await productionPersonalAccounts().catch(() => null);
+  const enrollment = personal
+    ? await personal.canonical
+        .listGatewayAccounts(personal.scope, null)
+        .catch(() => ({ status: "unavailable" as const }))
+    : (await loadAccountsBootstrap(workspaceId).catch(() => null))?.page;
+  const gatewayApiKeyProviders =
+    enrollment?.status === "ok"
+      ? [
+          ...new Set(
+            enrollment.value.profiles.flatMap((profile) => {
+              const provider =
+                profile.availability !== "deployment_configuration_required"
+                  ? apiKeyProviderForGatewayProfile(profile)
+                  : undefined;
+              return provider ? [provider] : [];
+            }),
+          ),
+        ]
+      : [];
 
   return buildProviderSetupView({
     workspaceId,
+    gatewayApiKeyProviders,
     target: target.kind,
     actor: facts.actor,
     workspace: facts.workspace,
@@ -174,6 +201,10 @@ export async function loadProviderSetupView(input: {
       gatewayBindingId:
         profile.credential.kind === "gateway_binding"
           ? profile.credential.bindingId
+          : null,
+      gatewayProfileRef:
+        profile.credential.kind === "gateway_binding"
+          ? profile.credential.gatewayProfileRef
           : null,
       personalBinding:
         profile.credential.kind === "gateway_binding" &&

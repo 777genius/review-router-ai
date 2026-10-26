@@ -52,6 +52,8 @@ export async function startNextApp(input: {
     secrets: input.secrets,
     tmpDir: join(input.workDir, "app-tmp"),
   });
+  if (process.argv.includes("--account-models-fixture"))
+    environment.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED = "1";
   if (input.skillsGitHub)
     Object.assign(environment, {
       ...skillsReadinessFixtureEnv(),
@@ -72,7 +74,9 @@ export async function startNextApp(input: {
   const child: ChildProcess = spawn(
     process.execPath,
     [
-      ...(process.argv.includes("--catalog-fixture")
+      ...(process.argv.includes("--catalog-fixture") ||
+      process.argv.includes("--account-models-fixture") ||
+      process.argv.includes("--api-key-storage-fixture")
         ? [
             "--import",
             join(

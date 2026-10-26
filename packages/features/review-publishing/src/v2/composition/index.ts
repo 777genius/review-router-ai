@@ -159,3 +159,8 @@ class ConfiguredReviewPublicationCapabilityGate implements ReviewPublicationCapa
     }
   }
 }
+export { PrismaReviewThreadResolutionHistory } from "../infrastructure/prisma/prisma-review-thread-resolution-history";
+export type {
+  LegacyResolutionEntry,
+  ResolutionWriterQuiescenceProof,
+} from "../infrastructure/prisma/prisma-review-thread-resolution-history";
