@@ -432,6 +432,7 @@ function summarizeNetwork(log: string) {
     ).length,
     githubUnhandled: distinct("github_unhandled"),
     blocked: distinct("blocked"),
+    developmentProbesBlocked: distinct("development_probe_blocked"),
   };
 }
 
