@@ -20,6 +20,8 @@ export async function startNextApp(input: {
   /** Module preloaded into every Node process of the app. */
   readonly preload: string;
   readonly logPath: string;
+  /** Applied to the child itself; its inherited environment is sanitized. */
+  readonly maxOldSpaceSizeMb?: number;
 }): Promise<NextApp> {
   await refuseDotenvFiles(input.repoRoot);
   const url = `http://127.0.0.1:${input.port}`;
@@ -27,6 +29,9 @@ export async function startNextApp(input: {
   const child: ChildProcess = spawn(
     process.execPath,
     [
+      ...(input.maxOldSpaceSizeMb
+        ? [`--max-old-space-size=${input.maxOldSpaceSizeMb}`]
+        : []),
       "--import",
       input.preload,
       join(input.repoRoot, "node_modules/next/dist/bin/next"),

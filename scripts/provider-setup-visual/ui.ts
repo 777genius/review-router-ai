@@ -29,6 +29,7 @@ export function workspaceRoute(
 export function repositoryRoute(key: VisualRepositoryKey): string {
   const repository = VISUAL_REPOSITORIES[key];
   return workspaceRoute(repository.workspace, "repositories", {
+    workspace: VISUAL_WORKSPACES[repository.workspace].id,
     repository: visualRepositoryFullName(repository),
   });
 }
@@ -130,14 +131,16 @@ export function selectField(container: Locator, label: string): Locator {
     .first();
 }
 
-export const CREDENTIAL_SOURCE_LABEL = "Where the credential comes from";
+export const CREDENTIAL_SOURCE_LABEL = "Provider";
 
 /** Opens the credential source list of a new provider. */
 export async function openSourceList(
   page: Page,
   dialog: Locator,
 ): Promise<Locator> {
-  await selectField(dialog, CREDENTIAL_SOURCE_LABEL).click();
+  await dialog
+    .getByRole("combobox", { name: CREDENTIAL_SOURCE_LABEL, exact: true })
+    .click();
   const listbox = page.getByRole("listbox");
   await listbox.waitFor({ state: "visible" });
   return listbox;
@@ -155,11 +158,11 @@ export async function chooseSource(
 
 /** Source titles as `sourceTitle` renders them. */
 export const SOURCE = {
-  claudeSecret: /^Claude Code subscription, GitHub secret of each repository/,
-  mimoSecret: /^MiMo Token Plan, GitHub secret of each repository/,
-  openRouterKey: /^OpenRouter key saved by ReviewRouter/,
-  mimoKey: /^MiMo Token Plan key saved by ReviewRouter/,
-  rotating: /^Codex subscription for this repository/,
+  claudeSecret: /^Claude Code · GitHub Secrets/,
+  mimoSecret: /^MiMo Token Plan/,
+  openRouterKey: /^OpenRouter/,
+  mimoKey: /^MiMo Token Plan/,
+  rotating: /^Codex · GitHub Secrets/,
 } as const;
 
 /** One row of the Providers list by its name. */

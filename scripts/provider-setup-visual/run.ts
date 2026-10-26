@@ -8,6 +8,7 @@
  *   PROVIDER_VISUAL_DATABASE_URL=postgresql://user@127.0.0.1:PORT/reviewrouter_provider_setup_visual \
  *   pnpm provider-setup:visual [--out DIR] [--only REGEX] [--rotating] [--port N]
  *     [--flows | --flows-only] [--no-personal-sharing]
+ *     [--require-onboarding] [--next-heap-mb 2048]
  *
  * `--flows` also runs the end-to-end flows after the screenshots;
  * `--flows-only` runs only the flows. `--only` filters both by ID.
@@ -19,8 +20,8 @@
  * failed before capturing.
  */
 import { execFile, spawn } from "node:child_process";
-import { generateKeyPairSync, randomBytes } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
@@ -49,6 +50,11 @@ import {
   type GatewayCatalogFixture,
 } from "./gateway-catalog-fixture.js";
 import { startNextApp, type NextApp } from "./next-app.js";
+import {
+  ONBOARDING_REQUIRED_SHOTS,
+  onboardingQualificationProblems,
+  type VisualSourceProvenance,
+} from "./onboarding-qualification.js";
 import { VISUAL_SCENARIOS } from "./scenarios.js";
 import {
   assertVisualDatabaseUrl,
@@ -68,11 +74,14 @@ type RunOptions = Readonly<{
   shots: boolean;
   flows: boolean;
   browserExecutable: string | undefined;
+  requireOnboarding: boolean;
+  nextHeapMb: number | undefined;
 }>;
 
 async function main(): Promise<void> {
   const options = readOptions();
   await mkdir(options.outDir, { recursive: true, mode: 0o700 });
+  const sourceBefore = await sourceProvenance();
   const startedAt = new Date().toISOString();
   const scenarios = options.shots
     ? VISUAL_SCENARIOS.filter(
@@ -136,6 +145,7 @@ async function main(): Promise<void> {
       port,
       logPath: join(options.outDir, "next-app.log"),
       preload: join(repoRoot, "scripts/provider-setup-visual/preload.ts"),
+      ...(options.nextHeapMb ? { maxOldSpaceSizeMb: options.nextHeapMb } : {}),
       environment: {
         ...visualSharedEnvironment(options.flags),
         ...(gateway?.environment ?? {}),
@@ -207,22 +217,65 @@ async function main(): Promise<void> {
     fail: flows.filter((flow) => flow.status === "fail").length,
     skipped: flows.filter((flow) => flow.status === "skipped").length,
   };
+  const sourceAfter = await sourceProvenance();
+  const network = summarizeNetwork(await readFile(networkLog, "utf8"));
+  const unavailableScreenshots = (
+    await Promise.all(
+      flows
+        .flatMap((flow) => flow.screenshots)
+        .map(async (file) => {
+          const available = await stat(join(options.outDir, file)).then(
+            (result) => result.isFile() && result.size > 0,
+            () => false,
+          );
+          return available ? null : file;
+        }),
+    )
+  ).filter((file): file is string => file !== null);
+  const qualificationProblems = options.requireOnboarding
+    ? onboardingQualificationProblems({
+        flows,
+        unavailableScreenshots,
+        network,
+        sourceBefore,
+        sourceAfter,
+      })
+    : [];
   await writeJson(join(options.outDir, "manifest.json"), {
     startedAt,
     finishedAt: new Date().toISOString(),
-    revision: await gitRevision(),
+    revision: sourceAfter.revision,
+    sourceBefore,
+    sourceAfter,
+    runtime: { node: process.version, nextHeapMb: options.nextHeapMb ?? null },
     appUrl,
     flags: options.flags,
     summary,
     flowSummary,
-    network: summarizeNetwork(await readFile(networkLog, "utf8")),
+    network,
+    ...(options.requireOnboarding
+      ? {
+          qualification: {
+            requiredFlows: Object.keys(ONBOARDING_REQUIRED_SHOTS),
+            passed: qualificationProblems.length === 0,
+            problems: qualificationProblems,
+            boundary:
+              "Real app/session/database and Claude GitHub metadata checks; Codex command/recovery responses are controlled, confirmation remains real and refuses an unprepared namespace. No native Codex login or rotation proof.",
+          },
+        }
+      : {}),
     shots,
     flows,
   });
   process.stdout.write(
-    `${JSON.stringify({ outDir: options.outDir, summary, flowSummary })}\n`,
+    `${JSON.stringify({ outDir: options.outDir, summary, flowSummary, qualificationProblems })}\n`,
   );
-  if (summary.failed || summary.suspect || flowSummary.fail)
+  if (
+    summary.failed ||
+    summary.suspect ||
+    flowSummary.fail ||
+    qualificationProblems.length
+  )
     process.exitCode = 2;
 }
 
@@ -236,6 +289,8 @@ function readOptions(): RunOptions {
       "no-personal-sharing": { type: "boolean", default: false },
       flows: { type: "boolean", default: false },
       "flows-only": { type: "boolean", default: false },
+      "require-onboarding": { type: "boolean", default: false },
+      "next-heap-mb": { type: "string" },
     },
   });
   return {
@@ -258,6 +313,11 @@ function readOptions(): RunOptions {
     },
     shots: !values["flows-only"],
     flows: Boolean(values.flows || values["flows-only"]),
+    requireOnboarding: values["require-onboarding"] ?? false,
+    nextHeapMb:
+      values["next-heap-mb"] === undefined
+        ? undefined
+        : readHeapSize(values["next-heap-mb"]),
     browserExecutable: process.env.PROVIDER_VISUAL_BROWSER_EXECUTABLE,
   };
 }
@@ -386,27 +446,44 @@ function countBy(values: readonly string[]): Record<string, number> {
   return counts;
 }
 
-async function gitRevision(): Promise<string> {
-  try {
-    const head = (
-      await execFileAsync("git", ["-C", repoRoot, "rev-parse", "HEAD"])
-    ).stdout.trim();
-    // `next dev` itself rewrites next-env.d.ts; it is not a source change.
-    const dirty = (
-      await execFileAsync("git", [
-        "-C",
-        repoRoot,
-        "status",
-        "--porcelain",
-        "--",
-        ".",
-        ":(exclude)apps/web/next-env.d.ts",
-      ])
-    ).stdout.trim();
-    return dirty ? `${head}+dirty` : head;
-  } catch {
-    return "unknown";
-  }
+async function sourceProvenance(): Promise<VisualSourceProvenance> {
+  // `next dev` itself rewrites next-env.d.ts; it is not a source change.
+  const paths = ["--", ".", ":(exclude)apps/web/next-env.d.ts"];
+  const [head, tree, delta, untracked] = await Promise.all([
+    execFileAsync("git", ["-C", repoRoot, "rev-parse", "HEAD"]),
+    execFileAsync("git", ["-C", repoRoot, "rev-parse", "HEAD^{tree}"]),
+    execFileAsync(
+      "git",
+      ["-C", repoRoot, "diff", "--binary", "HEAD", ...paths],
+      { maxBuffer: 64 * 1024 * 1024 },
+    ),
+    execFileAsync("git", [
+      "-C",
+      repoRoot,
+      "ls-files",
+      "--others",
+      "--exclude-standard",
+      "-z",
+      ...paths,
+    ]),
+  ]);
+  const untrackedPaths = untracked.stdout.split("\0").filter(Boolean).sort();
+  const hash = createHash("sha256").update(delta.stdout);
+  for (const path of untrackedPaths)
+    hash.update(`\0${path}\0`).update(await readFile(join(repoRoot, path)));
+  return {
+    revision: head.stdout.trim(),
+    tree: tree.stdout.trim(),
+    sourceDeltaSha256: hash.digest("hex"),
+    untrackedPaths,
+  };
+}
+
+function readHeapSize(value: string): number {
+  const size = Number(value);
+  if (!Number.isInteger(size) || size < 256 || size > 8192)
+    throw new Error("provider_visual_next_heap_must_be_256_to_8192_mb");
+  return size;
 }
 
 async function freeLoopbackPort(): Promise<number> {

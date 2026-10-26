@@ -8,7 +8,12 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { PrismaClient } from "@prisma/client";
-import type { Browser, Locator, Page } from "playwright-core";
+import type {
+  Browser,
+  Locator,
+  Page,
+  Request as BrowserRequest,
+} from "playwright-core";
 import {
   assignProviderProfileToRepositories,
   parseStoredReviewPolicy,
@@ -216,6 +221,8 @@ export async function runFlows(
     } finally {
       await run.close();
     }
+    if (!reason && run.pageErrors.length > 0)
+      reason = `browser runtime errors: ${run.pageErrors.join("; ")}`;
     const record: FlowRecord = {
       flow: flow.id,
       title: flow.title,
@@ -245,7 +252,9 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       const repository = VISUAL_REPOSITORIES[repositoryKey];
       const fullName = visualRepositoryFullName(repository);
       const defaultBefore = await defaultProfileId(flow.prisma, workspace.id);
-      const page = await flow.open("owner", repositoryRoute(repositoryKey));
+      const page = await flow.open("owner", repositoryRoute(repositoryKey), {
+        theme: "light",
+      });
 
       await flow.check("the repository waits on step 3", async () =>
         expectMatch(
@@ -275,7 +284,42 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           );
         },
       );
+      await flow.check(
+        "Claude token instructions precede storing the token",
+        async () => {
+          const steps = await dialog.locator("ol li").allTextContents();
+          const tokenStep = steps.findIndex((step) =>
+            step.includes("claude setup-token"),
+          );
+          const storeStep = steps.findIndex((step) =>
+            /command below|prepared command/i.test(step),
+          );
+          if (tokenStep < 0 || storeStep <= tokenStep)
+            throw new Error(
+              "Claude token must be obtained before running its storage command",
+            );
+          await assertNoHorizontalOverflow(page);
+        },
+      );
       await flow.shot(page, "step3-dialog");
+
+      await dialog.getByRole("button", { name: "Check GitHub setup" }).click();
+      await flow.check(
+        "a missing secret does not complete repository setup",
+        async () => {
+          await visible(dialog.getByText(/is not in the Actions secrets/));
+          expectEqual(
+            await dialog.getByText("Secret available", { exact: true }).count(),
+            0,
+            "success badges",
+          );
+          expectMatch(
+            await stepTitle(page, repositoryKey),
+            /^3 of 4/,
+            "step with missing secret",
+          );
+        },
+      );
 
       await dialog.getByRole("button", { name: "1. Provider" }).click();
       await chooseNewProvider(dialog);
@@ -361,18 +405,22 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           dialog.getByText(`CLAUDE_CODE_OAUTH_TOKEN is set for ${fullName}.`),
         );
       });
-      await flow.shot(page, "secret-confirmed");
-      await page.getByRole("button", { name: "Close provider setup" }).click();
       await flow.check(
-        "the stepper reaches Ready without reloading the page",
-        async () =>
-          expectEventually(async () =>
+        "returning to the current repository performs a fresh server read and closes setup",
+        () => returnFromSetupDialog(page, dialog, "Back to repository setup"),
+      );
+      await flow.check(
+        "returning reloads the same repository and preserves confirmed readiness",
+        async () => {
+          await assertRepositoryExpanded(page, repositoryKey);
+          await expectEventually(async () =>
             expectMatch(
               await stepTitle(page, repositoryKey),
               /^4 of 4/,
               "step pill title",
             ),
-          ),
+          );
+        },
       );
       await flow.check("the provider line names the new provider", async () => {
         await visible(
@@ -382,6 +430,10 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           ),
         );
       });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await flow.check("the ready repository remains usable on mobile", () =>
+        assertNoHorizontalOverflow(page),
+      );
       await flow.shot(page, "stepper-ready");
 
       await gotoDashboard(page, workspaceRoute("main", "providers"));
@@ -397,7 +449,6 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           );
         },
       );
-      await flow.shot(page, "providers-list");
     },
   },
   {
@@ -430,6 +481,10 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
         ),
       );
       await dialog.getByRole("button", { name: "Set as default" }).click();
+      await dialog
+        .getByRole("link", { name: "Finish repository setup" })
+        .waitFor();
+      await page.getByRole("button", { name: "Close provider setup" }).click();
       await dialog.waitFor({ state: "hidden", timeout: 30_000 });
       await flow.check(
         "stored: the workspace default is that provider",
@@ -535,7 +590,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
         async () =>
           expectMatch(
             await repositorySetupPanel(page, "mainNeedsSecret")
-              .getByText(/^Claude Code subscription/)
+              .getByText(/^Claude Code · GitHub Secrets/)
               .first()
               .innerText(),
             new RegExp(`· ${nextModel}$`),
@@ -553,7 +608,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       await flow.check("the member sees the new model too", async () =>
         expectMatch(
           await repositorySetupPanel(member, "mainReady")
-            .getByText(/^Claude Code subscription/)
+            .getByText(/^Claude Code · GitHub Secrets/)
             .first()
             .innerText(),
           new RegExp(`· ${nextModel}$`),
@@ -976,6 +1031,294 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
     },
   },
   {
+    id: "flow-codex-repository-setup",
+    title:
+      "Codex stays inside repository setup; viewing and checking do not issue commands; deadline and recovery require explicit actions",
+    requires: { rotating: true },
+    run: async (flow) => {
+      const key: VisualRepositoryKey = "mainRotating";
+      const repository = VISUAL_REPOSITORIES[key];
+      const page = await flow.open("owner", repositoryRoute(key));
+      await page.clock.install({ time: new Date() });
+      let issued = 0;
+      let checked = 0;
+      const recoveryIds: string[] = [];
+      // Only these two existing UI adapter endpoints are controlled. The
+      // session, repository reads and confirmation endpoint remain real.
+      const fixtureCommand =
+        "printf '%s\\n' 'Codex setup UI fixture; no credentials'";
+      const recoveredCommand =
+        "printf '%s\\n' 'Codex recovery UI fixture; no credentials'";
+      const commandResponse = async (command: string) => ({
+        command,
+        expiresAt: new Date(
+          (await page.evaluate(() => Date.now())) + 15 * 60_000,
+        ).toISOString(),
+        providerInstanceId: `codex-rotating:${repository.githubRepositoryId}`,
+      });
+      await page.route(
+        "**/api/dashboard/codex-rotating/setup-command",
+        async (route) => {
+          const form = await browserRequestForm(route.request());
+          expectEqual(
+            form.get("workspaceId"),
+            VISUAL_WORKSPACES.main.id,
+            "command workspace",
+          );
+          expectEqual(
+            form.get("repositoryId"),
+            repository.id,
+            "command repository",
+          );
+          issued += 1;
+          await route.fulfill({
+            status: issued <= 2 ? 200 : 409,
+            json:
+              issued <= 2
+                ? await commandResponse(fixtureCommand)
+                : { error: "codex_rotating_setup_recovery_required" },
+          });
+        },
+      );
+      await page.route(
+        "**/api/dashboard/codex-rotating/setup-recovery",
+        async (route) => {
+          const form = await browserRequestForm(route.request());
+          expectEqual(
+            form.get("workspaceId"),
+            VISUAL_WORKSPACES.main.id,
+            "recovery workspace",
+          );
+          expectEqual(
+            form.get("repositoryId"),
+            repository.id,
+            "recovery repository",
+          );
+          expectEqual(
+            form.get("acknowledgement"),
+            "all_prior_installers_and_writers_are_stopped",
+            "explicit recovery acknowledgement",
+          );
+          const requestId = form.get("recoveryRequestId");
+          if (typeof requestId !== "string" || requestId.length === 0)
+            throw new Error("recovery request identity missing");
+          recoveryIds.push(requestId);
+          if (recoveryIds.length === 1) return route.abort("failed");
+          await route.fulfill({
+            json: await commandResponse(recoveredCommand),
+          });
+        },
+      );
+      page.on("request", (request) => {
+        if (
+          new URL(request.url()).pathname ===
+          "/api/dashboard/provider-secret-setup/confirm"
+        )
+          checked += 1;
+      });
+      const open = () =>
+        openDialog(
+          page,
+          repositorySetupPanel(page, key)
+            .getByRole("button", { name: "Connect Codex", exact: true })
+            .first(),
+        );
+      let dialog = await open();
+      await flow.check(
+        "opening Codex is read-only and shows a direct check action",
+        async () => {
+          await visible(
+            dialog.getByRole("button", {
+              name: "Get setup command",
+              exact: true,
+            }),
+          );
+          await visible(
+            dialog.getByRole("button", {
+              name: "Check GitHub setup",
+              exact: true,
+            }),
+          );
+          expectEqual(checked, 0, "no automatic confirmation");
+          expectEqual(issued, 0, "issued commands");
+          expectEqual(recoveryIds.length, 0, "recovery requests");
+          await assertNoHorizontalOverflow(page);
+        },
+      );
+      await flow.shot(page, "codex-initial");
+
+      const confirmation = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname ===
+            "/api/dashboard/provider-secret-setup/confirm" &&
+          response.request().method() === "POST",
+        { timeout: 90_000 },
+      );
+      await dialog
+        .getByRole("button", { name: "Check GitHub setup", exact: true })
+        .click();
+      const verification = (await (await confirmation).json()) as {
+        params?: Record<string, string>;
+      };
+      await flow.check(
+        "the real unprepared setup refuses verification without issuing a credential",
+        async () => {
+          expectMatch(
+            verification.params?.error,
+            /^codex_rotating_(?:setup_not_ready|workflow_namespace_not_ready)$/,
+            "real confirmation refusal",
+          );
+          await visible(dialog.getByRole("alert"));
+          expectEqual(checked, 1, "checks without issuance");
+          expectEqual(issued, 0, "issued commands");
+          expectEqual(
+            await dialog.getByText("Setup verified", { exact: true }).count(),
+            0,
+            "success states",
+          );
+          expectEqual(
+            /^4 of 4/.test((await stepTitle(page, key)) ?? ""),
+            false,
+            "repository ready",
+          );
+        },
+      );
+      await dialog
+        .getByRole("button", { name: "Get setup command", exact: true })
+        .click();
+      await visible(dialog.getByText(fixtureCommand, { exact: true }));
+      await flow.check(
+        "a command is issued once only after an explicit click",
+        async () => {
+          expectEqual(issued, 1, "issued commands");
+          await visible(dialog.getByText(/Start this command by/));
+        },
+      );
+      await flow.shot(page, "codex-issued");
+      await page.getByRole("button", { name: "Close provider setup" }).click();
+      dialog = await open();
+      await flow.check(
+        "reopening clears the one-time command and does not issue again",
+        async () => {
+          await visible(
+            dialog.getByRole("button", {
+              name: "Get setup command",
+              exact: true,
+            }),
+          );
+          expectEqual(issued, 1, "issued commands after reopen");
+          expectEqual(
+            await dialog.getByText(fixtureCommand, { exact: true }).count(),
+            0,
+            "retained command text",
+          );
+        },
+      );
+      await dialog
+        .getByRole("button", { name: "Get setup command", exact: true })
+        .click();
+      await visible(dialog.getByText(fixtureCommand, { exact: true }));
+      await page.clock.fastForward(16 * 60_000);
+      await page.setViewportSize({ width: 390, height: 844 });
+      await flow.check(
+        "the start deadline explains both cases without renewing or cancelling",
+        async () => {
+          await visible(dialog.getByText(/The start deadline has passed/));
+          expectEqual(issued, 2, "no automatic issuance at expiry");
+          expectEqual(recoveryIds.length, 0, "no automatic recovery");
+          await assertNoHorizontalOverflow(page);
+        },
+      );
+      await flow.shot(page, "codex-deadline-mobile");
+      await dialog
+        .getByRole("button", { name: "Get a fresh command", exact: true })
+        .click();
+      const acknowledgement = dialog.getByRole("checkbox", {
+        name: /I confirm every earlier installer and review run is stopped/,
+      });
+      const recover = dialog.getByRole("button", {
+        name: "Recover and get a setup command",
+        exact: true,
+      });
+      await flow.check(
+        "a fetched command enters explicit recovery instead of pretending renewal succeeded",
+        async () => {
+          await visible(acknowledgement);
+          expectEqual(
+            await acknowledgement.isChecked(),
+            false,
+            "recovery opt-in",
+          );
+          expectEqual(
+            await recover.isDisabled(),
+            true,
+            "recovery disabled until acknowledgement",
+          );
+          expectEqual(issued, 3, "requested commands");
+          expectEqual(recoveryIds.length, 0, "recovery requests");
+        },
+      );
+      await flow.shot(page, "codex-recovery-mobile");
+      await acknowledgement.check();
+      await recover.click();
+      await visible(
+        dialog.getByRole("button", { name: "Retry recovery", exact: true }),
+      );
+      await flow.check(
+        "an unknown network outcome retains the recovery operation",
+        async () => {
+          expectEqual(recoveryIds.length, 1, "no automatic retry");
+          expectEqual(issued, 3, "no replacement issuance");
+          expectEqual(
+            await acknowledgement.isChecked(),
+            true,
+            "explicit acknowledgement retained",
+          );
+        },
+      );
+      await dialog
+        .getByRole("button", { name: "Retry recovery", exact: true })
+        .click();
+      await visible(dialog.getByText(recoveredCommand, { exact: true }));
+      await flow.check(
+        "retrying recovery preserves its request identity and never claims activation",
+        async () => {
+          expectEqual(recoveryIds.length, 2, "explicit recovery attempts");
+          expectEqual(
+            recoveryIds[0],
+            recoveryIds[1],
+            "recovery request identity",
+          );
+          expectEqual(
+            await dialog.getByText("Setup verified", { exact: true }).count(),
+            0,
+            "no synthetic activation",
+          );
+        },
+      );
+      await flow.check(
+        "the Codex return to the current repository performs a fresh server read and closes setup",
+        () => returnFromSetupDialog(page, dialog, "Back to repository setup"),
+      );
+      await flow.check(
+        "returning reveals the same repository with authoritative incomplete setup",
+        async () => {
+          await assertRepositoryExpanded(page, key);
+          expectEqual(
+            /^4 of 4/.test((await stepTitle(page, key)) ?? ""),
+            false,
+            "not a live activation proof",
+          );
+          expectEqual(issued, 3, "no issuance on return");
+          expectEqual(checked, 1, "only the explicit confirmation request");
+          expectEqual(recoveryIds.length, 2, "only explicit recovery attempts");
+          await assertNoHorizontalOverflow(page);
+        },
+      );
+      await flow.shot(page, "codex-return-mobile");
+    },
+  },
+  {
     id: "flow-no-default",
     title:
       "Without a default the table stays visible with the banner; choosing a default lets repositories inherit it",
@@ -997,7 +1340,8 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       );
       const owner = await flow.open(
         "owner",
-        workspaceRoute("empty", "repositories"),
+        workspaceRoute("empty", "repositories", { workspace: workspace.id }),
+        { width: 390, theme: "light" },
       );
       await flow.check(
         "the owner sees the banner, the action and every row",
@@ -1017,7 +1361,6 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           );
         },
       );
-      await flow.shot(owner, "no-default");
       const dialog = await openDialog(
         owner,
         owner.getByRole("button", { name: "Choose default provider" }),
@@ -1025,7 +1368,36 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       await chooseNewProvider(dialog);
       await chooseSource(owner, dialog, SOURCE.claudeSecret);
       await dialog.getByRole("button", { name: "Set as default" }).click();
-      await dialog.waitFor({ state: "hidden", timeout: 30_000 });
+      const finish = dialog.getByRole("link", {
+        name: "Finish repository setup",
+      });
+      await flow.check(
+        "saving the default shows the next step, not a ready repository",
+        async () => {
+          await visible(finish);
+          const target = new URL(
+            (await finish.getAttribute("href"))!,
+            flow.env.appUrl,
+          );
+          expectEqual(
+            target.searchParams.get("section"),
+            "repositories",
+            "next section",
+          );
+          expectEqual(
+            target.searchParams.get("workspace"),
+            workspace.id,
+            "next workspace",
+          );
+          expectEqual(
+            target.searchParams.has("repository"),
+            false,
+            "no invented repository target",
+          );
+          await assertNoHorizontalOverflow(owner);
+        },
+      );
+      await flow.shot(owner, "default-saved-next-step");
       const profile = await flow.prisma.workspaceProviderProfile.findFirst({
         where: { workspaceId: workspace.id, archivedAt: null },
       });
@@ -1037,6 +1409,10 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           "workspace default",
         );
       });
+      await flow.check(
+        "the workspace next step rereads the current repository list and closes setup",
+        () => returnFromSetupDialog(owner, dialog, "Finish repository setup"),
+      );
       await flow.check(
         "the banner is gone and the rows inherit the default",
         async () => {
@@ -1056,7 +1432,72 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           );
         },
       );
-      await flow.shot(owner, "default-chosen");
+      await gotoDashboard(owner, repositoryRoute("emptyFirst"));
+      const setup = repositorySetupPanel(owner, "emptyFirst");
+      const secretDialog = await openDialog(
+        owner,
+        setup.getByRole("button", { name: "Use a different provider" }),
+      );
+      await secretDialog.getByRole("button", { name: "2. Add secret" }).click();
+      const unprepared = VISUAL_REPOSITORIES.emptyFirst;
+      const unpreparedFullName = visualRepositoryFullName(unprepared);
+      await flow.env.writeGitHubState({
+        repositorySecrets: [
+          ...flow.seed.github.repositorySecrets,
+          visualRepositorySecretKey(
+            unpreparedFullName,
+            "CLAUDE_CODE_OAUTH_TOKEN",
+          ),
+        ],
+      });
+      await secretDialog
+        .getByRole("button", { name: "Check GitHub setup" })
+        .click();
+      await flow.check(
+        "a confirmed secret before workflow setup does not turn the repository green",
+        async () => {
+          await visible(
+            secretDialog.getByText("Secret available", { exact: true }),
+          );
+          expectMatch(
+            await stepTitle(owner, "emptyFirst"),
+            /^1 of 4/,
+            "workflow prerequisite remains",
+          );
+        },
+      );
+      await flow.check(
+        "returning before workflow setup also performs a fresh server read",
+        () =>
+          returnFromSetupDialog(
+            owner,
+            secretDialog,
+            "Back to repository setup",
+          ),
+      );
+      await flow.check(
+        "the same pending workflow step survives a server reload",
+        async () => {
+          await assertRepositoryExpanded(owner, "emptyFirst");
+          await expectEventually(async () =>
+            expectMatch(
+              await stepTitle(owner, "emptyFirst"),
+              /^1 of 4/,
+              "authoritative step",
+            ),
+          );
+          expectEqual(
+            await repositoryProfileId(flow.prisma, workspace.id, unprepared.id),
+            null,
+            "workspace inheritance preserved",
+          );
+          expectEqual(
+            await defaultProfileId(flow.prisma, workspace.id),
+            profile!.id,
+            "default preserved",
+          );
+        },
+      );
     },
   },
 ];
@@ -1147,6 +1588,82 @@ async function stepTitle(
 
 async function visible(locator: Locator, timeout = 30_000): Promise<void> {
   await locator.first().waitFor({ state: "visible", timeout });
+}
+
+/** A fragment-only link must still fetch the authoritative dashboard again. */
+async function returnFromSetupDialog(
+  page: Page,
+  dialog: Locator,
+  linkName: string,
+): Promise<string> {
+  const link = dialog.getByRole("link", { name: linkName, exact: true });
+  const target = new URL((await link.getAttribute("href"))!, page.url());
+  const current = new URL(page.url());
+  expectEqual(
+    `${current.origin}${current.pathname}${current.search}`,
+    `${target.origin}${target.pathname}${target.search}`,
+    "same dashboard route before returning",
+  );
+  await Promise.all([
+    page.waitForResponse(
+      (response) => {
+        const request = response.request();
+        const url = new URL(response.url());
+        return (
+          request.isNavigationRequest() &&
+          request.frame() === page.mainFrame() &&
+          request.method() === "GET" &&
+          url.origin === target.origin &&
+          url.pathname === target.pathname &&
+          url.search === target.search &&
+          response.status() === 200
+        );
+      },
+      { timeout: 90_000 },
+    ),
+    link.click(),
+  ]);
+  await dialog.waitFor({ state: "hidden", timeout: 30_000 });
+  return "fresh dashboard document 200; provider dialog closed";
+}
+
+async function assertRepositoryExpanded(
+  page: Page,
+  key: VisualRepositoryKey,
+): Promise<void> {
+  const repository = VISUAL_REPOSITORIES[key];
+  const url = new URL(page.url());
+  expectEqual(
+    url.searchParams.get("repository"),
+    visualRepositoryFullName(repository),
+    "returned repository",
+  );
+  expectEqual(
+    url.searchParams.get("workspace"),
+    VISUAL_WORKSPACES[repository.workspace].id,
+    "returned workspace",
+  );
+  await visible(repositorySetupPanel(page, key));
+}
+
+async function assertNoHorizontalOverflow(page: Page): Promise<void> {
+  expectEqual(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+    true,
+    "horizontal overflow absent",
+  );
+}
+
+/** Only synthetic command/recovery form fields; never read browser cookies. */
+async function browserRequestForm(request: BrowserRequest): Promise<FormData> {
+  expectEqual(request.method(), "POST", "command action method");
+  return new Request(request.url(), {
+    method: "POST",
+    headers: { "content-type": request.headers()["content-type"] ?? "" },
+    body: request.postData() ?? "",
+  }).formData();
 }
 
 function expectEqual<Value>(
