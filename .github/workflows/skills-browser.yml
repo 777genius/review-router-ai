@@ -46,7 +46,7 @@ jobs:
       EXPECTED_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
       ACCOUNTS_REFERENCE_E2E_GREP: Skills real Next
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/tmp/accounts-reference-e2e/browser-cache
-      SKILLS_PG_ROOT: ${{ runner.temp }}/skills-postgresql
+      SKILLS_PG_ROOT: ${{ github.workspace }}/tmp/accounts-reference-e2e/postgres
       NODE_OPTIONS: --max-old-space-size=3072
       NEXT_TELEMETRY_DISABLED: "1"
       HOMEBREW_NO_AUTO_UPDATE: "1"
