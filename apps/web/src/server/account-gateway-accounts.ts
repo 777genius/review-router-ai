@@ -103,6 +103,8 @@ export type AccountOwnerView =
   | { kind: "organization"; label: string; avatarUrl: string | null }
   | { kind: "operator"; label: string };
 export type AccountView = {
+  /** Trusted configured vendor fallback; connection.provider is the upstream when available. */
+  provider?: AccountProfileView["provider"];
   modelCatalog?: import("../features/account-gateway/connection-capabilities").AccountModelCatalogView;
   connection?: AccountProfileView["connection"];
   origin?: "organization" | "personal" | "operator";
@@ -148,6 +150,9 @@ export type AccountOperationView = {
   oauthMethod?: "device_code" | "browser";
   completion?: {
     providerLabel: string;
+    providerId?:
+      | import("../features/provider-setup/provider-identity").ProviderIdentity
+      | undefined;
     inputKind: "none" | "callback_url" | "authorization_code";
     personalOnly?: boolean;
   };
@@ -679,6 +684,8 @@ export function createAccountsAdapter(input: {
       label: account.displayName,
       profileId: account.profileId,
       profileLabel: catalogue.find((p) => p.id === account.profileId)!.label,
+      provider: catalogue.find((p) => p.id === account.profileId)!.provider,
+      connection: catalogue.find((p) => p.id === account.profileId)!.connection,
       authKind: catalogue.find((p) => p.id === account.profileId)!.authKind!,
       state: account.state,
       gatewayRevision: account.metadataRevision,

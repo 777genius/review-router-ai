@@ -153,6 +153,10 @@ describe("qualified connection catalog", () => {
           modelSettings: [],
         },
       }),
-    ).toEqual({ providerLabel: "Grok", inputKind: "authorization_code" });
+    ).toEqual({
+      providerLabel: "Grok",
+      providerId: "grok",
+      inputKind: "authorization_code",
+    });
   });
 });

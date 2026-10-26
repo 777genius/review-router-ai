@@ -455,7 +455,9 @@ function WorkspacePersonalRows({
             <AccountIdentity
               label={row.label}
               profileLabel={row.profileLabel}
+              provider={row.provider}
               authKind={row.authKind}
+              connection={row.connection}
             />
             <AccountUsageLine usage={row.usage} />
             <AccountLimitsLine

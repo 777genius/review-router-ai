@@ -1138,6 +1138,7 @@ function Controls({
                 <AccountIdentity
                   label={account.label}
                   profileLabel={account.profileLabel}
+                  provider={account.provider}
                   authKind={account.authKind}
                   connection={account.connection}
                 />
@@ -1277,7 +1278,10 @@ function ConnectionForm({
         name="connectionProvider"
         label={
           <span className="flex items-center gap-2">
-            <AccountProviderLogo profileLabel={profile?.label} />
+            <AccountProviderLogo
+              connection={profile?.connection}
+              provider={profile?.provider}
+            />
             Provider
           </span>
         }
@@ -1286,6 +1290,12 @@ function ConnectionForm({
         options={ordered.map((row) => ({
           value: row.id,
           label: row.label,
+          icon: (
+            <AccountProviderLogo
+              connection={row.connection}
+              provider={row.provider}
+            />
+          ),
           description:
             row.connection?.planLabel ??
             (row.authKind === "oauth" ? "Sign in" : "API key"),
@@ -1786,6 +1796,7 @@ function OperationReadback({
       ? undefined
       : {
           label: savedCompletion.providerLabel,
+          providerId: savedCompletion.providerId,
           inputKind: savedCompletion.inputKind,
           personalOnly: savedCompletion.personalOnly,
         }
@@ -1798,12 +1809,13 @@ function OperationReadback({
           <AccountIdentity
             label={data.value.account.label}
             profileLabel={data.value.account.profileLabel}
+            provider={data.value.account.provider}
             authKind={data.value.account.authKind}
             connection={data.value.account.connection}
           />
         ) : data?.status === "ok" && data.value.oauthMethod ? (
           <div className="flex items-center gap-3 font-medium text-cyan-50">
-            <AccountProviderLogo profileLabel={completion?.label} />
+            <AccountProviderLogo providerId={completion?.providerId} />
             <span>{completion?.label ?? "Provider"} sign-in</span>
           </div>
         ) : (

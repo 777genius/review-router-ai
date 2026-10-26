@@ -1,3 +1,4 @@
+import { savedProviderIdentity } from "./provider-identity";
 import type { PrismaClient } from "@prisma/client";
 import {
   listWorkspaceProviderProfiles,
@@ -114,6 +115,13 @@ export async function loadProviderListView(input: {
       id: profile.id,
       label: profile.label,
       model: profile.model,
+      providerId: savedProviderIdentity({
+        authMode: profile.credential.authMode,
+        gatewayProfileRef:
+          profile.credential.kind === "gateway_binding"
+            ? profile.credential.gatewayProfileRef
+            : undefined,
+      }),
       authMode: profile.credential.authMode,
       credentialKind: profile.credential.kind,
       createdByUserId: profile.createdByUserId,

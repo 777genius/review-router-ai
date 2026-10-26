@@ -1,3 +1,4 @@
+import { accountProviderIdentity } from "../features/provider-setup/provider-identity";
 import * as c from "@agent-teams/account-gateway/contracts";
 import { GatewayError } from "@agent-teams/account-gateway/http";
 import { isPersonalOwnerOnlyProfile } from "@reviewrouter/features-provider-accounts";
@@ -104,7 +105,7 @@ function connectionView(
   };
 }
 export function operationCompletion(
-  profile: Pick<AccountProfileView, "id" | "label" | "connection">,
+  profile: Pick<AccountProfileView, "id" | "label" | "connection" | "provider">,
 ) {
   const inputKind =
     profile.connection?.completionInputKind ??
@@ -115,6 +116,7 @@ export function operationCompletion(
         : "none");
   return {
     providerLabel: profile.label,
+    providerId: accountProviderIdentity(profile),
     inputKind,
     ...(profile.connection?.personalOnly ? { personalOnly: true } : {}),
   };

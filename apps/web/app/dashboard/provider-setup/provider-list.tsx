@@ -46,7 +46,10 @@ import { dashboardErrorText } from "../dashboard-copy";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
 import { GatewayModelCatalogStatus } from "../gateway-model-catalog-status";
 import { ProviderAuthLogoFrame } from "../provider-auth-logo";
-import { useProviderModelCatalogs } from "../provider-model-catalog";
+import {
+  ProviderModelCatalogStatus,
+  useProviderModelCatalogs,
+} from "../provider-model-catalog";
 import type { ProviderProfileActionResult } from "../provider-setup-actions";
 import { ManagedKeyRotationDialog } from "./managed-key-rotation-dialog";
 import { ProviderModelPicker } from "./provider-model-fields";
@@ -253,7 +256,10 @@ function ProviderListItem({
   return (
     <li className="grid gap-3 py-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start lg:gap-6">
       <div className="flex min-w-0 items-start gap-3">
-        <ProviderAuthLogoFrame authMode={row.authMode} />
+        <ProviderAuthLogoFrame
+          authMode={row.authMode}
+          providerId={row.providerId}
+        />
         <div className="grid min-w-0 gap-1">
           <p className="flex min-w-0 flex-wrap items-center gap-2">
             <span className="min-w-0 break-words text-sm font-semibold text-cyan-50">
@@ -585,7 +591,12 @@ function ProviderProfileEditForm({
             gatewayOptions.refreshModels(row.gatewayBindingId ?? "")
           }
         />
-      ) : null}
+      ) : (
+        <ProviderModelCatalogStatus
+          status={catalogs.status(providerKindForAuthMode(row.authMode))}
+          publicSelection
+        />
+      )}
       <div className="grid gap-1 border-t border-cyan-200/10 pt-4">
         <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
           Credential

@@ -1,5 +1,7 @@
 "use client";
 
+import type { ProviderIdentity } from "../../../src/features/provider-setup/provider-identity";
+
 import type { ProviderCredentialKind } from "@reviewrouter/features-review-config/workspace-provider-profile";
 import type { ProviderAuthMode } from "@reviewrouter/features-review-providers";
 import { sourceTitle } from "../../../src/features/provider-setup/provider-setup-model";
@@ -22,6 +24,7 @@ export type ProviderLineSummary = Readonly<{
   profile: Readonly<{
     label: string;
     model: string;
+    providerId?: ProviderIdentity | undefined;
     authMode: ProviderAuthMode;
     credentialKind: ProviderCredentialKind;
   }> | null;
@@ -69,7 +72,10 @@ export function ProviderLine({
         className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-300"
       >
         {summary.profile ? (
-          <ProviderAuthLogoFrame authMode={summary.profile.authMode} />
+          <ProviderAuthLogoFrame
+            authMode={summary.profile.authMode}
+            providerId={summary.profile.providerId}
+          />
         ) : null}
         <span
           title={copy.title}
@@ -95,7 +101,10 @@ export function ProviderLine({
     >
       <div className="flex min-w-0 items-center gap-3">
         {summary.profile ? (
-          <ProviderAuthLogoFrame authMode={summary.profile.authMode} />
+          <ProviderAuthLogoFrame
+            authMode={summary.profile.authMode}
+            providerId={summary.profile.providerId}
+          />
         ) : null}
         <div className="min-w-0">
           <p
