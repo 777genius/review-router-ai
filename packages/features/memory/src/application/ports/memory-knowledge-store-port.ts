@@ -98,7 +98,11 @@ export interface MemoryKnowledgeStore {
     readonly scope: MemoryKnowledgeScope;
     readonly generation: string;
   }): Promise<MemoryStoredCommand | null>;
-  /** Persist unknown before external I/O. Reclaim of the SAME command only authorizes observation. */
+  /**
+   * Persist unknown before external I/O. Reclaim the same command for observation;
+   * its observer may resend the exact envelope only within an explicitly qualified
+   * native retention window. Claim expiry itself grants no resubmission authority.
+   */
   claim(input: {
     readonly commandId: string;
     readonly scope: MemoryKnowledgeScope;

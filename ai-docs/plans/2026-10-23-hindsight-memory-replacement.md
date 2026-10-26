@@ -456,16 +456,26 @@ must reject reuse with a changed digest. Native per-document serialization helps
 internal consistency but is not external CAS. Keep the UUID through retries;
 never issue a new one merely because an HTTP response timed out.
 
-| Failure point                            | Required behavior                                                               |
-| ---------------------------------------- | ------------------------------------------------------------------------------- |
-| Crash before native submission           | Retry same persisted approved envelope and UUID                                 |
-| Native accepted, response lost           | Observe same UUID/children; preserve unknown state until resolved               |
-| Changed body with reused UUID            | Reject before native I/O                                                        |
-| Old native operation has been pruned     | Consult terminal app state; absence is not proof of non-execution               |
-| Older source/approval arrives later      | Reject stale revision or create a new reviewed proposal                         |
-| Worker lease expires during request      | Do not advance a newer mutation until old outcome is resolved                   |
-| Partial extraction/consolidation failure | Do not mark every capability ready from parent completed status                 |
-| Backend unavailable                      | Preserve pending work; reviews use no memory; no hidden Prisma content fallback |
+| Failure point                            | Required behavior                                                                         |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Crash before native submission           | Reconcile same persisted approved envelope and UUID under the bounded retry profile below |
+| Native accepted, response lost           | Observe same UUID/children; preserve unknown state until resolved                         |
+| Changed body with reused UUID            | Reject before native I/O                                                                  |
+| Old native operation has been pruned     | Consult terminal app state; absence is not proof of non-execution                         |
+| Older source/approval arrives later      | Reject stale revision or create a new reviewed proposal                                   |
+| Worker lease expires during request      | Do not advance a newer mutation until old outcome is resolved                             |
+| Partial extraction/consolidation failure | Do not mark every capability ready from parent completed status                           |
+| Backend unavailable                      | Preserve pending work; reviews use no memory; no hidden Prisma content fallback           |
+
+Reclaiming an expired dispatch claim starts observation of the same command.
+The persisted pre-I/O marker cannot distinguish a crash before sending from an
+accepted request whose acknowledgement was lost. Resubmission requires the exact
+approved envelope and UUID, an explicit persisted retry deadline, current
+delivery permission, and a qualified native retention profile that prevents
+operation pruning during that window. The initial unqualified profile sets the
+retry window to zero. Without that authority, absence remains visible `unknown`
+or, after bounded envelope retention, `input_required`; lease expiry alone never
+authorizes another native submission.
 
 Use supported native readback/status, not internal `result_metadata`, as the
 product proof of publication. Bound payload retention and unresolved operations;
