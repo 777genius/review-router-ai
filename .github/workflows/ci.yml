@@ -37,7 +37,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Keep this namespace stable; legacy always() runs retain their old group.
+  group: ci-v2-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -377,7 +378,7 @@ jobs:
         managed-migration-pg17,
       ]
     if: ${{ always() }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:
       - name: Enforce every quality and PG17 lane
