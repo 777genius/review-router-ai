@@ -843,6 +843,7 @@ function ProviderChoiceStep({
         model,
         settings: settings!,
         connection: gatewayProfile?.connection,
+        gatewayProfileRef: gatewayProfile?.id,
       });
       const result = await saveProviderSetup({
         workspaceId,
@@ -1280,6 +1281,7 @@ function ProviderChoiceStep({
                               model: next,
                               settings: current,
                               connection: gatewayProfile?.connection,
+                              gatewayProfileRef: gatewayProfile?.id,
                             })
                           : current,
                       );
@@ -1293,6 +1295,7 @@ function ProviderChoiceStep({
               settings={settings}
               onSettingsChange={setSettings}
               connection={gatewayProfile?.connection}
+              gatewayProfileRef={gatewayProfile?.id}
               agentProfileOptions={agentProfileOptions}
               disabled={
                 pending || !mutationsEnabled || choice?.kind === "default"

@@ -18,6 +18,16 @@ export type CodexReasoningEffort =
   | "max"
   | "ultra";
 
+/** The legacy selection stays stored; only this Gateway profile uses wire Max. */
+export function effectiveGatewayReasoningEffort(
+  profileRef: string | undefined,
+  effort: string | undefined,
+): string | undefined {
+  return profileRef === "openai-codex-oauth-responses-v1" && effort === "ultra"
+    ? "max"
+    : effort;
+}
+
 export function codexModelSupportsReasoningEffort(
   model: string,
   effort: CodexReasoningEffort,
