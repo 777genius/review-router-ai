@@ -38,7 +38,10 @@ export type MemoryKnowledgeView = {
   readonly body: string | null;
   readonly topicIds: readonly string[];
   readonly unavailableReason:
-    "unsettled" | "provider_unavailable" | "incomplete_evidence" | null;
+    | "unsettled"
+    | "provider_unavailable"
+    | "incomplete_evidence"
+    | null;
 };
 export type MemoryKnowledgeBundleItem =
   | (Extract<MemoryProviderRecallItem, { readonly type: "entry" }> & {
@@ -526,6 +529,8 @@ export class MemoryKnowledgeService {
       readonly scope: MemoryKnowledgeScope;
       readonly limit?: number;
       readonly cursor?: string;
+      /** Current provider topic membership; pending unpublished entries remain in the unfiltered list. */
+      readonly topicId?: string;
     },
     controls: MemoryRequestControls,
   ): Promise<{
@@ -533,6 +538,11 @@ export class MemoryKnowledgeService {
     readonly nextCursor: string | null;
   }> {
     this.check(controls);
+    if (
+      input.topicId !== undefined &&
+      !/^[a-zA-Z0-9_-]{1,100}$/.test(input.topicId)
+    )
+      throw new MemoryKnowledgeError("invalid_input");
     await this.dependencies.access.authorize(
       { actor: input.actor, scope: input.scope, action: "read" },
       controls,
@@ -541,6 +551,37 @@ export class MemoryKnowledgeService {
       input.scope,
       this.dependencies.generation,
     );
+    if (input.topicId !== undefined) {
+      const page = await this.dependencies.reader.list(
+        {
+          scope: input.scope,
+          limit: Math.min(100, Math.max(1, input.limit ?? 30)),
+          ...(input.cursor ? { cursor: input.cursor } : {}),
+          topicId: input.topicId,
+        },
+        controls,
+      );
+      const entries: MemoryKnowledgeView[] = [];
+      for (const candidate of page.entries) {
+        if (!sameMemoryKnowledgeScope(candidate.ref.scope, input.scope))
+          throw new MemoryKnowledgeError("incomplete_evidence");
+        const metadata = await this.dependencies.store.findEntry(
+          candidate.ref,
+          this.dependencies.generation,
+        );
+        if (!metadata) continue;
+        const view = await this.view(
+          metadata,
+          input.actor,
+          "management",
+          controls,
+        );
+        if (view.body !== null && view.topicIds.includes(input.topicId))
+          entries.push(view);
+      }
+      await this.recheck(input.scope, epoch, controls);
+      return { entries, nextCursor: page.nextCursor };
+    }
     const page = await this.dependencies.store.listEntries({
       ...input,
       generation: this.dependencies.generation,

@@ -152,7 +152,7 @@ describe("independent metadata-only GitHub source critic", () => {
     await expect(
       f.verifier.verify({ ...session, githubActorId: "22" }, claim, controls()),
     ).rejects.toMatchObject({ code: "conflict" });
-    const { githubActorId: _legacyId, ...legacy } = session;
+    const legacy = { ...session, githubActorId: undefined };
     await expect(
       f.verifier.verify(legacy, claim, controls()),
     ).rejects.toMatchObject({ code: "forbidden" });

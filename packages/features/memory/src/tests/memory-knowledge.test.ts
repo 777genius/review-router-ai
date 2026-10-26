@@ -115,7 +115,10 @@ function fixture() {
   };
   const reader = {
     read: vi.fn(async () => entry),
-    list: vi.fn(),
+    list: vi.fn(async () => ({
+      entries: [entry],
+      nextCursor: null as string | null,
+    })),
     recall: vi.fn(
       async (
         _input: unknown,
@@ -159,6 +162,103 @@ function fixture() {
 }
 
 describe("complete provider memory policy", () => {
+  it("filters across current scoped provider topic pages while preserving the continuation cursor", async () => {
+    const { service, store, reader } = fixture();
+    reader.list.mockResolvedValue({ entries: [entry], nextCursor: "60" });
+    const page = await service.list(
+      { actor, scope, topicId: "requests", limit: 30, cursor: "30" },
+      controls,
+    );
+    expect(reader.list).toHaveBeenCalledExactlyOnceWith(
+      { scope, topicId: "requests", limit: 30, cursor: "30" },
+      controls,
+    );
+    expect(page).toMatchObject({
+      entries: [{ metadata, body: command.body, topicIds: ["requests"] }],
+      nextCursor: "60",
+    });
+    expect(store.listEntries).not.toHaveBeenCalled();
+    expect(store.findEntry).toHaveBeenCalledWith(entry.ref, "generation");
+  });
+
+  it("denies unauthorized topic queries before provider I/O and rejects cross-scope native candidates", async () => {
+    const { service, access, reader } = fixture();
+    access.authorize.mockRejectedValueOnce(new Error("forbidden"));
+    await expect(
+      service.list({ actor, scope, topicId: "requests" }, controls),
+    ).rejects.toThrow("forbidden");
+    expect(reader.list).not.toHaveBeenCalled();
+    reader.list.mockResolvedValueOnce({
+      entries: [
+        {
+          ...entry,
+          ref: {
+            ...entry.ref,
+            scope: {
+              kind: "repository",
+              workspaceId: "workspace",
+              repositoryId: "other",
+            },
+          },
+        },
+      ],
+      nextCursor: null,
+    });
+    await expect(
+      service.list({ actor, scope, topicId: "requests" }, controls),
+    ).rejects.toMatchObject({ code: "incomplete_evidence" });
+    expect(reader.read).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { lifecycle: "forgotten" as const },
+    { lifecycle: "forget_pending" as const },
+    { pendingCommandId: "unknown-write" },
+  ])(
+    "omits body-fenced metadata from topic results while retaining the next provider page: %o",
+    async (change) => {
+      const { service, store, reader } = fixture();
+      store.findEntry.mockResolvedValueOnce({ ...metadata, ...change });
+      reader.list.mockResolvedValueOnce({ entries: [entry], nextCursor: "30" });
+      await expect(
+        service.list({ actor, scope, topicId: "requests" }, controls),
+      ).resolves.toEqual({ entries: [], nextCursor: "30" });
+      expect(reader.read).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not expose stale topic membership or inaccessible source evidence and keeps retained inactive membership", async () => {
+    const { service, store, access, reader } = fixture();
+    reader.read.mockResolvedValueOnce({ ...entry, topicIds: ["changed"] });
+    await expect(
+      service.list({ actor, scope, topicId: "requests" }, controls),
+    ).resolves.toMatchObject({ entries: [] });
+    access.sourceApplicable.mockResolvedValueOnce(false);
+    await expect(
+      service.list({ actor, scope, topicId: "requests" }, controls),
+    ).resolves.toMatchObject({ entries: [] });
+    store.findEntry.mockResolvedValueOnce({
+      ...metadata,
+      lifecycle: "retired",
+    });
+    await expect(
+      service.list({ actor, scope, topicId: "requests" }, controls),
+    ).resolves.toMatchObject({ entries: [{ body: command.body }] });
+  });
+
+  it("rejects malformed topic identifiers and a scope epoch change during native listing", async () => {
+    const { service, store, reader } = fixture();
+    for (const topicId of ["", "topic:private", "a".repeat(101)])
+      await expect(
+        service.list({ actor, scope, topicId }, controls),
+      ).rejects.toMatchObject({ code: "invalid_input" });
+    expect(reader.list).not.toHaveBeenCalled();
+    store.scopeEpoch.mockResolvedValueOnce("1").mockResolvedValueOnce("2");
+    await expect(
+      service.list({ actor, scope, topicId: "requests" }, controls),
+    ).rejects.toMatchObject({ code: "conflict" });
+  });
+
   it("automatically expires only due entries with deterministic revision-bound commands and no human grant", async () => {
     const { service, store, access } = fixture();
     const due = {
