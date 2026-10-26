@@ -3,12 +3,16 @@ export type ApiDemoEndpoint = {
   readonly path: string;
   readonly purpose: string;
   readonly auth:
-    "public" | "github_webhook_signature" | "github_actions_oidc_session";
+    | "public"
+    | "github_webhook_signature"
+    | "github_actions_oidc_session";
 };
 
 export type ApiDemoProvider = {
   readonly id:
-    "codex_oauth_rotating" | "claude_code_oauth" | "openrouter_api_key";
+    | "codex_oauth_rotating"
+    | "claude_code_oauth"
+    | "openrouter_api_key";
   readonly label: string;
   readonly secretLocation: "github_actions_secret";
   readonly sentToSaas: false;

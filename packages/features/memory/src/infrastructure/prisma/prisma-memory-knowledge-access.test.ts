@@ -277,7 +277,9 @@ describe("PrismaMemoryKnowledgeAccess", () => {
       visibility: "private" as const,
       url: "https://github.com/private/repo/comments/123",
     };
-    const verifySource = vi.fn(async (): Promise<MemoryKnowledgeSource> => github);
+    const verifySource = vi.fn(
+      async (): Promise<MemoryKnowledgeSource> => github,
+    );
     const access = new PrismaMemoryKnowledgeAccess({
       ...dependencies,
       sourceAuthority: { verifySource },

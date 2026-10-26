@@ -16,17 +16,17 @@ fail preparation rather than silently applying a fuzzy patch.
 
 ## Sinks covered
 
-| Sink | Qualified profile treatment |
-| --- | --- |
-| Python logging, warnings, traceback/extras | Metadata event `module:line`, severity and exception class; no interpolated message, traceback, arbitrary extras or tenant context |
-| Uncaught Python/thread exceptions | Fixed event and exception class; no exception text/source-line dump |
-| API error and validation bodies | Existing HTTP status preserved; fixed safe code; bounded numeric Retry-After retained |
-| Native readiness DB errors | Exception class only, alongside existing pool counts/timings |
-| Worker/API startup | Database connection location/credentials omitted; cleanup exception class only |
-| Native task failures/retry history and parent copies | Fixed stored error code or exception class; raw provider response/traceback excluded |
-| Native PostgreSQL link errors | Logger path replaces three direct traceback print calls |
-| LLM traces, bodyful audit, OTel content, request dumps | Explicitly disabled; bank audit also disabled by adapter profile |
-| PostgreSQL server diagnostics | `log_statement=none`, `log_min_messages=PANIC`, `log_min_error_statement=PANIC`, both parameter length limits `0`; verify actual resolved values |
+| Sink                                                   | Qualified profile treatment                                                                                                                      |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Python logging, warnings, traceback/extras             | Metadata event `module:line`, severity and exception class; no interpolated message, traceback, arbitrary extras or tenant context               |
+| Uncaught Python/thread exceptions                      | Fixed event and exception class; no exception text/source-line dump                                                                              |
+| API error and validation bodies                        | Existing HTTP status preserved; fixed safe code; bounded numeric Retry-After retained                                                            |
+| Native readiness DB errors                             | Exception class only, alongside existing pool counts/timings                                                                                     |
+| Worker/API startup                                     | Database connection location/credentials omitted; cleanup exception class only                                                                   |
+| Native task failures/retry history and parent copies   | Fixed stored error code or exception class; raw provider response/traceback excluded                                                             |
+| Native PostgreSQL link errors                          | Logger path replaces three direct traceback print calls                                                                                          |
+| LLM traces, bodyful audit, OTel content, request dumps | Explicitly disabled; bank audit also disabled by adapter profile                                                                                 |
+| PostgreSQL server diagnostics                          | `log_statement=none`, `log_min_messages=PANIC`, `log_min_error_statement=PANIC`, both parameter length limits `0`; verify actual resolved values |
 
 This profile sacrifices free-form native diagnostic text and normal PostgreSQL
 ERROR/DETAIL log messages. Native HTTP statuses, operation states, retry timing,

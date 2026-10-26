@@ -102,15 +102,13 @@ describe("complete memory runtime composition", () => {
     expect(second.authorize).not.toHaveBeenCalled();
     const otherScope = { ...scope, repositoryId: "other" };
     await expect(
-      runtime
-        .forAccess(second)
-        .read(
-          {
-            actor,
-            ref: { type: "entry", scope: otherScope, entryId: "entry" },
-          },
-          controls,
-        ),
+      runtime.forAccess(second).read(
+        {
+          actor,
+          ref: { type: "entry", scope: otherScope, entryId: "entry" },
+        },
+        controls,
+      ),
     ).rejects.toMatchObject({ code: "forbidden" });
     expect(second.authorize).toHaveBeenCalledExactlyOnceWith(
       { actor, scope: otherScope, action: "read" },

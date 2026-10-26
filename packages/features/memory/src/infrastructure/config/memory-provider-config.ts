@@ -19,13 +19,21 @@ export function parseMemoryProviderConfig(
   const kind = env.REVIEW_ROUTER_MEMORY_PROVIDER?.trim() || "disabled";
   const generation = env.REVIEW_ROUTER_MEMORY_GENERATION?.trim() || "memory-v1";
   const retryInput = env.REVIEW_ROUTER_MEMORY_RESUBMIT_WINDOW_MS?.trim() || "0";
-  const resubmitWindowMs = /^(0|[1-9][0-9]*)$/.test(retryInput) ? Number(retryInput) : NaN;
-  if (!Number.isSafeInteger(resubmitWindowMs) || resubmitWindowMs < 0 || resubmitWindowMs > 86_400_000) throw new Error("memory_provider_resubmit_window_invalid");
+  const resubmitWindowMs = /^(0|[1-9][0-9]*)$/.test(retryInput)
+    ? Number(retryInput)
+    : NaN;
+  if (
+    !Number.isSafeInteger(resubmitWindowMs) ||
+    resubmitWindowMs < 0 ||
+    resubmitWindowMs > 86_400_000
+  )
+    throw new Error("memory_provider_resubmit_window_invalid");
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(generation)) {
     throw new Error("memory_provider_generation_invalid");
   }
   if (kind === "disabled") {
-    if (resubmitWindowMs !== 0) throw new Error("memory_provider_resubmit_unqualified");
+    if (resubmitWindowMs !== 0)
+      throw new Error("memory_provider_resubmit_unqualified");
     return { kind, generation };
   }
   if (kind !== "hindsight") throw new Error("memory_provider_invalid");
@@ -40,8 +48,12 @@ export function parseMemoryProviderConfig(
   }
   if (
     !["http:", "https:"].includes(parsed.protocol) ||
-    parsed.username || parsed.password || parsed.search || parsed.hash
-  ) throw new Error("memory_provider_url_invalid");
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash
+  )
+    throw new Error("memory_provider_url_invalid");
   if (!apiKey || apiKey.length > 8_192 || /\s/.test(apiKey)) {
     throw new Error("memory_provider_key_invalid");
   }

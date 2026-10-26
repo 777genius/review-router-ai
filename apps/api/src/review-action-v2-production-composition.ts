@@ -511,7 +511,8 @@ export function composeReviewActionV2ProductionRoutes(input: {
   readonly oidcAudience?: string | undefined;
   readonly ledgerHmacSecret?: string | undefined;
   readonly investigationTelemetrySamples?:
-    ReviewInvestigationTerminalTelemetrySamplePort | undefined;
+    | ReviewInvestigationTerminalTelemetrySamplePort
+    | undefined;
   readonly recordInvestigationOperationsDiagnostic?:
     | ((
         code: ReviewInvestigationOperationsDiagnosticCode,

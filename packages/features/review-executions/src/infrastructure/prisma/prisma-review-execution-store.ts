@@ -1262,7 +1262,8 @@ export class PrismaReviewExecutionStore
 
   private async transitionLease(
     command:
-      RenewReviewInvocationLeaseCommand | ReleaseReviewInvocationLeaseCommand,
+      | RenewReviewInvocationLeaseCommand
+      | ReleaseReviewInvocationLeaseCommand,
     decide: (input: {
       readonly lease: ReviewInvocationLease;
       readonly execution: ReviewExecution | null;

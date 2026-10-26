@@ -278,7 +278,8 @@ export type TerminalizeReviewWorkSlotCommand = {
   readonly reviewRevisionHash: string;
   readonly workSlotId: string;
   readonly terminalState:
-    ReviewWorkSlotState.Exhausted | ReviewWorkSlotState.Cancelled;
+    | ReviewWorkSlotState.Exhausted
+    | ReviewWorkSlotState.Cancelled;
   readonly reasonCode: ReviewWorkSlotTerminalReason;
   readonly now: Date;
 };

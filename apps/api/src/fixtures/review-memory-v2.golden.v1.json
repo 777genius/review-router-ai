@@ -22,9 +22,7 @@
         "kind": "rule",
         "body": "Store event times in UTC. Preserve café names, 日本語 and 🚦 in user text.",
         "revision": "3",
-        "sourceIds": [
-          "github-node:IC_rule"
-        ],
+        "sourceIds": ["github-node:IC_rule"],
         "statementAt": "2026-10-20T10:00:00.000Z",
         "lastVerifiedAt": "2026-10-22T10:00:00.000Z"
       },
@@ -34,9 +32,7 @@
         "kind": "exception",
         "body": "The legacy importer may read local time only when the record includes an explicit offset.\nKeep the original \"timezone\" field.",
         "revision": "2",
-        "sourceIds": [
-          "github-node:IC_exception"
-        ],
+        "sourceIds": ["github-node:IC_exception"],
         "statementAt": "2026-10-21T10:00:00.000Z",
         "lastVerifiedAt": "2026-10-22T10:00:00.000Z",
         "exceptionRuleId": "mem_rule"
@@ -61,9 +57,7 @@
         "kind": "observation",
         "body": "At this recorded commit, the adapter used a bounded 30-second timeout.",
         "revision": "4",
-        "sourceIds": [
-          "github-node:IC_observation"
-        ],
+        "sourceIds": ["github-node:IC_observation"],
         "statementAt": "2026-10-21T11:00:00.000Z",
         "lastVerifiedAt": "2026-10-22T10:00:00.000Z",
         "temporalStatus": "at_commit",

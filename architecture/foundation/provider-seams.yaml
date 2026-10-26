@@ -459,6 +459,7 @@ boundaries:
   - id: memory.tests
     roots:
       - "packages/features/memory/src/tests"
+      - "packages/features/memory/src/composition/memory-knowledge-runtime.test.ts"
       - "packages/features/memory/src/infrastructure/prisma/approved-memory-source-applicable.test.ts"
       - "packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-access.test.ts"
       - "packages/features/memory/src/infrastructure/prisma/prisma-memory-permission.test.ts"
