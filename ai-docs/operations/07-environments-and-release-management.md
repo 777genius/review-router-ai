@@ -575,10 +575,19 @@ a fixed release forward. The scheduled channel-protocol monitor
 (`monitor-workflow-channel-protocol.yml`) reports any bypass of this procedure;
 it never deploys or rolls back anything by itself.
 
-Schema slots are additive: both compiled slots stay in place, legacy slot bytes
+Schema slots are additive: all compiled contracts stay in place, legacy slot bytes
 are never regenerated or edited, and removing or replacing a slot requires a
 separate check of all still-active consumers first. This deliberately restricts
 the set of allowed rollbacks.
+
+One schema can have multiple published canonicalizers. The approved Action171
+contract (`32bb25… / 95a433…`) and the later legacy contract
+(`32bb25… / 124087…`) remain distinct frozen contracts. Admission selects the
+exact compiled contract through the verified producer Action SHA; schema equality
+alone does not identify its canonicalizer. The authorization's internal
+`review_action_v2` enum maps explicitly to published protocol version `2`.
+Retirement of obsolete registered producers must preserve approved GitHub Secrets
+and Hosted Pool pins, even when no run currently uses them.
 
 ### Coordinated Action/API emergency rollback
 
