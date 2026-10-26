@@ -20,7 +20,6 @@ import {
   reviewActionV2ContractSlot,
   reviewActionV2CanonicalizerDigest,
   reviewActionV2PublishedSchemaDigest,
-  reviewInvestigationExtensionV1,
 } from "@reviewrouter/protocol-review-action-v2";
 import { ProducerReleaseState } from "@reviewrouter/features-review-run-control";
 import { describe, expect, it, vi } from "vitest";
