@@ -28,6 +28,7 @@ import type {
   MemoryEntryView,
   MemoryKnowledgePage,
   MemoryOperationView,
+  MemoryUnconfirmedChange,
 } from "../../application/memory-knowledge-view";
 
 type Dialog =
@@ -44,11 +45,20 @@ export function MemoryKnowledgeScreen({
   api = memoryDashboardApi,
   onScopeChange,
   onPageChange,
+  onTopicChange,
+  unconfirmedChange,
+  onUnconfirmedChange,
 }: {
   readonly initialData: MemoryKnowledgePage;
   readonly api?: MemoryDashboardApi;
   readonly onScopeChange: (repositoryId: string | null) => void;
   readonly onPageChange: (cursor: string | null) => void;
+  readonly onTopicChange: (topicId: string | null) => void;
+  readonly unconfirmedChange: MemoryUnconfirmedChange | null;
+  readonly onUnconfirmedChange: (
+    change: MemoryUnconfirmedChange | null,
+    commandId: string,
+  ) => void;
 }): React.ReactElement {
   const client = useQueryClient();
   const selection = {
@@ -56,7 +66,14 @@ export function MemoryKnowledgeScreen({
     repositoryId: initialData.repositoryId,
   };
   const [dialog, setDialog] = useState<Dialog | null>(null);
-  const [commandId, setCommandId] = useState<string | null>(null);
+  const scopedChange =
+    unconfirmedChange?.request.workspaceId === selection.workspaceId &&
+    unconfirmedChange.request.repositoryId === selection.repositoryId
+      ? unconfirmedChange
+      : null;
+  const [commandId, setCommandId] = useState<string | null>(
+    scopedChange?.request.commandId ?? null,
+  );
   const operation = useQuery({
     queryKey: memoryOperationKey(selection, commandId),
     queryFn: ({ signal }) =>
@@ -70,7 +87,14 @@ export function MemoryKnowledgeScreen({
   const pageQuery = useQuery({
     queryKey: memoryPageKey(initialData),
     queryFn: ({ signal }) =>
-      api.list({ ...selection, cursor: initialData.cursor }, signal),
+      api.list(
+        {
+          ...selection,
+          cursor: initialData.cursor,
+          topicId: initialData.topicId,
+        },
+        signal,
+      ),
     initialData,
     staleTime: 20_000,
     retry: 1,
@@ -81,7 +105,7 @@ export function MemoryKnowledgeScreen({
         : false,
   });
   useEffect(() => {
-    if (operation.data && !pending(operation.data.state))
+    if (operation.data && !pending(operation.data.state)) {
       void client.invalidateQueries({
         queryKey: [
           "memory-knowledge",
@@ -89,11 +113,18 @@ export function MemoryKnowledgeScreen({
           selection.repositoryId,
         ],
       });
+      if (scopedChange?.request.commandId === operation.data.id) {
+        onUnconfirmedChange(null, operation.data.id);
+        setDialog(null);
+      }
+    }
   }, [
     client,
     operation.data?.state,
     selection.workspaceId,
     selection.repositoryId,
+    scopedChange?.request.commandId,
+    onUnconfirmedChange,
   ]);
   const page = pageQuery.data;
   const busy =
@@ -106,6 +137,7 @@ export function MemoryKnowledgeScreen({
     client.setQueryData(memoryOperationKey(selection, result.id), result);
     setCommandId(result.id);
     setDialog(null);
+    onUnconfirmedChange(null, result.id);
     await client.invalidateQueries({
       queryKey: [
         "memory-knowledge",
@@ -149,7 +181,9 @@ export function MemoryKnowledgeScreen({
           {page.canManage ? (
             <Button
               tone="accent"
-              disabled={!page.writesEnabled || busy}
+              disabled={
+                !page.writesEnabled || busy || unconfirmedChange !== null
+              }
               onClick={() => setDialog({ action: "save", entry: null })}
             >
               Add memory
@@ -185,6 +219,54 @@ export function MemoryKnowledgeScreen({
           {page.canManage ? "You can edit these memories" : "View only"}
         </p>
       </div>
+      <form
+        className="mb-6 flex flex-wrap items-end gap-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const value = String(
+            new FormData(event.currentTarget).get("memory-topic") ?? "",
+          ).trim();
+          onTopicChange(value || null);
+        }}
+      >
+        <label className="grid w-full gap-2 text-sm text-slate-300 sm:w-64">
+          Filter by topic
+          <input
+            name="memory-topic"
+            defaultValue={page.topicId ?? ""}
+            list="memory-topics"
+            maxLength={100}
+            pattern="[a-zA-Z0-9_-]+"
+            placeholder="Any topic, e.g. database"
+            className={inputClass}
+          />
+        </label>
+        <datalist id="memory-topics">
+          {[...new Set(page.entries.flatMap((entry) => entry.topics))]
+            .sort()
+            .map((topic) => (
+              <option key={topic} value={topic} />
+            ))}
+        </datalist>
+        <Button type="submit" variant="outline">
+          Apply filter
+        </Button>
+        {page.topicId ? (
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => onTopicChange(null)}
+          >
+            All entries
+          </Button>
+        ) : null}
+        {page.topicId ? (
+          <p className="w-full text-xs leading-5 text-slate-400">
+            Showing stored knowledge tagged {page.topicId}. Select All entries
+            to check changes that are still processing.
+          </p>
+        ) : null}
+      </form>
       {page.availability !== "ready" || !page.writesEnabled ? (
         <Notice>
           {page.availability === "unavailable"
@@ -215,23 +297,56 @@ export function MemoryKnowledgeScreen({
               ? " Status is temporarily unavailable; your original request is preserved."
               : ""}
           </span>
-          {operation.data && !pending(operation.data.state) ? (
-            <button
-              className="text-xs underline"
-              onClick={() => setCommandId(null)}
-            >
-              Dismiss
-            </button>
-          ) : null}
+          <div className="flex flex-wrap gap-3">
+            {operation.isError ? (
+              <button
+                className="text-xs underline"
+                onClick={() => void operation.refetch()}
+              >
+                Check status again
+              </button>
+            ) : null}
+            {scopedChange ? (
+              <button
+                className="text-xs underline"
+                onClick={() => {
+                  const { request, entry } = scopedChange;
+                  setCommandId(request.commandId);
+                  setDialog(
+                    request.action === "save"
+                      ? { action: "save", entry }
+                      : entry
+                        ? { action: request.action, entry }
+                        : null,
+                  );
+                }}
+              >
+                Resume same request
+              </button>
+            ) : null}
+            {operation.data && !pending(operation.data.state) ? (
+              <button
+                className="text-xs underline"
+                onClick={() => setCommandId(null)}
+              >
+                Dismiss
+              </button>
+            ) : null}
+          </div>
         </div>
       ) : null}
       <div className="border-y border-white/10">
         {page.entries.length === 0 ? (
           <div className="py-16 text-center">
-            <h2 className="text-lg font-medium">No approved memory here yet</h2>
+            <h2 className="text-lg font-medium">
+              {page.topicId
+                ? "No matching memory on this page"
+                : "No approved memory here yet"}
+            </h2>
             <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-400">
-              Add a clear rule that will help reviewers understand how your team
-              works.
+              {page.topicId
+                ? "Continue to the next page if one is available, or choose All entries to clear the filter."
+                : "Add a clear rule that will help reviewers understand how your team works."}
             </p>
           </div>
         ) : (
@@ -264,9 +379,13 @@ export function MemoryKnowledgeScreen({
                         : "Rule"}
                   </Badge>
                   {entry.pendingCommandId ? (
-                    <span className="text-xs text-amber-200">
-                      Change processing
-                    </span>
+                    <button
+                      type="button"
+                      className="text-xs text-amber-200 underline underline-offset-2"
+                      onClick={() => setCommandId(entry.pendingCommandId)}
+                    >
+                      Check change status
+                    </button>
                   ) : null}
                 </div>
                 <p className="whitespace-pre-wrap break-words text-[0.95rem] leading-7 text-slate-100">
@@ -338,6 +457,7 @@ export function MemoryKnowledgeScreen({
                           busy ||
                           !!entry.pendingCommandId ||
                           entry.id === pendingEntryId ||
+                          unconfirmedChange !== null ||
                           entry.body === null
                         }
                         onClick={() => setDialog({ action: "save", entry })}
@@ -347,11 +467,7 @@ export function MemoryKnowledgeScreen({
                       <Button
                         size="sm"
                         variant="ghost"
-                        disabled={
-                          busy ||
-                          !!entry.pendingCommandId ||
-                          entry.id === pendingEntryId
-                        }
+                        disabled={unconfirmedChange !== null}
                         onClick={() => setDialog({ action: "retire", entry })}
                       >
                         Stop using
@@ -363,9 +479,9 @@ export function MemoryKnowledgeScreen({
                     variant="ghost"
                     tone="danger"
                     disabled={
-                      busy ||
-                      !!entry.pendingCommandId ||
-                      entry.id === pendingEntryId ||
+                      unconfirmedChange !== null ||
+                      (entry.id === pendingEntryId &&
+                        operation.data?.state === "cleanup_pending") ||
                       entry.status === "forget_pending"
                     }
                     onClick={() => setDialog({ action: "forget", entry })}
@@ -413,6 +529,18 @@ export function MemoryKnowledgeScreen({
           api={api}
           onClose={() => setDialog(null)}
           onAccepted={accepted}
+          initialRequest={scopedChange?.request ?? null}
+          onRequest={(request) => {
+            onUnconfirmedChange(
+              { request, entry: dialog.entry },
+              request.commandId,
+            );
+            setCommandId(request.commandId);
+          }}
+          onRejected={(rejectedId) => {
+            onUnconfirmedChange(null, rejectedId);
+            setCommandId(null);
+          }}
         />
       ) : null}
     </section>
@@ -425,22 +553,34 @@ function MemoryChangeDialog({
   api,
   onClose,
   onAccepted,
+  initialRequest,
+  onRequest,
+  onRejected,
 }: {
   readonly dialog: Dialog;
   readonly selection: { workspaceId: string; repositoryId: string | null };
   readonly api: MemoryDashboardApi;
   readonly onClose: () => void;
   readonly onAccepted: (operation: MemoryOperationView) => Promise<void>;
+  readonly initialRequest: MemoryDashboardMutation | null;
+  readonly onRequest: (request: MemoryDashboardMutation) => void;
+  readonly onRejected: (commandId: string) => void;
 }): React.ReactElement {
   const form = useForm<Draft>({
     defaultValues: {
-      body: dialog.entry?.body ?? "",
-      topics: dialog.entry?.topics.join(", ") ?? "",
+      body:
+        initialRequest?.action === "save"
+          ? initialRequest.body
+          : (dialog.entry?.body ?? ""),
+      topics:
+        initialRequest?.action === "save"
+          ? initialRequest.topics.join(", ")
+          : (dialog.entry?.topics.join(", ") ?? ""),
     },
   });
   // A transport failure may have happened after acceptance. Keep this exact
   // envelope and UUID for every retry; do not manufacture another approval.
-  const request = useRef<MemoryDashboardMutation | null>(null);
+  const request = useRef<MemoryDashboardMutation | null>(initialRequest);
   const mutation = useMutation({
     mutationFn: (input: MemoryDashboardMutation) => api.mutate(input),
     retry: false,
@@ -448,9 +588,12 @@ function MemoryChangeDialog({
     onError: (error) => {
       if (
         error instanceof MemoryDashboardApiError &&
-        [400, 403, 409].includes(error.status)
-      )
+        [400, 403, 404, 409, 413].includes(error.status)
+      ) {
+        const rejectedId = request.current?.commandId;
         request.current = null;
+        if (rejectedId) onRejected(rejectedId);
+      }
     },
   });
   const locked = request.current !== null;
@@ -477,6 +620,7 @@ function MemoryChangeDialog({
           : { action: dialog.action }),
       };
     }
+    onRequest(request.current);
     mutation.mutate(request.current);
   });
   const title =
@@ -491,7 +635,7 @@ function MemoryChangeDialog({
     <DialogRoot
       open
       onOpenChange={(open) => {
-        if (!open && !locked) onClose();
+        if (!open) onClose();
       }}
     >
       <DialogPortal>
@@ -511,6 +655,12 @@ function MemoryChangeDialog({
                 <label className="grid gap-2 text-sm font-medium">
                   Memory text
                   <textarea
+                    aria-invalid={form.formState.errors.body ? true : undefined}
+                    aria-describedby={
+                      form.formState.errors.body
+                        ? "memory-body-error"
+                        : undefined
+                    }
                     rows={5}
                     maxLength={1_000}
                     disabled={locked}
@@ -523,7 +673,11 @@ function MemoryChangeDialog({
                   />
                 </label>
                 {form.formState.errors.body ? (
-                  <p role="alert" className="text-sm text-red-200">
+                  <p
+                    id="memory-body-error"
+                    role="alert"
+                    className="text-sm text-red-200"
+                  >
                     {form.formState.errors.body.message}
                   </p>
                 ) : null}
@@ -533,6 +687,14 @@ function MemoryChangeDialog({
                     Optional · comma separated, e.g. testing, database
                   </span>
                   <input
+                    aria-invalid={
+                      form.formState.errors.topics ? true : undefined
+                    }
+                    aria-describedby={
+                      form.formState.errors.topics
+                        ? "memory-topics-error"
+                        : undefined
+                    }
                     disabled={locked}
                     className={inputClass}
                     {...form.register("topics", {
@@ -555,13 +717,17 @@ function MemoryChangeDialog({
                   />
                 </label>
                 {form.formState.errors.topics ? (
-                  <p role="alert" className="text-sm text-red-200">
+                  <p
+                    id="memory-topics-error"
+                    role="alert"
+                    className="text-sm text-red-200"
+                  >
                     {form.formState.errors.topics.message}
                   </p>
                 ) : null}
               </>
             ) : (
-              <blockquote className="border-l-2 border-white/15 pl-4 text-sm leading-6 text-slate-300">
+              <blockquote className="whitespace-pre-wrap break-words border-l-2 border-white/15 pl-4 text-sm leading-6 text-slate-300">
                 {dialog.entry.body ?? "The text is currently unavailable."}
               </blockquote>
             )}
@@ -570,22 +736,17 @@ function MemoryChangeDialog({
                 role="alert"
                 className="rounded-lg border border-amber-300/20 bg-amber-300/5 p-3 text-sm leading-6 text-amber-100"
               >
-                {mutation.error instanceof Error
+                {mutation.error instanceof MemoryDashboardApiError
                   ? mutation.error.message
                   : "We could not confirm the outcome."}{" "}
                 {locked
                   ? "Retry sends the same request. Your draft is locked until its outcome is known."
-                  : "No change was accepted. Close this form and refresh before trying again."}
+                  : "No change was accepted. Check this form or close it and refresh before trying again."}
               </p>
             ) : null}
             <DialogFooter>
-              <Button
-                variant="ghost"
-                type="button"
-                disabled={locked}
-                onClick={onClose}
-              >
-                Cancel
+              <Button variant="ghost" type="button" onClick={onClose}>
+                {locked ? "Close and check status" : "Cancel"}
               </Button>
               <Button
                 type="submit"
@@ -594,13 +755,15 @@ function MemoryChangeDialog({
               >
                 {mutation.isPending
                   ? "Submitting…"
-                  : mutation.isError
+                  : locked
                     ? "Retry same request"
-                    : dialog.action === "save"
-                      ? "Submit memory"
-                      : dialog.action === "retire"
-                        ? "Stop using memory"
-                        : "Forget memory"}
+                    : mutation.isError
+                      ? "Try again"
+                      : dialog.action === "save"
+                        ? "Submit memory"
+                        : dialog.action === "retire"
+                          ? "Stop using memory"
+                          : "Forget memory"}
               </Button>
             </DialogFooter>
           </form>

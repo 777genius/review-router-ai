@@ -7,7 +7,10 @@ import type {
 
 export interface MemoryDashboardApi {
   list(
-    input: MemoryScopeSelection & { readonly cursor?: string | null },
+    input: MemoryScopeSelection & {
+      readonly cursor?: string | null;
+      readonly topicId?: string | null;
+    },
     signal?: AbortSignal,
   ): Promise<MemoryKnowledgePage>;
   mutate(input: MemoryDashboardMutation): Promise<MemoryOperationView>;
@@ -34,13 +37,17 @@ export class MemoryDashboardApiError extends Error {
   }
 }
 export const memoryPageKey = (
-  input: MemoryScopeSelection & { readonly cursor?: string | null },
+  input: MemoryScopeSelection & {
+    readonly cursor?: string | null;
+    readonly topicId?: string | null;
+  },
 ) =>
   [
     "memory-knowledge",
     input.workspaceId,
     input.repositoryId,
     input.cursor ?? null,
+    input.topicId ?? null,
   ] as const;
 export const memoryOperationKey = (
   input: MemoryScopeSelection,
@@ -56,12 +63,14 @@ export function memoryQuery(
   input: MemoryScopeSelection & {
     readonly cursor?: string | null;
     readonly commandId?: string;
+    readonly topicId?: string | null;
   },
 ): string {
   const query = new URLSearchParams({ workspaceId: input.workspaceId });
   if (input.repositoryId) query.set("repositoryId", input.repositoryId);
   if (input.cursor) query.set("cursor", input.cursor);
   if (input.commandId) query.set("commandId", input.commandId);
+  if (input.topicId) query.set("topicId", input.topicId);
   return query.toString();
 }
 async function read<T>(response: Response): Promise<T> {

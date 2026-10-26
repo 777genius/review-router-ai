@@ -5,11 +5,13 @@ import type { MemoryDashboardApi } from "../../adapters/memory-dashboard-api";
 import type {
   MemoryEntryView,
   MemoryKnowledgePage,
+  MemoryUnconfirmedChange,
 } from "../../application/memory-knowledge-view";
 import { MemoryKnowledgeScreen } from "./memory-knowledge-screen";
 
 export function memoryKnowledgePreviewData(
   repositoryId: string | null = null,
+  topicId: string | null = null,
 ): MemoryKnowledgePage {
   const entry = (
     id: string,
@@ -34,6 +36,7 @@ export function memoryKnowledgePreviewData(
   return {
     workspaceId: "workspace_preview",
     repositoryId,
+    topicId,
     repositories: [
       { id: "repo_platform", label: "acme/platform" },
       { id: "repo_dashboard", label: "acme/dashboard" },
@@ -78,10 +81,18 @@ export function MemoryKnowledgePreview(): React.ReactElement {
     () => new QueryClient({ defaultOptions: { queries: { retry: false } } }),
   );
   const [repositoryId, setRepositoryId] = useState<string | null>(null);
-  const initialData = useMemo(
-    () => memoryKnowledgePreviewData(repositoryId),
-    [repositoryId],
-  );
+  const [topicId, setTopicId] = useState<string | null>(null);
+  const [unconfirmedChange, setUnconfirmedChange] =
+    useState<MemoryUnconfirmedChange | null>(null);
+  const initialData = useMemo(() => {
+    const page = memoryKnowledgePreviewData(repositoryId, topicId);
+    return {
+      ...page,
+      entries: topicId
+        ? page.entries.filter((entry) => entry.topics.includes(topicId))
+        : page.entries,
+    };
+  }, [repositoryId, topicId]);
   const api = useMemo<MemoryDashboardApi>(() => {
     let page = initialData;
     return {
@@ -151,11 +162,23 @@ export function MemoryKnowledgePreview(): React.ReactElement {
         Preview workspace · changes stay in this preview
       </div>
       <MemoryKnowledgeScreen
-        key={repositoryId ?? "workspace"}
+        key={`${repositoryId ?? "workspace"}:${topicId ?? "all"}`}
         initialData={initialData}
         api={api}
-        onScopeChange={setRepositoryId}
+        onScopeChange={(id) => {
+          setRepositoryId(id);
+          setTopicId(null);
+        }}
         onPageChange={() => {}}
+        onTopicChange={setTopicId}
+        unconfirmedChange={unconfirmedChange}
+        onUnconfirmedChange={(change, commandId) =>
+          setUnconfirmedChange(
+            (current) =>
+              change ??
+              (current?.request.commandId === commandId ? null : current),
+          )
+        }
       />
     </QueryClientProvider>
   );

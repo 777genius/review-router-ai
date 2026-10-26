@@ -54,6 +54,10 @@ export async function GET(request: Request): Promise<Response> {
         ...selection,
         commandId: z.uuid().optional(),
         cursor: z.string().max(512).optional(),
+        topicId: z
+          .string()
+          .regex(/^[a-zA-Z0-9_-]{1,100}$/)
+          .optional(),
       })
       .strict()
       .safeParse({
@@ -71,6 +75,7 @@ export async function GET(request: Request): Promise<Response> {
             workspaceId: parsed.data.workspaceId,
             repositoryId: parsed.data.repositoryId,
             ...(parsed.data.cursor ? { cursor: parsed.data.cursor } : {}),
+            ...(parsed.data.topicId ? { topicId: parsed.data.topicId } : {}),
           }),
       { headers },
     );

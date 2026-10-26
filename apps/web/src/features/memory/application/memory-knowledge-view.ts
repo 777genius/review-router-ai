@@ -42,6 +42,7 @@ export type MemoryOperationView = {
   readonly message: string;
 };
 export type MemoryKnowledgePage = MemoryScopeSelection & {
+  readonly topicId: string | null;
   readonly repositories: readonly {
     readonly id: string;
     readonly label: string;
@@ -67,6 +68,11 @@ export type MemoryDashboardMutation = MemoryScopeSelection & {
       }
     | { readonly action: "retire" | "forget" }
   );
+/** One exact approval awaiting a confirmed response, kept only in the current workspace UI. */
+export type MemoryUnconfirmedChange = {
+  readonly request: MemoryDashboardMutation;
+  readonly entry: MemoryEntryView | null;
+};
 export function memoryOperationMessage(
   state: MemoryOperationView["state"],
 ): string {

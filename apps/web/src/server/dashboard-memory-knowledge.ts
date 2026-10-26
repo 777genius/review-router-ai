@@ -78,7 +78,10 @@ async function productionMemoryDashboard(workspaceId: string) {
 }
 
 export async function loadDashboardMemoryKnowledge(
-  input: MemoryScopeSelection & { readonly cursor?: string | null },
+  input: MemoryScopeSelection & {
+    readonly cursor?: string | null;
+    readonly topicId?: string | null;
+  },
 ) {
   const { controller, prisma, runtime } = await productionMemoryDashboard(
     input.workspaceId,
@@ -142,7 +145,11 @@ export async function loadDashboardMemoryKnowledge(
     repositoryId,
   });
   return controller.list(
-    { ...selection, ...(input.cursor ? { cursor: input.cursor } : {}) },
+    {
+      ...selection,
+      ...(input.cursor ? { cursor: input.cursor } : {}),
+      ...(input.topicId ? { topicId: input.topicId } : {}),
+    },
     {
       workspaceVisible,
       repositories: repositories.map((repository) => ({

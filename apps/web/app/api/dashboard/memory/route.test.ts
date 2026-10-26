@@ -109,4 +109,33 @@ describe("memory browser API", () => {
     ).toBe(400);
     expect(server.load).not.toHaveBeenCalled();
   });
+  it("passes a validated topic and native cursor through the scoped list boundary", async () => {
+    server.load.mockResolvedValue({ entries: [] });
+    expect(
+      (
+        await GET(
+          new Request(
+            "https://reviewrouter.dev/api/dashboard/memory?workspaceId=workspace_1&repositoryId=repo_1&topicId=database&cursor=native_page_2",
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    expect(server.load).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      repositoryId: "repo_1",
+      topicId: "database",
+      cursor: "native_page_2",
+    });
+    server.load.mockClear();
+    expect(
+      (
+        await GET(
+          new Request(
+            "https://reviewrouter.dev/api/dashboard/memory?workspaceId=workspace_1&topicId=bad%20topic",
+          ),
+        )
+      ).status,
+    ).toBe(400);
+    expect(server.load).not.toHaveBeenCalled();
+  });
 });

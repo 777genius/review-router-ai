@@ -1276,6 +1276,8 @@ export async function DashboardSectionContent({
             : null,
         cursor:
           typeof params.memoryCursor === "string" ? params.memoryCursor : null,
+        topicId:
+          typeof params.memoryTopic === "string" ? params.memoryTopic : null,
       });
       return <MemoryKnowledgeWorkspace initialData={page} />;
     } catch (error) {

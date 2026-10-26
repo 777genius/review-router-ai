@@ -8,8 +8,10 @@ import {
   within,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MemoryDashboardApi } from "../../adapters/memory-dashboard-api";
+import type { MemoryUnconfirmedChange } from "../../application/memory-knowledge-view";
 import { memoryKnowledgePreviewData } from "./memory-knowledge-preview";
 import { MemoryKnowledgeScreen } from "./memory-knowledge-screen";
 
@@ -41,17 +43,33 @@ function fixture(
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  const view = render(
-    <QueryClientProvider client={client}>
+  function Workspace() {
+    const [unconfirmedChange, setUnconfirmedChange] =
+      useState<MemoryUnconfirmedChange | null>(null);
+    return (
       <MemoryKnowledgeScreen
         initialData={page}
         api={api}
         onScopeChange={vi.fn()}
         onPageChange={vi.fn()}
+        onTopicChange={vi.fn()}
+        unconfirmedChange={unconfirmedChange}
+        onUnconfirmedChange={(change, commandId) =>
+          setUnconfirmedChange(
+            (current) =>
+              change ??
+              (current?.request.commandId === commandId ? null : current),
+          )
+        }
       />
+    );
+  }
+  const view = render(
+    <QueryClientProvider client={client}>
+      <Workspace />
     </QueryClientProvider>,
   );
-  return { api, view };
+  return { api, view, client };
 }
 describe("memory screen", () => {
   it("renders body, source, original time and historical status for a viewer without manager controls", () => {
@@ -197,5 +215,18 @@ describe("memory screen", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(false);
+  });
+  it("associates validation errors with fields and closes an untouched dialog with Escape", async () => {
+    const { api } = fixture();
+    fireEvent.click(screen.getByRole("button", { name: "Add memory" }));
+    fireEvent.click(screen.getByRole("button", { name: "Submit memory" }));
+    const alert = await screen.findByRole("alert");
+    const input = screen.getByLabelText("Memory text");
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(input.getAttribute("aria-describedby")).toBe(alert.id);
+    expect(document.activeElement).toBe(input);
+    expect(api.mutate).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 });

@@ -77,7 +77,10 @@ export function createMemoryDashboardController(dependencies: Dependencies) {
     authorize,
     allowed,
     async list(
-      input: MemoryScopeSelection & { readonly cursor?: string | null },
+      input: MemoryScopeSelection & {
+        readonly cursor?: string | null;
+        readonly topicId?: string | null;
+      },
       options: {
         readonly repositories: MemoryKnowledgePage["repositories"];
         readonly workspaceVisible: boolean;
@@ -93,6 +96,7 @@ export function createMemoryDashboardController(dependencies: Dependencies) {
             scope,
             limit: 30,
             ...(input.cursor ? { cursor: input.cursor } : {}),
+            ...(input.topicId ? { topicId: input.topicId } : {}),
           },
           controls(),
         ),
@@ -104,6 +108,7 @@ export function createMemoryDashboardController(dependencies: Dependencies) {
         repositoryId: input.repositoryId,
         ...options,
         cursor: input.cursor ?? null,
+        topicId: input.topicId ?? null,
         nextCursor: page.nextCursor,
         canManage: dependencies.mutationsEnabled && canManage,
         canExport,

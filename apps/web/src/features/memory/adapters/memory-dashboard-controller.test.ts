@@ -197,4 +197,23 @@ describe("dashboard memory command boundary", () => {
     ).rejects.toMatchObject({ code: "conflict" });
     expect(f.service.forget).not.toHaveBeenCalled();
   });
+  it("passes topic pagination to the authorized knowledge service", async () => {
+    const f = fixture();
+    const result = await f.controller.list(
+      { ...selection, topicId: "database", cursor: "native_page_2" },
+      { repositories: [], workspaceVisible: true, writesEnabled: true },
+    );
+    expect(f.service.list).toHaveBeenCalledWith(
+      {
+        actor,
+        scope: ref.scope,
+        limit: 30,
+        topicId: "database",
+        cursor: "native_page_2",
+      },
+      expect.anything(),
+    );
+    expect(result.topicId).toBe("database");
+    expect(result.cursor).toBe("native_page_2");
+  });
 });
