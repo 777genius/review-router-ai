@@ -1,3 +1,4 @@
+import { attestCompiledReviewActionV2ProducerContract } from "./review-action-v2-producer-contract-attestation.js";
 import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import type { RepositoryReleaseSelector } from "./review-action-v2-repository-release-selection";
 import {
@@ -54,7 +55,9 @@ import {
 import type { ReviewRunControlComposition } from "@reviewrouter/features-review-run-control/composition";
 import {
   reviewActionV2SchemaSlot,
-  reviewActionV2CanonicalizerForSchema,
+  reviewActionV2ContractSlot,
+  reviewActionV2InvestigationExtensionForSchema,
+  type ReviewActionV2ContractDescriptor,
   canonicalizeReviewActionV2RequestForSlot,
   reviewActionV2PublishedProtocolVersion,
   reviewActionV2PublishedSchemaDigest,
@@ -83,6 +86,7 @@ export type ReviewActionV2ResolvedRevision = {
 };
 
 export type ReviewActionV2ResolvedAdmission = {
+  readonly protocolContract: ReviewActionV2ContractDescriptor;
   readonly revision: ReviewActionV2ResolvedRevision;
   readonly producerRelease: ProducerRelease;
 };
@@ -127,6 +131,7 @@ export type ReviewInvestigationAuthorizationTarget = Pick<
 
 export interface ReviewInvestigationAuthorizationCapabilityPort {
   resolve(input: {
+    readonly protocolContract: ReviewActionV2ContractDescriptor;
     readonly target: ReviewInvestigationAuthorizationTarget;
     readonly producerRelease: ProducerRelease;
   }): Promise<ReviewInvestigationAuthorizationCapability | null>;
@@ -428,21 +433,11 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
           "review_request_revision_moved",
         );
       }
-      const canonicalizer = reviewActionV2CanonicalizerForSchema(
+      const attestation = await attestCompiledReviewActionV2ProducerContract(
+        dependencies.releaseAttestations,
+        producerActionCommitSha,
         input.protocolSchemaDigest ?? reviewActionV2PublishedSchemaDigest,
       );
-      if (!canonicalizer)
-        throw routeFailure(
-          403,
-          ReviewActionV2ProtocolErrorCode.Forbidden,
-          "producer_schema_slot_mismatch",
-        );
-      const attestation = await dependencies.releaseAttestations.attest({
-        actionCommitSha: producerActionCommitSha,
-        expectedSchemaDigest:
-          input.protocolSchemaDigest ?? reviewActionV2PublishedSchemaDigest,
-        expectedCanonicalizerDigest: canonicalizer,
-      });
       if (attestation.status !== ProducerReleaseAttestationStatus.Attested) {
         throw producerReleaseAttestationFailure(attestation.status);
       }
@@ -509,6 +504,7 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
           })),
         },
         producerRelease: attestation.release,
+        protocolContract: attestation.contract,
       };
     },
   };
@@ -814,6 +810,7 @@ async function authorizeReviewRun(
   await assertRegisteredRelease(resolved.facts, dependencies);
   const resolvedReviewInvestigation =
     await dependencies.reviewInvestigationCapability?.resolve({
+      protocolContract: resolved.protocolContract,
       target: {
         workspaceId: resolved.identity.workspaceId,
         repositoryConnectionId: resolved.identity.repositoryConnectionId,
@@ -829,6 +826,7 @@ async function authorizeReviewRun(
       resolvedReviewInvestigation,
       resolved.facts.providerVoteLanes,
       request.schemaDigest,
+      resolved.protocolContract,
     );
   const [protocolOfferHash, oidcReplayKeyHash] = await Promise.all([
     dependencies.digest.digestUtf8(canonicalProtocolOffer(request)),
@@ -942,9 +940,17 @@ function bindInvestigationCapabilityToAuthorization(
   capability: ReviewInvestigationAuthorizationCapability | null | undefined,
   providerVoteLanes: readonly ProviderVoteLane[],
   schemaDigest: string,
+  protocolContract?: ReviewActionV2ContractDescriptor,
 ): ReviewInvestigationAuthorizationCapability | null {
-  const extension =
-    reviewActionV2SchemaSlot(schemaDigest)?.reviewInvestigationExtensionV1;
+  const extension = protocolContract
+    ? reviewActionV2ContractSlot(
+        schemaDigest,
+        protocolContract.canonicalizerDigest,
+      )?.reviewInvestigationExtensionV1
+    : reviewActionV2InvestigationExtensionForSchema(
+        schemaDigest,
+        capability?.extensionCanonicalizerDigest,
+      );
   if (capability === null || capability === undefined) return null;
   if (
     !isRecord(capability) ||
@@ -1231,6 +1237,7 @@ async function resolveVerifiedIdentity(
   readonly identity: VerifiedScmRunIdentity;
   readonly facts: ReviewActionV2ResolvedRevision;
   readonly producerRelease: ProducerRelease;
+  readonly protocolContract: ReviewActionV2ContractDescriptor;
 }> {
   const claims = await verifyOidc(oidcToken, dependencies);
   const repository =
@@ -1296,6 +1303,12 @@ async function resolveVerifiedIdentity(
     );
   }
   if (
+    admission.protocolContract.schemaDigest !==
+      admission.producerRelease.schemaDigest ||
+    reviewActionV2ContractSlot(
+      admission.protocolContract.schemaDigest,
+      admission.protocolContract.canonicalizerDigest,
+    ) === null ||
     admission.producerRelease.producerReleaseId !== facts.producerReleaseId ||
     admission.producerRelease.actionCommitSha !==
       facts.producerActionCommitSha.toLowerCase() ||
@@ -1342,6 +1355,7 @@ async function resolveVerifiedIdentity(
     claims,
     facts,
     producerRelease: admission.producerRelease,
+    protocolContract: admission.protocolContract,
     identity: {
       workspaceId: repository.workspaceId,
       repositoryConnectionId: repository.repositoryId,
