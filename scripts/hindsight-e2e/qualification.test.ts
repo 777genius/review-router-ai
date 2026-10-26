@@ -54,7 +54,7 @@ test("privacy sink removes fstrings, exception bodies, tracebacks, extras and un
     "../../deploy/hindsight/native-privacy.py",
   );
   const result = spawnSync(
-    "python",
+    "python3",
     [
       "-c",
       `
@@ -84,7 +84,7 @@ except RuntimeError as error:
     ],
     { encoding: "utf8", timeout: 10_000 },
   );
-  assert.equal(result.status, 0, "Python privacy sink probe did not complete");
+  assert.equal(result.status, 0, `Python privacy sink probe did not complete: signal=${result.signal ?? "none"} spawnError=${(result.error as NodeJS.ErrnoException | undefined)?.code ?? "none"}`);
   const output = result.stdout + result.stderr;
   assert(!output.includes(privacySentinel));
   assert(output.includes("RuntimeError"));
@@ -107,11 +107,11 @@ test(
       .map((line) => (line.startsWith("    ") ? line.slice(4) : line))
       .join("\n");
     const code = `import asyncio,time\n${healthMethod}\nclass Probe:\n _initialized=True\n async def _get_backend(self): raise RuntimeError('RR_NATIVE_PRIVATE_5C36E924')\n health_check=health_check\nresult=asyncio.run(Probe().health_check())\nassert result=={'status':'unhealthy','database':'error','error':'RuntimeError'}\nprint('private_health_verified')\n`;
-    const result = spawnSync("python", ["-c", code], {
+    const result = spawnSync("python3", ["-c", code], {
       encoding: "utf8",
       timeout: 10_000,
     });
-    assert.equal(result.status, 0);
+    assert.equal(result.status, 0, `Python native readiness probe did not complete: signal=${result.signal ?? "none"} spawnError=${(result.error as NodeJS.ErrnoException | undefined)?.code ?? "none"}`);
     assert.equal(result.stdout.trim(), "private_health_verified");
     assert(!(result.stdout + result.stderr).includes(privacySentinel));
   },
@@ -172,7 +172,7 @@ test(
       config.includes("DEFAULT_CONSOLIDATION_RECONCILE_INTERVAL_SECONDS = 300"),
     );
     const result = spawnSync(
-      "python",
+      "python3",
       [
         "-c",
         `
@@ -248,7 +248,7 @@ asyncio.run(main())
     assert.equal(
       result.status,
       0,
-      `Pinned native cache regression failed: ${result.stderr}`,
+      `Pinned native cache regression did not complete: exit=${result.status ?? "null"} signal=${result.signal ?? "none"} spawnError=${(result.error as NodeJS.ErrnoException | undefined)?.code ?? "none"}`,
     );
     assert.equal(result.stdout.trim(), "native_worker_config_restart_verified");
   },
