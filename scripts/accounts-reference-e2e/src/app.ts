@@ -61,7 +61,12 @@ export async function startNextApp(input: {
       REVIEW_ROUTER_GITHUB_APP_TEST_ORIGIN: input.skillsGitHub.origin,
       GITHUB_APP_ID: "990001",
       GITHUB_APP_PRIVATE_KEY: input.skillsGitHub.privateKey,
-      NODE_OPTIONS: `--import=${join(input.repoRoot, "scripts/accounts-reference-e2e/src/skills-network-guard.ts")}`,
+      NODE_OPTIONS: [
+        environment.NODE_OPTIONS,
+        `--import=${join(input.repoRoot, "scripts/accounts-reference-e2e/src/skills-network-guard.ts")}`,
+      ]
+        .filter(Boolean)
+        .join(" "),
     });
   const nextBin = join(
     input.repoRoot,
