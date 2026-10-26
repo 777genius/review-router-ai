@@ -50,4 +50,21 @@ and activation critics perform a third complete pass on v3 before implementation
 
 ## Round 3
 
-Pending.
+All three independent critics reread v3 and returned GO for implementation:
+
+- Transport/architecture: default profile mapping, supplied-diff policy,
+  credential lifetime, Hosted authority join, native Claude terminal rules and
+  explicit live gates accepted; no outstanding P1/P2.
+- Budget/recovery: original source evidence scope, complete durable request
+  receipt set, late settlement versus evidence, shared allowance and old-version
+  compatibility accepted; no outstanding P1/P2.
+- Activation/UX: post-activation fleet invalidation, ordinary activation,
+  legacy effect overlap, transport-specific installed readiness, healthy shortcut
+  and bounded visual surfaces accepted; no outstanding P1/P2.
+
+Nine independent plan reviews were completed across the three rounds. These GO
+verdicts authorize starting implementation and executable spikes. They are not
+synthetic, browser, live-provider or deployment acceptance.
+
+Initial unchanged-source baseline: lifecycle verification and runtime snapshot
+capture suites passed 44/44 tests locally before product changes.

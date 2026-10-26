@@ -2,9 +2,10 @@
 
 ## Status and owner-requested outcome
 
-Planning draft v3, 2026-10-26. Implementation must start only after three
-independent review rounds have been recorded and their blocking findings have
-been addressed. This document and subsequent implementation belong to draft PRs.
+Reviewed implementation plan v3, 2026-10-26. Three independent review rounds
+with three critics each are complete; all final reviewers returned GO after
+the recorded corrections. This approves implementation, not test completion.
+This document and subsequent implementation belong to draft PRs.
 No production deployment, moving release tag, existing customer workflow edit,
 or live provider qualification is implied by a code-ready draft.
 
@@ -545,9 +546,9 @@ disposition and recheck; a missing concern is not an approval.
 
 | Round | Focus | Status |
 | --- | --- | --- |
-| 1 | Executable matrix, architecture boundaries, OAuth/Claude/Hosted feasibility | Three critics NO-GO on v1; concrete corrections recorded in v2, recheck in round 2 |
-| 2 | Shared allowance, uncertain paid effects, recovery and publication/history | Three critics rechecked v2; remaining compatibility/authority details addressed in v3 |
-| 3 | Compatibility delivery, full user behavior, scope/DRY and honest acceptance | Pending |
+| 1 | Executable matrix, architecture boundaries, OAuth/Claude/Hosted feasibility | Three critics NO-GO on v1; corrections in v2 rechecked and accepted |
+| 2 | Shared allowance, uncertain paid effects, recovery and publication/history | Three critics rechecked v2; remaining details corrected in v3 and accepted |
+| 3 | Compatibility delivery, full user behavior, scope/DRY and honest acceptance | Three independent GO verdicts on v3; no outstanding P1/P2 plan findings |
 
 Blocking findings must be addressed before product implementation. A real
 provider limitation discovered by a spike stays explicit and does not authorize
