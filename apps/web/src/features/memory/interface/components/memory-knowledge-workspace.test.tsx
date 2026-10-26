@@ -16,6 +16,7 @@ import {
 } from "../../adapters/memory-dashboard-api";
 import { memoryKnowledgePreviewData } from "./memory-knowledge-preview";
 import { MemoryKnowledgeWorkspace } from "./memory-knowledge-workspace";
+import type { MemoryOperationView } from "../../application/memory-knowledge-view";
 
 const navigation = vi.hoisted(() => ({
   push: vi.fn(),
@@ -56,6 +57,120 @@ function fixture() {
   return { page, mutate, progress, client, view, draw };
 }
 describe("memory workspace navigation", () => {
+  it("keeps a new draft open when an older POST resolves after polling confirmed it", async () => {
+    const f = fixture();
+    let finishPost!: (value: MemoryOperationView) => void;
+    f.mutate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishPost = resolve;
+        }),
+    );
+    f.progress.mockImplementation(async (input) => ({
+      id: input.commandId,
+      entryId: "mem_queries",
+      revision: "r2",
+      state: "published",
+      message: "Your change is published.",
+    }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "Submit memory" }));
+    await screen.findByText("Your change is published.");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const original = f.mutate.mock.calls[0]![0];
+    fireEvent.click(screen.getByRole("button", { name: "Add memory" }));
+    fireEvent.change(screen.getByLabelText("Memory text"), {
+      target: { value: "Keep this new draft open." },
+    });
+    finishPost({
+      id: original.commandId,
+      entryId: "mem_queries",
+      revision: "r2",
+      state: "published",
+      message: "Your change is published.",
+    });
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("Memory text") as HTMLTextAreaElement).value,
+      ).toBe("Keep this new draft open."),
+    );
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(f.mutate).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["retire", "forget"] as const)(
+    "confirms a lost POST by matching unknown progress, then %s uses refreshed CAS",
+    async (action) => {
+      const f = fixture();
+      let refresh!: (value: typeof f.page) => void;
+      f.mutate.mockRejectedValueOnce(new TypeError("Lost response"));
+      f.mutate.mockImplementationOnce(async (input) => ({
+        id: input.commandId,
+        entryId: "mem_queries",
+        revision: "r3",
+        state: "cleanup_pending",
+        message:
+          "Removed from new reviews. Stored-copy cleanup is still pending.",
+      }));
+      f.progress.mockImplementation(async (input) => ({
+        id: input.commandId,
+        entryId: "mem_queries",
+        revision: "r2",
+        state: "unknown",
+        message: "We are checking the outcome.",
+      }));
+      vi.mocked(memoryDashboardApi.list).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            refresh = resolve;
+          }),
+      );
+      fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]!);
+      fireEvent.click(screen.getByRole("button", { name: "Submit memory" }));
+      await screen.findByText("We are checking the outcome.");
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      const original = f.mutate.mock.calls[0]![0];
+      const control = action === "retire" ? "Stop using" : "Forget";
+      expect(
+        (
+          screen.getAllByRole("button", {
+            name: control,
+          })[0] as HTMLButtonElement
+        ).disabled,
+      ).toBe(true);
+      refresh({
+        ...f.page,
+        entries: [
+          {
+            ...f.page.entries[0]!,
+            body: null,
+            revision: "r2",
+            pendingCommandId: original.commandId,
+            unavailable: "unsettled",
+          },
+        ],
+      });
+      await waitFor(() =>
+        expect(
+          (screen.getByRole("button", { name: control }) as HTMLButtonElement)
+            .disabled,
+        ).toBe(false),
+      );
+      fireEvent.click(screen.getByRole("button", { name: control }));
+      fireEvent.click(
+        within(screen.getByRole("dialog")).getByRole("button", {
+          name: action === "retire" ? "Stop using memory" : "Forget memory",
+        }),
+      );
+      await waitFor(() => expect(f.mutate).toHaveBeenCalledTimes(2));
+      expect(f.mutate.mock.calls[1]![0]).toMatchObject({
+        action,
+        entryId: "mem_queries",
+        expectedRevision: "r2",
+      });
+      expect(f.mutate.mock.calls[1]![0].commandId).not.toBe(original.commandId);
+    },
+  );
   it("closes an ambiguous request, changes scope, then resumes the exact approval", async () => {
     const f = fixture();
     fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]!);

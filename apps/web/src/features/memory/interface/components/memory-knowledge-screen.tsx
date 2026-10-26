@@ -31,9 +31,10 @@ import type {
   MemoryUnconfirmedChange,
 } from "../../application/memory-knowledge-view";
 
-type Dialog =
+type Dialog = (
   | { readonly action: "save"; readonly entry: MemoryEntryView | null }
-  | { readonly action: "retire" | "forget"; readonly entry: MemoryEntryView };
+  | { readonly action: "retire" | "forget"; readonly entry: MemoryEntryView }
+) & { readonly requestId?: string };
 type Draft = { body: string; topics: string };
 const pending = (state?: MemoryOperationView["state"]) =>
   state !== undefined && !["published", "completed", "failed"].includes(state);
@@ -105,7 +106,9 @@ export function MemoryKnowledgeScreen({
         : false,
   });
   useEffect(() => {
-    if (operation.data && !pending(operation.data.state)) {
+    const progress = operation.data;
+    const acknowledged = progress?.id === scopedChange?.request.commandId;
+    if (progress && (acknowledged || !pending(progress.state))) {
       void client.invalidateQueries({
         queryKey: [
           "memory-knowledge",
@@ -113,14 +116,17 @@ export function MemoryKnowledgeScreen({
           selection.repositoryId,
         ],
       });
-      if (scopedChange?.request.commandId === operation.data.id) {
-        onUnconfirmedChange(null, operation.data.id);
-        setDialog(null);
+      if (acknowledged) {
+        onUnconfirmedChange(null, progress.id);
+        setDialog((current) =>
+          current?.requestId === progress.id ? null : current,
+        );
       }
     }
   }, [
     client,
     operation.data?.state,
+    operation.data?.id,
     selection.workspaceId,
     selection.repositoryId,
     scopedChange?.request.commandId,
@@ -135,8 +141,7 @@ export function MemoryKnowledgeScreen({
     : null;
   const accepted = async (result: MemoryOperationView) => {
     client.setQueryData(memoryOperationKey(selection, result.id), result);
-    setCommandId(result.id);
-    setDialog(null);
+    setDialog((current) => (current?.requestId === result.id ? null : current));
     onUnconfirmedChange(null, result.id);
     await client.invalidateQueries({
       queryKey: [
@@ -320,9 +325,13 @@ export function MemoryKnowledgeScreen({
                   setCommandId(request.commandId);
                   setDialog(
                     request.action === "save"
-                      ? { action: "save", entry }
+                      ? { action: "save", entry, requestId: request.commandId }
                       : entry
-                        ? { action: request.action, entry }
+                        ? {
+                            action: request.action,
+                            entry,
+                            requestId: request.commandId,
+                          }
                         : null,
                   );
                 }}
@@ -400,11 +409,13 @@ export function MemoryKnowledgeScreen({
                 </div>
                 <p className="whitespace-pre-wrap break-words text-[0.95rem] leading-7 text-slate-100">
                   {entry.body ??
-                    (entry.unavailable === "unsettled"
-                      ? "The approved text is still processing."
-                      : entry.status === "forgotten"
-                        ? "This memory has been forgotten."
-                        : "The text is temporarily unavailable.")}
+                    (entry.status === "forgotten"
+                      ? "This memory has been forgotten."
+                      : entry.status === "forget_pending"
+                        ? "Removed from new reviews. Stored-copy cleanup is still pending."
+                        : entry.unavailable === "unsettled"
+                          ? "The approved text is still processing."
+                          : "The text is temporarily unavailable.")}
                 </p>
                 {entry.topics.length ? (
                   <div className="mt-3 flex flex-wrap gap-1.5">
@@ -477,7 +488,11 @@ export function MemoryKnowledgeScreen({
                       <Button
                         size="sm"
                         variant="ghost"
-                        disabled={unconfirmedChange !== null}
+                        disabled={
+                          unconfirmedChange !== null ||
+                          pageQuery.isFetching ||
+                          pageQuery.isError
+                        }
                         onClick={() => setDialog({ action: "retire", entry })}
                       >
                         Stop using
@@ -490,6 +505,8 @@ export function MemoryKnowledgeScreen({
                     tone="danger"
                     disabled={
                       unconfirmedChange !== null ||
+                      pageQuery.isFetching ||
+                      pageQuery.isError ||
                       (entry.id === pendingEntryId &&
                         operation.data?.state === "cleanup_pending") ||
                       entry.status === "forget_pending"
@@ -541,6 +558,9 @@ export function MemoryKnowledgeScreen({
           onAccepted={accepted}
           initialRequest={scopedChange?.request ?? null}
           onRequest={(request) => {
+            setDialog((current) =>
+              current ? { ...current, requestId: request.commandId } : null,
+            );
             onUnconfirmedChange(
               { request, entry: dialog.entry },
               request.commandId,
