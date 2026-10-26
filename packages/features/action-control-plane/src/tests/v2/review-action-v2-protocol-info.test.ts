@@ -1,12 +1,12 @@
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
 import {
-  reviewActionV2CanonicalizerForSchema,
+  reviewActionV2ContractSlot,
+  reviewActionV2Pinned171Slot,
   reviewActionV2LegacySlot,
   reviewActionV2PublishedProtocolVersion,
   reviewActionV2PublishedSchemaDigest,
   reviewActionV2CanonicalizerDigest,
-  reviewActionV2SchemaSlot,
 } from "@reviewrouter/protocol-review-action-v2";
 import { registerReviewActionV2ProtocolInfoRoute } from "../../v2/interface/index.js";
 
@@ -21,7 +21,7 @@ async function readProtocolInfo() {
 }
 
 describe("Review Action v2 protocol-info route", () => {
-  it("lists both compiled schema slots with public contract identifiers", async () => {
+  it("lists all compiled producer contracts with public contract identifiers", async () => {
     const response = await readProtocolInfo();
 
     expect(response.statusCode).toBe(200);
@@ -42,6 +42,14 @@ describe("Review Action v2 protocol-info route", () => {
           canonicalizerDigest:
             reviewActionV2LegacySlot.reviewActionV2CanonicalizerDigest,
         },
+        {
+          protocolVersion:
+            reviewActionV2Pinned171Slot.reviewActionV2PublishedProtocolVersion,
+          schemaDigest:
+            reviewActionV2Pinned171Slot.reviewActionV2PublishedSchemaDigest,
+          canonicalizerDigest:
+            reviewActionV2Pinned171Slot.reviewActionV2CanonicalizerDigest,
+        },
       ],
     });
   });
@@ -56,14 +64,17 @@ describe("Review Action v2 protocol-info route", () => {
       }[];
     };
 
-    expect(body.contracts).toHaveLength(2);
+    expect(body.contracts).toHaveLength(3);
     const schemaDigests = new Set(
       body.contracts.map((contract) => contract.schemaDigest),
     );
     expect(schemaDigests.size).toBe(2);
 
     for (const contract of body.contracts) {
-      const slot = reviewActionV2SchemaSlot(contract.schemaDigest);
+      const slot = reviewActionV2ContractSlot(
+        contract.schemaDigest,
+        contract.canonicalizerDigest,
+      );
       expect(slot).not.toBeNull();
       expect(slot?.reviewActionV2PublishedProtocolVersion).toBe(
         contract.protocolVersion,
@@ -74,9 +85,9 @@ describe("Review Action v2 protocol-info route", () => {
       expect(slot?.reviewActionV2CanonicalizerDigest).toBe(
         contract.canonicalizerDigest,
       );
-      expect(reviewActionV2CanonicalizerForSchema(contract.schemaDigest)).toBe(
-        contract.canonicalizerDigest,
-      );
+      expect(
+        reviewActionV2ContractSlot(contract.schemaDigest, "f".repeat(64)),
+      ).toBeNull();
     }
   });
 });

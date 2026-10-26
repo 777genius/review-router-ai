@@ -132,6 +132,16 @@ export async function generateReviewActionV2Protocol(input = {}) {
       ),
     ],
     [
+      "generated/review-action-v2-pinned171.ts",
+      await readFile(
+        join(
+          repositoryRoot,
+          "scripts/lib/review-action-v2-pinned171-slot.ts.source",
+        ),
+        "utf8",
+      ),
+    ],
+    [
       "generated/usage-v1.ts",
       await format(
         "// Generated from provider-usage/domain/usage.ts. Do not edit.\n" +

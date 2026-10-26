@@ -1,3 +1,4 @@
+import { reviewActionV2SupportedContracts } from "@reviewrouter/protocol-review-action-v2";
 import { describe, expect, it } from "vitest";
 import { ReviewProtocolVersion } from "@reviewrouter/features-review-run-control";
 import {
@@ -63,6 +64,37 @@ const baseline = {
 } as const;
 
 describe("assessRollbackProtocolCompatibility", () => {
+  it("preserves approved171 and both other compiled producer tuples in the real target inventory", () => {
+    const contracts = reviewActionV2SupportedContracts();
+    expect(contracts).toHaveLength(3);
+    const attestations = contracts.map((contract, index) => ({
+      ...contract,
+      producerReleaseId: `release-${index}`,
+    }));
+    const input = {
+      channelManifestSource: channelManifest(contracts[0]!),
+      attestations,
+      activeAuthorizations: attestations.map((contract, index) => ({
+        authorizationId: `auth-${index}`,
+        producerReleaseId: contract.producerReleaseId,
+        selectedProtocolVersion: ReviewProtocolVersion.V2,
+        schemaDigest: contract.schemaDigest,
+      })),
+      retainedProducerReleases: attestations,
+    };
+    expect(assessRollbackProtocolCompatibility(input).status).toBe(
+      "compatible",
+    );
+    expect(
+      assessRollbackProtocolCompatibility({
+        ...input,
+        targetContracts: contracts.filter(
+          (contract) => !contract.canonicalizerDigest.startsWith("95a433"),
+        ),
+      }).status,
+    ).toBe("protocol_incompatible");
+  });
+
   it("proves a rollback when the target supports channel, runs and producers", () => {
     const original = structuredClone(baseline);
     const result = assessRollbackProtocolCompatibility(baseline);

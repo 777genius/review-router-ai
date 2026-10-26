@@ -1,3 +1,6 @@
+import { ConfiguredProducerReleaseAttestationRegistry } from "@reviewrouter/features-review-run-control/composition";
+import { reviewActionV2ContractSlot } from "@reviewrouter/protocol-review-action-v2";
+import { hasAuthorizedReviewInvestigationExtension } from "./review-action-v2-investigation-extension-admission.js";
 import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import { vi } from "vitest";
 import { createRepositoryReleaseSelector } from "./review-action-v2-repository-release-selection";
@@ -51,6 +54,8 @@ import { ProductionHostedReviewPreleaseGate } from "./hosted-review-prelease-gat
 import { InvestigationRolloutCapability } from "@reviewrouter/features-review-investigation-operations";
 import {
   canonicalizeReviewActionV2Request,
+  reviewActionV2SupportedContracts,
+  reviewActionV2Pinned171Slot,
   reviewActionV2LegacySlot,
   reviewActionV2GoldenFixtures,
   reviewActionV2PublishedSchemaDigest,
@@ -340,7 +345,11 @@ describe("Review Action v2 run-control composition", () => {
         resolve: async () => {
           const release = await kit.store.findProducerReleaseById("release_v2");
           if (!release) throw new Error("test_release_missing");
-          return { revision: facts, producerRelease: release };
+          return {
+            revision: facts,
+            producerRelease: release,
+            protocolContract: reviewActionV2SupportedContracts()[0]!,
+          };
         },
       },
       revisionHashes,
@@ -352,76 +361,164 @@ describe("Review Action v2 run-control composition", () => {
     };
   });
 
-  it("authorizes and renews a historical slot against its immutable registered producer", async () => {
-    const release = await kit.store.findProducerReleaseById("release_v2");
-    if (!release) throw new Error("test_release_missing");
-    const legacy = {
-      ...release,
-      producerReleaseId: "release_legacy",
-      schemaDigest:
-        reviewActionV2LegacySlot.reviewActionV2PublishedSchemaDigest,
-    };
-    await kit.control.producerReleases.registerProducerRelease({
-      candidate: legacy,
-      expectedProtocolLimitsDigest:
-        (await kit.store.findProtocolLimitsProfileById(
-          release.protocolLimitsProfileId,
-        ))!.limitsDigest,
-      expectedOperationalSloDigest:
-        (await kit.store.findOperationalSloProfileById(
-          release.operationalSloProfileId,
-        ))!.sloDigest,
-    });
-    const legacyDependencies = {
-      ...dependencies,
-      admissionFacts: {
-        resolve: async () => ({
-          revision: { ...facts, producerReleaseId: legacy.producerReleaseId },
-          producerRelease: legacy,
+  it.each([
+    [reviewActionV2LegacySlot, "hosted_pool"],
+    [reviewActionV2LegacySlot, "github_secrets"],
+    [reviewActionV2Pinned171Slot, "hosted_pool"],
+    [reviewActionV2Pinned171Slot, "github_secrets"],
+  ] as const)(
+    "authorizes and renews a historical compiled producer through %s / %s",
+    async (slot, entrypoint) => {
+      const release = await kit.store.findProducerReleaseById("release_v2");
+      if (!release) throw new Error("test_release_missing");
+      const legacy = {
+        ...release,
+        producerReleaseId: "release_legacy",
+        actionCommitSha: "66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff",
+        contextGatewayPolicyVersion: "review-context-gateway.v1",
+        contextGatewayEntrypointDigest: hash("8"),
+        schemaDigest: slot.reviewActionV2PublishedSchemaDigest,
+        reviewInvestigationProfile: {
+          capability:
+            reviewInvestigationCapabilityV1 as typeof reviewInvestigationCapabilityV1,
+          coverageProfileHash: hash("6"),
+          policyHash: hash("7"),
+        },
+      };
+      await kit.control.producerReleases.registerProducerRelease({
+        candidate: legacy,
+        expectedProtocolLimitsDigest:
+          (await kit.store.findProtocolLimitsProfileById(
+            release.protocolLimitsProfileId,
+          ))!.limitsDigest,
+        expectedOperationalSloDigest:
+          (await kit.store.findOperationalSloProfileById(
+            release.operationalSloProfileId,
+          ))!.sloDigest,
+      });
+      for (const [token, claims] of claimsByToken)
+        claimsByToken.set(token, {
+          ...claims,
+          workflow_ref:
+            entrypoint === "github_secrets"
+              ? "777genius/example/.github/workflows/reviewrouter-codex.yml@refs/pull/42/merge"
+              : claims.workflow_ref,
+          job_workflow_ref: `777genius/review-router/.github/workflows/${entrypoint === "github_secrets" ? "reviewrouter-execution-reusable.yml" : "reviewrouter-runtime.yml"}@${legacy.actionCommitSha}`,
+          job_workflow_sha: legacy.actionCommitSha,
+        });
+      const legacyDependencies: ReviewActionV2RunControlHandlerDependencies = {
+        ...dependencies,
+        admissionFacts: createServerOwnedReviewActionV2AdmissionFacts({
+          revisionResolver: {
+            resolve: async () => ({
+              status: CanonicalReviewRevisionResolutionStatus.Resolved,
+              ...facts,
+            }),
+          },
+          releaseAttestations: new ConfiguredProducerReleaseAttestationRegistry(
+            [
+              {
+                ...legacy,
+                canonicalizerDigest: slot.reviewActionV2CanonicalizerDigest,
+              },
+            ],
+            kit.store,
+          ),
+          providerVoteLanes: facts.providerVoteLanes,
         }),
-      },
-    };
-    const handlers = createReviewActionV2RunControlHandlers(legacyDependencies);
-    const request = {
-      ...authorizeRequest(),
-      schemaDigest: legacy.schemaDigest,
-      supportedProtocols: [
-        { protocolVersion: "2", schemaDigest: legacy.schemaDigest },
-      ],
-    };
-    const authorized = await handlers.authorize!.execute(
-      request as unknown as ReviewRunAuthorizeRequest,
-    );
-    expect(
-      JSON.parse(authorized.result.authorizationFactsCanonicalJson!)
-        .schemaDigest,
-    ).toBe(legacy.schemaDigest);
-    const renewal = {
-      ...(await renewRequest(
+        reviewInvestigationCapability: {
+          resolve: async ({ protocolContract }) => {
+            const matched = reviewActionV2ContractSlot(
+              protocolContract.schemaDigest,
+              protocolContract.canonicalizerDigest,
+            )!;
+            return {
+              authorizationDescriptorVersion: 3,
+              capability: reviewInvestigationCapabilityV1,
+              coverageProfileHash: hash("6"),
+              policyHash: hash("7"),
+              extensionId: matched.reviewInvestigationExtensionV1.extensionId,
+              extensionSchemaDigest:
+                matched.reviewInvestigationExtensionV1.schemaDigest,
+              extensionCanonicalizerDigest:
+                matched.reviewInvestigationExtensionV1.canonicalizerDigest,
+              providerCapabilities: [
+                {
+                  providerKind: "codex",
+                  capabilities: [InvestigationRolloutCapability.Recording],
+                },
+              ],
+            };
+          },
+        },
+      };
+      const handlers =
+        createReviewActionV2RunControlHandlers(legacyDependencies);
+      const request = {
+        ...authorizeRequest(),
+        schemaDigest: legacy.schemaDigest,
+        supportedProtocols: [
+          { protocolVersion: "2", schemaDigest: legacy.schemaDigest },
+        ],
+      };
+      const authorized = await handlers.authorize!.execute(
+        request as unknown as ReviewRunAuthorizeRequest,
+      );
+      expect(
+        JSON.parse(authorized.result.authorizationFactsCanonicalJson!)
+          .schemaDigest,
+      ).toBe(legacy.schemaDigest);
+      const stored = await kit.store.findReviewRunAuthorizationById(
         authorized.result.authorizationId!,
-        authorized.result.authorizationToken!,
-        legacyDependencies,
-      )),
-      schemaDigest: legacy.schemaDigest,
-    };
-    renewal.requestBodyHash = await dependencies.digest.digestUtf8(
-      reviewActionV2LegacySlot.canonicalizeReviewActionV2Request(
-        reviewActionV2LegacySlot.ReviewActionV2OperationId.ReviewRunRenew,
-        renewal,
-      ),
-    );
-    await expect(
-      handlers.renew!.execute({
-        ...renewal,
-        schemaDigest: reviewActionV2PublishedSchemaDigest,
-      }),
-    ).rejects.toMatchObject({ issues: ["authorization_schema_slot_mismatch"] });
-    await expect(
-      handlers.renew!.execute(renewal as unknown as ReviewRunRenewRequest),
-    ).resolves.toMatchObject({
-      statusCode: 200,
-    });
-  });
+      );
+      expect(
+        JSON.parse(
+          stored!.reviewInvestigationAuthorizationDescriptorCanonicalJson!,
+        ).extensionCanonicalizerDigest,
+      ).toBe(slot.reviewInvestigationExtensionV1.canonicalizerDigest);
+      expect(hasAuthorizedReviewInvestigationExtension(stored!)).toBe(true);
+      expect(
+        hasAuthorizedReviewInvestigationExtension({
+          ...stored!,
+          reviewInvestigationAuthorizationDescriptorCanonicalJson:
+            stored!.reviewInvestigationAuthorizationDescriptorCanonicalJson!.replace(
+              slot.reviewInvestigationExtensionV1.canonicalizerDigest,
+              hash("f"),
+            ),
+        }),
+      ).toBe(false);
+      const renewal = {
+        ...(await renewRequest(
+          authorized.result.authorizationId!,
+          authorized.result.authorizationToken!,
+          legacyDependencies,
+        )),
+        schemaDigest: legacy.schemaDigest,
+      };
+      renewal.requestBodyHash = await dependencies.digest.digestUtf8(
+        reviewActionV2ContractSlot(
+          legacy.schemaDigest,
+          slot.reviewActionV2CanonicalizerDigest,
+        )!.canonicalizeReviewActionV2Request(
+          ReviewActionV2OperationId.ReviewRunRenew,
+          renewal as unknown as ReviewRunRenewRequest,
+        ),
+      );
+      await expect(
+        handlers.renew!.execute({
+          ...renewal,
+          schemaDigest: reviewActionV2PublishedSchemaDigest,
+        }),
+      ).rejects.toMatchObject({
+        issues: ["authorization_schema_slot_mismatch"],
+      });
+      await expect(
+        handlers.renew!.execute(renewal as unknown as ReviewRunRenewRequest),
+      ).resolves.toMatchObject({
+        statusCode: 200,
+      });
+    },
+  );
 
   it("stays disabled without requiring production-only admission dependencies", () => {
     const routes = composeReviewActionV2RunControlRoutes({
@@ -1541,7 +1638,11 @@ describe("Review Action v2 run-control composition", () => {
     const handlers = createReviewActionV2RunControlHandlers({
       ...dependencies,
       admissionFacts: {
-        resolve: async () => ({ revision: facts, producerRelease }),
+        resolve: async () => ({
+          revision: facts,
+          producerRelease,
+          protocolContract: reviewActionV2SupportedContracts()[0]!,
+        }),
       },
       reviewInvestigationCapability: {
         resolve: async ({ producerRelease: resolvedRelease }) => {
@@ -1872,6 +1973,7 @@ describe("Review Action v2 run-control composition", () => {
         resolve: async () => ({
           revision: facts,
           producerRelease: { ...release, producerReleaseId: "missing_release" },
+          protocolContract: reviewActionV2SupportedContracts()[0]!,
         }),
       },
     });
