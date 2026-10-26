@@ -16,6 +16,7 @@ import {
   ReviewRunAuthorizationState,
   ReviewRunCompanionDispatchFailure,
   type ReviewRunCompanionDispatchAdmission,
+  type ReviewRunModelDispatchAdmission,
   type ReviewRunCompanionDispatch,
   type ManageReviewRunAuthorizations,
   type ReviewRunAuthorization,
@@ -32,7 +33,8 @@ import { createReviewRunGatewayPreparation } from "./review-run-gateway-preparat
 import {
   lifecycleVerificationContract,
   prDescriptionContract,
-  type ReviewCompanionDispatchContextV1,
+  reviewModelDispatchContract,
+  reviewModelDispatchHeaders,
 } from "@reviewrouter/shared";
 
 // Selected production provider path: ReviewRouter -> Account Gateway -> Sub2API.
@@ -149,7 +151,8 @@ export function createReviewRunGatewayRelay(input: {
   ) => Promise<boolean>;
   readonly snapshots: ReviewRunRuntimeSnapshotPort;
   readonly bindings: ReviewRunGatewayExecutionBindingPort;
-  readonly companionDispatches?: ReviewRunCompanionDispatchAdmission;
+  readonly companionDispatches?: ReviewRunCompanionDispatchAdmission &
+    Partial<Pick<ReviewRunModelDispatchAdmission, "forward">>;
   /** Persist trusted correlation before dispatch; outcome reporting never replays inference. */
   readonly usage?: {
     prepare(input: {
@@ -469,8 +472,11 @@ export function createReviewRunGatewayRelay(input: {
             requestRef,
             role: dispatch.role,
             occurredAt: new Date().toISOString(),
-            model: parseReviewRunRuntimeSnapshot(session.canonical)!
-              .lifecycleVerificationCapability!.model,
+            model:
+              parseReviewRunRuntimeSnapshot(session.canonical)!
+                .modelDispatchCapability?.model ??
+              parseReviewRunRuntimeSnapshot(session.canonical)!
+                .lifecycleVerificationCapability!.model,
           })
         : undefined;
     const outcome = async (effect: c.RequestStatus["effect"]) => {
@@ -629,7 +635,7 @@ export function createReviewRunGatewayRelay(input: {
     raw: Uint8Array,
     controller: AbortController,
     diagnostic?: RelayDiagnostic,
-    companion?: ReviewCompanionDispatchContextV1,
+    companion?: Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1],
   ): Promise<
     NativeResponse & {
       readonly usageIdentity?: UsageIdentity;
@@ -668,29 +674,55 @@ export function createReviewRunGatewayRelay(input: {
       if (gateway.limits.outputBytes > reviewRunGatewayMaxResponseBytes)
         throw new RelayFailure("gateway_unavailable", 403);
       const capability = snapshot.lifecycleVerificationCapability;
-      if (companion && (!capability || !input.companionDispatches))
+      const modelBudget = snapshot.modelDispatchCapability;
+      if (
+        modelBudget &&
+        (companion?.dispatchVersion !== 2 ||
+          !input.companionDispatches?.forward)
+      )
+        throw new RelayFailure("model_dispatch_claim_required", 403);
+      if (!modelBudget && companion?.dispatchVersion === 2)
+        throw new RelayFailure("model_dispatch_unavailable", 403);
+      const reserved =
+        modelBudget && companion
+          ? await input.companionDispatches!.read(
+              auth.authorizationId,
+              companion.dispatchId,
+            )
+          : null;
+      if (modelBudget && (!reserved || reserved.dispatchVersion !== 2))
+        throw new RelayFailure("model_dispatch_reservation_required", 409);
+      const isCompanion = !!companion && reserved?.role !== "finding_discovery";
+      if (
+        companion &&
+        ((!capability && isCompanion) || !input.companionDispatches)
+      )
         throw new RelayFailure("companion_unavailable", 403);
       const body = prepareReviewRunGatewayResponses(
         bytes,
         provider.model,
-        companion
+        isCompanion
           ? Math.min(
               4096,
               gateway.limits.tokens,
               qualified[0]!.outputTokens,
               capability!.maxOutputTokens,
             )
-          : gateway.limits.tokens,
+          : Math.min(
+              gateway.limits.tokens,
+              modelBudget?.maxOutputTokens ?? Infinity,
+            ),
         Math.min(
           policy.ingressBytes,
           gateway.limits.requestBytes,
-          companion ? capability!.maxPromptBytes : Infinity,
+          isCompanion ? capability!.maxPromptBytes : Infinity,
+          modelBudget?.maxRequestBytes ?? Infinity,
         ),
         qualified[0]!.outputTokens,
       );
       if (companion && !Buffer.from(body).equals(Buffer.from(bytes)))
         throw new RelayFailure("envelope_not_normalized", 400);
-      if (companion) {
+      if (isCompanion) {
         const envelope = JSON.parse(new TextDecoder().decode(body)) as Record<
           string,
           unknown
@@ -703,12 +735,26 @@ export function createReviewRunGatewayRelay(input: {
         )
           throw new RelayFailure("companion_tools_forbidden", 400);
       }
-      if (companion && session.deadline - Date.now() < capability!.deadlineMs)
+      if (isCompanion && session.deadline - Date.now() < capability!.deadlineMs)
         throw new RelayFailure("verification_deadline", 409);
+      const dispatchContext =
+        companion && modelBudget
+          ? {
+              ...companion,
+              requestBytes: body.byteLength,
+              maxOutputTokens: Number(
+                JSON.parse(new TextDecoder().decode(body)).max_output_tokens,
+              ),
+            }
+          : companion;
       const claim = companion
-        ? await input.companionDispatches!.claim(
+        ? await (
+            modelBudget
+              ? input.companionDispatches!.forward!
+              : input.companionDispatches!.claim.bind(input.companionDispatches)
+          )(
             auth,
-            companion,
+            dispatchContext!,
             createHash("sha256").update(body).digest("hex"),
           )
         : undefined;
@@ -769,7 +815,7 @@ export function createReviewRunGatewayRelay(input: {
       const remaining = Math.min(
         policy.requestTimeoutMs,
         session.deadline - Date.now(),
-        companion ? capability!.deadlineMs : Infinity,
+        isCompanion ? capability!.deadlineMs : Infinity,
         claim ? claim.notAfter.getTime() - Date.now() : Infinity,
       );
       if (remaining <= 0)
@@ -829,7 +875,11 @@ export function createReviewRunGatewayRelay(input: {
             fresh,
             () => check(token, auth, session, "local"),
             finish,
-            Math.min(gateway.limits.outputBytes, capability!.maxResponseBytes),
+            Math.min(
+              gateway.limits.outputBytes,
+              isCompanion ? capability!.maxResponseBytes : Infinity,
+              modelBudget?.maxResponseBytes ?? Infinity,
+            ),
             diagnostic,
             async () => {
               // Preparation/usage waits must not leave an expired/replaced lease
@@ -837,7 +887,7 @@ export function createReviewRunGatewayRelay(input: {
               // second owner or permission to dispatch another native ref.
               const current = await input.companionDispatches!.claim(
                 auth,
-                companion!,
+                dispatchContext!,
                 createHash("sha256").update(body).digest("hex"),
               );
               if (
@@ -1097,6 +1147,8 @@ export function createReviewRunGatewayRelay(input: {
         );
         if (!dispatch)
           throw new RelayFailure("companion_dispatch_missing", 404);
+        if (dispatch.dispatchVersion === 2)
+          throw new RelayFailure("model_dispatch_readback_required", 409);
         if (
           dispatch.state === "dispatch_may_have_started" ||
           dispatch.state === "effect_unknown"
@@ -1198,9 +1250,22 @@ function companionReadback(dispatch: ReviewRunCompanionDispatch) {
  * parent-only facts and cannot turn ordinary traffic into companion evidence. */
 function companionContext(
   request: FastifyRequest,
-): ReviewCompanionDispatchContextV1 | undefined {
+): Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1] | undefined {
   const names = lifecycleVerificationContract.dispatchHeaders;
-  if (!Object.values(names).some((name) => request.headers[name] !== undefined))
+  const modelVersion =
+    request.headers[reviewModelDispatchHeaders.dispatchVersion];
+  const modelOrdinal =
+    request.headers[reviewModelDispatchHeaders.requestOrdinal];
+  const modelRoute =
+    request.headers[reviewModelDispatchHeaders.routeIdentityHash];
+  const hasModel =
+    modelVersion !== undefined ||
+    modelOrdinal !== undefined ||
+    modelRoute !== undefined;
+  if (
+    !hasModel &&
+    !Object.values(names).some((name) => request.headers[name] !== undefined)
+  )
     return undefined;
   const values = Object.fromEntries(
     Object.entries(names).map(([key, name]) => {
@@ -1223,7 +1288,27 @@ function companionContext(
   for (const key of ["dispatchId", "executionId", "workSlotId", "leaseId"])
     if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(values[key]!))
       throw new RelayFailure("companion_headers_invalid", 400);
-  return { ...values, attemptOrdinal: 1 } as ReviewCompanionDispatchContextV1;
+  if (
+    hasModel &&
+    (modelVersion !== "2" ||
+      typeof modelOrdinal !== "string" ||
+      !/^[1-9][0-9]?$/.test(modelOrdinal) ||
+      Number(modelOrdinal) > reviewModelDispatchContract.maxRequests ||
+      typeof modelRoute !== "string" ||
+      !/^[a-f0-9]{64}$/.test(modelRoute))
+  )
+    throw new RelayFailure("model_dispatch_headers_invalid", 400);
+  return {
+    ...values,
+    attemptOrdinal: 1,
+    ...(hasModel
+      ? {
+          dispatchVersion: 2,
+          requestOrdinal: Number(modelOrdinal),
+          routeIdentityHash: modelRoute as string,
+        }
+      : {}),
+  } as Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1];
 }
 export type ReviewRunGatewayRelay = ReturnType<
   typeof createReviewRunGatewayRelay

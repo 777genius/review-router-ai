@@ -25,7 +25,8 @@ import { ReviewActionV2ProtocolErrorCode } from "@reviewrouter/protocol-review-a
 import {
   lifecycleVerificationContract,
   lifecycleVerificationDescriptorDigest,
-  type LifecycleVerificationCapabilityV1,
+  lifecycleVerificationDescriptorDigestV2,
+  type LifecycleVerificationCapability,
 } from "@reviewrouter/shared";
 import { assertPrDescriptionManifest } from "./review-pr-description";
 
@@ -64,24 +65,40 @@ function primary(authorization: Authorization) {
   );
   const provider = configuration.providers[capability.providerIndex];
   requireFact(
-    snapshot.gateway?.providerIndex === capability.providerIndex &&
-      provider?.authMode === "codex_account_gateway" &&
-      provider.model === capability.model &&
+    provider?.model === capability.model &&
       capability.providerKind ===
         reviewAgentExecutionProviderKind(snapshot.agent) &&
-      capability.extensionId === lifecycleVerificationContract.extensionId &&
-      capability.descriptorDigest === lifecycleVerificationDescriptorDigest &&
       capability.executor === lifecycleVerificationContract.executor &&
-      capability.modelTransport === "account_gateway" &&
       capability.maxDispatches === 2 &&
       capability.attemptBudget === 1,
     "lifecycle_verification_capability_invalid",
   );
+  if (capability.extensionId === "lifecycle-verification.v2") {
+    const route = snapshot.modelDispatchCapability;
+    requireFact(
+      route &&
+        capability.descriptorDigest ===
+          lifecycleVerificationDescriptorDigestV2 &&
+        capability.routeIdentityHash === route.routeIdentityHash &&
+        capability.modelTransport === route.transport &&
+        capability.providerIndex === route.providerIndex &&
+        capability.model === route.model,
+      "lifecycle_verification_capability_invalid",
+    );
+  } else
+    requireFact(
+      snapshot.gateway?.providerIndex === capability.providerIndex &&
+        provider?.authMode === "codex_account_gateway" &&
+        capability.modelTransport === "account_gateway" &&
+        capability.extensionId === lifecycleVerificationContract.extensionId &&
+        capability.descriptorDigest === lifecycleVerificationDescriptorDigest,
+      "lifecycle_verification_capability_invalid",
+    );
   return { snapshot, capability };
 }
 
 export function lifecycleVerificationCapabilityHash(
-  capability: LifecycleVerificationCapabilityV1,
+  capability: LifecycleVerificationCapability,
 ): string {
   return createHash("sha256").update(canonicalJson(capability)).digest("hex");
 }
@@ -210,7 +227,7 @@ export function assertLifecycleVerificationAssignmentManifest(
   requireFact(
     plan.version === 1 &&
       plan.capabilityHash === lifecycleVerificationCapabilityHash(capability) &&
-      plan.descriptorDigest === lifecycleVerificationDescriptorDigest &&
+      plan.descriptorDigest === capability.descriptorDigest &&
       Array.isArray(roster) &&
       roster.length === 1 &&
       record(participant) &&
@@ -330,7 +347,7 @@ export function assertLifecycleVerificationPreparedPlan(
   requireFact(
     assignmentManifest.manifestVersion === 2 &&
       plan.capabilityHash === lifecycleVerificationCapabilityHash(capability) &&
-      plan.descriptorDigest === lifecycleVerificationDescriptorDigest &&
+      plan.descriptorDigest === capability.descriptorDigest &&
       Array.isArray(plan.participantRoster) &&
       plan.participantRoster.length === 1 &&
       record(plan.participantRoster[0]) &&
@@ -433,15 +450,31 @@ export function createReviewRunCompanionDispatchAdmission(
       lockSelection: input.lockSelection,
       validateManifest(authorization, stored, raw, assignmentManifest, timing) {
         try {
+          const slot = stored as Slot;
+          const manifest = normalizeProviderInvocationManifest(
+            raw as ProviderInvocationManifest,
+          );
+          const snapshot = parseReviewRunRuntimeSnapshot(
+            authorization.runtimeSnapshotCanonicalJson,
+          );
+          const route = snapshot?.modelDispatchCapability;
+          if (route) {
+            requireFact(
+              manifest.requestedModel === route.model &&
+                manifest.providerKind === slot.providerKind &&
+                slot.providerKind ===
+                  reviewAgentExecutionProviderKind(snapshot!.agent) &&
+                manifest.taskKindSet.length === 1 &&
+                String(manifest.taskKindSet[0]) === slot.taskKind,
+              "model_dispatch_manifest_route_mismatch",
+            );
+            if (slot.taskKind === ReviewTaskKind.FindingDiscovery) return;
+          }
           const { capability } = primary(authorization);
           requireFact(
             timing.executionDeadlineAt.getTime() - timing.now.getTime() >=
               capability.deadlineMs,
             "verification_deadline",
-          );
-          const slot = stored as Slot;
-          const manifest = normalizeProviderInvocationManifest(
-            raw as ProviderInvocationManifest,
           );
           if (slot.taskKind === ReviewTaskKind.LifecycleRevalidation) {
             assertLifecycleVerificationPreparedPlan(

@@ -9,6 +9,8 @@ import {
   assertReviewRunCompanionDispatchEvidence,
 } from "./review-lifecycle-verification.js";
 import { createReviewRunGatewayModelSettingsReader } from "./review-run-gateway-model-settings.js";
+import type { ReviewModelDispatchApi } from "./review-model-dispatch.js";
+import { assertReviewModelDispatchEvidence } from "./review-model-dispatch-evidence.js";
 import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
 import { PrismaProviderAccountRepository } from "@reviewrouter/features-provider-accounts";
 import { createProviderUsageActionSessionIssuer } from "./provider-usage-action-session.js";
@@ -330,6 +332,7 @@ export type ReviewActionV2ProductionRoutes = Readonly<{
   >;
   contextTools?: ContextToolsRunAccess;
   accountGatewayRelay?: ReviewRunGatewayRelay;
+  modelDispatch?: ReviewModelDispatchApi;
   accountGatewayCheckout?: ReviewRunGatewayCheckout;
   providerApiCheckout?: ReviewRunGatewayCheckout;
   hostedV4: HostedV4ReadRoutesDependencies;
@@ -890,10 +893,17 @@ export function composeReviewActionV2ProductionRoutes(input: {
         "prisma"
       >,
     ) => assertReviewRunCompanionDispatchEvidence({ ...facts, prisma }),
+    verifyModelDispatchEvidence: (
+      facts: Omit<
+        Parameters<typeof assertReviewModelDispatchEvidence>[0],
+        "prisma"
+      >,
+    ) => assertReviewModelDispatchEvidence({ ...facts, prisma }),
   } as const;
   const snapshotPublication = composeReviewActionV2SnapshotPublicationRoutes({
     runtime: schemaBoundRuntime,
     prisma: input.prisma,
+    env: input.env,
     authorizations: runControl.authorizations,
     authorizationQueries: repositories.authorizations,
     releases: repositories.producerReleases,
@@ -1313,30 +1323,46 @@ export function composeReviewActionV2ProductionRoutes(input: {
   );
   const accountGatewayControlOrigin =
     input.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN;
+  const modelDispatchAdmission = createReviewRunCompanionDispatchAdmission({
+    prisma,
+    verifyLease: (token, now) => capabilities.verifyLease(token, now),
+    async lockSelection(transaction, authorization) {
+      const snapshot = parseReviewRunRuntimeSnapshot(
+        authorization.runtimeSnapshotCanonicalJson,
+      );
+      if (!snapshot) return false;
+      if (snapshot.gateway)
+        await runtimeSnapshots.lockGatewaySelection(
+          transaction,
+          authorization.workspaceId,
+          snapshot,
+        );
+      return runtimeSnapshots.isLive(
+        { snapshot, identity: authorization, now: clock.now() },
+        transaction,
+      );
+    },
+  });
+  const modelDispatch: ReviewModelDispatchApi = {
+    authorizations: runControl.authorizations,
+    admission: modelDispatchAdmission,
+    async checkAuthority(authorization) {
+      const revision = await currentRevision.resolve(
+        authorizationScope(authorization),
+      );
+      return (
+        revision.status === CurrentReviewRevisionStatus.Found &&
+        canonicalJson(revision.revision) ===
+          canonicalJson(authorizationRevision(authorization))
+      );
+    },
+  };
   const accountGatewayRelay = accountGatewayRelayPolicy
     ? createReviewRunGatewayRelay({
         policy: accountGatewayRelayPolicy,
         accountModelCatalogEnabled:
           input.env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED === "1",
-        companionDispatches: createReviewRunCompanionDispatchAdmission({
-          prisma,
-          verifyLease: (token, now) => capabilities.verifyLease(token, now),
-          async lockSelection(transaction, authorization) {
-            const snapshot = parseReviewRunRuntimeSnapshot(
-              authorization.runtimeSnapshotCanonicalJson,
-            );
-            if (!snapshot?.gateway) return false;
-            await runtimeSnapshots.lockGatewaySelection(
-              transaction,
-              authorization.workspaceId,
-              snapshot,
-            );
-            return runtimeSnapshots.isLive(
-              { snapshot, identity: authorization, now: clock.now() },
-              transaction,
-            );
-          },
-        }),
+        companionDispatches: modelDispatchAdmission,
         usage: createGatewayUsageRecorder(prisma, async (auth) => {
           const target = await resolveCheckoutRepository(auth);
           return target
@@ -1544,6 +1570,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
       privateKey: githubAppPrivateKey,
     }),
     providerApiCheckout,
+    modelDispatch,
     reviewSkills: createReviewRunSkillsReader(runControl.authorizations),
     contextTools,
     ...(accountGatewayRelay ? { accountGatewayRelay } : {}),

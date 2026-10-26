@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button, LinkButton } from "@reviewrouter/ui";
 import type { ProviderAuthMode } from "@reviewrouter/features-review-providers";
+import type { ReviewRuntimeCompatibility } from "@reviewrouter/features-provider-setup";
 import type { GatewayReviewV2ProvisioningResult } from "@reviewrouter/features-workflow-provisioning";
 import { ActionToast } from "../action-toast";
 import {
@@ -20,6 +21,7 @@ import {
 } from "./repository-setup-optimistic-events";
 import {
   setupStepNumber,
+  runtimeQualifiedSetupStep,
   type SetupStep,
 } from "./repository-setup-optimistic-status";
 
@@ -48,6 +50,7 @@ export function RepositorySetupProgressPanel({
   initialSetupPullRequestUrl,
   initialSetupIssue,
   workflowCurrent,
+  runtimeCompatibility = "compatible",
   mutationsEnabled,
   initialStep,
   expectedProviderAuthModes = [],
@@ -65,6 +68,7 @@ export function RepositorySetupProgressPanel({
   readonly initialSetupPullRequestUrl: string | null;
   readonly initialSetupIssue?: string | null;
   readonly workflowCurrent: boolean;
+  readonly runtimeCompatibility?: ReviewRuntimeCompatibility;
   readonly mutationsEnabled: boolean;
   readonly initialStep: SetupStep;
   readonly expectedProviderAuthModes?: readonly ProviderAuthMode[];
@@ -91,8 +95,11 @@ export function RepositorySetupProgressPanel({
   const gatewayBlocked =
     expectedProviderAuthModes.includes("codex_account_gateway") &&
     gatewayReviewV2Readiness?.status !== "ready";
-  const displayStep =
-    gatewayBlocked && currentStep === "ready" ? "provider" : currentStep;
+  const displayStep = runtimeQualifiedSetupStep(
+    gatewayBlocked && currentStep === "ready" ? "provider" : currentStep,
+    initialStep,
+    runtimeCompatibility,
+  );
 
   useEffect(() => {
     optimisticProviderAuthModesRef.current = new Set();
@@ -290,6 +297,7 @@ export function RepositorySetupProgressPanel({
     setupIssue,
     setupIssueGuidance,
     workflowCurrent,
+    runtimeCompatibility,
     mutationsEnabled,
     currentStep: displayStep,
     enableReviewAction: canManage ? enableReviewAction : null,
@@ -405,6 +413,7 @@ function buildSetupSteps({
   setupIssue,
   setupIssueGuidance,
   workflowCurrent,
+  runtimeCompatibility,
   mutationsEnabled,
   currentStep,
   enableReviewAction,
@@ -423,6 +432,7 @@ function buildSetupSteps({
   readonly setupIssue: SetupIssue | null;
   readonly setupIssueGuidance: string | null;
   readonly workflowCurrent: boolean;
+  readonly runtimeCompatibility: ReviewRuntimeCompatibility;
   readonly mutationsEnabled: boolean;
   readonly currentStep: SetupStep;
   readonly enableReviewAction?: ReactNode;
@@ -436,6 +446,7 @@ function buildSetupSteps({
 }): readonly RepositorySetupProgressStep[] {
   const position = setupStepNumber[currentStep];
   const workflowRefresh =
+    runtimeCompatibility === "update_required" ||
     (providerSetupBeforeWorkflow && currentStep === "provider") ||
     (gatewayProviderSetup && position >= setupStepNumber.provider);
   const setupPrAction =
@@ -453,6 +464,16 @@ function buildSetupSteps({
           ↗
         </span>
       </LinkButton>
+    ) : runtimeCompatibility === "unknown" && setupStatus === "configured" ? (
+      <RepositorySetupMergedButton
+        workspaceId={workspaceId}
+        repositoryId={repositoryId}
+        selected={selected}
+        archived={archived}
+        mutationsEnabled={mutationsEnabled}
+        onComplete={onMergeComplete}
+        label="Verify setup"
+      />
     ) : currentStep === "setup_pr" || workflowRefresh ? (
       <RepositorySetupActionButton
         workspaceId={workspaceId}

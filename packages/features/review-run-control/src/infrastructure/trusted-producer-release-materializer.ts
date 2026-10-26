@@ -122,6 +122,9 @@ export function createTrustedProducerReleaseMaterializer(input: {
                   lifecycleVerificationProfile:
                     release.lifecycleVerificationProfile,
                 }),
+            ...(release.modelDispatchProfile == null
+              ? {}
+              : { modelDispatchProfile: release.modelDispatchProfile }),
             ...(release.prDescriptionProfile == null
               ? {}
               : { prDescriptionProfile: release.prDescriptionProfile }),

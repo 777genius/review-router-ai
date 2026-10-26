@@ -1,3 +1,4 @@
+import { parseReviewModelDispatchProfileV2 } from "@reviewrouter/shared";
 import type {
   ProducerRelease as PrismaProducerRelease,
   ReviewMutationAuthority as PrismaReviewMutationAuthority,
@@ -77,6 +78,7 @@ export function producerReleaseToDomain(
     contextToolsProfile,
     prDescriptionProfile,
     lifecycleVerificationProfile,
+    modelDispatchProfile,
     ...release
   } = row;
   return {
@@ -86,6 +88,12 @@ export function producerReleaseToDomain(
       : {
           contextToolsProfile:
             parseProducerContextToolsProfile(contextToolsProfile),
+        }),
+    ...(modelDispatchProfile == null
+      ? {}
+      : {
+          modelDispatchProfile:
+            parseReviewModelDispatchProfileV2(modelDispatchProfile),
         }),
     ...(prDescriptionProfile == null
       ? {}

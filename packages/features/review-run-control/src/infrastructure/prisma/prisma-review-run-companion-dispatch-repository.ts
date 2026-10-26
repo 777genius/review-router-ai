@@ -1,5 +1,23 @@
-import { createHash, randomUUID } from "node:crypto";
-import { Prisma, type PrismaClient } from "@prisma/client";
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
+import {
+  Prisma,
+  type PrismaClient,
+  type ReviewRunCompanionDispatchV1,
+} from "@prisma/client";
+import {
+  parseReviewModelDispatchCapabilityV2,
+  parseReviewModelDispatchProfileV2,
+  parseReviewModelDispatchSettlementV2,
+  reviewModelDispatchIdPreimage,
+  type ReviewModelDispatchCapabilityV2,
+  type ReviewModelDispatchSettlementV2,
+  type ReviewModelDispatchTerminalReceiptV2,
+} from "@reviewrouter/shared";
 import {
   ReviewRunCompanionDispatchFailure,
   type ReviewRunCompanionDispatch,
@@ -66,6 +84,16 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
         auth.runtimeSnapshotCanonicalJson !== input.runtimeSnapshotCanonicalJson
       )
         fail("companion_authorization_denied");
+      const budget = modelBudget(auth.runtimeSnapshotCanonicalJson);
+      const isModelDispatch = input.dispatchVersion === 2;
+      if (!!budget !== isModelDispatch) fail("model_dispatch_version_required");
+      if (
+        input.forwardExisting &&
+        (!budget ||
+          !["account_gateway", "hosted_pool"].includes(budget.transport))
+      )
+        fail("model_dispatch_native_forward_denied");
+      if (budget) validateModelClaim(input, budget);
       // Lock the stream and lease too: their writers do not use the auth lock.
       await tx.$queryRaw`SELECT "activeExecutionId" FROM "ReviewExecutionStreamV2" WHERE "workspaceId" = ${auth.workspaceId} AND "repositoryConnectionId" = ${auth.repositoryConnectionId} AND "scmRepositoryIdentityId" = ${auth.scmRepositoryIdentityId} AND "pullRequestNumber" = ${auth.pullRequestNumber} FOR SHARE`;
       await tx.$queryRaw`SELECT "leaseId" FROM "ReviewInvocationLeaseV2" WHERE "leaseId" = ${input.leaseId} FOR SHARE`;
@@ -120,6 +148,26 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
         mutation.epoch !== auth.mutationEpoch
       )
         fail("companion_authorization_denied");
+      if (budget) {
+        const profile = parseReviewModelDispatchProfileV2(
+          release.modelDispatchProfile,
+        );
+        if (
+          !profile.transports.includes(budget.transport) ||
+          [
+            "maxRequests",
+            "maxConcurrentRequests",
+            "maxRequestBytes",
+            "maxResponseBytes",
+            "maxOutputTokens",
+          ].some(
+            (key) =>
+              Reflect.get(budget, key) > Reflect.get(profile.limits, key),
+          ) ||
+          new Date(budget.deadline) <= now
+        )
+          fail("model_dispatch_profile_mismatch");
+      }
       if (
         !execution ||
         !lease ||
@@ -143,7 +191,9 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
           ? "lifecycle_verification"
           : slot.taskKind === "pr_description"
             ? "pr_description"
-            : fail("companion_slot_purpose_invalid");
+            : budget && slot.taskKind === "finding_discovery"
+              ? "finding_discovery"
+              : fail("companion_slot_purpose_invalid");
       if (
         lease.executionId !== execution.executionId ||
         lease.workspaceId !== auth.workspaceId ||
@@ -184,7 +234,7 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
         input.attemptOrdinal !== 1 ||
         lease.attemptOrdinal !== 1 ||
         slot.attemptBudget !== 1 ||
-        slot.required ||
+        (role !== "finding_discovery" && slot.required) ||
         !lease.preparedManifestCanonicalJson
       )
         fail("companion_lease_mismatch");
@@ -197,8 +247,9 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
       if (
         !manifest ||
         typeof manifest !== "object" ||
-        Reflect.get(manifest, "providerRequestEnvelopeHash") !==
-          input.providerRequestEnvelopeHash
+        (role !== "finding_discovery" &&
+          Reflect.get(manifest, "providerRequestEnvelopeHash") !==
+            input.providerRequestEnvelopeHash)
       )
         fail("companion_envelope_mismatch");
       this.dependencies.validateManifest(
@@ -223,6 +274,7 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
           auth.maxExpiresAt.getTime(),
           execution.executionDeadlineAt.getTime(),
           lease.expiresAt.getTime(),
+          budget ? Date.parse(budget.deadline) : Infinity,
         ),
       );
       const existing = await tx.reviewRunCompanionDispatchV1.findUnique({
@@ -244,12 +296,43 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
           "providerRequestEnvelopeHash",
         ] as const)
           if (existing[key] !== input[key]) fail("companion_dispatch_conflict");
+        if (
+          budget &&
+          (existing.dispatchVersion !== 2 ||
+            existing.requestOrdinal !== input.requestOrdinal ||
+            existing.routeIdentityHash !== input.routeIdentityHash ||
+            existing.requestBytes !== input.requestBytes ||
+            existing.maxOutputTokens !== input.maxOutputTokens)
+        )
+          fail("companion_dispatch_conflict");
+        if (input.forwardExisting) {
+          if (
+            existing.forwardedAt ||
+            existing.state !== "dispatch_may_have_started"
+          )
+            fail("model_dispatch_already_forwarded");
+          const forwarded = await tx.reviewRunCompanionDispatchV1.update({
+            where: {
+              authorizationId_dispatchId: {
+                authorizationId: input.authorizationId,
+                dispatchId: input.dispatchId,
+              },
+            },
+            data: { forwardedAt: now },
+          });
+          return {
+            status: "claimed" as const,
+            dispatch: toDispatch(forwarded),
+            notAfter,
+          };
+        }
         return {
           status: "restored" as const,
           dispatch: toDispatch(existing),
           notAfter,
         };
       }
+      if (input.forwardExisting) fail("model_dispatch_reservation_required");
       const discoveryPending = await tx.reviewExecutionWorkSlotV2.count({
         where: {
           executionId: execution.executionId,
@@ -257,7 +340,8 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
           state: { in: ["pending", "leased"] },
         },
       });
-      if (discoveryPending) fail("phase_not_ready");
+      if (role !== "finding_discovery" && discoveryPending)
+        fail("phase_not_ready");
       if (
         role === "pr_description" &&
         (await tx.reviewExecutionWorkSlotV2.count({
@@ -274,14 +358,43 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
           authorizationId: input.authorizationId,
           workSlotId: input.workSlotId,
           attemptOrdinal: input.attemptOrdinal,
+          ...(budget ? { requestOrdinal: input.requestOrdinal } : {}),
         },
       });
       if (sameSlot) fail("companion_slot_already_claimed");
-      const count = await tx.reviewRunCompanionDispatchV1.count({
-        where: { authorizationId: input.authorizationId, role },
-      });
-      if (count >= (role === "lifecycle_verification" ? 2 : 1))
-        fail("companion_dispatch_limit");
+      if (budget) {
+        // Every reservation counts, including positively unpaid outcomes. The
+        // authorization lock serializes all roles and fences unknown effects.
+        const reserved = await tx.reviewRunCompanionDispatchV1.count({
+          where: { authorizationId: input.authorizationId },
+        });
+        if (reserved >= budget.maxRequests)
+          fail("model_dispatch_budget_exhausted");
+        const uncertain = await tx.reviewRunCompanionDispatchV1.count({
+          where: {
+            authorizationId: input.authorizationId,
+            state: { in: ["dispatch_may_have_started", "effect_unknown"] },
+          },
+        });
+        if (uncertain) fail("model_dispatch_effect_unresolved");
+        const previous = await tx.reviewRunCompanionDispatchV1.count({
+          where: {
+            authorizationId: input.authorizationId,
+            workSlotId: input.workSlotId,
+            attemptOrdinal: input.attemptOrdinal,
+          },
+        });
+        if (input.requestOrdinal !== previous + 1)
+          fail("model_dispatch_ordinal_invalid");
+        if (role !== "finding_discovery" && input.requestOrdinal !== 1)
+          fail("companion_slot_already_claimed");
+      } else {
+        const count = await tx.reviewRunCompanionDispatchV1.count({
+          where: { authorizationId: input.authorizationId, role },
+        });
+        if (count >= (role === "lifecycle_verification" ? 2 : 1))
+          fail("companion_dispatch_limit");
+      }
       const [finalClock] = await tx.$queryRaw<
         readonly { now: Date }[]
       >`SELECT (clock_timestamp() AT TIME ZONE 'UTC') AS "now"`;
@@ -291,6 +404,7 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
         finalClock.now >= input.ownershipExpiresAt
       )
         fail("companion_authorization_denied");
+      const receiptToken = budget ? randomBytes(32).toString("hex") : undefined;
       const row = await tx.reviewRunCompanionDispatchV1.create({
         data: {
           authorizationId: input.authorizationId,
@@ -302,6 +416,16 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
           fencingToken: input.fencingToken,
           preparedManifestKey: input.preparedManifestKey,
           providerRequestEnvelopeHash: input.providerRequestEnvelopeHash,
+          ...(budget
+            ? {
+                dispatchVersion: 2,
+                requestOrdinal: input.requestOrdinal,
+                routeIdentityHash: input.routeIdentityHash,
+                requestBytes: input.requestBytes,
+                maxOutputTokens: input.maxOutputTokens,
+                receiptTokenHash: sha256(receiptToken!),
+              }
+            : {}),
           role,
           nativeRequestRef: `rr-companion-${randomUUID()}`,
           state: "dispatch_may_have_started",
@@ -321,6 +445,7 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
         status: "claimed" as const,
         dispatch: toDispatch(row),
         notAfter,
+        ...(receiptToken ? { receiptToken } : {}),
       };
     });
   }
@@ -329,7 +454,9 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
     const row = await this.prisma.reviewRunCompanionDispatchV1.findUnique({
       where: { authorizationId_dispatchId: { authorizationId, dispatchId } },
     });
-    return row ? toDispatch(row) : null;
+    return row && (row.dispatchVersion === 1 || row.retainUntil > new Date())
+      ? toDispatch(row)
+      : null;
   }
 
   async settle(
@@ -341,6 +468,7 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
       where: {
         authorizationId,
         dispatchId,
+        dispatchVersion: 1,
         state: { in: ["dispatch_may_have_started", "effect_unknown"] },
       },
       data: {
@@ -349,6 +477,143 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
         ...(state !== "effect_unknown" ? { completedAt: new Date() } : {}),
       },
     });
+    // Native server proof is additional to the runner's complete wire receipt.
+    // This internal port is not exposed by the receipt HTTP endpoint.
+    const row = await this.prisma.reviewRunCompanionDispatchV1.findUnique({
+      where: { authorizationId_dispatchId: { authorizationId, dispatchId } },
+    });
+    if (row?.dispatchVersion !== 2 || !row.forwardedAt) return;
+    const auth = await this.prisma.reviewRunAuthorization.findUnique({
+      where: { authorizationId },
+    });
+    const budget = modelBudget(auth?.runtimeSnapshotCanonicalJson);
+    if (
+      !budget ||
+      !["account_gateway", "hosted_pool"].includes(budget.transport)
+    )
+      return;
+    await this.prisma.reviewRunCompanionDispatchV1.updateMany({
+      where: {
+        authorizationId,
+        dispatchId,
+        dispatchVersion: 2,
+        OR: [
+          { nativeEffectState: null },
+          { nativeEffectState: "effect_unknown" },
+        ],
+      },
+      data: { nativeEffectState: state },
+    });
+  }
+
+  async readReceipt(dispatchId: string, receiptToken: string) {
+    if (!validReceiptToken(receiptToken)) return null;
+    const row = await this.prisma.reviewRunCompanionDispatchV1.findUnique({
+      where: { receiptTokenHash: sha256(receiptToken) },
+    });
+    const [clock] = await this.prisma.$queryRaw<
+      readonly { now: Date }[]
+    >`SELECT (clock_timestamp() AT TIME ZONE 'UTC') AS "now"`;
+    return row &&
+      clock &&
+      receiptMatches(row, dispatchId, receiptToken, clock.now)
+      ? toDispatch(row)
+      : null;
+  }
+
+  async settleReceipt(
+    dispatchId: string,
+    receiptToken: string,
+    raw: ReviewModelDispatchSettlementV2,
+  ) {
+    if (!validReceiptToken(receiptToken)) fail("model_dispatch_receipt_denied");
+    const settlement = parseReviewModelDispatchSettlementV2(raw);
+    return this.prisma.$transaction(async (tx) => {
+      const tokenHash = sha256(receiptToken);
+      await tx.$queryRaw`SELECT "dispatchId" FROM "ReviewRunCompanionDispatchV1" WHERE "receiptTokenHash" = ${tokenHash} FOR UPDATE`;
+      const row = await tx.reviewRunCompanionDispatchV1.findUnique({
+        where: { receiptTokenHash: tokenHash },
+      });
+      const [clock] = await tx.$queryRaw<
+        readonly { now: Date }[]
+      >`SELECT (clock_timestamp() AT TIME ZONE 'UTC') AS "now"`;
+      if (
+        !row ||
+        !clock ||
+        !receiptMatches(row, dispatchId, receiptToken, clock.now)
+      )
+        fail("model_dispatch_receipt_denied");
+      const auth = await tx.reviewRunAuthorization.findUnique({
+        where: { authorizationId: row.authorizationId },
+      });
+      const budget = modelBudget(auth?.runtimeSnapshotCanonicalJson);
+      if (!budget) fail("model_dispatch_receipt_scope_missing");
+      const native = ["account_gateway", "hosted_pool"].includes(
+        budget.transport,
+      );
+      if (
+        native &&
+        ((settlement.state === "completed" &&
+          (!row.forwardedAt || row.nativeEffectState !== "completed")) ||
+          (settlement.state === "not_dispatched" &&
+            row.forwardedAt &&
+            row.nativeEffectState !== "not_dispatched"))
+      )
+        fail("model_dispatch_native_proof_required");
+      if (settlement.state === "completed") {
+        const receipt = settlement.receipt;
+        if (
+          receipt.routeIdentityHash !== row.routeIdentityHash ||
+          receipt.routeIdentityHash !== budget.routeIdentityHash ||
+          receipt.providerRequestEnvelopeHash !==
+            row.providerRequestEnvelopeHash ||
+          receipt.actualModel !== budget.model ||
+          receipt.responseBytes > budget.maxResponseBytes ||
+          (receipt.usage.outputTokens !== null &&
+            receipt.usage.outputTokens > row.maxOutputTokens!)
+        )
+          fail("model_dispatch_receipt_mismatch");
+      }
+      // A successful upstream terminal fact wins over later delivery failure.
+      // Opposite definitive outcomes and changed receipts are conflicts.
+      if (row.state === "completed" || row.state === "not_dispatched") {
+        if (settlement.state === "effect_unknown") return toDispatch(row);
+        if (
+          row.state !== settlement.state ||
+          (settlement.state === "completed" &&
+            canonicalJson(row.terminalReceiptJson) !==
+              canonicalJson(settlement.receipt))
+        )
+          fail("model_dispatch_settlement_conflict");
+        return toDispatch(row);
+      }
+      const updated = await tx.reviewRunCompanionDispatchV1.update({
+        where: {
+          authorizationId_dispatchId: {
+            authorizationId: row.authorizationId,
+            dispatchId,
+          },
+        },
+        data: {
+          state: settlement.state,
+          updatedAt: clock.now,
+          ...(settlement.state !== "effect_unknown"
+            ? { completedAt: clock.now }
+            : {}),
+          ...(settlement.state === "completed"
+            ? {
+                terminalReceiptJson: {
+                  ...settlement.receipt,
+                  usage: { ...settlement.receipt.usage },
+                },
+                resultHash: settlement.receipt.responseHash,
+                usageHash: sha256(canonicalJson(settlement.receipt.usage)),
+              }
+            : {}),
+        },
+      });
+      return toDispatch(updated);
+    });
   }
 }
 
@@ -356,13 +621,12 @@ function fail(code: string): never {
   throw new ReviewRunCompanionDispatchFailure(code);
 }
 function toDispatch(
-  row: Omit<ReviewRunCompanionDispatch, "role" | "state"> & {
-    role: string;
-    state: string;
-  },
+  row: ReviewRunCompanionDispatchV1,
 ): ReviewRunCompanionDispatch {
   if (
-    !["lifecycle_verification", "pr_description"].includes(row.role) ||
+    !["finding_discovery", "lifecycle_verification", "pr_description"].includes(
+      row.role,
+    ) ||
     ![
       "dispatch_may_have_started",
       "effect_unknown",
@@ -384,5 +648,87 @@ function toDispatch(
     nativeRequestRef: row.nativeRequestRef,
     role: row.role as ReviewRunCompanionDispatch["role"],
     state: row.state as ReviewRunCompanionDispatch["state"],
+    ...(row.dispatchVersion === 2
+      ? {
+          dispatchVersion: 2 as const,
+          requestOrdinal: row.requestOrdinal,
+          routeIdentityHash: row.routeIdentityHash!,
+          requestBytes: row.requestBytes!,
+          maxOutputTokens: row.maxOutputTokens!,
+          terminalReceipt:
+            row.terminalReceiptJson == null
+              ? null
+              : (
+                  parseReviewModelDispatchSettlementV2({
+                    state: "completed",
+                    receipt: row.terminalReceiptJson,
+                  }) as { receipt: ReviewModelDispatchTerminalReceiptV2 }
+                ).receipt,
+        }
+      : {}),
   };
+}
+
+function modelBudget(
+  snapshot: string | null | undefined,
+): ReviewModelDispatchCapabilityV2 | undefined {
+  if (!snapshot) return undefined;
+  const raw: unknown = JSON.parse(snapshot);
+  if (
+    !raw ||
+    typeof raw !== "object" ||
+    !Object.hasOwn(raw, "modelDispatchCapability")
+  )
+    return undefined;
+  return parseReviewModelDispatchCapabilityV2(
+    Reflect.get(raw, "modelDispatchCapability"),
+  );
+}
+function validateModelClaim(
+  input: ReviewRunCompanionDispatchClaim,
+  budget: ReviewModelDispatchCapabilityV2,
+) {
+  if (
+    input.dispatchVersion !== 2 ||
+    input.routeIdentityHash !== budget.routeIdentityHash ||
+    !Number.isSafeInteger(input.requestOrdinal) ||
+    input.requestOrdinal! < 1 ||
+    input.requestOrdinal! > budget.maxRequests ||
+    !Number.isSafeInteger(input.requestBytes) ||
+    input.requestBytes! < 1 ||
+    input.requestBytes! > budget.maxRequestBytes ||
+    !Number.isSafeInteger(input.maxOutputTokens) ||
+    input.maxOutputTokens! < 1 ||
+    input.maxOutputTokens! > budget.maxOutputTokens ||
+    input.dispatchId !==
+      `rr-model-${sha256(reviewModelDispatchIdPreimage({ ...input, requestOrdinal: input.requestOrdinal! }))}`
+  )
+    fail("model_dispatch_claim_invalid");
+}
+function sha256(value: string) {
+  return createHash("sha256").update(value).digest("hex");
+}
+function validReceiptToken(token: string) {
+  return /^[a-f0-9]{64}$/.test(token);
+}
+function receiptMatches(
+  row: {
+    dispatchId: string;
+    dispatchVersion: number;
+    receiptTokenHash: string | null;
+    retainUntil: Date;
+  },
+  dispatchId: string,
+  token: string,
+  now: Date,
+) {
+  const hash = row.receiptTokenHash;
+  return (
+    row.dispatchId === dispatchId &&
+    row.dispatchVersion === 2 &&
+    row.retainUntil > now &&
+    !!hash &&
+    /^[a-f0-9]{64}$/.test(hash) &&
+    timingSafeEqual(Buffer.from(hash, "hex"), Buffer.from(sha256(token), "hex"))
+  );
 }

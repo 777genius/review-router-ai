@@ -114,6 +114,7 @@ describe("producer context tools extension identity", () => {
       contextToolsProfile: null,
       prDescriptionProfile: null,
       lifecycleVerificationProfile: null,
+      modelDispatchProfile: null,
     };
     expect(producerReleaseToDomain(row)).not.toHaveProperty(
       "contextToolsProfile",

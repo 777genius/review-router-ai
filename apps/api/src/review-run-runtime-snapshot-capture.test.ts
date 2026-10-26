@@ -2,6 +2,11 @@ import { createHash } from "node:crypto";
 import {
   providerApiAuthModes,
   providerApiDescriptors,
+  reviewModelDispatchContract,
+  reviewModelDispatchDescriptorDigest,
+  reviewModelTransportForAuthMode,
+  lifecycleVerificationDescriptorDigestV2,
+  type ReviewModelDispatchProfileV2,
 } from "@reviewrouter/shared";
 import { lifecycleVerificationDescriptorDigest } from "@reviewrouter/shared";
 import { describe, expect, it } from "vitest";
@@ -253,6 +258,168 @@ function readerFor(policyJson: string) {
     profileRows: stored.profileRows,
   });
 }
+
+describe("one prepared route for discovery and verification", () => {
+  const profile: ReviewModelDispatchProfileV2 = {
+    extensionId: reviewModelDispatchContract.extensionId,
+    descriptorDigest: reviewModelDispatchDescriptorDigest,
+    policyVersion: reviewModelDispatchContract.policyVersion,
+    transports: [
+      "account_gateway",
+      "runner_local_responses",
+      "runner_local_anthropic",
+      "hosted_pool",
+    ],
+    defaultAgentProfileRefs: {
+      account_gateway: "ocr-unified",
+      runner_local_responses: "ocr-unified",
+      runner_local_anthropic: "ocr-unified",
+      hosted_pool: "ocr-unified",
+    },
+    limits: {
+      maxRequests: 32,
+      maxConcurrentRequests: 1,
+      maxRequestBytes: 16777216,
+      maxResponseBytes: 8388608,
+      maxOutputTokens: 32768,
+    },
+  };
+  const profiles = parseReviewAgentProfiles([
+    directCodexProfile,
+    ocrProfile,
+    {
+      ...ocrProfile,
+      profileRef: "ocr-unified",
+      modelTransports: ["account_gateway", "provider_api"],
+      reviewSkillsVersion: 1,
+    },
+    {
+      ...ocrProfile,
+      profileRef: "retained-ocr-skills",
+      reviewSkillsVersion: 1,
+    },
+  ]);
+  const providerRows = [
+    ...providerApiAuthModes.map((mode) => ({
+      mode,
+      provider: {
+        kind: providerApiDescriptors[mode].providerKind,
+        authMode: providerApiDescriptors[mode].authMode,
+        model: providerApiDescriptors[mode].defaultModel,
+        ...(mode === "kimi-code-api" ? {} : { reasoningEffort: "high" }),
+        agenticContext: true,
+        fastMode: false,
+        requiredHealthy: true,
+      },
+    })),
+    ...[
+      "codex_subscription_oauth_rotating",
+      "codex_subscription_oauth_hosted_pool",
+    ].map((authMode) => ({
+      mode: undefined,
+      provider: {
+        kind: "codex",
+        authMode,
+        model: "gpt-5.4",
+        reasoningEffort: "high",
+        agenticContext: true,
+        fastMode: false,
+        requiredHealthy: true,
+      },
+    })),
+    {
+      mode: undefined,
+      provider: {
+        kind: "claude",
+        authMode: "claude_code_oauth",
+        model: "claude-sonnet-4-6",
+        reasoningEffort: "high",
+        agenticContext: true,
+        fastMode: false,
+        requiredHealthy: true,
+      },
+    },
+  ];
+  it.each(providerRows)(
+    "captures OCR and the same verifier route for $provider.authMode",
+    async ({ mode, provider }) => {
+      const configuration = parseReviewConfigurationStrict({
+        ...JSON.parse(gatewayPolicyJson({})),
+        providers: [provider],
+      });
+      const captured = await snapshotSource().capture(
+        {
+          ...captureInput(),
+          modelTransport: "provider_api",
+          ...(mode ? { providerApiAuthMode: mode } : {}),
+          producerRelease: {
+            ...captureInput().producerRelease,
+            agentProfiles: profiles,
+            modelDispatchProfile: profile,
+          },
+        },
+        readerFor(canonicalJson(configuration)),
+      );
+      expect(captured).toMatchObject({
+        agent: { agentKind: "ocr", profileRef: "ocr-unified" },
+        gateway: null,
+        modelDispatchCapability: {
+          transport: reviewModelTransportForAuthMode(provider.authMode),
+          model: provider.model,
+          maxRequests: 32,
+        },
+        lifecycleVerificationCapability: {
+          extensionId: "lifecycle-verification.v2",
+          descriptorDigest: lifecycleVerificationDescriptorDigestV2,
+          providerKind: "ocr",
+          model: provider.model,
+          attemptBudget: 1,
+        },
+      });
+      if (!captured || "captureDenied" in captured)
+        throw new Error("capture_missing");
+      expect(captured.lifecycleVerificationCapability).toMatchObject({
+        routeIdentityHash: captured.modelDispatchCapability!.routeIdentityHash,
+      });
+      expect(captured.configurationCanonicalJson).toBe(
+        canonicalJson(configuration),
+      );
+    },
+  );
+
+  it("preserves supplied-diff policy and never lets retained OCR profiles choose a default", async () => {
+    const provider = { ...providerRows[0]!.provider, agenticContext: false };
+    const configuration = parseReviewConfigurationStrict({
+      ...JSON.parse(gatewayPolicyJson({})),
+      providers: [provider],
+    });
+    const captured = await snapshotSource().capture(
+      {
+        ...captureInput(),
+        modelTransport: "provider_api",
+        providerApiAuthMode: providerRows[0]!.mode!,
+        producerRelease: {
+          ...captureInput().producerRelease,
+          agentProfiles: profiles,
+          modelDispatchProfile: profile,
+        },
+      },
+      readerFor(canonicalJson(configuration)),
+    );
+    expect(captured).toMatchObject({
+      agent: { agentKind: "codex" },
+      lifecycleVerificationCapability: {
+        extensionId: "lifecycle-verification.v2",
+        providerKind: "codex",
+      },
+    });
+    expect(
+      captured &&
+        !("captureDenied" in captured) &&
+        captured.configurationCanonicalJson,
+    ).toBe(canonicalJson(configuration));
+  });
+});
 
 describe("PR description capture availability", () => {
   it.each([

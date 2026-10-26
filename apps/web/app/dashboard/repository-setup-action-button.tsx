@@ -179,6 +179,7 @@ export function RepositorySetupMergedButton({
   archived,
   mutationsEnabled,
   onComplete,
+  label = "I merged it",
 }: {
   readonly workspaceId: string;
   readonly repositoryId: string;
@@ -186,6 +187,7 @@ export function RepositorySetupMergedButton({
   readonly archived: boolean;
   readonly mutationsEnabled: boolean;
   readonly onComplete?: (params: Record<string, string>) => void;
+  readonly label?: "I merged it" | "Verify setup";
 }): ReactElement {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -266,7 +268,7 @@ export function RepositorySetupMergedButton({
             Checking...
           </span>
         ) : (
-          "I merged it"
+          label
         )}
       </Button>
     </form>

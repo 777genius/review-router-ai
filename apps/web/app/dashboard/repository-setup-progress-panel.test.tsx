@@ -53,6 +53,45 @@ afterEach(() => {
 });
 
 describe("RepositorySetupProgressPanel", () => {
+  it.each([
+    ["unknown", "Verify setup"],
+    ["update_required", "Update setup PR"],
+  ] as const)(
+    "uses the existing %s setup action without allowing an optimistic Ready state",
+    (runtimeCompatibility, label) => {
+      render(
+        <RepositorySetupProgressPanel
+          workspaceId="workspace_1"
+          repositoryId="repo_1"
+          repositoryFullName="acme/repo"
+          selected
+          archived={false}
+          initialSetupStatus="configured"
+          initialSetupPullRequestUrl={null}
+          workflowCurrent={false}
+          runtimeCompatibility={runtimeCompatibility}
+          mutationsEnabled
+          initialStep="setup_pr"
+          expectedProviderAuthModes={["openrouter_api_key"]}
+        />,
+      );
+      expect(screen.getByRole("button", { name: label })).toBeTruthy();
+      fireEvent(
+        window,
+        setupPullRequestMergedEvent({ repositoryId: "repo_1" }),
+      );
+      fireEvent(
+        window,
+        providerSetupConfirmedEvent({
+          repositoryId: "repo_1",
+          repositoryFullName: "acme/repo",
+          authMode: "openrouter_api_key",
+        }),
+      );
+      expect(screen.queryByText("4 of 4 - complete")).toBeNull();
+      expect(screen.getByRole("button", { name: label })).toBeTruthy();
+    },
+  );
   it("shows actual Gateway draining state despite cached complete progress", () => {
     render(
       <RepositorySetupProgressPanel

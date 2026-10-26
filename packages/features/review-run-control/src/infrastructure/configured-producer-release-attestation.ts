@@ -1,3 +1,4 @@
+import { parseReviewModelDispatchProfileV2 } from "@reviewrouter/shared";
 import type { ProducerReleaseQueryPort } from "../application/ports/producer-release-ports";
 import { parseReviewAgentProfiles } from "../domain/review-agent-profile";
 import {
@@ -57,6 +58,13 @@ export class ConfiguredProducerReleaseAttestationRegistry implements ProducerRel
                 ),
               }
             : {}),
+          ...(attestation.modelDispatchProfile == null
+            ? {}
+            : {
+                modelDispatchProfile: parseReviewModelDispatchProfileV2(
+                  attestation.modelDispatchProfile,
+                ),
+              }),
           ...(attestation.prDescriptionProfile == null
             ? {}
             : {
@@ -116,6 +124,13 @@ export class ConfiguredProducerReleaseAttestationRegistry implements ProducerRel
             ...(configured.contextToolsProfile !== undefined
               ? { contextToolsProfile: configured.contextToolsProfile }
               : {}),
+            ...(configured.modelDispatchProfile == null
+              ? {}
+              : {
+                  modelDispatchProfile: parseReviewModelDispatchProfileV2(
+                    configured.modelDispatchProfile,
+                  ),
+                }),
             ...(configured.prDescriptionProfile == null
               ? {}
               : { prDescriptionProfile: configured.prDescriptionProfile }),
@@ -195,6 +210,7 @@ function parseAttestation(value: unknown): TrustedProducerReleaseAttestation {
     .filter((key) => key !== "contextToolsProfile")
     .filter((key) => key !== "prDescriptionProfile")
     .filter((key) => key !== "lifecycleVerificationProfile")
+    .filter((key) => key !== "modelDispatchProfile")
     .sort();
   const currentKeys = [...investigationKeys, "agentProfiles"].sort();
   if (
@@ -224,6 +240,13 @@ function parseAttestation(value: unknown): TrustedProducerReleaseAttestation {
     );
   }
   return {
+    ...(value.modelDispatchProfile == null
+      ? {}
+      : {
+          modelDispatchProfile: parseReviewModelDispatchProfileV2(
+            value.modelDispatchProfile,
+          ),
+        }),
     ...(value.prDescriptionProfile == null
       ? {}
       : {
@@ -289,6 +312,8 @@ function parseAttestation(value: unknown): TrustedProducerReleaseAttestation {
 }
 
 function assertAttestation(value: TrustedProducerReleaseAttestation): void {
+  if (value.modelDispatchProfile != null)
+    parseReviewModelDispatchProfileV2(value.modelDispatchProfile);
   if (value.contextToolsProfile !== undefined)
     parseProducerContextToolsProfile(value.contextToolsProfile);
   if (value.lifecycleVerificationProfile != null)
@@ -357,6 +382,13 @@ function configuredReleaseKey(
           ),
         }
       : {}),
+    ...(configured.modelDispatchProfile == null
+      ? {}
+      : {
+          modelDispatchProfile: parseReviewModelDispatchProfileV2(
+            configured.modelDispatchProfile,
+          ),
+        }),
     ...(configured.prDescriptionProfile == null
       ? {}
       : {

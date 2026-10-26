@@ -63,6 +63,48 @@ export function selectSuppliedDiffReviewAgentProfile(
   return selectUniqueCodexProfile(profiles, "account_gateway", true);
 }
 
+/** One policy selector for V2 admission and installed-runtime readiness. The
+ * legacy producer branch keeps its historical selection rules at its caller. */
+export function selectModelDispatchReviewAgentProfile(
+  input: Readonly<{
+    agentProfiles: unknown;
+    modelTransport: ReviewAgentProfile["modelTransports"][number];
+    preparedRouteDefaultRef: string;
+    explicitAgentProfileRef?: string;
+    agenticContext: boolean;
+    reviewSkillsDelivery: boolean;
+  }>,
+): ReviewAgentProfile {
+  const usesPreparedDefault =
+    input.explicitAgentProfileRef === undefined && input.agenticContext;
+  const selected =
+    input.explicitAgentProfileRef !== undefined
+      ? selectReviewAgentProfile(
+          input.agentProfiles,
+          input.explicitAgentProfileRef,
+          input.modelTransport,
+        )
+      : input.agenticContext
+        ? selectReviewAgentProfile(
+            input.agentProfiles,
+            input.preparedRouteDefaultRef,
+            input.modelTransport,
+          )
+        : input.modelTransport === "provider_api"
+          ? selectProviderApiReviewAgentProfile(input.agentProfiles, {
+              reviewSkillsDelivery: input.reviewSkillsDelivery,
+            })
+          : selectSuppliedDiffReviewAgentProfile(input.agentProfiles);
+  if (
+    (selected.agentKind === "ocr" && !input.agenticContext) ||
+    (usesPreparedDefault &&
+      (selected.agentKind !== "ocr" || selected.reviewSkillsVersion !== 1)) ||
+    (input.reviewSkillsDelivery && selected.reviewSkillsVersion !== 1)
+  )
+    invalid("review_agent_profile_incompatible");
+  return selected;
+}
+
 function selectUniqueCodexProfile(
   profiles: unknown,
   transport: ReviewAgentProfile["modelTransports"][number],

@@ -3,7 +3,13 @@ import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import {
   lifecycleVerificationContract,
   lifecycleVerificationDescriptorDigest,
-  type LifecycleVerificationCapabilityV1,
+  lifecycleVerificationContractV2,
+  lifecycleVerificationDescriptorDigestV2,
+  parseReviewModelDispatchProfileV2,
+  selectReviewModelRoutePolicy,
+  reviewModelDispatchContract,
+  type LifecycleVerificationCapability,
+  type ReviewModelDispatchCapabilityV2,
 } from "@reviewrouter/shared";
 import {
   captureContextToolsPlan,
@@ -39,6 +45,7 @@ import {
   selectReviewAgentProfile,
   selectProviderApiReviewAgentProfile,
   selectSuppliedDiffReviewAgentProfile,
+  selectModelDispatchReviewAgentProfile,
   type ReviewRunAuthorizationCandidate,
   type ReviewRunGatewaySelection,
   type ReviewRunGatewayLimits,
@@ -341,6 +348,20 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     // profiles need a qualified shared allowance contract, not fresh invocations.
     if (selectedProviders.length > 1) return null;
     const selected = selectedProviders[0];
+    const modelDispatchProfile =
+      input.producerRelease.modelDispatchProfile == null
+        ? undefined
+        : parseReviewModelDispatchProfileV2(
+            input.producerRelease.modelDispatchProfile,
+          );
+    const preparedRoute = modelDispatchProfile
+      ? selectReviewModelRoutePolicy(
+          modelDispatchProfile,
+          configuration.providers,
+        )
+      : undefined;
+    if (modelDispatchProfile && !preparedRoute)
+      return { captureDenied: "agent_profile_unavailable" };
     // An explicit agentProfileRef is saved policy for Account Gateway rows only
     // and resolves ONLY against the exact producer's approved profiles. An
     // invalid/disabled/incompatible explicit ref is a configuration error with
@@ -361,8 +382,18 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       return null;
     let agent: ReviewAgentProfile;
     try {
-      agent =
-        explicitAgentProfileRef !== undefined
+      agent = preparedRoute
+        ? selectModelDispatchReviewAgentProfile({
+            agentProfiles,
+            modelTransport,
+            preparedRouteDefaultRef: preparedRoute.defaultAgentProfileRef,
+            ...(explicitAgentProfileRef === undefined
+              ? {}
+              : { explicitAgentProfileRef }),
+            agenticContext: configuration.providers[0]!.agenticContext,
+            reviewSkillsDelivery: true,
+          })
+        : explicitAgentProfileRef !== undefined
           ? selectReviewAgentProfile(
               agentProfiles,
               explicitAgentProfileRef,
@@ -378,8 +409,14 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
                   agentProfiles,
                   modelTransport,
                 );
-    } catch {
-      return explicitAgentProfileRef !== undefined ||
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "review_agent_profile_incompatible"
+      )
+        return { captureDenied: "agent_profile_incompatible" };
+      return preparedRoute !== undefined ||
+        explicitAgentProfileRef !== undefined ||
         modelTransport === "account_gateway"
         ? { captureDenied: "agent_profile_unavailable" }
         : null;
@@ -391,7 +428,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     // configuration error before any inference.
     if (
       agent.agentKind === "ocr" &&
-      selected?.provider.agenticContext === false
+      configuration.providers[0]?.agenticContext === false
     )
       return { captureDenied: "agent_profile_incompatible" };
     let contextToolsPlan: ContextToolsPlan | undefined;
@@ -468,11 +505,55 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         },
       };
     }
+    let modelDispatchCapability: ReviewModelDispatchCapabilityV2 | undefined;
+    if (modelDispatchProfile && preparedRoute) {
+      // The admission owns one exact model route, shared by all paid roles.
+      // Credential bytes remain with their existing adapter and never enter it.
+      modelDispatchCapability = {
+        ...modelDispatchProfile.limits,
+        maxRequests: Math.min(
+          modelDispatchProfile.limits.maxRequests,
+          gateway?.limits.requests ?? Infinity,
+        ),
+        maxRequestBytes: Math.min(
+          modelDispatchProfile.limits.maxRequestBytes,
+          gateway?.limits.requestBytes ?? Infinity,
+        ),
+        maxResponseBytes: Math.min(
+          modelDispatchProfile.limits.maxResponseBytes,
+          gateway?.limits.outputBytes ?? Infinity,
+        ),
+        maxOutputTokens: Math.min(
+          modelDispatchProfile.limits.maxOutputTokens,
+          gateway?.limits.tokens ?? Infinity,
+        ),
+        extensionId: reviewModelDispatchContract.extensionId,
+        version: 2,
+        routeIdentityHash: createHash("sha256")
+          .update(
+            canonicalJson({
+              version: 2,
+              producer,
+              effectivePolicyDigest: current.effectivePolicyDigest,
+              agentProfileDigest,
+              transport: preparedRoute.transport,
+              providerIndex: preparedRoute.providerIndex,
+              model: preparedRoute.model,
+              gateway,
+            }),
+          )
+          .digest("hex"),
+        transport: preparedRoute.transport,
+        providerIndex: preparedRoute.providerIndex,
+        model: preparedRoute.model,
+        deadline,
+      };
+    }
     let lifecycleVerificationUnavailableReason: ReviewRunRuntimeSnapshot["lifecycleVerificationUnavailableReason"];
     if (input.producerRelease.lifecycleVerificationProfile != null)
       lifecycleVerificationUnavailableReason = "verification_unavailable";
     let lifecycleVerificationCapability:
-      | LifecycleVerificationCapabilityV1
+      | LifecycleVerificationCapability
       | undefined;
     if (
       input.producerRelease.lifecycleVerificationProfile != null &&
@@ -547,6 +628,72 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
           "verification_configuration_invalid";
       }
     }
+    if (modelDispatchCapability) {
+      const cap = modelDispatchCapability;
+      const qualified =
+        cap.transport === "account_gateway"
+          ? (this.qualifiedRelayPolicy?.profiles ?? []).filter(
+              (entry) =>
+                entry.profile.profileId === gateway!.profileRef &&
+                entry.profile.protocol === "openai-responses" &&
+                entry.profile.modelIds.includes(cap.model),
+            )
+          : undefined;
+      // A new producer must qualify the selected native route. No verifier
+      // silently chooses another account, model or fallback protocol.
+      if (qualified && qualified.length !== 1) {
+        lifecycleVerificationCapability = undefined;
+        lifecycleVerificationUnavailableReason = "verification_unavailable";
+      } else {
+        const maxOutputTokens = Math.min(
+          lifecycleVerificationContract.maxOutputTokens,
+          cap.maxOutputTokens,
+          qualified?.[0]?.outputTokens ?? Infinity,
+        );
+        if (
+          maxOutputTokens <
+          lifecycleVerificationContract.minOutputTokensPerTarget
+        ) {
+          lifecycleVerificationCapability = undefined;
+          lifecycleVerificationUnavailableReason = "verification_unavailable";
+        } else {
+          lifecycleVerificationCapability = {
+            extensionId: lifecycleVerificationContractV2.extensionId,
+            descriptorDigest: lifecycleVerificationDescriptorDigestV2,
+            executor: lifecycleVerificationContract.executor,
+            version: 2,
+            modelTransport: cap.transport,
+            routeIdentityHash: cap.routeIdentityHash,
+            protocol:
+              cap.transport === "runner_local_anthropic"
+                ? "anthropic-messages"
+                : "openai-responses",
+            providerIndex: cap.providerIndex,
+            providerKind: reviewAgentExecutionProviderKind(agent),
+            model: cap.model,
+            maxDispatches: lifecycleVerificationContract.maxPackets,
+            maxPromptBytes: Math.min(
+              lifecycleVerificationContract.maxPromptBytes,
+              cap.maxRequestBytes,
+              qualified ? this.qualifiedRelayPolicy!.ingressBytes : Infinity,
+            ),
+            maxResponseBytes: Math.min(
+              lifecycleVerificationContract.maxResponseBytes,
+              cap.maxResponseBytes,
+            ),
+            maxOutputTokens,
+            deadlineMs: Math.min(
+              lifecycleVerificationContract.deadlineMs,
+              qualified
+                ? this.qualifiedRelayPolicy!.requestTimeoutMs
+                : Infinity,
+            ),
+            attemptBudget: 1,
+          };
+          lifecycleVerificationUnavailableReason = undefined;
+        }
+      }
+    }
     try {
       return parseReviewRunRuntimeSnapshot(
         canonicalJson({
@@ -564,6 +711,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
           ...(lifecycleVerificationCapability
             ? { lifecycleVerificationCapability }
             : {}),
+          ...(modelDispatchCapability ? { modelDispatchCapability } : {}),
           ...(lifecycleVerificationUnavailableReason
             ? { lifecycleVerificationUnavailableReason }
             : {}),

@@ -184,6 +184,28 @@ export async function generateReviewActionV2Protocol(input = {}) {
         parser: "typescript",
       }),
     ],
+    ...(await Promise.all(
+      [
+        "review-model-dispatch-contract",
+        "review-model-route-policy",
+        "review-lifecycle-verification-v2",
+      ].map(async (name) => [
+        `generated/${name}.ts`,
+        await format(
+          `// Generated from shared/src/${name}.ts. Do not edit.\n` +
+            (
+              await readFile(
+                join(repositoryRoot, `packages/shared/src/${name}.ts`),
+                "utf8",
+              )
+            ).replaceAll(
+              '"./review-action-companion-contracts"',
+              '"./companion-contracts"',
+            ),
+          { parser: "typescript" },
+        ),
+      ]),
+    )),
     [
       "generated/review-agent-profile.ts",
       await format(

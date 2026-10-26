@@ -256,6 +256,12 @@ shared policy and frozen in admission; adapters cannot select local defaults.
 Native Gateway/Hosted bounds remain additional constraints and may be lower.
 There is no new cumulative-token or dollar accounting contract in this scope.
 
+For new native Gateway/Hosted routes, parent reservation is followed by one
+server-owned forwarding transition on the same row. The original native request
+reference is retained. A runner completion receipt also requires the existing
+native server's completed-effect proof; runner metadata cannot manufacture it.
+Direct routes retain the explicitly scoped trusted-parent receipt contract.
+
 Use `dispatchVersion` and `requestOrdinal`, defaulting historical rows to 1.
 The unique key becomes `(authorizationId, workSlotId, attemptOrdinal,
 requestOrdinal)`. V2 permits discovery plus existing companion roles, all on
@@ -287,6 +293,15 @@ Only the authenticated qualified runner parent reports that terminal receipt;
 it remains distinct from accepted review evidence. A dead worker cannot restart ordinal 1 or
 invent a new ordinal to evade the fence. New direct OCR invocations use one paid
 attempt; generic retry classification must not repeat ambiguous requests.
+
+Fresh V2 claim returns a random 256-bit parent-only receipt token; only its hash
+is retained beside the exact dispatch. The header-only token permits readback and
+monotonic settlement of that dispatch within its original retention window, even
+after run/head/lease expiry. It cannot claim work, accept evidence, or publish.
+Repeated/restored claims never reissue it or dispatch permission. This preserves
+existing JWT validation and makes a lost initial claim ACK fail closed. Verify
+exact row binding, fixed-length token comparison, retention, conflicting terminal
+receipts, and redaction; neither URLs nor logs carry this token.
 
 Known completed output is committed through existing evidence acceptance before
 it is reused. Lost settlement/evidence ACK is resolved by readback. Restored
@@ -332,9 +347,10 @@ The current `assertLifecycleLeaseEvidence` intentionally returns early for
 discovery. Extend the existing common evidence acceptance/reuse gate for new V2
 OCR discovery too: require the original source authorization, work slot, lease,
 manifest and route to match its complete ordered per-request receipt set. Every
-claimed request in that invocation must be terminal completed; outstanding or
-unknown claims cannot become reusable discovery merely because its last request
-completed. Reuse checks the original source authorization and its receipts, not
+request that may have reached a provider must be terminal completed. Positively
+not-dispatched reservations remain counted and cannot by themselves prove a
+successful result. Outstanding or unknown claims cannot become reusable
+discovery merely because its last request completed. Reuse checks the original source authorization and its receipts, not
 the target/current run's budget. Preserve legacy evidence semantics under their
 original explicit profiles and contracts.
 Missing/pruned source proof makes evidence ineligible and never permits

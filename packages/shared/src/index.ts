@@ -6,6 +6,7 @@ export * from "./safe-payload/index";
 export * from "./scm/index";
 export * from "./time/index";
 export * from "./validation/index";
+export * from "./review-model-dispatch-contract";
 export { reviewRouterApiUrlsMatch } from "./reviewrouter-service-origin";
 export {
   providerApiCheckoutCompanionContract,
@@ -31,3 +32,5 @@ export {
   parseReviewAgentProfiles,
   type ReviewAgentProfile,
 } from "./review-agent-profile";
+export * from "./review-lifecycle-verification-v2";
+export * from "./review-model-route-policy";

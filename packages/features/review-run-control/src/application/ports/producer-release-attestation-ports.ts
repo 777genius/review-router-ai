@@ -1,3 +1,4 @@
+import type { ReviewModelDispatchProfileV2 } from "@reviewrouter/shared";
 import type { ReviewAgentProfile } from "../../domain/review-agent-profile";
 import type {
   ProducerRelease,
@@ -22,6 +23,7 @@ export type TrustedProducerReleaseAttestation = {
   readonly contextGatewayPolicyVersion: string | null;
   readonly contextGatewayEntrypointDigest: string | null;
   readonly lifecycleVerificationProfile?: ProducerLifecycleVerificationProfile | null;
+  readonly modelDispatchProfile?: ReviewModelDispatchProfileV2 | null;
   readonly prDescriptionProfile?: ProducerPrDescriptionProfile | null;
   readonly agentProfiles?: readonly ReviewAgentProfile[] | null;
   readonly reviewInvestigationProfile?: ProducerReviewInvestigationProfile | null;

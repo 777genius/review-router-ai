@@ -1,7 +1,10 @@
 import {
   lifecycleVerificationContract,
   lifecycleVerificationDescriptorDigest,
-  type LifecycleVerificationCapabilityV1,
+  type LifecycleVerificationCapability,
+  parseLifecycleVerificationCapabilityV2,
+  parseReviewModelDispatchCapabilityV2,
+  type ReviewModelDispatchCapabilityV2,
 } from "@reviewrouter/shared";
 import { reviewAgentExecutionProviderKind } from "./review-agent-profile";
 import {
@@ -26,7 +29,8 @@ export type ReviewRunRuntimeSnapshot = {
   readonly lifecycleVerificationUnavailableReason?:
     | "verification_configuration_invalid"
     | "verification_unavailable";
-  readonly lifecycleVerificationCapability?: LifecycleVerificationCapabilityV1;
+  readonly lifecycleVerificationCapability?: LifecycleVerificationCapability;
+  readonly modelDispatchCapability?: ReviewModelDispatchCapabilityV2;
   readonly prDescriptionCapability?: ProducerPrDescriptionProfile;
   readonly configurationSource: "workspace" | "repository";
   readonly configurationVersion: number;
@@ -142,6 +146,9 @@ export function parseReviewRunRuntimeSnapshot(
         : []),
       ...("prDescriptionCapability" in parsed
         ? ["prDescriptionCapability"]
+        : []),
+      ...("modelDispatchCapability" in parsed
+        ? ["modelDispatchCapability"]
         : []),
     ])
   )
@@ -296,6 +303,25 @@ export function parseReviewRunRuntimeSnapshot(
       limits: parseReviewRunGatewayLimits(row.limits),
     };
   }
+  const modelDispatchCapability =
+    "modelDispatchCapability" in parsed
+      ? parseReviewModelDispatchCapabilityV2(parsed.modelDispatchCapability)
+      : undefined;
+  if (modelDispatchCapability) {
+    const cap = modelDispatchCapability;
+    const provider = Array.isArray(configuration.providers)
+      ? configuration.providers[cap.providerIndex]
+      : undefined;
+    if (
+      !record(provider) ||
+      provider.model !== cap.model ||
+      Date.parse(cap.deadline) > Date.parse(deadline) ||
+      (cap.transport === "account_gateway" &&
+        (!gateway || gateway.providerIndex !== cap.providerIndex)) ||
+      (cap.transport !== "account_gateway" && gateway !== null)
+    )
+      fail();
+  }
   const lifecycleVerificationUnavailableReason =
     parsed.lifecycleVerificationUnavailableReason;
   if (
@@ -323,13 +349,29 @@ export function parseReviewRunRuntimeSnapshot(
       ? providers[cap.providerIndex]
       : null;
     if (
-      !gateway ||
       !record(provider) ||
-      provider.authMode !== "codex_account_gateway" ||
-      gateway.providerIndex !== cap.providerIndex ||
       provider.model !== cap.model ||
       cap.providerKind !== reviewAgentExecutionProviderKind(agent) ||
-      !["ocr", "codex"].includes(agent.agentKind) ||
+      !["ocr", "codex"].includes(agent.agentKind)
+    )
+      fail();
+    if (cap.extensionId === "lifecycle-verification.v2") {
+      const route = modelDispatchCapability;
+      if (
+        !route ||
+        cap.routeIdentityHash !== route.routeIdentityHash ||
+        cap.modelTransport !== route.transport ||
+        cap.providerIndex !== route.providerIndex ||
+        cap.model !== route.model ||
+        cap.maxPromptBytes > route.maxRequestBytes ||
+        cap.maxResponseBytes > route.maxResponseBytes ||
+        cap.maxOutputTokens > route.maxOutputTokens
+      )
+        fail();
+    } else if (
+      !gateway ||
+      provider.authMode !== "codex_account_gateway" ||
+      gateway.providerIndex !== cap.providerIndex ||
       cap.maxPromptBytes > gateway.limits.requestBytes ||
       cap.maxResponseBytes > gateway.limits.outputBytes ||
       cap.maxOutputTokens > gateway.limits.tokens
@@ -342,6 +384,7 @@ export function parseReviewRunRuntimeSnapshot(
       : undefined;
   if (canonicalJson(parsed) !== value) fail();
   return {
+    ...(modelDispatchCapability ? { modelDispatchCapability } : {}),
     ...(prDescriptionCapability === undefined
       ? {}
       : { prDescriptionCapability }),
@@ -409,7 +452,9 @@ function fail(): never {
 /** Invalid enabled capability is rejected, never normalized or downgraded. */
 export function parseLifecycleVerificationCapability(
   value: unknown,
-): LifecycleVerificationCapabilityV1 {
+): LifecycleVerificationCapability {
+  if (record(value) && value.extensionId === "lifecycle-verification.v2")
+    return parseLifecycleVerificationCapabilityV2(value);
   const names = [
     "extensionId",
     "descriptorDigest",
@@ -465,5 +510,5 @@ export function parseLifecycleVerificationCapability(
     lifecycleVerificationContract.minOutputTokensPerTarget
   )
     fail();
-  return Object.freeze({ ...value }) as LifecycleVerificationCapabilityV1;
+  return Object.freeze({ ...value }) as LifecycleVerificationCapability;
 }

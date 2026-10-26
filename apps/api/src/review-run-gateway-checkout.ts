@@ -385,6 +385,11 @@ function createReviewRunCheckout(
         runtimeEnv[prDescriptionContract.capabilityRuntimeEnvKey] =
           canonicalJson(snapshot.prDescriptionCapability);
       }
+      if (snapshot.modelDispatchCapability !== undefined) {
+        runtimeEnv.REVIEW_ROUTER_MODEL_DISPATCH_CAPABILITY_JSON = canonicalJson(
+          snapshot.modelDispatchCapability,
+        );
+      }
       if (snapshot.lifecycleVerificationCapability !== undefined) {
         runtimeEnv[lifecycleVerificationContract.capabilityRuntimeEnvKey] =
           canonicalJson(snapshot.lifecycleVerificationCapability);

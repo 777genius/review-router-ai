@@ -13,6 +13,7 @@ import {
 } from "./review-run-gateway-checkout.js";
 import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
 import { registerReviewRunGatewayRelayRoutes } from "./review-run-gateway-relay.js";
+import { registerReviewModelDispatchRoutes } from "./review-model-dispatch.js";
 import { createDefaultHostedPoolOperatorConnect } from "./hosted-pool-workflow-operator-composition.js";
 import {
   createHostedPoolOperatorComposition,
@@ -1008,6 +1009,12 @@ export async function createApiApp(
     await registerContextToolsRoutes(
       app,
       productionReviewActionV2Dependencies.contextTools,
+    );
+  }
+  if (productionReviewActionV2Dependencies?.modelDispatch) {
+    await registerReviewModelDispatchRoutes(
+      app,
+      productionReviewActionV2Dependencies.modelDispatch,
     );
   }
   if (productionReviewActionV2Dependencies?.accountGatewayRelay) {

@@ -5,6 +5,7 @@ import type {
   ObserveRunnerCleanup,
 } from "./release-witness-application.js";
 import type { ReleaseWitnessRequest } from "./release-witness-domain.js";
+import type { AttestResolutionWriterQualification } from "./release-witness-resolution-writers.js";
 
 const authorize = (request: FastifyRequest, expected: string): void => {
   const header = request.headers.authorization;
@@ -25,9 +26,31 @@ export async function registerReleaseWitnessRoutes(
   input: {
     observeCleanup: ObserveRunnerCleanup;
     attestBinding?: AttestReleaseWitnessBinding;
+    attestResolutionWriters?: AttestResolutionWriterQualification;
     triggerTokenSha256: string;
   },
 ): Promise<void> {
+  if (input.attestResolutionWriters)
+    app.get(
+      "/v1/resolution-writer-qualification",
+      {
+        preHandler: async (request) =>
+          authorize(request, input.triggerTokenSha256),
+      },
+      async (request, reply) => {
+        if (
+          request.body !== undefined ||
+          Object.keys(request.query as object).length
+        )
+          throw Object.assign(
+            new Error("release_witness_trigger_request_invalid"),
+            { statusCode: 400 },
+          );
+        return reply
+          .header("cache-control", "no-store")
+          .send(await input.attestResolutionWriters!.execute());
+      },
+    );
   app.post<{ Params: { jobId: string } }>(
     "/v1/runner-jobs/:jobId/cleanup-observation",
     {

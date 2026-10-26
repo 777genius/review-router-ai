@@ -4,6 +4,7 @@ import {
   reviewAgentExecutionProviderKind,
   selectReviewAgentProfile,
   selectProviderApiReviewAgentProfile,
+  selectModelDispatchReviewAgentProfile,
 } from "../domain/review-agent-profile";
 import { ReviewProviderKind } from "../domain/review-run-control-types";
 const profile = {
@@ -16,6 +17,89 @@ const profile = {
   cancellation: true,
 };
 describe("approved producer agent profiles", () => {
+  it("uses the exact trusted OCR default and preserves an explicit historical profile", () => {
+    const legacy = { ...profile, reviewSkillsVersion: 1 };
+    const ocr = {
+      ...legacy,
+      profileRef: "ocr-new",
+      agentKind: "ocr",
+      contextGateway: false,
+    };
+    const policy = {
+      agentProfiles: [legacy, ocr],
+      modelTransport: "account_gateway" as const,
+      preparedRouteDefaultRef: ocr.profileRef,
+      agenticContext: true,
+      reviewSkillsDelivery: false,
+    };
+    expect(selectModelDispatchReviewAgentProfile(policy)).toEqual(ocr);
+    expect(
+      selectModelDispatchReviewAgentProfile({
+        ...policy,
+        explicitAgentProfileRef: legacy.profileRef,
+      }),
+    ).toEqual(legacy);
+    expect(
+      selectModelDispatchReviewAgentProfile({
+        ...policy,
+        agenticContext: false,
+      }),
+    ).toEqual(legacy);
+    expect(() =>
+      selectModelDispatchReviewAgentProfile({
+        ...policy,
+        explicitAgentProfileRef: "missing",
+      }),
+    ).toThrow("review_agent_profile_unavailable");
+    expect(() =>
+      selectModelDispatchReviewAgentProfile({
+        ...policy,
+        preparedRouteDefaultRef: legacy.profileRef,
+      }),
+    ).toThrow("review_agent_profile_incompatible");
+    expect(() =>
+      selectModelDispatchReviewAgentProfile({
+        ...policy,
+        explicitAgentProfileRef: ocr.profileRef,
+        agenticContext: false,
+      }),
+    ).toThrow("review_agent_profile_incompatible");
+  });
+
+  it("requires captured-input delivery on new direct defaults and preserves supplied-diff selection", () => {
+    const legacy = {
+      ...profile,
+      modelTransports: ["provider_api"],
+      reviewSkillsVersion: 1,
+    };
+    const ocr = {
+      ...legacy,
+      profileRef: "ocr-direct",
+      agentKind: "ocr",
+      contextGateway: false,
+    };
+    const policy = {
+      agentProfiles: [legacy, ocr],
+      modelTransport: "provider_api" as const,
+      preparedRouteDefaultRef: ocr.profileRef,
+      agenticContext: true,
+      reviewSkillsDelivery: true,
+    };
+    expect(selectModelDispatchReviewAgentProfile(policy)).toEqual(ocr);
+    expect(
+      selectModelDispatchReviewAgentProfile({
+        ...policy,
+        agenticContext: false,
+      }),
+    ).toEqual(legacy);
+    expect(() =>
+      selectModelDispatchReviewAgentProfile({
+        ...policy,
+        agentProfiles: [{ ...ocr, reviewSkillsVersion: undefined }],
+      }),
+    ).toThrow();
+  });
+
   it("prefers the unique registered Skills producer while explicit legacy refs stay exact", () => {
     const legacy = {
       ...profile,
@@ -188,7 +272,7 @@ describe("approved producer agent profiles", () => {
       ReviewProviderKind.Ocr,
     );
   });
-  it("rejects OCR profiles that claim a context gateway or differ from the bootstrap's sole gateway transport", () => {
+  it("accepts registered direct OCR transports without granting a context gateway", () => {
     const ocr = {
       ...profile,
       profileRef: "approved-ocr",
@@ -198,11 +282,19 @@ describe("approved producer agent profiles", () => {
     };
     for (const row of [
       { ...ocr, contextGateway: true },
-      { ...ocr, modelTransports: ["provider_api"] },
-      { ...ocr, modelTransports: ["account_gateway", "provider_api"] },
-      { ...ocr, modelTransports: ["provider_api", "account_gateway"] },
+      { ...ocr, cancellation: false },
+      { ...ocr, modelTransports: ["arbitrary"] },
     ])
       expect(() => parseReviewAgentProfiles([row])).toThrow();
+    for (const modelTransports of [
+      ["provider_api"],
+      ["account_gateway", "provider_api"],
+      ["provider_api", "account_gateway"],
+    ])
+      expect(
+        parseReviewAgentProfiles([{ ...ocr, modelTransports }])[0]
+          ?.modelTransports,
+      ).toEqual(modelTransports);
   });
   it("keeps codex and claude bound to the context gateway contract", () => {
     for (const agentKind of ["codex", "claude"] as const) {
