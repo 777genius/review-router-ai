@@ -132,8 +132,10 @@ describe("public model catalog query", () => {
         </ProviderModelCatalogProvider>,
       );
       expect(api).not.toHaveBeenCalled();
-      expect(screen.getByText("Account access not checked.")).toBeTruthy();
-      expect(screen.getByRole("status").textContent).toContain("fresh");
+      expect(
+        screen.getByText("Access to these models has not been checked."),
+      ).toBeTruthy();
+      expect(screen.getByRole("status").textContent).toContain("up to date");
       fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
       await waitFor(() => expect(api).toHaveBeenCalledTimes(1));
       expect(api.mock.calls[0]?.[0]).toMatchObject({
@@ -147,7 +149,7 @@ describe("public model catalog query", () => {
       ]);
       await waitFor(() =>
         expect(screen.getByRole("status").textContent).toContain(
-          "refresh cooldown",
+          "Please wait before refreshing again",
         ),
       );
     },
@@ -167,9 +169,11 @@ describe("public model catalog query", () => {
       </ProviderModelCatalogProvider>,
     );
     expect(screen.getByRole("status").textContent).toContain(
-      "source unavailable",
+      "Could not update the model list",
     );
-    expect(screen.getByRole("status").textContent).toContain("refresh failed");
+    expect(screen.getByRole("status").textContent).toContain(
+      "Showing the last available model list",
+    );
     expect(api).not.toHaveBeenCalled();
   });
   it("revalidates stale initial data using its successful fetch time", async () => {
