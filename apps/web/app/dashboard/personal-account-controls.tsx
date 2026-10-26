@@ -784,6 +784,7 @@ function PersonalControls({
                       {...(account
                         ? {
                             profileLabel: account.profileLabel,
+                            provider: account.provider,
                             authKind: account.authKind,
                             connection: account.connection,
                           }

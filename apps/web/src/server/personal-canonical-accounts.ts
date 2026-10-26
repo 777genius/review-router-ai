@@ -312,6 +312,7 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         label: account.displayName,
         profileId: account.profileId,
         profileLabel: profileFor(account.profileId)!.label,
+        provider: profileFor(account.profileId)!.provider,
         authKind: profileFor(account.profileId)!.authKind,
         connection: profileFor(account.profileId)!.connection,
         state: account.state,
@@ -797,6 +798,7 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
                 label: source.displayName,
                 profileId: profile.id,
                 profileLabel: profile.label,
+                provider: profile.provider,
                 authKind: profile.authKind,
                 connection: profile.connection,
                 state:

@@ -1,3 +1,4 @@
+import type { ProviderIdentity } from "./provider-identity";
 import {
   decideProviderManagement,
   type ProviderManagementActor,
@@ -60,6 +61,7 @@ export type ProviderProfileOption = Readonly<{
   id: string;
   label: string;
   model: string;
+  providerId?: ProviderIdentity | undefined;
   authMode: ProviderAuthMode;
   credentialKind: ProviderCredentialKind;
   gatewayBindingId: string | null;
@@ -130,6 +132,7 @@ export type ProviderSetupFacts = Readonly<{
     id: string;
     label: string;
     model: string;
+    providerId?: ProviderIdentity | undefined;
     authMode: ProviderAuthMode;
     credentialKind: ProviderCredentialKind;
     createdByUserId: string | null;
@@ -231,6 +234,7 @@ export function buildProviderSetupView(
         id: profile.id,
         label: profile.label,
         model: profile.model,
+        ...(profile.providerId ? { providerId: profile.providerId } : {}),
         authMode: profile.authMode,
         credentialKind: profile.credentialKind,
         gatewayBindingId: profile.gatewayBindingId,

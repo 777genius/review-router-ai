@@ -1,3 +1,4 @@
+import type { ProviderIdentity } from "./provider-identity";
 import {
   decideProviderManagement,
   type ProviderManagementActor,
@@ -50,6 +51,7 @@ export type ProviderListRow = Readonly<{
   id: string;
   label: string;
   model: string;
+  providerId?: ProviderIdentity | undefined;
   authMode: ProviderAuthMode;
   credentialKind: ProviderCredentialKind;
   gatewayBindingId: string | null;
@@ -157,6 +159,7 @@ export function buildProviderListView(
       id: profile.id,
       label: profile.label,
       model: profile.model,
+      ...(profile.providerId ? { providerId: profile.providerId } : {}),
       authMode: profile.authMode,
       credentialKind: profile.credentialKind,
       gatewayBindingId: profile.gatewayBindingId,
