@@ -180,21 +180,29 @@ function captureSecretLeaks(page: Page, secrets: readonly string[]) {
     })().finally(() => pending.delete(reading));
     pending.add(reading);
   });
-  return async () => {
-    await Promise.all([...pending]);
-    expect(inspectedResponses).toBeGreaterThan(0);
-    const workDir = dirname(process.env.ACCOUNTS_REFERENCE_E2E_RESULT_JSON!);
-    for (const name of [
-      "next-app.log",
-      "gateway-requests.jsonl",
-      "runtime.json",
-      "boot-report.json",
-      "boot-viewer.html",
-    ]) {
-      inspect(name, await readFile(join(workDir, name), "utf8"));
-    }
-    // Report the channel only; never copy a secret into assertion diagnostics.
-    expect([...leakedChannels]).toEqual([]);
+  const drain = async () => {
+    // A body read can finish while another completed response is queued.
+    // Drain all of them before navigation can evict the previous document.
+    while (pending.size) await Promise.all([...pending]);
+  };
+  return {
+    drain,
+    verify: async () => {
+      await drain();
+      expect(inspectedResponses).toBeGreaterThan(0);
+      const workDir = dirname(process.env.ACCOUNTS_REFERENCE_E2E_RESULT_JSON!);
+      for (const name of [
+        "next-app.log",
+        "gateway-requests.jsonl",
+        "runtime.json",
+        "boot-report.json",
+        "boot-viewer.html",
+      ]) {
+        inspect(name, await readFile(join(workDir, name), "utf8"));
+      }
+      // Report the channel only; never copy a secret into assertion diagnostics.
+      expect([...leakedChannels]).toEqual([]);
+    },
   };
 }
 
@@ -372,10 +380,13 @@ test("API key storage connects all three accounts and returns to the same provid
   test.setTimeout(480_000);
   const violations: string[] = [];
   const secrets: string[] = [];
-  const verifySecretChannels = captureSecretLeaks(page, [
-    "synthetic-unsent-storage-switch-key",
-    ...providers.map((provider) => `synthetic-${provider.id}-subscription-key`),
-  ]);
+  const { drain: drainSecretResponses, verify: verifySecretChannels } =
+    captureSecretLeaks(page, [
+      "synthetic-unsent-storage-switch-key",
+      ...providers.map(
+        (provider) => `synthetic-${provider.id}-subscription-key`,
+      ),
+    ]);
   await useViewerSession(context);
   await installLoopbackOnlyNetworkGuard(page, violations);
   await page.addInitScript(() =>
@@ -386,6 +397,7 @@ test("API key storage connects all three accounts and returns to the same provid
       (row) => row.provider === provider.id,
     )!;
     const before = await savedProfiles();
+    await drainSecretResponses();
     const dialog = await beginProvider(page, provider.label);
     await (await expectStorage(dialog))
       .getByRole("radio", { name: /^ReviewRouter/ })
@@ -400,6 +412,7 @@ test("API key storage connects all three accounts and returns to the same provid
     const accountsHref = await connect.getAttribute("href");
     expect(accountsHref).toContain(`workspace=${workspace}`);
     expect(accountsHref).toContain(`keyProvider=${provider.id}`);
+    await drainSecretResponses();
     await accountsReady(page, () => connect.click());
     await page
       .getByRole("button", { name: "Connect account", exact: true })
@@ -421,6 +434,7 @@ test("API key storage connects all three accounts and returns to the same provid
       await choice.getByRole("radio", { name: /^GitHub Secrets/ }).check();
       await expect(enrollment.locator('input[type="password"]')).toHaveCount(0);
       await noSecrets(page, [erased]);
+      await drainSecretResponses();
       await enrollment
         .getByRole("link", { name: "Continue to provider setup", exact: true })
         .click();
@@ -430,6 +444,7 @@ test("API key storage connects all three accounts and returns to the same provid
           .getByRole("radio", { name: /^GitHub Secrets/ }),
       ).toBeChecked();
       expect(await savedProfiles()).toEqual(before);
+      await drainSecretResponses();
       await accountsReady(page, () => page.goto(accountsHref!));
       await page
         .getByRole("button", { name: "Connect account", exact: true })
@@ -465,6 +480,7 @@ test("API key storage connects all three accounts and returns to the same provid
       "href",
       new RegExp(`keyProvider=${provider.id}`),
     );
+    await drainSecretResponses();
     await back.click();
     const returned = page.getByRole("dialog");
     await expect(
