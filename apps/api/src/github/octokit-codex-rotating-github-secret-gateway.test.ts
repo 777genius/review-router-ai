@@ -221,7 +221,12 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
           workflowSha: "b".repeat(40),
           expectedProviderApiActionCommitSha: expectedSha,
         }),
-      ).resolves.toEqual({ compatible: scenario === "canonical" });
+      ).resolves.toEqual({
+        compatible: scenario === "canonical",
+        ...(scenario === "canonical"
+          ? { providerApiAuthMode: "openrouter-api" }
+          : {}),
+      });
       expect(mocks.request).toHaveBeenCalledWith(
         "GET /repos/{owner}/{repo}/contents/{path}",
         expect.objectContaining({ ref: "b".repeat(40) }),

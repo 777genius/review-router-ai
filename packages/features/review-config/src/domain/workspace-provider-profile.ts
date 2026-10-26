@@ -25,9 +25,13 @@ const credentialAuthModes = {
   managed_api_key: ["mimo_token_plan_api_key", "openrouter_api_key"],
   hosted_pool: ["codex_subscription_oauth_hosted_pool"],
   repository_rotating: ["codex_subscription_oauth_rotating"],
-  // A single OpenRouter provider runs over the provider API with the
-  // server-managed key, never with a repository secret of the user.
-  user_ci_secret: ["mimo_token_plan_api_key", "claude_code_oauth"],
+  // Fixed repository secrets are read only by the approved direct runtime.
+  user_ci_secret: [
+    "mimo_token_plan_api_key",
+    "claude_code_oauth",
+    "openrouter_api_key",
+    "kimi_code_api_key",
+  ],
 } as const satisfies Record<
   ProviderCredentialKind,
   readonly ProviderAuthMode[]
@@ -206,7 +210,16 @@ export function parseProviderProfileDraft(input: {
     input.label === undefined
       ? null
       : providerProfileLabelSchema.safeParse(input.label);
-  if (!credential.success || !model.success || label?.success === false)
+  if (
+    !credential.success ||
+    !model.success ||
+    label?.success === false ||
+    (credential.success &&
+      credential.data.kind === "user_ci_secret" &&
+      credential.data.authMode === "kimi_code_api_key" &&
+      model.success &&
+      model.data !== "k3-256k")
+  )
     throw new ProviderProfileError("provider_profile_invalid");
   return {
     credential: credential.data,
@@ -345,8 +358,15 @@ export function providerCredentialRequestFor(
         ? { kind: "managed_api_key", authMode: provider.authMode }
         : { kind: "user_ci_secret", authMode: provider.authMode };
     case "openrouter_api_key":
-      // Only the server-managed key delivers OpenRouter.
-      return { kind: "managed_api_key", authMode: provider.authMode };
+      return managedApiKeyServes(
+        target.managedApiKeys,
+        provider.authMode,
+        target.repositoryId,
+      )
+        ? { kind: "managed_api_key", authMode: provider.authMode }
+        : { kind: "user_ci_secret", authMode: provider.authMode };
+    case "kimi_code_api_key":
+      return { kind: "user_ci_secret", authMode: provider.authMode };
     case "claude_code_oauth":
       return { kind: "user_ci_secret", authMode: provider.authMode };
   }

@@ -8,9 +8,12 @@ import type {
   ProviderSecretSetupGuidance,
 } from "@reviewrouter/features-provider-setup";
 import {
+  apiKeyProviderForAuthMode,
+  getApiKeyProvider,
   getProviderAuthModeMetadata,
   type ProviderAuthMode,
 } from "@reviewrouter/features-review-providers";
+import type { UserCiSecretAuthMode } from "@reviewrouter/features-review-config/workspace-provider-profile";
 import { Badge, Button, Checkbox, CodeBlock } from "@reviewrouter/ui";
 import { providerSetupConfirmedEvent } from "../repository-setup-optimistic-events";
 import {
@@ -147,7 +150,7 @@ export function CiSecretDelivery({
 }: DeliveryRepository &
   Readonly<{
     repositoryVisibility: string;
-    authMode: "claude_code_oauth" | "mimo_token_plan_api_key";
+    authMode: UserCiSecretAuthMode;
     guidance: ProviderSecretSetupGuidance;
     organizationLogin: string | null;
     organizationSecretPolicy: OrganizationSecretPolicy | null;
@@ -796,7 +799,7 @@ function rotatingCommand(
 }
 
 function ciSecretDetails(
-  authMode: "claude_code_oauth" | "mimo_token_plan_api_key",
+  authMode: UserCiSecretAuthMode,
   repositoryFullName: string,
 ): Readonly<{
   title: string;
@@ -805,23 +808,26 @@ function ciSecretDetails(
   footnote: string;
   link: Readonly<{ label: string; url: string }> | null;
 }> {
-  return authMode === "claude_code_oauth"
-    ? {
-        title: "Add your Claude Code token",
-        body: `Reviews use your Claude Code subscription. Store its token as a GitHub Actions secret of ${repositoryFullName}.`,
-        prompt:
-          "Run claude setup-token first, then paste only the printed token when the command asks for it.",
-        footnote: "Do not paste an ANTHROPIC_API_KEY or Claude config files.",
-        link: null,
-      }
-    : {
-        title: "Add your MiMo Token Plan key",
-        body: `Reviews use your MiMo Token Plan. Store its API key as a GitHub Actions secret of ${repositoryFullName}.`,
-        prompt: "Paste the key when the command asks for it.",
-        footnote:
-          "Reviews use codex-mimo with mimo-v2.6-pro and never switch to another provider.",
-        link: null,
-      };
+  const provider = apiKeyProviderForAuthMode(authMode);
+  if (provider) {
+    const label = getApiKeyProvider(provider).label;
+    return {
+      title: `Add your ${label} key`,
+      body: `Store its API key as a GitHub Actions secret of ${repositoryFullName}.`,
+      prompt: "Paste the key when the command asks for it.",
+      footnote:
+        "The key stays in GitHub Secrets and is not sent to ReviewRouter.",
+      link: null,
+    };
+  }
+  return {
+    title: "Add your Claude Code token",
+    body: `Reviews use your Claude Code subscription. Store its token as a GitHub Actions secret of ${repositoryFullName}.`,
+    prompt:
+      "Run claude setup-token first, then paste only the printed token when the command asks for it.",
+    footnote: "Do not paste an ANTHROPIC_API_KEY or Claude config files.",
+    link: null,
+  };
 }
 
 /** The plain name of a key ReviewRouter saves for a managed provider. */

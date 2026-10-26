@@ -16,6 +16,9 @@ export const ACCOUNT_MODELS_FIXTURE_BOUNDARY =
 export const SUBSCRIPTION_FIXTURE_BOUNDARY =
   "Real browser and RR SSR/session/canonical actions/installed SDK over controlled Gateway capabilities/enrollment/limits; no live native/provider proof" as const;
 
+export const API_KEY_STORAGE_FIXTURE_BOUNDARY =
+  "Real browser/session/PostgreSQL provider creation, immutable replacement, and account continuation over controlled Gateway enrollment; no live provider or GitHub secret write" as const;
+
 export const LIMITS_FIXTURE_BOUNDARY =
   "Real browser and RR authorization/SSR over controlled Gateway cached-limits HTTP; no live native/provider quota proof" as const;
 
@@ -137,6 +140,7 @@ export type RuntimeDescriptor = {
   readonly fixtureBoundary:
     | typeof SKILLS_FIXTURE_BOUNDARY
     | typeof SUBSCRIPTION_FIXTURE_BOUNDARY
+    | typeof API_KEY_STORAGE_FIXTURE_BOUNDARY
     | typeof LIMITS_FIXTURE_BOUNDARY
     | typeof PROBE_FIXTURE_BOUNDARY
     | typeof ACCOUNT_MODELS_FIXTURE_BOUNDARY

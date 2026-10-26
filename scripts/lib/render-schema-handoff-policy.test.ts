@@ -35,8 +35,14 @@ const workspaceProviderProfilesMigrationName =
 const reviewSkillsMutationIdentityMigrationName =
   "000147_review_skills_mutation_identity";
 const lifecycleVerificationMigrationName = "000148_lifecycle_verification";
-const readReviewSkillsMutationIdentityCheckoutInventory = () =>
+const repositorySecretProfilesMigrationName =
+  "000149_api_key_repository_secret_profiles";
+const readLifecycleVerificationCheckoutInventory = () =>
   readRenderManagedCheckoutInventory().filter(
+    (row) => row.migrationName !== repositorySecretProfilesMigrationName,
+  );
+const readReviewSkillsMutationIdentityCheckoutInventory = () =>
+  readLifecycleVerificationCheckoutInventory().filter(
     (row) => row.migrationName !== lifecycleVerificationMigrationName,
   );
 const readReviewConfigurationProjectionCheckoutInventory = () =>
@@ -141,6 +147,7 @@ const canonicalPrismaMigrationNames =
       !renderReviewSkillsCheckoutExtension.some(
         (row) => row.migrationName === name,
       ) &&
+      name !== repositorySecretProfilesMigrationName &&
       name !== lifecycleVerificationMigrationName &&
       name !== reviewSkillsMutationIdentityMigrationName &&
       name !== reviewConfigurationProjectionMigrationName &&
@@ -513,8 +520,55 @@ const canonicalPrefix = (count: number) =>
   canonicalPrismaMigrationNames.slice(0, count);
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
-  it("admits only the exact lifecycle-verification150 checkout and preserves managed92", () => {
+  it("admits only the exact repository-secret-profiles151 checkout and preserves managed92", () => {
     const full = readRenderManagedCheckoutInventory();
+    expect(full).toHaveLength(151);
+    expect(full.at(-1)).toEqual({
+      migrationName: repositorySecretProfilesMigrationName,
+      checksum:
+        "1884b772c85adb0663fa3895307799b91f88133fb1941fc88aec1c56bd6e5579",
+    });
+    expect(
+      createHash("sha256")
+        .update(
+          full.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
+        )
+        .digest("hex"),
+    ).toBe("bde611c1eb4753d8d21f0f5ac2b97f2c93818aaf7fb48cc9181abe28aa708035");
+    expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
+    expect(
+      partitionRenderSchemaHandoffCheckout(
+        readLifecycleVerificationCheckoutInventory(),
+      ),
+    ).toEqual(catalog);
+    for (const changed of [
+      full.map((row) =>
+        row.migrationName === repositorySecretProfilesMigrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
+      full.map((row) =>
+        row.migrationName === repositorySecretProfilesMigrationName
+          ? { ...row, migrationName: "000149_relabelled" }
+          : row,
+      ),
+      full.map((row) =>
+        row.migrationName === lifecycleVerificationMigrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
+      full.filter(
+        (row) => row.migrationName !== lifecycleVerificationMigrationName,
+      ),
+      [...full, { migrationName: "000150_unknown", checksum: "0".repeat(64) }],
+      [...full, full.at(-1)!],
+      [...full].reverse(),
+    ])
+      expect(() => partitionRenderSchemaHandoffCheckout(changed)).toThrow();
+  });
+
+  it("admits only the exact lifecycle-verification150 checkout and preserves managed92", () => {
+    const full = readLifecycleVerificationCheckoutInventory();
     expect(full).toHaveLength(150);
     expect(full.at(-1)).toEqual({
       migrationName: lifecycleVerificationMigrationName,
@@ -2416,6 +2470,9 @@ describe("complete filesystem checkout inventory", () => {
       { recursive: true },
     );
     if (count !== undefined) {
+      rmSync(join(migrations, repositorySecretProfilesMigrationName), {
+        recursive: true,
+      });
       rmSync(join(migrations, lifecycleVerificationMigrationName), {
         recursive: true,
       });
@@ -2494,11 +2551,16 @@ describe("complete filesystem checkout inventory", () => {
     };
   }
 
-  it("reads current checkout150 through statistics146, main145, old125, historical124 and key-free123 as identical frozen92 rows", async () => {
+  it("reads current checkout151 through checkout150, statistics146, main145, old125, historical124 and key-free123 as identical frozen92 rows", async () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(150);
+    expect(inventory).toHaveLength(151);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, repositorySecretProfilesMigrationName), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(150);
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, lifecycleVerificationMigrationName), {
       recursive: true,
@@ -2890,7 +2952,7 @@ describe("complete filesystem checkout inventory", () => {
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
       // Only removing the current tail restores an independently admitted catalog.
-      if (name === lifecycleVerificationMigrationName)
+      if (name === repositorySecretProfilesMigrationName)
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);

@@ -1,6 +1,10 @@
 export { reviewRouterWorkflowContract } from "@reviewrouter/protocol-review-workflow";
 import type { ProviderKind } from "@reviewrouter/features-review-providers";
-import { isLoopbackHostname } from "@reviewrouter/shared";
+import {
+  isProviderApiAuthMode,
+  type ProviderApiAuthMode,
+  isLoopbackHostname,
+} from "@reviewrouter/shared";
 import {
   legacyReviewRouterWorkflowPath,
   managedCodexWorkflowPath,
@@ -181,6 +185,7 @@ export function readManagedReviewRouterCallerSource(source: string): {
   readonly runtimeRef: string;
   readonly controlPlaneUrl: string;
   readonly modelTransport: "account_gateway" | "provider_api";
+  readonly providerApiAuthMode?: ProviderApiAuthMode;
   readonly mcpSecrets?: ReviewRouterMcpSecrets;
 } {
   try {
@@ -206,7 +211,11 @@ export function readManagedReviewRouterCallerSource(source: string): {
     reviewRouterWorkflowContract.controlPlaneUrl;
   if (!runtimeRef || typeof controlPlaneUrl !== "string")
     throw new Error("review_workflow_source_not_canonical");
+  const providerApiAuthMode = job?.with?.provider_api_auth_mode;
+  if (!isProviderApiAuthMode(providerApiAuthMode))
+    throw new Error("review_workflow_source_not_canonical");
   const expected = renderReviewRouterProviderApiCaller({
+    providerApiAuthMode,
     runtimeRef,
     controlPlaneUrl,
   });
@@ -216,10 +225,12 @@ export function readManagedReviewRouterCallerSource(source: string): {
     runtimeRef,
     controlPlaneUrl: new URL(controlPlaneUrl).origin,
     modelTransport: "provider_api",
+    providerApiAuthMode,
   };
 }
 
 export function renderProviderApiWorkflow(options: {
+  readonly providerApiAuthMode?: ProviderApiAuthMode;
   readonly actionRef: string;
   readonly apiUrl: string;
 }): ReviewRouterWorkflowUpsertFile {
@@ -228,6 +239,9 @@ export function renderProviderApiWorkflow(options: {
   return {
     path: reviewRouterWorkflowContract.callerPath,
     content: renderReviewRouterProviderApiCaller({
+      ...(options.providerApiAuthMode
+        ? { providerApiAuthMode: options.providerApiAuthMode }
+        : {}),
       runtimeRef,
       controlPlaneUrl: options.apiUrl,
     }),
@@ -1230,6 +1244,14 @@ export function getWorkflowProviderContentMarkerGroups(input: {
   readonly providerKind: ProviderKind;
 }): readonly (readonly string[])[] {
   switch (input.providerKind) {
+    case "kimi":
+      return [
+        [
+          reviewRouterWorkflowContract.callerPath,
+          "KIMI_CODE_API_KEY",
+          "provider_api_auth_mode: kimi-code-api",
+        ],
+      ];
     case "claude":
       return [
         [reusableReviewWorkflowPath, "CLAUDE_CODE_OAUTH_TOKEN"],

@@ -1,3 +1,4 @@
+import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import { reviewRouterApiUrlsMatch } from "@reviewrouter/shared";
 import type { RepositoryWorkflowProbePort } from "@reviewrouter/features-repo-health";
 import type { ProviderKind } from "@reviewrouter/features-review-providers";
@@ -42,7 +43,7 @@ export type WorkflowSetupReadinessInput = {
   readonly actionRef: string;
   readonly codexSessionMode?: "account-gateway";
   readonly mcpSecrets?: ReviewRouterMcpSecrets;
-  readonly providerApiAuthMode?: "openrouter-api";
+  readonly providerApiAuthMode?: ProviderApiAuthMode;
   readonly providerKind?: ProviderKind;
   readonly discussionMode?: ReviewRouterDiscussionMode;
   readonly conflictReviewFallbackEnabled?: boolean;
@@ -107,7 +108,7 @@ export async function isWorkflowSetupAlreadyCurrent(
 
   if (
     input.codexSessionMode === "account-gateway" ||
-    input.providerApiAuthMode === "openrouter-api"
+    input.providerApiAuthMode !== undefined
   ) {
     if (input.codexSessionMode && input.providerApiAuthMode) return false;
     if (
@@ -125,8 +126,9 @@ export async function isWorkflowSetupAlreadyCurrent(
     let expected: ReturnType<typeof renderAccountGatewayWorkflow>;
     try {
       expected =
-        input.providerApiAuthMode === "openrouter-api"
+        input.providerApiAuthMode !== undefined
           ? renderProviderApiWorkflow({
+              providerApiAuthMode: input.providerApiAuthMode,
               actionRef: input.actionRef,
               apiUrl:
                 dependencies.resolvePublicApiUrl?.() ??
@@ -152,7 +154,7 @@ export async function isWorkflowSetupAlreadyCurrent(
       defaultBranch: input.defaultBranch,
       workflowPath: expected.path,
       expectedActionRef:
-        input.providerApiAuthMode === "openrouter-api"
+        input.providerApiAuthMode !== undefined
           ? `${reviewRouterWorkflowContract.runtimeRepository}/.github/workflows/reviewrouter-execution-reusable.yml@${readManagedReviewRouterCallerSource(expected.content).runtimeRef}`
           : `${reviewRouterWorkflowContract.runtimeRepository}/${reviewRouterWorkflowContract.runtimePath}@${readReviewRouterCallerSource(expected.content).runtimeRef}`,
       expectedContentValidator: (workflow) =>

@@ -17,6 +17,7 @@ import {
   ProviderSetupDialog,
   type ProviderSetupDialogProps,
 } from "./provider-setup-dialog";
+import { apiKeyProviders } from "@reviewrouter/features-review-providers";
 import { BulkProviderSetupAction } from "./repository-selection";
 import {
   RepositorySelectionCheckbox,
@@ -130,7 +131,10 @@ const repositoryTarget: ProviderSetupDialogProps["target"] = {
   },
 };
 
-function renderDialog(target: ProviderSetupDialogProps["target"]) {
+function renderDialog(
+  target: ProviderSetupDialogProps["target"],
+  props: Partial<ProviderSetupDialogProps> = {},
+) {
   render(
     <QueryClientProvider client={new QueryClient()}>
       <ProviderSetupDialog
@@ -141,6 +145,7 @@ function renderDialog(target: ProviderSetupDialogProps["target"]) {
         modelOptions={[]}
         gatewayAccounts={undefined}
         agentProfileOptions={[]}
+        {...props}
       />
     </QueryClientProvider>,
   );
@@ -154,6 +159,143 @@ async function choose(text: string | RegExp): Promise<void> {
 }
 
 describe("ProviderSetupDialog", () => {
+  it("requires an explicit correction of saved unsupported MiMo settings before unrelated edits can save", async () => {
+    const legacy = {
+      profileId: "mimo-existing",
+      reasoningEffort: "xhigh" as const,
+      fastMode: true,
+      agenticContext: true,
+      requiredHealthy: true,
+    };
+    view = {
+      ...view,
+      defaultSelection: null,
+      profiles: [
+        {
+          id: "mimo-existing",
+          label: "Saved MiMo",
+          model: "mimo-v2.6-pro",
+          authMode: "mimo_token_plan_api_key",
+          credentialKind: "user_ci_secret",
+          gatewayBindingId: null,
+          isDefault: false,
+          decision: { allowed: true },
+          refusedRepositoryCount: 0,
+        },
+      ],
+      repositories: [
+        { ...view.repositories[0]!, source: "repository", selection: legacy },
+      ],
+    };
+    renderDialog(repositoryTarget);
+    await screen.findByText("Saved MiMo");
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /^Read related files/ }),
+    );
+    const save = screen.getByRole("button", {
+      name: "Use for this repository",
+    });
+    expect(save).toHaveProperty("disabled", true);
+    fireEvent.click(save);
+    expect(saveProviderSetupAction).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(/The saved review depth or fast mode is not supported/),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("combobox", { name: /^Review depth/ }));
+    const high = await screen.findByRole("option", { name: /^High/ });
+    fireEvent.mouseMove(high);
+    fireEvent.click(high);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: /^Review depth/ }).textContent,
+      ).toContain("High"),
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: /^Fast mode/ }));
+    await waitFor(() => expect(save).toHaveProperty("disabled", false));
+    vi.mocked(saveProviderSetupAction).mockResolvedValueOnce({
+      status: "saved",
+      results: [
+        { repositoryId: "repo_1", fullName: "acme/widget", status: "applied" },
+      ],
+    });
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(saveProviderSetupAction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: { kind: "profile", profileId: "mimo-existing" },
+          settings: {
+            reasoningEffort: "high",
+            fastMode: false,
+            agenticContext: false,
+          },
+        }),
+      ),
+    );
+    expect(legacy).toMatchObject({
+      reasoningEffort: "xhigh",
+      fastMode: true,
+      agenticContext: true,
+    });
+  });
+  it.each(apiKeyProviders)(
+    "offers exactly two storage choices for $label and preserves the repository on account continuation",
+    async (provider) => {
+      view = {
+        ...view,
+        gatewayApiKeyProviders: apiKeyProviders.map((row) => row.id),
+        sources: [
+          {
+            key: "gateway_binding",
+            credentialKind: "gateway_binding",
+            authMode: "codex_account_gateway",
+            decision: { allowed: true },
+          },
+          ...apiKeyProviders.map((row) => ({
+            key: `user_ci_secret:${row.directAuthMode}` as const,
+            credentialKind: "user_ci_secret" as const,
+            authMode: row.directAuthMode,
+            decision: { allowed: true as const },
+          })),
+          {
+            key: "managed_api_key:openrouter_api_key",
+            credentialKind: "managed_api_key",
+            authMode: "openrouter_api_key",
+            decision: { allowed: true },
+          },
+        ],
+      };
+      renderDialog(repositoryTarget, {
+        initialIntent: {
+          provider: provider.id,
+          storage: "github_secrets",
+          workspaceId: "workspace_1",
+          repositoryIds: ["repo_1"],
+        },
+      });
+      const github = await screen.findByRole("radio", {
+        name: "GitHub Secrets",
+      });
+      expect(github.getAttribute("aria-checked")).toBe("true");
+      expect(
+        screen.getByRole("combobox", { name: "Provider" }).textContent,
+      ).toContain(provider.label);
+      expect(screen.queryByLabelText("API key")).toBeNull();
+      fireEvent.click(screen.getByRole("radio", { name: "ReviewRouter" }));
+      const link = screen.getByRole("link", {
+        name: "Connect account",
+      });
+      const url = new URL(link.getAttribute("href")!, "https://example.test");
+      expect(url.pathname).toBe("/dashboard/setup");
+      expect(url.searchParams.get("keyProvider")).toBe(provider.id);
+      expect(url.searchParams.getAll("keyRepository")).toEqual(["repo_1"]);
+      expect(
+        screen.getAllByRole("radio", {
+          name: /^(GitHub Secrets|ReviewRouter)$/,
+        }),
+      ).toHaveLength(2);
+      expect(saveProviderSetupAction).not.toHaveBeenCalled();
+    },
+  );
   it("shows the inherited workspace default as already chosen for a repository", async () => {
     renderDialog(repositoryTarget);
     const inherited = (
@@ -219,6 +361,48 @@ describe("ProviderSetupDialog", () => {
       }),
     );
     expect(saveProviderSetupAction).not.toHaveBeenCalled();
+  });
+
+  it("lets a repository request inheritance without editing legacy MiMo default settings", async () => {
+    const legacy = {
+      ...selection("profile_default"),
+      reasoningEffort: "xhigh" as const,
+      fastMode: true,
+    };
+    view = {
+      ...view,
+      defaultSelection: legacy,
+      profiles: [
+        {
+          ...claudeProfile("profile_default", "Team MiMo", true),
+          authMode: "mimo_token_plan_api_key",
+          model: "mimo-v2.6-pro",
+        },
+        claudeProfile("profile_other", "Second Claude"),
+      ],
+      repositories: [
+        {
+          ...view.repositories[0]!,
+          source: "repository",
+          selection: selection("profile_other"),
+        },
+      ],
+    };
+    renderDialog(repositoryTarget);
+    await choose("Workspace default: Team MiMo");
+    const inherit = screen.getByRole("button", {
+      name: "Use the workspace default",
+    });
+    expect(inherit).toHaveProperty("disabled", false);
+    fireEvent.click(inherit);
+    await waitFor(() =>
+      expect(inheritWorkspaceDefaultProviderAction).toHaveBeenCalledWith({
+        workspaceId: "workspace_1",
+        repositoryId: "repo_1",
+      }),
+    );
+    expect(saveProviderSetupAction).not.toHaveBeenCalled();
+    expect(view.defaultSelection).toEqual(legacy);
   });
 
   it("sets the workspace default and reports each repository of a bulk change", async () => {

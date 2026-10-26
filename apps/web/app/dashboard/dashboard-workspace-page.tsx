@@ -16,6 +16,10 @@ import {
   type GatewayAgentProfileOption,
 } from "../../src/server/gateway-agent-profile-options";
 import { AccountGatewayAccountsSection } from "./account-gateway-accounts-section";
+import { readApiKeySetupIntent } from "../../src/features/provider-setup/api-key-storage";
+import { ApiKeySetupReturn } from "./provider-setup/api-key-setup-return";
+import { apiKeyProviders } from "@reviewrouter/features-review-providers";
+import type { UserCiSecretAuthMode } from "@reviewrouter/features-review-config/workspace-provider-profile";
 import { ProviderModelCatalogProvider } from "./provider-model-catalog";
 import { GatewayModelAccountsProvider } from "./gateway-model-account-options";
 import {
@@ -167,6 +171,7 @@ import { ProviderList } from "./provider-setup/provider-list";
 import {
   ProviderSetupDialog,
   type ProviderSetupRepositoryContext,
+  type ProviderSetupDialogTarget,
 } from "./provider-setup/provider-setup-dialog";
 import { BulkProviderSetupAction } from "./provider-setup/repository-selection";
 import { RepositorySelectionProvider } from "./repository-action-selection";
@@ -1306,7 +1311,10 @@ export async function DashboardSectionContent({
       context.signedInActor,
     ),
     wantsProviderDialog ? getReviewModelOptions() : Promise.resolve([]),
-    wantsProviderDialog || selectedSection === "diagnostics"
+    wantsProviderDialog ||
+    selectedSection === "diagnostics" ||
+    (selectedSection === "setup" &&
+      readApiKeySetupIntent(params, selectedWorkspace.workspace.id) !== null)
       ? loadDashboardGatewayAccounts(selectedWorkspace.workspace.id, personal)
       : Promise.resolve(undefined),
     selectedSection === "repositories" || selectedSection === "policy"
@@ -1683,6 +1691,45 @@ export function WorkspaceCard({
     orgRuleset,
     hostedPool,
   } = data;
+  const keySetupIntent = readApiKeySetupIntent(params, workspace.id);
+  const continuationRepositories = keySetupIntent?.repositoryIds.map((id) =>
+    repositories.find(
+      (repository) =>
+        repository.id === id &&
+        repository.provider === "github" &&
+        repository.selected &&
+        !repository.archived,
+    ),
+  );
+  const keySetupTarget: ProviderSetupDialogTarget | null =
+    !keySetupIntent || selectedSection !== "providers"
+      ? null
+      : keySetupIntent.repositoryIds.length === 0
+        ? { kind: "workspace" }
+        : continuationRepositories?.some((repository) => !repository)
+          ? null
+          : continuationRepositories?.length === 1
+            ? {
+                kind: "repository",
+                repository: repositoryProviderContext({
+                  workspace,
+                  repository: continuationRepositories[0]!,
+                  summary: repositoryProviderSummary(
+                    data,
+                    continuationRepositories[0]!.id,
+                  ),
+                  allowOrganizationSecrets: hasWorkspaceWideAccess,
+                  canManageCredentials: mutationsEnabled,
+                  currentStep: "provider",
+                }),
+              }
+            : {
+                kind: "repositories",
+                repositories: continuationRepositories!.map((repository) => ({
+                  id: repository!.id,
+                  fullName: repository!.fullName,
+                })),
+              };
   // Setup intentionally does not request policy. Its absent projection says
   // nothing about saved policy and must never enter the policy creation flow.
   if (selectedSection === "setup")
@@ -1699,6 +1746,12 @@ export function WorkspaceCard({
           selectedSection={selectedSection}
         />
         <DashboardSectionHeader selectedSection="setup" />
+        {keySetupIntent ? (
+          <ApiKeySetupReturn
+            intent={keySetupIntent}
+            accounts={gatewayAccounts}
+          />
+        ) : null}
         <a
           className="inline-block text-sm text-cyan-200 underline"
           href={dashboardSectionHref("policy", workspaceKey)}
@@ -1708,6 +1761,7 @@ export function WorkspaceCard({
         <AccountGatewayAccountsSection
           workspaceId={workspace.id}
           workspaceName={workspace.name}
+          setupIntent={keySetupIntent ?? undefined}
         />
 
         {hasWorkspaceWideAccess ? (
@@ -1754,6 +1808,25 @@ export function WorkspaceCard({
           selectedSection={selectedSection}
         />
         <DashboardSectionHeader selectedSection="providers" />
+        {keySetupIntent && keySetupTarget ? (
+          <ProviderSetupDialog
+            workspaceId={workspace.id}
+            target={keySetupTarget}
+            mode={keySetupTarget.kind === "workspace" ? "add" : "choose"}
+            mutationsEnabled={mutationsEnabled}
+            modelOptions={modelOptions}
+            gatewayAccounts={gatewayAccounts}
+            agentProfileOptions={agentProfileOptions}
+            initialIntent={keySetupIntent}
+            initiallyOpen
+            triggerLabel="Continue provider setup"
+          />
+        ) : keySetupIntent ? (
+          <p role="status" className="text-sm text-amber-100">
+            Choose your repositories again in Repositories to continue provider
+            setup.
+          </p>
+        ) : null}
         {data.providerList ? (
           <ProviderList
             view={data.providerList}
@@ -3032,18 +3105,21 @@ function repositoryProviderContext(input: {
         }
       : null,
     secretGuidance: installation
-      ? {
-          claude_code_oauth: buildProviderSecretSetupGuidance({
-            provider: "claude_code_oauth",
-            repoFullName: repository.fullName,
-            organizationLogin,
-          }),
-          mimo_token_plan_api_key: buildProviderSecretSetupGuidance({
-            provider: "mimo_token_plan_api_key",
-            repoFullName: repository.fullName,
-            organizationLogin,
-          }),
-        }
+      ? Object.fromEntries(
+          (
+            [
+              "claude_code_oauth",
+              ...apiKeyProviders.map((provider) => provider.directAuthMode),
+            ] as UserCiSecretAuthMode[]
+          ).map((authMode) => [
+            authMode,
+            buildProviderSecretSetupGuidance({
+              provider: authMode,
+              repoFullName: repository.fullName,
+              organizationLogin,
+            }),
+          ]),
+        )
       : null,
     organizationLogin,
     organizationSecretPolicy:

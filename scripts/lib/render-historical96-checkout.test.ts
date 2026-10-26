@@ -44,6 +44,7 @@ const full = currentFull
       row.migrationName !== "000144_review_statistics" &&
       row.migrationName !== "000143_workspace_draft_review_setting" &&
       row.migrationName !== "000145_workspace_provider_profiles" &&
+      row.migrationName !== "000149_api_key_repository_secret_profiles" &&
       row.migrationName !== "000148_lifecycle_verification" &&
       row.migrationName !== "000147_review_skills_mutation_identity" &&
       row.migrationName !== "000146_drop_review_configuration_projection" &&
@@ -197,6 +198,7 @@ describe("trusted historical96 checkout reader", () => {
           row.migrationName !== "000144_review_statistics" &&
           row.migrationName !== "000143_workspace_draft_review_setting" &&
           row.migrationName !== "000145_workspace_provider_profiles" &&
+          row.migrationName !== "000149_api_key_repository_secret_profiles" &&
           row.migrationName !== "000148_lifecycle_verification" &&
           row.migrationName !== "000147_review_skills_mutation_identity" &&
           row.migrationName !== "000146_drop_review_configuration_projection" &&
@@ -223,6 +225,7 @@ describe("trusted historical96 checkout reader", () => {
           row.migrationName !== "000144_review_statistics" &&
           row.migrationName !== "000143_workspace_draft_review_setting" &&
           row.migrationName !== "000145_workspace_provider_profiles" &&
+          row.migrationName !== "000149_api_key_repository_secret_profiles" &&
           row.migrationName !== "000148_lifecycle_verification" &&
           row.migrationName !== "000147_review_skills_mutation_identity" &&
           row.migrationName !== "000146_drop_review_configuration_projection" &&

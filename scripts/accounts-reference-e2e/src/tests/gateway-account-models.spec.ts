@@ -142,7 +142,7 @@ test("dynamic Codex account models work in provider edit and add with exact bind
 
   await page.getByRole("button", { name: "Add provider", exact: true }).click();
   await expect(dialog).toBeVisible();
-  await choose(page, "Where the credential comes from", "Connected account");
+  await choose(page, "Provider", "Connected account");
   await choose(page, "Account", FIXTURES.sourceLabels.orgAlpha);
   const useDefault = dialog.getByRole("checkbox", {
     name: /Use as workspace default/,

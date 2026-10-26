@@ -496,9 +496,9 @@ function fixture(
         ...workspacePolicyFixture,
         providers: [
           {
-            kind: "codex-mimo",
-            authMode: "mimo_token_plan_api_key",
-            model: "mimo-v2.6-pro",
+            kind: "claude",
+            authMode: "claude_code_oauth",
+            model: "sonnet",
           },
         ],
       }),
@@ -509,8 +509,8 @@ function fixture(
       runtimeConfigMode: "oidc",
       conflictReviewFallbackEnabled: true,
       staticRuntimeEnv: {
-        REVIEW_AUTH_MODE: "mimo-token-plan-api",
-        REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+        REVIEW_AUTH_MODE: "claude-oauth",
+        REVIEW_PROVIDERS: "claude/sonnet",
       },
     });
   }
@@ -1534,9 +1534,9 @@ describe("hosted setup recovery composition", () => {
         ...workspacePolicyFixture,
         providers: [
           {
-            kind: "codex-mimo" as const,
-            authMode: "mimo_token_plan_api_key" as const,
-            model: "mimo-v2.6-pro",
+            kind: "claude" as const,
+            authMode: "claude_code_oauth" as const,
+            model: "sonnet",
           },
         ],
       });
@@ -1671,8 +1671,8 @@ describe("hosted setup recovery composition", () => {
         expect(f.state.current()).toEqual({
           ...before,
           status: "configured",
-          // The verified generic workflow delivers the MiMo CI secret.
-          installedWorkflowRequirement: "ci_secrets+codex-mimo",
+          // The verified generic workflow delivers the Claude CI secret.
+          installedWorkflowRequirement: "ci_secrets+claude",
           revision: 2,
         });
         expect(f.state.workflowProvisioning.updateMany).toHaveBeenCalledTimes(
@@ -2111,9 +2111,9 @@ describe("hosted setup recovery composition", () => {
           ...workspacePolicyFixture,
           providers: [
             {
-              kind: "codex-mimo",
-              authMode: "mimo_token_plan_api_key",
-              model: "mimo-v2.6-pro",
+              kind: "claude",
+              authMode: "claude_code_oauth",
+              model: "sonnet",
             },
           ],
         }),

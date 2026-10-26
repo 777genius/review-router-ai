@@ -173,6 +173,8 @@ export async function changeWorkspaceProviderProfileModel(
         },
       },
     });
+    if (credential.authMode === "kimi_code_api_key" && model.data !== "k3-256k")
+      throw new ProviderProfileError("provider_profile_invalid");
     await dependencies.validator.beforeTransaction({
       profile,
       model: model.data,

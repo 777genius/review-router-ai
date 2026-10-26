@@ -44,10 +44,25 @@ export const reviewProviderConfigurationSchema = z
   .discriminatedUnion("authMode", [
     reviewProviderSettingsSchema
       .extend({
-        authMode: providerAuthModeSchema.exclude(["codex_account_gateway"]),
+        authMode: providerAuthModeSchema.exclude([
+          "codex_account_gateway",
+          "kimi_code_api_key",
+        ]),
         gatewayBindingId: z.never().optional(),
         gatewayProfileRef: z.never().optional(),
         // Engine selection is only allowed on the Account Gateway row.
+        agentProfileRef: z.never().optional(),
+      })
+      .strict(),
+    reviewProviderSettingsSchema
+      .extend({
+        kind: z.literal("kimi"),
+        authMode: z.literal("kimi_code_api_key"),
+        model: z.literal("k3-256k"),
+        reasoningEffort: z.never().optional(),
+        fastMode: z.literal(false).default(false),
+        gatewayBindingId: z.never().optional(),
+        gatewayProfileRef: z.never().optional(),
         agentProfileRef: z.never().optional(),
       })
       .strict(),
@@ -77,6 +92,7 @@ export const reviewProviderConfigurationSchema = z
     }
     if (
       provider.authMode !== "codex_account_gateway" &&
+      provider.authMode !== "kimi_code_api_key" &&
       !codexModelSupportsReasoningEffort(
         provider.model,
         provider.reasoningEffort,
@@ -104,7 +120,8 @@ export const reviewProviderConfigurationSchema = z
   })
   .transform((provider) => {
     if (
-      provider.authMode === "codex_account_gateway" &&
+      (provider.authMode === "codex_account_gateway" ||
+        provider.authMode === "kimi_code_api_key") &&
       provider.reasoningEffort === undefined
     ) {
       delete provider.reasoningEffort;

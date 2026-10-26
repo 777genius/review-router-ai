@@ -10,6 +10,7 @@ import {
 } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 import { useContext } from "react";
+import { apiKeyProviders } from "@reviewrouter/features-review-providers";
 import {
   AccountLimitsLine,
   AccountLimitsReadContext,
@@ -82,6 +83,130 @@ let reserved: {
   close: ReturnType<typeof vi.fn<() => void>>;
   closed: boolean;
 };
+
+test.each(apiKeyProviders)(
+  "$label storage switch clears the key and continues in the selected workspace without enrollment",
+  async (provider) => {
+    const bootstrap = {
+      context,
+      page: {
+        status: "ok" as const,
+        value: {
+          accounts: [],
+          nextCursor: null,
+          profiles: [
+            {
+              id: `profile-${provider.id}`,
+              label: provider.label,
+              authKind: "api_key" as const,
+              provider: provider.directProviderKind,
+              protocol: "openai-responses" as const,
+              models: [provider.defaultModel],
+            },
+          ],
+        },
+      },
+    };
+    render(
+      <AccountGatewayControls
+        bootstrap={bootstrap}
+        connectOnly
+        workspaceId="workspace-selected"
+        setupIntent={{
+          provider: provider.id,
+          storage: "reviewrouter",
+          workspaceId: "workspace-selected",
+          repositoryIds: ["repo-kept"],
+        }}
+      />,
+    );
+    const input = await screen.findByLabelText("API key");
+    fireEvent.change(input, { target: { value: "synthetic-transient-key" } });
+    fireEvent.click(screen.getByRole("radio", { name: "GitHub Secrets" }));
+    expect(screen.queryByLabelText("API key")).toBeNull();
+    const link = screen.getByRole("link", {
+      name: "Continue to provider setup",
+    });
+    const url = new URL(link.getAttribute("href")!, "https://example.test");
+    expect(url.searchParams.get("workspace")).toBe("workspace-selected");
+    expect(url.searchParams.get("keyProvider")).toBe(provider.id);
+    expect(url.searchParams.getAll("keyRepository")).toEqual(["repo-kept"]);
+    expect(url.href).not.toContain("synthetic-transient-key");
+    fireEvent.click(screen.getByRole("radio", { name: "ReviewRouter" }));
+    expect(screen.getByLabelText("API key")).toHaveProperty("value", "");
+    expect(submitGatewayApiKey).not.toHaveBeenCalled();
+    expect(beginGatewayOAuth).not.toHaveBeenCalled();
+  },
+);
+
+test("non-inline account enrollment preserves a second-profile intent in its visible choice and submission", async () => {
+  const profiles = [
+    {
+      id: "profile-openrouter",
+      label: "OpenRouter",
+      authKind: "api_key" as const,
+      provider: "openrouter" as const,
+      protocol: "openai-responses" as const,
+      models: ["openai/model"],
+    },
+    {
+      id: "profile-mimo",
+      label: "MiMo",
+      authKind: "api_key" as const,
+      provider: "codex-mimo" as const,
+      protocol: "openai-responses" as const,
+      models: ["mimo-v2.6-pro"],
+      dedicatedBaseURL: "https://token-plan-sgp.xiaomimimo.com/v1",
+    },
+  ];
+  render(
+    <AccountGatewayControls
+      bootstrap={{
+        context,
+        page: {
+          status: "ok",
+          value: { profiles, accounts: [], nextCursor: null },
+        },
+      }}
+      workspaceId="workspace-selected"
+      setupIntent={{
+        provider: "mimo",
+        storage: "reviewrouter",
+        workspaceId: "workspace-selected",
+        repositoryIds: [],
+      }}
+    />,
+  );
+  fireEvent.keyDown(
+    await screen.findByRole("button", { name: "Add account" }),
+    { key: "ArrowDown" },
+  );
+  fireEvent.click(
+    await screen.findByRole("menuitem", { name: "Connect with API key" }),
+  );
+  const dialog = await screen.findByRole("dialog");
+  expect(
+    within(dialog).getByRole("combobox", { name: "Provider profile" })
+      .textContent,
+  ).toContain("MiMo");
+  fireEvent.change(within(dialog).getByLabelText("API key"), {
+    target: { value: "synthetic-intended-mimo-key" },
+  });
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Connect account" }),
+  );
+  await waitFor(() =>
+    expect(submitGatewayApiKey).toHaveBeenCalledWith(
+      context,
+      expect.objectContaining({
+        kind: "connect",
+        profileId: "profile-mimo",
+        baseURL: "https://token-plan-sgp.xiaomimimo.com/v1",
+      }),
+      "synthetic-intended-mimo-key",
+    ),
+  );
+});
 
 function safeOperation(
   nonce: string,

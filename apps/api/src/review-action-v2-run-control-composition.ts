@@ -1,3 +1,4 @@
+import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import type { RepositoryReleaseSelector } from "./review-action-v2-repository-release-selection";
 import {
   buildActionOidcReplayNonceKey,
@@ -76,7 +77,7 @@ export type ReviewActionV2ResolvedRevision = {
   readonly producerReleaseId: string;
   readonly producerActionCommitSha: string;
   readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
-  readonly providerApiAuthMode?: "openrouter-api";
+  readonly providerApiAuthMode?: ProviderApiAuthMode;
   readonly contextToolGithubSecrets?: Readonly<Record<string, string>>;
   readonly providerVoteLanes: readonly ProviderVoteLane[];
 };
@@ -166,6 +167,7 @@ export type ServerOwnedReviewActionV2AdmissionDependencies = {
       readonly expectedProviderApiActionCommitSha?: string;
     }): Promise<{
       readonly compatible: boolean;
+      readonly providerApiAuthMode?: ProviderApiAuthMode;
       readonly mcpSecrets?: Readonly<Record<string, string>>;
     }>;
   };
@@ -343,16 +345,19 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
       const pullRequestNumberHint =
         requestedIntent?.pullRequestNumber ??
         pullRequestNumberHintFromClaims(input.claims);
-      const {
-        actionCommitSha: producerActionCommitSha,
-        modelTransport,
-        providerApiAuthMode,
-      } = producerExecutionFromClaims(input.claims);
+      const { actionCommitSha: producerActionCommitSha, modelTransport } =
+        producerExecutionFromClaims(input.claims);
+      let providerApiAuthMode: ProviderApiAuthMode | undefined;
+      const canonicalDirectCaller =
+        modelTransport === "provider_api" &&
+        input.claims.workflow_ref.startsWith(
+          `${input.claims.repository}/${reviewRouterWorkflowContract.callerPath}@`,
+        );
       let contextToolGithubSecrets:
         | Readonly<Record<string, string>>
         | undefined;
       if (
-        !providerApiAuthMode &&
+        modelTransport === "account_gateway" &&
         input.claims.workflow_ref.startsWith(
           `${input.claims.repository}/${reviewRouterWorkflowContract.callerPath}@`,
         ) &&
@@ -373,7 +378,7 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
         if (source?.compatible && source.mcpSecrets)
           contextToolGithubSecrets = { ...source.mcpSecrets };
       }
-      if (providerApiAuthMode) {
+      if (canonicalDirectCaller) {
         const source =
           input.claims.workflow_sha && isCommitSha(input.claims.workflow_sha)
             ? await dependencies.providerApiSource?.verifyManagedV2SessionBootstrapSource(
@@ -388,12 +393,13 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
                 },
               )
             : undefined;
-        if (!source?.compatible)
+        if (!source?.compatible || !source.providerApiAuthMode)
           throw routeFailure(
             403,
             ReviewActionV2ProtocolErrorCode.Forbidden,
             "provider_api_workflow_source_not_canonical",
           );
+        providerApiAuthMode = source.providerApiAuthMode;
       }
       const revision = await dependencies.revisionResolver.resolve({
         workspaceId: input.repository.workspaceId,
@@ -584,7 +590,6 @@ function pullRequestNumberHintFromClaims(
 export function producerExecutionFromClaims(claims: GitHubActionsOidcClaims): {
   readonly actionCommitSha: string;
   readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
-  readonly providerApiAuthMode?: "openrouter-api";
 } {
   const actionCommitSha = claims.job_workflow_sha?.toLowerCase();
   const workflowRef = claims.job_workflow_ref
@@ -617,7 +622,6 @@ export function producerExecutionFromClaims(claims: GitHubActionsOidcClaims): {
       return {
         actionCommitSha,
         modelTransport: "provider_api",
-        providerApiAuthMode: "openrouter-api",
       };
     }
     if (
@@ -913,7 +917,7 @@ async function authorizeReviewRun(
         pullRequestNumber: success.authorization.pullRequestNumber,
         sourceRunId: success.authorization.sourceRunId,
         sourceRunAttempt: success.authorization.sourceRunAttempt,
-        ...(resolved.facts.providerApiAuthMode === "openrouter-api"
+        ...(resolved.facts.providerApiAuthMode !== undefined
           ? { workflowIdentityHash: success.authorization.workflowIdentityHash }
           : {}),
         baseSha: success.authorization.baseSha,

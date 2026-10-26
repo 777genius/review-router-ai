@@ -1,5 +1,6 @@
 import {
   mapConfigToRuntimeEnv,
+  providerApiConfigurationMode,
   parseReviewConfigurationStrict,
   type ReviewProviderConfiguration,
 } from "@reviewrouter/features-review-config";
@@ -7,6 +8,8 @@ import { describe, expect, it } from "vitest";
 import {
   comparableWorkflowRequirement,
   renderedWorkflowRequirement,
+  inspectRequiredWorkflowTransport,
+  inspectRequiredWorkflowRequirement,
   requiredWorkflowRequirement,
   requiredWorkflowTransport,
   verifiedWorkflowRequirement,
@@ -78,9 +81,9 @@ describe("workflow requirement", () => {
   it("tells CI-secret workflows of different secret providers apart", () => {
     // Both use GitHub secrets, but only the MiMo workflow forwards its key.
     expect(requiredWorkflowTransport(claude)).toBe("ci_secrets");
-    expect(requiredWorkflowTransport(mimo)).toBe("ci_secrets");
+    expect(requiredWorkflowTransport(mimo)).toBe("provider_api");
     expect(requiredWorkflowRequirement(claude)).toBe("ci_secrets+claude");
-    expect(requiredWorkflowRequirement(mimo)).toBe("ci_secrets+codex-mimo");
+    expect(requiredWorkflowRequirement(mimo)).toBe("provider_api+codex-mimo");
     expect(requiredWorkflowRequirement(hybridRotating)).toBe("rotating+claude");
   });
 
@@ -90,6 +93,7 @@ describe("workflow requirement", () => {
         renderedWorkflowRequirement(
           requiredWorkflowTransport(candidate),
           mapConfigToRuntimeEnv(candidate),
+          providerApiConfigurationMode(candidate),
         ),
       ).toBe(requiredWorkflowRequirement(candidate));
   });
@@ -157,3 +161,69 @@ describe("workflow requirement", () => {
     ).toBe("ci_secrets+codex-mimo");
   });
 });
+
+it("requires a different verified caller after changing direct provider, even on the same path", () => {
+  const kimi = config([
+    {
+      kind: "kimi",
+      authMode: "kimi_code_api_key",
+      model: "k3-256k",
+      agenticContext: true,
+      fastMode: false,
+      requiredHealthy: true,
+    },
+  ]);
+  expect(requiredWorkflowRequirement(kimi)).toBe("provider_api+kimi");
+  expect(requiredWorkflowRequirement(kimi)).not.toBe(
+    requiredWorkflowRequirement(mimo),
+  );
+  expect(
+    verifiedWorkflowRequirement({
+      managedTransport: "provider_api",
+      providerApiAuthMode: "mimo-token-plan-api",
+      codexWorkflow: null,
+      config: kimi,
+    }),
+  ).toBe("provider_api+codex-mimo");
+  expect(
+    verifiedWorkflowRequirement({
+      managedTransport: "provider_api",
+      codexWorkflow: null,
+      config: kimi,
+    }),
+  ).toBe("provider_api");
+});
+
+it.each([
+  {
+    kind: "codex-mimo",
+    authMode: "mimo_token_plan_api_key",
+    model: "mimo-v2.6-pro",
+    ...settings,
+  },
+  {
+    kind: "kimi",
+    authMode: "kimi_code_api_key",
+    model: "k3-256k",
+    agenticContext: true,
+    fastMode: false,
+    requiredHealthy: true,
+  },
+] as const)(
+  "keeps a saved $kind-first mixed policy readable without selecting a legacy workflow",
+  (provider) => {
+    const policy = config([provider, hybridRotating.providers[0]!]);
+    const before = structuredClone(policy);
+    const unsupported = {
+      status: "unsupported",
+      reason: "provider_api_direct_requires_single_provider",
+    };
+    expect(inspectRequiredWorkflowTransport(policy)).toEqual(unsupported);
+    expect(inspectRequiredWorkflowRequirement(policy)).toEqual(unsupported);
+    expect(() => requiredWorkflowTransport(policy)).toThrow(unsupported.reason);
+    expect(() => requiredWorkflowRequirement(policy)).toThrow(
+      unsupported.reason,
+    );
+    expect(policy).toEqual(before);
+  },
+);

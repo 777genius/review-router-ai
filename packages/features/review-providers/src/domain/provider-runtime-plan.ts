@@ -33,7 +33,17 @@ export type RuntimePlanProviderConfiguration = RuntimePlanProviderSettings &
         readonly gatewayProfileRef: string;
       }
     | {
-        readonly authMode: Exclude<ProviderAuthMode, "codex_account_gateway">;
+        readonly kind: "kimi";
+        readonly authMode: "kimi_code_api_key";
+        readonly reasoningEffort?: undefined;
+        readonly gatewayBindingId?: undefined;
+        readonly gatewayProfileRef?: undefined;
+      }
+    | {
+        readonly authMode: Exclude<
+          ProviderAuthMode,
+          "codex_account_gateway" | "kimi_code_api_key"
+        >;
         readonly reasoningEffort: RuntimePlanReasoningEffort;
         readonly gatewayBindingId?: undefined;
         readonly gatewayProfileRef?: undefined;
@@ -210,6 +220,7 @@ export function isCodexBackedProvider(
   provider: RuntimePlanProviderConfiguration,
 ): boolean {
   return (
+    provider.kind === "kimi" ||
     provider.kind === "openrouter" ||
     provider.kind === "codex-mimo" ||
     getProviderCatalogEntry(provider.kind).runtimeProviderPrefix.startsWith(
