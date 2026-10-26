@@ -272,7 +272,7 @@ describe("RepositorySetupProgressPanel", () => {
         .getAttribute("aria-current"),
     ).toBe("step");
     expect(screen.queryByText(/Connect model credentials/)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "I added the secret" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check GitHub setup" }));
 
     expect(
       await screen.findByText(

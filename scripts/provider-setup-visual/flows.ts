@@ -348,14 +348,14 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           ),
       );
 
-      // The user adds the secret on GitHub, then confirms it here.
+      // The user adds the secret on GitHub, then checks its availability here.
       await flow.env.writeGitHubState({
         repositorySecrets: [
           ...flow.seed.github.repositorySecrets,
           visualRepositorySecretKey(fullName, "CLAUDE_CODE_OAUTH_TOKEN"),
         ],
       });
-      await dialog.getByRole("button", { name: "I added the secret" }).click();
+      await dialog.getByRole("button", { name: "Check GitHub setup" }).click();
       await flow.check("the secret check passes against GitHub", async () => {
         await visible(
           dialog.getByText(`CLAUDE_CODE_OAUTH_TOKEN is set for ${fullName}.`),
