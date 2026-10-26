@@ -649,7 +649,8 @@ function RotatingProviderDeliveryPanel({
   const connected =
     !busy &&
     !suppressReadSuccess &&
-    !status.isFetching &&
+    status.isSuccess &&
+    status.fetchStatus === "idle" &&
     status.data === "available_repository";
   const command = commandState.status === "ready" ? commandState.value : null;
   const deadlinePassed = useCommandStartDeadline(command?.expiresAt ?? null);
@@ -820,7 +821,7 @@ function RotatingProviderDeliveryPanel({
                 ? "Setup needs to be checked again after the connection changes."
                 : status.isPending || status.isFetching
                   ? "Checking this repository's Codex setup..."
-                  : status.data === "missing"
+                  : status.isSuccess && status.data === "missing"
                     ? "This repository's Codex setup is not confirmed yet. If you already ran a command, finish the setup PR and check here."
                     : "The current setup status could not be checked. Use Check GitHub setup to try again."}
         </p>

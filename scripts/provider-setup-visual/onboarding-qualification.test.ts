@@ -20,6 +20,7 @@ function completeRun() {
         (shot, index) => `flows/${flow}--${index}-${shot}.png`,
       ),
       pageErrors: [] as string[],
+      blockedRequests: [] as string[],
     })),
     unavailableScreenshots: [] as string[],
     network: { githubUnhandled: [] as string[], blocked: [] as string[] },
@@ -47,6 +48,13 @@ describe("bounded onboarding qualification", () => {
     run.flows[0]!.pageErrors.push("render failed");
     run.flows[1]!.checks = [];
     expect(onboardingQualificationProblems(run)).toHaveLength(2);
+  });
+  it("rejects a browser request blocked outside the app even when server network is clean", () => {
+    const run = completeRun();
+    run.flows[2]!.blockedRequests.push("GET https://unexpected.example");
+    expect(onboardingQualificationProblems(run)).toEqual([
+      "flow-codex-repository-setup: unexpected browser network requests",
+    ]);
   });
   it("requires the actual screenshot files and every declared UI state", () => {
     const run = completeRun();

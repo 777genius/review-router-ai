@@ -26,6 +26,7 @@ export function onboardingQualificationProblems(
       checks: readonly Readonly<{ pass: boolean }>[];
       screenshots: readonly string[];
       pageErrors: readonly string[];
+      blockedRequests: readonly string[];
     }>[];
     unavailableScreenshots: readonly string[];
     network: Readonly<{
@@ -50,6 +51,8 @@ export function onboardingQualificationProblems(
     if (!flow.checks.length || flow.checks.some((check) => !check.pass))
       problems.push(`${id}: no passing checks or a failed check`);
     if (flow.pageErrors.length) problems.push(`${id}: browser runtime errors`);
+    if (flow.blockedRequests.length)
+      problems.push(`${id}: unexpected browser network requests`);
     for (const shot of shots)
       if (!flow.screenshots.some((file) => file.endsWith(`-${shot}.png`)))
         problems.push(`${id}: missing screenshot ${shot}`);

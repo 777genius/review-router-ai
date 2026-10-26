@@ -77,6 +77,7 @@ export type FlowRecord = Readonly<{
   checks: readonly FlowCheck[];
   screenshots: readonly string[];
   pageErrors: readonly string[];
+  blockedRequests: readonly string[];
   durationMs: number;
 }>;
 
@@ -106,6 +107,7 @@ class FlowRun {
   readonly checks: FlowCheck[] = [];
   readonly screenshots: string[] = [];
   readonly pageErrors: string[] = [];
+  readonly blockedRequests: string[] = [];
   private readonly pages: UserPage[] = [];
 
   constructor(
@@ -171,6 +173,7 @@ class FlowRun {
   async close(): Promise<void> {
     for (const userPage of this.pages) {
       this.pageErrors.push(...userPage.pageErrors);
+      this.blockedRequests.push(...userPage.blockedRequests);
       await userPage.context.close().catch(() => undefined);
     }
   }
@@ -201,6 +204,7 @@ export async function runFlows(
         checks: [],
         screenshots: [],
         pageErrors: [],
+        blockedRequests: [],
         durationMs: 0,
       });
       continue;
@@ -223,6 +227,8 @@ export async function runFlows(
     }
     if (!reason && run.pageErrors.length > 0)
       reason = `browser runtime errors: ${run.pageErrors.join("; ")}`;
+    if (!reason && run.blockedRequests.length > 0)
+      reason = `unexpected browser network requests: ${run.blockedRequests.join("; ")}`;
     const record: FlowRecord = {
       flow: flow.id,
       title: flow.title,
@@ -231,6 +237,7 @@ export async function runFlows(
       checks: run.checks,
       screenshots: run.screenshots,
       pageErrors: run.pageErrors,
+      blockedRequests: run.blockedRequests,
       durationMs: Date.now() - startedAt,
     };
     records.push(record);
@@ -434,6 +441,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       await flow.check("the ready repository remains usable on mobile", () =>
         assertNoHorizontalOverflow(page),
       );
+      await repositorySetupPanel(page, repositoryKey).scrollIntoViewIfNeeded();
       await flow.shot(page, "stepper-ready");
 
       await gotoDashboard(page, workspaceRoute("main", "providers"));
@@ -1229,6 +1237,9 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           await assertNoHorizontalOverflow(page);
         },
       );
+      await dialog
+        .getByText(/The start deadline has passed/)
+        .scrollIntoViewIfNeeded();
       await flow.shot(page, "codex-deadline-mobile");
       await dialog
         .getByRole("button", { name: "Get a fresh command", exact: true })
@@ -1258,6 +1269,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           expectEqual(recoveryIds.length, 0, "recovery requests");
         },
       );
+      await recover.scrollIntoViewIfNeeded();
       await flow.shot(page, "codex-recovery-mobile");
       await acknowledgement.check();
       await recover.click();
@@ -1315,6 +1327,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           await assertNoHorizontalOverflow(page);
         },
       );
+      await repositorySetupPanel(page, key).scrollIntoViewIfNeeded();
       await flow.shot(page, "codex-return-mobile");
     },
   },

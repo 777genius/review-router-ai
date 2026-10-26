@@ -1,5 +1,9 @@
 // @vitest-environment jsdom
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  onlineManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import {
   act,
   cleanup,
@@ -100,6 +104,7 @@ const connected = () =>
   screen.queryByText("Codex is connected for acme/widget.");
 
 beforeEach(() => {
+  onlineManager.setOnline(true);
   statusAction.mockReset();
   statusAction.mockResolvedValue({ status: "missing" });
   fetchMock = vi.fn<typeof fetch>().mockImplementation(async (url) => {
@@ -115,6 +120,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  onlineManager.setOnline(true);
   for (const client of clients.splice(0)) client.clear();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -143,6 +149,73 @@ it("opens and reopens with a fresh readiness read and no issuance or recovery", 
   view({}, first.client);
   expect(connected()).toBeNull();
   await screen.findByText(/This repository's Codex setup is not confirmed yet/);
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it.each(["reopen", "refetch"] as const)(
+  "does not treat cached availability as current success when a %s read rejects",
+  async (read) => {
+    statusAction.mockResolvedValue({ status: "available_repository" });
+    const rendered = view();
+    await screen.findByText("Codex is connected for acme/widget.");
+    const queryKey = providerSetupQueryKeys.secretStatus(
+      target.workspaceId,
+      target.repositoryId,
+      "codex_subscription_oauth_rotating",
+    );
+    statusAction.mockRejectedValue(new Error("READ_TRANSPORT_DETAIL"));
+    if (read === "reopen") {
+      rendered.unmount();
+      view({}, rendered.client);
+    } else {
+      await act(() =>
+        rendered.client.refetchQueries({ queryKey, exact: true }),
+      );
+    }
+    await screen.findByText(
+      "The current setup status could not be checked. Use Check GitHub setup to try again.",
+    );
+    // React Query deliberately retains the earlier data on a failed refetch.
+    expect(rendered.client.getQueryData(queryKey)).toBe("available_repository");
+    expect(rendered.client.getQueryState(queryKey)?.status).toBe("error");
+    expect(connected()).toBeNull();
+    expect(screen.queryByText("Setup verified")).toBeNull();
+    expect(screen.queryByText(/READ_TRANSPORT_DETAIL/)).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+    statusAction.mockResolvedValue({ status: "available_repository" });
+    fireEvent.click(screen.getByRole("button", { name: "Check GitHub setup" }));
+    await screen.findByText("Setup verified");
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([confirmUrl]);
+  },
+);
+
+it("does not show cached availability when the fresh read is paused offline", async () => {
+  statusAction.mockResolvedValue({ status: "available_repository" });
+  const rendered = view();
+  await screen.findByText("Codex is connected for acme/widget.");
+  const reads = statusAction.mock.calls.length;
+  rendered.unmount();
+  onlineManager.setOnline(false);
+  view({}, rendered.client);
+  await screen.findByText(
+    "The current setup status could not be checked. Use Check GitHub setup to try again.",
+  );
+  const queryKey = providerSetupQueryKeys.secretStatus(
+    target.workspaceId,
+    target.repositoryId,
+    "codex_subscription_oauth_rotating",
+  );
+  expect(rendered.client.getQueryState(queryKey)).toMatchObject({
+    data: "available_repository",
+    status: "success",
+    fetchStatus: "paused",
+  });
+  expect(connected()).toBeNull();
+  expect(statusAction).toHaveBeenCalledTimes(reads);
+  expect(fetchMock).not.toHaveBeenCalled();
+  await act(async () => onlineManager.setOnline(true));
+  await screen.findByText("Codex is connected for acme/widget.");
+  expect(statusAction.mock.calls.length).toBeGreaterThan(reads);
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
