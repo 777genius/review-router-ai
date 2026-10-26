@@ -290,3 +290,81 @@ it("preserves an omitted Codex account default and only corrects confirmed incom
     }),
   ).toBe(false);
 });
+
+it("keeps Gateway file reading an explicit engine choice when upstream tool metadata is none", () => {
+  const settings = {
+    reasoningEffort: "high" as const,
+    agenticContext: true,
+    fastMode: false,
+  };
+  const connection: AccountConnectionView = {
+    provider: "openrouter",
+    planLabel: "API",
+    regionLabel: "Global",
+    completionInputKind: "none",
+    personalOnly: false,
+    limitsContract: "none",
+    modelSettings: [
+      {
+        modelId: "tool-free-model",
+        reasoning: { allowed: ["high"], default: "high" },
+        fast: null,
+        tools: { allowed: ["none"], default: "none" },
+      },
+    ],
+  };
+  const onSettingsChange = vi.fn();
+  const props: ProviderModelFieldsProps = {
+    authMode: "codex_account_gateway",
+    model: "tool-free-model",
+    onModelChange: () => {},
+    modelOptions: [],
+    modelChoice: "list",
+    settings,
+    onSettingsChange,
+    connection,
+    agentProfileOptions: [],
+    disabled: false,
+  };
+  render(<ProviderModelFields {...props} />);
+  const control = screen.getByRole("checkbox", { name: /^Read related files/ });
+  expect(control).toHaveProperty("disabled", false);
+  expect(control).toHaveProperty("checked", true);
+  fireEvent.click(control);
+  expect(onSettingsChange).toHaveBeenCalledWith({
+    ...settings,
+    agenticContext: false,
+  });
+  expect(
+    fitProviderSelectionSettings({
+      ...props,
+      settings: { ...settings, agenticContext: false },
+    }).agenticContext,
+  ).toBe(false);
+  expect(fitProviderSelectionSettings(props).agenticContext).toBe(true);
+});
+
+it("closes model suggestions with Escape without closing the surrounding dialog", () => {
+  const onDialogKey = vi.fn();
+  render(
+    <div onKeyDown={onDialogKey}>
+      <ProviderModelFields
+        authMode="openrouter_api_key"
+        model="vendor/model"
+        onModelChange={() => {}}
+        modelOptions={[]}
+        modelChoice="catalog"
+        settings={{ agenticContext: true, fastMode: false }}
+        onSettingsChange={() => {}}
+        agentProfileOptions={[]}
+        disabled={false}
+      />
+    </div>,
+  );
+  const input = screen.getByLabelText("Model", { exact: true });
+  fireEvent.focus(input);
+  expect(screen.getByRole("listbox")).toBeTruthy();
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(screen.queryByRole("listbox")).toBeNull();
+  expect(onDialogKey).not.toHaveBeenCalled();
+});

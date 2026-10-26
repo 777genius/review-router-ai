@@ -600,9 +600,11 @@ function ProviderChoiceStep({
   const [draft, setDraft] = useState<DraftProvider>(
     () => startOf(initialChoice).draft,
   );
-  const [settings, setSettings] = useState<ProviderSelectionSettings | null>(
-    () => startOf(initialChoice).settings,
-  );
+  const [settingsDraft, setSettings] =
+    useState<ProviderSelectionSettings | null>(
+      () => startOf(initialChoice).settings,
+    );
+  const [settingsEdited, setSettingsEdited] = useState(false);
   // Adding from the list: preselected only while there is no default.
   const [makeDefault, setMakeDefault] = useState(
     adding && view.defaultSelection === null,
@@ -662,6 +664,23 @@ function ProviderChoiceStep({
     ? (gatewayAccount?.binding?.id ?? null)
     : (profile?.gatewayBindingId ?? null);
   const model = source ? draft.model : (profile?.model ?? "");
+  const hasStoredSettings =
+    choice?.kind === "default" ||
+    (choice?.kind === "profile" &&
+      (repositoryView?.selection?.profileId === choice.profileId ||
+        view.defaultSelection?.profileId === choice.profileId));
+  // Fresh usages derive defaults from the current exact model until the user
+  // tunes them. A late catalog response must not turn synthetic defaults into
+  // apparently saved, unsupported choices.
+  const settings =
+    !hasStoredSettings && !settingsEdited && authMode
+      ? defaultProviderSelectionSettings({
+          authMode,
+          model,
+          connection: gatewayProfile?.connection,
+          gatewayProfileRef: gatewayProfile?.id,
+        })
+      : settingsDraft;
   const sourceModelOptions: readonly ReviewModelOption[] = !source
     ? []
     : source.key === "gateway_binding"
@@ -693,7 +712,7 @@ function ProviderChoiceStep({
     (authMode !== "codex_account_gateway" ||
       gatewayProfile?.models.includes(model.trim()) === true);
   const settingsReady =
-    !source ||
+    hasStoredSettings ||
     (modelAvailable &&
       (authMode !== "codex_account_gateway" ||
         gatewayProfile?.connection?.modelSettings.some(
@@ -718,6 +737,7 @@ function ProviderChoiceStep({
     storage: ApiKeyStorage = "github_secrets",
   ): void {
     setChoice(next);
+    setSettingsEdited(false);
     setError(null);
     setNotice(null);
     setApiKeyProvider(
@@ -731,31 +751,7 @@ function ProviderChoiceStep({
     setKeyStorage(storage);
     const start = startOf(next);
     if (next.kind === "new") setDraft(start.draft);
-    const storedSelection =
-      next.kind === "default" ||
-      (next.kind === "profile" &&
-        (repositoryView?.selection?.profileId === next.profileId ||
-          view.defaultSelection?.profileId === next.profileId));
-    const chosenProfile =
-      next.kind === "profile"
-        ? view.profiles.find((candidate) => candidate.id === next.profileId)
-        : undefined;
-    const chosenAccount = gatewayPage?.accounts.find(
-      (account) => account.binding?.id === chosenProfile?.gatewayBindingId,
-    );
-    const chosenConnection = gatewayOptions.profileFor(chosenAccount);
-    setSettings(
-      !storedSelection &&
-        chosenProfile?.authMode === "codex_account_gateway" &&
-        chosenConnection?.connection
-        ? defaultProviderSelectionSettings({
-            authMode: chosenProfile.authMode,
-            model: chosenProfile.model,
-            connection: chosenConnection.connection,
-            gatewayProfileRef: chosenConnection.id,
-          })
-        : start.settings,
-    );
+    setSettings(start.settings);
   }
 
   function chooseApiKey(
@@ -773,6 +769,20 @@ function ProviderChoiceStep({
       provider,
       storage,
     );
+  }
+
+  function changeModel(next: string): void {
+    setDraft((current) => ({ ...current, model: next }));
+    if (settings && authMode)
+      setSettings(
+        fitProviderSelectionSettings({
+          authMode,
+          model: next,
+          settings,
+          connection: gatewayProfile?.connection,
+          gatewayProfileRef: gatewayProfile?.id,
+        }),
+      );
   }
 
   const unchanged =
@@ -794,12 +804,12 @@ function ProviderChoiceStep({
     (!adding || choice.kind === "new") &&
     decision?.allowed === true &&
     !draftIncomplete &&
-    (!source || (adding && !makeDefault) || settingsReady) &&
+    (hasStoredSettings || (adding && !makeDefault) || settingsReady) &&
     !(
       choice.kind !== "default" &&
       authMode &&
       settings &&
-      !source &&
+      !(adding && !makeDefault) &&
       providerSelectionSettingsNeedCorrection({
         authMode,
         model,
@@ -1246,6 +1256,7 @@ function ProviderChoiceStep({
                 const nextProfile = gatewayOptions.profileFor(account);
                 const models = nextProfile?.models ?? [];
                 const nextModel = models.length === 1 ? models[0]! : "";
+                setSettingsEdited(false);
                 setSettings(
                   defaultProviderSelectionSettings({
                     authMode: source.authMode,
@@ -1371,9 +1382,7 @@ function ProviderChoiceStep({
           {modelOnly ? (
             <ProviderModelPicker
               model={model}
-              onModelChange={(next) =>
-                setDraft((current) => ({ ...current, model: next }))
-              }
+              onModelChange={changeModel}
               modelOptions={sourceModelOptions}
               modelChoice={
                 source?.key === "gateway_binding" ? "list" : "catalog"
@@ -1387,30 +1396,18 @@ function ProviderChoiceStep({
               model={model}
               settingsReady={settingsReady}
               emptyListPlaceholder="No models available for this account"
-              onModelChange={
-                source
-                  ? (next) => {
-                      setDraft((current) => ({ ...current, model: next }));
-                      setSettings((current) =>
-                        current
-                          ? fitProviderSelectionSettings({
-                              authMode,
-                              model: next,
-                              settings: current,
-                              connection: gatewayProfile?.connection,
-                              gatewayProfileRef: gatewayProfile?.id,
-                            })
-                          : current,
-                      );
-                    }
-                  : null
-              }
+              onModelChange={source ? changeModel : null}
               modelOptions={sourceModelOptions}
               modelChoice={
                 source?.key === "gateway_binding" ? "list" : "catalog"
               }
               settings={settings}
-              onSettingsChange={setSettings}
+              hasSavedSettings={hasStoredSettings}
+              hasEditedSettings={settingsEdited}
+              onSettingsChange={(next) => {
+                setSettingsEdited(true);
+                setSettings(next);
+              }}
               connection={gatewayProfile?.connection}
               gatewayProfileRef={gatewayProfile?.id}
               agentProfileOptions={agentProfileOptions}
@@ -1419,6 +1416,30 @@ function ProviderChoiceStep({
               }
             />
           )}
+          {!modelOnly &&
+          authMode === "codex_account_gateway" &&
+          model.trim() &&
+          !settingsReady ? (
+            <div className="grid gap-2 text-sm text-slate-400">
+              <p role="status">
+                {gatewayOptions.loading
+                  ? "Loading review settings for this model…"
+                  : "Review settings are unavailable for this model. Refresh accounts or choose a different provider."}
+              </p>
+              {gatewayOptions.canRefresh ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-fit"
+                  disabled={gatewayOptions.loading}
+                  onClick={() => gatewayOptions.refresh()}
+                >
+                  Refresh accounts
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
           {authMode === "codex_account_gateway" && gatewayBindingId ? (
             <GatewayModelCatalogStatus
               account={resolvedGatewayAccount}

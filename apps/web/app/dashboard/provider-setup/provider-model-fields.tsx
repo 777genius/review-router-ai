@@ -173,6 +173,8 @@ export type ProviderModelFieldsProps = Readonly<{
   disabled: boolean;
   /** New selections wait for a chosen model and resolved capabilities. */
   settingsReady?: boolean;
+  hasSavedSettings?: boolean;
+  hasEditedSettings?: boolean;
   emptyListPlaceholder?: string | undefined;
 }>;
 
@@ -194,6 +196,8 @@ export function ProviderModelFields({
   agentProfileOptions,
   disabled,
   settingsReady = true,
+  hasSavedSettings,
+  hasEditedSettings = false,
   emptyListPlaceholder,
 }: ProviderModelFieldsProps): React.ReactElement {
   const tuning = providerHasReviewTuning(authMode);
@@ -202,10 +206,13 @@ export function ProviderModelFields({
     (row) => row.modelId === model,
   );
   const capabilitiesKnown = !gateway || qualifiedModel !== undefined;
-  const savedSelection = onModelChange === null;
+  const savedSelection = hasSavedSettings ?? onModelChange === null;
+  const explicitSelection = savedSelection || hasEditedSettings;
   const ready = settingsReady && model.trim().length > 0;
+  // Repository context is an execution-engine choice. Upstream tool-call
+  // metadata alone does not decide whether that engine can read related files.
   const relatedFilesSupported = gateway
-    ? qualifiedModel?.tools.allowed.some((mode) => mode !== "none") === true
+    ? capabilitiesKnown
     : tuning ||
       authMode === "openrouter_api_key" ||
       authMode === "kimi_code_api_key";
@@ -236,13 +243,13 @@ export function ProviderModelFields({
     tuning &&
     (!gateway ||
       qualifiedModel?.reasoning != null ||
-      (savedSelection && settings.reasoningEffort !== undefined));
+      (explicitSelection && settings.reasoningEffort !== undefined));
   const showFast =
     ready &&
     tuning &&
     ((capabilitiesKnown && fastSupported(authMode, model, connection)) ||
       (authMode === "mimo_token_plan_api_key" && settings.fastMode) ||
-      (gateway && savedSelection && settings.fastMode));
+      (gateway && explicitSelection && settings.fastMode));
   const needsCorrection = providerSelectionSettingsNeedCorrection({
     authMode,
     model,
@@ -310,7 +317,7 @@ export function ProviderModelFields({
               ? [
                   {
                     value: settings.reasoningEffort!,
-                    label: `${settings.reasoningEffort} (${savedDepthUnavailable ? "saved; refresh account to edit" : "saved, unsupported"})`,
+                    label: `${settings.reasoningEffort} (${savedDepthUnavailable ? "saved; refresh account to edit" : `${savedSelection ? "saved" : "selected"}, unsupported`})`,
                     disabled: true,
                   },
                 ]
@@ -376,7 +383,7 @@ export function ProviderModelFields({
               onChange={(fastMode) => update({ fastMode })}
               label="Fast mode"
               hint={
-                authMode === "mimo_token_plan_api_key"
+                capabilitiesKnown && !fastSupported(authMode, model, connection)
                   ? "Turn off fast mode to save these settings."
                   : "Shorter, quicker review passes."
               }
@@ -401,8 +408,8 @@ export function ProviderModelFields({
       ) : null}
       {ready && needsCorrection ? (
         <p role="status" className="text-sm text-amber-100 sm:col-span-2">
-          The saved review depth or fast mode is not supported. Choose an
-          available setting before saving.
+          The {savedSelection ? "saved" : "selected"} review depth or fast mode
+          is not supported. Choose an available setting before saving.
         </p>
       ) : null}
     </div>
@@ -558,6 +565,13 @@ function ProviderModelInput({
         .filter(Boolean)
         .join(" ")}
       onBlur={closeWhenFocusLeaves}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && open) {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen(false);
+        }
+      }}
     >
       <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
         Model
