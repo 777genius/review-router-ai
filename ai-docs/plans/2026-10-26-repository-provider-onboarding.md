@@ -1,7 +1,7 @@
 # Целостная настройка провайдера и репозитория
 
 Дата: 2026-10-26. База: `4c8f2804b5e53795ec8dd51d51d3b3b6c7d28188`.
-Статус: проект плана v1; реализация начинается после двух кругов критики.
+Статус: план v3 одобрен после двух кругов критики; разрешена реализация в описанных границах.
 Продолжение [исправления API-provider UX](2026-10-26-provider-settings-ux.md), PR #712.
 
 ## 1. Цель и критерий простоты
@@ -33,6 +33,7 @@
 6. Workspace save/default закрывает форму без понятного следующего шага; несколько подписей обещают начало ревью раньше подготовки репозитория.
 7. Claude использует правильный общий secret delivery, но последовательность «выполните команду / сначала получите токен» стоит разделить. Названия subscription-вариантов перегружены.
 8. Accounts отправляет выбирать подключения в Models, хотя Providers уже является каталогом профилей.
+9. Два optimistic consumer (`repository-setup-progress-panel` и `repository-setup-optimistic-status`) сейчас способны показать Ready после подтверждения секрета даже до merge workflow. Это относится к общей корректности onboarding и исправляется минимальным presentation guard.
 
 ## 4. Целевой пользовательский маршрут
 
@@ -46,8 +47,10 @@
 
 - При открытии читать существующий `useProviderSecretStatus` с rotating auth mode. Этот read уже проверяет exact readiness и не выдаёт команду. Не использовать `setup-recovery.status=ready` как доказательство подключения.
 - Показать проверенное подключение, отсутствие подтверждённой готовности или невозможность прочитать статус. `missing` не доказывает, что credential отсутствует: он может ждать merge.
+- Для rotating Codex при открытии получать актуальный read, не выдавать cached результат за новую проверку. Перед issuance/recovery сбрасывать старое confirmation/success, отменять или игнорировать начатый до мутации status-read. После ответа обновлять точный repository/auth-mode query и существующую серверную проекцию родителя. При потере ответа оставлять явный неизвестный исход; старый кеш не восстанавливает зелёный статус. Check, issue и recovery не выполняются одновременно.
 - **Check GitHub setup** доступен без issuance и вызывает существующий confirmation endpoint. Он проверяет workflow/credential activation, а не ответ модели. Успех использует существующие scoped events и query invalidation.
 - **Get setup command** вызывается только явным действием. Для уже подключённого состояния переподключение — вторичное явное действие с объяснением, что оно заменяет подключение и требует повторного завершения setup. Никаких мутаций при mount, refetch, смене tab, таймере или открытии деталей.
+- Последствие объясняется до нажатия: **сам запрос новой команды** может приостановить прежнее подключение, ещё до выполнения команды в терминале. Сетевой неизвестный исход не равен отсутствию серверной мутации. Повтор recovery сохраняет тип операции и request ID до определённого результата.
 - После выдачи показать команду, название репозитория и **Start this command by …** в локальном времени браузера. После deadline объяснить: не начинали — запросите новую; уже запущена — дайте ей закончить и продолжите setup. Не скрывать команду и не прерывать installer по клиентским часам.
 - Запрос новой команды остаётся ручным и проходит текущую серверную проверку. Не обещать продление: сервер может вернуть ту же действующую команду, ожидание или recovery_required.
 - Если пользователь уже выполнил команду, приоритет у возврата в repository setup и проверки после merge. Не создавать новый credential ради проверки.
@@ -60,14 +63,18 @@
 
 Если критики обнаружат обязательную потребность в stage-specific copy, использовать только уже разрешённый сервером setup stage; никогда не вычислять его по старому provider name. Identity открытого target и выбранный bulk-набор должны оставаться зафиксированными.
 
+Подтверждение credential может обновить его статус, но продвигает общий repository setup в Ready только когда workflow уже завершён. На `setup_pr`/`merge_setup_pr` оба существующих optimistic consumer сохраняют незавершённый workflow-шаг и запрашивают актуальные серверные данные. Применить один небольшой общий guard к текущему effective step, включая уже полученный merge event; не создавать вторую readiness-модель и не менять backend confirmation policy. Refresh с тем же исходным step не должен оставлять ложный зелёный статус.
+
 ### 4.4. Providers и Accounts
 
 - В Providers/default заменить обещание немедленного ревью точным описанием назначения профиля.
 - После workspace add/default — компактное подтверждение сохранения и ссылка **Finish repository setup**. Это результат существующего диалога, не новая страница/wizard. Один repository продолжает переходить в credential step; bulk сохраняет существующий result список.
+- При переходе к workspace-result перевести focus на его заголовок или основное действие. Закрытие использует обычный focus return общего Dialog. Ссылка к конкретному репозиторию вызывает настоящую навигацию/обновление серверного состояния, даже если URL совпал; простого скрытия устаревшего modal недостаточно.
 - В Provider picker: **Claude Code · GitHub Secrets**, **Codex · GitHub Secrets**. Поддерживаемые источники не меняются. Отдельная короткая подпись объясняет token для Claude и repository-only/automatic refresh для Codex. Не добавлять фиктивный выбор storage и не называть session «API key».
 - Claude: сначала получить token, затем выполнить подготовленную команду сохранения, затем проверить secret availability. API-key instructions используют те же общие компоненты.
 - Accounts cross-link ведёт в Providers с сохранением workspace. Существующий targeted API-key return остаётся приоритетным и сохраняет repositoryIds.
 - Если API-провайдеру разрешён только один storage, начальный выбор должен попадать в доступный вариант. Это локальная коррекция выбора, без изменения policy.
+- Явный разрешённый incoming storage intent сохраняется. Если оба варианта недоступны, показать причины и держать save disabled, не выбирать запрещённый источник автоматически.
 
 ## 5. Граница изменений и архитектура
 
@@ -75,7 +82,7 @@
 
 - `apps/web/app/dashboard/provider-setup/`: общий диалог, credential delivery, API adapter, результат сохранения и подписи списка.
 - `apps/web/src/features/provider-setup/`: маленькие существующие presentation helpers/labels при необходимости.
-- `dashboard-workspace-page.tsx`, `repository-setup-progress-panel.tsx`, section copy: согласованные ссылки и инструкции.
+- `dashboard-workspace-page.tsx`, `repository-setup-progress-panel.tsx`, `repository-setup-optimistic-status.tsx`, section copy: согласованные ссылки/инструкции и общий небольшой guard против ложного Ready до merge.
 - Существующие frontend/route tests и `scripts/provider-setup-visual`: узкие сценарии и снимки.
 - Этот план, протокол двух кругов критики и фактическая квалификация.
 
@@ -101,6 +108,8 @@
 6. Создание workspace profile/default сохраняет идентичность и указывает реальный следующий шаг; API-key branch и bulk остаются корректными.
 7. Настройка другого provider → Codex до setup PR не использует устаревшие инструкции; возврат открывает верный репозиторий.
 8. Сохранить проверки authz, repository-only, существующих manifest/recovery/readiness контрактов. Не расширять тесты всей системы без конкретного риска.
+9. Ready → explicit issue/recovery → not-ready/неизвестный сетевой исход + поздний pre-issue read: прежний Connected/Confirmed не возвращается; актуальная отдельная проверка может восстановить успех.
+10. API-key и Claude secret confirmation на `setup_pr`/`merge_setup_pr` не продвигает ни pill, ни панель, ни settings gate в Ready; повторный server refresh с тем же step не меняет этот результат. После настоящего merge/подходящего текущего шага успешное подтверждение продолжает работать.
 
 ### Браузер и визуальная проверка
 
@@ -108,9 +117,12 @@
 
 - Claude: repository row → provider choice → Add secret; missing не Ready; контролируемый secret найден → check → после reload сохранённое состояние корректно.
 - Workspace add/default → подтверждение → Repositories того же workspace; сохранение не объявляет неподготовленный workflow готовым.
-- Codex: настоящая repository UI, только существующие command/recovery endpoints перехватываются для детерминированных состояний; exact request counters, deadline через browser clock, retry/recovery, read-only reopen, verify without issue, scoped return. Это browser state acceptance, не симуляция доказанного live OAuth/rotation.
+- Codex: настоящая repository UI, существующие command/recovery endpoints перехватываются для детерминированных состояний; exact request counters, deadline через browser clock, retry/recovery, read-only reopen, verify without issue, scoped return. Confirmation на неподготовленном fixture проходит настоящий сервер и обязан отказать без ложного Ready. Синтетическая команда нефункциональна. Это browser state acceptance, не live OAuth/rotation.
+- Обычный seeded `providerSetupState=configured` недостаточен для rotating readiness. Позитивные Connected/Verify-success и stale-cache races квалифицируются отдельно в component tests с явно контролируемым status/confirm adapter; backend positive activation/readiness — существующими contract tests. Не выдавать синтетический optimistic success за end-to-end активацию. Не расширять seed до новой native lifecycle системы.
 - 6–8 значимых screenshots: 1440/390, светлая/тёмная темы; Codex initial/issued/deadline/recovery, Claude instructions, workspace next step и repository progress. Проверить overflow, длинную команду, scroll, focus/keyboard, loading/error/disabled.
 - Прогнать относящиеся к границе реальные server route/manifest/recovery tests отдельно. Нативная авторизация/rotation не меняются; не строить новый native fixture ради UI и не заявлять новое live-подключение без такого прогона.
+
+Обязательный run фиксирует точные flow IDs и проверяет **каждый required flow = pass, required skipped = 0, pageErrors.length = 0**; все required screenshots = captured, без suspect/failed. Нулевой выбранный набор или набор из одних skips не считается успехом. Проверить `network.githubUnhandled`/`network.blocked`; неожиданные запросы исправить или явно объяснить. Сохранить exact Git revision и dirty-delta provenance. Достаточна узкая проверка manifest результата, без переписывания harness. Для ограничений памяти параметры задаются самому дочернему Next: harness намеренно очищает внешние env, поэтому parent `NODE_OPTIONS` не является доказательством эффективного heap cap.
 
 Если среда ограничивает Next/PG, сначала использовать безопасно воспроизводимые собственные caches и последовательный запуск; не удалять чужие worktrees/evidence и не обходить проверки. Component preview может дать визуальное evidence, но не подменяет успешный app E2E. В итоговом отчёте точно разделить passed, blocked и controlled boundaries.
 
@@ -129,9 +141,11 @@
 
 ## 8. Протокол критики и квалификации
 
-- v1: карта текущих entrypoints и lifecycle проверена по исходникам; ожидает круг 1.
-- Круг 1: ожидает.
-- Круг 2: ожидает.
+- v1: карта текущих entrypoints и lifecycle проверена по исходникам, опубликована до реализации.
+- Круг 1: три независимые перспективы (UX/navigation, lifecycle, validation). Направление принято; P1 нет. Подтверждены и включены: общий guard от Ready до merge; сброс/перечитывание status после mutating issuance и неизвестного результата; честная граница Codex browser-positive; required-flow gate без skips; focus результата; доступный storage fallback. Все три критика поддержали удаление `rotatingPreparationOnly` вместо новой модели этапов.
+- v2: перечисленные замечания исправлены; передан на круг 2.
+- Круг 2: все три критика дали GO, оставшихся P1/P2 к плану нет. Подтверждены простота удаления preparation-only copy, неизменность серверной политики и достаточность разделённых qualification boundaries. Дополнительно принят обязательный `pageErrors.length=0` в узком result gate.
+- v3: план принят; реализация начинается после двух полных review rounds. PR #717 открыт, изменения пушатся по готовности.
 - Реализация, итоговое ревью и результаты: ожидают.
 
 ## 9. Опорные исходники
