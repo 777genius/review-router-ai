@@ -79,6 +79,7 @@ jobs:
     timeout-minutes: 15
     env:
       REVIEW_ROUTER_PG17_ADVERSARIAL_IMAGE: postgres:17.5-bookworm@sha256:fbcea1bd13b6a882cd6caa6b58db3ae5c102efe50ec625b3e2a5cbc50db5bfe4
+      REVIEW_ROUTER_PSQL_BINARY: /usr/lib/postgresql/17/bin/psql
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -111,6 +112,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - name: Install pnpm
         run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Install PostgreSQL client
+        uses: ./.github/actions/setup-postgresql-client
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - name: Generate Prisma client
@@ -434,6 +437,8 @@ jobs:
         run: pnpm format:check
 
       - name: Typecheck
+        env:
+          TURBO_CONCURRENCY: "2"
         run: pnpm typecheck
 
   quality:
@@ -583,6 +588,8 @@ jobs:
         run: pnpm spike:test
 
       - name: Build
+        env:
+          TURBO_CONCURRENCY: "2"
         run: pnpm build
 
       - name: Codex secret-write boundary
