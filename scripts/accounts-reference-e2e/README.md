@@ -286,8 +286,11 @@ Use `ACCOUNTS_REFERENCE_E2E_GREP='public catalogs'` and `--catalog-fixture`
 for the public catalog scenario. This opt-in mode enables the existing rotating
 OAuth feature flag and preloads a harness-only HTTP fixture for the two fixed
 public catalog URLs. The actual server composition, normalization and cache run
-unchanged. The browser verifies all three vendors, native IDs, manual refresh,
-cooldown, preserved selection, row removal and absence of automatic inference.
+unchanged. The browser uses the current Providers dialog to verify the available
+direct OpenRouter and Claude catalogs, native IDs, manual refresh, cooldown,
+preserved typed selection and absence of automatic inference. The separate
+account-model lane checks account-scoped Codex discovery. The Gateway scenario
+proves that public suggestions cannot become authorized account models.
 No provider credentials or external requests are needed.
 
 Subscription connections use `--subscription-fixture` with
@@ -326,3 +329,47 @@ selected account, saves its refreshed model, and adds the second account's
 model. This is an HTTP dependency fixture, not a live Codex/native proof.
 Use the existing explicit `--database-url` and `--browser-executable` options
 where PostgreSQL or a preinstalled Chromium is required.
+
+## Provider settings UX integration
+
+The provider setup scenarios use the real Providers add/edit/default controls,
+signed fixture sessions, PostgreSQL and the existing server actions. Run these
+two groups against separate fresh instances of the exact TEST database (the
+API-key enrollment fixture intentionally configures different MiMo profiles
+from the bounded connection-probe fixture):
+
+```bash
+ACCOUNTS_REFERENCE_E2E_GREP='API key storage|public catalogs refresh|dynamic Codex account models|provider settings geometry' \
+  node --import ./scripts/accounts-reference-e2e/node_modules/tsx/dist/loader.mjs \
+  scripts/accounts-reference-e2e/src/run.ts \
+  --repo-root "$PWD" --database-url "$ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL" \
+  --work-dir "$PWD/tmp/accounts-reference-e2e/runs/provider-settings" \
+  --api-key-storage-fixture --account-models-fixture --catalog-fixture
+
+ACCOUNTS_REFERENCE_E2E_GREP='Gateway connection test|public catalogs Gateway' \
+  node --import ./scripts/accounts-reference-e2e/node_modules/tsx/dist/loader.mjs \
+  scripts/accounts-reference-e2e/src/run.ts \
+  --repo-root "$PWD" --database-url "$ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL" \
+  --work-dir "$PWD/tmp/accounts-reference-e2e/runs/provider-probe" \
+  --probe-fixture --catalog-fixture
+```
+
+Coverage includes an empty initial choice, settings hidden until their inputs
+are selected, three API-key providers with two storage choices, account fields
+only for Gateway credentials, enrollment continuation and key erasure,
+unchanged profile identities when replacing storage, persisted OpenRouter/Kimi
+file-reading settings on usage selections, account-scoped model refresh and
+save validation, static catalog behavior, one explicit probe, cancellation,
+late-result isolation and denied cross-site/foreign requests.
+
+The account-model fixture supplies synthetic configured engine metadata through
+the existing environment seam so the real form contains both Review depth and
+Review engine. It does not register or execute a producer release. The browser
+records actual trigger top/height equality, light/dark desktop screenshots,
+390px mobile and 640px narrow-layout screenshots, overflow checks and keyboard
+operation. Screenshots and geometry JSON are under each run's
+`browser-artifacts/`. A narrow CSS viewport tests responsive layout; it is not
+reported as an actual browser zoom test.
+
+These are controlled dependency and real application checks. They do not spend
+live provider quota or claim live provider availability or full review execution.

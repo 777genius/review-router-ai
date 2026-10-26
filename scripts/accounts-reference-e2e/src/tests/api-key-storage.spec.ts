@@ -8,6 +8,10 @@ import { FIXTURES } from "../contracts.ts";
 import { withDatabase } from "../database.ts";
 import { apiKeyStorageProfiles } from "../subscription-fixture.ts";
 import {
+  chooseSetupOption as choose,
+  openNewProvider,
+} from "./provider-setup-support.ts";
+import {
   expectNetworkViolations,
   installLoopbackOnlyNetworkGuard,
   sourceRow,
@@ -67,39 +71,22 @@ async function savedProfiles(): Promise<Profile[]> {
   );
 }
 
-async function choose(page: Page, label: string, value: string) {
-  const control = page.getByRole("dialog").getByRole("combobox", {
-    name: label === "Account" ? /^Account\b/ : label,
-    exact: true,
-  });
-  // First request compiles the real Next route and reads its authorized view.
-  await expect(control).toBeVisible({ timeout: 60_000 });
-  await control.click();
-  await page.getByRole("option").filter({ hasText: value }).click();
+async function savedWorkspaceUsage(): Promise<Record<string, unknown>> {
+  return withDatabase(
+    process.env.ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL!,
+    async (db) => {
+      const result = await db.query<{ policyJson: string }>(
+        `SELECT v."policyJson" FROM "ReviewConfiguration" c JOIN "ReviewConfigurationVersion" v ON v."configurationId"=c.id WHERE c."workspaceId"=$1 AND c."repositoryId" IS NULL AND c.active ORDER BY v.version DESC LIMIT 1`,
+        [workspace],
+      );
+      expect(result.rows).toHaveLength(1);
+      return JSON.parse(result.rows[0]!.policyJson).providers[0];
+    },
+  );
 }
 
 async function beginProvider(page: Page, label: string) {
-  await page.goto(`/dashboard?section=providers&workspace=${workspace}`, {
-    waitUntil: "domcontentloaded",
-    timeout: 90_000,
-  });
-  await expect(page.locator("html")).toHaveAttribute(
-    "data-dashboard-layout-ready",
-    "true",
-  );
-  // Opening is reversible. Retry only an event that preceded streamed hydration
-  // or a development full reload; no save/enrollment operation is retried here.
-  await expect(async () => {
-    if (!(await page.getByRole("dialog").isVisible()))
-      await page
-        .getByRole("button", { name: "Add provider", exact: true })
-        .click();
-    await expect(
-      page
-        .getByRole("dialog")
-        .getByRole("combobox", { name: "Provider", exact: true }),
-    ).toBeVisible({ timeout: 1000 });
-  }).toPass({ timeout: 60_000 });
+  await openNewProvider(page, workspace);
   await choose(page, "Provider", label);
   return page.getByRole("dialog");
 }
@@ -202,6 +189,12 @@ test("API key storage creates all three GitHub profiles and preserves identity w
       .getByRole("checkbox", { name: /Use as workspace default/ })
       .focus();
     await expect(dialog.getByRole("listbox")).toHaveCount(0);
+    await expect(
+      dialog.getByRole("checkbox", { name: /Read related files/ }),
+    ).toBeChecked();
+    await expect(
+      dialog.getByRole("button", { name: "Test connection", exact: true }),
+    ).toHaveCount(0);
     if (provider.id === "kimi") {
       await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
       await expect(
@@ -268,6 +261,54 @@ test("API key storage creates all three GitHub profiles and preserves identity w
     (await savedProfiles()).find((profile) => profile.id === original.id),
   ).toEqual(original);
   expect(await savedProfiles()).toHaveLength(created.length);
+  await replacement
+    .getByRole("button", { name: "Close provider setup" })
+    .click();
+  // File reading belongs to the usage selection. Saving it must not rewrite
+  // the reusable model/credential profile or invent Kimi reasoning settings.
+  for (const profile of [created[0]!, created[2]!]) {
+    await page.goto(`/dashboard?section=providers&workspace=${workspace}`);
+    const savedRow = page
+      .getByText(profile.label, { exact: true })
+      .locator("xpath=ancestor::li");
+    await savedRow
+      .getByRole("button", { name: "Make default", exact: true })
+      .click();
+    const settings = page.getByRole("dialog");
+    await expect(
+      settings.getByRole("combobox", { name: /^Account\b/ }),
+    ).toHaveCount(0);
+    const related = settings.getByRole("checkbox", {
+      name: /Read related files/,
+    });
+    await expect(related).toBeChecked();
+    await related.uncheck();
+    await settings
+      .getByRole("button", { name: "Set as default", exact: true })
+      .click();
+    await expect(settings).toHaveCount(0);
+    await page.reload();
+    const usage = await savedWorkspaceUsage();
+    expect(usage).toMatchObject({
+      profileId: profile.id,
+      agenticContext: false,
+      fastMode: false,
+    });
+    if (profile.authMode === "openrouter_api_key")
+      expect(usage.reasoningEffort).toBe("xhigh");
+    else expect(usage).not.toHaveProperty("reasoningEffort");
+    expect(
+      (await savedProfiles()).find((value) => value.id === profile.id),
+    ).toEqual(profile);
+    const read = await page.request.get(
+      `/api/dashboard/provider-setup?workspace=${workspace}`,
+    );
+    expect(read.ok()).toBe(true);
+    expect((await read.json()).defaultSelection).toMatchObject({
+      profileId: profile.id,
+      agenticContext: false,
+    });
+  }
   await expectNetworkViolations(violations);
 });
 
@@ -293,6 +334,9 @@ test("API key storage connects all three accounts and returns to the same provid
     await (await expectStorage(dialog))
       .getByRole("radio", { name: /^ReviewRouter/ })
       .check();
+    await expect(
+      dialog.getByRole("heading", { name: "Model and review settings" }),
+    ).toHaveCount(0);
     const connect = dialog.getByRole("link", {
       name: "Connect account",
       exact: true,

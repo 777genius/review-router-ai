@@ -7,7 +7,10 @@ import { dirname, join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import pg from "pg";
-import { CODEX_MODEL_PROFILE } from "./account-models-fixture.ts";
+import {
+  CODEX_MODEL_PROFILE,
+  ACCOUNT_MODEL_UI_ATTESTATIONS,
+} from "./account-models-fixture.ts";
 import {
   FIXTURES,
   TEST_DATABASE_NAME,
@@ -340,6 +343,8 @@ export function applicationEnvironment(input: {
       ? {
           REVIEW_ROUTER_ACCOUNT_GATEWAY_CODEX_OAUTH_PROFILE_ID:
             "openai-codex-oauth-responses-v1",
+          REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON:
+            ACCOUNT_MODEL_UI_ATTESTATIONS,
         }
       : {}),
     ...(process.argv.includes("--limits-fixture")

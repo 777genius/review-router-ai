@@ -1,5 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
+  chooseSetupOption as select,
+  openNewProvider,
+} from "./provider-setup-support.ts";
+import {
   installLoopbackOnlyNetworkGuard,
   useViewerSession,
   useOtherSession,
@@ -7,6 +11,8 @@ import {
 import { FIXTURES } from "../contracts.ts";
 
 test.describe("Gateway connection test", () => {
+  test.setTimeout(180_000);
+  test.use({ actionTimeout: 60_000, navigationTimeout: 90_000 });
   test.skip(
     process.env.ACCOUNTS_REFERENCE_E2E_PROBE !== "1",
     "Requires the opt-in --probe-fixture harness.",
@@ -28,18 +34,10 @@ test.describe("Gateway connection test", () => {
       closes: number;
     };
   }
-  async function select(page: Page, label: string, option: string) {
-    await page.getByRole("combobox", { name: label, exact: true }).click();
-    await page.getByRole("option").filter({ hasText: option }).click();
-  }
   async function open(page: Page) {
-    await page.goto("/dashboard?section=policy&workspace=rr-e2e-org-alpha");
-    await select(page, "Provider", "MiMo");
-    await select(
-      page,
-      "Connection method",
-      "ReviewRouter / sub2api (encrypted)",
-    );
+    const dialog = await openNewProvider(page, FIXTURES.workspaces.orgAlpha);
+    await select(page, "Provider", "MiMo Token Plan");
+    await dialog.getByRole("radio", { name: /^ReviewRouter/ }).check();
     await select(page, "Account", "RR E2E Viewer Primary");
     await select(page, "Model", "rr-e2e-model");
     await expect(
@@ -54,17 +52,16 @@ test.describe("Gateway connection test", () => {
     await installLoopbackOnlyNetworkGuard(page, violations);
     await useViewerSession(context);
     await stats("ok");
-    await page.goto("/dashboard?section=policy&workspace=rr-e2e-org-alpha");
-    await select(page, "Provider", "MiMo");
-    await select(page, "Connection method", "GitHub Secrets");
+    const dialog = await openNewProvider(page, FIXTURES.workspaces.orgAlpha);
+    await select(page, "Provider", "MiMo Token Plan");
+    await dialog.getByRole("radio", { name: /^GitHub Secrets/ }).check();
     await expect(
       page.getByRole("button", { name: "Test connection", exact: true }),
     ).toHaveCount(0);
-    await select(
-      page,
-      "Connection method",
-      "ReviewRouter / sub2api (encrypted)",
-    );
+    await dialog.getByRole("radio", { name: /^ReviewRouter/ }).check();
+    await expect(
+      dialog.getByRole("combobox", { name: "Model", exact: true }),
+    ).toHaveCount(0);
     await select(page, "Account", "RR E2E Viewer Primary");
     await select(page, "Model", "rr-e2e-model");
     const before = await stats();
@@ -89,9 +86,7 @@ test.describe("Gateway connection test", () => {
       body: await page.screenshot(),
       contentType: "image/png",
     });
-    await expect(
-      page.getByText(/Connection successful · rr-e2e-model/),
-    ).toBeVisible();
+    await expect(page.getByText(/Model answered · rr-e2e-model/)).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Test connection", exact: true }),
     ).toBeEnabled();
@@ -109,7 +104,7 @@ test.describe("Gateway connection test", () => {
     );
     await page.setViewportSize({ width: 390, height: 844 });
     await page
-      .getByText(/Connection successful · rr-e2e-model/)
+      .getByText(/Model answered · rr-e2e-model/)
       .scrollIntoViewIfNeeded();
     expect(
       await page.evaluate(
@@ -137,11 +132,11 @@ test.describe("Gateway connection test", () => {
     await expect(
       page.getByRole("list", { name: "Connection test progress" }),
     ).toHaveCount(0);
-    await expect(page.getByText(/Connection successful/)).toHaveCount(0);
-    await expect(
-      page.getByRole("button", { name: "Test connection", exact: true }),
-    ).toBeDisabled();
-    await select(page, "Connection method", "GitHub Secrets");
+    await expect(page.getByText(/Model answered/)).toHaveCount(0);
+    // This account has one authorized model; selecting it chooses that model
+    // without automatically dispatching inference or retaining the old result.
+    expect((await stats()).requests).toBe(changing.requests + 1);
+    await dialog.getByRole("radio", { name: /^GitHub Secrets/ }).check();
     await expect(
       page.getByRole("button", { name: "Test connection", exact: true }),
     ).toHaveCount(0);
@@ -162,7 +157,7 @@ test.describe("Gateway connection test", () => {
         .getByRole("alert")
         .filter({ hasText: "did not return a complete text response" }),
     ).toBeVisible();
-    await expect(page.getByText(/Connection successful/)).toHaveCount(0);
+    await expect(page.getByText(/Model answered/)).toHaveCount(0);
     await stats("slow");
     const before = await stats();
     const sent = page.waitForRequest(
