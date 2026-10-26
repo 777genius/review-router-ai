@@ -3966,6 +3966,31 @@ function processIsAlive(pid: number): boolean {
   }
 }
 
+function processFailureDiagnostic(pid: number): string {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    // The parenthesized command may contain spaces and closing parentheses.
+    // Read only the following state and PPID; never expose command or argv.
+    const fields = stat
+      .slice(stat.lastIndexOf(")") + 1)
+      .trim()
+      .split(/\s+/u);
+    const state = /^[RSDZTtXxKWPI]$/u.test(fields[0] ?? "")
+      ? fields[0]
+      : "other";
+    const parentPid = /^\d+$/u.test(fields[1] ?? "")
+      ? Number(fields[1])
+      : Number.NaN;
+    const ppid =
+      Number.isSafeInteger(parentPid) && parentPid >= 0
+        ? String(parentPid)
+        : "other";
+    return `state=${state}:ppid=${ppid}`;
+  } catch {
+    return "state=unavailable:ppid=unavailable";
+  }
+}
+
 async function waitForFileContents(
   path: string,
   timeoutMs: number,
@@ -3986,7 +4011,11 @@ async function expectProcessToExit(pid: number): Promise<void> {
     if (!processIsAlive(pid)) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error(`process_still_alive:${pid}`);
+  // A zombie still fails the existing strict assertion, but is distinguishable
+  // from a running descendant on runners whose PID 1 has not reaped it.
+  throw new Error(
+    `process_still_alive:${pid}:${processFailureDiagnostic(pid)}`,
+  );
 }
 
 describe("default-off certified fork Action ingress", () => {
