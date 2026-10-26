@@ -52,7 +52,8 @@ passing suite with zero skipped tests, preserving its result artifact.
    lease and attempt, with one lease row and no second budget charge.
 3. A new acquire command carrying the old manifest returns `input_stale` before
    charging an attempt. The next attempt ordinal stays unchanged and no lease
-   is added.
+   is added. The database clock read after rejection proves the receipt has not
+   expired, so expiry cannot mask a missing retirement fence.
 4. The test driver calls the actual Action session's `discard` method and
    invocation adapter to rebuild the prompt and manifest at that same remaining
    ordinal. The new manifest has no memory hash and a different invocation key.

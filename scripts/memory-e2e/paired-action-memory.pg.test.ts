@@ -108,6 +108,11 @@ const hash = (value: string) =>
         githubUserId: null,
         login: null,
       };
+      const approval = {
+        actor,
+        approvedAt: now.toISOString(),
+        authorityRevision: "synthetic-owner-approval-v1",
+      };
       const metadata: MemoryKnowledgeEntryMetadata = {
         ref,
         generation,
@@ -117,11 +122,7 @@ const hash = (value: string) =>
         topicsDigest: memoryKnowledgeTopicsDigest([]),
         kind: "rule",
         lifecycle: "active",
-        approval: {
-          actor,
-          approvedAt: now.toISOString(),
-          authorityRevision: "synthetic-owner-approval-v1",
-        },
+        approval,
         source: {
           type: "manual",
           sourceId: "synthetic-approved-statement",
@@ -460,7 +461,7 @@ const hash = (value: string) =>
         expectedRevision: "1",
         generation,
         providerProfileVersion: runtime.providerProfileVersion,
-        approval: metadata.approval,
+        approval,
       };
       await store.admit({
         command: retire,
@@ -487,6 +488,16 @@ const hash = (value: string) =>
         releaseRequestId: hash("paired-release-1"),
         idempotencyKey: hash("paired-release-1"),
       });
+      const slotBeforeRejection =
+        await fixture.prisma.reviewExecutionWorkSlotV2.findUniqueOrThrow({
+          where: {
+            executionId_workSlotId: {
+              executionId: execution.executionId,
+              workSlotId: workSlot.workSlotId,
+            },
+          },
+        });
+      expect(slotBeforeRejection.nextAttemptOrdinal).toBe(2);
 
       const stale = await controlPlane.acquireInvocationLease({
         ...acquire,
@@ -494,6 +505,16 @@ const hash = (value: string) =>
         idempotencyKey: hash("paired-acquire-2-stale"),
       });
       expect(stale.status).toBe("input_stale");
+      // Prove retirement caused the rejection rather than an expired receipt.
+      // Reading the real server clock after the response also proves freshness
+      // throughout the preceding admission call, even on a slow runner.
+      const [afterRejection] = await fixture.prisma.$queryRaw<
+        { now: Date }[]
+      >`SELECT clock_timestamp() AS "now"`;
+      expect(afterRejection).toBeDefined();
+      expect(storedReceipt.expiresAt.getTime()).toBeGreaterThan(
+        afterRejection!.now.getTime(),
+      );
       const slotAfterRejection =
         await fixture.prisma.reviewExecutionWorkSlotV2.findUniqueOrThrow({
           where: {
@@ -503,7 +524,9 @@ const hash = (value: string) =>
             },
           },
         });
-      expect(slotAfterRejection.nextAttemptOrdinal).toBe(2);
+      expect(slotAfterRejection.nextAttemptOrdinal).toBe(
+        slotBeforeRejection.nextAttemptOrdinal,
+      );
       expect(
         await fixture.prisma.reviewInvocationLeaseV2.count({
           where: { executionId: execution.executionId },
