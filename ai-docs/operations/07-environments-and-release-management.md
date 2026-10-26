@@ -809,6 +809,27 @@ Dispatch recovery is deliberately asymmetric:
   production defaults are 5 minutes and 30 minutes respectively, allowing normal
   hosted-runner queue delay without treating it as an unknown POST outcome.
 
+### Superseded unadmitted Actions cleanup
+
+Superseding a submitted, unadmitted request also writes
+`review.requested_dispatch_cleanup@v1` in the same database transaction. The
+worker resolves the original request identity, validates the current Actions
+attempt and workflow path, requests cancellation, and marks the event processed
+only after terminal readback. Admitted providers keep their existing drain
+contract. Dispatch deadlines retain their original meaning; an absent lookup
+never proves that an in-flight dispatch POST had no effect.
+
+This change needs no schema or public Action upgrade. Deploy the API and worker
+as one coherent batch, with an enabled new worker available to consume cleanup.
+Old workers do not own the new event type and leave it pending. New workers
+register the event as known even when review processing is disabled. Retry failures use the existing
+bounded outbox backoff (20 attempts); exhaustion retains a dead letter and the
+request for operator reconciliation. After confirming the exact request/run,
+retry that dead letter through the existing outbox recovery flow. Never treat
+an unresolved dead letter as successful cancellation or replay the dispatch POST.
+Previously superseded requests have no new event retroactively; reconcile those
+separately using their retained request/run identities.
+
 Rollback before step 8 disables ingress first and drains persisted intents through
 the still-enabled worker. After intent-required admission or v2 mutation authority
 is active, pause the cohort and reconcile state; never route those runs back to an

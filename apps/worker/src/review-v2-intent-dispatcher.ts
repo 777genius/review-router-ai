@@ -9,6 +9,7 @@ import {
   ReviewRequestedDispatchLookupStatus,
   ReviewRequestedDispatchRunStatus,
   ReviewRequestedDispatchSubmissionStatus,
+  ReviewRequestedIntentState,
 } from "@reviewrouter/features-review-executions";
 import type { createPrismaClient } from "@reviewrouter/platform-db";
 
@@ -98,7 +99,7 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
       installationId(target.githubInstallationId),
     );
     const response = await octokit.request(
-      "GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{attempt_number}",
+      "GET /repos/{owner}/{repo}/actions/runs/{run_id}",
       {
         owner: target.owner,
         repo: target.repo,
@@ -106,18 +107,19 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
           input.intent.sourceRunId,
           "review_requested_inspection_run_missing",
         ),
-        attempt_number: Number(
-          requiredRunIdentity(
-            input.intent.sourceRunAttempt,
-            "review_requested_inspection_attempt_missing",
-          ),
-        ),
         headers: { "X-GitHub-Api-Version": "2026-03-10" },
       },
     );
-    const run = parseInspectionResponse(response.data, input.intent);
+    const run = parseInspectionResponse(
+      response.data,
+      input.intent,
+      this.workflowPath,
+    );
     if (!run.completed) {
       return { status: ReviewRequestedDispatchRunStatus.Pending };
+    }
+    if (input.intent.state === ReviewRequestedIntentState.Superseded) {
+      return { status: ReviewRequestedDispatchRunStatus.TerminalStaleRevision };
     }
     const pullRequest = await octokit.request(
       "GET /repos/{owner}/{repo}/pulls/{pull_number}",
@@ -138,6 +140,26 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
     const octokit = await this.installations.forInstallation(
       installationId(target.githubInstallationId),
     );
+    // Cancellation addresses a run, not an attempt. Read the CURRENT attempt
+    // immediately before the effect and reject a rerun visible at this boundary.
+    const current = await octokit.request(
+      "GET /repos/{owner}/{repo}/actions/runs/{run_id}",
+      {
+        owner: target.owner,
+        repo: target.repo,
+        run_id: requiredRunIdentity(
+          input.intent.sourceRunId,
+          "review_requested_cancellation_run_missing",
+        ),
+        headers: { "X-GitHub-Api-Version": "2026-03-10" },
+      },
+    );
+    const inspected = parseInspectionResponse(
+      current.data,
+      input.intent,
+      this.workflowPath,
+    );
+    if (inspected.completed) return;
     await octokit.request(
       "POST /repos/{owner}/{repo}/actions/runs/{run_id}/cancel",
       {
@@ -382,6 +404,7 @@ function parseWorkflowRunsPage(
 function parseInspectionResponse(
   data: unknown,
   intent: ReviewRequestedIntent,
+  workflowPath: string,
 ): { readonly completed: boolean } {
   if (!isRecord(data)) {
     throw new Error("review_requested_inspection_response_invalid");
@@ -398,6 +421,7 @@ function parseInspectionResponse(
     String(data.id) !== expectedRunId ||
     String(data.run_attempt) !== expectedAttempt ||
     data.event !== "workflow_dispatch" ||
+    data.path !== workflowPath ||
     data.display_title !== `ReviewRouter review ${intent.requestId}` ||
     typeof data.status !== "string"
   ) {

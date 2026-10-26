@@ -1,3 +1,4 @@
+import { createReviewRequestedDispatchCleanupHandler } from "./review-v2-dispatch-cleanup-handler";
 import { PrismaWorkspaceReviewSettings } from "@reviewrouter/features-review-config";
 import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
 import { createHash, randomUUID } from "node:crypto";
@@ -422,7 +423,17 @@ export function createProductionReviewV2WorkerRuntime(input: {
   const ingressApplication = new ReviewRequestIngressApplicationService(
     ingressApplicationDependencies,
   );
+  const intentGateway = new GitHubActionsReviewRequestedDispatchGateway(
+    input.prisma,
+    { appId: input.githubAppId, privateKey: input.githubPrivateKey },
+    input.env.REVIEW_ROUTER_REVIEW_V2_WORKFLOW_PATH?.trim() ||
+      reviewRouterWorkflowPath,
+  );
   const ingressHandlers = [
+    createReviewRequestedDispatchCleanupHandler({
+      intents: requestedIntents,
+      gateway: intentGateway,
+    }),
     createGitHubReviewRequestIngressHandler({
       repositories: new PrismaActionControlPlaneRepository(input.prisma),
       identities: new PrismaScmRepositoryIdentityRepository(input.prisma),
@@ -445,12 +456,6 @@ export function createProductionReviewV2WorkerRuntime(input: {
     }),
     createReviewRequestIngressHandler(ingressApplicationDependencies),
   ] as const;
-  const intentGateway = new GitHubActionsReviewRequestedDispatchGateway(
-    input.prisma,
-    { appId: input.githubAppId, privateKey: input.githubPrivateKey },
-    input.env.REVIEW_ROUTER_REVIEW_V2_WORKFLOW_PATH?.trim() ||
-      reviewRouterWorkflowPath,
-  );
   const intentClaimDurationMs = positiveInteger(
     input.env.REVIEW_ROUTER_REVIEW_V2_INTENT_CLAIM_MS,
     60_000,
