@@ -449,6 +449,8 @@ jobs:
         run: pnpm format:check
 
       - name: Typecheck
+        env:
+          TURBO_CONCURRENCY: "1"
         run: pnpm typecheck
 
   quality:
