@@ -7,6 +7,9 @@ import {
   assertLifecycleVerificationDispatchEvidence,
   assertReviewRunCompanionDispatchEvidence,
 } from "./review-lifecycle-verification.js";
+import { createReviewRunGatewayModelSettingsReader } from "./review-run-gateway-model-settings.js";
+import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
+import { PrismaProviderAccountRepository } from "@reviewrouter/features-provider-accounts";
 import { createProviderUsageActionSessionIssuer } from "./provider-usage-action-session.js";
 import { createProviderUsageRunCompletion } from "./provider-usage-run-completion.js";
 import { createProviderUsageBootstrapIssuer } from "./provider-usage-bootstrap.js";
@@ -1454,6 +1457,39 @@ export function composeReviewActionV2ProductionRoutes(input: {
   });
   const accountGatewayCheckout = accountGatewayRelayPolicy
     ? createReviewRunGatewayCheckout({
+        readSelectedModelSettings: createReviewRunGatewayModelSettingsReader({
+          accountModelCatalogEnabled:
+            input.env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED === "1",
+          accounts: new PrismaProviderAccountRepository(
+            prisma,
+            input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
+            readPersonalAccountSharingEnabled(input.env),
+          ),
+          control: createConsumerControlClient({
+            role: "consumer-control",
+            origin:
+              accountGatewayControlOrigin ??
+              requiredEnv(input.env, "REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN"),
+            token: requiredEnv(
+              input.env,
+              "REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER",
+            ),
+            timeoutMs: Math.min(
+              10000,
+              accountGatewayRelayPolicy.requestTimeoutMs,
+            ),
+            responseBytes: 262144,
+          }),
+          profiles: accountGatewayRelayPolicy.profiles.map(
+            (entry) => entry.profile,
+          ),
+          ...(input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID
+            ? {
+                operatorWorkspaceId:
+                  input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
+              }
+            : {}),
+        }),
         lifecycleObservationAuthors: [
           ...trustedReviewCommandLedgerAuthorsFromEnv(input.env),
         ],

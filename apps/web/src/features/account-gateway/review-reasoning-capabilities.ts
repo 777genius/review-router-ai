@@ -1,3 +1,4 @@
+import { effectiveGatewayReasoningEffort } from "@reviewrouter/features-review-providers";
 import type { AccountConnectionView } from "./connection-capabilities";
 // Match the qualified Action's admitted MiMo model, without changing Codex or
 // OpenRouter model policies. Callers apply this only to Gateway selections.
@@ -11,6 +12,7 @@ export function gatewayModelSupportsReasoningEffort(
   model: string,
   effort: string | undefined,
   connection?: AccountConnectionView,
+  profileRef?: string,
 ): boolean {
   if (connection) {
     const qualified = connection.modelSettings.find(
@@ -19,7 +21,14 @@ export function gatewayModelSupportsReasoningEffort(
     if (!qualified) return false;
     return qualified.reasoning === null
       ? effort === undefined
-      : effort !== undefined && qualified.reasoning.allowed.includes(effort);
+      : (profileRef === "openai-codex-oauth-responses-v1" &&
+          effort === undefined) ||
+          (effort !== undefined &&
+            qualified.reasoning.allowed.some(
+              (allowed) =>
+                effectiveGatewayReasoningEffort(profileRef, allowed) ===
+                effectiveGatewayReasoningEffort(profileRef, effort),
+            ));
   }
   return (
     effort !== undefined &&

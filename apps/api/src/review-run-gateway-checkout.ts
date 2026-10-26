@@ -1,3 +1,9 @@
+import {
+  codexOAuthModelSettingsProfile,
+  gatewayModelSettingsRuntimeEnvKey,
+  serializeSelectedGatewayModelSettings,
+  type ReadSelectedGatewayModelSettings,
+} from "./review-run-gateway-model-settings.js";
 import { Buffer, isUtf8 } from "node:buffer";
 import { performance } from "node:perf_hooks";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -92,6 +98,7 @@ type CheckoutDependencies = {
 export function createReviewRunGatewayCheckout(
   input: CheckoutDependencies & {
     readonly bindings: ReviewRunGatewayExecutionBindingPort;
+    readonly readSelectedModelSettings?: ReadSelectedGatewayModelSettings;
   },
 ) {
   return createReviewRunCheckout({
@@ -112,6 +119,7 @@ function createReviewRunCheckout(
       | {
           readonly modelTransport: "account_gateway";
           readonly bindings: ReviewRunGatewayExecutionBindingPort;
+          readonly readSelectedModelSettings?: ReadSelectedGatewayModelSettings;
         }
       | { readonly modelTransport: "provider_api" }
     ),
@@ -206,6 +214,27 @@ function createReviewRunCheckout(
           throw new CheckoutFailure("checkout_unavailable", 403);
         }
       }
+      let executionAuthorizationEpoch: number | undefined;
+      let modelSettings:
+        | Awaited<ReturnType<ReadSelectedGatewayModelSettings>>
+        | undefined;
+      const configuration =
+        directConfiguration ??
+        parseReviewConfigurationStrict(
+          JSON.parse(snapshot.configurationCanonicalJson),
+        );
+      const provider =
+        configuration.providers[snapshot.gateway?.providerIndex ?? 0];
+      if (
+        (input.modelTransport === "account_gateway" &&
+          (provider?.authMode !== "codex_account_gateway" ||
+            provider.gatewayBindingId !== snapshot.gateway!.bindingId ||
+            provider.gatewayProfileRef !== snapshot.gateway!.profileRef ||
+            configuration.providers.find((entry) => entry.kind === "codex") !==
+              provider)) ||
+        canonicalJson(configuration) !== snapshot.configurationCanonicalJson
+      )
+        throw new CheckoutFailure("checkout_unavailable", 403);
       const liveBinding = async () => {
         if (input.modelTransport !== "account_gateway") return;
         const result = await checked(() =>
@@ -217,8 +246,15 @@ function createReviewRunCheckout(
         );
         // Nullable attachment is intentional: checkout precedes first inference.
         // The existing reader validates pinned config, original use and any attachment.
-        if (result.status !== "live")
+        if (
+          result.status !== "live" ||
+          (modelSettings &&
+            result.binding &&
+            result.binding.authorizationEpoch !==
+              modelSettings.authorizationEpoch)
+        )
           throw new CheckoutFailure("authorization_denied", 401);
+        executionAuthorizationEpoch = result.binding?.authorizationEpoch;
       };
       const target = await checked(() => input.resolveRepository(auth));
       if (
@@ -250,6 +286,37 @@ function createReviewRunCheckout(
         !(await checked(() => input.confirmAuthority(token, auth, savedTarget)))
       )
         throw new CheckoutFailure("authorization_denied", 401);
+      if (
+        input.modelTransport === "account_gateway" &&
+        snapshot.gateway!.profileRef === codexOAuthModelSettingsProfile
+      ) {
+        if (!input.readSelectedModelSettings)
+          throw new CheckoutFailure("checkout_unavailable", 503);
+        modelSettings = await checked(() =>
+          input.readSelectedModelSettings!({
+            authorization: auth,
+            signal,
+            ...(executionAuthorizationEpoch === undefined
+              ? {}
+              : { executionAuthorizationEpoch }),
+          }),
+        );
+        if (
+          (snapshot.gateway!.expectedAuthorizationEpoch !== undefined &&
+            modelSettings.authorizationEpoch !==
+              snapshot.gateway!.expectedAuthorizationEpoch) ||
+          (executionAuthorizationEpoch !== undefined &&
+            modelSettings.authorizationEpoch !== executionAuthorizationEpoch)
+        )
+          throw new CheckoutFailure("authorization_denied", 401);
+        await liveBinding();
+        if (
+          !(await checked(() =>
+            input.confirmAuthority(token, auth, savedTarget),
+          ))
+        )
+          throw new CheckoutFailure("authorization_denied", 401);
+      }
       const capability = await checked(() =>
         issuer.issueContentsReadToken(savedTarget),
       );
@@ -291,24 +358,13 @@ function createReviewRunCheckout(
         throw new CheckoutFailure("checkout_unavailable", 503);
       // Export only the admitted safe settings after the final authority checks.
       // Never reread current configuration or expose the private gateway selection.
-      const configuration =
-        directConfiguration ??
-        parseReviewConfigurationStrict(
-          JSON.parse(snapshot.configurationCanonicalJson),
-        );
-      const provider =
-        configuration.providers[snapshot.gateway?.providerIndex ?? 0];
-      if (
-        (input.modelTransport === "account_gateway" &&
-          (provider?.authMode !== "codex_account_gateway" ||
-            provider.gatewayBindingId !== snapshot.gateway!.bindingId ||
-            provider.gatewayProfileRef !== snapshot.gateway!.profileRef ||
-            configuration.providers.find((entry) => entry.kind === "codex") !==
-              provider)) ||
-        canonicalJson(configuration) !== snapshot.configurationCanonicalJson
-      )
-        throw new CheckoutFailure("checkout_unavailable", 403);
       const runtimeEnv = mapConfigToRuntimeEnv(configuration);
+      if (modelSettings?.settings !== undefined)
+        runtimeEnv[gatewayModelSettingsRuntimeEnvKey] =
+          serializeSelectedGatewayModelSettings(
+            modelSettings.settings,
+            provider!.model,
+          );
       if (snapshot.contextToolsPlanCanonicalJson !== undefined) {
         runtimeEnv.REVIEW_ROUTER_CONTEXT_TOOLS_PLAN_JSON =
           snapshot.contextToolsPlanCanonicalJson;
