@@ -147,8 +147,8 @@ describe("GitHubActionsReviewRequestedDispatchGateway", () => {
 
   it("inspects the exact recorded attempt and validates its correlation", async () => {
     const request = vi.fn(async (route: string, parameters?: object) => {
-      if (route.includes("/attempts/")) {
-        expect(parameters).toMatchObject({ run_id: "701", attempt_number: 2 });
+      if (route.includes("/actions/runs/")) {
+        expect(parameters).toMatchObject({ run_id: "701" });
         return {
           data: {
             id: 701,
@@ -156,6 +156,7 @@ describe("GitHubActionsReviewRequestedDispatchGateway", () => {
             event: "workflow_dispatch",
             display_title: "ReviewRouter review request-1",
             status: "completed",
+            path: ".github/workflows/reviewrouter-review.yml",
           },
         };
       }
@@ -250,8 +251,19 @@ describe("GitHubActionsReviewRequestedDispatchGateway", () => {
 
   it("cancels only the exact persisted run identity", async () => {
     const request = vi.fn(async (route: string, parameters?: object) => {
-      expect(route).toContain("/actions/runs/{run_id}/cancel");
       expect(parameters).toMatchObject({ run_id: "701" });
+      if (route.startsWith("GET"))
+        return {
+          data: {
+            id: 701,
+            run_attempt: 2,
+            event: "workflow_dispatch",
+            display_title: "ReviewRouter review request-1",
+            status: "queued",
+            path: ".github/workflows/reviewrouter-review.yml",
+          },
+        };
+      expect(route).toContain("/actions/runs/{run_id}/cancel");
       return { data: {} };
     });
     const gateway = gatewayWith(request);
@@ -267,6 +279,33 @@ describe("GitHubActionsReviewRequestedDispatchGateway", () => {
         },
       }),
     ).resolves.toBeUndefined();
+  });
+  it.each([
+    { run_attempt: 3 },
+    { display_title: "ReviewRouter review another-request" },
+    { path: ".github/workflows/another-workflow.yml" },
+  ])("refuses cancellation after run identity changes: %o", async (changed) => {
+    const request = vi.fn(async () => ({
+      data: {
+        id: 701,
+        run_attempt: 2,
+        event: "workflow_dispatch",
+        display_title: "ReviewRouter review request-1",
+        status: "queued",
+        path: ".github/workflows/reviewrouter-review.yml",
+        ...changed,
+      },
+    }));
+    await expect(
+      gatewayWith(request).cancelKnownRun({
+        intent: {
+          ...intentFixture(),
+          sourceRunId: "701",
+          sourceRunAttempt: "2",
+        },
+      }),
+    ).rejects.toThrow();
+    expect(request).toHaveBeenCalledTimes(1);
   });
 });
 

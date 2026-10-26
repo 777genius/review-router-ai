@@ -111,6 +111,7 @@ describe("review v2 production worker composition", () => {
     expect(feature.enabled).toBe(true);
     expect(feature.handlers.map((handler) => handler.type)).toEqual([
       "review.execution.finalized",
+      "review.requested_dispatch_cleanup",
       "github.pull_request.review_request_ingress",
       "review.request.ingress",
     ]);
