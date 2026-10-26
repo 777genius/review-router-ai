@@ -1,5 +1,9 @@
 import { validateMemoryOperatorCredentials } from "../infrastructure/config/memory-operator-config";
-import { assemblyFor, type CapabilityContract } from "@get-modular/assembly";
+import {
+  assemblyFor,
+  implement,
+  type CapabilityContract,
+} from "@get-modular/assembly";
 import { compileComposition, defineModule, required } from "@get-modular/core";
 import type { PrismaClient } from "@prisma/client";
 import { PrismaEntitlementRepository } from "@reviewrouter/features-entitlements";
@@ -112,17 +116,20 @@ export async function createMemoryKnowledgeRuntime(input: {
     slots: [],
   });
   const assembly = assemblyFor<Capabilities>();
-  const providerFactory = assembly.bindFactory(providerModule, async () => {
-    const provider: Provider =
-      config.kind === "hindsight"
-        ? new HindsightMemoryProvider(config)
-        : new DisabledMemoryProvider();
-    return {
-      instance: provider,
-      capabilities: { "reviewrouter/memory-knowledge-provider": provider },
-    };
-  });
-  const runtimeFactory = assembly.bindFactory(
+  const providerFactory = implement<Capabilities>()(
+    providerModule,
+    async () => {
+      const provider: Provider =
+        config.kind === "hindsight"
+          ? new HindsightMemoryProvider(config)
+          : new DisabledMemoryProvider();
+      return {
+        instance: provider,
+        capabilities: { "reviewrouter/memory-knowledge-provider": provider },
+      };
+    },
+  );
+  const runtimeFactory = implement<Capabilities>()(
     runtimeModule,
     async ({ provider }) => {
       const store = new PrismaMemoryKnowledgeStore(input.prisma);
@@ -152,7 +159,8 @@ export async function createMemoryKnowledgeRuntime(input: {
             reader: provider,
             writer: provider,
             observer: provider,
-          resubmitWindowMs: config.kind === "hindsight" ? config.resubmitWindowMs : 0,
+            resubmitWindowMs:
+              config.kind === "hindsight" ? config.resubmitWindowMs : 0,
             ...(input.now ? { now: input.now } : {}),
           }),
       };
@@ -183,7 +191,7 @@ export async function createMemoryKnowledgeRuntime(input: {
   if (!composition.ok) throw new Error("memory_knowledge_composition_invalid");
   const preparation = await assembly.prepare({
     composition,
-    factories: [providerFactory, runtimeFactory],
+    modules: [providerFactory, runtimeFactory],
     roots: { memory: runtimeFactory },
   });
   if (preparation.status !== "prepared")
