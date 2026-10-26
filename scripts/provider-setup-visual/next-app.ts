@@ -20,6 +20,8 @@ export async function startNextApp(input: {
   /** Module preloaded into every Node process of the app. */
   readonly preload: string;
   readonly logPath: string;
+  /** Applied to the child itself; its inherited environment is sanitized. */
+  readonly maxOldSpaceSizeMb?: number;
 }): Promise<NextApp> {
   await refuseDotenvFiles(input.repoRoot);
   const url = `http://127.0.0.1:${input.port}`;
@@ -27,11 +29,16 @@ export async function startNextApp(input: {
   const child: ChildProcess = spawn(
     process.execPath,
     [
+      ...(input.maxOldSpaceSizeMb
+        ? [`--max-old-space-size=${input.maxOldSpaceSizeMb}`]
+        : []),
       "--import",
       input.preload,
       join(input.repoRoot, "node_modules/next/dist/bin/next"),
       "dev",
       "--webpack",
+      // Browser assertions do not need the dev server's source-map cache.
+      "--disable-source-maps",
       "-H",
       "127.0.0.1",
       "-p",
@@ -44,6 +51,13 @@ export async function startNextApp(input: {
         ...input.environment,
         NODE_ENV: "development",
         NEXT_TELEMETRY_DISABLED: "1",
+        // Next's fork checks NODE_OPTIONS before overriding its heap limit.
+        // Construct only this trusted option; never inherit parent NODE_OPTIONS.
+        ...(input.maxOldSpaceSizeMb
+          ? { NODE_OPTIONS: `--max-old-space-size=${input.maxOldSpaceSizeMb}` }
+          : {}),
+        // Bound native compiler concurrency in this resource-limited harness.
+        RAYON_NUM_THREADS: "1",
       },
       // Own process group, so stop() also ends the forked dev server.
       detached: true,

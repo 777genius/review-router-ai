@@ -129,9 +129,9 @@ export function ProviderList(props: ProviderListProps): React.ReactElement {
               : `${view.rows.length} ${view.rows.length === 1 ? "provider" : "providers"}`}
           </p>
           <p className="max-w-2xl text-sm leading-6 text-slate-400">
-            The default reviews every repository without a provider of its own;
-            a repository can choose any provider here from its row in
-            Repositories.
+            Repositories without a provider of their own inherit the default.
+            Choose a provider and finish its connection and workflow setup from
+            each repository's row in Repositories.
           </p>
           {view.rows.length > 0 && !view.hasDefault ? (
             <p className="text-xs leading-5 text-amber-100/85">
@@ -194,8 +194,8 @@ export function ProviderList(props: ProviderListProps): React.ReactElement {
 
       {view.rows.length === 0 ? (
         <p className="text-sm leading-6 text-slate-300">
-          Add the first provider to start reviewing. Choose your provider and
-          where its key is stored.
+          Add a provider, then finish setup for the repositories that will use
+          it.
         </p>
       ) : (
         <ul className="grid divide-y divide-cyan-200/10">
