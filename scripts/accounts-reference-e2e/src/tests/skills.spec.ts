@@ -625,12 +625,31 @@ test.describe("Skills real Next and PostgreSQL", () => {
     await dialog
       .getByRole("searchbox", { name: "Search skills" })
       .fill("no matching skill");
-    await expect(
-      dialog.getByText(
-        "2 skills checked for this add operation. Changing search keeps checked skills.",
-        { exact: true },
-      ),
-    ).toBeVisible();
+    const emptySearch = dialog.getByText(
+      "No matching skills. Create one to add it to this repository selection.",
+      { exact: true },
+    );
+    const addSelected = dialog.getByRole("button", {
+      name: "Add selected skills",
+      exact: true,
+    });
+    await expect(emptySearch).toBeInViewport({ ratio: 1 });
+    await expect(dialog.locator("tbody").getByRole("row")).toHaveCount(0);
+    await expect(checkedSummary).toBeInViewport({ ratio: 1 });
+    await expect(addSelected).toBeInViewport({ ratio: 1 });
+    await expect(addSelected).toBeEnabled();
+    await dialog.screenshot({
+      path: test.info().outputPath("skills-bulk-empty-desktop.png"),
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(emptySearch).toBeInViewport({ ratio: 1 });
+    await expect(checkedSummary).toBeInViewport({ ratio: 1 });
+    await expect(addSelected).toBeInViewport({ ratio: 1 });
+    await expect(addSelected).toBeEnabled();
+    await dialog.screenshot({
+      path: test.info().outputPath("skills-bulk-empty-mobile.png"),
+    });
+    await page.setViewportSize({ width: 1280, height: 900 });
     await dialog.getByRole("searchbox", { name: "Search skills" }).fill("");
     await expect(row).toBeVisible();
     await dialog
