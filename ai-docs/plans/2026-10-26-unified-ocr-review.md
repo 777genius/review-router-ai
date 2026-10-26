@@ -2,7 +2,7 @@
 
 ## Status and owner-requested outcome
 
-Planning draft v2, 2026-10-26. Implementation must start only after three
+Planning draft v3, 2026-10-26. Implementation must start only after three
 independent review rounds have been recorded and their blocking findings have
 been addressed. This document and subsequent implementation belong to draft PRs.
 No production deployment, moving release tag, existing customer workflow edit,
@@ -205,6 +205,15 @@ separate receipts. Candidate code stays non-default for production Claude until
 live qualification. Setup-token replacement stays as currently supported; no
 unsupported refresh behavior is invented.
 
+Subscription preparation also returns a verified `credentialValidUntil`. It must
+cover the original run deadline plus a fixed 60-second margin; otherwise do not
+admit model work. For opaque tokens, require a qualified helper freshness/TTL
+receipt rather than assuming token presence proves lifetime. Stop new dispatch
+at the known auth/grant boundary; Hosted uses the minimum of its original grant
+expiry and V2 deadline. Never extend a run or reselect an account to compensate.
+Test expiry after discovery but before verifier and an initially fresh token with
+insufficient remaining lifetime.
+
 ### S4. Hosted V2 composition
 
 Verify the current hosted grant/relay can provide the same prepared-route
@@ -318,6 +327,37 @@ snapshot capture/parser, `review-lifecycle-verification.ts`, and
 with the qualified versioned dispatch witness for the new route, never with
 an unbound runner assertion. Preserve the original Gateway branch unchanged.
 
+The current `assertLifecycleLeaseEvidence` intentionally returns early for
+discovery. Extend the existing common evidence acceptance/reuse gate for new V2
+OCR discovery too: require the original source authorization, work slot, lease,
+manifest and route to match its complete ordered per-request receipt set. Every
+claimed request in that invocation must be terminal completed; outstanding or
+unknown claims cannot become reusable discovery merely because its last request
+completed. Reuse checks the original source authorization and its receipts, not
+the target/current run's budget. Preserve legacy evidence semantics under their
+original explicit profiles and contracts.
+Missing/pruned source proof makes evidence ineligible and never permits
+replacement inference. Valid receipts do not replace the existing OCR-output
+completion checks. Terminal paid-effect settlement remains possible after head
+or execution expiry without renewing dispatch or publication authority.
+Separate common verifier semantic packets from protocol-native wire preparation
+before hashing its manifest; both protocols retain the same verdict/citation
+validator. New Gateway authorizations opting into V2 use its all-role allowance;
+the unchanged branch is for historical authorizations only.
+
+New producer descriptors explicitly map each qualified route to its default
+profile ref. Old refs stay available for saved explicit policy and restoration,
+but do not participate in a heuristic single-candidate default. Never infer the
+default from array order, version or name. Test old plus new skills-capable OCR
+profiles together, old explicit refs and restored frozen snapshots.
+
+Preserve saved `agenticContext: false` as the explicit supported supplied-diff
+alternative using its approved Codex profile and the same common verifier/route.
+It must not enable native repository tools during migration. OCR is default for
+the compatible ordinary mode; explicit OCR plus disabled context remains an
+actionable configuration error before inference. Qualifying a new OCR supplied-
+diff mode is outside this scope. Test existing/new direct and Gateway settings.
+
 ## 7. Automatic resolution-history activation
 
 Current code creates `legacy_open` connections. The activation use case exists
@@ -364,6 +404,23 @@ current writer instrumentation or connection creation time alone never proves
 the managed-handler qualification branch. Synthetic signed observations test the
 adapter but cannot activate the real fleet.
 
+Qualification is monotonic for guarded history: deployment/rollback must refuse
+reintroducing unqualified writers while guarded history exists. If the current
+binding is revoked or absent, the existing fresh-resolution authority also fails
+closed for guarded connections and already admitted/restored runs; activation
+checks alone are insufficient. Keep exact reconciliation of previously issued
+effects available. Never reset/move the cut to hide an unqualified interval.
+Regression: activate, capture, invalidate fleet binding, restore, attempt fresh
+resolve -> no new mutation capability; existing uncertain operation -> readback
+only. This is an additional condition in the existing authority, not another
+publication queue or resolver.
+
+During overlap, legacy resolves durably entered before drain retain settlement
+and reconciliation identity. New legacy resolve requests after drain are safely
+skipped under the existing response contract; discovery/publication can finish
+as allowed by that immutable runtime. Previously issued canonical operations
+retain exact reconciliation and are never reissued through the new route.
+
 Initial quarantine intentionally excludes parent comments created at or before
 the activation cut. Preserve this both in planning and capability issuance.
 Known pending/unknown operations remain reconciled by existing App authority.
@@ -406,7 +463,12 @@ with a shared `compatible | update_required | unknown` runtime fact. Use
 candidate pins never count as installed. The compatible-new-feature set is
 separate from old producers permitted to finish admitted work. Both the
 dashboard and repository search use the same helper. Unknown evidence is not
-ready. Avoid adding GitHub network probes to every first paint.
+ready. Avoid adding GitHub network probes to every first paint. For Gateway,
+`actionVersion` is intentionally `workflow-v1`: use confirmed neutral caller ABI
+and qualified runtime/authorization facts, not a direct-pin SHA comparison or
+an unnecessary setup PR. Direct/Secrets/Hosted use confirmed immutable tuples.
+The central compatibility fact must also guard the existing `healthy` shortcut
+in `setupStep`; stale health cannot override unknown/incompatible runtime facts.
 
 Use existing Update setup / Merge setup PR / Verify setup steps. Explain new
 findings, still-valid issues, verified fixes and unverified issues using existing
@@ -484,7 +546,7 @@ disposition and recheck; a missing concern is not an approval.
 | Round | Focus | Status |
 | --- | --- | --- |
 | 1 | Executable matrix, architecture boundaries, OAuth/Claude/Hosted feasibility | Three critics NO-GO on v1; concrete corrections recorded in v2, recheck in round 2 |
-| 2 | Shared allowance, uncertain paid effects, recovery and publication/history | Pending |
+| 2 | Shared allowance, uncertain paid effects, recovery and publication/history | Three critics rechecked v2; remaining compatibility/authority details addressed in v3 |
 | 3 | Compatibility delivery, full user behavior, scope/DRY and honest acceptance | Pending |
 
 Blocking findings must be addressed before product implementation. A real

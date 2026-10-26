@@ -32,7 +32,21 @@ boundaries. A plan correction is not proof that its implementation passes.
 
 ## Round 2
 
-Pending.
+Three independent critics rechecked v2. Round-1 corrections were confirmed;
+remaining bounded findings are addressed in v3 and sent for final recheck.
+
+| Finding | Resolution in v3 |
+| --- | --- |
+| Multiple retained OCR profiles break implicit single-candidate selection | Explicit trusted route-to-default-profile mapping; old refs retained only for explicit policy/restore |
+| Saved supplied-diff mode could silently gain repository tools | Preserve agenticContext=false as the explicit supported Codex alternative using shared verifier/route; incompatible explicit OCR fails before inference |
+| Auth fresh now may expire during review | Verified credentialValidUntil covers original deadline + 60 seconds; Hosted bound by original grant expiry; no model dispatch after boundary |
+| Discovery evidence gate ignored new model receipt ledger | Extend existing acceptance/reuse gate for complete source invocation receipt set and original authorization; final individual receipt alone is insufficient |
+| Revoking retirement receipt does not invalidate already guarded history | Monotonic deployment gate plus fail-closed existing fresh-resolution authority, retaining exact readback reconciliation and original cut |
+| Old admitted resolution overlap underspecified | Entered pre-drain legacy effects settle; new legacy resolves skip; issued canonical operations reconcile without reissue |
+| Gateway neutral ABI is not a direct immutable SHA | Transport-appropriate canonical readiness facts; shared compatibility also guards old healthy shortcut |
+
+No product implementation occurred during these reviews. The transport/recovery
+and activation critics perform a third complete pass on v3 before implementation.
 
 ## Round 3
 
