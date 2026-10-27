@@ -1,4 +1,8 @@
 /** Narrow additive ACL projection after the release tool's legacy CRUD grants. */
+import {
+  skillCatalogRuntimeGateStatements,
+  skillCatalogRuntimeGrantStatements,
+} from "./skill-catalog-runtime-grants.ts";
 export const reviewSkillsRuntimeTables = [
   "ReviewSkill",
   "ReviewSkillRevision",
@@ -8,7 +12,9 @@ export const reviewSkillsRuntimeTables = [
   "ReviewSkillRepositorySource",
 ] as const;
 
-const writableColumns: Readonly<Record<string, readonly string[]>> = {
+export const reviewSkillsWebUpdateColumns: Readonly<
+  Record<string, readonly string[]>
+> = {
   ReviewSkill: ["headRevisionId", "updatedAt", "deletedAt"],
   ReviewSkillRevision: [],
   ReviewSkillGrant: ["grantedBy", "grantedAt", "revokedAt", "version"],
@@ -31,10 +37,11 @@ function assertRuntimeUsername(username: string): void {
 export function reviewSkillsRuntimeGateStatements(
   roles: readonly Readonly<{ username: string }>[],
 ): string {
-  return roles
-    .map(({ username }) => {
-      assertRuntimeUsername(username);
-      return `DO $review_skills_runtime_gate_acl$
+  return (
+    roles
+      .map(({ username }) => {
+        assertRuntimeUsername(username);
+        return `DO $review_skills_runtime_gate_acl$
 DECLARE skill_table text; skill_column record;
 BEGIN
   FOREACH skill_table IN ARRAY ARRAY[${reviewSkillsRuntimeTables.map((table) => `'${table}'`).join(",")}] LOOP
@@ -47,19 +54,23 @@ BEGIN
   END LOOP;
 END
 $review_skills_runtime_gate_acl$;`;
-    })
-    .join("\n");
+      })
+      .join("\n") +
+    "\n" +
+    skillCatalogRuntimeGateStatements(roles)
+  );
 }
 
 export function reviewSkillsRuntimeGrantStatements(
   roles: readonly Readonly<{ role: string; username: string }>[],
 ): string {
-  return roles
-    .map(({ role, username }) => {
-      assertRuntimeUsername(username);
-      const web = role === "web",
-        read = web || role === "api";
-      return `DO $review_skills_runtime_acl$
+  return (
+    roles
+      .map(({ role, username }) => {
+        assertRuntimeUsername(username);
+        const web = role === "web",
+          read = web || role === "api";
+        return `DO $review_skills_runtime_acl$
 DECLARE skill_table text; skill_column record; allowed_updates text[];
 BEGIN
   FOREACH skill_table IN ARRAY ARRAY[${reviewSkillsRuntimeTables.map((table) => `'${table}'`).join(",")}] LOOP
@@ -78,7 +89,9 @@ BEGIN
     LOOP
       EXECUTE pg_catalog.format('REVOKE ALL (%I) ON TABLE public.%I FROM PUBLIC, %I', skill_column.attname, skill_table, '${username}');
     END LOOP;
-    allowed_updates := CASE skill_table ${Object.entries(writableColumns)
+    allowed_updates := CASE skill_table ${Object.entries(
+      reviewSkillsWebUpdateColumns,
+    )
       .map(
         ([table, columns]) =>
           `WHEN '${table}' THEN ARRAY[${columns.map((column) => `'${column}'`).join(",")}]::text[]`,
@@ -123,6 +136,9 @@ BEGIN
   END IF;
 END
 $review_skills_runtime_acl$;`;
-    })
-    .join("\n");
+      })
+      .join("\n") +
+    "\n" +
+    skillCatalogRuntimeGrantStatements(roles)
+  );
 }

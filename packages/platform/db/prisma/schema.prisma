@@ -7,6 +7,7 @@ datasource db {
 }
 
 model Workspace {
+  reviewSkillImportCandidates ReviewSkillImportCandidate[]
   reviewSkills ReviewSkill[]
   reviewSkillGrants ReviewSkillGrant[]
   reviewSkillLinks ReviewSkillLink[]
@@ -4525,6 +4526,7 @@ model SdkGrowthFinalizedReportEvidence {
 
 // Explicit user-managed instructions. Repository skill bytes never enter these tables.
 model ReviewSkill {
+  catalogImports ReviewSkillImportCandidate[]
   id String @id
   sourceWorkspaceId String
   authorUserId String
@@ -4602,6 +4604,69 @@ model ReviewSkillRepositorySource {
   roots Json
   version Int @default(1)
   repository RepositoryConnection @relation(fields: [repositoryConnectionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+}
+
+model ReviewSkillImportCandidate {
+  id String @id
+  workspaceId String
+  actorUserId String
+  name String
+  description String
+  instructions String
+  canonicalText String
+  contentDigest String @db.VarChar(71)
+  sourceRepository String
+  sourceCommit String @db.VarChar(40)
+  sourcePath String
+  sourceDigest String @db.VarChar(71)
+  omittedFields Json
+  hasResources Boolean
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt DateTime @db.Timestamptz(3)
+  importedSkillId String?
+  importedScanId String?
+  importIntentDigest String? @db.VarChar(71)
+  importedAt DateTime? @db.Timestamptz(3)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  importedSkill ReviewSkill? @relation(fields: [importedSkillId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  scans ReviewSkillScan[] @relation("CatalogCandidateScans")
+  @@unique([id, workspaceId, actorUserId])
+  @@index([workspaceId, actorUserId, createdAt])
+  @@index([expiresAt])
+}
+
+model ReviewSkillScan {
+  id String @id
+  workspaceId String
+  actorUserId String
+  candidateId String
+  operationId String
+  requestDigest String @db.VarChar(71)
+  contentDigest String @db.VarChar(71)
+  mode String
+  profile Json
+  profileFingerprint String @db.VarChar(71)
+  reuseOfScanId String?
+  status String
+  report Json?
+  budgetUnits Int
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  startedAt DateTime? @db.Timestamptz(3)
+  completedAt DateTime? @db.Timestamptz(3)
+  expiresAt DateTime @db.Timestamptz(3)
+  claimId String?
+  claimVersion BigInt?
+  claimUntil DateTime? @db.Timestamptz(3)
+  executionDeadlineAt DateTime? @db.Timestamptz(3)
+  slotUntil DateTime? @db.Timestamptz(3)
+  candidate ReviewSkillImportCandidate @relation("CatalogCandidateScans", fields: [candidateId, workspaceId, actorUserId], references: [id, workspaceId, actorUserId], onDelete: Restrict, onUpdate: Restrict)
+  reuseOf ReviewSkillScan? @relation("ScanReuse", fields: [reuseOfScanId, workspaceId, contentDigest, profileFingerprint], references: [id, workspaceId, contentDigest, profileFingerprint], onDelete: Restrict, onUpdate: Restrict)
+  reusedBy ReviewSkillScan[] @relation("ScanReuse")
+  @@unique([workspaceId, actorUserId, operationId])
+  @@unique([id, workspaceId, contentDigest, profileFingerprint])
+  @@index([workspaceId, contentDigest, profileFingerprint, createdAt])
+  @@index([slotUntil])
+  @@index([expiresAt])
 }
 
 model ReviewContextConnection {

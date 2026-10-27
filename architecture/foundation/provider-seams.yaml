@@ -289,6 +289,8 @@ boundaries:
     entrypoints:
       - packages/features/review-skills/src/domain/errors.ts
       - packages/features/review-skills/src/domain/author-policy.ts
+      - packages/features/review-skills/src/domain/catalog-security.ts
+      - packages/features/review-skills/src/domain/skill-scan-report.ts
     allow:
       boundaries: []
       packages: []
@@ -300,6 +302,9 @@ boundaries:
     entrypoints:
       - packages/features/review-skills/src/application/contracts.ts
       - packages/features/review-skills/src/application/create-review-skills-service.ts
+      - packages/features/review-skills/src/application/catalog-contracts.ts
+      - packages/features/review-skills/src/application/create-review-skills-catalog-service.ts
+      - packages/features/review-skills/src/application/process-review-skill-scan.ts
     allow:
       boundaries:
         - review-skills.domain

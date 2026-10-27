@@ -7,6 +7,12 @@ export const TEST_DATABASE_NAME =
 export const SKILLS_FIXTURE_BOUNDARY =
   "Real Next/session/PostgreSQL Skills persistence and authorization with an isolated GitHub App HTTP fixture; no live SCM/provider or native lifecycle claim" as const;
 
+export const SKILL_CATALOG_FIXTURE_BOUNDARY =
+  "Real Next/session/PostgreSQL/outbox/worker and pinned native static/AI SkillSpector; loopback UAP/model fixtures and explicit report/transport faults. No live catalog/model provider or production container isolation claim" as const;
+
+export const SKILL_CATALOG_GOOD_INSTRUCTIONS =
+  "Read the provided diff. Identify reproducible correctness issues and explain the affected behavior. Cite relevant lines. Do not modify files or run commands." as const;
+
 export const PROBE_FIXTURE_BOUNDARY =
   "Real browser and controlled Gateway HTTP inference transport; no live model provider or native lifecycle proof" as const;
 
@@ -138,6 +144,7 @@ export type RuntimeDescriptor = {
   readonly secretsGenerated: true;
   readonly externalNetworkAllowed: false;
   readonly fixtureBoundary:
+    | typeof SKILL_CATALOG_FIXTURE_BOUNDARY
     | typeof SKILLS_FIXTURE_BOUNDARY
     | typeof SUBSCRIPTION_FIXTURE_BOUNDARY
     | typeof API_KEY_STORAGE_FIXTURE_BOUNDARY
