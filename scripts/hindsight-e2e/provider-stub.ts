@@ -154,11 +154,17 @@ export async function startProviderStub() {
           const directDedup =
             typeof messageContent === "string" &&
             messageContent.startsWith(dedupMarker);
+          const softSchemaPreamble =
+            "\n\nYou must respond with valid JSON matching this schema:\n";
+          // Pinned OpenAICompatibleLLM._ensure_json_word_in_user_message
+          // prepends this exact hint when the schema text contains uppercase
+          // JSON but no lowercase "json" token. Do not admit other prefixes.
+          const hintedSoftSchemaPreamble =
+            `Return valid json only.\n\n${softSchemaPreamble}`;
           const softSchemaDedup =
             typeof messageContent === "string" &&
-            messageContent.startsWith(
-              "\n\nYou must respond with valid JSON matching this schema:\n",
-            ) &&
+            (messageContent.startsWith(softSchemaPreamble) ||
+              messageContent.startsWith(hintedSoftSchemaPreamble)) &&
             messageContent.includes(`\n\n${dedupMarker}`) &&
             body.response_format?.type === "json_object";
           const isSemanticDedup =

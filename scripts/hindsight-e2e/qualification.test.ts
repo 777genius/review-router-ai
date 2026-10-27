@@ -92,14 +92,26 @@ Respond with ONLY one valid JSON object matching one of these shapes:`;
     )}\n\n${prompt}`;
     const wrappedResponse = await send(softSchemaPrompt, true);
     assert.equal(wrappedResponse.status, 200);
-    assert.equal(stub.calls.semanticDedup, 2);
+    // Pinned OpenAICompatibleLLM adds this lowercase-json hint before the
+    // already schema-prefixed user message in json_object mode.
+    const jsonHintWrapped = `Return valid json only.\n\n${softSchemaPrompt}`;
+    assert.equal((await send(jsonHintWrapped, true)).status, 200);
+    assert.equal(stub.calls.semanticDedup, 3);
     assert.equal(stub.calls.unexpected, 0);
     assert.equal((await send(softSchemaPrompt)).status, 400);
     assert.equal(
       (await send(prompt.replace("[EXISTING]", "[OTHER]"))).status,
       400,
     );
-    assert.equal(stub.calls.unexpected, 2);
+    assert.equal(
+      (await send(`Return valid json only.\n\n${prompt}`, true)).status,
+      400,
+    );
+    assert.equal(
+      (await send(`unreviewed prefix\n\n${softSchemaPrompt}`, true)).status,
+      400,
+    );
+    assert.equal(stub.calls.unexpected, 4);
   } finally {
     await stub.close();
   }
