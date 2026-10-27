@@ -139,6 +139,17 @@ invalid quote, wrong packet and forged claim on both protocols; V2 additionally
 covers paid disconnect/restart without new inference, discovery exhausting the
 shared budget before verifier, and a changed head before App mutation.
 
+The [hosted acceptance run 40460829939](https://github.com/777genius/review-router-ai/actions/runs/40460829939)
+passed on SaaS `255d46aa35c6ba366c74589e9a0c556549ea672b` with paired Action
+`21bb22acf1a540c69bb48f546ef792c277c7eabc`: actual Next desktop/mobile,
+exact checkout verification, reproducible OCR manifest and all 18 lifecycle
+cases completed successfully (UI 2/2 in 22.8 seconds; paired 18/18 in 107.97 seconds, no skips). The PR checkout tested merge revision `839779ad44f0e0e87547f5fc199927f0e69caa52`. The subsequent public Action commit
+`e226a83359b9b0785c17840bfedf8df8669083d3` only completes the typed restored
+execution fixture in a regression test; production source and built artifacts
+are byte-identical. The canonical paired CI pin now includes that fix. The
+changed production runner/test dependency closure passed the locked TypeScript
+5.9 compiler, and the 11-case lifecycle invocation suite passed again.
+
 The paired fixture intentionally omits Gateway `store`/`service_tier` defaults
 and passes `reasoning: null`. The actual HTTP durable-hash gate therefore verifies
 the parent normalizes the wire before claiming. This integration check found and
