@@ -324,6 +324,41 @@ export function assertCleanupOperationSources(
   );
 }
 
+/** Under a proven execution drain, child cancellation may still terminalize its parent. */
+export async function terminalizeDrainedCleanupOperations(
+  operationIds: readonly string[],
+  readOperation: (
+    operationId: string,
+  ) => Promise<Pick<CleanupOperation, "operation_id" | "status">>,
+  cancelOperation: (operationId: string) => Promise<void>,
+): Promise<void> {
+  assert(
+    operationIds.length <= 10_000 &&
+      operationIds.every(uuid) &&
+      new Set(operationIds).size === operationIds.length,
+  );
+  const terminal = new Set(["completed", "failed", "cancelled"]);
+  const readExact = async (operationId: string) => {
+    const state = await readOperation(operationId);
+    assert(
+      state.operation_id === operationId &&
+        (terminal.has(state.status) ||
+          ["pending", "processing"].includes(state.status)),
+      "Native operation identity or state could not be verified",
+    );
+    return state;
+  };
+  for (const operationId of operationIds) {
+    const current = await readExact(operationId);
+    if (["pending", "processing"].includes(current.status))
+      await cancelOperation(operationId);
+    assert(
+      terminal.has((await readExact(operationId)).status),
+      "Native operation did not reach a verified terminal state before payload deletion",
+    );
+  }
+}
+
 /** Fixed point includes ancestors, descendants and reverse parent references. */
 export function operationClosure(
   operations: ReadonlyMap<string, CleanupOperation>,

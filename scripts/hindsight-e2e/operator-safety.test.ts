@@ -16,6 +16,7 @@ import {
   appendCleanupOperationPage,
   leafFirstOperations,
   operationClosure,
+  terminalizeDrainedCleanupOperations,
   persistCleanupInventory,
   readCleanupInventory,
   signCleanupInventory,
@@ -529,5 +530,64 @@ test("native operation pagination rejects overlap, unstable totals and malformed
   assert.equal(
     appendCleanupOperationPage(all, { operations: [two], total: 2 }, 2),
     2,
+  );
+});
+
+test("drained cancellation re-reads parents terminalized by child rollup and verifies terminal state before payload deletion", async () => {
+  const child = randomUUID();
+  const parent = randomUUID();
+  const states = new Map<string, string>([
+    [child, "pending"],
+    [parent, "processing"],
+  ]);
+  const cancelled: string[] = [];
+  await terminalizeDrainedCleanupOperations(
+    [child, parent],
+    async (operation_id) => ({
+      operation_id,
+      status: states.get(operation_id)!,
+    }),
+    async (operationId) => {
+      cancelled.push(operationId);
+      assert.equal(operationId, child);
+      states.set(child, "cancelled");
+      states.set(parent, "failed");
+    },
+  );
+  assert.deepEqual(cancelled, [child]);
+  await assert.rejects(
+    terminalizeDrainedCleanupOperations(
+      [child],
+      async (operation_id) => ({ operation_id, status: "processing" }),
+      async () => {},
+    ),
+    /verified terminal state/,
+  );
+  for (const status of ["not_found", "unknown"])
+    await assert.rejects(
+      terminalizeDrainedCleanupOperations(
+        [child],
+        async (operation_id) => ({ operation_id, status }),
+        async () => {
+          assert.fail("Unknown state must never authorize cancellation");
+        },
+      ),
+    );
+  await assert.rejects(
+    terminalizeDrainedCleanupOperations(
+      [child],
+      async () => ({ operation_id: parent, status: "completed" }),
+      async () => {},
+    ),
+  );
+  await assert.rejects(
+    terminalizeDrainedCleanupOperations(
+      [child],
+      async (operation_id) => ({ operation_id, status: "pending" }),
+      async () => {
+        throw new Error("HTTP409");
+      },
+    ),
+    /HTTP409/,
   );
 });
