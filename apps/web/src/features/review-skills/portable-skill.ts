@@ -96,6 +96,7 @@ function withoutCodeExamples(markdown: string): string {
     | undefined;
   const listIndents: ListContext[] = [];
   let paragraphOpen = false;
+  let paragraphQuoteDepth = 0;
   let indentedCode = false;
   const blocks = markdown
     .split(/\r?\n/u)
@@ -192,7 +193,23 @@ function withoutCodeExamples(markdown: string): string {
         return "";
       }
       indentedCode = false;
-      const list = /^( *)(?:[-+*]|\d+[.)])[ \t]+/u.exec(line);
+      let list = /^( *)(?:[-+*]|\d{1,9}[.)])[ \t]+/u.exec(line);
+      const orderedStart = list ? Number.parseInt(list[0], 10) : NaN;
+      if (
+        list &&
+        paragraphOpen &&
+        paragraphQuoteDepth === quoteDepth &&
+        !Number.isNaN(orderedStart) &&
+        orderedStart !== 1 &&
+        !listIndents.some(
+          (context) =>
+            context.quoteDepth === quoteDepth &&
+            list![1]!.length < context.indent,
+        )
+      )
+        // Only 1 may interrupt a paragraph; ending a container starts a block.
+        list = null;
+      paragraphQuoteDepth = quoteDepth;
       if (list) {
         let nested: RegExpExecArray | null = list;
         let content = line;
@@ -226,8 +243,9 @@ function withoutCodeExamples(markdown: string): string {
             indentedCode = false;
             return "";
           }
-          nested = /^( {0,3})(?:[-+*]|\d+[.)])[ \t]+/u.exec(content);
+          nested = /^( {0,3})(?:[-+*]|\d{1,9}[.)])[ \t]+/u.exec(content);
         }
+        paragraphQuoteDepth = listDepth;
       }
       const prose = list ? line.slice(list[0].length) : line;
       paragraphOpen =

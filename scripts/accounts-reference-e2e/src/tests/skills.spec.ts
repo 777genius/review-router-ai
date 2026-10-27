@@ -657,7 +657,13 @@ test.describe("Skills real Next and PostgreSQL", () => {
       .click();
     await expect(dialog.getByRole("status")).toContainText("249 added");
     await expect(dialog.getByRole("status")).toBeInViewport({ ratio: 1 });
-    await dialog.screenshot({
+    await expect(dialog).toHaveAccessibleName("Add skills to repositories");
+    for (const name of ["Close Add skills to repositories", "Close"]) {
+      const close = dialog.getByRole("button", { name, exact: true });
+      await expect(close).toBeVisible();
+      await expect(close).toBeInViewport({ ratio: 1 });
+    }
+    await page.screenshot({
       path: test.info().outputPath("skills-bulk-result-desktop.png"),
     });
     await page.setViewportSize({ width: 390, height: 844 });
