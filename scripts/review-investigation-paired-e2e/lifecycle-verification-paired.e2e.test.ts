@@ -1,7 +1,13 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
+import https from "node:https";
+import { syncBuiltinESMExports } from "node:module";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
 import path from "node:path";
+import { Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import Fastify from "fastify";
 import { expect, it, vi } from "vitest";
@@ -19,7 +25,12 @@ import {
   canonicalJson,
   parseReviewRunRuntimeSnapshot,
 } from "../../packages/features/review-run-control/src/index.js";
-import { lifecycleVerificationContract } from "../../packages/shared/src/index.js";
+import {
+  lifecycleVerificationContract,
+  reviewModelDispatchContract,
+  reviewModelDispatchDescriptorDigest,
+  type ReviewModelDispatchProfileV2,
+} from "../../packages/shared/src/index.js";
 import {
   registerReviewExecutionV2Routes,
   registerReviewEvidenceV2Routes,
@@ -28,9 +39,13 @@ import {
 } from "../../packages/features/action-control-plane/src/v2/interface/index.js";
 import { PrismaReviewThreadResolutionHistory } from "../../packages/features/review-publishing/src/v2/infrastructure/prisma/prisma-review-thread-resolution-history.js";
 import { activateReviewResolutionHistory } from "../../packages/features/review-publishing/src/v2/application/use-cases/activate-review-resolution-history.js";
+import { createPrismaResolutionWriterQualification } from "../../packages/features/review-publishing/src/v2/infrastructure/prisma/prisma-resolution-writer-qualification.js";
+import { Ed25519ReleaseWitnessSignerAdapter } from "../../apps/api/src/release-witness-adapters.js";
+import { AttestResolutionWriterQualification } from "../../apps/api/src/release-witness-resolution-writers.js";
 import { CanonicalReviewV2ProjectionAdapter } from "../../apps/worker/src/review-v2-publication-payloads.js";
 import { PrismaReviewExecutionStore } from "../../packages/features/review-executions/src/composition/index.js";
 import { registerReviewRunGatewayRelayRoutes } from "../../apps/api/src/review-run-gateway-relay.js";
+import { registerReviewModelDispatchRoutes } from "../../apps/api/src/review-model-dispatch.js";
 import {
   createReviewActionV2E2EHarness,
   resetReviewActionV2E2EDatabase,
@@ -91,6 +106,21 @@ const oldClaims = [
     6,
   ],
 ] as const;
+const modelDispatchProfile: ReviewModelDispatchProfileV2 = {
+  extensionId: reviewModelDispatchContract.extensionId,
+  descriptorDigest: reviewModelDispatchDescriptorDigest,
+  policyVersion: reviewModelDispatchContract.policyVersion,
+  transports: ["account_gateway"],
+  wireProtocols: ["openai-responses"],
+  defaultAgentProfileRefs: { account_gateway: "ocr-paired-v2" },
+  limits: {
+    maxRequests: 32,
+    maxConcurrentRequests: 1,
+    maxRequestBytes: 98_304,
+    maxResponseBytes: 32_768,
+    maxOutputTokens: 4_096,
+  },
+};
 type Scenario =
   | "success"
   | "denied"
@@ -98,34 +128,90 @@ type Scenario =
   | "missing_verdict"
   | "invalid_quote"
   | "wrong_packet"
-  | "forged_claim";
+  | "forged_claim"
+  | "paid_unknown"
+  | "budget_exhausted"
+  | "stale_head";
 
-// Real public modules, signed admission/lease/evidence HTTP, production relay,
+// Real public modules, production signed admission plus lease/evidence HTTP, relay,
 // PostgreSQL, worker and GitHub App adapter. The two external boundaries are a
 // controlled local Gateway server and synthetic native GitHub observations.
 const lifecycleCase = enabled && databaseUrl && actionSourceDir ? it : it.skip;
 lifecycleCase.each([
-  "success",
-  "denied",
-  "unknown",
-  "missing_verdict",
-  "invalid_quote",
-  "wrong_packet",
-  "forged_claim",
-] as const)(
-  "pairs bounded lifecycle verification with immutable publication and honest native receipts (%s)",
-  async (scenario: Scenario) => {
+  ...(
+    [
+      "success",
+      "denied",
+      "unknown",
+      "missing_verdict",
+      "invalid_quote",
+      "wrong_packet",
+      "forged_claim",
+    ] as const
+  ).flatMap((scenario) =>
+    ([1, 2] as const).map((version) => ({ version, scenario })),
+  ),
+  ...(["paid_unknown", "budget_exhausted", "stale_head"] as const).map(
+    (scenario) => ({ version: 2 as const, scenario }),
+  ),
+])(
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts ($version / $scenario)",
+  async ({ version, scenario }: { version: 1 | 2; scenario: Scenario }) => {
+    const unified = version === 2;
+    const engineKind = unified ? "ocr" : "codex";
     await resetReviewActionV2E2EDatabase(databaseUrl!);
     const networkFetch = globalThis.fetch;
+    let apiFetch = networkFetch;
+    const tls = unified ? loopbackTls() : undefined;
     const upstream = await controlledGateway(scenario);
     let fixture: ReviewActionV2E2EHarness | undefined;
-    const app = Fastify();
+    let apiOrigin: string | undefined;
+    const apiRejections: Array<{ status: number; code?: string }> = [];
+    const app = Fastify(tls ? { https: tls } : {});
     try {
       fixture = await createReviewActionV2E2EHarness(databaseUrl!, {
         modelTransport: "account_gateway",
         repositoryProviderSelection: "none",
         lifecycleVerificationProfile: true,
+        ...(unified
+          ? {
+              modelDispatchProfile:
+                scenario === "budget_exhausted"
+                  ? {
+                      ...modelDispatchProfile,
+                      limits: {
+                        ...modelDispatchProfile.limits,
+                        maxRequests: 2,
+                      },
+                    }
+                  : modelDispatchProfile,
+              agentProfiles: [
+                {
+                  profileRef: "ocr-paired-v2",
+                  agentKind: "ocr" as const,
+                  packageVersion: "1.0.0",
+                  binarySha256: hash("paired-controlled-ocr-driver"),
+                  modelTransports: ["account_gateway" as const],
+                  contextGateway: false,
+                  cancellation: true,
+                  reviewSkillsVersion: 1 as const,
+                },
+              ],
+            }
+          : {}),
         environmentOverrides: {
+          ...upstream.writerEnvironment,
+          ...(unified
+            ? {
+                REVIEW_ROUTER_REVIEW_V2_PROVIDER_VOTE_LANES_JSON:
+                  JSON.stringify([
+                    {
+                      providerKind: "ocr",
+                      providerVoteIdentityHash: hash("paired-ocr-vote"),
+                    },
+                  ]),
+              }
+            : {}),
           REVIEW_ROUTER_REVIEW_V2_PROJECTION_POLICY_VERSION:
             "review-projection-policy.v7-lifecycle-verification",
           REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED: "1",
@@ -169,13 +255,19 @@ lifecycleCase.each([
         },
       });
       const owned = fixture;
+      await upstream.bindResolutionWriterDatabase(owned.prisma);
       await selectSavedGateway(owned);
       const githubFetch = globalThis.fetch;
-      globalThis.fetch = (input, init) =>
-        new URL(input instanceof Request ? input.url : String(input)).origin ===
-        upstream.origin
-          ? networkFetch(input, init)
-          : githubFetch(input, init);
+      globalThis.fetch = (input, init) => {
+        const origin = new URL(
+          input instanceof Request ? input.url : String(input),
+        ).origin;
+        return origin === apiOrigin
+          ? apiFetch(input, init)
+          : origin === upstream.origin
+            ? networkFetch(input, init)
+            : githubFetch(input, init);
+      };
       const threads = nativeThreads(owned.fakeGitHub, scenario);
       vi.stubEnv(
         "REVIEW_THREAD_LIFECYCLE_TRUSTED_AUTHORS",
@@ -267,6 +359,33 @@ lifecycleCase.each([
         app,
         owned.routes.accountGatewayRelay,
       );
+      if (unified) {
+        await registerReviewModelDispatchRoutes(
+          app,
+          owned.routes.modelDispatch,
+        );
+        apiOrigin = await app.listen({ host: "127.0.0.1", port: 0 });
+        apiFetch = loopbackApiFetch(apiOrigin, tls!.cert, (value) =>
+          apiRejections.push(value),
+        );
+        // Native transport intentionally uses agent:false. Supply only this
+        // disposable peer's CA while retaining actual HTTPS and hostname checks.
+        const nativeRequest = https.request;
+        vi.spyOn(https, "request").mockImplementation(((
+          url: URL | string,
+          options: https.RequestOptions,
+          callback: any,
+        ) =>
+          nativeRequest(
+            url,
+            {
+              ...options,
+              ...(new URL(url).origin === apiOrigin ? { ca: tls!.cert } : {}),
+            },
+            callback,
+          )) as typeof https.request);
+        syncBuiltinESMExports();
+      }
       const load = (relative: string) =>
         import(pathToFileURL(path.join(actionSourceDir!, relative)).href);
       const [
@@ -283,6 +402,8 @@ lifecycleCase.each([
         inventoryModule,
         ledgerModule,
         planningModule,
+        modelDispatchModule,
+        modelTransportModule,
       ] = await Promise.all([
         load(
           "src/review-orchestration/infrastructure/production-review-projection.ts",
@@ -311,23 +432,32 @@ lifecycleCase.each([
         load(
           "src/review-orchestration/infrastructure/lifecycle-verification-planning.ts",
         ),
+        load(
+          "src/review-orchestration/infrastructure/prepared-model-dispatch.ts",
+        ),
+        load(
+          "src/review-orchestration/infrastructure/account-gateway-model-transport.ts",
+        ),
       ]);
       const client = new clientModule.ReviewActionV2Client({
-        apiUrl: "https://paired.example",
+        apiUrl: apiOrigin ?? "https://paired.example",
+        ...(unified ? { allowInsecureLocalhost: true } : {}),
         maxAttempts: 1,
-        fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
-          const request = new Request(input, init);
-          const response = await app.inject({
-            method: request.method as "POST",
-            url: new URL(request.url).pathname,
-            headers: Object.fromEntries(request.headers),
-            payload: await request.text(),
-          });
-          return new Response(response.body, {
-            status: response.statusCode,
-            headers: { "content-type": "application/json" },
-          });
-        },
+        fetchImpl: unified
+          ? apiFetch
+          : async (input: RequestInfo | URL, init?: RequestInit) => {
+              const request = new Request(input, init);
+              const response = await app.inject({
+                method: request.method as "POST",
+                url: new URL(request.url).pathname,
+                headers: Object.fromEntries(request.headers),
+                payload: await request.text(),
+              });
+              return new Response(response.body, {
+                status: response.statusCode,
+                headers: { "content-type": "application/json" },
+              });
+            },
       });
       const gitHubClient = new githubModule.GitHubClient("paired-read-token", {
         repository: "reviewrouter-e2e/disposable-review-v2",
@@ -392,23 +522,10 @@ lifecycleCase.each([
           },
           {
             activation: history,
-            writers: {
-              qualify: async () => ({
-                status: "qualified",
-                proof: {
-                  writerDigest: hash("paired-owned-handler-settled"),
-                  qualificationSource: "managed_executor_handler_settlement.v1",
-                  executors: [
-                    {
-                      executorId: "paired-owned-app-adapter",
-                      binaryDigest: hash("paired-test-executor"),
-                      acceptsNewRequests: false,
-                      handlerSettlement: "terminal_or_exact_durable_pending",
-                    },
-                  ],
-                },
-              }),
-            },
+            writers: createPrismaResolutionWriterQualification({
+              prisma: owned.prisma,
+              env: owned.env,
+            }),
           },
         ),
       ).toEqual({ status: "guarded" });
@@ -425,19 +542,7 @@ lifecycleCase.each([
       );
       const firstControl = control(firstAuth.result);
       const initialPlan = domainModule.createStableReviewWorkPlan({
-        reviewRevisionHash: firstAuth.reviewRevisionHash,
-        compatibilityKey: hash("paired-runtime"),
-        providers: [
-          {
-            providerName: "codex",
-            providerKind: "codex",
-            providerVoteIdentityHash:
-              firstNative.facts.providerVoteLanes[0].providerVoteIdentityHash,
-            required: true,
-            attemptBudget: 1,
-            retryPolicyVersion: "paired-once.v1",
-          },
-        ],
+        ...planInput(firstNative),
         batches: [
           {
             batchId: "discovery",
@@ -447,11 +552,6 @@ lifecycleCase.each([
             schedulingOrdinal: 0,
           },
         ],
-        eligiblePaths: [filePath],
-        uncoveredPaths: [],
-        excludedPaths: [],
-        maxWorkSlots: 8,
-        maxAttemptsPerSlot: 1,
       });
       expect(
         JSON.parse(initialPlan.assignmentManifestCanonicalJson).manifestVersion,
@@ -517,7 +617,7 @@ lifecycleCase.each([
       )!;
       const capability = snapshot.lifecycleVerificationCapability;
       expect(capability).toMatchObject({
-        extensionId: "lifecycle-verification.v1",
+        extensionId: `lifecycle-verification.v${version}`,
         model,
         modelTransport: "account_gateway",
         maxOutputTokens: 4096,
@@ -545,6 +645,11 @@ lifecycleCase.each([
           .map((target: { title: string }) => target.title)
           .sort(),
       ).toEqual(oldClaims.map((claim) => claim[0]).sort());
+      expect(
+        cp.readCapturedResolutionHistory(),
+        "captured native history",
+      ).toHaveLength(4);
+      const planningHistoryStates: string[] = [];
       const revalidation = await verifierModule.planFindingRevalidation(
         {
           scope: {
@@ -594,6 +699,7 @@ lifecycleCase.each([
                 target,
                 cp.readCapturedResolutionHistory() ?? [],
               );
+              planningHistoryStates.push(prior.state);
               expect(prior.state).toBe("no_prior_since_creation");
               return prior;
             },
@@ -601,7 +707,13 @@ lifecycleCase.each([
           isPathAllowed: () => true,
         },
       );
-      expect(revalidation.packets).toHaveLength(1);
+      expect(
+        revalidation.packets,
+        JSON.stringify({
+          dispositions: revalidation.dispositions,
+          planningHistoryStates,
+        }),
+      ).toHaveLength(1);
       upstream.setPacket(revalidation.packets[0]);
       const discovery = domainModule.createStableReviewWorkPlan({
         ...planInput(native),
@@ -659,7 +771,9 @@ lifecycleCase.each([
         second.exhausted,
       );
       const envelope = JSON.parse(projection.projectionEnvelopeCanonicalJson);
-      const valid = ["success", "denied", "unknown"].includes(scenario);
+      const valid = ["success", "denied", "unknown", "stale_head"].includes(
+        scenario,
+      );
       expect(envelope.coverage.state).toBe("complete");
       expect(envelope.publishing.summary.allClear).toBe(false);
       expect(envelope.publishing.summary.occurrenceCounts.resolved).toBe(0);
@@ -716,14 +830,90 @@ lifecycleCase.each([
         await owned.prisma.reviewRunCompanionDispatchV1.findMany({
           where: { authorizationId: authorized.authorizationId },
         });
-      expect(upstream.requests()).toBe(scenario === "forged_claim" ? 0 : 1);
-      expect(dispatches).toHaveLength(scenario === "forged_claim" ? 0 : 1);
-      if (dispatches[0])
-        expect(dispatches[0]).toMatchObject({
-          state: "completed",
+      const verificationDispatches = dispatches.filter(
+        (item) => item.role === "lifecycle_verification",
+      );
+      const verifierCalled = !["forged_claim", "budget_exhausted"].includes(
+        scenario,
+      );
+      expect(upstream.requests()).toBe(
+        (unified ? 4 : 0) + (verifierCalled ? 1 : 0),
+      );
+      expect(dispatches).toHaveLength(
+        (unified ? 2 : 0) + (verifierCalled ? 1 : 0),
+      );
+      expect(verificationDispatches).toHaveLength(verifierCalled ? 1 : 0);
+      if (verificationDispatches[0])
+        expect(verificationDispatches[0]).toMatchObject({
+          state: scenario === "paid_unknown" ? "effect_unknown" : "completed",
           role: "lifecycle_verification",
           providerRequestEnvelopeHash: hash(upstream.lastRequest()),
         });
+      if (unified) {
+        expect(snapshot.agent.agentKind).toBe("ocr");
+        expect(capability).toMatchObject({
+          routeIdentityHash:
+            snapshot.modelDispatchCapability!.routeIdentityHash,
+        });
+        const discoveries = dispatches
+          .filter((item) => item.role === "finding_discovery")
+          .sort((left, right) => left.requestOrdinal! - right.requestOrdinal!);
+        expect(discoveries.map((item) => item.requestOrdinal)).toEqual([1, 2]);
+        for (const receipt of dispatches) {
+          if (
+            receipt.role === "lifecycle_verification" &&
+            scenario === "paid_unknown"
+          ) {
+            expect(receipt.terminalReceiptJson).toBeNull();
+            continue;
+          }
+          expect(receipt).toMatchObject({
+            dispatchVersion: 2,
+            state: "completed",
+            nativeEffectState: "completed",
+            routeIdentityHash:
+              snapshot.modelDispatchCapability!.routeIdentityHash,
+            terminalReceiptJson: {
+              actualModel: model,
+              usage: { outputTokens: 100 },
+            },
+          });
+        }
+        if (["forged_claim", "budget_exhausted"].includes(scenario))
+          expect(apiRejections).toContainEqual({
+            status: 409,
+            code:
+              scenario === "forged_claim"
+                ? "companion_lease_mismatch"
+                : "model_dispatch_budget_exhausted",
+          });
+        const paidCalls = upstream.requests();
+        const restored = await cp.restoreExecution({
+          authorization: native,
+          reviewRevisionHash: native.facts.reviewRevisionHash,
+        });
+        expect(restored).toMatchObject({
+          executionId: second.execution.executionId,
+          planHash: expanded.plan.planHash,
+          persistedPlan: {
+            planHash: expanded.plan.planHash,
+            acceptedManifests: expect.arrayContaining(
+              second.accepted.map(({ workSlotId, observation }) =>
+                expect.objectContaining({
+                  workSlotId,
+                  providerInvocationKey: observation.providerInvocationKey,
+                  providerVoteIdentityHash:
+                    observation.providerVoteIdentityHash,
+                }),
+              ),
+            ),
+          },
+        });
+        expect(restored?.persistedPlan?.acceptedManifests).toHaveLength(
+          second.accepted.length,
+        );
+        expect(upstream.requests()).toBe(paidCalls);
+      }
       await finalizeAndPublish(native, cp, second.execution, projection, false);
       const artifact =
         await owned.prisma.finalizedReviewProjectionArtifactV2.findFirstOrThrow(
@@ -734,6 +924,42 @@ lifecycleCase.each([
         hash: artifact.projectionHash,
         artifactHash: artifact.artifactHash,
       };
+      if (scenario === "stale_head") {
+        const paidCalls = upstream.requests();
+        const comments = owned.fakeGitHub.comments.length;
+        owned.setRevision({
+          baseSha: "c".repeat(40),
+          mergeBaseSha: "d".repeat(40),
+          headSha: "2".repeat(40),
+        });
+        await owned.processFinalizedOutbox();
+        await owned.runWorkerUntilSettled();
+        expect(
+          await owned.prisma.reviewPublicationAttemptV2.findFirstOrThrow({
+            where: { executionId: second.execution.executionId },
+            select: { state: true, terminalOutcome: true },
+          }),
+        ).toEqual({
+          state: "terminal",
+          terminalOutcome: "superseded_no_effect",
+        });
+        expect(threads.resolveCalls()).toBe(0);
+        expect(threads.closed()).toHaveLength(0);
+        expect(owned.fakeGitHub.comments).toHaveLength(comments);
+        expect(upstream.requests()).toBe(paidCalls);
+        expect(
+          await owned.prisma.finalizedReviewProjectionArtifactV2.findFirstOrThrow(
+            {
+              where: { executionId: second.execution.executionId },
+            },
+          ),
+        ).toMatchObject({
+          projectionEnvelopeCanonicalJson: frozen.json,
+          projectionHash: frozen.hash,
+          artifactHash: frozen.artifactHash,
+        });
+        return;
+      }
       const dbArtifact = (
         await new PrismaReviewExecutionStore(owned.prisma).findExecution(
           second.execution.executionId,
@@ -1021,6 +1247,12 @@ lifecycleCase.each([
           expect(snapshotAfter.payloadHash).toBe(snapshotBefore.payloadHash);
         }
         if (scenario === "unknown") {
+          await expect(owned.runWorkerUntilSettled(1)).rejects.toThrow(
+            "review_v2_e2e_worker_did_not_settle",
+          );
+          expect(new Set(threads.requestThreads()).size).toBe(
+            threads.requestThreads().length,
+          );
           const uncertainHistory = await history.read(
             {
               workspaceId: owned.workspaceId,
@@ -1052,8 +1284,8 @@ lifecycleCase.each([
           compatibilityKey: hash("paired-runtime"),
           providers: [
             {
-              providerName: "codex",
-              providerKind: "codex",
+              providerName: engineKind,
+              providerKind: engineKind,
               providerVoteIdentityHash:
                 auth.facts.providerVoteLanes[0].providerVoteIdentityHash,
               required: true,
@@ -1100,18 +1332,46 @@ lifecycleCase.each([
           );
         const accepted: any[] = [];
         const exhausted: string[] = [];
+        const captured = parseReviewRunRuntimeSnapshot(
+          (
+            await owned.prisma.reviewRunAuthorization.findUniqueOrThrow({
+              where: { authorizationId: auth.authorizationId },
+              select: { runtimeSnapshotCanonicalJson: true },
+            })
+          ).runtimeSnapshotCanonicalJson,
+        )!;
+        const preparedDispatch = unified
+          ? new modelDispatchModule.PreparedModelDispatch({
+              apiUrl: apiOrigin,
+              capability: captured.modelDispatchCapability,
+              authorization: () => ({
+                authorizationId: auth.authorizationId,
+                authorizationToken: auth.authorizationToken,
+              }),
+              fetchImpl: apiFetch,
+            })
+          : undefined;
+        const preparedTransport = unified
+          ? new modelTransportModule.AccountGatewayModelTransport(
+              apiOrigin,
+              () => auth.authorizationToken,
+            )
+          : undefined;
+        if (preparedTransport)
+          preparedTransport.setModelDispatch(preparedDispatch);
+        upstream.setDiscovery(findings);
         const discoveryPort = {
           prepare: async ({ workSlot }: any) => ({
             workSlotId: workSlot.workSlotId,
             attemptOrdinal: 1,
-            provider: "codex",
+            provider: engineKind,
             requestedModel: model,
             reviewPrompt: "Bounded synthetic discovery",
             investigationContextPrompt: null,
             immutableRequest: Buffer.from("bounded-discovery"),
             manifestFacts: {
               taskKindSet: ["finding_discovery"],
-              providerKind: "codex",
+              providerKind: engineKind,
               providerCapabilityHash: hash("discovery-capability"),
               providerRequestEnvelopeHash: hash("bounded-discovery"),
               outputSchemaHash: hash("discovery-output"),
@@ -1138,16 +1398,75 @@ lifecycleCase.each([
             }),
             investigationProbePlan: null,
           }),
-          execute: async ({ invocation }: any) =>
-            normalizerModule.normalizeReviewObservation({
+          execute: async ({ invocation, signal }: any) => {
+            let completedFindings = findings;
+            if (preparedTransport) {
+              // The engine boundary is a controlled fixture. Both distinct
+              // discovery turns still traverse the real public transport,
+              // production relay and durable allowance before evidence exists.
+              for (const turn of ["context", "findings"]) {
+                const request = Buffer.from(
+                  JSON.stringify({
+                    model,
+                    stream: true,
+                    reasoning: null,
+                    max_output_tokens: 4096,
+                    input: [
+                      {
+                        role: "user",
+                        content: [
+                          {
+                            type: "input_text",
+                            text: JSON.stringify({
+                              fixture: "paired-discovery",
+                              turn,
+                              headSha: auth.facts.headSha,
+                              path: filePath,
+                              source,
+                            }),
+                          },
+                        ],
+                      },
+                    ],
+                  }),
+                );
+                const response = await preparedTransport.responses(
+                  request,
+                  signal,
+                );
+                if (response.httpStatus !== 200) {
+                  response.cancel();
+                  throw new Error(
+                    `paired_discovery_dispatch_denied:${response.httpStatus}`,
+                  );
+                }
+                const chunks: Buffer[] = [];
+                for await (const chunk of response.body)
+                  chunks.push(Buffer.from(chunk));
+                await preparedTransport.drainSettlements();
+                const completed = completedResponse(
+                  Buffer.concat(chunks).toString("utf8"),
+                );
+                expect(completed.model).toBe(model);
+                completedFindings = JSON.parse(
+                  completed.output[0].content[0].text,
+                ).findings;
+              }
+            }
+            return normalizerModule.normalizeReviewObservation({
               workSlotId: invocation.workSlotId,
               attemptOrdinal: 1,
-              providerName: "codex",
+              providerName: engineKind,
               requestedModel: model,
-              result: { content: "", actualModel: model, findings },
-            }),
+              result: {
+                content: "",
+                actualModel: model,
+                findings: completedFindings,
+              },
+            });
+          },
         };
-        const port = verification
+        const invocationPort = verification
           ? invocationModule.compositeLifecycleInvocations({
               discovery: discoveryPort,
               packetsByWorkSlotId: verification.packetsByWorkSlotId,
@@ -1164,11 +1483,18 @@ lifecycleCase.each([
                 generateLifecycleVerification: async ({
                   requestBody,
                   dispatch,
+                  ...bounds
                 }: any) => {
                   const context =
                     scenario === "forged_claim"
                       ? { ...dispatch, preparedManifestKey: "0".repeat(64) }
                       : dispatch;
+                  if (preparedTransport)
+                    return preparedTransport.generateLifecycleVerification({
+                      requestBody,
+                      dispatch: context,
+                      ...bounds,
+                    });
                   const headers: Record<string, string> = {
                     authorization: `Bearer ${auth.authorizationToken}`,
                     "content-type": "application/json",
@@ -1187,22 +1513,22 @@ lifecycleCase.each([
                     throw new Error(
                       `paired_relay_denied:${response.statusCode}:${response.json().error?.code}`,
                     );
-                  const completed = response.body
-                    .split(/\r?\n/)
-                    .filter((line) => line.startsWith("data:"))
-                    .map((line) => JSON.parse(line.slice(5).trim()))
-                    .find((event: any) => event.type === "response.completed");
+                  const completed = completedResponse(response.body);
                   return {
-                    body: Buffer.from(
-                      completed.response.output[0].content[0].text,
-                    ),
-                    actualModel: completed.response.model,
+                    body: Buffer.from(completed.output[0].content[0].text),
+                    actualModel: completed.model,
                     providerRequestEnvelopeHash: hash(requestBody),
                   };
                 },
               },
             })
           : discoveryPort;
+        const port = preparedTransport
+          ? modelDispatchModule.scopedModelInvocations(
+              invocationPort,
+              preparedTransport,
+            )
+          : invocationPort;
         for (const workSlot of slots) {
           const invocation = await port.prepare({
             workSlot,
@@ -1259,14 +1585,51 @@ lifecycleCase.each([
           } catch (error) {
             if (
               workSlot.taskKind !== "lifecycle_revalidation" ||
-              ["success", "denied", "unknown"].includes(scenario)
+              ["success", "denied", "unknown", "stale_head"].includes(scenario)
             )
               throw error;
-            expect(String(error)).toContain(
-              scenario === "forged_claim"
-                ? "paired_relay_denied:409:companion_lease_mismatch"
-                : "lifecycle_verification_response_invalid",
-            );
+            if (scenario === "paid_unknown") {
+              expect(String(error)).toMatch(
+                /account_gateway_transport_unknown|lifecycle_verification_dispatch_unavailable|aborted|terminated|ECONNRESET/,
+              );
+              const paidCalls = upstream.requests();
+              const resumed = new modelDispatchModule.PreparedModelDispatch({
+                apiUrl: apiOrigin,
+                capability: captured.modelDispatchCapability,
+                authorization: () => ({
+                  authorizationId: auth.authorizationId,
+                  authorizationToken: auth.authorizationToken,
+                }),
+                fetchImpl: apiFetch,
+              });
+              const release = resumed.beginInvocation(() => ({
+                executionId,
+                workSlotId: workSlot.workSlotId,
+                attemptOrdinal: 1,
+                leaseId: lease.leaseId,
+                leaseCapability: lease.leaseCapability,
+                fencingToken: lease.fencingToken,
+                preparedManifestKey: manifest.manifestKey,
+              }));
+              try {
+                await expect(
+                  resumed.reserve(
+                    upstream.lastRequest(),
+                    new AbortController().signal,
+                  ),
+                ).rejects.toThrow("model_dispatch_claim_unavailable");
+              } finally {
+                release();
+              }
+              expect(upstream.requests()).toBe(paidCalls);
+            } else
+              expect(String(error)).toContain(
+                ["forged_claim", "budget_exhausted"].includes(scenario)
+                  ? unified
+                    ? "account_gateway_transport_unknown"
+                    : "paired_relay_denied:409:companion_lease_mismatch"
+                  : "lifecycle_verification_response_invalid",
+              );
             exhausted.push(workSlot.workSlotId);
           } finally {
             await plane.releaseInvocationLease({
@@ -1355,10 +1718,11 @@ lifecycleCase.each([
       }
     } finally {
       vi.restoreAllMocks();
+      syncBuiltinESMExports();
       vi.unstubAllEnvs();
       await app.close();
-      await fixture?.close();
       await upstream.close();
+      await fixture?.close();
       if (fixture) await resetReviewActionV2E2EDatabase(databaseUrl!);
     }
   },
@@ -1382,6 +1746,103 @@ function legacyFinding(
     confidence: 0.99,
     category: "correctness",
     normalizedFailureModeHash: seed.repeat(64),
+  };
+}
+
+function completedResponse(body: string) {
+  const event = body
+    .split(/\r?\n/)
+    .filter(
+      (line) => line.startsWith("data:") && line.slice(5).trim() !== "[DONE]",
+    )
+    .map((line) => JSON.parse(line.slice(5).trim()))
+    .find((value: { type?: string }) => value.type === "response.completed");
+  if (!event?.response) throw new Error("paired_completed_response_required");
+  return event.response;
+}
+
+/** The production transport requires HTTPS. Trust a fresh local certificate,
+ * without disabling peer/hostname verification or changing production origin rules. */
+function loopbackTls() {
+  const root = mkdtempSync(path.join(tmpdir(), "rr-lifecycle-tls-"));
+  try {
+    const keyPath = path.join(root, "key.pem");
+    const certPath = path.join(root, "cert.pem");
+    execFileSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-sha256",
+        "-days",
+        "1",
+        "-subj",
+        "/CN=localhost",
+        "-addext",
+        "subjectAltName=IP:127.0.0.1",
+        "-keyout",
+        keyPath,
+        "-out",
+        certPath,
+      ],
+      { stdio: "ignore" },
+    );
+    return { key: readFileSync(keyPath), cert: readFileSync(certPath) };
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function loopbackApiFetch(
+  origin: string,
+  ca: Buffer,
+  rejected: (value: { status: number; code?: string }) => void,
+): typeof fetch {
+  return async (input, init) => {
+    const request = new Request(input, init);
+    if (new URL(request.url).origin !== origin)
+      throw new Error("paired_loopback_fetch_origin_mismatch");
+    const bytes = request.body
+      ? Buffer.from(await request.arrayBuffer())
+      : undefined;
+    return new Promise<Response>((resolve, reject) => {
+      const outgoing = https.request(
+        request.url,
+        {
+          method: request.method,
+          headers: Object.fromEntries(request.headers),
+          signal: request.signal,
+          ca,
+        },
+        (incoming) => {
+          const headers = new Headers();
+          for (const [name, value] of Object.entries(incoming.headers))
+            if (value !== undefined)
+              headers.set(name, Array.isArray(value) ? value.join(",") : value);
+          const response = new Response(
+            Readable.toWeb(incoming) as ReadableStream<Uint8Array>,
+            {
+              status: incoming.statusCode,
+              headers,
+            },
+          );
+          if (!response.ok)
+            void response
+              .clone()
+              .json()
+              .then((value: { code?: string }) => {
+                rejected({ status: response.status, code: value.code });
+                resolve(response);
+              }, reject);
+          else resolve(response);
+        },
+      );
+      outgoing.once("error", reject);
+      outgoing.end(bytes);
+    });
   };
 }
 
@@ -1452,9 +1913,21 @@ type Packet = {
 };
 async function controlledGateway(scenario: Scenario) {
   let packet: Packet | undefined;
+  let discoveryFindings: readonly unknown[] = [];
   let calls = 0;
   let last = Buffer.alloc(0);
   const admissions = new Map<string, Record<string, unknown>>();
+  const uncertainRequests = new Set<string>();
+  const writerKeys = generateKeyPairSync("ed25519");
+  const writerKeyId = "paired-writer-witness";
+  const writerBinding = {
+    environmentId: "paired-lifecycle-disposable",
+    deploymentRevision: "a".repeat(40),
+    artifactDigest: `sha256:${hash("paired-test-executor")}`,
+    fleetDigest: hash("paired-owned-handler-settled"),
+  };
+  let writerAttestation: AttestResolutionWriterQualification | undefined;
+  let restoreDatabaseComment: (() => Promise<void>) | undefined;
   const server = createServer((request, response) => {
     void (async () => {
       const chunks: Buffer[] = [];
@@ -1465,6 +1938,14 @@ async function controlledGateway(scenario: Scenario) {
         response
           .writeHead(status, { "content-type": "application/json" })
           .end(JSON.stringify(value));
+      if (request.url === "/v1/resolution-writer-qualification") {
+        expect(request.headers.authorization).toBe(
+          `Bearer ${lifecycleGatewayFixtureControlBearer}`,
+        );
+        if (!writerAttestation) throw new Error("paired_writer_not_bound");
+        json(200, await writerAttestation.execute());
+        return;
+      }
       if (request.url === "/internal/v1/run-access") {
         expect(request.headers.authorization).toBe(
           `Bearer ${lifecycleGatewayFixtureControlBearer}`,
@@ -1503,10 +1984,12 @@ async function controlledGateway(scenario: Scenario) {
         return;
       }
       if (request.method === "GET" && request.url?.includes("/requests/")) {
+        const requestRef = request.url.split("/").at(-1)!;
+        const uncertain = uncertainRequests.has(requestRef);
         json(200, {
-          requestRef: request.url.split("/").at(-1),
-          effect: "completed",
-          status: "completed",
+          requestRef,
+          effect: uncertain ? "effect_unknown" : "completed",
+          status: uncertain ? "pending" : "completed",
         });
         return;
       }
@@ -1516,16 +1999,51 @@ async function controlledGateway(scenario: Scenario) {
       }
       if (request.method === "POST" && request.url?.endsWith("/requests")) {
         expect(request.headers.authorization).toBe("Bearer paired-execution");
-        expect(packet).toBeDefined();
         const supplied = JSON.parse(
           String(request.headers["x-gateway-admission"]),
         );
         expect([...admissions.values()]).toContainEqual(supplied);
         calls++;
         last = bytes;
-        const sentPacket = JSON.parse(body.input[0].content[0].text) as Packet;
+        const respondCompleted = (answer: unknown) =>
+          response
+            .writeHead(200, {
+              "content-type": "text/event-stream",
+              "x-gateway-request-ref": String(
+                request.headers["x-gateway-request-id"],
+              ),
+            })
+            .end(
+              `data: ${JSON.stringify({ type: "response.completed", response: { id: "paired-response", status: "completed", model, output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: JSON.stringify(answer) }] }], usage: { input_tokens: 100, output_tokens: 100, total_tokens: 200 } } })}\n\n`,
+            );
+        expect(body.model).toBe(model);
+        expect(body.max_output_tokens).toBeLessThanOrEqual(4096);
+        const sentPacket = JSON.parse(
+          body.input[0].content[0].text,
+        ) as Packet & { fixture?: string };
+        if (sentPacket.fixture === "paired-discovery") {
+          respondCompleted({ findings: discoveryFindings });
+          return;
+        }
+        expect(packet).toBeDefined();
         expect(sentPacket.packetHash).toBe(packet!.packetHash);
         expect(bytes.length).toBeLessThanOrEqual(96 * 1024);
+        if (scenario === "paid_unknown") {
+          uncertainRequests.add(
+            String(request.headers["x-gateway-request-id"]),
+          );
+          response.writeHead(200, {
+            "content-type": "text/event-stream",
+            "x-gateway-request-ref": String(
+              request.headers["x-gateway-request-id"],
+            ),
+          });
+          response.write(
+            `data: ${JSON.stringify({ type: "response.in_progress", response: { id: "paid-unknown", status: "in_progress", model } })}\n\n`,
+          );
+          setTimeout(() => response.destroy(), 10);
+          return;
+        }
         const results = packet!.targets.map((target) => {
           const index = oldClaims.findIndex(
             (claim) => claim[0] === target.claim.title,
@@ -1576,16 +2094,7 @@ async function controlledGateway(scenario: Scenario) {
             scenario === "wrong_packet" ? "0".repeat(64) : packet!.packetHash,
           results: scenario === "missing_verdict" ? results.slice(1) : results,
         };
-        response
-          .writeHead(200, {
-            "content-type": "text/event-stream",
-            "x-gateway-request-ref": String(
-              request.headers["x-gateway-request-id"],
-            ),
-          })
-          .end(
-            `data: ${JSON.stringify({ type: "response.completed", response: { id: "paired-response", status: "completed", model, output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: JSON.stringify(answer) }] }], usage: { input_tokens: 100, output_tokens: 100, total_tokens: 200 } } })}\n\n`,
-          );
+        respondCompleted(answer);
         return;
       }
       json(404, { error: "paired_unknown_native_route" });
@@ -1596,18 +2105,101 @@ async function controlledGateway(scenario: Scenario) {
     });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return {
-    origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    origin,
+    writerEnvironment: {
+      REVIEW_ROUTER_RESOLUTION_WRITER_WITNESS_URL: origin,
+      REVIEW_ROUTER_RESOLUTION_WRITER_WITNESS_KEY_ID: writerKeyId,
+      REVIEW_ROUTER_RESOLUTION_WRITER_WITNESS_PUBLIC_KEY_PEM:
+        writerKeys.publicKey.export({ type: "spki", format: "pem" }).toString(),
+      REVIEW_ROUTER_RESOLUTION_WRITER_WITNESS_TOKEN:
+        lifecycleGatewayFixtureControlBearer,
+      REVIEW_ROUTER_RESOLUTION_WRITER_ENVIRONMENT_ID:
+        writerBinding.environmentId,
+      REVIEW_ROUTER_RESOLUTION_WRITER_DEPLOYMENT_REVISION:
+        writerBinding.deploymentRevision,
+      REVIEW_ROUTER_RESOLUTION_WRITER_ARTIFACT_DIGEST:
+        writerBinding.artifactDigest,
+      REVIEW_ROUTER_RESOLUTION_WRITER_FLEET_DIGEST: writerBinding.fleetDigest,
+    },
+    async bindResolutionWriterDatabase(
+      prisma: ReviewActionV2E2EHarness["prisma"],
+    ) {
+      const rows = await prisma.$queryRaw<
+        {
+          serverIdentity: string;
+          databaseIdentity: string;
+          databaseName: string;
+          databaseComment: string | null;
+        }[]
+      >`SELECT (SELECT system_identifier::text FROM pg_catalog.pg_control_system()) AS "serverIdentity", oid::text AS "databaseIdentity", datname AS "databaseName", pg_catalog.shobj_description(oid, 'pg_database') AS "databaseComment" FROM pg_catalog.pg_database WHERE datname = current_database()`;
+      const row = rows[0];
+      if (rows.length !== 1 || !row || !/(?:test|ci)/.test(row.databaseName))
+        throw new Error("paired_writer_disposable_database_required");
+      const recoveryWitnessSha256 = hash(
+        `paired-generation:${row.databaseIdentity}`,
+      );
+      const identifier = `"${row.databaseName.replaceAll('"', '""')}"`;
+      const setComment = (comment: string | null) =>
+        prisma.$executeRawUnsafe(
+          `COMMENT ON DATABASE ${identifier} IS ${comment === null ? "NULL" : `'${comment.replaceAll("'", "''")}'`}`,
+        );
+      restoreDatabaseComment = async () => {
+        await setComment(row.databaseComment);
+      };
+      await setComment(JSON.stringify({ recoveryWitnessSha256 }));
+      writerAttestation = new AttestResolutionWriterQualification(
+        {
+          async observe() {
+            return {
+              ...writerBinding,
+              database: {
+                serverIdentity: row.serverIdentity,
+                databaseIdentity: row.databaseIdentity,
+                databaseName: row.databaseName,
+                recoveryWitnessSha256,
+              },
+              proof: {
+                writerDigest: writerBinding.fleetDigest,
+                qualificationSource: "managed_executor_handler_settlement.v1",
+                executors: [
+                  {
+                    executorId: "paired-owned-app-adapter",
+                    binaryDigest: hash("paired-test-executor"),
+                    acceptsNewRequests: false,
+                    handlerSettlement: "terminal_or_exact_durable_pending",
+                  },
+                ],
+              },
+              observedAt: new Date().toISOString(),
+            };
+          },
+        },
+        new Ed25519ReleaseWitnessSignerAdapter(
+          writerKeyId,
+          writerKeys.privateKey
+            .export({ type: "pkcs8", format: "pem" })
+            .toString(),
+        ),
+        { assertOrdinary: async () => {}, assertForceNew: async () => {} },
+      );
+    },
     setPacket(value: Packet) {
       packet = value;
     },
+    setDiscovery(findings: readonly unknown[]) {
+      discoveryFindings = findings;
+    },
     requests: () => calls,
     lastRequest: () => last,
-    close: () =>
-      new Promise<void>((resolve, reject) => {
+    close: async () => {
+      await restoreDatabaseComment?.();
+      return new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
         server.closeAllConnections();
-      }),
+      });
+    },
   };
 }
 
@@ -1621,6 +2213,7 @@ function nativeThreads(github: FakeGitHubTransport, scenario: Scenario) {
   };
   const threads: Thread[] = [];
   let calls = 0;
+  const requestThreads: string[] = [];
   let unknownEffect = false;
   const original = github.fetch;
   vi.spyOn(github, "fetch").mockImplementation(async (input, init) => {
@@ -1640,6 +2233,7 @@ function nativeThreads(github: FakeGitHubTransport, scenario: Scenario) {
       const thread = threads.find((item) => item.id === body.variables.id);
       if (!thread) throw new Error("paired_lifecycle_thread_missing");
       calls++;
+      requestThreads.push(thread.id);
       if (scenario === "denied")
         return Response.json(
           { message: "Resource not accessible by integration" },
@@ -1743,6 +2337,7 @@ function nativeThreads(github: FakeGitHubTransport, scenario: Scenario) {
       }
     },
     resolveCalls: () => calls,
+    requestThreads: () => [...requestThreads],
     closed: () =>
       threads.filter((thread) => thread.isResolved).map((thread) => thread.id),
   };

@@ -195,6 +195,17 @@ This proves the preparation mechanism, not real subscription access. A pure
 credential-adapter reader reuses the same identity/lifetime checks after accepted
 refresh/writeback; the review scenario receives only a prepared route.
 
+Keep credential preservation and review admission as separate checks. First
+validate the refreshed account identity, a confirmed refresh, and minimum current
+validity; then complete the existing encrypted writeback and its reconciliation.
+Only afterwards require expiry to cover the already captured original run
+deadline plus 60 seconds, before any paid model request. A successful rotation
+may invalidate the old refresh token, so rejecting and discarding the fresh
+credential merely because it cannot cover the full remaining review would lose
+the user's usable credential. Insufficient review lifetime blocks inference; it
+does not undo a confirmed writeback, extend the deadline, refresh again, or select
+another account. This order preserves the existing credential lifecycle.
+
 The matching official source commit is
 [`be6e8eac029b183056b7e4402879f15d2c85f61b`](https://github.com/openai/codex/tree/be6e8eac029b183056b7e4402879f15d2c85f61b).
 Its [`ResponsesApiRequest`](https://github.com/openai/codex/blob/be6e8eac029b183056b7e4402879f15d2c85f61b/codex-rs/codex-api/src/common.rs)
@@ -686,3 +697,34 @@ two reviewable setup revisions, and exact readback after unknown GitHub outcomes
 No live workflow disablement, secret migration, automatic merge, or release pin
 change is authorized by a synthetic fixture. Missing concrete drain or recovery
 authority remains an explicit implementation/rollout gate.
+
+## 15. Executable qualification and final integration findings
+
+The managed OCR candidate `1.13.1-rr.5` was built from exact upstream commit
+`8eb83340a487b1150af00701b94f01af97e4b4d6` and the eleven checked-in patches using
+Go `1.26.10`, `CGO_ENABLED=0`, `-trimpath`, and `-buildvcs=false`. Its executable
+SHA-256 is `a7bed0cea8ab05503c7de53f8c3825a75c285eb8364c832accc42dbebb0d42db`;
+the patch-set SHA-256 is
+`83f92bae2a7f6295639813760a3aa3f7d9c66ac1fcbc0255d6f200b8754d2957`.
+The public Action stores the exact reproducibility receipt in
+`tools/ocr/qualifications/unified-model-routes-v2.manifest`. The prior
+`review-skills-v1.manifest` and released immutable binaries remain unchanged.
+
+Thirteen actual OCR CLI tests and two actual OCR MCP tests passed against this
+binary and synthetic local provider boundaries. This is executable transport and
+protocol evidence; it does not assert real subscription entitlement, live model
+quality, or release publication. CI builds the same candidate and verifies that
+manifest before using it in both suites.
+
+Final independent review also corrected two boundary mismatches: rotating caller
+schema `4`/`5` must remain distinct from model-route checkout schema `2`, and the
+explicit supported supplied-diff Codex alternative is admitted only on qualified
+native Codex routes, never on native Anthropic. A production paired HTTP check
+exposed Gateway canonical fields missing before dispatch reservation. Its adapter
+now supplies `store: false` and `service_tier: default` and removes absent
+`reasoning: null` before hashing/claiming; direct-provider policy is unchanged.
+
+The T0 reusable workflow delegates exact-head checkout and approved private tool
+preparation to the common prepared runner. Duplicate caller checkout and unused
+global CLI installations are removed from T0; legacy execution retains its
+existing preflight. No additional review scenario is introduced.

@@ -61,6 +61,7 @@ import {
   lifecycleVerificationContract,
   lifecycleVerificationDescriptorDigest,
   type ProviderApiAuthMode,
+  type ReviewModelDispatchProfileV2,
 } from "../../../packages/shared/src/index.js";
 import {
   ReviewActionV2OperationId,
@@ -193,6 +194,8 @@ export type ReviewActionV2E2EHarnessOptions = Readonly<{
   protocolMaxAttemptsPerSlot?: number;
   prDescriptionProfile?: boolean;
   lifecycleVerificationProfile?: boolean;
+  /** Explicit producer approval for the all-role durable model dispatch path. */
+  modelDispatchProfile?: ReviewModelDispatchProfileV2;
   /**
    * The repository's stored provider selection. The workspace has no default
    * provider, so "rotating" (the default) stores a repository selection of
@@ -325,6 +328,9 @@ export class ReviewActionV2E2EHarness {
         ...(options.lifecycleVerificationProfile
           ? { lifecycleVerificationProfile: true }
           : {}),
+        ...(options.modelDispatchProfile
+          ? { modelDispatchProfile: options.modelDispatchProfile }
+          : {}),
         ...(options.investigationProfile
           ? { investigationProfile: options.investigationProfile }
           : {}),
@@ -380,6 +386,9 @@ export class ReviewActionV2E2EHarness {
         ...(options.prDescriptionProfile ? { prDescriptionProfile: true } : {}),
         ...(options.lifecycleVerificationProfile
           ? { lifecycleVerificationProfile: true }
+          : {}),
+        ...(options.modelDispatchProfile
+          ? { modelDispatchProfile: options.modelDispatchProfile }
           : {}),
         ...(options.investigationProfile
           ? { investigationProfile: options.investigationProfile }
@@ -1677,6 +1686,7 @@ async function seedProductionControlPlane(
     agentProfiles?: readonly ReviewAgentProfile[];
     prDescriptionProfile?: boolean;
     lifecycleVerificationProfile?: boolean;
+    modelDispatchProfile?: ReviewModelDispatchProfileV2;
     repositoryProviderSelection: "rotating" | "none";
   }>,
 ): Promise<void> {
@@ -1752,6 +1762,9 @@ async function seedProductionControlPlane(
               ...lifecycleVerificationExtensionV1,
             },
           }
+        : {}),
+      ...(ids.modelDispatchProfile
+        ? { modelDispatchProfile: { ...ids.modelDispatchProfile } }
         : {}),
       contextGatewayPolicyVersion:
         ids.investigationProfile?.gatewayPolicyVersion ??
@@ -1912,6 +1925,7 @@ function productionEnv(input: {
   readonly investigationProfile?: ReviewActionV2E2EInvestigationProfile;
   readonly prDescriptionProfile?: boolean;
   readonly lifecycleVerificationProfile?: boolean;
+  readonly modelDispatchProfile?: ReviewModelDispatchProfileV2;
 }): Readonly<Record<string, string>> {
   const contextReplayKeyId = "review-v2-e2e-context-key";
   const signingKeys = JSON.stringify([
@@ -1946,6 +1960,9 @@ function productionEnv(input: {
           : {}),
         ...(input.lifecycleVerificationProfile
           ? { lifecycleVerificationProfile: lifecycleVerificationExtensionV1 }
+          : {}),
+        ...(input.modelDispatchProfile
+          ? { modelDispatchProfile: input.modelDispatchProfile }
           : {}),
         reviewInvestigationCapability: input.investigationProfile
           ? reviewInvestigationCapabilityV1

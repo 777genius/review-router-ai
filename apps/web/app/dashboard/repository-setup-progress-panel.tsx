@@ -11,7 +11,10 @@ import {
   RepositorySetupActionButton,
   RepositorySetupMergedButton,
 } from "./repository-setup-action-button";
-import { dashboardErrorText as sharedDashboardErrorText } from "./dashboard-copy";
+import {
+  dashboardErrorText as sharedDashboardErrorText,
+  dashboardNoticeText,
+} from "./dashboard-copy";
 import {
   providerSetupConfirmedEventName,
   setupPullRequestMergedEvent,
@@ -26,7 +29,7 @@ import {
 } from "./repository-setup-optimistic-status";
 
 type SetupToast = {
-  readonly tone: "success" | "danger";
+  readonly tone: "success" | "danger" | "warning";
   readonly title: string;
   readonly body: string;
   readonly errorCode?: string;
@@ -92,6 +95,11 @@ export function RepositorySetupProgressPanel({
   const optimisticProviderAuthModesRef = useRef(new Set<ProviderAuthMode>());
   const [toast, setToast] = useState<SetupToast | null>(null);
   const canManage = mutationsEnabled && selected && !archived;
+  const runtimeMigrationUpdate =
+    runtimeCompatibility === "update_required" &&
+    expectedProviderAuthModes.includes("codex_subscription_oauth_rotating");
+  const runtimeVerificationNeeded =
+    runtimeCompatibility === "unknown" && setupStatus === "configured";
   const gatewayBlocked =
     expectedProviderAuthModes.includes("codex_account_gateway") &&
     gatewayReviewV2Readiness?.status !== "ready";
@@ -205,6 +213,23 @@ export function RepositorySetupProgressPanel({
       return;
     }
 
+    if (params.notice?.startsWith("runtime_migration_")) {
+      setToast({
+        tone: "warning",
+        title: "Runtime update",
+        body: dashboardNoticeText(
+          params.notice,
+          params.repository || repositoryFullName,
+        ),
+        ...(params.pr
+          ? { actionUrl: params.pr, actionLabel: "Open first update PR" }
+          : {}),
+      });
+      openOnce(params.pr);
+      router.refresh();
+      return;
+    }
+
     if (params.notice === "setup_pr_ready") {
       const pullRequestUrl = params.pr || setupPullRequestUrl || undefined;
       setSetupStatus("setup_pr_open");
@@ -298,10 +323,14 @@ export function RepositorySetupProgressPanel({
     setupIssueGuidance,
     workflowCurrent,
     runtimeCompatibility,
+    runtimeVerificationNeeded,
     mutationsEnabled,
     currentStep: displayStep,
-    enableReviewAction: canManage ? enableReviewAction : null,
-    providerSetupBeforeWorkflow,
+    enableReviewAction:
+      canManage && !runtimeMigrationUpdate ? enableReviewAction : null,
+    providerSetupBeforeWorkflow:
+      providerSetupBeforeWorkflow && !runtimeMigrationUpdate,
+    showDiscussionModeOption: !runtimeMigrationUpdate,
     gatewayProviderSetup: expectedProviderAuthModes.includes(
       "codex_account_gateway",
     ),
@@ -313,6 +342,14 @@ export function RepositorySetupProgressPanel({
   return (
     <section className="mb-4 pt-1">
       {providerLine ? <div className="mb-4">{providerLine}</div> : null}
+      {runtimeMigrationUpdate ? (
+        <p className="mb-3 text-sm leading-6 text-slate-300" role="status">
+          This update uses two setup PRs. The first installs a temporary
+          migration workflow; after existing reviews finish, it preserves your
+          current GitHub credentials. The final PR installs the new runtime and
+          resumes reviews after verification.
+        </p>
+      ) : null}
       {gatewayBlocked &&
       setupStepNumber[displayStep] >= setupStepNumber.provider ? (
         <p className="mb-3 text-sm text-slate-300" role="status">
@@ -350,7 +387,8 @@ export function RepositorySetupProgressPanel({
         <span className="font-mono text-xs text-slate-400">
           {repositorySetupProgressSummary(
             displayStep,
-            providerSetupBeforeWorkflow,
+            providerSetupBeforeWorkflow && !runtimeMigrationUpdate,
+            runtimeVerificationNeeded,
           )}
         </span>
       </div>
@@ -414,10 +452,12 @@ function buildSetupSteps({
   setupIssueGuidance,
   workflowCurrent,
   runtimeCompatibility,
+  runtimeVerificationNeeded,
   mutationsEnabled,
   currentStep,
   enableReviewAction,
   providerSetupBeforeWorkflow,
+  showDiscussionModeOption,
   gatewayProviderSetup,
   gatewayReviewV2Readiness,
   onSetupComplete,
@@ -433,10 +473,12 @@ function buildSetupSteps({
   readonly setupIssueGuidance: string | null;
   readonly workflowCurrent: boolean;
   readonly runtimeCompatibility: ReviewRuntimeCompatibility;
+  readonly runtimeVerificationNeeded: boolean;
   readonly mutationsEnabled: boolean;
   readonly currentStep: SetupStep;
   readonly enableReviewAction?: ReactNode;
   readonly providerSetupBeforeWorkflow: boolean;
+  readonly showDiscussionModeOption: boolean;
   readonly gatewayProviderSetup: boolean;
   readonly gatewayReviewV2Readiness?:
     | GatewayReviewV2ProvisioningResult
@@ -464,7 +506,7 @@ function buildSetupSteps({
           ↗
         </span>
       </LinkButton>
-    ) : runtimeCompatibility === "unknown" && setupStatus === "configured" ? (
+    ) : runtimeVerificationNeeded ? (
       <RepositorySetupMergedButton
         workspaceId={workspaceId}
         repositoryId={repositoryId}
@@ -485,6 +527,7 @@ function buildSetupSteps({
         workflowRefresh={workflowRefresh}
         mutationsEnabled={mutationsEnabled}
         gatewayWorkflow={gatewayProviderSetup}
+        showDiscussionModeOption={showDiscussionModeOption}
         onComplete={onSetupComplete}
       />
     ) : null;
@@ -540,20 +583,24 @@ function buildSetupSteps({
     ? setupIssueHelperText(setupIssue)
     : setupIssueGuidance
       ? setupIssueGuidance
-      : position > setupStepNumber.setup_pr
-        ? "Setup PR exists."
-        : providerSetupBeforeWorkflow
-          ? "Seed the versioned provider namespace, then add its workflow by PR."
-          : "Add the workflow by PR.";
+      : runtimeVerificationNeeded
+        ? "Check the installed workflow and runtime."
+        : position > setupStepNumber.setup_pr
+          ? "Setup PR exists."
+          : providerSetupBeforeWorkflow
+            ? "Seed the versioned provider namespace, then add its workflow by PR."
+            : "Add the workflow by PR.";
 
   return [
     {
       id: "setup_pr",
       title: setupIssue
         ? "Recover setup PR"
-        : providerSetupBeforeWorkflow
-          ? "Prepare setup PR"
-          : "Create setup PR",
+        : runtimeVerificationNeeded
+          ? "Verify setup"
+          : providerSetupBeforeWorkflow
+            ? "Prepare setup PR"
+            : "Create setup PR",
       helper: setupPrHelper,
       action: setupPreparationAction,
     },
@@ -678,12 +725,15 @@ function RepositorySetupProgressStepItem({
 function repositorySetupProgressSummary(
   step: SetupStep,
   providerSetupBeforeWorkflow: boolean,
+  runtimeVerificationNeeded: boolean,
 ): string {
   switch (step) {
     case "setup_pr":
-      return providerSetupBeforeWorkflow
-        ? "1 of 4 - prepare versioned setup"
-        : "1 of 4 - setup PR needed";
+      return runtimeVerificationNeeded
+        ? "1 of 4 - verification needed"
+        : providerSetupBeforeWorkflow
+          ? "1 of 4 - prepare versioned setup"
+          : "1 of 4 - setup PR needed";
     case "merge_setup_pr":
       return "2 of 4 - merge setup PR";
     case "provider":

@@ -421,6 +421,16 @@ const gatewaySetupPullRequestBody = [
 ].join("\n");
 
 function resolveSetupPullRequestBody(input: WorkflowSetupGatewayInput): string {
+  if (input.setupMode === "runtime_migration")
+    return [
+      "This is the first of two ReviewRouter runtime update PRs.",
+      "",
+      "It installs an immutable migration runner while the current review caller stays on its existing pin.",
+      "After merging, click Update setup PR in ReviewRouter again. Existing reviews finish before the old workflow is paused.",
+      "The runner copies the current credentials directly between versioned GitHub Secrets using the existing sealed setup protocol, without login or OAuth refresh. Plaintext credentials never reach ReviewRouter.",
+      "A second setup PR installs the new review caller and removes this temporary migration workflow. Reviews resume only after that PR is verified and the new namespace is activated.",
+      "An uncertain write or dispatch keeps the update paused for recovery; it never silently repeats the write or re-enables the old workflow.",
+    ].join("\n");
   if (input.setupMode === "claude_subscription")
     return [
       "This PR installs the ReviewRouter workflow for the selected Claude subscription model.",

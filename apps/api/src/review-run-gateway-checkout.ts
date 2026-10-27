@@ -240,7 +240,18 @@ function createReviewRunCheckout(
                   snapshot.modelDispatchCapability.outputTokenLimit ===
                     "upstream_request"
                 )
-              : snapshot.agent.agentKind !== "ocr" ||
+              : (snapshot.agent.agentKind !== "ocr" &&
+                  !(
+                    snapshot.agent.agentKind === "codex" &&
+                    snapshot.modelDispatchCapability?.wireProtocol ===
+                      "codex-responses" &&
+                    snapshot.modelDispatchCapability.outputTokenLimit ===
+                      "terminal_acceptance" &&
+                    (snapshot.modelDispatchCapability.transport ===
+                      "runner_local_responses" ||
+                      snapshot.modelDispatchCapability.transport ===
+                        "hosted_pool")
+                  )) ||
                 !snapshot.modelDispatchCapability ||
                 snapshot.modelDispatchCapability.transport ===
                   "account_gateway") ||

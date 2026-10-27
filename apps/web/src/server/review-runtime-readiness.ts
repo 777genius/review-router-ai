@@ -28,6 +28,7 @@ export type DashboardRuntimeRelease = Readonly<{
   agentProfiles: readonly ReviewAgentProfile[] | null;
   /** Routes whose actual provisioning/default-producer config selects this SHA. */
   provisioningTransports: readonly ReviewModelTransport[];
+  credentialMigrationSupported?: boolean;
 }>;
 export type DashboardRuntimeReleases = ReadonlyMap<
   string,
@@ -37,6 +38,7 @@ export type DashboardRuntimeReleases = ReadonlyMap<
 export async function readDashboardRuntimeReleases(input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly releases: ProducerReleaseQueryPort;
+  readonly inspectRuntimeMigrationTarget?: (sha: string) => Promise<boolean>;
 }): Promise<DashboardRuntimeReleases | null> {
   try {
     const configured = readConfiguredProducerReleaseAttestations(input.env);
@@ -83,6 +85,16 @@ export async function readDashboardRuntimeReleases(input: {
           (transport) =>
             targets[transport] === attested.release.actionCommitSha,
         ),
+        ...(targets.runner_local_responses ===
+          attested.release.actionCommitSha &&
+        input.inspectRuntimeMigrationTarget
+          ? {
+              credentialMigrationSupported:
+                await input.inspectRuntimeMigrationTarget(
+                  attested.release.actionCommitSha,
+                ),
+            }
+          : {}),
       });
     }
     return compatible;
@@ -124,9 +136,9 @@ export function installedReviewRuntimeCompatibility(input: {
     | readonly Readonly<{
         authMode: string;
         model: string;
-        gatewayProfileRef?: string;
-        agenticContext?: boolean;
-        agentProfileRef?: string;
+        gatewayProfileRef?: string | undefined;
+        agenticContext?: boolean | undefined;
+        agentProfileRef?: string | undefined;
       }>[]
     | null;
   readonly provisioning: Readonly<{
@@ -177,6 +189,8 @@ export function installedReviewRuntimeCompatibility(input: {
               provisioningTarget: release.provisioningTransports.includes(
                 selected.transport,
               ),
+              credentialMigrationSupported:
+                release.credentialMigrationSupported === true,
             },
           ] as const,
         ];
@@ -203,9 +217,9 @@ export function installedReviewRuntimeCompatibility(input: {
   // The actual setup action must install a qualified target, not the same old
   // pin merely because another compatible release appears in the overlap list.
   if (!target) return "unknown";
-  // Active rotating namespaces have one attested caller. Their ordinary setup
-  // action intentionally retains that pin until a fenced namespace migration.
+  // A rotating caller advances only through the qualified credential-preserving
+  // bootstrap. An overlap release or ordinary setup PR alone cannot upgrade it.
   if (input.providers[0]?.authMode === "codex_subscription_oauth_rotating")
-    return "unknown";
+    return target.credentialMigrationSupported ? "update_required" : "unknown";
   return "update_required";
 }

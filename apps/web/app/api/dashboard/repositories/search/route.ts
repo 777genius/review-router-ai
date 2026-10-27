@@ -1,3 +1,4 @@
+import { inspectConfiguredRuntimeMigrationTarget } from "../../../../../src/server/workflow-provisioning/approved-codex-runtime-migration-ref";
 import { NextResponse, type NextRequest } from "next/server";
 import { createPrismaReviewRunControlRepositories } from "@reviewrouter/features-review-run-control/composition";
 import { readDashboardRuntimeReleases } from "../../../../../src/server/review-runtime-readiness";
@@ -260,6 +261,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     gatewayAccounts,
     gatewayReadiness,
     runtimeReleases: await readDashboardRuntimeReleases({
+      inspectRuntimeMigrationTarget: inspectConfiguredRuntimeMigrationTarget,
       env: process.env,
       releases:
         createPrismaReviewRunControlRepositories(prisma).producerReleases,

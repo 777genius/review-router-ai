@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactElement } from "react";
 import { Button, Checkbox } from "@reviewrouter/ui";
 import { ActionToast } from "../action-toast";
-import { dashboardErrorText } from "./dashboard-copy";
+import { dashboardErrorText, dashboardNoticeText } from "./dashboard-copy";
 import {
   confirmSetupPullRequestMergedClientAction,
   createSetupPullRequestClientAction,
@@ -28,6 +28,7 @@ export function RepositorySetupActionButton({
   workflowCurrent,
   workflowRefresh = false,
   gatewayWorkflow = false,
+  showDiscussionModeOption = true,
   mutationsEnabled,
   variant = "solid",
   onComplete,
@@ -40,6 +41,7 @@ export function RepositorySetupActionButton({
   readonly workflowCurrent: boolean;
   readonly workflowRefresh?: boolean;
   readonly gatewayWorkflow?: boolean;
+  readonly showDiscussionModeOption?: boolean;
   readonly mutationsEnabled: boolean;
   readonly variant?: "solid" | "soft" | "outline" | "ghost";
   readonly onComplete?: (params: Record<string, string>) => void;
@@ -76,7 +78,7 @@ export function RepositorySetupActionButton({
     <form
       action={(formData) => {
         startTransition(() => {
-          void createSetupPullRequestClientAction(formData)
+          return createSetupPullRequestClientAction(formData)
             .then(({ params }) => {
               if (onComplete) {
                 onComplete(params);
@@ -113,7 +115,7 @@ export function RepositorySetupActionButton({
       <input type="hidden" name="workspaceId" value={workspaceId} />
       <input type="hidden" name="repositoryId" value={repositoryId} />
       <input type="hidden" name="workflowStyle" value="reusable" />
-      {gatewayWorkflow ? null : (
+      {gatewayWorkflow || !showDiscussionModeOption ? null : (
         <label className="mb-3 flex max-w-xl items-start gap-3 rounded-lg border border-cyan-200/15 bg-slate-950/40 px-3 py-3 text-left text-sm text-slate-200">
           <Checkbox
             name="reviewDiscussionMode"
@@ -214,7 +216,7 @@ export function RepositorySetupMergedButton({
     <form
       action={(formData) => {
         startTransition(() => {
-          void confirmSetupPullRequestMergedClientAction(formData)
+          return confirmSetupPullRequestMergedClientAction(formData)
             .then(({ params }) => {
               if (onComplete) {
                 onComplete(params);
@@ -323,6 +325,18 @@ function setupActionToast(
   }
 
   switch (params.notice) {
+    case "runtime_migration_bootstrap_pr_ready":
+    case "runtime_migration_draining":
+    case "runtime_migration_running":
+    case "runtime_migration_recovery_required":
+      return {
+        tone: "warning",
+        title: "Runtime update",
+        body: dashboardNoticeText(params.notice, params.repository ?? ""),
+        ...(params.pr
+          ? { actionUrl: params.pr, actionLabel: "Open first update PR" }
+          : {}),
+      };
     case "setup_pr_ready":
       return {
         tone: "success",

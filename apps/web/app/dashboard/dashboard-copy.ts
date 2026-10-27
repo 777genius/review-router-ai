@@ -10,6 +10,14 @@ export function dashboardNoticeText(
   repository: string,
 ): string {
   switch (notice) {
+    case "runtime_migration_bootstrap_pr_ready":
+      return "First update PR ready. Merge the temporary migration workflow, then click Update setup PR again. Your existing credentials stay in GitHub Secrets. A second PR installs the new review runtime after existing reviews finish.";
+    case "runtime_migration_draining":
+      return "The old review workflow is paused while admitted reviews finish. Click Update setup PR again after they finish. The migration has not copied credentials yet.";
+    case "runtime_migration_running":
+      return "The credential migration run is confirmed in GitHub. After it finishes, click Update setup PR to create the final runtime PR. Reviews resume after that PR is merged and verified.";
+    case "runtime_migration_recovery_required":
+      return "The migration outcome is not confirmed. The old workflow stays paused. Check the existing GitHub migration run and recover the setup before continuing; the dispatch or secret write will not be repeated automatically.";
     case "app_installed":
       return "GitHub App is connected. Search for one repository, then follow its provider-specific setup sequence from this dashboard.";
     case "sync_requested":
@@ -87,6 +95,7 @@ export function dashboardNoticeText(
 }
 
 export function dashboardNoticeTitle(notice: string): string {
+  if (notice.startsWith("runtime_migration_")) return "Runtime update";
   switch (notice) {
     case "app_installed":
       return "GitHub App installed";
@@ -149,6 +158,7 @@ export function dashboardNoticeTitle(notice: string): string {
 export function dashboardNoticeTone(
   notice: string,
 ): "success" | "warning" | "danger" | "accent" {
+  if (notice.startsWith("runtime_migration_")) return "warning";
   switch (notice) {
     case "setup_pr_ready":
     case "setup_pr_merged":
@@ -361,6 +371,32 @@ export function orgRulesetStatusTone(
 
 export function orgRulesetErrorText(error: string): string {
   switch (error) {
+    case "codex_runtime_migration_target_unavailable":
+      return "A compatible credential-preserving runtime update is not published for this connection yet. The existing pin remains installed.";
+    case "codex_runtime_migration_source_mismatch":
+    case "codex_runtime_migration_source_changed":
+    case "codex_runtime_migration_repository_changed":
+    case "codex_runtime_migration_bootstrap_source_mismatch":
+    case "codex_runtime_migration_ingress_changed":
+      return "The repository, workflow, or current credentials changed during the runtime update. Review the existing migration run and setup state before continuing.";
+    case "codex_runtime_migration_runs_not_drained":
+      return "Admitted reviews are still running. Wait for them to finish, then continue the runtime update.";
+    case "codex_runtime_migration_inventory_incomplete":
+    case "codex_runtime_migration_inventory_changed":
+    case "codex_runtime_migration_ingress_state_unknown":
+    case "codex_runtime_migration_ingress_not_disabled":
+    case "codex_runtime_migration_disable_unconfirmed":
+    case "codex_runtime_migration_enable_unconfirmed":
+    case "codex_runtime_migration_dispatch_ambiguous":
+    case "codex_runtime_migration_recovery_required":
+    case "codex_runtime_migration_recovery_conflict":
+    case "codex_runtime_migration_activation_invalid":
+      return "The runtime update needs recovery because its exact GitHub or setup state could not be confirmed. Inspect the existing migration run before continuing. The old workflow is not re-enabled automatically.";
+    case "codex_runtime_migration_bootstrap_cleanup_required":
+      return "Merge the final runtime setup PR, which removes the temporary migration workflow, then verify setup to resume reviews.";
+    case "codex_runtime_migration_workflow_missing_or_ambiguous":
+    case "codex_runtime_migration_bootstrap_not_ready":
+      return "Merge the first runtime update PR into the default branch and wait for GitHub to index its migration workflow, then click Update setup PR again.";
     case "org_admin_permission_required":
       return "Organization Administration: write is required for org-wide rulesets.";
     case "org_rulesets_not_supported":

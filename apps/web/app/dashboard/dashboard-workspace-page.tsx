@@ -1,3 +1,4 @@
+import { inspectConfiguredRuntimeMigrationTarget } from "../../src/server/workflow-provisioning/approved-codex-runtime-migration-ref";
 import { savedProviderIdentity } from "../../src/server/provider-identity";
 import {
   readDashboardRuntimeReleases,
@@ -443,6 +444,7 @@ export async function loadDashboardSectionData(
   const needsConfig = needsReadiness || section === "policy";
   const runtimeReleasesPromise = needsReadiness
     ? readDashboardRuntimeReleases({
+      inspectRuntimeMigrationTarget: inspectConfiguredRuntimeMigrationTarget,
         env: process.env,
         releases:
           createPrismaReviewRunControlRepositories(prisma).producerReleases,

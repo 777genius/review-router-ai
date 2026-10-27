@@ -70,6 +70,29 @@ const installed = (
 });
 
 describe("confirmed installed review runtime", () => {
+  it("offers rotating upgrade only through a qualified credential-preserving migration", () => {
+    const input = {
+      ...installed(`777genius/review-router@${previous}`),
+      providers: [
+        {
+          authMode: "codex_subscription_oauth_rotating",
+          model: "gpt-5.4-mini",
+        },
+      ],
+    };
+    expect(installedReviewRuntimeCompatibility(input)).toBe("unknown");
+    expect(
+      installedReviewRuntimeCompatibility({
+        ...input,
+        releases: new Map([
+          [
+            current,
+            { ...releases.get(current)!, credentialMigrationSupported: true },
+          ],
+        ]),
+      }),
+    ).toBe("update_required");
+  });
   it("requires an update for a same-transport old immutable pin", () => {
     expect(installedReviewRuntimeCompatibility(installed())).toBe("compatible");
     expect(

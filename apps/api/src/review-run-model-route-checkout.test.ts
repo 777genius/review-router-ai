@@ -53,6 +53,7 @@ function fixture(
   confirmHostedRoute?: Parameters<
     typeof createReviewRunModelRouteCheckout
   >[0]["confirmHostedRoute"],
+  agentKind: "ocr" | "codex" = "ocr",
 ) {
   const configuration = parseReviewConfigurationStrict({
     ...workspacePolicyFixture,
@@ -63,11 +64,11 @@ function fixture(
   const deadline = "2126-01-01T00:00:00.000Z";
   const agent = {
     profileRef: "ocr-prepared-v2",
-    agentKind: "ocr",
+    agentKind,
     packageVersion: "1.0.0",
     binarySha256: "a".repeat(64),
     modelTransports: ["provider_api"],
-    contextGateway: false,
+    contextGateway: agentKind === "codex",
     cancellation: true,
   };
   const dispatch = {
@@ -111,7 +112,7 @@ function fixture(
     routeIdentityHash: dispatch.routeIdentityHash,
     protocol: dispatch.wireProtocol,
     providerIndex: 0,
-    providerKind: "ocr",
+    providerKind: agentKind,
     model: dispatch.model,
     maxDispatches: lifecycleVerificationContract.maxPackets,
     maxPromptBytes: 32768,
@@ -241,6 +242,49 @@ it.each(providers)(
     expect(f.confirm).toHaveBeenCalledTimes(2);
   },
 );
+
+it.each([
+  "codex_subscription_oauth_rotating",
+  "codex_subscription_oauth_hosted_pool",
+])(
+  "preserves an approved native supplied-diff engine for %s on the captured model route",
+  async (authMode) => {
+    const f = fixture(
+      { ...providers[0], authMode, agenticContext: false },
+      async () => true,
+      "codex",
+    );
+    const result = await f.checkout.issue(
+      "authorization-token",
+      new AbortController().signal,
+      f.selectors,
+    );
+    expect(
+      JSON.parse(
+        result.runtimeConfig.runtimeEnv.REVIEW_ROUTER_AGENT_PROFILE_JSON!,
+      ).agentKind,
+    ).toBe("codex");
+    expect(
+      JSON.parse(
+        result.runtimeConfig.runtimeEnv
+          .REVIEW_ROUTER_MODEL_DISPATCH_CAPABILITY_JSON!,
+      ),
+    ).toEqual(f.snapshot.modelDispatchCapability);
+    expect(f.issuer).toHaveBeenCalledOnce();
+  },
+);
+
+it("never grants a Codex engine a native Anthropic route", async () => {
+  const f = fixture(providers[1], undefined, "codex");
+  await expect(
+    f.checkout.issue(
+      "authorization-token",
+      new AbortController().signal,
+      f.selectors,
+    ),
+  ).rejects.toThrow("checkout_unavailable");
+  expect(f.issuer).not.toHaveBeenCalled();
+});
 
 it("denies a mismatched selected route and an expired or absent V2 snapshot before minting", async () => {
   const f = fixture();
