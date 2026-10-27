@@ -627,10 +627,20 @@ describe.skipIf(!databaseUrl)(
       ).rejects.toMatchObject({ code: "conflict" });
     });
 
-    it.each(["initial save", "edit", "topics"] as const)(
+    it.each(["initial save", "edit", "topics", "retire", "expire"] as const)(
       "settles a queued forget after its unknown %s expires without resurrecting either command",
       async (kind) => {
-        const original = save();
+        const original = save(
+          kind === "expire"
+            ? {
+                applicability: {
+                  validUntil: now.toISOString(),
+                  observedCommitSha: null,
+                  exceptionRule: null,
+                },
+              }
+            : {},
+        );
         const pending: MemoryKnowledgeCommand =
           kind === "initial save"
             ? original
@@ -640,16 +650,18 @@ describe.skipIf(!databaseUrl)(
                   expectedRevision: "1",
                   body: "A replacement that may have reached the provider.",
                 })
-              : {
-                  kind: "topics",
-                  ref: original.ref,
-                  commandId: randomUUID(),
-                  expectedRevision: "1",
-                  generation,
-                  providerProfileVersion: original.providerProfileVersion,
-                  approval: original.approval,
-                  topicIds: ["different-topic"],
-                };
+              : kind === "topics"
+                ? {
+                    kind: "topics",
+                    ref: original.ref,
+                    commandId: randomUUID(),
+                    expectedRevision: "1",
+                    generation,
+                    providerProfileVersion: original.providerProfileVersion,
+                    approval: original.approval,
+                    topicIds: ["different-topic"],
+                  }
+                : { ...forgetCommand(original), kind };
         if (kind !== "initial save") await publish(original);
         await admit(pending);
         const abandoned = await claim(pending);
@@ -746,6 +758,156 @@ describe.skipIf(!databaseUrl)(
         ).toEqual([unrelated.commandId]);
       },
     );
+
+    it.each(["retire", "expire"] as const)(
+      "preserves current Forget when an older in-flight %s acknowledges before cleanup",
+      async (kind) => {
+        const original = save({
+          applicability: {
+            validUntil: kind === "expire" ? now.toISOString() : null,
+            observedCommitSha: null,
+            exceptionRule: null,
+          },
+        });
+        await publish(original);
+        const stopping: MemoryKnowledgeCommand = {
+          ...forgetCommand(original),
+          kind,
+        };
+        await admit(stopping);
+        const active = await claim(stopping);
+        const forget = {
+          ...forgetCommand(original),
+          expectedRevision: "2",
+        };
+        await expect(admit(forget, otherStore)).resolves.toMatchObject({
+          id: forget.commandId,
+          revision: "3",
+          state: "queued",
+        });
+        await expect(admit(forget)).resolves.toMatchObject({
+          id: forget.commandId,
+          revision: "3",
+        });
+        await expect(
+          admit({ ...forget, expectedRevision: "1" }),
+        ).rejects.toMatchObject({ code: "conflict" });
+        await expect(
+          admit({ ...forget, commandId: randomUUID(), expectedRevision: "3" }),
+        ).rejects.toMatchObject({ code: "conflict" });
+        await expect(
+          admit(save({ ref: original.ref, expectedRevision: "3" })),
+        ).rejects.toMatchObject({ code: "conflict" });
+        await expect(
+          admit({
+            ...stopping,
+            commandId: randomUUID(),
+            expectedRevision: "3",
+          }),
+        ).rejects.toMatchObject({ code: "conflict" });
+        await store.settle({
+          commandId: stopping.commandId,
+          scope,
+          generation,
+          claimId: active!.claimId,
+          result: { commandId: stopping.commandId, state: "completed" },
+          now,
+        });
+        const fenced = (await store.findEntry(original.ref, generation))!;
+        expect(fenced).toMatchObject({
+          revision: "3",
+          lifecycle: "forget_pending",
+          pendingCommandId: forget.commandId,
+          revocationCommandId: forget.commandId,
+        });
+        for (const consumer of ["runtime", "management", "export"] as const)
+          expect(memoryKnowledgeBodyVisible(fenced, consumer, now)).toBe(false);
+        await store.setMaintenancePaused({
+          generation,
+          paused: true,
+          expectedEpoch: "0",
+          actor: "operator:stable",
+          now,
+          deadlineAt: new Date(now.getTime() + 5000),
+        });
+        await expect(
+          otherStore.completeCleanup({ receipt: cleanupReceipt(forget), now }),
+        ).resolves.toMatchObject({ state: "completed" });
+        await expect(
+          store.settle({
+            commandId: stopping.commandId,
+            scope,
+            generation,
+            claimId: active!.claimId,
+            result: { commandId: stopping.commandId, state: "processing" },
+            now,
+          }),
+        ).resolves.toMatchObject({ state: "completed" });
+        expect(await store.findEntry(original.ref, generation)).toMatchObject({
+          lifecycle: "forgotten",
+          pendingCommandId: null,
+          revocationCommandId: null,
+        });
+      },
+    );
+
+    it("forgets an unknown save followed by queued retirement without advancing either older command", async () => {
+      const original = save();
+      await admit(original);
+      const active = await claim(original);
+      const retire: MemoryKnowledgeCommand = {
+        ...forgetCommand(original),
+        kind: "retire",
+      };
+      await admit(retire);
+      const forget = { ...forgetCommand(original), expectedRevision: "2" };
+      await admit(forget, otherStore);
+      expect(await claim(retire)).toBeNull();
+      expect(await claim(forget)).toBeNull();
+      expect(await store.findEntry(original.ref, generation)).toMatchObject({
+        lifecycle: "forget_pending",
+        pendingCommandId: original.commandId,
+        revocationCommandId: forget.commandId,
+      });
+      await store.setMaintenancePaused({
+        generation,
+        paused: true,
+        expectedEpoch: "0",
+        actor: "operator:stable",
+        now,
+        deadlineAt: new Date(now.getTime() + 5000),
+      });
+      const receipt = cleanupReceipt(forget);
+      await otherStore.completeCleanup({ receipt, now });
+      const superseded = await prisma.memoryKnowledgeCommand.findMany({
+        where: { id: { in: [original.commandId, retire.commandId] } },
+      });
+      expect(superseded).toHaveLength(2);
+      for (const command of superseded)
+        expect(command).toMatchObject({
+          state: "failed",
+          safeReason: "conflict",
+          envelope: null,
+          claimId: null,
+          claimUntil: null,
+          cleanupReceiptId: receipt.id,
+        });
+      await expect(
+        store.settle({
+          commandId: original.commandId,
+          scope,
+          generation,
+          claimId: active!.claimId,
+          result: { commandId: original.commandId, state: "published" },
+          now,
+        }),
+      ).resolves.toMatchObject({ state: "failed" });
+      expect(await store.findEntry(original.ref, generation)).toMatchObject({
+        lifecycle: "forgotten",
+        pendingCommandId: null,
+        revocationCommandId: null,
+      });
+    });
 
     it.each([
       "queued",
