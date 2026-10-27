@@ -67,7 +67,7 @@ operation and history inventory, and absence verification after restart.
 A provider-private append-only ID ledger, activated before the first native write,
 records original fact/document identity and every historical observation-source
 edge. After public document/operation cleanup, the operator removes only affected
-live/archived heads and observation history under exact bank/UUID locks. This
+live/archived heads and observation history under table locks with exact bank/UUID filters. This
 includes orphan history from previous source revisions and shared observations
 containing the forgotten source; unrelated original/derived knowledge and its
 history remain intact. Signed evidence binds the ledger activation, catalog and
