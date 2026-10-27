@@ -73,15 +73,15 @@ Out of scope:
 
 ## 2. Actual matrix, not UI labels
 
-| Credential source / supported connection | Current route and engine | Current verifier | Required target |
-| --- | --- | --- | --- |
-| Gateway-bound account/model | Neutral `workflow-v1` caller, captured OCR/native profile | Qualified Gateway Responses profile | Preserve common path and native server allowance |
-| Secrets or managed API key: OpenRouter | Immutable direct caller, `openrouter-api`, Codex | Unavailable | OCR + common verifier through controlled runner-local Responses route |
-| Secrets or managed API key: MiMo Token Plan | Immutable direct caller, `mimo-token-plan-api`, Codex | Unavailable | Same, preserving endpoint/model/settings restrictions |
-| Secrets Kimi Code API | Immutable direct caller, `kimi-code-api`, Codex | Unavailable | Same, preserving `k3-256k` and settings restrictions |
-| Repository Codex subscription | T0 schema v2, repository provider instance, official auth/writeback, Codex | Unavailable | Auth-only official preparation, controlled subscription route, OCR + verifier |
-| Hosted Codex Pool | Hosted relay custody/grant, Action V2 explicitly disabled, legacy runtime | Outside common V2 verifier | Same V2 scenario using one original hosted lease/model |
-| Secrets Claude Code subscription | Native Claude auth/Anthropic route, `CLAUDE_CODE_OAUTH_TOKEN` | No qualified common route | Controlled native Anthropic OCR route + shared verifier semantics |
+| Credential source / supported connection    | Current route and engine                                                   | Current verifier                    | Required target                                                               |
+| ------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------- |
+| Gateway-bound account/model                 | Neutral `workflow-v1` caller, captured OCR/native profile                  | Qualified Gateway Responses profile | Preserve common path and native server allowance                              |
+| Secrets or managed API key: OpenRouter      | Immutable direct caller, `openrouter-api`, Codex                           | Unavailable                         | OCR + common verifier through controlled runner-local Responses route         |
+| Secrets or managed API key: MiMo Token Plan | Immutable direct caller, `mimo-token-plan-api`, Codex                      | Unavailable                         | Same, preserving endpoint/model/settings restrictions                         |
+| Secrets Kimi Code API                       | Immutable direct caller, `kimi-code-api`, Codex                            | Unavailable                         | Same, preserving `k3-256k` and settings restrictions                          |
+| Repository Codex subscription               | T0 schema v2, repository provider instance, official auth/writeback, Codex | Unavailable                         | Auth-only official preparation, controlled subscription route, OCR + verifier |
+| Hosted Codex Pool                           | Hosted relay custody/grant, Action V2 explicitly disabled, legacy runtime  | Outside common V2 verifier          | Same V2 scenario using one original hosted lease/model                        |
+| Secrets Claude Code subscription            | Native Claude auth/Anthropic route, `CLAUDE_CODE_OAUTH_TOKEN`              | No qualified common route           | Controlled native Anthropic OCR route + shared verifier semantics             |
 
 The current Claude setup UI creates `agenticContext: true` and does not expose
 the `Read related files` switch for Claude (`provider-model-fields.tsx`,
@@ -122,20 +122,20 @@ preparation/refresh/cleanup steps; they delegate review work to the same runner.
 
 ### Existing reusable modules
 
-| Responsibility | Existing seam |
-| --- | --- |
-| Execution, leases, evidence, finalization | `review-router/src/review-orchestration/application/run-t0-review-orchestration.ts` |
-| Production composition | `review-router/src/review-orchestration/infrastructure/production-t0-review-runner.ts` |
-| Stable verifier work and adapter multiplexing | `lifecycle-verification-invocation.ts`, `lifecycle-verification-planning.ts` |
-| Verdict/quote validation | `review-router/src/finding-revalidation/domain/packet.ts`, `validate-response.ts` |
-| Persisted plan/witness restoration | `restored-lifecycle-invocations.ts` |
-| Results and counters | `production-review-projection.ts`, `review-projection/domain/lifecycle-verification.ts` |
-| Route capability capture | `apps/api/src/review-run-runtime-snapshot.ts` and domain snapshot parser |
-| Durable model dispatch | Existing companion claim/settlement ports and Prisma repository |
-| App publication/reconciliation | `apps/worker/src/review-v2-publication-executor.ts` and existing gateways |
-| History transition | `activate-review-resolution-history.ts`, `PrismaReviewThreadResolutionHistory` |
-| Client setup/update | Existing workflow provisioning, exact-source checks and activation helpers |
-| Browser acceptance | Existing `scripts/accounts-reference-e2e` and provider visual tooling |
+| Responsibility                                | Existing seam                                                                           |
+| --------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Execution, leases, evidence, finalization     | `review-router/src/review-orchestration/application/run-t0-review-orchestration.ts`     |
+| Production composition                        | `review-router/src/review-orchestration/infrastructure/production-t0-review-runner.ts`  |
+| Stable verifier work and adapter multiplexing | `lifecycle-verification-invocation.ts`, `lifecycle-verification-planning.ts`            |
+| Verdict/quote validation                      | `review-router/src/finding-revalidation/domain/packet.ts`, `validate-response.ts`       |
+| Persisted plan/witness restoration            | `restored-lifecycle-invocations.ts`                                                     |
+| Results and counters                          | `production-review-projection.ts`, `review-projection/domain/lifecycle-verification.ts` |
+| Route capability capture                      | `apps/api/src/review-run-runtime-snapshot.ts` and domain snapshot parser                |
+| Durable model dispatch                        | Existing companion claim/settlement ports and Prisma repository                         |
+| App publication/reconciliation                | `apps/worker/src/review-v2-publication-executor.ts` and existing gateways               |
+| History transition                            | `activate-review-resolution-history.ts`, `PrismaReviewThreadResolutionHistory`          |
+| Client setup/update                           | Existing workflow provisioning, exact-source checks and activation helpers              |
+| Browser acceptance                            | Existing `scripts/accounts-reference-e2e` and provider visual tooling                   |
 
 Extract only the narrow model-route capability currently embedded in
 `LocalGatewayModelTransport`: controlled discovery endpoint, parent-owned verifier
@@ -657,11 +657,11 @@ differences. Do not create a huge matrix of redundant pure unit tests.
 Each round has multiple independent critics. Record concrete findings,
 disposition and recheck; a missing concern is not an approval.
 
-| Round | Focus | Status |
-| --- | --- | --- |
-| 1 | Executable matrix, architecture boundaries, OAuth/Claude/Hosted feasibility | Three critics NO-GO on v1; corrections in v2 rechecked and accepted |
-| 2 | Shared allowance, uncertain paid effects, recovery and publication/history | Three critics rechecked v2; remaining details corrected in v3 and accepted |
-| 3 | Compatibility delivery, full user behavior, scope/DRY and honest acceptance | Three independent GO verdicts on v3; no outstanding P1/P2 plan findings |
+| Round | Focus                                                                       | Status                                                                     |
+| ----- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| 1     | Executable matrix, architecture boundaries, OAuth/Claude/Hosted feasibility | Three critics NO-GO on v1; corrections in v2 rechecked and accepted        |
+| 2     | Shared allowance, uncertain paid effects, recovery and publication/history  | Three critics rechecked v2; remaining details corrected in v3 and accepted |
+| 3     | Compatibility delivery, full user behavior, scope/DRY and honest acceptance | Three independent GO verdicts on v3; no outstanding P1/P2 plan findings    |
 
 Blocking findings must be addressed before product implementation. A real
 provider limitation discovered by a spike stays explicit and does not authorize
@@ -728,3 +728,25 @@ The T0 reusable workflow delegates exact-head checkout and approved private tool
 preparation to the common prepared runner. Duplicate caller checkout and unused
 global CLI installations are removed from T0; legacy execution retains its
 existing preflight. No additional review scenario is introduced.
+
+The final acceptance audit distinguished the 17 paired protocol/integration
+cases from a complete production-runner invocation. One additional case now
+executes the actual factory, common orchestrator and pinned OCR binary over two
+real Git heads, with PostgreSQL, ordinary admission/checkout/renewal and the App
+worker. External GitHub/OIDC/provider services remain controlled fixtures. It
+creates the original four threads through publication, then proves two fixes,
+retains an active and an uncertain finding, publishes a new finding and reuses
+the completed execution without new paid or GitHub effects.
+
+That executable composition check found and fixed stale discovery assignment
+references after lifecycle append/persisted-plan restoration. One shared helper
+binds both OCR and Codex captured inputs to the final work-slot objects only
+after complete semantic equality; identity guards and budgets remain intact.
+The paired CI builds and checks the same qualified binary from the exact pinned
+public Action before running the case. No alternate test-only review scenario
+is used for this proof.
+
+Actual full Next CI also passed both desktop and mobile readiness scenarios
+after the test awaited dashboard hydration before its one theme click. Six
+screenshots were independently inspected. The [acceptance report](../operations/2026-10-27-unified-ocr-acceptance.md)
+records these results separately from component checks and live qualification.

@@ -1,6 +1,12 @@
 import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:http";
 import https from "node:https";
 import { syncBuiltinESMExports } from "node:module";
@@ -11,6 +17,10 @@ import { Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import Fastify from "fastify";
 import { expect, it, vi } from "vitest";
+import {
+  canonicalCodexRotatingProviderId,
+  CodexRotatingT0WorkflowSchemaVersion,
+} from "../../packages/features/codex-oauth-rotating/src/index.js";
 import { PrismaProviderAccountRepository } from "../../packages/features/provider-accounts/src/index.js";
 import {
   PrismaReviewConfigurationRepository,
@@ -36,6 +46,7 @@ import {
   registerReviewEvidenceV2Routes,
   registerReviewSnapshotReadV2Routes,
   registerReviewPublicationRequestV2Routes,
+  registerReviewRunControlV2Routes,
 } from "../../packages/features/action-control-plane/src/v2/interface/index.js";
 import { PrismaReviewThreadResolutionHistory } from "../../packages/features/review-publishing/src/v2/infrastructure/prisma/prisma-review-thread-resolution-history.js";
 import { activateReviewResolutionHistory } from "../../packages/features/review-publishing/src/v2/application/use-cases/activate-review-resolution-history.js";
@@ -46,6 +57,8 @@ import { CanonicalReviewV2ProjectionAdapter } from "../../apps/worker/src/review
 import { PrismaReviewExecutionStore } from "../../packages/features/review-executions/src/composition/index.js";
 import { registerReviewRunGatewayRelayRoutes } from "../../apps/api/src/review-run-gateway-relay.js";
 import { registerReviewModelDispatchRoutes } from "../../apps/api/src/review-model-dispatch.js";
+import { registerReviewRunGatewayCheckoutRoute } from "../../apps/api/src/review-run-gateway-checkout.js";
+import { registerReviewRunSkillsRoute } from "../../apps/api/src/review-run-skills.js";
 import {
   createReviewActionV2E2EHarness,
   resetReviewActionV2E2EDatabase,
@@ -131,7 +144,8 @@ type Scenario =
   | "forged_claim"
   | "paid_unknown"
   | "budget_exhausted"
-  | "stale_head";
+  | "stale_head"
+  | "production_runner";
 
 // Real public modules, production signed admission plus lease/evidence HTTP, relay,
 // PostgreSQL, worker and GitHub App adapter. The two external boundaries are a
@@ -151,13 +165,23 @@ lifecycleCase.each([
   ).flatMap((scenario) =>
     ([1, 2] as const).map((version) => ({ version, scenario })),
   ),
-  ...(["paid_unknown", "budget_exhausted", "stale_head"] as const).map(
-    (scenario) => ({ version: 2 as const, scenario }),
-  ),
+  ...(
+    [
+      "paid_unknown",
+      "budget_exhausted",
+      "stale_head",
+      "production_runner",
+    ] as const
+  ).map((scenario) => ({ version: 2 as const, scenario })),
 ])(
   "pairs bounded lifecycle verification with immutable publication and honest native receipts ($version / $scenario)",
   async ({ version, scenario }: { version: 1 | 2; scenario: Scenario }) => {
     const unified = version === 2;
+    const production = scenario === "production_runner";
+    const ocrBinary = production ? requiredPairedOcrBinary() : undefined;
+    let realCheckout:
+      | ReturnType<typeof createRealLifecycleCheckout>
+      | undefined;
     const engineKind = unified ? "ocr" : "codex";
     await resetReviewActionV2E2EDatabase(databaseUrl!);
     const networkFetch = globalThis.fetch;
@@ -167,8 +191,9 @@ lifecycleCase.each([
     let fixture: ReviewActionV2E2EHarness | undefined;
     let apiOrigin: string | undefined;
     const apiRejections: Array<{ status: number; code?: string }> = [];
-    const app = Fastify(tls ? { https: tls } : {});
+    const app = tls ? Fastify({ https: tls }) : Fastify();
     try {
+      if (production) realCheckout = createRealLifecycleCheckout();
       fixture = await createReviewActionV2E2EHarness(databaseUrl!, {
         modelTransport: "account_gateway",
         repositoryProviderSelection: "none",
@@ -189,8 +214,10 @@ lifecycleCase.each([
                 {
                   profileRef: "ocr-paired-v2",
                   agentKind: "ocr" as const,
-                  packageVersion: "1.0.0",
-                  binarySha256: hash("paired-controlled-ocr-driver"),
+                  packageVersion: production ? "1.13.1-rr.5" : "1.0.0",
+                  binarySha256: production
+                    ? pairedOcrBinarySha256
+                    : hash("paired-controlled-ocr-driver"),
                   modelTransports: ["account_gateway" as const],
                   contextGateway: false,
                   cancellation: true,
@@ -256,7 +283,8 @@ lifecycleCase.each([
       });
       const owned = fixture;
       await upstream.bindResolutionWriterDatabase(owned.prisma);
-      await selectSavedGateway(owned);
+      await selectSavedGateway(owned, production);
+      if (realCheckout) owned.setRevision(realCheckout.revision());
       const githubFetch = globalThis.fetch;
       globalThis.fetch = (input, init) => {
         const origin = new URL(
@@ -268,7 +296,7 @@ lifecycleCase.each([
             ? networkFetch(input, init)
             : githubFetch(input, init);
       };
-      const threads = nativeThreads(owned.fakeGitHub, scenario);
+      const threads = nativeThreads(owned.fakeGitHub, scenario, realCheckout);
       vi.stubEnv(
         "REVIEW_THREAD_LIFECYCLE_TRUSTED_AUTHORS",
         "reviewrouter-e2e[bot]",
@@ -359,7 +387,21 @@ lifecycleCase.each([
         app,
         owned.routes.accountGatewayRelay,
       );
+      if (production) {
+        if (!owned.routes.accountGatewayCheckout || !owned.routes.reviewSkills)
+          throw new Error(
+            "paired_production_checkout_and_skills_routes_required",
+          );
+        await registerReviewRunGatewayCheckoutRoute(
+          app,
+          owned.routes.accountGatewayCheckout,
+        );
+        await registerReviewRunSkillsRoute(app, owned.routes.reviewSkills);
+        await registerReviewRunControlV2Routes(app, owned.routes.runControl);
+      }
       if (unified) {
+        if (!owned.routes.modelDispatch)
+          throw new Error("paired_lifecycle_model_dispatch_route_required");
         await registerReviewModelDispatchRoutes(
           app,
           owned.routes.modelDispatch,
@@ -535,6 +577,10 @@ lifecycleCase.each([
           select: { lifecycleResolutionActivatedAt: true },
         });
       expect(activation.lifecycleResolutionActivatedAt).not.toBeNull();
+      if (production) {
+        await runProductionRunnerCase();
+        return;
+      }
       // First ordinary v1 discovery remains valid with the upgraded producer.
       const firstAuth = await owned.authorize({ sourceRunAttempt: "1" });
       const firstNative = adapterModule.projectReviewRunAuthorization(
@@ -1278,6 +1324,396 @@ lifecycleCase.each([
         ),
       ).toBe(true);
 
+      async function runProductionRunnerCase() {
+        if (!realCheckout || !ocrBinary || !apiOrigin)
+          throw new Error("paired_production_fixture_required");
+        const checkout = realCheckout;
+        const [runnerModule, ocrBootstrap, gatewayRuntime] = await Promise.all([
+          load(
+            "src/review-orchestration/infrastructure/production-t0-review-runner.ts",
+          ),
+          load("src/codex-oauth/ocr-managed-bootstrap.ts"),
+          load("src/codex-oauth/account-gateway-runtime.ts"),
+        ]);
+        const progress: string[] = [];
+        const oidcUrl = "https://paired.actions.githubusercontent.com/token";
+        const oidcRequestToken = "paired-actions-oidc-request-token";
+        const audience = owned.env.REVIEW_ROUTER_ACTION_OIDC_AUDIENCE;
+        vi.stubEnv("ACTIONS_ID_TOKEN_REQUEST_URL", oidcUrl);
+        vi.stubEnv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", oidcRequestToken);
+        const providerInstanceId = canonicalCodexRotatingProviderId(
+          owned.fakeGitHub.options.repositoryId,
+        );
+        const workflowSchemaVersion =
+          CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredV2;
+        const repository = "reviewrouter-e2e/disposable-review-v2";
+        const run = async (
+          authorization: Awaited<ReturnType<typeof owned.authorize>>,
+        ) => {
+          const runner = runnerModule.createProductionT0ReviewRunner({
+            // Only the GitHub OIDC boundary is controlled. The resulting JWT is
+            // signed by the fixture's real issuer key and renewed through the
+            // production HTTP route, authorization service and database.
+            fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
+              const request = new Request(input, init);
+              const url = new URL(request.url);
+              if (`${url.origin}${url.pathname}` !== oidcUrl)
+                return apiFetch(input, init);
+              expect(request.method).toBe("GET");
+              expect(url.searchParams.get("audience")).toBe(audience);
+              expect(request.headers.get("authorization")).toBe(
+                `Bearer ${oidcRequestToken}`,
+              );
+              return Response.json({
+                value: (await owned.createRenewRequest(authorization))
+                  .oidcToken,
+              });
+            },
+            progress: {
+              report: (event: { type: string }) => progress.push(event.type),
+            },
+          });
+          const plane = control(authorization.result);
+          const native = plane.currentAuthorization();
+          const controller = new AbortController();
+          const transport =
+            new modelTransportModule.AccountGatewayModelTransport(
+              apiOrigin,
+              () => plane.currentAuthorization().authorizationToken,
+            );
+          const capability = gatewayRuntime.validateAccountGatewayCheckout(
+            await transport.checkoutCapability(
+              { providerInstanceId, workflowSchemaVersion },
+              controller.signal,
+            ),
+            repository,
+            native.facts.headSha,
+          );
+          const runtimeEnv = capability.runtimeConfig.runtimeEnv;
+          const dispatchCapability = JSON.parse(
+            runtimeEnv[reviewModelDispatchContract.capabilityRuntimeEnvKey],
+          );
+          expect(dispatchCapability).toMatchObject({
+            transport: "account_gateway",
+            model,
+            // Admission intersects the producer ceiling32 with native quota9.
+            maxRequests: 9,
+          });
+          transport.setModelDispatch(
+            new modelDispatchModule.PreparedModelDispatch({
+              apiUrl: apiOrigin,
+              capability: dispatchCapability,
+              authorization: () => plane.currentAuthorization(),
+              fetchImpl: apiFetch,
+            }),
+          );
+          const bridge =
+            await modelTransportModule.startLocalGatewayModelTransport(
+              transport,
+            );
+          let ocrRun: any;
+          let pending: Promise<void> | undefined;
+          try {
+            const approvedAgent = ocrBootstrap.readApprovedOcrReviewAgent(
+              runtimeEnv.REVIEW_ROUTER_AGENT_PROFILE_JSON,
+              runtimeEnv.REVIEW_ROUTER_AGENT_PROFILE_DIGEST,
+            );
+            expect(approvedAgent).toMatchObject({
+              agentKind: "ocr",
+              packageVersion: "1.13.1-rr.5",
+              binarySha256: pairedOcrBinarySha256,
+            });
+            ocrRun = await ocrBootstrap.prepareOcrManagedRun({
+              approvedAgent,
+              baseUrl: bridge.baseUrl,
+              rawCapability: bridge.environment[
+                modelTransportModule.LOCAL_MODEL_CAPABILITY_ENV
+              ].slice("Bearer ".length),
+              model,
+              requestTimeoutSec: 60,
+              modelReasoningEffort: runtimeEnv.CODEX_REASONING_EFFORT ?? null,
+              admittedRuntimeConfig: capability.runtimeConfig,
+              language: runtimeEnv.REVIEW_OUTPUT_LANGUAGE ?? null,
+              signal: controller.signal,
+              env: { ...process.env, REVIEWROUTER_OCR_BINARY: ocrBinary },
+            });
+            let done = false;
+            let result: any;
+            let failure: unknown;
+            pending = runner
+              .run({
+                apiUrl: apiOrigin,
+                audience,
+                providerInstanceId,
+                workflowSchemaVersion,
+                repository,
+                pullRequestNumber: 42,
+                headSha: native.facts.headSha,
+                workspacePath: checkout.root,
+                scmReadToken: capability.token,
+                scmReadTokenExpiresAt: capability.expiresAt,
+                refreshScmReadToken: async () => ({
+                  token: capability.token,
+                  expiresAt: capability.expiresAt,
+                }),
+                accountGateway: {
+                  runtimeConfig: capability.runtimeConfig,
+                  signal: controller.signal,
+                  controlPlane: plane,
+                  modelTransport: bridge,
+                },
+                ocr: { run: ocrRun, effectFacts: bridge.failureFact },
+              })
+              .then(
+                (value: unknown) => {
+                  result = value;
+                  done = true;
+                },
+                (error: unknown) => {
+                  failure = error;
+                  done = true;
+                },
+              );
+            const deadline = Date.now() + 90_000;
+            while (!done) {
+              if (Date.now() >= deadline)
+                throw new Error("paired_production_runner_deadline");
+              // The real runner polls the publication receipt. Its real worker
+              // must consume the finalized outbox while that promise is active.
+              await owned.processFinalizedOutbox();
+              await owned.runWorkerUntilSettled();
+              if (!done)
+                await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+            await pending;
+            if (failure) throw failure;
+            expect(
+              result,
+              JSON.stringify({
+                result,
+                progress,
+                apiRejections,
+                kinds: upstream.nativeKinds(),
+              }),
+            ).toMatchObject({ outcome: "completed" });
+            expect(result.publicationReceipt).toBeDefined();
+            await owned.processFinalizedOutbox();
+            await owned.runWorkerUntilSettled();
+            const execution =
+              await owned.prisma.reviewExecutionV2.findFirstOrThrow({
+                where: { authorizationId: authorization.authorizationId },
+              });
+            const artifact =
+              await owned.prisma.finalizedReviewProjectionArtifactV2.findFirstOrThrow(
+                { where: { executionId: execution.executionId } },
+              );
+            const dispatches =
+              await owned.prisma.reviewRunCompanionDispatchV1.findMany({
+                where: { authorizationId: authorization.authorizationId },
+              });
+            expect(
+              dispatches.every((dispatch) => dispatch.state === "completed"),
+            ).toBe(true);
+            expect(
+              new Set(dispatches.map((dispatch) => dispatch.routeIdentityHash)),
+            ).toEqual(new Set([dispatchCapability.routeIdentityHash]));
+            expect(dispatches.length).toBeLessThanOrEqual(
+              dispatchCapability.maxRequests,
+            );
+            return {
+              result,
+              execution,
+              artifact,
+              dispatches,
+              requestBudget: dispatchCapability.maxRequests,
+              envelope: JSON.parse(artifact.projectionEnvelopeCanonicalJson),
+            };
+          } finally {
+            controller.abort();
+            await pending;
+            await bridge.dispose();
+            await ocrRun?.cleanup();
+          }
+        };
+
+        upstream.setDiscovery(
+          oldClaims.map((claim, index) =>
+            legacyFinding(claim[0], claim[1], claim[2], String(index + 1)),
+          ),
+          checkout.currentSource(),
+        );
+        const firstAuthorization = await owned.authorize({
+          sourceRunAttempt: "1",
+        });
+        const first = await run(firstAuthorization);
+        expect(first.envelope.coverage.state).toBe("complete");
+        expect(first.envelope.snapshot.lineageHints).toHaveLength(4);
+        expect(
+          first.dispatches.every(
+            (dispatch) => dispatch.role === "finding_discovery",
+          ),
+        ).toBe(true);
+        expect(first.dispatches.length).toBeGreaterThan(0);
+        expect(threads.publishedComments()).toHaveLength(4);
+        expect(threads.observed()).toHaveLength(4);
+        expect(threads.closed()).toHaveLength(0);
+        for (const [title] of oldClaims)
+          expect(
+            threads
+              .publishedComments()
+              .some((comment) => String(comment.body).includes(title)),
+          ).toBe(true);
+        const firstCalls = upstream.requests();
+        expect(firstCalls).toBe(first.dispatches.length);
+
+        checkout.advance();
+        owned.setRevision(checkout.revision());
+        const newTitle = "Negative rounding drops a cent";
+        upstream.setDiscovery(
+          [
+            legacyFinding(
+              newTitle,
+              "Math.round rounds negative half cents toward positive infinity and loses a refund cent.",
+              7,
+              "8",
+              "minor",
+            ),
+          ],
+          checkout.currentSource(),
+        );
+        const secondAuthorization = await owned.authorize({
+          sourceRunAttempt: "2",
+        });
+        const second = await run(secondAuthorization);
+        expect(second.envelope.coverage.state).toBe("complete");
+        expect(second.envelope.publishing.summary.body).toContain(
+          "2 fixes verified",
+        );
+        expect(second.envelope.publishing.summary.body).toContain(newTitle);
+        expect(
+          second.envelope.publishing.lifecycle
+            .map(
+              (entry: { verification: { confirmationState: string } }) =>
+                entry.verification.confirmationState,
+            )
+            .sort(),
+        ).toEqual([
+          "confirmed_open",
+          "fix_confirmed_thread_open",
+          "fix_confirmed_thread_open",
+          "unverified",
+        ]);
+        expect(
+          second.envelope.publishing.lifecycle.filter(
+            (entry: { mutationEligible: boolean }) => entry.mutationEligible,
+          ),
+        ).toHaveLength(2);
+        expect(
+          second.dispatches.filter(
+            (dispatch) => dispatch.role === "lifecycle_verification",
+          ),
+        ).toHaveLength(1);
+        expect(
+          second.dispatches.filter(
+            (dispatch) => dispatch.role === "finding_discovery",
+          ).length,
+        ).toBeGreaterThan(0);
+        expect(upstream.requests() - firstCalls).toBe(second.dispatches.length);
+        expect(
+          upstream.nativeKinds().filter((kind) => kind === "verifier"),
+        ).toHaveLength(1);
+        expect(threads.resolveCalls()).toBe(2);
+        expect(threads.closed()).toHaveLength(2);
+        expect(
+          threads.observed().filter((thread) => !thread.isResolved),
+        ).toHaveLength(3);
+        expect(threads.publishedComments()).toHaveLength(5);
+        expect(
+          threads
+            .observed()
+            .filter((thread) => !thread.isResolved)
+            .map((thread) => thread.body)
+            .join("\n"),
+        ).toContain(oldClaims[2][0]);
+        expect(
+          threads
+            .observed()
+            .filter((thread) => !thread.isResolved)
+            .map((thread) => thread.body)
+            .join("\n"),
+        ).toContain(oldClaims[3][0]);
+        expect(
+          progress.filter((event) => event === "initialized"),
+        ).toHaveLength(2);
+        expect(progress.filter((event) => event === "accepted")).toHaveLength(
+          3,
+        );
+        expect(progress.filter((event) => event === "publishing")).toHaveLength(
+          2,
+        );
+        expect(
+          owned.fakeGitHub.comments.every(
+            (comment) => comment.user.login === "reviewrouter-e2e[bot]",
+          ),
+        ).toBe(true);
+        expect(
+          threads
+            .publishedComments()
+            .every(
+              (comment) =>
+                (comment.user as { login: string }).login ===
+                "reviewrouter-e2e[bot]",
+            ),
+        ).toBe(true);
+
+        const callsBeforeRetry = upstream.requests();
+        const reviewsBeforeRetry = threads.publishedComments().length;
+        const resolveBeforeRetry = threads.resolveCalls();
+        const repeated = await run(secondAuthorization);
+        expect(repeated.result.publicationReceipt).toEqual(
+          second.result.publicationReceipt,
+        );
+        expect(repeated.execution.executionId).toBe(
+          second.execution.executionId,
+        );
+        expect(repeated.artifact.artifactHash).toBe(
+          second.artifact.artifactHash,
+        );
+        expect(repeated.dispatches).toHaveLength(second.dispatches.length);
+        expect(upstream.requests()).toBe(callsBeforeRetry);
+        expect(threads.publishedComments()).toHaveLength(reviewsBeforeRetry);
+        expect(threads.resolveCalls()).toBe(resolveBeforeRetry);
+        expect(apiRejections).toEqual([]);
+        console.info("paired_production_runner_acceptance", {
+          binarySha256: pairedOcrBinarySha256,
+          firstHead: {
+            findings: first.envelope.snapshot.lineageHints.length,
+            discoveryRequests: first.dispatches.length,
+            requestBudget: first.requestBudget,
+          },
+          secondHead: {
+            discoveryRequests: second.dispatches.filter(
+              (dispatch) => dispatch.role === "finding_discovery",
+            ).length,
+            verifierRequests: second.dispatches.filter(
+              (dispatch) => dispatch.role === "lifecycle_verification",
+            ).length,
+            requestBudget: second.requestBudget,
+            nativeResolveCalls: threads.resolveCalls(),
+            unresolvedThreads: threads
+              .observed()
+              .filter((thread) => !thread.isResolved).length,
+          },
+          nativeRequestKinds: upstream.nativeKinds(),
+          completedReplay: {
+            providerRequestDelta: upstream.requests() - callsBeforeRetry,
+            publishedCommentDelta:
+              threads.publishedComments().length - reviewsBeforeRetry,
+            nativeResolveDelta: threads.resolveCalls() - resolveBeforeRetry,
+          },
+        });
+      }
+
       function planInput(auth: any) {
         return {
           reviewRevisionHash: auth.facts.reviewRevisionHash,
@@ -1724,10 +2160,134 @@ lifecycleCase.each([
       await upstream.close();
       await fixture?.close();
       if (fixture) await resetReviewActionV2E2EDatabase(databaseUrl!);
+      realCheckout?.close();
     }
   },
   120_000,
 );
+
+const pairedOcrBinarySha256 =
+  "a7bed0cea8ab05503c7de53f8c3825a75c285eb8364c832accc42dbebb0d42db";
+
+function requiredPairedOcrBinary(): string {
+  const binary = process.env.REVIEW_ROUTER_PAIRED_OCR_BINARY;
+  if (!binary || !path.isAbsolute(binary))
+    throw new Error("paired_production_pinned_ocr_binary_required");
+  if (hash(readFileSync(binary)) !== pairedOcrBinarySha256)
+    throw new Error("paired_production_ocr_binary_digest_mismatch");
+  return binary;
+}
+
+function createRealLifecycleCheckout() {
+  const root = mkdtempSync(path.join(tmpdir(), "paired-real-ocr-lifecycle-"));
+  const git = (...args: string[]) =>
+    execFileSync(
+      "git",
+      [
+        "-C",
+        root,
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "user.name=ReviewRouter paired fixture",
+        "-c",
+        "user.email=paired@test.invalid",
+        "-c",
+        "commit.gpgsign=false",
+        ...args,
+      ],
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+          GIT_CONFIG_SYSTEM: "/dev/null",
+          GIT_TERMINAL_PROMPT: "0",
+        },
+      },
+    ).trim();
+  try {
+    git("init", "--quiet");
+    mkdirSync(path.join(root, "src"));
+    writeFileSync(path.join(root, filePath), "oldTax();\n");
+    git("add", "--", filePath);
+    git("commit", "--quiet", "-m", "base fixture");
+    const baseSha = git("rev-parse", "HEAD");
+    const initialSource = source
+      .replace(
+        "if (subtotal === 0) return 0;",
+        "if (subtotal === 0) return 1 / subtotal;",
+      )
+      .replace("rate ?? 0.2", "rate || 0.2")
+      .replace("Math.round", "Math.floor");
+    writeFileSync(path.join(root, filePath), initialSource);
+    git("add", "--", filePath);
+    git("commit", "--quiet", "-m", "introduce tax review fixture");
+    const firstHead = git("rev-parse", "HEAD");
+    writeFileSync(path.join(root, filePath), source);
+    git("add", "--", filePath);
+    git("commit", "--quiet", "-m", "fix two tax defects and change rounding");
+    const secondHead = git("rev-parse", "HEAD");
+    git("checkout", "--quiet", "--detach", firstHead);
+    const revision = () => ({
+      baseSha,
+      mergeBaseSha: baseSha,
+      headSha: git("rev-parse", "HEAD"),
+      headTreeSha: git("rev-parse", "HEAD^{tree}"),
+    });
+    return {
+      root,
+      revision,
+      currentSource: () => readFileSync(path.join(root, filePath), "utf8"),
+      pullRequest() {
+        const diff = git(
+          "diff",
+          "--no-ext-diff",
+          "--unified=3",
+          baseSha,
+          "HEAD",
+          "--",
+          filePath,
+        );
+        const lines = diff.split("\n");
+        const additions = lines.filter(
+          (line) => line.startsWith("+") && !line.startsWith("+++"),
+        ).length;
+        const deletions = lines.filter(
+          (line) => line.startsWith("-") && !line.startsWith("---"),
+        ).length;
+        return {
+          diff,
+          additions,
+          deletions,
+          files: [
+            {
+              filename: filePath,
+              status: "modified",
+              additions,
+              deletions,
+              changes: additions + deletions,
+              patch: lines
+                .slice(lines.findIndex((line) => line.startsWith("@@")))
+                .join("\n"),
+            },
+          ],
+        };
+      },
+      advance() {
+        git("checkout", "--quiet", "--detach", secondHead);
+      },
+      close() {
+        rmSync(root, { recursive: true, force: true });
+      },
+    };
+  } catch (error) {
+    rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
+}
 
 function legacyFinding(
   title: string,
@@ -1818,6 +2378,12 @@ function loopbackApiFetch(
           ca,
         },
         (incoming) => {
+          const status = incoming.statusCode;
+          if (status === undefined) {
+            incoming.resume();
+            reject(new Error("paired_loopback_response_status_missing"));
+            return;
+          }
           const headers = new Headers();
           for (const [name, value] of Object.entries(incoming.headers))
             if (value !== undefined)
@@ -1825,7 +2391,7 @@ function loopbackApiFetch(
           const response = new Response(
             Readable.toWeb(incoming) as ReadableStream<Uint8Array>,
             {
-              status: incoming.statusCode,
+              status,
               headers,
             },
           );
@@ -1834,7 +2400,10 @@ function loopbackApiFetch(
               .clone()
               .json()
               .then((value: { code?: string }) => {
-                rejected({ status: response.status, code: value.code });
+                rejected({
+                  status: response.status,
+                  ...(value.code === undefined ? {} : { code: value.code }),
+                });
                 resolve(response);
               }, reject);
           else resolve(response);
@@ -1846,7 +2415,10 @@ function loopbackApiFetch(
   };
 }
 
-async function selectSavedGateway(fixture: ReviewActionV2E2EHarness) {
+async function selectSavedGateway(
+  fixture: ReviewActionV2E2EHarness,
+  production = false,
+) {
   const connection = await fixture.prisma.providerAccountConnection.create({
     data: {
       ownerWorkspaceId: fixture.workspaceId,
@@ -1876,6 +2448,7 @@ async function selectSavedGateway(fixture: ReviewActionV2E2EHarness) {
       ...systemPolicyWriteFixture(
         parseReviewConfigurationStrict({
           ...workspacePolicyFixture,
+          ...(production ? { updatePrDescription: false } : {}),
           providers: [
             {
               kind: "codex",
@@ -1914,6 +2487,9 @@ type Packet = {
 async function controlledGateway(scenario: Scenario) {
   let packet: Packet | undefined;
   let discoveryFindings: readonly unknown[] = [];
+  let discoverySource = source;
+  let nativeMainTurn = 0;
+  const nativeRequestKinds: string[] = [];
   let calls = 0;
   let last = Buffer.alloc(0);
   const admissions = new Map<string, Record<string, unknown>>();
@@ -2005,7 +2581,7 @@ async function controlledGateway(scenario: Scenario) {
         expect([...admissions.values()]).toContainEqual(supplied);
         calls++;
         last = bytes;
-        const respondCompleted = (answer: unknown) =>
+        const respondNative = (output: readonly unknown[]) =>
           response
             .writeHead(200, {
               "content-type": "text/event-stream",
@@ -2014,13 +2590,121 @@ async function controlledGateway(scenario: Scenario) {
               ),
             })
             .end(
-              `data: ${JSON.stringify({ type: "response.completed", response: { id: "paired-response", status: "completed", model, output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: JSON.stringify(answer) }] }], usage: { input_tokens: 100, output_tokens: 100, total_tokens: 200 } } })}\n\n`,
+              `event: response.completed\ndata: ${JSON.stringify({
+                type: "response.completed",
+                response: {
+                  id: `paired-response-${calls}`,
+                  object: "response",
+                  status: "completed",
+                  model,
+                  output,
+                  usage: {
+                    input_tokens: 100,
+                    output_tokens: 100,
+                    total_tokens: 200,
+                  },
+                },
+              })}\n\n`,
             );
+        const respondCompleted = (answer: unknown) =>
+          respondNative([
+            {
+              type: "message",
+              role: "assistant",
+              content: [{ type: "output_text", text: JSON.stringify(answer) }],
+            },
+          ]);
         expect(body.model).toBe(model);
         expect(body.max_output_tokens).toBeLessThanOrEqual(4096);
-        const sentPacket = JSON.parse(
-          body.input[0].content[0].text,
-        ) as Packet & { fixture?: string };
+        let sentPacket: Packet & { fixture?: string };
+        if (scenario === "production_runner") {
+          let candidate: Partial<Packet> | undefined;
+          try {
+            candidate = JSON.parse(body.input?.[0]?.content?.[0]?.text);
+          } catch {
+            /* Native OCR prompts are text. */
+          }
+          if (
+            candidate?.packetHash &&
+            Array.isArray(candidate.targets) &&
+            Array.isArray(candidate.sources)
+          ) {
+            // The real production planner and invocation adapter own this packet.
+            // The provider fixture only answers the request it actually receives.
+            packet = candidate as Packet;
+            sentPacket = packet;
+            nativeRequestKinds.push("verifier");
+          } else {
+            const toolNames = Array.isArray(body.tools)
+              ? body.tools.map((tool: { name?: string }) => tool.name ?? "")
+              : [];
+            const functionCall = (name: string, args: unknown) => ({
+              type: "function_call",
+              id: `fc_${calls}`,
+              call_id: `call_${calls}`,
+              name,
+              arguments: JSON.stringify(args),
+            });
+            let output: unknown[];
+            if (
+              toolNames.includes("task_done") ||
+              toolNames.includes("code_comment")
+            ) {
+              nativeRequestKinds.push("main");
+              output =
+                ++nativeMainTurn === 1
+                  ? [
+                      functionCall("code_comment", {
+                        comments: discoveryFindings.map((value) => {
+                          const finding = value as ReturnType<
+                            typeof legacyFinding
+                          >;
+                          return {
+                            path: finding.file,
+                            content: `${finding.title}\n\n${finding.message}`,
+                            existing_code:
+                              discoverySource.split("\n")[finding.line - 1],
+                            start_line: finding.line,
+                            end_line: finding.line,
+                            severity:
+                              finding.severity === "major" ? "high" : "medium",
+                          };
+                        }),
+                      }),
+                    ]
+                  : [functionCall("task_done", {})];
+            } else if (
+              toolNames.includes("approve_all_comments") ||
+              toolNames.includes("report_incorrect_comments")
+            ) {
+              nativeRequestKinds.push("filter");
+              output = [functionCall("approve_all_comments", {})];
+            } else {
+              nativeRequestKinds.push("text");
+              output = [
+                {
+                  type: "message",
+                  id: `msg_${calls}`,
+                  status: "completed",
+                  role: "assistant",
+                  content: [
+                    {
+                      type: "output_text",
+                      text: "Review the tax calculation in src/review-file-000.ts.",
+                      annotations: [],
+                    },
+                  ],
+                },
+              ];
+            }
+            respondNative(output);
+            return;
+          }
+        } else {
+          sentPacket = JSON.parse(body.input[0].content[0].text) as Packet & {
+            fixture?: string;
+          };
+        }
         if (sentPacket.fixture === "paired-discovery") {
           respondCompleted({ findings: discoveryFindings });
           return;
@@ -2188,9 +2872,12 @@ async function controlledGateway(scenario: Scenario) {
     setPacket(value: Packet) {
       packet = value;
     },
-    setDiscovery(findings: readonly unknown[]) {
+    setDiscovery(findings: readonly unknown[], sourceText = source) {
       discoveryFindings = findings;
+      discoverySource = sourceText;
+      nativeMainTurn = 0;
     },
+    nativeKinds: () => [...nativeRequestKinds],
     requests: () => calls,
     lastRequest: () => last,
     close: async () => {
@@ -2203,7 +2890,11 @@ async function controlledGateway(scenario: Scenario) {
   };
 }
 
-function nativeThreads(github: FakeGitHubTransport, scenario: Scenario) {
+function nativeThreads(
+  github: FakeGitHubTransport,
+  scenario: Scenario,
+  checkout?: ReturnType<typeof createRealLifecycleCheckout>,
+) {
   type Thread = {
     id: string;
     isResolved: boolean;
@@ -2212,6 +2903,14 @@ function nativeThreads(github: FakeGitHubTransport, scenario: Scenario) {
     parent: Record<string, unknown>;
   };
   const threads: Thread[] = [];
+  const reviews: Array<{
+    id: number;
+    body: string;
+    commit_id: string;
+    state: "PENDING" | "COMMENTED";
+    user: { login: string };
+    comments: Array<Record<string, unknown>>;
+  }> = [];
   let calls = 0;
   const requestThreads: string[] = [];
   let unknownEffect = false;
@@ -2219,8 +2918,150 @@ function nativeThreads(github: FakeGitHubTransport, scenario: Scenario) {
   vi.spyOn(github, "fetch").mockImplementation(async (input, init) => {
     const request =
       input instanceof Request ? input : new Request(String(input), init);
-    if (new URL(request.url).pathname !== "/graphql")
-      return original(input, init);
+    const url = new URL(request.url);
+    if (checkout && url.hostname === "api.github.com") {
+      const prefix = `/repos/${github.options.owner}/${github.options.repo}/pulls/${github.options.pullRequestNumber}`;
+      if (
+        request.method === "POST" &&
+        url.pathname.endsWith("/access_tokens")
+      ) {
+        const tokenBody = await request.clone().text();
+        const body = (tokenBody ? JSON.parse(tokenBody) : {}) as {
+          permissions?: Record<string, string>;
+        };
+        if (
+          body.permissions?.contents === "read" &&
+          body.permissions.pull_requests === "read"
+        ) {
+          return Response.json(
+            {
+              token: "paired-scm-read-token",
+              expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+              permissions: { contents: "read", pull_requests: "read" },
+              repository_selection: "selected",
+            },
+            { status: 201 },
+          );
+        }
+      }
+      if (request.method === "GET" && url.pathname === prefix) {
+        const pull = checkout.pullRequest();
+        if (request.headers.get("accept")?.includes("diff"))
+          return new Response(pull.diff, {
+            headers: { "content-type": "text/plain" },
+          });
+        return Response.json({
+          number: github.options.pullRequestNumber,
+          state: "open",
+          title: "Bounded tax revalidation",
+          body: "",
+          user: { login: "fixture" },
+          labels: [],
+          draft: false,
+          changed_files: 1,
+          additions: pull.additions,
+          deletions: pull.deletions,
+          base: {
+            sha: github.revision.baseSha,
+            repo: {
+              full_name: `${github.options.owner}/${github.options.repo}`,
+            },
+          },
+          head: { sha: github.revision.headSha },
+        });
+      }
+      if (request.method === "GET" && url.pathname === `${prefix}/files`)
+        return Response.json(checkout.pullRequest().files);
+      if (url.pathname === `${prefix}/reviews`) {
+        if (request.method === "GET") return Response.json(reviews);
+        if (request.method === "POST") {
+          expect(request.headers.get("authorization")).toMatch(
+            /^(?:token|Bearer) fake-installation-token$/,
+          );
+          const body = (await request.json()) as {
+            body: string;
+            commit_id: string;
+            comments: Array<Record<string, unknown>>;
+          };
+          expect(body.commit_id).toBe(github.revision.headSha);
+          expect(body.comments.length).toBeGreaterThan(0);
+          for (const comment of body.comments) {
+            expect(comment.path).toBe(filePath);
+            expect(Number.isSafeInteger(comment.line)).toBe(true);
+            expect(Number(comment.line)).toBeGreaterThan(0);
+            expect(Number(comment.line)).toBeLessThanOrEqual(
+              checkout.currentSource().split("\n").length,
+            );
+            expect(String(comment.body)).toContain("reviewrouter:finding:v2:");
+          }
+          const id = 80_000 + reviews.length;
+          const review = {
+            id,
+            body: body.body,
+            commit_id: body.commit_id,
+            state: "PENDING" as const,
+            user: { login: "reviewrouter-e2e[bot]" },
+            comments: body.comments.map((comment, index) => ({
+              ...comment,
+              id: id * 100 + index,
+              user: { login: "reviewrouter-e2e[bot]" },
+            })),
+          };
+          reviews.push(review);
+          return Response.json(review, { status: 201 });
+        }
+      }
+      const reviewMatch = new RegExp(
+        `^${prefix}/reviews/([0-9]+)(?:/(comments|events))?$`,
+      ).exec(url.pathname);
+      if (reviewMatch) {
+        const review = reviews.find(
+          (value) => value.id === Number(reviewMatch[1]),
+        );
+        if (!review)
+          return Response.json({ message: "Not Found" }, { status: 404 });
+        if (request.method === "GET")
+          return Response.json(
+            reviewMatch[2] === "comments" ? review.comments : review,
+          );
+        if (request.method === "POST" && reviewMatch[2] === "events") {
+          expect(request.headers.get("authorization")).toMatch(
+            /^(?:token|Bearer) fake-installation-token$/,
+          );
+          const body = (await request.json()) as {
+            event: string;
+            body: string;
+          };
+          expect(body.event).toBe("COMMENT");
+          expect(review.state).toBe("PENDING");
+          review.state = "COMMENTED";
+          review.body = body.body;
+          const createdAt = new Date().toISOString();
+          for (const comment of review.comments) {
+            threads.push({
+              id: `paired-review-thread-${comment.id}`,
+              isResolved: false,
+              path: String(comment.path),
+              line: Number(comment.line),
+              parent: {
+                id: `paired-review-parent-${comment.id}`,
+                databaseId: comment.id,
+                viewerDidAuthor: true,
+                author: { login: "reviewrouter-e2e[bot]", __typename: "Bot" },
+                body: comment.body,
+                createdAt,
+                updatedAt: createdAt,
+                path: comment.path,
+                line: comment.line,
+                originalLine: comment.line,
+              },
+            });
+          }
+          return Response.json(review);
+        }
+      }
+    }
+    if (url.pathname !== "/graphql") return original(input, init);
     const body = (await request.clone().json()) as {
       query: string;
       variables: Record<string, unknown>;
@@ -2336,6 +3177,16 @@ function nativeThreads(github: FakeGitHubTransport, scenario: Scenario) {
         });
       }
     },
+    publishedComments: () =>
+      reviews
+        .filter((review) => review.state === "COMMENTED")
+        .flatMap((review) => review.comments),
+    observed: () =>
+      threads.map((thread) => ({
+        id: thread.id,
+        isResolved: thread.isResolved,
+        body: String(thread.parent.body),
+      })),
     resolveCalls: () => calls,
     requestThreads: () => [...requestThreads],
     closed: () =>

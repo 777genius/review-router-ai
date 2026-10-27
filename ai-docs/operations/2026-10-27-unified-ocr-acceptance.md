@@ -2,9 +2,10 @@
 
 Status: implementation in paired draft PRs; synthetic external-boundary and real
 executable checks passed as described below. Live provider/GitHub qualification,
-release publication and production rollout are separate gates. The full Next
-dashboard browser gate has not passed locally because compilation exhausted the
-shared environment's memory. Component browser checks are recorded separately.
+release publication and production rollout are separate gates. The actual Next
+dashboard browser gate passed in CI for desktop and mobile. Its fresh PostgreSQL,
+full-page screenshots and browser results are recorded separately from the
+component checks and from the earlier unsuccessful local compilation attempts.
 
 - Control plane: <https://github.com/777genius/review-router-ai/pull/718>
 - Public Action: <https://github.com/777genius/review-router/pull/346>
@@ -95,20 +96,39 @@ No automatic PR merge or remote user migration was performed in this task.
 
 Counts below describe distinct focused runs, not a sum of unique tests. Some
 regression suites overlap. Provider replies and GitHub operations are synthetic
-unless explicitly stated otherwise.
+unless explicitly stated otherwise. The final paired run passed all 18 cases
+(17 protocol/integration cases plus one actual production-runner case), exit 0,
+no skips or failures, in 122.16 seconds; its 768 MiB worker did not increase the
+shared environment's OOM counters.
 
-| Check                                             | Observed result                                                           | What is real and what it proves                                                                                                                                          |
-| ------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Paired lifecycle V1/V2                            | 17/17, exit 0, no skipped/unhandled errors                                | Migrated PostgreSQL, signed admission, HTTPS/public transport, production relay/verifier/App worker and effect receipts; controlled discovery/provider/GitHub boundaries |
-| Migration/readiness/activation regression         | 58/58 across five suites                                                  | Includes all three PostgreSQL + RSA-signed OIDC migration cases with ordinary setup and all SQL guards enabled                                                           |
-| Ordinary/Hosted confirmation recovery             | 216/216 across two suites                                                 | Existing recovery paths, exact selected Prisma fields, native Claude source proof and legacy absence handling                                                            |
-| Final public transport/runner/workflow regression | 84/84 across five suites                                                  | Gateway canonical body before claim; native Codex transport; caller schema 5 vs checkout schema 2; migration runner; T0 step selection                                   |
-| Actual OCR binary                                 | 13 CLI + 2 MCP tests passed                                               | Actual pinned OCR process against local synthetic protocols, not a fake OCR executable                                                                                   |
-| Public runtime types                              | Full source and test typecheck passed before final artifact rebuild       | Includes migration entry and latest boundary fixes                                                                                                                       |
-| Changed production web types                      | Scoped native TypeScript exit 0, no diagnostics                           | Changed dashboard/actions/routes/migration modules and their dependencies                                                                                                |
-| Production React component browser check          | 148/148 assertions, 48 screenshots, zero page errors or external requests | Actual components/CSS/fonts in Chromium; Next navigation/server-action boundaries are controlled                                                                         |
+| Check                                             | Observed result                                                           | What is real and what it proves                                                                                                                                                              |
+| ------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Paired lifecycle V1/V2 contracts                  | 17/17 in the final complete 18-case run                                   | Migrated PostgreSQL, signed admission, HTTPS/public transport, production relay/verifier/App worker and effect receipts; controlled discovery/provider/GitHub boundaries                     |
+| Production runner lifecycle                       | 1/1, also passed in the final complete 18-case run                        | Actual production factory/orchestrator and pinned rr.5 process, real Git revisions, PostgreSQL, checkout/Skills/OIDC-renewal routes and App worker; provider/GitHub boundaries are synthetic |
+| Migration/readiness/activation regression         | 58/58 across five suites                                                  | Includes all three PostgreSQL + RSA-signed OIDC migration cases with ordinary setup and all SQL guards enabled                                                                               |
+| Ordinary/Hosted confirmation recovery             | 216/216 across two suites                                                 | Existing recovery paths, exact selected Prisma fields, native Claude source proof and legacy absence handling                                                                                |
+| Final public transport/runner/workflow regression | 84/84 across five suites                                                  | Gateway canonical body before claim; native Codex transport; caller schema 5 vs checkout schema 2; migration runner; T0 step selection                                                       |
+| Actual OCR binary                                 | 13 CLI + 2 MCP tests passed                                               | Actual pinned OCR process against local synthetic protocols, not a fake OCR executable                                                                                                       |
+| Public runtime types                              | Full source and test typecheck passed before final artifact rebuild       | Includes migration entry and latest boundary fixes                                                                                                                                           |
+| Changed production web types                      | Scoped native TypeScript exit 0, no diagnostics                           | Changed dashboard/actions/routes/migration modules and their dependencies                                                                                                                    |
+| Production React component browser check          | 148/148 assertions, 48 screenshots, zero page errors or external requests | Actual components/CSS/fonts in Chromium; Next navigation/server-action boundaries are controlled                                                                                             |
+| Actual Next dashboard browser check               | 2/2, desktop and mobile; six screenshots visually inspected               | Full Next application and fresh migrated PostgreSQL in CI, both themes and empty search; synthetic authenticated fixtures, external network disabled                                         |
+| Final-plan assignment regression                  | 11/11 in the existing lifecycle invocation suite                          | Actual append/restore helpers preserve captured inputs and bind exact executable slot references; missing or changed contracts fail closed                                                   |
 
-The paired success scenario starts with four older findings. A subsequent run
+The public Action [full CI run 40458086300](https://github.com/777genius/review-router/actions/runs/40458086300)
+passed on `7b98a112a4410a01edf923d6c8116ba61ccc8430`, including lint, full
+source/test TypeScript, 4091 passing Jest tests (six explicit skips), actual OCR
+qualification, build
+and the committed-artifact comparison. Its independent native executable job
+also passed. An earlier artifact mismatch came from two locked optional build
+dependencies absent from the trimmed local environment; rebuilding with those
+exact dependencies restored parity without changing production policy or the
+lockfile. The subsequent final-plan source fix requires a new exact-head CI
+result; an earlier green result is not attributed to later code.
+
+The 17 contract/integration cases call production ports directly; they do not
+instantiate the whole production runner. Their success scenario starts with four
+fixture-seeded older findings. A subsequent run
 performs two discovery calls and one verifier call on the same frozen route.
 Two proven fixes are closed, one still-valid and one uncertain finding remain
 open, and a separate new finding is retained. The next head consumes the two
@@ -124,10 +144,52 @@ and passes `reasoning: null`. The actual HTTP durable-hash gate therefore verifi
 the parent normalizes the wire before claiming. This integration check found and
 closed a real boundary defect that isolated transport fixtures did not expose.
 
-The final complete paired run used a 768 MiB worker and finished in 101.43 seconds.
+The earlier complete 17-case paired run used a 768 MiB worker and finished in 101.43 seconds.
 An earlier 512 MiB attempt stopped after 15 passing cases because of worker OOM;
 its partial result is not counted. Full Next compilation attempts also remain
-failed/unverified rather than being relabeled successful.
+failed rather than being relabeled successful; the later CI browser result is
+the full Next evidence.
+
+### Actual production-runner lifecycle
+
+The additional V2 Gateway case calls `createProductionT0ReviewRunner` and the
+real `RunT0ReviewOrchestration`. It checks the pinned binary SHA before ordinary
+managed OCR preparation, creates a real Git repository, then changes its head.
+The first OCR review publishes four native threads through the App worker; these
+threads are not seeded. On the next commit, the common planner and verifier prove
+two fixes, keep one still-valid and one uncertain thread open, and publish the
+separate new OCR finding. The entire run shares the admitted request allowance
+of nine. Replaying the completed execution preserves its artifact and receipt
+without new provider calls, review publications or thread resolutions. The final
+receipt records four discovery requests on the first head and four discovery
+plus one verifier request on the second; each authorization retains its shared
+allowance of nine. Exactly two thread resolutions occur; the active, uncertain
+and new threads remain open.
+
+This case found a production composition defect: appending lifecycle work or
+restoring a plan creates new slot objects while discovery assignments retained
+their original references. Both OCR and Codex composition paths now bind captured
+assignments to the final plan after checking complete semantic slot equality.
+Adapter identity guards, frozen contracts, budgets and manifests are unchanged.
+The regression covers empty/nonempty lifecycle planning, persisted restoration
+and same-ID contract drift. This is one shared-runner E2E, not a claim that all
+17 contract cases execute the factory or that live providers have been tested.
+
+The paired CI job builds the exact OCR candidate from its immutable public Action
+checkout and verifies the qualification manifest before supplying the binary to
+this case. A missing or mismatched binary fails the opted-in paired suite.
+The feature's existing hosted acceptance workflow also runs the same 18-case
+file after the Next browser checks, reusing its disposable PostgreSQL service,
+migrations and locked application dependencies. It reads the immutable Action
+pin from the canonical main CI configuration. This provides a task-specific
+hosted gate while the general self-hosted CI queue is unavailable; it does not
+replace or change the repository's general CI runner policy.
+
+After the complete run, narrow fixture typing cleanup was checked with native
+TypeScript and a repeat of both affected branches (V1 success and the actual
+production runner): 2/2 passed. The fixture's synthetic source identity uses one
+run ID with attempts 1 and 2 and separate authorization/revision hashes; actual
+GitHub workflow triggering on the next push remains part of live qualification.
 
 ### Reproducible OCR candidate
 
@@ -156,9 +218,17 @@ disabled and optimistic events cannot display false Ready.
 
 ![Pending setup action on desktop](../assets/unified-ocr-desktop-pending.png)
 
-These images are captures of the production components, not an actual full Next
-page load. The full dashboard CI workflow remains the release verification gate
-for Next composition; no local full-page pass is claimed.
+The two images above are production component captures. The following images are
+actual full Next page loads from [successful CI run 40456647938](https://github.com/777genius/review-router-ai/actions/runs/40456647938),
+feature head `182f7b21025d79aefae1873c4ccf5946225ab7ae`, tested merge revision
+`949f10b4d35a172c7f3815be832a0877c88d089e`. Both cases passed in 21.9 seconds;
+the six desktop/mobile dark/light/empty-search captures were visually inspected.
+The configuration banner belongs to the synthetic fixture without live server
+encryption credentials and does not imply a real provider connection.
+
+![Actual Next dashboard on desktop](../assets/unified-ocr-next-desktop.png)
+
+![Actual Next dashboard on mobile](../assets/unified-ocr-next-mobile.png)
 
 ### Integration with current onboarding and release gates
 
@@ -179,6 +249,10 @@ and exposed a subsequent theme click against fresh server HTML before hydration.
 The test now awaits the actual dashboard readiness signal before its single theme
 click, keeping the mandatory light-theme assertion. This is not permission to
 retry user actions.
+
+The subsequent full Next CI run passed both scenarios with that readiness wait.
+No production interaction was replaced with a retry, and the mandatory theme,
+state, search and document-overflow assertions remain enabled.
 
 The new `000154_unified_model_dispatch` SQL is explicitly classified by checksum
 in the existing release/rehearsal catalogue. Historical immutable manifests and

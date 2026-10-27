@@ -1,16 +1,24 @@
-name: Unified OCR review UI
+name: Unified OCR acceptance
 
 on:
   pull_request:
     paths:
       - .github/workflows/unified-ocr-ui.yml
+      - .github/workflows/ci.yml
+      - apps/api/**
       - apps/web/**
+      - apps/worker/**
+      - packages/features/action-control-plane/**
       - packages/features/provider-setup/**
       - packages/features/review-config/**
+      - packages/features/review-executions/**
+      - packages/features/review-publishing/**
       - packages/features/review-run-control/**
       - packages/platform/db/**
       - packages/shared/**
       - scripts/accounts-reference-e2e/**
+      - scripts/review-investigation-paired-e2e/**
+      - scripts/review-action-v2-production-e2e/**
       - package.json
       - pnpm-lock.yaml
 
@@ -23,6 +31,7 @@ concurrency:
 
 jobs:
   actual-next-readiness:
+    name: Actual Next UI and OCR lifecycle
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     services:
@@ -71,6 +80,52 @@ jobs:
             --expected-revision "$GITHUB_SHA" \
             --work-dir "$PWD/tmp/accounts-reference-e2e/runs/unified-ocr-ui" \
             --review-runtime-fixture --catalog-fixture
+      - name: Read the canonical paired Action pin
+        id: paired-action
+        run: |
+          node <<'JS'
+          const fs = require('node:fs');
+          const source = fs.readFileSync('.github/workflows/ci.yml', 'utf8');
+          const matches = [...source.matchAll(/^  REVIEW_ROUTER_PAIRED_ACTION_REF: ([a-f0-9]{40})$/gm)];
+          if (matches.length !== 1) throw new Error('paired_action_immutable_ref_required');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `ref=${matches[0][1]}\n`);
+          JS
+      - name: Check out the exact paired Review Action
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: 777genius/review-router
+          ref: ${{ steps.paired-action.outputs.ref }}
+          path: .paired/review-router-action
+          persist-credentials: false
+      - name: Install the paired Action's locked dependencies
+        env:
+          EXPECTED_PAIRED_ACTION_REF: ${{ steps.paired-action.outputs.ref }}
+        run: |
+          test "$(git -C .paired/review-router-action rev-parse HEAD)" = "$EXPECTED_PAIRED_ACTION_REF"
+          npm ci --ignore-scripts --prefix .paired/review-router-action
+      - name: Set up pinned Go for the paired OCR executable
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: "1.26.10"
+          cache: false
+      - name: Build and verify the exact paired OCR executable
+        working-directory: .paired/review-router-action
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          test "$(go env GOOS)/$(go env GOARCH)" = linux/amd64
+          tools/ocr/build.sh --out "$RUNNER_TEMP/reviewrouter-paired-ocr"
+          diff -u tools/ocr/qualifications/unified-model-routes-v2.manifest "$RUNNER_TEMP/reviewrouter-paired-ocr/MANIFEST"
+      - name: Run the paired review lifecycle and actual production runner
+        env:
+          REVIEW_ROUTER_REVIEW_INVESTIGATION_PAIRED_E2E: "1"
+          REVIEW_ROUTER_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
+          REVIEW_ROUTER_ACTION_SOURCE_DIR: ${{ github.workspace }}/.paired/review-router-action
+          REVIEW_ROUTER_PAIRED_OCR_BINARY: ${{ runner.temp }}/reviewrouter-paired-ocr/opencodereview
+        run: |
+          pnpm exec vitest run scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts \
+            --maxWorkers=1 --no-file-parallelism --reporter=default --reporter=json \
+            --outputFile.json=tmp/accounts-reference-e2e/runs/unified-ocr-ui/paired-lifecycle-result.json
       - name: Preserve screenshots, traces and bounded fixture diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
