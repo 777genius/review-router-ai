@@ -2452,6 +2452,7 @@ describe("Codex rotating GitHub Action runtime", () => {
         "const { writeFileSync } = require('node:fs');",
         `writeFileSync(${JSON.stringify(claudeInstallEnvLog)}, JSON.stringify({`,
         "  cwd: process.cwd(),",
+        "  home: process.env.HOME,",
         "  githubToken: process.env.GITHUB_TOKEN,",
         "  claudeToken: process.env.CLAUDE_CODE_OAUTH_TOKEN,",
         "  openrouterKey: process.env.OPENROUTER_API_KEY,",
@@ -2472,6 +2473,8 @@ describe("Codex rotating GitHub Action runtime", () => {
         "const config = readFileSync(configPath, 'utf8');",
         `writeFileSync(${JSON.stringify(runtimeEnvLog)}, JSON.stringify({`,
         "  cwd: process.cwd(),",
+        "  home: process.env.HOME,",
+        "  path: process.env.PATH,",
         "  githubWorkspace: process.env.GITHUB_WORKSPACE,",
         "  safeFileExists: existsSync(join(process.cwd(), 'file.ts')),",
         "  relatedFileExists: existsSync(join(process.cwd(), 'related.ts')),",
@@ -2707,6 +2710,9 @@ describe("Codex rotating GitHub Action runtime", () => {
       expect(claudeInstallEnv.githubToken).toBeUndefined();
       expect(claudeInstallEnv.claudeToken).toBeUndefined();
       expect(claudeInstallEnv.openrouterKey).toBeUndefined();
+      expect(claudeInstallEnv.home).toBe(reviewEnv.home);
+      expect(claudeInstallEnv.path).toBe(reviewEnv.path);
+      expect(String(claudeInstallEnv.path).split(":")).toContain(binDir);
       expect(
         stdoutWrite.mock.calls.map(([chunk]) => String(chunk)).join(""),
       ).toContain("fork runtime marker");
@@ -2875,6 +2881,7 @@ describe("Codex rotating GitHub Action runtime", () => {
         `writeFileSync(${JSON.stringify(codexReviewEnvLog)}, JSON.stringify({`,
         "  codexHome: process.env.CODEX_HOME,",
         "  home: process.env.HOME,",
+        "  path: process.env.PATH,",
         "  authExists: existsSync(join(process.env.CODEX_HOME, 'auth.json')),",
         "  codexBinExists: existsSync(codexBin),",
         "  configIncludesProxy: config.includes('model_provider = \"reviewrouter_proxy\"'),",
@@ -3307,6 +3314,8 @@ describe("Codex rotating GitHub Action runtime", () => {
       expect(claudeInstallEnv.claudeToken).toBeUndefined();
       expect(claudeInstallEnv.openrouterKey).toBeUndefined();
       expect(claudeInstallEnv.home).toBe(reviewEnv.home);
+      expect(claudeInstallEnv.path).toBe(reviewEnv.path);
+      expect(String(claudeInstallEnv.path).split(":")).toContain(binDir);
       expect(String(reviewEnv.githubOutput)).toContain("github-output");
       const childStdout = stdoutWrite.mock.calls
         .map(([chunk]) => String(chunk))

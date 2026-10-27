@@ -474,7 +474,11 @@ export function RepositorySkillsOperation({
             </div>
           ) : null}
           {choices.isPending ? (
-            <p role="status">Loading available skills…</p>
+            <p role="status">
+              {assignedOnly
+                ? "Loading assigned skills…"
+                : "Loading available skills…"}
+            </p>
           ) : null}
           <SkillsError error={choices.error} />
           <div className="overflow-x-auto">

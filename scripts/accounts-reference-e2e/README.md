@@ -278,8 +278,8 @@ sandbox after a reachable loopback probe verifies that both a direct client and
 its descendant are denied. An unavailable sandbox or failed probe fails the job;
 there is no unisolated generation fallback. The workflow records the actual PG17
 version and stops only its owned cluster. It checks out the PR head explicitly, requires an unchanged
-source tree, and verifies an exact-head receipt with all 23 scenarios passing
-(the ten integration cases above plus thirteen UX resilience cases), zero
+source tree, and verifies an exact-head receipt with all 24 scenarios passing
+(the ten integration cases above plus fourteen UX resilience cases), zero
 failures, and zero skips. The workflow retains logs, receipts, screenshots, and
 failure traces as `skills-browser-<run-id>-<attempt>` artifacts for desktop/mobile
 visual review. It uses only generated fixture authority and does not call live

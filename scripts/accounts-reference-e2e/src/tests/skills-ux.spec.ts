@@ -20,6 +20,15 @@ async function expectDashboardReady(page: Page) {
   );
 }
 
+async function expectDialogCloseControls(dialog: Locator, title: string) {
+  await expect(dialog).toHaveAccessibleName(title);
+  for (const name of [`Close ${title}`, "Close"]) {
+    const control = dialog.getByRole("button", { name, exact: true });
+    await expect(control).toBeVisible();
+    await expect(control).toBeInViewport({ ratio: 1 });
+  }
+}
+
 async function sql<T extends pg.QueryResultRow = pg.QueryResultRow>(
   text: string,
   values: unknown[] = [],
@@ -69,6 +78,13 @@ async function openOperation(page: Page, suffix: string, skill: string) {
   await expect(
     dialog.getByRole("heading", { name: "Assigned skills", exact: true }),
   ).toBeVisible();
+  // The first assigned read shares Next's action queue with Add/search.
+  // Let it settle before measuring the searched-row assertion.
+  await expect(
+    dialog.getByRole("status").filter({
+      hasText: /^Loading (?:assigned|available) skills…$/u,
+    }),
+  ).toBeHidden({ timeout: 30_000 });
   const suffixMatch = /Fixture skill (\d+)$/u.exec(skill);
   if (!suffixMatch) throw new Error("scope_test_requires_named_fixture_skill");
   if (!(await binding(suffix, `rr-e2e-skill-${suffixMatch[1]}`)))
@@ -130,7 +146,11 @@ async function binding(suffix: string, skillId: string) {
 }
 
 /** Hold a genuine committed response; never replace persistence with a mock. */
-async function holdAction(page: Page, method: string) {
+async function holdAction(
+  page: Page,
+  method: string,
+  matchesInput?: (input: string) => boolean,
+) {
   let release!: () => void;
   const released = new Promise<void>((resolve) => {
     release = resolve;
@@ -143,11 +163,13 @@ async function holdAction(page: Page, method: string) {
   let committed = false;
   await page.route("**/dashboard?**", async (route) => {
     const request = route.request();
+    const input = request.postData() ?? "";
     if (
       !captured &&
       request.method() === "POST" &&
       request.headers()["next-action"] &&
-      request.postData()?.includes(`"${method}"`)
+      input.includes(`"${method}"`) &&
+      (!matchesInput || matchesInput(input))
     ) {
       captured = true;
       const response = await route.fetch();
@@ -159,7 +181,12 @@ async function holdAction(page: Page, method: string) {
       delivered();
     } else await route.fallback();
   });
-  return { release, done, wait: () => expect.poll(() => committed).toBe(true) };
+  return {
+    release,
+    done,
+    wait: (timeout = 10_000) =>
+      expect.poll(() => committed, { timeout }).toBe(true),
+  };
 }
 
 async function expectParentLocked(dialog: Locator) {
@@ -334,6 +361,52 @@ test.describe("Skills real Next UX resilience", () => {
     expect(persisted[0]!.createOperationId).toMatch(/^[a-f0-9-]{36}$/u);
     expect(payloads).toHaveLength(2);
     expect(payloads[1]).toBe(payloads[0]);
+  });
+
+  test("Skills acknowledged Add shows refreshing until its genuine assigned readback arrives", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await binding("121", "rr-e2e-skill-053")).toBeUndefined();
+    const { dialog, row } = await openOperation(
+      page,
+      "121",
+      "Fixture skill 053",
+    );
+    const readback = await holdAction(page, "listAssignmentChoices", (input) =>
+      input.includes('"assignedOnly":true'),
+    );
+    try {
+      await row.getByRole("checkbox").check();
+      await dialog
+        .getByRole("button", { name: "Add 1 skill", exact: true })
+        .click();
+      await readback.wait(30_000);
+      expect(await binding("121", "rr-e2e-skill-053")).toBeTruthy();
+      await expect(
+        dialog.getByRole("heading", { name: "Assigned skills", exact: true }),
+      ).toBeVisible();
+      await expect(
+        dialog.getByText("Refreshing skills…", { exact: true }),
+      ).toBeVisible();
+      await expect(
+        dialog.getByText(/^No matching assigned skills\./u),
+      ).toHaveCount(0);
+      await dialog.screenshot({
+        path: test.info().outputPath("skills-assigned-refreshing-mobile.png"),
+      });
+    } finally {
+      readback.release();
+    }
+    await readback.done;
+    await expect(
+      dialog.getByRole("button", { name: "Close", exact: true }),
+    ).toBeEnabled({ timeout: 30_000 });
+    await expect(row.getByText("File scope", { exact: true })).toBeVisible();
+    await row.getByText("File scope", { exact: true }).click();
+    await expect(
+      row.getByRole("textbox", { name: "Include paths", exact: true }),
+    ).toHaveValue("**");
   });
 
   test("Skills Paths retain drafts across filtering and require explicit close or removal discard", async ({
@@ -833,7 +906,8 @@ test.describe("Skills real Next UX resilience", () => {
       path: test.info().outputPath("skills-readiness-mixed-desktop.png"),
     });
     await page.setViewportSize({ width: 390, height: 844 });
-    await dialog.screenshot({
+    await expectDialogCloseControls(dialog, "Add skills to repositories");
+    await page.screenshot({
       path: test.info().outputPath("skills-readiness-mixed-mobile.png"),
     });
     await dialog
@@ -881,7 +955,8 @@ test.describe("Skills real Next UX resilience", () => {
     await expect(
       dialog.getByRole("button", { name: "Add skills", exact: true }),
     ).toBeInViewport({ ratio: 1 });
-    await dialog.screenshot({
+    await expectDialogCloseControls(dialog, "Assigned skills");
+    await page.screenshot({
       path: test.info().outputPath("skills-assigned-mobile.png"),
     });
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -1165,7 +1240,8 @@ test.describe("Skills real Next UX resilience", () => {
     expect(actionBox).toBeTruthy();
     expect(actionBox!.x + actionBox!.width).toBeLessThanOrEqual(390);
     expect(actionBox!.y + actionBox!.height).toBeLessThanOrEqual(844);
-    await editor.screenshot({
+    await expectDialogCloseControls(editor, "Create skill");
+    await page.screenshot({
       path: test.info().outputPath("skills-import-review-mobile.png"),
     });
     await editor

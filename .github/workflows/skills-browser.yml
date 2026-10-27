@@ -154,7 +154,7 @@ jobs:
           assert.equal(result.databaseMode, 'explicit-test-url');
           assert.equal(result.databaseBaseline, 'fresh migrated');
           assert.equal(result.externalNetworkAllowed, false);
-          assert.equal(result.tests.passed, 23);
+          assert.equal(result.tests.passed, 24);
           assert.equal(result.tests.failed, 0);
           assert.equal(result.tests.skipped, 0);
           assert.deepEqual(result.tests.failures, []);

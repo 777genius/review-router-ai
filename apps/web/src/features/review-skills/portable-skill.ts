@@ -43,35 +43,114 @@ export function skillContentIssues(
   return issues;
 }
 
+function expandMarkdownTabs(line: string): string {
+  if (!line.includes("\t")) return line;
+  let column = 0;
+  return Array.from(line, (character) => {
+    if (character !== "\t") {
+      column++;
+      return character;
+    }
+    const width = 4 - (column % 4);
+    column += width;
+    return " ".repeat(width);
+  }).join("");
+}
+
+function markdownIndent(line: string): number {
+  return /^ */u.exec(line)![0].length;
+}
+
+type ListContext = { indent: number; quoteDepth: number };
+
+function stripBlockQuotes(
+  line: string,
+  maximumDepth = Infinity,
+  lists: readonly ListContext[] = [],
+) {
+  const marker = / *>[ \t]?/uy;
+  let offset = 0;
+  let depth = 0;
+  let match: RegExpExecArray | null;
+  while (depth < maximumDepth && (match = marker.exec(line))) {
+    // A quote may follow an enclosing list's continuation indentation.
+    const listIndent =
+      lists.findLast((context) => context.quoteDepth === depth)?.indent ?? 0;
+    if (match[0].indexOf(">") > listIndent + 3) break;
+    offset = marker.lastIndex;
+    depth++;
+  }
+  return { line: line.slice(offset), depth };
+}
+
 /** Ignore ordinary fenced, indented and inline code examples, without rendering
  * Markdown or interpreting prose/shell snippets as dependencies. */
 function withoutCodeExamples(markdown: string): string {
-  let fence: { character: string; length: number } | undefined;
-  const listIndents: number[] = [];
+  let fence:
+    | {
+        character: string;
+        length: number;
+        quoteDepth: number;
+        lists: readonly ListContext[];
+      }
+    | undefined;
+  const listIndents: ListContext[] = [];
   let paragraphOpen = false;
   let indentedCode = false;
   const blocks = markdown
     .split(/\r?\n/u)
     .map((originalLine) => {
-      const line = originalLine.replace(/^ {0,3}(?:>[ \t]?)+/u, "");
-      const indent = /^[ \t]*/u.exec(line)![0].replaceAll("\t", "    ").length;
-      const baseIndent = listIndents.at(-1) ?? 0;
-      const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(
-        indent >= baseIndent ? line.slice(baseIndent) : line,
+      // Structural offsets use columns only in this eligibility-analysis copy.
+      const normalizedLine = expandMarkdownTabs(originalLine);
+      const { line, depth: quoteDepth } = stripBlockQuotes(
+        normalizedLine,
+        Infinity,
+        listIndents,
       );
+      const indent = markdownIndent(line);
+      const continuesList = (context: ListContext): boolean => {
+        const content = stripBlockQuotes(
+          normalizedLine,
+          context.quoteDepth,
+          listIndents,
+        );
+        return (
+          content.depth === context.quoteDepth &&
+          (!content.line.trim() ||
+            markdownIndent(content.line) >= context.indent)
+        );
+      };
       if (fence) {
         if (
-          marker &&
-          marker[1]![0] === fence.character &&
-          marker[1]!.length >= fence.length &&
-          !marker[2]!.trim()
-        )
+          quoteDepth < fence.quoteDepth ||
+          fence.lists.some((context) => !continuesList(context))
+        ) {
+          // A fence ends with its container. Inspect this line as new content.
           fence = undefined;
-        return "";
-      }
-      if (marker && !(marker[1]![0] === "`" && marker[2]!.includes("`"))) {
-        fence = { character: marker[1]![0]!, length: marker[1]!.length };
-        return "";
+        } else {
+          // Extra quote markers inside the fence are literal code. Consume
+          // only the opening containers before looking for a closing marker.
+          const content = stripBlockQuotes(
+            normalizedLine,
+            fence.quoteDepth,
+            fence.lists,
+          );
+          const listIndent =
+            fence.lists.findLast(
+              (context) => context.quoteDepth === fence!.quoteDepth,
+            )?.indent ?? 0;
+          const closing = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(
+            content.line.slice(listIndent),
+          );
+          if (
+            closing &&
+            closing[1]![0] === fence.character &&
+            closing[1]!.length >= fence.length &&
+            !closing[2]!.trim()
+          )
+            fence = undefined;
+          return "";
+        }
       }
       if (!line.trim()) {
         paragraphOpen = false;
@@ -79,38 +158,75 @@ function withoutCodeExamples(markdown: string): string {
       }
       // Four spaces inside a list or a continued paragraph are not necessarily
       // code. Only an actual indented code block may hide resource references.
-      while (
-        listIndents.length &&
-        indent < listIndents.at(-1)! &&
-        !paragraphOpen
-      )
-        listIndents.pop();
-      if (
-        indent >= (listIndents.at(-1) ?? 0) + 4 &&
-        (!paragraphOpen || indentedCode)
-      ) {
+      const endedList = listIndents.findIndex(
+        (context) =>
+          context.quoteDepth > quoteDepth ||
+          ((!paragraphOpen || context.quoteDepth < quoteDepth) &&
+            !continuesList(context)),
+      );
+      if (endedList !== -1) listIndents.length = endedList;
+      const baseIndent =
+        listIndents.findLast((context) => context.quoteDepth === quoteDepth)
+          ?.indent ?? 0;
+      const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(
+        indent >= baseIndent ? line.slice(baseIndent) : line,
+      );
+      if (marker && !(marker[1]![0] === "`" && marker[2]!.includes("`"))) {
+        // Unlike a paragraph, a fence cannot lazily continue an outdented list.
+        const ended = listIndents.findIndex(
+          (context) => !continuesList(context),
+        );
+        if (ended !== -1) listIndents.length = ended;
+        fence = {
+          character: marker[1]![0]!,
+          length: marker[1]!.length,
+          quoteDepth,
+          lists: [...listIndents],
+        };
+        paragraphOpen = false;
+        indentedCode = false;
+        return "";
+      }
+      if (indent >= baseIndent + 4 && (!paragraphOpen || indentedCode)) {
         indentedCode = true;
         return "";
       }
       indentedCode = false;
       const list = /^( *)(?:[-+*]|\d+[.)])[ \t]+/u.exec(line);
       if (list) {
-        while (listIndents.length && list[1]!.length < listIndents.at(-1)!)
-          listIndents.pop();
-        listIndents.push(list[0].length);
-        const listFence = /^(`{3,}|~{3,})(.*)$/u.exec(
-          line.slice(list[0].length),
-        );
-        if (
-          listFence &&
-          !(listFence[1]![0] === "`" && listFence[2]!.includes("`"))
-        ) {
-          fence = {
-            character: listFence[1]![0]!,
-            length: listFence[1]!.length,
-          };
-          paragraphOpen = false;
-          return "";
+        let nested: RegExpExecArray | null = list;
+        let content = line;
+        let listIndent = 0;
+        let listDepth = quoteDepth;
+        while (nested) {
+          while (
+            listIndents.length &&
+            listIndents.at(-1)!.quoteDepth === listDepth &&
+            listIndent + nested[1]!.length < listIndents.at(-1)!.indent
+          )
+            listIndents.pop();
+          listIndent += nested[0].length;
+          listIndents.push({ indent: listIndent, quoteDepth: listDepth });
+          const quoted = stripBlockQuotes(content.slice(nested[0].length));
+          content = quoted.line;
+          listDepth += quoted.depth;
+          if (quoted.depth) listIndent = 0;
+          const listFence = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(content);
+          if (
+            listFence &&
+            !(listFence[1]![0] === "`" && listFence[2]!.includes("`"))
+          ) {
+            fence = {
+              character: listFence[1]![0]!,
+              length: listFence[1]!.length,
+              quoteDepth: listDepth,
+              lists: [...listIndents],
+            };
+            paragraphOpen = false;
+            indentedCode = false;
+            return "";
+          }
+          nested = /^( {0,3})(?:[-+*]|\d+[.)])[ \t]+/u.exec(content);
         }
       }
       const prose = list ? line.slice(list[0].length) : line;
@@ -128,20 +244,36 @@ function withoutCodeExamples(markdown: string): string {
   let offset = 0;
   for (let index = 0; index < runs.length; index++) {
     const open = runs[index]!;
+    let backslashes = 0;
+    for (
+      let position = open.index - 1;
+      position >= 0 && blocks[position] === "\\";
+      position--
+    )
+      backslashes++;
+    // Only the first tick may be escaped; any remaining ticks can open code.
+    // Inside code, backslashes are literal and never escape a closing run.
+    const escapedTick = backslashes % 2;
+    const openingLength = open[0].length - escapedTick;
+    if (!openingLength) continue;
     const paragraphEnd = blocks.indexOf("\n\n", open.index);
     const closeIndex = runs.findIndex(
       (run, candidate) =>
         candidate > index &&
-        run[0].length === open[0].length &&
+        run[0].length === openingLength &&
         (paragraphEnd === -1 || run.index < paragraphEnd),
     );
     if (closeIndex === -1) continue;
-    result += blocks.slice(offset, open.index);
+    result += blocks.slice(offset, open.index + escapedTick);
     const close = runs[closeIndex]!;
     offset = close.index + close[0].length;
     index = closeIndex;
   }
-  return (result + blocks.slice(offset)).replace(/\\[[\]<>!]/gu, " ");
+  return (result + blocks.slice(offset)).replace(
+    /(\\+)([[\]<>!])/gu,
+    (_match, slashes: string, character: string) =>
+      slashes.length % 2 ? " " : character,
+  );
 }
 
 function localDestination(raw: string): boolean {
