@@ -1,5 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { test, expect, type Page, type Locator } from "@playwright/test";
+import {
+  test,
+  expect as baseExpect,
+  type Page,
+  type Locator,
+} from "@playwright/test";
 import pg from "pg";
 import { FIXTURES } from "../contracts.ts";
 import {
@@ -9,17 +14,20 @@ import {
   expectNetworkViolations,
 } from "./support.ts";
 
+// Skills reads and writes share Next's serialized Server Action queue.
+// Give genuine responses the same budget as navigation.
+const expect = baseExpect.configure({ timeout: 30_000 });
+test.use({ actionTimeout: 30_000 });
+
 const workspaceId = FIXTURES.workspaces.personalViewer;
 const workspaceQuery = "rr-e2e-personal-viewer";
 const repositoryId = (suffix: string) => `rr-e2e-repo-rr-e2e-viewer-${suffix}`;
 
 async function expectDashboardReady(page: Page) {
   // DOMContentLoaded can precede the streamed dashboard bundle on a new page.
-  // Keep the real hydration signal within the existing navigation budget.
   await expect(page.locator("html")).toHaveAttribute(
     "data-dashboard-layout-ready",
     "true",
-    { timeout: 30_000 },
   );
 }
 
@@ -87,7 +95,7 @@ async function openOperation(page: Page, suffix: string, skill: string) {
     dialog.getByRole("status").filter({
       hasText: /^Loading (?:assigned|available) skills…$/u,
     }),
-  ).toBeHidden({ timeout: 30_000 });
+  ).toBeHidden();
   const suffixMatch = /Fixture skill (\d+)$/u.exec(skill);
   if (!suffixMatch) throw new Error("scope_test_requires_named_fixture_skill");
   if (!(await binding(suffix, `rr-e2e-skill-${suffixMatch[1]}`)))
@@ -111,11 +119,7 @@ async function ensurePaths(page: Page, suffix: string, skill: string) {
     await operation.dialog
       .getByRole("button", { name: "Add 1 skill", exact: true })
       .click();
-    // The real dev-server assignment can outlast a generic 10-second assertion.
-    await expect(operation.dialog.getByRole("status")).toContainText(
-      "1 added",
-      { timeout: 30_000 },
-    );
+    await expect(operation.dialog.getByRole("status")).toContainText("1 added");
     await expect(
       operation.dialog.getByRole("heading", {
         name: "Assigned skills",
@@ -191,7 +195,7 @@ async function holdAction(
   return {
     release,
     done,
-    wait: (timeout = 10_000) =>
+    wait: (timeout = 30_000) =>
       expect.poll(() => committed, { timeout }).toBe(true),
   };
 }
@@ -388,7 +392,7 @@ test.describe("Skills real Next UX resilience", () => {
       await dialog
         .getByRole("button", { name: "Add 1 skill", exact: true })
         .click();
-      await readback.wait(30_000);
+      await readback.wait();
       expect(await binding("121", "rr-e2e-skill-053")).toBeTruthy();
       await expect(
         dialog.getByRole("heading", { name: "Assigned skills", exact: true }),
@@ -408,7 +412,7 @@ test.describe("Skills real Next UX resilience", () => {
     await readback.done;
     await expect(
       dialog.getByRole("button", { name: "Close", exact: true }),
-    ).toBeEnabled({ timeout: 30_000 });
+    ).toBeEnabled();
     await expect(row.getByText("File scope", { exact: true })).toBeVisible();
     await row.getByText("File scope", { exact: true }).click();
     await expect(

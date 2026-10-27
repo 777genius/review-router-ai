@@ -1,6 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { test, expect, type BrowserContext, type Page } from "@playwright/test";
+import {
+  test,
+  expect as baseExpect,
+  type BrowserContext,
+  type Page,
+} from "@playwright/test";
 import pg from "pg";
 import { FIXTURES } from "../contracts.ts";
 import { SKILLS_SHARED_ID } from "../skills-fixtures.ts";
@@ -11,6 +16,11 @@ import {
   expectNetworkViolations,
   activeElementInside,
 } from "./support.ts";
+
+// Skills reads and writes share Next's serialized Server Action queue.
+// Give genuine responses the same budget as navigation.
+const expect = baseExpect.configure({ timeout: 30_000 });
+test.use({ actionTimeout: 30_000 });
 
 test.describe("Skills real Next and PostgreSQL", () => {
   test.skip(
