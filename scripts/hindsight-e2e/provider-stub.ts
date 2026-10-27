@@ -36,6 +36,7 @@ export async function startProviderStub() {
     rerank: 0,
     consolidation: 0,
     semanticDedup: 0,
+    verification: 0,
     unexpected: 0,
   };
   // Never record request paths, prompts or bodies in qualification diagnostics.
@@ -210,6 +211,28 @@ export async function startProviderStub() {
                 total_tokens: 2,
               },
             });
+          // OpenAICompatibleLLM.verify_connection at the pinned native revision
+          // sends this exact free-form probe, with a 512-token budget and no
+          // temperature/schema/tools. It is not a memory inference request.
+          if (
+            request.method === "POST" &&
+            body.model === "stub-model" &&
+            messages.length === 1 &&
+            messages[0]?.role === "user" &&
+            messageContent === "Say 'ok'" &&
+            body.max_tokens === 512 &&
+            body.max_completion_tokens === undefined &&
+            body.temperature === undefined &&
+            body.response_format === undefined &&
+            body.tools === undefined &&
+            body.tool_choice === undefined &&
+            body.functions === undefined &&
+            body.function_call === undefined &&
+            body.stream === undefined
+          ) {
+            calls.verification += 1;
+            return complete("ok");
+          }
           if (isSemanticDedup) {
             calls.semanticDedup += 1;
             return complete(
