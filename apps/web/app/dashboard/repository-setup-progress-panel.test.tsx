@@ -15,6 +15,7 @@ import type { ProviderAuthMode } from "@reviewrouter/features-review-providers";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ProviderSetupDialog } from "./provider-setup/provider-setup-dialog";
 import {
+  checkProviderRepositorySecretClientAction,
   confirmSetupPullRequestMergedClientAction,
   createSetupPullRequestClientAction,
 } from "./actions";
@@ -335,6 +336,14 @@ describe("RepositorySetupProgressPanel", () => {
         .getAttribute("aria-current"),
     ).toBe("step");
     expect(screen.queryByText(/Connect model credentials/)).toBeNull();
+    await screen.findByText(
+      "CLAUDE_CODE_OAUTH_TOKEN is not set for this repository yet.",
+    );
+    // The token has now been stored on GitHub: the successful confirmation
+    // and its subsequent metadata read must describe the same availability.
+    vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValueOnce({
+      status: "available_repository",
+    });
     fireEvent.click(screen.getByRole("button", { name: "Check GitHub setup" }));
 
     expect(
@@ -346,6 +355,7 @@ describe("RepositorySetupProgressPanel", () => {
     expect(
       screen.getByRole("button", { name: "Close provider setup" }),
     ).toBeTruthy();
+    expect(checkProviderRepositorySecretClientAction).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the provider dialog mounted when provider confirmation advances progress", async () => {
