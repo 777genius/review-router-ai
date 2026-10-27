@@ -232,12 +232,13 @@ export function ProviderSetupDialog(
       </DialogTrigger>
       <DialogPortal>
         <DialogBackdrop />
-        <DialogPopup className="w-[min(96vw,46rem)] p-0">
+        <DialogPopup className="w-[min(96vw,46rem)] p-0 [overflow-wrap:anywhere] [&_pre]:[overflow-wrap:anywhere]">
           <DialogCloseButton label="Close provider setup" disabled={locked} />
           {open ? (
             <ProviderSetupDialogBody
               {...props}
               target={openedTarget}
+              locked={locked}
               onSaved={() => {
                 saved.current = true;
               }}
@@ -262,11 +263,13 @@ function ProviderSetupDialogBody({
   gatewayAccounts,
   agentProfileOptions,
   onSaved,
+  locked,
   onLockedChange,
   onClose,
   initialIntent,
 }: ProviderSetupDialogProps &
   Readonly<{
+    locked: boolean;
     onLockedChange: (locked: boolean) => void;
     onClose: () => void;
   }>): React.ReactElement {
@@ -361,7 +364,7 @@ function ProviderSetupDialogBody({
               <li>
                 <StepButton
                   current={step === "provider"}
-                  disabled={credentialBusy}
+                  disabled={locked}
                   onSelect={() => setStep("provider")}
                 >
                   1. Provider
@@ -370,7 +373,7 @@ function ProviderSetupDialogBody({
               <li>
                 <StepButton
                   current={step === "credentials"}
-                  disabled={credentialBusy}
+                  disabled={locked}
                   onSelect={() => setStep("credentials")}
                 >
                   2. {credentialStepLabel(credentialStep)}
@@ -425,7 +428,7 @@ function ProviderSetupDialogBody({
           <p role="status" className="text-sm text-slate-400">
             Loading providers...
           </p>
-        ) : view.isError ? (
+        ) : view.isError && !view.data ? (
           <div role="alert" className="grid gap-3 text-sm text-red-100">
             <p>{viewErrorText(view.error)}</p>
             <Button
@@ -439,41 +442,61 @@ function ProviderSetupDialogBody({
             </Button>
           </div>
         ) : (
-          <ProviderChoiceStep
-            workspaceId={workspaceId}
-            target={target}
-            adding={adding}
-            initialProfileId={initialProfileId}
-            view={view.data}
-            mutationsEnabled={mutationsEnabled}
-            modelOptions={modelOptions}
-            gatewayAccounts={gatewayAccounts}
-            agentProfileOptions={agentProfileOptions}
-            onLockedChange={onLockedChange}
-            initialIntent={initialIntent}
-            onSaved={async (outcome) => {
-              await completion.complete();
-              onSaved?.();
-              if (outcome.kind === "workspace") {
-                setSavedWorkspaceDefault(outcome.madeDefault);
-                setStep("workspace_saved");
-                return;
-              }
-              if (outcome.kind === "results") {
-                setResults(outcome.results);
-                setStep("results");
-                return;
-              }
-              if (outcome.kind === "repository" && outcome.provider) {
-                setSaved(outcome.provider);
-                if (credentialStepOf(outcome.provider)) {
-                  setStep("credentials");
+          <div className="grid gap-5">
+            {view.isError ? (
+              <div role="alert" className="grid gap-3 text-sm text-red-100">
+                <p>
+                  {viewErrorText(view.error)} Your choices are kept. Try again
+                  before saving.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-fit"
+                  onClick={() => void view.refetch()}
+                >
+                  Try again
+                </Button>
+              </div>
+            ) : null}
+            <ProviderChoiceStep
+              workspaceId={workspaceId}
+              target={target}
+              adding={adding}
+              initialProfileId={initialProfileId}
+              view={view.data!}
+              readUnavailable={view.isError}
+              mutationsEnabled={mutationsEnabled}
+              modelOptions={modelOptions}
+              gatewayAccounts={gatewayAccounts}
+              agentProfileOptions={agentProfileOptions}
+              onLockedChange={onLockedChange}
+              initialIntent={initialIntent}
+              onSaved={async (outcome) => {
+                await completion.complete();
+                onSaved?.();
+                if (outcome.kind === "workspace") {
+                  setSavedWorkspaceDefault(outcome.madeDefault);
+                  setStep("workspace_saved");
                   return;
                 }
-              }
-              onClose();
-            }}
-          />
+                if (outcome.kind === "results") {
+                  setResults(outcome.results);
+                  setStep("results");
+                  return;
+                }
+                if (outcome.kind === "repository" && outcome.provider) {
+                  setSaved(outcome.provider);
+                  if (credentialStepOf(outcome.provider)) {
+                    setStep("credentials");
+                    return;
+                  }
+                }
+                onClose();
+              }}
+            />
+          </div>
         )}
       </div>
     </div>
@@ -597,6 +620,7 @@ function ProviderChoiceStep({
   adding,
   initialProfileId,
   view,
+  readUnavailable,
   mutationsEnabled,
   modelOptions,
   gatewayAccounts,
@@ -611,6 +635,7 @@ function ProviderChoiceStep({
   readonly adding: boolean;
   readonly initialProfileId: string | undefined;
   readonly view: ProviderSetupView;
+  readonly readUnavailable: boolean;
   readonly mutationsEnabled: boolean;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts: AccountsResult<AccountsPage> | undefined;
@@ -963,12 +988,16 @@ function ProviderChoiceStep({
     keyStorage === "github_secrets"
       ? storageAvailability?.githubUnavailable
       : storageAvailability?.reviewRouterUnavailable;
+  const selectedDefaultUnavailable =
+    choice?.kind === "default" && (!view.defaultSelection || !defaultProfile);
   const canSave =
     mutationsEnabled &&
+    !readUnavailable &&
     !pending &&
     choice !== null &&
     (!adding || choice.kind === "new") &&
     decision?.allowed === true &&
+    !selectedDefaultUnavailable &&
     !selectedStorageUnavailable &&
     !draftIncomplete &&
     (hasStoredSettings || (adding && !makeDefault) || settingsReady) &&
@@ -1206,7 +1235,7 @@ function ProviderChoiceStep({
           {deniedText(sharedDenial)}
         </p>
       ) : null}
-      {adding || firstProvider ? null : (
+      {adding || (firstProvider && choice?.kind === "new") ? null : (
         <section className="grid gap-3">
           <h3 className="text-sm font-semibold text-cyan-50">
             Choose a provider
@@ -1645,6 +1674,12 @@ function ProviderChoiceStep({
 
       {decision && !decision.allowed && !sharedDenial ? (
         <p className="text-sm text-amber-100/85">{deniedText(decision)}</p>
+      ) : null}
+      {selectedDefaultUnavailable ? (
+        <p role="status" className="text-sm text-amber-100/85">
+          The workspace default is no longer available. Choose a provider to
+          continue.
+        </p>
       ) : null}
       {error ? (
         <p role="alert" className="text-sm leading-6 text-red-100">
