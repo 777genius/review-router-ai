@@ -28,6 +28,7 @@ export async function processOutboxBatch(
     readonly processingLeaseMs?: number;
     readonly heartbeatIntervalMs?: number;
     readonly takeoverEnabled?: boolean;
+    readonly recoveryEventTypes?: readonly string[];
   },
   dependencies: {
     readonly outbox: OutboxEventRepositoryPort;
@@ -39,6 +40,9 @@ export async function processOutboxBatch(
     input.processingLeaseMs ?? defaultOutboxProcessingStaleAfterMs;
   const recoveredStale = input.takeoverEnabled
     ? await dependencies.outbox.recoverStaleProcessing({
+        ...(input.recoveryEventTypes === undefined
+          ? {}
+          : { eventTypes: input.recoveryEventTypes }),
         now,
         legacyStaleBefore: new Date(now.getTime() - processingLeaseMs),
         nextAttemptAt: now,

@@ -134,6 +134,7 @@ const codexOAuthV5Migrations = [
   "000090_workflow_provisioning_attempt_authority",
   "000091_workflow_provisioning_artifact_and_inventory",
 ];
+const skillsCatalogMigration = "000150_skills_catalog_security";
 
 let started = false;
 const rehearsalDirectories = [];
@@ -208,6 +209,7 @@ try {
       addMigration(rehearsalDirectory, migrationName);
       runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
     }
+    applySkillsCatalogMigration(rehearsalDirectory, migrationDatabaseUrl);
 
     const migrationCount = await countAppliedMigrations(migrationDatabaseUrl);
     runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
@@ -226,6 +228,7 @@ try {
     await prepareCodexOAuthV5ReleaseAuthority(databaseUrl);
     applyCodexOAuthV5Migrations(rehearsalDirectory, databaseUrl);
     await applyPublicEligibilityMigration(rehearsalDirectory, databaseUrl);
+    applySkillsCatalogMigration(rehearsalDirectory, databaseUrl);
     await applyProductionRuntimeAcl(databaseUrl, database);
     await prepareProviderScopeConcurrencyReleaseAuthority(databaseUrl);
     await proveProviderScopeConcurrencyRollout(
@@ -256,6 +259,7 @@ try {
       canaryDirectory,
       canaryPhaseDatabaseUrl,
     );
+    applySkillsCatalogMigration(canaryDirectory, canaryPhaseDatabaseUrl);
     if (
       (await countAppliedMigrations(canaryPhaseDatabaseUrl)) !==
       (await countAppliedMigrations(databaseUrl))
@@ -780,6 +784,7 @@ function prepareMigrationRehearsal({ excludeHostedPoolMigrations }) {
   );
   const excludedMigrations = new Set([
     publicEligibilityMigration,
+    skillsCatalogMigration,
     ...codexOAuthV5Migrations,
     ...(excludeHostedPoolMigrations
       ? [
@@ -811,6 +816,11 @@ function addMigration(directory, migrationName) {
     join(directory, "prisma/migrations", migrationName),
     { recursive: true },
   );
+}
+
+function applySkillsCatalogMigration(directory, url) {
+  addMigration(directory, skillsCatalogMigration);
+  runMigrationDeploy(directory, url);
 }
 
 function applyCodexOAuthV5Migrations(directory, url) {

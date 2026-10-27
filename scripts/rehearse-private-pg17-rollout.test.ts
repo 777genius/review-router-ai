@@ -1285,6 +1285,7 @@ describe("disposable dual-version rehearsal", () => {
     const currentMigrationNames = migrationNames;
     const legacyMigrationNames = currentMigrationNames.filter(
       (name) =>
+        name !== "000150_skills_catalog_security" &&
         name !== "000149_api_key_repository_secret_profiles" &&
         name !== "000148_lifecycle_verification" &&
         name !== "000147_review_skills_mutation_identity" &&
@@ -1294,7 +1295,7 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000136_review_skills" &&
         name !== "000137_review_skills_capture",
     );
-    expect(currentMigrationNames).toHaveLength(151);
+    expect(currentMigrationNames).toHaveLength(152);
     expect(
       [...currentMigrationNames]
         .sort()
@@ -1331,6 +1332,7 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000144_review_statistics" &&
         name !== "000143_workspace_draft_review_setting" &&
         name !== "000145_workspace_provider_profiles" &&
+        name !== "000150_skills_catalog_security" &&
         name !== "000149_api_key_repository_secret_profiles" &&
         name !== "000148_lifecycle_verification" &&
         name !== "000147_review_skills_mutation_identity" &&
@@ -1390,12 +1392,23 @@ describe("disposable dual-version rehearsal", () => {
       "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
     );
     expect(migrationManifestIdentity(currentMigrationNames)).toBe(
+      "sha256:91bb5e51bf53be19ac6244185b4423df2bd26e7e257dfa632293c4094032fa38",
+    );
+    expect(
+      migrationManifestIdentity(
+        currentMigrationNames.filter(
+          (name) => name !== "000150_skills_catalog_security",
+        ),
+      ),
+    ).toBe(
       "sha256:bde611c1eb4753d8d21f0f5ac2b97f2c93818aaf7fb48cc9181abe28aa708035",
     );
     expect(
       migrationManifestIdentity(
         currentMigrationNames.filter(
-          (name) => name !== "000149_api_key_repository_secret_profiles",
+          (name) =>
+            name !== "000150_skills_catalog_security" &&
+            name !== "000149_api_key_repository_secret_profiles",
         ),
       ),
     ).toBe(
@@ -1405,6 +1418,7 @@ describe("disposable dual-version rehearsal", () => {
       migrationManifestIdentity(
         currentMigrationNames.filter(
           (name) =>
+            name !== "000150_skills_catalog_security" &&
             name !== "000149_api_key_repository_secret_profiles" &&
             name !== "000148_lifecycle_verification",
         ),
@@ -1536,6 +1550,7 @@ describe("disposable dual-version rehearsal", () => {
       "000147_review_skills_mutation_identity",
       "000148_lifecycle_verification",
       "000149_api_key_repository_secret_profiles",
+      "000150_skills_catalog_security",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1661,9 +1676,12 @@ describe("disposable dual-version rehearsal", () => {
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
     const exactTail = "000121_review_run_gateway_execution_binding";
-    const currentTail = "000149_api_key_repository_secret_profiles";
+    const currentTail = "000150_skills_catalog_security";
     for (const candidate of [
       names.filter((name) => name !== currentTail),
+      names.filter(
+        (name) => name !== "000149_api_key_repository_secret_profiles",
+      ),
       names.filter(
         (name) => name !== "000146_drop_review_configuration_projection",
       ),
@@ -1795,6 +1813,7 @@ describe("disposable dual-version rehearsal", () => {
     "000147_review_skills_mutation_identity",
     "000148_lifecycle_verification",
     "000149_api_key_repository_secret_profiles",
+    "000150_skills_catalog_security",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1872,6 +1891,7 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000144_review_statistics" &&
                 name !== "000143_workspace_draft_review_setting" &&
                 name !== "000145_workspace_provider_profiles" &&
+                name !== "000150_skills_catalog_security" &&
                 name !== "000149_api_key_repository_secret_profiles" &&
                 name !== "000148_lifecycle_verification" &&
                 name !== "000147_review_skills_mutation_identity" &&

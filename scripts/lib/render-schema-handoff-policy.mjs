@@ -291,6 +291,23 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Catalog scan/import storage is checkout-only. Admit the exact finalized
+  // SQL and checkout152 before preserving the reviewed checkout151 boundary.
+  const skillsCatalogMigration = catalog.find(
+    (row) => row.migrationName === "000150_skills_catalog_security",
+  );
+  if (skillsCatalogMigration) {
+    if (
+      skillsCatalogMigration.checksum !==
+        "4a5ecd80f83b0631982519fc747c411d0ed5d9b04624ee8e3d176a82ae96e4b8" ||
+      manifest(catalog) !==
+        "sha256:91bb5e51bf53be19ac6244185b4423df2bd26e7e257dfa632293c4094032fa38"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== skillsCatalogMigration),
+    );
+  }
   // Repository-secret profile identities change a checkout-only table. Admit
   // the exact SQL and checkout151 before preserving the reviewed checkout150.
   const repositorySecretProfilesMigration = catalog.find(

@@ -37,6 +37,7 @@ export class PrismaOutboxEventRepository
   }
 
   async recoverStaleProcessing(input: {
+    readonly eventTypes?: readonly string[];
     readonly now: Date;
     readonly legacyStaleBefore: Date;
     readonly nextAttemptAt: Date;
@@ -44,8 +45,12 @@ export class PrismaOutboxEventRepository
     readonly errorCode: string;
     readonly safeErrorSummary: string;
   }): Promise<{ readonly recovered: number }> {
+    const typeFilter: Prisma.OutboxEventWhereInput = input.eventTypes
+      ? { type: { in: [...input.eventTypes] } }
+      : {};
     const stale = await this.prisma.outboxEvent.findMany({
       where: {
+        ...typeFilter,
         status: "processing",
         OR: [
           { claimUntil: { lte: input.now } },
@@ -70,6 +75,7 @@ export class PrismaOutboxEventRepository
         (transaction) =>
           transaction.outboxEvent.updateMany({
             where: {
+              ...typeFilter,
               id: event.id,
               status: "processing",
               claimId: event.claimId,

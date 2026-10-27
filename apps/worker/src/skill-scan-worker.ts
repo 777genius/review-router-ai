@@ -84,6 +84,7 @@ export async function createSkillScanWorker(input: {
           processingLeaseMs: 240000,
           heartbeatIntervalMs: 30000,
           takeoverEnabled: true,
+          recoveryEventTypes: [handler.type],
         },
         { outbox, clock: new SystemClock() },
       );
