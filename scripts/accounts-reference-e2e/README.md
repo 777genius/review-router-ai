@@ -271,6 +271,20 @@ keys, request bodies, and database credentials are not printed by the harness.
 Use `--resume-own-fixtures` only for bounded follow-up against this exact synthetic
 fixture family; the final full lane should use fresh checked-in migrations.
 
+The `Skills browser acceptance` GitHub workflow runs this same lane on a dedicated
+hosted macOS ARM64 runner with a fresh owned native PostgreSQL 17 cluster and the
+harness's locked Chromium. Prisma generation runs inside a real macOS network
+sandbox after a reachable loopback probe verifies that both a direct client and
+its descendant are denied. An unavailable sandbox or failed probe fails the job;
+there is no unisolated generation fallback. The workflow records the actual PG17
+version and stops only its owned cluster. It checks out the PR head explicitly, requires an unchanged
+source tree, and verifies an exact-head receipt with all 24 scenarios passing
+(the ten integration cases above plus fourteen UX resilience cases), zero
+failures, and zero skips. The workflow retains logs, receipts, screenshots, and
+failure traces as `skills-browser-<run-id>-<attempt>` artifacts for desktop/mobile
+visual review. It uses only generated fixture authority and does not call live
+SCM or model providers. The same workflow can be started with `workflow_dispatch`.
+
 If the pinned Playwright browser download is unavailable, the existing
 `--browser-executable /absolute/path/to/chromium` option now reaches the actual
 Playwright launch configuration. Record the executable version and package pin

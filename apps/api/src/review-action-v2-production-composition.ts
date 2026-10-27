@@ -42,7 +42,6 @@ import {
 import {
   ProductionReviewRunRuntimeSnapshot,
   readServerApprovedReviewRunGatewayPolicy,
-  readServerReviewAgentProfileRef,
   readServerReviewRunGatewayRequestCaps,
 } from "./review-run-runtime-snapshot";
 import { PrismaReviewRunGatewayExecutionBinding } from "./prisma-review-run-gateway-execution-binding";
@@ -173,6 +172,7 @@ import {
   parseReviewRunRuntimeSnapshot,
   reviewRunGatewayOwnedIdentity,
   reviewInvestigationCapabilityV1,
+  readImplicitReviewAgentSelection,
   type CanonicalReviewRevisionResolverPort,
   type ReviewProtocolLimitsProfileQueryPort,
   type ProducerReleaseQueryPort,
@@ -373,6 +373,9 @@ export function composeReviewActionV2ProductionRunControl(input: {
   }
   const clock = new SystemClock();
   const digest = new ProductionReviewActionV2Digest();
+  const implicitAgent = readImplicitReviewAgentSelection(
+    input.env.REVIEW_ROUTER_AGENT_PROFILE,
+  );
   const gatewayRequestCaps = readServerReviewRunGatewayRequestCaps(
     input.env.REVIEW_ROUTER_GATEWAY_REQUEST_CAPS_JSON,
   );
@@ -389,8 +392,8 @@ export function composeReviewActionV2ProductionRunControl(input: {
     ),
     input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
     readPersonalAccountSharingEnabled(input.env),
-    readServerReviewAgentProfileRef(input.env.REVIEW_ROUTER_AGENT_PROFILE),
-    input.env.REVIEW_ROUTER_AGENT_PROFILE === undefined,
+    implicitAgent.profileRef,
+    implicitAgent.preferSkillsProfile,
     accountGatewayRelayPolicy
       ? {
           ...accountGatewayRelayPolicy,

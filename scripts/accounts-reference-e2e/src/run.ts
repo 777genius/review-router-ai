@@ -1,4 +1,5 @@
 import { seedSkillsFixtures } from "./skills-fixtures.ts";
+import { seedSkillsReadinessFixtures } from "./skills-readiness-fixture.ts";
 import {
   startSkillsGitHubFixture,
   SKILLS_MANAGER_EXTERNAL_ID,
@@ -98,8 +99,10 @@ async function main(): Promise<void> {
       isolatedPglite: options.isolatedPglite,
     });
     if (process.argv.includes("--skills-fixture")) {
-      if (!process.argv.includes("--resume-own-fixtures"))
+      if (!process.argv.includes("--resume-own-fixtures")) {
         await seedSkillsFixtures(database.databaseUrl);
+        await seedSkillsReadinessFixtures(database.databaseUrl);
+      }
       skillsGitHub = await startSkillsGitHubFixture();
     }
     gateway = await startGatewayFixture({

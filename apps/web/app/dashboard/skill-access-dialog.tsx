@@ -175,12 +175,17 @@ export function AddWorkspaceSkillDialog({
   workspaceId,
   viewerId,
   onClose,
+  onAssign,
 }: {
   readonly workspaceId: string;
   readonly viewerId: string;
   readonly onClose: () => void;
+  readonly onAssign: (skill: ReviewSkillSummary) => void;
 }) {
   const [search, setSearch] = useState("");
+  const [linkedSkill, setLinkedSkill] = useState<ReviewSkillSummary | null>(
+    null,
+  );
   const client = useQueryClient();
   const choices = useInfiniteQuery({
     queryKey: [
@@ -214,7 +219,8 @@ export function AddWorkspaceSkillDialog({
             skillId: skill.skillId,
             expectedGrantVersion: skill.grantVersion!,
           }),
-    onSuccess: async () => {
+    onSuccess: async (_result, skill) => {
+      setLinkedSkill(skill);
       await client.invalidateQueries({
         queryKey: reviewSkillsKeys.workspace(viewerId, workspaceId),
       });
@@ -236,10 +242,30 @@ export function AddWorkspaceSkillDialog({
       />
       <SkillsError error={choices.error ?? link.error} />
       {choices.isPending ? <p role="status">Loading shared skills…</p> : null}
-      {link.isSuccess ? (
-        <p role="status" className="text-emerald-200">
-          Skill linked to this workspace.
-        </p>
+      {linkedSkill ? (
+        <div className="space-y-3 border-b border-cyan-200/15 pb-4">
+          <p role="status" className="text-sm text-emerald-200">
+            “{linkedSkill.name}” added to this library. Choose repositories to
+            use it.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              disabled={link.isPending}
+              onClick={() => onAssign(linkedSkill)}
+            >
+              Assign to repositories
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={link.isPending}
+              onClick={() => setLinkedSkill(null)}
+            >
+              Continue adding skills
+            </Button>
+          </div>
+        </div>
       ) : null}
       <div className="overflow-x-auto">
         <table role="table" className="block w-full lg:table lg:min-w-[30rem]">
@@ -294,11 +320,16 @@ export function AddWorkspaceSkillDialog({
                     size="sm"
                     disabled={
                       link.isPending ||
+                      linkedSkill?.skillId === skill.skillId ||
                       (!skill.canLinkAsDualAdmin && !skill.canAccept)
                     }
                     onClick={() => link.mutate(skill)}
                   >
-                    {skill.canLinkAsDualAdmin ? "Add" : "Accept"}
+                    {linkedSkill?.skillId === skill.skillId
+                      ? "Added"
+                      : skill.canLinkAsDualAdmin
+                        ? "Add"
+                        : "Accept"}
                   </Button>
                 </td>
               </tr>

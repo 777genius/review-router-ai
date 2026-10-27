@@ -28,9 +28,9 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends git \
   && rm -rf /var/lib/apt/lists/*
 COPY . .
-# Keep root ownership while allowing the isolated generator to read the checkout.
-RUN chmod -R a+rX /app \
-  && node scripts/install-private-dependencies.mjs --frozen-lockfile \
+# A restrictive checkout umask must not hide build inputs from the generator.
+RUN node scripts/install-private-dependencies.mjs --frozen-lockfile \
+  && chmod -R a+rX /app \
   && prisma_client="$(readlink -f packages/platform/db/node_modules/@prisma/client)" \
   && prisma_output="$(dirname "$(dirname "$prisma_client")")/.prisma/client" \
   && mkdir -p "$prisma_output" \
@@ -38,7 +38,8 @@ RUN chmod -R a+rX /app \
 # Grant writes only to the generated client, not the installed packages.
 USER node
 RUN --network=none \
-  env HOME=/home/node REVIEW_ROUTER_PRISMA_NETWORK_ALREADY_ISOLATED=1 \
+  test -r scripts/generate-prisma-offline.mjs \
+  && env HOME=/home/node REVIEW_ROUTER_PRISMA_NETWORK_ALREADY_ISOLATED=1 \
   node scripts/generate-prisma-offline.mjs
 
 FROM build-prisma AS build

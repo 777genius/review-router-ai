@@ -337,6 +337,7 @@ async function migrate(databaseUrl: string, logPath: string): Promise<void> {
           process.env.PATH ?? "",
         ].join(":"),
         HOME: process.env.HOME ?? "",
+        TMPDIR: process.env.TMPDIR,
         NODE_ENV: "development",
         DATABASE_URL: databaseUrl,
       },

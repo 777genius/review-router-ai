@@ -28,6 +28,16 @@ export function skillBindingPathsDraftIsDirty(draft: SkillBindingPathsDraft) {
   );
 }
 
+export function skillScopeSummary(scope: ReviewSkillBindingView["scope"]) {
+  const summarize = (paths: readonly string[]) =>
+    `${paths.slice(0, 2).join(", ")}${paths.length > 2 ? ` and ${paths.length - 2} more` : ""}`;
+  const included =
+    scope.includePaths.length === 1 && scope.includePaths[0] === "**"
+      ? "All files"
+      : summarize(scope.includePaths);
+  return `${included}${scope.excludePaths.length ? `, except ${summarize(scope.excludePaths)}` : ""}`;
+}
+
 function bindingPathsDraft(
   binding: ReviewSkillBindingView,
 ): SkillBindingPathsDraft {
@@ -85,8 +95,13 @@ export function RepositorySkillSettings({
         expectedVersion: settings.data?.sourceVersion ?? 0,
         roots,
       }),
-    onSuccess: (value) => {
-      client.setQueryData(key, value);
+    onSuccess: async (value) => {
+      // The write returns domain settings; retain the web reader's advisory
+      // projection until the exact enriched read has refreshed.
+      client.setQueryData<NonNullable<typeof settings.data>>(key, (prior) =>
+        prior ? { ...value, readiness: prior.readiness } : undefined,
+      );
+      await client.invalidateQueries({ queryKey: key, exact: true });
     },
     onSettled: () =>
       onPendingChange(`repository-sources:${repositoryId}`, false),
@@ -97,25 +112,29 @@ export function RepositorySkillSettings({
       onToggle={(event) => setEnabled(event.currentTarget.open)}
     >
       <summary className="cursor-pointer text-sm text-slate-300">
-        Repository paths and Git skills
+        Skills from this repository
       </summary>
       <div className="mt-4 space-y-4">
         <p className="text-sm text-slate-400">
-          Use skills from repository only when explicitly enabled below.
-          ReviewRouter reads SKILL.md files from the review's trusted base
-          commit, never from changes introduced by that same PR. Git-managed
-          skills are read-only here. Discovery failures block the review and
-          appear in its diagnostics; full Git content is not stored in the
-          workspace library.
+          Read SKILL.md files from the review's trusted base commit. Changes
+          introduced by the PR itself do not change that review's instructions.
+          Edit these skills in Git. Text instructions and supported Markdown
+          references are available; discovery failures stop the review with
+          diagnostics.
         </p>
+        <p className="text-xs text-slate-400">Changes save immediately.</p>
         {settings.isPending ? (
           <p role="status">Loading repository settings…</p>
         ) : null}
         <SkillsError error={settings.error ?? sources.error} />
         {sources.isPending ? (
           <p role="status">Saving repository sources…</p>
+        ) : sources.isSuccess ? (
+          <p role="status" className="text-sm text-emerald-200">
+            Repository skill sources saved.
+          </p>
         ) : null}
-        {sources.isError ? (
+        {sources.isError || settings.isError ? (
           <Button
             type="button"
             variant="outline"
@@ -134,7 +153,7 @@ export function RepositorySkillSettings({
               className="grid gap-3"
             >
               <legend className="mb-3 text-sm font-semibold">
-                Use skills from repository
+                Read SKILL.md from
               </legend>
               {([".reviewrouter/skills", ".agents/skills"] as const).map(
                 (root) => (
@@ -276,8 +295,12 @@ export function SkillBindingPaths({
   };
   return (
     <details className="border-t border-cyan-200/10 pt-3">
-      <summary className="cursor-pointer text-sm">Paths</summary>
+      <summary className="cursor-pointer text-sm">File scope</summary>
       <div className="mt-3 space-y-3">
+        <p className="text-xs leading-5 text-slate-400">
+          One repository-relative POSIX glob per line, such as src/**. Excludes
+          take priority. Save applies this scope to future reviews.
+        </p>
         <label className="block text-sm">
           Include paths
           <textarea
@@ -301,11 +324,21 @@ export function SkillBindingPaths({
         <Button
           type="button"
           variant="outline"
-          disabled={save.isPending || locked || conflict}
+          disabled={
+            save.isPending ||
+            locked ||
+            conflict ||
+            !skillBindingPathsDraftIsDirty(current)
+          }
           onClick={() => save.mutate()}
         >
           {save.isPending ? "Saving paths…" : "Save paths"}
         </Button>
+        {save.isSuccess && !skillBindingPathsDraftIsDirty(current) ? (
+          <p role="status" className="text-sm text-emerald-200">
+            File scope saved.
+          </p>
+        ) : null}
         <SkillsError error={save.error} />
         {conflict ? (
           <Button

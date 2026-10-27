@@ -4,6 +4,8 @@ import {
   reviewAgentExecutionProviderKind,
   selectReviewAgentProfile,
   selectProviderApiReviewAgentProfile,
+  readImplicitReviewAgentSelection,
+  selectReviewRunAgentProfile,
 } from "../domain/review-agent-profile";
 import { ReviewProviderKind } from "../domain/review-run-control-types";
 const profile = {
@@ -16,6 +18,88 @@ const profile = {
   cancellation: true,
 };
 describe("approved producer agent profiles", () => {
+  it("keeps raw implicit absence distinct from an explicit default or override", () => {
+    expect(readImplicitReviewAgentSelection(undefined)).toEqual({
+      profileRef: "ocr-managed-v2",
+      preferSkillsProfile: true,
+    });
+    for (const profileRef of [
+      "ocr-managed-v2",
+      "codex-default",
+      "codex-skills-v1",
+    ])
+      expect(readImplicitReviewAgentSelection(profileRef)).toEqual({
+        profileRef,
+        preferSkillsProfile: false,
+      });
+    for (const invalid of ["", "a/b", " a", "a".repeat(161)])
+      expect(() => readImplicitReviewAgentSelection(invalid)).toThrow();
+  });
+  it("shares exact explicit, implicit, supplied-diff and transport selection", () => {
+    const legacy = {
+      ...profile,
+      profileRef: "codex-default",
+      modelTransports: ["provider_api", "account_gateway"],
+    };
+    const codex = {
+      ...legacy,
+      profileRef: "codex-skills-v1",
+      reviewSkillsVersion: 1,
+    };
+    const ocr = {
+      ...profile,
+      profileRef: "ocr-managed-v3",
+      agentKind: "ocr",
+      contextGateway: false,
+      reviewSkillsVersion: 1,
+    };
+    const profiles = parseReviewAgentProfiles([legacy, codex, ocr]);
+    const input = {
+      profiles,
+      modelTransport: "account_gateway" as const,
+      suppliedDiffOnly: false,
+      defaultProfileRef: "codex-default",
+      preferSkillsProfile: true,
+      reviewSkillsDelivery: false,
+    };
+    expect(selectReviewRunAgentProfile(input)).toMatchObject({
+      profileRef: ocr.profileRef,
+    });
+    expect(
+      selectReviewRunAgentProfile({ ...input, preferSkillsProfile: false }),
+    ).toMatchObject({ profileRef: legacy.profileRef });
+    expect(
+      selectReviewRunAgentProfile({
+        ...input,
+        explicitProfileRef: legacy.profileRef,
+      }),
+    ).toMatchObject({ profileRef: legacy.profileRef });
+    expect(() =>
+      selectReviewRunAgentProfile({ ...input, explicitProfileRef: "missing" }),
+    ).toThrow("review_agent_profile_unavailable");
+    expect(
+      selectReviewRunAgentProfile({ ...input, suppliedDiffOnly: true }),
+    ).toMatchObject({ profileRef: codex.profileRef });
+    expect(
+      selectReviewRunAgentProfile({ ...input, modelTransport: "provider_api" }),
+    ).toMatchObject({ profileRef: legacy.profileRef });
+    expect(
+      selectReviewRunAgentProfile({
+        ...input,
+        modelTransport: "provider_api",
+        reviewSkillsDelivery: true,
+      }),
+    ).toMatchObject({ profileRef: codex.profileRef });
+    expect(() =>
+      selectReviewRunAgentProfile({
+        ...input,
+        profiles: parseReviewAgentProfiles([
+          ...profiles,
+          { ...ocr, profileRef: "second-ocr" },
+        ]),
+      }),
+    ).toThrow("review_agent_profile_unavailable");
+  });
   it("prefers the unique registered Skills producer while explicit legacy refs stay exact", () => {
     const legacy = {
       ...profile,

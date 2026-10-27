@@ -11,6 +11,7 @@ import {
   ReviewSkillsClientError,
 } from "../../src/features/review-skills/client-adapter";
 import { reviewSkillsKeys } from "../../src/features/review-skills/query-keys";
+import type { ReviewSkillsInput } from "../../src/features/review-skills/contracts";
 import { loadReviewSkillsClientContext } from "./review-skills-actions";
 import { useRepositorySelection } from "./repository-action-selection";
 import {
@@ -23,10 +24,12 @@ import {
   skillResponsiveCellClass,
 } from "./review-skills-ui";
 import { SkillEditorDialog } from "./skill-editor-dialog";
+import { SkillsReadiness } from "./review-skills-readiness";
 import {
   RepositorySkillSettings,
   SkillBindingPaths,
   skillBindingPathsDraftIsDirty,
+  skillScopeSummary,
   type SkillBindingPathsDraft,
 } from "./repository-skill-settings";
 
@@ -102,6 +105,13 @@ export function RepositorySkillsOperation({
   readonly initialSearch?: string;
   readonly removalOnly?: boolean;
 }) {
+  const singleRepository = repositoryIds.length === 1;
+  const [view, setView] = useState<"assigned" | "picker">(
+    singleRepository && initialSkillIds.length === 0 && !removalOnly
+      ? "assigned"
+      : "picker",
+  );
+  const assignedOnly = singleRepository && view === "assigned";
   const [mode, setMode] = useState<"add" | "remove">(
     removalOnly ? "remove" : initialMode,
   );
@@ -145,6 +155,7 @@ export function RepositorySkillsOperation({
       workspaceId,
       repositoryIds,
       effectiveSearch,
+      assignedOnly,
     ),
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) =>
@@ -152,6 +163,7 @@ export function RepositorySkillsOperation({
         workspaceId,
         repositoryIds,
         search: effectiveSearch,
+        assignedOnly,
         cursor: pageParam,
       }),
     getNextPageParam: (page) => page.nextCursor ?? undefined,
@@ -164,38 +176,24 @@ export function RepositorySkillsOperation({
     mode === "add" &&
     rows.some((row) => selected.has(row.skillId) && !row.available);
   const apply = useMutation({
-    mutationFn: () =>
-      requestReviewSkills("applyAssignments", {
-        workspaceId,
-        repositoryIds,
-        skillIds: [...selected],
-        mode,
-        ...(mode === "add"
-          ? {
-              scope: {
-                includePaths: include
-                  .split("\n")
-                  .map((value) => value.trim())
-                  .filter(Boolean),
-                excludePaths: exclude
-                  .split("\n")
-                  .map((value) => value.trim())
-                  .filter(Boolean),
-              },
-            }
-          : {}),
-      }),
-    onSuccess: async (result) => {
+    mutationFn: (command: ReviewSkillsInput<"applyAssignments">) =>
+      requestReviewSkills("applyAssignments", command),
+    onSuccess: async (result, command) => {
       setSuccess(
         `${result.added} added, ${result.removed} removed, ${result.unchanged} already in the requested state.`,
       );
       setSelected(new Set());
-      if (mode === "remove")
+      if (command.mode === "remove")
         setPathDrafts((prior) => {
           const next = new Map(prior);
-          for (const skillId of selected) next.delete(skillId);
+          for (const skillId of command.skillIds) next.delete(skillId);
           return next;
         });
+      if (singleRepository && command.mode === "add") {
+        setView("assigned");
+        setSearch("");
+        setFocusedSkillId(null);
+      }
       await client.invalidateQueries({
         queryKey: reviewSkillsKeys.workspace(viewerId, workspaceId),
       });
@@ -241,20 +239,70 @@ export function RepositorySkillsOperation({
       else next.add(id);
       return next;
     });
+  const submit = (skillIds: readonly string[], operation: "add" | "remove") => {
+    if (
+      operation === "remove" &&
+      skillIds.some((skillId) => {
+        const draft = pathDrafts.get(skillId);
+        return draft && skillBindingPathsDraftIsDirty(draft);
+      }) &&
+      !window.confirm(
+        "Remove these skill assignments and discard their unsaved path changes?",
+      )
+    )
+      return;
+    setSuccess("");
+    apply.mutate({
+      workspaceId,
+      repositoryIds,
+      skillIds,
+      mode: operation,
+      ...(operation === "add"
+        ? {
+            scope: {
+              includePaths: include
+                .split("\n")
+                .map((value) => value.trim())
+                .filter(Boolean),
+              excludePaths: exclude
+                .split("\n")
+                .map((value) => value.trim())
+                .filter(Boolean),
+            },
+          }
+        : {}),
+    });
+  };
+  const changeView = (next: "assigned" | "picker") => {
+    if (controlsLocked || creating) return;
+    setView(next);
+    setSearch("");
+    setFocusedSkillId(null);
+    setSelected(new Set());
+    setMode("add");
+    setSuccess("");
+    apply.reset();
+  };
   return (
     <SkillsDialog
       open
       onClose={close}
       pending={apply.isPending || nestedPending.size > 0}
       title={
-        mode === "add"
-          ? "Add skills to repositories"
-          : "Remove skills from repositories"
+        assignedOnly
+          ? "Assigned skills"
+          : mode === "add"
+            ? "Add skills to repositories"
+            : "Remove skills from repositories"
       }
-      description={`${repositoryIds.length} ${repositoryIds.length === 1 ? "repository" : "repositories"} selected. ${mode === "add" ? "Adds missing skills; other skills and existing path settings stay in place." : "Removes only the checked skills from these repositories."}`}
+      description={
+        assignedOnly
+          ? "Manage this repository's review instructions and file scopes. Changes affect future reviews."
+          : `${repositoryIds.length} ${repositoryIds.length === 1 ? "repository" : "repositories"} selected. ${mode === "add" ? "Adds missing skills; other skills and existing path settings stay in place." : "Removes only the checked skills from these repositories."}`
+      }
       feedback={
         <>
-          {!overLimit ? (
+          {!overLimit && !assignedOnly ? (
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p
                 className="text-xs leading-5 text-slate-400"
@@ -312,41 +360,34 @@ export function RepositorySkillsOperation({
         </>
       }
       footer={
-        <Button
-          type="button"
-          disabled={
-            apply.isPending ||
-            nestedPending.size > 0 ||
-            selected.size === 0 ||
-            selected.size > 100 ||
-            overLimit ||
-            selectedUnavailable ||
-            choices.isError
-          }
-          onClick={() => {
-            if (
-              mode === "remove" &&
-              [...selected].some((skillId) => {
-                const draft = pathDrafts.get(skillId);
-                return draft && skillBindingPathsDraftIsDirty(draft);
-              }) &&
-              !window.confirm(
-                "Remove these skill assignments and discard their unsaved path changes?",
-              )
-            )
-              return;
-            setSuccess("");
-            apply.mutate();
-          }}
-        >
-          {apply.isPending
-            ? "Applying…"
-            : completionUnknown
-              ? "Retry exact operation"
-              : mode === "add"
-                ? "Add selected skills"
-                : "Remove selected skills"}
-        </Button>
+        !assignedOnly || completionUnknown ? (
+          <Button
+            type="button"
+            disabled={
+              apply.isPending ||
+              nestedPending.size > 0 ||
+              (!completionUnknown && selected.size === 0) ||
+              (!completionUnknown && selected.size > 100) ||
+              overLimit ||
+              (!completionUnknown && (selectedUnavailable || choices.isError))
+            }
+            onClick={() => {
+              if (completionUnknown && apply.variables)
+                apply.mutate(apply.variables);
+              else submit([...selected], mode);
+            }}
+          >
+            {apply.isPending
+              ? "Applying…"
+              : completionUnknown
+                ? "Retry exact operation"
+                : mode === "add"
+                  ? singleRepository
+                    ? `Add ${selected.size} ${selected.size === 1 ? "skill" : "skills"}`
+                    : "Add selected skills"
+                  : "Remove selected skills"}
+          </Button>
+        ) : undefined
       }
     >
       {removalOnly ? (
@@ -355,34 +396,48 @@ export function RepositorySkillsOperation({
           assignments is available.
         </p>
       ) : null}
-      <p className="text-xs leading-5 text-slate-400">
-        Review Skills require a supporting ReviewRouter runtime. Reviews with
-        unavailable skills or unsupported runtimes stop with an actionable
-        error.
-      </p>
-      <div
-        role="group"
-        aria-label="Skills operation"
-        className="flex flex-wrap gap-2"
-      >
-        {(["add", "remove"] as const).map((value) => (
-          <Button
-            key={value}
-            type="button"
-            variant={mode === value ? "solid" : "outline"}
-            disabled={controlsLocked || (removalOnly && value === "add")}
-            aria-pressed={mode === value}
-            onClick={() => {
-              setMode(value);
-              setSelected(new Set());
-              setSuccess("");
-              apply.reset();
-            }}
-          >
-            {value === "add" ? "Add" : "Remove"}
-          </Button>
-        ))}
-      </div>
+      {!overLimit && !choices.isError ? (
+        <SkillsReadiness
+          values={choices.data?.pages[0]?.repositoryReadiness}
+          workspaceId={workspaceId}
+          loading={choices.isPending}
+        />
+      ) : null}
+      {singleRepository && !removalOnly ? (
+        <Button
+          type="button"
+          variant="outline"
+          disabled={controlsLocked || creating}
+          onClick={() => changeView(assignedOnly ? "picker" : "assigned")}
+        >
+          {assignedOnly ? "Add skills" : "Back to assigned skills"}
+        </Button>
+      ) : null}
+      {(!assignedOnly && !singleRepository) || removalOnly ? (
+        <div
+          role="group"
+          aria-label="Skills operation"
+          className="flex flex-wrap gap-2"
+        >
+          {(["add", "remove"] as const).map((value) => (
+            <Button
+              key={value}
+              type="button"
+              variant={mode === value ? "solid" : "outline"}
+              disabled={controlsLocked || (removalOnly && value === "add")}
+              aria-pressed={mode === value}
+              onClick={() => {
+                setMode(value);
+                setSelected(new Set());
+                setSuccess("");
+                apply.reset();
+              }}
+            >
+              {value === "add" ? "Add" : "Remove"}
+            </Button>
+          ))}
+        </div>
+      ) : null}
       {overLimit ? (
         <p role="alert" className="text-amber-100">
           All {repositoryIds.length} selected repositories are preserved. You
@@ -419,7 +474,11 @@ export function RepositorySkillsOperation({
             </div>
           ) : null}
           {choices.isPending ? (
-            <p role="status">Loading available skills…</p>
+            <p role="status">
+              {assignedOnly
+                ? "Loading assigned skills…"
+                : "Loading available skills…"}
+            </p>
           ) : null}
           <SkillsError error={choices.error} />
           <div className="overflow-x-auto">
@@ -436,13 +495,15 @@ export function RepositorySkillsOperation({
                   role="row"
                   className="border-b border-cyan-200/20 text-slate-400"
                 >
-                  <th
-                    role="columnheader"
-                    scope="col"
-                    className={skillCellClass}
-                  >
-                    Select
-                  </th>
+                  {!assignedOnly ? (
+                    <th
+                      role="columnheader"
+                      scope="col"
+                      className={skillCellClass}
+                    >
+                      Select
+                    </th>
+                  ) : null}
                   <th
                     role="columnheader"
                     scope="col"
@@ -462,7 +523,7 @@ export function RepositorySkillsOperation({
                     scope="col"
                     className={skillCellClass}
                   >
-                    Assigned
+                    {assignedOnly ? "Actions" : "Assigned"}
                   </th>
                 </tr>
               </thead>
@@ -473,26 +534,28 @@ export function RepositorySkillsOperation({
                     key={row.skillId}
                     className="grid grid-cols-2 gap-x-4 border-b border-cyan-200/15 py-3 lg:table-row lg:border-cyan-200/10 lg:py-0"
                   >
-                    <td
-                      role="cell"
-                      className={`${skillResponsiveCellClass} col-span-2`}
-                    >
-                      <span className={skillMobileLabelClass}>Select</span>
-                      <Checkbox
-                        aria-label={`Select skill ${row.name}${row.available ? "" : ` ${row.skillId}`}`}
-                        checked={selected.has(row.skillId)}
-                        disabled={
-                          controlsLocked ||
-                          (mode === "add" &&
-                            !row.available &&
-                            !selected.has(row.skillId)) ||
-                          (mode === "remove" &&
-                            row.assignedCount === 0 &&
-                            !selected.has(row.skillId))
-                        }
-                        onChange={() => toggle(row.skillId)}
-                      />
-                    </td>
+                    {!assignedOnly ? (
+                      <td
+                        role="cell"
+                        className={`${skillResponsiveCellClass} col-span-2`}
+                      >
+                        <span className={skillMobileLabelClass}>Select</span>
+                        <Checkbox
+                          aria-label={`Select skill ${row.name}${row.available ? "" : ` ${row.skillId}`}`}
+                          checked={selected.has(row.skillId)}
+                          disabled={
+                            controlsLocked ||
+                            (mode === "add" &&
+                              !row.available &&
+                              !selected.has(row.skillId)) ||
+                            (mode === "remove" &&
+                              row.assignedCount === 0 &&
+                              !selected.has(row.skillId))
+                          }
+                          onChange={() => toggle(row.skillId)}
+                        />
+                      </td>
+                    ) : null}
                     <td
                       role="cell"
                       className={`${skillResponsiveCellClass} col-span-2`}
@@ -510,24 +573,30 @@ export function RepositorySkillsOperation({
                           ? row.description
                           : "Unavailable — remove assignments to allow new reviews."}
                       </p>
-                      {repositoryIds.length === 1 &&
+                      {assignedOnly &&
                       !removalOnly &&
                       row.available &&
                       row.bindings[0] ? (
-                        <SkillBindingPaths
-                          key={row.skillId}
-                          workspaceId={workspaceId}
-                          viewerId={viewerId}
-                          repositoryId={repositoryIds[0]!}
-                          binding={row.bindings[0]}
-                          {...(pathDrafts.has(row.skillId)
-                            ? { draft: pathDrafts.get(row.skillId)! }
-                            : {})}
-                          locked={controlsLocked}
-                          onDraftChange={updatePathDraft}
-                          onPendingChange={updateNestedPending}
-                          onSaved={acknowledgePathDraft}
-                        />
+                        <>
+                          <p className="my-2 break-words text-xs text-slate-400">
+                            Applies to:{" "}
+                            {skillScopeSummary(row.bindings[0].scope)}
+                          </p>
+                          <SkillBindingPaths
+                            key={row.skillId}
+                            workspaceId={workspaceId}
+                            viewerId={viewerId}
+                            repositoryId={repositoryIds[0]!}
+                            binding={row.bindings[0]}
+                            {...(pathDrafts.has(row.skillId)
+                              ? { draft: pathDrafts.get(row.skillId)! }
+                              : {})}
+                            locked={controlsLocked}
+                            onDraftChange={updatePathDraft}
+                            onPendingChange={updateNestedPending}
+                            onSaved={acknowledgePathDraft}
+                          />
+                        </>
                       ) : null}
                     </td>
                     <td
@@ -545,8 +614,23 @@ export function RepositorySkillsOperation({
                       role="cell"
                       className={`${skillResponsiveCellClass} text-cyan-100`}
                     >
-                      <span className={skillMobileLabelClass}>Assigned</span>
-                      {row.assignedCount}/{row.repositoryCount}
+                      <span className={skillMobileLabelClass}>
+                        {assignedOnly ? "Actions" : "Assigned"}
+                      </span>
+                      {assignedOnly ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Remove skill ${row.name}${row.available ? "" : ` ${row.skillId}`}`}
+                          disabled={controlsLocked}
+                          onClick={() => submit([row.skillId], "remove")}
+                        >
+                          Remove
+                        </Button>
+                      ) : (
+                        `${row.assignedCount}/${row.repositoryCount}`
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -555,9 +639,13 @@ export function RepositorySkillsOperation({
           </div>
           {rows.length === 0 && !choices.isPending && !choices.isError ? (
             <p className="text-sm text-slate-400">
-              {canCreate
-                ? "No matching skills. Create one to add it to this repository selection."
-                : "No matching skills are available. Ask a workspace member to create one, or an admin to link an available skill. Repository access does not allow creating or editing workspace content."}
+              {choices.isFetching || apply.isPending
+                ? "Refreshing skills…"
+                : assignedOnly
+                  ? "No matching assigned skills. Add skills from the library or enable Skills from this repository."
+                  : canCreate
+                    ? "No matching skills. Create one to add it to this repository selection."
+                    : "No matching skills are available. Ask a workspace member to create one, or an admin to link an available skill. Repository access does not allow creating or editing workspace content."}
             </p>
           ) : null}
           {choices.hasNextPage ? (
@@ -572,7 +660,7 @@ export function RepositorySkillsOperation({
               Load more skills
             </Button>
           ) : null}
-          {canCreate && mode === "add" ? (
+          {!assignedOnly && canCreate && mode === "add" ? (
             <Button
               type="button"
               variant="outline"
@@ -582,7 +670,7 @@ export function RepositorySkillsOperation({
               Create skill
             </Button>
           ) : null}
-          {mode === "add" ? (
+          {!assignedOnly && mode === "add" ? (
             <details className="border-t border-cyan-200/15 pt-3">
               <summary className="cursor-pointer text-sm text-slate-300">
                 Advanced: paths for new assignments
@@ -613,7 +701,7 @@ export function RepositorySkillsOperation({
               </label>
             </details>
           ) : null}
-          {repositoryIds.length === 1 && !removalOnly ? (
+          {assignedOnly && !removalOnly ? (
             <RepositorySkillSettings
               workspaceId={workspaceId}
               viewerId={viewerId}

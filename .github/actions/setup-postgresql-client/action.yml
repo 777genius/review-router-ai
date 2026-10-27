@@ -1,5 +1,5 @@
 name: Setup PostgreSQL client
-description: Install PostgreSQL 17 client from the official signed PGDG repository
+description: Install PostgreSQL 17 client from the official signed PGDG repository after Setup Node
 runs:
   using: composite
   steps:
@@ -14,24 +14,31 @@ runs:
           fi
         done
         apt_options=(-o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o Acquire::Retries=2 -o DPkg::Lock::Timeout=30)
-        # Bootstrap from the existing signed cache before touching an already
-        # configured PGDG source, whose stale key may prevent any update.
-        sudo apt-get "${apt_options[@]}" install -y --no-install-recommends ca-certificates curl
-        pgdg_setup_dir=$(mktemp -d)
-        trap 'rm -rf "$pgdg_setup_dir"' EXIT
-        curl -fsSL --connect-timeout 10 --max-time 30 --retry 2 --retry-delay 2 --retry-max-time 60 -o "$pgdg_setup_dir/apt.postgresql.org.asc" https://www.postgresql.org/media/keys/ACCC4CF8.asc
-        sudo install -d -m0755 /usr/share/postgresql-common/pgdg
-        sudo install -m0644 "$pgdg_setup_dir/apt.postgresql.org.asc" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+        pgdg_temp=$(mktemp -d)
+        trap 'rm -rf "$pgdg_temp"' EXIT
+        # Refresh the signed source before apt update: an existing unusable PGDG
+        # key must not prevent installing the tools needed to repair that source.
+        node --use-env-proxy --input-type=module - "$pgdg_temp/apt.postgresql.org.asc" <<'NODE'
+        import { writeFile } from 'node:fs/promises';
+        const response = await fetch('https://www.postgresql.org/media/keys/ACCC4CF8.asc', {
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (!response.ok) throw new Error(`PGDG key download failed: HTTP ${response.status}`);
+        await writeFile(process.argv[2], await response.text(), { mode: 0o600 });
+        NODE
+        sudo install -d -m 0755 /usr/share/postgresql-common/pgdg
+        sudo install -m 0644 "$pgdg_temp/apt.postgresql.org.asc" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
         . /etc/os-release
-        printf 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt %s-pgdg main\n' "$VERSION_CODENAME" > "$pgdg_setup_dir/pgdg.list"
-        sudo install -m0644 "$pgdg_setup_dir/pgdg.list" /etc/apt/sources.list.d/pgdg.list
+        printf 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt %s-pgdg main\n' "$VERSION_CODENAME" > "$pgdg_temp/pgdg.list"
+        sudo install -m 0644 "$pgdg_temp/pgdg.list" /etc/apt/sources.list.d/pgdg.list
         sudo apt-get "${apt_options[@]}" update
-        sudo apt-get "${apt_options[@]}" install -y --no-install-recommends postgresql-client-17
-        for tool in psql pg_dump pg_restore; do
-          binary="/usr/lib/postgresql/17/bin/$tool"
-          test -x "$binary"
-          version=$("$binary" --version)
-          printf '%s\n' "$version"
-          printf '%s\n' "$version" | grep -Eq "^$tool \\(PostgreSQL\\) 17([. ]|$)"
+        sudo apt-get "${apt_options[@]}" install -y --no-install-recommends ca-certificates curl postgresql-client-17
+        for client in psql pg_dump pg_restore; do
+          client_version=$("/usr/lib/postgresql/17/bin/$client" --version)
+          case "$client_version" in
+            "$client (PostgreSQL) 17."*) printf '%s\n' "$client_version" ;;
+            *) echo "Expected PostgreSQL 17 $client, received $client_version" >&2; exit 1 ;;
+          esac
         done
+        printf '%s\n' /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
         BASH
