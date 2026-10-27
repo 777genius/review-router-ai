@@ -317,7 +317,7 @@ export function hasCompanionFiles(markdown: string): boolean {
   const labelCharacter = String.raw`(?:[^\[\]\n]|\n(?!\n))`;
   const normalize = (id: string) =>
     id.trim().replace(/\s+/gu, " ").toLowerCase();
-  const uses = text.replace(
+  const links = text.replace(
     new RegExp(
       String.raw`^ {0,3}\[(${labelCharacter}{1,999})\]:[ \t]*(?:\n[ \t]*)?(.+)$`,
       "gmu",
@@ -328,6 +328,31 @@ export function hasCompanionFiles(markdown: string): boolean {
       return "";
     },
   );
+  // Precompute quote-aware tag ends once, including failed candidates. An
+  // unmatched quoted attribute must not trigger repeated scans of the suffix.
+  const tagEnds = new Map<number, number>();
+  const afterQuote = new Map<string, number>();
+  let tagEnd = 0;
+  for (let index = links.length - 1; index >= 0; index--) {
+    const character = links[index]!;
+    if (character === "\n" && links[index + 1] === "\n") {
+      // Inline HTML cannot conceal references across a paragraph boundary.
+      tagEnd = 0;
+      afterQuote.clear();
+    } else if (character === ">") tagEnd = index + 1;
+    else if (character === "<") {
+      if (tagEnd) tagEnds.set(index, tagEnd);
+      tagEnd = 0;
+    } else if (character === '"' || character === "'") {
+      const following = tagEnd;
+      tagEnd = afterQuote.get(character) ?? 0;
+      afterQuote.set(character, following);
+    }
+  }
+  const htmlStart = /<[a-z][a-z0-9-]*/iy;
+  const htmlAttribute =
+    /[ \t\n\r\f]+([a-z_:][a-z0-9_.:-]*)(?:[ \t\n\r\f]*=[ \t\n\r\f]*(?:"([^"]*)"|'([^']*)'|([^ \t\n\r\f"'=<>`]+)))?/iy;
+  const htmlClose = /[ \t\n\r\f]*\/?>/y;
   const referenceLabel = new RegExp(
     String.raw`\[(${labelCharacter}{0,999})\]`,
     "uy",
@@ -337,38 +362,80 @@ export function hasCompanionFiles(markdown: string): boolean {
   let noClosingParenthesis = false;
   // Visit closing brackets once, allowing long and nested display text. Skip
   // complete inline destinations so their URLs/titles cannot become shortcuts.
-  for (let index = 0; index < uses.length; index++) {
-    if (uses[index] === "\n" && uses[index - 1] === "\n") brackets.length = 0;
-    if (uses[index] === "[") brackets.push(index);
-    if (uses[index] !== "]") continue;
+  for (let index = 0; index < links.length; index++) {
+    if (links[index] === "<") {
+      const end = tagEnds.get(index);
+      htmlStart.lastIndex = index;
+      if (end && htmlStart.exec(links)) {
+        let cursor = htmlStart.lastIndex;
+        let valid = false;
+        let companion = false;
+        while (cursor < end) {
+          htmlClose.lastIndex = cursor;
+          if (htmlClose.exec(links) && htmlClose.lastIndex === end) {
+            valid = true;
+            break;
+          }
+          htmlAttribute.lastIndex = cursor;
+          const attribute = htmlAttribute.exec(links);
+          if (!attribute || htmlAttribute.lastIndex >= end) break;
+          if (
+            /^(?:href|src)$/iu.test(attribute[1]!) &&
+            localDestination(attribute[2] ?? attribute[3] ?? attribute[4] ?? "")
+          )
+            companion = true;
+          cursor = htmlAttribute.lastIndex;
+        }
+        if (valid) {
+          if (companion) return true;
+          // Only tags reached outside an inline destination are HTML here.
+          masked.push({ start: index, end });
+          index = end - 1;
+          continue;
+        }
+      }
+    }
+    if (links[index] === "\n" && links[index - 1] === "\n") brackets.length = 0;
+    if (links[index] === "[") brackets.push(index);
+    if (links[index] !== "]") continue;
     const open = brackets.pop();
     if (open === undefined) continue;
     let end: number;
-    if (uses[index + 1] === "(" && !noClosingParenthesis) {
-      const close = uses.indexOf(")", index + 2);
+    if (links[index + 1] === "(" && !noClosingParenthesis) {
+      const close = links.indexOf(")", index + 2);
       if (close === -1) {
         // Later candidates share this missing terminator; do not rescan it.
         noClosingParenthesis = true;
         continue;
       }
-      if (localDestination(uses.slice(index + 2, close))) return true;
+      if (localDestination(links.slice(index + 2, close))) return true;
       end = close + 1;
-    } else if (uses[index + 1] === "[") {
+    } else if (links[index + 1] === "[") {
       referenceLabel.lastIndex = index + 1;
-      const reference = referenceLabel.exec(uses);
+      const reference = referenceLabel.exec(links);
       if (!reference) continue;
       end = referenceLabel.lastIndex;
       let id = reference[1]!;
       if (!id) {
         referenceLabel.lastIndex = open;
-        const collapsed = referenceLabel.exec(uses);
+        const collapsed = referenceLabel.exec(links);
         if (collapsed && referenceLabel.lastIndex === index + 1)
           id = collapsed[1]!;
       }
       const target = definitions.get(normalize(id));
       if (target && localDestination(target)) return true;
-    } else continue;
-    let start = uses[open - 1] === "!" ? open - 1 : open;
+    } else {
+      // Inner shortcuts take precedence over an enclosing link's display text.
+      referenceLabel.lastIndex = open;
+      const shortcut = referenceLabel.exec(links);
+      const target =
+        shortcut && referenceLabel.lastIndex === index + 1
+          ? definitions.get(normalize(shortcut[1]!))
+          : undefined;
+      if (target && localDestination(target)) return true;
+      continue;
+    }
+    let start = links[open - 1] === "!" ? open - 1 : open;
     // Nested spans end in scan order. Merge them without revisiting their text.
     while (masked.length && masked.at(-1)!.end >= start)
       start = Math.min(start, masked.pop()!.start);
@@ -378,23 +445,16 @@ export function hasCompanionFiles(markdown: string): boolean {
   const referenceParts: string[] = [];
   let offset = 0;
   for (const span of masked) {
-    referenceParts.push(uses.slice(offset, span.start), " ");
+    referenceParts.push(links.slice(offset, span.start), " ");
     offset = span.end;
   }
-  referenceParts.push(uses.slice(offset));
+  referenceParts.push(links.slice(offset));
   const referenceUses = referenceParts.join("");
   for (const match of referenceUses.matchAll(
     new RegExp(String.raw`\[(${labelCharacter}{1,999})\]`, "gu"),
   )) {
     const target = definitions.get(normalize(match[1]!));
     if (target && localDestination(target)) return true;
-  }
-  for (const tag of uses.matchAll(/<[a-z][^>]*>/giu)) {
-    for (const attribute of tag[0].matchAll(
-      /\b(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/giu,
-    ))
-      if (localDestination(attribute[1] ?? attribute[2] ?? attribute[3] ?? ""))
-        return true;
   }
   return false;
 }

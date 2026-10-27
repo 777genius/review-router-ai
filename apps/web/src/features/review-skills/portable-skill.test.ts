@@ -108,6 +108,11 @@ describe("single-file Skills portability", () => {
     "[A [nested] label](<references/guide.md>)",
     '![Diagram](assets/diagram.png "Architecture")',
     "[Guide][rules]\n\n[rules]: references/guide.md",
+    "[See the [guide] section](https://example.test)\n\n[guide]: references/guide.md",
+    "[See [guide] here][remote]\n\n[guide]: references/guide.md\n[remote]: https://example.test",
+    "<bad [guide]>\n\n[guide]: references/guide.md",
+    '<a title="x > [guide]" href="references/guide.md">Guide</a>',
+    '[outer <span title="[guide]\n\n">here</span>](https://example.test)\n\n[guide]: references/guide.md',
     "[Guide][]\n\n[Guide]: references/guide.md",
     "![Diagram]\n\n[Diagram]: assets/diagram.png",
     '<a href="references/guide.md">Guide</a>',
@@ -192,6 +197,15 @@ describe("single-file Skills portability", () => {
     '<a href="https://example.test/guide.md">Web</a><img src="#inline">',
     "[Unused]: references/guide.md\n\nSelf-contained instructions.",
     "[local][remote]\n\n[local]: references/unused.md\n[remote]: https://example.test",
+    "[See [guide] here](https://example.test)\n\n[guide]: https://example.test/guide.md",
+    "[See [guide] here][remote]\n\n[guide]: https://example.test/guide.md\n[remote]: https://example.test",
+    "[See [unknown] here](https://example.test)\n\n[guide]: references/unused.md",
+    "[See [unknown] here][remote]\n\n[guide]: references/unused.md\n[remote]: https://example.test",
+    '[See <span title="[guide]">here</span>](https://example.test)\n\n[guide]: references/unused.md',
+    "[See <span title='[guide]'>here</span>][remote]\n\n[guide]: references/unused.md\n[remote]: https://example.test",
+    '[See <span title="x > [guide]">here</span>](https://example.test)\n\n[guide]: references/unused.md',
+    "[See <span title='x > [guide]'>here</span>][remote]\n\n[guide]: references/unused.md\n[remote]: https://example.test",
+    '[outer <span title="[guide]\n">here</span>](https://example.test)\n\n[guide]: references/unused.md',
     "`[Example](references/guide.md)`",
     "`[Example]\n(references/guide.md)`",
     "- `[Example]\n  (references/guide.md)`",
@@ -268,9 +282,17 @@ describe("single-file Skills portability", () => {
     "honors the reference label boundary at %s Unicode characters",
     (length) => {
       const label = "🙂".repeat(length);
-      for (const use of [`[guide][${label}]`, `[${label}][]`, `[${label}]`]) {
+      for (const use of [
+        `[guide][${label}]`,
+        `[${label}][]`,
+        `[${label}]`,
+        `[See [${label}] here](https://example.test)`,
+        `[See [${label}] here][remote]`,
+      ]) {
         expect(
-          hasCompanionFiles(`${use}\n\n[${label}]: references/guide.md`),
+          hasCompanionFiles(
+            `${use}\n\n[${label}]: references/guide.md\n[remote]: https://example.test`,
+          ),
         ).toBe(length === 999);
       }
     },

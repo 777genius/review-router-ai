@@ -14,9 +14,12 @@ const workspaceQuery = "rr-e2e-personal-viewer";
 const repositoryId = (suffix: string) => `rr-e2e-repo-rr-e2e-viewer-${suffix}`;
 
 async function expectDashboardReady(page: Page) {
+  // DOMContentLoaded can precede the streamed dashboard bundle on a new page.
+  // Keep the real hydration signal within the existing navigation budget.
   await expect(page.locator("html")).toHaveAttribute(
     "data-dashboard-layout-ready",
     "true",
+    { timeout: 30_000 },
   );
 }
 

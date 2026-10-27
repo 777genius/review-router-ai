@@ -396,7 +396,7 @@ export function RepositorySkillsOperation({
           assignments is available.
         </p>
       ) : null}
-      {!overLimit ? (
+      {!overLimit && !choices.isError ? (
         <SkillsReadiness
           values={choices.data?.pages[0]?.repositoryReadiness}
           workspaceId={workspaceId}
