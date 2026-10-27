@@ -309,6 +309,23 @@ it("keeps the secret scope fixed until its check completes and clears the result
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
+it("does not install a managed key when repository management is unavailable", () => {
+  view(
+    <ManagedKeyDelivery
+      {...repository}
+      canManage={false}
+      authMode="mimo_token_plan_api_key"
+      installed={false}
+      installDecisionReason={null}
+    />,
+  );
+
+  const installButton = screen.getByRole("button", { name: "Install key" });
+  expect(installButton).toHaveProperty("disabled", true);
+  fireEvent.click(installButton);
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
 it("keeps the installed managed key on its GitHub path without installing or probing again", async () => {
   view(
     <ManagedKeyDelivery

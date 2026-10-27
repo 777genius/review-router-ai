@@ -1,6 +1,12 @@
 "use client";
 
-import { useMemo, useState, type HTMLAttributes } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type HTMLAttributes,
+} from "react";
 import { cn } from "../utils/cn";
 
 export type CodeBlockProps = HTMLAttributes<HTMLPreElement> & {
@@ -21,12 +27,31 @@ function CodeBlockContent({
 }: CodeBlockProps): React.ReactElement {
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
+  const latestAttempt = useRef(0);
+  const feedbackTimer = useRef<number | null>(null);
   const highlightedCode = useMemo(
     () => highlightCode(code, language),
     [code, language],
   );
 
+  useEffect(() => {
+    return () => {
+      latestAttempt.current += 1;
+      if (feedbackTimer.current !== null) {
+        window.clearTimeout(feedbackTimer.current);
+        feedbackTimer.current = null;
+      }
+    };
+  }, []);
+
   async function copyCode(): Promise<void> {
+    const attempt = ++latestAttempt.current;
+    if (feedbackTimer.current !== null) {
+      window.clearTimeout(feedbackTimer.current);
+      feedbackTimer.current = null;
+    }
+    setCopied(false);
+    setCopyFailed(false);
     try {
       if (!navigator.clipboard?.writeText) {
         setCopied(false);
@@ -34,10 +59,16 @@ function CodeBlockContent({
         return;
       }
       await navigator.clipboard.writeText(code);
+      if (attempt !== latestAttempt.current) return;
       setCopyFailed(false);
       setCopied(true);
-      window.setTimeout(() => setCopied(false), 1400);
+      feedbackTimer.current = window.setTimeout(() => {
+        if (attempt !== latestAttempt.current) return;
+        feedbackTimer.current = null;
+        setCopied(false);
+      }, 1400);
     } catch {
+      if (attempt !== latestAttempt.current) return;
       setCopied(false);
       setCopyFailed(true);
     }

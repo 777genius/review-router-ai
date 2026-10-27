@@ -1039,6 +1039,65 @@ describe("ProviderSetupDialog", () => {
     expect(url.searchParams.get("section")).toBe("repositories");
   });
 
+  it("keeps repository step navigation locked until a provider save finishes", async () => {
+    let finishSave!: (
+      result: Awaited<ReturnType<typeof saveProviderSetupAction>>,
+    ) => void;
+    vi.mocked(saveProviderSetupAction).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSave = resolve;
+        }),
+    );
+    renderDialog(repositoryTarget);
+    await choose("Second Claude");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    );
+    await waitFor(() => expect(saveProviderSetupAction).toHaveBeenCalledOnce());
+
+    const providerStep = screen.getByRole("button", { name: "1. Provider" });
+    const secretStep = screen.getByRole("button", { name: "2. Add secret" });
+    // Leaving and reentering the choice step must not create a fresh form
+    // that can submit a second mutation while the first save is unresolved.
+    fireEvent.click(secretStep);
+    fireEvent.click(providerStep);
+    await choose("Second Claude");
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /^(Saving\.\.\.|Use for this repository)$/,
+      }),
+    );
+
+    expect(saveProviderSetupAction).toHaveBeenCalledOnce();
+    expect(providerStep).toHaveProperty("disabled", true);
+    expect(secretStep).toHaveProperty("disabled", true);
+    expect(providerStep.getAttribute("aria-current")).toBe("step");
+
+    await act(async () => {
+      finishSave({
+        status: "saved",
+        results: [
+          {
+            repositoryId: "repo_1",
+            fullName: "acme/widget",
+            status: "applied",
+          },
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      expect(providerStep).toHaveProperty("disabled", false);
+      expect(secretStep).toHaveProperty("disabled", false);
+      expect(secretStep.getAttribute("aria-current")).toBe("step");
+    });
+    fireEvent.click(providerStep);
+    expect(providerStep.getAttribute("aria-current")).toBe("step");
+    expect(screen.getByText("Second Claude")).toBeTruthy();
+    expect(saveProviderSetupAction).toHaveBeenCalledOnce();
+  });
+
   it("returns a repository with its own provider to the workspace default", async () => {
     view = {
       ...view,

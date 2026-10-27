@@ -238,6 +238,7 @@ export function ProviderSetupDialog(
             <ProviderSetupDialogBody
               {...props}
               target={openedTarget}
+              locked={locked}
               onSaved={() => {
                 saved.current = true;
               }}
@@ -262,11 +263,13 @@ function ProviderSetupDialogBody({
   gatewayAccounts,
   agentProfileOptions,
   onSaved,
+  locked,
   onLockedChange,
   onClose,
   initialIntent,
 }: ProviderSetupDialogProps &
   Readonly<{
+    locked: boolean;
     onLockedChange: (locked: boolean) => void;
     onClose: () => void;
   }>): React.ReactElement {
@@ -356,7 +359,7 @@ function ProviderSetupDialogBody({
               <li>
                 <StepButton
                   current={step === "provider"}
-                  disabled={credentialBusy}
+                  disabled={locked}
                   onSelect={() => setStep("provider")}
                 >
                   1. Provider
@@ -365,7 +368,7 @@ function ProviderSetupDialogBody({
               <li>
                 <StepButton
                   current={step === "credentials"}
-                  disabled={credentialBusy}
+                  disabled={locked}
                   onSelect={() => setStep("credentials")}
                 >
                   2. {credentialStepLabel(credentialStep)}

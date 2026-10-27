@@ -483,6 +483,13 @@ export function ManagedKeyDelivery({
   const secretName = getProviderAuthModeMetadata(authMode).secretNames[0];
 
   async function install(): Promise<void> {
+    if (
+      !canManage ||
+      installDecisionReason !== null ||
+      installing ||
+      confirmation.submitting
+    )
+      return;
     setInstallError(null);
     setInstalling(true);
     try {
@@ -553,6 +560,7 @@ export function ManagedKeyDelivery({
             type="button"
             size="sm"
             disabled={
+              !canManage ||
               installDecisionReason !== null ||
               installing ||
               confirmation.submitting
