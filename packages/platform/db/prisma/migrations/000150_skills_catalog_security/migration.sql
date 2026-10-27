@@ -51,6 +51,16 @@ CREATE INDEX "ReviewSkillScan_expiresAt_idx" ON "ReviewSkillScan"("expiresAt");
 CREATE FUNCTION public.rr_skill_catalog_immutable() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $function$
 BEGIN
   IF TG_OP='INSERT' THEN
+    IF TG_TABLE_NAME='ReviewSkillImportCandidate' THEN
+      IF NEW."importedSkillId" IS NOT NULL OR NEW."importedScanId" IS NOT NULL OR NEW."importIntentDigest" IS NOT NULL OR NEW."importedAt" IS NOT NULL THEN
+        RAISE EXCEPTION 'skill_catalog_initial_receipt_invalid' USING ERRCODE='23514';
+      END IF;
+      RETURN NEW;
+    END IF;
+    IF NEW."status"<>'queued' OR NEW."report" IS NOT NULL OR NEW."startedAt" IS NOT NULL OR NEW."completedAt" IS NOT NULL
+      OR NEW."claimId" IS NOT NULL OR NEW."claimVersion" IS NOT NULL OR NEW."claimUntil" IS NOT NULL OR NEW."executionDeadlineAt" IS NOT NULL OR NEW."slotUntil" IS NOT NULL THEN
+      RAISE EXCEPTION 'skill_scan_initial_state_invalid' USING ERRCODE='23514';
+    END IF;
     IF NEW."reuseOfScanId" IS NOT NULL AND NOT EXISTS (
       SELECT 1 FROM public."ReviewSkillScan" source WHERE source."id"=NEW."reuseOfScanId" AND source."reuseOfScanId" IS NULL
         AND source."workspaceId"=NEW."workspaceId" AND source."contentDigest"=NEW."contentDigest" AND source."profileFingerprint"=NEW."profileFingerprint") THEN
@@ -87,7 +97,7 @@ BEGIN
   RETURN NEW;
 END
 $function$;
-CREATE TRIGGER skill_catalog_candidate_immutable BEFORE UPDATE ON "ReviewSkillImportCandidate" FOR EACH ROW EXECUTE FUNCTION public.rr_skill_catalog_immutable();
+CREATE TRIGGER skill_catalog_candidate_immutable BEFORE INSERT OR UPDATE ON "ReviewSkillImportCandidate" FOR EACH ROW EXECUTE FUNCTION public.rr_skill_catalog_immutable();
 CREATE TRIGGER skill_scan_identity_immutable BEFORE INSERT OR UPDATE ON "ReviewSkillScan" FOR EACH ROW EXECUTE FUNCTION public.rr_skill_catalog_immutable();
 REVOKE ALL ON FUNCTION public.rr_skill_catalog_immutable() FROM PUBLIC;
 COMMIT;

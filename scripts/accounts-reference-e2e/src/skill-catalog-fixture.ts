@@ -10,6 +10,7 @@ import { SKILL_CATALOG_GOOD_INSTRUCTIONS } from "./contracts.ts";
 
 const commit = "1".repeat(40);
 const repository = "rr-catalog-fixture/skills";
+const listedRepository = "RR-Catalog-Fixture/Skills";
 const description = "Review code changes for correctness and clarity.";
 const skill = (
   name: string,
@@ -193,15 +194,15 @@ export async function startSkillCatalogFixture(input: {
         const rows = query ? all : all.slice(page * 5, page * 5 + 5);
         return json(200, {
           items: rows.map(([slug, title]) => ({
-            id: `skills-sh/${slug}`,
+            id: `skills-sh:${listedRepository}:${slug}`,
             providerId: "skills-sh",
-            providerUrl: `https://skills.sh/${repository}/${slug}`,
+            providerUrl: `https://skills.sh/${listedRepository}/${slug}`,
             title,
             skillNameHint: slug,
             source: {
               kind: "github",
-              repository,
-              url: `https://github.com/${repository}`,
+              repository: listedRepository,
+              url: `https://github.com/${listedRepository}`,
             },
             availability: "unverified",
             metrics: { installs: 1, window: "all-time" },
@@ -210,7 +211,9 @@ export async function startSkillCatalogFixture(input: {
           view: "popular",
           hasMore: !query && (page + 1) * 5 < all.length,
           cache: { status: "fresh", fetchedAt: new Date().toISOString() },
-          ...(query ? { warnings: ["search_results_limited"] } : {}),
+          ...(query
+            ? { query, warnings: ["search_results_limited"] }
+            : { total: all.length }),
         });
       }
       if (url.pathname === "/v1/skills/resolve" && request.method === "POST") {
@@ -229,8 +232,8 @@ export async function startSkillCatalogFixture(input: {
             repository,
             commit,
             candidates: [
-              { name: "First review", path: "ambiguous-one" },
-              { name: "Second review", path: "ambiguous-two" },
+              { name: "ambiguous-one", description, path: "ambiguous-one" },
+              { name: "ambiguous-two", description, path: "ambiguous-two" },
             ],
           });
         if (slug === "unavailable")
@@ -284,6 +287,10 @@ export async function startSkillCatalogFixture(input: {
         });
         activeNative.add(done);
         try {
+          const deadline = Date.parse(String(value.deadlineAt));
+          const ceiling = value.profile === "ai" ? 180_000 : 90_000;
+          if (!Number.isFinite(deadline) || deadline <= Date.now())
+            return json(400, { error: { code: "expired_deadline" } });
           const native = await fetch(`${nativeUrl}/v1/scans`, {
             method: "POST",
             headers: {
@@ -291,7 +298,9 @@ export async function startSkillCatalogFixture(input: {
               "content-type": "application/json",
             },
             body: JSON.stringify(value),
-            signal: AbortSignal.timeout(100_000),
+            signal: AbortSignal.timeout(
+              Math.ceil(Math.min(deadline - Date.now(), ceiling) + 10_000),
+            ),
           });
           const result = (await native.json()) as Record<string, unknown>;
           receipt.native = native.ok && result.executionFinished === true;

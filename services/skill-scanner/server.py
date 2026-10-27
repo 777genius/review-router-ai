@@ -302,6 +302,8 @@ def terminate(process: subprocess.Popen):
 
 def run_child(settings: Settings, profile: dict, content: str, deadline: float,
               directory: Path) -> object:
+    if time.monotonic() >= deadline:
+        return None
     (directory / "SKILL.md").write_bytes(content.encode("utf-8"))
     environment = {
         "PATH": str(Path(sys.executable).parent) + ":/usr/bin:/bin", "HOME": str(directory),
@@ -316,6 +318,8 @@ def run_child(settings: Settings, profile: dict, content: str, deadline: float,
         environment.update({"HTTPS_PROXY": settings.proxy, "HTTP_PROXY": settings.proxy})
     environment["TIKTOKEN_CACHE_DIR"] = str(Path(sys.prefix) / "share" / "tiktoken")
     command = [sys.executable, "-I", str(ROOT / "job.py"), str(directory), profile["mode"], str(os.getpid())]
+    if time.monotonic() >= deadline:
+        return None
     process = subprocess.Popen(command, cwd=directory, env=environment, start_new_session=True,
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     # Only the trusted supervisor receives the scoped model key, over a private
@@ -365,9 +369,11 @@ def run_child(settings: Settings, profile: dict, content: str, deadline: float,
             process.stdin.close()
 
 
-def execute(settings: Settings, profile: dict, content: str, remaining: float) -> object:
+def execute(settings: Settings, profile: dict, content: str, deadline: float) -> object:
+    deadline = min(deadline, time.monotonic() + profile["maxDurationMs"] / 1000)
+    if time.monotonic() >= deadline:
+        return None
     enable_child_reaping()
-    deadline = time.monotonic() + min(remaining, profile["maxDurationMs"] / 1000)
     with tempfile.TemporaryDirectory(prefix="scan-", dir=settings.scratch) as name:
         return run_child(settings, profile, content, deadline, Path(name))
 
@@ -416,6 +422,8 @@ def make_server(settings: Settings, address=("0.0.0.0", 8081)) -> BoundedServer:
                 remaining = deadline.timestamp() - time.time()
                 if remaining <= 0 or remaining > selected["maxDurationMs"] / 1000 + 5:
                     raise ValueError("expired_deadline")
+                # Admission and scheduling consume the same execution budget.
+                deadline_monotonic = time.monotonic() + min(remaining, selected["maxDurationMs"] / 1000)
             except (ValueError, TypeError, KeyError, AttributeError, UnicodeError, OSError):
                 self.reply(400, {"error": "invalid_request"})
                 return
@@ -431,7 +439,7 @@ def make_server(settings: Settings, address=("0.0.0.0", 8081)) -> BoundedServer:
                     return
                 attempts[request["attemptId"]] = now + 600
             try:
-                report = execute(settings, selected, content, remaining)
+                report = execute(settings, selected, content, deadline_monotonic)
             except Exception:
                 # Keep the permit poisoned until the container is restarted. A
                 # timeout in the caller cannot prove that this process group died.

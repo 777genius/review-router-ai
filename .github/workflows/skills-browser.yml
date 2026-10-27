@@ -239,6 +239,9 @@ jobs:
         run: |
           npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
           node scripts/install-private-dependencies.mjs --ignore-scripts --frozen-lockfile
+          # Fetch only the locked engine binaries during dependency preparation.
+          # Prisma generation below still runs with the network disabled.
+          pnpm rebuild @prisma/engines
           node scripts/prepare-pinned-subscription-runtime.ts
           pnpm --dir scripts/accounts-reference-e2e install --ignore-scripts --frozen-lockfile
 

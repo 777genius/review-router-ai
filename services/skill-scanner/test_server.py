@@ -125,9 +125,31 @@ class ScannerTests(unittest.TestCase):
 
     def test_actual_child_deadline_terminates_and_cleans_scratch(self):
         started = time.monotonic()
-        report = execute(self.settings, self.settings.profiles()[0], BENIGN, .01)
+        report = execute(self.settings, self.settings.profiles()[0], BENIGN, time.monotonic() + .01)
         self.assertIsNone(report)
         self.assertLess(time.monotonic() - started, 6)
+        self.assertEqual(list(self.settings.scratch.iterdir()), [])
+
+    def test_expired_budget_never_launches_a_child(self):
+        with patch("server.subprocess.Popen") as child:
+            report = execute(self.settings, self.settings.profiles()[0], BENIGN, time.monotonic() - 1)
+            self.assertIsNone(report)
+            child.assert_not_called()
+        self.assertEqual(list(self.settings.scratch.iterdir()), [])
+
+    def test_admission_delay_does_not_restart_the_execution_deadline(self):
+        def delayed(settings, profile, content, deadline):
+            time.sleep(1.1)
+            return execute(settings, profile, content, deadline)
+        with running(make_server(self.settings, ("127.0.0.1", 0))) as origin, httpx.Client(trust_env=False) as client:
+            request = scan_request(self.settings)
+            request["deadlineAt"] = (datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat()
+            with patch("server.execute", side_effect=delayed), patch("server.subprocess.Popen") as child:
+                result = client.post(origin + "/v1/scans", headers={"Authorization": "Bearer " + self.settings.token}, json=request)
+                self.assertEqual(result.status_code, 200)
+                self.assertTrue(result.json()["executionFinished"])
+                self.assertIsNone(result.json()["report"])
+                child.assert_not_called()
         self.assertEqual(list(self.settings.scratch.iterdir()), [])
 
     def test_unconfirmed_exit_keeps_capacity_closed_until_restart(self):
@@ -177,7 +199,7 @@ else:
         with running(provider) as origin:
             settings = Settings(self.settings.token, self.settings.scratch, self.settings.build,
                                 origin + "/v1", "fixture-model", "fixture-model-key")
-            report = execute(settings, settings.profiles()[1], BENIGN, 5)
+            report = execute(settings, settings.profiles()[1], BENIGN, time.monotonic() + 5)
             self.assertTrue(entered.is_set(), "must interrupt an actual in-flight model request")
             self.assertIsNone(report)
             self.assertTrue(closed.wait(1), "upstream socket survived executionFinished")
@@ -211,7 +233,7 @@ else:
         with loopback_model() as (origin, received):
             settings = Settings(self.settings.token, self.settings.scratch, self.settings.build,
                                 origin + "/v1", "fixture-model", "fixture-model-key")
-            report = execute(settings, settings.profiles()[1], BENIGN, 30)
+            report = execute(settings, settings.profiles()[1], BENIGN, time.monotonic() + 30)
             if os.environ.get("SKILL_SCANNER_TEST_OUTPUT") and report is not None:
                 Path(os.environ["SKILL_SCANNER_TEST_OUTPUT"], "native-ai.json").write_text(json.dumps(report))
         self.assertIsInstance(report, dict)

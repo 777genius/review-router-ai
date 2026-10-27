@@ -86,7 +86,7 @@ export function createSkillCatalogAdmission(
       await prisma.$transaction(async (tx) => {
         const time = await tx.$queryRaw<
           readonly { now: Date }[]
-        >`SELECT clock_timestamp() AS "now"`;
+        >`SELECT clock_timestamp() AT TIME ZONE 'UTC' AS "now"`;
         await consume(
           tx,
           rules(

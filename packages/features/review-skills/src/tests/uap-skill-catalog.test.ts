@@ -92,8 +92,16 @@ describe("bounded UAP catalog adapter", () => {
       repository,
       commit,
       candidates: [
-        { name: "Checks", path: "skills/checks" },
-        { name: "Checks", path: "plugins/checks" },
+        {
+          name: "Checks",
+          description: "Review instructions",
+          path: "skills/checks",
+        },
+        {
+          name: "Checks",
+          description: "Review instructions",
+          path: "plugins/checks",
+        },
       ],
     });
     expect(
@@ -109,7 +117,7 @@ describe("bounded UAP catalog adapter", () => {
     const { source, fetch } = fixture({
       items: [
         {
-          id: "skills-sh/review",
+          id: "skills-sh:example/skills:review",
           title: "Review",
           providerUrl: "https://skills.sh/example/skills/review",
           skillNameHint: "review",
@@ -118,6 +126,7 @@ describe("bounded UAP catalog adapter", () => {
         },
       ],
       page: 0,
+      query: "review",
       hasMore: true,
       cache: { status: "stale" },
     });
@@ -130,6 +139,52 @@ describe("bounded UAP catalog adapter", () => {
     });
     const [, init] = fetch.mock.calls[0]!;
     expect(init?.headers).not.toHaveProperty("authorization");
+  });
+
+  it("preserves mixed-case GitHub listing identity including valid underscored repository names", async () => {
+    const { source } = fixture({
+      items: [
+        {
+          id: "skills-sh:Example/_Skills:review",
+          title: "Review",
+          providerUrl: "https://skills.sh/Example/_Skills/review",
+          skillNameHint: "review",
+          source: { kind: "github", repository: "Example/_Skills" },
+          availability: "unverified",
+        },
+      ],
+      page: 0,
+      total: 1,
+      hasMore: false,
+      cache: { status: "fresh" },
+    });
+    expect((await source.search({ query: "", page: 0 })).items).toMatchObject([
+      { repository: "Example/_Skills", available: true },
+    ]);
+  });
+
+  it("uses the resolver's UTF-8 path byte cap and rejects control characters in returned choices", async () => {
+    const path = "é".repeat(2048);
+    const response = resolved();
+    response.skill.path = path;
+    expect(
+      await fixture(response).source.resolve({ repository, commit, path }),
+    ).toMatchObject({
+      status: "resolved",
+      source: { path },
+    });
+    for (const invalid of [`${path}x`, "skills/line\nfeed", "skills/tab\tpath"])
+      await expect(
+        fixture({
+          version: 1,
+          status: "selection_required",
+          repository,
+          commit,
+          candidates: [
+            { name: "review", description: "Checks", path: invalid },
+          ],
+        }).source.resolve({ repository }),
+      ).rejects.toMatchObject({ code: "unavailable" });
   });
 
   it("fails unavailable with bounded retry timing and never exposes upstream error bodies", async () => {
@@ -148,13 +203,11 @@ describe("bounded UAP catalog adapter", () => {
       new Uint8Array(256 * 1024 + 1).fill(32),
       new Uint8Array([123, 34, 120, 34, 58, 34, 255, 34, 125]),
     ]) {
-      const fetch = vi
-        .fn<typeof globalThis.fetch>()
-        .mockResolvedValue(
-          new Response(body, {
-            headers: { "content-type": "application/json" },
-          }),
-        );
+      const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+        new Response(body, {
+          headers: { "content-type": "application/json" },
+        }),
+      );
       await expect(
         new HttpUapSkillCatalog({ resolveToken: "token", fetch }).resolve({
           repository,

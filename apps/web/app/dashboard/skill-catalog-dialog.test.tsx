@@ -74,6 +74,7 @@ vi.mock("./review-skills-ui", () => ({
 }));
 import { SkillCatalogClientError } from "../../src/features/review-skills/catalog-client-adapter";
 import { SkillCatalogDialog } from "./skill-catalog-dialog";
+import { skillCatalogKeys } from "../../src/features/review-skills/catalog-query-keys";
 
 const expiry = "2099-01-01T00:00:00.000Z";
 function candidate(id = "candidate"): ReviewSkillImportCandidate {
@@ -177,7 +178,10 @@ describe("catalog client command lifetime", () => {
       },
     );
   });
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
 
   it("does not reuse a static success under the AI choice and renders preview instructions as text", async () => {
     mount();
@@ -241,6 +245,127 @@ describe("catalog client command lifetime", () => {
     expect(commands).toHaveLength(2);
     expect(commands[1]).toEqual(commands[0]);
     expect(commands[0].operationId).toMatch(/^[a-f0-9-]{36}$/u);
+  });
+
+  it.each(["scanner outage", "preview expiry"] as const)(
+    "recovers the exact uncertain scan after %s without enabling a new import",
+    async (changed) => {
+      const normal = h.request.getMockImplementation()!;
+      let requests = 0;
+      let available = true;
+      h.request.mockImplementation(
+        async (method: string, input: { mode?: "static" | "ai" }) => {
+          if (method === "configuration" && !available)
+            return { scanAvailable: false, aiAvailable: false };
+          if (method === "requestScan" && ++requests === 1)
+            throw new SkillCatalogClientError("unknown", "reply lost");
+          return normal(method, input);
+        },
+      );
+      const client = mount();
+      await preview();
+      fireEvent.click(screen.getByRole("button", { name: "Check skill" }));
+      await screen.findByRole("button", { name: "Retry check" });
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      const configurationKey = skillCatalogKeys.configuration(
+        "viewer",
+        "workspace",
+      );
+      if (changed === "scanner outage") {
+        available = false;
+        await client.invalidateQueries({
+          queryKey: configurationKey,
+          refetchType: "none",
+        });
+      } else {
+        vi.spyOn(Date, "now").mockReturnValue(
+          Date.parse("2100-01-01T00:00:00.000Z"),
+        );
+      }
+      fireEvent.click(screen.getByRole("button", { name: "Browse catalog" }));
+      if (changed === "scanner outage")
+        await waitFor(() =>
+          expect(client.getQueryData(configurationKey)).toEqual({
+            scanAvailable: false,
+            aiAvailable: false,
+          }),
+        );
+      const retry = screen.getByRole("button", {
+        name: "Retry check",
+      }) as HTMLButtonElement;
+      expect(retry.disabled).toBe(false);
+      fireEvent.click(retry);
+      if (changed === "preview expiry") {
+        await screen.findByText(
+          "This preview expired. Open the skill again from the catalog.",
+        );
+        expect(
+          (
+            screen.getByRole("button", {
+              name: "Check again",
+            }) as HTMLButtonElement
+          ).disabled,
+        ).toBe(true);
+      } else {
+        await screen.findByText("No issues found");
+      }
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "Add to library",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(true);
+      const commands = h.request.mock.calls
+        .filter(([method]) => method === "requestScan")
+        .map(([, input]) => input);
+      expect(commands).toHaveLength(2);
+      expect(commands[1]).toEqual(commands[0]);
+    },
+  );
+
+  it("offers a new check when the server refuses an otherwise clear report after a profile change", async () => {
+    const normal = h.request.getMockImplementation()!;
+    let scans = 0;
+    h.request.mockImplementation(
+      async (
+        method: string,
+        input: { mode?: "static" | "ai"; scanId?: string },
+      ) => {
+        if (method === "requestScan")
+          return { ...completed(), id: `scan-${++scans}` };
+        if (method === "loadScan") return { ...completed(), id: input.scanId };
+        if (method === "importCandidate" && scans === 1)
+          throw new SkillCatalogClientError("incomplete", "Run another check");
+        return normal(method, input);
+      },
+    );
+    mount();
+    await preview();
+    fireEvent.click(screen.getByRole("button", { name: "Check skill" }));
+    await screen.findByText("No issues found");
+    fireEvent.click(screen.getByRole("button", { name: "Add to library" }));
+    await screen.findByText("Check this skill again before adding it.");
+    expect(screen.queryByText("No issues found")).toBeNull();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Add to library",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await screen.findByText("No issues found");
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add to library" }));
+    await waitFor(() => expect(h.imported).toHaveBeenCalledOnce());
+    const scansRequested = h.request.mock.calls
+      .filter(([method]) => method === "requestScan")
+      .map(([, input]) => input);
+    expect(scansRequested).toHaveLength(2);
+    expect(scansRequested[0].operationId).not.toBe(
+      scansRequested[1].operationId,
+    );
   });
 
   it("keeps an uncertain import immutable and replays it after reopening", async () => {

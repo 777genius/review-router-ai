@@ -33,13 +33,22 @@ type ScanRow = {
 async function sql<T extends pg.QueryResultRow = pg.QueryResultRow>(
   statement: string,
   values: unknown[] = [],
+  historicalReceipt = false,
 ): Promise<T[]> {
   const client = new pg.Client({
     connectionString: process.env.ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL,
   });
   await client.connect();
   try {
-    return (await client.query<T>(statement, values)).rows;
+    if (historicalReceipt) {
+      // Only the fixture owner can seed historical receipts. Runtime roles
+      // must start new rows queued and cannot manufacture completed reports.
+      await client.query("BEGIN");
+      await client.query("SET LOCAL session_replication_role = replica");
+    }
+    const result = (await client.query<T>(statement, values)).rows;
+    if (historicalReceipt) await client.query("COMMIT");
+    return result;
   } finally {
     await client.end();
   }
@@ -305,9 +314,10 @@ test.describe("Catalog real checked import", () => {
       instructions: string;
       canonicalText: string;
       contentDigest: string;
+      sourceRepository: string;
       count: number;
     }>(
-      `SELECT revision.name,revision.description,revision.instructions,candidate."canonicalText",candidate."contentDigest",(SELECT count(*)::int FROM "ReviewSkillBinding" WHERE "skillId"=candidate."importedSkillId") AS count FROM "ReviewSkillImportCandidate" candidate JOIN "ReviewSkill" skill ON skill.id=candidate."importedSkillId" JOIN "ReviewSkillRevision" revision ON revision.id=skill."headRevisionId" WHERE candidate.id=$1`,
+      `SELECT revision.name,revision.description,revision.instructions,candidate."canonicalText",candidate."contentDigest",candidate."sourceRepository",(SELECT count(*)::int FROM "ReviewSkillBinding" WHERE "skillId"=candidate."importedSkillId") AS count FROM "ReviewSkillImportCandidate" candidate JOIN "ReviewSkill" skill ON skill.id=candidate."importedSkillId" JOIN "ReviewSkillRevision" revision ON revision.id=skill."headRevisionId" WHERE candidate.id=$1`,
       [scanned.candidateId],
     );
     expect(saved).toHaveLength(1);
@@ -319,6 +329,7 @@ test.describe("Catalog real checked import", () => {
       `sha256:${createHash("sha256").update(saved[0]!.canonicalText).digest("hex")}`,
     );
     expect(saved[0]!.count).toBe(1);
+    expect(saved[0]!.sourceRepository).toBe("rr-catalog-fixture/skills");
   });
 
   test("Catalog AI choice requires its own native check before importing the same preview", async ({
@@ -574,7 +585,7 @@ test.describe("Catalog real checked import", () => {
       dialog.getByRole("heading", { name: "Choose the skill to preview" }),
     ).toBeVisible();
     await capture(dialog, "skills-catalog-source-choice-desktop.png");
-    await dialog.getByRole("button", { name: "Choose Second review" }).click();
+    await dialog.getByRole("button", { name: "Choose ambiguous-two" }).click();
     await expect(
       dialog.getByRole("heading", { name: "ambiguous-two", exact: true }),
     ).toBeVisible();
@@ -713,6 +724,7 @@ test.describe("Catalog real checked import", () => {
           profile.fingerprint,
           candidateId,
         ],
+        true,
       );
       await route.fallback();
     });

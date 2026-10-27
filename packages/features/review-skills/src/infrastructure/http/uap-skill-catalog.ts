@@ -11,7 +11,7 @@ import {
 
 type ObjectValue = Record<string, unknown>;
 const repositoryPattern =
-  /^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/u;
+  /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9_.-]{1,100}$/u;
 const commitPattern = /^[a-f0-9]{40}$/u;
 const digestPattern = /^[a-f0-9]{64}$/u;
 
@@ -39,10 +39,11 @@ function boolean(value: unknown): boolean {
 function sourcePath(value: unknown): string {
   const path = text(value, 4096);
   if (
-    path &&
-    (path.startsWith("/") ||
-      path.includes("\\") ||
-      path.split("/").some((part) => !part || part === "." || part === ".."))
+    Buffer.byteLength(path, "utf8") > 4096 ||
+    /[\\\t\r\n]/u.test(path) ||
+    (path &&
+      (path.startsWith("/") ||
+        path.split("/").some((part) => !part || part === "." || part === "..")))
   )
     return unavailable();
   return path;
@@ -185,7 +186,8 @@ export class HttpUapSkillCatalog implements ReviewSkillsCatalogSourcePort {
       const source = object(row.source);
       const repository =
         typeof source.repository === "string" &&
-        repositoryPattern.test(source.repository)
+        repositoryPattern.test(source.repository) &&
+        ![".", ".."].includes(source.repository.split("/")[1]!)
           ? source.repository
           : null;
       let providerUrl: URL;

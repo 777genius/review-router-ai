@@ -13,6 +13,7 @@ import { processReviewSkillScan } from "../application/process-review-skill-scan
 import { PortableSkillImportNormalizer } from "../infrastructure/serialization/portable-skill-import-normalizer.js";
 import { claimReviewSkillsPostgresFixture } from "./postgres-fixture.js";
 import { scanProfile, nativeReport } from "./skill-catalog-fixtures.js";
+import { capturedNativeSkillSpectorReports } from "./skillspector-native-report-fixtures.js";
 import type {
   ReviewSkillsCatalogActor,
   ReviewSkillScanProfile,
@@ -260,6 +261,45 @@ describe.skipIf(!url)(
       await expect(
         store.loadCandidate({ ...other, candidateId: c.id }),
       ).rejects.toMatchObject({ code: "not_found" });
+    });
+    it("persists native usage without refunding reserved calls or exposing technical counters to the user", async () => {
+      const who = await actor(),
+        c = await candidate(who),
+        profile = scanProfile("ai"),
+        job = await request(who, c.id, profile);
+      await processReviewSkillScan(claim(job.id), {
+        store,
+        profiles: [profile],
+        executor: {
+          scan: async (execution) => ({
+            jobId: execution.jobId,
+            attemptId: execution.attemptId,
+            contentDigest: execution.contentDigest,
+            profileFingerprint: execution.profile.fingerprint,
+            scannerBuildId: execution.profile.scannerBuildId,
+            executionFinished: true,
+            report: capturedNativeSkillSpectorReports.ai,
+          }),
+        },
+      });
+      const stored = await prisma.reviewSkillScan.findUniqueOrThrow({
+        where: { id: job.id },
+      });
+      expect(stored.budgetUnits).toBe(4);
+      expect(stored.report).toMatchObject({
+        verdict: "clear",
+        reportedUsage: {
+          callsAttempted: 3,
+          callsSucceeded: 3,
+          inputTokens: 300,
+          outputTokens: 30,
+          totalTokens: 330,
+        },
+      });
+      const visible = await store.loadScan({ ...who, scanId: job.id });
+      expect(visible.verdict).toBe("clear");
+      expect(visible).not.toHaveProperty("reportedUsage");
+      expect(visible).not.toHaveProperty("budgetUnits");
     });
     it("rolls back all budget scopes, job and outbox when a later admission rule refuses", async () => {
       const who = await actor(),

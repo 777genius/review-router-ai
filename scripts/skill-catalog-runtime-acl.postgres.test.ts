@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import type { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -233,6 +233,62 @@ describe.skipIf(!url)("Skills catalog actual runtime roles", () => {
       worker_insert: false,
       worker_content: false,
     });
+  });
+  it("refuses forged initial reports, execution state and import receipts through the actual web INSERT grant", async () => {
+    const original = await web.reviewSkillScan.findUniqueOrThrow({
+      where: { id: scanId },
+    });
+    const initial = {
+      ...original,
+      profile: original.profile as Prisma.InputJsonValue,
+      status: "queued",
+      report: Prisma.DbNull,
+      startedAt: null,
+      completedAt: null,
+      claimId: null,
+      claimVersion: null,
+      claimUntil: null,
+      executionDeadlineAt: null,
+      slotUntil: null,
+    };
+    const forgeries: Partial<Prisma.ReviewSkillScanUncheckedCreateInput>[] = [
+      {
+        status: "completed",
+        report: { verdict: "clear", findings: [] },
+        completedAt: new Date(),
+      },
+      { status: "incomplete" },
+      { report: { verdict: "clear", findings: [] } },
+      { claimId: "forged-claim" },
+      { startedAt: new Date() },
+    ];
+    for (const forged of forgeries) {
+      await expect(
+        web.reviewSkillScan.create({
+          data: {
+            ...initial,
+            ...forged,
+            id: randomUUID(),
+            operationId: randomUUID(),
+          },
+        }),
+      ).rejects.toThrow("skill_scan_initial_state_invalid");
+    }
+    const importedCandidate =
+      await web.reviewSkillImportCandidate.findUniqueOrThrow({
+        where: { id: candidateId },
+      });
+    expect(importedCandidate.importedSkillId).not.toBeNull();
+    await expect(
+      web.reviewSkillImportCandidate.create({
+        data: {
+          ...importedCandidate,
+          id: randomUUID(),
+          omittedFields:
+            importedCandidate.omittedFields as Prisma.InputJsonValue,
+        },
+      }),
+    ).rejects.toThrow("skill_catalog_initial_receipt_invalid");
   });
   it("the actual activation verifier accepts all narrow Skills grants and rejects widened table, column or function grants", async () => {
     // Exercise the shipped verifier predicates against the eight Skills tables

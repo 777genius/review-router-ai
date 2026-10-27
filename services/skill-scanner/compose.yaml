@@ -1,4 +1,4 @@
-# Attach only the dedicated scan worker to skill-scan-private. No host ports.
+# Attach the web process and dedicated scan worker to this private network. No host ports.
 services:
   skill-scanner:
     build: .

@@ -27,8 +27,78 @@ describe("SkillSpector import policy", () => {
     expect(normalizeSkillScanReport(report, scanProfile())).toEqual({
       verdict: "clear",
       findings: [],
+      reportedUsage: null,
     });
   });
+  it("retains bounded native AI counters separately from reserved quota", () => {
+    expect(
+      normalizeSkillScanReport(
+        capturedNativeSkillSpectorReports.ai,
+        scanProfile("ai"),
+      ).reportedUsage,
+    ).toEqual({
+      callsAttempted: 3,
+      callsSucceeded: 3,
+      inputTokens: 300,
+      outputTokens: 30,
+      totalTokens: 330,
+    });
+    const incomplete = nativeReport("ai");
+    incomplete.metadata.llm_calls_succeeded = 1;
+    expect(
+      normalizeSkillScanReport(incomplete, scanProfile("ai")),
+    ).toMatchObject({
+      verdict: "incomplete",
+      reportedUsage: {
+        callsAttempted: 3,
+        callsSucceeded: 1,
+        inputTokens: null,
+        outputTokens: null,
+        totalTokens: null,
+      },
+    });
+  });
+  it.each([
+    { usage: [] },
+    {
+      usage: [
+        { prompt_tokens: -1, completion_tokens: "10", total_tokens: null },
+      ],
+    },
+    {
+      usage: [
+        {
+          prompt_tokens: Number.MAX_SAFE_INTEGER,
+          completion_tokens: Number.MAX_SAFE_INTEGER,
+          total_tokens: Number.MAX_SAFE_INTEGER,
+        },
+        { prompt_tokens: 1, completion_tokens: 1, total_tokens: 1 },
+      ],
+    },
+    {
+      usage: Array.from({ length: 65 }, () => ({
+        prompt_tokens: 1,
+        completion_tokens: 1,
+        total_tokens: 2,
+      })),
+    },
+  ])(
+    "records missing or invalid provider usage as unknown, never zero %#",
+    ({ usage }) => {
+      const report = nativeReport("ai");
+      report.metadata.inference_usage = usage;
+      expect(normalizeSkillScanReport(report, scanProfile("ai"))).toMatchObject(
+        {
+          verdict: "clear",
+          reportedUsage: {
+            inputTokens: null,
+            outputTokens: null,
+            totalTokens: null,
+          },
+        },
+      );
+    },
+  );
   it("blocks a high issue even when the aggregate score and recommendation are low", () => {
     const report = nativeReport();
     report.risk_assessment.max_issue_severity = "HIGH";

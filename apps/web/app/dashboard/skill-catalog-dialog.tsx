@@ -177,6 +177,7 @@ export function SkillCatalogDialog({
   const requesting = requestScan.isPending && currentRequest;
   const currentRequestError = currentRequest ? requestScan.error : null;
   const uncertainImport = Boolean(importAttempt) && isUnknown(add.error);
+  const recoveringScan = attempt?.uncertain === true;
   const locked = add.isPending || uncertainImport;
   const profileLocked = locked || requesting || attempt?.uncertain === true;
   const permissionLost = [
@@ -187,15 +188,23 @@ export function SkillCatalogDialog({
     currentRequestError,
     add.error,
   ].some(isForbidden);
+  const candidateExpired = Boolean(
+    candidate && Date.parse(candidate.expiresAt) <= now,
+  );
   const expired =
-    Boolean(candidate && Date.parse(candidate.expiresAt) <= now) ||
-    Boolean(scan && Date.parse(scan.expiresAt) <= now);
+    candidateExpired || Boolean(scan && Date.parse(scan.expiresAt) <= now);
+  const scanRefused =
+    add.error instanceof SkillCatalogClientError &&
+    add.error.code === "incomplete" &&
+    add.variables?.candidateId === candidate?.id &&
+    add.variables?.scanId === scan?.id;
   const exactScan = scan?.candidateId === candidate?.id && scan?.mode === mode;
   const eligible =
     exactScan &&
     scan?.status === "completed" &&
     (scan.verdict === "clear" || scan.verdict === "warnings") &&
-    !expired;
+    !expired &&
+    !scanRefused;
   const needsOmissions = Boolean(
     candidate?.omittedFields.length || candidate?.hasResources,
   );
@@ -203,6 +212,8 @@ export function SkillCatalogDialog({
   const selectedProfileAvailable =
     scanAvailable &&
     (mode === "static" || configuration.data?.aiAvailable === true);
+  const canRequestScan =
+    recoveringScan || (selectedProfileAvailable && !candidateExpired);
   const canAdd =
     eligible &&
     selectedProfileAvailable &&
@@ -237,9 +248,10 @@ export function SkillCatalogDialog({
       requesting ||
       isRunning(scan) ||
       locked ||
-      !selectedProfileAvailable
+      !canRequestScan
     )
       return;
+    add.reset();
     const command =
       attempt && !attempt.scanId
         ? attempt.command
@@ -273,7 +285,7 @@ export function SkillCatalogDialog({
     ? (resolve.error ??
       (isUnknown(currentRequestError) ? null : currentRequestError) ??
       scanQuery.error ??
-      (isUnknown(add.error) ? null : add.error) ??
+      (isUnknown(add.error) || scanRefused ? null : add.error) ??
       configuration.error)
     : listing.error;
 
@@ -303,13 +315,7 @@ export function SkillCatalogDialog({
                     type="button"
                     variant="outline"
                     disabled={
-                      locked ||
-                      requesting ||
-                      isRunning(scan) ||
-                      !selectedProfileAvailable ||
-                      Boolean(
-                        candidate && Date.parse(candidate.expiresAt) <= now,
-                      )
+                      locked || requesting || isRunning(scan) || !canRequestScan
                     }
                     onClick={check}
                   >
@@ -556,8 +562,8 @@ export function SkillCatalogDialog({
             ) : null}
             {uncertainImport ? (
               <p role="status" className="text-sm text-amber-100">
-                Result not confirmed. The skill may already be in your library.
-                Retry adding to recover the same result.
+                No confirmation yet. The skill may already be in your library.
+                Try again to confirm it was added.
               </p>
             ) : attempt?.uncertain ? (
               <p role="status" className="text-sm text-amber-100">
@@ -569,7 +575,7 @@ export function SkillCatalogDialog({
                 Checking… You can close this window and return while it
                 finishes.
               </p>
-            ) : expired ? (
+            ) : expired || scanRefused ? (
               <p role="status" className="text-sm text-amber-100">
                 {candidate && Date.parse(candidate.expiresAt) <= now
                   ? "This preview expired. Open the skill again from the catalog."

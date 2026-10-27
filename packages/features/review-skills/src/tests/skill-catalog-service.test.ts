@@ -252,7 +252,7 @@ describe("Skills scan execution fencing", () => {
     expect(executor.scan).toHaveBeenCalledTimes(1);
     expect(s.store.finishScan).toHaveBeenCalledWith({
       ...claim,
-      report: { verdict: "incomplete", findings: [] },
+      report: { verdict: "incomplete", findings: [], reportedUsage: null },
       confirmedExit: false,
     });
   });
@@ -277,7 +277,7 @@ describe("Skills scan execution fencing", () => {
     });
     expect(s.store.finishScan).toHaveBeenCalledWith(
       expect.objectContaining({
-        report: { verdict: "incomplete", findings: [] },
+        report: { verdict: "incomplete", findings: [], reportedUsage: null },
       }),
     );
   });
