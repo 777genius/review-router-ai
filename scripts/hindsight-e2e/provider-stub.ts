@@ -45,6 +45,13 @@ export async function startProviderStub() {
     nonConsolidationChat: 0,
     // Fixed structural counters only; never record prompts or request bodies.
     unrelatedChatPrompt: 0,
+    // Overlapping, fixed-shape classifications of still-rejected calls.
+    // No prompt, request text, hash, length or credential is persisted.
+    unrelatedRetainExtraction: 0,
+    unrelatedSystemFirst: 0,
+    unrelatedMultipleMessages: 0,
+    unrelatedDedupMarkerElsewhere: 0,
+    unrelatedJsonObjectMode: 0,
     dedupEnvelopeMismatch: 0,
     dedupPrefixMismatch: 0,
     dedupFormatMismatch: 0,
@@ -222,6 +229,18 @@ export async function startProviderStub() {
               !messageContent.includes(dedupMarker)
             ) {
               unexpectedByReason.unrelatedChatPrompt += 1;
+              // Only classify against immutable native-source prompt contracts.
+              // These observations MUST NOT admit previously rejected traffic.
+              if (text.includes("Extract SIGNIFICANT facts from text. Be SELECTIVE"))
+                unexpectedByReason.unrelatedRetainExtraction += 1;
+              if (messages[0]?.role === "system")
+                unexpectedByReason.unrelatedSystemFirst += 1;
+              if (messages.length > 1)
+                unexpectedByReason.unrelatedMultipleMessages += 1;
+              if (text.includes(dedupMarker))
+                unexpectedByReason.unrelatedDedupMarkerElsewhere += 1;
+              if (body.response_format?.type === "json_object")
+                unexpectedByReason.unrelatedJsonObjectMode += 1;
             } else if (
               body.model !== "stub-model" ||
               messages.length !== 1 ||

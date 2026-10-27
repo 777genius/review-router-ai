@@ -46,6 +46,10 @@ export async function qualifyNative() {
   );
   await mkdir(output, { recursive: true });
   const stub = await startProviderStub();
+  const providerPhases: Record<string, number> = {};
+  const recordProviderPhase = (phase: string) => {
+    providerPhases[phase] = stub.calls.unexpected;
+  };
   const run = `rr-hs-${randomUUID().slice(0, 8)}`;
   const pg = `${run}-postgres`;
   const dbPort = await freePort();
@@ -496,6 +500,7 @@ export async function qualifyNative() {
     const text = `Use transactional writes for ревью.\n${privacySentinel} approved distilled statement.`;
     const first = await retain(document, text);
     await settled(first);
+    recordProviderPhase("first-retain-settled");
     assert.equal(
       (await request<Document>(path(`/documents/${document}`))).original_text,
       text,
@@ -628,6 +633,7 @@ export async function qualifyNative() {
       },
       422,
     );
+    recordProviderPhase("before-enable-auto-consolidation");
     await request(path("/config"), "PATCH", {
       updates: { enable_observations: true, enable_auto_consolidation: true },
     });
@@ -675,6 +681,7 @@ export async function qualifyNative() {
     await request(path("/config"), "PATCH", {
       updates: { enable_observations: false, enable_auto_consolidation: false },
     });
+    recordProviderPhase("after-malformed-consolidation");
     const inspectSinks = async () => {
       const counts = JSON.parse(
         await sql(
@@ -836,7 +843,7 @@ export async function qualifyNative() {
     assert.equal(
       stub.calls.unexpected,
       0,
-      `Unscripted native provider request occurred: ${JSON.stringify(stub.unexpectedByReason)}`,
+      `Unscripted native provider request occurred: ${JSON.stringify({ reasons: stub.unexpectedByReason, phases: providerPhases })}`,
     );
     const healthProbe = await command([
       "exec",

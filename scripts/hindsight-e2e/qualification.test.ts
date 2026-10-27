@@ -35,6 +35,23 @@ test("provider stub fails unscripted calls and supplies intentional private erro
     assert.equal(unknown.status, 400);
     assert.equal(stub.calls.unexpected, 1);
     assert.equal(stub.unexpectedByReason.unrelatedChatPrompt, 1);
+    const pinnedExtractionSystem = await fetch(`${stub.url}/v1/chat/completions`, {
+      method: "POST",
+      body: JSON.stringify({
+        model: "stub-model",
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: "Extract SIGNIFICANT facts from text. Be SELECTIVE - only extract facts worth remembering long-term." },
+          { role: "user", content: "Synthetic fixture only." },
+        ],
+      }),
+    });
+    assert.equal(pinnedExtractionSystem.status, 400);
+    assert.equal(stub.calls.unexpected, 2);
+    assert.equal(stub.unexpectedByReason.unrelatedRetainExtraction, 1);
+    assert.equal(stub.unexpectedByReason.unrelatedSystemFirst, 1);
+    assert.equal(stub.unexpectedByReason.unrelatedMultipleMessages, 1);
+    assert.equal(stub.unexpectedByReason.unrelatedJsonObjectMode, 1);
     for (const mode of ["echo400", "echo500"] as const) {
       stub.setMode(mode);
       const response = await fetch(`${stub.url}/v1/embeddings`, {
