@@ -31,7 +31,13 @@ export async function startProviderStub() {
     | { readonly observationId: string; readonly sourceMarker: string }
     | undefined;
   let held = 0;
-  const calls = { embeddings: 0, rerank: 0, consolidation: 0, unexpected: 0 };
+  const calls = {
+    embeddings: 0,
+    rerank: 0,
+    consolidation: 0,
+    semanticDedup: 0,
+    unexpected: 0,
+  };
   // Never record request paths, prompts or bodies in qualification diagnostics.
   const unexpectedByReason = {
     invalidEmbeddingShape: 0,
@@ -138,6 +144,44 @@ export async function startProviderStub() {
           const text = messages
             .map((message: { content?: string }) => message.content ?? "")
             .join("\n");
+          // Pinned Hindsight 1.1.0 enables semantic dedup by default. Only
+          // its focused NEW/EXISTING prompt receives a deterministic verdict.
+          const isSemanticDedup =
+            body.model === "stub-model" &&
+            messages.length === 1 &&
+            messages[0]?.role === "user" &&
+            typeof messages[0]?.content === "string" &&
+            messages[0].content.startsWith(
+              "You reconcile long-term memory observations.",
+            ) &&
+            messages[0].content.includes("[NEW] ") &&
+            messages[0].content.includes("[EXISTING] ") &&
+            messages[0].content.includes("Respond with ONLY one valid JSON object");
+          const complete = (content: string) =>
+            reply(response, 200, {
+              id: "chatcmpl-native-fixture",
+              object: "chat.completion",
+              created: 0,
+              model: body.model,
+              choices: [
+                {
+                  index: 0,
+                  message: { role: "assistant", content },
+                  finish_reason: "stop",
+                },
+              ],
+              usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+            });
+          if (isSemanticDedup) {
+            calls.semanticDedup += 1;
+            return complete(
+              JSON.stringify({
+                action: "keep",
+                text: "",
+                reason: "synthetic fixture keeps distinct observations",
+              }),
+            );
+          }
           if (!text.includes("### Existing observations")) {
             markUnexpected("nonConsolidationChat");
             return reply(response, 400, {
@@ -196,20 +240,7 @@ export async function startProviderStub() {
                     : [],
                   deletes: [],
                 });
-          return reply(response, 200, {
-            id: "chatcmpl-native-fixture",
-            object: "chat.completion",
-            created: 0,
-            model: body.model,
-            choices: [
-              {
-                index: 0,
-                message: { role: "assistant", content },
-                finish_reason: "stop",
-              },
-            ],
-            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-          });
+          return complete(content);
         }
         markUnexpected("unsupportedEndpoint");
         return reply(response, 404, {

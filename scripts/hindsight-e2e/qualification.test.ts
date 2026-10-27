@@ -48,6 +48,42 @@ test("provider stub fails unscripted calls and supplies intentional private erro
   }
 });
 
+test("pinned semantic-dedup prompt gets deterministic keep while unscripted chats fail closed", async () => {
+  const stub = await startProviderStub();
+  const send = (content: string) =>
+    fetch(`${stub.url}/v1/chat/completions`, {
+      method: "POST",
+      body: JSON.stringify({
+        model: "stub-model",
+        messages: [{ role: "user", content }],
+      }),
+    });
+  try {
+    const prompt = `You reconcile long-term memory observations. A NEW observation is about to be stored, and it is highly similar to an EXISTING one:
+
+[NEW] Approved rule about transactional writes
+[EXISTING] Approved rule about repository isolation
+
+Respond with ONLY one valid JSON object matching one of these shapes:`;
+    const response = await send(prompt);
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as {
+      choices: { message: { content: string } }[];
+    };
+    assert.deepEqual(JSON.parse(body.choices[0]!.message.content), {
+      action: "keep",
+      text: "",
+      reason: "synthetic fixture keeps distinct observations",
+    });
+    assert.equal(stub.calls.semanticDedup, 1);
+    assert.equal(stub.calls.unexpected, 0);
+    assert.equal((await send(prompt.replace("[EXISTING]", "[OTHER]"))).status, 400);
+    assert.equal(stub.calls.unexpected, 1);
+  } finally {
+    await stub.close();
+  }
+});
+
 test("privacy sink removes fstrings, exception bodies, tracebacks, extras and uncaught errors", () => {
   const privacy = resolve(
     dirname(fileURLToPath(import.meta.url)),
