@@ -214,6 +214,9 @@ export async function startProviderStub() {
           // OpenAICompatibleLLM.verify_connection at the pinned native revision
           // sends this exact free-form probe, with a 512-token budget and no
           // temperature/schema/tools. It is not a memory inference request.
+          // This loopback profile enables no bank-attribution or cache-affinity
+          // body metadata. Reject extra body/message keys, not just known
+          // inference options, so protocol drift cannot pass the final guard.
           if (
             request.method === "POST" &&
             body.model === "stub-model" &&
@@ -221,14 +224,12 @@ export async function startProviderStub() {
             messages[0]?.role === "user" &&
             messageContent === "Say 'ok'" &&
             body.max_tokens === 512 &&
-            body.max_completion_tokens === undefined &&
-            body.temperature === undefined &&
-            body.response_format === undefined &&
-            body.tools === undefined &&
-            body.tool_choice === undefined &&
-            body.functions === undefined &&
-            body.function_call === undefined &&
-            body.stream === undefined
+            Object.keys(body).every((key) =>
+              ["model", "messages", "max_tokens"].includes(key),
+            ) &&
+            Object.keys(messages[0]).every((key) =>
+              ["role", "content"].includes(key),
+            )
           ) {
             calls.verification += 1;
             return complete("ok");

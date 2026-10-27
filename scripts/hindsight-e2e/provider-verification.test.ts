@@ -98,3 +98,80 @@ test("connection verification does not bypass intentional provider failures", as
     await stub.close();
   }
 });
+
+test("connection verification rejects every additional body field", async () => {
+  const stub = await startProviderStub();
+  const additions = [
+    { n: 2 },
+    { top_p: 0.25 },
+    { stop: ["ok"] },
+    { stop: null },
+    { seed: 1 },
+    { presence_penalty: 1 },
+    { frequency_penalty: 1 },
+    { logprobs: true },
+    { logit_bias: { "1": 100 } },
+    { reasoning_effort: "high" },
+    { store: false },
+    { metadata: {} },
+    { user: "synthetic-user" },
+    { prompt_cache_key: "synthetic-cache" },
+    { extra_body: {} },
+    { unknown_future_option: true },
+  ];
+  try {
+    for (const addition of additions) {
+      const response = await fetch(`${stub.url}/v1/chat/completions`, {
+        method: "POST",
+        body: JSON.stringify({ ...verification(), ...addition }),
+      });
+      assert.equal(
+        response.status,
+        400,
+        `Extra field ${Object.keys(addition)[0]} must be rejected`,
+      );
+      assert.deepEqual(await response.json(), {
+        error: { message: "unscripted_llm_call" },
+      });
+    }
+    assert.equal(stub.calls.verification, 0);
+    assert.equal(stub.calls.unexpected, additions.length);
+  } finally {
+    await stub.close();
+  }
+});
+
+test("connection verification rejects additional message fields", async () => {
+  const stub = await startProviderStub();
+  const additions = [
+    { name: "synthetic" },
+    { tool_calls: [] },
+    { tool_call_id: "synthetic-call" },
+    { function_call: {} },
+    { refusal: null },
+    { unknown_future_field: true },
+  ];
+  try {
+    for (const addition of additions) {
+      const response = await fetch(`${stub.url}/v1/chat/completions`, {
+        method: "POST",
+        body: JSON.stringify({
+          ...verification(),
+          messages: [{ ...verification().messages[0], ...addition }],
+        }),
+      });
+      assert.equal(
+        response.status,
+        400,
+        `Extra message field ${Object.keys(addition)[0]} must be rejected`,
+      );
+      assert.deepEqual(await response.json(), {
+        error: { message: "unscripted_llm_call" },
+      });
+    }
+    assert.equal(stub.calls.verification, 0);
+    assert.equal(stub.calls.unexpected, additions.length);
+  } finally {
+    await stub.close();
+  }
+});
