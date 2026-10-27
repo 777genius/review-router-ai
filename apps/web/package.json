@@ -32,6 +32,7 @@
     "@reviewrouter/platform-config": "workspace:*",
     "@reviewrouter/platform-db": "workspace:*",
     "@reviewrouter/platform-locks": "workspace:*",
+    "@reviewrouter/protocol-review-action-v2": "workspace:*",
     "@reviewrouter/shared": "workspace:*",
     "@reviewrouter/ui": "workspace:*",
     "@tanstack/react-query": "^5.100.8",

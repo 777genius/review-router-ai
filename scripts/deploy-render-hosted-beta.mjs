@@ -523,12 +523,25 @@ function assertHostedUrl(name, value) {
   }
 }
 
+function assertReviewAgentProfileEnv(env) {
+  const value = env.REVIEW_ROUTER_AGENT_PROFILE;
+  if (
+    value !== undefined &&
+    (typeof value !== "string" ||
+      !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u.test(value))
+  )
+    throw new Error(
+      "REVIEW_ROUTER_AGENT_PROFILE must be an opaque profile reference or unset",
+    );
+}
+
 export function assertHostedDeployEnv({ apiUrl, env, envFile, webUrl }) {
   // URL identity is security-sensitive workflow input and is never bypassed,
   // including staging deploys using REVIEW_ROUTER_ALLOW_LOCAL_DEPLOY_ENV.
   assertHostedUrl("REVIEW_ROUTER_WEB_URL", webUrl);
   assertHostedUrl("REVIEW_ROUTER_API_URL", apiUrl);
   if (env.NEXTAUTH_URL) assertHostedUrl("NEXTAUTH_URL", env.NEXTAUTH_URL);
+  assertReviewAgentProfileEnv(env);
 
   if (env.REVIEW_ROUTER_ALLOW_LOCAL_DEPLOY_ENV === "1") return;
 
@@ -774,7 +787,22 @@ export const reviewV2SharedRuntimeEnvNames = Object.freeze([
   "REVIEW_ROUTER_REVIEW_V2_WORKFLOW_PROVISIONING_MODE",
   ...reviewV2RequiredRuntimeEnvNames,
   reviewV2ProjectionPolicyVersionEnvKey,
+  "REVIEW_ROUTER_AGENT_PROFILE",
 ]);
+
+/** Skills support reads and admission must share the raw selection authority.
+ * Missing is intentionally distinct from an explicit default profile. */
+export function assertReviewV2WebApiSelectionEnvConvergence(webEnv, apiEnv) {
+  for (const key of [
+    "REVIEW_ROUTER_AGENT_PROFILE",
+    "REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON",
+  ]) {
+    if (webEnv[key] !== apiEnv[key])
+      throw new Error(
+        `Review v2 web/API selection environment drift for ${key}`,
+      );
+  }
+}
 
 function reviewV2RuntimeActive(env) {
   return (
@@ -974,6 +1002,9 @@ function reviewV2RuntimeEnvForRole(env, role) {
     ...flags,
     REVIEW_ROUTER_REVIEW_V2_WORKFLOW_PROVISIONING_MODE: provisioningMode,
     ...common,
+    ...(env.REVIEW_ROUTER_AGENT_PROFILE === undefined
+      ? {}
+      : { REVIEW_ROUTER_AGENT_PROFILE: env.REVIEW_ROUTER_AGENT_PROFILE }),
   };
   if (role === "api") {
     Object.assign(
@@ -1049,6 +1080,7 @@ export function buildServiceEnv({
   webUrl,
   apiUrl,
 }) {
+  assertReviewAgentProfileEnv(env);
   const runtimeGeneration = resolveRuntimeGenerationProofEnv(env);
   const stableSecrets = resolveStableSecuritySecrets(env);
   const installer = resolveCodexRotatingInstallerDescriptor(env);
@@ -2216,6 +2248,10 @@ export async function main() {
   assertReviewV2ApiWorkerEnvConvergence(
     convergedEnvByRole.api,
     convergedEnvByRole.worker,
+  );
+  assertReviewV2WebApiSelectionEnvConvergence(
+    convergedEnvByRole.web,
+    convergedEnvByRole.api,
   );
   for (const { service, spec } of services)
     await convergeImmutableRuntimeImage(client, service, spec, imageUrl);

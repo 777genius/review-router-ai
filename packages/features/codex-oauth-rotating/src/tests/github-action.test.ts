@@ -7,6 +7,7 @@ import {
   mkdtemp,
   realpath,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -2369,7 +2370,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     ]);
   });
 
-  it("runs fork sandbox E2E with certified provider context in the child runtime", async () => {
+  async function runForkSandboxE2E(installMissingClaude = false) {
     const tempDir = await mkdtemp(join(tmpdir(), "reviewrouter-fork-e2e-"));
     const binDir = join(tempDir, "bin");
     const eventPath = join(tempDir, "event.json");
@@ -2386,6 +2387,8 @@ describe("Codex rotating GitHub Action runtime", () => {
     const fakeFullRuntime = join(tempDir, "dist", "index.js");
     const runtimeEnvLog = join(tempDir, "fork-runtime-env.json");
     const claudeInstallEnvLog = join(tempDir, "claude-install-env.json");
+    const curlEnvLog = join(tempDir, "curl-env.json");
+    const installerEnvLog = join(tempDir, "installer-env.json");
     const invokedUrls: string[] = [];
     const requestBodies: string[] = [];
     const refreshedAuthJson = JSON.stringify({
@@ -2445,23 +2448,83 @@ describe("Codex rotating GitHub Action runtime", () => {
       { mode: 0o700 },
     );
     await writeCodexManifest(fakeCodex);
-    await writeFile(
-      fakeClaude,
-      [
-        "#!/usr/bin/env node",
-        "const { writeFileSync } = require('node:fs');",
-        `writeFileSync(${JSON.stringify(claudeInstallEnvLog)}, JSON.stringify({`,
-        "  cwd: process.cwd(),",
-        "  githubToken: process.env.GITHUB_TOKEN,",
-        "  claudeToken: process.env.CLAUDE_CODE_OAUTH_TOKEN,",
-        "  openrouterKey: process.env.OPENROUTER_API_KEY,",
-        "  path: process.env.PATH,",
-        "}));",
-        "process.stdout.write('claude 1.0.0\\n');",
+    const fakeClaudeSource = [
+      "#!/usr/bin/env node",
+      "const { writeFileSync } = require('node:fs');",
+      `writeFileSync(${JSON.stringify(claudeInstallEnvLog)}, JSON.stringify({`,
+      "  cwd: process.cwd(),",
+      "  home: process.env.HOME,",
+      "  githubToken: process.env.GITHUB_TOKEN,",
+      "  claudeToken: process.env.CLAUDE_CODE_OAUTH_TOKEN,",
+      "  openrouterKey: process.env.OPENROUTER_API_KEY,",
+      "  path: process.env.PATH,",
+      "}));",
+      "process.stdout.write('claude 1.0.0\\n');",
+      "",
+    ].join("\n");
+    if (installMissingClaude) {
+      // A closed PATH prevents a machine-installed Claude or curl from hiding
+      // the installer branch or reaching the network.
+      await symlink(process.execPath, join(binDir, "node"));
+      const realBash = execFileSync("bash", ["-c", "command -v bash"], {
+        encoding: "utf8",
+      }).trim();
+      for (const tool of ["tar", "gzip"]) {
+        const executable = execFileSync(
+          realBash,
+          ["-c", 'command -v "$1"', "fixture", tool],
+          { encoding: "utf8" },
+        ).trim();
+        await symlink(executable, join(binDir, tool));
+      }
+      await writeFile(
+        join(binDir, "bash"),
+        [
+          "#!/usr/bin/env node",
+          "const { spawnSync } = require('node:child_process');",
+          "const { realpathSync, writeFileSync } = require('node:fs');",
+          "const { basename, dirname, join } = require('node:path');",
+          "const args = process.argv.slice(2);",
+          "if (!['-c', '-s'].includes(args[0])) throw new Error('fixture_refuses_login_shell');",
+          "const home = realpathSync(process.env.HOME);",
+          `if (dirname(home) !== realpathSync(${JSON.stringify(tmpdir())}) || !basename(home).startsWith('reviewrouter-review-home-')) throw new Error('fixture_requires_owned_review_home');`,
+          // Only the Action's disposable home receives this profile. The real
+          // non-login Bash must ignore it, including when executing the pipe.
+          "if (args[0] === '-c') writeFileSync(join(home, '.bash_profile'), 'exit 93\\n', { flag: 'wx', mode: 0o600 });",
+          `const result = spawnSync(${JSON.stringify(realBash)}, args, { env: process.env, stdio: 'inherit' });`,
+          "process.exit(result.status ?? 1);",
+          "",
+        ].join("\n"),
+        { mode: 0o700 },
+      );
+      const installer = [
+        "node <<'REVIEW_ROUTER_TEST_INSTALLER'",
+        "const { mkdirSync, writeFileSync } = require('node:fs');",
+        "const { dirname, join } = require('node:path');",
+        `writeFileSync(${JSON.stringify(installerEnvLog)}, JSON.stringify(process.env));`,
+        "const cli = join(process.env.HOME, '.local', 'bin', 'claude');",
+        "mkdirSync(dirname(cli), { recursive: true });",
+        `writeFileSync(cli, ${JSON.stringify(fakeClaudeSource)}, { mode: 0o700 });`,
+        "REVIEW_ROUTER_TEST_INSTALLER",
         "",
-      ].join("\n"),
-      { mode: 0o700 },
-    );
+      ].join("\n");
+      await writeFile(
+        join(binDir, "curl"),
+        [
+          "#!/usr/bin/env node",
+          "const { existsSync, writeFileSync } = require('node:fs');",
+          "const { join } = require('node:path');",
+          "const args = process.argv.slice(2);",
+          "if (JSON.stringify(args) !== JSON.stringify(['-fsSL', 'https://claude.ai/install.sh'])) throw new Error('unexpected_fixture_download');",
+          `writeFileSync(${JSON.stringify(curlEnvLog)}, JSON.stringify({ env: process.env, profileExists: existsSync(join(process.env.HOME, '.bash_profile')) }));`,
+          `process.stdout.write(${JSON.stringify(installer)});`,
+          "",
+        ].join("\n"),
+        { mode: 0o700 },
+      );
+    } else {
+      await writeFile(fakeClaude, fakeClaudeSource, { mode: 0o700 });
+    }
     await writeFile(
       fakeFullRuntime,
       [
@@ -2472,6 +2535,8 @@ describe("Codex rotating GitHub Action runtime", () => {
         "const config = readFileSync(configPath, 'utf8');",
         `writeFileSync(${JSON.stringify(runtimeEnvLog)}, JSON.stringify({`,
         "  cwd: process.cwd(),",
+        "  home: process.env.HOME,",
+        "  path: process.env.PATH,",
         "  githubWorkspace: process.env.GITHUB_WORKSPACE,",
         "  safeFileExists: existsSync(join(process.cwd(), 'file.ts')),",
         "  relatedFileExists: existsSync(join(process.cwd(), 'related.ts')),",
@@ -2513,7 +2578,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       { mode: 0o700 },
     );
     await chmod(fakeCodex, 0o700);
-    await chmod(fakeClaude, 0o700);
+    if (!installMissingClaude) await chmod(fakeClaude, 0o700);
     await chmod(fakeFullRuntime, 0o700);
 
     const fetchImpl = vi.fn(async (url: string | URL, init?: RequestInit) => {
@@ -2630,7 +2695,9 @@ describe("Codex rotating GitHub Action runtime", () => {
           DB_PASSWORD: "db-password-inherited",
           CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-inherited",
           OPENROUTER_API_KEY: "sk-or-inherited",
-          PATH: `${binDir}:${process.env.PATH ?? ""}`,
+          PATH: installMissingClaude
+            ? binDir
+            : `${binDir}:${process.env.PATH ?? ""}`,
           ...supportedRunnerEnv(tempDir),
         },
         fetchImpl,
@@ -2707,6 +2774,31 @@ describe("Codex rotating GitHub Action runtime", () => {
       expect(claudeInstallEnv.githubToken).toBeUndefined();
       expect(claudeInstallEnv.claudeToken).toBeUndefined();
       expect(claudeInstallEnv.openrouterKey).toBeUndefined();
+      expect(claudeInstallEnv.home).toBe(reviewEnv.home);
+      expect(claudeInstallEnv.path).toBe(reviewEnv.path);
+      expect(String(claudeInstallEnv.path).split(":")).toContain(binDir);
+      if (installMissingClaude) {
+        const curlReceipt = JSON.parse(readFileSync(curlEnvLog, "utf8")) as {
+          env: Record<string, string>;
+          profileExists: boolean;
+        };
+        expect(curlReceipt.profileExists).toBe(true);
+        const installerEnv = JSON.parse(
+          readFileSync(installerEnvLog, "utf8"),
+        ) as Record<string, string>;
+        for (const toolEnv of [curlReceipt.env, installerEnv]) {
+          expect(toolEnv.HOME).toBe(reviewEnv.home);
+          expect(toolEnv.PATH).toBe(reviewEnv.path);
+          expect(toolEnv.CI).toBe("true");
+          expect(
+            Object.keys(toolEnv).filter(
+              (key) =>
+                !["HOME", "PATH", "CI", "PWD", "SHLVL", "_"].includes(key),
+            ),
+          ).toEqual([]);
+        }
+        expect(existsSync(fakeClaude)).toBe(false);
+      }
       expect(
         stdoutWrite.mock.calls.map(([chunk]) => String(chunk)).join(""),
       ).toContain("fork runtime marker");
@@ -2716,7 +2808,19 @@ describe("Codex rotating GitHub Action runtime", () => {
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
-  }, 60_000);
+  }
+
+  it(
+    "runs fork sandbox E2E with certified provider context in the child runtime",
+    () => runForkSandboxE2E(),
+    60_000,
+  );
+
+  it(
+    "installs missing Claude through a real non-login shell with an isolated environment",
+    () => runForkSandboxE2E(true),
+    60_000,
+  );
 
   it("runs the local Action transport with MiMo and existing provider keys isolated and masked", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "reviewrouter-action-e2e-"));
@@ -2875,6 +2979,7 @@ describe("Codex rotating GitHub Action runtime", () => {
         `writeFileSync(${JSON.stringify(codexReviewEnvLog)}, JSON.stringify({`,
         "  codexHome: process.env.CODEX_HOME,",
         "  home: process.env.HOME,",
+        "  path: process.env.PATH,",
         "  authExists: existsSync(join(process.env.CODEX_HOME, 'auth.json')),",
         "  codexBinExists: existsSync(codexBin),",
         "  configIncludesProxy: config.includes('model_provider = \"reviewrouter_proxy\"'),",
@@ -3307,6 +3412,8 @@ describe("Codex rotating GitHub Action runtime", () => {
       expect(claudeInstallEnv.claudeToken).toBeUndefined();
       expect(claudeInstallEnv.openrouterKey).toBeUndefined();
       expect(claudeInstallEnv.home).toBe(reviewEnv.home);
+      expect(claudeInstallEnv.path).toBe(reviewEnv.path);
+      expect(String(claudeInstallEnv.path).split(":")).toContain(binDir);
       expect(String(reviewEnv.githubOutput)).toContain("github-output");
       const childStdout = stdoutWrite.mock.calls
         .map(([chunk]) => String(chunk))

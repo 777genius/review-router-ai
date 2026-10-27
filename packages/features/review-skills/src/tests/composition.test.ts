@@ -98,6 +98,17 @@ describe("Review Skills actual Get Modular root", () => {
   });
 });
 describe("Review Skills boundary validation", () => {
+  it("validates the assigned-only read flag before invoking a store or permission check", async () => {
+    const service = createReviewSkillsService(store, access);
+    await expect(
+      service.listAssignmentChoices({
+        actor: { userId: "actor" },
+        workspaceId: "workspace",
+        repositoryIds: ["repo"],
+        assignedOnly: "true" as unknown as boolean,
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+  });
   it("requires valid creation and assignment generation identities", async () => {
     const service = createReviewSkillsService(store, access);
     const common = { actor: { userId: "actor" }, workspaceId: "workspace" };

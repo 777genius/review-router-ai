@@ -420,6 +420,9 @@ importers:
       '@reviewrouter/platform-locks':
         specifier: workspace:*
         version: link:../../packages/platform/locks
+      '@reviewrouter/protocol-review-action-v2':
+        specifier: workspace:*
+        version: link:../../packages/protocol-review-action-v2
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../packages/shared

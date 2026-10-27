@@ -141387,7 +141387,7 @@ async function ensureFullReviewRuntimeTools(input) {
   await runProcess({
     command: "bash",
     args: [
-      "-lc",
+      "-c",
       [
         "set -euo pipefail",
         "if command -v claude >/dev/null 2>&1; then",
