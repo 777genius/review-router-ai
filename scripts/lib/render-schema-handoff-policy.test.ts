@@ -547,7 +547,8 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
     expect(full).toHaveLength(154);
     expect(full.at(-1)).toEqual({
       migrationName: skillsCatalogMigrationName,
-      checksum: "4a5ecd80f83b0631982519fc747c411d0ed5d9b04624ee8e3d176a82ae96e4b8",
+      checksum:
+        "4a5ecd80f83b0631982519fc747c411d0ed5d9b04624ee8e3d176a82ae96e4b8",
     });
     const withoutSkills = withoutSkillsCatalog(full);
     expect(withoutSkills).toHaveLength(153);
@@ -556,13 +557,19 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
     expect(
       createHash("sha256")
         .update(
-          withoutMemory.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
+          withoutMemory
+            .map((row) => `${row.migrationName}:${row.checksum}`)
+            .join(","),
         )
         .digest("hex"),
     ).toBe("91bb5e51bf53be19ac6244185b4423df2bd26e7e257dfa632293c4094032fa38");
     expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
-    expect(partitionRenderSchemaHandoffCheckout(withoutSkills)).toEqual(catalog);
-    expect(partitionRenderSchemaHandoffCheckout(withoutMemory)).toEqual(catalog);
+    expect(
+      partitionRenderSchemaHandoffCheckout(withoutSkills),
+    ).toEqual(catalog);
+    expect(
+      partitionRenderSchemaHandoffCheckout(withoutMemory),
+    ).toEqual(catalog);
     expect(
       partitionRenderSchemaHandoffCheckout(
         readRepositorySecretProfilesCheckoutInventory(),

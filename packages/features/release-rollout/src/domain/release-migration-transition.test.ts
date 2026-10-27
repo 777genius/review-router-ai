@@ -107,7 +107,8 @@ describe("canonical release migration transition", () => {
     expect(checkout154).toHaveLength(154);
     const skillsCatalogExtension: Row = {
       migrationName: "000150_skills_catalog_security",
-      checksum: "4a5ecd80f83b0631982519fc747c411d0ed5d9b04624ee8e3d176a82ae96e4b8",
+      checksum:
+        "4a5ecd80f83b0631982519fc747c411d0ed5d9b04624ee8e3d176a82ae96e4b8",
     };
     expect(
       checkout154.find(
@@ -285,7 +286,7 @@ describe("canonical release migration transition", () => {
     expect(manifest(historicalFull)).toBe(
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
-    expect(checkout153).toEqual(readRenderManagedCheckoutInventory());
+    expect(checkout154).toEqual(readRenderManagedCheckoutInventory());
     expect(full.slice(-35).map((row) => row.migrationName)).toEqual([
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",
