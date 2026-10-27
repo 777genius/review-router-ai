@@ -10,13 +10,13 @@ const { child, spawnMock } = vi.hoisted(() => {
   };
   return {
     child,
-    spawnMock: vi.fn(
+    spawnMock: vi.fn<
       (
-        _executable: string,
-        _args: readonly string[],
-        _options: { env: NodeJS.ProcessEnv },
-      ) => child,
-    ),
+        executable: string,
+        args: readonly string[],
+        options: { env: NodeJS.ProcessEnv },
+      ) => typeof child
+    >(() => child),
   };
 });
 
