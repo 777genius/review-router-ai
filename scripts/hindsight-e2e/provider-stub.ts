@@ -146,17 +146,29 @@ export async function startProviderStub() {
             .join("\n");
           // Pinned Hindsight 1.1.0 enables semantic dedup by default. Only
           // its focused NEW/EXISTING prompt receives a deterministic verdict.
+          // Pinned Hindsight wraps typed soft-schema calls with a JSON-schema
+          // preamble before this same user prompt. Match only that reviewed
+          // wrapper or the direct prompt, never arbitrary completion traffic.
+          const dedupMarker = "You reconcile long-term memory observations.";
+          const messageContent = messages[0]?.content;
+          const directDedup =
+            typeof messageContent === "string" &&
+            messageContent.startsWith(dedupMarker);
+          const softSchemaDedup =
+            typeof messageContent === "string" &&
+            messageContent.startsWith(
+              "\n\nYou must respond with valid JSON matching this schema:\n",
+            ) &&
+            messageContent.includes(`\n\n${dedupMarker}`) &&
+            body.response_format?.type === "json_object";
           const isSemanticDedup =
             body.model === "stub-model" &&
             messages.length === 1 &&
             messages[0]?.role === "user" &&
-            typeof messages[0]?.content === "string" &&
-            messages[0].content.startsWith(
-              "You reconcile long-term memory observations.",
-            ) &&
-            messages[0].content.includes("[NEW] ") &&
-            messages[0].content.includes("[EXISTING] ") &&
-            messages[0].content.includes(
+            (directDedup || softSchemaDedup) &&
+            messageContent.includes("[NEW] ") &&
+            messageContent.includes("[EXISTING] ") &&
+            messageContent.includes(
               "Respond with ONLY one valid JSON object",
             );
           const complete = (content: string) =>
