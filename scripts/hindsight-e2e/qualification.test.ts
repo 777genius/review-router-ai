@@ -41,7 +41,11 @@ test("provider stub fails unscripted calls and supplies intentional private erro
         model: "stub-model",
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: "Extract SIGNIFICANT facts from text. Be SELECTIVE - only extract facts worth remembering long-term." },
+          {
+            role: "system",
+            content:
+              "Extract SIGNIFICANT facts from text. Be SELECTIVE - only extract facts worth remembering long-term.",
+          },
           { role: "user", content: "Synthetic fixture only." },
         ],
       }),

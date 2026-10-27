@@ -231,7 +231,9 @@ export async function startProviderStub() {
               unexpectedByReason.unrelatedChatPrompt += 1;
               // Only classify against immutable native-source prompt contracts.
               // These observations MUST NOT admit previously rejected traffic.
-              if (text.includes("Extract SIGNIFICANT facts from text. Be SELECTIVE"))
+              if (
+                text.includes("Extract SIGNIFICANT facts from text. Be SELECTIVE")
+              )
                 unexpectedByReason.unrelatedRetainExtraction += 1;
               if (messages[0]?.role === "system")
                 unexpectedByReason.unrelatedSystemFirst += 1;
