@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type {
   ProviderSecretScope,
@@ -79,6 +85,12 @@ function useCredentialConfirmation(
       requestVersion.current += 1;
     };
   }, [input.workspaceId, input.repositoryId, input.authMode]);
+
+  const clearVerifiedConfirmation = useCallback(() => {
+    // An older read must not clear a confirmation still finishing its refresh.
+    if (inFlight.current) return;
+    setConfirmed((value) => (value === "verified" ? null : value));
+  }, []);
 
   async function confirm(input2: {
     readonly secretScope: ProviderSecretScope;
@@ -188,6 +200,7 @@ function useCredentialConfirmation(
     submitError,
     verificationError,
     confirmed,
+    clearVerifiedConfirmation,
     resetVerification: () => {
       setVerificationError(null);
       setSubmitError(null);
@@ -252,6 +265,19 @@ export function CiSecretDelivery({
     statusCurrent &&
     (status.data === "available_repository" ||
       status.data === "available_organization");
+  const verifiedSecretUnavailable =
+    confirmation.confirmed === "verified" &&
+    !confirmation.submitting &&
+    statusCurrent &&
+    (status.data === "missing" ||
+      status.data === "not_available_to_repository");
+  // Hide the old success in this render, then forget it so an unknown read
+  // cannot restore it. Manual confirmations and inconclusive reads stay intact.
+  const confirmed = verifiedSecretUnavailable ? null : confirmation.confirmed;
+  const { clearVerifiedConfirmation } = confirmation;
+  useEffect(() => {
+    if (verifiedSecretUnavailable) clearVerifiedConfirmation();
+  }, [verifiedSecretUnavailable, clearVerifiedConfirmation]);
 
   return (
     <div className="grid gap-4">
@@ -385,7 +411,7 @@ export function CiSecretDelivery({
               !canManage ||
               !command ||
               confirmation.submitting ||
-              confirmation.confirmed !== null
+              confirmed !== null
             }
             aria-busy={confirmation.submitting}
           >
@@ -395,17 +421,15 @@ export function CiSecretDelivery({
                 : "Checking the secret..."
               : manual
                 ? "Confirm manually"
-                : confirmation.confirmed
+                : confirmed
                   ? "Confirmed"
                   : confirmation.verificationError
                     ? "Check again"
                     : "Check GitHub setup"}
           </Button>
-          {confirmation.confirmed ? (
-            <Badge
-              tone={confirmation.confirmed === "manual" ? "neutral" : "success"}
-            >
-              {confirmation.confirmed === "manual"
+          {confirmed ? (
+            <Badge tone={confirmed === "manual" ? "neutral" : "success"}>
+              {confirmed === "manual"
                 ? "Confirmed manually"
                 : "Secret available"}
             </Badge>
@@ -433,9 +457,9 @@ export function CiSecretDelivery({
             {confirmErrorText(confirmation.submitError)}
           </p>
         ) : null}
-        {confirmation.confirmed ? (
+        {confirmed ? (
           <p role="status" className="text-sm leading-6 text-emerald-50">
-            {confirmation.confirmed === "manual"
+            {confirmed === "manual"
               ? `Marked as done for ${repositoryFullName}. ReviewRouter could not check GitHub itself.`
               : `${secretNames} is set for ${repositoryFullName}.`}
           </p>
@@ -481,6 +505,8 @@ export function ManagedKeyDelivery({
   });
   const name = managedKeyName(authMode);
   const secretName = getProviderAuthModeMetadata(authMode).secretNames[0];
+  const needsReinstall =
+    installed && confirmation.verificationError === "provider_secret_not_found";
 
   async function install(): Promise<void> {
     if (
@@ -521,23 +547,47 @@ export function ManagedKeyDelivery({
     <div className="grid gap-4">
       <div className="grid gap-1">
         <h3 className="text-base font-semibold text-cyan-50">
-          {installed
-            ? `The ${name} key is installed`
-            : `Install the ${name} key`}
+          {needsReinstall
+            ? `Reinstall the ${name} key`
+            : installed
+              ? `The ${name} key is installed`
+              : `Install the ${name} key`}
         </h3>
         <p className="text-sm leading-6 text-slate-300">
-          {installed
+          {installed && !needsReinstall
             ? `ReviewRouter wrote ${secretName} to the GitHub Actions secrets of ${repositoryFullName}. Check its availability to finish this step.`
             : `ReviewRouter writes its saved key as ${secretName} to the GitHub Actions secrets of ${repositoryFullName}. The key is never shown in the browser.`}
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        {installed ? (
+        {!installed || needsReinstall ? (
           <Button
             type="button"
             size="sm"
             disabled={
               !canManage ||
+              installDecisionReason !== null ||
+              installing ||
+              confirmation.submitting
+            }
+            aria-busy={installing}
+            onClick={() => void install()}
+          >
+            {installing
+              ? "Installing..."
+              : needsReinstall
+                ? "Reinstall key"
+                : "Install key"}
+          </Button>
+        ) : null}
+        {installed ? (
+          <Button
+            type="button"
+            size="sm"
+            variant={needsReinstall ? "outline" : "solid"}
+            disabled={
+              !canManage ||
+              installing ||
               confirmation.submitting ||
               confirmation.confirmed !== null
             }
@@ -555,27 +605,12 @@ export function ManagedKeyDelivery({
                 ? "Checked"
                 : "Check GitHub setup"}
           </Button>
-        ) : (
-          <Button
-            type="button"
-            size="sm"
-            disabled={
-              !canManage ||
-              installDecisionReason !== null ||
-              installing ||
-              confirmation.submitting
-            }
-            aria-busy={installing}
-            onClick={() => void install()}
-          >
-            {installing ? "Installing..." : "Install key"}
-          </Button>
-        )}
+        ) : null}
         {confirmation.confirmed ? (
           <Badge tone="success">Secret available</Badge>
         ) : null}
       </div>
-      {!installed && installDecisionReason ? (
+      {(!installed || needsReinstall) && installDecisionReason ? (
         <p className="text-xs leading-5 text-amber-100/85">
           {installDecisionReason}
         </p>
@@ -1194,7 +1229,7 @@ function managedVerificationErrorText(
 ): string {
   switch (error) {
     case "provider_secret_not_found":
-      return `${secretName} was not found in the GitHub Actions secrets of ${repositoryFullName}. Check the secret on GitHub, then try again.`;
+      return `${secretName} was not found in the GitHub Actions secrets of ${repositoryFullName}. Reinstall the saved key, or check again if you restored it on GitHub.`;
     case "provider_secret_not_available_to_repository":
       return `${secretName} exists in the organization, but ${repositoryFullName} is not allowed to use it. Add this repository under the secret's repository access on GitHub, then check again.`;
     case "repository_not_visible_to_github_app":
