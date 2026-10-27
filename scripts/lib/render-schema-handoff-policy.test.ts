@@ -554,15 +554,15 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
     expect(withoutSkills).toHaveLength(153);
     const withoutMemory = withoutMemoryKnowledge(full);
     expect(withoutMemory).toHaveLength(152);
-    expect(
-      createHash("sha256")
-        .update(
-          withoutMemory
-            .map((row) => `${row.migrationName}:${row.checksum}`)
-            .join(","),
-        )
-        .digest("hex"),
-    ).toBe("91bb5e51bf53be19ac6244185b4423df2bd26e7e257dfa632293c4094032fa38");
+    const withoutMemoryManifest = withoutMemory
+      .map((row) => `${row.migrationName}:${row.checksum}`)
+      .join(",");
+    const withoutMemoryDigest = createHash("sha256")
+      .update(withoutMemoryManifest)
+      .digest("hex");
+    expect(withoutMemoryDigest).toBe(
+      "91bb5e51bf53be19ac6244185b4423df2bd26e7e257dfa632293c4094032fa38",
+    );
     expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
     expect(
       partitionRenderSchemaHandoffCheckout(withoutSkills),
