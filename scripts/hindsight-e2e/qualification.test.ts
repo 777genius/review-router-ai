@@ -48,7 +48,7 @@ test("provider stub fails unscripted calls and supplies intentional private erro
   }
 });
 
-test("pinned semantic-dedup prompt gets deterministic keep while unscripted chats fail closed", async () => {
+test("pinned semantic dedup verdict and unscripted chat rejection", async () => {
   const stub = await startProviderStub();
   const send = (content: string) =>
     fetch(`${stub.url}/v1/chat/completions`, {
@@ -77,7 +77,10 @@ Respond with ONLY one valid JSON object matching one of these shapes:`;
     });
     assert.equal(stub.calls.semanticDedup, 1);
     assert.equal(stub.calls.unexpected, 0);
-    assert.equal((await send(prompt.replace("[EXISTING]", "[OTHER]"))).status, 400);
+    assert.equal(
+      (await send(prompt.replace("[EXISTING]", "[OTHER]"))).status,
+      400,
+    );
     assert.equal(stub.calls.unexpected, 1);
   } finally {
     await stub.close();

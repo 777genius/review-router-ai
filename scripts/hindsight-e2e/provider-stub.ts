@@ -156,7 +156,9 @@ export async function startProviderStub() {
             ) &&
             messages[0].content.includes("[NEW] ") &&
             messages[0].content.includes("[EXISTING] ") &&
-            messages[0].content.includes("Respond with ONLY one valid JSON object");
+            messages[0].content.includes(
+              "Respond with ONLY one valid JSON object",
+            );
           const complete = (content: string) =>
             reply(response, 200, {
               id: "chatcmpl-native-fixture",
@@ -170,7 +172,11 @@ export async function startProviderStub() {
                   finish_reason: "stop",
                 },
               ],
-              usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+              usage: {
+                prompt_tokens: 1,
+                completion_tokens: 1,
+                total_tokens: 2,
+              },
             });
           if (isSemanticDedup) {
             calls.semanticDedup += 1;
