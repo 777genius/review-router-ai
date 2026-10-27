@@ -1,4 +1,3 @@
-/// <reference lib="es2023.array" />
 import type { ReviewSkillContent } from "../../application/contracts.js";
 
 export type SkillContentIssues = Partial<
@@ -64,6 +63,17 @@ function markdownIndent(line: string): number {
 
 type ListContext = { indent: number; quoteDepth: number };
 
+function listIndentAtDepth(
+  lists: readonly ListContext[],
+  quoteDepth: number,
+): number {
+  for (let index = lists.length - 1; index >= 0; index--) {
+    const context = lists[index]!;
+    if (context.quoteDepth === quoteDepth) return context.indent;
+  }
+  return 0;
+}
+
 function stripBlockQuotes(
   line: string,
   maximumDepth = Infinity,
@@ -75,8 +85,7 @@ function stripBlockQuotes(
   let match: RegExpExecArray | null;
   while (depth < maximumDepth && (match = marker.exec(line))) {
     // A quote may follow an enclosing list's continuation indentation.
-    const listIndent =
-      lists.findLast((context) => context.quoteDepth === depth)?.indent ?? 0;
+    const listIndent = listIndentAtDepth(lists, depth);
     if (match[0].indexOf(">") > listIndent + 3) break;
     offset = marker.lastIndex;
     depth++;
@@ -137,10 +146,7 @@ function withoutCodeExamples(markdown: string): string {
             fence.quoteDepth,
             fence.lists,
           );
-          const listIndent =
-            fence.lists.findLast(
-              (context) => context.quoteDepth === fence!.quoteDepth,
-            )?.indent ?? 0;
+          const listIndent = listIndentAtDepth(fence.lists, fence.quoteDepth);
           const closing = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(
             content.line.slice(listIndent),
           );
@@ -167,9 +173,7 @@ function withoutCodeExamples(markdown: string): string {
             !continuesList(context)),
       );
       if (endedList !== -1) listIndents.length = endedList;
-      const baseIndent =
-        listIndents.findLast((context) => context.quoteDepth === quoteDepth)
-          ?.indent ?? 0;
+      const baseIndent = listIndentAtDepth(listIndents, quoteDepth);
       const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(
         indent >= baseIndent ? line.slice(baseIndent) : line,
       );
