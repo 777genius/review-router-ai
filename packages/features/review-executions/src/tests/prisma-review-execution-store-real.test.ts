@@ -77,6 +77,63 @@ if (databaseUrl) {
   runReviewExecutionStoreContract("Prisma", createHarness);
 
   describe("Prisma review execution PostgreSQL invariants", () => {
+    it("rejects stale input before charging a budget-one slot and restores an already granted capability", async () => {
+      const harness = await createHarness();
+      const identity = `memory-input-${randomUUID()}`;
+      const slot = { ...workSlot(`slot-${identity}`, 4), attemptBudget: 1 };
+      const prepared = await harness.executions.prepareExecution({
+        ...prepareCommand(harness, identity, [workSlot(slot.workSlotId, 4)]),
+        workSlots: [slot],
+      });
+      expect(prepared.status).toBe(ReviewExecutionPrepareStatus.Prepared);
+      const admission = await harness.executions.confirmAdmission({
+        scope: harness.scope,
+        expectedStreamVersion: prepared.snapshot!.stream.version,
+        executionId: prepared.snapshot!.execution.executionId,
+        authorizationId: harness.authorizationId,
+        mutationEpoch: 1n,
+        requestedRevision: prepared.snapshot!.execution.revision,
+        observedRevision: prepared.snapshot!.execution.revision,
+        verdict: ReviewExecutionAdmissionVerdict.Current,
+        checkedAt: new Date(),
+      });
+      expect(admission.status).toBe(ReviewExecutionAdmissionStatus.Admitted);
+      let inputCurrent = false;
+      let admissionCalls = 0;
+      const executions = new PrismaReviewExecutionStore(prisma, {
+        inputAdmission: {
+          async lock() {},
+          async admit() {
+            admissionCalls++;
+            return inputCurrent;
+          },
+        },
+      });
+      const request = leaseCommand(harness, admission.snapshot!, identity);
+      expect((await executions.acquireLease(request)).status).toBe(
+        ReviewInvocationLeaseAcquireStatus.InputStale,
+      );
+      const unchanged = await executions.findExecution(
+        admission.snapshot!.execution.executionId,
+      );
+      expect(unchanged?.execution.workSlots[0]?.nextAttemptOrdinal).toBe(1);
+      expect(
+        await prisma.reviewInvocationLeaseV2.count({
+          where: { executionId: request.executionId },
+        }),
+      ).toBe(0);
+      inputCurrent = true;
+      const granted = await executions.acquireLease(request);
+      expect(granted.status).toBe(ReviewInvocationLeaseAcquireStatus.Acquired);
+      expect(granted.lease?.attemptOrdinal).toBe(1);
+      inputCurrent = false;
+      const callsBeforeReplay = admissionCalls;
+      const restored = await executions.acquireLease(request);
+      expect(restored.status).toBe(ReviewInvocationLeaseAcquireStatus.Restored);
+      expect(restored.lease?.fencingToken).toBe(granted.lease?.fencingToken);
+      expect(admissionCalls).toBe(callsBeforeReplay);
+    });
+
     it("reclaims a stale provider lane incumbent instead of blocking the lane", async () => {
       const suffix = randomUUID();
       const owner = await createHarness();
@@ -352,7 +409,9 @@ if (databaseUrl) {
         claimUntil: new Date(now.getTime() + 30_000),
       });
       expect(claimed.status).toBe(ReviewRequestedClaimStatus.Claimed);
-      const claim = claimed.intent!.claim!;
+      if (!("intent" in claimed) || !claimed.intent?.claim)
+        throw new Error("fixture_claim_missing");
+      const claim = claimed.intent.claim;
       await expect(
         intentStore.beginSubmission({
           requestId: oldRequestId,
@@ -417,9 +476,11 @@ if (databaseUrl) {
         registration,
       );
       expect(registrationProgress).toEqual({ status: "compare_and_set" });
+      if (!("intent" in dispatched) || !dispatched.intent)
+        throw new Error("fixture_dispatch_missing");
       const admission = await intentStore.recordAdmissionDecision({
         requestId: oldRequestId,
-        expectedVersion: dispatched.intent!.version,
+        expectedVersion: dispatched.intent.version,
         changedLines: 100,
         maxChangedLines: 250_000,
         policySnapshotId: "hosted-review-size-v1:admission-race",
@@ -1396,7 +1457,9 @@ if (databaseUrl) {
         now,
         claimUntil: new Date(now.getTime() + 30_000),
       });
-      const claim = claimed.intent!.claim!;
+      if (!("intent" in claimed) || !claimed.intent?.claim)
+        throw new Error("fixture_claim_missing");
+      const claim = claimed.intent.claim;
       await intentStore.beginSubmission({
         requestId,
         claimId: claim.claimId,
@@ -1417,9 +1480,11 @@ if (databaseUrl) {
         nextResolutionAt: new Date(now.getTime() + 1_000),
         resolutionDeadlineAt: new Date(now.getTime() + 60_000),
       });
+      if (!("intent" in dispatched) || !dispatched.intent)
+        throw new Error("fixture_dispatch_missing");
       await intentStore.recordAdmissionDecision({
         requestId,
-        expectedVersion: dispatched.intent!.version,
+        expectedVersion: dispatched.intent.version,
         changedLines: 100,
         maxChangedLines: 250_000,
         policySnapshotId: "hosted-review-size-v1:test",
@@ -1826,6 +1891,9 @@ async function seedSharedProfiles(): Promise<void> {
 }
 
 async function cleanupScope(workspaceId: string): Promise<void> {
+  // Fixed contract execution IDs are reused on a fresh workspace in later runs.
+  // Their finalized-event idempotency keys must leave with this owned fixture.
+  await prisma.outboxEvent.deleteMany({ where: { workspaceId } });
   const executions = await prisma.reviewExecutionV2.findMany({
     where: { workspaceId },
     select: { executionId: true },

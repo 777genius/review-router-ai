@@ -28,6 +28,7 @@ import type {
 } from "../ports/invocation-flight-ports";
 
 export enum AcquireOrJoinInvocationFlightStatus {
+  InputStale = "input_stale",
   OwnerAcquired = "owner_acquired",
   OwnerRestored = "owner_restored",
   Joined = "joined",
@@ -275,6 +276,8 @@ function mapAcquireStatus(
   >,
 ): AcquireOrJoinInvocationFlightStatus {
   switch (status) {
+    case ReviewInvocationLeaseAcquireStatus.InputStale:
+      return AcquireOrJoinInvocationFlightStatus.InputStale;
     case ReviewInvocationLeaseAcquireStatus.AttemptBudgetExhausted:
       return AcquireOrJoinInvocationFlightStatus.AttemptBudgetExhausted;
     case ReviewInvocationLeaseAcquireStatus.NotRunnable:

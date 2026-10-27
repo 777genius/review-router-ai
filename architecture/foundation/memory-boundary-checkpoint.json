@@ -1,0 +1,21 @@
+{
+  "schema": "memory-boundary-checkpoint/v1",
+  "policyPath": "architecture/foundation/provider-seams.yaml",
+  "policySha256": "b42550c6b84140365dd0d7756100311d491ab010b74a85fe48203ff5a59d414e",
+  "foundationBaseline": {
+    "outcome": "passed",
+    "diagnostics": 0
+  },
+  "actualApiWorkerAstBaseline": {
+    "diagnostics": 0
+  },
+  "hostAstRegressionTests": {
+    "passed": 4,
+    "failed": 0
+  },
+  "realWorkspaceFixtures": {
+    "defined": 23,
+    "status": "pending-rerun",
+    "reason": "Local executor reintroduced a removed negative fixture during sequential cases; all four appended source surfaces were verified byte-identical after restoration. No completed 23-case result is claimed for this policy hash."
+  }
+}

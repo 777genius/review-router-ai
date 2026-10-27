@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import { describe, expect, it, vi } from "vitest";
 import {
   applyProviderApiKey,
@@ -264,13 +264,7 @@ describe("provider API key persistence", () => {
   it("keeps prior applied versions and reconciliation state durable through Prisma", async () => {
     const database = new PGlite();
     let prisma: PrismaClient | undefined;
-    let socketServer:
-      | {
-          start(): Promise<void>;
-          stop(): Promise<void>;
-          getServerConn(): string;
-        }
-      | undefined;
+    let socketServer: PGLiteSocketServer | undefined;
     try {
       await database.exec(`
         CREATE ROLE app LOGIN PASSWORD 'disposable-app-password';
@@ -300,27 +294,6 @@ describe("provider API key persistence", () => {
         );
       `);
 
-      const platformRequire = createRequire(
-        resolve(process.cwd(), "packages/platform/db/src/index.ts"),
-      );
-      const socketModulePath = platformRequire.resolve(
-        "@electric-sql/pglite-socket",
-        {
-          paths: [resolve(process.cwd(), "packages/platform/db")],
-        },
-      );
-      const { PGLiteSocketServer } = platformRequire(socketModulePath) as {
-        PGLiteSocketServer: new (options: {
-          readonly db: PGlite;
-          readonly port: number;
-          readonly host: string;
-          readonly maxConnections: number;
-        }) => {
-          start(): Promise<void>;
-          stop(): Promise<void>;
-          getServerConn(): string;
-        };
-      };
       socketServer = new PGLiteSocketServer({
         db: database,
         port: 0,

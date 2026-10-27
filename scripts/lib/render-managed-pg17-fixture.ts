@@ -86,6 +86,59 @@ type DockerRun = (
   timeout?: number,
 ) => DockerResult;
 
+// Base inspection can fail before Docker runs. Report only known process facts;
+// never mislabel an unavailable binary/socket probe as an absent image, or echo
+// child diagnostics, arbitrary errno/signal text, environment or arguments.
+function baseInspectionDiagnostic(result: DockerResult): string {
+  const knownCodes = new Set([
+    "ENOENT",
+    "EACCES",
+    "EPERM",
+    "EAGAIN",
+    "ENOMEM",
+    "ENOBUFS",
+    "ETIMEDOUT",
+    "E2BIG",
+    "EMFILE",
+    "ENFILE",
+  ]);
+  const knownSignals = new Set([
+    "SIGABRT",
+    "SIGALRM",
+    "SIGBUS",
+    "SIGHUP",
+    "SIGILL",
+    "SIGINT",
+    "SIGKILL",
+    "SIGPIPE",
+    "SIGSEGV",
+    "SIGTERM",
+    "SIGTRAP",
+    "SIGXCPU",
+    "SIGXFSZ",
+  ]);
+  const errorCode = (result.error as NodeJS.ErrnoException | undefined)?.code;
+  const code = !result.error
+    ? "none"
+    : errorCode && knownCodes.has(errorCode)
+      ? errorCode
+      : "other";
+  const signal = !result.signal
+    ? "none"
+    : knownSignals.has(result.signal)
+      ? result.signal
+      : "other";
+  const status =
+    result.status === null
+      ? "none"
+      : Number.isInteger(result.status) &&
+          result.status >= 0 &&
+          result.status <= 255
+        ? String(result.status)
+        : "other";
+  return `status=${status}:code=${code}:signal=${signal}`;
+}
+
 // Finite, non-secret diagnostic: exit code or errno plus the printable tail of
 // stderr from OUR fixture commands (loader, dpkg, apt). Never environment or input.
 function boundedDiagnostic(result: DockerResult) {
@@ -103,8 +156,15 @@ function boundedDiagnostic(result: DockerResult) {
 // Builds (once per content tag) and qualifies the fixture image. Runs before
 // the --network none container is created; the base is never pulled here.
 export function ensurePg17FixtureImage(run: DockerRun) {
-  if (run(["image", "inspect", pg17BaseImage]).status !== 0)
-    throw new Error("managed_pg17_fixture_image:base_missing");
+  const baseInspection = run(["image", "inspect", pg17BaseImage]);
+  if (
+    baseInspection.status !== 0 ||
+    baseInspection.error ||
+    baseInspection.signal
+  )
+    throw new Error(
+      `managed_pg17_fixture_image:base_inspect:${baseInspectionDiagnostic(baseInspection)}`,
+    );
   if (run(["image", "inspect", pg17FixtureImage]).status !== 0) {
     const built = run(
       ["build", "--pull=false", "--tag", pg17FixtureImage, "-"],

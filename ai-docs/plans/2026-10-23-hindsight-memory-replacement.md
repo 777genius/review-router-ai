@@ -2,13 +2,14 @@
 
 Recorded: 2026-10-23.
 
-Status: owner-selected direction; three critique/fix rounds complete; ready for
-qualification-first implementation.
+Status: owner-selected direction; three critique/fix rounds complete; implementation
+in progress in control-plane PR #690 and paired Action PR #328.
 This document is a plan, not an implementation or production-readiness receipt.
 The owner selected self-hosted Hindsight and explicitly permits deleting the
-unnecessary custom memory engine. The current task is deep research and plan
-review before runtime changes. Existing accepted ADR files remain historical
-authority until the scoped successor decisions below are adopted.
+unnecessary custom memory engine. The owner subsequently authorized autonomous implementation, testing, review and
+merge. ADR-031 records the successor ownership and precise lease-admission semantics.
+Existing ADR files remain historical evidence; production activation requires the
+qualification and cutover gates below.
 
 ## 1. Decision and evidence boundary
 
@@ -95,8 +96,9 @@ digest and removed after verified publication or explicit terminal resolution,
 under a bounded retention policy. This closes the crash-before-provider-accept
 gap without recreating `MemoryItem` as a second writable content store.
 
-Use the existing `@reviewrouter/features-memory` boundary. Retain the reviewed
-Get Modular 0.2.0 composition and Engineering Foundation 2.1.0 scoped adoption.
+Use the existing `@reviewrouter/features-memory` boundary. Integration follows
+Get Modular 0.7.0, already adopted by current main, and retains Engineering
+Foundation 2.1.0 scoped adoption.
 Only composition imports Get Modular; only `memory.hindsight` imports the SDK.
 Extend the existing Foundation policy and rejecting fixtures for new sources.
 Do not silently adopt a newer FMS, another database library, Temporal, NATS,
@@ -454,16 +456,26 @@ must reject reuse with a changed digest. Native per-document serialization helps
 internal consistency but is not external CAS. Keep the UUID through retries;
 never issue a new one merely because an HTTP response timed out.
 
-| Failure point                            | Required behavior                                                               |
-| ---------------------------------------- | ------------------------------------------------------------------------------- |
-| Crash before native submission           | Retry same persisted approved envelope and UUID                                 |
-| Native accepted, response lost           | Observe same UUID/children; preserve unknown state until resolved               |
-| Changed body with reused UUID            | Reject before native I/O                                                        |
-| Old native operation has been pruned     | Consult terminal app state; absence is not proof of non-execution               |
-| Older source/approval arrives later      | Reject stale revision or create a new reviewed proposal                         |
-| Worker lease expires during request      | Do not advance a newer mutation until old outcome is resolved                   |
-| Partial extraction/consolidation failure | Do not mark every capability ready from parent completed status                 |
-| Backend unavailable                      | Preserve pending work; reviews use no memory; no hidden Prisma content fallback |
+| Failure point                            | Required behavior                                                                         |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Crash before native submission           | Reconcile same persisted approved envelope and UUID under the bounded retry profile below |
+| Native accepted, response lost           | Observe same UUID/children; preserve unknown state until resolved                         |
+| Changed body with reused UUID            | Reject before native I/O                                                                  |
+| Old native operation has been pruned     | Consult terminal app state; absence is not proof of non-execution                         |
+| Older source/approval arrives later      | Reject stale revision or create a new reviewed proposal                                   |
+| Worker lease expires during request      | Do not advance a newer mutation until old outcome is resolved                             |
+| Partial extraction/consolidation failure | Do not mark every capability ready from parent completed status                           |
+| Backend unavailable                      | Preserve pending work; reviews use no memory; no hidden Prisma content fallback           |
+
+Reclaiming an expired dispatch claim starts observation of the same command.
+The persisted pre-I/O marker cannot distinguish a crash before sending from an
+accepted request whose acknowledgement was lost. Resubmission requires the exact
+approved envelope and UUID, an explicit persisted retry deadline, current
+delivery permission, and a qualified native retention profile that prevents
+operation pruning during that window. The initial unqualified profile sets the
+retry window to zero. Without that authority, absence remains visible `unknown`
+or, after bounded envelope retention, `input_required`; lease expiry alone never
+authorizes another native submission.
 
 Use supported native readback/status, not internal `result_metadata`, as the
 product proof of publication. Bound payload retention and unresolved operations;
@@ -1031,3 +1043,53 @@ finding is also incorporated in the cutover acceptance criteria.
 - [Router memory E2E database preparation](https://github.com/777genius/review-router-ai/blob/296ddc0327b7dfc762c31b5b1d39e5461a41c12c/scripts/memory-e2e/prepare-database.ts).
 - [Native system tests](https://github.com/vectorize-io/hindsight/blob/a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5/hindsight-system-tests/README.md).
 - [Render private services](https://render.com/docs/private-services) and [health checks](https://render.com/docs/health-checks).
+
+## Implementation clarification: lease admission
+
+The server transaction granting the inference lease checks current memory before
+charging budget. A stale-input rejection retries the same attempt with no memory.
+Already granted immutable context may finish after a subsequent revocation. There
+is no post-grant release/refund/reprepare loop. Exact retries recover the original
+lease. This refinement was accepted after two independent implementation critics
+identified the budget-one race in a post-acquire memory check. See ADR-031.
+
+The initial profile uses a fixed server-owned retrieval query and approved
+statements only. `/rr memory edit <entry-id> <approved text>` is an explicit
+correction with the original command CAS and a durable wire-request fingerprint;
+replayed webhooks cannot create another update or silently overwrite later edits.
+
+The native Docker qualification is distinct from HTTP/crypto contract tests,
+actual PostgreSQL coordination tests, real Action orchestration and visual UI
+checks. A queued CI run is not qualification evidence. Record the completed run,
+exact provider image and data disposition before enabling the provider.
+
+### Implementation completion boundaries (2026-10-26)
+
+Execution compatibility describes the stable review configuration and captured
+skills. The exact memory receipt remains part of each invocation's prompt and
+manifest identity. A restarted execution does not capture another memory bundle.
+An uncharged pending slot may continue without memory under its persisted plan;
+an uncertain or previously charged slot retains the existing restore fence and
+attempt budget. Satisfied slots recover only their exact accepted observation
+and original invocation manifest. Reconstructed coverage must match the original
+source and context commitments before it can accompany that read-only recovery.
+This path cannot issue inference, replay, adoption or a new evidence attachment.
+
+The initial profile excludes memory from preparatory investigation. When a
+review invocation includes memory, ordinary finding inference uses the existing
+atomic memory admission in the authoritative invocation-lease transaction.
+Investigation cannot consume that memory under its separate lease or silently
+replace the memory-bearing review with a memory-free precomputed result. Captured
+skills continue to follow their existing contract. This is an implementation
+boundary within ADR-031, not a second inference-admission authority.
+
+The native operation-absence contract includes Hindsight 1.1.0's HTTP 200
+`not_found` tombstone. Cleanup accepts only the matching operation identity and
+the qualified empty tombstone shape; an error, retained payload or contradictory
+operation metadata cannot become a successful absence proof.
+
+The browser qualification runs the rendered management screen at desktop and
+narrow widths with synthetic HTTP fixtures, keyboard checks and screenshots.
+Its evidence explicitly excludes product authority, native-provider and
+real-model qualification. Actual PostgreSQL authority/lease tests and the paired
+Action HTTP proof supply separate evidence for those integration boundaries.

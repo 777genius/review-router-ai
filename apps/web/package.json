@@ -56,7 +56,8 @@
     "@reviewrouter/features-review-statistics": "workspace:*"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.4.1"
+    "@electric-sql/pglite": "0.4.1",
+    "@electric-sql/pglite-socket": "0.1.1"
   },
   "scripts": {
     "dev": "next dev -p 3000",

@@ -1286,6 +1286,8 @@ describe("disposable dual-version rehearsal", () => {
     const legacyMigrationNames = currentMigrationNames.filter(
       (name) =>
         name !== "000149_api_key_repository_secret_profiles" &&
+        name !== "000142_memory_knowledge_authority" &&
+        name !== "000143_memory_maintenance_fence" &&
         name !== "000148_lifecycle_verification" &&
         name !== "000147_review_skills_mutation_identity" &&
         name !== "000146_drop_review_configuration_projection" &&
@@ -1294,7 +1296,7 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000136_review_skills" &&
         name !== "000137_review_skills_capture",
     );
-    expect(currentMigrationNames).toHaveLength(151);
+    expect(currentMigrationNames).toHaveLength(153);
     expect(
       [...currentMigrationNames]
         .sort()
@@ -1332,6 +1334,8 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000143_workspace_draft_review_setting" &&
         name !== "000145_workspace_provider_profiles" &&
         name !== "000149_api_key_repository_secret_profiles" &&
+        name !== "000142_memory_knowledge_authority" &&
+        name !== "000143_memory_maintenance_fence" &&
         name !== "000148_lifecycle_verification" &&
         name !== "000147_review_skills_mutation_identity" &&
         name !== "000146_drop_review_configuration_projection" &&
@@ -1390,12 +1394,15 @@ describe("disposable dual-version rehearsal", () => {
       "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
     );
     expect(migrationManifestIdentity(currentMigrationNames)).toBe(
-      "sha256:bde611c1eb4753d8d21f0f5ac2b97f2c93818aaf7fb48cc9181abe28aa708035",
+      "sha256:5d42e163ba89faae7c49fa4fa9ff65bc2a8b87a6774b57a5f70c6a027e4331dd",
     );
     expect(
       migrationManifestIdentity(
         currentMigrationNames.filter(
-          (name) => name !== "000149_api_key_repository_secret_profiles",
+          (name) =>
+            name !== "000149_api_key_repository_secret_profiles" &&
+            name !== "000142_memory_knowledge_authority" &&
+            name !== "000143_memory_maintenance_fence",
         ),
       ),
     ).toBe(
@@ -1406,6 +1413,8 @@ describe("disposable dual-version rehearsal", () => {
         currentMigrationNames.filter(
           (name) =>
             name !== "000149_api_key_repository_secret_profiles" &&
+            name !== "000142_memory_knowledge_authority" &&
+            name !== "000143_memory_maintenance_fence" &&
             name !== "000148_lifecycle_verification",
         ),
       ),
@@ -1528,7 +1537,9 @@ describe("disposable dual-version rehearsal", () => {
       "000139_review_context_tools",
       "000140_personal_oauth_method",
       "000141_memory_search_projections",
+      "000142_memory_knowledge_authority",
       "000142_optional_gateway_reasoning",
+      "000143_memory_maintenance_fence",
       "000143_workspace_draft_review_setting",
       "000144_review_statistics",
       "000145_workspace_provider_profiles",
@@ -1787,6 +1798,8 @@ describe("disposable dual-version rehearsal", () => {
     "000139_review_context_tools",
     "000140_personal_oauth_method",
     "000141_memory_search_projections",
+    "000142_memory_knowledge_authority",
+    "000143_memory_maintenance_fence",
     "000142_optional_gateway_reasoning",
     "000143_workspace_draft_review_setting",
     "000144_review_statistics",
@@ -1873,6 +1886,8 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000143_workspace_draft_review_setting" &&
                 name !== "000145_workspace_provider_profiles" &&
                 name !== "000149_api_key_repository_secret_profiles" &&
+                name !== "000142_memory_knowledge_authority" &&
+                name !== "000143_memory_maintenance_fence" &&
                 name !== "000148_lifecycle_verification" &&
                 name !== "000147_review_skills_mutation_identity" &&
                 name !== "000146_drop_review_configuration_projection" &&
