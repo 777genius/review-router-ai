@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
-import { createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
-import { open, readFile, stat } from "node:fs/promises";
+import {
+  createPrivateKey,
+  createPublicKey,
+  randomUUID,
+  sign,
+  verify,
+} from "node:crypto";
+import { open, readFile, stat, link, unlink } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import {
   canonicalHindsightCleanup,
@@ -15,6 +21,7 @@ export interface CleanupSourceInventory {
   readonly sourceFactIds: readonly string[];
   readonly observationIds: readonly string[];
   readonly operationIds: readonly string[];
+  readonly entryHistoryCoverage: import("./native-provenance.ts").ProvenanceCoverage;
 }
 interface SignedInventory {
   readonly keyId: string;
@@ -74,9 +81,23 @@ export function verifyCleanupInventory(
   );
   assert(
     validIds(inventory.sourceFactIds, 10_000) &&
-      inventory.sourceFactIds.length > 0 &&
       validIds(inventory.observationIds, 10_000) &&
       validIds(inventory.operationIds, 1024),
+  );
+  const coverage = inventory.entryHistoryCoverage;
+  assert(
+    coverage?.profile === "postgresql-trigger-ledger-v1" &&
+      [
+        coverage.activationDigest,
+        coverage.definitionDigest,
+        coverage.sqlDigest,
+      ].every((value) => value.length === 64 && /^[a-f0-9]+$/.test(value)) &&
+      Number.isFinite(Date.parse(coverage.installedAt)) &&
+      Date.parse(coverage.installedAt) <= Date.parse(inventory.capturedAt) &&
+      coverage.operationCount === inventory.operationIds.length &&
+      Number.isSafeInteger(coverage.historicalObservationCount) &&
+      coverage.historicalObservationCount >= 0 &&
+      coverage.historicalObservationCount <= inventory.observationIds.length,
   );
   const encoded = canonicalHindsightCleanup(inventory);
   assert(encoded.length <= 1_000_000);
@@ -103,12 +124,18 @@ export async function persistCleanupInventory(
       directory.uid === process.getuid?.() &&
       (directory.mode & 0o022) === 0,
   );
-  const handle = await open(path, "wx", 0o600);
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  const handle = await open(temporary, "wx", 0o600);
   try {
     await handle.writeFile(JSON.stringify(signed) + "\n");
     await handle.sync();
   } finally {
     await handle.close();
+  }
+  try {
+    await link(temporary, path);
+  } finally {
+    await unlink(temporary);
   }
   const directoryHandle = await open(dirname(path), "r");
   try {
@@ -154,6 +181,29 @@ export interface CleanupOperation {
     readonly [key: string]: unknown;
   };
   child_operations?: CleanupOperation[];
+}
+/** Native created_at pagination has ties; any overlap, changing total or malformed identity fails closed. */
+export function appendCleanupOperationPage(
+  all: CleanupOperation[],
+  page: { operations: CleanupOperation[]; total: number },
+  expectedTotal?: number,
+): number {
+  assert(
+    Number.isSafeInteger(page.total) &&
+      page.total >= 0 &&
+      page.total <= 10_000 &&
+      (expectedTotal === undefined || expectedTotal === page.total) &&
+      Array.isArray(page.operations) &&
+      (page.operations.length > 0 || all.length === page.total) &&
+      all.length + page.operations.length <= page.total,
+  );
+  const ids = new Set(all.map((operation) => operation.operation_id));
+  for (const operation of page.operations) {
+    assert(uuid(operation.operation_id) && !ids.has(operation.operation_id));
+    ids.add(operation.operation_id);
+  }
+  all.push(...page.operations);
+  return page.total;
 }
 const object = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
@@ -272,6 +322,41 @@ export function assertCleanupOperationSources(
     ),
     "Foreign document outside consolidation ID/count history",
   );
+}
+
+/** Under a proven execution drain, child cancellation may still terminalize its parent. */
+export async function terminalizeDrainedCleanupOperations(
+  operationIds: readonly string[],
+  readOperation: (
+    operationId: string,
+  ) => Promise<Pick<CleanupOperation, "operation_id" | "status">>,
+  cancelOperation: (operationId: string) => Promise<void>,
+): Promise<void> {
+  assert(
+    operationIds.length <= 10_000 &&
+      operationIds.every(uuid) &&
+      new Set(operationIds).size === operationIds.length,
+  );
+  const terminal = new Set(["completed", "failed", "cancelled"]);
+  const readExact = async (operationId: string) => {
+    const state = await readOperation(operationId);
+    assert(
+      state.operation_id === operationId &&
+        (terminal.has(state.status) ||
+          ["pending", "processing"].includes(state.status)),
+      "Native operation identity or state could not be verified",
+    );
+    return state;
+  };
+  for (const operationId of operationIds) {
+    const current = await readExact(operationId);
+    if (["pending", "processing"].includes(current.status))
+      await cancelOperation(operationId);
+    assert(
+      terminal.has((await readExact(operationId)).status),
+      "Native operation did not reach a verified terminal state before payload deletion",
+    );
+  }
 }
 
 /** Fixed point includes ancestors, descendants and reverse parent references. */

@@ -1,5 +1,7 @@
 # Agent Instructions
 
+- Follow the maintained [Engineering Quality Standard](https://github.com/agent-teams-ai/.github/blob/main/docs/engineering-quality-standard.md), within this repository's explicitly adopted scope and pinned toolchain.
+
 - Repository hygiene: put disposable logs, debug scripts, screenshots, and scratch outputs in `tmp/`, not loose files in the repository root. Keep local worktrees outside this checkout when possible. Preserve existing worktrees and recovery evidence during cleanup. Keep local scratch directories excluded from Git, Docker build contexts, lint, and formatting.
 
 - Release process, `v1` tag handling, and git flow are documented in [`ai-docs/operations/07-environments-and-release-management.md`](./ai-docs/operations/07-environments-and-release-management.md). Use that file as the source of truth instead of duplicating release steps here.

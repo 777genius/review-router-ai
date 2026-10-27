@@ -2,7 +2,8 @@
 
 The root `foundation.config.yaml` adopts bounded provider catalog, provider usage
 and memory source boundaries. Foundation 2.1.0 is a development dependency; Get Modular
-Core and Assembly are pinned to 0.2.0, matching the Gateway SDK generation.
+Core and Assembly are currently pinned to 0.7.0. The recorded isolated packed
+consumer qualification below covers the historical 0.2.0 generation only.
 The existing WEB Host CMS / Foundation 1.6 qualification is independent and
 retains its previous pins and meaning.
 
@@ -14,13 +15,14 @@ explicitly bounded adoption. The public v1 capability is therefore used against
 the real RR workspace. It enforces value and type import direction, declared
 package dependencies and public exports, entrypoints, development source
 ownership and unknown files within the three explicit governed roots. It does not claim
-v2 portable topology or repository-wide adoption. The exact registry exports
+v2 portable topology or repository-wide adoption. The historical 0.2.0 consumer's registry exports
 and SRI are retained in `scripts/provider-foundation/registry-artifacts.json`.
+That artifact does not qualify the currently installed 0.7.0 packages.
 
 Run `pnpm foundation:check`, `pnpm foundation:assert-dev-only`, and
 `pnpm foundation:assert-registry`; all are included in `architecture:check`.
-`pnpm foundation:qualify` also downloads and verifies exact Core/Assembly packed
-artifacts, builds an isolated ESM consumer with TypeScript 6.0.3 and
+`pnpm foundation:qualify` also downloads and verifies the recorded Core/Assembly
+0.2.0 packed artifacts, builds an isolated ESM consumer with TypeScript 6.0.3 and
 `skipLibCheck: false`, and verifies construction, rejection before I/O and host
 cleanup of created resources. Assembly 0.2 performs no automatic disposal.
 

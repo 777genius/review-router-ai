@@ -333,6 +333,7 @@ boundaries:
     roots:
       - "packages/features/memory/src/application"
     entrypoints:
+      - "packages/features/memory/src/application/memory-cleanup-policy.ts"
       - "packages/features/memory/src/application/ports/memory-cleanup-proof-port.ts"
       - "packages/features/memory/src/application/ports/memory-knowledge-access-port.ts"
       - "packages/features/memory/src/application/ports/memory-knowledge-provider-port.ts"

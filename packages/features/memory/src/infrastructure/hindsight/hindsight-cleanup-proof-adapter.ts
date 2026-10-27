@@ -66,6 +66,7 @@ export class HindsightCleanupProofAdapter implements MemoryCleanupProofPort {
     )
       return null;
     return {
+      coverage: "entry_history_and_operations",
       id: hindsightCleanupDigest(input.proof.proof),
       commandId: input.command.operation.id,
       commandDigest: input.command.digest,

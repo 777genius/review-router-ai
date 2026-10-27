@@ -19,14 +19,24 @@ import {
   freePort,
   pause,
 } from "./native-runtime.ts";
+import {
+  captureNativeProvenance,
+  verifyNativeProvenance,
+  removeNativeProvenanceHeadsAndHistory,
+  provenanceSchema,
+  type NativeSql,
+} from "./native-provenance.ts";
 import { acquireDeploymentLock } from "./deployment-lock.ts";
 import {
   assertExecutorPhase,
   nativeSqlObserverArguments,
+  nativeSqlArguments,
   type DockerExecutorInspection,
 } from "./operator-host.ts";
 import {
   assertCleanupOperationSources,
+  appendCleanupOperationPage,
+  terminalizeDrainedCleanupOperations,
   leafFirstOperations,
   operationClosure,
   persistCleanupInventory,
@@ -37,7 +47,6 @@ import {
 import {
   assertNativeCleanupStatus,
   assertNativeOperationAbsent,
-  assertNativeObservationsCleared,
 } from "./native-http.ts";
 
 interface OperatorPlan {
@@ -73,13 +82,41 @@ function containsDocument(value: unknown, document: string): boolean {
     )
   );
 }
-function containsId(value: unknown, ids: ReadonlySet<string>): boolean {
-  if (typeof value === "string") return ids.has(value);
-  if (Array.isArray(value)) return value.some((item) => containsId(item, ids));
-  return (
-    !!value &&
-    typeof value === "object" &&
-    Object.values(value).some((item) => containsId(item, ids))
+/** Document deletion is admitted only after every present native operation is verified terminal. */
+export async function removeDrainedNativeDocument(
+  bankPath: string,
+  document: string,
+  operationIds: readonly string[],
+  request: <T>(
+    path: string,
+    method?: string,
+    body?: unknown,
+    allowed?: number[],
+  ) => Promise<T | null>,
+): Promise<void> {
+  await terminalizeDrainedCleanupOperations(
+    operationIds,
+    async (operationId) => {
+      const state = await request<Operation>(
+        `${bankPath}/operations/${operationId}`,
+      );
+      assert(state);
+      return state;
+    },
+    async (operationId) => {
+      await request(
+        `${bankPath}/operations/${operationId}`,
+        "DELETE",
+        undefined,
+        [200, 409],
+      );
+    },
+  );
+  await request(
+    `${bankPath}/documents/${encodeURIComponent(document)}`,
+    "DELETE",
+    undefined,
+    [200, 404],
   );
 }
 
@@ -316,6 +353,26 @@ async function runLockedCleanup(
     Number(await sql("SHOW server_version_num")) >= 170000 &&
       Number(await sql("SHOW server_version_num")) < 180000,
   );
+  const schema = originalEnvironment.HINDSIGHT_API_DATABASE_SCHEMA || "public";
+  const q = provenanceSchema(schema);
+  const provenanceSql: NativeSql = async (steps, readOnly = true) =>
+    (
+      await docker(
+        nativeSqlArguments(
+          configuredDsn,
+          plan.binding.imageDigest,
+          steps,
+          readOnly,
+        ),
+      )
+    ).trim();
+  // Never mutate a deployment whose provenance was missing, installed late or altered.
+  const activation = await verifyNativeProvenance(
+    provenanceSql,
+    schema,
+    plan.binding,
+    pauseObservedAt,
+  );
   const executorRecords: HindsightCleanupProof["executors"][number][] = [];
   for (const record of inventory) {
     const environment = Object.fromEntries(
@@ -479,16 +536,20 @@ async function runLockedCleanup(
       credentials.signingKeyId,
       credentials.signingPublicKey,
     );
-    const sourceDocument = await request(
-      `${bankPath()}/documents/${encodeURIComponent(document)}`,
-      "GET",
-      undefined,
-      [200, 404],
+    const provenance = await captureNativeProvenance(
+      provenanceSql,
+      schema,
+      plan.nativeBankId,
+      document,
     );
-    assert(
-      sourceDocument || priorInventory,
-      "Document is already absent without authenticated pre-delete source inventory; cleanup must stay pending",
+    const currentActivation = await verifyNativeProvenance(
+      provenanceSql,
+      schema,
+      plan.binding,
+      pauseObservedAt,
     );
+    assert.deepEqual(currentActivation, activation);
+    // Fresh, attested all-ever provenance makes even zero-fact/never-executed entries decidable.
     const sourceFacts = [
       ...(await list<Fact>(
         `/memories/list?document_id=${encodeURIComponent(document)}&state=valid`,
@@ -498,34 +559,54 @@ async function runLockedCleanup(
       )),
     ];
     const sourceIds = new Set(
-      priorInventory?.sourceFactIds ?? sourceFacts.map((fact) => fact.id),
+      priorInventory?.sourceFactIds ?? provenance.sourceFactIds,
     );
     assert(
-      sourceIds.size > 0 && sourceFacts.every((fact) => sourceIds.has(fact.id)),
+      sourceFacts.every((fact) => sourceIds.has(fact.id)) &&
+        provenance.sourceFactIds.every((factId) => sourceIds.has(factId)),
       "Source inventory changed after its durable capture",
     );
     const operations: Operation[] = [];
-    let operationTotal = Infinity;
-    while (operations.length < operationTotal) {
+    let operationTotal: number | undefined;
+    do {
       const page = await request<{ operations: Operation[]; total: number }>(
         `${bankPath()}/operations?limit=100&offset=${operations.length}`,
       );
-      assert(
-        page &&
-          page.total <= 10_000 &&
-          (page.operations.length || operations.length === page.total),
+      assert(page);
+      operationTotal = appendCleanupOperationPage(
+        operations,
+        page,
+        operationTotal,
       );
-      operationTotal = page.total;
-      operations.push(...page.operations);
-    }
+    } while (operations.length < operationTotal);
+    const databaseOperationIds = JSON.parse(
+      await provenanceSql([
+        {
+          statement: `SELECT COALESCE(jsonb_agg(operation_id ORDER BY operation_id),'[]'::jsonb)::text FROM
+        (SELECT operation_id FROM ${q}.async_operations WHERE bank_id=$1 ORDER BY operation_id LIMIT 10001) inventory`,
+          parameters: [plan.nativeBankId],
+        },
+      ]),
+    ) as string[];
+    assert(databaseOperationIds.length <= 10_000);
+    assert.deepEqual(
+      operations.map((operation) => operation.operation_id).sort(),
+      databaseOperationIds,
+      "Public native operation pagination omitted persisted operation identities",
+    );
     const full = new Map<string, Operation>();
     for (const operation of operations) {
       const state = await request<Operation>(
         `${bankPath()}/operations/${operation.operation_id}?include_payload=true`,
       );
-      assert(state);
+      assert(
+        state &&
+          state.operation_id === operation.operation_id &&
+          state.status !== "not_found",
+      );
       full.set(state.operation_id, state);
     }
+    assert.equal(full.size, operationTotal);
     const seeds = new Set([
       ...plan.trackedOperationIds,
       ...(priorInventory?.operationIds ?? []),
@@ -547,31 +628,38 @@ async function runLockedCleanup(
         document,
         plan.nativeBankId,
       );
-    const observationIds = new Set(priorInventory?.observationIds ?? []);
-    for (const state of ["valid", "invalidated"])
-      for (const observation of await list<Fact>(
-        `/memories/list?type=observation&state=${state}`,
-      )) {
-        const history = await request<unknown>(
-          `${bankPath()}/memories/${observation.id}/history`,
-          "GET",
-          undefined,
-          [200, 404],
-        );
-        if (
-          observation.source_memory_ids?.some((source) =>
-            sourceIds.has(source),
-          ) ||
-          containsId(history, sourceIds) ||
-          containsDocument(history, document)
-        ) {
-          assert(
-            !priorInventory || observationIds.has(observation.id),
-            "A related observation appeared after inventory capture",
-          );
-          observationIds.add(observation.id);
-        }
-      }
+    const observationIds = new Set(
+      priorInventory?.observationIds ?? provenance.observationIds,
+    );
+    assert(
+      provenance.observationIds.every((observationId) =>
+        observationIds.has(observationId),
+      ),
+      "Native observation provenance changed after capture",
+    );
+    if (priorInventory) {
+      assert.deepEqual(
+        [...sourceIds].sort(),
+        [...provenance.sourceFactIds].sort(),
+      );
+      assert.deepEqual(
+        [...observationIds].sort(),
+        [...provenance.observationIds].sort(),
+      );
+      assert.deepEqual(
+        Object.fromEntries(
+          Object.entries(priorInventory.entryHistoryCoverage).filter(
+            ([key]) =>
+              !["operationCount", "historicalObservationCount"].includes(key),
+          ),
+        ),
+        activation,
+      );
+      assert(
+        provenance.historicalObservationCount <=
+          priorInventory.entryHistoryCoverage.historicalObservationCount,
+      );
+    }
     const sourceInventory = priorInventory ?? {
       schema: "hindsight-cleanup-inventory/v1" as const,
       binding: plan.binding,
@@ -580,6 +668,11 @@ async function runLockedCleanup(
       sourceFactIds: [...sourceIds].sort(),
       observationIds: [...observationIds].sort(),
       operationIds: [...related].sort(),
+      entryHistoryCoverage: {
+        ...activation,
+        operationCount: related.size,
+        historicalObservationCount: provenance.historicalObservationCount,
+      },
     };
     if (!priorInventory)
       await persistCleanupInventory(
@@ -664,19 +757,11 @@ async function runLockedCleanup(
     const relevant = [...related]
       .map((operationId) => full.get(operationId))
       .filter((value): value is Operation => !!value);
-    for (const operation of relevant)
-      if (["pending", "processing"].includes(operation.status))
-        await request(
-          `${bankPath()}/operations/${operation.operation_id}`,
-          "DELETE",
-          undefined,
-          [200, 409],
-        );
-    await request(
-      `${bankPath()}/documents/${encodeURIComponent(document)}`,
-      "DELETE",
-      undefined,
-      [200, 404],
+    await removeDrainedNativeDocument(
+      bankPath(),
+      document,
+      relevant.map((operation) => operation.operation_id),
+      request,
     );
     for (const operationId of leafFirstOperations(full, related))
       await request(
@@ -685,16 +770,24 @@ async function runLockedCleanup(
         undefined,
         [200, 404],
       );
-    // Retag/replacement can orphan history whose old source IDs are no longer
-    // discoverable from the current document. The pinned public reset erases all
-    // derived history and requeues surviving sources without deleting their
-    // approved documents/facts or starting execution in this stopped profile.
-    assertNativeObservationsCleared(
-      await request(`${bankPath()}/observations`, "DELETE"),
+    await verifyNativeProvenance(
+      provenanceSql,
+      schema,
+      plan.binding,
+      pauseObservedAt,
     );
-    async function absence(
-      beforeRestart = false,
-    ): Promise<HindsightCleanupAbsence> {
+    await removeNativeProvenanceHeadsAndHistory(
+      provenanceSql,
+      schema,
+      plan.nativeBankId,
+      {
+        sourceFactIds: sourceInventory.sourceFactIds,
+        observationIds: sourceInventory.observationIds,
+        historicalObservationCount:
+          sourceInventory.entryHistoryCoverage.historicalObservationCount,
+      },
+    );
+    async function absence(): Promise<HindsightCleanupAbsence> {
       assert.equal(
         await request(
           `${bankPath()}/documents/${encodeURIComponent(document)}`,
@@ -713,55 +806,29 @@ async function runLockedCleanup(
           ).length,
           0,
         );
-        const observations = await list<Fact>(
-          `/memories/list?type=observation&state=${state}`,
-        );
-        if (beforeRestart)
-          assert.equal(
-            observations.length,
-            0,
-            "Native observation reset left derived records behind",
-          );
-        for (const observation of observations) {
-          assert(
-            !observation.source_memory_ids?.some((source) =>
-              sourceIds.has(source),
-            ),
-            "A live observation still cites the forgotten source",
-          );
-          const history = await request<unknown>(
-            `${bankPath()}/memories/${observation.id}/history`,
-            "GET",
-            undefined,
-            [200, 404],
-          );
-          assert(
-            !containsDocument(history, document) &&
-              !containsId(history, sourceIds),
-            "Observation history still exposes forgotten source evidence",
-          );
-        }
       }
-      // Deleted observations have no public history endpoint. Inspect persisted history
-      // read-only as well; an inaccessible orphan cannot become a vacuous success.
-      const schema =
-        originalEnvironment.HINDSIGHT_API_DATABASE_SCHEMA || "public";
-      assert(/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(schema));
-      const knownObservations = [...observationIds]
-        .map((value) => `'${value}'::uuid`)
-        .join(",");
-      const sources = [...sourceIds]
-        .map((value) => `content::text LIKE '%${value}%'`)
-        .join(" OR ");
-      const observationMatch = knownObservations
-        ? `observation_id IN (${knownObservations}) OR `
-        : "";
+      await verifyNativeProvenance(
+        provenanceSql,
+        schema,
+        plan.binding,
+        pauseObservedAt,
+      );
       assert.equal(
-        await sql(
-          `SELECT count(*) FROM "${schema}".observation_history WHERE bank_id='${plan.nativeBankId}'${beforeRestart ? "" : ` AND (${observationMatch}${sources})`}`,
-        ),
+        await provenanceSql([
+          {
+            statement: `SELECT
+        (SELECT count(*) FROM ${q}.memory_units WHERE bank_id=$1 AND id=ANY($2::uuid[])) +
+        (SELECT count(*) FROM ${q}.invalidated_memory_units WHERE bank_id=$1 AND id=ANY($2::uuid[])) +
+        (SELECT count(*) FROM ${q}.observation_history WHERE bank_id=$1 AND observation_id=ANY($3::uuid[]))`,
+            parameters: [
+              plan.nativeBankId,
+              [...sourceIds, ...observationIds],
+              [...observationIds],
+            ],
+          },
+        ]),
         "0",
-        "Persisted observation history still contains forgotten evidence",
+        "Exact bound native heads/history survived cleanup",
       );
       for (const operationId of related)
         assertNativeOperationAbsent(
@@ -778,7 +845,7 @@ async function runLockedCleanup(
         observedAt: stamp(),
       };
     }
-    const beforeRestart = await absence(true);
+    const beforeRestart = await absence();
     await checkPause();
     await inspectAll("stopped", cleanupContainerId);
     await docker(["stop", "--time", "30", cleanupName]);
@@ -887,8 +954,10 @@ async function runLockedCleanup(
         digest: hindsightCleanupDigest(sourceInventory),
         sourceFactCount: sourceInventory.sourceFactIds.length,
         observationCount: sourceInventory.observationIds.length,
+        operationCount: sourceInventory.operationIds.length,
         capturedAt: sourceInventory.capturedAt,
       },
+      entryHistoryCoverage: sourceInventory.entryHistoryCoverage,
       pauseObservedAt,
       executors: executorRecords,
       sessionsClosedAt,

@@ -55,7 +55,12 @@ The same run executes the actual production SDK adapter and the production Docke
 cleanup operator. Its cleanup fixture first produces a real derived observation
 and a native consolidation update with nonempty persisted history, then verifies
 physical history/source/payload absence after restart and signs the observed
-receipt. The Router maintenance HTTP attestation in this native-only fixture is
+receipt. It also creates an unrelated observation with nonempty history and
+requires byte-for-byte preservation, retries cleanup from the same signed
+inventory after deletion, and forgets a raw queued entry that produced zero facts.
+Before ordinary writers start, the real image/PG17 run exercises ledger activation,
+rewrite/archive provenance, definition drift, exact orphan/shared cleanup,
+surviving-head rollback and unrelated-history preservation. The Router maintenance HTTP attestation in this native-only fixture is
 synthetic and is recorded as such in `qualification-boundary.json`; the actual
 Router maintenance transport barrier requires separate real-PostgreSQL application
 qualification. Unit/contract success and source inspection do not establish a
@@ -73,7 +78,36 @@ immutable derivative image. Copy `profile.env.example` to the deployment secret
 configuration and supply dedicated native database/service/inference credentials.
 Set a stable unique executor ID and a traceable process/generation-specific
 PostgreSQL `application_name`. Run bounded `hindsight-admin run-db-migration` as a
-release/admin job; disable startup migrations on long-running services.
+release/admin job; disable startup migrations on long-running services. Before
+starting any API/worker or writing a bank, explicitly activate the reviewed
+ID-only provenance ledger on the freshly migrated empty database:
+
+```sh
+HINDSIGHT_API_DATABASE_URL=postgresql://NATIVE_ROLE:SECRET@127.0.0.1:5432/NATIVE_DB node scripts/hindsight-e2e/native-provenance.ts public ROUTER_NAMESPACE BACKEND_GENERATION sha256:QUALIFIED_DERIVATIVE_IMAGE_ID
+```
+
+This is a one-time administrative command, never application startup work. It
+runs through the exact native image, takes an advisory transaction lock and
+exclusive locks on all six native content/operation tables, and refuses any
+existing native data or another database client. It records the namespace,
+generation, image/source revision, SQL digest, full native/ledger table-definition
+fingerprint, pinned migration head and installation time in an immutable singleton.
+An existing populated deployment cannot be retroactively declared complete.
+Keep memory fenced and follow the recovery and upgrade gate below.
+
+The two append-only ledgers contain original fact UUID/bank/document/type identity
+and the union of every source-to-observation UUID edge ever written to live or
+archived heads. They contain no approved or derived prose. Triggers reject
+identity remapping, unknown types, missing/cross-bank source UUIDs and source vs
+observation UUID collisions within the same native transaction. Deleting a native
+head never deletes its provenance. This is deletion bookkeeping; extraction,
+consolidation, recall and semantic decisions remain native Hindsight behavior.
+The installer and operator verify actual function bodies, language/security,
+arguments/search path, all five trigger definitions/states, ledger constraints,
+native identity columns, the migration head and the activation-bound catalog
+fingerprint. This covers accidental schema drift and normal trusted native
+writers; a database owner deliberately replacing DDL and immutable records is
+outside the deployment profile.
 
 Use a separate private PostgreSQL17 database, pgvector and native text search.
 Bootstrap extensions with admin authority, then run native migrations/services
@@ -114,6 +148,60 @@ provider checks are TCP-only, so internal HTTP/poll monitoring remains necessary
 Native memory health is feature-local and does not fail ordinary Router reviews.
 Inference provider/model/dimensions, data egress and multilingual quality require
 their own recorded release choice; self-hosted storage does not imply local inference.
+
+## Recovery and native upgrade gate
+
+The activation binds one exact namespace, generation, native image, source revision,
+migration head and catalog. An image, generation or schema change is not an in-place
+upgrade authorization. On a mismatch, keep memory disabled, pause every Router
+submission/retry path and drain all native executors and database sessions. Ordinary
+reviews continue without memory; preserve pending Forget fences, signed inventories,
+receipts and the original generation binding. Do not edit the activation or ledger,
+rerun the installer against populated tables, or automatically downgrade Alembic.
+
+Choose the recovery path from the observed database state:
+
+1. **Return to the same qualified profile.** Restore the exact qualified image and
+   configuration only if the database still matches its original migration head,
+   activation and catalog fingerprint. Reverify the existing activation before any
+   native writer starts. A restored populated backup must include its original trusted
+   activation and complete ledgers; it is not a fresh installation. Restore into an
+   isolated environment first and reconcile all subsequent authority changes and
+   deletion fences before allowing reads. Reconcile or remove restored queued native
+   payloads before resuming workers, so they cannot recreate forgotten or superseded
+   content. An old backup must never resurrect forgotten data or silently discard
+   newer approved changes. If that reconciliation cannot be
+   proved, keep memory disabled and recover forward.
+2. **Reviewed fresh-database cutover.** If the original profile cannot be restored,
+   prepare a separate database and a separately reviewed, pinned provider profile.
+   Run the new native migrations and activate its ledger while every native table is
+   still empty and no other client is connected. Apply the accepted
+   [safe-cutover plan](../../ai-docs/plans/2026-10-23-hindsight-memory-replacement.md#14-safe-cutover):
+   inventory source authority and unresolved work; transfer only currently authorized
+   approved source entries and their neutral authority/provenance metadata; exclude
+   forgotten content and raw threads, prompts or operation payloads. Preserve stable
+   application IDs, lifecycle/applicability and explicit source/destination generation
+   mappings in a resumable manifest. Pending input must not become approved knowledge;
+   retired or expired entries must not become active. Rebuild derived native knowledge,
+   settle import operations and verify
+   counts, scope isolation, revision/approval consistency and deletion fences before
+   switching one configured generation. No silent dual writes or stale-backend fallback.
+
+Export/import success or a receipt from the new generation cannot close an old
+store's deletion obligation. Retain its bound evidence and an explicit old-generation
+cleanup/decommission disposition until physical deletion is verified under the old
+qualified profile or the old store is destroyed under the approved retention policy.
+Backup copies remain subject to their recorded retention; a cutover is not proof of
+their erasure. Do not submit a new-generation receipt as old-generation cleanup proof.
+
+Every upgrade requires a recorded rollback/cutover decision and completed native
+image/API/worker/PG17 qualification, Router authority/transport checks and paired
+runtime checks for the candidate profile. Record the selected model, residency and
+retention decisions before activation. The procedures above define the release gate;
+this implementation does not provide a general export/import migration tool or an
+automatic activation-successor mechanism. A schema-changing in-place upgrade needs
+its own reviewed migration, evidence-preservation proof and executable qualification.
+Until those gates pass, keep the existing qualified profile or leave memory disabled.
 
 ## Initial physical forget: complete operator pause
 
@@ -190,12 +278,14 @@ The Router pause operation first obtains its exclusive transport drain barrier;
 a plan-supplied pause boolean is insufficient.
 
 Before any target deletion, the CLI writes a mode0600, signed and fsynced inventory
-of nonempty source fact IDs, related observation IDs and the recursively closed
-operation graph to `sourceInventoryPath`. Keep this file across retries. A retry
+of all-ever source fact IDs, all-ever related observation IDs, verified fresh
+ledger coverage and the recursively closed operation graph to `sourceInventoryPath`. Keep this file across retries. A retry
 authenticates and reuses the same command/generation/pause-bound inventory, so
-already-deleted facts cannot make observation-history verification vacuous. An
-absent document without authenticated pre-delete inventory, a partial/corrupt
-inventory or changed source/operation set leaves cleanup pending. The file contains
+already-deleted facts cannot make observation-history verification vacuous. A partial/corrupt
+inventory, missing/untrusted/late ledger, schema drift or changed source/operation
+set leaves cleanup pending. An entry with zero extracted facts is supported only
+under the verified fresh ledger and complete drained operation inventory; queued
+raw payloads still require terminal cancellation and deletion. The file contains
 identities and proof metadata, without approved prose. Never replace it with an
 empty inventory to force completion.
 
@@ -212,12 +302,26 @@ The complete host inventory is a deployment prerequisite. A signature cannot
 discover unknown external executors; an unowned host/replica or incomplete label
 inventory makes this profile unsupported. Mixed-source retain batches, more
 than 1,024 relevant operation identities, missing history/evidence or failed
-restart readiness leave cleanup pending. The CLI scans current and archived
-source facts, observations and public observation-history support. It provides
-read-only checks of persisted history for known source and observation identities,
-including history whose observation is already absent from the public API. It provides
-no semantic erasure repair and does not claim model-generated old prose has been
-removed when native evidence cannot establish that postcondition.
+restart readiness leave cleanup pending. The CLI obtains original IDs from the immutable document mapping and follows the
+all-ever edge union, including observations deleted by retagging or source
+replacement and old history containing no source identity. It never searches
+prose or guesses provenance from current source arrays. The signed coverage
+binds activation/definition/SQL digests, installation before the pause, operation
+count and the number of distinct affected observation IDs with persisted history.
+Both UUID inventories are bounded to 10,000 before aggregation.
+
+After public native document and operation deletion, a narrow native-database
+maintenance transaction locks live heads, archived heads and observation history.
+The pinned API has no exact original/observation hard-delete route covering both
+live and archive. The transaction therefore deletes only the bound bank and exact
+all-ever source/observation UUIDs, checks that every bound head is absent from both
+tables, then deletes history only for that bank and the exact observation UUIDs.
+A surviving head aborts the entire transaction before history deletion. A shared
+contaminated observation is removed whole; unrelated approved source documents
+and original facts survive, and unrelated observation/history rows remain intact.
+The immutable ledger remains as ID-only evidence. Absence is checked again after
+native restart; retries reuse the authenticated atomically published inventory.
+There is no bank-wide derived-state reset, text inference or semantic repair.
 
 ## Recovery and upgrade
 

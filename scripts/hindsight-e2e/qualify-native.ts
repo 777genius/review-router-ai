@@ -13,6 +13,10 @@ import {
 } from "./native-runtime.ts";
 import { qualifyProductionAdapter } from "./production-adapter-story.ts";
 import { qualifyProductionCleanup } from "./production-cleanup-story.ts";
+import { qualifyNativeProvenance } from "./provenance-qualification.ts";
+import { installNativeProvenance } from "./native-provenance.ts";
+import { nativeSqlArguments } from "./operator-host.ts";
+import { terminalizeDrainedCleanupOperations } from "./cleanup-inventory.ts";
 import { assertNativeOperationAbsent } from "./native-http.ts";
 
 type Operation = {
@@ -412,6 +416,33 @@ export async function qualifyNative() {
     retainedLogs.push(await command(["logs", `${run}-migrate`], true));
     await command(["rm", `${run}-migrate`]);
     containers.delete(`${run}-migrate`);
+    await qualifyNativeProvenance(
+      async (steps, readOnly = true) =>
+        (
+          await command(
+            nativeSqlArguments(databaseUrl, imageId, steps, readOnly),
+          )
+        ).trim(),
+      {
+        namespace: "native-qualification",
+        generation: run,
+        imageDigest: imageId,
+      },
+    );
+    await installNativeProvenance(
+      async (steps, readOnly = true) =>
+        (
+          await command(
+            nativeSqlArguments(databaseUrl, imageId, steps, readOnly),
+          )
+        ).trim(),
+      "public",
+      {
+        namespace: "native-qualification",
+        generation: run,
+        imageDigest: imageId,
+      },
+    );
     const normal = [
       `${run}-api`,
       `${run}-worker`,
@@ -777,10 +808,16 @@ export async function qualifyNative() {
       discovered.size >= retainedIds.length,
       "Historical/queued operation discovery incomplete",
     );
-    for (const operation of discovered.values()) {
-      if (["pending", "processing"].includes(operation.status))
-        await request(path(`/operations/${operation.operation_id}`), "DELETE");
-    }
+    await terminalizeDrainedCleanupOperations(
+      [...discovered.keys()],
+      async (operationId) =>
+        request<Operation>(
+          path(`/operations/${operationId}?include_payload=true`),
+        ),
+      async (operationId) => {
+        await request(path(`/operations/${operationId}`), "DELETE");
+      },
+    );
     await request(path(`/documents/${document}`), "DELETE");
     const ordered = [...discovered.values()].sort(
       (a, b) =>
