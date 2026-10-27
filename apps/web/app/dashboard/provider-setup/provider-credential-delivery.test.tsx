@@ -15,6 +15,7 @@ import {
   CiSecretDelivery,
   ManagedKeyDelivery,
 } from "./provider-credential-delivery";
+import { providerSetupQueryKeys } from "./provider-setup-api";
 
 vi.mock("../actions", () => ({
   checkProviderRepositorySecretClientAction: vi.fn(),
@@ -52,15 +53,15 @@ const repository = {
   canManage: true,
 };
 function view(element: React.ReactNode) {
-  return render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
-      {element}
-    </QueryClientProvider>,
-  );
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return {
+    ...render(
+      <QueryClientProvider client={client}>{element}</QueryClientProvider>,
+    ),
+    client,
+  };
 }
 function direct() {
   return (
@@ -131,6 +132,112 @@ it("labels manual confirmation separately when GitHub metadata cannot be checked
   ).toBe("manual");
 });
 
+it("does not present cached secret availability after a fresh metadata read fails", async () => {
+  const { client } = view(direct());
+  const available = "OPENROUTER_API_KEY is available to this repository.";
+  await screen.findByText(available);
+  vi.mocked(checkProviderRepositorySecretClientAction).mockRejectedValueOnce(
+    new Error("GitHub metadata is unavailable"),
+  );
+  const queryKey = providerSetupQueryKeys.secretStatus(
+    repository.workspaceId,
+    repository.repositoryId,
+    "openrouter_api_key",
+  );
+
+  await act(async () => {
+    await client.refetchQueries({ queryKey, exact: true });
+  });
+
+  expect(client.getQueryState(queryKey)?.status).toBe("error");
+  expect(
+    await screen.findByText(
+      "ReviewRouter cannot read the repository secrets right now; you can still follow the steps.",
+    ),
+  ).toBeTruthy();
+  expect(screen.queryByText(available)).toBeNull();
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it("keeps an explicit successful confirmation when a later background read fails", async () => {
+  const { client } = view(direct());
+  fireEvent.click(screen.getByRole("button", { name: "Check GitHub setup" }));
+  await screen.findByRole("button", { name: "Confirmed" });
+  expect(screen.getByText("Secret available")).toBeTruthy();
+  vi.mocked(checkProviderRepositorySecretClientAction).mockRejectedValueOnce(
+    new Error("GitHub metadata is unavailable"),
+  );
+
+  await act(async () => {
+    await client.refetchQueries({
+      queryKey: providerSetupQueryKeys.secretStatus(
+        repository.workspaceId,
+        repository.repositoryId,
+        "openrouter_api_key",
+      ),
+      exact: true,
+    });
+  });
+
+  await screen.findByText(
+    "ReviewRouter cannot read the repository secrets right now; you can still follow the steps.",
+  );
+  expect(screen.getByText("Secret available")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Confirmed" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it("does not let a pre-check read restore availability after the secret check reports missing", async () => {
+  type SecretRead = Awaited<
+    ReturnType<typeof checkProviderRepositorySecretClientAction>
+  >;
+  let finishOldRead!: (result: SecretRead) => void;
+  const oldRead = new Promise<SecretRead>((resolve) => {
+    finishOldRead = resolve;
+  });
+  vi.mocked(checkProviderRepositorySecretClientAction)
+    .mockResolvedValue({ status: "missing" })
+    .mockReturnValueOnce(oldRead);
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({ params: { error: "provider_secret_not_found" } }),
+      { headers: { "content-type": "application/json" } },
+    ),
+  );
+  const { client } = view(direct());
+  await waitFor(() =>
+    expect(checkProviderRepositorySecretClientAction).toHaveBeenCalledTimes(1),
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Check GitHub setup" }));
+  await screen.findByText(
+    "OPENROUTER_API_KEY is not in the Actions secrets of acme/widget yet. Run the command, then check again.",
+  );
+  await act(async () => {
+    finishOldRead({ status: "available_repository" });
+  });
+
+  await waitFor(() =>
+    expect(
+      client.getQueryData(
+        providerSetupQueryKeys.secretStatus(
+          repository.workspaceId,
+          repository.repositoryId,
+          "openrouter_api_key",
+        ),
+      ),
+    ).toBe("missing"),
+  );
+  expect(
+    screen.queryByText("OPENROUTER_API_KEY is available to this repository."),
+  ).toBeNull();
+  expect(screen.queryByText("Secret available")).toBeNull();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
 it("keeps the secret scope fixed until its check completes and clears the result on a later change", async () => {
   vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValue({
     status: "missing",
@@ -168,6 +275,7 @@ it("keeps the secret scope fixed until its check completes and clears the result
     expect(radio).toHaveProperty("disabled", true);
   expect(repositoryScope).toHaveProperty("checked", true);
   expect(organizationScope).toHaveProperty("checked", false);
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   expect(
     (fetchMock.mock.calls[0]?.[1].body as FormData).get("secretScope"),
   ).toBe("repository");
@@ -183,8 +291,10 @@ it("keeps the secret scope fixed until its check completes and clears the result
   const repositoryError =
     "CLAUDE_CODE_OAUTH_TOKEN is not in the Actions secrets of acme/widget yet. Run the command, then check again.";
   await screen.findByText(repositoryError);
-  for (const radio of screen.getAllByRole("radio"))
-    expect(radio).toHaveProperty("disabled", false);
+  await waitFor(() => {
+    for (const radio of screen.getAllByRole("radio"))
+      expect(radio).toHaveProperty("disabled", false);
+  });
   expect(screen.queryByText(/not an Actions secret of acme yet/)).toBeNull();
 
   fireEvent.click(organizationScope);
@@ -222,6 +332,50 @@ it("keeps the installed managed key on its GitHub path without installing or pro
   );
   expect(screen.queryByRole("button", { name: "Test connection" })).toBeNull();
 });
+
+it.each([
+  {
+    error: "provider_secret_check_permission_required",
+    explanation: /cannot read.*secret/i,
+    nextAction: /permission/i,
+  },
+  {
+    error: "repository_not_visible_to_github_app",
+    explanation: /GitHub App cannot access this repository/i,
+    nextAction: /selected repositories/i,
+  },
+])(
+  "explains managed-key $error without a wait-only or manual-confirmation instruction",
+  async ({ error, explanation, nextAction }) => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ params: { error } }), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    view(
+      <ManagedKeyDelivery
+        {...repository}
+        authMode="openrouter_api_key"
+        installed
+        installDecisionReason={null}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Check GitHub setup" }));
+
+    const message = await screen.findByText(explanation);
+    expect(message.textContent).toMatch(nextAction);
+    expect(screen.queryByText(/Wait a moment and check again/i)).toBeNull();
+    expect(screen.queryByText(/Confirm manually/i)).toBeNull();
+    expect(screen.queryByText("Secret available")).toBeNull();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Check GitHub setup" }),
+      ).toHaveProperty("disabled", false),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  },
+);
 
 it("gets the Claude subscription token before asking the user to store it", () => {
   const { container } = view(
