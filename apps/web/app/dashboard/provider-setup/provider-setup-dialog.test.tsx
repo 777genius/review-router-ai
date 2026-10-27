@@ -19,6 +19,7 @@ import {
   ProviderSetupDialog,
   type ProviderSetupDialogProps,
 } from "./provider-setup-dialog";
+import { providerSetupQueryKeys } from "./provider-setup-api";
 import {
   apiKeyProviders,
   type ProviderModelCatalogSnapshot,
@@ -159,6 +160,7 @@ function renderDialog(
     >;
   },
   gateway?: { api: GatewayModelAccountsApi },
+  client: QueryClient = new QueryClient(),
 ) {
   const content = (
     <ProviderSetupDialog
@@ -186,7 +188,7 @@ function renderDialog(
     content
   );
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={client}>
       {catalog ? (
         <ProviderModelCatalogProvider
           snapshots={catalog.snapshots}
@@ -200,6 +202,7 @@ function renderDialog(
     </QueryClientProvider>,
   );
   fireEvent.click(screen.getByRole("button", { name: "Change provider" }));
+  return client;
 }
 
 /** Selects the provider option whose row shows the text. */
@@ -1039,6 +1042,65 @@ describe("ProviderSetupDialog", () => {
     expect(url.searchParams.get("section")).toBe("repositories");
   });
 
+  it("keeps repository step navigation locked until a provider save finishes", async () => {
+    let finishSave!: (
+      result: Awaited<ReturnType<typeof saveProviderSetupAction>>,
+    ) => void;
+    vi.mocked(saveProviderSetupAction).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSave = resolve;
+        }),
+    );
+    renderDialog(repositoryTarget);
+    await choose("Second Claude");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    );
+    await waitFor(() => expect(saveProviderSetupAction).toHaveBeenCalledOnce());
+
+    const providerStep = screen.getByRole("button", { name: "1. Provider" });
+    const secretStep = screen.getByRole("button", { name: "2. Add secret" });
+    // Leaving and reentering the choice step must not create a fresh form
+    // that can submit a second mutation while the first save is unresolved.
+    fireEvent.click(secretStep);
+    fireEvent.click(providerStep);
+    await choose("Second Claude");
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /^(Saving\.\.\.|Use for this repository)$/,
+      }),
+    );
+
+    expect(saveProviderSetupAction).toHaveBeenCalledOnce();
+    expect(providerStep).toHaveProperty("disabled", true);
+    expect(secretStep).toHaveProperty("disabled", true);
+    expect(providerStep.getAttribute("aria-current")).toBe("step");
+
+    await act(async () => {
+      finishSave({
+        status: "saved",
+        results: [
+          {
+            repositoryId: "repo_1",
+            fullName: "acme/widget",
+            status: "applied",
+          },
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      expect(providerStep).toHaveProperty("disabled", false);
+      expect(secretStep).toHaveProperty("disabled", false);
+      expect(secretStep.getAttribute("aria-current")).toBe("step");
+    });
+    fireEvent.click(providerStep);
+    expect(providerStep.getAttribute("aria-current")).toBe("step");
+    expect(screen.getByText("Second Claude")).toBeTruthy();
+    expect(saveProviderSetupAction).toHaveBeenCalledOnce();
+  });
+
   it("returns a repository with its own provider to the workspace default", async () => {
     view = {
       ...view,
@@ -1062,6 +1124,180 @@ describe("ProviderSetupDialog", () => {
       }),
     );
     expect(saveProviderSetupAction).not.toHaveBeenCalled();
+  });
+
+  it("does not inherit a workspace default that disappeared after it was chosen", async () => {
+    view = {
+      ...view,
+      repositories: [
+        {
+          ...view.repositories[0]!,
+          source: "repository",
+          selection: selection("profile_other"),
+        },
+      ],
+    };
+    const client = renderDialog(repositoryTarget);
+    await choose("Workspace default: Team Claude");
+    expect(
+      screen.getByRole("button", { name: "Use the workspace default" }),
+    ).toHaveProperty("disabled", false);
+
+    // Another administrator removed the default, but this repository still
+    // has its own provider. A stale choice must not clear that selection.
+    view = {
+      ...view,
+      defaultSelection: null,
+      profiles: view.profiles.map((profile) => ({
+        ...profile,
+        isDefault: false,
+      })),
+    };
+    await act(async () => {
+      await client.refetchQueries({
+        queryKey: providerSetupQueryKeys.view("workspace_1", ["repo_1"]),
+        exact: true,
+      });
+    });
+    await waitFor(() =>
+      expect(screen.queryByText("Workspace default: Team Claude")).toBeNull(),
+    );
+
+    const inherit = screen.getByRole("button", {
+      name: "Use the workspace default",
+    });
+    expect(inherit).toHaveProperty("disabled", true);
+    fireEvent.click(inherit);
+    expect(inheritWorkspaceDefaultProviderAction).not.toHaveBeenCalled();
+    expect(saveProviderSetupAction).not.toHaveBeenCalled();
+
+    // Choosing an available provider is still possible after the refresh.
+    await choose("Team Claude");
+    expect(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    ).toHaveProperty("disabled", false);
+  });
+
+  it.each(["default", "profile"] as const)(
+    "allows choosing a new provider when the last %s choice disappears",
+    async (choiceKind) => {
+      view = { ...view, sources: apiSources() };
+      const client = renderDialog(repositoryTarget);
+      await choose(
+        choiceKind === "default"
+          ? "Workspace default: Team Claude"
+          : "Second Claude",
+      );
+
+      view = {
+        ...view,
+        defaultSelection: null,
+        profiles: [],
+        repositories: view.repositories.map((repository) => ({
+          ...repository,
+          source: "none" as const,
+          selection: null,
+        })),
+      };
+      await act(async () => {
+        await client.refetchQueries({
+          queryKey: providerSetupQueryKeys.view("workspace_1", ["repo_1"]),
+          exact: true,
+        });
+      });
+      await screen.findByRole("heading", { name: "Add the first provider" });
+
+      const add = (await screen.findByText("Add a new provider"))
+        .closest("label")!
+        .querySelector('[role="radio"]')!;
+      // Recover explicitly; a refresh must not silently replace the choice.
+      expect(add.getAttribute("aria-checked")).toBe("false");
+      expect(
+        screen.queryByRole("combobox", { name: /^Provider\b/ }),
+      ).toBeNull();
+      expect(saveProviderSetupAction).not.toHaveBeenCalled();
+      expect(inheritWorkspaceDefaultProviderAction).not.toHaveBeenCalled();
+
+      fireEvent.click(add);
+      await chooseSelect("Provider", "OpenRouter");
+      const save = screen.getByRole("button", {
+        name: "Use for this repository",
+      });
+      expect(save).toHaveProperty("disabled", false);
+      fireEvent.click(save);
+      await waitFor(() =>
+        expect(saveProviderSetupAction).toHaveBeenCalledOnce(),
+      );
+      expect(
+        vi.mocked(saveProviderSetupAction).mock.calls[0]![0],
+      ).toMatchObject({
+        target: { kind: "repositories", repositoryIds: ["repo_1"] },
+        provider: {
+          kind: "new",
+          credential: {
+            kind: "user_ci_secret",
+            authMode: "openrouter_api_key",
+          },
+        },
+      });
+      expect(inheritWorkspaceDefaultProviderAction).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves an unsaved provider choice through a failed refresh and blocks saving until retry succeeds", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    renderDialog(repositoryTarget, {}, undefined, undefined, client);
+    await choose("Second Claude");
+    const expectSecondClaudeChosen = () => {
+      const option = screen.getByText("Second Claude").closest("label")!;
+      expect(
+        option.querySelector('[role="radio"]')!.getAttribute("aria-checked"),
+      ).toBe("true");
+    };
+    expectSecondClaudeChosen();
+    expect(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    ).toHaveProperty("disabled", false);
+    vi.mocked(fetch).mockRejectedValueOnce(
+      new Error("provider_setup_unavailable"),
+    );
+    const queryKey = providerSetupQueryKeys.view("workspace_1", ["repo_1"]);
+
+    await act(async () => {
+      await client.refetchQueries({ queryKey, exact: true });
+    });
+
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    expect(client.getQueryState(queryKey)?.status).toBe("error");
+    expect(client.getQueryData(queryKey)).toBeDefined();
+    const save = screen.getByRole("button", {
+      name: "Use for this repository",
+    });
+    expect(save).toHaveProperty("disabled", true);
+    fireEvent.click(save);
+    expect(saveProviderSetupAction).not.toHaveBeenCalled();
+    expectSecondClaudeChosen();
+    expect(
+      screen.queryByText("Changes are turned off for this dashboard."),
+    ).toBeNull();
+
+    fireEvent.click(retry);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Use for this repository" }),
+      ).toHaveProperty("disabled", false),
+    );
+    expectSecondClaudeChosen();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    );
+    await waitFor(() => expect(saveProviderSetupAction).toHaveBeenCalledOnce());
+    expect(vi.mocked(saveProviderSetupAction).mock.calls[0]![0]).toMatchObject({
+      provider: { kind: "profile", profileId: "profile_other" },
+    });
+    expect(inheritWorkspaceDefaultProviderAction).not.toHaveBeenCalled();
   });
 
   it("lets a repository request inheritance without editing legacy MiMo default settings", async () => {
