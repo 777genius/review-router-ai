@@ -46,7 +46,17 @@ function proof(): HindsightCleanupProof {
       swarmInactive: true,
       automaticRestartDisabled: true,
     },
+    entryHistoryCoverage: {
+      profile: "postgresql-trigger-ledger-v1",
+      activationDigest: "1".repeat(64),
+      definitionDigest: "2".repeat(64),
+      sqlDigest: "3".repeat(64),
+      installedAt: "2026-10-23T11:58:00Z",
+      operationCount: 2,
+      historicalObservationCount: 1,
+    },
     sourceInventory: {
+      operationCount: 2,
       digest: "a".repeat(64),
       sourceFactCount: 2,
       observationCount: 1,
@@ -151,7 +161,7 @@ test("signed but incomplete exit, session, maintenance or absence proof fails", 
     },
     {
       ...proof(),
-      sourceInventory: { ...proof().sourceInventory, sourceFactCount: 0 },
+      sourceInventory: { ...proof().sourceInventory, sourceFactCount: -1 },
     },
     {
       ...proof(),
@@ -202,6 +212,82 @@ test("non-Ed25519 keys cannot sign cleanup receipts", () => {
       proof(),
       "wrong-key",
       rsa.privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+    ),
+  );
+});
+
+test("fresh ledger coverage is mandatory even when current native source facts are gone", () => {
+  const value = proof();
+  const empty = {
+    ...value,
+    sourceInventory: { ...value.sourceInventory, sourceFactCount: 0 },
+  };
+  assert(verify(signed(empty)));
+  const legacy = Object.fromEntries(
+    Object.entries(empty).filter(([key]) => key !== "entryHistoryCoverage"),
+  );
+  assert(!verify(signed(legacy as HindsightCleanupProof)));
+});
+
+test("signed ledger coverage must predate pause and bind valid complete inventory counts", () => {
+  const value = proof();
+  const coverage = value.entryHistoryCoverage;
+  for (const entryHistoryCoverage of [
+    { ...coverage, profile: "unverified-ledger" },
+    { ...coverage, activationDigest: "1".repeat(64) + "\n" },
+    { ...coverage, definitionDigest: "invalid" },
+    { ...coverage, sqlDigest: "invalid" },
+    { ...coverage, installedAt: "2026-10-23T12:00:01Z" },
+    { ...coverage, installedAt: "invalid" },
+    { ...coverage, operationCount: 1 },
+    { ...coverage, operationCount: -1 },
+    { ...coverage, operationCount: 1025 },
+    { ...coverage, historicalObservationCount: 2 },
+    { ...coverage, historicalObservationCount: -1 },
+    { ...coverage, historicalObservationCount: 10001 },
+    { ...coverage, historicalObservationCount: 0.5 },
+  ])
+    assert(
+      !verify(
+        signed({ ...value, entryHistoryCoverage } as HindsightCleanupProof),
+      ),
+    );
+});
+
+test("historical observation coverage counts distinct observations rather than history rows", () => {
+  const value = proof();
+  assert(
+    verify(
+      signed({
+        ...value,
+        entryHistoryCoverage: {
+          ...value.entryHistoryCoverage,
+          operationCount: 0,
+          historicalObservationCount: 0,
+        },
+        sourceInventory: {
+          ...value.sourceInventory,
+          operationCount: 0,
+          sourceFactCount: 0,
+          observationCount: 0,
+        },
+      }),
+    ),
+  );
+  assert(
+    !verify(
+      signed({
+        ...value,
+        sourceInventory: { ...value.sourceInventory, operationCount: 3 },
+      }),
+    ),
+  );
+  assert(
+    !verify(
+      signed({
+        ...value,
+        sourceInventory: { ...value.sourceInventory, observationCount: 0 },
+      }),
     ),
   );
 });

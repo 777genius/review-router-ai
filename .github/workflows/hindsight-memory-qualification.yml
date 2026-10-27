@@ -77,7 +77,7 @@ jobs:
           docker buildx build --load --metadata-file tmp/hindsight-qualification/build-metadata.json --build-arg "HINDSIGHT_BASE_IMAGE=$native_base" --file deploy/hindsight/Dockerfile --tag reviewrouter-hindsight:qualification "$RUNNER_TEMP/hindsight-build"
           echo 'HINDSIGHT_QUALIFICATION_IMAGE=reviewrouter-hindsight:qualification' >> "$GITHUB_ENV"
           echo "HINDSIGHT_QUALIFICATION_POSTGRES_IMAGE=$(docker image inspect --format '{{index .RepoDigests 0}}' pgvector/pgvector:pg17)" >> "$GITHUB_ENV"
-      - name: Run real API, separate workers, PG17 and paused forget
+      - name: Run fresh provenance gate, real API, separate workers, PG17 and exact paused forget
         run: node --experimental-transform-types --import ./scripts/hindsight-e2e/register-native-runtime.ts scripts/hindsight-e2e/qualify-native.ts
       - name: Preserve reviewed evidence
         if: always()

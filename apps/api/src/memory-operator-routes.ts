@@ -4,6 +4,7 @@ import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import {
   MemoryKnowledgeError,
+  memoryCleanupAuthorityMatches,
   type MemoryKnowledgeEntryMetadata,
 } from "@reviewrouter/features-memory";
 import type { MemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
@@ -72,38 +73,23 @@ export async function registerMemoryOperatorRoutes(
       scope: metadata.ref.scope,
       generation: row.generation,
     });
+    const pending =
+      entry.pendingCommandId && entry.pendingCommandId !== id
+        ? await dependencies.prisma.memoryKnowledgeCommand.findUnique({
+            where: { id: entry.pendingCommandId },
+          })
+        : null;
     if (
       !command ||
-      !["queued", "cleanup_pending", "unknown", "completed"].includes(
-        command.operation.state,
-      )
+      !memoryCleanupAuthorityMatches({
+        generation: dependencies.runtime.generation,
+        command,
+        row,
+        entry: { ...entry, metadata },
+        pending,
+      })
     )
       throw new MemoryKnowledgeError("conflict");
-    if (command.operation.state !== "completed") {
-      if (
-        entry.lifecycle !== "forget_pending" ||
-        entry.revision !== row.revision ||
-        entry.revocationCommandId !== id ||
-        !entry.pendingCommandId
-      )
-        throw new MemoryKnowledgeError("conflict");
-      if (entry.pendingCommandId !== id) {
-        const predecessor = await dependencies.runtime.store.findCommand({
-          commandId: entry.pendingCommandId,
-          scope: metadata.ref.scope,
-          generation: row.generation,
-        });
-        if (
-          !predecessor ||
-          predecessor.operation.ref.entryId !== row.entryId ||
-          predecessor.operation.revision !== String(row.revision - 1) ||
-          ["published", "completed", "failed"].includes(
-            predecessor.operation.state,
-          )
-        )
-          throw new MemoryKnowledgeError("conflict");
-      }
-    }
     const maintenance = await dependencies.runtime.store.maintenanceState(
       row.generation,
     );
@@ -192,7 +178,7 @@ export async function registerMemoryOperatorRoutes(
       });
       if (!receipt) throw new MemoryKnowledgeError("invalid_input");
       // Atomic store settlement rechecks paused generation/epoch, command digest,
-      // entry revision and unresolved claim after signature verification.
+      // current authority and complete entry history after signature verification.
       const operation = await dependencies.runtime.store.completeCleanup({
         receipt,
         now: time,

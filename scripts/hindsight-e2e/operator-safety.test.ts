@@ -13,6 +13,7 @@ import {
 } from "./native-http.ts";
 import {
   assertCleanupOperationSources,
+  appendCleanupOperationPage,
   leafFirstOperations,
   operationClosure,
   persistCleanupInventory,
@@ -46,6 +47,15 @@ const inventory: CleanupSourceInventory = {
   sourceFactIds: [randomUUID()],
   observationIds: [randomUUID()],
   operationIds: [randomUUID()],
+  entryHistoryCoverage: {
+    profile: "postgresql-trigger-ledger-v1",
+    activationDigest: "d".repeat(64),
+    definitionDigest: "e".repeat(64),
+    sqlDigest: "f".repeat(64),
+    installedAt: "2026-01-01T00:00:00Z",
+    operationCount: 1,
+    historicalObservationCount: 1,
+  },
 };
 
 test("native cleanup failures report method, structural route and status without private identifiers or query", () => {
@@ -200,7 +210,7 @@ test("signed fsynced inventory preserves evidence identities after partial delet
         publicPem,
       ),
     );
-    assert.throws(() =>
+    assert.doesNotThrow(() =>
       verifyCleanupInventory(
         signCleanupInventory(
           { ...inventory, sourceFactIds: [] },
@@ -489,5 +499,35 @@ test("shared native consolidation ID/count history is cleanup evidence while mix
       target,
       bank,
     ),
+  );
+});
+
+test("native operation pagination rejects overlap, unstable totals and malformed or omitted identity counts", () => {
+  const one = { operation_id: randomUUID(), status: "completed" };
+  const two = { operation_id: randomUUID(), status: "completed" };
+  const all: CleanupOperation[] = [];
+  assert.equal(
+    appendCleanupOperationPage(all, { operations: [one], total: 2 }),
+    2,
+  );
+  assert.throws(() =>
+    appendCleanupOperationPage(all, { operations: [one], total: 2 }, 2),
+  );
+  assert.throws(() =>
+    appendCleanupOperationPage(all, { operations: [two], total: 3 }, 2),
+  );
+  assert.throws(() =>
+    appendCleanupOperationPage(all, { operations: [], total: 2 }, 2),
+  );
+  assert.throws(() =>
+    appendCleanupOperationPage(
+      all,
+      { operations: [{ ...two, operation_id: "invalid" }], total: 2 },
+      2,
+    ),
+  );
+  assert.equal(
+    appendCleanupOperationPage(all, { operations: [two], total: 2 }, 2),
+    2,
   );
 });

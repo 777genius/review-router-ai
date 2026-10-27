@@ -39,8 +39,18 @@ export interface HindsightCleanupProof {
     readonly swarmInactive: true;
     readonly automaticRestartDisabled: true;
   };
+  readonly entryHistoryCoverage: {
+    readonly profile: "postgresql-trigger-ledger-v1";
+    readonly activationDigest: string;
+    readonly definitionDigest: string;
+    readonly sqlDigest: string;
+    readonly installedAt: string;
+    readonly operationCount: number;
+    readonly historicalObservationCount: number;
+  };
   readonly sourceInventory: {
     readonly digest: string;
+    readonly operationCount: number;
     readonly sourceFactCount: number;
     readonly observationCount: number;
     readonly capturedAt: string;
@@ -115,9 +125,13 @@ export const hindsightCleanupBankDigest = (bankId: string): string =>
 const object = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
 const digest = (value: unknown): value is string =>
-  typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+  typeof value === "string" &&
+  value.length === 64 &&
+  /^[a-f0-9]{64}$/.test(value);
 const image = (value: unknown): value is string =>
-  typeof value === "string" && /^sha256:[a-f0-9]{64}$/.test(value);
+  typeof value === "string" &&
+  value.length === 71 &&
+  /^sha256:[a-f0-9]{64}$/.test(value);
 const uuid = (value: unknown): value is string =>
   typeof value === "string" &&
   /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value);
@@ -302,22 +316,34 @@ export function verifyHindsightCleanupReceipt(
     const after = time(proof.afterRestart.observedAt);
     const fence = proof.deploymentFence;
     const sources = proof.sourceInventory;
+    const coverage = proof.entryHistoryCoverage;
     if (
       !object(fence) ||
       fence.profile !== "standalone-docker-flock-v1" ||
       fence.swarmInactive !== true ||
       fence.automaticRestartDisabled !== true ||
+      !object(coverage) ||
+      coverage.profile !== "postgresql-trigger-ledger-v1" ||
+      !digest(coverage.activationDigest) ||
+      !digest(coverage.definitionDigest) ||
+      !digest(coverage.sqlDigest) ||
+      !integer(coverage.operationCount, 0, 1024) ||
+      !integer(coverage.historicalObservationCount, 0, 10_000) ||
       !object(sources) ||
       !digest(sources.digest) ||
-      !integer(sources.sourceFactCount, 1, 10_000) ||
+      !integer(sources.sourceFactCount, 0, 10_000) ||
+      sources.operationCount !== coverage.operationCount ||
+      coverage.historicalObservationCount > Number(sources.observationCount) ||
       !integer(sources.observationCount, 0, 10_000)
     )
       return false;
     const held = time(fence.heldAt);
     const verified = time(fence.verifiedAt);
     const captured = time(sources.capturedAt);
+    const installed = time(coverage.installedAt);
     return (
-      [held, verified, captured, restarted].every(Number.isFinite) &&
+      [held, verified, captured, restarted, installed].every(Number.isFinite) &&
+      installed <= paused &&
       held <= paused &&
       after <= verified &&
       verified <= completed &&
