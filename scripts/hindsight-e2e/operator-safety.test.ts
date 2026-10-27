@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { acquireDeploymentLock } from "./deployment-lock.ts";
+import { removeDrainedNativeDocument } from "./cleanup-operator.ts";
 import {
   assertNativeCleanupStatus,
   assertNativeOperationAbsent,
@@ -13,8 +14,10 @@ import {
 } from "./native-http.ts";
 import {
   assertCleanupOperationSources,
+  appendCleanupOperationPage,
   leafFirstOperations,
   operationClosure,
+  terminalizeDrainedCleanupOperations,
   persistCleanupInventory,
   readCleanupInventory,
   signCleanupInventory,
@@ -46,6 +49,15 @@ const inventory: CleanupSourceInventory = {
   sourceFactIds: [randomUUID()],
   observationIds: [randomUUID()],
   operationIds: [randomUUID()],
+  entryHistoryCoverage: {
+    profile: "postgresql-trigger-ledger-v1",
+    activationDigest: "d".repeat(64),
+    definitionDigest: "e".repeat(64),
+    sqlDigest: "f".repeat(64),
+    installedAt: "2026-01-01T00:00:00Z",
+    operationCount: 1,
+    historicalObservationCount: 1,
+  },
 };
 
 test("native cleanup failures report method, structural route and status without private identifiers or query", () => {
@@ -200,7 +212,7 @@ test("signed fsynced inventory preserves evidence identities after partial delet
         publicPem,
       ),
     );
-    assert.throws(() =>
+    assert.doesNotThrow(() =>
       verifyCleanupInventory(
         signCleanupInventory(
           { ...inventory, sourceFactIds: [] },
@@ -490,4 +502,147 @@ test("shared native consolidation ID/count history is cleanup evidence while mix
       bank,
     ),
   );
+});
+
+test("native operation pagination rejects overlap, unstable totals and malformed or omitted identity counts", () => {
+  const one = { operation_id: randomUUID(), status: "completed" };
+  const two = { operation_id: randomUUID(), status: "completed" };
+  const all: CleanupOperation[] = [];
+  assert.equal(
+    appendCleanupOperationPage(all, { operations: [one], total: 2 }),
+    2,
+  );
+  assert.throws(() =>
+    appendCleanupOperationPage(all, { operations: [one], total: 2 }, 2),
+  );
+  assert.throws(() =>
+    appendCleanupOperationPage(all, { operations: [two], total: 3 }, 2),
+  );
+  assert.throws(() =>
+    appendCleanupOperationPage(all, { operations: [], total: 2 }, 2),
+  );
+  assert.throws(() =>
+    appendCleanupOperationPage(
+      all,
+      { operations: [{ ...two, operation_id: "invalid" }], total: 2 },
+      2,
+    ),
+  );
+  assert.equal(
+    appendCleanupOperationPage(all, { operations: [two], total: 2 }, 2),
+    2,
+  );
+});
+
+test("drained cancellation re-reads parents terminalized by child rollup and verifies terminal state before payload deletion", async () => {
+  const child = randomUUID();
+  const parent = randomUUID();
+  const states = new Map<string, string>([
+    [child, "pending"],
+    [parent, "processing"],
+  ]);
+  const cancelled: string[] = [];
+  await terminalizeDrainedCleanupOperations(
+    [child, parent],
+    async (operation_id) => ({
+      operation_id,
+      status: states.get(operation_id)!,
+    }),
+    async (operationId) => {
+      cancelled.push(operationId);
+      assert.equal(operationId, child);
+      states.set(child, "cancelled");
+      states.set(parent, "failed");
+    },
+  );
+  assert.deepEqual(cancelled, [child]);
+  await assert.rejects(
+    terminalizeDrainedCleanupOperations(
+      [child],
+      async (operation_id) => ({ operation_id, status: "processing" }),
+      async () => {},
+    ),
+    /verified terminal state/,
+  );
+  for (const status of ["not_found", "unknown"])
+    await assert.rejects(
+      terminalizeDrainedCleanupOperations(
+        [child],
+        async (operation_id) => ({ operation_id, status }),
+        async () => {
+          assert.fail("Unknown state must never authorize cancellation");
+        },
+      ),
+    );
+  await assert.rejects(
+    terminalizeDrainedCleanupOperations(
+      [child],
+      async () => ({ operation_id: parent, status: "completed" }),
+      async () => {},
+    ),
+  );
+  await assert.rejects(
+    terminalizeDrainedCleanupOperations(
+      [child],
+      async (operation_id) => ({ operation_id, status: "pending" }),
+      async () => {
+        throw new Error("HTTP409");
+      },
+    ),
+    /HTTP409/,
+  );
+});
+
+test("production document deletion requires exact terminal verification after a tolerated cancellation conflict", async () => {
+  for (const terminalAfterConflict of [false, true]) {
+    const operationId = randomUUID();
+    let status = "pending";
+    const calls: string[] = [];
+    const request: Parameters<typeof removeDrainedNativeDocument>[3] = async <
+      T,
+    >(
+      path: string,
+      method = "GET",
+      _body?: unknown,
+      allowed = [200],
+    ) => {
+      calls.push(`${method} ${path}`);
+      if (path === `/bank/operations/${operationId}` && method === "GET")
+        return { operation_id: operationId, status } as T;
+      if (path === `/bank/operations/${operationId}` && method === "DELETE") {
+        assert.deepEqual(allowed, [200, 409]);
+        assertNativeCleanupStatus(path, method, 409, allowed);
+        status = terminalAfterConflict ? "cancelled" : "processing";
+        return { success: false } as T;
+      }
+      assert.equal(path, "/bank/documents/entry-target");
+      assert.equal(method, "DELETE");
+      assert.deepEqual(allowed, [200, 404]);
+      assert.equal(status, "cancelled");
+      return { success: true } as T;
+    };
+    const remove = () =>
+      removeDrainedNativeDocument(
+        "/bank",
+        "entry-target",
+        [operationId],
+        request,
+      );
+    if (terminalAfterConflict) {
+      await remove();
+      assert.equal(
+        calls.filter((call) => call === "DELETE /bank/documents/entry-target")
+          .length,
+        1,
+      );
+      assert.deepEqual(calls.slice(0, 3), [
+        `GET /bank/operations/${operationId}`,
+        `DELETE /bank/operations/${operationId}`,
+        `GET /bank/operations/${operationId}`,
+      ]);
+    } else {
+      await assert.rejects(remove, /verified terminal state/);
+      assert(!calls.includes("DELETE /bank/documents/entry-target"));
+    }
+  }
 });

@@ -618,6 +618,19 @@ Verify native read/evidence/payload absence, clear the Router delivery envelope,
 then restart processing with fences retained. Verify absence again after restart
 and settlement of remaining native work. Missing evidence remains cleanup_pending.
 
+The completed entry-history profile uses a fresh-only provider-private ID ledger
+before native writers start, with exact source/image/schema/generation attestation.
+It covers every historical source fact and observation edge, including replaced
+source revisions and orphaned history. The operator cross-checks the complete API
+operation inventory against bounded native SQL identities. After native document
+cleanup, a locked transaction removes only the exact affected live/archive heads
+and observation-history IDs; unrelated derived knowledge remains intact. It does
+not reset a bank or infer identity from text. Signed full-history coverage permits
+atomic closure of every older unresolved command for the same current entry;
+claims are disposed only after verified execution drain. Missing provenance keeps
+cleanup pending. The [completion reference](2026-10-27-hindsight-complete-forget.md)
+specifies the fresh activation, zero-source, shared-history and retry evidence.
+
 Slice 0 must prove the exact host stop/exit receipt, including overlapping old
 instances; a managed-service suspend acknowledgment alone is insufficient. The
 same-image fixture must show resolved cleanup configuration, no maintenance loop,

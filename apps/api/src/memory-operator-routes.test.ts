@@ -119,7 +119,17 @@ function signed(binding: HindsightCleanupBinding) {
       swarmInactive: true,
       automaticRestartDisabled: true,
     },
+    entryHistoryCoverage: {
+      profile: "postgresql-trigger-ledger-v1",
+      activationDigest: "1".repeat(64),
+      definitionDigest: "2".repeat(64),
+      sqlDigest: "3".repeat(64),
+      installedAt: "2026-10-23T11:58:00Z",
+      operationCount: 2,
+      historicalObservationCount: 1,
+    },
     sourceInventory: {
+      operationCount: 2,
       digest: "b".repeat(64),
       sourceFactCount: 2,
       observationCount: 1,
@@ -175,6 +185,9 @@ describe("private memory cleanup proof and operator HTTP contracts", () => {
       readonly predecessorRevision?: string;
       readonly revocationCommandId?: string;
       readonly entryRevision?: number;
+      readonly predecessorState?: MemoryStoredCommand["operation"]["state"];
+      readonly predecessorKind?: string;
+      readonly lifecycle?: string;
     } = {},
   ) {
     const original = command();
@@ -195,7 +208,7 @@ describe("private memory cleanup proof and operator HTTP contracts", () => {
           entryId: options.predecessorEntryId ?? stored.operation.ref.entryId,
         },
         revision: options.predecessorRevision ?? "2",
-        state: "unknown",
+        state: options.predecessorState ?? "unknown",
       },
     };
     const store = {
@@ -212,25 +225,67 @@ describe("private memory cleanup proof and operator HTTP contracts", () => {
         state: "completed" as const,
       })),
     };
+    const currentRow = {
+      id: commandId,
+      generation: options.rowGeneration ?? generation,
+      commandKind: options.rowKind ?? "forget",
+      scopeKey: memoryKnowledgeScopeKey(scope),
+      workspaceId: scope.workspaceId,
+      entryId: "entry-1",
+      revision: 3,
+      digest: stored.digest,
+      state: stored.operation.state,
+      cleanupReceiptId: null,
+    };
+    const pendingId = options.pendingCommandId ?? commandId;
+    const lifecycle =
+      options.lifecycle ??
+      (options.state === "completed" ? "forgotten" : "forget_pending");
+    const entryRow = {
+      generation,
+      scopeKey: memoryKnowledgeScopeKey(scope),
+      workspaceId: scope.workspaceId,
+      entryId: "entry-1",
+      lifecycle,
+      revision: options.entryRevision ?? 3,
+      pendingCommandId: lifecycle === "forgotten" ? null : pendingId,
+      revocationCommandId:
+        lifecycle === "forgotten"
+          ? null
+          : (options.revocationCommandId ?? commandId),
+    };
+    const metadata = {
+      ref: stored.operation.ref,
+      generation,
+      revision: String(entryRow.revision),
+      lifecycle,
+      pendingCommandId: entryRow.pendingCommandId,
+      revocationCommandId: entryRow.revocationCommandId,
+      bodyDigest: null,
+      contentApprovalRevision: null,
+      topicsDigest: null,
+      approval: null,
+      source: null,
+      originalStatementAt: null,
+      lastVerifiedAt: null,
+    };
     const prisma = {
       memoryKnowledgeCommand: {
-        findUnique: vi.fn(async () => ({
-          id: commandId,
-          generation: options.rowGeneration ?? generation,
-          commandKind: options.rowKind ?? "forget",
-          scopeKey: memoryKnowledgeScopeKey(scope),
-          entryId: "entry-1",
-          revision: 3,
-        })),
+        findUnique: vi.fn(async (input: { where: { id: string } }) =>
+          input.where.id === commandId
+            ? currentRow
+            : {
+                ...currentRow,
+                id: pendingId,
+                entryId: predecessor.operation.ref.entryId,
+                revision: Number(predecessor.operation.revision),
+                state: predecessor.operation.state,
+                commandKind: options.predecessorKind ?? "save",
+              },
+        ),
       },
       memoryKnowledgeEntry: {
-        findUnique: vi.fn(async () => ({
-          metadata: { ref: stored.operation.ref },
-          lifecycle: "forget_pending",
-          revision: options.entryRevision ?? 3,
-          pendingCommandId: options.pendingCommandId ?? commandId,
-          revocationCommandId: options.revocationCommandId ?? commandId,
-        })),
+        findUnique: vi.fn(async () => ({ ...entryRow, metadata })),
       },
     };
     const proof = options.verification === false ? null : adapter();
@@ -248,7 +303,16 @@ describe("private memory cleanup proof and operator HTTP contracts", () => {
       operatorToken: options.operatorToken ?? token,
       now: () => now,
     });
-    return { app, store, prisma, proof, stored };
+    return {
+      app,
+      store,
+      prisma,
+      proof,
+      stored,
+      currentRow,
+      entryRow,
+      metadata,
+    };
   }
   const auth = { authorization: `Bearer ${token}` };
 
@@ -271,6 +335,7 @@ describe("private memory cleanup proof and operator HTTP contracts", () => {
       now,
     });
     expect(verified).toEqual({
+      coverage: "entry_history_and_operations",
       id: hindsightCleanupDigest(proof.proof),
       commandId,
       commandDigest: stored.digest,
@@ -422,7 +487,7 @@ describe("private memory cleanup proof and operator HTTP contracts", () => {
         {
           state: "queued",
           pendingCommandId: "prior-command",
-          predecessorRevision: "1",
+          predecessorRevision: "3",
         },
         409,
       ],
@@ -440,7 +505,13 @@ describe("private memory cleanup proof and operator HTTP contracts", () => {
     }
   });
 
-  it.each(["cleanup_pending", "queued"] as const)(
+  it.each([
+    "queued",
+    "submitted",
+    "processing",
+    "unknown",
+    "cleanup_pending",
+  ] as const)(
     "accepts only actual signed evidence for %s Forget and forwards its server digest/current epoch to atomic settlement",
     async (state) => {
       const { app, proof, stored, store } = await fixture({
@@ -499,6 +570,143 @@ describe("private memory cleanup proof and operator HTTP contracts", () => {
       expect(store.completeCleanup).not.toHaveBeenCalled();
     },
   );
+
+  it("allows older pending Forget revisions while rejecting terminal, future and cross-entry pointers before physical cleanup", async () => {
+    for (const predecessorKind of [
+      "save",
+      "topics",
+      "retire",
+      "expire",
+      "forget",
+    ]) {
+      const item = await fixture({
+        pendingCommandId: "older-command",
+        predecessorKind,
+        predecessorRevision: "1",
+      });
+      expect(
+        (
+          await item.app.inject({
+            method: "GET",
+            url: `/api/internal/memory/cleanup/${commandId}`,
+            headers: auth,
+          })
+        ).statusCode,
+      ).toBe(200);
+    }
+    for (const options of [
+      { predecessorState: "completed" as const },
+      { predecessorState: "published" as const },
+      { predecessorState: "failed" as const },
+      { predecessorRevision: "4" },
+    ]) {
+      const item = await fixture({
+        pendingCommandId: "older-command",
+        ...options,
+      });
+      expect(
+        (
+          await item.app.inject({
+            method: "GET",
+            url: `/api/internal/memory/cleanup/${commandId}`,
+            headers: auth,
+          })
+        ).statusCode,
+      ).toBe(409);
+      expect(item.store.completeCleanup).not.toHaveBeenCalled();
+    }
+  });
+
+  it("rejects physical-row and metadata disagreement, including unsafe or newline revisions, before issuing the cleanup binding", async () => {
+    const mutations = [
+      (item: Awaited<ReturnType<typeof fixture>>) => {
+        item.currentRow.workspaceId = "other-workspace";
+      },
+      (item: Awaited<ReturnType<typeof fixture>>) => {
+        item.currentRow.scopeKey = "other-scope";
+      },
+      (item: Awaited<ReturnType<typeof fixture>>) => {
+        item.currentRow.entryId = "other-entry";
+      },
+      (item: Awaited<ReturnType<typeof fixture>>) => {
+        item.currentRow.revision = 4;
+      },
+      (item: Awaited<ReturnType<typeof fixture>>) => {
+        item.currentRow.digest = "b".repeat(64);
+      },
+      (item: Awaited<ReturnType<typeof fixture>>) => {
+        item.metadata.generation = "other-generation";
+      },
+      (item: Awaited<ReturnType<typeof fixture>>) => {
+        item.metadata.ref = { ...item.metadata.ref, entryId: "other-entry" };
+      },
+      (item: Awaited<ReturnType<typeof fixture>>) => {
+        item.metadata.revision = "3\n";
+      },
+      (item: Awaited<ReturnType<typeof fixture>>) => {
+        item.metadata.revision = "9007199254740992";
+      },
+      (item: Awaited<ReturnType<typeof fixture>>) => {
+        item.stored.operation.revision = "3\n";
+      },
+      (item: Awaited<ReturnType<typeof fixture>>) => {
+        item.metadata.lifecycle = "active";
+      },
+      (item: Awaited<ReturnType<typeof fixture>>) => {
+        item.metadata.pendingCommandId = "other-command";
+      },
+      (item: Awaited<ReturnType<typeof fixture>>) => {
+        item.metadata.revocationCommandId = "other-command";
+      },
+    ];
+    for (const mutate of mutations) {
+      const item = await fixture();
+      mutate(item);
+      expect(
+        (
+          await item.app.inject({
+            method: "GET",
+            url: `/api/internal/memory/cleanup/${commandId}`,
+            headers: auth,
+          })
+        ).statusCode,
+      ).toBe(409);
+      expect(item.store.maintenanceState).not.toHaveBeenCalled();
+    }
+  });
+
+  it("allows a completed retry only for its exact current cleared forgotten tombstone", async () => {
+    const item = await fixture({ state: "completed" });
+    expect(
+      (
+        await item.app.inject({
+          method: "GET",
+          url: `/api/internal/memory/cleanup/${commandId}`,
+          headers: auth,
+        })
+      ).statusCode,
+    ).toBe(200);
+    item.metadata.pendingCommandId = commandId;
+    expect(
+      (
+        await item.app.inject({
+          method: "GET",
+          url: `/api/internal/memory/cleanup/${commandId}`,
+          headers: auth,
+        })
+      ).statusCode,
+    ).toBe(409);
+    const stale = await fixture({ state: "completed", entryRevision: 4 });
+    expect(
+      (
+        await stale.app.inject({
+          method: "GET",
+          url: `/api/internal/memory/cleanup/${commandId}`,
+          headers: auth,
+        })
+      ).statusCode,
+    ).toBe(409);
+  });
 
   it("awaits the real store pause/drain contract before responding and uses CAS/deadline arguments", async () => {
     const { app, store } = await fixture();

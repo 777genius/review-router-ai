@@ -34,18 +34,29 @@ payload cleanup, and verification after restart. Ordinary successful updates
 remain online. Runtime excludes inactive entries; authorized management/export
 can inspect retained inactive records. Forget fences every body-bearing read.
 
-The paused cleanup also resets derived observations and their history in the
-affected native bank through Hindsight's public observations endpoint. This
-removes orphan history left by older source revisions without direct schema
-mutation. Other approved source documents and facts remain unchanged; their
-derived observations are recomputed after restart. Qualification must verify
-empty derived history before restart, preserved surviving sources, and no
-resurrection of forgotten knowledge afterwards.
+The paused cleanup uses a provider-private, append-only identity ledger installed
+before the first write in fresh native storage. It preserves every original
+fact-to-document identity and every historical observation-to-source edge. The
+ledger stores IDs only and does not implement extraction, retrieval or semantic
+reconciliation. Live catalog definitions and activation are bound to the exact
+native source/image, schema, namespace and generation.
 
-Verified physical cleanup may atomically close Forget and its immediately
-preceding unresolved write, including when that write's delivery envelope has
-expired. Active claims, exact revisions, generation and the paused epoch still
-fence completion. Late delivery callbacks cannot reopen either terminal command.
+After the public native document/operation cleanup, the operator removes only
+ledger-bound live and archived heads and observation history in one locked native
+transaction. This narrow schema maintenance covers deletion that the pinned public
+API does not expose. It never resets a whole bank or guesses provenance from text.
+Unrelated source facts, observations and history remain intact. Shared derived
+observations containing the forgotten entry are removed as a whole. Missing or
+changed provenance, incomplete operation inventory or surviving target content
+keeps cleanup pending. Qualification checks absence before and after restart,
+zero-extraction entries, retries and preservation of unrelated knowledge.
+
+Verified full-history cleanup atomically closes Forget and every older unresolved
+operation for the same entry, including expired envelopes and claims whose native
+executors have demonstrably drained. Exact current revision, physical/metadata
+authority, generation and paused epoch fence completion. Late delivery callbacks
+cannot reopen any terminal command. The API and store share the neutral current
+target policy. See the [completion reference](../plans/2026-10-27-hindsight-complete-forget.md).
 
 Preserve the approved no-raw-source ingress boundary. Manual approved statements
 and permitted distilled candidates are first inputs. Whole-discussion extraction

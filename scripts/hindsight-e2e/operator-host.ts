@@ -52,19 +52,27 @@ export function assertExecutorPhase(
   }
 }
 
-/** SQL proof has exactly one source of endpoint identity: the inspected API DSN. */
-export function nativeSqlObserverArguments(
+export interface NativeSqlStep {
+  readonly statement: string;
+  readonly parameters?: readonly unknown[];
+}
+/** Endpoint identity always comes from the inspected API DSN and the exact image. */
+export function nativeSqlArguments(
   apiDsn: string,
   imageDigest: string,
-  statement: string,
+  steps: readonly NativeSqlStep[],
+  readOnly = true,
 ): string[] {
   const dsn = new URL(apiDsn);
   assert(dsn.protocol === "postgresql:" || dsn.protocol === "postgres:");
   assert(["127.0.0.1", "localhost"].includes(dsn.hostname));
   assert(/^sha256:[a-f0-9]{64}$/.test(imageDigest));
-  dsn.searchParams.set("application_name", "rr-native-cleanup-read-observer");
+  dsn.searchParams.set(
+    "application_name",
+    readOnly ? "rr-native-cleanup-read-observer" : "rr-native-provenance-admin",
+  );
   const python =
-    'import asyncio,os,sys; from hindsight_api.config import get_config; import asyncpg\nasync def main():\n c=await asyncpg.connect(os.environ["HINDSIGHT_API_DATABASE_URL"],timeout=10)\n try:\n  await c.execute("SET default_transaction_read_only=on")\n  print(await c.fetchval(sys.argv[1]))\n finally: await c.close()\nasyncio.run(main())';
+    'import asyncio,json,os,sys; import asyncpg\nasync def main():\n c=await asyncpg.connect(os.environ["HINDSIGHT_API_DATABASE_URL"],timeout=10)\n try:\n  async with c.transaction(readonly=sys.argv[2]=="true"):\n   steps=json.loads(sys.argv[1])\n   for step in steps[:-1]: await c.execute(step["statement"],*step.get("parameters",[]))\n   step=steps[-1]\n   value=await c.fetchval(step["statement"],*step.get("parameters",[]))\n   print("" if value is None else value)\n finally: await c.close()\nasyncio.run(main())';
   return [
     "run",
     "--rm",
@@ -76,6 +84,14 @@ export function nativeSqlObserverArguments(
     "python",
     "-c",
     python,
-    statement,
+    JSON.stringify(steps),
+    String(readOnly),
   ];
+}
+export function nativeSqlObserverArguments(
+  apiDsn: string,
+  imageDigest: string,
+  statement: string,
+): string[] {
+  return nativeSqlArguments(apiDsn, imageDigest, [{ statement }]);
 }
