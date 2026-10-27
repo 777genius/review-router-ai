@@ -1,7 +1,7 @@
 # Целостная настройка провайдера и репозитория
 
 Дата: 2026-10-26. База: `4c8f2804b5e53795ec8dd51d51d3b3b6c7d28188`.
-Статус: план v3 реализован и прошёл source review; unit/contract и component-browser проверки завершены. Обязательная real-app E2E-квалификация заблокирована памятью среды; merge не выполнен.
+Статус на 2026-10-27: основной план v3 влит пользователем в PR #717; сохранение `TMPDIR` для migration child влито в PR #720. Повторная лёгкая визуальная проверка и исправления описаны в разделе 10. Обязательная real-app E2E-квалификация остаётся незавершённой: 0 accepted passes.
 Продолжение [исправления API-provider UX](2026-10-26-provider-settings-ux.md), PR #712.
 
 ## 1. Цель и критерий простоты
@@ -187,7 +187,7 @@ Component-browser проверка подтвердила: открытие/reop
 
 Локальные receipts сохраняются под `tmp/provider-onboarding/`: `verification-checkpoint.json`, `final-all-tests.json`, `provider-action-tests.json`, `affected-typecheck-final.log`, `tsconfig.affected.json`, `preview/browser-report.json`, `preview/screens/`, `constrained-webpack.patch`. Последняя real-app попытка: `tmp/provider-setup-visual/onboarding-final-b21af24-serial/`; это failed infrastructure evidence, не успешный manifest. SHA-256 финальной affected-typecheck config: `6924ade63c91d61c70e9d17348087065ad8d33400b59d3b77aaa5939732a6c53`.
 
-### 8.4. Остаток до merge
+### 8.4. Незакрытая real-app квалификация
 
 В свободной среде с disposable PostgreSQL 17 и Chromium выполнить существующий harness без изменения application source:
 
@@ -198,7 +198,7 @@ pnpm provider-setup:visual --flows-only --rotating \
   --out tmp/provider-setup-visual/onboarding-acceptance
 ```
 
-`PROVIDER_VISUAL_DATABASE_URL` должен использовать loopback host и точное имя disposable database: `postgresql://<fixture-user>@127.0.0.1:<port>/reviewrouter_provider_setup_visual`. Произвольное имя базы harness отклоняет. `PROVIDER_VISUAL_BROWSER_EXECUTABLE` указывает на установленный Chromium, если он не найден автоматически; проверенный здесь runtime — Node 26.11.1. Все три flow должны быть выполнены и пройти: `flow-step3-create-attach`, `flow-no-default`, `flow-codex-repository-setup`. Далее — просмотр восьми required app screenshots, проверка manifest/provenance/network, исправление реальных замечаний при наличии, fresh main/head check и обычный merge с expected head SHA. Production deploy не входит в этот запрос. Очередь CI не подменяет локальную проверку; статусы checks не фабрикуются.
+`PROVIDER_VISUAL_DATABASE_URL` должен использовать loopback host и точное имя disposable database: `postgresql://<fixture-user>@127.0.0.1:<port>/reviewrouter_provider_setup_visual`. Произвольное имя базы harness отклоняет. `PROVIDER_VISUAL_BROWSER_EXECUTABLE` указывает на установленный Chromium, если он не найден автоматически; проверенный здесь runtime — Node 26.11.1. Все три flow должны быть выполнены и пройти: `flow-step3-create-attach`, `flow-no-default`, `flow-codex-repository-setup`. Далее — просмотр восьми required app screenshots, проверка manifest/provenance/network и исправление реальных замечаний при наличии. Если потребуются изменения, они проходят отдельный review и обычный merge с expected head SHA. PR #717 уже влит пользователем; это не означает прохождение оставшихся flow. Production deploy не входит в этот запрос. Очередь CI не подменяет локальную проверку; статусы checks не фабрикуются.
 
 ## 9. Опорные исходники
 
@@ -210,3 +210,34 @@ pnpm provider-setup:visual --flows-only --rotating \
 - `apps/web/src/server/codex-rotating-setup-manifest.ts`: initial deadline, issued/fetched/consumed reuse, ready → setup_pending, fences.
 - `apps/web/src/server/prisma-codex-rotating-setup-recovery.ts`: recovery ownership и сроки.
 - `scripts/provider-setup-visual/{run,flows,scenarios,github-fixture,seed}.ts`: ограниченная app/browser qualification.
+
+## 10. Лёгкая визуальная проверка 2026-10-27
+
+По запросу пользователя проверка продолжена без Next и PostgreSQL. База — `d3595c2e3e0b21ab539dea0fb7a06d35a4613faf` (`main` после PR #720). Собираются настоящие React-компоненты, shared UI, CSS и шрифты; Next navigation, server actions и API-ответы заменены явно обозначенными синтетическими fixtures. Один Chromium используется последовательно; внешние запросы запрещены.
+
+### Найдено и исправлено
+
+- В однострочном блоке команды кнопка Copy высотой 44 px выступала за рамку на 6 px. Общий `CodeBlock` теперь имеет минимальную высоту 60 px, сохраняя размер кнопки и отступы. Многострочные команды продолжают переноситься по содержимому.
+- При отказе Clipboard API возникал необработанный Promise, а интерфейс не сообщал об ошибке. Отсутствие API и отказ теперь показывают доступное сообщение «Could not copy. Select the code and copy it manually.»; успешная повторная попытка очищает его. Исходный текст команды копируется без изменения пробелов и переводов строк.
+- Во время проверки repository secret можно было выбрать organization scope. Старый ответ затем описывался как результат проверки organization secret. Эта последовательность воспроизведена в браузере. Выбор области теперь заблокирован до завершения запроса; после ответа он снова доступен и смена области очищает предыдущий результат.
+
+Изменения ограничены `CodeBlock`, двумя условиями в `CiSecretDelivery` и четырьмя регрессионными тестами. API, авторизация, схема хранения, Codex issuance/recovery и порядок repository setup не меняются. Независимый source review — GO, без замечаний.
+
+### Подтверждённые проверки
+
+| Проверка                  | Результат                                               | Граница доказательства                                                                                                  |
+| ------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Затронутые unit/UI tests  | 53 passed, 0 failed, 0 skipped; 4 файла                 | CodeBlock, secret delivery, общий provider dialog, Codex rotating delivery                                              |
+| Affected TypeScript       | PASS                                                    | 4 изменённых TS/TSX-файла, их транзитивные импорты и существующие NextAuth declarations; полный web build не запускался |
+| Основной Chromium-прогон  | 28 passed; 24 screenshots просмотрены                   | 1440/390 px, светлая/тёмная темы, настоящие компоненты с fixture-ответами                                               |
+| Длинные мобильные диалоги | 4 passed                                                | Footer полностью доступен после прокрутки и получает фокус; Tab остаётся в modal после штатного переноса фокуса         |
+| Ошибки браузера           | 0 page errors, 0 console errors, 0 неожиданных запросов | На основном прогоне; footer дополнительно без page errors и неожиданных запросов                                        |
+| Real-app E2E              | По-прежнему 0 accepted passes                           | Три сценария из раздела 8.4 этим стендом не подменяются                                                                 |
+
+Визуально сопоставлены MiMo и OpenRouter: одинаковые GitHub Secrets instructions, выбор GitHub Secrets / ReviewRouter, доступный переход Connect account при отсутствии аккаунта и объяснение недоступного хранения. Проверены правильные secret names, сохранение workspace/provider в ссылках, запрет неполного account save, Claude token-before-secret, отдельные verified/manual результаты, длинное имя репозитория и Codex deadline/recovery. Сохранение workspace profile по-прежнему не выдаётся за готовность репозитория.
+
+Нагрузка ограничена короткими последовательными процессами: esbuild около 2.6 s, основной браузерный прогон 10.1 s, дополнительная проверка footer 2.4 s, четыре набора unit tests 12.4 s, affected typecheck 25.5 s. При успешных запусках счётчики cgroup OOM/OOM-kill не выросли. Удалён только собственный воспроизводимый `.next` cache; чужие процессы и каталоги не изменялись. Chromium и локальный сервер закрыты после проверок.
+
+Receipts находятся в `tmp/provider-onboarding/light-20261027/`: `focused-tests.json`, `tsconfig.affected.json`, `final/browser-report.json`, `final/footer-report.json`, `final/screens/`. Основной browser report содержит хеши 78 входных файлов; они проверены до и после запуска. SHA-256 отчётов: browser — `71d96945c8e2b7080574318d04c94091b8ee27236a68cf57dd91543b70aa8f8e`; footer — `ccf589963467eed25964417135fc3f229b189b209f080bf99e5ea97a307e5e73`; unit — `78ca38c482c8dc492d9a1ab8855d2b6043742726f6b9cf4570dc17a2b1262a88`. Скриншоты и временный стенд не добавляются в исходники приложения.
+
+SSH-доступ к Hetzner из этой среды ранее не подтвердился; глобальная инструкция о worker в `/root/.codex/AGENTS.md` удалена по просьбе пользователя. Успешный удалённый запуск, реальное сохранение GitHub Secrets, OAuth и backend persistence этой проверкой не заявляются.

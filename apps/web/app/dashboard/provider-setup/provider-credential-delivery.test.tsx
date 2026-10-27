@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -128,6 +129,74 @@ it("labels manual confirmation separately when GitHub metadata cannot be checked
   expect(
     (fetchMock.mock.calls[1]?.[1].body as FormData).get("confirmationMode"),
   ).toBe("manual");
+});
+
+it("keeps the secret scope fixed until its check completes and clears the result on a later change", async () => {
+  vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValue({
+    status: "missing",
+  });
+  let resolveConfirmation!: (response: Response) => void;
+  fetchMock.mockReturnValueOnce(
+    new Promise<Response>((resolve) => {
+      resolveConfirmation = resolve;
+    }),
+  );
+  const { container } = view(
+    <CiSecretDelivery
+      {...repository}
+      repositoryVisibility="private"
+      authMode="claude_code_oauth"
+      guidance={buildProviderSecretSetupGuidance({
+        provider: "claude_code_oauth",
+        repoFullName: repository.repositoryFullName,
+        organizationLogin: "acme",
+      })}
+      organizationLogin="acme"
+      organizationSecretPolicy={{
+        planName: "Team",
+        privateRepositoriesAvailable: true,
+        status: "available",
+      }}
+    />,
+  );
+  const repositoryScope = screen.getByTestId("provider-scope-repository");
+  const organizationScope = screen.getByTestId(
+    "provider-scope-organization_selected_repositories",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Check GitHub setup" }));
+  for (const radio of screen.getAllByRole("radio"))
+    expect(radio).toHaveProperty("disabled", true);
+  expect(repositoryScope).toHaveProperty("checked", true);
+  expect(organizationScope).toHaveProperty("checked", false);
+  expect(
+    (fetchMock.mock.calls[0]?.[1].body as FormData).get("secretScope"),
+  ).toBe("repository");
+
+  await act(async () => {
+    resolveConfirmation(
+      new Response(
+        JSON.stringify({ params: { error: "provider_secret_not_found" } }),
+        { headers: { "content-type": "application/json" } },
+      ),
+    );
+  });
+  const repositoryError =
+    "CLAUDE_CODE_OAUTH_TOKEN is not in the Actions secrets of acme/widget yet. Run the command, then check again.";
+  await screen.findByText(repositoryError);
+  for (const radio of screen.getAllByRole("radio"))
+    expect(radio).toHaveProperty("disabled", false);
+  expect(screen.queryByText(/not an Actions secret of acme yet/)).toBeNull();
+
+  fireEvent.click(organizationScope);
+  expect(organizationScope).toHaveProperty("checked", true);
+  expect(screen.queryByText(repositoryError)).toBeNull();
+  expect(container.querySelector("pre")?.textContent).toContain(
+    "--org acme --repos widget --app actions",
+  );
+  expect(
+    screen.getByRole("button", { name: "Check GitHub setup" }),
+  ).toHaveProperty("disabled", false);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
 it("keeps the installed managed key on its GitHub path without installing or probing again", async () => {

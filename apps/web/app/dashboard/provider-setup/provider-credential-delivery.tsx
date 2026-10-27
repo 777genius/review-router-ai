@@ -270,7 +270,7 @@ export function CiSecretDelivery({
                 key={option.scope}
                 className={[
                   "flex items-start gap-3 rounded-xl border p-3 text-sm leading-5 transition",
-                  option.disabled
+                  option.disabled || confirmation.submitting
                     ? "cursor-not-allowed border-slate-700/60 text-slate-500"
                     : scope === option.scope
                       ? "cursor-pointer border-cyan-300/50 bg-cyan-300/[0.07] text-cyan-50"
@@ -282,7 +282,7 @@ export function CiSecretDelivery({
                   name={`secret-scope-${repositoryId}`}
                   data-testid={`provider-scope-${option.scope}`}
                   checked={scope === option.scope}
-                  disabled={option.disabled}
+                  disabled={option.disabled || confirmation.submitting}
                   onChange={() => {
                     setScope(option.scope);
                     confirmation.resetVerification();
