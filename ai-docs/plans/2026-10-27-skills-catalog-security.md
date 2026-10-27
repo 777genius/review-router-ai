@@ -1,6 +1,6 @@
 # Skills catalog, checked import, and bounded scanning
 
-Status: implementation plan v1; two independent critique rounds are required before source implementation.
+Status: implementation plan v2 accepted after two independent critique rounds; implementation in progress.
 Owner: ReviewRouter Skills. Date: 2026-10-27.
 
 ## 1. Outcome and acceptance boundary
@@ -41,23 +41,25 @@ This is an additive feature, not a replacement Skills editor, installation syste
 
 Add **Browse catalog** next to the existing Create skill action, subject to existing create authority. Reuse `SkillsDialog`, shared controls, the existing library cache and assignment handoff. One dialog contains a results view and a preview view with Back; no nested modal or multi-step wizard.
 
-The results view has one search box, a short source attribution, loading/error/empty states and a simple list. Empty or short search browses popular items. Debounce interactive search, preserve selection/query on errors and Back, and show another page only when the actual browse contract supports it. UAP search is limited and does not provide an exhaustive total; never invent one.
+The results view has one search box, a short source attribution, loading/error/empty states and a simple list. Empty or short search browses popular items; a one-character query explicitly says “Type at least two characters to search.” Debounce interactive search, preserve selection/query on errors and Back, and show another page only when the actual browse contract supports it. UAP search is limited and does not provide an exhaustive total; never invent one.
 
-Preview shows the name, description, source repository link and readable instructions. Ambiguous source resolution presents actual discovered names for selection. Unsupported companion content explains that this skill cannot be added as text; it is never silently discarded. Omitted metadata follows the existing explicit acknowledgement policy.
+Preview shows the name, description, source repository link derived from validated owner/repo, and instructions rendered as inert text using existing primitives. It introduces no Markdown/HTML renderer. Ambiguous source resolution presents actual discovered names for selection. Unsupported companion content explains that this skill cannot be added as text; it is never silently discarded. Omitted metadata follows the existing explicit acknowledgement policy.
 
-Primary action: **Check skill**. When an operator has fully configured AI-assisted checks, offer one optional checkbox with a short disclosure that the instructions are sent to the configured analysis service. No technical provider settings appear here. The default is static analysis.
+Primary action: **Check skill**. When an operator has fully configured AI-assisted checks, offer one optional checkbox with a short disclosure that the instructions are sent to the configured analysis service. No technical provider settings appear here. The default is static analysis. Changing the selected profile selects a different result identity and disables import until that profile has an eligible check; a static success never appears as an AI-assisted result.
 
-| State | User message and action |
-| --- | --- |
-| Not checked | Check this skill before adding it. |
-| Queued/running | Checking…; closing remains allowed and reopening resumes status. |
-| Complete, no blocking findings | No issues found; Add to library available. |
-| Lower-severity findings/caution | Review warnings; concise details and explicit acknowledgement before adding. |
-| High/critical risk | Risk found; adding is unavailable. |
-| Incomplete/error/timeout | Could not complete check; retry without losing the selection. |
-| Rate limited | Too many checks. Try again in …; retain the preview. |
-| Expired check | Check this skill again before adding it. |
-| Successful import | Close catalog, refresh library, continue with the existing known-skill assignment dialog. |
+| State                           | User message and action                                                                   |
+| ------------------------------- | ----------------------------------------------------------------------------------------- |
+| Not checked                     | Check this skill before adding it.                                                        |
+| Queued/running                  | Checking…; closing remains allowed and reopening resumes status.                          |
+| Complete, no blocking findings  | No issues found; Add to library available.                                                |
+| Lower-severity findings/caution | Review warnings; concise details and explicit acknowledgement before adding.              |
+| High/critical risk              | Risk found; adding is unavailable.                                                        |
+| Incomplete/error/timeout        | Could not complete check; retry without losing the selection.                             |
+| Rate limited                    | Too many checks. Try again in …; retain the preview.                                      |
+| Expired check                   | Check this skill again before adding it.                                                  |
+| Successful import               | Close catalog, refresh library, continue with the existing known-skill assignment dialog. |
+
+The library retains selected candidate/job and immutable submitted operation ID/profile/payload across same-page close/reopen and unknown responses; React Query owns fetched results, keyed by viewer/workspace/candidate/profile/job. Closing does not clear an outstanding attempt. Retry an unknown outcome with the same ID and payload; allocate a new ID only for explicitly requested new work or retry of a known terminal incomplete job. A possibly committed import is “Result not confirmed”, never a confirmed failure. V1 promises same-page reopen, not navigation/refresh restoration or a scan-history screen.
 
 Do not show scores, hashes, claim IDs, version numbers, raw scanner JSON, stack traces or technical error bodies in normal product UI. Details show sanitized finding summaries, locations and practical explanations. Do not claim that popularity, installation count or a completed check proves trustworthiness.
 
@@ -65,15 +67,15 @@ Do not show scores, hashes, claim IDs, version numbers, raw scanner JSON, stack 
 
 Keep the new candidate/scanning application service inside the existing `packages/features/review-skills` feature. It is one cohesive use case owned by Skills, with a small public API; do not enlarge the existing CRUD dispatcher into an external-fetch/process controller.
 
-| Layer | Responsibility | Must not know |
-| --- | --- | --- |
-| Domain | Candidate identity, report normalization/verdict, job states, import eligibility | Prisma, HTTP, Next, Python, process environment |
-| Application | Search, resolve/stage, request/read scan, import checked candidate | Concrete stores, network clients, SQL, React |
-| Ports | Catalog source, candidate/job persistence, admission, scanner execution, existing Skills create/access, clock/digest | Specific SDKs or another feature's infrastructure |
-| Infrastructure | Bounded UAP HTTP adapter, Prisma candidate/job store, scanner HTTP adapter, portable serialization | UI state |
-| Composition | Bind existing Skills access, rate limiter, outbox, database and configured scanner | User-supplied execution configuration |
-| Web interface | Session actor injection, typed errors, React Query adapter, simple dialog | Database/scanner credentials, subprocesses |
-| Worker interface | Existing outbox event handler, bounded execution and fenced result publication | Browser state |
+| Layer            | Responsibility                                                                                                       | Must not know                                     |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| Domain           | Candidate identity, report normalization/verdict, job states, import eligibility                                     | Prisma, HTTP, Next, Python, process environment   |
+| Application      | Search, resolve/stage, request/read scan, import checked candidate                                                   | Concrete stores, network clients, SQL, React      |
+| Ports            | Catalog source, candidate/job persistence, admission, scanner execution, existing Skills create/access, clock/digest | Specific SDKs or another feature's infrastructure |
+| Infrastructure   | Bounded UAP HTTP adapter, Prisma candidate/job store, scanner HTTP adapter, portable serialization                   | UI state                                          |
+| Composition      | Bind existing Skills access, rate limiter, outbox, database and configured scanner                                   | User-supplied execution configuration             |
+| Web interface    | Session actor injection, typed errors, React Query adapter, simple dialog                                            | Database/scanner credentials, subprocesses        |
+| Worker interface | Existing outbox event handler, bounded execution and fenced result publication                                       | Browser state                                     |
 
 Domain/application import only their own feature and shared contracts. Cross-feature interactions go through public APIs/ports, wired at the host composition root. The rate limiter remains a separate reusable feature. No scanner adapter imports another feature's Prisma implementation or writes its tables.
 
@@ -89,9 +91,9 @@ Input is a strict size-bounded JSON object: `repository` (`owner/repo`), optiona
 
 Initial resolution uses existing `skillsource.Acquirer.Resolve`, `Open` and `Session.Scan`. Resolve a moving branch once, then use its immutable commit. Auto-select only after complete discovery produces one unambiguous available match. A catalog slug is a hint, not a filesystem path. Ambiguity returns bounded candidate names/paths; incomplete discovery is explicit and does not auto-select.
 
-Selection supplies the returned commit and path, then uses `CandidateAt`/`Preview` at that exact commit. Never resolve the default branch again during selection/import. Return a versioned discriminated result: `resolved`, `selection_required`, `not_found` or `incomplete`, repository/commit identity, and either candidates or the selected skill's raw UTF-8 content, actual path and raw SHA-256. A limited resource-presence summary is advisory inventory, not a verified bundle manifest.
+Selection supplies the returned commit and path, then uses `CandidateAt`/`Preview` at that exact commit. Never resolve the default branch again during selection/import. Return a versioned discriminated result: `resolved`, `selection_required`, `not_found` or `incomplete`, repository/commit identity, and either candidates or the selected skill's raw UTF-8 content, actual path and raw SHA-256. Validate the original bytes with utf8.Valid before hashing or JSON encoding; invalid UTF-8 is unsupported, never silently replaced. A limited resource-presence summary is advisory inventory, not a verified bundle manifest. Text-only eligibility uses the existing portable parser for referenced dependencies; additionally, the selected skill subtree must report symlink/gitlink/unknown entries as unsupported rather than silently filter them. Ordinary unreferenced companion resources are not imported and their omission is disclosed; an empty filtered inventory is never proof of completeness.
 
-Limits start conservatively: one active resolution per process, bounded burst, 30-second overall resolution deadline, HTTP write deadline greater than the operation deadline, bounded entries/candidates/metadata/document bytes/output. Reuse the core's filtered, no-checkout Git tree and credential isolation. Add a real runtime scratch/process envelope (bounded temporary filesystem in deployment) so checks after Git returns are not falsely described as a hard disk limit. Reject unsafe entry kinds and never execute repository content. Always clean private temporary work.
+Limits start at one active resolver per service process, burst 2 with one request token per 5 seconds, 30-second overall deadline and 35-second HTTP write deadline; 20,000 tree entries, depth 32, 128 candidates, 4 MiB metadata, 64 KiB per document, 2 MiB total document bytes, 256 KiB encoded response. Exhaustion returns an explicit incomplete/busy result. Reuse the core's filtered, no-checkout Git tree and credential isolation; hosted Git uses HTTPS only, disables redirect following and never enables native credentials. Deployment uses a private 256 MiB temporary filesystem, 512 MiB memory and 64-task limit with one resolver replica initially; test disk exhaustion and kill/cancellation/cleanup. Time/disk bounds do not constitute an unimplemented total Git network-byte counter. The endpoint fails unavailable if its required runtime envelope is not configured. Reject unsafe entry kinds and never execute repository content. Always clean private temporary work.
 
 Update OpenAPI, existing operations documentation and the systemd/container runtime recipe for Git, immutable source access, resource bounds and the Go workspace module dependency. Verify a reproducible root binary build, not only workspace-specific compilation. Do not edit the UAP landing UI or replace its existing scanner work.
 
@@ -100,7 +102,7 @@ Update OpenAPI, existing operations documentation and the systemd/container runt
 Use two feature-owned models and one additive migration:
 
 1. **Import candidate**: server UUID, workspace, creator, immutable normalized name/description/instructions, canonical scan text and digest, source repository/commit/path/raw digest, omitted-field acknowledgements required, creation/expiry time. Candidate lifetime starts at 24 hours. Source digest and final imported-text digest are distinct.
-2. **Scan job**: UUID/operation identity, candidate/workspace/requesting actor, profile/build/policy fingerprint, queued/running/completed/incomplete status, bounded normalized report, created/started/completed/expiry times, execution fence/lease, conservative budget reservation and outcome metadata. A completed valid job is the cache; no extra cache/result/event-sourcing tables.
+2. **Scan job**: UUID/operation identity, candidate/workspace/requesting actor, profile/build/policy fingerprint, queued/running/completed/incomplete status, bounded normalized report, created/started/completed/expiry times, execution fence/lease, conservative budget reservation and outcome metadata. A completed valid job is the cache; no extra cache/result/event-sourcing tables. A lightweight request receipt may occupy the same Scan model with reuseOfScanId pointing directly to a physical job: unique workspace/actor/operation identity and immutable payload, no event or reservation. Only physical rows count as queued/running. This records new operation IDs that reuse cached/in-flight work without unbounded alias maps.
 
 Canonical scan text serializes only the actual imported name, description and exact instruction body with deterministic escaping. Scan this text, persist it, and import the corresponding persisted fields. The source may contain omitted fields; record its raw digest separately and require the existing omission acknowledgement. Never accept client-provided final text, `scanPassed`, source hash, verdict or content hash as authority.
 
@@ -108,13 +110,13 @@ Cache reuse is workspace-scoped and requires exact content, scanner build, stati
 
 Same operation ID plus same payload returns the existing job/import result without charging again; same ID with a different payload conflicts. Concurrent requests for the same eligible work converge under a short transaction lock and unique operation identity. A cache hit or in-flight deduplication does not spend a new-job quota. A retry of an incomplete check uses a new explicit operation ID.
 
-Import rechecks current create permission, candidate expiry, matching eligible scan, scope/profile/digest and acknowledgements on the server. Call existing Skills creation with a stable candidate-derived operation UUID so a response lost after commit cannot duplicate a skill. Use existing validation and authority again at the write boundary. No source refetch occurs during import. Editing the imported library content does not carry forward a safety badge.
+Import first checks current authority and a durable existing import receipt; an authorized replay returns the committed skill even after candidate/check expiry. For a new import it rechecks candidate expiry, matching eligible scan, scope/profile/digest and acknowledgements on the server. Call existing Skills creation with a stable candidate-derived operation UUID so a response lost after commit cannot duplicate a skill. Extract/reuse existing creation internals so candidate import receipt and creation commit in one same-feature transaction, or recover by an explicit stable creation-operation lookup; do not duplicate CRUD. Use existing validation and authority again at the write boundary. No source refetch occurs during import. Editing the imported library content does not carry forward a safety badge.
 
-Prune only expired terminal scan/candidate rows in small batches after retention and without breaking in-flight jobs or idempotent import receipts. Never clean global caches/worktrees as part of this feature.
+Keep terminal execution/receipt evidence for 7 days; preserve referenced physical scans and import receipts for their retry horizon. Prune only expired terminal scan/candidate rows in small batches after retention and without breaking in-flight jobs or idempotent import receipts. Never clean global caches/worktrees as part of this feature.
 
 ## 7. Rate limits and execution admission
 
-Extend the existing `packages/features/rate-limits` only for genuinely reused needs: typed retry timing and weighted fixed-window consumption if budget units require it. Default amount remains one, preserving all current callers. Do not replace its PostgreSQL atomic UPSERT with an in-memory map.
+Extend the existing `packages/features/rate-limits` only for genuinely reused needs: typed retry timing and weighted fixed-window consumption if budget units require it. Default amount remains one, preserving all current callers. Do not replace its PostgreSQL atomic UPSERT with an in-memory map. Budget units are maximum upstream-call attempts reserved once per physical job (including failed/retried calls); daily user/workspace/global unit ceilings are separate from job counts. Byte caps and output-token requests bound each attempt but are not exact token accounting or a monetary ledger.
 
 Keep separate policies for search, resolution, scan requests/status polling, new jobs and import. Server identity selects keys; user quota is independent of workspace, workspace aggregate prevents member fan-out, and a deployment-wide key bounds expensive work. Configuration lives in one policy/composition module, not copied into route handlers and UI.
 
@@ -126,9 +128,9 @@ Rate limits, queue depth, running concurrency, CPU/RSS/disk/deadlines, model tok
 
 ## 8. Worker and scanner runtime
 
-Reuse the existing outbox with an explicit Skills scan event/version and handler. Job admission and event publication are atomic. Keep this workload in a narrow configured worker lane, claiming one event at a time initially. Database admission/claim rules bound deployment-wide concurrency; a one-event batch alone does not bound replicas.
+Reuse the existing outbox with an explicit Skills scan event/version and handler. Job admission and event publication are atomic. Extract a narrow public transaction-compatible outbox writer using conflict-safe insertion and immutable-payload comparison; the existing repository delegates to it. Do not recover a PostgreSQL unique violation by querying inside the now-aborted transaction or cast a TransactionClient to PrismaClient. Keep this workload in a configured scan-only worker lane, claiming one event at a time initially; long scans never block the generic control-plane handler batch. Missing scanner/lane configuration makes admission unavailable rather than queueing unserviceable jobs. Database admission/claim rules bound deployment-wide concurrency; a one-event batch alone does not bound replicas.
 
-Claims are fenced. Mark a job running once with a fixed execution deadline and attempt identity, invoke the scanner under a shorter hard deadline, and commit a report only while the matching claim/lease remains valid. A crash, stale lease or unknown execution becomes an incomplete terminal result. Do not automatically repeat an uncertain paid/model execution or claim exactly-once external calls. User-requested retry is a new bounded attempt; previous reservation remains charged when usage is unknown.
+Claims are fenced. Immediately before execution, recheck workspace activity and the requester's current membership/create authority before sending any text. Mark a job running once with a fixed execution deadline and attempt identity. Start only when remaining claim duration exceeds the scanner hard deadline plus termination margin (initial static 90 s, AI 180 s, termination 10 s, claim 240 s). Hold the active slot until confirmed process exit or deadline plus margin after worker loss; a stale attempt cannot release another attempt's slot. Commit a report only while the matching claim/lease remains valid. A crash, stale lease or unknown execution becomes an incomplete terminal result. Do not automatically repeat an uncertain paid/model execution or claim exactly-once external calls. User-requested retry is a new bounded attempt; previous reservation remains charged when usage is unknown.
 
 Run SkillSpector in a dedicated execution container/service with no database, Git, SSH, Docker socket or host-directory credentials. Worker sends only bounded canonical text, server-owned job/profile identity and a capability-scoped service token. No user paths, URLs, arguments or environment enter the request. The service has one operation: scan this text under a configured profile; it has no durable queue or product database.
 
@@ -142,7 +144,7 @@ Enabled only with complete explicit server configuration. The UI requires affirm
 
 A narrow per-execution relay inside the scanner runtime enforces the limits missing from upstream SkillSpector: only the supported completion endpoint, no arbitrary paths or streaming, maximum request/input bytes, maximum output tokens, maximum total upstream calls including retries/failures, overall deadline and fixed model. Every attempted upstream call consumes its reservation before transmission. Exhaustion produces incomplete analysis, not a partial green result. The relay is not a new general model gateway.
 
-The application reserves conservative worst-case budget units for the bounded profile with job creation. Retain the full reservation when usage is missing/uncertain; record reported usage separately. Token/call ceilings are hard local controls. Any currency estimate uses explicit configured price ceilings and must not be described as a guarantee about an external provider's billing. Never count missing usage as free. Tests use a loopback model provider and real relay; no paid model calls are required or authorized by this plan.
+The application reserves the configured maximum upstream-call-attempt units for the bounded profile with job creation. Initial AI profile: at most 4 attempted upstream calls, at most 128 KiB input JSON per call, at most 2,048 requested output tokens per call, all within 180 seconds; effective lower limits are part of the profile fingerprint. Retain the full reservation when usage is missing/uncertain; record reported usage separately. Call-count and request-byte ceilings are hard local controls; output-token ceilings are enforced request parameters, not a promise about provider billing or tokenizer behavior. Any currency estimate uses explicit configured price ceilings and must not be described as a guarantee about an external provider's billing. Never count missing usage as free. Tests use a loopback model provider and real relay; no paid model calls are required or authorized by this plan.
 
 ## 9. Report policy and error projection
 
@@ -153,7 +155,7 @@ Own policy, versioned with the adapter:
 - Any active HIGH/CRITICAL finding or `DO_NOT_INSTALL` blocks catalog import, even if aggregate score is low.
 - A complete lower-risk/caution report requires explicit warning acknowledgement.
 - A complete report without blocking/warning findings permits import; label **No issues found**, not **Safe**.
-- Suppressed/incomplete analyzers, execution failure, timeout, budget exhaustion and unsupported report versions cannot yield an eligible result.
+- Missing required analyzer coverage, execution failure, timeout, budget exhaustion and unsupported report versions cannot yield an eligible result. Expected profile exclusions (such as static mode without LLM), native documented exemptions and suppressed findings are not automatically incomplete; gate on active findings and strict native completeness for the selected profile.
 
 Sanitize and bound findings, filenames and messages before returning them. Render as text, not trusted HTML; never show raw provider responses/secrets or arbitrary report URLs. Product errors are typed `forbidden`, `invalid_input`, `not_found`, `unsupported`, `conflict`, `rate_limited`, `unavailable`, `incomplete`, with retry timing where meaningful. Existing Server Action transports carry this envelope; HTTP routes use appropriate status/Retry-After. Fail closed for expensive execution if persistence/admission is unavailable.
 
@@ -161,7 +163,7 @@ Sanitize and bound findings, filenames and messages before returning them. Rende
 
 1. Commit/push this plan; critic round 1 (architecture/admission, UAP/source integrity, UX/integration); correct it. Critic round 2 reviews the corrected document and resolves material findings before implementation.
 2. UAP resolver slice: Go application/adapter/HTTP contract, bounded runtime recipe, real Git fixtures; separate draft PR. Avoid landing/parallel scanner files.
-3. ReviewRouter domain/ports/store/migration/admission/worker contracts; portable parser reuse; focused concurrency and policy tests.
+3. ReviewRouter domain/ports/store/migration/admission/worker contracts; portable parser reuse; focused concurrency and policy tests. Update release ACL projection for new tables: web may stage/read/request/record import; worker may read execution input and update only execution/result fields/perform bounded pruning. Immutable content, provenance and request/profile identity cannot be updated; existing Skills table grants stay unchanged. Qualify actual web/worker roles, not only schema-owner tests.
 4. Dedicated scanner service and bounded relay, HTTP adapter, reproducible runtime packaging and real static/scanner-boundary tests.
 5. Catalog actions/client/dialog wired to the actual application service; re-use existing library/assignment flow.
 6. Integration and E2E: real database/session/outbox/scanner execution, loopback external boundaries, then desktop/mobile screenshot review and corrections.
@@ -181,18 +183,18 @@ Target approximately 3,000–5,500 production lines across both repositories plu
 
 ### Real PostgreSQL integration
 
-- Fresh migration and existing data compatibility; two simultaneous requests yield one job/event/charge.
+- Fresh migration and existing data compatibility; actual deployed web/worker role grants and closed-gate revocation; two simultaneous requests yield one physical job/event/charge plus bounded request receipts.
 - Multi-scope quotas roll back together; fixed-window boundaries and weighted bounds; storage failure blocks work.
 - Same operation/same payload replays; changed payload conflicts; cache is exact and workspace-scoped.
 - Membership revoked before scan/import/read; cross-workspace candidate/job access denied.
-- Claim race, global running cap, worker crash/lost lease, deadline, stale completion fencing; no automatic duplicate LLM execution.
-- Successful import plus lost response retries returns the same skill; scanned candidate text equals stored content. Expiry/warnings/blocking cannot be bypassed by request fields.
+- Claim race, global running cap, worker death while the scanner service continues, deadline/termination-slot retention, stale completion fencing; no automatic duplicate LLM execution; revoked queued requester causes no text transmission.
+- Successful import plus lost response retries returns the same skill even after check expiry; scanned candidate text equals stored content. Expiry/warnings/blocking cannot be bypassed by request fields.
 
 ### Browser and visual acceptance
 
 Extend the existing `scripts/accounts-reference-e2e` harness rather than create a second fake dashboard. Use real Next, authenticated sessions, fresh PostgreSQL, new migration and actual worker/scanner static execution; external UAP/model endpoints may be bounded loopback fixtures. Document that boundary, do not call it a live production provider test.
 
-Cases cover search → exact preview → check → import → existing assignment; stale search/preview responses; ambiguity/unsupported/incomplete resolution; warning acknowledgement; blocked/incomplete/expired results; duplicate clicks/uncertain responses; auth loss; quotas preserving selection; closing/reopening during scan; static/AI profile separation; exact imported bytes.
+Cases cover search → exact preview → check → import → existing assignment; stale search/preview responses; ambiguity/unsupported/incomplete resolution; warning acknowledgement; blocked/incomplete/expired results; duplicate clicks/scan response lost after real admission and import response lost after real commit; exact replay after close/reopen; auth loss; quotas preserving selection; closing/reopening during scan; static/AI checkbox/result identity separation; short-query explanation; inert malicious preview text; exact imported bytes.
 
 At 1280px desktop and 390px mobile, inspect original captures of list, preview, running, clear/warning/blocked/incomplete, and assignment continuation. Check no horizontal overflow, readable instructions, reachable close/actions, keyboard/focus behavior and no nested modal. Correct actual issues before acceptance. Keep screenshots, traces and receipts in ignored `tmp/` and CI artifacts.
 
@@ -200,8 +202,9 @@ Final evidence is bound to exact commit SHAs: commands/results, migration count,
 
 ## 12. Critique record and implementation evidence
 
-- Round 1: pending.
-- Corrections after round 1: pending.
-- Round 2: pending.
-- Final plan decision: pending.
+- Round 1 (v1, local c64c657 / published 9184b943 tree 7224a117): three independent critics reviewed the complete document. All requested changes; no redesign.
+- Corrections after round 1: explicit client retry/reopen/profile state; inert preview and short-query copy; text-only eligibility, UTF-8 and hosted Git policy; numeric scratch/discovery bounds; transaction-safe outbox reuse; request receipts for deduplicated work; import replay after expiry; deployed-role ACLs; execution-time authority, lease/slot ordering and dedicated lane; precise upstream-call budget units; expected analyzer exemptions. All material findings incorporated in v2.
+- Round 2 (corrected v2): all three critics reread the full plan and returned GO. No remaining material findings. Implementation notes retained: one-hop scan receipts; start UAP deadline before body read; leave process-termination margin; marshal/size-check responses before headers; preserve transport uncertainty separately from domain rejection.
+- Final plan decision: GO. No source implementation occurred before the two completed critique rounds.
+- Baseline update: a fresh GitHub read now confirms #704 merged as `818f8c83f69a8c5ec2fc0668b52607133210841a`; reconcile this main before implementation. Earlier queued CI statements above describe the initial inspection, not the current merge state. The new PR now targets main.
 - Implementation commits, review findings and exact-head verification: append as work completes.
