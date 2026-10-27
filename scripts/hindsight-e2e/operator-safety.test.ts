@@ -8,6 +8,7 @@ import { acquireDeploymentLock } from "./deployment-lock.ts";
 import {
   assertNativeCleanupStatus,
   assertNativeOperationAbsent,
+  assertNativeObservationsCleared,
   safeNativeRoute,
 } from "./native-http.ts";
 import {
@@ -117,6 +118,33 @@ test("native HTTP 200 not_found proves operation absence only for the exact ID a
           "Native operation absence or payload removal could not be verified",
     );
   }
+});
+
+test("native observation reset requires an affirmative typed response and keeps diagnostics body-free", () => {
+  assert.equal(
+    safeNativeRoute("/v1/default/banks/private-bank/observations"),
+    "/v1/default/banks/:bank/observations",
+  );
+  for (const deleted_count of [0, 1, 10_000])
+    assert.doesNotThrow(() =>
+      assertNativeObservationsCleared({ success: true, deleted_count }),
+    );
+  for (const input of [
+    null,
+    {},
+    { success: false, deleted_count: 0 },
+    ...[-1, 0.5, "0", undefined].map((deleted_count) => ({
+      success: true,
+      deleted_count,
+      message: "PRIVATE_PROVIDER_RESPONSE",
+    })),
+  ])
+    assert.throws(
+      () => assertNativeObservationsCleared(input),
+      (error) =>
+        error instanceof Error &&
+        error.message === "Native observation reset could not be verified",
+    );
 });
 
 test("actual Linux flock survives acquiring subprocess exit and excludes another launcher until close", async () => {
@@ -343,6 +371,36 @@ test("shared native consolidation ID/count history is cleanup evidence while mix
   };
   assert.doesNotThrow(() =>
     assertCleanupOperationSources(consolidation, target, bank),
+  );
+  assert.doesNotThrow(() =>
+    assertCleanupOperationSources(
+      {
+        ...consolidation,
+        result_metadata: {
+          document_events: [
+            { ...event(target), kind: "retag" },
+            event(support),
+          ],
+        },
+      },
+      target,
+      bank,
+    ),
+  );
+  assert.throws(() =>
+    assertCleanupOperationSources(
+      {
+        ...consolidation,
+        result_metadata: {
+          document_events: [
+            event(target),
+            { ...event(support), kind: "retag" },
+          ],
+        },
+      },
+      target,
+      bank,
+    ),
   );
   assert.throws(() =>
     assertCleanupOperationSources(

@@ -64,6 +64,15 @@ A shared database permit spans bounded native writer/observer transport. Exclusi
 pause waits for these transports and advances a durable generation-wide epoch.
 The native cleanup profile additionally requires complete executor/session drain,
 operation and history inventory, and absence verification after restart.
+During this pause, cleanup resets the affected bank's derived observations and
+history through the native public API, including orphan history from old source
+revisions. Other approved documents and source facts are preserved; surviving
+sources reconsolidate after restart. Empty derived history is verified before
+restart, followed by scoped absence and surviving-source checks afterwards.
+Verified cleanup also closes an immediately preceding unresolved write together
+with Forget, so an expired delivery envelope cannot permanently block deletion.
+Neither command may have an active claim, and the signed receipt must still match
+the exact entry revision, provider generation and paused maintenance epoch.
 
 Runtime retrieval has a hard two-second bound and degrades to an empty bundle.
 Bodyless receipts capture exact approved revisions and scope epochs. The review

@@ -34,6 +34,19 @@ payload cleanup, and verification after restart. Ordinary successful updates
 remain online. Runtime excludes inactive entries; authorized management/export
 can inspect retained inactive records. Forget fences every body-bearing read.
 
+The paused cleanup also resets derived observations and their history in the
+affected native bank through Hindsight's public observations endpoint. This
+removes orphan history left by older source revisions without direct schema
+mutation. Other approved source documents and facts remain unchanged; their
+derived observations are recomputed after restart. Qualification must verify
+empty derived history before restart, preserved surviving sources, and no
+resurrection of forgotten knowledge afterwards.
+
+Verified physical cleanup may atomically close Forget and its immediately
+preceding unresolved write, including when that write's delivery envelope has
+expired. Active claims, exact revisions, generation and the paused epoch still
+fence completion. Late delivery callbacks cannot reopen either terminal command.
+
 Preserve the approved no-raw-source ingress boundary. Manual approved statements
 and permitted distilled candidates are first inputs. Whole-discussion extraction
 requires its separately specified source-processing profile. Derived observations

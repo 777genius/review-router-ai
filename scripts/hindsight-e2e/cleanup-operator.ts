@@ -37,6 +37,7 @@ import {
 import {
   assertNativeCleanupStatus,
   assertNativeOperationAbsent,
+  assertNativeObservationsCleared,
 } from "./native-http.ts";
 
 interface OperatorPlan {
@@ -684,7 +685,16 @@ async function runLockedCleanup(
         undefined,
         [200, 404],
       );
-    async function absence(): Promise<HindsightCleanupAbsence> {
+    // Retag/replacement can orphan history whose old source IDs are no longer
+    // discoverable from the current document. The pinned public reset erases all
+    // derived history and requeues surviving sources without deleting their
+    // approved documents/facts or starting execution in this stopped profile.
+    assertNativeObservationsCleared(
+      await request(`${bankPath()}/observations`, "DELETE"),
+    );
+    async function absence(
+      beforeRestart = false,
+    ): Promise<HindsightCleanupAbsence> {
       assert.equal(
         await request(
           `${bankPath()}/documents/${encodeURIComponent(document)}`,
@@ -703,9 +713,16 @@ async function runLockedCleanup(
           ).length,
           0,
         );
-        for (const observation of await list<Fact>(
+        const observations = await list<Fact>(
           `/memories/list?type=observation&state=${state}`,
-        )) {
+        );
+        if (beforeRestart)
+          assert.equal(
+            observations.length,
+            0,
+            "Native observation reset left derived records behind",
+          );
+        for (const observation of observations) {
           assert(
             !observation.source_memory_ids?.some((source) =>
               sourceIds.has(source),
@@ -741,7 +758,7 @@ async function runLockedCleanup(
         : "";
       assert.equal(
         await sql(
-          `SELECT count(*) FROM "${schema}".observation_history WHERE bank_id='${plan.nativeBankId}' AND (${observationMatch}${sources})`,
+          `SELECT count(*) FROM "${schema}".observation_history WHERE bank_id='${plan.nativeBankId}'${beforeRestart ? "" : ` AND (${observationMatch}${sources})`}`,
         ),
         "0",
         "Persisted observation history still contains forgotten evidence",
@@ -761,7 +778,7 @@ async function runLockedCleanup(
         observedAt: stamp(),
       };
     }
-    const beforeRestart = await absence();
+    const beforeRestart = await absence(true);
     await checkPause();
     await inspectAll("stopped", cleanupContainerId);
     await docker(["stop", "--time", "30", cleanupName]);

@@ -19,7 +19,14 @@ type Operation = {
   status: string;
   child_operations?: Operation[];
 };
-type Fact = { id: string; source_memory_ids?: string[] };
+type Fact = {
+  id: string;
+  text?: string;
+  document_id?: string;
+  tags?: string[];
+  source_memory_ids?: string[];
+};
+type Document = { id: string; original_text: string; tags: string[] };
 
 /** Native/host qualification only. Router's maintenance HTTP attestation is a declared fixture. */
 export async function qualifyProductionCleanup(input: {
@@ -108,6 +115,10 @@ export async function qualifyProductionCleanup(input: {
     documentId,
     `Native qualification derived observation reviewed primary source ${privacySentinel}.`,
   );
+  const originalFacts = await request<{ items: Fact[] }>(
+    path(`/memories/list?document_id=${documentId}&state=valid&limit=100`),
+  );
+  assert(originalFacts.items.length > 0);
   const observation = await eventually(async () => {
     const page = await request<{ items: Fact[] }>(
       path("/memories/list?type=observation&state=valid&limit=100"),
@@ -115,13 +126,14 @@ export async function qualifyProductionCleanup(input: {
     return page.items[0];
   }, "native derived observation for production cleanup");
   const marker = `supporting-evidence-${randomUUID()}`;
+  const survivorDocumentId = `support-${randomUUID()}`;
   input.stub.setObservationUpdateFixture({
     observationId: observation.id,
     sourceMarker: marker,
   });
   try {
     await retain(
-      `support-${randomUUID()}`,
+      survivorDocumentId,
       `Native qualification derived observation supporting source ${marker}.`,
     );
     await eventually(async () => {
@@ -144,20 +156,86 @@ export async function qualifyProductionCleanup(input: {
     value.startsWith("HINDSIGHT_API_DATABASE_URL="),
   )?.slice("HINDSIGHT_API_DATABASE_URL=".length);
   assert(actualDsn);
+  const sql = async (statement: string) =>
+    (
+      await docker(
+        nativeSqlObserverArguments(actualDsn, input.imageDigest, statement),
+      )
+    ).trim();
+  const originalHistoryCount = () =>
+    sql(
+      `SELECT count(*) FROM public.observation_history WHERE bank_id='${bank}' AND observation_id='${observation.id}'::uuid`,
+    );
   assert(
-    Number(
-      (
-        await docker(
-          nativeSqlObserverArguments(
-            actualDsn,
-            input.imageDigest,
-            `SELECT count(*) FROM public.observation_history WHERE bank_id='${bank}' AND observation_id='${observation.id}'::uuid`,
-          ),
-        )
-      ).trim(),
-    ) > 0,
+    Number(await originalHistoryCount()) > 0,
     "Persisted native history fixture must be nonvacuous",
   );
+  // Native retag deletes the live observation without cascading its history.
+  // Then replacement removes the old source IDs too: a current-entry inventory
+  // can no longer discover that historical body through either live identity.
+  await request(path(`/documents/${documentId}`), "PATCH", {
+    tags: ["kind:rule", "topic:historical-scope"],
+    observation_scopes: [["kind:rule", "topic:historical-scope"]],
+  });
+  const replacementOperation = await retain(
+    documentId,
+    `Native qualification derived observation current replacement source ${privacySentinel}.`,
+  );
+  const currentFacts = await request<{ items: Fact[] }>(
+    path(`/memories/list?document_id=${documentId}&state=valid&limit=100`),
+  );
+  const historicalIds = new Set(originalFacts.items.map((fact) => fact.id));
+  assert(
+    currentFacts.items.length > 0 &&
+      currentFacts.items.every((fact) => !historicalIds.has(fact.id)),
+    "Historical fixture must replace every original source identity",
+  );
+  assert.equal(
+    await sql(
+      `SELECT count(*) FROM public.memory_units WHERE bank_id='${bank}' AND id='${observation.id}'::uuid`,
+    ),
+    "0",
+  );
+  assert(
+    Number(await originalHistoryCount()) > 0,
+    "Retagged history must survive its deleted observation and replaced source before cleanup",
+  );
+  const currentIds = new Set(currentFacts.items.map((fact) => fact.id));
+  await eventually(async () => {
+    const page = await request<{ items: Fact[] }>(
+      path("/memories/list?type=observation&state=valid&limit=100"),
+    );
+    return page.items.some((fact) =>
+      fact.source_memory_ids?.some((source) => currentIds.has(source)),
+    )
+      ? true
+      : undefined;
+  }, "current replacement has a native observation before cleanup");
+  const survivorSnapshot = async () => {
+    const document = await request<Document>(
+      path(`/documents/${survivorDocumentId}`),
+    );
+    const facts = await request<{ items: Fact[] }>(
+      path(
+        `/memories/list?document_id=${survivorDocumentId}&state=valid&limit=100`,
+      ),
+    );
+    assert(facts.items.length > 0);
+    return {
+      id: document.id,
+      body: document.original_text,
+      tags: [...document.tags].sort(),
+      facts: facts.items
+        .map(({ id, text, document_id, tags }) => ({
+          id,
+          text,
+          document_id,
+          tags: [...(tags ?? [])].sort(),
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    };
+  };
+  const survivorBefore = await survivorSnapshot();
   const ids = await Promise.all(
     input.normalContainerNames.map(async (name) =>
       (await docker(["inspect", "--format", "{{.Id}}", name])).trim(),
@@ -220,7 +298,7 @@ export async function qualifyProductionCleanup(input: {
         executorContainerIds: ids,
         apiContainerId: api.Id,
         restartContainerIds: ids,
-        trackedOperationIds: [targetOperation],
+        trackedOperationIds: [targetOperation, replacementOperation],
         routerPauseCheckUrl: `http://127.0.0.1:${address.port}/synthetic-router-maintenance-attestation`,
         deploymentLockPath: join(directory, "deployment.lock"),
         sourceInventoryPath: join(directory, "source-inventory.json"),
@@ -252,6 +330,32 @@ export async function qualifyProductionCleanup(input: {
       receipt.proof.sourceInventory.observationCount > 0,
       "Production forget evidence must include derived observations",
     );
+    assert.equal(await originalHistoryCount(), "0");
+    assert.deepEqual(await survivorSnapshot(), survivorBefore);
+    // Requeueing a survivor must lead to real native consolidation after restart,
+    // not just preserve an inert document. The public request avoids waiting for
+    // the native five-minute reconciliation timer in this bounded fixture.
+    await request(path("/consolidate"), "POST");
+    const survivorIds = new Set(survivorBefore.facts.map((fact) => fact.id));
+    await eventually(async () => {
+      const page = await request<{ items: Fact[] }>(
+        path("/memories/list?type=observation&state=valid&limit=100"),
+      );
+      assert(
+        page.items.every((fact) =>
+          fact.source_memory_ids?.every(
+            (source) => !historicalIds.has(source) && !currentIds.has(source),
+          ),
+        ),
+      );
+      return page.items.some((fact) =>
+        fact.source_memory_ids?.some((source) => survivorIds.has(source)),
+      )
+        ? true
+        : undefined;
+    }, "surviving approved source reconsolidates without forgotten evidence");
+    assert.equal(await originalHistoryCount(), "0");
+    assert.deepEqual(await survivorSnapshot(), survivorBefore);
     await writeFile(
       join(directory, "receipt.json"),
       JSON.stringify(receipt, null, 2) + "\n",
@@ -274,6 +378,8 @@ export async function qualifyProductionCleanup(input: {
     return [
       "production-cleanup-cli-real-flock-complete-inventory-api-worker-db-barrier",
       "nonvacuous-derived-observation-history-physically-absent-after-native-delete-and-restart",
+      "orphan-history-from-retagged-observation-and-replaced-source-erased",
+      "surviving-approved-source-unchanged-and-natively-reconsolidated",
       "signed-receipt-exact-source-inventory-current-pause-binding",
     ];
   } finally {

@@ -11,6 +11,10 @@ export function safeNativeRoute(path: string): string {
     ],
     [new RegExp(`^${bank}/memories$`), "/v1/default/banks/:bank/memories"],
     [
+      new RegExp(`^${bank}/observations$`),
+      "/v1/default/banks/:bank/observations",
+    ],
+    [
       new RegExp(`^${bank}/memories/list$`),
       "/v1/default/banks/:bank/memories/list",
     ],
@@ -84,4 +88,19 @@ export function assertNativeOperationAbsent(
   throw new Error(
     "Native operation absence or payload removal could not be verified",
   );
+}
+
+/** An accepted reset still requires independent empty-state readback. */
+export function assertNativeObservationsCleared(input: unknown): void {
+  if (input && typeof input === "object" && !Array.isArray(input)) {
+    const value = input as Record<string, unknown>;
+    if (
+      value.success === true &&
+      typeof value.deleted_count === "number" &&
+      Number.isSafeInteger(value.deleted_count) &&
+      value.deleted_count >= 0
+    )
+      return;
+  }
+  throw new Error("Native observation reset could not be verified");
 }

@@ -174,8 +174,7 @@ export async function startProviderStub() {
           // Pinned OpenAICompatibleLLM._ensure_json_word_in_user_message
           // prepends this exact hint when the schema text contains uppercase
           // JSON but no lowercase "json" token. Do not admit other prefixes.
-          const hintedSoftSchemaPreamble =
-            `Return valid json only.\n\n${softSchemaPreamble}`;
+          const hintedSoftSchemaPreamble = `Return valid json only.\n\n${softSchemaPreamble}`;
           const softSchemaDedup =
             typeof messageContent === "string" &&
             (messageContent.startsWith(softSchemaPreamble) ||
@@ -189,9 +188,7 @@ export async function startProviderStub() {
             (directDedup || softSchemaDedup) &&
             messageContent.includes("[NEW] ") &&
             messageContent.includes("[EXISTING] ") &&
-            messageContent.includes(
-              "Respond with ONLY one valid JSON object",
-            );
+            messageContent.includes("Respond with ONLY one valid JSON object");
           const complete = (content: string) =>
             reply(response, 200, {
               id: "chatcmpl-native-fixture",
@@ -256,7 +253,9 @@ export async function startProviderStub() {
               // Only classify against immutable native-source prompt contracts.
               // These observations MUST NOT admit previously rejected traffic.
               if (
-                text.includes("Extract SIGNIFICANT facts from text. Be SELECTIVE")
+                text.includes(
+                  "Extract SIGNIFICANT facts from text. Be SELECTIVE",
+                )
               )
                 unexpectedByReason.unrelatedRetainExtraction += 1;
               if (messages[0]?.role === "system")

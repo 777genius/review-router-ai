@@ -166,7 +166,7 @@ function documentIds(value: unknown): string[] {
       : documentIds(item),
   );
 }
-function consolidationEvent(value: unknown): boolean {
+function consolidationEvent(value: unknown, document: string): boolean {
   if (
     !object(value) ||
     Object.keys(value).some(
@@ -189,7 +189,8 @@ function consolidationEvent(value: unknown): boolean {
   if (
     typeof value.document_id !== "string" ||
     !/^[a-zA-Z0-9_.:-]{1,200}$/.test(value.document_id) ||
-    value.kind !== "consolidation" ||
+    (value.kind !== "consolidation" &&
+      !(value.kind === "retag" && value.document_id === document)) ||
     typeof value.created_at !== "string" ||
     !Number.isFinite(Date.parse(value.created_at)) ||
     value.operation_id != null ||
@@ -257,7 +258,9 @@ export function assertCleanupOperationSources(
     object(metadata) &&
       Array.isArray(metadata.document_events) &&
       metadata.document_events.length <= 10_000 &&
-      metadata.document_events.every(consolidationEvent),
+      metadata.document_events.every((event) =>
+        consolidationEvent(event, document),
+      ),
     "Shared consolidation history must contain only pinned native ID/count events",
   );
   const remaining = Object.fromEntries(
