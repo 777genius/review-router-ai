@@ -331,7 +331,9 @@ export async function startProviderStub() {
                     !updating && ids.length
                       ? [
                           {
-                            text: "Native qualification derived observation",
+                            // Native drops exact-text CREATE duplicates without
+                            // folding their new source IDs into the existing row.
+                            text: `Native qualification derived observation for ${[...ids].sort().join(",")}`,
                             source_fact_ids: ids,
                             reason: "synthetic protocol fixture",
                           },

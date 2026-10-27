@@ -223,6 +223,46 @@ test(
   },
 );
 
+test("scripted creates distinguish source sets under native exact-text dedup", async () => {
+  const stub = await startProviderStub();
+  const original = "11111111-1111-4111-8111-111111111111";
+  const replacement = "22222222-2222-4222-8222-222222222222";
+  const create = async (ids: string[], existing = "") => {
+    const response = await fetch(`${stub.url}/v1/chat/completions`, {
+      method: "POST",
+      body: JSON.stringify({
+        model: "stub-model",
+        messages: [
+          {
+            role: "user",
+            content: `### New facts\n${ids.map((id) => `[${id}] reviewed synthetic source`).join("\n")}\n### Existing observations\n${existing}`,
+          },
+        ],
+      }),
+    });
+    assert.equal(response.status, 200);
+    const completion = (await response.json()) as {
+      choices: { message: { content: string } }[];
+    };
+    const actions = JSON.parse(completion.choices[0]!.message.content);
+    assert.equal(actions.creates.length, 1);
+    assert.deepEqual(actions.creates[0].source_fact_ids, ids);
+    return actions.creates[0].text as string;
+  };
+  try {
+    const initialText = await create([original]);
+    const replacementText = await create([replacement], initialText);
+    assert.notEqual(replacementText, initialText);
+    const combinedText = await create([original, replacement], initialText);
+    assert.notEqual(combinedText, initialText);
+    assert.notEqual(combinedText, replacementText);
+    assert.equal(await create([replacement, original]), combinedText);
+    assert.equal(stub.calls.unexpected, 0);
+  } finally {
+    await stub.close();
+  }
+});
+
 test("scripted consolidation update uses real candidate identity and refuses a missing candidate", async () => {
   const stub = await startProviderStub();
   const observation = "11111111-1111-4111-8111-111111111111";
