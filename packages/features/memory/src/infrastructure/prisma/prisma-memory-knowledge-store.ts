@@ -139,7 +139,7 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
       );
       if (maintenance.paused) {
         await tx.$executeRaw(
-          Prisma.sql`UPDATE "MemoryKnowledgeCommand" SET "claimId"=NULL,"claimUntil"=NULL,"state"='unknown',"updatedAt"=${input.now} WHERE "id"=${row.id}`,
+          Prisma.sql`UPDATE "MemoryKnowledgeCommand" SET "claimId"=NULL,"claimUntil"=NULL,"state"='unknown',"updatedAt"=${input.now} WHERE "id"=${row.id} AND "claimId"=${input.claimId} AND "state" NOT IN ('published','completed','failed')`,
         );
         return { permitted: false as const };
       }
@@ -203,6 +203,11 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
     )
       throw new MemoryKnowledgeError("invalid_input");
     return this.prisma.$transaction(async (tx) => {
+      // Pause and admission use the same order as transport/cleanup: generation
+      // barrier first, then scope locks. A pause cannot overtake an admitted write.
+      await tx.$executeRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${deliveryFenceKey(command.generation)},0))`,
+      );
       // Quota, source cursors and admission must agree across scopes/processes.
       await tx.$executeRaw(
         Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`memory-admission:${command.ref.scope.workspaceId}`}, 0))`,
@@ -643,12 +648,36 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
       if (
         !current ||
         current.metadata.lifecycle !== "forget_pending" ||
-        current.pendingCommandId !== row.id ||
+        current.revision !== row.revision ||
+        !current.pendingCommandId ||
         current.revocationCommandId !== row.id ||
-        !["cleanup_pending", "unknown"].includes(row.state) ||
+        !["queued", "cleanup_pending", "unknown"].includes(row.state) ||
         (row.claimUntil && row.claimUntil > input.now)
       )
         throw new MemoryKnowledgeError("conflict");
+      const predecessor =
+        current.pendingCommandId === row.id
+          ? null
+          : await this.command(tx, current.pendingCommandId);
+      if (
+        current.pendingCommandId !== row.id &&
+        (!predecessor ||
+          predecessor.generation !== row.generation ||
+          predecessor.scopeKey !== row.scopeKey ||
+          predecessor.entryId !== row.entryId ||
+          predecessor.revision !== row.revision - 1 ||
+          !["save", "topics"].includes(predecessor.commandKind) ||
+          terminal.has(predecessor.state) ||
+          (predecessor.claimUntil && predecessor.claimUntil > input.now))
+      )
+        throw new MemoryKnowledgeError("conflict");
+      // The signed receipt proves physical cleanup for this entry after native
+      // execution drained. Close its unresolved earlier write in the same scope
+      // transaction; a purged envelope must not strand Forget behind that write.
+      if (predecessor)
+        await tx.$executeRaw(
+          Prisma.sql`UPDATE "MemoryKnowledgeCommand" SET "state"='failed',"safeReason"='conflict',"envelope"=NULL,"claimId"=NULL,"claimUntil"=NULL,"cleanupReceiptId"=${receipt.id},"updatedAt"=${input.now} WHERE "id"=${predecessor.id}`,
+        );
       const metadata: MemoryKnowledgeEntryMetadata = {
         ...current.metadata,
         lifecycle: "forgotten",
@@ -685,6 +714,7 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
             cleanupReceiptId: receipt.id,
             commandDigest: row.digest,
             generation: receipt.generation,
+            ...(predecessor ? { supersededCommandId: predecessor.id } : {}),
           },
         },
       });

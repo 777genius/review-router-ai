@@ -146,6 +146,7 @@ export interface MemoryKnowledgeStore {
     readonly now: Date;
     readonly limit: number;
   }): Promise<readonly MemoryKnowledgeEntryMetadata[]>;
+  /** Atomically closes Forget and any immediately preceding unresolved write after verified physical cleanup. */
   completeCleanup(input: {
     readonly receipt: MemoryVerifiedCleanupReceipt;
     readonly now: Date;

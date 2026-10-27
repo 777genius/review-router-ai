@@ -169,15 +169,43 @@ describe("private memory cleanup proof and operator HTTP contracts", () => {
       readonly rowKind?: string;
       readonly rowGeneration?: string;
       readonly paused?: boolean;
+      readonly state?: MemoryStoredCommand["operation"]["state"];
+      readonly pendingCommandId?: string;
+      readonly predecessorEntryId?: string;
+      readonly predecessorRevision?: string;
+      readonly revocationCommandId?: string;
+      readonly entryRevision?: number;
     } = {},
   ) {
-    const stored = command();
+    const original = command();
+    const stored = {
+      ...original,
+      operation: {
+        ...original.operation,
+        state: options.state ?? original.operation.state,
+      },
+    };
+    const predecessor: MemoryStoredCommand = {
+      ...stored,
+      operation: {
+        ...stored.operation,
+        id: options.pendingCommandId ?? commandId,
+        ref: {
+          ...stored.operation.ref,
+          entryId: options.predecessorEntryId ?? stored.operation.ref.entryId,
+        },
+        revision: options.predecessorRevision ?? "2",
+        state: "unknown",
+      },
+    };
     const store = {
       maintenanceState: vi.fn(async () => ({
         ...maintenance,
         paused: options.paused ?? true,
       })),
-      findCommand: vi.fn(async () => stored),
+      findCommand: vi.fn(async (input: { commandId: string }) =>
+        input.commandId === commandId ? stored : predecessor,
+      ),
       setMaintenancePaused: vi.fn(async () => maintenance),
       completeCleanup: vi.fn(async () => ({
         ...stored.operation,
@@ -192,11 +220,16 @@ describe("private memory cleanup proof and operator HTTP contracts", () => {
           commandKind: options.rowKind ?? "forget",
           scopeKey: memoryKnowledgeScopeKey(scope),
           entryId: "entry-1",
+          revision: 3,
         })),
       },
       memoryKnowledgeEntry: {
         findUnique: vi.fn(async () => ({
           metadata: { ref: stored.operation.ref },
+          lifecycle: "forget_pending",
+          revision: options.entryRevision ?? 3,
+          pendingCommandId: options.pendingCommandId ?? commandId,
+          revocationCommandId: options.revocationCommandId ?? commandId,
         })),
       },
     };
@@ -375,6 +408,24 @@ describe("private memory cleanup proof and operator HTTP contracts", () => {
       [{ rowGeneration: "old-generation" }, 404],
       [{ rowKind: "save" }, 404],
       [{ paused: false }, 409],
+      [{ state: "queued", revocationCommandId: "another-command" }, 409],
+      [{ state: "queued", entryRevision: 4 }, 409],
+      [
+        {
+          state: "queued",
+          pendingCommandId: "prior-command",
+          predecessorEntryId: "another-entry",
+        },
+        409,
+      ],
+      [
+        {
+          state: "queued",
+          pendingCommandId: "prior-command",
+          predecessorRevision: "1",
+        },
+        409,
+      ],
     ] as const) {
       const item = await fixture(options);
       expect(
@@ -389,53 +440,65 @@ describe("private memory cleanup proof and operator HTTP contracts", () => {
     }
   });
 
-  it("accepts only actual signed evidence and forwards the server digest/current maintenance epoch to atomic settlement", async () => {
-    const { app, proof, stored, store } = await fixture();
-    const receipt = signed(proof!.describe({ command: stored, maintenance }));
-    const result = await app.inject({
-      method: "POST",
-      url: `/api/internal/memory/cleanup/${commandId}/receipt`,
-      headers: auth,
-      payload: receipt,
-    });
-    expect(result.statusCode).toBe(200);
-    expect(result.json()).toEqual({
-      operationId: commandId,
-      state: "completed",
-    });
-    expect(store.completeCleanup).toHaveBeenCalledWith({
-      receipt: expect.objectContaining({
-        commandDigest: stored.digest,
-        maintenanceEpoch: "1",
-        generation,
-        ref: stored.operation.ref,
-      }),
-      now,
-    });
-    store.completeCleanup.mockClear();
-    for (const payload of [
-      { completed: true, privateBody: "operator-private-sentinel" },
-      {
-        ...receipt,
-        proof: {
-          ...receipt.proof,
-          binding: { ...receipt.proof.binding, pauseEpoch: "3" },
-        },
-      },
-      signed({ ...receipt.proof.binding, entryId: "different-entry" }),
-    ]) {
-      const response = await app.inject({
+  it.each(["cleanup_pending", "queued"] as const)(
+    "accepts only actual signed evidence for %s Forget and forwards its server digest/current epoch to atomic settlement",
+    async (state) => {
+      const { app, proof, stored, store } = await fixture({
+        state,
+        ...(state === "queued" ? { pendingCommandId: "prior-command" } : {}),
+      });
+      const binding = await app.inject({
+        method: "GET",
+        url: `/api/internal/memory/cleanup/${commandId}`,
+        headers: auth,
+      });
+      expect(binding.statusCode).toBe(200);
+      const receipt = signed(proof!.describe({ command: stored, maintenance }));
+      const result = await app.inject({
         method: "POST",
         url: `/api/internal/memory/cleanup/${commandId}/receipt`,
         headers: auth,
-        payload,
+        payload: receipt,
       });
-      expect(response.statusCode).toBe(400);
-      expect(response.json()).toEqual({ code: "memory_invalid_input" });
-      expect(response.body).not.toContain("operator-private-sentinel");
-    }
-    expect(store.completeCleanup).not.toHaveBeenCalled();
-  });
+      expect(result.statusCode).toBe(200);
+      expect(result.json()).toEqual({
+        operationId: commandId,
+        state: "completed",
+      });
+      expect(store.completeCleanup).toHaveBeenCalledWith({
+        receipt: expect.objectContaining({
+          commandDigest: stored.digest,
+          maintenanceEpoch: "1",
+          generation,
+          ref: stored.operation.ref,
+        }),
+        now,
+      });
+      store.completeCleanup.mockClear();
+      for (const payload of [
+        { completed: true, privateBody: "operator-private-sentinel" },
+        {
+          ...receipt,
+          proof: {
+            ...receipt.proof,
+            binding: { ...receipt.proof.binding, pauseEpoch: "3" },
+          },
+        },
+        signed({ ...receipt.proof.binding, entryId: "different-entry" }),
+      ]) {
+        const response = await app.inject({
+          method: "POST",
+          url: `/api/internal/memory/cleanup/${commandId}/receipt`,
+          headers: auth,
+          payload,
+        });
+        expect(response.statusCode).toBe(400);
+        expect(response.json()).toEqual({ code: "memory_invalid_input" });
+        expect(response.body).not.toContain("operator-private-sentinel");
+      }
+      expect(store.completeCleanup).not.toHaveBeenCalled();
+    },
+  );
 
   it("awaits the real store pause/drain contract before responding and uses CAS/deadline arguments", async () => {
     const { app, store } = await fixture();

@@ -74,11 +74,36 @@ export async function registerMemoryOperatorRoutes(
     });
     if (
       !command ||
-      !["cleanup_pending", "unknown", "completed"].includes(
+      !["queued", "cleanup_pending", "unknown", "completed"].includes(
         command.operation.state,
       )
     )
       throw new MemoryKnowledgeError("conflict");
+    if (command.operation.state !== "completed") {
+      if (
+        entry.lifecycle !== "forget_pending" ||
+        entry.revision !== row.revision ||
+        entry.revocationCommandId !== id ||
+        !entry.pendingCommandId
+      )
+        throw new MemoryKnowledgeError("conflict");
+      if (entry.pendingCommandId !== id) {
+        const predecessor = await dependencies.runtime.store.findCommand({
+          commandId: entry.pendingCommandId,
+          scope: metadata.ref.scope,
+          generation: row.generation,
+        });
+        if (
+          !predecessor ||
+          predecessor.operation.ref.entryId !== row.entryId ||
+          predecessor.operation.revision !== String(row.revision - 1) ||
+          ["published", "completed", "failed"].includes(
+            predecessor.operation.state,
+          )
+        )
+          throw new MemoryKnowledgeError("conflict");
+      }
+    }
     const maintenance = await dependencies.runtime.store.maintenanceState(
       row.generation,
     );

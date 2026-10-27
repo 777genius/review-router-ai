@@ -21,6 +21,7 @@ import {
 import { PrismaMemoryKnowledgeStore } from "../infrastructure/prisma/prisma-memory-knowledge-store";
 import { MemoryKnowledgeService } from "../application/use-cases/memory-knowledge-service";
 import type { MemoryProviderEntry } from "../application/ports/memory-knowledge-provider-port";
+import type { MemoryVerifiedCleanupReceipt } from "../application/ports/memory-knowledge-store-port";
 
 const databaseUrl = process.env.REVIEW_ROUTER_MEMORY_TEST_DATABASE_URL;
 const now = new Date("2026-10-23T10:00:00.000Z");
@@ -87,19 +88,20 @@ describe.skipIf(!databaseUrl)(
       } finally {
         await fixture.end();
       }
-      const client = () =>
+      const client = (name: string) =>
         new PrismaClient({
           adapter: new PrismaPg(
             {
               connectionString: databaseUrl!,
               options: `-c search_path=${schema}`,
+              application_name: `${schema}-${name}`,
               max: 4,
             },
             { schema },
           ),
         });
-      prisma = client();
-      other = client();
+      prisma = client("first");
+      other = client("second");
       store = new PrismaMemoryKnowledgeStore(prisma);
       otherStore = new PrismaMemoryKnowledgeStore(other);
     });
@@ -169,13 +171,14 @@ describe.skipIf(!databaseUrl)(
       command: MemoryKnowledgeCommand,
       target = store,
       activeEntryLimit: number | null = null,
+      at = now,
     ) =>
       target.admit({
         command,
         digest: memoryKnowledgeCommandDigest(command),
-        now,
-        deliveryExpiresAt: new Date(now.getTime() + 86400000),
-        resubmitUntil: new Date(now.getTime() + 3600000),
+        now: at,
+        deliveryExpiresAt: new Date(at.getTime() + 86400000),
+        resubmitUntil: new Date(at.getTime() + 3600000),
         activeEntryLimit,
         pendingCommandLimit: 100,
       });
@@ -216,6 +219,49 @@ describe.skipIf(!databaseUrl)(
         now,
       });
       return { result, entry };
+    }
+
+    function forgetCommand(
+      original: MemoryKnowledgeCommand,
+    ): MemoryKnowledgeCommand {
+      return {
+        kind: "forget",
+        ref: original.ref,
+        commandId: randomUUID(),
+        expectedRevision: "1",
+        generation,
+        providerProfileVersion: original.providerProfileVersion,
+        approval: original.approval,
+      };
+    }
+    function cleanupReceipt(
+      command: MemoryKnowledgeCommand,
+      at = now,
+    ): MemoryVerifiedCleanupReceipt {
+      return {
+        id: `host_receipt_${command.commandId}`,
+        commandId: command.commandId,
+        commandDigest: memoryKnowledgeCommandDigest(command),
+        generation,
+        ref: command.ref,
+        verifiedAt: at.toISOString(),
+        verifiedBy: "operator:stable",
+        maintenanceEpoch: "1",
+      };
+    }
+    async function waitForBlockedQuery(fragment: string): Promise<void> {
+      await vi.waitFor(
+        async () => {
+          const waiting = await admin.query(
+            `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+           WHERE application_name IN ($1,$2) AND wait_event_type='Lock'
+             AND query LIKE $3) AS blocked`,
+            [`${schema}-first`, `${schema}-second`, `%${fragment}%`],
+          );
+          expect(waiting.rows[0].blocked).toBe(true);
+        },
+        { timeout: 2000, interval: 10 },
+      );
     }
 
     it("atomically admits one competing create and reserves quota across independent processes", async () => {
@@ -566,6 +612,277 @@ describe.skipIf(!databaseUrl)(
       await expect(
         admit(save({ ref: original.ref, expectedRevision: "2" })),
       ).rejects.toMatchObject({ code: "conflict" });
+    });
+
+    it.each(["initial save", "edit", "topics"] as const)(
+      "settles a queued forget after its unknown %s expires without resurrecting either command",
+      async (kind) => {
+        const original = save();
+        const pending: MemoryKnowledgeCommand =
+          kind === "initial save"
+            ? original
+            : kind === "edit"
+              ? save({
+                  ref: original.ref,
+                  expectedRevision: "1",
+                  body: "A replacement that may have reached the provider.",
+                })
+              : {
+                  kind: "topics",
+                  ref: original.ref,
+                  commandId: randomUUID(),
+                  expectedRevision: "1",
+                  generation,
+                  providerProfileVersion: original.providerProfileVersion,
+                  approval: original.approval,
+                  topicIds: ["different-topic"],
+                };
+        if (kind !== "initial save") await publish(original);
+        await admit(pending);
+        const abandoned = await claim(pending);
+        const later = new Date(now.getTime() + 86400001);
+        expect(
+          await store.expireDeliveryEnvelopes({ now: later, limit: 100 }),
+        ).toBe(1);
+        const forget: MemoryKnowledgeCommand = {
+          ...forgetCommand(original),
+          expectedRevision: kind === "initial save" ? "1" : "2",
+        };
+        await admit(forget, store, null, later);
+        const unrelated = save();
+        await admit(unrelated, store, null, later);
+        expect(await claim(forget, store, later)).toBeNull();
+        await store.setMaintenancePaused({
+          generation,
+          paused: true,
+          expectedEpoch: "0",
+          actor: "operator:stable",
+          now: later,
+          deadlineAt: new Date(later.getTime() + 5000),
+        });
+        const receipt = cleanupReceipt(forget, later);
+        await expect(
+          otherStore.completeCleanup({ receipt, now: later }),
+        ).resolves.toMatchObject({ state: "completed" });
+        expect(await store.findEntry(original.ref, generation)).toMatchObject({
+          lifecycle: "forgotten",
+          pendingCommandId: null,
+          revocationCommandId: null,
+          bodyDigest: null,
+          source: null,
+        });
+        expect(
+          await store.findCommand({
+            commandId: pending.commandId,
+            scope,
+            generation,
+          }),
+        ).toMatchObject({
+          operation: { state: "failed", safeReason: "conflict" },
+          envelope: null,
+        });
+        const beforeRetry = await prisma.auditEvent.count();
+        await expect(
+          store.completeCleanup({ receipt, now: later }),
+        ).resolves.toMatchObject({ state: "completed" });
+        expect(await prisma.auditEvent.count()).toBe(beforeRetry);
+        await expect(
+          store.completeCleanup({
+            receipt: { ...receipt, id: "different_receipt" },
+            now: later,
+          }),
+        ).rejects.toMatchObject({ code: "conflict" });
+        await expect(
+          store.settle({
+            commandId: pending.commandId,
+            scope,
+            generation,
+            claimId: abandoned!.claimId,
+            result: { commandId: pending.commandId, state: "published" },
+            now: later,
+          }),
+        ).resolves.toMatchObject({ state: "failed" });
+        await store.recordFailure({
+          commandId: pending.commandId,
+          scope,
+          generation,
+          claimId: abandoned!.claimId,
+          safeReason: "unknown_write",
+          now: later,
+        });
+        await store.setMaintenancePaused({
+          generation,
+          paused: false,
+          expectedEpoch: "1",
+          actor: "operator:stable",
+          now: later,
+          deadlineAt: new Date(later.getTime() + 5000),
+        });
+        expect(await claim(pending, store, later)).toBeNull();
+        expect(await claim(forget, store, later)).toBeNull();
+        expect(await claim(unrelated, store, later)).not.toBeNull();
+        const resumed = await prisma.outboxEvent.findMany({
+          where: {
+            idempotencyKey: { startsWith: "memory.knowledge.command.resume:" },
+          },
+        });
+        expect(
+          resumed.map(
+            (event) => (event.payload as { commandId: string }).commandId,
+          ),
+        ).toEqual([unrelated.commandId]);
+      },
+    );
+
+    it.each(["predecessor", "forget"] as const)(
+      "preserves an active %s lease even with a verified cleanup receipt",
+      async (leased) => {
+        const original = save();
+        if (leased === "predecessor") {
+          await admit(original);
+          await claim(original);
+        } else await publish(original);
+        const forget = forgetCommand(original);
+        await admit(forget);
+        if (leased === "forget") await claim(forget);
+        await store.setMaintenancePaused({
+          generation,
+          paused: true,
+          expectedEpoch: "0",
+          actor: "operator:stable",
+          now,
+          deadlineAt: new Date(now.getTime() + 5000),
+        });
+        await expect(
+          store.completeCleanup({ receipt: cleanupReceipt(forget), now }),
+        ).rejects.toMatchObject({ code: "conflict" });
+        expect(await store.findEntry(original.ref, generation)).toMatchObject({
+          lifecycle: "forget_pending",
+        });
+        const afterLease = new Date(now.getTime() + 10001);
+        await expect(
+          store.completeCleanup({
+            receipt: cleanupReceipt(forget, afterLease),
+            now: afterLease,
+          }),
+        ).resolves.toMatchObject({ state: "completed" });
+      },
+    );
+
+    it.each(["cleanup-first", "permit-first"] as const)(
+      "keeps cleanup terminal when a paused transport relinquishes its old claim (%s)",
+      async (order) => {
+        const original = save();
+        await publish(original);
+        const forget = forgetCommand(original);
+        await admit(forget);
+        const work = await claim(forget);
+        const later = new Date(now.getTime() + 10001);
+        await store.setMaintenancePaused({
+          generation,
+          paused: true,
+          expectedEpoch: "0",
+          actor: "operator:stable",
+          now: later,
+          deadlineAt: new Date(later.getTime() + 5000),
+        });
+        const blocker = await admin.connect();
+        await blocker.query("BEGIN");
+        await blocker.query(
+          `SELECT 1 FROM "${schema}"."MemoryKnowledgeCommand" WHERE "id"=$1 FOR UPDATE`,
+          [forget.commandId],
+        );
+        const transport = vi.fn(async () => "must-not-run");
+        const cleanup = () =>
+          store.completeCleanup({
+            receipt: cleanupReceipt(forget, later),
+            now: later,
+          });
+        const denied = () =>
+          otherStore.withDeliveryPermit(
+            {
+              commandId: forget.commandId,
+              scope,
+              generation,
+              claimId: work!.claimId,
+              now: later,
+              deadlineAt: new Date(later.getTime() + 5000),
+            },
+            transport,
+          );
+        let completing: ReturnType<typeof cleanup> | undefined;
+        let denying: ReturnType<typeof denied> | undefined;
+        try {
+          if (order === "cleanup-first") {
+            completing = cleanup();
+            await waitForBlockedQuery('"cleanupReceiptId"=');
+            denying = denied();
+            await waitForBlockedQuery("\"state\"='unknown'");
+          } else {
+            denying = denied();
+            await waitForBlockedQuery("\"state\"='unknown'");
+            completing = cleanup();
+            await waitForBlockedQuery('"cleanupReceiptId"=');
+          }
+        } finally {
+          await blocker.query("ROLLBACK");
+          blocker.release();
+          await Promise.allSettled([completing, denying]);
+        }
+        await expect(completing).resolves.toMatchObject({ state: "completed" });
+        await expect(denying).resolves.toEqual({ permitted: false });
+        expect(transport).not.toHaveBeenCalled();
+        expect(
+          await store.findCommand({
+            commandId: forget.commandId,
+            scope,
+            generation,
+          }),
+        ).toMatchObject({
+          operation: { state: "completed" },
+          envelope: null,
+        });
+        expect(await store.findEntry(original.ref, generation)).toMatchObject({
+          lifecycle: "forgotten",
+        });
+      },
+    );
+
+    it("orders memory pause after a write admission already waiting on its scope lock", async () => {
+      await publish(save());
+      const blocker = await admin.connect();
+      await blocker.query("BEGIN");
+      await blocker.query(
+        `SELECT 1 FROM "${schema}"."MemoryKnowledgeScopeState" FOR UPDATE`,
+      );
+      const admitting = admit(save());
+      let pausing:
+        | ReturnType<typeof otherStore.setMaintenancePaused>
+        | undefined;
+      try {
+        await waitForBlockedQuery('"MemoryKnowledgeScopeState"');
+        pausing = otherStore.setMaintenancePaused({
+          generation,
+          paused: true,
+          expectedEpoch: "0",
+          actor: "operator:stable",
+          now,
+          deadlineAt: new Date(now.getTime() + 5000),
+        });
+        await waitForBlockedQuery("pg_advisory_xact_lock(");
+        expect(await store.maintenanceState(generation)).toMatchObject({
+          paused: false,
+        });
+      } finally {
+        await blocker.query("ROLLBACK");
+        blocker.release();
+        await Promise.allSettled([admitting, pausing]);
+      }
+      await expect(admitting).resolves.toMatchObject({ state: "queued" });
+      await expect(pausing).resolves.toMatchObject({ paused: true });
+      await expect(admit(save())).rejects.toMatchObject({
+        code: "unavailable",
+      });
     });
 
     it("waits for admitted transports before pausing and denies preclaimed work after the pause", async () => {
