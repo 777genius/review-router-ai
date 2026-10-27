@@ -43,6 +43,13 @@ export async function startProviderStub() {
     invalidEmbeddingShape: 0,
     invalidRerankShape: 0,
     nonConsolidationChat: 0,
+    // Fixed structural counters only; never record prompts or request bodies.
+    unrelatedChatPrompt: 0,
+    dedupEnvelopeMismatch: 0,
+    dedupPrefixMismatch: 0,
+    dedupFormatMismatch: 0,
+    dedupMarkersMissing: 0,
+    dedupInstructionMissing: 0,
     missingObservationCandidate: 0,
     unsupportedEndpoint: 0,
     invalidProviderBody: 0,
@@ -208,6 +215,40 @@ export async function startProviderStub() {
           }
           if (!text.includes("### Existing observations")) {
             markUnexpected("nonConsolidationChat");
+            // Pinpoint the first failed dedup predicate without retaining any
+            // request data, hashes, text lengths or credentials in CI evidence.
+            if (
+              typeof messageContent !== "string" ||
+              !messageContent.includes(dedupMarker)
+            ) {
+              unexpectedByReason.unrelatedChatPrompt += 1;
+            } else if (
+              body.model !== "stub-model" ||
+              messages.length !== 1 ||
+              messages[0]?.role !== "user"
+            ) {
+              unexpectedByReason.dedupEnvelopeMismatch += 1;
+            } else if (
+              !directDedup &&
+              !(
+                messageContent.startsWith(softSchemaPreamble) ||
+                messageContent.startsWith(hintedSoftSchemaPreamble)
+              )
+            ) {
+              unexpectedByReason.dedupPrefixMismatch += 1;
+            } else if (
+              !directDedup &&
+              body.response_format?.type !== "json_object"
+            ) {
+              unexpectedByReason.dedupFormatMismatch += 1;
+            } else if (
+              !messageContent.includes("[NEW] ") ||
+              !messageContent.includes("[EXISTING] ")
+            ) {
+              unexpectedByReason.dedupMarkersMissing += 1;
+            } else {
+              unexpectedByReason.dedupInstructionMissing += 1;
+            }
             return reply(response, 400, {
               error: { message: "unscripted_llm_call" },
             });

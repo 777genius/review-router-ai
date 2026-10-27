@@ -34,6 +34,7 @@ test("provider stub fails unscripted calls and supplies intentional private erro
     });
     assert.equal(unknown.status, 400);
     assert.equal(stub.calls.unexpected, 1);
+    assert.equal(stub.unexpectedByReason.unrelatedChatPrompt, 1);
     for (const mode of ["echo400", "echo500"] as const) {
       stub.setMode(mode);
       const response = await fetch(`${stub.url}/v1/embeddings`, {
@@ -112,6 +113,10 @@ Respond with ONLY one valid JSON object matching one of these shapes:`;
       400,
     );
     assert.equal(stub.calls.unexpected, 4);
+    assert.equal(stub.unexpectedByReason.dedupFormatMismatch, 1);
+    assert.equal(stub.unexpectedByReason.dedupMarkersMissing, 1);
+    assert.equal(stub.unexpectedByReason.dedupPrefixMismatch, 2);
+    assert.equal(stub.unexpectedByReason.dedupInstructionMissing, 0);
   } finally {
     await stub.close();
   }
