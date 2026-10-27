@@ -114066,6 +114066,7 @@ __export(github_action_exports, {
   deleteFullRuntimeProgressCommentsWithTokenRefresh: () => deleteFullRuntimeProgressCommentsWithTokenRefresh,
   deleteStaleCodexRotatingSummaryComments: () => deleteStaleCodexRotatingSummaryComments,
   didReviewRuntimeComplete: () => didReviewRuntimeComplete,
+  ensureFullReviewRuntimeTools: () => ensureFullReviewRuntimeTools,
   extractReviewRouterRuntimeFailure: () => extractReviewRouterRuntimeFailure,
   formatTopLevelActionErrorMessage: () => formatTopLevelActionErrorMessage,
   hasHostedPoolRetryBudget: () => hasHostedPoolRetryBudget,
@@ -141386,8 +141387,11 @@ async function ensureFullReviewRuntimeTools(input) {
   }
   await runProcess({
     command: "bash",
+    // Preserve the sanitized HOME/PATH without loading shell startup files.
     args: [
-      "-lc",
+      "--noprofile",
+      "--norc",
+      "-c",
       [
         "set -euo pipefail",
         "if command -v claude >/dev/null 2>&1; then",
@@ -142210,6 +142214,7 @@ if (shouldAutoRunCodexRotatingAction({ env: process.env, argv: process.argv })) 
   deleteFullRuntimeProgressCommentsWithTokenRefresh,
   deleteStaleCodexRotatingSummaryComments,
   didReviewRuntimeComplete,
+  ensureFullReviewRuntimeTools,
   extractReviewRouterRuntimeFailure,
   formatTopLevelActionErrorMessage,
   hasHostedPoolRetryBudget,

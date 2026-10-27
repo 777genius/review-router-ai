@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import * as childProcess from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import {
   chmod,
@@ -7,6 +8,7 @@ import {
   mkdtemp,
   realpath,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -43,6 +45,7 @@ import {
   deleteFullRuntimeProgressCommentsWithTokenRefresh,
   deleteStaleCodexRotatingSummaryComments,
   didReviewRuntimeComplete,
+  ensureFullReviewRuntimeTools,
   extractReviewRouterRuntimeFailure,
   FinalizedReviewCheckpointMarkerReadStatus,
   formatTopLevelActionErrorMessage,
@@ -2368,6 +2371,129 @@ describe("Codex rotating GitHub Action runtime", () => {
       "Bearer fresh-token",
     ]);
   });
+
+  it.each(["installed", "offline-installer"] as const)(
+    "isolates Claude bootstrap HOME/PATH, startup files and secrets with %s CLI",
+    async (mode) => {
+      const tempDir = await mkdtemp(
+        join(tmpdir(), "reviewrouter-claude-install-"),
+      );
+      const home = join(tempDir, "home");
+      const binDir = join(tempDir, "bin");
+      const cliLog = join(tempDir, "cli.json");
+      const installLog = join(tempDir, "install.json");
+      const startupMarker = join(tempDir, "startup-ran");
+      const startupFile = join(tempDir, "injected-startup");
+      const shellQuote = (value: string) =>
+        `'${value.replaceAll("'", "'\\''")}'`;
+      const snapshot = `({ home: process.env.HOME, path: process.env.PATH, ci: process.env.CI, keys: Object.keys(process.env).sort(), args: process.argv.slice(2) })`;
+      const cliSource = [
+        `#!${process.execPath}`,
+        `require('node:fs').writeFileSync(${JSON.stringify(cliLog)}, JSON.stringify(${snapshot}));`,
+        "process.stdout.write('claude fixture\\n');",
+      ].join("\n");
+      const spawnSpy = vi.spyOn(childProcess, "spawn");
+      try {
+        await mkdir(home);
+        await mkdir(binDir);
+        // The child can find only fixture tools, never a host Claude or curl.
+        await symlink("/bin/bash", join(binDir, "bash"));
+        const startup = `printf ran > ${shellQuote(startupMarker)}\nexit 99\n`;
+        for (const file of [
+          ".bash_profile",
+          ".bash_login",
+          ".profile",
+          ".bashrc",
+        ]) {
+          await writeFile(join(home, file), startup);
+        }
+        await writeFile(startupFile, startup);
+        if (mode === "installed") {
+          await writeFile(join(binDir, "claude"), cliSource, { mode: 0o700 });
+          await writeFile(join(binDir, "curl"), "#!/bin/bash\nexit 98\n", {
+            mode: 0o700,
+          });
+        } else {
+          const installerPath = join(tempDir, "installer.cjs");
+          await writeFile(
+            installerPath,
+            [
+              "const fs = require('node:fs');",
+              `fs.writeFileSync(${JSON.stringify(installLog)}, JSON.stringify(${snapshot}));`,
+              "const bin = require('node:path').join(process.env.HOME, '.local/bin');",
+              "fs.mkdirSync(bin, { recursive: true });",
+              `fs.writeFileSync(require('node:path').join(bin, 'claude'), ${JSON.stringify(cliSource)}, { mode: 0o700 });`,
+            ].join("\n"),
+          );
+          await writeFile(
+            join(binDir, "curl"),
+            [
+              `#!${process.execPath}`,
+              "require('node:assert/strict').deepEqual(process.argv.slice(2), ['-fsSL', 'https://claude.ai/install.sh']);",
+              `process.stdout.write(${JSON.stringify(`exec ${shellQuote(process.execPath)} ${shellQuote(installerPath)} "$@"\n`)});`,
+            ].join("\n"),
+            { mode: 0o700 },
+          );
+        }
+        const stdout = vi.fn();
+        const stderr = vi.fn();
+        const abortSignal = new AbortController().signal;
+        await ensureFullReviewRuntimeTools({
+          env: {
+            HOME: home,
+            PATH: binDir,
+            CI: "false",
+            BASH_ENV: startupFile,
+            ENV: startupFile,
+            GITHUB_TOKEN: "fixture-github-secret",
+            CLAUDE_CODE_OAUTH_TOKEN: "fixture-claude-secret",
+            OPENROUTER_API_KEY: "fixture-openrouter-secret",
+            ACTIONS_ID_TOKEN_REQUEST_TOKEN: "fixture-oidc-secret",
+            "INPUT_AUTH-JSON": "fixture-auth-secret",
+            NODE_OPTIONS: "--require=/does-not-exist",
+          },
+          io: { stdout: { write: stdout }, stderr: { write: stderr } },
+          workspace: tempDir,
+          runtimeEnv: { REVIEW_PROVIDERS: "codex/test,claude/sonnet" },
+          timeoutMs: 5_000,
+          abortSignal,
+        });
+        expect(spawnSpy).toHaveBeenCalledTimes(1);
+        expect(spawnSpy).toHaveBeenCalledWith(
+          "bash",
+          ["--noprofile", "--norc", "-c", expect.any(String)],
+          expect.objectContaining({
+            cwd: tempDir,
+            env: { HOME: home, PATH: binDir, CI: "true" },
+          }),
+        );
+        for (const path of mode === "installed"
+          ? [cliLog]
+          : [installLog, cliLog]) {
+          const observed = JSON.parse(readFileSync(path, "utf8")) as Record<
+            string,
+            unknown
+          >;
+          expect(observed).toEqual({
+            home,
+            path: binDir,
+            ci: "true",
+            keys: ["CI", "HOME", "PATH", "PWD", "SHLVL", "_"],
+            args: path === installLog ? ["stable"] : ["--version"],
+          });
+        }
+        expect(existsSync(startupMarker)).toBe(false);
+        expect(existsSync(installLog)).toBe(mode !== "installed");
+        expect(
+          stdout.mock.calls.map(([chunk]) => String(chunk)).join(""),
+        ).toContain("claude fixture");
+        expect(stderr).not.toHaveBeenCalled();
+      } finally {
+        spawnSpy.mockRestore();
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("runs fork sandbox E2E with certified provider context in the child runtime", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "reviewrouter-fork-e2e-"));

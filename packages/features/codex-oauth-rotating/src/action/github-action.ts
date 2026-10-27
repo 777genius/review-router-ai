@@ -4393,7 +4393,7 @@ function assertProviderSecretInputsForRuntime(input: {
   }
 }
 
-async function ensureFullReviewRuntimeTools(input: {
+export async function ensureFullReviewRuntimeTools(input: {
   readonly env: Record<string, string>;
   readonly io: ActionIO;
   readonly workspace: string;
@@ -4407,8 +4407,10 @@ async function ensureFullReviewRuntimeTools(input: {
 
   await runProcess({
     command: "bash",
-    // Preserve the deliberately sanitized PATH; login Bash startup may replace it.
+    // Preserve the sanitized HOME/PATH without loading shell startup files.
     args: [
+      "--noprofile",
+      "--norc",
       "-c",
       [
         "set -euo pipefail",
