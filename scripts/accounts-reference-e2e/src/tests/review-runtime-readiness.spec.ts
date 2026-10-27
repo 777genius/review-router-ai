@@ -105,6 +105,14 @@ test.describe("review runtime readiness", () => {
       ]);
 
       await expectNoHorizontalOverflow(page);
+      // Provider confirmations can refresh the document. The layout read above
+      // may recover against fresh server HTML before its controls are hydrated.
+      // Await the real dashboard readiness signal before the single theme click.
+      await expect(page.locator("html")).toHaveAttribute(
+        "data-dashboard-layout-ready",
+        "true",
+        { timeout: 60_000 },
+      );
       await page.screenshot({
         path: info.outputPath(`review-runtime-${viewport.name}-dark.png`),
         fullPage: true,

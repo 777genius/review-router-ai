@@ -22,23 +22,23 @@ and limits; it does not receive a raw rotating auth home or interpret GitHub
 Secrets. No second review queue, publisher, connection-specific verifier or
 automatic engine fallback was added.
 
-| Connection offered today | Preparation and model route | Review behavior |
-| --- | --- | --- |
-| Qualified saved account through Gateway | Existing account binding and native server grant; controlled Responses relay | OCR and common verifier on the same frozen route |
-| OpenRouter, MiMo Token Plan and Kimi Code API keys | Existing Secret/managed-key onboarding; controlled runner-local Responses route | OCR and common verifier; existing endpoint/model restrictions retained |
-| Rotating Codex subscription Secret | Official auth-only refresh; existing sealed writeback; native Codex Responses adapter | OCR and common verifier after confirmed credential preservation |
-| Hosted Codex Pool | Original opaque Hosted grant, account and request ledger; V2 native route | Same runner/verifier/App publisher without account reselection |
-| Claude subscription Secret | Captured existing opaque setup token; native Anthropic Messages route | OCR and common verifier with an explicit frozen alias-to-model map |
+| Connection offered today                           | Preparation and model route                                                           | Review behavior                                                        |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Qualified saved account through Gateway            | Existing account binding and native server grant; controlled Responses relay          | OCR and common verifier on the same frozen route                       |
+| OpenRouter, MiMo Token Plan and Kimi Code API keys | Existing Secret/managed-key onboarding; controlled runner-local Responses route       | OCR and common verifier; existing endpoint/model restrictions retained |
+| Rotating Codex subscription Secret                 | Official auth-only refresh; existing sealed writeback; native Codex Responses adapter | OCR and common verifier after confirmed credential preservation        |
+| Hosted Codex Pool                                  | Original opaque Hosted grant, account and request ledger; V2 native route             | Same runner/verifier/App publisher without account reselection         |
+| Claude subscription Secret                         | Captured existing opaque setup token; native Anthropic Messages route                 | OCR and common verifier with an explicit frozen alias-to-model map     |
 
 Existing explicit supplied-diff Codex support is preserved only where its native
 route is qualified. Native Claude supplied-diff is not offered by today's UI;
-an old incompatible setting is rejected rather than silently changed. PR
+an old incompatible setting is rejected by the new native route rather than silently changed. PR
 description generation keeps its existing supported connection scope; this work
 does not claim new description-generation parity on every native route.
 
 ## Run budget, uncertainty and recovery
 
-Every new model call reserves the same durable source-run allowance before I/O.
+For new model-dispatch V2 authorizations, every model call reserves the same durable source-run allowance before I/O. Previously admitted immutable V1 callers retain their existing protocol.
 The prepared controller binds the exact wire hash, route, work slot, ordinal and
 current lease. Discovery and verification do not receive independent budgets.
 Completed terminal bytes are released only after durable completion is confirmed.
@@ -97,23 +97,24 @@ Counts below describe distinct focused runs, not a sum of unique tests. Some
 regression suites overlap. Provider replies and GitHub operations are synthetic
 unless explicitly stated otherwise.
 
-| Check | Observed result | What is real and what it proves |
-| --- | --- | --- |
-| Paired lifecycle V1/V2 | 17/17, exit 0, no skipped/unhandled errors | Migrated PostgreSQL, signed admission, HTTPS/public transport, production relay/verifier/App worker and effect receipts; controlled discovery/provider/GitHub boundaries |
-| Migration/readiness/activation regression | 58/58 across five suites | Includes all three PostgreSQL + RSA-signed OIDC migration cases with ordinary setup and all SQL guards enabled |
-| Ordinary/Hosted confirmation recovery | 216/216 across two suites | Existing recovery paths, exact selected Prisma fields, native Claude source proof and legacy absence handling |
-| Final public transport/runner/workflow regression | 84/84 across five suites | Gateway canonical body before claim; native Codex transport; caller schema 5 vs checkout schema 2; migration runner; T0 step selection |
-| Actual OCR binary | 13 CLI + 2 MCP tests passed | Actual pinned OCR process against local synthetic protocols, not a fake OCR executable |
-| Public runtime types | Full source and test typecheck passed before final artifact rebuild | Includes migration entry and latest boundary fixes |
-| Changed production web types | Scoped native TypeScript exit 0, no diagnostics | Changed dashboard/actions/routes/migration modules and their dependencies |
-| Production React component browser check | 148/148 assertions, 48 screenshots, zero page errors or external requests | Actual components/CSS/fonts in Chromium; Next navigation/server-action boundaries are controlled |
+| Check                                             | Observed result                                                           | What is real and what it proves                                                                                                                                          |
+| ------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Paired lifecycle V1/V2                            | 17/17, exit 0, no skipped/unhandled errors                                | Migrated PostgreSQL, signed admission, HTTPS/public transport, production relay/verifier/App worker and effect receipts; controlled discovery/provider/GitHub boundaries |
+| Migration/readiness/activation regression         | 58/58 across five suites                                                  | Includes all three PostgreSQL + RSA-signed OIDC migration cases with ordinary setup and all SQL guards enabled                                                           |
+| Ordinary/Hosted confirmation recovery             | 216/216 across two suites                                                 | Existing recovery paths, exact selected Prisma fields, native Claude source proof and legacy absence handling                                                            |
+| Final public transport/runner/workflow regression | 84/84 across five suites                                                  | Gateway canonical body before claim; native Codex transport; caller schema 5 vs checkout schema 2; migration runner; T0 step selection                                   |
+| Actual OCR binary                                 | 13 CLI + 2 MCP tests passed                                               | Actual pinned OCR process against local synthetic protocols, not a fake OCR executable                                                                                   |
+| Public runtime types                              | Full source and test typecheck passed before final artifact rebuild       | Includes migration entry and latest boundary fixes                                                                                                                       |
+| Changed production web types                      | Scoped native TypeScript exit 0, no diagnostics                           | Changed dashboard/actions/routes/migration modules and their dependencies                                                                                                |
+| Production React component browser check          | 148/148 assertions, 48 screenshots, zero page errors or external requests | Actual components/CSS/fonts in Chromium; Next navigation/server-action boundaries are controlled                                                                         |
 
 The paired success scenario starts with four older findings. A subsequent run
 performs two discovery calls and one verifier call on the same frozen route.
 Two proven fixes are closed, one still-valid and one uncertain finding remain
 open, and a separate new finding is retained. The next head consumes the two
-confirmed resolution receipts. Native mutation validates App installation-token
-authority. Negative cases cover denied/unknown GitHub effects, missing verdict,
+confirmed resolution receipts. The production App publication path uses the configured installation-token
+credential, as asserted by the GitHub fixture; this does not establish live App
+identity or permissions. Negative cases cover denied/unknown GitHub effects, missing verdict,
 invalid quote, wrong packet and forged claim on both protocols; V2 additionally
 covers paid disconnect/restart without new inference, discovery exhausting the
 shared budget before verifier, and a changed head before App mutation.
@@ -173,7 +174,11 @@ The earlier real Next CI run passed desktop and exposed a mobile navigation race
 in the read-only overflow assertion. That assertion now retries its read within
 five seconds when navigation destroys the execution context; it still rejects
 persistent overflow. A real Chromium fault fixture confirmed both cases, and the
-browser harness typecheck passed. This is not permission to retry user actions.
+browser harness typecheck passed. The next full Next run again passed desktop
+and exposed a subsequent theme click against fresh server HTML before hydration.
+The test now awaits the actual dashboard readiness signal before its single theme
+click, keeping the mandatory light-theme assertion. This is not permission to
+retry user actions.
 
 The new `000154_unified_model_dispatch` SQL is explicitly classified by checksum
 in the existing release/rehearsal catalogue. Historical immutable manifests and
@@ -183,6 +188,10 @@ lifetime guard while checking late receipt settlement. These integration checks
 keep unification compatible with the separate `rr: deploy` workflow.
 
 ## Remaining final stage
+
+The exact-head full Next dashboard and paired repository CI gates are required;
+the draft PR checks record their latest results. Component checks and synthetic
+acceptance do not substitute for that integration verification.
 
 With user-provided designated test credentials and a disposable repository,
 qualify actual subscription access, token refresh/writeback, native headers and
