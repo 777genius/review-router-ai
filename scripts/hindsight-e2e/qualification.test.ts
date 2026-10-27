@@ -50,12 +50,13 @@ test("provider stub fails unscripted calls and supplies intentional private erro
 
 test("pinned semantic dedup verdict and unscripted chat rejection", async () => {
   const stub = await startProviderStub();
-  const send = (content: string) =>
+  const send = (content: string, softSchema = false) =>
     fetch(`${stub.url}/v1/chat/completions`, {
       method: "POST",
       body: JSON.stringify({
         model: "stub-model",
         messages: [{ role: "user", content }],
+        ...(softSchema ? { response_format: { type: "json_object" } } : {}),
       }),
     });
   try {
@@ -75,13 +76,30 @@ Respond with ONLY one valid JSON object matching one of these shapes:`;
       text: "",
       reason: "synthetic fixture keeps distinct observations",
     });
-    assert.equal(stub.calls.semanticDedup, 1);
+    // Hindsight 1.1.0 OpenAI-compatible soft schema prepends the Pydantic
+    // JSON schema to the exact dedup prompt, preserving a single user message.
+    const softSchemaPrompt = `\n\nYou must respond with valid JSON matching this schema:\n${JSON.stringify(
+      {
+        type: "object",
+        properties: {
+          action: { type: "string" },
+          text: { type: "string" },
+          reason: { type: "string" },
+        },
+      },
+      null,
+      2,
+    )}\n\n${prompt}`;
+    const wrappedResponse = await send(softSchemaPrompt, true);
+    assert.equal(wrappedResponse.status, 200);
+    assert.equal(stub.calls.semanticDedup, 2);
     assert.equal(stub.calls.unexpected, 0);
+    assert.equal((await send(softSchemaPrompt)).status, 400);
     assert.equal(
       (await send(prompt.replace("[EXISTING]", "[OTHER]"))).status,
       400,
     );
-    assert.equal(stub.calls.unexpected, 1);
+    assert.equal(stub.calls.unexpected, 2);
   } finally {
     await stub.close();
   }
