@@ -74,7 +74,7 @@ export function assertNativeOperationAbsent(
     const allowed = new Set(["operation_id", "status", "id", ...emptyFields]);
     if (
       value.operation_id === operationId &&
-      value.id === operationId &&
+      (value.id == null || value.id === operationId) &&
       value.status === "not_found" &&
       Object.keys(value).every((key) => allowed.has(key)) &&
       emptyFields.every((key) => value[key] == null)

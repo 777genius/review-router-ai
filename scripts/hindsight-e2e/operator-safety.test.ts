@@ -89,6 +89,14 @@ test("native HTTP 200 not_found proves operation absence only for the exact ID a
     child_operations: null,
   };
   assert.doesNotThrow(() => assertNativeOperationAbsent(absent, operationId));
+  // Pinned Hindsight uses a nullable list-only `id` alias on a not-found read.
+  // Identity and payload absence still depend on the exact `operation_id`.
+  assert.doesNotThrow(() =>
+    assertNativeOperationAbsent({ ...absent, id: null }, operationId),
+  );
+  assert.doesNotThrow(() =>
+    assertNativeOperationAbsent({ ...absent, id: undefined }, operationId),
+  );
   for (const changed of [
     null,
     {},
