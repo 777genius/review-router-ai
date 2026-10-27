@@ -111,7 +111,11 @@ async function ensurePaths(page: Page, suffix: string, skill: string) {
     await operation.dialog
       .getByRole("button", { name: "Add 1 skill", exact: true })
       .click();
-    await expect(operation.dialog.getByRole("status")).toContainText("1 added");
+    // The real dev-server assignment can outlast a generic 10-second assertion.
+    await expect(operation.dialog.getByRole("status")).toContainText(
+      "1 added",
+      { timeout: 30_000 },
+    );
     await expect(
       operation.dialog.getByRole("heading", {
         name: "Assigned skills",
