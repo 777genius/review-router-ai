@@ -12,12 +12,9 @@ import { PrismaReviewSkillsCatalogStore } from "../infrastructure/prisma/prisma-
 import { processReviewSkillScan } from "../application/process-review-skill-scan.js";
 import { PortableSkillImportNormalizer } from "../infrastructure/serialization/portable-skill-import-normalizer.js";
 import { claimReviewSkillsPostgresFixture } from "./postgres-fixture.js";
-import { scanProfile, nativeReport } from "./skill-catalog-fixtures.js";
+import { scanProfile } from "./skill-catalog-fixtures.js";
 import { capturedNativeSkillSpectorReports } from "./skillspector-native-report-fixtures.js";
-import type {
-  ReviewSkillsCatalogActor,
-  ReviewSkillScanProfile,
-} from "../application/catalog-contracts.js";
+import type { ReviewSkillsCatalogActor } from "../application/catalog-contracts.js";
 import type { ReviewSkillScanClaim } from "../application/ports/review-skills-catalog-store.js";
 import type { ReviewSkillsCatalogTransactionHooks } from "../composition/catalog.js";
 

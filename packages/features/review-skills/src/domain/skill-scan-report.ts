@@ -14,6 +14,7 @@ const safeText = (value: unknown, limit: number): string | null =>
   typeof value === "string"
     ? value
         .replace(
+          // eslint-disable-next-line no-control-regex -- Strip unsafe ASCII control characters from untrusted findings.
           /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g,
           "",
         )

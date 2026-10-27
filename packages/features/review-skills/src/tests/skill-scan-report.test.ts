@@ -201,6 +201,7 @@ describe("SkillSpector import policy", () => {
     expect(finding.explanation).toHaveLength(1200);
     expect(finding.remediation).toHaveLength(800);
     expect(finding.line).toBeNull();
+    // eslint-disable-next-line no-control-regex -- Assert unsafe ASCII control characters were removed.
     expect(finding.explanation).not.toMatch(/[\u202e\u0001]/);
   });
 });

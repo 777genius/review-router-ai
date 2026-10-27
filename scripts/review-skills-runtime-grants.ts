@@ -2,7 +2,7 @@
 import {
   skillCatalogRuntimeGateStatements,
   skillCatalogRuntimeGrantStatements,
-} from "./skill-catalog-runtime-grants.ts";
+} from "./skill-catalog-runtime-grants.js";
 export const reviewSkillsRuntimeTables = [
   "ReviewSkill",
   "ReviewSkillRevision",

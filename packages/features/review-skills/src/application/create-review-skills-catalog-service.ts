@@ -47,6 +47,7 @@ export function validateCatalogSelection(
     input.skillNameHint !== undefined &&
     (typeof input.skillNameHint !== "string" ||
       new TextEncoder().encode(input.skillNameHint).byteLength > 512 ||
+      // eslint-disable-next-line no-control-regex -- Reject literal ASCII control characters in catalog metadata.
       /[\x00-\x1f\x7f]/.test(input.skillNameHint))
   )
     invalid();
@@ -56,6 +57,7 @@ export function validateCatalogSelection(
     (!/^[a-f0-9]{40}$/.test(input.commit) ||
       typeof input.path !== "string" ||
       new TextEncoder().encode(input.path).byteLength > 4096 ||
+      // eslint-disable-next-line no-control-regex -- Reject backslashes and ASCII controls in source paths.
       /[\\\x00-\x1f\x7f]/.test(input.path) ||
       input.path.startsWith("/") ||
       (input.path !== "" &&
@@ -115,6 +117,7 @@ export function createReviewSkillsCatalogService(dependencies: {
       const page = input.page ?? 0;
       if (
         new TextEncoder().encode(query).byteLength > 200 ||
+        // eslint-disable-next-line no-control-regex -- Reject ASCII controls in catalog search queries.
         /[\x00-\x1f\x7f]/.test(query) ||
         !Number.isInteger(page) ||
         page < 0 ||
