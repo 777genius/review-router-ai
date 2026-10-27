@@ -260,10 +260,16 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
         command.kind === "expire" ||
         command.kind === "forget";
       if (current) {
+        // Physical Forget may supersede a stop-using intent that cannot settle.
+        // Preserve the oldest pending command; only advance its revocation fence.
+        const supersedesStopUsing =
+          command.kind === "forget" &&
+          (current.metadata.lifecycle === "retired" ||
+            current.metadata.lifecycle === "expired");
         if (
           current.metadata.lifecycle === "forgotten" ||
           current.metadata.lifecycle === "forget_pending" ||
-          current.revocationCommandId
+          (current.revocationCommandId && !supersedesStopUsing)
         )
           throw new MemoryKnowledgeError("conflict");
         if (

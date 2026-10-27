@@ -54,6 +54,8 @@ disposition; they are not translated into new-provider writes.
 
 Runtime excludes retired/expired entries; authorized management/export can read
 retained inactive content. Forget immediately fences every body-bearing read.
+It can supersede a pending retirement or expiry while preserving the original
+delivery order and the requirements for verified cleanup.
 Native acceptance or generic operation completion does not publish unverified
 text and does not complete physical forget. Cleanup remains pending until exact
 trusted host evidence is verified against the current paused maintenance epoch.
