@@ -232,7 +232,7 @@ export function ProviderSetupDialog(
       </DialogTrigger>
       <DialogPortal>
         <DialogBackdrop />
-        <DialogPopup className="w-[min(96vw,46rem)] p-0">
+        <DialogPopup className="w-[min(96vw,46rem)] p-0 [overflow-wrap:anywhere] [&_pre]:[overflow-wrap:anywhere]">
           <DialogCloseButton label="Close provider setup" disabled={locked} />
           {open ? (
             <ProviderSetupDialogBody

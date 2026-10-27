@@ -8,7 +8,12 @@ export type CodeBlockProps = HTMLAttributes<HTMLPreElement> & {
   readonly language?: "bash" | "shell" | "json" | "yaml" | "text";
 };
 
-export function CodeBlock({
+export function CodeBlock(props: CodeBlockProps): React.ReactElement {
+  // Clipboard feedback belongs to the exact command, including late results.
+  return <CodeBlockContent key={props.code} {...props} />;
+}
+
+function CodeBlockContent({
   code,
   language = "bash",
   className,
