@@ -82,11 +82,12 @@ export function provenanceDefinitions(schema: string): string {
       FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
       JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE n.nspname=${literal(schema)} AND p.proname IN ('rr_hindsight_track','rr_hindsight_immutable')),
     'triggers', (SELECT jsonb_agg(jsonb_build_object('name',t.tgname,'table',c.relname,'type',t.tgtype,
-      'state',t.tgenabled,'function',p.proname,'functionSchema',pn.nspname,'args',encode(t.tgargs,'hex'),
+      'state',t.tgenabled,'definition',pg_catalog.pg_get_triggerdef(t.oid),'function',p.proname,'functionSchema',pn.nspname,'args',encode(t.tgargs,'hex'),
       'condition',pg_catalog.pg_get_expr(t.tgqual,t.tgrelid),'columns',t.tgattr::text,'constraint',t.tgconstraint::text) ORDER BY t.tgname)
       FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid
       JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace JOIN pg_catalog.pg_proc p ON p.oid=t.tgfoid
       JOIN pg_catalog.pg_namespace pn ON pn.oid=p.pronamespace WHERE n.nspname=${literal(schema)} AND c.relname IN (${triggerTables}) AND NOT t.tgisinternal),
+    'indexes',(SELECT jsonb_agg(jsonb_build_object('name',ic.relname,'table',c.relname,'keys',i.indkey::text,'valid',i.indisvalid,'ready',i.indisready,'definition',pg_catalog.pg_get_indexdef(i.indexrelid)) ORDER BY ic.relname) FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class c ON c.oid=i.indrelid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace JOIN pg_catalog.pg_class ic ON ic.oid=i.indexrelid WHERE n.nspname=${literal(schema)} AND c.relname IN (${ledgerTables.map(literal).join(",")})),
     'tables', (SELECT jsonb_agg(jsonb_build_object('name',c.relname,'kind',c.relkind,'persistence',c.relpersistence,
       'rls',c.relrowsecurity,'columns',(SELECT jsonb_agg(jsonb_build_array(a.attname,pg_catalog.format_type(a.atttypid,a.atttypmod),a.attnotnull,a.attgenerated::text,a.attidentity::text,pg_catalog.pg_get_expr(d.adbin,d.adrelid)) ORDER BY a.attnum)
         FROM pg_catalog.pg_attribute a LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped),
@@ -165,9 +166,28 @@ function attestDefinitions(definitions: any, raw: string, schema: string) {
     }))
     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
   assert.deepEqual(
-    definitions.triggers,
+    definitions.triggers.map((trigger: any) =>
+      Object.fromEntries(
+        Object.entries(trigger).filter(([key]) => key !== "definition"),
+      ),
+    ),
     triggers,
     "Native provenance trigger definition/state drift",
+  );
+  assert.equal(definitions.indexes.length, 5);
+  for (const index of definitions.indexes)
+    assert(index.valid && index.ready && typeof index.definition === "string");
+  assert(
+    definitions.indexes.some(
+      (index: any) =>
+        index.name === "rr_hindsight_fact_document" && index.keys === "2 3",
+    ),
+  );
+  assert(
+    definitions.indexes.some(
+      (index: any) =>
+        index.name === "rr_hindsight_edge_fact" && index.keys === "2 1",
+    ),
   );
   const columns: Record<string, [string, string][]> = {
     rr_hindsight_fact_identity: [
