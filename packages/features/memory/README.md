@@ -64,15 +64,23 @@ A shared database permit spans bounded native writer/observer transport. Exclusi
 pause waits for these transports and advances a durable generation-wide epoch.
 The native cleanup profile additionally requires complete executor/session drain,
 operation and history inventory, and absence verification after restart.
-During this pause, cleanup resets the affected bank's derived observations and
-history through the native public API, including orphan history from old source
-revisions. Other approved documents and source facts are preserved; surviving
-sources reconsolidate after restart. Empty derived history is verified before
-restart, followed by scoped absence and surviving-source checks afterwards.
-Verified cleanup also closes an immediately preceding unresolved write together
-with Forget, so an expired delivery envelope cannot permanently block deletion.
-Neither command may have an active claim, and the signed receipt must still match
-the exact entry revision, provider generation and paused maintenance epoch.
+A provider-private append-only ID ledger, activated before the first native write,
+records original fact/document identity and every historical observation-source
+edge. After public document/operation cleanup, the operator removes only affected
+live/archived heads and observation history under exact bank/UUID locks. This
+includes orphan history from previous source revisions and shared observations
+containing the forgotten source; unrelated original/derived knowledge and its
+history remain intact. Signed evidence binds the ledger activation, catalog and
+complete native operation inventory, with scoped absence verified before and after
+restart. Zero-fact entries require the same complete evidence.
+
+Verified cleanup atomically closes Forget and every older unresolved command for
+the entry, purging delivery envelopes and claims only after native executors have
+demonstrably drained. Current physical/metadata authority, revision, provider
+generation and paused maintenance epoch must still match. Exact retries require
+the same receipt and a cleared forgotten tombstone; late callbacks cannot reopen
+terminal commands. API preflight and persistence share the neutral application
+policy rather than duplicating cleanup authority checks.
 
 Runtime retrieval has a hard two-second bound and degrades to an empty bundle.
 Bodyless receipts capture exact approved revisions and scope epochs. The review
