@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { acquireDeploymentLock } from "./deployment-lock.ts";
+import { removeDrainedNativeDocument } from "./cleanup-operator.ts";
 import {
   assertNativeCleanupStatus,
   assertNativeOperationAbsent,
@@ -590,4 +591,58 @@ test("drained cancellation re-reads parents terminalized by child rollup and ver
     ),
     /HTTP409/,
   );
+});
+
+test("production document deletion requires exact terminal verification after a tolerated cancellation conflict", async () => {
+  for (const terminalAfterConflict of [false, true]) {
+    const operationId = randomUUID();
+    let status = "pending";
+    const calls: string[] = [];
+    const request: Parameters<typeof removeDrainedNativeDocument>[3] = async <
+      T,
+    >(
+      path: string,
+      method = "GET",
+      _body?: unknown,
+      allowed = [200],
+    ) => {
+      calls.push(`${method} ${path}`);
+      if (path === `/bank/operations/${operationId}` && method === "GET")
+        return { operation_id: operationId, status } as T;
+      if (path === `/bank/operations/${operationId}` && method === "DELETE") {
+        assert.deepEqual(allowed, [200, 409]);
+        assertNativeCleanupStatus(path, method, 409, allowed);
+        status = terminalAfterConflict ? "cancelled" : "processing";
+        return { success: false } as T;
+      }
+      assert.equal(path, "/bank/documents/entry-target");
+      assert.equal(method, "DELETE");
+      assert.deepEqual(allowed, [200, 404]);
+      assert.equal(status, "cancelled");
+      return { success: true } as T;
+    };
+    const remove = () =>
+      removeDrainedNativeDocument(
+        "/bank",
+        "entry-target",
+        [operationId],
+        request,
+      );
+    if (terminalAfterConflict) {
+      await remove();
+      assert.equal(
+        calls.filter((call) => call === "DELETE /bank/documents/entry-target")
+          .length,
+        1,
+      );
+      assert.deepEqual(calls.slice(0, 3), [
+        `GET /bank/operations/${operationId}`,
+        `DELETE /bank/operations/${operationId}`,
+        `GET /bank/operations/${operationId}`,
+      ]);
+    } else {
+      await assert.rejects(remove, /verified terminal state/);
+      assert(!calls.includes("DELETE /bank/documents/entry-target"));
+    }
+  }
 });

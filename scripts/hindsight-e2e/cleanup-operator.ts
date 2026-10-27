@@ -36,6 +36,7 @@ import {
 import {
   assertCleanupOperationSources,
   appendCleanupOperationPage,
+  terminalizeDrainedCleanupOperations,
   leafFirstOperations,
   operationClosure,
   persistCleanupInventory,
@@ -81,6 +82,44 @@ function containsDocument(value: unknown, document: string): boolean {
     )
   );
 }
+/** Document deletion is admitted only after every present native operation is verified terminal. */
+export async function removeDrainedNativeDocument(
+  bankPath: string,
+  document: string,
+  operationIds: readonly string[],
+  request: <T>(
+    path: string,
+    method?: string,
+    body?: unknown,
+    allowed?: number[],
+  ) => Promise<T | null>,
+): Promise<void> {
+  await terminalizeDrainedCleanupOperations(
+    operationIds,
+    async (operationId) => {
+      const state = await request<Operation>(
+        `${bankPath}/operations/${operationId}`,
+      );
+      assert(state);
+      return state;
+    },
+    async (operationId) => {
+      await request(
+        `${bankPath}/operations/${operationId}`,
+        "DELETE",
+        undefined,
+        [200, 409],
+      );
+    },
+  );
+  await request(
+    `${bankPath}/documents/${encodeURIComponent(document)}`,
+    "DELETE",
+    undefined,
+    [200, 404],
+  );
+}
+
 /** Real Docker host observations only; no caller-provided exit/absence booleans. */
 export async function runDockerHindsightCleanup(
   plan: OperatorPlan,
@@ -718,19 +757,11 @@ async function runLockedCleanup(
     const relevant = [...related]
       .map((operationId) => full.get(operationId))
       .filter((value): value is Operation => !!value);
-    for (const operation of relevant)
-      if (["pending", "processing"].includes(operation.status))
-        await request(
-          `${bankPath()}/operations/${operation.operation_id}`,
-          "DELETE",
-          undefined,
-          [200, 409],
-        );
-    await request(
-      `${bankPath()}/documents/${encodeURIComponent(document)}`,
-      "DELETE",
-      undefined,
-      [200, 404],
+    await removeDrainedNativeDocument(
+      bankPath(),
+      document,
+      relevant.map((operation) => operation.operation_id),
+      request,
     );
     for (const operationId of leafFirstOperations(full, related))
       await request(
