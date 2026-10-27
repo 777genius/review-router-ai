@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { createMemoryBodyHash } from "../../domain/memory-body";
+import { memoryCleanupAuthorityMatches } from "../../application/memory-cleanup-policy";
 import { memoryActorRef } from "../../domain/memory-actor";
 import {
   MemoryKnowledgeError,
@@ -51,6 +52,11 @@ type CommandRow = {
   cleanupReceiptId: string | null;
 };
 type EntryRow = {
+  generation: string;
+  scopeKey: string;
+  workspaceId: string;
+  entryId: string;
+  lifecycle: string;
   metadata: MemoryKnowledgeEntryMetadata;
   revision: number;
   pendingCommandId: string | null;
@@ -611,6 +617,7 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
   }): Promise<MemoryKnowledgeOperation> {
     const receipt = input.receipt;
     if (
+      receipt.coverage !== "entry_history_and_operations" ||
       !receipt.id ||
       !receipt.verifiedBy ||
       !Number.isFinite(Date.parse(receipt.verifiedAt)) ||
@@ -633,6 +640,22 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
         row.digest !== receipt.commandDigest
       )
         throw new MemoryKnowledgeError("conflict");
+      const current = await this.entry(tx, receipt.ref, receipt.generation);
+      const predecessor =
+        current?.pendingCommandId && current.pendingCommandId !== row.id
+          ? await this.command(tx, current.pendingCommandId)
+          : null;
+      if (
+        !current ||
+        !memoryCleanupAuthorityMatches({
+          generation: receipt.generation,
+          command: this.stored(row, receipt.ref.scope),
+          row,
+          entry: current,
+          pending: predecessor,
+        })
+      )
+        throw new MemoryKnowledgeError("conflict");
       if (row.state === "completed") {
         if (row.cleanupReceiptId !== receipt.id)
           throw new MemoryKnowledgeError("conflict");
@@ -644,40 +667,12 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
       );
       if (!maintenance.paused || maintenance.epoch !== receipt.maintenanceEpoch)
         throw new MemoryKnowledgeError("conflict");
-      const current = await this.entry(tx, receipt.ref, receipt.generation);
-      if (
-        !current ||
-        current.metadata.lifecycle !== "forget_pending" ||
-        current.revision !== row.revision ||
-        !current.pendingCommandId ||
-        current.revocationCommandId !== row.id ||
-        !["queued", "cleanup_pending", "unknown"].includes(row.state) ||
-        (row.claimUntil && row.claimUntil > input.now)
-      )
-        throw new MemoryKnowledgeError("conflict");
-      const predecessor =
-        current.pendingCommandId === row.id
-          ? null
-          : await this.command(tx, current.pendingCommandId);
-      if (
-        current.pendingCommandId !== row.id &&
-        (!predecessor ||
-          predecessor.generation !== row.generation ||
-          predecessor.scopeKey !== row.scopeKey ||
-          predecessor.entryId !== row.entryId ||
-          predecessor.revision !== row.revision - 1 ||
-          !["save", "topics"].includes(predecessor.commandKind) ||
-          terminal.has(predecessor.state) ||
-          (predecessor.claimUntil && predecessor.claimUntil > input.now))
-      )
-        throw new MemoryKnowledgeError("conflict");
-      // The signed receipt proves physical cleanup for this entry after native
-      // execution drained. Close its unresolved earlier write in the same scope
-      // transaction; a purged envelope must not strand Forget behind that write.
-      if (predecessor)
-        await tx.$executeRaw(
-          Prisma.sql`UPDATE "MemoryKnowledgeCommand" SET "state"='failed',"safeReason"='conflict',"envelope"=NULL,"claimId"=NULL,"claimUntil"=NULL,"cleanupReceiptId"=${receipt.id},"updatedAt"=${input.now} WHERE "id"=${predecessor.id}`,
-        );
+      // Full entry history coverage permits disposal of every older unresolved
+      // mutation, even an old Forget or a live claim whose executor was drained.
+      // The scope lock serializes late ACKs; terminal settlement never reopens it.
+      const superseded = await tx.$queryRaw<{ id: string }[]>(
+        Prisma.sql`UPDATE "MemoryKnowledgeCommand" SET "state"='failed',"safeReason"='conflict',"envelope"=NULL,"claimId"=NULL,"claimUntil"=NULL,"cleanupReceiptId"=${receipt.id},"updatedAt"=${input.now} WHERE "generation"=${row.generation} AND "scopeKey"=${row.scopeKey} AND "entryId"=${row.entryId} AND "revision"<${row.revision} AND "state" NOT IN ('published','completed','failed') RETURNING "id"`,
+      );
       const metadata: MemoryKnowledgeEntryMetadata = {
         ...current.metadata,
         lifecycle: "forgotten",
@@ -714,7 +709,9 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
             cleanupReceiptId: receipt.id,
             commandDigest: row.digest,
             generation: receipt.generation,
-            ...(predecessor ? { supersededCommandId: predecessor.id } : {}),
+            supersededCommandIds: superseded
+              .map((command) => command.id)
+              .sort(),
           },
         },
       });
@@ -938,7 +935,7 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
     generation: string,
   ): Promise<EntryRow | null> {
     const [row] = await tx.$queryRaw<EntryRow[]>(
-      Prisma.sql`SELECT "metadata","revision","pendingCommandId","revocationCommandId" FROM "MemoryKnowledgeEntry" WHERE "generation"=${generation} AND "scopeKey"=${memoryKnowledgeScopeKey(ref.scope)} AND "entryId"=${ref.entryId}`,
+      Prisma.sql`SELECT "generation","scopeKey","workspaceId","entryId","lifecycle","metadata","revision","pendingCommandId","revocationCommandId" FROM "MemoryKnowledgeEntry" WHERE "generation"=${generation} AND "scopeKey"=${memoryKnowledgeScopeKey(ref.scope)} AND "entryId"=${ref.entryId}`,
     );
     return row ?? null;
   }

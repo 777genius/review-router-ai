@@ -22,6 +22,7 @@ export type MemoryStoredCommand = {
 
 /** Constructed only by a trusted host verifier after execution drain and absence checks. */
 export type MemoryVerifiedCleanupReceipt = {
+  readonly coverage: "entry_history_and_operations";
   readonly id: string;
   readonly commandId: string;
   readonly commandDigest: string;
@@ -146,7 +147,7 @@ export interface MemoryKnowledgeStore {
     readonly now: Date;
     readonly limit: number;
   }): Promise<readonly MemoryKnowledgeEntryMetadata[]>;
-  /** Atomically closes Forget and any immediately preceding unresolved write after verified physical cleanup. */
+  /** Atomically closes current Forget and every older unresolved entry operation after verified physical cleanup. */
   completeCleanup(input: {
     readonly receipt: MemoryVerifiedCleanupReceipt;
     readonly now: Date;

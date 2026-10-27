@@ -9,13 +9,15 @@ import {
   it,
   vi,
 } from "vitest";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
 import { createMemoryBodyHash } from "../domain/memory-body";
 import {
   memoryKnowledgeBodyVisible,
   memoryKnowledgeCommandDigest,
+  memoryKnowledgeScopeKey,
+  type MemoryKnowledgeEntryMetadata,
   type MemoryKnowledgeCommand,
 } from "../domain/memory-knowledge";
 import { PrismaMemoryKnowledgeStore } from "../infrastructure/prisma/prisma-memory-knowledge-store";
@@ -239,6 +241,7 @@ describe.skipIf(!databaseUrl)(
       at = now,
     ): MemoryVerifiedCleanupReceipt {
       return {
+        coverage: "entry_history_and_operations",
         id: `host_receipt_${command.commandId}`,
         commandId: command.commandId,
         commandDigest: memoryKnowledgeCommandDigest(command),
@@ -558,7 +561,8 @@ describe.skipIf(!databaseUrl)(
         now,
       });
       expect(result.state).toBe("cleanup_pending");
-      const receipt = {
+      const receipt: MemoryVerifiedCleanupReceipt = {
+        coverage: "entry_history_and_operations",
         id: "trusted_receipt",
         commandId: forget.commandId,
         commandDigest: memoryKnowledgeCommandDigest(forget),
@@ -579,6 +583,15 @@ describe.skipIf(!databaseUrl)(
         now,
         deadlineAt: new Date(now.getTime() + 5000),
       });
+      await expect(
+        store.completeCleanup({
+          receipt: {
+            ...receipt,
+            coverage: "entry_only",
+          } as unknown as MemoryVerifiedCleanupReceipt,
+          now,
+        }),
+      ).rejects.toMatchObject({ code: "invalid_input" });
       await expect(
         store.completeCleanup({
           receipt: { ...receipt, maintenanceEpoch: "0" },
@@ -734,8 +747,256 @@ describe.skipIf(!databaseUrl)(
       },
     );
 
+    it.each([
+      "queued",
+      "submitted",
+      "processing",
+      "unknown",
+      "cleanup_pending",
+    ] as const)(
+      "accepts verified full-history cleanup for current %s Forget with a live claim",
+      async (state) => {
+        const original = save();
+        await publish(original);
+        const forget = forgetCommand(original);
+        await admit(forget);
+        const work = await claim(forget);
+        await prisma.memoryKnowledgeCommand.update({
+          where: { id: forget.commandId },
+          data: { state },
+        });
+        await store.setMaintenancePaused({
+          generation,
+          paused: true,
+          expectedEpoch: "0",
+          actor: "operator:stable",
+          now,
+          deadlineAt: new Date(now.getTime() + 5000),
+        });
+        const receipt = cleanupReceipt(forget);
+        await expect(
+          otherStore.completeCleanup({ receipt, now }),
+        ).resolves.toMatchObject({ state: "completed" });
+        expect(
+          await prisma.memoryKnowledgeCommand.findUnique({
+            where: { id: forget.commandId },
+          }),
+        ).toMatchObject({
+          state: "completed",
+          claimId: null,
+          claimUntil: null,
+          envelope: null,
+          cleanupReceiptId: receipt.id,
+        });
+        await expect(
+          store.settle({
+            commandId: forget.commandId,
+            scope,
+            generation,
+            claimId: work!.claimId,
+            result: { commandId: forget.commandId, state: "processing" },
+            now,
+          }),
+        ).resolves.toMatchObject({ state: "completed" });
+      },
+    );
+
+    it("disposes all older unresolved revisions, including an older Forget, while preserving terminal and unrelated operations", async () => {
+      const first = save();
+      const history = [first];
+      await publish(first);
+      for (let revision = 1; revision < 6; revision++) {
+        const edit = save({
+          ref: first.ref,
+          expectedRevision: String(revision),
+          body: `Approved revision ${revision + 1}.`,
+        });
+        history.push(edit);
+        await publish(edit);
+      }
+      const forget = { ...forgetCommand(first), expectedRevision: "6" };
+      await admit(forget);
+      const unrelated = save();
+      await admit(unrelated);
+      // Reproduce recovered unresolved history from multiple older native operations.
+      // Current admission deliberately prevents creating this state in normal traffic.
+      const states = [
+        "queued",
+        "submitted",
+        "processing",
+        "unknown",
+        "cleanup_pending",
+      ];
+      for (const [index, command] of history.slice(0, 5).entries()) {
+        const row = (await prisma.memoryKnowledgeCommand.findUnique({
+          where: { id: command.commandId },
+        }))!;
+        // Import complete immutable rows, as a recovery/migration would; do not
+        // disable or weaken the production immutable-command trigger.
+        await prisma.memoryKnowledgeCommand.delete({
+          where: { id: command.commandId },
+        });
+        await prisma.memoryKnowledgeCommand.create({
+          data: {
+            ...row,
+            approval: row.approval as Prisma.InputJsonValue,
+            state: states[index]!,
+            commandKind: index === 0 ? "forget" : "save",
+            envelope: index < 2 ? Prisma.DbNull : command,
+            claimId: `old-active-${index}`,
+            claimUntil: new Date(now.getTime() + 60000),
+          },
+        });
+      }
+      const metadata = (await store.findEntry(first.ref, generation))!;
+      await prisma.memoryKnowledgeEntry.update({
+        where: {
+          generation_scopeKey_entryId: {
+            generation,
+            scopeKey: memoryKnowledgeScopeKey(scope),
+            entryId: first.ref.entryId,
+          },
+        },
+        data: {
+          pendingCommandId: first.commandId,
+          metadata: { ...metadata, pendingCommandId: first.commandId },
+        },
+      });
+      await store.setMaintenancePaused({
+        generation,
+        paused: true,
+        expectedEpoch: "0",
+        actor: "operator:stable",
+        now,
+        deadlineAt: new Date(now.getTime() + 5000),
+      });
+      const receipt = cleanupReceipt(forget);
+      await otherStore.completeCleanup({ receipt, now });
+      const rows = await prisma.memoryKnowledgeCommand.findMany({
+        where: {
+          id: { in: history.slice(0, 5).map((command) => command.commandId) },
+        },
+      });
+      expect(rows).toHaveLength(5);
+      for (const row of rows)
+        expect(row).toMatchObject({
+          state: "failed",
+          safeReason: "conflict",
+          envelope: null,
+          claimId: null,
+          claimUntil: null,
+          cleanupReceiptId: receipt.id,
+        });
+      expect(
+        await prisma.memoryKnowledgeCommand.findUnique({
+          where: { id: history[5]!.commandId },
+        }),
+      ).toMatchObject({ state: "published", cleanupReceiptId: null });
+      expect(
+        await prisma.memoryKnowledgeCommand.findUnique({
+          where: { id: unrelated.commandId },
+        }),
+      ).toMatchObject({ state: "queued", cleanupReceiptId: null });
+      for (const [index, command] of history.slice(0, 5).entries()) {
+        await expect(
+          store.settle({
+            commandId: command.commandId,
+            scope,
+            generation,
+            claimId: `old-active-${index}`,
+            result: { commandId: command.commandId, state: "published" },
+            now,
+          }),
+        ).resolves.toMatchObject({ state: "failed" });
+        await otherStore.recordFailure({
+          commandId: command.commandId,
+          scope,
+          generation,
+          claimId: `old-active-${index}`,
+          safeReason: "unknown_write",
+          now,
+        });
+      }
+      expect(await store.findEntry(first.ref, generation)).toMatchObject({
+        lifecycle: "forgotten",
+        pendingCommandId: null,
+        revocationCommandId: null,
+      });
+    });
+
+    it("rejects stale authority and completed retries when current physical columns or metadata disagree", async () => {
+      const original = save();
+      await publish(original);
+      const forget = forgetCommand(original);
+      await admit(forget);
+      await store.setMaintenancePaused({
+        generation,
+        paused: true,
+        expectedEpoch: "0",
+        actor: "operator:stable",
+        now,
+        deadlineAt: new Date(now.getTime() + 5000),
+      });
+      const receipt = cleanupReceipt(forget);
+      const where = {
+        generation_scopeKey_entryId: {
+          generation,
+          scopeKey: memoryKnowledgeScopeKey(scope),
+          entryId: original.ref.entryId,
+        },
+      };
+      const entry = (await prisma.memoryKnowledgeEntry.findUnique({ where }))!;
+      const metadata =
+        entry.metadata as unknown as MemoryKnowledgeEntryMetadata;
+      for (const data of [
+        { revision: 3 },
+        { lifecycle: "active" },
+        { workspaceId: "another_workspace" },
+        { metadata: { ...metadata, revision: "2\n" } },
+        { metadata: { ...metadata, revision: "9007199254740992" } },
+        { metadata: { ...metadata, generation: "another_generation" } },
+        {
+          metadata: {
+            ...metadata,
+            ref: { ...metadata.ref, entryId: "another_entry" },
+          },
+        },
+        { metadata: { ...metadata, lifecycle: "active" } },
+        { metadata: { ...metadata, pendingCommandId: "another_command" } },
+      ]) {
+        await prisma.memoryKnowledgeEntry.update({ where, data });
+        await expect(
+          store.completeCleanup({ receipt, now }),
+        ).rejects.toMatchObject({ code: "conflict" });
+        await prisma.memoryKnowledgeEntry.update({
+          where,
+          data: {
+            revision: entry.revision,
+            lifecycle: entry.lifecycle,
+            workspaceId: entry.workspaceId,
+            metadata: { ...metadata },
+          },
+        });
+      }
+      await store.completeCleanup({ receipt, now });
+      await prisma.memoryKnowledgeEntry.update({
+        where,
+        data: { revision: 3 },
+      });
+      await expect(
+        store.completeCleanup({ receipt, now }),
+      ).rejects.toMatchObject({ code: "conflict" });
+      await prisma.memoryKnowledgeEntry.update({
+        where,
+        data: { revision: entry.revision, pendingCommandId: forget.commandId },
+      });
+      await expect(
+        store.completeCleanup({ receipt, now }),
+      ).rejects.toMatchObject({ code: "conflict" });
+    });
+
     it.each(["predecessor", "forget"] as const)(
-      "preserves an active %s lease even with a verified cleanup receipt",
+      "disposes an active %s claim after the verified global drain",
       async (leased) => {
         const original = save();
         if (leased === "predecessor") {
@@ -755,9 +1016,9 @@ describe.skipIf(!databaseUrl)(
         });
         await expect(
           store.completeCleanup({ receipt: cleanupReceipt(forget), now }),
-        ).rejects.toMatchObject({ code: "conflict" });
+        ).resolves.toMatchObject({ state: "completed" });
         expect(await store.findEntry(original.ref, generation)).toMatchObject({
-          lifecycle: "forget_pending",
+          lifecycle: "forgotten",
         });
         const afterLease = new Date(now.getTime() + 10001);
         await expect(

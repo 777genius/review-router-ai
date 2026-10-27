@@ -235,6 +235,50 @@ export async function qualifyProductionCleanup(input: {
         .sort((a, b) => a.id.localeCompare(b.id)),
     };
   };
+  // A separate native observation with its own nonempty history must survive byte-for-byte.
+  const unrelatedDocumentId = `unrelated-${randomUUID()}`;
+  await retain(
+    unrelatedDocumentId,
+    `Native qualification derived observation unrelated primary ${randomUUID()}.`,
+  );
+  const unrelatedFacts = await request<{ items: Fact[] }>(
+    path(
+      `/memories/list?document_id=${unrelatedDocumentId}&state=valid&limit=100`,
+    ),
+  );
+  const unrelatedFactIds = new Set(unrelatedFacts.items.map((fact) => fact.id));
+  const unrelatedObservation = await eventually(async () => {
+    const page = await request<{ items: Fact[] }>(
+      path("/memories/list?type=observation&state=valid&limit=100"),
+    );
+    return page.items.find((fact) =>
+      fact.source_memory_ids?.some((id) => unrelatedFactIds.has(id)),
+    );
+  }, "unrelated native observation");
+  const unrelatedMarker = `unrelated-update-${randomUUID()}`;
+  input.stub.setObservationUpdateFixture({
+    observationId: unrelatedObservation.id,
+    sourceMarker: unrelatedMarker,
+  });
+  try {
+    await retain(
+      `unrelated-support-${randomUUID()}`,
+      `Native qualification derived observation unrelated support ${unrelatedMarker}.`,
+    );
+    await eventually(async () => {
+      const history = await request<unknown[]>(
+        path(`/memories/${unrelatedObservation.id}/history`),
+      );
+      return history.length > 0 ? true : undefined;
+    }, "unrelated nonempty observation history");
+  } finally {
+    input.stub.setObservationUpdateFixture(undefined);
+  }
+  const unrelatedSnapshot = async () =>
+    sql(`SELECT jsonb_build_object(
+    'observation',(SELECT to_jsonb(m) FROM public.memory_units m WHERE bank_id='${bank}' AND id='${unrelatedObservation.id}'::uuid),
+    'history',(SELECT jsonb_agg(to_jsonb(h) ORDER BY id) FROM public.observation_history h WHERE bank_id='${bank}' AND observation_id='${unrelatedObservation.id}'::uuid))::text`);
+  const unrelatedBefore = await unrelatedSnapshot();
   const survivorBefore = await survivorSnapshot();
   const ids = await Promise.all(
     input.normalContainerNames.map(async (name) =>
@@ -252,6 +296,7 @@ export async function qualifyProductionCleanup(input: {
     pauseEpoch: "1",
   };
   const operatorToken = `synthetic-router-operator-${randomUUID()}`;
+  let pauseBinding = binding;
   const pauseServer = createServer((request, response) => {
     if (
       request.method !== "GET" ||
@@ -264,11 +309,11 @@ export async function qualifyProductionCleanup(input: {
     response.writeHead(200, { "Content-Type": "application/json" });
     response.end(
       JSON.stringify({
-        binding,
+        binding: pauseBinding,
         submissionsPaused: true,
         maintenance: {
-          generation: binding.generation,
-          epoch: binding.pauseEpoch,
+          generation: pauseBinding.generation,
+          epoch: pauseBinding.pauseEpoch,
           paused: true,
         },
       }),
@@ -289,35 +334,49 @@ export async function qualifyProductionCleanup(input: {
     .export({ type: "spki", format: "pem" })
     .toString();
   try {
+    const plan = {
+      profile: "docker-complete-inventory-v1",
+      binding,
+      nativeBankId: bank,
+      deploymentLabel: `io.reviewrouter.hindsight.deployment=${input.run}`,
+      executorContainerIds: ids,
+      apiContainerId: api.Id,
+      restartContainerIds: ids,
+      trackedOperationIds: [targetOperation, replacementOperation],
+      routerPauseCheckUrl: `http://127.0.0.1:${address.port}/synthetic-router-maintenance-attestation`,
+      deploymentLockPath: join(directory, "deployment.lock"),
+      sourceInventoryPath: join(directory, "source-inventory.json"),
+    } as const;
+    const credentials = {
+      nativeServiceKey: input.serviceKey,
+      routerOperatorToken: operatorToken,
+      signingKeyId: "synthetic-qualification-key",
+      signingPrivateKey: privatePem,
+      signingPublicKey: publicPem,
+    };
+    const qualification = {
+      inspectCleanupDiagnostics: (text: string) =>
+        assert(
+          !text.includes(privacySentinel),
+          "Production cleanup API diagnostics leaked synthetic content/credentials",
+        ),
+    };
     const receipt = await runDockerHindsightCleanup(
-      {
-        profile: "docker-complete-inventory-v1",
-        binding,
-        nativeBankId: bank,
-        deploymentLabel: `io.reviewrouter.hindsight.deployment=${input.run}`,
-        executorContainerIds: ids,
-        apiContainerId: api.Id,
-        restartContainerIds: ids,
-        trackedOperationIds: [targetOperation, replacementOperation],
-        routerPauseCheckUrl: `http://127.0.0.1:${address.port}/synthetic-router-maintenance-attestation`,
-        deploymentLockPath: join(directory, "deployment.lock"),
-        sourceInventoryPath: join(directory, "source-inventory.json"),
-      },
-      {
-        nativeServiceKey: input.serviceKey,
-        routerOperatorToken: operatorToken,
-        signingKeyId: "synthetic-qualification-key",
-        signingPrivateKey: privatePem,
-        signingPublicKey: publicPem,
-      },
-      {
-        inspectCleanupDiagnostics: (text) =>
-          assert(
-            !text.includes(privacySentinel),
-            "Production cleanup API diagnostics leaked synthetic content/credentials",
-          ),
-      },
+      plan,
+      credentials,
+      qualification,
     );
+    // Retry from the same signed inventory after document/history/operation removal.
+    const retriedReceipt = await runDockerHindsightCleanup(
+      plan,
+      credentials,
+      qualification,
+    );
+    assert.deepEqual(
+      retriedReceipt.proof.entryHistoryCoverage,
+      receipt.proof.entryHistoryCoverage,
+    );
+    assert.equal(await unrelatedSnapshot(), unrelatedBefore);
     assert(
       verifyHindsightCleanupReceipt(
         receipt,
@@ -356,6 +415,56 @@ export async function qualifyProductionCleanup(input: {
     }, "surviving approved source reconsolidates without forgotten evidence");
     assert.equal(await originalHistoryCount(), "0");
     assert.deepEqual(await survivorSnapshot(), survivorBefore);
+    assert.equal(await unrelatedSnapshot(), unrelatedBefore);
+    // A raw async retain that never reached extraction has no fact ledger rows.
+    // Stop normal executors before enqueueing it, then resume only through the operator.
+    for (const id of ids) await docker(["stop", "--time", "30", id]);
+    await docker(["start", api.Id]);
+    await eventually(async () => {
+      try {
+        return (await fetch(`${input.base}/health/ready`)).ok
+          ? true
+          : undefined;
+      } catch {
+        return undefined;
+      }
+    }, "API-only queued raw fixture");
+    const zeroEntryId = randomUUID();
+    const zeroOperation = randomUUID();
+    await request(path("/memories"), "POST", {
+      items: [
+        {
+          document_id: `entry-${zeroEntryId}`,
+          content: `Pending raw source ${privacySentinel}.`,
+          strategy: "router-approved-v1",
+          update_mode: "replace",
+        },
+      ],
+      async: true,
+      operation_id: zeroOperation,
+    });
+    assert.equal(
+      (await request<Operation>(path(`/operations/${zeroOperation}`))).status,
+      "pending",
+    );
+    pauseBinding = {
+      ...binding,
+      entryId: zeroEntryId,
+      forgetCommandId: randomUUID(),
+    };
+    const zeroReceipt = await runDockerHindsightCleanup(
+      {
+        ...plan,
+        binding: pauseBinding,
+        trackedOperationIds: [zeroOperation],
+        sourceInventoryPath: join(directory, "zero-source-inventory.json"),
+      },
+      credentials,
+      qualification,
+    );
+    assert.equal(zeroReceipt.proof.sourceInventory.sourceFactCount, 0);
+    assert(zeroReceipt.proof.entryHistoryCoverage.operationCount > 0);
+    assert.equal(await unrelatedSnapshot(), unrelatedBefore);
     await writeFile(
       join(directory, "receipt.json"),
       JSON.stringify(receipt, null, 2) + "\n",
@@ -380,6 +489,8 @@ export async function qualifyProductionCleanup(input: {
       "nonvacuous-derived-observation-history-physically-absent-after-native-delete-and-restart",
       "orphan-history-from-retagged-observation-and-replaced-source-erased",
       "surviving-approved-source-unchanged-and-natively-reconsolidated",
+      "unrelated-observation-and-nonempty-history-preserved-byte-for-byte",
+      "signed-inventory-retry-and-zero-fact-pending-raw-cleanup-after-restart",
       "signed-receipt-exact-source-inventory-current-pause-binding",
     ];
   } finally {
