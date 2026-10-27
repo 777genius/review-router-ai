@@ -11,6 +11,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProviderSetupView } from "../../../src/features/provider-setup/provider-setup-model";
 import {
+  createProviderProfileAction,
   inheritWorkspaceDefaultProviderAction,
   saveProviderSetupAction,
 } from "../provider-setup-actions";
@@ -46,6 +47,7 @@ vi.mock("../actions", () => ({
   })),
 }));
 vi.mock("../provider-setup-actions", () => ({
+  createProviderProfileAction: vi.fn(),
   inheritWorkspaceDefaultProviderAction: vi.fn(),
   saveProviderSetupAction: vi.fn(),
 }));
@@ -117,6 +119,10 @@ beforeEach(() => {
     status: "saved",
     results: [],
   });
+  vi.mocked(createProviderProfileAction).mockResolvedValue({
+    status: "saved",
+    created: true,
+  });
 });
 
 afterEach(() => {
@@ -140,7 +146,6 @@ const repositoryTarget: ProviderSetupDialogProps["target"] = {
     organizationLogin: null,
     organizationSecretPolicy: null,
     rotatingEnabled: false,
-    rotatingPreparationOnly: false,
   },
 };
 
@@ -283,6 +288,104 @@ function gatewayFixture(): AccountsResult<AccountsPage> {
 }
 
 describe("ProviderSetupDialog", () => {
+  it("saves a reusable provider without claiming repository readiness and focuses its next step", async () => {
+    view = { ...view, target: "workspace", sources: apiSources() };
+    renderDialog({ kind: "workspace" }, { mode: "add" });
+    await chooseSelect("Provider", "OpenRouter");
+    fireEvent.click(screen.getByRole("button", { name: "Add provider" }));
+    const heading = await screen.findByRole("heading", {
+      name: "Provider saved",
+    });
+    await waitFor(() => expect(document.activeElement).toBe(heading));
+    expect(createProviderProfileAction).toHaveBeenCalledOnce();
+    expect(saveProviderSetupAction).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(
+        /Each repository still needs its workflow and connection ready/,
+      ),
+    ).toBeTruthy();
+    const next = screen.getByRole("link", { name: "Finish repository setup" });
+    const url = new URL(next.getAttribute("href")!, "https://example.test");
+    expect(url.searchParams.get("workspace")).toBe("workspace_1");
+    expect(url.searchParams.get("section")).toBe("repositories");
+    expect(url.searchParams.has("repository")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("starts a new API provider with the available storage when GitHub Secrets is denied", async () => {
+    view = {
+      ...view,
+      target: "workspace",
+      gatewayApiKeyProviders: ["openrouter"],
+      sources: apiSources().map((source) =>
+        source.key === "user_ci_secret:openrouter_api_key"
+          ? {
+              ...source,
+              decision: { allowed: false, reason: "workspace_admin_required" },
+            }
+          : source,
+      ),
+    };
+    renderDialog({ kind: "workspace" }, { mode: "add" });
+    await chooseSelect("Provider", "OpenRouter");
+    expect(
+      screen
+        .getByRole("radio", { name: "ReviewRouter" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(screen.getByRole("link", { name: "Connect account" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add provider" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(createProviderProfileAction).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])(
+    "keeps an explicit unavailable storage intent visible without saving (alternative available: %s)",
+    async (alternativeAvailable) => {
+      view = {
+        ...view,
+        target: "workspace",
+        gatewayApiKeyProviders: alternativeAvailable ? ["openrouter"] : [],
+        sources: apiSources().map((source) =>
+          source.key === "user_ci_secret:openrouter_api_key"
+            ? {
+                ...source,
+                decision: {
+                  allowed: false,
+                  reason: "workspace_admin_required",
+                },
+              }
+            : source,
+        ),
+      };
+      renderDialog(
+        { kind: "workspace" },
+        {
+          mode: "add",
+          initialIntent: {
+            provider: "openrouter",
+            storage: "github_secrets",
+            workspaceId: "workspace_1",
+            repositoryIds: [],
+          },
+        },
+      );
+      const github = await screen.findByRole("radio", {
+        name: "GitHub Secrets",
+      });
+      expect(github.getAttribute("aria-checked")).toBe("true");
+      expect(github.getAttribute("aria-disabled")).toBe("true");
+      expect(
+        screen.getByRole("button", { name: "Add provider" }),
+      ).toHaveProperty("disabled", true);
+      expect(createProviderProfileAction).not.toHaveBeenCalled();
+      expect(saveProviderSetupAction).not.toHaveBeenCalled();
+    },
+  );
+
   it("starts Add provider empty and keeps tuning on selections, not model-only profile creation", async () => {
     view = { ...view, target: "workspace", sources: apiSources() };
     renderDialog({ kind: "workspace" }, { mode: "add" });
@@ -924,6 +1027,16 @@ describe("ProviderSetupDialog", () => {
       expect(secretStep.getAttribute("aria-current")).toBe("step"),
     );
     await waitFor(() => expect(document.activeElement).toBe(secretStep));
+    const returnLink = screen.getByRole("link", {
+      name: "Back to repository setup",
+    });
+    const url = new URL(
+      returnLink.getAttribute("href")!,
+      "https://example.test",
+    );
+    expect(url.searchParams.get("workspace")).toBe("workspace_1");
+    expect(url.searchParams.get("repository")).toBe("acme/widget");
+    expect(url.searchParams.get("section")).toBe("repositories");
   });
 
   it("returns a repository with its own provider to the workspace default", async () => {
@@ -1006,6 +1119,13 @@ describe("ProviderSetupDialog", () => {
         }),
       ),
     );
+    const heading = await screen.findByRole("heading", {
+      name: "Workspace default saved",
+    });
+    await waitFor(() => expect(document.activeElement).toBe(heading));
+    expect(
+      screen.getByRole("link", { name: "Finish repository setup" }),
+    ).toBeTruthy();
     cleanup();
 
     view = {

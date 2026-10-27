@@ -23,6 +23,7 @@ import {
   type SetupPullRequestMergedEventDetail,
 } from "./repository-setup-optimistic-events";
 import {
+  hasCompletedWorkflowSetup,
   setupStepNumber,
   runtimeQualifiedSetupStep,
   type SetupStep,
@@ -168,9 +169,12 @@ export function RepositorySetupProgressPanel({
         return;
       }
 
-      setSetupStatus("configured");
-      setSetupIssue(null);
-      if (!gatewayBlocked) setCurrentStep("ready");
+      // Only workflow confirmation can clear a pending workflow or its issue.
+      // Use the effective step so a preceding merge event counts immediately.
+      if (!gatewayBlocked)
+        setCurrentStep((current) =>
+          hasCompletedWorkflowSetup(current) ? "ready" : current,
+        );
     }
 
     window.addEventListener(
@@ -588,7 +592,7 @@ function buildSetupSteps({
         : position > setupStepNumber.setup_pr
           ? "Setup PR exists."
           : providerSetupBeforeWorkflow
-            ? "Seed the versioned provider namespace, then add its workflow by PR."
+            ? "Connect Codex, then create and merge the setup PR."
             : "Add the workflow by PR.";
 
   return [
@@ -616,7 +620,7 @@ function buildSetupSteps({
     {
       id: "provider",
       title: providerSetupBeforeWorkflow
-        ? "Activate provider"
+        ? "Check Codex setup"
         : gatewayProviderSetup
           ? "Configure account"
           : "Enable review",
@@ -625,12 +629,12 @@ function buildSetupSteps({
           ? "Provider access is configured."
           : currentStep === "provider"
             ? providerSetupBeforeWorkflow
-              ? "Verify the exact activated namespace."
+              ? "Check the Codex connection for this repository."
               : gatewayProviderSetup
                 ? "Choose an active workspace account and model. Credentials stay on the server."
                 : "Add the credential the provider needs."
             : providerSetupBeforeWorkflow
-              ? "Return after merge to verify activation."
+              ? "After merge, check the Codex connection."
               : "Available after merge.",
       action: reviewAction,
     },
@@ -732,12 +736,14 @@ function repositorySetupProgressSummary(
       return runtimeVerificationNeeded
         ? "1 of 4 - verification needed"
         : providerSetupBeforeWorkflow
-          ? "1 of 4 - prepare versioned setup"
+          ? "1 of 4 - connect Codex"
           : "1 of 4 - setup PR needed";
     case "merge_setup_pr":
       return "2 of 4 - merge setup PR";
     case "provider":
-      return "3 of 4 - enable review";
+      return providerSetupBeforeWorkflow
+        ? "3 of 4 - check Codex setup"
+        : "3 of 4 - enable review";
     case "ready":
       return "4 of 4 - complete";
   }

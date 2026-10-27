@@ -159,6 +159,29 @@ These images are captures of the production components, not an actual full Next
 page load. The full dashboard CI workflow remains the release verification gate
 for Next composition; no local full-page pass is claimed.
 
+### Integration with current onboarding and release gates
+
+The feature branch integrates the two subsequent main changes through
+`d3595c2e3e0b21ab539dea0fb7a06d35a4613faf`. Both independent UI guards remain:
+confirmed credentials cannot complete an uninstalled workflow, and optimistic
+events cannot claim a qualified runtime without proof. Four focused UI suites
+passed 96 cases and the scoped production typecheck passed after conflict
+resolution. Chromium was then rerun on the merged components: 148 assertions,
+48 fresh screenshots, no page errors or external requests.
+
+The earlier real Next CI run passed desktop and exposed a mobile navigation race
+in the read-only overflow assertion. That assertion now retries its read within
+five seconds when navigation destroys the execution context; it still rejects
+persistent overflow. A real Chromium fault fixture confirmed both cases, and the
+browser harness typecheck passed. This is not permission to retry user actions.
+
+The new `000154_unified_model_dispatch` SQL is explicitly classified by checksum
+in the existing release/rehearsal catalogue. Historical immutable manifests and
+their rejection of missing, reordered, changed or future migration bytes remain
+unchanged. A valid expired-authorization SQL fixture preserves the database's
+lifetime guard while checking late receipt settlement. These integration checks
+keep unification compatible with the separate `rr: deploy` workflow.
+
 ## Remaining final stage
 
 With user-provided designated test credentials and a disposable repository,

@@ -783,7 +783,7 @@ describe("dashboard server loading boundaries", () => {
       expect(html).toContain("Your accounts");
       // The page no longer repeats "Accounts" as a top heading (UX batch 3).
       expect(html).not.toContain(">Accounts</h2>");
-      expect(html).toContain("Choose accounts for AI reviews in Models");
+      expect(html).toContain("Choose providers and models for reviews");
       expect(html).not.toContain("Save workspace review settings");
       expect(html).not.toContain("retired format");
       expect(html.includes("Hosted pool accounts")).toBe(

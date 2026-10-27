@@ -335,7 +335,9 @@ it("never accepts Hosted without its original grant validation and rechecks it a
   expect(denied.issuer).not.toHaveBeenCalled();
 
   const validate = vi
-    .fn(async (_input: { authorization: ReviewRunAuthorization }) => true)
+    .fn<(input: { authorization: ReviewRunAuthorization }) => Promise<boolean>>(
+      async () => true,
+    )
     .mockResolvedValueOnce(true)
     .mockResolvedValueOnce(false);
   const changed = fixture(provider, validate);

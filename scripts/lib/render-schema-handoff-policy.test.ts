@@ -37,8 +37,13 @@ const reviewSkillsMutationIdentityMigrationName =
 const lifecycleVerificationMigrationName = "000148_lifecycle_verification";
 const repositorySecretProfilesMigrationName =
   "000149_api_key_repository_secret_profiles";
-const readLifecycleVerificationCheckoutInventory = () =>
+const unifiedModelDispatchMigrationName = "000154_unified_model_dispatch";
+const readRepositorySecretProfilesCheckoutInventory = () =>
   readRenderManagedCheckoutInventory().filter(
+    (row) => row.migrationName !== unifiedModelDispatchMigrationName,
+  );
+const readLifecycleVerificationCheckoutInventory = () =>
+  readRepositorySecretProfilesCheckoutInventory().filter(
     (row) => row.migrationName !== repositorySecretProfilesMigrationName,
   );
 const readReviewSkillsMutationIdentityCheckoutInventory = () =>
@@ -147,6 +152,7 @@ const canonicalPrismaMigrationNames =
       !renderReviewSkillsCheckoutExtension.some(
         (row) => row.migrationName === name,
       ) &&
+      name !== unifiedModelDispatchMigrationName &&
       name !== repositorySecretProfilesMigrationName &&
       name !== lifecycleVerificationMigrationName &&
       name !== reviewSkillsMutationIdentityMigrationName &&
@@ -520,8 +526,55 @@ const canonicalPrefix = (count: number) =>
   canonicalPrismaMigrationNames.slice(0, count);
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
-  it("admits only the exact repository-secret-profiles151 checkout and preserves managed92", () => {
+  it("admits only exact unified-model-dispatch152 and preserves reviewed151 and managed92", () => {
     const full = readRenderManagedCheckoutInventory();
+    expect(full).toHaveLength(152);
+    expect(full.at(-1)).toEqual({
+      migrationName: unifiedModelDispatchMigrationName,
+      checksum:
+        "0ecebe5d1437544b0be81e946731a8bde39d1d3eb51a3516b465014323c70884",
+    });
+    expect(
+      createHash("sha256")
+        .update(
+          full.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
+        )
+        .digest("hex"),
+    ).toBe("f8bc4e6289b679d7f4142426e67e77ab347be8f8bed5937072ebc1ca54218fcc");
+    expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
+    expect(
+      partitionRenderSchemaHandoffCheckout(
+        readRepositorySecretProfilesCheckoutInventory(),
+      ),
+    ).toEqual(catalog);
+    for (const changed of [
+      full.map((row) =>
+        row.migrationName === unifiedModelDispatchMigrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
+      full.map((row) =>
+        row.migrationName === unifiedModelDispatchMigrationName
+          ? { ...row, migrationName: "000154_relabelled" }
+          : row,
+      ),
+      full.map((row) =>
+        row.migrationName === repositorySecretProfilesMigrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
+      full.filter(
+        (row) => row.migrationName !== repositorySecretProfilesMigrationName,
+      ),
+      [...full, { migrationName: "000155_unknown", checksum: "0".repeat(64) }],
+      [...full, full.at(-1)!],
+      [...full].reverse(),
+    ])
+      expect(() => partitionRenderSchemaHandoffCheckout(changed)).toThrow();
+  });
+
+  it("admits only the exact repository-secret-profiles151 checkout and preserves managed92", () => {
+    const full = readRepositorySecretProfilesCheckoutInventory();
     expect(full).toHaveLength(151);
     expect(full.at(-1)).toEqual({
       migrationName: repositorySecretProfilesMigrationName,
@@ -2470,6 +2523,9 @@ describe("complete filesystem checkout inventory", () => {
       { recursive: true },
     );
     if (count !== undefined) {
+      rmSync(join(migrations, unifiedModelDispatchMigrationName), {
+        recursive: true,
+      });
       rmSync(join(migrations, repositorySecretProfilesMigrationName), {
         recursive: true,
       });
@@ -2551,11 +2607,16 @@ describe("complete filesystem checkout inventory", () => {
     };
   }
 
-  it("reads current checkout151 through checkout150, statistics146, main145, old125, historical124 and key-free123 as identical frozen92 rows", async () => {
+  it("reads current checkout152 through checkout151, checkout150, statistics146, main145, old125, historical124 and key-free123 as identical frozen92 rows", async () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(151);
+    expect(inventory).toHaveLength(152);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, unifiedModelDispatchMigrationName), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(151);
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, repositorySecretProfilesMigrationName), {
       recursive: true,
@@ -2952,7 +3013,7 @@ describe("complete filesystem checkout inventory", () => {
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
       // Only removing the current tail restores an independently admitted catalog.
-      if (name === repositorySecretProfilesMigrationName)
+      if (name === unifiedModelDispatchMigrationName)
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);

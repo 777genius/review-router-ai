@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -62,6 +63,66 @@ describe("RepositorySetupDisclosureToggle", () => {
       expect(screen.queryByText("Configured policy editor")).toBeNull();
     },
   );
+  it.each([
+    ["openrouter_api_key", "setup_pr", "1/4"],
+    ["openrouter_api_key", "merge_setup_pr", "2/4"],
+    ["claude_code_oauth", "setup_pr", "1/4"],
+    ["claude_code_oauth", "merge_setup_pr", "2/4"],
+  ] as const)(
+    "keeps the pill and settings gated for %s at %s until workflow merge",
+    (authMode, step, progress) => {
+      const view = () => (
+        <>
+          <RepositorySetupDisclosureToggle
+            repositoryId="repo_1"
+            disclosureId="setup_repo_1"
+            currentStep={step}
+            expectedProviderAuthModes={[authMode]}
+          />
+          <RepositorySetupReadyGate
+            repositoryId="repo_1"
+            currentStep={step}
+            expectedProviderAuthModes={[authMode]}
+          >
+            <button type="button">Edit settings</button>
+          </RepositorySetupReadyGate>
+        </>
+      );
+      const confirmed = () =>
+        providerSetupConfirmedEvent({
+          repositoryId: "repo_1",
+          repositoryFullName: "777genius/example",
+          authMode,
+        });
+      const rendered = render(view());
+
+      fireEvent(window, confirmed());
+      expect(screen.getByText(progress)).toBeTruthy();
+      expect(
+        screen.queryByRole("button", { name: "Edit settings" }),
+      ).toBeNull();
+
+      // Refreshing with the same authoritative workflow step must stay pending.
+      rendered.rerender(view());
+      expect(screen.getByText(progress)).toBeTruthy();
+      expect(
+        screen.queryByRole("button", { name: "Edit settings" }),
+      ).toBeNull();
+
+      // Both events can arrive before React renders or the server props refresh.
+      act(() => {
+        window.dispatchEvent(
+          setupPullRequestMergedEvent({ repositoryId: "repo_1" }),
+        );
+        window.dispatchEvent(confirmed());
+      });
+      expect(screen.getByText("4/4")).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: "Edit settings" }),
+      ).toBeTruthy();
+    },
+  );
+
   it("requires current Gateway authority readiness despite a provider confirmation event", async () => {
     const view = (ready: boolean) => (
       <>

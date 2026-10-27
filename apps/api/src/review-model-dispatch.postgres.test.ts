@@ -354,9 +354,20 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
     const f = await fixture();
     const c = claim(await f.acquireClaim(0), f);
     const reservation = await f.repository.claim(c);
+    // Model a valid authority whose lifetime already ended. Moving only expiry
+    // into the past can put it before creation on fast CI runners and violate
+    // the real lifetime constraint instead of testing late receipts.
+    const [clock] = await f.prisma.$queryRaw<{ now: Date }[]>`
+      SELECT (clock_timestamp() AT TIME ZONE 'UTC') AS "now"
+    `;
+    if (!clock) throw new Error("fixture_database_clock_missing");
     await f.prisma.reviewRunAuthorization.update({
       where: { authorizationId: c.authorizationId },
-      data: { state: "expired", expiresAt: new Date(Date.now() - 1000) },
+      data: {
+        state: "expired",
+        createdAt: new Date(clock.now.getTime() - 60_000),
+        expiresAt: new Date(clock.now.getTime() - 1_000),
+      },
     });
     await f.prisma.reviewInvocationLeaseV2.update({
       where: { leaseId: c.leaseId },

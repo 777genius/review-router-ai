@@ -10,7 +10,6 @@ import {
   type ResolutionWriterWitnessBinding,
   type ResolutionWriterWitnessUnsigned,
 } from "../domain/resolution-writer-witness";
-import type { ReviewPublicationScope } from "../domain/review-publication-attempt";
 
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const digestPattern = /^[a-f0-9]{64}$/u;
@@ -77,7 +76,6 @@ export function verifyResolutionWriterWitness(
     )
       return null;
     if (
-      witness.purpose !== resolutionWriterWitnessPurpose ||
       !canonicalBinding(witness) ||
       !identityPattern.test(trust.keyId) ||
       !Number.isSafeInteger(trust.maximumAgeMilliseconds) ||
@@ -86,14 +84,9 @@ export function verifyResolutionWriterWitness(
     )
       return null;
     const { signature, bindingSha256, ...unsigned } = witness;
-    const {
-      purpose: _purpose,
-      proof,
-      observedAt,
-      expiresAt,
-      ...binding
-    } = unsigned;
+    const { purpose, proof, observedAt, expiresAt, ...binding } = unsigned;
     if (
+      purpose !== resolutionWriterWitnessPurpose ||
       canonicalReviewPublicationJson(binding) !==
         canonicalReviewPublicationJson(expected) ||
       !isQualifiedResolutionWriterProof(proof, now, sha)
@@ -148,31 +141,30 @@ export class SignedResolutionWriterQualification implements ResolutionWriterDrai
     }>,
   ) {}
 
-  async qualify(
-    _scope: ReviewPublicationScope,
-  ): ReturnType<ResolutionWriterDrainQualificationPort["qualify"]> {
-    try {
-      const [value, binding] = await Promise.all([
-        this.dependencies.readWitness(),
-        this.dependencies.observeBinding(),
-      ]);
-      const witness = verifyResolutionWriterWitness(
-        value,
-        binding,
-        this.dependencies.trust,
-        this.dependencies.now(),
-      );
-      return witness
-        ? { status: "qualified", proof: witness.proof }
-        : {
-            status: "unqualified",
-            reasonCode: "resolution_writer_witness_invalid",
-          };
-    } catch {
-      return {
-        status: "unqualified",
-        reasonCode: "resolution_writer_witness_unavailable",
-      };
-    }
-  }
+  readonly qualify: ResolutionWriterDrainQualificationPort["qualify"] =
+    async () => {
+      try {
+        const [value, binding] = await Promise.all([
+          this.dependencies.readWitness(),
+          this.dependencies.observeBinding(),
+        ]);
+        const witness = verifyResolutionWriterWitness(
+          value,
+          binding,
+          this.dependencies.trust,
+          this.dependencies.now(),
+        );
+        return witness
+          ? { status: "qualified", proof: witness.proof }
+          : {
+              status: "unqualified",
+              reasonCode: "resolution_writer_witness_invalid",
+            };
+      } catch {
+        return {
+          status: "unqualified",
+          reasonCode: "resolution_writer_witness_unavailable",
+        };
+      }
+    };
 }

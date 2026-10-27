@@ -221,6 +221,10 @@ async function createWithoutDefault(page: Page, before: readonly Profile[]) {
   await dialog
     .getByRole("button", { name: "Add provider", exact: true })
     .click();
+  await expect(
+    dialog.getByRole("link", { name: "Finish repository setup" }),
+  ).toBeVisible();
+  await dialog.getByRole("button", { name: "Done", exact: true }).click();
   await expect(dialog).toHaveCount(0, { timeout: 60_000 });
   const added = (await savedProfiles()).filter(
     (row) => !before.some((old) => old.id === row.id),
@@ -352,6 +356,10 @@ test("API key storage creates all three GitHub profiles and preserves identity w
     await settings
       .getByRole("button", { name: "Set as default", exact: true })
       .click();
+    await expect(
+      settings.getByRole("heading", { name: "Workspace default saved" }),
+    ).toBeVisible();
+    await settings.getByRole("button", { name: "Done", exact: true }).click();
     await expect(settings).toHaveCount(0);
     await page.reload();
     const usage = await savedWorkspaceUsage();

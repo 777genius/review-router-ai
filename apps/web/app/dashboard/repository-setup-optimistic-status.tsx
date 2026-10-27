@@ -39,6 +39,11 @@ export function runtimeQualifiedSetupStep(
   return step;
 }
 
+/** A credential confirmation cannot complete an unfinished workflow setup. */
+export function hasCompletedWorkflowSetup(step: SetupStep): boolean {
+  return setupStepNumber[step] >= setupStepNumber.provider;
+}
+
 export function repositorySetupStepPillClassName(isComplete: boolean): string {
   return [
     "setup-toggle inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-2.5 font-mono text-xs font-semibold uppercase tracking-[0.12em] transition duration-200 ease-out hover:saturate-125",
@@ -189,7 +194,9 @@ function useOptimisticSetupStep({
             !expectedProviderAuthModes.includes("codex_account_gateway") ||
             gatewayReviewV2Ready
           )
-            setOptimisticStep("ready");
+            setOptimisticStep((current) =>
+              hasCompletedWorkflowSetup(current) ? "ready" : current,
+            );
         }
       }
     }

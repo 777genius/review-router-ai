@@ -291,6 +291,24 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Unified dispatch extends checkout-only review admission and receipt state.
+  // Bind both its exact SQL and complete checkout152; the immutable managed92
+  // transaction continues through the unchanged reviewed checkout151 boundary.
+  const unifiedModelDispatchMigration = catalog.find(
+    (row) => row.migrationName === "000154_unified_model_dispatch",
+  );
+  if (unifiedModelDispatchMigration) {
+    if (
+      unifiedModelDispatchMigration.checksum !==
+        "0ecebe5d1437544b0be81e946731a8bde39d1d3eb51a3516b465014323c70884" ||
+      manifest(catalog) !==
+        "sha256:f8bc4e6289b679d7f4142426e67e77ab347be8f8bed5937072ebc1ca54218fcc"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== unifiedModelDispatchMigration),
+    );
+  }
   // Repository-secret profile identities change a checkout-only table. Admit
   // the exact SQL and checkout151 before preserving the reviewed checkout150.
   const repositorySecretProfilesMigration = catalog.find(

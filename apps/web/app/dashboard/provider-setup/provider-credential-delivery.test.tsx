@@ -153,3 +153,27 @@ it("keeps the installed managed key on its GitHub path without installing or pro
   );
   expect(screen.queryByRole("button", { name: "Test connection" })).toBeNull();
 });
+
+it("gets the Claude subscription token before asking the user to store it", () => {
+  const { container } = view(
+    <CiSecretDelivery
+      {...repository}
+      repositoryVisibility="public"
+      authMode="claude_code_oauth"
+      guidance={buildProviderSecretSetupGuidance({
+        provider: "claude_code_oauth",
+        repoFullName: repository.repositoryFullName,
+      })}
+      organizationLogin={null}
+      organizationSecretPolicy={null}
+    />,
+  );
+  const steps = screen.getAllByRole("listitem").map((item) => item.textContent);
+  expect(steps[1]).toContain("Run claude setup-token");
+  expect(steps[2]).toContain(
+    "Run the command below. Paste only the printed token",
+  );
+  expect(container.querySelector("pre")?.textContent).toContain(
+    "gh secret set CLAUDE_CODE_OAUTH_TOKEN",
+  );
+});
