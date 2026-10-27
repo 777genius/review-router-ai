@@ -560,9 +560,9 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
     }
     const digest = createHash("sha256");
     digest.update(manifestRows.join(","));
-    expect(digest.digest("hex")).toBe(
-      "91bb5e51bf53be19ac6244185b4423df2bd26e7e257dfa632293c4094032fa38",
-    );
+    const expectedDigest =
+      "91bb5e51bf53be19ac6244185b4423df2bd26e7e257dfa632293c4094032fa38";
+    expect(digest.digest("hex")).toBe(expectedDigest);
     expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
     expect(
       partitionRenderSchemaHandoffCheckout(withoutSkills),
