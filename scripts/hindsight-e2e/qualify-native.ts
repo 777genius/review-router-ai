@@ -836,7 +836,7 @@ export async function qualifyNative() {
     assert.equal(
       stub.calls.unexpected,
       0,
-      "Unscripted native provider request occurred",
+      `Unscripted native provider request occurred: ${JSON.stringify(stub.unexpectedByReason)}`,
     );
     const healthProbe = await command([
       "exec",

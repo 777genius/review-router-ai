@@ -32,6 +32,19 @@ export async function startProviderStub() {
     | undefined;
   let held = 0;
   const calls = { embeddings: 0, rerank: 0, consolidation: 0, unexpected: 0 };
+  // Never record request paths, prompts or bodies in qualification diagnostics.
+  const unexpectedByReason = {
+    invalidEmbeddingShape: 0,
+    invalidRerankShape: 0,
+    nonConsolidationChat: 0,
+    missingObservationCandidate: 0,
+    unsupportedEndpoint: 0,
+    invalidProviderBody: 0,
+  };
+  const markUnexpected = (reason: keyof typeof unexpectedByReason) => {
+    calls.unexpected += 1;
+    unexpectedByReason[reason] += 1;
+  };
   const releases = new Set<() => void>();
   const reply = (response: ServerResponse, status: number, body: unknown) => {
     response.writeHead(status, { "Content-Type": "application/json" });
@@ -74,7 +87,7 @@ export async function startProviderStub() {
             !Array.isArray(body.input) ||
             body.input.some((value: unknown) => typeof value !== "string")
           ) {
-            calls.unexpected += 1;
+            markUnexpected("invalidEmbeddingShape");
             return reply(response, 400, {
               error: { message: "unsupported_test_embedding_request" },
             });
@@ -96,7 +109,7 @@ export async function startProviderStub() {
             typeof body.query !== "string" ||
             !Array.isArray(body.documents)
           ) {
-            calls.unexpected += 1;
+            markUnexpected("invalidRerankShape");
             return reply(response, 400, {
               error: { message: "unsupported_test_rerank_request" },
             });
@@ -126,7 +139,7 @@ export async function startProviderStub() {
             .map((message: { content?: string }) => message.content ?? "")
             .join("\n");
           if (!text.includes("### Existing observations")) {
-            calls.unexpected += 1;
+            markUnexpected("nonConsolidationChat");
             return reply(response, 400, {
               error: { message: "unscripted_llm_call" },
             });
@@ -152,7 +165,7 @@ export async function startProviderStub() {
               .slice(user.lastIndexOf("### Existing observations"))
               .includes(updateFixture!.observationId)
           ) {
-            calls.unexpected += 1;
+            markUnexpected("missingObservationCandidate");
             return reply(response, 400, {
               error: { message: "scripted_observation_candidate_missing" },
             });
@@ -198,12 +211,12 @@ export async function startProviderStub() {
             usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
           });
         }
-        calls.unexpected += 1;
+        markUnexpected("unsupportedEndpoint");
         return reply(response, 404, {
           error: { message: "unsupported_test_endpoint" },
         });
       } catch {
-        calls.unexpected += 1;
+        markUnexpected("invalidProviderBody");
         reply(response, 400, { error: { message: "invalid_test_request" } });
       }
     },
@@ -215,6 +228,7 @@ export async function startProviderStub() {
   return {
     url: `http://127.0.0.1:${address.port}`,
     calls,
+    unexpectedByReason,
     setMode(next: ProviderMode) {
       mode = next;
       if (next !== "hold") {
