@@ -306,6 +306,8 @@ function ProviderSetupDialogBody({
   useEffect(() => {
     if (step === handledStep.current) return;
     handledStep.current = step;
+    // A completed save/result focuses its own content, not a stale step button.
+    if (step === "results" || step === "workspace_saved") return;
     const frame = requestAnimationFrame(() => {
       stepNav.current
         ?.querySelector<HTMLButtonElement>('[aria-current="step"]')

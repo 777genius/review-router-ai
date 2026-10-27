@@ -459,6 +459,7 @@ export async function qualifyNative() {
     );
     const adapter = await qualifyProductionAdapter(base, serviceKey, run);
     checkpoints.push(...adapter.checkpoints);
+    recordProviderPhase("after-production-adapter");
     checkpoints.push(
       ...(await qualifyProductionCleanup({
         base,
@@ -470,6 +471,7 @@ export async function qualifyNative() {
         stub,
       })),
     );
+    recordProviderPhase("after-production-cleanup");
     for (const selectedBank of [bank, otherBank]) {
       await request(`/v1/default/banks/${selectedBank}`, "PUT", {
         name: "Synthetic qualification bank",

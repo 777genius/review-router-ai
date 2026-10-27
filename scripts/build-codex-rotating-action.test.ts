@@ -177,6 +177,9 @@ function copyInstalledSubscriptionRuntime(
     checkoutRoot,
     "node_modules/@777genius/subscription-runtime",
   );
+  // A disposable checkout may not have this scoped directory yet.
+  // Create it before validating its resolved position inside the fixture root.
+  mkdirSync(dirname(target), { recursive: true });
   const targetParent = relative(
     realpathSync(reproductionRoot),
     realpathSync(dirname(target)),
