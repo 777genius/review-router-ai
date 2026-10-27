@@ -3298,3 +3298,32 @@ describe("empty applicable pg_default_acl is distinct from unknown state", () =>
     expect(() => assertDefaults([row, row])).toThrow("default_acl_unresolved");
   });
 });
+
+it("diagnoses exact installed Prettier output for the checkout regression", async () => {
+  const prettier = await import("prettier");
+  const filename = join(import.meta.dirname, "render-schema-handoff-policy.test.ts");
+  const original = readFileSync(filename, "utf8");
+  const formatted = await prettier.format(original, {
+    ...(await prettier.resolveConfig(filename)),
+    filepath: filename,
+  });
+  if (original === formatted) return;
+  const directory = mkdtempSync(join(tmpdir(), "rr-prettier-diagnostic-"));
+  const target = join(directory, "formatted.ts");
+  try {
+    writeFileSync(target, formatted);
+    const { spawnSync } = await import("node:child_process");
+    const diff = spawnSync(
+      "diff",
+      ["-u", "--label", "current", "--label", "formatted", filename, target],
+      { encoding: "utf8" },
+    );
+    process.stderr.write(
+      "[RR_PRETTIER_DIAGNOSTIC]\n" +
+        diff.stdout.slice(0, 20000) +
+        "\n[/RR_PRETTIER_DIAGNOSTIC]\n",
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
