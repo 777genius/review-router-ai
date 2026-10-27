@@ -70,7 +70,6 @@
     "spike:action:e2e": "tsx spikes/github-oidc/src/action-control-plane-e2e.ts",
     "spike:review-config:e2e": "tsx spikes/github-oidc/src/review-config-override-e2e.ts",
     "spike:support-diagnostics:e2e": "tsx spikes/github-oidc/src/support-diagnostics-e2e.ts",
-    "spike:memory:e2e": "node scripts/run-memory-e2e.mjs",
     "spike:auth-workspace:e2e": "tsx spikes/github-oidc/src/auth-workspace-access-e2e.ts",
     "spike:webhook-lifecycle:e2e": "tsx spikes/github-oidc/src/webhook-lifecycle-e2e.ts",
     "spike:server": "tsx spikes/github-oidc/src/server.ts",
@@ -110,7 +109,6 @@
     "spike:repo-health:e2e": "tsx spikes/github-oidc/src/repo-health-workflow-e2e.ts",
     "spike:rate-limit:e2e": "tsx spikes/github-oidc/src/rate-limit-e2e.ts",
     "spike:distributed-lock:e2e": "tsx spikes/github-oidc/src/distributed-lock-e2e.ts",
-    "spike:github-memory:e2e": "node scripts/run-github-memory-smoke.mjs",
     "api:start": "node --conditions=production apps/api/dist/server.js",
     "release-control:start": "pnpm --filter @reviewrouter/api release-control:start",
     "release-witness:start": "pnpm --filter @reviewrouter/api release-witness:start",
@@ -154,10 +152,7 @@
     "foundation:qualify": "node scripts/provider-foundation/qualify-packed.ts && tsc -p scripts/provider-foundation/tsconfig.json && node --import tsx scripts/provider-foundation/qualify-boundaries.ts",
     "subscription-runtime:prepare": "node scripts/prepare-pinned-subscription-runtime.ts",
     "foundation:qualify-memory": "node --import tsx scripts/memory-foundation/qualify-boundaries.ts",
-    "memory:qualify-browser": "node --import tsx scripts/memory-e2e/browser-qualify.ts",
-    "memory:index": "node --import tsx apps/worker/src/memory-projection-operator.ts",
-    "memory:prepare-test-db": "node --import tsx scripts/memory-e2e/prepare-database.ts",
-    "modular:qualify": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.modular.json && vitest run packages/features/review-providers/src/composition/index.test.ts packages/features/provider-usage/src/tests/composition.test.ts packages/features/provider-accounts/src/account-limits/composition.test.ts packages/features/memory/src/composition/index.test.ts packages/features/review-statistics/src/composition/index.test.ts",
+    "modular:qualify": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.modular.json && vitest run packages/features/review-providers/src/composition/index.test.ts packages/features/provider-usage/src/tests/composition.test.ts packages/features/provider-accounts/src/account-limits/composition.test.ts packages/features/memory/src/composition/memory-knowledge-runtime.test.ts packages/features/review-statistics/src/composition/index.test.ts",
     "foundation:qualify-statistics": "node --import tsx scripts/statistics-foundation/qualify-boundaries.ts"
   },
   "dependencies": {

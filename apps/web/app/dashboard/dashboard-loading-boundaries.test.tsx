@@ -11,6 +11,23 @@ import {
 import type { DashboardWorkspaceSummary } from "./dashboard-workspace-navigation";
 import type { EffectiveReviewConfiguration } from "@reviewrouter/features-review-config";
 
+const memoryKnowledge = vi.hoisted(() => ({
+  load: vi.fn(async () => ({ workspaceId: "workspace-a", repositoryId: null })),
+}));
+vi.mock("../../src/server/dashboard-memory-knowledge", () => ({
+  loadDashboardMemoryKnowledge: memoryKnowledge.load,
+}));
+vi.mock(
+  "../../src/features/memory/interface/components/memory-knowledge-workspace",
+  () => ({
+    MemoryKnowledgeWorkspace: () => (
+      <section>
+        <h1>Approved memory</h1>
+      </section>
+    ),
+  }),
+);
+
 const fixtures = vi.hoisted(() => {
   const repository = {
     id: "repo-a",
@@ -935,7 +952,7 @@ describe("dashboard server loading boundaries", () => {
   );
 
   it.each(["knowledge", "suggestions", "table"])(
-    "renders the paused Memory route without any section IO for old mode %s",
+    "loads authorized memory through its new facade without reactivating legacy mode %s",
     async (memoryMode) => {
       const content = await DashboardSectionContent({
         context: {
@@ -967,14 +984,14 @@ describe("dashboard server loading boundaries", () => {
         workspaceKey: "acme",
       });
       const html = renderToStaticMarkup(content);
-      expect(html).toContain("In development");
-      expect(html).toContain("This section isn’t available yet.");
-      expect(html).toContain(
-        "Saved knowledge for your workspace’s code reviews.",
-      );
-      expect(html.match(/<h1\b/gu)).toHaveLength(1);
-      expect(html).not.toMatch(/<(?:form|button|input|select|textarea|a)\b/u);
+      expect(html).toContain("Approved memory");
       expect(html).not.toContain("previous-item");
+      expect(memoryKnowledge.load).toHaveBeenCalledExactlyOnceWith({
+        workspaceId: "workspace-a",
+        repositoryId: null,
+        cursor: null,
+        topicId: null,
+      });
       for (const spy of Object.values(spies)) {
         expect(spy).not.toHaveBeenCalled();
       }

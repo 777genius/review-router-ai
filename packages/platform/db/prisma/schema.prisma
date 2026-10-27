@@ -3295,6 +3295,103 @@ model WorkspaceEntitlement {
   @@index([plan, status])
 }
 
+// Product authority and delivery metadata. Current content belongs to the provider.
+// No foreign-key cascade: cleanup/revocation debt must survive product deletion.
+model MemoryKnowledgeScopeState {
+  generation  String
+  scopeKey    String
+  workspaceId String
+  epoch       BigInt   @default(0)
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@id([generation, scopeKey])
+  @@index([workspaceId])
+}
+
+model MemoryKnowledgeEntry {
+  generation          String
+  scopeKey            String
+  entryId             String
+  workspaceId         String
+  revision            Int
+  lifecycle           String
+  metadata            Json
+  pendingCommandId    String?
+  revocationCommandId String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @default(now()) @updatedAt
+
+  @@id([generation, scopeKey, entryId])
+  @@index([workspaceId, lifecycle])
+  @@index([generation, scopeKey, entryId])
+}
+
+model MemoryKnowledgeCommand {
+  id                      String   @id
+  generation              String
+  scopeKey                String
+  workspaceId             String
+  entryId                 String
+  revision                Int
+  commandKind             String
+  digest                  String
+  approval                Json
+  // Immutable approved input while unresolved; never serves any content read.
+  envelope                Json?
+  state                   String
+  safeReason              String?
+  contentApprovalRevision String
+  originalStatementAt     String?
+  deliveryExpiresAt       DateTime
+  resubmitUntil           DateTime
+  claimId                 String?
+  claimUntil              DateTime?
+  firstDispatchedAt       DateTime?
+  deliveryAttempt         Int      @default(0)
+  cleanupReceiptId        String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @default(now()) @updatedAt
+
+  @@unique([generation, scopeKey, entryId, revision])
+  @@index([generation, scopeKey, entryId, state])
+  @@index([state, deliveryExpiresAt])
+}
+
+model MemoryKnowledgeBundleReceipt {
+  id               String   @id
+  authorizationId  String
+  bindingDigest    String
+  snapshotHash     String?
+  workspaceId      String
+  receipt          Json
+  policyVersion    Int
+  eligibilityEpoch String
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+
+  @@index([expiresAt])
+  @@unique([authorizationId, snapshotHash])
+}
+
+model MemoryKnowledgeMaintenanceFence {
+  generation String   @id
+  epoch      BigInt   @default(0)
+  paused     Boolean  @default(false)
+  actor      String
+  updatedAt  DateTime @default(now()) @updatedAt
+}
+
+model MemoryKnowledgeSourceCursor {
+  key         String   @id
+  generation  String
+  workspaceId String
+  revision    String
+  sourceAt    DateTime
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@index([workspaceId])
+}
+
 model MemoryItem {
   id                  String               @id @default(cuid())
   schemaVersion       Int                  @default(1)
@@ -3327,7 +3424,6 @@ model MemoryItem {
   workspace   Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   repository  RepositoryConnection? @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   user        User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  usageEvents MemoryUsageEvent[]
 
   @@index([workspaceId, scope, status, updatedAt])
   @@index([workspaceId, repositoryId, status, updatedAt])
@@ -3422,7 +3518,6 @@ model MemoryUsageEvent {
 
   workspace  Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   repository RepositoryConnection @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  memoryItem MemoryItem           @relation(fields: [memoryItemId], references: [id], onDelete: Cascade)
 
   @@unique([dedupeKey])
   @@index([workspaceId, occurredAt])

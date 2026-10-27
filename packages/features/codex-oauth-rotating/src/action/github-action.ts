@@ -4408,6 +4408,7 @@ async function ensureFullReviewRuntimeTools(input: {
   // Preserve the isolated HOME/PATH instead of loading runner login profiles.
   await runProcess({
     command: "bash",
+    // Preserve the deliberately sanitized PATH; login Bash startup may replace it.
     args: [
       "-c",
       [

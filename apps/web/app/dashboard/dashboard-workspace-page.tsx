@@ -197,7 +197,9 @@ import {
   WorkspaceReviewSettingsForm,
 } from "./repository-policy-editor";
 import { RepositorySetupStatusRefresher } from "./repository-setup-status-refresher";
-import { MemoryDevelopmentNotice } from "./memory-development-notice";
+import { MemoryKnowledgeWorkspace } from "../../src/features/memory/interface/components/memory-knowledge-workspace";
+import { loadDashboardMemoryKnowledge } from "../../src/server/dashboard-memory-knowledge";
+import { memoryDashboardPublicError } from "../../src/features/memory/adapters/memory-dashboard-controller";
 import { DashboardActionForm } from "./dashboard-action-form";
 import { repositorySourceUrl } from "./repository-source-url";
 import { WorkspaceSourceConnectionPanel } from "./workspace-source-connection";
@@ -1266,7 +1268,37 @@ export async function DashboardSectionContent({
       />
     );
   if (selectedSection === "memory") {
-    return <MemoryDevelopmentNotice />;
+    try {
+      const page = await loadDashboardMemoryKnowledge({
+        workspaceId: selectedWorkspace.workspace.id,
+        repositoryId:
+          typeof params.memoryRepository === "string"
+            ? params.memoryRepository
+            : null,
+        cursor:
+          typeof params.memoryCursor === "string" ? params.memoryCursor : null,
+        topicId:
+          typeof params.memoryTopic === "string" ? params.memoryTopic : null,
+      });
+      return <MemoryKnowledgeWorkspace initialData={page} />;
+    } catch (error) {
+      const safe = memoryDashboardPublicError(error);
+      return (
+        <section
+          aria-labelledby="memory-unavailable-title"
+          className="max-w-3xl py-8"
+        >
+          <h1 id="memory-unavailable-title" className="text-3xl font-semibold">
+            Memory
+          </h1>
+          <p role="status" className="mt-4 text-sm leading-6 text-slate-400">
+            {safe.status === 403
+              ? "You do not have permission to view memory in this workspace."
+              : "Memory is temporarily unavailable. Please refresh this page to try again."}
+          </p>
+        </section>
+      );
+    }
   }
   if (selectedSection === "statistics") {
     return (
@@ -2205,9 +2237,9 @@ export function WorkspaceCard({
                     hint={`${supportDiagnostics.actionRunCounts.criticalFindings} critical / ${supportDiagnostics.actionRunCounts.inlineComments} inline`}
                   />
                   <SupportMetric
-                    label="Memory"
-                    value={`${supportDiagnostics.memoryCounts.items.active}/${supportDiagnostics.memoryCounts.items.total} active`}
-                    hint={`${supportDiagnostics.memoryCounts.suggestions.pending} pending / ${supportDiagnostics.memoryCounts.index.pending} indexing`}
+                    label="Previous memory"
+                    value={`${supportDiagnostics.memoryCounts.items.total} retained records`}
+                    hint="Kept for migration review"
                   />
                 </div>
                 {supportDiagnostics.recentAuditActions.length > 0 ? (

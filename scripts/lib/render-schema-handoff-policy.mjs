@@ -279,6 +279,21 @@ export const renderReviewSkillsCheckoutExtension = Object.freeze([
   }),
 ]);
 
+// Provider-owned memory adds authority and delivery metadata only. These exact
+// files belong to the application checkout, never the managed92 repair catalog.
+export const renderMemoryKnowledgeCheckoutExtension = Object.freeze([
+  Object.freeze({
+    migrationName: "000142_memory_knowledge_authority",
+    checksum:
+      "b40e545bd31f9d4cc65146c78b05afc8b662333e4945380ea4ed5f511d7ebcf9",
+  }),
+  Object.freeze({
+    migrationName: "000143_memory_maintenance_fence",
+    checksum:
+      "1f8552ab409ece31536505c42ec62f0ef3df5b6220b7caa0cb90fcb2ee8aa83e",
+  }),
+]);
+
 export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     !Array.isArray(catalog) ||
@@ -291,21 +306,44 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
-  // Catalog scan/import storage is checkout-only. Admit the exact finalized
-  // SQL and checkout152 before preserving the reviewed checkout151 boundary.
+  // Checked Skills storage is checkout-only. Remove its exact, immutable SQL
+  // identity first; the recursive checks still pin the full memory153 (or
+  // prior repository151) source manifest and never expand managed92 SQL.
   const skillsCatalogMigration = catalog.find(
     (row) => row.migrationName === "000150_skills_catalog_security",
   );
   if (skillsCatalogMigration) {
     if (
       skillsCatalogMigration.checksum !==
-        "4a5ecd80f83b0631982519fc747c411d0ed5d9b04624ee8e3d176a82ae96e4b8" ||
-      manifest(catalog) !==
-        "sha256:91bb5e51bf53be19ac6244185b4423df2bd26e7e257dfa632293c4094032fa38"
+      "4a5ecd80f83b0631982519fc747c411d0ed5d9b04624ee8e3d176a82ae96e4b8"
     )
       fail("checkout_extension");
     return partitionRenderSchemaHandoffCheckout(
       catalog.filter((row) => row !== skillsCatalogMigration),
+    );
+  }
+  const memoryKnowledgeMigrations = catalog.filter((row) =>
+    renderMemoryKnowledgeCheckoutExtension.some(
+      (extension) => extension.migrationName === row.migrationName,
+    ),
+  );
+  if (memoryKnowledgeMigrations.length > 0) {
+    if (
+      memoryKnowledgeMigrations.length !==
+        renderMemoryKnowledgeCheckoutExtension.length ||
+      memoryKnowledgeMigrations.some(
+        (row, index) =>
+          row.migrationName !==
+            renderMemoryKnowledgeCheckoutExtension[index].migrationName ||
+          row.checksum !==
+            renderMemoryKnowledgeCheckoutExtension[index].checksum,
+      ) ||
+      manifest(catalog) !==
+        "sha256:5d42e163ba89faae7c49fa4fa9ff65bc2a8b87a6774b57a5f70c6a027e4331dd"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => !memoryKnowledgeMigrations.includes(row)),
     );
   }
   // Repository-secret profile identities change a checkout-only table. Admit

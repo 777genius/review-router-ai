@@ -382,100 +382,118 @@ Recovery:
 Do not manually edit payload JSON in production. If payload migration is needed,
 ship an explicit versioned migration or a new handler version.
 
-## Balanced Memory Operational Checks
+## Memory Provider Operational Checks
 
-Use this after changing memory storage, dashboard memory actions, interaction
-commands, export, retention, diagnostics, or workflow memory wiring.
+Use this after changing memory authority, provider delivery, review admission,
+dashboard actions, export, retention or cleanup. Follow
+[ADR-031](../decisions/031-complete-memory-provider.md) and the
+[accepted replacement plan](../plans/2026-10-23-hindsight-memory-replacement.md).
+The former Prisma content/search engine and its standalone flow spike have been
+removed. V1 Action memory routes return `410 memory_protocol_retired`; their
+historical smoke is not a qualification path for the replacement.
 
-Local verification:
+### Current verification map
+
+| Layer                                      | Existing entrypoint                                                                                                                                                                                                                                                                                           | What it proves and its limit                                                                                                                                                                                                                                                     |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Policy, source authority and API contracts | `packages/features/memory/src/tests/`, `packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-access.test.ts`, `apps/api/src/review-memory-runtime.test.ts`, `apps/api/src/action-memory-v2-routes.independent.test.ts`, `apps/api/src/action-memory-command-replay.independent.test.ts` | Approved source boundaries, stable actor/scope checks, command replay, bodyless receipts and disabled behavior. Contract fixtures do not prove a deployed provider or live GitHub permissions.                                                                                   |
+| Application PostgreSQL authority           | `.github/workflows/memory-projections.yml`: Memory authority and delivery PostgreSQL contracts                                                                                                                                                                                                                | Real durable admission, command recovery, ordered delivery, maintenance transport drain, receipt verification, and transactional review lease admission/races. This job requires all four PostgreSQL suites with zero skipped tests. Provider effects are declared fixtures.     |
+| Native Hindsight lifecycle                 | `.github/workflows/hindsight-memory-qualification.yml`; [native operator guide](../../deploy/hindsight/README.md)                                                                                                                                                                                             | Exact source/SDK and hardened image, real API, two workers and PG17; native retry identity, failure/privacy sinks and physical cleanup before/after restart. Inference is deterministic and Router maintenance attestation is synthetic.                                         |
+| Paired Action / HTTP / PostgreSQL          | `.github/workflows/ci.yml`: Source and Certification Checks, Paired Review Action memory HTTP and PostgreSQL proof; [paired guide](../../scripts/memory-e2e/README.md)                                                                                                                                        | Actual immutable Action source, memory capture/Codex prepare, TCP HTTP, Prisma lease admission, lost ACK identity, uncharged stale-input rejection and memory-free retry/evidence commit. Provider and inference are deterministic; the test driver invokes fallback explicitly. |
+| Rendered management UI                     | `.github/workflows/memory-projections.yml`: Memory rendered UI desktop narrow and keyboard; `scripts/memory-ui-e2e/browser-qualify.ts`                                                                                                                                                                        | Actual rendered desktop/narrow/keyboard interactions using synthetic HTTP fixtures. Screen/cache tests cover admitted-forget redaction and late-read cancellation; browser fixtures do not establish authorization, persistence or native deletion.                              |
+
+For fast source/contract checks, use existing files rather than a retired spike:
 
 ```bash
-pnpm typecheck
-pnpm test
-pnpm lint
+pnpm exec vitest run \
+  packages/features/memory/src/tests/memory-knowledge.test.ts \
+  packages/features/memory/src/tests/memory-policy-config.test.ts \
+  packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-access.test.ts \
+  apps/api/src/review-memory-runtime.test.ts \
+  apps/api/src/action-memory-v2-routes.independent.test.ts \
+  apps/api/src/action-memory-command-replay.independent.test.ts
 pnpm architecture:check
-pnpm spike:memory:e2e
 ```
 
-Expected result:
+The PostgreSQL and paired suites are opt-in. A passing run with skipped database
+tests is not evidence: use the workflows' required environment, disposable
+database preparation and zero-skip assertions. The authority job uses its own
+historical-catalog fixture path; the paired proof requires a separate database
+with the full current catalog. Its harness truncates review data. See the paired
+guide before running it locally; never point these suites at shared or production
+data.
 
-1. migrations apply to a fresh temporary Postgres database
-2. action session OIDC exchange succeeds
-3. maintainer/admin memory writes succeed and member/author writes fail closed
-4. raw code, diffs, prompts, model output, and raw conversations are rejected
-5. confirmed repository/workspace memory appears in the scoped action bundle
-6. disabled, expired, deleted, cross-repository, and cross-workspace memory does not appear in the bundle
-7. delete redacts memory body/source and confirmed origin suggestion body/source
-8. export includes active, disabled, and expired memory only
-9. export excludes deleted rows, embeddings, raw source excerpts, and source hashes
-10. audit, outbox, usage telemetry, and diagnostics contain ids, hashes, counts, status, and versions only
-11. workspace flag `balanced_memory=false` returns an empty degraded runtime bundle and `memory_disabled` for new writes
+Record the candidate SHA, paired Action SHA, immutable native image inputs and
+completed evidence artifacts. The current security map is
+[Memory provider security verification](../security/balanced-memory-beta-security-matrix.md).
+Passing one layer does not satisfy the others. Production activation separately
+requires the plan's selected-model/egress/corpus qualification, capacity and
+restore/deletion-fence evidence, live T0/source-authority proof, and explicit
+legacy-data/cleanup-debt disposition. Unit tests, deterministic inference and the
+historical smoke below do not establish those gates.
 
-Real GitHub memory smoke:
+### Emergency disable and recovery
 
-```bash
-REVIEW_ROUTER_GITHUB_MEMORY_E2E=1 \
-  REVIEW_ROUTER_GITHUB_MEMORY_E2E_PR=<open-disposable-pr-number> \
-  pnpm spike:github-memory:e2e
-```
+1. Set `REVIEW_ROUTER_MEMORY_ENABLED=0` on every API, worker and web writer/reader,
+   then restart those processes. This flag takes precedence over
+   `REVIEW_ROUTER_DISABLE_MEMORY`; do not leave a conflicting explicit enable.
+2. Verify new review bundles are memory-free, new memory writes are disabled,
+   and ordinary reviews continue. Keep the current provider configuration,
+   generation and credentials available for authorized management/export and
+   revocation/forget coordination; changing the provider to `disabled` is a
+   different operation and removes provider body access.
+3. Inspect command IDs, revisions, safe states and counts. Preserve
+   `unknown`/`cleanup_pending` operations and their deletion obligations;
+   timeouts, cancelled native requests and expired delivery envelopes do not
+   establish non-execution or completed cleanup.
+4. Re-enable only after the relevant candidate checks above, the accepted
+   cutover gates and an authorized production smoke have been reviewed. Do not
+   restore the retired V1 protocol or custom engine as a fallback.
 
-Expected target state:
+If memory bundle requests fail, reviews continue without memory. Check current
+review authorization, workspace/repository source access, policy, maintenance
+pause, generation and provider readiness. There is no Prisma text/search fallback.
+Use safe command status and worker diagnostics; never paste memory bodies,
+source comments, code, diffs, prompts, model output or credentials into tickets.
 
-1. use existing disposable repository `777genius/review-router-saas-e2e`
-2. do not create a new GitHub repository unless isolation is explicitly required
-3. the disposable repository default branch contains `.github/workflows/reviewrouter-interaction.yml`
-4. `/rr remember repo <marker>` creates a confirmed repository memory item
-5. natural-language remember creates a pending suggestion, and `/rr remember mem_suggestion_*` confirms it
-6. the confirmed item appears in a later scoped action memory bundle
-7. `/rr forget mem_*` removes it from future bundles
-8. bot comments do not trigger a new interaction run
-9. PR author/member denial is either verified with a second non-maintainer actor or covered by `pnpm spike:memory:e2e`
+If an authorized export is incomplete or too large, preserve its omission/error
+result and the existing bounds. Current text comes from the provider and is
+rechecked against current authority; delivery envelopes are not an export source.
+Retained settled inactive entries may be exported, while forgotten or unsettled
+bodies remain fenced. A larger export needs a separately approved bounded
+delivery path rather than an increased synchronous response limit.
 
-Latest production evidence, 2026-05-16:
+### Deletion requests
 
-- disposable repo PR: <https://github.com/777genius/review-router-saas-e2e/pull/4>
-- marker: `rr-memory-smoke-1778965736933`
-- direct save run: <https://github.com/777genius/review-router-saas-e2e/actions/runs/25973002113>
-- natural-language suggestion run: <https://github.com/777genius/review-router-saas-e2e/actions/runs/25973014137>
-- suggestion confirmation run: <https://github.com/777genius/review-router-saas-e2e/actions/runs/25973027526>
-- forget/delete run: <https://github.com/777genius/review-router-saas-e2e/actions/runs/25973034902>
-- final smoke status: `passed`
+1. Submit an authorized Forget through the current management/command path.
+   Durable admission immediately fences new reviews and body-bearing
+   management/export reads; distinguish a confirmed command from an unconfirmed
+   transport failure.
+2. Track the same command ID and scope. An admitted Forget remains
+   `cleanup_pending` until exact physical-cleanup proof is verified. Dashboard
+   redaction and exclusion from new reviews are not physical deletion receipts.
+3. Follow [the native operator guide](../../deploy/hindsight/README.md) and the
+   current Router maintenance/operator routes: pause and drain admitted
+   transports, stop every native executor and verify database sessions closed,
+   inventory and clean source/history/operation payloads, restart, verify absence,
+   and settle the signed proof against the current generation and pause epoch.
+4. Preserve unresolved older writes and remote cleanup debt. Automatic expiry
+   revokes eligibility; generic terminal-row pruning cannot establish physical
+   forget or silently discard these obligations.
 
-The smoke runner is intentionally opt-in because it posts PR comments and
-triggers GitHub Actions. Use `REVIEW_ROUTER_GITHUB_MEMORY_E2E_PREFLIGHT_ONLY=1`
-to validate repository/workflow readiness without posting comments. The
-preflight also rejects stale workflows/runtimes that do not expose the memory
-candidate and command endpoints, so it fails before side effects if the action
-runtime has not been updated.
+### Historical legacy smoke evidence — 2026-05-16
 
-Emergency disable:
+The previous custom-engine release recorded a successful live GitHub smoke in
+the existing disposable repository. These records preserve that release's
+history; they do not qualify ADR-031 or authorize running its removed commands.
 
-1. set `REVIEW_ROUTER_MEMORY_ENABLED=0|false|off` or `REVIEW_ROUTER_DISABLE_MEMORY=1|true|on` on API and web services
-2. restart services so `MemoryPolicyConfigPort` composition picks up the flag
-3. verify action memory bundle responses are empty/degraded and new writes return `memory_disabled`
-4. keep dashboard delete/disable/export available for authorized cleanup of existing memory
-5. unset the flag only after `pnpm spike:memory:e2e` and production smoke checks pass
+- Disposable repo PR: <https://github.com/777genius/review-router-saas-e2e/pull/4>
+- Marker: `rr-memory-smoke-1778965736933`
+- Direct save run: <https://github.com/777genius/review-router-saas-e2e/actions/runs/25973002113>
+- Natural-language suggestion run: <https://github.com/777genius/review-router-saas-e2e/actions/runs/25973014137>
+- Suggestion confirmation run: <https://github.com/777genius/review-router-saas-e2e/actions/runs/25973027526>
+- Forget/delete run: <https://github.com/777genius/review-router-saas-e2e/actions/runs/25973034902>
 
-If memory bundle requests fail:
-
-1. review continues without memory because memory bundle fetch is non-blocking
-2. check action session validity, workspace id, repository id, and memory feature entitlement
-3. inspect support diagnostics counts, not memory bodies
-4. confirm search index degradation falls back to canonical storage
-5. check worker logs for safe memory outbox handler summaries
-
-If export returns `memory_export_too_large`:
-
-1. do not increase sync response size in the dashboard route
-2. use the JSON manifest counts to estimate scope only when available
-3. build or enable an async admin export workflow with expiring storage before supporting larger exports
-4. keep deleted rows, embeddings, raw source excerpts, and source hashes excluded
-5. audit only export id, counts, checksum, format, and safe status metadata
-
-If a user requests deletion:
-
-1. disable runtime exposure immediately through dashboard delete or the normalized interaction command
-2. verify deleted memory no longer appears in action bundles
-3. verify source/body redaction on the canonical memory item and linked confirmed suggestion
-4. let terminal retention prune hard-delete old deleted/expired rows
-5. do not paste memory body, source comments, code, diffs, prompts, or model output into support tickets
+Any new live SCM smoke must use the current protocol in an existing disposable
+repository and keep mutations/PR comments explicitly authorized. Historical
+successful runs do not prove current deployment state.

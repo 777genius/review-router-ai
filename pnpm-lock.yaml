@@ -478,6 +478,9 @@ importers:
       '@electric-sql/pglite':
         specifier: 0.4.1
         version: 0.4.1
+      '@electric-sql/pglite-socket':
+        specifier: 0.1.1
+        version: 0.1.1(@electric-sql/pglite@0.4.1)
 
   apps/worker:
     dependencies:
@@ -784,9 +787,6 @@ importers:
       '@get-modular/core':
         specifier: 0.7.0
         version: 0.7.0
-      '@infinity-context/sdk':
-        specifier: https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz
-        version: https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz
       '@prisma/client':
         specifier: ^7.8.0
         version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
@@ -799,10 +799,22 @@ importers:
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../shared
+      '@vectorize-io/hindsight-client':
+        specifier: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz
+        version: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz
     devDependencies:
+      '@prisma/adapter-pg':
+        specifier: 7.8.0
+        version: 7.8.0
       '@reviewrouter/platform-db':
         specifier: workspace:*
         version: link:../../platform/db
+      '@types/pg':
+        specifier: 8.23.1
+        version: 8.23.1
+      pg:
+        specifier: 8.23.0
+        version: 8.23.0
       vitest:
         specifier: 4.1.10
         version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.1.5(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.23.1)(yaml@2.9.0))
@@ -2178,12 +2190,6 @@ packages:
     engines: {node: '>=20.9.0'}
     cpu: [x64]
     os: [win32]
-
-  '@infinity-context/sdk@https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz':
-    resolution: {integrity: sha512-PpLM+eW84DRsNhYDvX02Y+v5hOCuQJMHJoNinyUwclHtizmpDEh4aBcRsCEvgqyQqYh2pD+zsu3VAZdKfbjKAg==, tarball: https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz}
-    version: 0.2.4
-    engines: {node: '>=20'}
-    hasBin: true
 
   '@isaacs/cliui@8.0.2':
     resolution: {integrity: sha512-O8jcjabXaleOG9DQ0+ARXWZBTfnP4WNAqzuiJK7ll44AmxGKv/J2M4TPjxjY3znBCfvBXFzucm1twdyFybFqEA==}
@@ -3858,6 +3864,10 @@ packages:
   '@typespec/ts-http-runtime@0.3.9':
     resolution: {integrity: sha512-edSdeAqkdxBVzA1yL1LrLCml1YjyCVvPMtMqJpbF+6K609tHe8V6sQUzFQSGcYNhcuhOceZtjvN32+mpIth30A==}
     engines: {node: '>=22.0.0'}
+
+  '@vectorize-io/hindsight-client@https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz':
+    resolution: {integrity: sha512-Tqx7SKEbKZnf9L1tnla3vIDNt83eKFCneHe8GsSQJbmAn0rY8U13fT9Jg5ZP8G/phns5Fk5tZWmagaUlVTzpCA==, tarball: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz}
+    version: 1.1.0
 
   '@vioxen/subscription-runtime@https://codeload.github.com/777genius/ar/tar.gz/83a7329f4383b05ac5c39356b79f82f029182d42':
     resolution: {gitHosted: true, integrity: sha512-KdfSyEbRxxOmmSVYbgEpci21m9IlqQFN6DmumgqJ1+ONBnpL+o8RSIjkHT4OAr/UseC03sdxtig4F34ST8rx3A==, tarball: https://codeload.github.com/777genius/ar/tar.gz/83a7329f4383b05ac5c39356b79f82f029182d42}
@@ -7360,8 +7370,6 @@ snapshots:
   '@img/sharp-win32-x64@0.35.3':
     optional: true
 
-  '@infinity-context/sdk@https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz': {}
-
   '@isaacs/cliui@8.0.2':
     dependencies:
       string-width: 5.1.2
@@ -8830,6 +8838,8 @@ snapshots:
       tslib: 2.8.1
     transitivePeerDependencies:
       - supports-color
+
+  '@vectorize-io/hindsight-client@https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz': {}
 
   '@vioxen/subscription-runtime@https://codeload.github.com/777genius/ar/tar.gz/83a7329f4383b05ac5c39356b79f82f029182d42(@anthropic-ai/sdk@0.117.1(zod@4.4.2))(supports-color@8.1.1)(vitest@4.1.10(@types/node@22.19.17)(jsdom@29.1.1)(vite@8.1.5(@types/node@22.19.17)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.23.1)(yaml@2.9.0)))':
     dependencies:

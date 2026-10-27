@@ -11,6 +11,8 @@ import {
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { checkMemoryHostBoundaries } from "./host-boundaries.ts";
+
 type Report = {
   readonly outcome: string;
   readonly capabilities: readonly {
@@ -39,115 +41,176 @@ const evidencePath = join(
   root,
   "tmp/memory-foundation/boundary-qualification.json",
 );
-const fixtureName = "__foundation_memory_qualification__.ts";
-const memoryRoot = "packages/features/memory/src";
 const fixtures: readonly Fixture[] = [
   {
     name: "allowed-application-domain-contract",
-    path: `${memoryRoot}/application/${fixtureName}`,
+    path: "packages/features/memory/src/application/__foundation_memory_qualification__.ts",
     source:
-      "import type { MemoryItemSnapshot } from '../domain/memory-item';\nexport type Snapshot = MemoryItemSnapshot;\n",
+      "import type { MemoryKnowledgeEntryMetadata } from '../domain/memory-knowledge';\nexport type Snapshot = MemoryKnowledgeEntryMetadata;\n",
     rule: null,
   },
   {
-    name: "allowed-sdk-in-infinity-adapter",
-    path: `${memoryRoot}/infrastructure/infinity/${fixtureName}`,
-    source: "import '@infinity-context/sdk';\n",
+    name: "allowed-sdk-in-hindsight-adapter",
+    path: "packages/features/memory/src/infrastructure/hindsight/__foundation_memory_qualification__.ts",
+    source: "import '@vectorize-io/hindsight-client';\n",
     rule: null,
   },
   {
     name: "forbidden-sdk-domain-value",
-    path: `${memoryRoot}/domain/${fixtureName}`,
-    source: "import '@infinity-context/sdk';\n",
+    path: "packages/features/memory/src/domain/__foundation_memory_qualification__.ts",
+    source: "import '@vectorize-io/hindsight-client';\n",
     rule: "forbidden-package-dependency",
   },
   {
     name: "forbidden-sdk-application-type",
-    path: `${memoryRoot}/application/${fixtureName}`,
+    path: "packages/features/memory/src/application/__foundation_memory_qualification__.ts",
     source:
-      "import type * as Sdk from '@infinity-context/sdk';\nexport type LeakedSdk = typeof Sdk;\n",
+      "import type * as Sdk from '@vectorize-io/hindsight-client';\nexport type LeakedSdk = typeof Sdk;\n",
     rule: "forbidden-package-dependency",
   },
   {
     name: "forbidden-sdk-application-reexport",
-    path: `${memoryRoot}/application/${fixtureName}`,
-    source: "export * from '@infinity-context/sdk';\n",
+    path: "packages/features/memory/src/application/__foundation_memory_qualification__.ts",
+    source: "export * from '@vectorize-io/hindsight-client';\n",
     rule: "forbidden-package-dependency",
   },
   {
     name: "forbidden-sdk-application-type-reexport",
-    path: `${memoryRoot}/application/${fixtureName}`,
-    source: "export type * from '@infinity-context/sdk';\n",
+    path: "packages/features/memory/src/application/__foundation_memory_qualification__.ts",
+    source: "export type * from '@vectorize-io/hindsight-client';\n",
     rule: "forbidden-package-dependency",
   },
   {
     name: "forbidden-application-outward-import",
-    path: `${memoryRoot}/application/${fixtureName}`,
-    source: "import '../infrastructure/prisma/prisma-memory-search-index';\n",
+    path: "packages/features/memory/src/application/__foundation_memory_qualification__.ts",
+    source:
+      "import '../infrastructure/prisma/prisma-memory-knowledge-store';\n",
     rule: "forbidden-boundary-dependency",
   },
   {
     name: "forbidden-domain-application-import",
-    path: `${memoryRoot}/domain/${fixtureName}`,
-    source: "import '../application/ports/memory-search-index-port';\n",
+    path: "packages/features/memory/src/domain/__foundation_memory_qualification__.ts",
+    source: "import '../application/ports/memory-knowledge-provider-port';\n",
     rule: "forbidden-boundary-dependency",
   },
   {
     name: "forbidden-get-modular-application-import",
-    path: `${memoryRoot}/application/${fixtureName}`,
+    path: "packages/features/memory/src/application/__foundation_memory_qualification__.ts",
     source: "import '@get-modular/core';\n",
     rule: "forbidden-package-dependency",
   },
   {
     name: "allowed-public-core-type-export",
-    path: `${memoryRoot}/index.ts`,
+    path: "packages/features/memory/src/index.ts",
     source:
-      "\nexport type { MemorySearchReaderPort as QualificationReader } from './application/ports/memory-search-index-port';\n",
+      "\nexport type { MemoryKnowledgeReader as QualificationReader } from './application/ports/memory-knowledge-provider-port';\n",
     rule: null,
     append: true,
   },
   {
     name: "forbidden-public-concrete-value-reexport",
-    path: `${memoryRoot}/index.ts`,
+    path: "packages/features/memory/src/index.ts",
     source:
-      "\nexport { PrismaMemorySearchIndex as QualificationPrisma } from './infrastructure/prisma/prisma-memory-search-index';\n",
+      "\nexport { PrismaMemoryKnowledgeStore as QualificationPrisma } from './infrastructure/prisma/prisma-memory-knowledge-store';\n",
     rule: "forbidden-boundary-dependency",
     append: true,
   },
   {
     name: "forbidden-public-concrete-type-reexport",
-    path: `${memoryRoot}/index.ts`,
+    path: "packages/features/memory/src/index.ts",
     source:
-      "\nexport type { PrismaMemorySearchIndex as QualificationPrisma } from './infrastructure/prisma/prisma-memory-search-index';\n",
+      "\nexport type { PrismaMemoryKnowledgeStore as QualificationPrisma } from './infrastructure/prisma/prisma-memory-knowledge-store';\n",
     rule: "forbidden-boundary-dependency",
     append: true,
   },
   {
-    name: "forbidden-shared-projection-sdk-import",
-    path: `${memoryRoot}/infrastructure/projection/${fixtureName}`,
-    source: "import '@infinity-context/sdk';\n",
+    name: "forbidden-prisma-sdk-import",
+    path: "packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-store.ts",
+    source: "import '@vectorize-io/hindsight-client';\n",
     rule: "forbidden-package-dependency",
+    append: true,
   },
   {
     name: "forbidden-prisma-specific-engine-import",
-    path: `${memoryRoot}/infrastructure/prisma/prisma-memory-projection-receipt-store.ts`,
+    path: "packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-store.ts",
     source:
-      "\nexport type { InfinityMemorySearchIndex as QualificationInfinity } from '../infinity/infinity-memory-search-index';\n",
+      "\nexport type { HindsightMemoryProvider as QualificationHindsight } from '../hindsight/hindsight-memory-provider';\n",
     rule: "forbidden-boundary-dependency",
+    append: true,
+  },
+  {
+    name: "forbidden-sdk-application-dynamic-import",
+    path: "packages/features/memory/src/application/__foundation_memory_qualification__.ts",
+    source:
+      "export const native = () => import('@vectorize-io/hindsight-client');\n",
+    rule: "forbidden-package-dependency",
+  },
+  {
+    name: "allowed-host-neutral-composition-type",
+    path: "apps/api/src/memory-operator-routes.ts",
+    source:
+      "\nexport type { MemoryKnowledgeRuntime as QualificationRuntime } from '@reviewrouter/features-memory/composition';\n",
+    rule: null,
+    append: true,
+  },
+  {
+    name: "forbidden-api-host-sdk-value",
+    path: "apps/api/src/memory-operator-routes.ts",
+    source: "\nimport '@vectorize-io/hindsight-client';\n",
+    rule: "memory-host.sdk-import",
+    append: true,
+  },
+  {
+    name: "forbidden-worker-host-sdk-type",
+    path: "apps/worker/src/memory-knowledge-worker.ts",
+    source: "\nexport type * from '@vectorize-io/hindsight-client';\n",
+    rule: "memory-host.sdk-import",
+    append: true,
+  },
+  {
+    name: "forbidden-api-host-native-concrete-type",
+    path: "apps/api/src/memory-operator-routes.ts",
+    source:
+      "\nexport type { HindsightMemoryProvider as QualificationNative } from '../../../packages/features/memory/src/infrastructure/hindsight/hindsight-memory-provider';\n",
+    rule: "memory-host.concrete-provider-import",
+    append: true,
+  },
+  {
+    name: "forbidden-api-host-dynamic-sdk-import",
+    path: "apps/api/src/memory-operator-routes.ts",
+    source:
+      "\nexport const qualificationLoad = () => import('@vectorize-io/hindsight-client');\n",
+    rule: "memory-host.sdk-import",
+    append: true,
+  },
+  {
+    name: "forbidden-worker-host-sdk-require",
+    path: "apps/worker/src/memory-knowledge-worker.ts",
+    source:
+      "\nconst qualificationNative = require('@vectorize-io/hindsight-client');\n",
+    rule: "memory-host.sdk-import",
+    append: true,
+  },
+  {
+    name: "forbidden-production-import-of-native-proof-test-exception",
+    path: "apps/api/src/memory-operator-routes.ts",
+    source: "\nimport './memory-operator-routes.test';\n",
+    rule: "memory-host.test-fixture-import",
     append: true,
   },
   {
     name: "unknown-memory-source",
-    path: `${memoryRoot}/${fixtureName}`,
+    path: "packages/features/memory/src/__foundation_memory_qualification__.ts",
     source: "export const unowned = true;\n",
     rule: "unclassified-source-file",
   },
 ];
 
-function check(): {
+async function check(): Promise<{
   readonly report: Report;
   readonly exitCode: number | null;
-} {
+  readonly hostGuardExitCode: number;
+}> {
   const result = spawnSync(
     process.execPath,
     [cli, "check", "--consumer", root, "--json"],
@@ -168,14 +231,23 @@ function check(): {
     report.outcome === "passed" ? 0 : 1,
     result.stderr || result.stdout,
   );
-  return { report, exitCode: result.status };
+  const hostDiagnostics = await checkMemoryHostBoundaries(root);
+  return {
+    report: {
+      ...report,
+      outcome: hostDiagnostics.length ? "violations" : report.outcome,
+      capabilities: [...report.capabilities, { diagnostics: hostDiagnostics }],
+    },
+    exitCode: result.status,
+    hostGuardExitCode: hostDiagnostics.length ? 1 : 0,
+  };
 }
 
 // Exercise the real installed CLI against the complete existing governed source
 // universe. Run sequentially: these fixtures deliberately make that check fail.
 // Never run another architecture/qualification check concurrently with this one.
 rmSync(evidencePath, { force: true });
-const baseline = check();
+const baseline = await check();
 assert.equal(
   baseline.report.outcome,
   "passed",
@@ -185,7 +257,8 @@ const results: {
   name: string;
   path: string;
   expectedRule: string | null;
-  exitCode: number | null;
+  foundationExitCode: number | null;
+  hostGuardExitCode: number;
 }[] = [];
 for (const fixture of fixtures) {
   const path = join(root, fixture.path);
@@ -195,18 +268,20 @@ for (const fixture of fixtures) {
   // restored only if their bytes still match this run's expected modification.
   writeFileSync(path, fixture.source, { flag: fixture.append ? "a" : "wx" });
   try {
-    const { report, exitCode } = check();
+    const { report, exitCode, hostGuardExitCode } = await check();
     if (fixture.rule === null) {
       assert.equal(report.outcome, "passed", JSON.stringify(report));
     } else {
       assert.equal(report.outcome, "violations", JSON.stringify(report));
+      const expectedRule = fixture.rule.startsWith("memory-host.")
+        ? fixture.rule
+        : `architecture.source-dependencies.${fixture.rule}`;
       assert(
         report.capabilities
           .flatMap(({ diagnostics }) => diagnostics)
           .some(
             (diagnostic) =>
-              diagnostic.ruleId ===
-                `architecture.source-dependencies.${fixture.rule}` &&
+              diagnostic.ruleId === expectedRule &&
               diagnostic.location?.path === fixture.path,
           ),
         JSON.stringify(report),
@@ -216,7 +291,8 @@ for (const fixture of fixtures) {
       name: fixture.name,
       path: fixture.path,
       expectedRule: fixture.rule,
-      exitCode,
+      foundationExitCode: exitCode,
+      hostGuardExitCode,
     });
   } finally {
     assert.equal(
@@ -228,7 +304,7 @@ for (const fixture of fixtures) {
     else writeFileSync(path, original);
   }
 }
-const final = check();
+const final = await check();
 assert.equal(final.report.outcome, "passed", JSON.stringify(final.report));
 mkdirSync(join(root, "tmp/memory-foundation"), { recursive: true });
 writeFileSync(
@@ -239,8 +315,10 @@ writeFileSync(
       policySha256: createHash("sha256")
         .update(readFileSync(join(root, policyPath)))
         .digest("hex"),
-      baselineExitCode: baseline.exitCode,
-      finalExitCode: final.exitCode,
+      foundationBaselineExitCode: baseline.exitCode,
+      foundationFinalExitCode: final.exitCode,
+      hostGuardBaselineExitCode: baseline.hostGuardExitCode,
+      hostGuardFinalExitCode: final.hostGuardExitCode,
       cases: results,
     },
     null,
@@ -248,5 +326,5 @@ writeFileSync(
   ),
 );
 console.log(
-  `Foundation memory qualification passed: ${results.length} real-workspace cases.`,
+  `Foundation + supplemental host AST memory qualification passed: ${results.length} real-workspace cases.`,
 );

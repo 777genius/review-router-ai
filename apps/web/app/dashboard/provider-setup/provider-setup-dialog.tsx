@@ -302,16 +302,21 @@ function ProviderSetupDialogBody({
     },
     [onLockedChange],
   );
-  // A save that moves on replaces the content under the focus: take the
-  // focus to the step now shown instead of losing it to the page.
+  // A save that moves on replaces the content under the focus. Move focus in
+  // the next frame, after the dialog's queued opening autofocus has run.
   const stepNav = useRef<HTMLOListElement>(null);
   const handledStep = useRef(step);
   useEffect(() => {
     if (step === handledStep.current) return;
     handledStep.current = step;
-    stepNav.current
-      ?.querySelector<HTMLButtonElement>('[aria-current="step"]')
-      ?.focus();
+    // A completed save/result focuses its own content, not a stale step button.
+    if (step === "results" || step === "workspace_saved") return;
+    const frame = requestAnimationFrame(() => {
+      stepNav.current
+        ?.querySelector<HTMLButtonElement>('[aria-current="step"]')
+        ?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
   }, [step]);
   // What the repository uses after a save, before the page refreshes.
   const [saved, setSaved] = useState<{

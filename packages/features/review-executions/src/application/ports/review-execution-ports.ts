@@ -39,6 +39,7 @@ export enum ReviewExecutionAdmissionStatus {
 }
 
 export enum ReviewInvocationLeaseAcquireStatus {
+  InputStale = "input_stale",
   Acquired = "acquired",
   Restored = "restored",
   Busy = "busy",
