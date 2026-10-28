@@ -306,6 +306,22 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Checked Skills storage is checkout-only. Remove its exact, immutable SQL
+  // identity first; the recursive checks still pin the full memory153 (or
+  // prior repository151) source manifest and never expand managed92 SQL.
+  const skillsCatalogMigration = catalog.find(
+    (row) => row.migrationName === "000150_skills_catalog_security",
+  );
+  if (skillsCatalogMigration) {
+    if (
+      skillsCatalogMigration.checksum !==
+      "4a5ecd80f83b0631982519fc747c411d0ed5d9b04624ee8e3d176a82ae96e4b8"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== skillsCatalogMigration),
+    );
+  }
   const memoryKnowledgeMigrations = catalog.filter((row) =>
     renderMemoryKnowledgeCheckoutExtension.some(
       (extension) => extension.migrationName === row.migrationName,

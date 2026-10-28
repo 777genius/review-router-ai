@@ -95,15 +95,29 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps checkout153 memory admission and reviewed checkout151/148 separate from historical96 and managed92", () => {
+  it("keeps checkout154 Skills and memory admission and reviewed checkout151/148 separate from historical96 and managed92", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
-    const checkout153 = names.map((migrationName) => ({
+    const checkout154 = names.map((migrationName) => ({
       migrationName,
       checksum: sha256(
         readFileSync(`${migrationRoot}/${migrationName}/migration.sql`),
       ).slice(7),
     }));
+    expect(checkout154).toHaveLength(154);
+    const skillsCatalogExtension: Row = {
+      migrationName: "000150_skills_catalog_security",
+      checksum:
+        "4a5ecd80f83b0631982519fc747c411d0ed5d9b04624ee8e3d176a82ae96e4b8",
+    };
+    expect(
+      checkout154.find(
+        (row) => row.migrationName === skillsCatalogExtension.migrationName,
+      ),
+    ).toEqual(skillsCatalogExtension);
+    const checkout153 = checkout154.filter(
+      (row) => row.migrationName !== skillsCatalogExtension.migrationName,
+    );
     expect(checkout153).toHaveLength(153);
     const memoryExtension: readonly Row[] = [
       {
@@ -170,8 +184,18 @@ describe("canonical release migration transition", () => {
     expect(manifest(checkout153)).toBe(
       "sha256:5d42e163ba89faae7c49fa4fa9ff65bc2a8b87a6774b57a5f70c6a027e4331dd",
     );
+    expect(partitionRenderSchemaHandoffCheckout(checkout154)).toEqual(managed);
     expect(partitionRenderSchemaHandoffCheckout(checkout153)).toEqual(managed);
     expect(partitionRenderSchemaHandoffCheckout(checkout151)).toEqual(managed);
+    expect(() =>
+      partitionRenderSchemaHandoffCheckout(
+        checkout154.map((row) =>
+          row.migrationName === skillsCatalogExtension.migrationName
+            ? { ...row, checksum: "0".repeat(64) }
+            : row,
+        ),
+      ),
+    ).toThrow("checkout_extension");
     for (const extension of memoryExtension)
       expect(() =>
         partitionRenderSchemaHandoffCheckout(
@@ -262,7 +286,7 @@ describe("canonical release migration transition", () => {
     expect(manifest(historicalFull)).toBe(
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
-    expect(checkout153).toEqual(readRenderManagedCheckoutInventory());
+    expect(checkout154).toEqual(readRenderManagedCheckoutInventory());
     expect(full.slice(-35).map((row) => row.migrationName)).toEqual([
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",

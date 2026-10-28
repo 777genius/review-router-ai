@@ -16,6 +16,8 @@ export interface OutboxEventStatusQueryPort {
 export interface OutboxEventRepositoryPort {
   enqueue(event: NewOutboxEvent): Promise<{ readonly created: boolean }>;
   recoverStaleProcessing(input: {
+    /** Omitted preserves ordinary recovery; an empty list recovers nothing. */
+    readonly eventTypes?: readonly string[];
     readonly now: Date;
     readonly legacyStaleBefore: Date;
     readonly nextAttemptAt: Date;

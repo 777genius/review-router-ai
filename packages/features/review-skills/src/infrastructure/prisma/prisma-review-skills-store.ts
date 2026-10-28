@@ -125,7 +125,7 @@ async function role(
   return rows[0]?.role ?? null;
 }
 const admin = (value: string | null) => value === "owner" || value === "admin";
-async function member(
+export async function requireReviewSkillsMember(
   reader: Reader,
   workspaceId: string,
   actor: C.ReviewSkillsActor,
@@ -137,6 +137,7 @@ async function member(
   if (!current || (requireAdmin && !admin(current))) error(Code.Forbidden);
   return current;
 }
+const member = requireReviewSkillsMember;
 async function manage(
   reader: Reader,
   workspaceId: string,
@@ -227,7 +228,8 @@ function paginate<T>(
 }
 export class PrismaReviewSkillsStore implements ReviewSkillsStore {
   constructor(readonly prisma: PrismaClient) {}
-  private async transaction<T>(
+  /** Same-feature commands reuse the workspace fence and bounded SSI retry. */
+  async transaction<T>(
     workspaceIds: readonly string[],
     run: (tx: Tx) => Promise<T>,
     requireAllActive = true,
@@ -411,35 +413,43 @@ export class PrismaReviewSkillsStore implements ReviewSkillsStore {
     return this.document(this.prisma, i);
   }
   async createSkill(i: Arg<"createSkill">) {
-    return this.transaction([i.workspaceId], async (tx) => {
-      await member(tx, i.workspaceId, i.actor, false, true);
-      // The immutable first revision identifies this creation intent even after
-      // subsequent edits. The workspace fence serializes concurrent exact retries.
-      const prior = (
-        await q<C.ReviewSkillContent & { id: string; deletedAt: Date | null }>(
-          tx,
-          Prisma.sql`SELECT s."id",s."deletedAt",v."name",v."description",v."instructions" FROM "ReviewSkill" s JOIN "ReviewSkillRevision" v ON v."skillId"=s."id" AND v."revisionNumber"=1 WHERE s."sourceWorkspaceId"=${i.workspaceId} AND s."authorUserId"=${i.actor.userId} AND s."createOperationId"=${i.createOperationId}`,
-        )
-      )[0];
-      if (prior) {
-        if (prior.deletedAt) error(Code.Unavailable);
-        if (
-          prior.name !== i.content.name ||
-          prior.description !== i.content.description ||
-          prior.instructions !== i.content.instructions
-        )
-          error(Code.Conflict);
-        return this.document(tx, { ...i, skillId: prior.id });
-      }
-      const skillId = randomUUID(),
-        revisionId = randomUUID();
-      await tx.$executeRaw`INSERT INTO "ReviewSkill" ("id","sourceWorkspaceId","authorUserId","headRevisionId","createOperationId") VALUES (${skillId},${i.workspaceId},${i.actor.userId},${revisionId},${i.createOperationId})`;
-      await this.insertRevision(tx, skillId, revisionId, 1, i.content);
-      await this.audit(tx, i.workspaceId, i.actor, "created", skillId, {
-        revisionId,
-      });
-      return this.document(tx, { ...i, skillId });
+    return this.transaction([i.workspaceId], (tx) =>
+      this.createSkillInTransaction(tx, i),
+    );
+  }
+  async loadSkillInTransaction(tx: Tx, i: Arg<"loadSkill">) {
+    await member(tx, i.workspaceId, i.actor);
+    return this.document(tx, i);
+  }
+  /** The caller holds the standard workspace fence; no nested transaction. */
+  async createSkillInTransaction(tx: Tx, i: Arg<"createSkill">) {
+    await member(tx, i.workspaceId, i.actor, false, true);
+    // The immutable first revision identifies this creation intent even after
+    // subsequent edits. The workspace fence serializes concurrent exact retries.
+    const prior = (
+      await q<C.ReviewSkillContent & { id: string; deletedAt: Date | null }>(
+        tx,
+        Prisma.sql`SELECT s."id",s."deletedAt",v."name",v."description",v."instructions" FROM "ReviewSkill" s JOIN "ReviewSkillRevision" v ON v."skillId"=s."id" AND v."revisionNumber"=1 WHERE s."sourceWorkspaceId"=${i.workspaceId} AND s."authorUserId"=${i.actor.userId} AND s."createOperationId"=${i.createOperationId}`,
+      )
+    )[0];
+    if (prior) {
+      if (prior.deletedAt) error(Code.Unavailable);
+      if (
+        prior.name !== i.content.name ||
+        prior.description !== i.content.description ||
+        prior.instructions !== i.content.instructions
+      )
+        error(Code.Conflict);
+      return this.document(tx, { ...i, skillId: prior.id });
+    }
+    const skillId = randomUUID(),
+      revisionId = randomUUID();
+    await tx.$executeRaw`INSERT INTO "ReviewSkill" ("id","sourceWorkspaceId","authorUserId","headRevisionId","createOperationId") VALUES (${skillId},${i.workspaceId},${i.actor.userId},${revisionId},${i.createOperationId})`;
+    await this.insertRevision(tx, skillId, revisionId, 1, i.content);
+    await this.audit(tx, i.workspaceId, i.actor, "created", skillId, {
+      revisionId,
     });
+    return this.document(tx, { ...i, skillId });
   }
   private async insertRevision(
     tx: Reader,

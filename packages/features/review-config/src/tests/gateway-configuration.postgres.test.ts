@@ -102,9 +102,9 @@ describe.skipIf(!enabled)(
         const names = (await readdir(migrations))
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
-        // Replay every current migration, including API key storage profiles.
-        expect(names).toHaveLength(153);
-        expect(names.slice(-16)).toEqual([
+        // Replay every current migration, including memory authority and checked Skills imports.
+        expect(names).toHaveLength(154);
+        expect(names.slice(-17)).toEqual([
           "000136_review_skills",
           "000137_review_skills_capture",
           "000138_pr_description",
@@ -121,6 +121,7 @@ describe.skipIf(!enabled)(
           "000147_review_skills_mutation_identity",
           "000148_lifecycle_verification",
           "000149_api_key_repository_secret_profiles",
+          "000150_skills_catalog_security",
         ]);
         let legacyBefore: unknown;
         let legacyBefore146: unknown;
