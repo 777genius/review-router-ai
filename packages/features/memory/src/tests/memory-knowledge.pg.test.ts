@@ -755,6 +755,323 @@ describe.skipIf(!databaseUrl)(
       expect(count?.count).toBe(1);
     });
 
+    function automaticFixture(
+      options: {
+        readonly current?: () => Promise<boolean>;
+        readonly reader?: MemoryProviderEntry;
+        readonly statements?: readonly string[];
+      } = {},
+    ) {
+      const sources = new PrismaMemoryAutomaticSourceStore(prisma);
+      const current = { current: options.current ?? (async () => true) };
+      const knowledge = new MemoryKnowledgeService({
+        generation,
+        providerProfileVersion: "test_profile",
+        store,
+        reader: {
+          read: async () => options.reader ?? null,
+          list: async () => ({ entries: [], nextCursor: null }),
+          recall: async () => [],
+        },
+        writer: {} as never,
+        observer: {} as never,
+        access: {
+          authorize: async () => {},
+          verifySource: async (input) => input.source,
+          sourceApplicable: async () => true,
+        },
+        policy: { getPolicy: async () => createMemoryPolicyConfig() },
+        quota: {
+          getWorkspaceQuota: async () => ({
+            activeItems: { limit: 4 },
+            pendingSuggestions: { limit: 100 },
+          }),
+        },
+        automaticSources: { store: sources, current },
+        now: () => now,
+      });
+      const preview = vi.fn(
+        async (input: { source: { id: string; revision: string } }) => ({
+          status: "complete" as const,
+          source: input.source,
+          statements: (
+            options.statements ?? [
+              "First exact selected observation.",
+              "Second exact selected observation.",
+            ]
+          ).map((body) => ({ body })),
+        }),
+      );
+      return {
+        sources,
+        knowledge,
+        preview,
+        automatic: new MemoryAutomaticSourceService({
+          generation,
+          providerProfileVersion: "test_profile",
+          sources,
+          knowledge,
+          current,
+          preview: { preview },
+          now: () => now,
+        }),
+      };
+    }
+    const automaticControls = () => ({
+      deadlineAt: new Date(now.getTime() + 10000),
+    });
+
+    it("atomically rolls back the cohort, old retirement, and every child effect when the second envelope insert fails", async () => {
+      const first = await autoReserve(1, 1);
+      await publishAuto(first.commands[0]!, first.state.binding);
+      const fixture = automaticFixture();
+      await prisma.$executeRawUnsafe(
+        `CREATE FUNCTION reject_second_selected_child() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW."commandKind"='save' AND (SELECT count(*) FROM "MemoryKnowledgeCommand" WHERE "commandKind"='save' AND "id"<> '${first.commands[0]!.commandId}') >= 1 THEN RAISE EXCEPTION 'injected_child_admission_failure'; END IF; RETURN NEW; END $$`,
+      );
+      await prisma.$executeRawUnsafe(
+        `CREATE TRIGGER reject_second_selected_child BEFORE INSERT ON "MemoryKnowledgeCommand" FOR EACH ROW EXECUTE FUNCTION reject_second_selected_child()`,
+      );
+      try {
+        await expect(
+          fixture.automatic.learn(automaticInput(2), automaticControls()),
+        ).rejects.toThrow();
+      } finally {
+        await prisma.$executeRawUnsafe(
+          'DROP TRIGGER reject_second_selected_child ON "MemoryKnowledgeCommand"',
+        );
+        await prisma.$executeRawUnsafe(
+          "DROP FUNCTION reject_second_selected_child()",
+        );
+      }
+      const source = await fixture.sources.lookup(
+        scope,
+        first.input.source.sourceId,
+      );
+      expect(source?.binding.cohortId).toBe(first.state.binding.cohortId);
+      expect(source?.state).toBe("needs_refresh"); // changed source is withdrawn before native work
+      expect(
+        (await store.findEntry(first.commands[0]!.ref, generation))?.lifecycle,
+      ).toBe("active");
+      const [rows] = await prisma.$queryRaw<
+        {
+          commands: number;
+          entries: number;
+          mappings: number;
+          outbox: number;
+        }[]
+      >(Prisma.sql`
+        SELECT (SELECT count(*)::int FROM "MemoryKnowledgeCommand") AS commands,
+        (SELECT count(*)::int FROM "MemoryKnowledgeEntry") AS entries,
+        (SELECT count(*)::int FROM "MemoryAutomaticEntry") AS mappings,
+        (SELECT count(*)::int FROM "OutboxEvent") AS outbox`);
+      expect(rows).toEqual({ commands: 1, entries: 1, mappings: 1, outbox: 1 });
+      expect(fixture.preview).toHaveBeenCalledTimes(1);
+    });
+
+    it("recovers the complete durable selected operation set after a crash immediately after atomic commit without another preview", async () => {
+      const fixture = automaticFixture();
+      const input = automaticInput(1);
+      const original = store.admitAutomaticSelection.bind(store);
+      const fault = vi
+        .spyOn(store, "admitAutomaticSelection")
+        .mockImplementationOnce(async (admission) => {
+          await original(admission);
+          throw new Error("process_exit_after_commit_before_learning_response");
+        });
+      try {
+        await expect(
+          fixture.automatic.learn(input, automaticControls()),
+        ).rejects.toThrow("process_exit_after_commit");
+      } finally {
+        fault.mockRestore();
+      }
+      const durable = (await fixture.sources.lookup(
+        scope,
+        input.source.sourceId,
+      ))!;
+      expect(durable.state).toBe("pending");
+      expect(durable.entryIds).toHaveLength(2);
+      const [rows] = await prisma.$queryRaw<
+        { commands: number; outbox: number; selectedBodies: string[] }[]
+      >(Prisma.sql`
+        SELECT (SELECT count(*)::int FROM "MemoryKnowledgeCommand") AS commands,
+          (SELECT count(*)::int FROM "OutboxEvent") AS outbox,
+          (SELECT array_agg("envelope"->>'body' ORDER BY "envelope"->>'body') FROM "MemoryKnowledgeCommand") AS "selectedBodies"`);
+      expect(rows).toEqual({
+        commands: 2,
+        outbox: 2,
+        selectedBodies: [
+          "First exact selected observation.",
+          "Second exact selected observation.",
+        ],
+      });
+      const replay = await fixture.automatic.learn(input, automaticControls());
+      expect(replay.state).toBe("queued");
+      expect(replay.operations).toHaveLength(2);
+      expect(fixture.preview).toHaveBeenCalledTimes(1);
+      const effects = await fixture.knowledge.automaticOperations(
+        {
+          actor: input.sourceActor,
+          scope,
+          sourceId: input.source.sourceId,
+          processingId: input.processingId,
+        },
+        automaticControls(),
+      );
+      expect(effects).toEqual(replay.operations);
+      expect(JSON.stringify(effects)).not.toContain("exact selected");
+      expect(
+        await fixture.knowledge.automaticOperations(
+          {
+            actor: input.sourceActor,
+            scope,
+            sourceId: "github-node:OTHER",
+            processingId: input.processingId,
+          },
+          automaticControls(),
+        ),
+      ).toEqual([]);
+      await store.scheduleDueDeliveries({ generation, now, limit: 10 });
+      for (const operation of effects) {
+        const claimed = await store.claim({
+          scope,
+          generation,
+          commandId: operation.id,
+          now,
+          claimId: randomUUID(),
+          claimUntil: new Date(now.getTime() + 10000),
+        });
+        expect(claimed?.command.envelope?.kind).toBe("save");
+        const saved = claimed!.command.envelope! as Extract<
+          MemoryKnowledgeCommand,
+          { kind: "save" }
+        >;
+        await store.settle({
+          commandId: operation.id,
+          scope,
+          generation,
+          claimId: claimed!.claimId,
+          now,
+          result: {
+            commandId: operation.id,
+            state: "published",
+            verifiedEntry: {
+              ref: saved.ref,
+              body: saved.body,
+              bodyDigest: createMemoryBodyHash(saved.body),
+              contentApprovalRevision: operation.revision,
+              kind: saved.knowledgeKind,
+              topicIds: saved.topicIds,
+              statementAt: saved.source.statementAt,
+              sourceFactIds: ["fact"],
+            },
+          },
+        });
+      }
+      expect(
+        (await fixture.sources.lookup(scope, input.source.sourceId))?.state,
+      ).toBe("active");
+      // Accepted-operation lookup remains available after source supersession and envelope expiry.
+      await autoReserve(2, 0);
+      await prisma.$executeRaw(
+        Prisma.sql`UPDATE "MemoryKnowledgeCommand" SET "envelope"=NULL`,
+      );
+      expect(
+        await fixture.knowledge.automaticOperations(
+          {
+            actor: input.sourceActor,
+            scope,
+            sourceId: input.source.sourceId,
+            processingId: input.processingId,
+          },
+          automaticControls(),
+        ),
+      ).toEqual(
+        replay.operations.map((operation) => ({
+          ...operation,
+          state: "published",
+        })),
+      );
+    });
+
+    it("terminalizes a legacy pending selection with missing child envelopes instead of replaying queued forever", async () => {
+      const input = automaticInput(1);
+      const sources = new PrismaMemoryAutomaticSourceStore(prisma);
+      const state = await sources.reserve({
+        input,
+        generation,
+        expectedPriorEpoch: null,
+        entryIds: ["missing_child"],
+        bodyDigests: ["d".repeat(64)],
+        now,
+      });
+      const fixture = automaticFixture();
+      const replay = await fixture.automatic.learn(input, automaticControls());
+      expect(replay.state).toBe("needs_refresh");
+      expect(replay.operations).toEqual([]);
+      expect(fixture.preview).not.toHaveBeenCalled();
+      const after = await sources.lookup(scope, input.source.sourceId);
+      expect(after?.state).toBe("needs_refresh");
+      expect(after?.binding.epoch).not.toBe(state.binding.epoch);
+    });
+
+    it("does not mutate a newer current cohort when an old incoming source fails its first authoritative check", async () => {
+      const newer = await autoReserve(2, 0);
+      const fixture = automaticFixture({ current: async () => false });
+      expect(
+        (await fixture.automatic.learn(automaticInput(1), automaticControls()))
+          .state,
+      ).toBe("needs_refresh");
+      expect(
+        await fixture.sources.lookup(scope, newer.input.source.sourceId),
+      ).toEqual(newer.state);
+      expect(fixture.preview).not.toHaveBeenCalled();
+    });
+
+    it("an old asynchronous eligibility failure cannot invalidate the newer activated cohort or advance its epoch", async () => {
+      const old = await autoReserve(1, 1);
+      const command = old.commands[0]!;
+      await publishAuto(command, old.state.binding);
+      let started!: () => void;
+      let finish!: (current: boolean) => void;
+      const entered = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const checked = new Promise<boolean>((resolve) => {
+        finish = resolve;
+      });
+      const fixture = automaticFixture({
+        current: async () => {
+          started();
+          return checked;
+        },
+        reader: {
+          ref: command.ref,
+          body: command.body,
+          bodyDigest: createMemoryBodyHash(command.body),
+          contentApprovalRevision: "1",
+          kind: command.knowledgeKind,
+          topicIds: command.topicIds,
+          statementAt: command.source.statementAt,
+          sourceFactIds: ["fact"],
+        },
+      });
+      const reading = fixture.knowledge.read(
+        { actor: old.input.sourceActor, ref: command.ref },
+        automaticControls(),
+      );
+      const rejected = expect(reading).rejects.toMatchObject({
+        code: "conflict",
+      });
+      await entered;
+      const newer = await autoReserve(2, 0);
+      finish(false);
+      await rejected;
+      expect(
+        await fixture.sources.lookup(scope, newer.input.source.sourceId),
+      ).toEqual(newer.state);
+    });
+
     function forgetCommand(
       original: MemoryKnowledgeCommand,
     ): MemoryKnowledgeCommand {

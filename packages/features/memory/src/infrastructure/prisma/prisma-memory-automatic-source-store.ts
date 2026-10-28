@@ -79,53 +79,9 @@ export class PrismaMemoryAutomaticSourceStore implements MemoryAutomaticSourceSt
   async reserve(
     input: Parameters<MemoryAutomaticSourceStore["reserve"]>[0],
   ): Promise<MemoryAutomaticSourceState> {
-    const { scope, source } = input.input;
-    const key = automaticMemoryLineageKey(scope, source.sourceId);
-    if (
-      input.entryIds.length > 4 ||
-      input.entryIds.length !== input.bodyDigests.length
-    )
-      throw new MemoryKnowledgeError("invalid_input");
-    return this.prisma.$transaction(async (tx) => {
-      await lockMemoryKnowledgeScopes(tx, [scope], input.generation);
-      await sourceLock(tx, key);
-      const prior = await read(tx, key);
-      const cohortId = memoryKnowledgeDigest([
-        "automatic-cohort",
-        input.input.processingId,
-      ]);
-      if (prior?.suppressed || prior?.binding.cohortId === cohortId)
-        return prior;
-      if ((prior?.binding.epoch ?? null) !== input.expectedPriorEpoch)
-        throw new MemoryKnowledgeError("conflict");
-      const binding: MemoryAutomaticSourceBinding = {
-        lineageKey: key,
-        cohortId,
-        epoch: String(BigInt(prior?.binding.epoch ?? "0") + 1n),
-        sourceRevision: source.revision,
-        policyRevision: input.input.policyRevision,
-        sourceActorId: input.input.sourceActor.id,
-        observedCommitSha: input.input.headSha,
-      };
-      const state: MemoryAutomaticSourceState = {
-        binding,
-        scope,
-        sourceId: source.sourceId,
-        sourceUpdatedAt: source.updatedAt,
-        source,
-        state: input.entryIds.length ? "pending" : "active",
-        suppressed: false,
-        suppressionEpoch: prior?.suppressionEpoch ?? "0",
-        entryIds: input.entryIds,
-      };
-      await write(tx, state, input.now);
-      for (const [i, entryId] of input.entryIds.entries())
-        await tx.$executeRaw(
-          Prisma.sql`INSERT INTO "MemoryAutomaticEntry" ("generation","scopeKey","entryId","lineageKey","cohortId","epoch","bodyDigest","ownership") VALUES (${input.generation},${memoryKnowledgeScopeKey(scope)},${entryId},${key},${cohortId},${binding.epoch},${input.bodyDigests[i]!},'automatic') ON CONFLICT DO NOTHING`,
-        );
-      await bump(tx, scope, input.now, input.generation);
-      return state;
-    });
+    return this.prisma.$transaction((tx) =>
+      reserveAutomaticMemorySource(tx, input),
+    );
   }
   async invalidate(
     input: Parameters<MemoryAutomaticSourceStore["invalidate"]>[0],
@@ -137,6 +93,14 @@ export class PrismaMemoryAutomaticSourceStore implements MemoryAutomaticSourceSt
       await sourceLock(tx, key);
       const prior = await read(tx, key);
       if (!prior) return;
+      if (
+        input.expectedBinding &&
+        (prior.binding.lineageKey !== input.expectedBinding.lineageKey ||
+          prior.binding.cohortId !== input.expectedBinding.cohortId ||
+          prior.binding.epoch !== input.expectedBinding.epoch ||
+          prior.binding.sourceRevision !== input.expectedBinding.sourceRevision)
+      )
+        return;
       if (
         prior.state === "needs_refresh" &&
         (input.cause !== "deleted" || prior.suppressed)
@@ -280,6 +244,58 @@ export class PrismaMemoryAutomaticSourceStore implements MemoryAutomaticSourceSt
       binding,
     );
   }
+}
+
+/** Uses the caller's command transaction; no native or source I/O. */
+export async function reserveAutomaticMemorySource(
+  tx: Prisma.TransactionClient,
+  input: Parameters<MemoryAutomaticSourceStore["reserve"]>[0],
+): Promise<MemoryAutomaticSourceState> {
+  const { scope, source } = input.input;
+  const key = automaticMemoryLineageKey(scope, source.sourceId);
+  if (
+    input.entryIds.length > 4 ||
+    input.entryIds.length !== input.bodyDigests.length ||
+    new Set(input.entryIds).size !== input.entryIds.length
+  )
+    throw new MemoryKnowledgeError("invalid_input");
+  await lockMemoryKnowledgeScopes(tx, [scope], input.generation);
+  await sourceLock(tx, key);
+  const prior = await read(tx, key);
+  const cohortId = memoryKnowledgeDigest([
+    "automatic-cohort",
+    input.input.processingId,
+  ]);
+  if (prior?.suppressed || prior?.binding.cohortId === cohortId) return prior;
+  if ((prior?.binding.epoch ?? null) !== input.expectedPriorEpoch)
+    throw new MemoryKnowledgeError("conflict");
+  const binding: MemoryAutomaticSourceBinding = {
+    lineageKey: key,
+    cohortId,
+    epoch: String(BigInt(prior?.binding.epoch ?? "0") + 1n),
+    sourceRevision: source.revision,
+    policyRevision: input.input.policyRevision,
+    sourceActorId: input.input.sourceActor.id,
+    observedCommitSha: input.input.headSha,
+  };
+  const state: MemoryAutomaticSourceState = {
+    binding,
+    scope,
+    sourceId: source.sourceId,
+    sourceUpdatedAt: source.updatedAt,
+    source,
+    state: input.entryIds.length ? "pending" : "active",
+    suppressed: false,
+    suppressionEpoch: prior?.suppressionEpoch ?? "0",
+    entryIds: input.entryIds,
+  };
+  await write(tx, state, input.now);
+  for (const [i, entryId] of input.entryIds.entries())
+    await tx.$executeRaw(
+      Prisma.sql`INSERT INTO "MemoryAutomaticEntry" ("generation","scopeKey","entryId","lineageKey","cohortId","epoch","bodyDigest","ownership") VALUES (${input.generation},${memoryKnowledgeScopeKey(scope)},${entryId},${key},${cohortId},${binding.epoch},${input.bodyDigests[i]!},'automatic') ON CONFLICT DO NOTHING`,
+    );
+  await bump(tx, scope, input.now, input.generation);
+  return state;
 }
 
 /** The host calls under its existing scope locks inside the authoritative grant transaction. No source/native I/O. */

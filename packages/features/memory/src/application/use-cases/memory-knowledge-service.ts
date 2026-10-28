@@ -240,6 +240,46 @@ export class MemoryKnowledgeService {
       throw new MemoryKnowledgeError("forbidden");
     return this.mutate(command, controls, { automaticSource: binding });
   }
+  /** Prevalidate every frozen child before the owning store commits the cohort and all effects. */
+  async admitAutomaticSelection(
+    input: {
+      readonly reservation: Parameters<
+        MemoryKnowledgeStore["admitAutomaticSelection"]
+      >[0]["reservation"];
+      readonly children: readonly Extract<
+        MemoryKnowledgeCommand,
+        { kind: "save" }
+      >[];
+      readonly retirements: readonly {
+        readonly command: MemoryKnowledgeCommand & { kind: "retire" };
+        readonly binding: MemoryAutomaticSourceBinding;
+      }[];
+    },
+    controls: MemoryRequestControls,
+  ) {
+    const children = [];
+    for (const command of input.children) {
+      if (
+        command.knowledgeKind !== "observation" ||
+        command.ref.scope.kind !== "repository"
+      )
+        throw new MemoryKnowledgeError("forbidden");
+      children.push(await this.prepareMutation(command, controls));
+    }
+    const retirements = [];
+    for (const item of input.retirements)
+      retirements.push(
+        await this.prepareMutation(item.command, controls, {
+          internalRetirement: item.binding,
+        }),
+      );
+    this.check(controls);
+    return this.dependencies.store.admitAutomaticSelection({
+      reservation: input.reservation,
+      children,
+      retirements,
+    });
+  }
   async retireAutomatic(
     command: MemoryKnowledgeCommand & { readonly kind: "retire" },
     binding: MemoryAutomaticSourceBinding,
@@ -270,6 +310,19 @@ export class MemoryKnowledgeService {
       readonly internalRetirement?: MemoryAutomaticSourceBinding;
     } = {},
   ): Promise<MemoryKnowledgeOperation> {
+    return this.dependencies.store.admit(
+      await this.prepareMutation(input, controls, authority),
+    );
+  }
+
+  private async prepareMutation(
+    input: MemoryKnowledgeCommand,
+    controls: MemoryRequestControls,
+    authority: {
+      readonly automaticSource?: MemoryAutomaticSourceBinding;
+      readonly internalRetirement?: MemoryAutomaticSourceBinding;
+    } = {},
+  ): Promise<Parameters<MemoryKnowledgeStore["admit"]>[0]> {
     this.check(controls);
     let command = normalizeMemoryKnowledgeCommand(input);
     if (
@@ -373,7 +426,7 @@ export class MemoryKnowledgeService {
     const retryMs = this.dependencies.resubmitWindowMs ?? 0;
     if (retryMs < 0 || retryMs > retentionMs)
       throw new MemoryKnowledgeError("invalid_input");
-    return this.dependencies.store.admit({
+    return {
       ...authority,
       command,
       digest: memoryKnowledgeCommandDigest(command),
@@ -382,6 +435,29 @@ export class MemoryKnowledgeService {
       resubmitUntil: new Date(now.getTime() + retryMs),
       activeEntryLimit: quota.activeItems.limit,
       pendingCommandLimit: 100,
+    };
+  }
+
+  /** Read-only association recovery for an already accepted automatic-learning operation. */
+  async automaticOperations(
+    input: {
+      readonly actor: MemoryActor;
+      readonly scope: MemoryKnowledgeScope;
+      readonly sourceId: string;
+      readonly processingId: string;
+    },
+    controls: MemoryRequestControls,
+  ): Promise<readonly MemoryKnowledgeOperation[]> {
+    this.check(controls);
+    await this.dependencies.access.authorize(
+      { actor: input.actor, scope: input.scope, action: "read" },
+      controls,
+    );
+    return this.dependencies.store.findAutomaticOperations({
+      scope: input.scope,
+      generation: this.dependencies.generation,
+      sourceId: input.sourceId,
+      processingId: input.processingId,
     });
   }
 
@@ -1188,6 +1264,7 @@ export class MemoryKnowledgeService {
         scope: metadata.ref.scope,
         sourceId: metadata.source.sourceId,
         cause: "unavailable",
+        expectedBinding: state.binding,
         now: this.now(),
       });
       return false;

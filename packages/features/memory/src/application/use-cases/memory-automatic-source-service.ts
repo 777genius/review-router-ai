@@ -6,6 +6,7 @@ import {
 } from "../../domain/memory-body";
 import {
   MemoryKnowledgeError,
+  automaticMemoryChildCommandId,
   memoryKnowledgeDigest,
   memoryKnowledgeScopeKey,
   type MemoryKnowledgeCommand,
@@ -76,8 +77,31 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
       input.source.sourceId,
     );
     if (prior?.suppressed) return outcome("suppressed", prior.entryIds);
-    // Replay never consumes another native inference, even after delivery envelopes were purged.
-    if (prior?.binding.cohortId === cohortId)
+    // Replay restores existing durable effects and never consumes another native inference.
+    if (prior?.binding.cohortId === cohortId) {
+      const operations = await this.dependencies.knowledge.automaticOperations(
+        {
+          actor: input.sourceActor,
+          scope: input.scope,
+          sourceId: input.source.sourceId,
+          processingId: input.processingId,
+        },
+        controls,
+      );
+      // Legacy interrupted reservations cannot reconstruct lost bytes. Withdraw truthfully.
+      if (
+        prior.state === "pending" &&
+        operations.length !== prior.entryIds.length
+      ) {
+        await this.dependencies.sources.invalidate({
+          scope: input.scope,
+          sourceId: input.source.sourceId,
+          cause: "unavailable",
+          expectedBinding: prior.binding,
+          now: this.now(),
+        });
+        return outcome("needs_refresh", prior.entryIds, operations);
+      }
       return outcome(
         prior.state === "active"
           ? "active"
@@ -85,22 +109,9 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
             ? "needs_refresh"
             : "queued",
         prior.entryIds,
+        operations,
       );
-    if (prior && prior.source.revision !== input.source.revision)
-      await this.revoke(
-        {
-          scope: input.scope,
-          sourceId: input.source.sourceId,
-          cause: "changed",
-        },
-        controls,
-      );
-    const expectedPrior = await this.dependencies.sources.lookup(
-      input.scope,
-      input.source.sourceId,
-    );
-    if (expectedPrior?.suppressed)
-      return outcome("suppressed", expectedPrior.entryIds);
+    }
     await this.dependencies.knowledge.authorizeAutomaticSource(
       input.sourceActor,
       input.scope,
@@ -120,6 +131,27 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
         controls,
       );
     if (!(await current())) return outcome("needs_refresh");
+    // An old accepted source may observe a newer cursor after its earlier host check.
+    // It may mutate only the cursor it observed, after proving its own revision current.
+    if (prior && prior.source.revision !== input.source.revision)
+      await this.dependencies.sources.invalidate({
+        scope: input.scope,
+        sourceId: input.source.sourceId,
+        cause: "changed",
+        expectedBinding: prior.binding,
+        now: this.now(),
+      });
+    const expectedPrior = await this.dependencies.sources.lookup(
+      input.scope,
+      input.source.sourceId,
+    );
+    if (expectedPrior?.suppressed)
+      return outcome("suppressed", expectedPrior.entryIds);
+    if (
+      expectedPrior?.binding.cohortId !== prior?.binding.cohortId ||
+      expectedPrior?.binding.sourceRevision !== prior?.binding.sourceRevision
+    )
+      return outcome("needs_refresh");
     const selected = await this.dependencies.preview.preview(
       {
         scope: memoryKnowledgeScopeKey(input.scope),
@@ -154,21 +186,12 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
       (_, i) =>
         `auto_${memoryKnowledgeDigest([input.processingId, i]).slice(0, 48)}`,
     );
-    const reserved = await this.dependencies.sources.reserve({
-      input,
-      generation: this.dependencies.generation,
-      expectedPriorEpoch: expectedPrior?.binding.epoch ?? null,
-      entryIds: ids,
-      bodyDigests: selected.statements.map((s) => createMemoryBodyHash(s.body)),
-      now: this.now(),
-    });
-    if (reserved.suppressed) return outcome("suppressed");
     const approval = {
       actor: input.sourceActor,
       approvedAt: this.now().toISOString(),
       authorityRevision: `automatic:${input.policyRevision}`,
     };
-    const operations = [];
+    const retirements = [];
     // Withdrawn old children use the existing CAS/retire owner. Ownership transfer wins a race.
     if (prior)
       for (const entryId of prior.entryIds) {
@@ -183,28 +206,23 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
           entry.automaticSource.cohortId !== prior.binding.cohortId
         )
           continue;
-        try {
-          await this.dependencies.knowledge.retireAutomatic(
-            {
-              kind: "retire",
-              commandId: childUuid(input.processingId, entryId),
-              ref,
-              expectedRevision: entry.revision,
-              generation: this.dependencies.generation,
-              providerProfileVersion: this.dependencies.providerProfileVersion,
-              approval,
-            },
-            prior.binding,
-            controls,
-          );
-        } catch (error) {
-          if (
-            !(error instanceof MemoryKnowledgeError) ||
-            error.code !== "conflict"
-          )
-            throw error;
-        }
+        retirements.push({
+          command: {
+            kind: "retire" as const,
+            commandId: automaticMemoryChildCommandId(
+              input.processingId,
+              entryId,
+            ),
+            ref,
+            expectedRevision: entry.revision,
+            generation: this.dependencies.generation,
+            providerProfileVersion: this.dependencies.providerProfileVersion,
+            approval,
+          },
+          binding: prior.binding,
+        });
       }
+    const children = [];
     for (const [index, statement] of selected.statements.entries()) {
       const ref: MemoryEntryRef = {
         type: "entry",
@@ -213,7 +231,7 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
       };
       const command: Extract<MemoryKnowledgeCommand, { kind: "save" }> = {
         kind: "save",
-        commandId: childUuid(input.processingId, index),
+        commandId: automaticMemoryChildCommandId(input.processingId, index),
         ref,
         expectedRevision: null,
         generation: this.dependencies.generation,
@@ -230,15 +248,27 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
         },
         temporalMode: "preserve_original",
       };
-      operations.push(
-        await this.dependencies.knowledge.saveAutomatic(
-          command,
-          reserved.binding,
-          controls,
-        ),
-      );
+      children.push(command);
     }
-    return outcome(ids.length ? "queued" : "active", ids, operations);
+    const reserved = await this.dependencies.knowledge.admitAutomaticSelection(
+      {
+        reservation: {
+          input,
+          generation: this.dependencies.generation,
+          expectedPriorEpoch: expectedPrior?.binding.epoch ?? null,
+          entryIds: ids,
+          bodyDigests: selected.statements.map((s) =>
+            createMemoryBodyHash(s.body),
+          ),
+          now: this.now(),
+        },
+        children,
+        retirements,
+      },
+      controls,
+    );
+    if (reserved.source.suppressed) return outcome("suppressed");
+    return outcome(ids.length ? "queued" : "active", ids, reserved.operations);
   }
   async revoke(
     input: Parameters<AutomaticMemoryLearningPort["revoke"]>[0],
@@ -248,8 +278,4 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
       throw new MemoryKnowledgeError("deadline_exceeded");
     await this.dependencies.sources.invalidate({ ...input, now: this.now() });
   }
-}
-function childUuid(processingId: string, index: number | string): string {
-  const hex = memoryKnowledgeDigest(["automatic-command", processingId, index]);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }

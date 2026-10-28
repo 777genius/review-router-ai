@@ -96,3 +96,52 @@ it("ordinary source lifecycle uses exact chunks and exposes current native readb
     await engine.listSources({ scope: "notebook", limit: 10 }, controls),
   ).toEqual({ sources: [source.ref], nextCursor: null });
 });
+
+it.each([null, false, [], 0, "scalar"].map((value) => ({ value })))(
+  "rejects malformed successful native payload $value rather than treating it as source absence",
+  async ({ value }) => {
+    const engine = new HindsightMemoryStore({
+      baseUrl: "http://fixture.invalid",
+      apiKey: "synthetic",
+      bankForScope: (scope) => scope,
+      exactStatementStrategy: "exact-statements",
+      fetch: async () =>
+        new Response(JSON.stringify(value), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    });
+    const controls = { deadlineAt: new Date(Date.now() + 5000) };
+    for (const request of [
+      () => engine.readSource({ scope: "notebook", id: "note-1" }, controls),
+      () => engine.listSources({ scope: "notebook", limit: 10 }, controls),
+      () => engine.operation({ scope: "notebook", id: "operation" }, controls),
+      () =>
+        engine.recallEvidence(
+          { scope: "notebook", query: "timestamps", limit: 2 },
+          controls,
+        ),
+    ])
+      await expect(request()).rejects.toMatchObject({ code: "unavailable" });
+  },
+);
+
+it("keeps HTTP404 source absence distinct from malformed HTTP200", async () => {
+  const engine = new HindsightMemoryStore({
+    baseUrl: "http://fixture.invalid",
+    apiKey: "synthetic",
+    bankForScope: (scope) => scope,
+    exactStatementStrategy: "exact-statements",
+    fetch: async () =>
+      new Response(JSON.stringify({ detail: "not_found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      }),
+  });
+  expect(
+    await engine.readSource(
+      { scope: "notebook", id: "missing" },
+      { deadlineAt: new Date(Date.now() + 5000) },
+    ),
+  ).toBeNull();
+});

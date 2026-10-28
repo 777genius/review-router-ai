@@ -8,6 +8,7 @@ on:
     paths:
       - deploy/hindsight/**
       - scripts/hindsight-e2e/**
+      - packages/context-memory/**
       - packages/features/memory/src/infrastructure/hindsight/**
       - packages/features/memory/src/infrastructure/config/memory-provider-config.ts
       - packages/features/memory/src/application/ports/memory-knowledge-provider-port.ts
@@ -19,6 +20,7 @@ on:
     paths:
       - deploy/hindsight/**
       - scripts/hindsight-e2e/**
+      - packages/context-memory/**
       - packages/features/memory/src/infrastructure/hindsight/**
       - packages/features/memory/src/infrastructure/config/memory-provider-config.ts
       - packages/features/memory/src/application/ports/memory-knowledge-provider-port.ts

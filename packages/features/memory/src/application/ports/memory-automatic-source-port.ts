@@ -80,6 +80,8 @@ export interface MemoryAutomaticSourceStore {
     readonly scope: MemoryKnowledgeScope;
     readonly sourceId: string;
     readonly cause: "deleted" | "unavailable" | "changed";
+    /** Async observations may withdraw only the exact source cursor they checked. */
+    readonly expectedBinding?: MemoryAutomaticSourceBinding;
     readonly now: Date;
   }): Promise<void>;
   recoverAvailability(input: {

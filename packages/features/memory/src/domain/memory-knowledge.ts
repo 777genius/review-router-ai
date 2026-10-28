@@ -388,6 +388,15 @@ export function memoryKnowledgeCommandDigest(
   return memoryKnowledgeDigest(normalizeMemoryKnowledgeCommand(command));
 }
 
+/** Stable identity shared by automatic admission and read-only accepted-operation recovery. */
+export function automaticMemoryChildCommandId(
+  processingId: string,
+  index: number | string,
+): string {
+  const hex = memoryKnowledgeDigest(["automatic-command", processingId, index]);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
 export function memoryKnowledgeBodyMatches(
   body: string,
   metadata: MemoryKnowledgeEntryMetadata,

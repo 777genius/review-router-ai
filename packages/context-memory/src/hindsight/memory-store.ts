@@ -78,7 +78,9 @@ export class HindsightMemoryStore
       if (
         !result.response?.ok ||
         result.error !== undefined ||
-        result.data === undefined
+        !result.data ||
+        typeof result.data !== "object" ||
+        Array.isArray(result.data)
       )
         throw new MemoryEngineError("unavailable");
       return result.data;
@@ -104,7 +106,7 @@ export class HindsightMemoryStore
       controls,
       true,
     );
-    if (!document) return null;
+    if (document === null) return null;
     if (
       document.id !== ref.id ||
       document.bank_id !== this.path(ref.scope).bank_id ||
@@ -112,6 +114,8 @@ export class HindsightMemoryStore
       !Array.isArray(document.tags) ||
       document.tags.some((tag) => typeof tag !== "string") ||
       !document.document_metadata ||
+      typeof document.document_metadata !== "object" ||
+      Array.isArray(document.document_metadata) ||
       Object.values(document.document_metadata).some(
         (value) => typeof value !== "string",
       )
@@ -153,11 +157,14 @@ export class HindsightMemoryStore
       controls,
       true,
     );
-    if (!page) return { sources: [], nextCursor: null };
+    if (page === null) return { sources: [], nextCursor: null };
     if (
       !Array.isArray(page.items) ||
       page.items.length > input.limit ||
-      page.items.some((item) => typeof item.id !== "string")
+      page.items.some(
+        (item) =>
+          !item || typeof item !== "object" || typeof item.id !== "string",
+      )
     )
       throw new MemoryEngineError("incomplete");
     return {
@@ -223,7 +230,24 @@ export class HindsightMemoryStore
       controls,
       true,
     );
-    if (!status || status.status === "not_found") return null;
+    if (status === null) return null;
+    if (
+      typeof status.status !== "string" ||
+      !status.status ||
+      (status.operation_type != null &&
+        typeof status.operation_type !== "string") ||
+      (status.child_operations != null &&
+        (!Array.isArray(status.child_operations) ||
+          status.child_operations.some(
+            (child) =>
+              !child ||
+              typeof child !== "object" ||
+              typeof child.operation_id !== "string" ||
+              typeof child.status !== "string",
+          )))
+    )
+      throw new MemoryEngineError("incomplete");
+    if (status.status === "not_found") return null;
     const state = [
       "pending",
       "processing",
@@ -279,7 +303,33 @@ export class HindsightMemoryStore
       controls,
       true,
     );
-    if (!recalled) return [];
+    if (recalled === null) return [];
+    if (
+      !Array.isArray(recalled.results) ||
+      recalled.results.some(
+        (fact) =>
+          !fact ||
+          typeof fact !== "object" ||
+          typeof fact.id !== "string" ||
+          typeof fact.text !== "string" ||
+          typeof fact.type !== "string" ||
+          (fact.source_fact_ids != null &&
+            (!Array.isArray(fact.source_fact_ids) ||
+              fact.source_fact_ids.some((id) => typeof id !== "string"))) ||
+          (fact.document_id != null && typeof fact.document_id !== "string"),
+      ) ||
+      (recalled.source_facts != null &&
+        (typeof recalled.source_facts !== "object" ||
+          Array.isArray(recalled.source_facts) ||
+          Object.values(recalled.source_facts).some(
+            (fact) =>
+              !fact ||
+              typeof fact !== "object" ||
+              (fact.document_id != null &&
+                typeof fact.document_id !== "string"),
+          )))
+    )
+      throw new MemoryEngineError("incomplete");
     return recalled.results.slice(0, input.limit).map((fact) => {
       const ids =
         fact.type === "observation" ? (fact.source_fact_ids ?? []) : [fact.id];
