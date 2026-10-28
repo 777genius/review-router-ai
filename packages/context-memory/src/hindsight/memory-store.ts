@@ -70,7 +70,7 @@ export class HindsightMemoryStore
     work: Promise<{ data?: T; error?: unknown; response?: Response }>,
     controls: RequestControls,
     missing = false,
-  ): Promise<T | null> {
+  ): Promise<NonNullable<T> | null> {
     try {
       const result = await work;
       this.signal(controls);
