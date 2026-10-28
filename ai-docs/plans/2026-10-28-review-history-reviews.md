@@ -268,12 +268,29 @@ subprocesses. Локальный Docker recovery не заявляется: об
 browser/build batch не требуется. Receipt:
 `tmp/review-history/migration151-admission-tests.log`.
 
+CI Account Gateway S затем выявил ещё один current-catalog assertion в package
+fixture: полный checkout уже содержал 155 migrations, а тест ожидал 154. Bounded
+поиск всех current-catalog consumers в packages/apps/scripts/.github нашёл второй
+такой fixture в release transition tests. Оба обновлены: gateway replay включает
+все 155 SQL files, release fixture сначала квалифицирует checkout155, затем явно
+убирает 151 для прежних frozen154 assertions. Production source и SQL не менялись.
+
+Независимый critic принял оба изменения. Release-transition suite: 16 passed.
+Реальный Gateway C2b case: 1 passed, 0 failed; отдельный H case сохраняет свой
+выключенный gate и skipped, как в Account Gateway S CI. На отдельном PG17.10
+cluster настоящий `psql` 17.11 повторил полный каталог. Проверен checksum
+официального PGDG client package, настроен лишь task-local library lookup; system
+install и замена `psql` shim не использовались. Cluster остановлен и удалён.
+Lint/format/whitespace checks passed. Receipts:
+`tmp/review-history/migration151-release-transition-tests.log` и
+`tmp/review-history/gateway-c2b-reproduction-pkXbLt/receipt.json`.
+
 ## Фактический объём
 
 По Git diff относительно `418c0ff848443d7a3a0553be22eb63c45a51f53b`: 3 958
-добавленных строк production/activation/admission кода, 2 906
+добавленных строк production/activation/admission кода, 2 927
 строк targeted tests/fixtures/browser harness и 418 строк architecture qualification.
-Всего код, проверки и тестовые fixtures — 7 282 добавленные строки; это физические
+Всего код, проверки и тестовые fixtures — 7 303 добавленные строки; это физические
 строки diff, включая комментарии и пустые строки, а не semantic SLOC. Configuration,
 lockfile, Markdown и неизменённые лицензированные Impeccable references считаются
 отдельно. Эти числа не являются требованием к объёму следующей фичи.
