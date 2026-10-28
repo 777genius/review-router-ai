@@ -73,3 +73,15 @@ This run proves queued-run cancellation with active history capture. It does not
 prove running-job shutdown, production effects, provider execution, admission,
 publication, final PR/main gates, or rollout completion. Earlier source/native
 captures remain historical; they were not relabeled or replayed.
+
+## Subsequent source compatibility
+
+Protected main `5551a572fce38aaa3453bbef1ff9af79d3c293de` was integrated
+after this execution. Its eleven changed paths have no intersection with the
+219-input native closure. All 219 inputs, 81 committed runtime sources, four
+outputs, lock and schema remain unchanged. The original execution source stays
+`2b54edf2bfabac25f5343d65bd66e100e57d88b7`; no native dispatch was repeated.
+
+The inherited change routes compatible CI to the configured pool and corrects an
+existing web-test expectation. It does not qualify the new runner environment by
+itself: final source CI and its actual Scanner receipt must still pass there.

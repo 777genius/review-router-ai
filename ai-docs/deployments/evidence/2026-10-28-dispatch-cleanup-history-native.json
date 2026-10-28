@@ -354,5 +354,15 @@
     "provider execution/admission/publication",
     "running-job shutdown; existing historical generic proof not replayed",
     "final PR/main CI or rollout completion"
-  ]
+  ],
+  "subsequentSourceCompatibility": {
+    "protectedMainIntegrated": "5551a572fce38aaa3453bbef1ff9af79d3c293de",
+    "incomingPaths": 11,
+    "nativeInputIntersection": 0,
+    "all219Input81Tracked4OutputHashesAndLockUnchanged": true,
+    "schemaUnchanged": true,
+    "qualifiedExecutionSourceRemains": "2b54edf2bfabac25f5343d65bd66e100e57d88b7",
+    "nativeDispatchRepeated": false,
+    "scope": "Protected main runner routing, documentation and one existing web test expectation; final source CI on inherited runners remains mandatory."
+  }
 }
