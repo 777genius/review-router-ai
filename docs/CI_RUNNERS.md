@@ -4,6 +4,12 @@ Trusted Linux CI jobs use the repository variable `CI_LINUX_RUNNER`, configured
 as `nscloud-ubuntu-24.04-amd64-4x8` (Ubuntu 24.04, x86-64, 4 vCPU, 8 GB RAM).
 Namespace GitHub Actions is already enabled for the account repositories.
 The workspace shares 32 Linux vCPU / 64 GB RAM, allowing eight such jobs at once.
+Heavy web and OCI builds use `CI_LINUX_BUILD_RUNNER`, configured as
+`nscloud-ubuntu-24.04-amd64-4x16`. Their Next.js builds exceeded Node's
+automatic ~2 GB heap limit on an 8 GB runner. The 16 GB shape retains build
+behavior and gives Node the larger automatic heap. Build jobs fall back to
+`CI_LINUX_RUNNER` when the dedicated variable is unset. Mixed shapes share
+the same workspace CPU and memory limits.
 
 Matrix OS names remain unchanged: only Linux execution is routed. Native macOS
 and Windows jobs keep their existing runners. Pull requests from forks keep
