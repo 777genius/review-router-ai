@@ -1,0 +1,221 @@
+name: Memory authority and delivery
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - apps/web/**
+      - packages/ui/**
+      - scripts/memory-ui-e2e/**
+      - apps/api/**
+      - apps/worker/**
+      - packages/features/memory/**
+      - packages/features/review-executions/**
+      - packages/features/outbox/**
+      - packages/features/action-control-plane/**
+      - packages/features/auth/**
+      - packages/features/entitlements/**
+      - packages/platform/db/**
+      - packages/platform/config/**
+      - packages/shared/**
+      - packages/protocol-review-action-v2/**
+      - scripts/self-hosted-e2e/disposable-release-role-fixture.mjs
+      - scripts/install-private-dependencies.mjs
+      - scripts/generate-prisma-offline.mjs
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - tsconfig.base.json
+      - vitest.config.ts
+      - .github/workflows/memory-projections.yml
+  push:
+    branches: [main]
+    paths:
+      - apps/web/**
+      - packages/ui/**
+      - scripts/memory-ui-e2e/**
+      - apps/api/**
+      - apps/worker/**
+      - packages/features/memory/**
+      - packages/features/review-executions/**
+      - packages/features/outbox/**
+      - packages/features/action-control-plane/**
+      - packages/features/auth/**
+      - packages/features/entitlements/**
+      - packages/platform/db/**
+      - packages/platform/config/**
+      - packages/shared/**
+      - packages/protocol-review-action-v2/**
+      - scripts/self-hosted-e2e/disposable-release-role-fixture.mjs
+      - scripts/install-private-dependencies.mjs
+      - scripts/generate-prisma-offline.mjs
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - tsconfig.base.json
+      - vitest.config.ts
+      - .github/workflows/memory-projections.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: memory-authority-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-ui:
+    name: Memory rendered UI desktop narrow and keyboard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.11.1
+      - name: Install pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Install dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+      - name: Generate Prisma client
+        env:
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
+        run: node scripts/generate-prisma-offline.mjs
+      - name: Install pinned Playwright Chromium
+        run: pnpm exec playwright-core install --with-deps chromium
+      - name: Run actual rendered preview interactions with synthetic HTTP fixtures
+        env:
+          REVIEW_ROUTER_ENABLE_MEMORY_PREVIEW: "1"
+          REVIEW_ROUTER_MEMORY_UI_ORIGIN: http://127.0.0.1:3001
+          REVIEW_ROUTER_MEMORY_UI_OUTPUT: tmp/memory-ui-e2e
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: |
+          mkdir -p tmp/memory-ui-e2e
+          pnpm --filter @reviewrouter/web exec next dev --webpack -p 3001 -H 127.0.0.1 >tmp/memory-ui-e2e/next.log 2>&1 &
+          web_pid=$!
+          trap 'kill "$web_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --silent --fail http://127.0.0.1:3001/dashboard/memory-preview?fixture=http >/dev/null; then break; fi
+            sleep 1
+          done
+          node --import tsx scripts/memory-ui-e2e/browser-qualify.ts
+      - name: Preserve UI-only screenshots and qualification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: memory-ui-desktop-narrow-keyboard
+          path: tmp/memory-ui-e2e/
+          if-no-files-found: error
+          retention-days: 14
+  postgres-contracts:
+    name: Memory authority and delivery PostgreSQL contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+        env:
+          POSTGRES_USER: memory_test
+          POSTGRES_PASSWORD: memory_ci_fixture_only
+          POSTGRES_DB: postgres
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U memory_test -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      REVIEW_ROUTER_MEMORY_TEST_DATABASE_URL: postgresql://memory_test:memory_ci_fixture_only@127.0.0.1:5432/reviewrouter_memory_test
+      REVIEW_ROUTER_PROVIDER_SCOPE_TEST_DATABASE_URL: postgresql://memory_test:memory_ci_fixture_only@127.0.0.1:5432/reviewrouter_memory_execution_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.11.1
+      - name: Install pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Install dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+      - name: Generate Prisma client
+        env:
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
+        run: node scripts/generate-prisma-offline.mjs
+      - name: Create isolated memory and historical execution databases
+        env:
+          MEMORY_AUTHORITY_POSTGRES_ADMIN_URL: postgresql://memory_test:memory_ci_fixture_only@127.0.0.1:5432/postgres
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          import { randomBytes } from 'node:crypto';
+          import { writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { writeDisposableMigrationCatalog, disposableReleaseMigrationRoleSql, disposableReleasePairPreflightSql } from './scripts/self-hosted-e2e/disposable-release-role-fixture.mjs';
+          const client = new pg.Client({ connectionString: process.env.MEMORY_AUTHORITY_POSTGRES_ADMIN_URL });
+          await client.connect();
+          try {
+            // Match the canonical role attributes from migration 000110. This
+            // disposable cluster has no current-schema database to bootstrap it.
+            await client.query('CREATE ROLE reviewrouter_release_schema_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1');
+            await client.query(disposableReleaseMigrationRoleSql(randomBytes(32).toString('base64url')));
+            for (const name of ['reviewrouter_memory_test', 'reviewrouter_memory_execution_test']) {
+              await client.query(`CREATE DATABASE ${pg.escapeIdentifier(name)}`);
+            }
+          } finally { await client.end(); }
+          const target = new pg.Client({ connectionString: process.env.REVIEW_ROUTER_PROVIDER_SCOPE_TEST_DATABASE_URL });
+          await target.connect();
+          try { await target.query(disposableReleasePairPreflightSql); } finally { await target.end(); }
+          const config = writeDisposableMigrationCatalog('through79', process.env.RUNNER_TEMP);
+          writeFileSync(join(process.env.RUNNER_TEMP, 'memory-execution-config-path'), config);
+          NODE
+      - name: Apply historical execution catalog and verified handoff
+        run: |
+          DATABASE_URL="$REVIEW_ROUTER_PROVIDER_SCOPE_TEST_DATABASE_URL" \
+            pnpm --filter @reviewrouter/platform-db exec prisma migrate deploy \
+              --config "$(cat "$RUNNER_TEMP/memory-execution-config-path")"
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          import { disposableProvider79HandoffSql, disposableProvider79VerificationSql } from './scripts/self-hosted-e2e/disposable-release-role-fixture.mjs';
+          const client = new pg.Client({ connectionString: process.env.REVIEW_ROUTER_PROVIDER_SCOPE_TEST_DATABASE_URL });
+          await client.connect();
+          try { await client.query(disposableProvider79HandoffSql); await client.query(disposableProvider79VerificationSql); }
+          finally { await client.end(); }
+          NODE
+      - name: Run real PostgreSQL authority delivery and lease regressions
+        run: |
+          test -n "$REVIEW_ROUTER_MEMORY_TEST_DATABASE_URL"
+          test -n "$REVIEW_ROUTER_PROVIDER_SCOPE_TEST_DATABASE_URL"
+          mkdir -p tmp/memory-authority
+          pnpm exec vitest run \
+            packages/features/memory/src/tests/memory-knowledge.pg.test.ts \
+            apps/api/src/review-memory-admission.pg.test.ts \
+            apps/worker/src/memory-knowledge-worker.pg.test.ts \
+            packages/features/review-executions/src/tests/prisma-review-execution-store-real.test.ts \
+            --reporter=default --reporter=json --outputFile=tmp/memory-authority/ci-vitest.json
+      - name: Require all four PostgreSQL suites with zero skipped tests
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const report = JSON.parse(readFileSync('tmp/memory-authority/ci-vitest.json', 'utf8'));
+          const expected = [
+            'packages/features/memory/src/tests/memory-knowledge.pg.test.ts',
+            'apps/api/src/review-memory-admission.pg.test.ts',
+            'apps/worker/src/memory-knowledge-worker.pg.test.ts',
+            'packages/features/review-executions/src/tests/prisma-review-execution-store-real.test.ts',
+          ];
+          assert.equal(report.success, true);
+          assert.equal(report.testResults.length, expected.length);
+          for (const path of expected) assert(report.testResults.some(suite => suite.name.replaceAll('\\', '/').endsWith(path)), `Required suite did not run: ${path}`);
+          assert(report.numTotalTests > 0);
+          assert.equal(report.numPendingTests, 0);
+          assert.equal(report.numTodoTests, 0);
+          assert.equal(report.numPassedTests, report.numTotalTests, 'Skipped or todo tests are not qualification.');
+          NODE

@@ -4,6 +4,11 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPrismaClient } from "../packages/platform/db/src/index.js";
 import {
+  PrismaReviewPolicyHeadReader,
+  resolveEffectiveReviewConfiguration,
+  type ReviewPolicyHeadReaderPort,
+} from "../packages/features/review-config/src/index.js";
+import {
   canonicalHostedPoolProviderInstanceId,
   hostedPoolWorkflowSemanticSha256,
   readCanonicalHostedPoolWorkflowMetadata,
@@ -734,16 +739,47 @@ function seal<T extends Record<string, unknown>>(
   });
 }
 
+/**
+ * The canary repository reviews only with the hosted pool and without fast
+ * mode, through its own provider selection (a hosted pool is never the
+ * workspace default). Read as the runtime reads it: the effective
+ * configuration from the current policy documents and provider profiles.
+ */
+export async function assertHostedPoolCanaryReviewDependency(
+  target: Readonly<{ workspaceId: string; repositoryId: string }>,
+  dependencies: Readonly<{ policyHeads: ReviewPolicyHeadReaderPort }>,
+): Promise<void> {
+  const resolved = await resolveEffectiveReviewConfiguration(
+    { scope: "repository", ...target },
+    dependencies,
+  );
+  if (
+    resolved.status !== "ready" ||
+    resolved.source !== "repository" ||
+    resolved.config.providers.length < 1 ||
+    resolved.config.providers.some(
+      (provider) =>
+        provider.fastMode ||
+        provider.authMode !== "codex_subscription_oauth_hosted_pool",
+    )
+  )
+    throw new Error("hosted_pool_canary_hosted_dependency_contract_invalid");
+}
+
 export function createGitHubHostedPoolCanaryPort(input: {
   appJwt: string;
   repositoryToken: string;
   databaseUrl: string;
   now?: () => Date;
+  /** Policy heads of the canary repository; the database by default. */
+  policyHeads?: ReviewPolicyHeadReaderPort;
 }): HostedPoolCanaryPort & { disconnect(): Promise<void> } {
   const prisma = createPrismaClient({
     databaseUrl: input.databaseUrl,
     poolMax: 1,
   });
+  const policyHeads =
+    input.policyHeads ?? PrismaReviewPolicyHeadReader.snapshot(prisma);
   const pullRequests = new Map<number, number>();
   const sourceHeads = new Map<number, string>();
   const publicationBaselines = new Map<number, HostedPoolPublicationSnapshot>();
@@ -893,6 +929,7 @@ export function createGitHubHostedPoolCanaryPort(input: {
           where: { status: "active" },
           select: {
             id: true,
+            workspaceId: true,
             poolId: true,
             revision: true,
             workflowActionRef: true,
@@ -961,39 +998,13 @@ export function createGitHubHostedPoolCanaryPort(input: {
         binding.pool.accounts.some(({ state }) => state !== "healthy")
       )
         throw new Error("hosted_pool_canary_dedicated_account_pool_invalid");
-      const configurations = await prisma.reviewConfiguration.findMany({
-        where: { repositoryId: binding.repositoryConnectionId },
-        select: {
-          versions: {
-            orderBy: { version: "desc" },
-            take: 1,
-            select: {
-              fastMode: true,
-              providerAuthMode: true,
-              providers: {
-                select: { fastMode: true, providerAuthMode: true },
-              },
-            },
-          },
+      await assertHostedPoolCanaryReviewDependency(
+        {
+          workspaceId: binding.workspaceId,
+          repositoryId: binding.repositoryConnectionId,
         },
-      });
-      const currentVersions = configurations.flatMap((item) => item.versions);
-      if (
-        currentVersions.length !== 1 ||
-        currentVersions[0]!.fastMode ||
-        currentVersions[0]!.providerAuthMode !==
-          "codex_subscription_oauth_hosted_pool" ||
-        currentVersions[0]!.providers.length < 1 ||
-        currentVersions[0]!.providers.some(
-          (provider) =>
-            provider.fastMode ||
-            provider.providerAuthMode !==
-              "codex_subscription_oauth_hosted_pool",
-        )
-      )
-        throw new Error(
-          "hosted_pool_canary_hosted_dependency_contract_invalid",
-        );
+        { policyHeads },
+      );
       // Capture every original source PR/head before any run can be dispatched.
       // Keep these snapshots for all evidence reads, including quiescence.
       for (const runId of Object.values(config.runs)) {

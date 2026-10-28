@@ -29,10 +29,7 @@ export type SupportDiagnosticsInput = {
   readonly workflowProvisioning: readonly {
     readonly status: string;
   }[];
-  readonly outbox: readonly {
-    readonly status: string;
-    readonly type: string;
-  }[];
+  readonly outboxStatusCounts: Record<string, number>;
   readonly memory: {
     readonly itemStatusCounts: Record<string, number>;
     readonly itemScopeCounts: Record<string, number>;
@@ -76,6 +73,7 @@ export type SupportDiagnosticsSnapshot = {
   readonly outboxCounts: {
     readonly pending: number;
     readonly processing: number;
+    readonly retryWait: number;
     readonly deadLetter: number;
   };
   readonly memoryCounts: {
@@ -190,12 +188,10 @@ export function summarizeSupportDiagnostics(
       (item) => item.status,
     ),
     outboxCounts: {
-      pending: input.outbox.filter((event) => event.status === "pending")
-        .length,
-      processing: input.outbox.filter((event) => event.status === "processing")
-        .length,
-      deadLetter: input.outbox.filter((event) => event.status === "dead_letter")
-        .length,
+      pending: input.outboxStatusCounts.pending ?? 0,
+      processing: input.outboxStatusCounts.processing ?? 0,
+      retryWait: input.outboxStatusCounts.retry_wait ?? 0,
+      deadLetter: input.outboxStatusCounts.dead_letter ?? 0,
     },
     memoryCounts: summarizeMemoryCounts(input.memory),
     recentAuditActions: input.recentAuditActions.slice(0, 10),

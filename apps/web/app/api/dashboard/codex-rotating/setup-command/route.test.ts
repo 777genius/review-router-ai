@@ -33,13 +33,13 @@ const setupCommand = renderCodexRotatingInstallerCommand({
     repositoryFullName: "777genius/review-router-saas-e2e",
     repositoryId: "123456",
     repositoryIdentityVersion: 1,
-    installerUrl: "https://reviewrouter.site/install/codex-rotating",
+    installerUrl: "https://reviewrouter.org/install/codex-rotating",
     installerVersion: "route-test",
     installerSha256: "a".repeat(64),
     now: new Date("2026-08-10T00:45:00.000Z"),
   }),
   setupManifestUrl:
-    "https://reviewrouter.site/api/codex-rotating/setup-manifest",
+    "https://reviewrouter.org/api/codex-rotating/setup-manifest",
 });
 
 describe("dashboard Codex rotating setup command route", () => {
@@ -80,7 +80,7 @@ describe("dashboard Codex rotating setup command route", () => {
       providerInstanceId: "codex-rotating:123456",
     });
     expect(body.command).toContain(
-      "REVIEW_ROUTER_CODEX_ROTATING_SETUP_URL=https://reviewrouter.site/api/codex-rotating/setup-manifest",
+      "REVIEW_ROUTER_CODEX_ROTATING_SETUP_URL=https://reviewrouter.org/api/codex-rotating/setup-manifest",
     );
     expect(body.command).not.toContain(
       "REVIEW_ROUTER_CODEX_ROTATING_SETUP_MANIFEST_B64",

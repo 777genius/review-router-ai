@@ -134,10 +134,10 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: 24
+          node-version: 26.11.1
 
-      - name: Enable pnpm
-        run: corepack enable
+      - name: Install pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
 
       - name: Install pinned dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile

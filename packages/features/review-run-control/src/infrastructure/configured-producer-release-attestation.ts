@@ -1,4 +1,5 @@
 import type { ProducerReleaseQueryPort } from "../application/ports/producer-release-ports";
+import { parseReviewAgentProfiles } from "../domain/review-agent-profile";
 import {
   ProducerReleaseAttestationStatus,
   type ProducerReleaseAttestationPort,
@@ -15,7 +16,10 @@ import {
 } from "../domain/review-run-control-types";
 import {
   createProducerRelease,
+  parseProducerPrDescriptionProfile,
+  parseProducerLifecycleVerificationProfile,
   producerReleaseImmutableKey,
+  parseProducerContextToolsProfile,
   reviewInvestigationCapabilityV1,
 } from "../domain/producer-release";
 
@@ -42,7 +46,34 @@ export class ConfiguredProducerReleaseAttestationRegistry implements ProducerRel
       if (entries.has(actionCommitSha)) {
         throw new Error("producer_release_attestation_action_commit_duplicate");
       }
-      entries.set(actionCommitSha, Object.freeze({ ...attestation }));
+      entries.set(
+        actionCommitSha,
+        Object.freeze({
+          ...attestation,
+          ...(attestation.contextToolsProfile !== undefined
+            ? {
+                contextToolsProfile: parseProducerContextToolsProfile(
+                  attestation.contextToolsProfile,
+                ),
+              }
+            : {}),
+          ...(attestation.prDescriptionProfile == null
+            ? {}
+            : {
+                prDescriptionProfile: parseProducerPrDescriptionProfile(
+                  attestation.prDescriptionProfile,
+                ),
+              }),
+          ...(attestation.lifecycleVerificationProfile == null
+            ? {}
+            : {
+                lifecycleVerificationProfile:
+                  parseProducerLifecycleVerificationProfile(
+                    attestation.lifecycleVerificationProfile,
+                  ),
+              }),
+        }),
+      );
     }
     this.byActionCommitSha = entries;
   }
@@ -81,6 +112,19 @@ export class ConfiguredProducerReleaseAttestationRegistry implements ProducerRel
               configured.contextGatewayEntrypointDigest,
             reviewInvestigationProfile:
               configured.reviewInvestigationProfile ?? null,
+            agentProfiles: configured.agentProfiles ?? null,
+            ...(configured.contextToolsProfile !== undefined
+              ? { contextToolsProfile: configured.contextToolsProfile }
+              : {}),
+            ...(configured.prDescriptionProfile == null
+              ? {}
+              : { prDescriptionProfile: configured.prDescriptionProfile }),
+            ...(configured.lifecycleVerificationProfile == null
+              ? {}
+              : {
+                  lifecycleVerificationProfile:
+                    configured.lifecycleVerificationProfile,
+                }),
             schemaDigest: configured.schemaDigest,
             capabilityProfile: configured.capabilityProfile,
             protocolLimitsProfileId: configured.protocolLimitsProfileId,
@@ -147,8 +191,14 @@ function parseAttestation(value: unknown): TrustedProducerReleaseAttestation {
     "reviewInvestigationCoverageProfileHash",
     "reviewInvestigationPolicyHash",
   ].sort();
-  const actualKeys = Object.keys(value).sort();
+  const actualKeys = Object.keys(value)
+    .filter((key) => key !== "contextToolsProfile")
+    .filter((key) => key !== "prDescriptionProfile")
+    .filter((key) => key !== "lifecycleVerificationProfile")
+    .sort();
+  const currentKeys = [...investigationKeys, "agentProfiles"].sort();
   if (
+    canonicalJson(actualKeys) !== canonicalJson(currentKeys) &&
     canonicalJson(actualKeys) !== canonicalJson(expectedKeys) &&
     canonicalJson(actualKeys) !== canonicalJson(legacyKeys) &&
     canonicalJson(actualKeys) !== canonicalJson(investigationKeys)
@@ -174,7 +224,33 @@ function parseAttestation(value: unknown): TrustedProducerReleaseAttestation {
     );
   }
   return {
+    ...(value.prDescriptionProfile == null
+      ? {}
+      : {
+          prDescriptionProfile: parseProducerPrDescriptionProfile(
+            value.prDescriptionProfile,
+          ),
+        }),
+    ...(value.lifecycleVerificationProfile == null
+      ? {}
+      : {
+          lifecycleVerificationProfile:
+            parseProducerLifecycleVerificationProfile(
+              value.lifecycleVerificationProfile,
+            ),
+        }),
     producerReleaseId: requiredString(value.producerReleaseId),
+    ...("contextToolsProfile" in value
+      ? {
+          contextToolsProfile: parseProducerContextToolsProfile(
+            value.contextToolsProfile,
+          ),
+        }
+      : {}),
+    agentProfiles:
+      value.agentProfiles == null
+        ? null
+        : parseReviewAgentProfiles(value.agentProfiles),
     distributionKind: parseDistributionKind(value.distributionKind),
     actionCommitSha: requiredString(value.actionCommitSha),
     runtimeCommitSha: requiredString(value.runtimeCommitSha),
@@ -213,6 +289,14 @@ function parseAttestation(value: unknown): TrustedProducerReleaseAttestation {
 }
 
 function assertAttestation(value: TrustedProducerReleaseAttestation): void {
+  if (value.contextToolsProfile !== undefined)
+    parseProducerContextToolsProfile(value.contextToolsProfile);
+  if (value.lifecycleVerificationProfile != null)
+    parseProducerLifecycleVerificationProfile(
+      value.lifecycleVerificationProfile,
+    );
+  if (value.prDescriptionProfile != null)
+    parseProducerPrDescriptionProfile(value.prDescriptionProfile);
   assertIdentifier(value.producerReleaseId, "producer_release_id");
   assertCommitSha(value.actionCommitSha, "action_commit_sha");
   assertCommitSha(value.runtimeCommitSha, "runtime_commit_sha");
@@ -266,6 +350,29 @@ function configuredReleaseKey(
   configured: TrustedProducerReleaseAttestation,
 ): string {
   return canonicalJson({
+    ...(configured.contextToolsProfile !== undefined
+      ? {
+          contextToolsProfile: parseProducerContextToolsProfile(
+            configured.contextToolsProfile,
+          ),
+        }
+      : {}),
+    ...(configured.prDescriptionProfile == null
+      ? {}
+      : {
+          prDescriptionProfile: parseProducerPrDescriptionProfile(
+            configured.prDescriptionProfile,
+          ),
+        }),
+    ...(configured.lifecycleVerificationProfile == null
+      ? {}
+      : {
+          lifecycleVerificationProfile:
+            parseProducerLifecycleVerificationProfile(
+              configured.lifecycleVerificationProfile,
+            ),
+        }),
+    agentProfiles: configured.agentProfiles ?? null,
     distributionKind: configured.distributionKind,
     actionCommitSha: configured.actionCommitSha,
     runtimeCommitSha: configured.runtimeCommitSha,

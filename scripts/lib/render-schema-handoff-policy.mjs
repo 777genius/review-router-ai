@@ -181,6 +181,117 @@ const checkoutExtensions = Object.freeze([
     checksum:
       "750038a865bced544ae9cca42060112a6479c05163c3dc05c41f504c993147ef",
   }),
+  Object.freeze({
+    migrationName: "000110_historical_unknown_scope_barrier",
+    checksum:
+      "aa9cd8a8e34e9909dcc22c5a7dd94cc4121821db93330c0a54bb48b0aaf61a79",
+  }),
+  Object.freeze({
+    migrationName: "000111_sdk_growth_source_binding",
+    checksum:
+      "2d9b80ff0d894ba22602c4d84f7487a5343352e6bd2602f64c0b3cafdce048cd",
+  }),
+  Object.freeze({
+    migrationName: "000112_sdk_growth_operator_credential",
+    checksum:
+      "0178f5198025c8e0f03bc995139940f9a2c9739f3c3ad000c857e8e0c8b425d0",
+  }),
+  Object.freeze({
+    migrationName: "000113_sdk_growth_approval_ledger",
+    checksum:
+      "1684eced3efccf7af153c4fd8e24a31a96aec20ddb2674b2764ba56796d8f6c2",
+  }),
+  Object.freeze({
+    migrationName: "000114_sdk_growth_v3_tool_artifact",
+    checksum:
+      "14d0dd69bdf596cbdfe39306965b08bd969a9d9b89b0a49ddcfe34fe43118d58",
+  }),
+  Object.freeze({
+    migrationName: "000115_sdk_growth_v3_approved_manifest",
+    checksum:
+      "07fdc348fe27d0ee1ddc15d97e6932cca3dc02cc920d856c4380f71cabb36db0",
+  }),
+  Object.freeze({
+    migrationName: "000116_hosted_codex_relay_admission_utc",
+    checksum:
+      "af399b3aea5cd73e0b65a46085bba2df216cd44888caf066baa02a6516f7d585",
+  }),
+  Object.freeze({
+    migrationName: "000117_provider_accounts",
+    checksum:
+      "786e21fc4a8880c25f41304393a576d8e3337b6654720931aa076fdbf793c4e7",
+  }),
+  Object.freeze({
+    migrationName: "000118_workspace_binding_fences",
+    checksum:
+      "fe73ffe809b3c49b0739060e853e1a824ea6bf019a9922fccc8b729581db48db",
+  }),
+  Object.freeze({
+    migrationName: "000119_review_configuration_gateway_binding",
+    checksum:
+      "2c0dde1720111063059d5226c6011c15389b6877a6a1f924177a24a36aa81a70",
+  }),
+  Object.freeze({
+    migrationName: "000120_review_run_runtime_snapshot",
+    checksum:
+      "6ced2dc41f736a2c6e42d6edafc4e9f753622fa157baff09ea962da9d81bd369",
+  }),
+  Object.freeze({
+    migrationName: "000121_review_run_gateway_execution_binding",
+    checksum:
+      "c00f5df0b3971477cdf666b3259e173aec2df0d150e3335507617242742967e6",
+  }),
+  Object.freeze({
+    migrationName: "000122_review_configuration_operation_receipt",
+    checksum:
+      "89f9f4eadeb88733adddb051bca5e50bdc86bbb06e45905d3bdf18eedbd1386e",
+  }),
+  Object.freeze({
+    migrationName: "000123_personal_workspace_identity",
+    checksum:
+      "b459bbb36015e16656fa20d5712b14fa19a87a415b801e0e8ea641e9020f19f6",
+  }),
+  Object.freeze({
+    migrationName: "000124_personal_account_operations",
+    checksum:
+      "2ffa20a0d21182bad0dfdce6653bc09b436cd72ab6335ac8065a17462bd3c6a1",
+  }),
+  Object.freeze({
+    migrationName: "000125_hosted_codex_device_reconnect",
+    checksum:
+      "bf6d4c8df95d50a75f85d70c0e80f3c26963cdc86ea05125723af9568f14c54e",
+  }),
+]);
+
+// Checkout-only Skills storage and its separate authorization attachment never
+// enter managed92 SQL or historical96 execution. Retain the exact prior source
+// manifest; pin only these new files instead of replacing protected baselines.
+export const renderReviewSkillsCheckoutExtension = Object.freeze([
+  Object.freeze({
+    migrationName: "000136_review_skills",
+    checksum:
+      "ff5e720ea05be6dcfdfca134182d1c9da13bbc98426375b214fcaa3166d1af26",
+  }),
+  Object.freeze({
+    migrationName: "000137_review_skills_capture",
+    checksum:
+      "40c3734f9e0b46a700a92d6a3fc8a7da01276511daae84b573e415afb52ed766",
+  }),
+]);
+
+// Provider-owned memory adds authority and delivery metadata only. These exact
+// files belong to the application checkout, never the managed92 repair catalog.
+export const renderMemoryKnowledgeCheckoutExtension = Object.freeze([
+  Object.freeze({
+    migrationName: "000142_memory_knowledge_authority",
+    checksum:
+      "b40e545bd31f9d4cc65146c78b05afc8b662333e4945380ea4ed5f511d7ebcf9",
+  }),
+  Object.freeze({
+    migrationName: "000143_memory_maintenance_fence",
+    checksum:
+      "1f8552ab409ece31536505c42ec62f0ef3df5b6220b7caa0cb90fcb2ee8aa83e",
+  }),
 ]);
 
 export function partitionRenderSchemaHandoffCheckout(catalog) {
@@ -195,6 +306,511 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  const memoryKnowledgeMigrations = catalog.filter((row) =>
+    renderMemoryKnowledgeCheckoutExtension.some(
+      (extension) => extension.migrationName === row.migrationName,
+    ),
+  );
+  if (memoryKnowledgeMigrations.length > 0) {
+    if (
+      memoryKnowledgeMigrations.length !==
+        renderMemoryKnowledgeCheckoutExtension.length ||
+      memoryKnowledgeMigrations.some(
+        (row, index) =>
+          row.migrationName !==
+            renderMemoryKnowledgeCheckoutExtension[index].migrationName ||
+          row.checksum !==
+            renderMemoryKnowledgeCheckoutExtension[index].checksum,
+      ) ||
+      manifest(catalog) !==
+        "sha256:5d42e163ba89faae7c49fa4fa9ff65bc2a8b87a6774b57a5f70c6a027e4331dd"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => !memoryKnowledgeMigrations.includes(row)),
+    );
+  }
+  // Repository-secret profile identities change a checkout-only table. Admit
+  // the exact SQL and checkout151 before preserving the reviewed checkout150.
+  const repositorySecretProfilesMigration = catalog.find(
+    (row) => row.migrationName === "000149_api_key_repository_secret_profiles",
+  );
+  if (repositorySecretProfilesMigration) {
+    if (
+      repositorySecretProfilesMigration.checksum !==
+        "1884b772c85adb0663fa3895307799b91f88133fb1941fc88aec1c56bd6e5579" ||
+      manifest(catalog) !==
+        "sha256:bde611c1eb4753d8d21f0f5ac2b97f2c93818aaf7fb48cc9181abe28aa708035"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== repositorySecretProfilesMigration),
+    );
+  }
+  // Lifecycle verification is a checkout-only additive schema extension. Admit
+  // its exact source catalog before preserving the reviewed checkout149 gate.
+  const lifecycleVerificationMigration = catalog.find(
+    (row) => row.migrationName === "000148_lifecycle_verification",
+  );
+  if (lifecycleVerificationMigration) {
+    if (
+      lifecycleVerificationMigration.checksum !==
+        "00e6dca21ae3dcd9c61f729bb93e0319caf5b204ae67e29ba2889259e5db1b60" ||
+      manifest(catalog) !==
+        "sha256:ae1f73631c1ae9e359a22c421d7bb83751fd831f22ba77304be1d20d01878472"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== lifecycleVerificationMigration),
+    );
+  }
+  // Mutation identities change only checkout Skills tables. Admit the exact
+  // checkout149 source, then preserve the unchanged reviewed checkout148 gate.
+  const reviewSkillsMutationIdentityMigration = catalog.find(
+    (row) => row.migrationName === "000147_review_skills_mutation_identity",
+  );
+  if (reviewSkillsMutationIdentityMigration) {
+    if (
+      reviewSkillsMutationIdentityMigration.checksum !==
+        "d5f36bdcddbfa3f252e61e3b4961b7e6102d5a2a4324850089e6bfec442d2883" ||
+      manifest(catalog) !==
+        "sha256:597739d44aa5f10551930c1349bed5c1a634b868fd55f9738b32b33ac230e897"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== reviewSkillsMutationIdentityMigration),
+    );
+  }
+  // Dropping the schema 1-3 review configuration projection is checkout-only:
+  // its columns and table entered after the managed catalog. Admit the exact
+  // SQL and checkout148 before reducing to checkout147.
+  const reviewConfigurationProjectionMigration = catalog.find(
+    (row) =>
+      row.migrationName === "000146_drop_review_configuration_projection",
+  );
+  if (reviewConfigurationProjectionMigration) {
+    if (
+      reviewConfigurationProjectionMigration.checksum !==
+        "d42d8143d918aaf8bf3ac90c1488ec317bcdd3795c529c05f6a216da0931f5d9" ||
+      manifest(catalog) !==
+        "sha256:000decc06ca41637beceb84da74858f434d2300c3c4c3af8c96dcac0aee3efba"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== reviewConfigurationProjectionMigration),
+    );
+  }
+  // Provider profiles add checkout-only tables, nullable columns and relaxed
+  // projection nullability. Admit the exact SQL and checkout147 before
+  // reducing to the statistics checkout146.
+  const workspaceProviderProfilesMigration = catalog.find(
+    (row) => row.migrationName === "000145_workspace_provider_profiles",
+  );
+  if (workspaceProviderProfilesMigration) {
+    if (
+      workspaceProviderProfilesMigration.checksum !==
+        "e0e26a524c9bd14b20f1c6f51556afb6aea89de0fc79faadd61021ac6b6ada2c" ||
+      manifest(catalog) !==
+        "sha256:bf77d4720a7c41e4e9f427595e1a6ecc044149a74ec5a243aaacbbd5ba886cab"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== workspaceProviderProfilesMigration),
+    );
+  }
+  // Statistics storage is checkout-only. Admit this exact complete checkout146
+  // before reducing to the unchanged reviewed Skills/main145 authority gates.
+  const statisticsMigration = catalog.find(
+    (row) => row.migrationName === "000144_review_statistics",
+  );
+  if (statisticsMigration) {
+    if (
+      statisticsMigration.checksum !==
+        "fded494bbdeed9164c6704f29b3ae17a19b9670e323942a28348d8ba22a8af19" ||
+      manifest(catalog) !==
+        "sha256:28c55f9026bfb1bd139bc25925571ea62e2c454a10e151ef6149aae0358a4178"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== statisticsMigration),
+    );
+  }
+  // Skills accompany only an exact reviewed base. Strip the immutable pair
+  // before the existing main143/142/141 and historical authority reductions.
+  // Match both named rows: other additive migrations now sort around this pair.
+  const skills = catalog.filter((row) =>
+    renderReviewSkillsCheckoutExtension.some(
+      (skill) => skill.migrationName === row.migrationName,
+    ),
+  );
+  if (skills.length > 0) {
+    const base = catalog.filter((row) => !skills.includes(row));
+    if (
+      skills.length !== renderReviewSkillsCheckoutExtension.length ||
+      skills.some(
+        (row, index) =>
+          row.migrationName !==
+            renderReviewSkillsCheckoutExtension[index].migrationName ||
+          row.checksum !== renderReviewSkillsCheckoutExtension[index].checksum,
+      ) ||
+      ![
+        "136:sha256:7a00ae60d98ffe6bdaf3bbb74a50eefed8ac60b94e55a443251cb480a47d48a8",
+        "140:sha256:12ec2343e5de125175e4fc8946a9ab177034f60af43883b7c4ec8ac91a26ce48",
+        "141:sha256:f57efc9ec8fd5f1efcd8f9cea07586957e5bd4bf983f02f252b30dc474a67ec8",
+        "143:sha256:4fe4b459218a0cc56c8638b6f6d5a33d08d09579205d612b72d2781a7a0962bf",
+      ].includes(`${base.length}:${manifest(base)}`)
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(base);
+  }
+  // The workspace draft-review flag is a checkout-only constant-default column.
+  // Admit the exact SQL and checkout143 before reducing to checkout142.
+  const workspaceDraftReviewMigration = catalog.find(
+    (row) => row.migrationName === "000143_workspace_draft_review_setting",
+  );
+  if (workspaceDraftReviewMigration) {
+    if (
+      workspaceDraftReviewMigration.checksum !==
+        "cc23c19feb97dd122d89cf080ee04fd49a95252dcbc4400b4cfa64704d430654" ||
+      manifest(catalog) !==
+        "sha256:4fe4b459218a0cc56c8638b6f6d5a33d08d09579205d612b72d2781a7a0962bf"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== workspaceDraftReviewMigration),
+    );
+  }
+  // Optional reasoning changes only checkout nullability, not managed92 authority.
+  const optionalReasoningMigration = catalog.find(
+    (row) => row.migrationName === "000142_optional_gateway_reasoning",
+  );
+  if (optionalReasoningMigration) {
+    if (
+      optionalReasoningMigration.checksum !==
+        "4414e3473290c6252cc06b9b5a10852cac5a93070c5b59c1b5c260113081b2c0" ||
+      manifest(catalog) !==
+        "sha256:a0cd29f30a38777a777aad492da123023a0c5258ed093589643655c96ebb5d7f"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== optionalReasoningMigration),
+    );
+  }
+  // Memory projection receipts are checkout-only. Admit the exact SQL and
+  // complete checkout141 before reducing to the previously qualified checkout.
+  const memoryProjectionMigration = catalog.find(
+    (row) => row.migrationName === "000141_memory_search_projections",
+  );
+  if (memoryProjectionMigration) {
+    if (
+      memoryProjectionMigration.checksum !==
+        "4169d5f18ff4bafe6ce316060c06d569d108f4e13704b7c66692514221723c3e" ||
+      manifest(catalog) !==
+        "sha256:f57efc9ec8fd5f1efcd8f9cea07586957e5bd4bf983f02f252b30dc474a67ec8"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== memoryProjectionMigration),
+    );
+  }
+  // Device sign-in adds only immutable enrollment method metadata. Admit the
+  // exact extension before reducing to the previously qualified checkout.
+  const oauthMethodMigration = catalog.find(
+    (row) => row.migrationName === "000140_personal_oauth_method",
+  );
+  if (oauthMethodMigration) {
+    if (
+      oauthMethodMigration.checksum !==
+        "aa1f8fb0d3bd5dffdcf7dd5435552f8aa846c6295d02fb2189b4e0e7356f0454" ||
+      manifest(catalog) !==
+        "sha256:12ec2343e5de125175e4fc8946a9ab177034f60af43883b7c4ec8ac91a26ce48"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== oauthMethodMigration),
+    );
+  }
+  // MCP connection custody and its optional producer descriptor are checkout-only.
+  // Admit exact SQL and the reviewed pre-usage or merged union before reducing it.
+  const contextToolsMigration = catalog.find(
+    (row) => row.migrationName === "000139_review_context_tools",
+  );
+  if (contextToolsMigration) {
+    if (
+      contextToolsMigration.checksum !==
+        "b2ac7d2121b0869dcfa77ee37ff85a86fe3947dad4a88ed595d73492a5eafed4" ||
+      ![
+        "sha256:22d2cb47f5ec96e2b154ac07a375a19682243b7378df7a00f891a4713408b56b",
+        "sha256:ecbb9d456aa70c06abbc301950005378b53afb25f2382f06d608589a4935a9dc",
+      ].includes(manifest(catalog))
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== contextToolsMigration),
+    );
+  }
+  // Optional PR-description enum/profile storage is checkout-only. Admit its
+  // exact SQL and pre-usage or merged union; historical managed SQL stays unchanged.
+  const prDescriptionMigration = catalog.find(
+    (row) => row.migrationName === "000138_pr_description",
+  );
+  if (prDescriptionMigration) {
+    if (
+      prDescriptionMigration.checksum !==
+        "4b41af195d5dd00df952d25d6c4999a64abf6cbc36351c2bd14d41f114cfe4e4" ||
+      ![
+        "sha256:af9bf892b5ec0e5817c9b1707869b8023ae5ce740af6e60b08c5aba328ec2694",
+        "sha256:c9fd4bb76d56166a80ec52fd9f54156d5951d375d47ed57bd02fd7dd40f7ccd0",
+      ].includes(manifest(catalog))
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== prDescriptionMigration),
+    );
+  }
+  // Usage is an additive checkout-only extension. Preserve the managed92
+  // authority and admit only this exact reviewed SQL and complete checkout137.
+  const usageMigration = catalog.find(
+    (row) => row.migrationName === "000136_provider_usage",
+  );
+  if (usageMigration) {
+    if (
+      usageMigration.checksum !==
+        "1f59f95079c29b0da051e0e67b965336107eee63c7bb921e626cd656ce696c48" ||
+      manifest(catalog) !==
+        "sha256:ed3d27f7417f66b56acf823358933d67ef6c3fae0cbcc88ed89a79cb4a1e27b5"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== usageMigration),
+    );
+  }
+  // The merged checkout136 retains both independently released134 extensions
+  // and the scoped lock135. Only this exact union may reduce to checkout135.
+  const accountLifecycleMigration = catalog.find(
+    (row) => row.migrationName === "000134_account_lifecycle",
+  );
+  if (accountLifecycleMigration) {
+    if (
+      accountLifecycleMigration.checksum !==
+        "92247cf49264abac1e2c6eaed78d741b57d8d21a28818e9d0264af89872ec213" ||
+      ![
+        "sha256:7a00ae60d98ffe6bdaf3bbb74a50eefed8ac60b94e55a443251cb480a47d48a8",
+        "sha256:33fadb5470c593e0858e8e7feb47132c2931270e42ee1f0381940da9ef6dff5c",
+      ].includes(manifest(catalog))
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== accountLifecycleMigration),
+    );
+  }
+  // The runtime checkout lock adds narrowly scoped authority, so admit only
+  // its reviewed SQL and complete checkout135. It never enters managed92 SQL.
+  const checkoutLockMigration = catalog.find(
+    (row) => row.migrationName === "000135_review_run_checkout_repository_lock",
+  );
+  if (checkoutLockMigration) {
+    if (
+      checkoutLockMigration.checksum !==
+        "b14b3974c83fffabb95b9f52b12b522561f47862917ad160d8a272afa138e186" ||
+      manifest(catalog) !==
+        "sha256:2624f6f55b524953b90c99415f1e0b216108e322fdb7b6e2ce539e5ce9935297"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== checkoutLockMigration),
+    );
+  }
+  // OCR's additive provider enum is admitted only as the exact checkout134
+  // extension; published checkout133 and historical authority stay unchanged.
+  const ocrProviderMigration = catalog.find(
+    (row) => row.migrationName === "000134_review_provider_kind_v2_ocr",
+  );
+  if (ocrProviderMigration) {
+    if (
+      ocrProviderMigration.checksum !==
+        "7f68071ce4a207434ac3434bbd793201b767ff3ae7799c2d55feb1589484573d" ||
+      manifest(catalog) !==
+        "sha256:b1cf647d94be3e446de05c85705616ab6b48cfb4b653e5557881971580cb4943"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== ocrProviderMigration),
+    );
+  }
+  // First-time SCM identity bind admitted as the exact checkout133 extension
+  // over the unchanged published policy132 catalog.
+  const identityBindMigration = catalog.find(
+    (row) => row.migrationName === "000133_allow_first_time_scm_identity_bind",
+  );
+  if (identityBindMigration) {
+    if (
+      identityBindMigration.checksum !==
+        "bd918df942405f36c88dafa7a05c7f383439f913915de5ab3af8214cff7fd5a6" ||
+      manifest(catalog) !==
+        "sha256:e88927dcec3f1ec6fdc966be8d937160f8fccbaf59720b99fdc6386e605d5d5e"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== identityBindMigration),
+    );
+  }
+  // Current policy/profile extension over the unchanged published personal131 catalog.
+  const policyMigration = catalog.find(
+    (row) => row.migrationName === "000132_review_policy_schema_v3",
+  );
+  if (policyMigration) {
+    if (
+      policyMigration.checksum !==
+        "ac0abf93d6088957825731f178903709d2b8535a7e9894eb2236449396711f21" ||
+      manifest(catalog) !==
+        "sha256:13efdc28bd5b1920373a3cfef10785c377cd7b4f2f648a00d3e2817d9f0422c7"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== policyMigration),
+    );
+  }
+  // Positive local non-entry release is admitted only as exact checkout131.
+  // Recurse through the unchanged pinned canonical130 contract.
+  const unenteredClaimMigration = catalog.find(
+    (row) => row.migrationName === "000131_personal_canonical_unentered_claim",
+  );
+  if (unenteredClaimMigration) {
+    if (
+      unenteredClaimMigration.checksum !==
+        "342221539d29efff72a110415311e43556e7b83dddaddf763610d9bc734c8ef3" ||
+      manifest(catalog) !==
+        "sha256:826c8dd79768289887e3dcde7c632a4fc3bc84527b72e5fef39042bfad324f11"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== unenteredClaimMigration),
+    );
+  }
+  // Canonical H coordination is admitted only as the exact complete checkout130.
+  // Remove its pinned row, then recurse through unchanged snapshot129 admission.
+  const personalCanonicalMigration = catalog.find(
+    (row) => row.migrationName === "000130_personal_canonical_operations",
+  );
+  if (personalCanonicalMigration) {
+    if (
+      personalCanonicalMigration.checksum !==
+        "aefb85f4e439bf7526a3b7c658ec3eeaec6f70c10a26435ca63c25c9f6ef11ca" ||
+      manifest(catalog) !==
+        "sha256:fab01456f5745f715b91efa23358b1261c717330155a14865d939471a0e8a19e"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== personalCanonicalMigration),
+    );
+  }
+  // Inert H snapshot-v2 storage is an exact checkout-only extension. Its SQL
+  // changes neither managed92/historical source nor SQL128 API column authority.
+  const personalSnapshotMigration = catalog.find(
+    (row) => row.migrationName === "000129_personal_run_snapshot_v2",
+  );
+  if (personalSnapshotMigration) {
+    if (
+      personalSnapshotMigration.checksum !==
+        "d36995df0392fdaf9ad5f39d6204c18bc0c78b400963c549547648c48b64e0ab" ||
+      manifest(catalog) !==
+        "sha256:19c80297e4a4d01882c1253cbc1a62df6a95e0f916992d308ff627f30d7a6c25"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== personalSnapshotMigration),
+    );
+  }
+  // Owner deletion is admitted only in the exact complete checkout128.
+  // Remove only its pinned row, then reuse the unchanged128/126 projections.
+  const ownerDeletionMigration = catalog.find(
+    (row) => row.migrationName === "000127_owner_workspace_deletion",
+  );
+  if (ownerDeletionMigration) {
+    if (
+      ownerDeletionMigration.checksum !==
+        "c2a78c83fd5b376b800a189099fcc2fa6f359b61b2188e6819dfdf13d362e0f3" ||
+      manifest(catalog) !==
+        "sha256:573ad770b1198ff48207d023af722679f7eb4e67c9603c883a179692251d5c37"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== ownerDeletionMigration),
+    );
+  }
+  // C1 lock privileges are a checkout-only addition. Pin its exact complete
+  // source, then validate unchanged126; managed92/historical ledgers stay frozen.
+  const accountAdmissionMigration = catalog.find(
+    (row) => row.migrationName === "000128_account_admission_row_lock",
+  );
+  if (accountAdmissionMigration) {
+    if (
+      accountAdmissionMigration.checksum !==
+        "9d53bafb4a8f9b5b9ca9ab640c6765ff425baf87d4c5d8b80b81cc690486fe9f" ||
+      manifest(catalog) !==
+        "sha256:25978108fdc33470b190776a8c0705473c0bcfb60b18d4d631da64eb315d6f42"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== accountAdmissionMigration),
+    );
+  }
+  // The MiMO correction is admitted only with its exact complete checkout126.
+  // Project back to the already-pinned source history for managed admission;
+  // this never changes an applied119 ledger checksum or the managed92 catalog.
+  const mimoAuthMigration = catalog.find(
+    (row) => row.migrationName === "000126_review_configuration_mimo_auth_kind",
+  );
+  if (mimoAuthMigration) {
+    if (
+      mimoAuthMigration.checksum !==
+        "d3e963ce9137d0d437dbbdf47cf9aff3dc9666d1e26b200a616ee7eb9c17603a" ||
+      !catalog.some(
+        (row) =>
+          row.migrationName === "000119_review_configuration_gateway_binding" &&
+          row.checksum ===
+            "381f4bfa3f8d05e5f82fb27bf8aafb6a75fe1779ca5ac2384154618f95d0e152",
+      ) ||
+      manifest(catalog) !==
+        "sha256:5b565a1ad6f9ee710f45af02614b911e68346773226406e1209f173f1e07b30a"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog
+        .filter((row) => row !== mimoAuthMigration)
+        .map((row) =>
+          row.migrationName === "000119_review_configuration_gateway_binding"
+            ? {
+                ...row,
+                checksum:
+                  "2c0dde1720111063059d5226c6011c15389b6877a6a1f924177a24a36aa81a70",
+              }
+            : row,
+        ),
+    );
+  }
+  // This independently published checkout addition is not part of the old
+  // managed or historical manifests. Validate its exact bytes and predecessor,
+  // then validate the complete original history without changing those pins.
+  const providerKeyMigration = catalog.find(
+    (row) =>
+      row.migrationName === "000110_provider_api_key_workspace_management",
+  );
+  if (providerKeyMigration) {
+    if (
+      providerKeyMigration.checksum !==
+        "d69beaa182fd49ad231bb86b2af4b9d53af3c54cab3a12fa3ca910e7a4379208" ||
+      !catalog.some(
+        (row) =>
+          row.migrationName === "000109_sdk_growth_verifier_assignment_lock",
+      )
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== providerKeyMigration),
+    );
+  }
   const managed = [];
   let extensions = 0;
   for (const row of catalog) {
@@ -208,7 +824,10 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     }
   }
   if (
-    ![0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].includes(extensions)
+    ![
+      0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+    ].includes(extensions)
   )
     fail("checkout_extension");
   if (
@@ -293,6 +912,104 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     extensions === 16 &&
     manifest(catalog) !==
       "sha256:1d97937b91028e91b3987eee05057fbe915b7f2354cf2464c8fb507f1086590f"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 17 &&
+    manifest(catalog) !==
+      "sha256:1a5470960ccf766827bb58fc0a270553f002802e0019225adb4a0dfcf2b591af"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 18 &&
+    manifest(catalog) !==
+      "sha256:48019e5f9ad81af25742e30903b83d7053affa263c2e0674a4f9e4c909b4ec26"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 19 &&
+    manifest(catalog) !==
+      "sha256:7e1d7018a5f959cfd5d237fd2ac18dd1436580b05ab0da7a9416bc7dfb842988"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 20 &&
+    manifest(catalog) !==
+      "sha256:24a99e65c00ef46f0a63d0823ec12f38575b793e794c82990bd5c3ecfd0a2271"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 21 &&
+    manifest(catalog) !==
+      "sha256:06b7ead8634045dd96f1e79626cb1fdcee3bd147ca5068e9fe001705271f5446"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 22 &&
+    manifest(catalog) !==
+      "sha256:15a397089c81b84540534361777b74a69a48955df7db81bf6353130d51aa6ed0"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 23 &&
+    manifest(catalog) !==
+      "sha256:30f68ffc62e0b46815bc007339d83aa7894b61b23f301c012b8990713cc0ad14"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 24 &&
+    ![
+      "sha256:c5c0618f105799d06d21424433cec4a59fc052e63f594c2aace0657ebb52d1dd",
+      "sha256:afa28624860779e511a551d38910b94b336b0e638c696cadeffad3f62101c1dc",
+    ].includes(manifest(catalog))
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 25 &&
+    manifest(catalog) !==
+      "sha256:6bd2cd3c077f6cf56735c7192dd6e0f84a21bbec5a2657271cb5afaf1d2f20cf"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 26 &&
+    manifest(catalog) !==
+      "sha256:2ee71e958dc9b4a564fd113a4983917ad6e3f7ea22cd19fa29bdb7dc72320e1c"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 27 &&
+    manifest(catalog) !==
+      "sha256:f998e11bee1748adecf31dc07ec61d59b55ead60b2734a71f90065d3f9f4aa6b"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 28 &&
+    manifest(catalog) !==
+      "sha256:5f01c4416620cf984ffa5fee8dbb26bcf171ae3a89ec4e4b8615e4c7c8461c64"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 29 &&
+    manifest(catalog) !==
+      "sha256:858537d185e32ef6258ddf674b5a201e6cc0c4e44fa948a18af23d6dd55905ec"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 30 &&
+    manifest(catalog) !==
+      "sha256:5629630be035cbf1677692e840bc07c7292729bfb5bfc0c242f38179f3230df4"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 31 &&
+    manifest(catalog) !==
+      "sha256:f26da08b44ad6830f4486f93ed33979acda7b5669a8550601c34dbf9c0322443"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 32 &&
+    manifest(catalog) !==
+      "sha256:cf270d22a10557c8ebe66cc7cb5e47eb18a5c43274981b46d340123e7d6ba41a"
   )
     fail("checkout_manifest");
   assertRenderSchemaHandoffCatalog(managed);

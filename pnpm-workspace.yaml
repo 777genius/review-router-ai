@@ -7,8 +7,31 @@ packages:
   - packages/platform/*
   - packages/features/*
 
-onlyBuiltDependencies:
-  - "@prisma/engines"
-  - "@vioxen/subscription-runtime"
-  - esbuild
-  - prisma
+minimumReleaseAgeExclude:
+  - "@agent-teams/document-authoring@0.3.4"
+  - "@agent-teams/engineering-foundation@2.1.0"
+  - "@agent-teams/repository-mutation@0.4.0"
+  - "@get-modular/assembly@0.7.0"
+  - "@get-modular/conformance@0.5.0"
+  - "@get-modular/core@0.7.0"
+  - "@get-modular/resources@0.2.1"
+
+allowBuilds:
+  "@prisma/engines@7.8.0": true
+  "esbuild@0.28.1": true
+  "prisma@7.8.0": true
+  "@vioxen/subscription-runtime@https://codeload.github.com/777genius/ar/tar.gz/83a7329f4383b05ac5c39356b79f82f029182d42": true
+
+overrides:
+  "@hono/node-server": "2.0.11"
+  "brace-expansion@>=3.0.0 <5.0.7": "5.0.8"
+  "esbuild@>=0.27.3 <0.28.1": "0.28.1"
+  "fast-uri@>=3.0.0 <4.0.0": "3.1.4"
+  "hono": "4.12.32"
+  "postcss": "8.5.14"
+  "sharp": "0.35.3"
+  "undici@>=7.0.0 <8.0.0": "7.29.0"
+  "vite@>=8.0.0 <9.0.0": "8.1.5"
+
+# Installs are explicit; parallel checks must never mutate node_modules.
+verifyDepsBeforeRun: false

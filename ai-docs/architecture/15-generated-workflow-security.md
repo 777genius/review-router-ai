@@ -44,14 +44,14 @@ Do not use a broad GitHub Actions `concurrency` group for all interaction
 events. GitHub only keeps one running and one pending job per group, so a burst
 can cancel older pending jobs and drop legitimate `/rr skip`, `/rr remember`, or
 maintenance commands. Prefer runtime-level idempotency, per-thread reply
-markers, per-PR/thread caps, and SaaS OIDC rate limits.
+markers, per-PR/thread caps, and control plane OIDC rate limits.
 
 AI discussion replies use the same privacy boundary as review execution. The
 generated caller workflow passes `CODEX_AUTH_JSON`, `CODEX_CONFIG_TOML`, or
 `OPENAI_API_KEY` directly from the customer's GitHub Actions secrets to the
 ReviewRouter runtime workflow. Model and reasoning selection are passed as
 non-secret workflow variables, so the runtime contract stays explicit without
-moving prompts or credentials into SaaS. ReviewRouter SaaS stores only
+moving prompts or credentials into control plane. ReviewRouter stores only
 configuration intent and safe metadata; it must not receive provider
 credentials, prompts, raw thread text, model responses, code, or diffs.
 
@@ -70,7 +70,7 @@ Rationale:
 - `contents: read` for checkout/diff context
 - `pull-requests: write` for review comments/status interactions where supported
 - `issues: write` because PR comments often use issue comment APIs
-- `id-token: write` for SaaS config/health OIDC protocol
+- `id-token: write` for control plane config/health OIDC protocol
 
 Reduce permissions when selected identity/config does not need them.
 
@@ -162,6 +162,6 @@ Do not add this implicitly in v1 unless security is fully designed.
 - generated workflow never uses `pull_request_target` by default
 - fork PR condition skips secret-backed provider steps
 - same-repo PR condition runs provider steps
-- generated workflow contains `id-token: write` when SaaS config sync is enabled
+- generated workflow contains `id-token: write` when control plane config sync is enabled
 - generated workflow uses minimal permissions for selected mode
 - unsafe action ref, API URL, or static env key is rejected before YAML rendering

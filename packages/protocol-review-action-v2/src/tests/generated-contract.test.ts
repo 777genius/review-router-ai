@@ -5,6 +5,11 @@ import {
   canonicalizeProviderInvocationManifestV1,
   canonicalizeReviewActionV2Request,
   normalizeProviderInvocationManifestV1,
+  canonicalizePrDescriptionInvocationManifestV1,
+  normalizePrDescriptionInvocationManifestV1,
+  serializePrDescriptionInvocationManifestV1CanonicalWireJson,
+  prDescriptionInvocationManifestV1CanonicalizerDescriptor,
+  prDescriptionExtensionV1,
   parseReviewRunAuthorizeNegotiationRequest,
   parseReviewActionV2Request,
   providerInvocationIdentityPreimageV1,
@@ -30,13 +35,18 @@ import {
   ReviewInvestigationPublishedRuntimeProfile,
   ReviewInvestigationPublishedState,
   ReviewInvestigationRestoreResultStatus,
+  ReviewSnapshotRestorePurpose,
   serializeProviderInvocationManifestV1CanonicalWireJson,
 } from "../index.js";
+import { prDescriptionContract } from "../../../shared/src/index.js";
+import { createCapturedReviewSkills } from "../../../shared/src/review-skills-contract.js";
+import { createCapturedReviewSkills as createGeneratedCapturedReviewSkills } from "../generated/review-skills-contract.js";
 import {
   canonicalizeProviderInvocationManifest,
   normalizeProviderInvocationManifest,
   providerInvocationIdentityPreimage,
   providerInvocationManifestV1CanonicalizerDescriptor as domainCanonicalizerDescriptor,
+  ReviewTaskKind as DomainReviewTaskKind,
   serializeProviderInvocationManifestCanonicalWireJson,
 } from "../../../features/review-evidence/src/index.js";
 import {
@@ -47,6 +57,128 @@ import {
 } from "../../../../scripts/generate-review-action-v2-protocol.mjs";
 
 describe("generated Review Action v2 negotiation contract", () => {
+  it("preserves Skills alongside the isolated optional description handoff", async () => {
+    const fixture = JSON.parse(
+      await readFile(
+        new URL(
+          "../generated/fixtures/pr-description-invocation-manifest-v1.golden.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    );
+    const bytes = canonicalizePrDescriptionInvocationManifestV1(fixture.input);
+    expect(normalizePrDescriptionInvocationManifestV1(fixture.input)).toEqual(
+      fixture.normalized,
+    );
+    expect(new TextDecoder().decode(bytes)).toBe(
+      fixture.canonicalManifestPreimage,
+    );
+    expect(sha256Bytes(bytes)).toBe(
+      "ddee5366e72264f5901724033d415cd4a1215be7ecdd7ad1686c7a38ff2e19a7",
+    );
+    expect(
+      serializePrDescriptionInvocationManifestV1CanonicalWireJson(
+        fixture.input,
+      ),
+    ).toBe(fixture.canonicalWireJson);
+    expect(prDescriptionExtensionV1.canonicalizerDigest).toBe(
+      sha256(
+        canonicalJson(prDescriptionInvocationManifestV1CanonicalizerDescriptor),
+      ),
+    );
+    const manifest = JSON.parse(
+      await readFile(
+        new URL("../generated/manifest.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    expect(manifest.auxiliaryExtensions).toEqual([prDescriptionExtensionV1]);
+    expect(prDescriptionContract.taskKind).toBe("pr_description");
+
+    const emptySkills = {
+      baseSha: "a".repeat(40),
+      webSkills: [],
+      gitSources: [],
+    };
+    expect(createGeneratedCapturedReviewSkills(emptySkills)).toEqual(
+      createCapturedReviewSkills(emptySkills),
+    );
+  });
+
+  it("keeps auxiliary normalization separate from the published review V1 language", async () => {
+    expect(Object.values(DomainReviewTaskKind)).toContain("pr_description");
+    const fixture = JSON.parse(
+      await readFile(
+        new URL(
+          "../generated/fixtures/pr-description-invocation-manifest-v1.golden.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    );
+    expect(normalizeProviderInvocationManifest(fixture.input)).toEqual(
+      fixture.normalized,
+    );
+    expect(canonicalizeProviderInvocationManifest(fixture.input)).toEqual(
+      canonicalizePrDescriptionInvocationManifestV1(fixture.input),
+    );
+    expect(() => normalizeProviderInvocationManifestV1(fixture.input)).toThrow(
+      "review_evidence_task_kind_invalid",
+    );
+    expect(() =>
+      normalizePrDescriptionInvocationManifestV1({
+        ...fixture.input,
+        taskKindSet: ["pr_description", "finding_discovery"],
+      }),
+    ).toThrow("review_evidence_task_kind_count_invalid");
+  });
+
+  it.each([
+    { label: "omitted", fields: {}, expected: {} },
+    { label: "undefined", fields: { purpose: undefined }, expected: {} },
+    { label: "null", fields: { purpose: null }, expected: { purpose: null } },
+    {
+      label: "explicit comparison",
+      fields: { purpose: ReviewSnapshotRestorePurpose.ComparisonBaselineV1 },
+      expected: { purpose: ReviewSnapshotRestorePurpose.ComparisonBaselineV1 },
+    },
+  ])(
+    "canonicalizes snapshot restore with $label purpose",
+    ({ fields, expected }) => {
+      const operation = ReviewActionV2OperationId.ReviewSnapshotRestore;
+      const fixture = reviewActionV2GoldenFixtures[operation].request;
+      const request = {
+        ...Object.fromEntries(
+          Object.entries(fixture).filter(([key]) => key !== "purpose"),
+        ),
+        ...fields,
+      };
+      const parsed = parseReviewActionV2Request(operation, request);
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) throw new Error("snapshot_restore_fixture_invalid");
+      const result = canonicalizeReviewActionV2Request(operation, parsed.value);
+      expect(JSON.parse(result)).toEqual({
+        reviewRevisionHash: fixture.reviewRevisionHash,
+        ...expected,
+      });
+      expect(result).toBe(canonicalJson(JSON.parse(result)));
+    },
+  );
+
+  it("still rejects missing required fields when optional purpose is omitted", () => {
+    const operation = ReviewActionV2OperationId.ReviewSnapshotRestore;
+    const request = {
+      ...reviewActionV2GoldenFixtures[operation].request,
+      purpose: undefined,
+      reviewRevisionHash: undefined,
+    };
+    expect(parseReviewActionV2Request(operation, request)).toMatchObject({
+      ok: false,
+      issues: ["field_invalid:reviewRevisionHash"],
+    });
+  });
+
   it("publishes concrete request and response schemas for extension operations", async () => {
     for (const operationId of reviewInvestigationExtensionV1.operationIds) {
       const schema = JSON.parse(
@@ -186,10 +318,10 @@ describe("generated Review Action v2 negotiation contract", () => {
       ),
     ).toBe(reviewInvestigationExtensionV1.schemaDigest);
     expect(reviewActionV2PublishedSchemaDigest).toBe(
-      "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+      "71f316821909667e1b7cc704bed330ef6cfa7ac44cf51d58935ba3238ab92504",
     );
     expect(reviewActionV2CanonicalizerDigest).toBe(
-      "95a43332ccff5c8ccf8f6f9cb67d901d5efd3e91522c047c48f83b65c70cb03a",
+      "bf61d04d42e158b26e4b651b62700b10212496487d7e20ac6e705272dc1d6a5f",
     );
 
     for (const operation of reviewActionV2Operations) {

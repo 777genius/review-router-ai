@@ -1,107 +1,79 @@
+import {
+  contextToolsSelectionSchema,
+  type ContextToolsSelection,
+} from "@reviewrouter/features-review-context-tools/selection";
+import { repositoryPolicyFormFields } from "./review-policy-form-contract";
 import type { ProviderSecretScope } from "@reviewrouter/features-provider-setup";
 import type { ReviewRouterDiscussionMode } from "@reviewrouter/features-workflow-provisioning";
 import {
-  parseReviewConfigurationStrict,
-  type ReviewConfiguration,
+  parseRepositoryReviewPolicy,
+  parseWorkspaceReviewPolicy,
+  STORED_REVIEW_POLICY_SCHEMA_VERSION,
+  type RepositoryReviewSettings,
+  type WorkspaceReviewSettings,
 } from "@reviewrouter/features-review-config";
 import type { MemoryScope } from "@reviewrouter/features-memory";
 import {
   getProviderSecretNames,
   providerAuthModeBelongsToKind,
   providerAuthModeSchema,
-  providerKindForAuthMode,
   providerKindSchema,
   type ProviderAuthMode,
   type ProviderKind,
 } from "@reviewrouter/features-review-providers";
 
-export function readReviewConfigurationForm(
+/**
+ * The workspace settings of the Models form. Providers are chosen in the
+ * provider dialog and never travel with this form, so a form opened before a
+ * provider change cannot revert it.
+ */
+export function readWorkspaceReviewSettingsForm(
   formData: FormData,
-): ReviewConfiguration {
-  const providerCount = readFormNumber(formData, "providerCount");
-  if (!Number.isInteger(providerCount) || providerCount < 1) {
-    throw new Error("invalid_form_value:providerCount");
-  }
-  const providers = Array.from({ length: providerCount }, (_, index) => {
-    const authMode = readProviderAuthMode(
-      formData,
-      `providerAuthMode.${index}`,
-    );
-
-    return {
-      kind: providerKindForAuthMode(authMode),
-      authMode,
-      model: readFormString(formData, `providerModel.${index}`),
-      reasoningEffort: readFormString(
-        formData,
-        `providerReasoningEffort.${index}`,
-      ) as ReviewConfiguration["provider"]["reasoningEffort"],
-      agenticContext: readFormBoolean(
-        formData,
-        `providerAgenticContext.${index}`,
+): WorkspaceReviewSettings {
+  const updatePrDescription = readOptionalFormBoolean(
+    formData,
+    "updatePrDescription",
+  );
+  const { schemaVersion: _schemaVersion, ...settings } =
+    parseWorkspaceReviewPolicy({
+      schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
+      ...(updatePrDescription === undefined ? {} : { updatePrDescription }),
+      execution: {
+        providerMaxParallel: readFormNumber(formData, "providerMaxParallel"),
+        inlineMinAgreement: readFormNumber(formData, "inlineMinAgreement"),
+      },
+      blockingPolicy: {
+        failOnSeverity: readFormString(formData, "failOnSeverity"),
+      },
+      limits: {
+        inlineMaxComments: readFormNumber(formData, "inlineMaxComments"),
+        targetTokensPerBatch: readFormNumber(formData, "targetTokensPerBatch"),
+      },
+      reviewLanguage:
+        readOptionalFormString(formData, "reviewLanguage") ?? null,
+      ...(readOptionalFormString(formData, "contextTools")
+        ? { contextTools: readContextToolsSelection(formData) }
+        : {}),
+      investigationRollout: Object.fromEntries(
+        investigationRolloutFields.map((name) => [
+          name,
+          readOptionalFormBoolean(formData, `investigationRollout.${name}`) ??
+            false,
+        ]),
       ),
-      fastMode: readFormBoolean(formData, `providerFastMode.${index}`),
-      requiredHealthy:
-        readOptionalFormBoolean(formData, `providerRequiredHealthy.${index}`) ??
-        index === 0,
-    } satisfies ReviewConfiguration["provider"];
-  });
-
-  return parseReviewConfigurationStrict({
-    schemaVersion: 2,
-    providers,
-    provider: providers[0]!,
-    execution: {
-      providerLimit: providers.length,
-      providerMaxParallel: readFormNumber(formData, "providerMaxParallel"),
-      inlineMinAgreement: readFormNumber(formData, "inlineMinAgreement"),
-    },
-    blockingPolicy: {
-      failOnSeverity: readFormString(
-        formData,
-        "failOnSeverity",
-      ) as ReviewConfiguration["blockingPolicy"]["failOnSeverity"],
-    },
-    limits: {
-      inlineMaxComments: readFormNumber(formData, "inlineMaxComments"),
-      targetTokensPerBatch: readFormNumber(formData, "targetTokensPerBatch"),
-    },
-    reviewLanguage:
-      readOptionalFormString(formData, "reviewLanguage") ?? undefined,
-    investigationRollout: {
-      recordingEnabled:
-        readOptionalFormBoolean(
-          formData,
-          "investigationRollout.recordingEnabled",
-        ) ?? false,
-      shadowEnabled:
-        readOptionalFormBoolean(
-          formData,
-          "investigationRollout.shadowEnabled",
-        ) ?? false,
-      contextCriticEnabled:
-        readOptionalFormBoolean(
-          formData,
-          "investigationRollout.contextCriticEnabled",
-        ) ?? false,
-      verifiedCleanEnabled:
-        readOptionalFormBoolean(
-          formData,
-          "investigationRollout.verifiedCleanEnabled",
-        ) ?? false,
-      crossRevisionReplayEnabled:
-        readOptionalFormBoolean(
-          formData,
-          "investigationRollout.crossRevisionReplayEnabled",
-        ) ?? false,
-      productionEffectsEnabled:
-        readOptionalFormBoolean(
-          formData,
-          "investigationRollout.productionEffectsEnabled",
-        ) ?? false,
-    },
-  });
+    });
+  void _schemaVersion;
+  return settings;
 }
+
+const investigationRolloutFields = [
+  "recordingEnabled",
+  "shadowEnabled",
+  "contextCriticEnabled",
+  "verifiedCleanEnabled",
+  "crossRevisionReplayEnabled",
+  "productionEffectsEnabled",
+] as const;
 
 export function readFormString(formData: FormData, key: string): string {
   const value = formData.get(key);
@@ -188,34 +160,10 @@ export function readProviderSetupSelection(formData: FormData): {
     authMode.success &&
     providerAuthModeBelongsToKind(authMode.data, providerKind.data)
   ) {
-    return normalizeProductionProviderSetupSelection({
-      providerKind: providerKind.data,
-      authMode: authMode.data,
-    });
+    return { providerKind: providerKind.data, authMode: authMode.data };
   }
 
   throw new Error("invalid_form_value:providerSetup");
-}
-
-function normalizeProductionProviderSetupSelection(input: {
-  readonly providerKind: ProviderKind;
-  readonly authMode: ProviderAuthMode;
-}): {
-  readonly providerKind: ProviderKind;
-  readonly authMode: ProviderAuthMode;
-} {
-  if (
-    input.providerKind === "codex" &&
-    (input.authMode === "codex_subscription_oauth" ||
-      input.authMode === "codex_openai_api_key")
-  ) {
-    return {
-      providerKind: "codex",
-      authMode: "codex_subscription_oauth_rotating",
-    };
-  }
-
-  return input;
 }
 
 export function readProviderSecretScope(
@@ -298,19 +246,6 @@ function readMemoryScopeValue(value: string): MemoryScope {
   throw new Error("invalid_form_value:memoryScope");
 }
 
-function readProviderAuthMode(
-  formData: FormData,
-  key: string,
-): ProviderAuthMode {
-  const authMode = providerAuthModeSchema.safeParse(
-    readFormString(formData, key),
-  );
-  if (!authMode.success) {
-    throw new Error(`invalid_form_value:${key}`);
-  }
-  return authMode.data;
-}
-
 function readFormNumber(formData: FormData, key: string): number {
   const value = Number(readFormString(formData, key));
   if (!Number.isFinite(value)) {
@@ -339,4 +274,67 @@ function readOptionalFormBoolean(
   if (value === "true") return true;
   if (value === "false") return false;
   throw new Error(`invalid_form_boolean:${key}`);
+}
+
+/**
+ * The repository overrides of its settings form; fields left to inherit are
+ * absent. Its provider selection is changed only in the provider dialog.
+ */
+export function readRepositoryReviewSettingsForm(
+  formData: FormData,
+): RepositoryReviewSettings {
+  const fields = repositoryPolicyFormFields.filter((field) => {
+    const mode = readFormString(formData, `policyMode.${field.join(".")}`);
+    if (mode !== "inherit" && mode !== "override")
+      throw new Error("review_policy_override_mode_invalid");
+    return mode === "override";
+  });
+  const policy: Record<string, unknown> = {
+    schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
+  };
+  for (const [root, leaf] of fields) {
+    if (root === "contextTools") {
+      policy.contextTools = readContextToolsSelection(formData);
+    } else if (root === "updatePrDescription") {
+      policy.updatePrDescription = readFormBoolean(formData, root);
+    } else if (root === "reviewLanguage") {
+      policy.reviewLanguage =
+        readOptionalFormString(formData, "reviewLanguage") ?? null;
+    } else {
+      const name = leaf!;
+      const value =
+        root === "investigationRollout"
+          ? (readOptionalFormBoolean(formData, `${root}.${name}`) ?? false)
+          : root === "blockingPolicy"
+            ? readFormString(formData, name)
+            : readFormNumber(formData, name);
+      const target = (policy[root] ??= {}) as Record<string, unknown>;
+      target[name] = value;
+    }
+  }
+  const { schemaVersion: _schemaVersion, ...settings } =
+    parseRepositoryReviewPolicy(policy);
+  void _schemaVersion;
+  return settings;
+}
+
+export function readReviewPolicyExpectedVersion(
+  formData: FormData,
+): number | null {
+  const value = readFormString(formData, "policyExpectedVersion");
+  if (value === "none") return null;
+  if (!/^[1-9][0-9]*$/.test(value) || !Number.isSafeInteger(Number(value)))
+    throw new Error("review_policy_expected_version_invalid");
+  return Number(value);
+}
+
+function readContextToolsSelection(formData: FormData): ContextToolsSelection {
+  const raw = readOptionalFormString(formData, "contextTools");
+  try {
+    return contextToolsSelectionSchema.parse(
+      raw ? JSON.parse(raw) : { version: 1, builtinTools: [], mcp: [] },
+    );
+  } catch {
+    throw new Error("context_connection_invalid");
+  }
 }

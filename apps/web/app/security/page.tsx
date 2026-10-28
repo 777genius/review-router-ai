@@ -33,16 +33,16 @@ const secretCommand = `# Copy the full repo-scoped Codex command from the Review
 
 const securitySignals = [
   {
-    label: "Code storage",
-    title: "Review execution runs inside customer GitHub Actions.",
-    body: "ReviewRouter manages metadata, workflow setup, model settings, health, and audit. Repository checkout, diff analysis, prompts, and model responses stay out of ReviewRouter cloud by default.",
+    label: "Review execution",
+    title: "Review execution runs in the authorized CI job.",
+    body: "Submitted review context is sent to the selected model provider, through Account Gateway relay in Gateway mode. ReviewRouter stores review metadata and normalized findings, which may include source excerpts.",
     icon: Code2,
     tone: "cyan",
   },
   {
     label: "Provider secrets",
-    title: "OAuth tokens and API keys stay in your boundary.",
-    body: "Codex rotating OAuth, Claude Code OAuth, and OpenRouter keys are stored directly in GitHub Actions secrets. ReviewRouter cloud never receives plaintext provider credentials.",
+    title: "Credentials use protected mode-specific custody.",
+    body: "Direct workflow credentials are installed in GitHub Actions. Account Gateway credentials use the supported server ingress and protected server custody; they are not exposed through account readback or copied into the review job. Enrollment handles plaintext transiently; stored credentials are encrypted at rest.",
     icon: KeyRound,
     tone: "lime",
   },
@@ -64,27 +64,27 @@ const securitySignals = [
 
 const boundaryRows = [
   {
-    layer: "ReviewRunner",
+    layer: "Authorized review job",
     icon: Workflow,
-    ownedBy: "Customer repository runtime",
+    ownedBy: "Customer CI runtime",
     sensitiveData:
-      "Repository checkout, PR diff, prompts, model output, provider calls",
+      "Repository checkout, review context, prompts, model output, scoped review grant",
     custody: "Customer",
   },
   {
     layer: "Provider credentials",
     icon: KeyRound,
-    ownedBy: "GitHub Actions secrets or trusted runner",
+    ownedBy: "GitHub Actions or protected Account Gateway custody",
     sensitiveData:
-      "Codex rotating auth.json, Claude Code OAuth token, OpenRouter key",
-    custody: "Customer",
+      "Direct workflow credentials; Gateway credentials and transient enrollment data",
+    custody: "Mode-specific",
   },
   {
     layer: "ReviewRouter SaaS",
     icon: Cloud,
     ownedBy: "ReviewRouter control plane",
     sensitiveData:
-      "Installation metadata, setup PR state, policy config, audit events, health summaries",
+      "Setup metadata, policy, audit, health, and protected Account Gateway custody",
     custody: "ReviewRouter",
   },
 ] as const;
@@ -219,9 +219,9 @@ const webhookRows = [
 
 export default function SecurityPage(): React.ReactElement {
   return (
-    <main className="home-shell min-h-screen w-full overflow-hidden py-8 md:py-10">
+    <main className="home-shell min-h-screen w-full overflow-clip py-8 md:py-10">
       <section className="mx-auto w-[calc(100%-2rem)] max-w-7xl sm:w-[calc(100%-3rem)]">
-        <div className="relative isolate overflow-hidden rounded-[2rem] border border-cyan-200/12 bg-[var(--rr-surface-card-strong)] p-4 shadow-[0_28px_120px_-70px_rgba(0,240,255,0.95)] sm:p-6 lg:p-7">
+        <div className="relative isolate overflow-clip rounded-[2rem] border border-cyan-200/12 bg-[var(--rr-surface-card-strong)] p-4 shadow-[0_28px_120px_-70px_rgba(0,240,255,0.95)] sm:p-6 lg:p-7">
           <div
             aria-hidden="true"
             className="absolute inset-0 -z-10 bg-[linear-gradient(rgba(103,232,249,0.055)_1px,transparent_1px),linear-gradient(90deg,rgba(103,232,249,0.035)_1px,transparent_1px),radial-gradient(circle_at_70%_7%,rgba(163,230,53,0.13),transparent_24rem),radial-gradient(circle_at_18%_34%,rgba(0,240,255,0.12),transparent_23rem),linear-gradient(180deg,rgba(2,6,12,0.1),rgba(0,0,0,0.28))] bg-[size:56px_56px,56px_56px,auto,auto,auto]"
@@ -238,9 +238,10 @@ export default function SecurityPage(): React.ReactElement {
                 Code and secrets stay under your control.
               </h1>
               <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg sm:leading-8 lg:max-w-xl">
-                ReviewRouter installs, configures, and monitors AI review
-                without becoming the default path for source code, PR diffs,
-                prompts, model responses, or provider credentials.
+                Direct mode uses explicitly configured GitHub Actions or
+                self-hosted runner credentials. Gateway mode uses server-managed
+                enrollment and sends submitted review context through its relay
+                to the selected provider.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <LinkButton href="/#compare" variant="soft" tone="success">
@@ -277,6 +278,12 @@ export default function SecurityPage(): React.ReactElement {
               id="security-boundary-title"
             />
             <BoundaryTable />
+            <p className="mt-4 text-xs leading-5 text-slate-400">
+              Review context submitted for a review is sent to the selected
+              model provider. Code running in the authorized CI job can use its
+              scoped review grant. Tool environment filtering reduces exposure;
+              it does not isolate the grant from that job's code.
+            </p>
           </section>
 
           <section className="mt-8" aria-labelledby="security-permission-title">
@@ -315,11 +322,12 @@ export default function SecurityPage(): React.ReactElement {
             </div>
             <div>
               <h2 className="text-lg font-semibold text-cyan-50">
-                Strong claim, narrow boundary.
+                Narrow claim, explicit boundary.
               </h2>
               <p className="mt-1 text-sm leading-6 text-slate-300">
-                ReviewRouter should not claim code goes nowhere. It should claim
-                code skips ReviewRouter cloud by default.
+                Submitted review context is sent to the selected provider.
+                Stored review metadata and normalized findings may include
+                source excerpts.
               </p>
             </div>
             <div className="flex flex-wrap gap-3 sm:justify-end">
@@ -349,15 +357,17 @@ function CredentialPanel(): React.ReactElement {
         <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_10px_rgba(103,232,249,0.8)]" />
         <span className="h-1.5 w-1.5 rounded-full bg-fuchsia-400 shadow-[0_0_10px_rgba(217,70,239,0.8)]" />
       </div>
-      <Badge tone="success">Credential boundary</Badge>
+      <Badge tone="success">Direct-mode credential boundary</Badge>
       <h2 className="mt-5 text-2xl font-semibold leading-tight text-cyan-50 sm:text-3xl">
         Seed secrets directly to GitHub.{" "}
-        <span className="text-lime-300">ReviewRouter never receives them.</span>
+        <span className="text-lime-300">
+          ReviewRouter does not receive these workflow credentials.
+        </span>
       </h2>
       <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-300">
-        The helper validates provider auth locally and writes required secrets
-        through <code>gh</code>. Dashboard state only tracks safe setup
-        metadata.
+        For direct workflow credentials, the helper validates provider auth
+        locally and writes required secrets through <code>gh</code>. Dashboard
+        state only tracks safe setup metadata.
       </p>
 
       <div className="mt-7 grid gap-4 md:grid-cols-[1fr_auto_1fr_auto_1fr] md:items-center">
@@ -377,7 +387,7 @@ function CredentialPanel(): React.ReactElement {
         <BoundaryConnector />
         <BoundaryNode
           title="Selected model provider"
-          body="Called from your runtime"
+          body="Called directly from the authorized CI job"
           icon={
             <Cloud aria-hidden="true" className="size-7 text-fuchsia-300" />
           }
@@ -476,8 +486,8 @@ function SectionHeading({
 
 function BoundaryTable(): React.ReactElement {
   return (
-    <div className="overflow-x-auto rounded-2xl border border-cyan-200/12 bg-[var(--rr-surface-panel)] shadow-[inset_0_1px_0_rgba(103,232,249,0.09)]">
-      <table className="w-full min-w-[860px] border-collapse text-left text-sm">
+    <div className="overflow-x-auto rounded-2xl border border-cyan-200/12 bg-[var(--rr-surface-panel)] shadow-[inset_0_1px_0_rgba(103,232,249,0.09)] lg:overflow-clip">
+      <table className="rr-sticky-table w-full min-w-[860px] border-collapse text-left text-sm">
         <thead>
           <tr className="border-b border-cyan-200/10 font-mono text-[0.68rem] uppercase tracking-[0.18em] text-slate-400">
             <th className="px-5 py-4 font-semibold">Layer</th>
@@ -531,8 +541,8 @@ function BoundaryTable(): React.ReactElement {
 
 function PermissionTable(): React.ReactElement {
   return (
-    <div className="overflow-x-auto rounded-2xl border border-cyan-200/12 bg-[var(--rr-surface-panel)] shadow-[inset_0_1px_0_rgba(103,232,249,0.09)]">
-      <table className="w-full min-w-[920px] border-collapse text-left text-sm">
+    <div className="overflow-x-auto rounded-2xl border border-cyan-200/12 bg-[var(--rr-surface-panel)] shadow-[inset_0_1px_0_rgba(103,232,249,0.09)] lg:overflow-clip">
+      <table className="rr-sticky-table w-full min-w-[920px] border-collapse text-left text-sm">
         <thead>
           <tr className="border-b border-cyan-200/10 font-mono text-[0.68rem] uppercase tracking-[0.18em] text-slate-400">
             <th className="px-5 py-4 font-semibold">Permission</th>
@@ -581,8 +591,8 @@ function PermissionTable(): React.ReactElement {
 
 function WebhookTable(): React.ReactElement {
   return (
-    <div className="overflow-x-auto rounded-2xl border border-cyan-200/12 bg-[var(--rr-surface-panel)] shadow-[inset_0_1px_0_rgba(103,232,249,0.09)]">
-      <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+    <div className="overflow-x-auto rounded-2xl border border-cyan-200/12 bg-[var(--rr-surface-panel)] shadow-[inset_0_1px_0_rgba(103,232,249,0.09)] lg:overflow-clip">
+      <table className="rr-sticky-table w-full min-w-[760px] border-collapse text-left text-sm">
         <thead>
           <tr className="border-b border-cyan-200/10 font-mono text-[0.68rem] uppercase tracking-[0.18em] text-slate-400">
             <th className="px-5 py-4 font-semibold">Event</th>

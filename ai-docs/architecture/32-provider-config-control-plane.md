@@ -11,7 +11,7 @@ ReviewRouter uses a hybrid config model from day one:
 ```text
 static snapshot in generated workflow
   + OIDC dynamic config fetch
-  + static fallback when SaaS is unavailable
+  + static fallback when control plane is unavailable
 ```
 
 This gives reliable first-run behavior and dashboard-managed updates.
@@ -23,9 +23,9 @@ GitHub Actions workflow starts
   -> static env snapshot is already present in workflow
   -> Action requests GitHub OIDC token
   -> Action exchanges token for short-lived ReviewRouter action session
-  -> Action fetches repository config from SaaS
+  -> Action fetches repository config from control plane
   -> Action overlays dynamic config onto static snapshot
-  -> if SaaS unavailable, Action uses static snapshot
+  -> if control plane unavailable, Action uses static snapshot
   -> Action runs existing review-router runtime in customer CI
 ```
 
@@ -36,7 +36,7 @@ Pure static config would require a setup/update PR for every dashboard change. T
 Static still matters as fallback:
 
 - first run works immediately after setup PR merge
-- customer CI can continue if SaaS is down
+- customer CI can continue if control plane is down
 - config drift is visible and recoverable
 
 ## Config Scope
@@ -103,7 +103,7 @@ test installations pick up runtime fixes immediately. Production can pin a
 release tag through `REVIEW_ROUTER_ACTION_VERSION` or override the whole ref
 through `REVIEW_ROUTER_ACTION_REF`.
 
-SaaS config maps to runtime env:
+control plane config maps to runtime env:
 
 ```text
 codex_subscription_oauth:
@@ -231,7 +231,7 @@ If OIDC fails:
 use static workflow snapshot
 post safe health warning if possible
 never fetch config with a long-lived token
-never fail review solely because SaaS config is unavailable when static config is valid
+never fail review solely because control plane config is unavailable when static config is valid
 ```
 
 If provider secret is missing:

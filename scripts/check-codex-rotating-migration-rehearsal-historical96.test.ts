@@ -30,6 +30,19 @@ const extensions = [
   "000107_hosted_v4_relay_turn_contract",
   "000108_sdk_growth_verifier_assignment",
   "000109_sdk_growth_verifier_assignment_lock",
+  "000110_provider_api_key_workspace_management",
+  "000111_sdk_growth_source_binding",
+  "000112_sdk_growth_operator_credential",
+  "000113_sdk_growth_approval_ledger",
+  "000114_sdk_growth_v3_tool_artifact",
+  "000115_sdk_growth_v3_approved_manifest",
+  "000116_hosted_codex_relay_admission_utc",
+  "000117_provider_accounts",
+  "000118_workspace_binding_fences",
+  "000119_review_configuration_gateway_binding",
+  "000120_review_run_runtime_snapshot",
+  "000121_review_run_gateway_execution_binding",
+  "000126_review_configuration_mimo_auth_kind",
 ];
 function body(name: string) {
   const match = source.match(

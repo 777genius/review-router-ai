@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Seed Codex ChatGPT OAuth auth into GitLab CI/CD variables without sending it to ReviewRouter SaaS.
+# Seed Codex ChatGPT OAuth auth into GitLab CI/CD variables without sending it to ReviewRouter.
 
 set -Eeuo pipefail
 
@@ -51,7 +51,7 @@ ReviewRouter GitLab Codex OAuth secret seeding
 
 Usage:
   export GITLAB_TOKEN="glpat-..."
-  curl -fsSL https://reviewrouter.site/install/codex-gitlab | bash -s -- --confirm-write --scope group --group my-group
+  curl -fsSL https://reviewrouter.org/install/codex-gitlab | bash -s -- --confirm-write --scope group --group my-group
 
 Options:
   --dry-run                 Validate and print target writes without calling GitLab.
@@ -67,7 +67,7 @@ Options:
   -h, --help                Show this help.
 
 The script writes CODEX_AUTH_JSON directly to GitLab CI/CD variables through
-the GitLab API. ReviewRouter SaaS never receives plaintext auth.json.
+the GitLab API. ReviewRouter never receives plaintext auth.json.
 EOF
 }
 
@@ -394,7 +394,7 @@ confirm_secret_write() {
   fi
 
   warn "This will create or overwrite GitLab CI/CD variable $SECRET_NAME for the target below."
-  warn "ReviewRouter SaaS will not receive the secret value; this script writes directly to GitLab."
+  warn "ReviewRouter will not receive the secret value; this script writes directly to GitLab."
 
   if [ ! -t 0 ]; then
     fatal "Refusing to write variables in non-interactive mode without confirmation. Set REVIEW_ROUTER_CONFIRM_WRITE=1 after verifying the target."

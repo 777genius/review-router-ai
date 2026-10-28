@@ -244,7 +244,7 @@ function forbidProviderSecretsInSaaS() {
   for (const name of forbidden) {
     if (read(name)) {
       errors.push(
-        `${name} must not be stored in ReviewRouter SaaS env; put provider credentials in customer GitHub Actions secrets.`,
+        `${name} must not be stored in ReviewRouter env; put provider credentials in customer GitHub Actions secrets.`,
       );
     }
   }

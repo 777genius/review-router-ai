@@ -44,7 +44,12 @@ export type HostedCodexGrantResponse = HostedCommentTokenDeliveryCarrier & {
   };
 };
 
-/** Private PR2 contract; PR1 registers no v4 routes or dispatch adapter. */
+/**
+ * Legacy direct native-v4 transport contract, retained for compatibility and
+ * historical receipts. The selected production path is Account Gateway/Sub2API;
+ * this contract is not a fallback or a migration-completion requirement.
+ * Declaring it does not register a v4 dispatch route.
+ */
 export type HostedV4RelayGrantResponse = {
   readonly protocolVersion: 4;
   readonly grant: string;
@@ -178,6 +183,11 @@ export type RegisterHostedCodexRelayRoutesDependencies = {
   readonly custodyHealth?: () => HostedCustodyReadiness;
 };
 
+/**
+ * Legacy hosted-pool direct transport routes, separate from the Account
+ * Gateway/Sub2API routes. Retention does not authorize enabling this path;
+ * registration still depends on the existing explicit feature gates.
+ */
 export async function registerHostedCodexRelayRoutes(
   app: FastifyInstance,
   dependencies: RegisterHostedCodexRelayRoutesDependencies,
@@ -371,6 +381,22 @@ function sendSafeError(
   // Production API uses Fastify({ logger: false }); reply.log is a no-op there.
   console.log(`hosted_codex_rejected phase=${phase} code=${message}`);
   reply.log.warn({ phase, code: message }, "hosted_codex_rejected");
+  // Admission rejections carry a closed fact envelope: callers must be able to
+  // separate terminal request-budget exhaustion from transient lane saturation,
+  // which the flat phase error and the shared 429 status cannot express.
+  if (message.endsWith("concurrency_budget_exhausted")) {
+    return reply
+      .code(503)
+      .header("cache-control", "no-store")
+      .header("retry-after", "1")
+      .send({ error: { code: "lane_saturated", effect: "not_dispatched" } });
+  }
+  if (message.endsWith("request_budget_exhausted")) {
+    return reply
+      .code(429)
+      .header("cache-control", "no-store")
+      .send({ error: { code: "budget_exhausted", effect: "not_dispatched" } });
+  }
   const status = message.includes("disabled")
     ? 404
     : message.includes("budget") || message.includes("concurrency")

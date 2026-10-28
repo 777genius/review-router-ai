@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
 const qualityJob = workflow
   .split(/^ {2}(?=[a-z][a-z0-9-]+:\n)/mu)
-  .find((job) => job.startsWith("quality:\n"));
+  .find((job) => job.startsWith("quality-source-certification:\n"));
 
 if (!qualityJob) throw new Error("hosted_certification_quality_job_missing");
 

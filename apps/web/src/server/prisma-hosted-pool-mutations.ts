@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   bindRepositoryToDefaultPool,
   createPrismaHostedAccountPoolAdapters,
@@ -6,8 +6,13 @@ import {
   CredentialEnvelopeVault,
   hostedAccountId,
   hostedBindingId,
+  hostedCodexProductionKmsBindingArn,
   hostedPoolId,
   importAndEnrollHostedCodexAccount,
+  fingerprintCodexAuthJson,
+  PrismaHostedCodexMutationFence,
+  PrismaHostedCodexSessionPersistence,
+  reconnectHostedAccount,
   repositoryId,
   resolveHostedCodexKeyring,
   setHostedAccountAvailability,
@@ -52,17 +57,115 @@ export function createPrismaHostedPoolDashboardMutationPort(input: {
       env: input.env,
       purpose: "enrollment",
     });
-    return createPrismaHostedAccountPoolAdapters({
-      prisma: input.prisma,
-      vault: new CredentialEnvelopeVault(keyring, "relay"),
-      databaseIncarnation,
-      databaseResourceIdentity,
+    const vault = new CredentialEnvelopeVault(keyring, "relay");
+    return {
+      ...createPrismaHostedAccountPoolAdapters({
+        prisma: input.prisma,
+        vault,
+        databaseIncarnation,
+        databaseResourceIdentity,
+        fingerprintPepper,
+        configurationAuthority: createRepositoryConfigurationAuthority(),
+      }),
       fingerprintPepper,
-      configurationAuthority: createRepositoryConfigurationAuthority(),
+      persistence: new PrismaHostedCodexSessionPersistence(
+        input.prisma,
+        vault,
+        databaseIncarnation,
+        databaseResourceIdentity,
+        fingerprintPepper,
+        hostedCodexProductionKmsBindingArn(keyring),
+      ),
+    };
+  };
+
+  const findReconnectTarget = async (command: {
+    readonly workspaceId: string;
+    readonly accountId: string;
+    readonly expectedGeneration: number;
+    readonly expectedHealthVersion: number;
+  }) => {
+    const account = await input.prisma.hostedCodexAccount.findFirst({
+      where: {
+        id: command.accountId,
+        workspaceId: command.workspaceId,
+        state: "paused",
+        tombstonedAt: null,
+        activeGeneration: BigInt(command.expectedGeneration),
+        healthVersion: BigInt(command.expectedHealthVersion),
+        pool: {
+          workspaceId: command.workspaceId,
+          isDefault: true,
+          status: "active",
+          tombstonedAt: null,
+        },
+      },
+      select: { id: true, poolId: true },
     });
+    if (!account) throw new Error("hosted_codex_reconnect_conflict");
+    return account;
   };
 
   return {
+    async assertReconnectTarget(command) {
+      await findReconnectTarget(command);
+    },
+
+    async reconnectAccount(command) {
+      try {
+        const target = await findReconnectTarget(command);
+        const adapters = createAdapters();
+        const fences = new PrismaHostedCodexMutationFence(input.prisma);
+        await reconnectHostedAccount(
+          {
+            workspaceId: workspaceId(command.workspaceId),
+            poolId: hostedPoolId(target.poolId),
+            accountId: hostedAccountId(target.id),
+            expectedGeneration: command.expectedGeneration,
+            expectedHealthVersion: command.expectedHealthVersion,
+            authJsonBytes: command.authJson,
+          },
+          {
+            accounts: adapters.accounts,
+            validate: (bytes) => ({
+              fingerprint: fingerprintCodexAuthJson(
+                bytes,
+                adapters.fingerprintPepper,
+              ),
+              generationHash: createHash("sha256").update(bytes).digest("hex"),
+            }),
+            acquire: async (accountId) => {
+              const lease = await fences.acquire({
+                accountId,
+                runId: `device-reconnect:${randomUUID()}`,
+                attempt: 1,
+                ttlMs: 30_000,
+                restoredGenerationHash: "operator-reconnect",
+              });
+              if (lease.status !== "granted")
+                throw new Error("hosted_pool_reconnect_busy");
+              return lease.leaseId;
+            },
+            release: (leaseId) =>
+              fences.release({
+                leaseId,
+                reason: "operator_reconnect_finished",
+              }),
+            commit: (replacement) =>
+              adapters.persistence.reconnect(replacement),
+          },
+        );
+        const accounts = await adapters.queries.listAccountSummaries(
+          hostedPoolId(target.poolId),
+        );
+        const account = accounts.find((row) => row.id === target.id);
+        if (!account) throw new Error("hosted_account_not_found");
+        return account;
+      } finally {
+        command.authJson.fill(0);
+      }
+    },
+
     async importAccount(command) {
       const adapters = createAdapters();
       const authJson = command.authJson;

@@ -1,6 +1,9 @@
 # ReviewRouter hosted beta Blueprint.
 # Customer code review still runs inside customer GitHub Actions. These services
-# are the SaaS control plane only: dashboard, webhooks, config/OIDC, health, jobs.
+# are the control plane only: dashboard, webhooks, config/OIDC, health, jobs.
+# Native builds attempt Prisma network isolation, then use a minimal child
+# environment if unsupported. CI and self-hosted builds require isolation;
+# the owner-approved native Render fallback still permits network access.
 
 services:
   - type: web
@@ -9,13 +12,13 @@ services:
     plan: starter
     region: frankfurt
     branch: main
-    buildCommand: pnpm --version && NODE_ENV=development node scripts/install-private-dependencies.mjs --frozen-lockfile && pnpm db:generate && pnpm build
-    startCommand: env -u SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 HOST=0.0.0.0 pnpm release-control:start
+    buildCommand: npm install --prefix .render-tooling --no-package-lock --ignore-scripts --no-audit --no-fund pnpm@10.33.0 && export PATH="$PWD/.render-tooling/node_modules/.bin:$PATH" && test "$(pnpm --version)" = 10.33.0 && NODE_ENV=development node scripts/install-private-dependencies.mjs --frozen-lockfile && env -u SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 -u GIT_SSH_COMMAND -u GIT_SSH_VARIANT node scripts/generate-prisma-offline.mjs && pnpm build
+    startCommand: PATH="$PWD/.render-tooling/node_modules/.bin:$PATH" env -u SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 HOST=0.0.0.0 pnpm release-control:start
     healthCheckPath: /health
     autoDeployTrigger: off
     envVars:
       - key: NODE_VERSION
-        value: 24
+        value: 26.11.1
       - key: PORT
         value: 10000
       - key: REVIEW_ROUTER_RELEASE_AUTHORITY_CONTROL_DATABASE_URL
@@ -72,13 +75,13 @@ services:
     plan: starter
     region: frankfurt
     branch: main
-    buildCommand: pnpm --version && NODE_ENV=development node scripts/install-private-dependencies.mjs --frozen-lockfile && pnpm db:generate && pnpm build
-    startCommand: env -u SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 HOST=0.0.0.0 pnpm release-witness:start
+    buildCommand: npm install --prefix .render-tooling --no-package-lock --ignore-scripts --no-audit --no-fund pnpm@10.33.0 && export PATH="$PWD/.render-tooling/node_modules/.bin:$PATH" && test "$(pnpm --version)" = 10.33.0 && NODE_ENV=development node scripts/install-private-dependencies.mjs --frozen-lockfile && env -u SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 -u GIT_SSH_COMMAND -u GIT_SSH_VARIANT node scripts/generate-prisma-offline.mjs && pnpm build
+    startCommand: PATH="$PWD/.render-tooling/node_modules/.bin:$PATH" env -u SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 HOST=0.0.0.0 pnpm release-witness:start
     healthCheckPath: /health
     autoDeployTrigger: off
     envVars:
       - key: NODE_VERSION
-        value: 24
+        value: 26.11.1
       - key: PORT
         value: 10000
       - key: REVIEW_ROUTER_RELEASE_AUTHORITY_WITNESS_DATABASE_URL
@@ -170,7 +173,7 @@ services:
     envVars:
       - fromGroup: reviewrouter-hosted-beta
       - key: NODE_VERSION
-        value: 24
+        value: 26.11.1
       - key: PORT
         value: 10000
       - key: REVIEW_ROUTER_RUNTIME_ROLE
@@ -197,7 +200,7 @@ services:
     envVars:
       - fromGroup: reviewrouter-hosted-beta
       - key: NODE_VERSION
-        value: 24
+        value: 26.11.1
       - key: PORT
         value: 10000
       - key: REVIEW_ROUTER_RUNTIME_ROLE
@@ -244,7 +247,7 @@ services:
       - key: REVIEW_ROUTER_RUNTIME_ROLE
         value: worker
       - key: NODE_VERSION
-        value: 24
+        value: 26.11.1
       - key: DATABASE_URL
         # Provision reviewrouter_worker as a non-owner runtime role.
         sync: false
@@ -381,19 +384,19 @@ envVarGroups:
       - key: REVIEW_ROUTER_MAX_REPOSITORIES_PER_SYNC
         value: "250"
       - key: REVIEW_ROUTER_WEB_URL
-        value: https://reviewrouter.site
+        value: https://reviewrouter.org
       - key: REVIEW_ROUTER_API_URL
-        value: https://api.reviewrouter.site
+        value: https://api.reviewrouter.org
       - key: REVIEW_ROUTER_PUBLIC_API_URL
-        value: https://api.reviewrouter.site
+        value: https://api.reviewrouter.org
       - key: REVIEW_ROUTER_PUBLIC_WEB_URL
-        value: https://reviewrouter.site
+        value: https://reviewrouter.org
       - key: REVIEW_ROUTER_HOSTED_WEB_URL
-        value: https://reviewrouter.site
+        value: https://reviewrouter.org
       - key: REVIEW_ROUTER_HOSTED_API_URL
-        value: https://api.reviewrouter.site
+        value: https://api.reviewrouter.org
       - key: NEXTAUTH_URL
-        value: https://reviewrouter.site
+        value: https://reviewrouter.org
       # GitHub App OAuth/client/webhook credentials. Do not commit real values.
       - key: GITHUB_APP_ID
         sync: false

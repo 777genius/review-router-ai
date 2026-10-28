@@ -5,6 +5,7 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnvFile } from "./lib/env-file.mjs";
 import { normalizeGitHubAppPermissionProfile } from "./lib/github-app-permission-profiles.mjs";
+import { parseReviewAgentProfiles } from "../packages/shared/src/review-agent-profile.ts";
 import { reviewV2ProjectionPolicyVersion } from "./review-v2-render-env.mjs";
 import { isLoopbackHostname } from "../packages/shared/src/validation/loopback-hostname.mjs";
 import { resolveCodexRotatingInstallerDescriptor } from "../packages/shared/src/validation/codex-rotating-installer-descriptor.mjs";
@@ -412,10 +413,14 @@ function isProducerReleaseAttestation(value) {
     "reviewInvestigationCoverageProfileHash",
     "reviewInvestigationPolicyHash",
   ];
-  const legacy = isExactRecord(value, legacyKeys);
-  const current = isExactRecord(value, currentKeys);
-  const investigation = isExactRecord(value, investigationKeys);
-  if (!legacy && !current && !investigation) {
+  const investigation = isExactRecord(value, [
+    ...investigationKeys,
+    "agentProfiles",
+  ]);
+  if (!investigation) return false;
+  try {
+    parseReviewAgentProfiles(value.agentProfiles);
+  } catch {
     return false;
   }
   const contextGatewayPolicyVersion = value.contextGatewayPolicyVersion ?? null;

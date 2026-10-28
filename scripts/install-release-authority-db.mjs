@@ -970,8 +970,14 @@ const migrationBody = (source, path) => {
   const withoutBegin = source.replace(/^(?:--[^\n]*\n)*BEGIN;\s*/u, (header) =>
     header.replace(/BEGIN;\s*$/u, ""),
   );
-  const withoutCommit = withoutBegin.replace(/\s*COMMIT;\s*$/u, "\n");
-  if (withoutBegin === source || withoutCommit === withoutBegin)
+  // The outer transaction owns the validated timeout policy. Only discard
+  // the published migration header settings; leave function bodies intact.
+  const withoutHeaderTimeouts = withoutBegin.replace(
+    /^((?:--[^\n]*\n)*)SET LOCAL lock_timeout = '15s';\s*SET LOCAL statement_timeout = '5min';\s*/u,
+    "$1",
+  );
+  const withoutCommit = withoutHeaderTimeouts.replace(/\s*COMMIT;\s*$/u, "\n");
+  if (withoutBegin === source || withoutCommit === withoutHeaderTimeouts)
     throw new Error(`release_authority_migration_transaction_invalid:${path}`);
   return withoutCommit;
 };

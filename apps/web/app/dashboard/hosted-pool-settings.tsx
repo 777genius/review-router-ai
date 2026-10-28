@@ -50,9 +50,12 @@ export function HostedPoolSettingsPanel({
   readonly previewDeviceLoginFlight?: HostedPoolDeviceLoginFlight | undefined;
 }): React.ReactElement | null {
   const [accounts, setAccounts] = useState(view.accounts);
+  const [reconnectAccount, setReconnectAccount] =
+    useState<HostedAccountSafeSummary | null>(null);
   useEffect(() => setAccounts(view.accounts), [view.accounts]);
   const addImportedAccount = useCallback(
     (account: HostedAccountSafeSummary) => {
+      setReconnectAccount(null);
       setAccounts((current) =>
         [...current.filter((item) => item.id !== account.id), account].sort(
           (left, right) =>
@@ -66,18 +69,7 @@ export function HostedPoolSettingsPanel({
   );
 
   if (view.gate === "feature_disabled") {
-    return (
-      <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
-        <h3 className="text-sm font-semibold text-cyan-50">
-          ChatGPT accounts are not enabled
-        </h3>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-          This deployment is not accepting hosted ChatGPT accounts yet.
-          Repository reviews continue to use credentials configured in each
-          repository, so there is nothing to manage on this page right now.
-        </p>
-      </section>
-    );
+    return null;
   }
   if (view.gate === "entitlement_denied") {
     return (
@@ -101,6 +93,9 @@ export function HostedPoolSettingsPanel({
   const hasHealthyAccount =
     healthy > 0 ||
     accounts.some((account) => account.availability.status === "healthy");
+  const poolRepositories = view.repositories.filter(
+    (repository) => repository.source === "hosted_workspace_pool",
+  );
   return (
     <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -140,6 +135,20 @@ export function HostedPoolSettingsPanel({
               </>
             )}
           </p>
+          {poolRepositories.length ? (
+            <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-400 break-words">
+              Where the pool is used:{" "}
+              {poolRepositories
+                .slice(0, 3)
+                .map((repository) => repository.fullName)
+                .join(", ")}
+              {poolRepositories.length > 3
+                ? ` +${poolRepositories.length - 3}`
+                : ""}
+              . Removing the last ready account will stop reviews in these
+              repositories.
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -148,6 +157,8 @@ export function HostedPoolSettingsPanel({
           workspaceId={workspaceId}
           mutationsEnabled={mutationsEnabled}
           enrolled
+          reconnectAccount={reconnectAccount}
+          onClearReconnect={() => setReconnectAccount(null)}
           startAction={actions.startDeviceLogin}
           pollAction={actions.pollDeviceLogin}
           onImported={addImportedAccount}
@@ -168,9 +179,11 @@ export function HostedPoolSettingsPanel({
           <HostedPoolAccountCards
             workspaceId={workspaceId}
             accounts={accounts}
+            poolRepositories={poolRepositories}
             setAccountState={actions.setAccountState}
             removeAccount={actions.removeAccount}
             mutationsEnabled={mutationsEnabled}
+            onReconnect={setReconnectAccount}
           />
         </HostedPoolDeviceLogin>
       ) : (

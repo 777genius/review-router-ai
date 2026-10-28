@@ -1,4 +1,5 @@
 import type { ReviewRouterWorkflowStyle } from "../../domain/workflow-template";
+import type { WorkflowRequirement } from "../../domain/workflow-transport";
 
 export type RepositoryWorkflowProvisioningSummary = {
   readonly repositoryId: string;
@@ -9,6 +10,8 @@ export type RepositoryWorkflowProvisioningSummary = {
   readonly actionVersion: string;
   readonly pullRequestUrl: string | null;
   readonly errorMessage: string | null;
+  /** Requirement of the workflow last confirmed installed; null is unknown. */
+  readonly installedWorkflowRequirement: WorkflowRequirement | null;
   readonly updatedAt: Date;
 };
 

@@ -57,13 +57,15 @@ function fixture(visibility: string, overrides: Record<string, unknown> = {}) {
   };
   const mutation = vi.fn(() => [{ id: "mint", fenceEpoch: 1n, ...snapshot }]);
   const transaction = {
+    $executeRaw: vi.fn(async () => 0),
     $queryRaw: vi.fn(async (strings: TemplateStringsArray) => {
       const sql = strings.join("?");
       if (sql.includes("hosted_codex_comment_token_authority_snapshot"))
         return [snapshot];
       if (sql.includes("hosted_codex_lock_comment_token_mint"))
         return [{ locked: false }];
-      if (sql.includes("clock_timestamp")) return [{ now }];
+      if (sql.includes("clock_timestamp"))
+        return [{ epochMs: BigInt(now.getTime()) }];
       if (sql.includes("hosted_codex_mutate_comment_token_mint"))
         return mutation();
       throw new Error("unexpected_fixture_query");

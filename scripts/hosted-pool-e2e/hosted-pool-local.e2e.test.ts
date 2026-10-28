@@ -121,6 +121,7 @@ describe("disposable hosted pool local E2E", () => {
             },
             body: Readable.from([
               `data: {"type":"response.output_text.delta","delta":"turn-${turn}"}\n\n`,
+              `data: {"type":"response.completed","response":{"id":"fake-response-${turn}","status":"completed"}}\n\n`,
               "data: [DONE]\n\n",
             ]),
           };
@@ -167,7 +168,18 @@ describe("disposable hosted pool local E2E", () => {
           });
           expect(response.status).toBe(200);
           expect(response.headers.get("set-cookie")).toBeNull();
-          expect(await response.text()).toContain(`"turn-${turn}"`);
+          const stream = await response.text();
+          expect(stream).toContain(`"turn-${turn}"`);
+          const events = stream
+            .split("\n\n")
+            .filter(
+              (frame) => frame.startsWith("data: ") && frame !== "data: [DONE]",
+            )
+            .map((frame) => JSON.parse(frame.slice("data: ".length)));
+          expect(events).toContainEqual({
+            type: "response.completed",
+            response: { id: `fake-response-${turn}`, status: "completed" },
+          });
         }
         const refreshed = await fetch(commentTokenRefreshUrl, {
           method: "POST",
@@ -333,6 +345,7 @@ describe("disposable hosted pool local E2E", () => {
       ["expired", "grant_invalid_expired"],
       ["replay", "relay_request_replay_conflict"],
       ["request-budget", "request_budget_exhausted"],
+      ["concurrency-budget", "concurrency_budget_exhausted"],
     ]);
     await registerHostedCodexRelayRoutes(app, {
       enabled: true,
@@ -362,15 +375,30 @@ describe("disposable hosted pool local E2E", () => {
     });
     await app.listen({ host: "127.0.0.1", port: 0 });
 
-    const denials: readonly (readonly [string, number])[] = [
-      ["cross-tenant", 403],
-      ["cross-repository", 403],
-      ["stale-binding", 403],
-      ["expired", 401],
-      ["replay", 409],
-      ["request-budget", 429],
+    const flatRejection = { error: "hosted_codex_relay_rejected" };
+    const denials: readonly (readonly [string, number, unknown])[] = [
+      ["cross-tenant", 403, flatRejection],
+      ["cross-repository", 403, flatRejection],
+      ["stale-binding", 403, flatRejection],
+      ["expired", 401, flatRejection],
+      ["replay", 409, flatRejection],
+      // Budget exhaustion and lane saturation must stay distinguishable at the
+      // seam: the first is terminal, the second is a retryable closed fact.
+      [
+        "request-budget",
+        429,
+        { error: { code: "budget_exhausted", effect: "not_dispatched" } },
+      ],
+      [
+        "concurrency-budget",
+        503,
+        { error: { code: "lane_saturated", effect: "not_dispatched" } },
+      ],
     ];
-    for (const [index, [grant, expectedStatus]] of denials.entries()) {
+    for (const [
+      index,
+      [grant, expectedStatus, expectedBody],
+    ] of denials.entries()) {
       const response = await directRelayRequest(
         app.listeningOrigin,
         String(grant),
@@ -378,9 +406,7 @@ describe("disposable hosted pool local E2E", () => {
         "{}",
       );
       expect(response.status, String(grant)).toBe(expectedStatus);
-      await expect(response.json()).resolves.toEqual({
-        error: "hosted_codex_relay_rejected",
-      });
+      await expect(response.json()).resolves.toEqual(expectedBody);
     }
     const oversized = await directRelayRequest(
       app.listeningOrigin,

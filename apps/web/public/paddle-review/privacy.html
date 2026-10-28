@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy policy | ReviewRouter by QuantJumpPro</title>
+    <meta
+      name="description"
+      content="How ReviewRouter handles account, repository, review, credential, and support data in current and proposed service modes."
+    />
+    <link rel="canonical" href="https://reviewrouter.org/privacy" />
+    <link rel="stylesheet" href="/paddle-review/styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header>
+      <a class="brand" href="/">ReviewRouter<small>by QuantJumpPro</small></a>
+      <nav aria-label="Public pages">
+        <a href="/terms">Terms</a
+        ><a href="/privacy" aria-current="page">Privacy</a
+        ><a href="/refund-policy">Refund policy</a
+        ><a href="/pricing">Pricing</a>
+      </nav>
+    </header>
+    <main id="main">
+      <p class="eyebrow">ReviewRouter / Public information</p>
+      <h1>Privacy policy</h1>
+      <p class="updated">
+        Last updated: <time datetime="2026-10-19">19 October 2026</time>
+      </p>
+
+      <p class="intro">
+        This policy describes data handled by the current free ReviewRouter
+        service and the additional processing proposed for an optional paid
+        hosted API review service.
+      </p>
+      <section>
+        <h2>1. Operator and contact</h2>
+        <p>
+          An individual operates ReviewRouter under the brand QuantJumpPro;
+          QuantJumpPro is not a registered company. For privacy questions or
+          requests, contact
+          <a href="mailto:quantjumppro@gmail.com">quantjumppro@gmail.com</a>.
+          This policy covers the operator's hosted service. If you self-host
+          ReviewRouter, your deployment operator also controls its
+          infrastructure and data handling.
+        </p>
+      </section>
+      <section>
+        <h2>2. Account and operational data</h2>
+        <p>
+          Sign-in uses session cookies and GitHub or GitLab OAuth. Depending on
+          the integration and permissions, account data includes provider
+          identifiers and login, email, avatar, and workspace or organization
+          memberships. The server stores encrypted GitHub access tokens where
+          needed for the integration.
+        </p>
+        <p>
+          The service processes repository and installation identifiers and
+          settings, workflow configuration and setup metadata, review run status
+          and normalized findings, repository health information, audit events,
+          and support diagnostics. Normalized findings may contain source
+          excerpts. We do not promise that code never enters or is never stored
+          by the service.
+        </p>
+        <p>
+          When Memory is enabled, it processes user-confirmed guidance and
+          pending suggestions, their scope, and lifecycle metadata. Pending
+          suggestions are distinct from confirmed guidance and are not active
+          runtime memory until approved. Stored guidance is distilled text,
+          scoped to the authorized repository, workspace, or user preferences;
+          raw discussion threads are not Memory items. Authorized maintainers or
+          administrators confirm shared guidance and control its scope.
+        </p>
+        <p>
+          Disabling or deleting Memory removes it from runtime retrieval.
+          Deletion redacts the stored item and associated confirmed suggestion
+          content before later maintenance pruning. Deleted Memory is excluded
+          from Memory exports; administrative exports and related operations are
+          access-controlled and audited.
+        </p>
+      </section>
+      <section>
+        <h2>3. Review execution and credential modes</h2>
+        <p>
+          Current review execution runs in customer-authorized CI. The selected
+          model provider receives submitted review context, which may include
+          code, diffs, prompts, and tool outputs. In direct credential mode, the
+          authorized CI job or runner manages the configured provider
+          credentials.
+        </p>
+        <p>
+          Account Gateway and hosted credential modes can store provider
+          credentials encrypted on the server. These modes also relay prompts,
+          tool outputs, model responses, and other authorized request context
+          transiently through backend services. Credential enrollment and use
+          require transient processing of the credential. Encryption at rest
+          does not mean secrets never enter the SaaS.
+        </p>
+        <p>
+          Selected providers process the context they receive under their own
+          terms and privacy policies. Their retention and data-use policies
+          depend on the provider, account, and configuration. We do not give a
+          blanket assurance about provider training use or retention. See the
+          <a href="/security">security model</a> and
+          <a href="https://github.com/777genius/review-router"
+            >public repository</a
+          >
+          for product context.
+        </p>
+      </section>
+      <section>
+        <h2>4. Proposed paid hosted API reviews</h2>
+        <p>
+          The optional paid service is not yet available. It would receive
+          authorized pull request diffs, relevant source, prompts, and review
+          context on the ReviewRouter backend, then send necessary context to
+          selected model provider APIs. The operator would pay those API costs.
+          We will disclose the actual processing, providers, and applicable
+          terms before paid use; the current customer-CI model is not a promise
+          about this future service.
+        </p>
+      </section>
+      <section>
+        <h2>5. Purposes and legal bases</h2>
+        <p>
+          We process data to authenticate users, authorize repository and
+          workspace access, configure and deliver requested reviews, display
+          results, maintain Memory, secure and operate the service, investigate
+          failures or abuse, and answer support emails. Support correspondence
+          includes the information you choose to send; avoid sending credentials
+          or unnecessary source code by email.
+        </p>
+        <p>
+          Where a legal basis is required, processing may rely on performing the
+          requested service or contract, legitimate interests in operating and
+          protecting the service, legal obligations, or consent where required.
+          The applicable basis depends on the processing and jurisdiction. You
+          may withdraw consent where processing relies on it, without affecting
+          earlier lawful processing.
+        </p>
+      </section>
+      <section>
+        <h2>6. Cookies, local storage, and service providers</h2>
+        <p>
+          Essential authentication and security cookies support sign-in and
+          sessions. A theme preference may be stored in your browser's
+          localStorage. Hosting and infrastructure providers process operational
+          data and logs, such as request metadata, IP addresses, timestamps, and
+          error information, to run and protect the service.
+        </p>
+        <p>
+          Data is shared as needed with repository platforms, the model provider
+          you select, hosting and infrastructure processors, and parties
+          necessary to meet legal obligations or protect the service.
+        </p>
+        <p>
+          If Paddle billing launches, Paddle would collect payment credentials
+          and process payments under its own
+          <a href="https://www.paddle.com/legal/privacy">Privacy policy</a>.
+          ReviewRouter would receive necessary billing metadata, such as
+          customer and order identifiers, purchase status, subscription details,
+          and billing contact information. Payment credentials would be handled
+          by Paddle rather than collected directly by ReviewRouter.
+        </p>
+      </section>
+      <section>
+        <h2>7. Retention, deletion, and security</h2>
+        <p>
+          Data is retained as needed for the relevant service purpose, account
+          administration, support, security, and legal obligations. Retention
+          varies by data type and deployment. This policy does not promise a
+          fixed deletion deadline or a single retention period for all records,
+          logs, backups, and third-party systems.
+        </p>
+        <p>
+          Request account or workspace deletion at
+          <a href="mailto:quantjumppro@gmail.com">quantjumppro@gmail.com</a>. We
+          may need to verify your authority and explain any information retained
+          for legal, security, or operational reasons. Disconnecting OAuth or
+          uninstalling an integration stops the associated future access but
+          does not automatically erase all existing records. Repository platform
+          comments and provider-held data may require separate action with those
+          services.
+        </p>
+        <p>
+          Access controls and encrypted credential storage help protect data,
+          but no system can guarantee absolute security. Do not submit data you
+          are not permitted to disclose to the chosen processing path.
+        </p>
+      </section>
+      <section>
+        <h2>8. International processing, rights, and changes</h2>
+        <p>
+          Depending on deployment and selected providers, data may be processed
+          internationally. Applicable protections and transfer requirements
+          depend on the services and jurisdictions involved; this policy does
+          not promise a particular processing region or certification.
+        </p>
+        <p>
+          Depending on applicable law, you may have rights to access, correct,
+          delete, restrict or object to processing, obtain portable data,
+          withdraw consent, or complain to a competent data protection
+          authority. Contact the operator to make a request; rights may be
+          subject to lawful exceptions and verification.
+        </p>
+        <p>
+          We will update this policy when data practices change and provide
+          notice where required, including disclosing material new processing
+          before paid hosted API reviews become available.
+        </p>
+      </section>
+    </main>
+    <footer>
+      <p>
+        <strong>ReviewRouter by QuantJumpPro</strong> · Operated by an
+        individual
+      </p>
+      <p><a href="mailto:quantjumppro@gmail.com">quantjumppro@gmail.com</a></p>
+      <nav aria-label="Public pages">
+        <a href="/terms">Terms</a
+        ><a href="/privacy" aria-current="page">Privacy</a
+        ><a href="/refund-policy">Refund policy</a
+        ><a href="/pricing">Pricing</a>
+      </nav>
+      <p>
+        <a href="/">Home</a> · <a href="/security">Security model</a> ·
+        <a href="/support">Support</a> ·
+        <a href="https://github.com/777genius/review-router"
+          >Public repository</a
+        >
+      </p>
+    </footer>
+  </body>
+</html>

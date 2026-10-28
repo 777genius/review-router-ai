@@ -29,7 +29,7 @@ try {
   expectStatus(
     forbiddenProviderSecretEnv,
     1,
-    "provider API key in SaaS env should fail",
+    "provider API key in control plane env should fail",
   );
 
   const forbiddenClaudeOAuthEnv = join(tempDir, "forbidden-claude-oauth.env");
@@ -40,7 +40,7 @@ try {
   expectStatus(
     forbiddenClaudeOAuthEnv,
     1,
-    "Claude Code OAuth token in SaaS env should fail",
+    "Claude Code OAuth token in control plane env should fail",
   );
 
   const forbiddenClaudeAuthTokenEnv = join(
@@ -54,7 +54,7 @@ try {
   expectStatus(
     forbiddenClaudeAuthTokenEnv,
     1,
-    "Anthropic auth token in SaaS env should fail",
+    "Anthropic auth token in control plane env should fail",
   );
 
   const localhostEnv = join(tempDir, "localhost.env");

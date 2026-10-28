@@ -11,8 +11,106 @@ import {
   cloneDate,
   invalid,
 } from "./review-run-control-types";
+import {
+  parseReviewAgentProfiles,
+  type ReviewAgentProfile,
+} from "./review-agent-profile";
+
+export const prDescriptionExtensionIdV1 = "pr-description.v1";
+
+export type ProducerPrDescriptionProfile = Readonly<{
+  readonly extensionId: typeof prDescriptionExtensionIdV1;
+  readonly canonicalizerDigest: string;
+}>;
+
+/** Approved extension identity, detached from caller-owned objects. */
+export function parseProducerPrDescriptionProfile(
+  value: unknown,
+): ProducerPrDescriptionProfile {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).length !== 2 ||
+    !Object.hasOwn(value, "extensionId") ||
+    !Object.hasOwn(value, "canonicalizerDigest") ||
+    !("extensionId" in value) ||
+    !("canonicalizerDigest" in value) ||
+    value.extensionId !== prDescriptionExtensionIdV1 ||
+    typeof value.canonicalizerDigest !== "string"
+  ) {
+    invalid("pr_description_profile_invalid");
+  }
+  assertSha256(
+    value.canonicalizerDigest,
+    "pr_description_canonicalizer_digest",
+  );
+  return Object.freeze({
+    extensionId: prDescriptionExtensionIdV1,
+    canonicalizerDigest: value.canonicalizerDigest,
+  });
+}
+
+export const lifecycleVerificationExtensionIdV1 = "lifecycle-verification.v1";
+
+export type ProducerLifecycleVerificationProfile = Readonly<{
+  extensionId: typeof lifecycleVerificationExtensionIdV1;
+  descriptorDigest: string;
+}>;
+
+/** Exact immutable extension identity; absence keeps legacy approval bytes. */
+export function parseProducerLifecycleVerificationProfile(
+  value: unknown,
+): ProducerLifecycleVerificationProfile {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).sort().join(",") !== "descriptorDigest,extensionId"
+  )
+    invalid("producer_lifecycle_verification_profile_invalid");
+  const profile = value as Record<string, unknown>;
+  if (
+    profile.extensionId !== lifecycleVerificationExtensionIdV1 ||
+    typeof profile.descriptorDigest !== "string" ||
+    !/^sha256:[a-f0-9]{64}$/.test(profile.descriptorDigest)
+  )
+    invalid("producer_lifecycle_verification_profile_invalid");
+  return Object.freeze({
+    extensionId: lifecycleVerificationExtensionIdV1,
+    descriptorDigest: profile.descriptorDigest,
+  });
+}
 
 export const reviewInvestigationCapabilityV1 = "review_investigation_v1";
+
+export type ProducerContextToolsProfile = Readonly<{
+  extensionId: "context-tools.v1";
+  descriptorDigest: string;
+}>;
+
+export function parseProducerContextToolsProfile(
+  value: unknown,
+): ProducerContextToolsProfile {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).sort().join(",") !== "descriptorDigest,extensionId"
+  )
+    invalid("producer_context_tools_profile_invalid");
+  const profile = value as Record<string, unknown>;
+  if (
+    profile.extensionId !== "context-tools.v1" ||
+    typeof profile.descriptorDigest !== "string" ||
+    !/^sha256:[a-f0-9]{64}$/.test(profile.descriptorDigest)
+  )
+    invalid("producer_context_tools_profile_invalid");
+  return Object.freeze({
+    extensionId: "context-tools.v1",
+    descriptorDigest: profile.descriptorDigest,
+  });
+}
 
 export type ProducerReviewInvestigationProfile = Readonly<{
   readonly capability: typeof reviewInvestigationCapabilityV1;
@@ -62,6 +160,7 @@ export type ReviewOperationalSloProfileV2 = ReviewOperationalSloThresholds & {
 };
 
 export type ProducerRelease = {
+  readonly contextToolsProfile?: ProducerContextToolsProfile;
   readonly producerReleaseId: string;
   readonly distributionKind: ProducerDistributionKind;
   readonly actionCommitSha: string;
@@ -71,6 +170,9 @@ export type ProducerRelease = {
   readonly contextGatewayPolicyVersion: string | null;
   readonly contextGatewayEntrypointDigest: string | null;
   readonly reviewInvestigationProfile: ProducerReviewInvestigationProfile | null;
+  readonly agentProfiles: readonly ReviewAgentProfile[] | null;
+  readonly prDescriptionProfile?: ProducerPrDescriptionProfile | null;
+  readonly lifecycleVerificationProfile?: ProducerLifecycleVerificationProfile | null;
   readonly schemaDigest: string;
   readonly capabilityProfile: ReviewCapabilityProfile;
   readonly protocolLimitsProfileId: string;
@@ -88,10 +190,12 @@ export type ProducerReleaseCandidate = Omit<
   | "contextGatewayPolicyVersion"
   | "contextGatewayEntrypointDigest"
   | "reviewInvestigationProfile"
+  | "agentProfiles"
 > & {
   readonly contextGatewayPolicyVersion?: string | null;
   readonly contextGatewayEntrypointDigest?: string | null;
   readonly reviewInvestigationProfile?: ProducerReviewInvestigationProfile | null;
+  readonly agentProfiles?: readonly ReviewAgentProfile[] | null;
 };
 
 export function createReviewProtocolLimitsProfile(input: {
@@ -266,6 +370,21 @@ export function createProducerRelease(
     invalid("hosted_composite_wrapper_digest_required");
   }
   return {
+    ...(candidate.prDescriptionProfile == null
+      ? {}
+      : {
+          prDescriptionProfile: parseProducerPrDescriptionProfile(
+            candidate.prDescriptionProfile,
+          ),
+        }),
+    ...(candidate.lifecycleVerificationProfile == null
+      ? {}
+      : {
+          lifecycleVerificationProfile:
+            parseProducerLifecycleVerificationProfile(
+              candidate.lifecycleVerificationProfile,
+            ),
+        }),
     producerReleaseId: candidate.producerReleaseId,
     distributionKind: candidate.distributionKind,
     actionCommitSha: candidate.actionCommitSha,
@@ -275,6 +394,17 @@ export function createProducerRelease(
     contextGatewayPolicyVersion,
     contextGatewayEntrypointDigest,
     reviewInvestigationProfile,
+    agentProfiles:
+      candidate.agentProfiles == null
+        ? null
+        : parseReviewAgentProfiles(candidate.agentProfiles),
+    ...(candidate.contextToolsProfile !== undefined
+      ? {
+          contextToolsProfile: parseProducerContextToolsProfile(
+            candidate.contextToolsProfile,
+          ),
+        }
+      : {}),
     schemaDigest: candidate.schemaDigest,
     capabilityProfile: candidate.capabilityProfile,
     protocolLimitsProfileId: candidate.protocolLimitsProfileId,
@@ -308,6 +438,21 @@ export function producerReleaseImmutableKey(
   release: ProducerRelease | ProducerReleaseCandidate,
 ): string {
   return canonicalJson({
+    ...(release.prDescriptionProfile == null
+      ? {}
+      : {
+          prDescriptionProfile: parseProducerPrDescriptionProfile(
+            release.prDescriptionProfile,
+          ),
+        }),
+    ...(release.lifecycleVerificationProfile == null
+      ? {}
+      : {
+          lifecycleVerificationProfile:
+            parseProducerLifecycleVerificationProfile(
+              release.lifecycleVerificationProfile,
+            ),
+        }),
     distributionKind: release.distributionKind,
     actionCommitSha: release.actionCommitSha,
     runtimeCommitSha: release.runtimeCommitSha,
@@ -322,6 +467,14 @@ export function producerReleaseImmutableKey(
       release.reviewInvestigationProfile?.coverageProfileHash ?? null,
     reviewInvestigationPolicyHash:
       release.reviewInvestigationProfile?.policyHash ?? null,
+    agentProfiles: release.agentProfiles ?? null,
+    ...(release.contextToolsProfile !== undefined
+      ? {
+          contextToolsProfile: parseProducerContextToolsProfile(
+            release.contextToolsProfile,
+          ),
+        }
+      : {}),
     schemaDigest: release.schemaDigest,
     capabilityProfile: release.capabilityProfile,
     protocolLimitsProfileId: release.protocolLimitsProfileId,
@@ -334,6 +487,32 @@ export function cloneProducerRelease(
 ): ProducerRelease {
   return {
     ...release,
+    ...(release.contextToolsProfile !== undefined
+      ? {
+          contextToolsProfile: parseProducerContextToolsProfile(
+            release.contextToolsProfile,
+          ),
+        }
+      : {}),
+    ...(release.prDescriptionProfile == null
+      ? {}
+      : {
+          prDescriptionProfile: parseProducerPrDescriptionProfile(
+            release.prDescriptionProfile,
+          ),
+        }),
+    ...(release.lifecycleVerificationProfile == null
+      ? {}
+      : {
+          lifecycleVerificationProfile:
+            parseProducerLifecycleVerificationProfile(
+              release.lifecycleVerificationProfile,
+            ),
+        }),
+    agentProfiles:
+      release.agentProfiles == null
+        ? null
+        : parseReviewAgentProfiles(release.agentProfiles),
     registeredAt: cloneDate(release.registeredAt),
     revokedAt: release.revokedAt ? cloneDate(release.revokedAt) : null,
   };

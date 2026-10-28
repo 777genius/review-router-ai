@@ -1,4 +1,27 @@
+import {
+  credentialSourceFixture,
+  providerProfileFixture,
+  providerProfileRowFixture,
+  repositoryPolicyDocumentFixture,
+  storedPolicyHeadFixture,
+  workspacePolicyDocumentFixture,
+  workspacePolicyFixture,
+  workspaceProviderFixture,
+} from "../../../../../../../packages/features/review-config/src/tests/current-policy-fixture";
+import {
+  parseReviewConfigurationStrict,
+  type WorkspaceProviderProfile,
+} from "@reviewrouter/features-review-config";
+import { projectRepositorySetupStatus } from "@reviewrouter/features-workflow-provisioning";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { isSetupRecoveryIssue } from "../../../../dashboard/dashboard-copy";
+import type {
+  AccountsPage,
+  AccountsResult,
+} from "../../../../../src/server/account-gateway-accounts";
+import { resolveDashboardRepositoryReadiness } from "../../../../../src/server/dashboard-repository-readiness";
+import type { HostedPoolDashboardView } from "../../../../../src/server/hosted-pool-dashboard";
+import type { GatewayReviewV2RepositoryReadiness } from "../../../../../src/server/prisma-gateway-review-v2-provisioning";
 
 const mocks = vi.hoisted(() => ({
   getDashboardSignedInActor: vi.fn(),
@@ -9,9 +32,12 @@ const mocks = vi.hoisted(() => ({
   providerSetupFindMany: vi.fn(),
   reviewConfigurationFindUnique: vi.fn(),
   reviewConfigurationFindMany: vi.fn(),
+  providerProfileFindMany: vi.fn(),
   repositoryConnectionFindMany: vi.fn(),
   workspaceFindMany: vi.fn(),
-  hostedCodexRepositoryBindingFindMany: vi.fn(),
+  loadHostedPoolDashboardView: vi.fn(),
+  loadDashboardGatewayAccounts: vi.fn(),
+  readGatewayReviewV2RepositoryReadiness: vi.fn(),
 }));
 
 vi.mock("@reviewrouter/features-repo-health", () => ({
@@ -20,9 +46,44 @@ vi.mock("@reviewrouter/features-repo-health", () => ({
 }));
 
 vi.mock("@reviewrouter/platform-config", () => ({
+  isHostedCodexPoolEnabled: () => true,
   requireReviewRouterDatabaseRecoveryWitness: () => "w".repeat(43),
   resolveReviewRouterActionRef: () => "reviewrouter/action@v1",
 }));
+
+vi.mock("@reviewrouter/features-entitlements", () => ({
+  PrismaEntitlementRepository: class {
+    findWorkspaceEntitlement = async () => null;
+  },
+  freeBetaEntitlement: () => ({}),
+  evaluateFeatureEntitlement: () => ({ allowed: true }),
+}));
+
+vi.mock(
+  "../../../../../src/server/hosted-pool-dashboard",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../../../../../src/server/hosted-pool-dashboard")
+    >()),
+    loadHostedPoolDashboardView: mocks.loadHostedPoolDashboardView,
+  }),
+);
+
+vi.mock("../../../../../src/server/dashboard-gateway-accounts", () => ({
+  loadDashboardPersonalAccounts: async () => null,
+  loadDashboardGatewayAccounts: mocks.loadDashboardGatewayAccounts,
+}));
+
+vi.mock(
+  "../../../../../src/server/prisma-gateway-review-v2-provisioning",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../../../../../src/server/prisma-gateway-review-v2-provisioning")
+    >()),
+    readGatewayReviewV2RepositoryReadiness:
+      mocks.readGatewayReviewV2RepositoryReadiness,
+  }),
+);
 
 vi.mock("../../../../../src/server/dashboard-mutations", () => ({
   asDashboardGitHubActor: (
@@ -60,11 +121,9 @@ vi.mock("../../../../../src/server/prisma", () => ({
       findUnique: mocks.reviewConfigurationFindUnique,
       findMany: mocks.reviewConfigurationFindMany,
     },
+    workspaceProviderProfile: { findMany: mocks.providerProfileFindMany },
     repositoryConnection: { findMany: mocks.repositoryConnectionFindMany },
     workspace: { findMany: mocks.workspaceFindMany },
-    hostedCodexRepositoryBinding: {
-      findMany: mocks.hostedCodexRepositoryBindingFindMany,
-    },
   }),
 }));
 
@@ -91,9 +150,45 @@ describe("dashboard repository search route", () => {
       },
     ]);
     mocks.providerSetupFindMany.mockResolvedValue([]);
-    mocks.hostedCodexRepositoryBindingFindMany.mockResolvedValue([]);
-    mocks.reviewConfigurationFindUnique.mockResolvedValue(null);
-    mocks.reviewConfigurationFindMany.mockResolvedValue([]);
+    mocks.loadHostedPoolDashboardView.mockImplementation(
+      async (input: {
+        readonly repositories: readonly {
+          readonly id: string;
+          readonly fullName: string;
+          readonly visibility: string;
+        }[];
+      }) => hostedPoolView(input.repositories, []),
+    );
+    mocks.loadDashboardGatewayAccounts.mockResolvedValue({
+      status: "unavailable",
+    });
+    mocks.readGatewayReviewV2RepositoryReadiness.mockResolvedValue(new Map());
+    // The workspace has no default provider; every repository selects its
+    // own rotating Codex profile unless a test stores another selection.
+    testProfiles.clear();
+    mocks.reviewConfigurationFindUnique.mockResolvedValue({
+      active: true,
+      repositoryId: null,
+      versions: [
+        storedPolicyHeadFixture(
+          workspacePolicyDocumentFixture(workspacePolicyFixture),
+        ),
+      ],
+    });
+    mocks.reviewConfigurationFindMany.mockImplementation(
+      async (input: RepositoryHeadsQuery) =>
+        input.where.repositoryId.in.map((repositoryId) => ({
+          repositoryId,
+          versions: [repositoryPolicyRow(repositoryId)],
+        })),
+    );
+    mocks.providerProfileFindMany.mockImplementation(
+      async (input: { readonly where: { readonly id: { in: string[] } } }) =>
+        input.where.id.in.flatMap((id) => {
+          const profile = testProfiles.get(id);
+          return profile ? [providerProfileRowFixture(profile)] : [];
+        }),
+    );
     mocks.listWorkspaceRepositoryHealth.mockResolvedValue([]);
     mocks.deriveDashboardProviderSetupReadiness.mockImplementation(
       async (input: { readonly providerSetup: readonly unknown[] }) =>
@@ -125,6 +220,13 @@ describe("dashboard repository search route", () => {
 
     await expect(response.json()).resolves.toMatchObject({
       repositoryIds: ["repo_allowed"],
+      repositories: [
+        {
+          id: "repo_allowed",
+          fullName: "fin-int/tvaity",
+          provider: "github",
+        },
+      ],
       total: 1,
       query: "tvaity",
       filter: "all",
@@ -137,6 +239,30 @@ describe("dashboard repository search route", () => {
         },
       }),
     );
+  });
+
+  it("lists repositories without readiness, hosted pool or Gateway reads when nothing filters", async () => {
+    mocks.getDashboardWorkspaceScope.mockResolvedValue({ kind: "all" });
+    mocks.repositoryConnectionFindMany.mockResolvedValue([
+      repositoryRow({ id: "repo_1", fullName: "fin-int/tvaity" }),
+    ]);
+
+    const response = await GET(
+      nextRequest(
+        "http://localhost/api/dashboard/repositories/search?workspace=fin-int",
+      ),
+    );
+
+    await expect(response.json()).resolves.toMatchObject({
+      repositoryIds: ["repo_1"],
+      total: 1,
+      filter: "all",
+    });
+    expect(mocks.listWorkspaceRepositoryHealth).not.toHaveBeenCalled();
+    expect(mocks.reviewConfigurationFindUnique).not.toHaveBeenCalled();
+    expect(mocks.loadHostedPoolDashboardView).not.toHaveBeenCalled();
+    expect(mocks.loadDashboardGatewayAccounts).not.toHaveBeenCalled();
+    expect(mocks.readGatewayReviewV2RepositoryReadiness).not.toHaveBeenCalled();
   });
 
   it("keeps workspace-admin search unrestricted by repository permission cache", async () => {
@@ -357,10 +483,14 @@ describe("dashboard repository search route", () => {
       {
         repositoryId: "repo_missing",
         versions: [
-          reviewConfigurationVersionRow({
-            providerKind: "openrouter",
-            providerAuthMode: "openrouter_api_key",
+          repositoryPolicyRow("repo_missing", {
+            kind: "openrouter",
+            authMode: "openrouter_api_key",
             model: "poolside/laguna-m.1:free",
+            reasoningEffort: "medium",
+            agenticContext: true,
+            fastMode: false,
+            requiredHealthy: true,
           }),
         ],
       },
@@ -408,7 +538,181 @@ describe("dashboard repository search route", () => {
         where: {
           workspaceId: "workspace_1",
           repositoryId: { in: ["repo_missing"] },
+          active: true,
         },
+      }),
+    );
+  });
+
+  it("gives the dashboard page and this route the same readiness, including Gateway", async () => {
+    mocks.getDashboardWorkspaceScope.mockResolvedValue({
+      kind: "workspace_ids",
+      workspaceIds: ["workspace_1"],
+    });
+    mocks.listGitHubUserRepositoryAccess.mockResolvedValue({
+      status: "ready",
+      workspaceIds: [],
+      repositoryIds: new Set<string>(),
+      directConfigRepositoryIds: new Set<string>(),
+      checkedAt: null,
+    });
+    const table = [
+      {
+        id: "repo_secret_ready",
+        health: "healthy",
+        setupRow: true,
+        expected: "ready",
+      },
+      { id: "repo_secret_missing", health: "healthy", expected: "needs_setup" },
+      {
+        id: "repo_gateway_ready",
+        health: "healthy",
+        gateway: { status: "ready" },
+        expected: "ready",
+      },
+      {
+        id: "repo_gateway_unauthorized",
+        health: "healthy",
+        gateway: {
+          status: "blocked",
+          issue: "gateway_review_v2_runtime_not_ready",
+        },
+        expected: "needs_setup",
+      },
+      {
+        id: "repo_hosted",
+        health: "provider_needs_setup",
+        hosted: true,
+        expected: "ready",
+      },
+      {
+        id: "repo_unhealthy",
+        health: "provider_unhealthy",
+        setupRow: true,
+        expected: "needs_attention",
+      },
+      {
+        id: "repo_recovery",
+        health: "healthy",
+        setupRow: true,
+        setupIssue: "setup_pr_closed",
+        expected: "needs_setup",
+      },
+    ] as const satisfies readonly ReadinessFixture[];
+    const rows = table.map((item: ReadinessFixture) =>
+      repositoryRow({
+        id: item.id,
+        fullName: `fin-int/${item.id}`,
+        ...(item.setupIssue
+          ? { provisioningStatus: "failed", errorMessage: item.setupIssue }
+          : {}),
+      }),
+    );
+    const health = table.map((item) => ({
+      ...healthyReport(item.id),
+      status: item.health,
+    }));
+    const providerSetup = table.flatMap((item: ReadinessFixture) =>
+      item.setupRow
+        ? [
+            providerSetupRow({
+              repositoryId: item.id,
+              authMode: "codex_subscription_oauth_rotating",
+            }),
+          ]
+        : [],
+    );
+    const gatewayReadiness = new Map(
+      table.flatMap((item: ReadinessFixture) =>
+        item.gateway ? [[item.id, item.gateway] as const] : [],
+      ),
+    ) as ReadonlyMap<string, GatewayReviewV2RepositoryReadiness>;
+    const hostedView = hostedPoolView(
+      rows,
+      table.flatMap((item: ReadinessFixture) => (item.hosted ? [item.id] : [])),
+    );
+    const accounts = gatewayAccounts();
+    mocks.repositoryConnectionFindMany.mockResolvedValue(rows);
+    mocks.listWorkspaceRepositoryHealth.mockResolvedValue(health);
+    mocks.providerSetupFindMany.mockResolvedValue(providerSetup);
+    mocks.reviewConfigurationFindMany.mockImplementation(
+      async (input: RepositoryHeadsQuery) =>
+        input.where.repositoryId.in.map((repositoryId) => ({
+          repositoryId,
+          versions: [
+            gatewayReadiness.has(repositoryId)
+              ? repositoryPolicyRow(repositoryId, gatewayProvider)
+              : repositoryPolicyRow(repositoryId),
+          ],
+        })),
+    );
+    mocks.loadHostedPoolDashboardView.mockResolvedValue(hostedView);
+    mocks.loadDashboardGatewayAccounts.mockResolvedValue(accounts);
+    mocks.readGatewayReviewV2RepositoryReadiness.mockResolvedValue(
+      gatewayReadiness,
+    );
+
+    const routeReadiness = new Map<string, string>();
+    for (const [setup, readiness] of [
+      ["ready", "ready"],
+      ["needed", "needs_setup"],
+      ["attention", "needs_attention"],
+    ] as const) {
+      const response = await GET(
+        nextRequest(
+          `http://localhost/api/dashboard/repositories/search?workspace=fin-int&setup=${setup}`,
+        ),
+      );
+      const body = (await response.json()) as {
+        readonly repositoryIds: readonly string[];
+      };
+      for (const id of body.repositoryIds) routeReadiness.set(id, readiness);
+    }
+    // Composed as the dashboard page composes it for its table and summary.
+    const pageReadiness = resolveDashboardRepositoryReadiness({
+      effectiveConfigs: new Map(
+        rows.map((repository) => [
+          repository.id,
+          gatewayReadiness.has(repository.id)
+            ? parseReviewConfigurationStrict({
+                ...workspacePolicyFixture,
+                providers: [gatewayProvider],
+              })
+            : workspacePolicyFixture,
+        ]),
+      ),
+      repositories: rows.map((repository) => ({
+        ...repository,
+        setupStatus: projectRepositorySetupStatus({
+          workflowProvisioningStatus:
+            repository.provisioning[0]?.status ?? null,
+          legacySetupStatus: repository.setupStatus,
+        }),
+        setupNeedsAttention: isSetupRecoveryIssue(
+          repository.provisioning[0]?.errorMessage ?? null,
+        ),
+        installedWorkflowRequirement:
+          repository.provisioning[0]?.installedWorkflowRequirement ?? null,
+      })),
+      health,
+      providerSetup,
+      hostedRepositories: hostedView.repositories,
+      gatewayAccounts: accounts,
+      gatewayReadiness,
+      providerSecretCheckFailedRepositoryFullName: null,
+    });
+
+    expect(
+      Object.fromEntries(
+        pageReadiness.map((item) => [item.repository.id, item.readiness]),
+      ),
+    ).toEqual(Object.fromEntries(routeReadiness));
+    expect(Object.fromEntries(routeReadiness)).toEqual(
+      Object.fromEntries(table.map((item) => [item.id, item.expected])),
+    );
+    expect(mocks.readGatewayReviewV2RepositoryReadiness).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repositoryIds: ["repo_gateway_ready", "repo_gateway_unauthorized"],
       }),
     );
   });
@@ -436,6 +740,125 @@ function nextRequest(url: string) {
   return { nextUrl: new URL(url) } as Parameters<typeof GET>[0];
 }
 
+type ReadinessFixture = {
+  readonly id: string;
+  readonly health: "healthy" | "provider_needs_setup" | "provider_unhealthy";
+  readonly setupRow?: boolean;
+  readonly setupIssue?: string;
+  readonly hosted?: boolean;
+  readonly gateway?: { readonly status: string; readonly issue?: string };
+  readonly expected: "ready" | "needs_setup" | "needs_attention";
+};
+
+const gatewayProvider = {
+  kind: "codex",
+  authMode: "codex_account_gateway",
+  gatewayBindingId: "binding_1",
+  gatewayProfileRef: "openai-responses-apikey-v1",
+  model: "mimo-v2.6-pro",
+  reasoningEffort: "medium",
+  agenticContext: true,
+  fastMode: false,
+  requiredHealthy: true,
+} as const;
+
+type RepositoryHeadsQuery = {
+  readonly where: { readonly repositoryId: { readonly in: string[] } };
+};
+
+/** Profiles the stored repository selections of a test reference. */
+const testProfiles = new Map<string, WorkspaceProviderProfile>();
+
+/**
+ * The stored head of a repository selecting one profile of the provider's
+ * credential source; the workspace settings stay inherited.
+ */
+function repositoryPolicyRow(
+  repositoryId: string,
+  provider: unknown = workspaceProviderFixture,
+) {
+  const config = parseReviewConfigurationStrict({
+    ...workspacePolicyFixture,
+    providers: [provider],
+  });
+  const profiles = config.providers.map((row) =>
+    providerProfileFixture({
+      id: `profile_${row.authMode}_${repositoryId}`,
+      credential: credentialSourceFixture(row, repositoryId),
+      model: row.model,
+    }),
+  );
+  for (const profile of profiles) testProfiles.set(profile.id, profile);
+  return storedPolicyHeadFixture(
+    repositoryPolicyDocumentFixture(
+      config,
+      profiles.map((profile) => profile.id),
+    ),
+  );
+}
+
+function gatewayAccounts(): AccountsResult<AccountsPage> {
+  return {
+    status: "ok",
+    value: {
+      accounts: [
+        {
+          connectionId: "connection_1",
+          label: "Workspace account",
+          profileId: gatewayProvider.gatewayProfileRef,
+          profileLabel: "MiMo",
+          state: "active",
+          gatewayRevision: 1,
+          mirrorRevision: 1,
+          binding: {
+            id: gatewayProvider.gatewayBindingId,
+            revision: 1,
+            state: "active",
+            fencePending: false,
+          },
+        },
+      ],
+      profiles: [
+        {
+          id: gatewayProvider.gatewayProfileRef,
+          label: "MiMo",
+          protocol: "openai-responses",
+          models: [gatewayProvider.model],
+        },
+      ],
+      nextCursor: null,
+    },
+  };
+}
+
+function hostedPoolView(
+  repositories: readonly {
+    readonly id: string;
+    readonly fullName: string;
+    readonly visibility: string;
+  }[],
+  activeRepositoryIds: readonly string[],
+): HostedPoolDashboardView {
+  return {
+    gate: "enabled",
+    pool: null,
+    accounts: [],
+    repositories: repositories.map((repository) => {
+      const active = activeRepositoryIds.includes(repository.id);
+      return {
+        id: repository.id,
+        fullName: repository.fullName,
+        visibility: repository.visibility,
+        source: active ? "hosted_workspace_pool" : "repository_secret",
+        bindingId: active ? `binding_${repository.id}` : null,
+        bindingVersion: active ? 1 : 0,
+        activation: active ? "active" : "legacy",
+        eligible: true,
+      };
+    }),
+  };
+}
+
 function repositoryRow(input: {
   readonly id: string;
   readonly fullName: string;
@@ -449,6 +872,7 @@ function repositoryRow(input: {
     | "setup_pr_open"
     | "configured"
     | "failed";
+  readonly errorMessage?: string;
 }) {
   const [owner = "", name = ""] = input.fullName.split("/");
   return {
@@ -457,11 +881,18 @@ function repositoryRow(input: {
     fullName: input.fullName,
     owner,
     name,
+    provider: "github",
     defaultBranch: "main",
     visibility: "private",
     setupStatus: input.setupStatus ?? "configured",
     provisioning: input.provisioningStatus
-      ? [{ status: input.provisioningStatus }]
+      ? [
+          {
+            status: input.provisioningStatus,
+            errorMessage: input.errorMessage ?? null,
+            installedWorkflowRequirement: null,
+          },
+        ]
       : [],
     selected: true,
     archived: false,
@@ -499,42 +930,5 @@ function providerSetupRow(input: {
     authMode: input.authMode,
     state: input.state ?? "configured",
     updatedAt: new Date("2026-01-02T00:00:00Z"),
-  };
-}
-
-function reviewConfigurationVersionRow(input: {
-  readonly providerKind: "codex" | "claude" | "openrouter";
-  readonly providerAuthMode:
-    | "claude_code_oauth"
-    | "codex_subscription_oauth_rotating"
-    | "openrouter_api_key";
-  readonly model: string;
-}) {
-  return {
-    version: 1,
-    schemaVersion: 2,
-    providerKind: input.providerKind,
-    providerAuthMode: input.providerAuthMode,
-    model: input.model,
-    reasoningEffort: "medium",
-    agenticContext: true,
-    fastMode: false,
-    failOnSeverity: "critical",
-    inlineMaxComments: 5,
-    providerLimit: 1,
-    providerMaxParallel: 1,
-    inlineMinAgreement: 1,
-    targetTokensPerBatch: 50000,
-    providers: [
-      {
-        providerKind: input.providerKind,
-        providerAuthMode: input.providerAuthMode,
-        model: input.model,
-        reasoningEffort: "medium",
-        agenticContext: true,
-        fastMode: false,
-        requiredHealthy: true,
-      },
-    ],
   };
 }

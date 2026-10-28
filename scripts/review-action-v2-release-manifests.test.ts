@@ -57,6 +57,17 @@ describe("review Action v2 release manifests", () => {
     expect(parseHandoffManifest(expectedHandoff)).toEqual(handoff);
 
     const release = buildReleaseManifest({
+      agentProfiles: [
+        {
+          profileRef: "fixture-codex",
+          agentKind: "codex",
+          binarySha256: "a".repeat(64),
+          packageVersion: "0.147.0",
+          modelTransports: ["account_gateway"],
+          contextGateway: true,
+          cancellation: true,
+        },
+      ],
       handoffManifest: handoff,
       handoffManifestDigest: sha256Digest(expectedHandoff),
       actionCommitSha: "c".repeat(40),
@@ -73,6 +84,108 @@ describe("review Action v2 release manifests", () => {
     const expectedRelease = fixture("expected-release.json");
     expect(canonicalJson(release)).toBe(expectedRelease);
     expect(parseReleaseManifest(expectedRelease)).toEqual(release);
+    expect(Object.hasOwn(release, "prDescriptionProfile")).toBe(false);
+    expect(
+      Object.hasOwn(
+        buildReleaseRegistrationCandidateFields(release),
+        "prDescriptionProfile",
+      ),
+    ).toBe(false);
+  });
+
+  it("binds optional PR description approval without changing release version or base digests", () => {
+    const profile = {
+      extensionId: "pr-description.v1",
+      canonicalizerDigest:
+        "aa043184eb0a1a0cf230d8fbb03c6a63a05b950c82c0107bee7d2533c386eed0",
+    };
+    const generated = JSON.parse(fixture("contract-source/manifest.json"));
+    expect(
+      parseProtocolGenerationManifest(
+        JSON.stringify({ ...generated, auxiliaryExtensions: [profile] }),
+      ).prDescriptionProfile,
+    ).toEqual(profile);
+    const legacy = parseReleaseManifest(fixture("expected-release.json"));
+    const release = buildReleaseManifest({
+      ...legacy,
+      handoffManifest: parseHandoffManifest(fixture("expected-handoff.json")),
+      prDescriptionProfile: profile,
+    });
+    const { prDescriptionProfile, ...unchanged } = release;
+    expect(prDescriptionProfile).toEqual(profile);
+    expect(canonicalJson(unchanged)).toBe(fixture("expected-release.json"));
+    expect(parseReleaseManifest(canonicalJson(release))).toEqual(release);
+    expect(
+      buildReleaseRegistrationCandidateFields(release).prDescriptionProfile,
+    ).toEqual(profile);
+    for (const auxiliaryExtensions of [
+      null,
+      {},
+      [profile, profile],
+      [{ ...profile, extensionId: "unknown.v1" }],
+      [{ extensionId: "pr-description.v1" }],
+      [{ ...profile, canonicalizerDigest: "invalid" }],
+      [{ ...profile, enabled: true }],
+    ]) {
+      expect(() =>
+        parseProtocolGenerationManifest(
+          JSON.stringify({ ...generated, auxiliaryExtensions }),
+        ),
+      ).toThrow();
+    }
+    expect(() =>
+      parseReleaseManifest(
+        canonicalJson({
+          ...release,
+          prDescriptionProfile: { ...profile, enabled: true },
+        }),
+      ),
+    ).toThrow("fields must be exactly");
+  });
+
+  it("binds the generated MCP descriptor through release and registration without changing legacy bytes", () => {
+    const contextToolsProfile = {
+      extensionId: "context-tools.v1",
+      descriptorDigest:
+        "sha256:c188ad0a29581317f23b6aec3f103a7419f67576bea6fb3dc9910cf9ca3a3f7a",
+    };
+    const generated = JSON.parse(fixture("contract-source/manifest.json"));
+    expect(
+      parseProtocolGenerationManifest(
+        JSON.stringify({ ...generated, contextToolsProfile }),
+      ).contextToolsProfile,
+    ).toEqual(contextToolsProfile);
+    const legacy = parseReleaseManifest(fixture("expected-release.json"));
+    expect(Object.hasOwn(legacy, "contextToolsProfile")).toBe(false);
+    const release = buildReleaseManifest({
+      ...legacy,
+      handoffManifest: parseHandoffManifest(fixture("expected-handoff.json")),
+      contextToolsProfile,
+    });
+    const { contextToolsProfile: actual, ...base } = release;
+    expect(actual).toEqual(contextToolsProfile);
+    expect(canonicalJson(base)).toBe(fixture("expected-release.json"));
+    expect(parseReleaseManifest(canonicalJson(release))).toEqual(release);
+    expect(
+      buildReleaseRegistrationCandidateFields(release).contextToolsProfile,
+    ).toEqual(contextToolsProfile);
+    for (const invalid of [
+      null,
+      { ...contextToolsProfile, enabled: true },
+      { ...contextToolsProfile, descriptorDigest: "bad" },
+      { ...contextToolsProfile, extensionId: "unknown.v1" },
+    ]) {
+      expect(() =>
+        parseReleaseManifest(
+          canonicalJson({ ...release, contextToolsProfile: invalid }),
+        ),
+      ).toThrow();
+      expect(() =>
+        parseProtocolGenerationManifest(
+          JSON.stringify({ ...generated, contextToolsProfile: invalid }),
+        ),
+      ).toThrow();
+    }
   });
 
   it("rejects non-canonical JSON and unknown fields", () => {
@@ -158,6 +271,18 @@ describe("review Action v2 release manifests", () => {
   it("binds the authenticated v4 investigation profile into manifest v3", () => {
     const handoff = parseHandoffManifest(fixture("expected-handoff.json"));
     const release = buildReleaseManifest({
+      agentProfiles: [
+        {
+          profileRef: "fixture-codex",
+          agentKind: "codex",
+          binarySha256: "a".repeat(64),
+          packageVersion: "0.147.0",
+          modelTransports: ["account_gateway"],
+          contextGateway: true,
+          cancellation: true,
+          reviewSkillsVersion: 1,
+        },
+      ],
       handoffManifest: handoff,
       handoffManifestDigest: sha256Digest(canonicalJson(handoff)),
       actionCommitSha: "d".repeat(40),
@@ -180,6 +305,13 @@ describe("review Action v2 release manifests", () => {
     });
     expect(parseReleaseManifest(canonicalJson(release))).toEqual(release);
     expect(buildReleaseRegistrationCandidateFields(release)).toMatchObject({
+      agentProfiles: [
+        {
+          profileRef: "fixture-codex",
+          binarySha256: "a".repeat(64),
+          reviewSkillsVersion: 1,
+        },
+      ],
       contextGatewayPolicyVersion: "context-gateway-v4",
       reviewInvestigationProfile: {
         capability: REVIEW_INVESTIGATION_RELEASE_CAPABILITY,
@@ -240,6 +372,17 @@ describe("review Action v2 release manifests", () => {
     const handoff = parseHandoffManifest(fixture("expected-handoff.json"));
     expect(() =>
       buildReleaseManifest({
+        agentProfiles: [
+          {
+            profileRef: "fixture-codex",
+            agentKind: "codex",
+            binarySha256: "a".repeat(64),
+            packageVersion: "0.147.0",
+            modelTransports: ["account_gateway"],
+            contextGateway: true,
+            cancellation: true,
+          },
+        ],
         handoffManifest: handoff,
         handoffManifestDigest: sha256Digest(canonicalJson(handoff)),
         actionCommitSha: "d".repeat(40),
@@ -280,6 +423,17 @@ describe("review Action v2 release manifests", () => {
     const handoff = parseHandoffManifest(fixture("expected-handoff.json"));
     expect(() =>
       buildReleaseManifest({
+        agentProfiles: [
+          {
+            profileRef: "fixture-codex",
+            agentKind: "codex",
+            binarySha256: "a".repeat(64),
+            packageVersion: "0.147.0",
+            modelTransports: ["account_gateway"],
+            contextGateway: true,
+            cancellation: true,
+          },
+        ],
         handoffManifest: handoff,
         handoffManifestDigest: sha256Digest(canonicalJson(handoff)),
         actionCommitSha: handoff.expectedPublicActionBaseCommit,

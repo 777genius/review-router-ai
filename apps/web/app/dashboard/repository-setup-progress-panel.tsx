@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button, LinkButton } from "@reviewrouter/ui";
 import type { ProviderAuthMode } from "@reviewrouter/features-review-providers";
+import type { GatewayReviewV2ProvisioningResult } from "@reviewrouter/features-workflow-provisioning";
 import { ActionToast } from "../action-toast";
 import {
   RepositorySetupActionButton,
@@ -17,8 +18,12 @@ import {
   type ProviderSetupConfirmedEventDetail,
   type SetupPullRequestMergedEventDetail,
 } from "./repository-setup-optimistic-events";
-
-type SetupStep = 1 | 2 | 3 | 4;
+import {
+  hasCompletedWorkflowSetup,
+  repositorySetupScopeKey,
+  setupStepNumber,
+  type SetupStep,
+} from "./repository-setup-optimistic-status";
 
 type SetupToast = {
   readonly tone: "success" | "danger";
@@ -32,7 +37,8 @@ type SetupToast = {
 type SetupIssue =
   | "setup_pr_closed"
   | "setup_pr_branch_deleted"
-  | "setup_pr_wrong_base_branch";
+  | "setup_pr_wrong_base_branch"
+  | "setup_pr_workflow_mismatch";
 
 export function RepositorySetupProgressPanel({
   workspaceId,
@@ -47,8 +53,10 @@ export function RepositorySetupProgressPanel({
   mutationsEnabled,
   initialStep,
   expectedProviderAuthModes = [],
+  providerLine,
   enableReviewAction,
   providerSetupBeforeWorkflow = false,
+  gatewayReviewV2Readiness,
 }: {
   readonly workspaceId: string;
   readonly repositoryId: string;
@@ -62,10 +70,20 @@ export function RepositorySetupProgressPanel({
   readonly mutationsEnabled: boolean;
   readonly initialStep: SetupStep;
   readonly expectedProviderAuthModes?: readonly ProviderAuthMode[];
+  /** "Provider: X · Change" above the steps. */
+  readonly providerLine?: ReactNode;
   readonly enableReviewAction?: ReactNode;
   readonly providerSetupBeforeWorkflow?: boolean;
+  readonly gatewayReviewV2Readiness?:
+    | GatewayReviewV2ProvisioningResult
+    | undefined;
 }): React.ReactElement {
   const router = useRouter();
+  const scopeKey = repositorySetupScopeKey(
+    repositoryId,
+    expectedProviderAuthModes,
+  );
+  const [optimisticScopeKey, setOptimisticScopeKey] = useState(scopeKey);
   const [setupStatus, setSetupStatus] = useState(initialSetupStatus);
   const [setupPullRequestUrl, setSetupPullRequestUrl] = useState(
     initialSetupPullRequestUrl,
@@ -77,14 +95,23 @@ export function RepositorySetupProgressPanel({
   const optimisticProviderAuthModesRef = useRef(new Set<ProviderAuthMode>());
   const [toast, setToast] = useState<SetupToast | null>(null);
   const canManage = mutationsEnabled && selected && !archived;
+  const gatewayBlocked =
+    expectedProviderAuthModes.includes("codex_account_gateway") &&
+    gatewayReviewV2Readiness?.status !== "ready";
+  // Do not render the old scope's progress while its reset effect is pending.
+  const scopedStep =
+    optimisticScopeKey === scopeKey ? currentStep : initialStep;
+  const displayStep =
+    gatewayBlocked && scopedStep === "ready" ? "provider" : scopedStep;
 
   useEffect(() => {
     optimisticProviderAuthModesRef.current = new Set();
+    setOptimisticScopeKey(scopeKey);
     setSetupStatus(initialSetupStatus);
     setSetupPullRequestUrl(initialSetupPullRequestUrl);
     setSetupIssue(normalizeSetupIssue(initialSetupIssue));
     setCurrentStep(initialStep);
-    if (initialStep > 2) {
+    if (setupStepNumber[initialStep] > setupStepNumber.merge_setup_pr) {
       setToast((current) =>
         current?.errorCode === "setup_pr_not_merged" ? null : current,
       );
@@ -94,6 +121,7 @@ export function RepositorySetupProgressPanel({
     initialSetupPullRequestUrl,
     initialSetupStatus,
     initialStep,
+    scopeKey,
   ]);
 
   useEffect(() => {
@@ -104,7 +132,11 @@ export function RepositorySetupProgressPanel({
 
       setSetupStatus("configured");
       setSetupIssue(null);
-      setCurrentStep((current) => (current < 3 ? 3 : current));
+      setCurrentStep((current) =>
+        setupStepNumber[current] < setupStepNumber.provider
+          ? "provider"
+          : current,
+      );
     }
 
     function handleProviderSetupConfirmed(event: Event): void {
@@ -133,9 +165,12 @@ export function RepositorySetupProgressPanel({
         return;
       }
 
-      setSetupStatus("configured");
-      setSetupIssue(null);
-      setCurrentStep(4);
+      // Only workflow confirmation can clear a pending workflow or its issue.
+      // Use the effective step so a preceding merge event counts immediately.
+      if (!gatewayBlocked)
+        setCurrentStep((current) =>
+          hasCompletedWorkflowSetup(current) ? "ready" : current,
+        );
     }
 
     window.addEventListener(
@@ -156,7 +191,7 @@ export function RepositorySetupProgressPanel({
         handleProviderSetupConfirmed,
       );
     };
-  }, [expectedProviderAuthModes, repositoryId, router]);
+  }, [expectedProviderAuthModes, repositoryId, router, gatewayBlocked]);
 
   const handleSetupMutation = (params: Record<string, string>) => {
     clearTransientDashboardUrlParams("repositories");
@@ -166,7 +201,7 @@ export function RepositorySetupProgressPanel({
       if (issue) {
         setSetupStatus("needs_attention");
         setSetupIssue(issue);
-        setCurrentStep(1);
+        setCurrentStep("setup_pr");
         router.refresh();
       }
       setToast({
@@ -183,7 +218,7 @@ export function RepositorySetupProgressPanel({
       setSetupStatus("setup_pr_open");
       setSetupPullRequestUrl(pullRequestUrl ?? null);
       setSetupIssue(null);
-      setCurrentStep(2);
+      setCurrentStep("merge_setup_pr");
       setToast({
         tone: "success",
         title: "Setup PR ready",
@@ -198,7 +233,7 @@ export function RepositorySetupProgressPanel({
     if (params.notice === "workflow_already_current") {
       setSetupStatus("configured");
       setSetupIssue(null);
-      setCurrentStep(3);
+      setCurrentStep("provider");
       router.refresh();
       setToast({
         tone: "success",
@@ -219,7 +254,7 @@ export function RepositorySetupProgressPanel({
       if (issue) {
         setSetupStatus("needs_attention");
         setSetupIssue(issue);
-        setCurrentStep(1);
+        setCurrentStep("setup_pr");
         router.refresh();
       }
       setToast({
@@ -234,7 +269,7 @@ export function RepositorySetupProgressPanel({
     if (params.notice === "setup_pr_merged") {
       setSetupStatus("configured");
       setSetupIssue(null);
-      setCurrentStep(3);
+      setCurrentStep("provider");
       window.dispatchEvent(setupPullRequestMergedEvent({ repositoryId }));
       router.refresh();
       setToast({
@@ -247,6 +282,19 @@ export function RepositorySetupProgressPanel({
     }
   };
 
+  // Provisioning can fail for reasons outside the setup-PR family (an untrusted
+  // legacy workflow, a rejected provider enrollment). They reach the card as
+  // `errorMessage` but are not recovery issues, so without this the card shows a
+  // neutral "add the workflow by PR" hint on a repository that cannot proceed.
+  const setupIssueGuidance =
+    displayStep === "setup_pr" &&
+    setupIssue === null &&
+    normalizeSetupIssue(initialSetupIssue) === null &&
+    typeof initialSetupIssue === "string" &&
+    initialSetupIssue.length > 0
+      ? sharedDashboardErrorText(initialSetupIssue)
+      : null;
+
   const steps = buildSetupSteps({
     workspaceId,
     repositoryId,
@@ -255,17 +303,38 @@ export function RepositorySetupProgressPanel({
     setupStatus,
     setupPullRequestUrl,
     setupIssue,
+    setupIssueGuidance,
     workflowCurrent,
     mutationsEnabled,
-    currentStep,
+    currentStep: displayStep,
     enableReviewAction: canManage ? enableReviewAction : null,
     providerSetupBeforeWorkflow,
+    gatewayProviderSetup: expectedProviderAuthModes.includes(
+      "codex_account_gateway",
+    ),
     onSetupComplete: handleSetupMutation,
     onMergeComplete: handleMergeMutation,
+    gatewayReviewV2Readiness,
   });
 
   return (
     <section className="mb-4 pt-1">
+      {providerLine ? <div className="mb-4">{providerLine}</div> : null}
+      {gatewayBlocked &&
+      setupStepNumber[displayStep] >= setupStepNumber.provider ? (
+        <p className="mb-3 text-sm text-slate-300" role="status">
+          {gatewayReviewV2Readiness?.status === "draining"
+            ? `Review migration is draining until ${gatewayReviewV2Readiness.drainNotBefore}. Reviews remain unavailable.`
+            : gatewayReviewV2Readiness?.status === "legacy_migration_required"
+              ? "This repository has a legacy review enrollment. Complete its migration before reviews can run."
+              : gatewayReviewV2Readiness?.status === "paused"
+                ? "Review authorization is paused. Complete its recovery before reviews can run."
+                : gatewayReviewV2Readiness &&
+                    "issue" in gatewayReviewV2Readiness
+                  ? sharedDashboardErrorText(gatewayReviewV2Readiness.issue)
+                  : "Review authorization is not ready. Confirm the merged workflow or check workspace configuration."}
+        </p>
+      ) : null}
       {toast ? (
         <ActionToast
           tone={toast.tone}
@@ -287,7 +356,7 @@ export function RepositorySetupProgressPanel({
         </p>
         <span className="font-mono text-xs text-slate-400">
           {repositorySetupProgressSummary(
-            currentStep,
+            displayStep,
             providerSetupBeforeWorkflow,
           )}
         </span>
@@ -301,14 +370,14 @@ export function RepositorySetupProgressPanel({
         <span
           aria-hidden="true"
           className="absolute left-4 top-6 hidden h-px bg-cyan-300/45 md:block"
-          style={{ width: repositorySetupProgressTrackWidth(currentStep) }}
+          style={{ width: repositorySetupProgressTrackWidth(displayStep) }}
         />
         <ol className="relative z-10 grid gap-3 md:grid-cols-4">
           {steps.map((step) => (
             <RepositorySetupProgressStepItem
-              key={step.number}
+              key={step.id}
               step={step}
-              currentStep={currentStep}
+              currentStep={displayStep}
             />
           ))}
         </ol>
@@ -349,11 +418,14 @@ function buildSetupSteps({
   setupStatus,
   setupPullRequestUrl,
   setupIssue,
+  setupIssueGuidance,
   workflowCurrent,
   mutationsEnabled,
   currentStep,
   enableReviewAction,
   providerSetupBeforeWorkflow,
+  gatewayProviderSetup,
+  gatewayReviewV2Readiness,
   onSetupComplete,
   onMergeComplete,
 }: {
@@ -364,15 +436,23 @@ function buildSetupSteps({
   readonly setupStatus: string;
   readonly setupPullRequestUrl: string | null;
   readonly setupIssue: SetupIssue | null;
+  readonly setupIssueGuidance: string | null;
   readonly workflowCurrent: boolean;
   readonly mutationsEnabled: boolean;
   readonly currentStep: SetupStep;
   readonly enableReviewAction?: ReactNode;
   readonly providerSetupBeforeWorkflow: boolean;
+  readonly gatewayProviderSetup: boolean;
+  readonly gatewayReviewV2Readiness?:
+    | GatewayReviewV2ProvisioningResult
+    | undefined;
   readonly onSetupComplete: (params: Record<string, string>) => void;
   readonly onMergeComplete: (params: Record<string, string>) => void;
 }): readonly RepositorySetupProgressStep[] {
-  const workflowRefresh = providerSetupBeforeWorkflow && currentStep === 3;
+  const position = setupStepNumber[currentStep];
+  const workflowRefresh =
+    (providerSetupBeforeWorkflow && currentStep === "provider") ||
+    (gatewayProviderSetup && position >= setupStepNumber.provider);
   const setupPrAction =
     setupStatus === "setup_pr_open" && setupPullRequestUrl ? (
       <LinkButton
@@ -388,7 +468,7 @@ function buildSetupSteps({
           ↗
         </span>
       </LinkButton>
-    ) : currentStep === 1 || workflowRefresh ? (
+    ) : currentStep === "setup_pr" || workflowRefresh ? (
       <RepositorySetupActionButton
         workspaceId={workspaceId}
         repositoryId={repositoryId}
@@ -398,11 +478,18 @@ function buildSetupSteps({
         workflowCurrent={workflowCurrent}
         workflowRefresh={workflowRefresh}
         mutationsEnabled={mutationsEnabled}
+        gatewayWorkflow={gatewayProviderSetup}
         onComplete={onSetupComplete}
       />
     ) : null;
   const mergeConfirmAction =
-    currentStep === 2 ? (
+    currentStep === "merge_setup_pr" ||
+    (gatewayProviderSetup &&
+      workflowCurrent &&
+      position >= setupStepNumber.provider &&
+      (!gatewayReviewV2Readiness ||
+        gatewayReviewV2Readiness.status === "blocked" ||
+        gatewayReviewV2Readiness.status === "conflict")) ? (
       <RepositorySetupMergedButton
         workspaceId={workspaceId}
         repositoryId={repositoryId}
@@ -413,7 +500,7 @@ function buildSetupSteps({
       />
     ) : null;
   const preWorkflowProviderAction =
-    providerSetupBeforeWorkflow && currentStep === 1
+    providerSetupBeforeWorkflow && currentStep === "setup_pr"
       ? enableReviewAction
       : null;
   const setupPreparationAction = preWorkflowProviderAction ? (
@@ -425,9 +512,9 @@ function buildSetupSteps({
     setupPrAction
   );
   const shouldRenderProviderAction =
-    Boolean(enableReviewAction) && currentStep >= 3;
+    Boolean(enableReviewAction) && position >= setupStepNumber.provider;
   const lockedReviewAction =
-    currentStep < 4 ? (
+    currentStep !== "ready" ? (
       <Button
         type="button"
         variant="outline"
@@ -445,15 +532,17 @@ function buildSetupSteps({
 
   const setupPrHelper = setupIssue
     ? setupIssueHelperText(setupIssue)
-    : currentStep > 1
-      ? "Setup PR exists."
-      : providerSetupBeforeWorkflow
-        ? "Seed the versioned provider namespace, then add its workflow by PR."
-        : "Add the workflow by PR.";
+    : setupIssueGuidance
+      ? setupIssueGuidance
+      : position > setupStepNumber.setup_pr
+        ? "Setup PR exists."
+        : providerSetupBeforeWorkflow
+          ? "Connect Codex, then create and merge the setup PR."
+          : "Add the workflow by PR.";
 
   return [
     {
-      number: 1,
+      id: "setup_pr",
       title: setupIssue
         ? "Recover setup PR"
         : providerSetupBeforeWorkflow
@@ -463,33 +552,37 @@ function buildSetupSteps({
       action: setupPreparationAction,
     },
     {
-      number: 2,
+      id: "merge_setup_pr",
       title: "Merge setup PR",
       helper:
-        currentStep > 2
+        position > setupStepNumber.merge_setup_pr
           ? "Workflow is on the default branch."
           : "Merge on GitHub.",
       action: mergeConfirmAction,
     },
     {
-      number: 3,
+      id: "provider",
       title: providerSetupBeforeWorkflow
-        ? "Activate provider"
-        : "Enable review",
+        ? "Check Codex setup"
+        : gatewayProviderSetup
+          ? "Configure account"
+          : "Enable review",
       helper:
-        currentStep > 3
+        currentStep === "ready"
           ? "Provider access is configured."
-          : currentStep === 3
+          : currentStep === "provider"
             ? providerSetupBeforeWorkflow
-              ? "Verify the exact activated namespace."
-              : "Seed provider access."
+              ? "Check the Codex connection for this repository."
+              : gatewayProviderSetup
+                ? "Choose an active workspace account and model. Credentials stay on the server."
+                : "Add the credential the provider needs."
             : providerSetupBeforeWorkflow
-              ? "Return after merge to verify activation."
+              ? "After merge, check the Codex connection."
               : "Available after merge.",
       action: reviewAction,
     },
     {
-      number: 4,
+      id: "ready",
       title: "Ready",
       helper: null,
     },
@@ -497,7 +590,7 @@ function buildSetupSteps({
 }
 
 type RepositorySetupProgressStep = {
-  readonly number: SetupStep;
+  readonly id: SetupStep;
   readonly title: string;
   readonly helper: string | null;
   readonly action?: ReactNode;
@@ -508,20 +601,20 @@ function RepositorySetupProgressStepItem({
   currentStep,
 }: {
   readonly step: RepositorySetupProgressStep;
-  readonly currentStep: number;
+  readonly currentStep: SetupStep;
 }): React.ReactElement {
-  const isActive = step.number === currentStep;
-  const isComplete = step.number < currentStep;
-  const isFuture = step.number > currentStep;
+  const isActive = step.id === currentStep;
+  const isComplete = setupStepNumber[step.id] < setupStepNumber[currentStep];
+  const isFuture = setupStepNumber[step.id] > setupStepNumber[currentStep];
   const circleClass = isActive
     ? "border-cyan-200 bg-cyan-200 text-slate-950 shadow-[0_0_18px_rgba(103,232,249,0.28)]"
     : isComplete
       ? "border-cyan-300/45 bg-slate-950 text-cyan-100 shadow-[inset_0_0_18px_rgba(103,232,249,0.12)]"
       : "border-slate-700 bg-slate-950 text-slate-500";
   const desktopAlignment =
-    step.number === 1
+    step.id === "setup_pr"
       ? "md:items-start md:text-left"
-      : step.number === 4
+      : step.id === "ready"
         ? "md:items-end md:text-right"
         : "md:items-center md:text-center";
 
@@ -540,7 +633,7 @@ function RepositorySetupProgressStepItem({
             circleClass,
           ].join(" ")}
         >
-          {step.number}
+          {setupStepNumber[step.id]}
         </span>
         <div className="min-w-0 md:mt-3">
           <p
@@ -560,9 +653,9 @@ function RepositorySetupProgressStepItem({
             <div
               className={[
                 "mt-3",
-                step.number === 4
+                step.id === "ready"
                   ? "md:flex md:justify-end"
-                  : step.number === 1
+                  : step.id === "setup_pr"
                     ? "md:flex md:justify-start"
                     : "md:flex md:justify-center",
               ].join(" ")}
@@ -581,28 +674,30 @@ function repositorySetupProgressSummary(
   providerSetupBeforeWorkflow: boolean,
 ): string {
   switch (step) {
-    case 1:
+    case "setup_pr":
       return providerSetupBeforeWorkflow
-        ? "1 of 4 - prepare versioned setup"
+        ? "1 of 4 - connect Codex"
         : "1 of 4 - setup PR needed";
-    case 2:
+    case "merge_setup_pr":
       return "2 of 4 - merge setup PR";
-    case 3:
-      return "3 of 4 - enable review";
-    case 4:
+    case "provider":
+      return providerSetupBeforeWorkflow
+        ? "3 of 4 - check Codex setup"
+        : "3 of 4 - enable review";
+    case "ready":
       return "4 of 4 - complete";
   }
 }
 
 function repositorySetupProgressTrackWidth(step: SetupStep): string {
   switch (step) {
-    case 1:
+    case "setup_pr":
       return "0";
-    case 2:
+    case "merge_setup_pr":
       return "calc(37.5% - 1rem)";
-    case 3:
+    case "provider":
       return "calc(62.5% - 1rem)";
-    case 4:
+    case "ready":
       return "calc(100% - 2rem)";
   }
 }
@@ -682,7 +777,9 @@ function dashboardErrorText(error: string): string {
     case "setup_pr_branch_deleted":
       return "The saved setup PR branch was deleted, so GitHub cannot merge that PR anymore. Recreate the setup PR to continue.";
     case "setup_pr_wrong_base_branch":
-      return "The saved setup PR was merged outside the allowed setup branches. Recreate the setup PR, then merge it into dev, develop, or the repository default branch.";
+      return "The saved setup PR was merged outside the allowed setup branches. Recreate the setup PR, then merge it into the repository default branch.";
+    case "setup_pr_workflow_mismatch":
+      return "The merged setup PR does not contain the expected ReviewRouter workflow. Recreate the setup PR and merge it without edits, then check again.";
     case "dashboard_action_failed":
       return "The dashboard action failed. Retry once, then inspect server logs if it repeats.";
     case "github_operation_forbidden":
@@ -707,7 +804,8 @@ function normalizeSetupIssue(
 ): SetupIssue | null {
   return value === "setup_pr_closed" ||
     value === "setup_pr_branch_deleted" ||
-    value === "setup_pr_wrong_base_branch"
+    value === "setup_pr_wrong_base_branch" ||
+    value === "setup_pr_workflow_mismatch"
     ? value
     : null;
 }
@@ -720,5 +818,7 @@ function setupIssueHelperText(issue: SetupIssue): string {
       return "Setup PR branch was deleted. Recreate it.";
     case "setup_pr_wrong_base_branch":
       return "Setup PR was merged outside the allowed setup branches. Recreate it.";
+    case "setup_pr_workflow_mismatch":
+      return "Merged setup PR does not contain the expected workflow. Recreate it and merge without edits.";
   }
 }

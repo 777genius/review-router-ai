@@ -1,0 +1,15 @@
+# Imported inside the existing rr-web-backend snippet, before its fallback.
+# Serve public documents only on the submitted domain. Auth, API and review
+# execution routes continue to use the existing web service.
+(rr-public-review-pages) {
+  @rrPublicReviewPages {
+    host reviewrouter.org
+    path /terms /terms/ /privacy /privacy/ /refund-policy /refund-policy/ /pricing /pricing/ /paddle-review/terms.html /paddle-review/privacy.html /paddle-review/refund-policy.html /paddle-review/pricing.html /paddle-review/styles.css
+  }
+  handle @rrPublicReviewPages {
+    root * /srv/platform/public-web/review-router/current
+    try_files {path}/index.html {path}
+    header Cache-Control "public, max-age=300"
+    file_server
+  }
+}

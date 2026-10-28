@@ -352,6 +352,7 @@ function toPrismaProviderKind(value: ReviewProviderKind): PrismaProviderKind {
     case ReviewProviderKind.ClaudeCode:
       return PrismaProviderKind.claude_code;
     case ReviewProviderKind.OpenRouter:
+    case ReviewProviderKind.Ocr:
     case ReviewProviderKind.Unknown:
       throw new Error("investigation_shadow_provider_unsupported");
   }
@@ -365,6 +366,8 @@ function fromPrismaProviderKind(value: PrismaProviderKind): ReviewProviderKind {
       return ReviewProviderKind.ClaudeCode;
     case PrismaProviderKind.openrouter:
       return ReviewProviderKind.OpenRouter;
+    case PrismaProviderKind.ocr:
+      return ReviewProviderKind.Ocr;
   }
 }
 

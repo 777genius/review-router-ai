@@ -152,6 +152,36 @@ describe("production run-authorization prerequisites", () => {
     },
   );
 
+  it("hydrates explicit extension approval and rejects rebinding a registered legacy release", async () => {
+    const kit = createReviewRunControlTestKit();
+    const profile = {
+      extensionId: "pr-description.v1" as const,
+      canonicalizerDigest: hashA,
+    };
+    const configured = readConfiguredProducerReleaseAttestations({
+      [reviewRunProducerReleaseAttestationsEnv]: JSON.stringify([
+        { ...attestation(), prDescriptionProfile: profile },
+      ]),
+    });
+    const registry = new ConfiguredProducerReleaseAttestationRegistry(
+      configured,
+      kit.store,
+    );
+    const request = {
+      actionCommitSha: shaA,
+      expectedSchemaDigest: hashB,
+      expectedCanonicalizerDigest: hashC,
+    };
+    await expect(registry.attest(request)).resolves.toMatchObject({
+      status: ProducerReleaseAttestationStatus.Attested,
+      release: { prDescriptionProfile: profile },
+    });
+    await provisionV2AuthorizationContext(kit);
+    await expect(registry.attest(request)).resolves.toEqual({
+      status: ProducerReleaseAttestationStatus.Mismatch,
+    });
+  });
+
   it("attests only an exact registered immutable release tuple", async () => {
     const kit = createReviewRunControlTestKit();
     await provisionV2AuthorizationContext(kit);

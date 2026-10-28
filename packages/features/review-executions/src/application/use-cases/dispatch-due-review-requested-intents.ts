@@ -1,3 +1,4 @@
+import type { ReviewRequestedIntent } from "../../domain/review-requested-intent";
 import {
   ReviewRequestedClaimStatus,
   ReviewRequestedDispatchSubmissionStatus,
@@ -37,6 +38,9 @@ export class DispatchDueReviewRequestedIntents {
     },
     private readonly digest: ReviewRequestedRetryDependencies["digest"],
     policy: ReviewRequestedDispatchPolicy = defaultReviewRequestedDispatchPolicy,
+    private readonly canDispatch?: (
+      intent: ReviewRequestedIntent,
+    ) => Promise<boolean>,
   ) {
     validateReviewRequestedDispatchPolicy(policy);
     this.policy = policy;
@@ -89,6 +93,13 @@ export class DispatchDueReviewRequestedIntents {
 
       let prepared;
       try {
+        if (this.canDispatch && !(await this.canDispatch(claim.intent))) {
+          await this.commands.cancelPreAdmission({
+            ...claim.intent,
+            now: this.clock.now(),
+          });
+          continue;
+        }
         prepared = await this.gateway.prepare({ intent: claim.intent });
       } catch {
         // No effect-bearing call has happened. The expiring claim can be

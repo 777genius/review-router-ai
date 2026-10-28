@@ -209,7 +209,7 @@ describeDatabase("Codex rotating setup serialization", () => {
         installer,
         databaseRecoveryWitness: "w".repeat(43),
         setupManifestUrl:
-          "https://reviewrouter.site/api/codex-rotating/setup-manifest",
+          "https://reviewrouter.org/api/codex-rotating/setup-manifest",
         now,
       });
     const first = await issue(new Date("2026-08-10T00:00:00.000Z"));
@@ -279,7 +279,7 @@ describeDatabase("Codex rotating setup serialization", () => {
       admittedGithubRepositoryId,
     );
     vi.stubEnv("REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS", "w".repeat(43));
-    vi.stubEnv("REVIEW_ROUTER_PUBLIC_WEB_URL", "https://reviewrouter.site");
+    vi.stubEnv("REVIEW_ROUTER_PUBLIC_WEB_URL", "https://reviewrouter.org");
     vi.stubEnv("REVIEW_ROUTER_CODEX_ROTATING_INSTALLER_URL", installer.url);
     vi.stubEnv(
       "REVIEW_ROUTER_CODEX_ROTATING_INSTALLER_VERSION",
@@ -359,7 +359,7 @@ describeDatabase("Codex rotating setup serialization", () => {
       installer,
       databaseRecoveryWitness: firstRecoveryWitness,
       setupManifestUrl:
-        "https://reviewrouter.site/api/codex-rotating/setup-manifest",
+        "https://reviewrouter.org/api/codex-rotating/setup-manifest",
     });
     const issued = await prisma.$queryRaw<
       Array<{
@@ -461,7 +461,7 @@ describeDatabase("Codex rotating setup serialization", () => {
         `;
     const before = await allocationState();
     vi.stubEnv("REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS", "w".repeat(43));
-    vi.stubEnv("REVIEW_ROUTER_PUBLIC_WEB_URL", "https://reviewrouter.site");
+    vi.stubEnv("REVIEW_ROUTER_PUBLIC_WEB_URL", "https://reviewrouter.org");
     vi.stubEnv("REVIEW_ROUTER_CODEX_ROTATING_INSTALLER_URL", installer.url);
     vi.stubEnv(
       "REVIEW_ROUTER_CODEX_ROTATING_INSTALLER_VERSION",
@@ -599,7 +599,7 @@ describeDatabase("Codex rotating setup serialization", () => {
           epoch: currentRecovery.recoveryEpoch,
         },
         setupManifestUrl:
-          "https://reviewrouter.site/api/codex-rotating/setup-manifest",
+          "https://reviewrouter.org/api/codex-rotating/setup-manifest",
       }),
     ).resolves.toMatchObject({ providerInstanceId: expect.any(String) });
   });
@@ -637,7 +637,7 @@ describeDatabase("Codex rotating setup serialization", () => {
       installer,
       databaseRecoveryWitness: "v".repeat(43),
       setupManifestUrl:
-        "https://reviewrouter.site/api/codex-rotating/setup-manifest",
+        "https://reviewrouter.org/api/codex-rotating/setup-manifest",
     });
     const originalManifest =
       await prisma.codexOAuthSetupManifest.findFirstOrThrow({
@@ -792,7 +792,7 @@ describeDatabase("Codex rotating setup serialization", () => {
           epoch: options.epoch ?? safeRecovery.recoveryEpoch,
         },
         setupManifestUrl:
-          "https://reviewrouter.site/api/codex-rotating/setup-manifest",
+          "https://reviewrouter.org/api/codex-rotating/setup-manifest",
         now: recoveryNow,
       });
     await expect(
@@ -1044,7 +1044,7 @@ describeDatabase("Codex rotating setup serialization", () => {
         epoch: reseedRetryRecovery.recoveryEpoch,
       },
       setupManifestUrl:
-        "https://reviewrouter.site/api/codex-rotating/setup-manifest",
+        "https://reviewrouter.org/api/codex-rotating/setup-manifest",
       now: new Date("2036-08-09T12:00:00.500Z"),
     });
     expect(reseedRetrySetup.command).toContain("--force-reseed");
@@ -1136,7 +1136,7 @@ describeDatabase("Codex rotating setup serialization", () => {
         epoch: accountSwitchRecovery.recoveryEpoch,
       },
       setupManifestUrl:
-        "https://reviewrouter.site/api/codex-rotating/setup-manifest",
+        "https://reviewrouter.org/api/codex-rotating/setup-manifest",
       now: new Date("2036-08-09T12:00:02.000Z"),
     });
     expect(accountSwitchSetup.command).toContain("--force-reseed");
@@ -1200,7 +1200,7 @@ describeDatabase("Codex rotating setup serialization", () => {
         epoch: accountSwitchRetry.recoveryEpoch,
       },
       setupManifestUrl:
-        "https://reviewrouter.site/api/codex-rotating/setup-manifest",
+        "https://reviewrouter.org/api/codex-rotating/setup-manifest",
       now: new Date("2036-08-09T12:00:04.000Z"),
     });
     expect(accountSwitchRetrySetup.command).toContain("--force-reseed");

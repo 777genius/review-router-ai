@@ -1,5 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import {
+  reviewActionV2SchemaSlot,
+  reviewActionV2SupportedContracts,
   createReviewActionV2ErrorResponse,
   createReviewActionV2ResultResponse,
   parseReviewActionV2Request,
@@ -17,6 +19,10 @@ import {
 export type ReviewActionV2RouteRuntimeDependencies = {
   readonly readServerTime: () => Promise<Date>;
   readonly createRequestId: () => string;
+  readonly assertAuthorizationSchema?: (
+    token: string,
+    schemaDigest: string,
+  ) => Promise<void>;
   readonly recordProtocolRejection?: (input: {
     readonly operationId: ReviewActionV2OperationId;
     readonly protocolErrorCode: ReviewActionV2ProtocolErrorCode;
@@ -127,6 +133,17 @@ const safeInternalFailureCodes = new Map<string, string>([
   ].map((code) => [code, code] as const),
 ]);
 
+export function registerReviewActionV2ProtocolInfoRoute(
+  app: FastifyInstance,
+): void {
+  app.get("/api/action/v2/protocol-info", async (_request, reply) =>
+    reply.header("Cache-Control", "no-store").send({
+      infoVersion: 1,
+      contracts: reviewActionV2SupportedContracts(),
+    }),
+  );
+}
+
 export type ReviewActionV2EnabledHandler<
   Operation extends ReviewActionV2OperationId,
 > = {
@@ -156,7 +173,17 @@ export function registerReviewActionV2Operation<
     descriptor.path,
     { bodyLimit: descriptor.bodyLimitBytes },
     async (request, reply) => {
-      const parsed = parseReviewActionV2Request(operationId, request.body);
+      const body = request.body as { schemaDigest?: unknown } | null;
+      const slot = reviewActionV2SchemaSlot(body?.schemaDigest);
+      const parse =
+        slot?.parseReviewActionV2Request ?? parseReviewActionV2Request;
+      const errorResponse =
+        slot?.createReviewActionV2ErrorResponse ??
+        createReviewActionV2ErrorResponse;
+      const resultResponse =
+        slot?.createReviewActionV2ResultResponse ??
+        createReviewActionV2ResultResponse;
+      const parsed = parse(operationId, request.body);
       const serverTime = (await dependencies.readServerTime()).toISOString();
       const requestId = parsed.ok
         ? parsed.value.requestId
@@ -164,7 +191,7 @@ export function registerReviewActionV2Operation<
 
       if (!parsed.ok) {
         return reply.code(400).send(
-          createReviewActionV2ErrorResponse({
+          errorResponse({
             operationId,
             requestId,
             serverTime,
@@ -176,7 +203,7 @@ export function registerReviewActionV2Operation<
 
       if (!handler || handler.capabilityEnabled !== true) {
         return reply.code(403).send(
-          createReviewActionV2ErrorResponse({
+          errorResponse({
             operationId,
             requestId,
             serverTime,
@@ -187,6 +214,15 @@ export function registerReviewActionV2Operation<
       }
 
       try {
+        if (
+          "authorizationToken" in parsed.value &&
+          dependencies.assertAuthorizationSchema
+        ) {
+          await dependencies.assertAuthorizationSchema(
+            parsed.value.authorizationToken,
+            parsed.value.schemaDigest,
+          );
+        }
         const outcome = await handler.execute(parsed.value);
         if (!descriptor.successStatuses.includes(outcome.statusCode as never)) {
           throw new Error(
@@ -194,7 +230,7 @@ export function registerReviewActionV2Operation<
           );
         }
         return reply.code(outcome.statusCode).send(
-          createReviewActionV2ResultResponse({
+          resultResponse({
             operationId,
             requestId,
             serverTime,
@@ -223,7 +259,7 @@ export function registerReviewActionV2Operation<
           // Diagnostics must never replace the safe protocol failure response.
         }
         return reply.code(failure.statusCode).send(
-          createReviewActionV2ErrorResponse({
+          errorResponse({
             operationId,
             requestId,
             serverTime,

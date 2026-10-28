@@ -33,7 +33,7 @@ vi.mock("next/link", () => ({
   ),
 }));
 vi.mock("../connect-source-dialog", () => ({
-  ConnectSourceDialog: () => <button type="button">Add repos</button>,
+  ConnectSourceDialog: () => <button type="button">Add workspace</button>,
 }));
 
 function workspace(id: string, repositoryCount = 3): DashboardWorkspaceSummary {
@@ -88,7 +88,7 @@ describe("persistent dashboard shell", () => {
     ).toBe("page");
     expect(
       screen
-        .getByRole("tab", { name: /Memory\s*In development/ })
+        .getByRole("tab", { name: /Memory\s*Approved review knowledge/ })
         .getAttribute("aria-current"),
     ).toBe("page");
     expect(document.querySelectorAll('[aria-busy="true"]')).toHaveLength(1);
@@ -114,7 +114,7 @@ describe("persistent dashboard shell", () => {
 
     fireEvent.click(
       screen.getByRole("tab", {
-        name: /Memory\s*In development/,
+        name: /Memory\s*Approved review knowledge/,
       }),
     );
 
@@ -126,7 +126,7 @@ describe("persistent dashboard shell", () => {
     expect(screen.getByLabelText("Loading dashboard section")).toBeTruthy();
     expect(
       screen
-        .getByRole("tab", { name: /Memory\s*In development/ })
+        .getByRole("tab", { name: /Memory\s*Approved review knowledge/ })
         .getAttribute("aria-current"),
     ).toBe("page");
     expect(screen.getByRole("progressbar")).toBeTruthy();
@@ -167,7 +167,7 @@ describe("persistent dashboard shell", () => {
       "/dashboard/setup?workspace=one",
     );
     const accountTab = screen.getByRole("tab", {
-      name: /Accounts\s*Encrypted subscription accounts/,
+      name: /Accounts\s*Workspace provider accounts/,
     });
     expect(accountTab.getAttribute("aria-current")).toBe("page");
     for (const link of document.querySelectorAll('a[href^="/dashboard"]')) {

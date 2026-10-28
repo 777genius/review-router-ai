@@ -10,8 +10,11 @@ export function DashboardCollapsibleShell({
   readonly nav: ReactNode;
 }): ReactElement {
   return (
-    <div className="grid min-w-0 gap-5 lg:grid-cols-[18rem_minmax(0,1fr)]">
-      <div id="dashboard-section-sidebar" className="min-w-0 lg:self-start">
+    <div className="min-w-0 space-y-5 lg:grid lg:space-y-0 lg:gap-5 lg:grid-cols-[18rem_minmax(0,1fr)]">
+      <div
+        id="dashboard-section-sidebar"
+        className="min-w-0 overflow-visible lg:self-start"
+      >
         {nav}
       </div>
       <div className="min-w-0">{children}</div>

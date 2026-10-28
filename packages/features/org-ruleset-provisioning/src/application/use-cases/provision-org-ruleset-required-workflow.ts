@@ -1,9 +1,5 @@
 import type { AuditLogRepositoryPort } from "@reviewrouter/features-audit-log";
 import { recordAuditEvent } from "@reviewrouter/features-audit-log";
-import {
-  mapConfigToRuntimeEnv,
-  safeDefaultReviewConfiguration,
-} from "@reviewrouter/features-review-config";
 import { renderReviewRouterRequiredWorkflow } from "@reviewrouter/features-workflow-provisioning";
 import {
   buildGitHubOrgRulesetPayload,
@@ -62,13 +58,17 @@ export async function provisionOrgRulesetRequiredWorkflow(
       record.sourceRepositoryFullName,
     );
     const branch = branchNameFromRef(record.sourceWorkflowRef);
+    if (
+      input.runtimeConfigMode === "static" &&
+      input.staticRuntimeEnv === undefined
+    ) {
+      throw new Error("workflow_static_policy_required");
+    }
     const workflow = renderReviewRouterRequiredWorkflow({
       actionRef: input.actionRef,
       apiUrl: input.apiUrl,
       runtimeConfigMode: input.runtimeConfigMode,
-      staticRuntimeEnv:
-        input.staticRuntimeEnv ??
-        mapConfigToRuntimeEnv(safeDefaultReviewConfiguration),
+      staticRuntimeEnv: input.staticRuntimeEnv ?? {},
     });
     const sourceWrite = await writeSourceWorkflowWithSafeErrors(setupGateway, {
       owner: sourceOwner,

@@ -1,4 +1,4 @@
-import { request as httpRequest } from "node:http";
+import http, { request as httpRequest, type IncomingMessage } from "node:http";
 
 type HostedPoolFailureReason =
   | "quota_exhausted"
@@ -361,6 +361,10 @@ describe("hosted pool replay-fenced failover artifact", () => {
   });
 
   it("rechecks the replay fence when capacity waiters wake", async () => {
+    const completedResponseBody = `data: ${JSON.stringify({
+      type: "response.completed",
+      response: { id: "response-fixture", status: "completed" },
+    })}\n\ndata: [DONE]\n\n`;
     const releases: Array<() => void> = [];
     let relayCalls = 0;
     const relayStarted: Array<() => void> = [];
@@ -368,27 +372,64 @@ describe("hosted pool replay-fenced failover artifact", () => {
       new Promise<void>((resolve) => relayStarted.push(resolve)),
       new Promise<void>((resolve) => relayStarted.push(resolve)),
     ];
-    const proxy = await actionBundle.startHostedCodexRelayProxy({
-      grant: "grant",
-      commentTokenRefreshCapability: "refresh",
-      invocationLeaseId: "lease",
-      bindingId: "binding",
-      bindingVersion: 1,
-      relayUrl: "https://relay.reviewrouter.test/v1/responses",
-      upstreamCommentTokenRefreshUrl:
-        "https://relay.reviewrouter.test/v1/comment-token",
-      policy: { maxRequests: 4 },
-      fetchImpl: jest.fn(async () => {
-        const call = relayCalls++;
-        relayStarted[call]?.();
-        if (call < 2) {
-          await new Promise<void>((resolve) => releases.push(resolve));
-        }
-        return new Response("data: [DONE]\n\n", {
-          headers: { "content-type": "text/event-stream" },
-        });
-      }) as typeof fetch,
+    let slowArrived!: () => void;
+    let otherArrived!: () => void;
+    let slowAdmitted!: () => void;
+    const slowArrival = new Promise<void>((resolve) => {
+      slowArrived = resolve;
     });
+    const otherArrival = new Promise<void>((resolve) => {
+      otherArrived = resolve;
+    });
+    const slowAdmission = new Promise<void>((resolve) => {
+      slowAdmitted = resolve;
+    });
+    const createServer = http.createServer;
+    const serverSpy = jest
+      .spyOn(http, "createServer")
+      .mockImplementation((...args) => {
+        const server = createServer(...args);
+        server.prependListener("request", (request: IncomingMessage) => {
+          if (request.headers["x-test-capacity-waiter"] === "slow") {
+            slowArrived();
+            // The proxy attaches its body reader only after acquiring a slot
+            // and setting the replay fence. Observe without consuming the body.
+            const onNewListener = (event: string | symbol): void => {
+              if (event === "data") {
+                request.off("newListener", onNewListener);
+                slowAdmitted();
+              }
+            };
+            request.on("newListener", onNewListener);
+          } else if (request.headers["x-test-capacity-waiter"] === "other") {
+            otherArrived();
+          }
+        });
+        return server;
+      });
+    const proxy = await actionBundle
+      .startHostedCodexRelayProxy({
+        grant: "grant",
+        commentTokenRefreshCapability: "refresh",
+        invocationLeaseId: "lease",
+        bindingId: "binding",
+        bindingVersion: 1,
+        relayUrl: "https://relay.reviewrouter.test/v1/responses",
+        upstreamCommentTokenRefreshUrl:
+          "https://relay.reviewrouter.test/v1/comment-token",
+        policy: { maxRequests: 4 },
+        fetchImpl: jest.fn(async () => {
+          const call = relayCalls++;
+          relayStarted[call]?.();
+          if (call < 2) {
+            await new Promise<void>((resolve) => releases.push(resolve));
+          }
+          return new Response(completedResponseBody, {
+            headers: { "content-type": "text/event-stream" },
+          });
+        }) as typeof fetch,
+      })
+      .finally(() => serverSpy.mockRestore());
     const active = [
       fetch(`${proxy.baseUrl}/responses`, { method: "POST", body: "{}" }),
       fetch(`${proxy.baseUrl}/responses`, { method: "POST", body: "{}" }),
@@ -400,27 +441,41 @@ describe("hosted pool replay-fenced failover artifact", () => {
       const slowRequest = httpRequest(`${proxy.baseUrl}/responses`, {
         method: "POST",
         agent: false,
-        headers: { connection: "close", expect: "100-continue" },
+        headers: {
+          connection: "close",
+          expect: "100-continue",
+          "x-test-capacity-waiter": "slow",
+        },
       });
       slow = slowRequest;
-      const slowFinished = new Promise<void>((resolve, reject) => {
-        slowRequest.once("response", (response) => {
-          response.resume();
-          response.once("end", resolve);
-          response.once("error", reject);
-        });
-        slowRequest.once("error", reject);
-      });
+      const slowFinished = new Promise<{ status: number; body: string }>(
+        (resolve, reject) => {
+          slowRequest.once("response", (response) => {
+            let body = "";
+            response.setEncoding("utf8");
+            response.on("data", (chunk: string) => {
+              body += chunk;
+            });
+            response.once("end", () => {
+              resolve({ status: response.statusCode ?? 0, body });
+            });
+            response.once("error", reject);
+          });
+          slowRequest.once("error", reject);
+        },
+      );
       const slowClosed = new Promise<void>((resolve) => {
         slowRequest.once("close", resolve);
       });
-      slowSettled = Promise.race([slowFinished, slowClosed]).catch(
-        () => undefined,
-      );
+      slowSettled = Promise.race([
+        slowFinished.then(() => undefined),
+        slowClosed,
+      ]).catch(() => undefined);
       const slowContinued = waitForContinue(slowRequest);
       slowRequest.flushHeaders();
       await slowContinued;
       slowRequest.write('{"input":"');
+      await slowArrival;
 
       const otherRequest = httpRequest(`${proxy.baseUrl}/responses`, {
         method: "POST",
@@ -430,6 +485,7 @@ describe("hosted pool replay-fenced failover artifact", () => {
           "content-length": 2,
           "content-type": "application/json",
           expect: "100-continue",
+          "x-test-capacity-waiter": "other",
         },
       });
       const otherWaiter = new Promise<{ status: number }>((resolve, reject) => {
@@ -446,15 +502,24 @@ describe("hosted pool replay-fenced failover artifact", () => {
       otherRequest.flushHeaders();
       await otherContinued;
       otherRequest.end("{}");
+      await otherArrival;
 
       releases.shift()?.();
-      await new Promise<void>((resolve) => setImmediate(resolve));
+      await Promise.race([
+        slowAdmission,
+        slowFinished.then(({ status }) => {
+          throw new Error(`Slow waiter returned ${status} before admission`);
+        }),
+      ]);
       releases.shift()?.();
 
       await expect(otherWaiter).resolves.toEqual({ status: 409 });
       expect(relayCalls).toBe(2);
       slowRequest.end('review"}');
-      await slowFinished;
+      await expect(slowFinished).resolves.toEqual({
+        status: 200,
+        body: completedResponseBody,
+      });
       expect(relayCalls).toBe(3);
       const responses = await Promise.all(active);
       await Promise.all(responses.map((response) => response.text()));

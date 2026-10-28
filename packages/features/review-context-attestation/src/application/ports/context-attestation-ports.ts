@@ -30,6 +30,7 @@ export type TrustedGatewaySessionOpeningFacts = Readonly<{
   confinementProofHash: string;
   eventChainSeedHash: string;
   sessionLifetimeMs: number;
+  sessionExpiresAtLimitMs?: number;
 }>;
 
 export interface TrustedGatewaySessionOpeningFactsPort {
@@ -91,9 +92,15 @@ export type ContextAttestationPersistenceResult<T> =
       status: ContextAttestationPersistenceStatus.Conflict;
     }>;
 
+export type GatewaySessionOpeningLimits = Readonly<{
+  sessionLifetimeMs: number;
+  expiresAtLimitMs: number;
+}>;
+
 export interface ContextAttestationStorePort {
   openSession(
     session: GatewaySession,
+    openingLimits?: GatewaySessionOpeningLimits,
   ): Promise<ContextAttestationPersistenceResult<GatewaySession>>;
   findSession(sessionId: string): Promise<GatewaySession | null>;
   abandonSession(input: {

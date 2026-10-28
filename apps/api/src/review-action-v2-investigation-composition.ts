@@ -133,7 +133,7 @@ import {
   ReviewInvestigationPublishedConclusion,
   ReviewInvestigationPublishedState,
   ReviewInvestigationRestoreResultStatus,
-  canonicalizeReviewActionV2Request,
+  canonicalizeReviewActionV2RequestForSlot,
   type ReviewActionV2RequestMap,
   type ReviewInvestigationConcludeRequest,
   type ReviewInvestigationLeaseAcquireRequest,
@@ -1007,7 +1007,9 @@ function evidenceProviderForInvestigation(
       return EvidenceProviderKind.Codex;
     case ReviewExecutionProviderKind.ClaudeCode:
       return EvidenceProviderKind.ClaudeCode;
+    // These engines have no RR investigation certificates.
     case ReviewExecutionProviderKind.OpenRouter:
+    case ReviewExecutionProviderKind.Ocr:
       return null;
   }
 }
@@ -1510,29 +1512,35 @@ async function commitTurn(
       () => d.investigations.commitTurn.execute(command),
     );
   } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message === "investigation_lease_fencing_stale"
-    ) {
-      throw failure(
-        412,
-        ReviewActionV2ProtocolErrorCode.StalePrecondition,
-        error.message,
-      );
-    }
-    if (error instanceof ReviewInvestigationDomainError) {
-      throw failure(
-        422,
-        ReviewActionV2ProtocolErrorCode.InvariantViolation,
-        error.code,
-      );
-    }
-    throw error;
+    projectReviewInvestigationTurnCommitFailure(error);
   }
   return {
     statusCode: 201 as const,
     result: present(result, ReviewInvestigationMutationResultStatus.Applied),
   };
+}
+
+export function projectReviewInvestigationTurnCommitFailure(
+  error: unknown,
+): never {
+  if (
+    error instanceof Error &&
+    error.message === "investigation_lease_fencing_stale"
+  ) {
+    throw failure(
+      412,
+      ReviewActionV2ProtocolErrorCode.StalePrecondition,
+      error.message,
+    );
+  }
+  if (error instanceof ReviewInvestigationDomainError) {
+    throw failure(
+      422,
+      ReviewActionV2ProtocolErrorCode.InvariantViolation,
+      error.code,
+    );
+  }
+  throw error;
 }
 
 async function withTurnCommitDiagnosticStage<T>(
@@ -2253,7 +2261,9 @@ function extensionProvider(
       return "codex";
     case ReviewExecutionProviderKind.ClaudeCode:
       return "claude_code";
+    // These engines have no RR investigation authorization.
     case ReviewExecutionProviderKind.OpenRouter:
+    case ReviewExecutionProviderKind.Ocr:
       return null;
   }
 }
@@ -2281,6 +2291,7 @@ function rolloutProvider(
     case ReviewExecutionProviderKind.ClaudeCode:
       return InvestigationRolloutProvider.Claude;
     case ReviewExecutionProviderKind.OpenRouter:
+    case ReviewExecutionProviderKind.Ocr:
       return InvestigationRolloutProvider.Unknown;
   }
 }
@@ -2786,7 +2797,7 @@ async function assertBodyHash<O extends ReviewActionV2OperationId>(
 ): Promise<void> {
   if (
     (await d.digest.digestUtf8(
-      canonicalizeReviewActionV2Request(operationId, request),
+      canonicalizeReviewActionV2RequestForSlot(operationId, request),
     )) !== (request as { requestBodyHash?: string }).requestBodyHash
   ) {
     throw failure(

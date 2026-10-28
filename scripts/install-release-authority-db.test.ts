@@ -367,6 +367,52 @@ describe("release authority database installation", () => {
     ).toThrow("release_authority_statement_timeout_invalid");
   });
 
+  it("keeps caller timeouts effective through embedded and shadow migrations", () => {
+    const settingsAt = (sql: string, statement: string) => {
+      const boundary = sql.indexOf(statement);
+      expect(boundary).toBeGreaterThan(-1);
+      const effective = new Map<string, string>();
+      for (const match of sql
+        .slice(0, boundary)
+        .matchAll(
+          /^SET LOCAL (lock_timeout|statement_timeout) = '([^']+)';$/gmu,
+        ))
+        effective.set(match[1]!, match[2]!);
+      return [
+        effective.get("lock_timeout"),
+        effective.get("statement_timeout"),
+      ];
+    };
+    const fresh = releaseAuthorityMigrationBundle("fresh-install");
+    expect(settingsAt(fresh, "CREATE SCHEMA release_authority;")).toEqual([
+      "5000ms",
+      "120000ms",
+    ]);
+    expect(
+      settingsAt(fresh, "CREATE SCHEMA release_authority_verify_canonical;"),
+    ).toEqual(["5000ms", "120000ms"]);
+    expect(
+      settingsAt(fresh, "CREATE SCHEMA release_authority_verify_legacy;"),
+    ).toEqual(["5000ms", "120000ms"]);
+    expect(settingsAt(fresh, "DO $final_global_roles$")).toEqual([
+      "5000ms",
+      "120000ms",
+    ]);
+    const short = releaseAuthorityMigrationBundle(
+      "incremental-upgrade",
+      process.cwd(),
+      { lockTimeoutMs: 200, statementTimeoutMs: 2_000 },
+    );
+    expect(settingsAt(short, "ADD COLUMN migration_transition jsonb")).toEqual([
+      "200ms",
+      "2000ms",
+    ]);
+    expect(settingsAt(short, "DO $final_global_roles$")).toEqual([
+      "200ms",
+      "2000ms",
+    ]);
+  });
+
   it("holds a credential lease and its owner grant inside the migration transaction", () => {
     const lease = {
       leaseId: `rrml-${"a".repeat(64)}`,

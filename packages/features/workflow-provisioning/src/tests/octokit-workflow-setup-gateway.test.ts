@@ -2,6 +2,13 @@ import { Buffer } from "node:buffer";
 import { describe, expect, it } from "vitest";
 import { OctokitWorkflowSetupGateway } from "../infrastructure/github/octokit-workflow-setup-gateway";
 
+import {
+  renderCanonicalAccountGatewayWorkflow,
+  renderCanonicalCodexRotatingT0WorkflowV2,
+} from "@reviewrouter/features-codex-oauth-rotating";
+import { getObsoleteGatewayCallerDeletionMarkerGroups } from "../domain/workflow-template";
+import { hostedPoolWorkflowV2Golden } from "./fixtures/hosted-pool-workflow-v2.golden";
+
 type RequestCall = {
   readonly route: string;
   readonly parameters?: Record<string, unknown>;
@@ -299,6 +306,98 @@ describe("OctokitWorkflowSetupGateway", () => {
       "DELETE /repos/{owner}/{repo}/contents/{path}",
     );
   });
+
+  it.each(["gateway", "github-secrets", "hosted"] as const)(
+    "only removes the obsolete Gateway caller, preserving %s mode",
+    async (mode) => {
+      const options = {
+        actionRef: `777genius/review-router@${"a".repeat(40)}`,
+        apiUrl: "https://app.reviewrouter.dev",
+      };
+      const source =
+        mode === "gateway"
+          ? renderCanonicalAccountGatewayWorkflow({
+              ...options,
+              githubRepositoryId: "123456",
+            })
+          : mode === "hosted"
+            ? hostedPoolWorkflowV2Golden
+            : renderCanonicalCodexRotatingT0WorkflowV2({
+                ...options,
+                providerInstanceId: "codex-rotating:123456",
+              });
+      const requester = new FakeRequester(source);
+      const gateway = new OctokitWorkflowSetupGateway(requester);
+      const result = gateway.createOrUpdateSetupPullRequest({
+        ...setupInput,
+        setupMode: "gateway",
+        workflowFiles: [
+          {
+            path: ".github/workflows/reviewrouter-codex.yml",
+            operation: "delete",
+            markerGroups: getObsoleteGatewayCallerDeletionMarkerGroups(),
+          },
+          {
+            path: ".github/workflows/reviewrouter-review.yml",
+            content: "name: ReviewRouter\n",
+          },
+        ],
+      });
+      if (mode === "gateway") {
+        expect((await result).headSha).toBe("b".repeat(40));
+        const deletionIndex = requester.calls.findIndex(
+          (call) =>
+            call.route === "DELETE /repos/{owner}/{repo}/contents/{path}",
+        );
+        const upsertIndex = requester.calls.findIndex(
+          (call) => call.route === "PUT /repos/{owner}/{repo}/contents/{path}",
+        );
+        const finalHeadIndex = requester.calls.findIndex(
+          (call, index) =>
+            index > upsertIndex &&
+            call.route === "GET /repos/{owner}/{repo}/git/ref/{ref}",
+        );
+        expect(deletionIndex).toBeLessThan(upsertIndex);
+        expect(finalHeadIndex).toBeGreaterThan(upsertIndex);
+        expect(requester.calls).toContainEqual(
+          expect.objectContaining({
+            route: "GET /repos/{owner}/{repo}/contents/{path}",
+            parameters: expect.objectContaining({
+              path: ".github/workflows/reviewrouter-codex.yml",
+              ref: "b".repeat(40),
+            }),
+          }),
+        );
+        expect(requester.calls.map((call) => call.route)).toContain(
+          "DELETE /repos/{owner}/{repo}/contents/{path}",
+        );
+        const body = String(
+          requester.calls.find(
+            (call) =>
+              call.route === "PATCH /repos/{owner}/{repo}/pulls/{pull_number}",
+          )?.parameters?.body,
+        );
+        expect(body).toContain("keyless ReviewRouter Gateway");
+        expect(body).toContain(
+          "`/rr` comment commands (`reviewrouter-interaction.yml`) are removed",
+        );
+        expect(body).not.toContain("keeps provider secrets");
+      } else {
+        await expect(result).rejects.toThrow(
+          "workflow_delete_untrusted:.github/workflows/reviewrouter-codex.yml",
+        );
+        for (const route of [
+          "DELETE /repos/{owner}/{repo}/contents/{path}",
+          "PUT /repos/{owner}/{repo}/contents/{path}",
+          "POST /repos/{owner}/{repo}/pulls",
+        ]) {
+          expect(requester.calls.map((call) => call.route)).not.toContain(
+            route,
+          );
+        }
+      }
+    },
+  );
 
   it("refreshes existing setup pull request title and body", async () => {
     const requester = new FakeRequester(primaryWorkflow.content);

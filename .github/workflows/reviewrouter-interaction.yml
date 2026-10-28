@@ -21,7 +21,7 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || ((github.event_name != 'issue_comment' || github.event.issue.pull_request) && github.event.comment.user.type != 'Bot') }}
     env:
       RR_RUNTIME_REF: "0048e0efe355dc1a5f2a060a63672215bac43024"
-      REVIEWROUTER_API_URL: "https://api.reviewrouter.site"
+      REVIEWROUTER_API_URL: "https://api.reviewrouter.org"
       REVIEWROUTER_OIDC_AUDIENCE: "reviewrouter"
       REVIEWROUTER_RUNTIME_CONFIG_MODE: "oidc"
       REVIEWROUTER_STATIC_CONFIG_FALLBACK: "true"
@@ -29,10 +29,6 @@ jobs:
       CODEX_AUTH_JSON_PRESENT: ${{ secrets.REVIEWROUTER_CODEX_AUTH_JSON != '' && '1' || '0' }}
       REVIEW_ROUTER_REVIEW_WORKFLOW_FILE: "reviewrouter-codex.yml"
       REVIEW_ROUTER_MEMORY_ENABLED: "true"
-      REVIEW_ROUTER_MEMORY_PROTOCOL_VERSION: "1"
-      REVIEW_ROUTER_MEMORY_BUNDLE_ENDPOINT: "/api/action/v1/memory"
-      REVIEW_ROUTER_MEMORY_CANDIDATE_ENDPOINT: "/api/action/v1/memory-candidates"
-      REVIEW_ROUTER_MEMORY_COMMAND_ENDPOINT: "/api/action/v1/memory-commands"
     steps:
       - name: Checkout ReviewRouter interaction runtime
         uses: actions/checkout@v6

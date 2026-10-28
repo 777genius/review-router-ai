@@ -1,3 +1,7 @@
+import { ConfiguredProducerReleaseAttestationRegistry } from "@reviewrouter/features-review-run-control/composition";
+import { reviewActionV2ContractSlot } from "@reviewrouter/protocol-review-action-v2";
+import { hasAuthorizedReviewInvestigationExtension } from "./review-action-v2-investigation-extension-admission.js";
+import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import { vi } from "vitest";
 import { createRepositoryReleaseSelector } from "./review-action-v2-repository-release-selection";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -35,14 +39,24 @@ import {
 } from "@reviewrouter/features-review-run-control/testing";
 import {
   createReviewRequestedIntent,
+  decideReviewRequestedAdmission,
   ReviewRequestAdmissionState,
+  ReviewRequestedTransitionDecisionStatus,
+  ReviewRequestedTransitionStatus,
   ReviewRequestedIntentState,
   ReviewRequestedTriggerKind,
   type ReviewRequestedIntent,
+  type ReviewRequestedIntentCommandPort,
+  type ReviewRequestedIntentQueryPort,
 } from "@reviewrouter/features-review-executions";
+import { InMemoryReviewRequestedIntentStore } from "@reviewrouter/features-review-executions/testing";
+import { ProductionHostedReviewPreleaseGate } from "./hosted-review-prelease-gate.js";
 import { InvestigationRolloutCapability } from "@reviewrouter/features-review-investigation-operations";
 import {
   canonicalizeReviewActionV2Request,
+  reviewActionV2SupportedContracts,
+  reviewActionV2Pinned171Slot,
+  reviewActionV2LegacySlot,
   reviewActionV2GoldenFixtures,
   reviewActionV2PublishedSchemaDigest,
   reviewInvestigationExtensionV1,
@@ -57,6 +71,7 @@ import {
   createReviewActionV2RunControlHandlers,
   createServerOwnedReviewActionV2AdmissionFacts,
   hasAuthorizedCodexInvestigationRecording,
+  producerExecutionFromClaims,
   type ReviewActionV2ResolvedRevision,
   type ReviewActionV2RunControlHandlerDependencies,
 } from "./review-action-v2-run-control-composition.js";
@@ -94,6 +109,77 @@ class TestActionRepositories implements ActionControlPlaneRepositoryPort {
 }
 
 describe("Review Action v2 run-control composition", () => {
+  it("uses the signed executable SHA for the managed channel without resolving the current tag", () => {
+    for (const sha of ["a".repeat(40), "b".repeat(40)])
+      expect(
+        producerExecutionFromClaims({
+          ...oidcClaims("channel-proof"),
+          job_workflow_ref:
+            "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@refs/tags/workflow-v1",
+          job_workflow_sha: sha,
+        }),
+      ).toEqual({ actionCommitSha: sha, modelTransport: "account_gateway" });
+  });
+  it("admits secret-backed T0 only with its exact executable and managed caller", () => {
+    const claims = oidcClaims("secret-t0-proof");
+    expect(
+      producerExecutionFromClaims({
+        ...claims,
+        workflow_ref: `${claims.repository}/.github/workflows/reviewrouter-codex.yml@refs/heads/main`,
+        job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${actionSha}`,
+        job_workflow_sha: actionSha,
+      }),
+    ).toEqual({ actionCommitSha: actionSha, modelTransport: "provider_api" });
+  });
+  it("denies wrong callers, unknown channels and mismatched immutable pins", () => {
+    for (const ref of [
+      `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${actionSha}`,
+      "777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@refs/heads/main",
+      "777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@refs/tags/v1",
+      `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${"b".repeat(40)}`,
+      "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@refs/heads/main",
+      "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@refs/tags/workflow-v2",
+      `777genius/review-router/.github/workflows/reviewrouter-runtime.yml@${"b".repeat(40)}`,
+    ])
+      expect(() =>
+        producerExecutionFromClaims({
+          ...oidcClaims("denial-proof"),
+          workflow_ref:
+            "777genius/example/.github/workflows/other.yml@refs/heads/main",
+          job_workflow_ref: ref,
+        }),
+      ).toThrow(
+        expect.objectContaining({
+          statusCode: 403,
+          issues: ["producer_release_workflow_not_immutable"],
+        }),
+      );
+    for (const executableRef of [
+      "refs/heads/main",
+      "refs/tags/v1",
+      "b".repeat(40),
+    ]) {
+      expect(() =>
+        producerExecutionFromClaims({
+          ...oidcClaims("managed-caller-denial"),
+          workflow_ref:
+            "777genius/example/.github/workflows/reviewrouter-codex.yml@refs/heads/main",
+          job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${executableRef}`,
+        }),
+      ).toThrow(
+        expect.objectContaining({
+          statusCode: 403,
+          issues: ["producer_release_workflow_not_immutable"],
+        }),
+      );
+    }
+    expect(() =>
+      producerExecutionFromClaims({
+        ...oidcClaims("missing-sha"),
+        job_workflow_sha: undefined,
+      }),
+    ).toThrow();
+  });
   let kit: ReviewRunControlTestKit;
   let dependencies: ReviewActionV2RunControlHandlerDependencies;
   let facts: ReviewActionV2ResolvedRevision;
@@ -231,6 +317,7 @@ describe("Review Action v2 run-control composition", () => {
       trustDomain: ReviewTrustDomain.TrustedManaged,
       producerReleaseId: "release_v2",
       producerActionCommitSha: actionSha,
+      modelTransport: "account_gateway",
       providerVoteLanes: [
         {
           providerKind: ReviewProviderKind.Codex,
@@ -258,7 +345,11 @@ describe("Review Action v2 run-control composition", () => {
         resolve: async () => {
           const release = await kit.store.findProducerReleaseById("release_v2");
           if (!release) throw new Error("test_release_missing");
-          return { revision: facts, producerRelease: release };
+          return {
+            revision: facts,
+            producerRelease: release,
+            protocolContract: reviewActionV2SupportedContracts()[0]!,
+          };
         },
       },
       revisionHashes,
@@ -269,6 +360,165 @@ describe("Review Action v2 run-control composition", () => {
       maxAuthorizationLifetimeMs: 60 * 60_000,
     };
   });
+
+  it.each([
+    [reviewActionV2LegacySlot, "hosted_pool"],
+    [reviewActionV2LegacySlot, "github_secrets"],
+    [reviewActionV2Pinned171Slot, "hosted_pool"],
+    [reviewActionV2Pinned171Slot, "github_secrets"],
+  ] as const)(
+    "authorizes and renews a historical compiled producer through %s / %s",
+    async (slot, entrypoint) => {
+      const release = await kit.store.findProducerReleaseById("release_v2");
+      if (!release) throw new Error("test_release_missing");
+      const legacy = {
+        ...release,
+        producerReleaseId: "release_legacy",
+        actionCommitSha: "66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff",
+        contextGatewayPolicyVersion: "review-context-gateway.v1",
+        contextGatewayEntrypointDigest: hash("8"),
+        schemaDigest: slot.reviewActionV2PublishedSchemaDigest,
+        reviewInvestigationProfile: {
+          capability:
+            reviewInvestigationCapabilityV1 as typeof reviewInvestigationCapabilityV1,
+          coverageProfileHash: hash("6"),
+          policyHash: hash("7"),
+        },
+      };
+      await kit.control.producerReleases.registerProducerRelease({
+        candidate: legacy,
+        expectedProtocolLimitsDigest:
+          (await kit.store.findProtocolLimitsProfileById(
+            release.protocolLimitsProfileId,
+          ))!.limitsDigest,
+        expectedOperationalSloDigest:
+          (await kit.store.findOperationalSloProfileById(
+            release.operationalSloProfileId,
+          ))!.sloDigest,
+      });
+      for (const [token, claims] of claimsByToken)
+        claimsByToken.set(token, {
+          ...claims,
+          workflow_ref:
+            entrypoint === "github_secrets"
+              ? "777genius/example/.github/workflows/reviewrouter-codex.yml@refs/pull/42/merge"
+              : claims.workflow_ref,
+          job_workflow_ref: `777genius/review-router/.github/workflows/${entrypoint === "github_secrets" ? "reviewrouter-execution-reusable.yml" : "reviewrouter-runtime.yml"}@${legacy.actionCommitSha}`,
+          job_workflow_sha: legacy.actionCommitSha,
+        });
+      const legacyDependencies: ReviewActionV2RunControlHandlerDependencies = {
+        ...dependencies,
+        admissionFacts: createServerOwnedReviewActionV2AdmissionFacts({
+          revisionResolver: {
+            resolve: async () => ({
+              status: CanonicalReviewRevisionResolutionStatus.Resolved,
+              ...facts,
+            }),
+          },
+          releaseAttestations: new ConfiguredProducerReleaseAttestationRegistry(
+            [
+              {
+                ...legacy,
+                canonicalizerDigest: slot.reviewActionV2CanonicalizerDigest,
+              },
+            ],
+            kit.store,
+          ),
+          providerVoteLanes: facts.providerVoteLanes,
+        }),
+        reviewInvestigationCapability: {
+          resolve: async ({ protocolContract }) => {
+            const matched = reviewActionV2ContractSlot(
+              protocolContract.schemaDigest,
+              protocolContract.canonicalizerDigest,
+            )!;
+            return {
+              authorizationDescriptorVersion: 3,
+              capability: reviewInvestigationCapabilityV1,
+              coverageProfileHash: hash("6"),
+              policyHash: hash("7"),
+              extensionId: matched.reviewInvestigationExtensionV1.extensionId,
+              extensionSchemaDigest:
+                matched.reviewInvestigationExtensionV1.schemaDigest,
+              extensionCanonicalizerDigest:
+                matched.reviewInvestigationExtensionV1.canonicalizerDigest,
+              providerCapabilities: [
+                {
+                  providerKind: "codex",
+                  capabilities: [InvestigationRolloutCapability.Recording],
+                },
+              ],
+            };
+          },
+        },
+      };
+      const handlers =
+        createReviewActionV2RunControlHandlers(legacyDependencies);
+      const request = {
+        ...authorizeRequest(),
+        schemaDigest: legacy.schemaDigest,
+        supportedProtocols: [
+          { protocolVersion: "2", schemaDigest: legacy.schemaDigest },
+        ],
+      };
+      const authorized = await handlers.authorize!.execute(
+        request as unknown as ReviewRunAuthorizeRequest,
+      );
+      expect(
+        JSON.parse(authorized.result.authorizationFactsCanonicalJson!)
+          .schemaDigest,
+      ).toBe(legacy.schemaDigest);
+      const stored = await kit.store.findReviewRunAuthorizationById(
+        authorized.result.authorizationId!,
+      );
+      expect(
+        JSON.parse(
+          stored!.reviewInvestigationAuthorizationDescriptorCanonicalJson!,
+        ).extensionCanonicalizerDigest,
+      ).toBe(slot.reviewInvestigationExtensionV1.canonicalizerDigest);
+      expect(hasAuthorizedReviewInvestigationExtension(stored!)).toBe(true);
+      expect(
+        hasAuthorizedReviewInvestigationExtension({
+          ...stored!,
+          reviewInvestigationAuthorizationDescriptorCanonicalJson:
+            stored!.reviewInvestigationAuthorizationDescriptorCanonicalJson!.replace(
+              slot.reviewInvestigationExtensionV1.canonicalizerDigest,
+              hash("f"),
+            ),
+        }),
+      ).toBe(false);
+      const renewal = {
+        ...(await renewRequest(
+          authorized.result.authorizationId!,
+          authorized.result.authorizationToken!,
+          legacyDependencies,
+        )),
+        schemaDigest: legacy.schemaDigest,
+      };
+      renewal.requestBodyHash = await dependencies.digest.digestUtf8(
+        reviewActionV2ContractSlot(
+          legacy.schemaDigest,
+          slot.reviewActionV2CanonicalizerDigest,
+        )!.canonicalizeReviewActionV2Request(
+          ReviewActionV2OperationId.ReviewRunRenew,
+          renewal as unknown as ReviewRunRenewRequest,
+        ),
+      );
+      await expect(
+        handlers.renew!.execute({
+          ...renewal,
+          schemaDigest: reviewActionV2PublishedSchemaDigest,
+        }),
+      ).rejects.toMatchObject({
+        issues: ["authorization_schema_slot_mismatch"],
+      });
+      await expect(
+        handlers.renew!.execute(renewal as unknown as ReviewRunRenewRequest),
+      ).resolves.toMatchObject({
+        statusCode: 200,
+      });
+    },
+  );
 
   it("stays disabled without requiring production-only admission dependencies", () => {
     const routes = composeReviewActionV2RunControlRoutes({
@@ -336,6 +586,12 @@ describe("Review Action v2 run-control composition", () => {
         }),
       },
       providerVoteLanes: facts.providerVoteLanes,
+      requestedIntentRequired: false,
+      requestedIntentAdmission: {
+        evaluate: async () => {
+          throw new Error("disabled_gate_must_not_run");
+        },
+      },
     });
 
     const resolved = await admissionFacts.resolve({
@@ -348,6 +604,7 @@ describe("Review Action v2 run-control composition", () => {
       pullRequestNumber: 42,
       producerReleaseId: "release_v2",
       producerActionCommitSha: actionSha,
+      modelTransport: "account_gateway",
       trustDomain: ReviewTrustDomain.TrustedManaged,
     });
     expect(resolved.producerRelease.producerReleaseId).toBe("release_v2");
@@ -361,55 +618,335 @@ describe("Review Action v2 run-control composition", () => {
     ]);
   });
 
-  it("uses the bound requested intent instead of workflow run PR associations", async () => {
+  it("requires signed canonical direct source before resolving authorization facts", async () => {
     const release = await kit.store.findProducerReleaseById("release_v2");
     if (!release) throw new Error("test_release_missing");
-    const revisionInputs: unknown[] = [];
-    const requestedIntent: ReviewRequestedIntent = {
-      ...createReviewRequestedIntent({
-        workspaceId: "workspace_1",
-        repositoryConnectionId: "repository_1",
-        scmRepositoryIdentityId: "scm-identity-1",
-        pullRequestNumber: facts.pullRequestNumber,
-        requestId: "review-request-1",
-        revision: {
-          baseSha: facts.baseSha,
-          mergeBaseSha: facts.mergeBaseSha,
-          headSha: facts.headSha,
-          reviewRevisionHash: facts.reviewRevisionHash,
-        },
-        triggerKind: ReviewRequestedTriggerKind.ManualCommand,
-        deliveryIdentityHash: hash("7"),
-        canonicalRequestHash: hash("8"),
-        notBefore: new Date("2026-07-22T12:00:00.000Z"),
-        createdAt: new Date("2026-07-22T12:00:00.000Z"),
-        retainUntil: new Date("2026-08-22T12:00:00.000Z"),
-      }),
-      state: ReviewRequestedIntentState.AwaitingAuthorization,
-      sourceRunId: "1001",
-      sourceRunAttempt: "1",
-      admission: {
-        state: ReviewRequestAdmissionState.Admitted,
-        changedLines: 150,
-        maxChangedLines: 250_000,
-        policySnapshotId: "hosted-review-size-v1:test",
-        decisionHash: hash("9"),
-        checkedAt: new Date("2026-07-22T12:00:01.000Z"),
+    const resolveRevision = vi.fn(async () => ({
+      status: CanonicalReviewRevisionResolutionStatus.Resolved as const,
+      pullRequestNumber: facts.pullRequestNumber,
+      baseSha: facts.baseSha,
+      mergeBaseSha: facts.mergeBaseSha,
+      headSha: facts.headSha,
+      reviewRevisionHash: facts.reviewRevisionHash,
+    }));
+    const verify = vi.fn<
+      () => Promise<{
+        compatible: boolean;
+        providerApiAuthMode?: ProviderApiAuthMode;
+      }>
+    >(async () => ({ compatible: false }));
+    const direct = createServerOwnedReviewActionV2AdmissionFacts({
+      revisionResolver: { resolve: resolveRevision },
+      releaseAttestations: {
+        attest: async () => ({
+          status: ProducerReleaseAttestationStatus.Attested,
+          release,
+        }),
       },
+      providerVoteLanes: facts.providerVoteLanes,
+      providerApiSource: { verifyManagedV2SessionBootstrapSource: verify },
+    });
+    const claims = {
+      ...oidcClaims("direct-source-proof"),
+      workflow_ref:
+        "777genius/example/.github/workflows/reviewrouter-review.yml@refs/heads/main",
+      workflow_sha: "f".repeat(40),
+      job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${actionSha}`,
+      job_workflow_sha: actionSha,
     };
-    const admissionFacts = createServerOwnedReviewActionV2AdmissionFacts({
-      revisionResolver: {
-        resolve: async (input) => {
-          revisionInputs.push(input);
-          return {
-            status: CanonicalReviewRevisionResolutionStatus.Resolved,
-            pullRequestNumber: facts.pullRequestNumber,
+    const input = {
+      claims,
+      repository: new TestActionRepositories().repository!,
+      scmRepositoryIdentityId: "scm-identity-1",
+    };
+    await expect(direct.resolve(input)).rejects.toMatchObject({
+      statusCode: 403,
+      issues: ["provider_api_workflow_source_not_canonical"],
+    });
+    expect(resolveRevision).not.toHaveBeenCalled();
+    expect(verify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workflowSha: claims.workflow_sha,
+        expectedProviderApiActionCommitSha: actionSha,
+      }),
+    );
+    verify.mockResolvedValue({
+      compatible: true,
+      providerApiAuthMode: "openrouter-api",
+    });
+    await expect(direct.resolve(input)).resolves.toMatchObject({
+      revision: {
+        providerApiAuthMode: "openrouter-api",
+        modelTransport: "provider_api",
+        providerVoteLanes: facts.providerVoteLanes,
+      },
+    });
+  });
+
+  it.each([
+    ["admitted", 100, headSha, undefined],
+    ["oversized", 250_001, headSha, "review_request_intent_required"],
+    ["moved head", 100, "9".repeat(40), "review_request_revision_moved"],
+  ] as const)(
+    "evaluates the bound intent through real policy and CAS: %s",
+    async (_scenario, additions, resolvedHeadSha, expectedIssue) => {
+      const scmIdentity =
+        await dependencies.repositoryIdentities.findScmRepositoryIdentityByExternalIdentity(
+          {
+            provider: ScmProvider.GitHub,
+            normalizedSourceBaseUrl: "https://github.com",
+            externalRepositoryId: "123456",
+          },
+        );
+      if (!scmIdentity) throw new Error("test_scm_identity_missing");
+      const release = await kit.store.findProducerReleaseById("release_v2");
+      if (!release) throw new Error("test_release_missing");
+      const revisionInputs: unknown[] = [];
+      let requestedIntent: ReviewRequestedIntent = {
+        ...createReviewRequestedIntent({
+          workspaceId: "workspace_1",
+          repositoryConnectionId: "repository_1",
+          scmRepositoryIdentityId: scmIdentity.scmRepositoryIdentityId,
+          pullRequestNumber: facts.pullRequestNumber,
+          requestId: "review-request-1",
+          revision: {
             baseSha: facts.baseSha,
             mergeBaseSha: facts.mergeBaseSha,
             headSha: facts.headSha,
             reviewRevisionHash: facts.reviewRevisionHash,
+          },
+          triggerKind: ReviewRequestedTriggerKind.ManualCommand,
+          deliveryIdentityHash: hash("7"),
+          canonicalRequestHash: hash("8"),
+          notBefore: new Date("2026-07-22T12:00:00.000Z"),
+          createdAt: new Date("2026-07-22T12:00:00.000Z"),
+          retainUntil: new Date("2026-08-22T12:00:00.000Z"),
+        }),
+        state: ReviewRequestedIntentState.AwaitingAuthorization,
+        sourceRunId: "1001",
+        sourceRunAttempt: "1",
+        nextResolutionAt: new Date("2026-07-22T12:00:05.000Z"),
+        resolutionDeadlineAt: new Date("2026-07-22T12:05:00.000Z"),
+      };
+      const findIntent = vi.fn(async () => requestedIntent);
+      const recordAdmissionDecision = vi.fn(
+        async (
+          command: Parameters<
+            ReviewRequestedIntentCommandPort["recordAdmissionDecision"]
+          >[0],
+        ) => {
+          const decision = decideReviewRequestedAdmission({
+            intent: requestedIntent,
+            ...command,
+          });
+          if (
+            decision.status !==
+              ReviewRequestedTransitionDecisionStatus.Applied &&
+            decision.status !== ReviewRequestedTransitionDecisionStatus.Restored
+          ) {
+            return { status: ReviewRequestedTransitionStatus.Conflict };
+          }
+          requestedIntent = decision.intent;
+          return {
+            status: ReviewRequestedTransitionStatus.Applied,
+            intent: requestedIntent,
           };
         },
+      );
+      const unusedIntentQuery = async (): Promise<never> => {
+        throw new Error("test_unused_intent_query");
+      };
+      const requestedIntents: ReviewRequestedIntentQueryPort = {
+        findByRepositorySourceRunIdentity: findIntent,
+        findByRequestId: unusedIntentQuery,
+        findByDeliveryIdentity: unusedIntentQuery,
+        findPendingByScope: unusedIntentQuery,
+        findBySourceRunIdentity: unusedIntentQuery,
+        listByRepositorySourceRunId: unusedIntentQuery,
+        listDue: unusedIntentQuery,
+        listDueForResolution: unusedIntentQuery,
+      };
+      const gate = new ProductionHostedReviewPreleaseGate({
+        requestedIntentQueries: requestedIntents,
+        requestedIntentCommands: {
+          recordAdmissionDecision,
+        } as unknown as ReviewRequestedIntentCommandPort,
+        pullRequests: {
+          resolve: async () => ({
+            pullRequestNumber: facts.pullRequestNumber,
+            headSha: resolvedHeadSha,
+            additions,
+            deletions: 50,
+          }),
+        },
+        clock: kit.clock,
+        maxChangedLines: 250_000,
+      });
+      const admissionFacts = createServerOwnedReviewActionV2AdmissionFacts({
+        revisionResolver: {
+          resolve: async (input) => {
+            revisionInputs.push(input);
+            return {
+              status: CanonicalReviewRevisionResolutionStatus.Resolved,
+              pullRequestNumber: facts.pullRequestNumber,
+              baseSha: facts.baseSha,
+              mergeBaseSha: facts.mergeBaseSha,
+              headSha: facts.headSha,
+              reviewRevisionHash: facts.reviewRevisionHash,
+            };
+          },
+        },
+        releaseAttestations: {
+          attest: async () => ({
+            status: ProducerReleaseAttestationStatus.Attested,
+            release,
+          }),
+        },
+        providerVoteLanes: facts.providerVoteLanes,
+        requestedIntents,
+        requestedIntentAdmission: gate,
+        clock: kit.clock,
+        requestedIntentRequired: true,
+      });
+
+      const resolution = admissionFacts.resolve({
+        claims: oidcClaims("bound-intent-jti"),
+        repository: new TestActionRepositories().repository!,
+        scmRepositoryIdentityId: scmIdentity.scmRepositoryIdentityId,
+      });
+      if (expectedIssue) {
+        await expect(resolution).rejects.toMatchObject({
+          statusCode:
+            expectedIssue === "review_request_revision_moved" ? 412 : 403,
+          issues: [expectedIssue],
+        });
+        expect(requestedIntent.admission.state).toBe(
+          expectedIssue === "review_request_revision_moved"
+            ? ReviewRequestAdmissionState.NotEvaluated
+            : ReviewRequestAdmissionState.Rejected,
+        );
+        expect(revisionInputs).toEqual([]);
+        return;
+      }
+      const resolved = await resolution;
+      expect(requestedIntent.admission).toMatchObject({
+        state: ReviewRequestAdmissionState.Admitted,
+        changedLines: 150,
+        maxChangedLines: 250_000,
+      });
+      expect(recordAdmissionDecision).toHaveBeenCalledOnce();
+      expect(findIntent).toHaveBeenCalledWith({
+        repositoryConnectionId: "repository_1",
+        sourceRunId: "1001",
+        sourceRunAttempt: "1",
+      });
+
+      expect(resolved.revision).toMatchObject({
+        pullRequestNumber: facts.pullRequestNumber,
+        reviewRevisionHash: facts.reviewRevisionHash,
+      });
+      expect(resolved.producerRelease.producerReleaseId).toBe("release_v2");
+      expect(revisionInputs).toEqual([
+        expect.objectContaining({
+          sourceRunId: null,
+          pullRequestNumberHint: facts.pullRequestNumber,
+        }),
+      ]);
+      const handlers = createReviewActionV2RunControlHandlers({
+        ...dependencies,
+        admissionFacts,
+      });
+      await expect(
+        handlers.authorize!.execute(authorizeRequest()),
+      ).resolves.toMatchObject({
+        statusCode: 201,
+        result: { status: ReviewRunAuthorizationResultStatus.Authorized },
+      });
+    },
+  );
+
+  async function requestedIntentHandlers() {
+    const scmIdentity =
+      await kit.store.findScmRepositoryIdentityByExternalIdentity({
+        provider: ScmProvider.GitHub,
+        normalizedSourceBaseUrl: "https://github.com",
+        externalRepositoryId: "123456",
+      });
+    const release = await kit.store.findProducerReleaseById("release_v2");
+    if (!scmIdentity || !release)
+      throw new Error("test_admission_prerequisite_missing");
+    const intents = new InMemoryReviewRequestedIntentStore();
+    const candidate = createReviewRequestedIntent({
+      workspaceId: "workspace_1",
+      repositoryConnectionId: "repository_1",
+      scmRepositoryIdentityId: scmIdentity.scmRepositoryIdentityId,
+      pullRequestNumber: facts.pullRequestNumber,
+      requestId: "renewal-intent",
+      revision: {
+        baseSha,
+        mergeBaseSha,
+        headSha,
+        reviewRevisionHash: facts.reviewRevisionHash,
+      },
+      triggerKind: ReviewRequestedTriggerKind.ManualCommand,
+      deliveryIdentityHash: hash("7"),
+      canonicalRequestHash: hash("8"),
+      notBefore: kit.clock.now(),
+      createdAt: kit.clock.now(),
+      retainUntil: new Date(kit.clock.now().getTime() + 86_400_000),
+    });
+    await intents.registerIntent({ candidate });
+    const claimed = await intents.claimIntent({
+      requestId: candidate.requestId,
+      claimId: "renewal-claim",
+      ownerIdHash: hash("9"),
+      now: kit.clock.now(),
+      claimUntil: new Date(kit.clock.now().getTime() + 60_000),
+    });
+    const claim = claimed.intent!.claim!;
+    const term = {
+      requestId: candidate.requestId,
+      claimId: claim.claimId,
+      ownerIdHash: claim.ownerIdHash,
+      fencingToken: claim.fencingToken,
+    };
+    const resolution = {
+      now: kit.clock.now(),
+      nextResolutionAt: new Date(kit.clock.now().getTime() + 1_000),
+      resolutionDeadlineAt: new Date(kit.clock.now().getTime() + 300_000),
+    };
+    await intents.beginSubmission({ ...term, ...resolution });
+    await intents.recordDispatch({
+      ...term,
+      ...resolution,
+      sourceRunId: "1001",
+      sourceRunAttempt: "1",
+    });
+    const gate = new ProductionHostedReviewPreleaseGate({
+      requestedIntentQueries: intents,
+      requestedIntentCommands: intents,
+      pullRequests: {
+        resolve: async () => ({
+          pullRequestNumber: facts.pullRequestNumber,
+          headSha,
+          additions: 100,
+          deletions: 50,
+        }),
+      },
+      clock: kit.clock,
+      maxChangedLines: 250_000,
+    });
+    const evaluate = vi.spyOn(gate, "evaluate");
+    const admissionFacts = createServerOwnedReviewActionV2AdmissionFacts({
+      revisionResolver: {
+        resolve: async () => ({
+          status: CanonicalReviewRevisionResolutionStatus.Resolved,
+          pullRequestNumber: facts.pullRequestNumber,
+          baseSha,
+          mergeBaseSha,
+          headSha,
+          reviewRevisionHash: facts.reviewRevisionHash,
+        }),
       },
       releaseAttestations: {
         attest: async () => ({
@@ -418,37 +955,125 @@ describe("Review Action v2 run-control composition", () => {
         }),
       },
       providerVoteLanes: facts.providerVoteLanes,
-      requestedIntents: {
-        findByRepositorySourceRunIdentity: async (input) => {
-          expect(input).toEqual({
-            repositoryConnectionId: "repository_1",
-            sourceRunId: "1001",
-            sourceRunAttempt: "1",
-          });
-          return requestedIntent;
-        },
-      },
+      requestedIntents: intents,
+      requestedIntentAdmission: gate,
       requestedIntentRequired: true,
+      clock: kit.clock,
     });
+    const handlers = createReviewActionV2RunControlHandlers({
+      ...dependencies,
+      admissionFacts,
+    });
+    const authorized = await handlers.authorize!.execute(authorizeRequest());
+    expect(
+      (await intents.findByRequestId(candidate.requestId))?.admission,
+    ).toMatchObject({
+      state: ReviewRequestAdmissionState.Admitted,
+      changedLines: 150,
+    });
+    return { handlers, authorized, intents, candidate, evaluate };
+  }
 
-    const resolved = await admissionFacts.resolve({
-      claims: oidcClaims("bound-intent-jti"),
-      repository: new TestActionRepositories().repository!,
-      scmRepositoryIdentityId: "scm-identity-1",
+  it("renews a valid authorization after real intent admission and binding without reopening fresh admission", async () => {
+    const { handlers, authorized, intents, candidate, evaluate } =
+      await requestedIntentHandlers();
+    // The normal pre-execution renewal still uses the awaiting/unbound policy path.
+    const initial = await handlers.renew!.execute(
+      await renewRequest(
+        authorized.result.authorizationId!,
+        authorized.result.authorizationToken!,
+        dependencies,
+      ),
+    );
+    expect(initial.statusCode).toBe(200);
+    const linked = await intents.linkAdmission({
+      requestId: candidate.requestId,
+      sourceRunId: "1001",
+      sourceRunAttempt: "1",
+      authorizationId: authorized.result.authorizationId!,
+      executionId: "execution-original",
+      revision: candidate.revision,
+      now: kit.clock.now(),
     });
-
-    expect(resolved.revision).toMatchObject({
-      pullRequestNumber: facts.pullRequestNumber,
-      reviewRevisionHash: facts.reviewRevisionHash,
+    expect(linked.status).toBe(ReviewRequestedTransitionStatus.Applied);
+    expect(linked.intent?.state).toBe(ReviewRequestedIntentState.Dispatched);
+    evaluate.mockClear();
+    kit.clock.advance(60_000);
+    const renewed = await handlers.renew!.execute(
+      await renewRequest(
+        initial.result.authorizationId!,
+        initial.result.authorizationToken!,
+        dependencies,
+        "bound-renewal",
+      ),
+    );
+    expect(renewed).toMatchObject({
+      statusCode: 200,
+      result: { authorizationId: authorized.result.authorizationId },
     });
-    expect(resolved.producerRelease.producerReleaseId).toBe("release_v2");
-    expect(revisionInputs).toEqual([
-      expect.objectContaining({
-        sourceRunId: null,
-        pullRequestNumberHint: facts.pullRequestNumber,
-      }),
-    ]);
+    expect(evaluate).not.toHaveBeenCalled();
+    expect(await intents.findByRequestId(candidate.requestId)).toEqual(
+      linked.intent,
+    );
+    // Fresh authorize remains denied for that same bound intent.
+    await expect(
+      handlers.authorize!.execute(authorizeRequest()),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      issues: ["review_request_intent_required"],
+    });
   });
+
+  it.each(["foreign authorization", "other attempt"])(
+    "denies renewal for %s without changing admission or authorization",
+    async (mismatch) => {
+      const { handlers, authorized, intents, candidate, evaluate } =
+        await requestedIntentHandlers();
+      const linked = await intents.linkAdmission({
+        requestId: candidate.requestId,
+        sourceRunId: "1001",
+        sourceRunAttempt: "1",
+        authorizationId:
+          mismatch === "foreign authorization"
+            ? "foreign-authorization"
+            : authorized.result.authorizationId!,
+        executionId: "execution-original",
+        revision: candidate.revision,
+        now: kit.clock.now(),
+      });
+      expect(linked.status).toBe(ReviewRequestedTransitionStatus.Applied);
+      if (mismatch === "other attempt")
+        claimsByToken.set("oidc-renew", {
+          ...oidcClaims("other-attempt-jti"),
+          run_attempt: "2",
+        });
+      const original = await kit.store.findReviewRunAuthorizationById(
+        authorized.result.authorizationId!,
+      );
+      evaluate.mockClear();
+      await expect(
+        handlers.renew!.execute(
+          await renewRequest(
+            authorized.result.authorizationId!,
+            authorized.result.authorizationToken!,
+            dependencies,
+          ),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        issues: ["review_request_intent_required"],
+      });
+      expect(evaluate).not.toHaveBeenCalled();
+      expect(await intents.findByRequestId(candidate.requestId)).toEqual(
+        linked.intent,
+      );
+      expect(
+        await kit.store.findReviewRunAuthorizationById(
+          authorized.result.authorizationId!,
+        ),
+      ).toEqual(original);
+    },
+  );
 
   it("rejects an unregistered server-owned producer release", async () => {
     const admissionFacts = createServerOwnedReviewActionV2AdmissionFacts({
@@ -555,54 +1180,77 @@ describe("Review Action v2 run-control composition", () => {
     },
   );
 
-  it("authorizes once and restores the exact OIDC/protocol replay", async () => {
-    const handlers = createReviewActionV2RunControlHandlers(dependencies);
-    const request = authorizeRequest();
+  it.each(["legacy", "direct"] as const)(
+    "authorizes and restores the exact %s OIDC/protocol replay",
+    async (route) => {
+      if (route === "direct")
+        facts = {
+          ...facts,
+          modelTransport: "provider_api",
+          providerApiAuthMode: "openrouter-api",
+        };
+      const handlers = createReviewActionV2RunControlHandlers(dependencies);
+      const request = authorizeRequest();
 
-    const first = await handlers.authorize!.execute(request);
-    const replay = await handlers.authorize!.execute(request);
+      const first = await handlers.authorize!.execute(request);
+      const replay = await handlers.authorize!.execute(request);
 
-    expect(first.statusCode).toBe(201);
-    expect(first.result.status).toBe(
-      ReviewRunAuthorizationResultStatus.Authorized,
-    );
-    expect(first.result.protocolLimitsCanonicalJson).toContain("maxWorkSlots");
-    expect(JSON.parse(first.result.authorizationFactsCanonicalJson!)).toEqual(
-      expect.objectContaining({
-        pullRequestNumber: 42,
-        baseSha: baseSha,
-        mergeBaseSha: mergeBaseSha,
-        headSha: headSha,
-        reviewRevisionHash: facts.reviewRevisionHash,
-        providerVoteLanes: [
-          expect.objectContaining({
-            providerKind: "codex",
-            providerVoteIdentityHash: expect.any(String),
-          }),
-        ],
-      }),
-    );
-    expect(replay.statusCode).toBe(200);
-    expect(replay.result.status).toBe(
-      ReviewRunAuthorizationResultStatus.Restored,
-    );
-    expect(replay.result.authorizationId).toBe(first.result.authorizationId);
-    expect(replay.result.authorizationFactsCanonicalJson).toBe(
-      first.result.authorizationFactsCanonicalJson,
-    );
-    expect(
-      JSON.parse(first.result.authorizationFactsCanonicalJson!),
-    ).not.toHaveProperty("reviewInvestigation");
-    expect(
-      await kit.digest.digestUtf8(
+      expect(first.statusCode).toBe(201);
+      expect(first.result.status).toBe(
+        ReviewRunAuthorizationResultStatus.Authorized,
+      );
+      expect(first.result.protocolLimitsCanonicalJson).toContain(
+        "maxWorkSlots",
+      );
+      const persisted = await kit.store.findReviewRunAuthorizationById(
+        first.result.authorizationId!,
+      );
+      expect(persisted).not.toBeNull();
+      const emittedFacts = JSON.parse(
         first.result.authorizationFactsCanonicalJson!,
-      ),
-    ).toBe(
-      await kit.digest.digestUtf8(
-        replay.result.authorizationFactsCanonicalJson!,
-      ),
-    );
-  });
+      );
+      if (route === "direct")
+        expect(emittedFacts.workflowIdentityHash).toBe(
+          persisted!.workflowIdentityHash,
+        );
+      else expect(emittedFacts).not.toHaveProperty("workflowIdentityHash");
+      expect(JSON.parse(first.result.authorizationFactsCanonicalJson!)).toEqual(
+        expect.objectContaining({
+          pullRequestNumber: 42,
+          baseSha: baseSha,
+          mergeBaseSha: mergeBaseSha,
+          headSha: headSha,
+          reviewRevisionHash: facts.reviewRevisionHash,
+          providerVoteLanes: [
+            expect.objectContaining({
+              providerKind: "codex",
+              providerVoteIdentityHash: expect.any(String),
+            }),
+          ],
+        }),
+      );
+      expect(replay.statusCode).toBe(200);
+      expect(replay.result.status).toBe(
+        ReviewRunAuthorizationResultStatus.Restored,
+      );
+      expect(replay.result.authorizationId).toBe(first.result.authorizationId);
+      expect(replay.result.authorizationFactsCanonicalJson).toBe(
+        first.result.authorizationFactsCanonicalJson,
+      );
+      expect(
+        JSON.parse(first.result.authorizationFactsCanonicalJson!),
+      ).not.toHaveProperty("reviewInvestigation");
+      expect(
+        await kit.digest.digestUtf8(
+          first.result.authorizationFactsCanonicalJson!,
+        ),
+      ).toBe(
+        await kit.digest.digestUtf8(
+          replay.result.authorizationFactsCanonicalJson!,
+        ),
+      );
+    },
+  );
 
   async function registerSelectedVariant() {
     const base = (await kit.store.findProducerReleaseById("release_v2"))!;
@@ -970,6 +1618,7 @@ describe("Review Action v2 run-control composition", () => {
       ...facts,
       producerReleaseId: producerRelease.producerReleaseId,
       producerActionCommitSha: investigationActionSha,
+      modelTransport: "account_gateway",
     };
     const descriptor = {
       ...reviewInvestigationProfile,
@@ -989,7 +1638,11 @@ describe("Review Action v2 run-control composition", () => {
     const handlers = createReviewActionV2RunControlHandlers({
       ...dependencies,
       admissionFacts: {
-        resolve: async () => ({ revision: facts, producerRelease }),
+        resolve: async () => ({
+          revision: facts,
+          producerRelease,
+          protocolContract: reviewActionV2SupportedContracts()[0]!,
+        }),
       },
       reviewInvestigationCapability: {
         resolve: async ({ producerRelease: resolvedRelease }) => {
@@ -1037,43 +1690,58 @@ describe("Review Action v2 run-control composition", () => {
     );
   });
 
-  it("reuses the exact v2 investigation snapshot validator for hosted Codex reads", () => {
-    const descriptor = {
-      authorizationDescriptorVersion: 3,
-      capability: reviewInvestigationCapabilityV1,
-      coverageProfileHash: hash("5"),
-      extensionCanonicalizerDigest:
-        reviewInvestigationExtensionV1.canonicalizerDigest,
-      extensionId: reviewInvestigationExtensionV1.extensionId,
-      extensionSchemaDigest: reviewInvestigationExtensionV1.schemaDigest,
-      policyHash: hash("6"),
-      providerCapabilities: [
-        {
-          providerKind: "codex",
-          capabilities: [InvestigationRolloutCapability.Recording],
-        },
-      ],
-    };
-    const authorization = {
-      providerVoteLanes: facts.providerVoteLanes,
-      reviewInvestigationAuthorizationDescriptorCanonicalJson:
-        canonicalJson(descriptor),
-    };
-    expect(hasAuthorizedCodexInvestigationRecording(authorization)).toBe(true);
-    expect(
-      hasAuthorizedCodexInvestigationRecording({
-        ...authorization,
+  it.each([
+    {
+      schemaDigest: reviewActionV2PublishedSchemaDigest,
+      extension: reviewInvestigationExtensionV1,
+    },
+    {
+      schemaDigest:
+        reviewActionV2LegacySlot.reviewActionV2PublishedSchemaDigest,
+      extension: reviewActionV2LegacySlot.reviewInvestigationExtensionV1,
+    },
+  ])(
+    "reuses the paired investigation snapshot validator for hosted Codex reads ($schemaDigest)",
+    ({ schemaDigest, extension }) => {
+      const descriptor = {
+        authorizationDescriptorVersion: 3,
+        capability: reviewInvestigationCapabilityV1,
+        coverageProfileHash: hash("5"),
+        extensionCanonicalizerDigest: extension.canonicalizerDigest,
+        extensionId: extension.extensionId,
+        extensionSchemaDigest: extension.schemaDigest,
+        policyHash: hash("6"),
+        providerCapabilities: [
+          {
+            providerKind: "codex",
+            capabilities: [InvestigationRolloutCapability.Recording],
+          },
+        ],
+      };
+      const authorization = {
+        schemaDigest,
+        providerVoteLanes: facts.providerVoteLanes,
         reviewInvestigationAuthorizationDescriptorCanonicalJson:
-          JSON.stringify(descriptor),
-      }),
-    ).toBe(false);
-    expect(
-      hasAuthorizedCodexInvestigationRecording({
-        ...authorization,
-        providerVoteLanes: [],
-      }),
-    ).toBe(false);
-  });
+          canonicalJson(descriptor),
+      };
+      expect(hasAuthorizedCodexInvestigationRecording(authorization)).toBe(
+        true,
+      );
+      expect(
+        hasAuthorizedCodexInvestigationRecording({
+          ...authorization,
+          reviewInvestigationAuthorizationDescriptorCanonicalJson:
+            JSON.stringify(descriptor),
+        }),
+      ).toBe(false);
+      expect(
+        hasAuthorizedCodexInvestigationRecording({
+          ...authorization,
+          providerVoteLanes: [],
+        }),
+      ).toBe(false);
+    },
+  );
 
   it("restores a persisted legacy V2 investigation snapshot across deployment", async () => {
     const legacyDescriptor = {
@@ -1305,6 +1973,7 @@ describe("Review Action v2 run-control composition", () => {
         resolve: async () => ({
           revision: facts,
           producerRelease: { ...release, producerReleaseId: "missing_release" },
+          protocolContract: reviewActionV2SupportedContracts()[0]!,
         }),
       },
     });
@@ -1433,7 +2102,7 @@ function oidcClaims(jti: string): GitHubActionsOidcClaims {
     workflow_ref:
       "777genius/example/.github/workflows/reviewrouter.yml@refs/pull/42/merge",
     workflow_sha: headSha,
-    job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${actionSha}`,
+    job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-runtime.yml@${actionSha}`,
     job_workflow_sha: actionSha,
     actor: "777genius",
     jti,
@@ -1452,6 +2121,7 @@ async function renewRequest(
   authorizationId: string,
   authorizationToken: string,
   dependencies: ReviewActionV2RunControlHandlerDependencies,
+  renewalRequestId?: string,
 ): Promise<ReviewRunRenewRequest> {
   const request: ReviewRunRenewRequest = {
     ...reviewActionV2GoldenFixtures.review_run_renew.request,
@@ -1459,6 +2129,9 @@ async function renewRequest(
     authorizationToken,
     oidcToken: "oidc-renew",
     requestedTtlMs: 20 * 60_000,
+    ...(renewalRequestId
+      ? { renewalRequestId, idempotencyKey: renewalRequestId }
+      : {}),
   };
   return {
     ...request,

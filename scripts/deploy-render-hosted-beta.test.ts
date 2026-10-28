@@ -14,6 +14,7 @@ import { canonicalProviderJson } from "./codex-rotating-provider-provenance.mjs"
 import {
   addToEnvironment,
   assertReviewV2ApiWorkerEnvConvergence,
+  assertReviewV2WebApiSelectionEnvConvergence,
   assertRuntimeReleaseCommit,
   assertHostedDeployEnv,
   assertMigrationEvidence,
@@ -1051,6 +1052,24 @@ describe("Render hosted deploy hardening", () => {
 
   it("preserves the explicit active review v2 tuple without copying unknown env", () => {
     const v2 = activeReviewV2Env();
+    const gatewayApi = {
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED: "1",
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: '{"approved":"policy"}',
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY: '{"approved":"relay"}',
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN: "https://gateway.internal",
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN: "https://control.internal",
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER: "run-control-only",
+    };
+    const gatewayWeb = {
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN:
+        "https://management.internal",
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN: "management-only",
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_ACCOUNTS_CONTEXT_SECRET: "context-only",
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_MIMO_PROFILE_ID: "mimo-profile",
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_OPENROUTER_PROFILE_ID: "openrouter-profile",
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_CODEX_OAUTH_PROFILE_ID:
+        "openai-codex-oauth-responses-v1",
+    };
     const common = {
       GITHUB_APP_CLIENT_ID: "client",
       GITHUB_APP_CLIENT_SECRET: "secret",
@@ -1065,6 +1084,11 @@ describe("Render hosted deploy hardening", () => {
       ...installerTuple,
       ...hostedPoolEnv,
       ...v2,
+      ...gatewayApi,
+      ...gatewayWeb,
+      ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID: "operator-workspace",
+      ACCOUNT_GATEWAY_NATIVE_ADMIN_TOKEN: "must-not-cross-put",
+      ACCOUNT_GATEWAY_CREDENTIAL_ENCRYPTION_KEY: "must-not-cross-put",
       REVIEW_ROUTER_UNKNOWN_RUNTIME_VALUE: "must-not-cross-put",
     };
     const api = Object.fromEntries(
@@ -1097,6 +1121,28 @@ describe("Render hosted deploy hardening", () => {
         env: common,
       }).map(({ key, value }) => [key, value]),
     );
+
+    for (const [key, value] of Object.entries(gatewayApi)) {
+      expect(api[key], key).toBe(value);
+      expect(web[key], key).toBeUndefined();
+      expect(worker[key], key).toBeUndefined();
+    }
+    for (const [key, value] of Object.entries(gatewayWeb)) {
+      expect(web[key], key).toBe(value);
+      expect(api[key], key).toBeUndefined();
+      expect(worker[key], key).toBeUndefined();
+    }
+    expect(api.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID).toBe(
+      "operator-workspace",
+    );
+    expect(web.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID).toBe(
+      "operator-workspace",
+    );
+    expect(worker.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID).toBeUndefined();
+    for (const output of [api, web, worker]) {
+      expect(output.ACCOUNT_GATEWAY_NATIVE_ADMIN_TOKEN).toBeUndefined();
+      expect(output.ACCOUNT_GATEWAY_CREDENTIAL_ENCRYPTION_KEY).toBeUndefined();
+    }
 
     for (const [key, value] of Object.entries(v2)) {
       expect(api[key], key).toBe(value);
@@ -1185,6 +1231,117 @@ describe("Render hosted deploy hardening", () => {
       "Review v2 API/worker environment drift for REVIEW_ROUTER_REVIEW_V2_PROVIDER_VOTE_LANES_JSON",
     );
   });
+
+  it("preserves raw engine selection and checks web/API authority parity", () => {
+    const registry = {
+      REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON: "[]",
+    };
+    expect(() =>
+      assertReviewV2WebApiSelectionEnvConvergence(registry, registry),
+    ).not.toThrow();
+    for (const value of [
+      "codex-default",
+      "codex-skills-v1",
+      "ocr-managed-v3",
+      "invalid/profile",
+    ]) {
+      const explicit = { ...registry, REVIEW_ROUTER_AGENT_PROFILE: value };
+      expect(() =>
+        assertReviewV2WebApiSelectionEnvConvergence(explicit, explicit),
+      ).not.toThrow();
+      expect(() =>
+        assertReviewV2WebApiSelectionEnvConvergence(registry, explicit),
+      ).toThrow("REVIEW_ROUTER_AGENT_PROFILE");
+    }
+    expect(() =>
+      assertReviewV2WebApiSelectionEnvConvergence(registry, {
+        ...registry,
+        REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON: "changed",
+      }),
+    ).toThrow("ATTESTATIONS_JSON");
+  });
+
+  it("validates raw engine selection during actual environment construction", () => {
+    const base = {
+      GITHUB_APP_CLIENT_ID: "client",
+      GITHUB_APP_CLIENT_SECRET: "secret",
+      GITHUB_APP_ID: "1",
+      GITHUB_APP_SLUG: "reviewrouter",
+      GITHUB_WEBHOOK_SECRET: "secret",
+      AUTH_SECRET: "a".repeat(32),
+      REVIEW_ROUTER_ACTION_SESSION_SECRET: "s".repeat(32),
+      REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY: "t".repeat(32),
+      REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: "w".repeat(43),
+      REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: actionRef,
+      ...installerTuple,
+      ...hostedPoolEnv,
+      ...activeReviewV2Env(),
+    };
+    for (const role of ["web", "api", "worker"]) {
+      const build = (value: string | undefined) =>
+        Object.fromEntries(
+          buildServiceEnv({
+            databaseUrl: "postgres://internal/db",
+            privateKey: "private-key-not-logged",
+            role,
+            webUrl: "https://reviewrouter.example",
+            apiUrl: "https://api.reviewrouter.example",
+            env: {
+              ...base,
+              ...(value === undefined
+                ? {}
+                : { REVIEW_ROUTER_AGENT_PROFILE: value }),
+            },
+          }).map(({ key, value }) => [key, value]),
+        );
+      expect(build(undefined)).not.toHaveProperty(
+        "REVIEW_ROUTER_AGENT_PROFILE",
+      );
+      for (const value of [
+        "codex-default",
+        "codex-skills-v1",
+        "ocr-managed-v3",
+        "a".repeat(160),
+      ])
+        expect(build(value).REVIEW_ROUTER_AGENT_PROFILE).toBe(value);
+      for (const value of ["", "invalid/profile", " leading", "a".repeat(161)])
+        expect(() => build(value)).toThrow(
+          "REVIEW_ROUTER_AGENT_PROFILE must be an opaque profile reference or unset",
+        );
+    }
+  });
+
+  it.each(["", "invalid/profile"])(
+    "rejects an invalid raw engine selection %j before any hosted API request",
+    async (value) => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+      for (const [name, setting] of Object.entries({
+        REVIEW_ROUTER_RENDER_RUNTIME_DEPLOY_ENV_FILE:
+          "/tmp/reviewrouter-missing-env-file",
+        RENDER_OWNER_ID: "owner-1",
+        RENDER_PROJECT_ID: "project-1",
+        RENDER_ENVIRONMENT_ID: "environment-1",
+        REVIEW_ROUTER_RENDER_PHASE: "prepare",
+        REVIEW_ROUTER_RENDER_COMMIT_SHA: "a".repeat(40),
+        REVIEW_ROUTER_RENDER_IMAGE_DIGEST: `sha256:${"b".repeat(64)}`,
+        REVIEW_ROUTER_WEB_URL: "https://reviewrouter.example",
+        REVIEW_ROUTER_API_URL: "https://api.reviewrouter.example",
+        REVIEW_ROUTER_ALLOW_LOCAL_DEPLOY_ENV: "1",
+        REVIEW_ROUTER_AGENT_PROFILE: value,
+      }))
+        vi.stubEnv(name, setting);
+      try {
+        await expect(main()).rejects.toThrow(
+          "REVIEW_ROUTER_AGENT_PROFILE must be an opaque profile reference or unset",
+        );
+        expect(fetchSpy).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllEnvs();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
 
   it("fails closed when an active review v2 tuple is incomplete", () => {
     const v2 = activeReviewV2Env();

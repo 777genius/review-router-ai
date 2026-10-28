@@ -1,16 +1,9 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import {
-  parseReviewConfiguration,
-  type ReviewProviderConfiguration,
-  safeDefaultReviewConfiguration,
+  PrismaReviewPolicyHeadReader,
+  resolveEffectiveReviewConfiguration,
+  type ReviewPolicyReader,
 } from "@reviewrouter/features-review-config";
-import {
-  getProviderCatalogEntry,
-  providerAuthModeSchema,
-  providerKindForAuthMode,
-  providerKindSchema,
-  type ProviderAuthMode,
-} from "@reviewrouter/features-review-providers";
 import type {
   ActionHealthReport,
   ActionRepositoryContext,
@@ -142,24 +135,39 @@ export class PrismaActionControlPlaneRepository implements ActionControlPlaneRep
     };
   }
 
-  async findRuntimeReviewConfiguration(input: {
-    readonly workspaceId: string;
-    readonly repositoryId: string;
-  }): Promise<RuntimeReviewConfigurationRecord | null> {
-    const repositoryConfig = await this.findLatestConfigVersion({
-      workspaceId: input.workspaceId,
-      targetKey: `repo:${input.repositoryId}`,
-      source: "repository",
-    });
-    if (repositoryConfig) {
-      return repositoryConfig;
-    }
-
-    return this.findLatestConfigVersion({
-      workspaceId: input.workspaceId,
-      targetKey: "workspace:default",
-      source: "workspace",
-    });
+  // Every consumer resolves one current policy; no legacy normalization path.
+  async findRuntimeReviewConfiguration(
+    input: {
+      readonly workspaceId: string;
+      readonly repositoryId: string;
+    },
+    reader: ReviewPolicyReader = this.prisma,
+  ): Promise<RuntimeReviewConfigurationRecord | null> {
+    const resolved = await resolveEffectiveReviewConfiguration(
+      {
+        scope: "repository",
+        workspaceId: input.workspaceId,
+        repositoryId: input.repositoryId,
+      },
+      {
+        policyHeads:
+          reader === this.prisma
+            ? PrismaReviewPolicyHeadReader.snapshot(this.prisma)
+            : new PrismaReviewPolicyHeadReader(reader),
+      },
+    );
+    // No provider selected anywhere: callers answer review_provider_selection_required.
+    if (resolved.status === "provider_selection_required") return null;
+    if (resolved.status === "resave_required")
+      throw new Error("review_policy_resave_required");
+    return {
+      source: resolved.source,
+      version: resolved.version,
+      workspaceVersion: resolved.workspaceVersion,
+      repositoryVersion: resolved.repositoryVersion,
+      effectivePolicyDigest: resolved.effectivePolicyDigest,
+      config: resolved.config,
+    };
   }
 
   async recordHealthReport(input: {
@@ -254,107 +262,6 @@ export class PrismaActionControlPlaneRepository implements ActionControlPlaneRep
       },
     });
   }
-
-  private async findLatestConfigVersion(input: {
-    readonly workspaceId: string;
-    readonly targetKey: string;
-    readonly source: "repository" | "workspace";
-  }): Promise<RuntimeReviewConfigurationRecord | null> {
-    const configuration = await this.prisma.reviewConfiguration.findUnique({
-      where: {
-        workspaceId_targetKey: {
-          workspaceId: input.workspaceId,
-          targetKey: input.targetKey,
-        },
-      },
-      select: {
-        versions: {
-          orderBy: { version: "desc" },
-          take: 1,
-          select: {
-            version: true,
-            schemaVersion: true,
-            providerKind: true,
-            providerAuthMode: true,
-            model: true,
-            reasoningEffort: true,
-            agenticContext: true,
-            fastMode: true,
-            failOnSeverity: true,
-            inlineMaxComments: true,
-            providerLimit: true,
-            providerMaxParallel: true,
-            inlineMinAgreement: true,
-            targetTokensPerBatch: true,
-            reviewLanguage: true,
-            investigationRecordingEnabled: true,
-            investigationShadowEnabled: true,
-            investigationContextCriticEnabled: true,
-            investigationVerifiedCleanEnabled: true,
-            investigationCrossRevisionReplayEnabled: true,
-            investigationProductionEffectsEnabled: true,
-            providers: {
-              orderBy: { order: "asc" },
-              select: {
-                providerKind: true,
-                providerAuthMode: true,
-                model: true,
-                reasoningEffort: true,
-                agenticContext: true,
-                fastMode: true,
-                requiredHealthy: true,
-              },
-            },
-          },
-        },
-      },
-    });
-    const version = configuration?.versions[0];
-    if (!version) {
-      return null;
-    }
-
-    const providers = version.providers.length
-      ? version.providers.map(toReviewProviderConfiguration)
-      : [toReviewProviderConfiguration(version)];
-
-    return {
-      source: input.source,
-      version: version.version,
-      config: parseReviewConfiguration({
-        schemaVersion: 2,
-        providers,
-        provider: providers[0],
-        execution: {
-          providerLimit: version.providerLimit,
-          providerMaxParallel: version.providerMaxParallel,
-          inlineMinAgreement: version.inlineMinAgreement,
-        },
-        blockingPolicy: {
-          failOnSeverity: toFailOnSeverity(version.failOnSeverity),
-        },
-        limits: {
-          inlineMaxComments: version.inlineMaxComments,
-          targetTokensPerBatch:
-            version.targetTokensPerBatch ??
-            safeDefaultReviewConfiguration.limits.targetTokensPerBatch,
-        },
-        reviewLanguage: version.reviewLanguage ?? undefined,
-        investigationRollout: {
-          recordingEnabled: version.investigationRecordingEnabled ?? false,
-          shadowEnabled: version.investigationShadowEnabled ?? false,
-          contextCriticEnabled:
-            version.investigationContextCriticEnabled ?? false,
-          verifiedCleanEnabled:
-            version.investigationVerifiedCleanEnabled ?? false,
-          crossRevisionReplayEnabled:
-            version.investigationCrossRevisionReplayEnabled ?? false,
-          productionEffectsEnabled:
-            version.investigationProductionEffectsEnabled ?? false,
-        },
-      }),
-    };
-  }
 }
 
 export function orgRulesetTargetsRepository(input: {
@@ -416,70 +323,4 @@ function extractReviewRouterRuntimeGitRef(
     return ref;
   }
   return null;
-}
-
-function toReviewProviderConfiguration(input: {
-  readonly providerKind: string;
-  readonly providerAuthMode: string;
-  readonly model: string;
-  readonly reasoningEffort: string;
-  readonly agenticContext: boolean;
-  readonly fastMode: boolean;
-  readonly requiredHealthy?: boolean;
-}): ReviewProviderConfiguration {
-  const authMode = toProviderAuthMode({
-    providerAuthMode: input.providerAuthMode,
-    providerKind: input.providerKind,
-  });
-  return {
-    kind: providerKindForAuthMode(authMode),
-    authMode,
-    model: input.model,
-    reasoningEffort: toReasoningEffort(input.reasoningEffort),
-    agenticContext: input.agenticContext,
-    fastMode: input.fastMode,
-    requiredHealthy: input.requiredHealthy === true,
-  };
-}
-
-function toProviderAuthMode(input: {
-  readonly providerAuthMode: string;
-  readonly providerKind: string;
-}): ProviderAuthMode {
-  const authMode = providerAuthModeSchema.safeParse(input.providerAuthMode);
-  if (authMode.success) {
-    return authMode.data;
-  }
-
-  const kind = providerKindSchema.safeParse(input.providerKind);
-  if (kind.success) {
-    return getProviderCatalogEntry(kind.data).defaultAuthMode;
-  }
-
-  return safeDefaultReviewConfiguration.provider.authMode;
-}
-
-function toReasoningEffort(value: string) {
-  switch (value) {
-    case "low":
-    case "medium":
-    case "high":
-    case "xhigh":
-    case "max":
-    case "ultra":
-      return value;
-    default:
-      return "medium";
-  }
-}
-
-function toFailOnSeverity(value: string) {
-  switch (value) {
-    case "off":
-    case "critical":
-    case "major":
-      return value;
-    default:
-      return "critical";
-  }
 }

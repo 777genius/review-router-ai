@@ -749,6 +749,55 @@ describe("canonical exclusive release migration caller", () => {
     );
     const grants = runtimeGrantSql(configuration);
     expect(grants).toContain("BEGIN;");
+    // Context credentials are writable only by the Dashboard; run capture and
+    // delivery read them through API, while workers receive no table access.
+    expect(grants).toContain("'ReviewContextConnection'");
+    for (const role of ["api", "web", "worker"]) {
+      expect(grants).toContain(
+        `'REVOKE ALL ON TABLE public.%I FROM %I', 'ReviewContextConnection', 'reviewrouter_${role}'`,
+      );
+    }
+    expect(grants).toContain(
+      "'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO %I', 'ReviewContextConnection', 'reviewrouter_web'",
+    );
+    expect(grants).toContain(
+      "'GRANT SELECT ON TABLE public.%I TO %I', 'ReviewContextConnection', 'reviewrouter_api'",
+    );
+    expect(grants).not.toMatch(
+      /'GRANT [^'\n]+', 'ReviewContextConnection', 'reviewrouter_(?:worker|codex_effect_authority|comment_token_custody)'/u,
+    );
+    expect(grants).not.toMatch(
+      /'GRANT (?:[^'\n]*(?:INSERT|UPDATE|DELETE))[^'\n]*', 'ReviewContextConnection', 'reviewrouter_api'/u,
+    );
+    expect(activationAuthorityProvisioningSql()).toContain(
+      "relname <> 'ReviewContextConnection' OR role_kind IN ('api','web')",
+    );
+    expect(activationAuthorityProvisioningSql()).toContain(
+      "relname <> 'ReviewContextConnection' OR role_kind = 'web'",
+    );
+    // SQL127's invoker triggers call this helper during ordinary authorization
+    // inserts. Keep the exact signature on app roles after function ACL reset;
+    // effect/custody identities must not acquire the workspace admission gate.
+    expect(
+      [
+        ...grants.matchAll(
+          /GRANT EXECUTE ON FUNCTION public\.rr_workspace_delete_admission\(text\) TO %I', '([^']+)'/gu,
+        ),
+      ].map((match) => match[1]),
+    ).toEqual(["reviewrouter_api", "reviewrouter_web", "reviewrouter_worker"]);
+    expect(grants).toContain(
+      "IF pg_catalog.to_regprocedure('public.rr_workspace_delete_admission(text)') IS NOT NULL THEN",
+    );
+    expect(
+      [
+        ...grants.matchAll(
+          /GRANT EXECUTE ON FUNCTION public\.rr_review_run_checkout_repository_lock\(text,text\) TO %I', '([^']+)'/gu,
+        ),
+      ].map((match) => match[1]),
+    ).toEqual(["reviewrouter_api"]);
+    expect(grants).toContain(
+      "IF pg_catalog.to_regprocedure('public.rr_review_run_checkout_repository_lock(text,text)') IS NOT NULL THEN",
+    );
     const activationAuthority = activationAuthorityProvisioningSql();
     const atomicMigration = atomicMigrationAndGrantSql(configuration, {
       migrationPermit: migrationPermit(),
@@ -1605,7 +1654,8 @@ describe("canonical exclusive release migration caller", () => {
     expect(provisioning).toContain(
       "reviewrouter_bootstrap.consume_migration_evidence",
     );
-    expect(grants.match(/SELECT, INSERT, UPDATE, DELETE/g)).toHaveLength(6);
+    // Three runtime table grants/defaults plus the explicit WEB-only MCP table grant.
+    expect(grants.match(/SELECT, INSERT, UPDATE, DELETE/g)).toHaveLength(7);
     expect(grants).toContain(
       "REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC",
     );

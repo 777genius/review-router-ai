@@ -60,6 +60,8 @@ describe("HeaderProfileMenu", () => {
     ).toBeTruthy();
     expect(profileButton.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getAllByText("777genius")).toHaveLength(2);
+    const dashboardItem = screen.getByRole("menuitem", { name: "Dashboard" });
+    expect(dashboardItem.getAttribute("href")).toBe("/dashboard");
     expect(screen.getByRole("menuitem", { name: "Sign out" })).toBeTruthy();
   });
 

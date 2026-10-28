@@ -27,7 +27,7 @@ concurrency:
 jobs:
   trust-bootstrap:
     name: verify-protected-main-and-release-environment
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     permissions:
       actions: read
@@ -104,7 +104,7 @@ jobs:
     name: validate-and-prepare-release
     needs: trust-bootstrap
     environment: production-release
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     permissions:
       actions: read
       contents: read
@@ -203,7 +203,7 @@ jobs:
               | awk 'NR == 1 { print $1 }'
           )"
           if [[ -z "$ACTION_TAG_REF" ]]; then
-            echo "::error::$ACTION_REPOSITORY tag $VERSION must exist before releasing the SaaS runtime"
+            echo "::error::$ACTION_REPOSITORY tag $VERSION must exist before releasing the control plane runtime"
             exit 1
           fi
 
@@ -264,7 +264,7 @@ jobs:
           }
           if (!shaPattern.test(evidence.saasSha) || evidence.saasSha !== expectedSaasSha) {
             throw new Error(
-              `paired Action CI evidence belongs to SaaS ${evidence.saasSha}, expected ${expectedSaasSha}`,
+              `paired Action CI evidence belongs to control plane ${evidence.saasSha}, expected ${expectedSaasSha}`,
             );
           }
           if (!shaPattern.test(evidence.actionSha)) {
@@ -328,7 +328,7 @@ jobs:
     name: publish-hosted-runtime-image
     needs: [trust-bootstrap, prepare-release]
     environment: production-release
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     permissions:
       actions: read
       contents: read
@@ -424,7 +424,7 @@ jobs:
     name: attest-hosted-runtime-identity
     needs: [trust-bootstrap, prepare-release, publish-runtime]
     environment: production-release
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     permissions:
       actions: read
       attestations: write
@@ -444,7 +444,7 @@ jobs:
     name: publish-tags-assets-and-release
     needs: [trust-bootstrap, prepare-release, publish-runtime, attest-runtime]
     environment: production-release
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     permissions:
       actions: read
       contents: write
@@ -544,7 +544,7 @@ jobs:
               "$installer_path" "$runtime_path" \
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
-              --title "ReviewRouter SaaS Runtime $VERSION" \
+              --title "ReviewRouter $VERSION" \
               --generate-notes \
               --draft
           fi

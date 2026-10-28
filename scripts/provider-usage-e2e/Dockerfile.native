@@ -1,0 +1,21 @@
+FROM golang:1.27.2 AS builder
+WORKDIR /source/backend
+COPY native/backend/ ./
+COPY gateway/services/account-gateway/test/fixtures/native-assembly/main.go ./cmd/native-assembly-fixture/main.go
+# The source-owned fixture pins go1.27.1, while this exact source module requires1.27.2.
+# Update only the isolated fixture's exact compiler guard; preserve all custody checks.
+RUN sed -i 's/runtime.Version() != "go1.27.1"/runtime.Version() != "go1.27.2"/' cmd/native-assembly-fixture/main.go && CGO_ENABLED=0 GOOS=linux go build -trimpath -o /fixture ./cmd/native-assembly-fixture
+RUN sed -i '/"errors"/a\ "fmt"' cmd/native-assembly-fixture/main.go && sed -i 's/if repository.ApplyMigrations(ctx, db) != nil { return denied }/if err:=repository.ApplyMigrations(ctx, db); err != nil { fmt.Fprintf(os.Stderr,"fixture migrations failed: %v\\n",err); return denied }/' cmd/native-assembly-fixture/main.go && CGO_ENABLED=0 GOOS=linux go build -trimpath -o /fixture ./cmd/native-assembly-fixture
+FROM node:24.21.0-bookworm-slim AS node
+FROM postgres:17.10
+COPY --from=node /usr/local/ /usr/local/
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+WORKDIR /opt/gateway
+COPY gateway/ ./
+RUN mkdir -p /opt/deps && printf '{}\n' > /opt/deps/package.json && npm install --prefix /opt/deps --ignore-scripts --no-audit --no-fund --no-save pg@8.23.1 zod@4.6.5 @get-modular/core@0.2.0 @get-modular/assembly@0.2.0 typescript@7.0.2 @types/node@24.19.1 && ln -s /opt/deps/node_modules node_modules && mkdir -p /opt/deps/node_modules/@agent-teams && ln -s /opt/gateway/packages/account-gateway /opt/deps/node_modules/@agent-teams/account-gateway && node scripts/build.mjs
+COPY --from=builder /fixture /opt/account-gateway-assembly/gateway-assembly-fixture
+COPY native-joined.test.ts ./services/account-gateway/test/native-joined.test.ts
+RUN sed -i "s/\x27pipe\x27,\x27pipe\x27,\x27ignore\x27/\x27pipe\x27,\x27pipe\x27,\x27inherit\x27/" services/account-gateway/test/native-joined.test.ts
+COPY run-native.sh /opt/run-native.sh
+RUN chmod 755 /opt/run-native.sh /opt/account-gateway-assembly/gateway-assembly-fixture && mkdir -p /opt/account-gateway-assembly/tls && openssl req -x509 -newkey rsa:2048 -nodes -keyout /opt/account-gateway-assembly/tls/server-key.pem -out /opt/account-gateway-assembly/tls/server.pem -days 2 -subj /CN=127.0.0.1 -addext subjectAltName=IP:127.0.0.1 && cp /opt/account-gateway-assembly/tls/server.pem /opt/account-gateway-assembly/tls/ca.pem && chmod 600 /opt/account-gateway-assembly/tls/server-key.pem
+ENTRYPOINT ["/opt/run-native.sh"]

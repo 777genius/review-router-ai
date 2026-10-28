@@ -59,6 +59,7 @@ describe("production additive migration window", () => {
       "000107_hosted_v4_relay_turn_contract",
       "000108_sdk_growth_verifier_assignment",
       "000109_sdk_growth_verifier_assignment_lock",
+      "000110_provider_api_key_workspace_management",
     ]);
     const rows = [
       applied(catalog[0]),
@@ -89,7 +90,7 @@ describe("production additive migration window", () => {
   it("rejects drift, a failed migration, and altered migration bytes", () => {
     expect(() =>
       planProductionAdditiveMigrations({
-        catalog: [...catalog, "000110_unrelated"],
+        catalog: [...catalog, "000111_unrelated"],
         rows: [applied(catalog[0]), applied(anchor)],
         checksums,
       }),

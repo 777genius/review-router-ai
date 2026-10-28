@@ -6,10 +6,10 @@ Use it as the execution guide. Use the ADRs and architecture docs as the source 
 
 ## Product To Build
 
-ReviewRouter is a SaaS control plane for AI pull request review.
+ReviewRouter is a control plane for AI pull request review.
 
 ```text
-SaaS owns:
+control plane owns:
   onboarding
   GitHub App installation
   repository discovery
@@ -27,7 +27,7 @@ Customer GitHub Actions owns:
   pull request status
 ```
 
-The SaaS does not store repository code, PR diffs, Codex OAuth `auth.json`, prompts, model responses, or provider API keys in v1.
+The control plane does not store repository code, PR diffs, Codex OAuth `auth.json`, prompts, model responses, or provider API keys in v1.
 
 ## Implementation Mindset
 
@@ -54,19 +54,19 @@ The final beta should support this path:
 1. User opens ReviewRouter dashboard.
 2. User signs in with GitHub.
 3. User installs the shared ReviewRouter GitHub App on selected repositories.
-4. SaaS receives installation webhook and syncs repositories.
+4. control plane receives installation webhook and syncs repositories.
 5. User selects a repository.
 6. User chooses review preset, provider, model, effort, and action version.
-7. SaaS creates a setup PR in the repository.
+7. control plane creates a setup PR in the repository.
 8. User merges setup PR.
 9. User seeds provider credentials directly into GitHub Secrets or trusted runner.
 10. User opens or updates a pull request.
 11. GitHub Actions runs `777genius/review-router@main` during beta, or a pinned release tag when `REVIEW_ROUTER_ACTION_VERSION` is set.
-12. Action fetches runtime config from SaaS through GitHub Actions OIDC.
-13. If SaaS is unavailable, action uses static workflow config.
+12. Action fetches runtime config from control plane through GitHub Actions OIDC.
+13. If control plane is unavailable, action uses static workflow config.
 14. Action runs provider review inside customer CI.
 15. Action posts PR summary/comments/status.
-16. Action reports safe health metadata to SaaS.
+16. Action reports safe health metadata to control plane.
 17. Dashboard shows last review health and setup status.
 ```
 
@@ -91,13 +91,13 @@ GitHub App Webhook
 Customer GitHub Actions
   -> ReviewRouter Action
   -> GitHub OIDC token
-  -> SaaS OIDC exchange endpoint
+  -> control plane OIDC exchange endpoint
   -> short-lived action session
   -> runtime config fetch
   -> static fallback if needed
   -> provider review in customer CI
   -> GitHub PR comments/status
-  -> safe health report to SaaS
+  -> safe health report to control plane
 ```
 
 ## Repo Target Shape
@@ -208,7 +208,7 @@ If blocked:
 
 ## Iteration 02 - GitHub Identity And App Install
 
-Goal: a user can sign in and the SaaS can track a GitHub App installation.
+Goal: a user can sign in and the control plane can track a GitHub App installation.
 
 Feature contexts:
 
@@ -333,7 +333,7 @@ If blocked:
 
 ## Iteration 04 - Workflow Provisioning
 
-Goal: SaaS creates a setup PR that adds ReviewRouter workflow to a selected repository.
+Goal: control plane creates a setup PR that adds ReviewRouter workflow to a selected repository.
 
 Feature context:
 
@@ -475,10 +475,10 @@ Tests:
 - invalid provider config rejected
 - provider setup transitions
 - generated secret setup commands are correct
-- SaaS never accepts secret plaintext
+- control plane never accepts secret plaintext
 - UI shows public/fork repo warnings
 
-Do not store provider secrets in SaaS.
+Do not store provider secrets in control plane.
 
 If blocked:
 
@@ -546,13 +546,13 @@ Tests:
 - health report rejects code/diff/secret-looking data
 - static config fallback documented and tested at workflow-renderer level
 
-Do not create a long-lived SaaS token in customer repos.
+Do not create a long-lived control plane token in customer repos.
 
 If blocked:
 
 - if real GitHub Actions OIDC is unavailable, use recorded/sample claims and mocked JWKS
 - if public endpoint tunneling is unavailable, test Fastify handlers directly
-- if action runtime cannot call SaaS yet, finish schema validation and static fallback tests
+- if action runtime cannot call control plane yet, finish schema validation and static fallback tests
 
 ## Iteration 07 - Webhooks, Jobs, Locks, And Outbox
 
@@ -750,7 +750,7 @@ Do not ask the user about:
 - whether to use Prisma
 - whether to use Base UI
 - whether to use Zustand
-- whether to store Codex OAuth in SaaS
+- whether to store Codex OAuth in control plane
 - whether to use cloud execution in v1
 - whether to use `pull_request_target`
 
@@ -785,7 +785,7 @@ The app is beta-ready only when:
 - setup PR is correct and mergeable
 - workflow runs in customer CI
 - provider setup guidance is clear
-- Codex OAuth stays outside SaaS
+- Codex OAuth stays outside control plane
 - OIDC runtime config works or static fallback works
 - duplicate webhooks/jobs are idempotent
 - workflow provisioning is concurrency-safe

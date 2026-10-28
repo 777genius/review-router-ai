@@ -25,7 +25,7 @@ describe("Codex rotating setup dispatch transport", () => {
   it("does not cache malformed JSON responses", async () => {
     const response = await POST(
       new Request(
-        "https://reviewrouter.site/api/codex-rotating/setup-dispatch",
+        "https://reviewrouter.org/api/codex-rotating/setup-dispatch",
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -53,7 +53,7 @@ describe("Codex rotating setup dispatch transport", () => {
 
     const response = await POST(
       new Request(
-        "https://reviewrouter.site/api/codex-rotating/setup-dispatch",
+        "https://reviewrouter.org/api/codex-rotating/setup-dispatch",
         {
           method: "POST",
           headers: { "content-type": "application/json" },

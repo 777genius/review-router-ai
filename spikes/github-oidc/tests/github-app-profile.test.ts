@@ -40,7 +40,7 @@ describe("use-github-app-profile.mjs", () => {
     expect(env).not.toContain("GITHUB_APP_PRIVATE_KEY=");
     expect(env).toContain(`REVIEW_ROUTER_APP_PROFILE="${fixture.profileFile}"`);
     expect(env).toContain('REVIEW_ROUTER_WEB_URL="http://localhost:3000"');
-    expect(env).not.toContain("https://reviewrouter.site");
+    expect(env).not.toContain("https://reviewrouter.org");
     expect(result.stdout + result.stderr).not.toContain(fixture.clientSecret);
     expect(result.stdout + result.stderr).not.toContain(fixture.webhookSecret);
   });
@@ -62,9 +62,9 @@ describe("use-github-app-profile.mjs", () => {
     );
 
     const env = await readFile(fixture.envFile, "utf8");
-    expect(env).toContain('REVIEW_ROUTER_WEB_URL="https://reviewrouter.site"');
+    expect(env).toContain('REVIEW_ROUTER_WEB_URL="https://reviewrouter.org"');
     expect(env).toContain(
-      'REVIEW_ROUTER_API_URL="https://api.reviewrouter.site"',
+      'REVIEW_ROUTER_API_URL="https://api.reviewrouter.org"',
     );
   });
 });
@@ -118,8 +118,8 @@ async function createFixture(): Promise<{
       `GITHUB_WEBHOOK_SECRET="${webhookSecret}"`,
       'GITHUB_CLIENT_ID="client-id"',
       `GITHUB_CLIENT_SECRET="${clientSecret}"`,
-      'REVIEW_ROUTER_WEB_URL="https://reviewrouter.site"',
-      'REVIEW_ROUTER_API_URL="https://api.reviewrouter.site"',
+      'REVIEW_ROUTER_WEB_URL="https://reviewrouter.org"',
+      'REVIEW_ROUTER_API_URL="https://api.reviewrouter.org"',
       "",
     ].join("\n"),
   );

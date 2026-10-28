@@ -1,64 +1,115 @@
+import { repositoryPolicyFormFields } from "./review-policy-form-contract";
 import { describe, expect, it } from "vitest";
 import {
   readProviderSetupSelection,
-  readReviewConfigurationForm,
+  readRepositoryReviewSettingsForm,
   readReviewDiscussionMode,
+  readReviewPolicyExpectedVersion,
+  readWorkspaceReviewSettingsForm,
 } from "./dashboard-action-form-readers";
 
 describe("dashboard action form readers", () => {
-  it("normalizes stale legacy Codex policy submissions to rotating Codex without dropping hybrid providers", () => {
-    const formData = reviewConfigFormData([
-      {
-        authMode: "codex_subscription_oauth",
-        model: "gpt-5.5",
-        reasoningEffort: "high",
-      },
-      {
-        authMode: "openrouter_api_key",
-        model: "openai/gpt-5.3-codex",
-        reasoningEffort: "medium",
-      },
-    ]);
+  it("reads repository overrides only and never a provider", () => {
+    const form = inheritAll();
+    form.set("policyMode.limits.inlineMaxComments", "override");
+    form.set("inlineMaxComments", "0");
+    form.set(
+      "policyMode.investigationRollout.productionEffectsEnabled",
+      "override",
+    );
+    form.set("investigationRollout.productionEffectsEnabled", "false");
+    // Provider fields of an old page are ignored, not read as a selection.
+    form.set("policyMode.providers", "override");
+    form.set("providerCount", "1");
+    form.set("providerAuthMode.0", "claude_code_oauth");
+    expect(readRepositoryReviewSettingsForm(form)).toEqual({
+      limits: { inlineMaxComments: 0 },
+      investigationRollout: { productionEffectsEnabled: false },
+    });
+  });
 
-    const config = readReviewConfigurationForm(formData);
+  it("preserves optional context selection and an explicit repository off override", () => {
+    const form = inheritAll();
+    form.set("policyMode.contextTools", "override");
+    expect(readRepositoryReviewSettingsForm(form)).toEqual({
+      contextTools: { version: 1, builtinTools: [], mcp: [] },
+    });
+    const selection = {
+      version: 1,
+      builtinTools: ["github.issue.read"],
+      mcp: [{ connection: "docs", tools: ["search_docs"] }],
+    };
+    form.set("contextTools", JSON.stringify(selection));
+    expect(readRepositoryReviewSettingsForm(form).contextTools).toEqual(
+      selection,
+    );
+    form.set(
+      "contextTools",
+      JSON.stringify({ ...selection, rawSecret: "must-not-echo" }),
+    );
+    expect(() => readRepositoryReviewSettingsForm(form)).toThrow(
+      "context_connection_invalid",
+    );
+  });
 
-    expect(config.providers).toHaveLength(2);
-    expect(config.provider).toMatchObject({
-      kind: "codex",
-      authMode: "codex_subscription_oauth_rotating",
-      model: "gpt-5.5",
-      reasoningEffort: "high",
-      requiredHealthy: true,
+  it("requires an explicit CAS version or create-only intent", () => {
+    const form = new FormData();
+    expect(() => readReviewPolicyExpectedVersion(form)).toThrow();
+    form.set("policyExpectedVersion", "none");
+    expect(readReviewPolicyExpectedVersion(form)).toBeNull();
+    form.set("policyExpectedVersion", "7");
+    expect(readReviewPolicyExpectedVersion(form)).toBe(7);
+    for (const value of ["0", "-1", "1.5", "9007199254740992"]) {
+      form.set("policyExpectedVersion", value);
+      expect(() => readReviewPolicyExpectedVersion(form)).toThrow();
+    }
+  });
+
+  it("keeps explicit zero, false and null without copying inherited values", () => {
+    const form = inheritAll();
+    for (const field of [
+      "limits.inlineMaxComments",
+      "investigationRollout.recordingEnabled",
+      "reviewLanguage",
+    ])
+      form.set(`policyMode.${field}`, "override");
+    form.set("inlineMaxComments", "0");
+    form.set("investigationRollout.recordingEnabled", "false");
+    form.set("reviewLanguage", "");
+    expect(readRepositoryReviewSettingsForm(form)).toEqual({
+      limits: { inlineMaxComments: 0 },
+      investigationRollout: { recordingEnabled: false },
+      reviewLanguage: null,
     });
-    expect(config.providers[1]).toMatchObject({
-      kind: "openrouter",
-      authMode: "openrouter_api_key",
-      model: "openai/gpt-5.3-codex",
-      reasoningEffort: "medium",
-    });
-    expect(config.execution).toMatchObject({
-      providerLimit: 2,
-      providerMaxParallel: 2,
-      inlineMinAgreement: 2,
-    });
-    expect(config.investigationRollout).toEqual({
-      recordingEnabled: false,
-      shadowEnabled: false,
-      contextCriticEnabled: false,
-      verifiedCleanEnabled: false,
-      crossRevisionReplayEnabled: false,
-      productionEffectsEnabled: false,
+  });
+
+  it("refuses missing inheritance intent rather than guessing from values", () => {
+    expect(() => readRepositoryReviewSettingsForm(new FormData())).toThrow();
+    expect(readRepositoryReviewSettingsForm(inheritAll())).toEqual({});
+  });
+
+  it("reads the workspace settings without any provider field", () => {
+    const form = workspaceSettingsFormData();
+    form.set("providerCount", "1");
+    form.set("providerAuthMode.0", "invalid-old-page-field");
+    expect(readWorkspaceReviewSettingsForm(form)).toEqual({
+      execution: { providerMaxParallel: 1, inlineMinAgreement: 1 },
+      blockingPolicy: { failOnSeverity: "critical" },
+      limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
+      reviewLanguage: null,
+      investigationRollout: {
+        recordingEnabled: false,
+        shadowEnabled: false,
+        contextCriticEnabled: false,
+        verifiedCleanEnabled: false,
+        crossRevisionReplayEnabled: false,
+        productionEffectsEnabled: false,
+      },
     });
   });
 
   it("preserves explicitly enabled investigation rollout flags", () => {
-    const formData = reviewConfigFormData([
-      {
-        authMode: "openrouter_api_key",
-        model: "openai/gpt-5.3-codex",
-        reasoningEffort: "medium",
-      },
-    ]);
+    const form = workspaceSettingsFormData();
     for (const flag of [
       "recordingEnabled",
       "shadowEnabled",
@@ -66,11 +117,12 @@ describe("dashboard action form readers", () => {
       "verifiedCleanEnabled",
       "crossRevisionReplayEnabled",
       "productionEffectsEnabled",
-    ]) {
-      formData.set(`investigationRollout.${flag}`, "true");
-    }
+    ])
+      form.set(`investigationRollout.${flag}`, "true");
+    form.set("updatePrDescription", "false");
 
-    expect(readReviewConfigurationForm(formData).investigationRollout).toEqual({
+    const settings = readWorkspaceReviewSettingsForm(form);
+    expect(settings.investigationRollout).toEqual({
       recordingEnabled: true,
       shadowEnabled: true,
       contextCriticEnabled: true,
@@ -78,40 +130,21 @@ describe("dashboard action form readers", () => {
       crossRevisionReplayEnabled: true,
       productionEffectsEnabled: true,
     });
+    expect(settings.updatePrDescription).toBe(false);
   });
 
-  it.each(["codex_subscription_oauth", "codex_openai_api_key"] as const)(
-    "normalizes stale provider setup auth mode %s to rotating Codex",
+  it.each(["codex_subscription_oauth", "codex_openai_api_key"])(
+    "rejects removed provider setup auth mode %s instead of converting it",
     (authMode) => {
       const formData = new FormData();
       formData.set("providerKind", "codex");
       formData.set("authMode", authMode);
 
-      expect(readProviderSetupSelection(formData)).toEqual({
-        providerKind: "codex",
-        authMode: "codex_subscription_oauth_rotating",
-      });
+      expect(() => readProviderSetupSelection(formData)).toThrow(
+        "invalid_form_value:providerSetup",
+      );
     },
   );
-
-  it("rejects duplicate provider rows from policy submissions", () => {
-    const formData = reviewConfigFormData([
-      {
-        authMode: "openrouter_api_key",
-        model: "openai/gpt-5.3-codex",
-        reasoningEffort: "medium",
-      },
-      {
-        authMode: "openrouter_api_key",
-        model: "openai/gpt-5.3-codex",
-        reasoningEffort: "high",
-      },
-    ]);
-
-    expect(() => readReviewConfigurationForm(formData)).toThrow(
-      "duplicate_review_provider",
-    );
-  });
 
   it("defaults review discussion replies off unless setup explicitly opts in", () => {
     const formData = new FormData();
@@ -124,29 +157,19 @@ describe("dashboard action form readers", () => {
   });
 });
 
-function reviewConfigFormData(
-  providers: readonly {
-    readonly authMode: string;
-    readonly model: string;
-    readonly reasoningEffort: string;
-  }[],
-): FormData {
+function inheritAll(): FormData {
+  const form = new FormData();
+  for (const field of repositoryPolicyFormFields)
+    form.set(`policyMode.${field.join(".")}`, "inherit");
+  return form;
+}
+
+function workspaceSettingsFormData(): FormData {
   const formData = new FormData();
-  formData.set("providerCount", String(providers.length));
-  formData.set("providerMaxParallel", String(providers.length));
-  formData.set("inlineMinAgreement", String(providers.length));
+  formData.set("providerMaxParallel", "1");
+  formData.set("inlineMinAgreement", "1");
   formData.set("failOnSeverity", "critical");
   formData.set("inlineMaxComments", "5");
   formData.set("targetTokensPerBatch", "50000");
-
-  providers.forEach((provider, index) => {
-    formData.set(`providerAuthMode.${index}`, provider.authMode);
-    formData.set(`providerModel.${index}`, provider.model);
-    formData.set(`providerReasoningEffort.${index}`, provider.reasoningEffort);
-    formData.set(`providerAgenticContext.${index}`, "true");
-    formData.set(`providerFastMode.${index}`, "false");
-    formData.set(`providerRequiredHealthy.${index}`, String(index === 0));
-  });
-
   return formData;
 }

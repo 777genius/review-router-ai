@@ -1,9 +1,28 @@
+import type { ProviderApiAuthMode } from "@reviewrouter/shared";
+import { parseReviewRunRuntimeSnapshot } from "../../domain/review-run-runtime-snapshot";
+import type { ReviewRunSkillsSnapshotPort } from "../ports/review-run-skills-snapshot-port";
+import type {
+  ReviewRunRuntimeCaptureDenial,
+  ReviewRunRuntimeSnapshotPort,
+} from "../ports/review-run-runtime-snapshot-port";
 import { tokenClaimsMatchAuthorization } from "./token-claims-match-authorization";
 import type { ProducerRelease } from "../../domain/producer-release";
+import type {
+  ReviewProtocolLimitsV2,
+  ReviewOperationalSloProfileV2,
+} from "../../domain/producer-release";
+import type { ReviewMutationAuthority } from "../../domain/review-mutation-authority";
+import type { ScmRepositoryIdentity } from "../../domain/scm-repository-identity";
+import type { ReviewSafetyPolicySnapshot } from "../../domain/review-safety-policy";
+import {
+  reviewAgentExecutionProviderKind,
+  type ReviewAgentProfile,
+} from "../../domain/review-agent-profile";
 import type {
   ReviewRunAuthorization,
   ReviewRunRevision,
 } from "../../domain/review-run-authorization";
+import { bindReviewInvestigationAuthorizationDescriptorToVoteLanes } from "../../domain/review-run-authorization";
 import {
   assertPositiveInteger,
   canonicalJson,
@@ -13,6 +32,7 @@ import {
   ReviewMutationLaneKind,
   ReviewMutationMode,
   ReviewProtocolVersion,
+  ReviewProviderKind,
   ReviewRunAuthorizationState,
   ReviewSafetyDecisionKind,
   ReviewTaskKind,
@@ -51,6 +71,8 @@ export type VerifiedScmRunIdentity = ReviewRunScope &
     readonly sourceRunId: string;
     readonly sourceRunAttempt: string;
     readonly workflowIdentityHash: string;
+    /** Named metadata from the signed canonical caller; never secret values. */
+    readonly contextToolGithubSecrets?: Readonly<Record<string, string>>;
     readonly trustDomain: ReviewTrustDomain;
   };
 
@@ -74,7 +96,48 @@ export enum ReviewRunAuthorizationDenialReason {
   VerifiedIdentityDrift = "verified_identity_drift",
   SafetyDecisionChanged = "safety_decision_changed",
   AdmissionFactsChanged = "admission_facts_changed",
+  AgentProfileUnavailable = "agent_profile_unavailable",
+  AgentProfileIncompatible = "agent_profile_incompatible",
+  SkillsUnavailable = "skills_unavailable",
+  SkillsEngineUnsupported = "skills_engine_unsupported",
+  SkillsLimitsExceeded = "skills_limits_exceeded",
+  ContextToolsUnavailable = "context_tools_unavailable",
+  ProviderVoteLaneUnavailable = "provider_vote_lane_unavailable",
+  ReviewInvestigationIncompatible = "review_investigation_incompatible",
 }
+
+/** Explicit result shapes (rather than inferred literal unions) keep the
+ * `denied` discriminant exact: no `denied?: never` normalization may leak a
+ * payload member into the denial branch of `"denied" in result`.
+ */
+type ReviewRunAuthorizationEligibilityDenial = Readonly<{
+  denied: ReviewRunAuthorizationDenialReason;
+}>;
+
+type ReviewRunAuthorizationBaseEligibility = Readonly<{
+  repository: ScmRepositoryIdentity;
+  authority: ReviewMutationAuthority;
+  release: ProducerRelease;
+  limits: ReviewProtocolLimitsV2;
+  slo: ReviewOperationalSloProfileV2;
+}>;
+
+type ReviewRunAuthorizationBaseEligibilityResult =
+  | ReviewRunAuthorizationBaseEligibility
+  | ReviewRunAuthorizationEligibilityDenial;
+
+type ReviewRunAuthorizationEligibility = Readonly<{
+  repository: ScmRepositoryIdentity;
+  authority: ReviewMutationAuthority;
+  release: ProducerRelease;
+  limits: ReviewProtocolLimitsV2;
+  slo: ReviewOperationalSloProfileV2;
+  safety: ReviewSafetyPolicySnapshot;
+}>;
+
+type ReviewRunAuthorizationEligibilityResult =
+  | ReviewRunAuthorizationEligibility
+  | ReviewRunAuthorizationEligibilityDenial;
 
 export type ReviewRunAuthorizationSuccess = {
   readonly status:
@@ -130,6 +193,8 @@ export type ReviewRunAuthorizationTokenResolution =
 export class ManageReviewRunAuthorizations {
   constructor(
     private readonly dependencies: {
+      readonly runtimeSnapshots?: ReviewRunRuntimeSnapshotPort;
+      readonly skillsSnapshots?: ReviewRunSkillsSnapshotPort;
       readonly clock: ClockPort;
       readonly identifiers: IdentifierFactoryPort;
       readonly digest: Sha256DigestPort;
@@ -148,6 +213,8 @@ export class ManageReviewRunAuthorizations {
 
   async authorizeReviewRun(input: {
     readonly verifiedIdentity: VerifiedScmRunIdentity;
+    readonly modelTransport?: ReviewAgentProfile["modelTransports"][number];
+    readonly providerApiAuthMode?: ProviderApiAuthMode;
     readonly producerReleaseId: string;
     readonly expectedBaseProducerRelease?: ProducerRelease;
     readonly protocolOfferHash: string;
@@ -159,38 +226,222 @@ export class ManageReviewRunAuthorizations {
     readonly authorizationTtlMs: number;
     readonly maxAuthorizationLifetimeMs: number;
   }): Promise<ReviewRunAuthorizationUseCaseResult> {
+    if (this.dependencies.runtimeSnapshots && !input.modelTransport)
+      return denied(ReviewRunAuthorizationDenialReason.AdmissionFactsChanged);
     assertPositiveInteger(input.authorizationTtlMs, "authorization_ttl_ms");
     assertPositiveInteger(
       input.maxAuthorizationLifetimeMs,
       "max_authorization_lifetime_ms",
     );
-    const eligibility = await this.loadEligibility(
-      input.verifiedIdentity,
+    const verifiedIdentity = snapshotVerifiedIdentity(input.verifiedIdentity);
+    let original = this.dependencies.runtimeSnapshots
+      ? await this.dependencies.authorizationQueries.findReviewRunAuthorizationForAdmission?.(
+          {
+            workspaceId: verifiedIdentity.workspaceId,
+            repositoryConnectionId: verifiedIdentity.repositoryConnectionId,
+            scmRepositoryIdentityId: verifiedIdentity.scmRepositoryIdentityId,
+            sourceRunId: verifiedIdentity.sourceRunId,
+            sourceRunAttempt: verifiedIdentity.sourceRunAttempt,
+            protocolOfferHash: input.protocolOfferHash,
+          },
+        )
+      : null;
+    // §4.1.1 admission order: trusted repository/producer/protocol eligibility
+    // first; the captured engine selects the authorized vote lane; provider
+    // safety runs against that lane only, after the engine is known.
+    const base = await this.loadBaseEligibility(
+      verifiedIdentity,
       input.producerReleaseId,
-      input.providerVoteLanes,
     );
-    if ("denied" in eligibility) {
-      return denied(eligibility.denied);
+    if ("denied" in base) {
+      return denied(base.denied);
     }
     const now = this.dependencies.clock.now();
-    const maxExpiresAt = new Date(
+    let maxExpiresAt = new Date(
       now.getTime() + input.maxAuthorizationLifetimeMs,
     );
-    const expiresAt = new Date(
+    let expiresAt = new Date(
       Math.min(
         now.getTime() + input.authorizationTtlMs,
         maxExpiresAt.getTime(),
       ),
     );
+    // Restore before settings/binding selection. A racing winner is restored again
+    // by the atomic repository; only its snapshot is checked/returned below.
+    let runtimeSnapshotCanonicalJson =
+      original?.runtimeSnapshotCanonicalJson ?? null;
+    let skillsSnapshotCanonicalJson =
+      original?.skillsSnapshotCanonicalJson ?? null;
+    let reviewInvestigationDescriptorCanonicalJson =
+      input.reviewInvestigationAuthorizationDescriptorCanonicalJson ?? null;
+    let providerVoteLanes: readonly ProviderVoteLane[];
+    if (original) {
+      // An original admission for the same run/attempt keeps its captured
+      // snapshot AND lanes; current settings never re-select the engine.
+      providerVoteLanes = original.providerVoteLanes;
+    } else if (this.dependencies.runtimeSnapshots) {
+      // Signed capabilities encode whole seconds. Select the bounded deadline
+      // before capture so the frozen intent never promises a later instant.
+      const gatewayMaxExpiresAt = new Date(
+        Math.floor(maxExpiresAt.getTime() / 1000) * 1000,
+      );
+      const captured = await this.dependencies.runtimeSnapshots.capture({
+        identity: verifiedIdentity,
+        modelTransport: input.modelTransport!,
+        ...(input.providerApiAuthMode
+          ? { providerApiAuthMode: input.providerApiAuthMode }
+          : {}),
+        producerRelease: base.release,
+        deadline:
+          gatewayMaxExpiresAt > now ? gatewayMaxExpiresAt : maxExpiresAt,
+      });
+      if (captured === null)
+        return denied(ReviewRunAuthorizationDenialReason.AdmissionFactsChanged);
+      if ("captureDenied" in captured)
+        return denied(captureDenialReason(captured));
+      runtimeSnapshotCanonicalJson = canonicalJson(captured);
+      const snapshot = parseReviewRunRuntimeSnapshot(
+        runtimeSnapshotCanonicalJson,
+      );
+      if (!snapshot)
+        return denied(ReviewRunAuthorizationDenialReason.AdmissionFactsChanged);
+      // The engine comes ONLY from the captured snapshot. The backend provider
+      // row kind never selects it, and a passed Codex safety check never
+      // authorizes another engine.
+      const executionKind = reviewAgentExecutionProviderKind(snapshot.agent);
+      const matched = input.providerVoteLanes.filter(
+        (lane) => lane.providerKind === executionKind,
+      );
+      // The server-owned lanes are an allowlist of identities: exactly one lane
+      // of the captured execution kind. Missing/duplicate lanes fail before any
+      // inference; never authorize Codex and OCR from one snapshot.
+      if (matched.length !== 1)
+        return denied(
+          ReviewRunAuthorizationDenialReason.ProviderVoteLaneUnavailable,
+        );
+      providerVoteLanes = matched;
+      // §4.1.1 step 5: bind the optional RR investigation descriptor to the
+      // SELECTED lane only. The precomputed capability is participation
+      // eligibility: for the OCR lane it is ABSENT (stored null) — the leftover
+      // Codex capability is dropped, never rejected. Only a descriptor that is
+      // not recognizable optional participation eligibility (a mandatory
+      // investigation policy demand) is rejected per §4.2 instead of being
+      // weakened into a silent success.
+      const investigation =
+        bindReviewInvestigationAuthorizationDescriptorToVoteLanes(
+          input.reviewInvestigationAuthorizationDescriptorCanonicalJson,
+          providerVoteLanes,
+        );
+      if (!investigation.bound)
+        return denied(
+          ReviewRunAuthorizationDenialReason.ReviewInvestigationIncompatible,
+        );
+      reviewInvestigationDescriptorCanonicalJson = investigation.canonicalJson;
+      if (snapshot.gateway?.limits) {
+        if (gatewayMaxExpiresAt <= now)
+          return denied(
+            ReviewRunAuthorizationDenialReason.AdmissionFactsChanged,
+          );
+        maxExpiresAt = gatewayMaxExpiresAt;
+        if (snapshot.deadline !== maxExpiresAt.toISOString())
+          return denied(
+            ReviewRunAuthorizationDenialReason.AdmissionFactsChanged,
+          );
+        // One gateway capability covers the original server-approved run. The
+        // signed token and persisted row must agree through that deadline; the
+        // ordinary renewable TTL still applies to other admissions. Restores
+        // retain the original row and never acquire a later deadline here.
+        expiresAt = maxExpiresAt;
+      } else {
+        // Ordinary TTL admissions retain their original millisecond maximum.
+        runtimeSnapshotCanonicalJson = canonicalJson({
+          ...captured,
+          deadline: maxExpiresAt.toISOString(),
+        });
+      }
+    } else {
+      // No captured engine exists on this path. An OCR lane can only become
+      // authorized from a captured OCR engine, never from the allowlist alone.
+      if (
+        input.providerVoteLanes.some(
+          (lane) => lane.providerKind === ReviewProviderKind.Ocr,
+        )
+      )
+        return denied(
+          ReviewRunAuthorizationDenialReason.ProviderVoteLaneUnavailable,
+        );
+      providerVoteLanes = input.providerVoteLanes;
+    }
+    if (!original && this.dependencies.skillsSnapshots) {
+      const selectedRuntime = parseReviewRunRuntimeSnapshot(
+        runtimeSnapshotCanonicalJson,
+      );
+      const captured = await this.dependencies.skillsSnapshots.capture({
+        identity: verifiedIdentity,
+        agent: selectedRuntime?.agent ?? null,
+      });
+      if ("captureDenied" in captured) {
+        // A concurrent winner may have committed after our original lookup.
+        // Its immutable input survives a later grant/configuration change.
+        const winner =
+          await this.dependencies.authorizationQueries.findReviewRunAuthorizationForAdmission?.(
+            {
+              workspaceId: verifiedIdentity.workspaceId,
+              repositoryConnectionId: verifiedIdentity.repositoryConnectionId,
+              scmRepositoryIdentityId: verifiedIdentity.scmRepositoryIdentityId,
+              sourceRunId: verifiedIdentity.sourceRunId,
+              sourceRunAttempt: verifiedIdentity.sourceRunAttempt,
+              protocolOfferHash: input.protocolOfferHash,
+            },
+          );
+        if (!winner) {
+          const reasons = {
+            skills_unavailable:
+              ReviewRunAuthorizationDenialReason.SkillsUnavailable,
+            skills_engine_unsupported:
+              ReviewRunAuthorizationDenialReason.SkillsEngineUnsupported,
+            skills_limits_exceeded:
+              ReviewRunAuthorizationDenialReason.SkillsLimitsExceeded,
+          } as const;
+          return denied(reasons[captured.captureDenied]);
+        }
+        original = winner;
+        runtimeSnapshotCanonicalJson =
+          winner.runtimeSnapshotCanonicalJson ?? null;
+        skillsSnapshotCanonicalJson =
+          winner.skillsSnapshotCanonicalJson ?? null;
+        providerVoteLanes = winner.providerVoteLanes;
+        reviewInvestigationDescriptorCanonicalJson =
+          winner.reviewInvestigationAuthorizationDescriptorCanonicalJson;
+        maxExpiresAt = winner.maxExpiresAt;
+        expiresAt = new Date(
+          Math.min(expiresAt.getTime(), maxExpiresAt.getTime()),
+        );
+      } else {
+        skillsSnapshotCanonicalJson = captured.canonicalJson;
+      }
+    }
+    // Provider/task safety checks and the fence target now follow the selected
+    // lane (OCR safety target, not a leftover Codex capability).
+    const safety = await this.resolveAuthorizationSafety(
+      verifiedIdentity,
+      providerVoteLanes,
+    );
+    if (!safety.effectAllowed) {
+      return denied(ReviewRunAuthorizationDenialReason.SafetyDecisionDisabled);
+    }
+    const eligibility = { ...base, safety };
     const tokenProfile = this.dependencies.tokens.profile();
     const write =
       await this.dependencies.authorizationCommands.createOrRestoreReviewRunAuthorizationAtomically(
         {
           candidate: {
+            ...verifiedIdentity,
+            runtimeSnapshotCanonicalJson,
+            skillsSnapshotCanonicalJson,
             authorizationId: this.dependencies.identifiers.nextId(
               "review_run_authorization",
             ),
-            ...input.verifiedIdentity,
             producerReleaseId: eligibility.release.producerReleaseId,
             selectedProtocolVersion: ReviewProtocolVersion.V2,
             schemaDigest: eligibility.release.schemaDigest,
@@ -199,10 +450,9 @@ export class ManageReviewRunAuthorizations {
             operationalSloProfileId:
               eligibility.release.operationalSloProfileId,
             mutationEpoch: eligibility.authority.epoch,
-            providerVoteLanes: input.providerVoteLanes,
+            providerVoteLanes,
             reviewInvestigationAuthorizationDescriptorCanonicalJson:
-              input.reviewInvestigationAuthorizationDescriptorCanonicalJson ??
-              null,
+              reviewInvestigationDescriptorCanonicalJson,
             authorizationSafetyDecisionHash:
               eligibility.safety.safetyDecisionHash,
             protocolOfferHash: input.protocolOfferHash,
@@ -211,7 +461,7 @@ export class ManageReviewRunAuthorizations {
             tokenIssuer: tokenProfile.issuer,
             tokenAudience: tokenProfile.audience,
             expiresAt,
-            maxExpiresAt,
+            maxExpiresAt: original?.maxExpiresAt ?? maxExpiresAt,
             createdAt: now,
           },
           fence: {
@@ -228,12 +478,10 @@ export class ManageReviewRunAuthorizations {
             operationalSloDigest: eligibility.slo.sloDigest,
             safetySnapshot: eligibility.safety,
             safetyTarget: {
-              workspaceId: input.verifiedIdentity.workspaceId,
-              repositoryConnectionId:
-                input.verifiedIdentity.repositoryConnectionId,
-              scmRepositoryIdentityId:
-                input.verifiedIdentity.scmRepositoryIdentityId,
-              providerTasks: input.providerVoteLanes.map((lane) => ({
+              workspaceId: verifiedIdentity.workspaceId,
+              repositoryConnectionId: verifiedIdentity.repositoryConnectionId,
+              scmRepositoryIdentityId: verifiedIdentity.scmRepositoryIdentityId,
+              providerTasks: providerVoteLanes.map((lane) => ({
                 providerKind: lane.providerKind,
                 taskKind: ReviewTaskKind.CodeReview,
               })),
@@ -255,16 +503,20 @@ export class ManageReviewRunAuthorizations {
     if (write.authorization.state === ReviewRunAuthorizationState.Revoked) {
       return { status: ReviewRunAuthorizationUseCaseStatus.Revoked };
     }
-    if (write.authorization.expiresAt <= now) {
+    const issuedAt = this.dependencies.clock.now();
+    if (write.authorization.expiresAt <= issuedAt) {
       await this.dependencies.authorizationCommands.terminateReviewRunAuthorization(
         {
           authorizationId: write.authorization.authorizationId,
           expectedVersion: write.authorization.version,
           state: ReviewRunAuthorizationState.Expired,
-          at: now,
+          at: issuedAt,
         },
       );
       return { status: ReviewRunAuthorizationUseCaseStatus.Expired };
+    }
+    if (!(await this.runtimeSnapshotIsLive(write.authorization, issuedAt))) {
+      return denied(ReviewRunAuthorizationDenialReason.AdmissionFactsChanged);
     }
     return {
       status:
@@ -313,6 +565,9 @@ export class ManageReviewRunAuthorizations {
     }
     if (!verifiedIdentityMatches(authorization, input.verifiedIdentity)) {
       return denied(ReviewRunAuthorizationDenialReason.VerifiedIdentityDrift);
+    }
+    if (!(await this.runtimeSnapshotIsLive(authorization, now))) {
+      return denied(ReviewRunAuthorizationDenialReason.AdmissionFactsChanged);
     }
     let eligibility = await this.loadEligibility(
       input.verifiedIdentity,
@@ -374,6 +629,16 @@ export class ManageReviewRunAuthorizations {
             ? ReviewRunAuthorizationUseCaseStatus.Missing
             : ReviewRunAuthorizationUseCaseStatus.Conflict,
       };
+    }
+    if (
+      write.authorization.runtimeSnapshotCanonicalJson &&
+      (write.authorization.state !== ReviewRunAuthorizationState.Active ||
+        !(await this.runtimeSnapshotIsLive(
+          write.authorization,
+          this.dependencies.clock.now(),
+        )))
+    ) {
+      return denied(ReviewRunAuthorizationDenialReason.AdmissionFactsChanged);
     }
     return {
       status:
@@ -450,6 +715,24 @@ export class ManageReviewRunAuthorizations {
     if (!(await this.tokenClaimsMatchAuthorization(token, authorization))) {
       return { status: ReviewRunAuthorizationTokenResolutionStatus.ClaimDrift };
     }
+    const live = await this.runtimeSnapshotIsLive(authorization, now);
+    const resolvedAt = this.dependencies.clock.now();
+    const snapshot = parseReviewRunRuntimeSnapshot(
+      authorization.runtimeSnapshotCanonicalJson,
+    );
+    // The actual binding read can finish after a shorter token/renewal TTL.
+    // Use fresh time at every expiry boundary before returning valid.
+    if (
+      resolvedAt >= token.expiresAt ||
+      resolvedAt >= authorization.expiresAt ||
+      resolvedAt >= authorization.maxExpiresAt ||
+      (snapshot && resolvedAt >= new Date(snapshot.deadline))
+    ) {
+      return { status: ReviewRunAuthorizationTokenResolutionStatus.Expired };
+    }
+    if (!live) {
+      return { status: ReviewRunAuthorizationTokenResolutionStatus.Revoked };
+    }
     return {
       status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
       authorization,
@@ -482,12 +765,61 @@ export class ManageReviewRunAuthorizations {
       : resolution;
   }
 
+  private async runtimeSnapshotIsLive(
+    authorization: ReviewRunAuthorization,
+    now: Date,
+  ): Promise<boolean> {
+    const snapshot = parseReviewRunRuntimeSnapshot(
+      authorization.runtimeSnapshotCanonicalJson,
+    );
+    if (!snapshot) return true;
+    if (now >= new Date(snapshot.deadline)) return false;
+    if (!snapshot.gateway) return true;
+    const live =
+      (await this.dependencies.runtimeSnapshots?.isLive({
+        snapshot,
+        identity: authorization,
+        now,
+      })) ?? false;
+    // Binding/config reads can cross the original deadline; never extend it.
+    return live && this.dependencies.clock.now() < new Date(snapshot.deadline);
+  }
+
   private async loadEligibility(
     identity: VerifiedScmRunIdentity,
     producerReleaseId: string,
     providerVoteLanes: readonly ProviderVoteLane[],
-  ) {
-    const [repository, authority, release, safety] = await Promise.all([
+  ): Promise<ReviewRunAuthorizationEligibilityResult> {
+    const base = await this.loadBaseEligibility(identity, producerReleaseId);
+    if ("denied" in base) return base;
+    const safety = await this.resolveAuthorizationSafety(
+      identity,
+      providerVoteLanes,
+    );
+    if (!safety.effectAllowed) {
+      return {
+        denied: ReviewRunAuthorizationDenialReason.SafetyDecisionDisabled,
+      } as const;
+    }
+    return {
+      repository: base.repository,
+      authority: base.authority,
+      release: base.release,
+      limits: base.limits,
+      slo: base.slo,
+      safety,
+    } as const;
+  }
+
+  /** Trusted repository/producer/protocol eligibility without provider safety:
+   * a passed Codex safety check must never authorize another engine, so the
+   * provider/task safety decision is resolved only after engine/lane selection.
+   */
+  private async loadBaseEligibility(
+    identity: VerifiedScmRunIdentity,
+    producerReleaseId: string,
+  ): Promise<ReviewRunAuthorizationBaseEligibilityResult> {
+    const [repository, authority, release] = await Promise.all([
       this.dependencies.identities.findScmRepositoryIdentityById(
         identity.scmRepositoryIdentityId,
       ),
@@ -496,18 +828,6 @@ export class ManageReviewRunAuthorizations {
         laneKind: ReviewMutationLaneKind.HostedReviewRouterApp,
       }),
       this.dependencies.releases.findProducerReleaseById(producerReleaseId),
-      this.dependencies.safetyDecisions.resolveReviewSafetyPolicy({
-        decisionKind: ReviewSafetyDecisionKind.RunAuthorization,
-        target: {
-          workspaceId: identity.workspaceId,
-          repositoryConnectionId: identity.repositoryConnectionId,
-          scmRepositoryIdentityId: identity.scmRepositoryIdentityId,
-          providerTasks: providerVoteLanes.map((lane) => ({
-            providerKind: lane.providerKind,
-            taskKind: ReviewTaskKind.CodeReview,
-          })),
-        },
-      }),
     ]);
     if (
       !repository ||
@@ -529,11 +849,6 @@ export class ManageReviewRunAuthorizations {
         denied: ReviewRunAuthorizationDenialReason.ProducerReleaseUnavailable,
       } as const;
     }
-    if (!safety.effectAllowed) {
-      return {
-        denied: ReviewRunAuthorizationDenialReason.SafetyDecisionDisabled,
-      } as const;
-    }
     const [limits, slo] = await Promise.all([
       this.dependencies.limits.findProtocolLimitsProfileById(
         release.protocolLimitsProfileId,
@@ -547,7 +862,25 @@ export class ManageReviewRunAuthorizations {
         denied: ReviewRunAuthorizationDenialReason.ReleaseProfileUnavailable,
       } as const;
     }
-    return { repository, authority, release, safety, limits, slo } as const;
+    return { repository, authority, release, limits, slo } as const;
+  }
+
+  private async resolveAuthorizationSafety(
+    identity: VerifiedScmRunIdentity,
+    providerVoteLanes: readonly ProviderVoteLane[],
+  ): Promise<ReviewSafetyPolicySnapshot> {
+    return this.dependencies.safetyDecisions.resolveReviewSafetyPolicy({
+      decisionKind: ReviewSafetyDecisionKind.RunAuthorization,
+      target: {
+        workspaceId: identity.workspaceId,
+        repositoryConnectionId: identity.repositoryConnectionId,
+        scmRepositoryIdentityId: identity.scmRepositoryIdentityId,
+        providerTasks: providerVoteLanes.map((lane) => ({
+          providerKind: lane.providerKind,
+          taskKind: ReviewTaskKind.CodeReview,
+        })),
+      },
+    });
   }
 
   private async confirmRenewalFence(input: {
@@ -556,7 +889,7 @@ export class ManageReviewRunAuthorizations {
     readonly providerVoteLanes: readonly ProviderVoteLane[];
     readonly expectedMutationEpoch: bigint;
     readonly expectedSafetyDecisionHash: string;
-  }) {
+  }): Promise<ReviewRunAuthorizationEligibilityResult> {
     for (
       let confirmationRead = 0;
       confirmationRead < 2;
@@ -632,6 +965,22 @@ function denied(
   };
 }
 
+/** A refused explicit agent profile is an actionable configuration error at
+ * admission; there is never a fallback to another profile.
+ */
+function captureDenialReason(
+  capture: ReviewRunRuntimeCaptureDenial,
+): ReviewRunAuthorizationDenialReason {
+  switch (capture.captureDenied) {
+    case "agent_profile_unavailable":
+      return ReviewRunAuthorizationDenialReason.AgentProfileUnavailable;
+    case "agent_profile_incompatible":
+      return ReviewRunAuthorizationDenialReason.AgentProfileIncompatible;
+    case "context_tools_unavailable":
+      return ReviewRunAuthorizationDenialReason.ContextToolsUnavailable;
+  }
+}
+
 export type VerifiedReviewRunAuthorizationTokenResolution =
   | (Extract<
       ReviewRunAuthorizationTokenResolution,
@@ -645,3 +994,25 @@ export type VerifiedReviewRunAuthorizationTokenResolution =
     >;
 
 export { tokenClaimsMatchAuthorization } from "./token-claims-match-authorization";
+
+function snapshotVerifiedIdentity(
+  identity: VerifiedScmRunIdentity,
+): VerifiedScmRunIdentity {
+  return {
+    workspaceId: identity.workspaceId,
+    repositoryConnectionId: identity.repositoryConnectionId,
+    scmRepositoryIdentityId: identity.scmRepositoryIdentityId,
+    pullRequestNumber: identity.pullRequestNumber,
+    sourceRunId: identity.sourceRunId,
+    sourceRunAttempt: identity.sourceRunAttempt,
+    workflowIdentityHash: identity.workflowIdentityHash,
+    ...(identity.contextToolGithubSecrets
+      ? { contextToolGithubSecrets: { ...identity.contextToolGithubSecrets } }
+      : {}),
+    trustDomain: identity.trustDomain,
+    baseSha: identity.baseSha,
+    mergeBaseSha: identity.mergeBaseSha,
+    headSha: identity.headSha,
+    reviewRevisionHash: identity.reviewRevisionHash,
+  };
+}

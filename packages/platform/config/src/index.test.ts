@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   isCodexRotatingOAuthAllowedForRepository,
-  isCodexRotatingOAuthAllowedForWorkspaceDefault,
   isCodexRotatingOAuthEnabled,
   isConflictReviewFallbackAllowedForRepository,
   isConflictReviewFallbackEnabled,
@@ -398,9 +397,27 @@ describe("platform config", () => {
 
     expect(env.REVIEW_ROUTER_ACTION_VERSION).toBe("main");
     expect(env.REVIEW_ROUTER_DEFAULT_EFFORT).toBe("xhigh");
+    expect(env.REVIEW_ROUTER_AGENT_PROFILE).toBe("codex-default");
     expect(resolveReviewRouterActionRef(env)).toBe(
       "777genius/review-router@main",
     );
+  });
+
+  it("retains an explicit agent profile through environment validation", () => {
+    const input = {
+      DATABASE_URL: "postgres://user:pass@localhost:5432/reviewrouter",
+      AUTH_SECRET: "0123456789abcdef",
+      REVIEW_ROUTER_AGENT_PROFILE: "approved-agent-next",
+    };
+    expect(loadRuntimeEnv(input).REVIEW_ROUTER_AGENT_PROFILE).toBe(
+      "approved-agent-next",
+    );
+    expect(() =>
+      loadRuntimeEnv({
+        ...input,
+        REVIEW_ROUTER_AGENT_PROFILE: "agent/command",
+      }),
+    ).toThrow();
   });
 
   it.each(["max", "ultra"] as const)(
@@ -546,15 +563,6 @@ describe("platform config", () => {
         REVIEW_ROUTER_CODEX_ROTATING_OAUTH_REPOSITORIES: "",
       } as NodeJS.ProcessEnv),
     ).toBe(true);
-    expect(
-      isCodexRotatingOAuthAllowedForWorkspaceDefault({
-        REVIEW_ROUTER_ENABLE_CODEX_ROTATING_OAUTH: "1",
-        REVIEW_ROUTER_CODEX_ROTATING_OAUTH_REPOSITORIES: "",
-      } as NodeJS.ProcessEnv),
-    ).toBe(true);
-    expect(isCodexRotatingOAuthAllowedForWorkspaceDefault(enabledEnv)).toBe(
-      false,
-    );
     expect(() =>
       parseCodexRotatingOAuthRepositoryAllowlist("../bad/repo"),
     ).toThrow("invalid_env:REVIEW_ROUTER_CODEX_ROTATING_OAUTH_REPOSITORIES");

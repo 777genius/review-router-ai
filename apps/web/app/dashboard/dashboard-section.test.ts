@@ -7,6 +7,17 @@ import {
 } from "./dashboard-section";
 
 describe("dashboard section routing", () => {
+  it("adds Statistics without changing the default section", () => {
+    expect(resolveDashboardSection({})).toBe("repositories");
+    expect(resolveDashboardSection({ section: "statistics" })).toBe(
+      "statistics",
+    );
+    expect(resolveDashboardSection({ section: "skills" })).toBe("skills");
+    expect(resolveDashboardSection({ section: "other" })).toBe("other");
+    expect(dashboardSectionHref("statistics", "acme")).toBe(
+      "/dashboard?section=statistics&workspace=acme#dashboard-section-content",
+    );
+  });
   it("sends Setup to its own page while keeping the workspace query", () => {
     expect(dashboardSectionHref("setup", "acme")).toBe(
       "/dashboard/setup?workspace=acme#dashboard-section-content",

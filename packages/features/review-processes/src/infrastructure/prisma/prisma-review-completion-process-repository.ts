@@ -17,6 +17,7 @@ import {
   applyReviewCompletionTransition,
   createReviewCompletionProcess,
   isSameReviewCompletionClaim,
+  isReviewCompletionProcessTerminal,
   wakeReviewCompletionProcess,
   type CreateReviewCompletionProcessInput,
   type ReviewCompletionProcess,
@@ -26,8 +27,29 @@ import {
 
 const maximumCreateOrWakeAttempts = 8;
 
+/** Infrastructure-only callback. All capture writes share the winning transition transaction. */
+export type ReviewCompletionSettlementHook = (
+  transaction: Prisma.TransactionClient,
+  settlement: {
+    readonly executionId: string;
+    readonly finalizedArtifactId: string;
+    readonly publicationAttemptId: string;
+    readonly state:
+      | ReviewCompletionProcessState.Completed
+      | ReviewCompletionProcessState.CompletedSuperseded;
+    readonly settledAt: Date;
+  },
+) => Promise<void>;
+
 export class PrismaReviewCompletionProcessRepository implements ReviewCompletionProcessRepositoryPort {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly captureSettlement: ReviewCompletionSettlementHook,
+  ) {
+    if (typeof captureSettlement !== "function") {
+      throw new Error("review_completion_settlement_hook_required");
+    }
+  }
 
   async createOrWake(
     input: CreateReviewCompletionProcessInput,
@@ -192,44 +214,67 @@ export class PrismaReviewCompletionProcessRepository implements ReviewCompletion
     claim: ReviewCompletionProcessClaim,
     transition: ReviewCompletionTransition,
   ): Promise<ReviewCompletionProcessTransitionResult> {
-    const process = await this.findByExecutionId(claim.executionId);
-    if (!process) {
-      return { status: ReviewCompletionProcessTransitionStatus.Missing };
-    }
-    if (
-      !isSameReviewCompletionClaim(process, claim) ||
-      claim.claimUntil.getTime() <= transition.now.getTime()
-    ) {
-      return { status: ReviewCompletionProcessTransitionStatus.StaleClaim };
-    }
-
-    const next = applyReviewCompletionTransition(process, transition);
-    const updated = await this.prisma.reviewCompletionProcess.updateMany({
-      where: {
-        executionId: claim.executionId,
-        processVersion: claim.processVersion,
-        claimId: claim.claimId,
-        claimOwnerIdHash: claim.ownerIdHash,
-        claimFencingToken: claim.fencingToken,
-        claimUntil: claim.claimUntil,
-      },
-      data: toUpdateData(next),
+    return this.prisma.$transaction(async (transaction) => {
+      const record = await transaction.reviewCompletionProcess.findUnique({
+        where: { executionId: claim.executionId },
+      });
+      if (!record) {
+        return { status: ReviewCompletionProcessTransitionStatus.Missing };
+      }
+      const process = toDomain(record);
+      if (
+        !isSameReviewCompletionClaim(process, claim) ||
+        isReviewCompletionProcessTerminal(process.state) ||
+        claim.claimUntil.getTime() <= transition.now.getTime()
+      ) {
+        return { status: ReviewCompletionProcessTransitionStatus.StaleClaim };
+      }
+      const next = applyReviewCompletionTransition(process, transition);
+      const updated = await transaction.reviewCompletionProcess.updateMany({
+        where: {
+          executionId: claim.executionId,
+          processVersion: claim.processVersion,
+          claimId: claim.claimId,
+          claimOwnerIdHash: claim.ownerIdHash,
+          claimFencingToken: claim.fencingToken,
+          claimUntil: claim.claimUntil,
+        },
+        data: toUpdateData(next),
+      });
+      if (updated.count !== 1) {
+        const current = await transaction.reviewCompletionProcess.findUnique({
+          where: { executionId: claim.executionId },
+        });
+        return current
+          ? { status: ReviewCompletionProcessTransitionStatus.StaleClaim }
+          : { status: ReviewCompletionProcessTransitionStatus.Missing };
+      }
+      if (
+        next.state === ReviewCompletionProcessState.Completed ||
+        next.state === ReviewCompletionProcessState.CompletedSuperseded
+      ) {
+        if (!next.publicationAttemptId) {
+          throw new Error("review_completion_settlement_without_publication");
+        }
+        await this.captureSettlement(transaction, {
+          executionId: next.executionId,
+          finalizedArtifactId: next.finalizedArtifactId,
+          publicationAttemptId: next.publicationAttemptId,
+          state: next.state,
+          settledAt: next.updatedAt,
+        });
+      }
+      const applied = await transaction.reviewCompletionProcess.findUnique({
+        where: { executionId: claim.executionId },
+      });
+      if (!applied) {
+        throw new Error("review_completion_process_missing_after_transition");
+      }
+      return {
+        status: ReviewCompletionProcessTransitionStatus.Applied,
+        process: toDomain(applied),
+      };
     });
-    if (updated.count !== 1) {
-      const current = await this.findByExecutionId(claim.executionId);
-      return current
-        ? { status: ReviewCompletionProcessTransitionStatus.StaleClaim }
-        : { status: ReviewCompletionProcessTransitionStatus.Missing };
-    }
-
-    const applied = await this.findByExecutionId(claim.executionId);
-    if (!applied) {
-      throw new Error("review_completion_process_missing_after_transition");
-    }
-    return {
-      status: ReviewCompletionProcessTransitionStatus.Applied,
-      process: applied,
-    };
   }
 }
 

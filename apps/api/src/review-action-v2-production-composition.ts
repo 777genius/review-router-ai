@@ -1,3 +1,55 @@
+import { attestCompiledReviewActionV2ProducerContract } from "./review-action-v2-producer-contract-attestation.js";
+import {
+  validateReviewPublicationLifecycleVerification,
+  lifecycleVerificationReviewProjectionPolicyVersion,
+} from "@reviewrouter/features-review-publishing/v2";
+import {
+  createReviewRunCompanionDispatchAdmission,
+  assertLifecycleVerificationDispatchEvidence,
+  assertReviewRunCompanionDispatchEvidence,
+} from "./review-lifecycle-verification.js";
+import { createReviewRunGatewayModelSettingsReader } from "./review-run-gateway-model-settings.js";
+import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
+import { PrismaProviderAccountRepository } from "@reviewrouter/features-provider-accounts";
+import { createProviderUsageActionSessionIssuer } from "./provider-usage-action-session.js";
+import { createProviderUsageRunCompletion } from "./provider-usage-run-completion.js";
+import { createProviderUsageBootstrapIssuer } from "./provider-usage-bootstrap.js";
+import { createProviderUsageActorResolver } from "./provider-usage-actor.js";
+import { createProviderUsageGatewayReconciliation } from "./provider-usage-gateway-reconciliation.js";
+import { createProviderUsageArtifactRecovery } from "./provider-usage-artifact-recovery-store.js";
+import { ProviderUsageArtifactReader } from "./provider-usage-artifact-recovery.js";
+import { createGatewayUsageRecorder } from "./provider-usage-gateway-recorder.js";
+import {
+  createProviderUsageApi,
+  type ProviderUsageApi,
+} from "./provider-usage-routes.js";
+import { decryptServerToken } from "@reviewrouter/features-auth";
+import {
+  PrismaContextConnectionStore,
+  deliverContextCredentials,
+} from "@reviewrouter/features-review-context-tools";
+import { createContextIssueReader } from "./github/context-issue-read.js";
+import type { ContextToolsRunAccess } from "./review-context-tools.js";
+import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
+import { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
+export { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
+import {
+  createReviewRunGatewayCheckout,
+  createReviewRunProviderApiCheckout,
+  type ReviewRunGatewayCheckout,
+  type ReviewRunGatewayCheckoutTarget,
+} from "./review-run-gateway-checkout.js";
+import {
+  ProductionReviewRunRuntimeSnapshot,
+  readServerApprovedReviewRunGatewayPolicy,
+  readServerReviewRunGatewayRequestCaps,
+} from "./review-run-runtime-snapshot";
+import { PrismaReviewRunGatewayExecutionBinding } from "./prisma-review-run-gateway-execution-binding";
+import {
+  createReviewRunGatewayRelay,
+  readReviewRunGatewayRelayPolicy,
+  type ReviewRunGatewayRelay,
+} from "./review-run-gateway-relay";
 import {
   createRepositoryReleaseSelector,
   repositoryReleaseBindingsEnv,
@@ -5,6 +57,8 @@ import {
 import { Buffer } from "node:buffer";
 import { createHash, randomUUID } from "node:crypto";
 import { App } from "@octokit/app";
+import { ProductionHostedReviewPreleaseGate } from "./hosted-review-prelease-gate.js";
+import { readHostedReviewMaxChangedLines } from "./hosted-review-config.js";
 import {
   HmacActionLedgerKey,
   JoseGitHubActionsOidcTokenVerifier,
@@ -89,6 +143,7 @@ import {
 } from "@reviewrouter/features-review-executions";
 import {
   PrismaReviewExecutionStore,
+  type ReviewExecutionInputAdmissionPort,
   PrismaReviewRequestedIntentStore,
   createReviewExecutionsUseCases,
 } from "@reviewrouter/features-review-executions/composition";
@@ -102,25 +157,23 @@ import {
 } from "@reviewrouter/features-review-publishing/v2/composition";
 import {
   CanonicalReviewRevisionResolutionStatus,
-  ImmutableRegistryWriteStatus,
   ProducerReleaseState,
   ProducerReleaseAttestationStatus,
   ReviewProviderKind,
+  ReviewMutationLaneKind,
+  ReviewMutationMode,
   ReviewRunAuthorizationState as RunAuthorizationState,
+  ReviewRunAuthorizationTokenResolutionStatus,
   ReviewSafetyDecisionKind,
   ReviewSafetyPolicyScope,
   ResolveReviewSafetyPolicy,
   ReviewTaskKind,
   canonicalJson,
-  canonicalReviewOperationalSloProfile,
-  canonicalReviewProtocolLimits,
-  producerReleaseImmutableKey,
+  parseReviewRunRuntimeSnapshot,
+  reviewRunGatewayOwnedIdentity,
   reviewInvestigationCapabilityV1,
+  readImplicitReviewAgentSelection,
   type CanonicalReviewRevisionResolverPort,
-  type ProducerRelease,
-  type ReviewProtocolLimits,
-  type ReviewOperationalSloThresholds,
-  type ReviewOperationalSloProfileQueryPort,
   type ReviewProtocolLimitsProfileQueryPort,
   type ProducerReleaseQueryPort,
   type ReviewRunAuthorization,
@@ -132,13 +185,18 @@ import {
   composeProductionReviewRunAuthorizationPrerequisites,
   composeReviewRunControl,
   createPrismaReviewRunControlRepositories,
+  PrismaReviewSafetyControlRepository,
 } from "@reviewrouter/features-review-run-control/composition";
 import { reviewActionV2AbsoluteProtocolMaxima } from "./review-action-v2-protocol-policy.js";
 import {
   readGitHubAppPrivateKey,
   resolveReviewRouterPublicApiUrl,
+  resolveReviewRouterCodexRotatingActionRef,
 } from "@reviewrouter/platform-config";
-import type { PrismaClient } from "@reviewrouter/platform-db";
+import {
+  acquireCurrentScopeGuards,
+  type PrismaClient,
+} from "@reviewrouter/platform-db";
 import {
   ConfiguredCapabilityKeyRing,
   JoseRotatingCapabilityCodec,
@@ -146,9 +204,7 @@ import {
 } from "@reviewrouter/platform-signed-capabilities";
 import {
   ReviewActionV2ProtocolErrorCode,
-  reviewActionV2CanonicalizerDigest,
-  reviewActionV2PublishedSchemaDigest,
-  reviewInvestigationExtensionV1,
+  reviewActionV2ContractSlot,
 } from "@reviewrouter/protocol-review-action-v2";
 import { SystemClock } from "@reviewrouter/shared";
 import { ReviewActionV2ExecutionEvidenceCapabilityAdapter } from "./review-action-v2-execution-evidence-capabilities.js";
@@ -177,7 +233,6 @@ import {
   createServerOwnedReviewActionV2AdmissionFacts,
   type ReviewActionV2RevisionHashPort,
   type ReviewInvestigationAuthorizationCapabilityPort,
-  type TrustedProducerReleaseMaterializerPort,
 } from "./review-action-v2-run-control-composition.js";
 import { composeReviewActionV2SnapshotPublicationRoutes } from "./review-action-v2-production-composition-snapshot-publication.js";
 import {
@@ -260,6 +315,24 @@ type ReviewActionV2RouteRuntime = Pick<
 >;
 
 export type ReviewActionV2ProductionRoutes = Readonly<{
+  reviewSkills?: ReturnType<typeof createReviewRunSkillsReader>;
+  providerUsage?: ProviderUsageApi;
+  providerUsageActionSession?: ReturnType<
+    typeof createProviderUsageActionSessionIssuer
+  >;
+  providerUsageBootstrap?: ReturnType<
+    typeof createProviderUsageBootstrapIssuer
+  >;
+  providerUsageNative?: ReturnType<
+    typeof createProviderUsageGatewayReconciliation
+  >;
+  providerUsageRecovery?: ReturnType<
+    typeof createProviderUsageArtifactRecovery
+  >;
+  contextTools?: ContextToolsRunAccess;
+  accountGatewayRelay?: ReviewRunGatewayRelay;
+  accountGatewayCheckout?: ReviewRunGatewayCheckout;
+  providerApiCheckout?: ReviewRunGatewayCheckout;
   hostedV4: HostedV4ReadRoutesDependencies;
   hostedV4Relay: Readonly<{
     enabled: false;
@@ -300,7 +373,42 @@ export function composeReviewActionV2ProductionRunControl(input: {
   }
   const clock = new SystemClock();
   const digest = new ProductionReviewActionV2Digest();
-  const repositories = createPrismaReviewRunControlRepositories(input.prisma);
+  const implicitAgent = readImplicitReviewAgentSelection(
+    input.env.REVIEW_ROUTER_AGENT_PROFILE,
+  );
+  const gatewayRequestCaps = readServerReviewRunGatewayRequestCaps(
+    input.env.REVIEW_ROUTER_GATEWAY_REQUEST_CAPS_JSON,
+  );
+  const accountGatewayRelayPolicy =
+    input.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED === "1"
+      ? readReviewRunGatewayRelayPolicy(
+          requiredEnv(input.env, "REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY"),
+        )
+      : undefined;
+  const runtimeSnapshots = new ProductionReviewRunRuntimeSnapshot(
+    input.prisma,
+    readServerApprovedReviewRunGatewayPolicy(
+      input.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY,
+    ),
+    input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
+    readPersonalAccountSharingEnabled(input.env),
+    implicitAgent.profileRef,
+    implicitAgent.preferSkillsProfile,
+    accountGatewayRelayPolicy
+      ? {
+          ...accountGatewayRelayPolicy,
+          requestCaps: gatewayRequestCaps,
+        }
+      : undefined,
+  );
+  const skillsSnapshots = new ProductionReviewSkillsSnapshot(input.prisma);
+  const repositories = createPrismaReviewRunControlRepositories(
+    input.prisma,
+    async (transaction, candidate) =>
+      (await skillsSnapshots.prelock(transaction, candidate)) &&
+      (await runtimeSnapshots.matchesAdmission(transaction, candidate)) &&
+      (await skillsSnapshots.matchesAdmission(transaction, candidate)),
+  );
   const actionRepositories = new PrismaActionControlPlaneRepository(
     input.prisma,
   );
@@ -334,6 +442,17 @@ export function composeReviewActionV2ProductionRunControl(input: {
       actionRepositories,
       releaseAttestations: prerequisites.releaseAttestations,
       producerReleases: repositories.producerReleases,
+      selectedProducerActionCommitSha: () => {
+        try {
+          return (
+            resolveReviewRouterCodexRotatingActionRef(input.env).split(
+              "@",
+            )[1] ?? null
+          );
+        } catch {
+          return null;
+        }
+      },
       safety: mutationSafetyResolver,
       workflowInventory,
       dispatchCapability,
@@ -344,6 +463,8 @@ export function composeReviewActionV2ProductionRunControl(input: {
       now: () => clock.now(),
     });
   const runControl = composeReviewRunControl({
+    runtimeSnapshots,
+    skillsSnapshots,
     clock,
     identifiers: { nextId: (prefix) => `${prefix}-${randomUUID()}` },
     digest,
@@ -374,6 +495,8 @@ export function composeReviewActionV2ProductionRunControl(input: {
     repositories,
     actionRepositories,
     prerequisites,
+    runtimeSnapshots,
+    accountGatewayRelayPolicy,
     runControl,
     oidcAudience,
     providerVoteLanes,
@@ -383,6 +506,7 @@ export function composeReviewActionV2ProductionRunControl(input: {
 }
 
 export function composeReviewActionV2ProductionRoutes(input: {
+  readonly memoryInputAdmission?: ReviewExecutionInputAdmissionPort;
   readonly enabled: boolean;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly runtime: ReviewActionV2RouteRuntime;
@@ -452,6 +576,8 @@ export function composeReviewActionV2ProductionRoutes(input: {
     repositories,
     actionRepositories,
     prerequisites,
+    runtimeSnapshots,
+    accountGatewayRelayPolicy,
     runControl,
     oidcAudience,
     providerVoteLanes,
@@ -463,6 +589,25 @@ export function composeReviewActionV2ProductionRoutes(input: {
       ? {}
       : { oidcAudience: input.oidcAudience }),
   });
+  const schemaBoundRuntime = {
+    ...input.runtime,
+    async assertAuthorizationSchema(token: string, schemaDigest: string) {
+      const resolved =
+        await runControl.authorizations.resolveReviewRunAuthorizationToken({
+          token,
+        });
+      if (
+        resolved.status === ReviewRunAuthorizationTokenResolutionStatus.Valid &&
+        resolved.authorization.schemaDigest !== schemaDigest
+      ) {
+        throw new ReviewActionV2RouteFailure(
+          403,
+          ReviewActionV2ProtocolErrorCode.Forbidden,
+          ["authorization_schema_slot_mismatch"],
+        );
+      }
+    },
+  };
   const investigationRolloutGuard = new ReviewInvestigationRolloutGuard(
     new ResolveInvestigationRollout(
       new EnvironmentInvestigationRolloutPolicyQuery(input.env),
@@ -488,12 +633,27 @@ export function composeReviewActionV2ProductionRoutes(input: {
     input.prisma,
   );
   const admissionFacts = createServerOwnedReviewActionV2AdmissionFacts({
+    providerApiSource: workflowInventory,
     revisionResolver: prerequisites.revisionResolver,
     releaseAttestations: prerequisites.releaseAttestations,
     providerVoteLanes,
     requestedIntents: requestedIntentStore,
     requestedIntentRequired:
       input.env[reviewActionV2IntentAdmissionRequiredEnv] === "1",
+    ...(input.env[reviewActionV2IntentAdmissionRequiredEnv] === "1"
+      ? {
+          clock,
+          requestedIntentAdmission: new ProductionHostedReviewPreleaseGate({
+            requestedIntentQueries: requestedIntentStore,
+            requestedIntentCommands: requestedIntentStore,
+            pullRequests: workflowInventory,
+            clock,
+            maxChangedLines: readHostedReviewMaxChangedLines(
+              input.env.REVIEW_ROUTER_HOSTED_MAX_CHANGED_LINES,
+            ),
+          }),
+        }
+      : {}),
   });
   const revisionHashes: ReviewActionV2RevisionHashPort = {
     digest: (revision) => digest.digestUtf8(canonicalJson(revision)),
@@ -527,7 +687,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
     digest,
     absoluteProtocolMaxima: reviewActionV2AbsoluteProtocolMaxima,
     authorizationTtlMs: productionTiming.authorizationTtlMs,
-    maxAuthorizationLifetimeMs: productionTiming.maxAuthorizationLifetimeMs,
+    maxAuthorizationLifetimeMs: readMaxAuthorizationLifetimeMs(input.env),
     reviewInvestigationCapability:
       new ProductionReviewInvestigationAuthorizationCapability(
         investigationRolloutGuard,
@@ -535,17 +695,19 @@ export function composeReviewActionV2ProductionRoutes(input: {
       ),
   } as const;
 
-  const executionStore = new PrismaReviewExecutionStore(
-    input.prisma,
-    input.env.REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE === "1"
+  const executionStore = new PrismaReviewExecutionStore(input.prisma, {
+    ...(input.memoryInputAdmission
+      ? { inputAdmission: input.memoryInputAdmission }
+      : {}),
+    ...(input.env.REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE === "1"
       ? {
           progressCapture: createPrismaReviewProgressCapture({
             fileCoverageEnabled:
               input.env.REVIEW_ROUTER_PROGRESS_FILE_COVERAGE === "1",
           }),
         }
-      : {},
-  );
+      : {}),
+  });
   const currentRevision = new ProductionCurrentReviewRevisionAdapter({
     prisma: input.prisma,
     identities: repositories.repositoryIdentities,
@@ -696,7 +858,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
       `${kind}-${randomUUID()}`,
     sessionSecretKey: contextCrypto.sessionSecretKey,
     config: {
-      sessionLifetimeMs: 20 * 60 * 1_000,
+      sessionLifetimeMs: productionTiming.maxAuthorizationLifetimeMs,
       reuseTtlMs: productionTiming.evidenceReuseTtlMs,
       replayProofLifetimeMs: 10 * 60 * 1_000,
       replayCapabilityLifetimeMs: 10 * 60 * 1_000,
@@ -709,11 +871,12 @@ export function composeReviewActionV2ProductionRoutes(input: {
   );
   const contextAttestation = composeReviewActionV2ContextAttestationRoutes({
     enabled: true,
-    runtime: input.runtime,
+    runtime: schemaBoundRuntime,
     handlers: contextAttestationHandlers,
   });
   const common = {
     authorizations: runControl.authorizations,
+    authorizationQueries: repositories.authorizations,
     executionQueries: executionStore,
     protocolLimits: repositories.producerReleases,
     digest,
@@ -722,9 +885,21 @@ export function composeReviewActionV2ProductionRoutes(input: {
     nextId: (kind: "lease" | "attempt" | "observation_ref") =>
       `${kind}-${randomUUID()}`,
     timing: executionTiming,
+    verifyLifecycleDispatchEvidence: (
+      facts: Omit<
+        Parameters<typeof assertLifecycleVerificationDispatchEvidence>[0],
+        "prisma"
+      >,
+    ) => assertLifecycleVerificationDispatchEvidence({ ...facts, prisma }),
+    verifyCompanionDispatchEvidence: (
+      facts: Omit<
+        Parameters<typeof assertReviewRunCompanionDispatchEvidence>[0],
+        "prisma"
+      >,
+    ) => assertReviewRunCompanionDispatchEvidence({ ...facts, prisma }),
   } as const;
   const snapshotPublication = composeReviewActionV2SnapshotPublicationRoutes({
-    runtime: input.runtime,
+    runtime: schemaBoundRuntime,
     prisma: input.prisma,
     authorizations: runControl.authorizations,
     authorizationQueries: repositories.authorizations,
@@ -776,7 +951,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
   });
   const investigation = composeReviewActionV2InvestigationRoutes({
     enabled: investigationRecordingEnabled,
-    runtime: input.runtime,
+    runtime: schemaBoundRuntime,
     handlers: {
       authorizations: runControl.authorizations,
       authorizationQueries: repositories.authorizations,
@@ -948,19 +1123,450 @@ export function composeReviewActionV2ProductionRoutes(input: {
     repositoryReleaseSelector,
     workflowInventory,
   });
+  // Use the same local identity/selection rules before SCM and inside the
+  // checkout-only protected confirmation; transaction readers never do HTTP.
+  const readCheckoutTarget = async (
+    reader: Pick<
+      PrismaClient,
+      "scmRepositoryIdentity" | "repositoryConnection"
+    >,
+    authorization: ReviewRunAuthorization,
+  ): Promise<ReviewRunGatewayCheckoutTarget | null> => {
+    const identity = await reader.scmRepositoryIdentity.findUnique({
+      where: { scmRepositoryIdentityId: authorization.scmRepositoryIdentityId },
+    });
+    if (
+      !identity ||
+      identity.provider !== "github" ||
+      identity.normalizedSourceBaseUrl !== "https://github.com" ||
+      identity.currentWorkspaceId !== authorization.workspaceId ||
+      identity.currentRepositoryConnectionId !==
+        authorization.repositoryConnectionId ||
+      !identity.boundAt ||
+      identity.unboundAt
+    )
+      return null;
+    // The older Action inventory mapper does not filter archived/selected
+    // rows. Enforce the saved SCM identity and current installation here.
+    const repository = await reader.repositoryConnection.findFirst({
+      where: {
+        id: authorization.repositoryConnectionId,
+        workspaceId: authorization.workspaceId,
+        scmRepositoryIdentityId: authorization.scmRepositoryIdentityId,
+        provider: "github",
+        sourceBaseUrl: "https://github.com",
+        githubRepositoryId: BigInt(identity.externalRepositoryId),
+        externalRepositoryId: identity.externalRepositoryId,
+        selected: true,
+        archived: false,
+        installation: {
+          is: { workspaceId: authorization.workspaceId, status: "active" },
+        },
+      },
+      select: {
+        fullName: true,
+        githubRepositoryId: true,
+        installation: { select: { githubInstallationId: true } },
+      },
+    });
+    if (!repository?.githubRepositoryId || !repository.installation)
+      return null;
+    return {
+      githubInstallationId:
+        repository.installation.githubInstallationId.toString(),
+      githubRepositoryId: repository.githubRepositoryId.toString(),
+      repositoryFullName: repository.fullName,
+    };
+  };
+  // One protected local confirmation for relay and SCM checkout. Keep the relay
+  // callback's checks/order unchanged; no network operation enters this guard.
+  const confirmAccountGatewayAuthority = async (
+    token: string,
+    authorization: ReviewRunAuthorization,
+    checkoutTarget?: ReviewRunGatewayCheckoutTarget,
+  ): Promise<boolean> => {
+    const verified = await prerequisites.tokens
+      .verify({ token, now: clock.now() })
+      .catch(() => undefined);
+    if (!verified) return false;
+    return prisma.$transaction(
+      async (tx) => {
+        await acquireCurrentScopeGuards(tx, [
+          {
+            scope: "repository",
+            mode: "shared",
+            workspaceId: authorization.workspaceId,
+            repositoryId: authorization.repositoryConnectionId,
+          },
+        ]);
+        const checkoutSnapshot = checkoutTarget
+          ? parseReviewRunRuntimeSnapshot(
+              authorization.runtimeSnapshotCanonicalJson,
+            )
+          : null;
+        if (checkoutTarget) {
+          const original = checkoutSnapshot?.gateway;
+          if (!checkoutSnapshot || (original && !original.limits)) return false;
+          // Checkout keeps connection-before-binding-before-authorization order;
+          // all following local reads use this transaction, without HTTP.
+          await tx.$queryRaw`SELECT "id" FROM "GitHubInstallation"
+            WHERE "githubInstallationId" = ${BigInt(checkoutTarget.githubInstallationId)} FOR SHARE`;
+          const lockedRepository = await tx.$queryRaw<
+            readonly { id: string }[]
+          >`
+            SELECT id FROM public.rr_review_run_checkout_repository_lock(
+              ${authorization.workspaceId}, ${authorization.repositoryConnectionId})`;
+          if (lockedRepository.length !== 1) return false;
+          if (original) {
+            await tx.$queryRaw`SELECT "id" FROM "ProviderAccountConnection"
+              WHERE "id" = ${original.connectionId} FOR SHARE`;
+            await tx.$queryRaw`SELECT "id" FROM "WorkspaceAccountBinding"
+              WHERE "id" = ${original.bindingId} AND "workspaceId" = ${authorization.workspaceId} FOR SHARE`;
+          }
+        }
+        // Row SHARE also protects against termination/sweep writers; acquire
+        // it only after scope guards, then reread on this connection.
+        await tx.$queryRaw`SELECT "authorizationId" FROM "ReviewRunAuthorization"
+        WHERE "authorizationId" = ${authorization.authorizationId} FOR SHARE`;
+        // Existing safety query adapter/resolver, with reads bound to this
+        // connection. No root queries or SCM/HTTP while guards are held.
+        const safetyQueries = new PrismaReviewSafetyControlRepository(
+          new Proxy(prisma, {
+            get(_target, key) {
+              if (key === "reviewSafetyPolicy") return tx.reviewSafetyPolicy;
+              if (key === "reviewSafetyPolicySelector")
+                return tx.reviewSafetyPolicySelector;
+              if (key === "reviewSafetyEmergencyControl")
+                return tx.reviewSafetyEmergencyControl;
+              throw new Error("relay_safety_reader_scope_invalid");
+            },
+          }),
+        );
+        const safety = new ResolveReviewSafetyPolicy({
+          clock,
+          digest,
+          policyQueries: safetyQueries,
+          emergencyQueries: safetyQueries,
+        });
+        const current = await tx.reviewRunAuthorization.findUnique({
+          where: { authorizationId: authorization.authorizationId },
+        });
+        const authority = await tx.reviewMutationAuthority.findUnique({
+          where: {
+            scmRepositoryIdentityId_laneKind: {
+              scmRepositoryIdentityId: authorization.scmRepositoryIdentityId,
+              laneKind: ReviewMutationLaneKind.HostedReviewRouterApp,
+            },
+          },
+        });
+        const release = await tx.producerRelease.findUnique({
+          where: { producerReleaseId: authorization.producerReleaseId },
+        });
+        const decision = await safety.resolveReviewSafetyPolicy({
+          decisionKind: ReviewSafetyDecisionKind.RunAuthorization,
+          target: safetyTarget(
+            authorization,
+            authorization.providerVoteLanes.map((lane) => ({
+              providerKind: lane.providerKind,
+              taskKind: ReviewTaskKind.CodeReview,
+            })),
+          ),
+        });
+        if (
+          checkoutTarget &&
+          (!checkoutSnapshot ||
+            canonicalJson(await readCheckoutTarget(tx, authorization)) !==
+              canonicalJson(checkoutTarget) ||
+            !(await runtimeSnapshots.isLive(
+              {
+                snapshot: checkoutSnapshot,
+                identity: authorization,
+                now: clock.now(),
+              },
+              tx,
+            )))
+        )
+          return false;
+        const times = await tx.$queryRaw<
+          readonly { now: Date }[]
+        >`SELECT (clock_timestamp() AT TIME ZONE 'UTC') AS "now"`;
+        const dbNow = times[0]?.now.getTime();
+        if (dbNow === undefined) return false;
+        const now = Math.max(dbNow, clock.now().getTime());
+        return (
+          current?.state === "active" &&
+          verified.authorizationId === authorization.authorizationId &&
+          current.version === authorization.version &&
+          current.runtimeSnapshotCanonicalJson ===
+            authorization.runtimeSnapshotCanonicalJson &&
+          Object.entries(reviewRunGatewayOwnedIdentity(authorization)).every(
+            ([key, value]) => Reflect.get(current, key) === value,
+          ) &&
+          now < verified.expiresAt.getTime() &&
+          now < current.expiresAt.getTime() &&
+          now < current.maxExpiresAt.getTime() &&
+          authority?.mode === ReviewMutationMode.V2Active &&
+          authority.epoch === authorization.mutationEpoch &&
+          release?.state === ProducerReleaseState.Registered &&
+          decision.effectAllowed
+        );
+      },
+      { isolationLevel: "ReadCommitted" },
+    );
+  };
+  const gatewayBindings = new PrismaReviewRunGatewayExecutionBinding(
+    prisma,
+    runtimeSnapshots,
+  );
+  const accountGatewayControlOrigin =
+    input.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN;
+  const accountGatewayRelay = accountGatewayRelayPolicy
+    ? createReviewRunGatewayRelay({
+        policy: accountGatewayRelayPolicy,
+        accountModelCatalogEnabled:
+          input.env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED === "1",
+        companionDispatches: createReviewRunCompanionDispatchAdmission({
+          prisma,
+          verifyLease: (token, now) => capabilities.verifyLease(token, now),
+          async lockSelection(transaction, authorization) {
+            const snapshot = parseReviewRunRuntimeSnapshot(
+              authorization.runtimeSnapshotCanonicalJson,
+            );
+            if (!snapshot?.gateway) return false;
+            await runtimeSnapshots.lockGatewaySelection(
+              transaction,
+              authorization.workspaceId,
+              snapshot,
+            );
+            return runtimeSnapshots.isLive(
+              { snapshot, identity: authorization, now: clock.now() },
+              transaction,
+            );
+          },
+        }),
+        usage: createGatewayUsageRecorder(prisma, async (auth) => {
+          const target = await resolveCheckoutRepository(auth);
+          return target
+            ? createProviderUsageActorResolver(prisma, {
+                appId: githubAppId,
+                privateKey: githubAppPrivateKey,
+              })(auth, target)
+            : null;
+        }),
+        runAccess: {
+          ...(accountGatewayControlOrigin === undefined
+            ? {}
+            : { controlOrigin: accountGatewayControlOrigin }),
+          origin: requiredEnv(
+            input.env,
+            "REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN",
+          ),
+          runControlBearer: requiredEnv(
+            input.env,
+            "REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER",
+          ),
+          timeoutMs: accountGatewayRelayPolicy.requestTimeoutMs,
+        },
+        authorizations: runControl.authorizations,
+        queries: repositories.authorizations,
+        checkAuthority: async (authorization, freshness) => {
+          if (freshness === "local")
+            return currentRevision.hasCurrentLocalScope(
+              authorizationScope(authorization),
+            );
+          const revision = await currentRevision.resolve(
+            authorizationScope(authorization),
+          );
+          return (
+            revision.status === CurrentReviewRevisionStatus.Found &&
+            canonicalJson(revision.revision) ===
+              canonicalJson(authorizationRevision(authorization))
+          );
+        },
+        confirmAuthority: confirmAccountGatewayAuthority,
+        snapshots: runtimeSnapshots,
+        bindings: gatewayBindings,
+      })
+    : undefined;
+  const resolveCheckoutRepository = async (
+    authorization: ReviewRunAuthorization,
+  ) => {
+    const target = await readCheckoutTarget(prisma, authorization);
+    if (!target) return null;
+    const revision = await currentRevision.resolve(
+      authorizationScope(authorization),
+    );
+    if (
+      revision.status !== CurrentReviewRevisionStatus.Found ||
+      canonicalJson(revision.revision) !==
+        canonicalJson(authorizationRevision(authorization))
+    )
+      return null;
+    return target;
+  };
+  const issueReader = createContextIssueReader({
+    appId: githubAppId,
+    privateKey: githubAppPrivateKey,
+    resolveRepository: resolveCheckoutRepository,
+  });
+  const contextTools: ContextToolsRunAccess = {
+    authorize: async (token) => {
+      try {
+        const resolved =
+          await runControl.authorizations.resolveReviewRunAuthorizationToken({
+            token,
+          });
+        if (
+          resolved.status !== ReviewRunAuthorizationTokenResolutionStatus.Valid
+        )
+          return null;
+        const authorization = resolved.authorization;
+        if (
+          authorization.state !== RunAuthorizationState.Active ||
+          authorization.expiresAt <= clock.now() ||
+          authorization.maxExpiresAt <= clock.now()
+        )
+          return null;
+        const target = await resolveCheckoutRepository(authorization);
+        return target &&
+          (await confirmAccountGatewayAuthority(token, authorization, target))
+          ? authorization
+          : null;
+      } catch {
+        return null;
+      }
+    },
+    deliver: (workspaceId, plan) =>
+      deliverContextCredentials(workspaceId, plan, {
+        store: new PrismaContextConnectionStore(prisma),
+        crypto: {
+          encrypt: () => {
+            throw new Error("context_encrypt_not_allowed");
+          },
+          decrypt: (value) => decryptServerToken(value, input.env),
+        },
+      }),
+    assertIssueAccess: (authorization) =>
+      issueReader.assertAvailable(authorization),
+    readIssue: (authorization, issueNumber) =>
+      issueReader.read(authorization, issueNumber),
+  };
+  const providerApiCheckout = createReviewRunProviderApiCheckout({
+    lifecycleObservationAuthors: [
+      ...trustedReviewCommandLedgerAuthorsFromEnv(input.env),
+    ],
+    authorizations: runControl.authorizations,
+    confirmAuthority: confirmAccountGatewayAuthority,
+    issuer: workflowInventory,
+    maxInFlight: 4,
+    timeoutMs: 30_000,
+    resolveRepository: resolveCheckoutRepository,
+  });
+  const accountGatewayCheckout = accountGatewayRelayPolicy
+    ? createReviewRunGatewayCheckout({
+        readSelectedModelSettings: createReviewRunGatewayModelSettingsReader({
+          accountModelCatalogEnabled:
+            input.env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED === "1",
+          accounts: new PrismaProviderAccountRepository(
+            prisma,
+            input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
+            readPersonalAccountSharingEnabled(input.env),
+          ),
+          control: createConsumerControlClient({
+            role: "consumer-control",
+            origin:
+              accountGatewayControlOrigin ??
+              requiredEnv(input.env, "REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN"),
+            token: requiredEnv(
+              input.env,
+              "REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER",
+            ),
+            timeoutMs: Math.min(
+              10000,
+              accountGatewayRelayPolicy.requestTimeoutMs,
+            ),
+            responseBytes: 262144,
+          }),
+          profiles: accountGatewayRelayPolicy.profiles.map(
+            (entry) => entry.profile,
+          ),
+          ...(input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID
+            ? {
+                operatorWorkspaceId:
+                  input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
+              }
+            : {}),
+        }),
+        lifecycleObservationAuthors: [
+          ...trustedReviewCommandLedgerAuthorsFromEnv(input.env),
+        ],
+        authorizations: runControl.authorizations,
+        bindings: gatewayBindings,
+        confirmAuthority: confirmAccountGatewayAuthority,
+        issuer: workflowInventory,
+        maxInFlight: Math.min(4, accountGatewayRelayPolicy.maxInFlight),
+        timeoutMs: Math.min(30_000, accountGatewayRelayPolicy.requestTimeoutMs),
+        resolveRepository: resolveCheckoutRepository,
+      })
+    : undefined;
+  const providerUsage = createProviderUsageApi({
+    prisma,
+    resolveRunClosedAt: createProviderUsageRunCompletion({
+      appId: githubAppId,
+      privateKey: githubAppPrivateKey,
+    }),
+    resolveActor: createProviderUsageActorResolver(prisma, {
+      appId: githubAppId,
+      privateKey: githubAppPrivateKey,
+    }),
+    authorizations: runControl.authorizations,
+    resolveRepository: resolveCheckoutRepository,
+    confirmAuthority: confirmAccountGatewayAuthority,
+  });
+  const providerUsageRecovery = createProviderUsageArtifactRecovery({
+    prisma,
+    api: providerUsage,
+    reader: new ProviderUsageArtifactReader({
+      appId: githubAppId,
+      privateKey: githubAppPrivateKey,
+    }),
+  });
   return Object.freeze({
+    providerUsage,
+    providerUsageNative: createProviderUsageGatewayReconciliation(
+      prisma,
+      input.env,
+    ),
+    providerUsageRecovery,
+    providerUsageActionSession: createProviderUsageActionSessionIssuer({
+      prisma,
+      api: providerUsage,
+      appId: githubAppId,
+      privateKey: githubAppPrivateKey,
+    }),
+    providerUsageBootstrap: createProviderUsageBootstrapIssuer({
+      prisma,
+      api: providerUsage,
+      appId: githubAppId,
+      privateKey: githubAppPrivateKey,
+    }),
+    providerApiCheckout,
+    reviewSkills: createReviewRunSkillsReader(runControl.authorizations),
+    contextTools,
+    ...(accountGatewayRelay ? { accountGatewayRelay } : {}),
+    ...(accountGatewayCheckout ? { accountGatewayCheckout } : {}),
     hostedV4,
     hostedV4Relay: hostedV4.bridge
       ? composeHostedV4RelayAuthority({ prisma, bridge: hostedV4.bridge })
       : { enabled: false as const },
     runControl: composeReviewActionV2RunControlRoutes({
       enabled: true,
-      runtime: input.runtime,
+      runtime: schemaBoundRuntime,
       handlers: runControlHandlers,
     }),
     execution: composeReviewActionV2ExecutionRoutes({
       enabled: true,
-      runtime: input.runtime,
+      runtime: schemaBoundRuntime,
       handlers: {
         ...common,
         executions,
@@ -985,7 +1591,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
     contextAttestation,
     evidence: composeReviewActionV2EvidenceRoutes({
       enabled: true,
-      runtime: input.runtime,
+      runtime: schemaBoundRuntime,
       handlers: {
         ...common,
         evidence,
@@ -1035,11 +1641,16 @@ function composeProductionHostedV4ReadRoutes(input: {
     releases: input.repositories.producerReleases,
     scm,
     currentProducerReleaseId: async (authorization, actionCommitSha) => {
-      const attested = await input.prerequisites.releaseAttestations.attest({
+      const storedAuthorization =
+        await input.repositories.authorizations.findReviewRunAuthorizationById(
+          authorization.authorizationId,
+        );
+      if (!storedAuthorization) return null;
+      const attested = await attestCompiledReviewActionV2ProducerContract(
+        input.prerequisites.releaseAttestations,
         actionCommitSha,
-        expectedSchemaDigest: reviewActionV2PublishedSchemaDigest,
-        expectedCanonicalizerDigest: reviewActionV2CanonicalizerDigest,
-      });
+        storedAuthorization.schemaDigest,
+      );
       if (
         attested.status !== ProducerReleaseAttestationStatus.Attested ||
         attested.release.state !== ProducerReleaseState.Registered
@@ -1053,7 +1664,8 @@ function composeProductionHostedV4ReadRoutes(input: {
         baseRelease: attested.release,
       });
       return selected.state === ProducerReleaseState.Registered &&
-        selected.actionCommitSha === actionCommitSha
+        selected.actionCommitSha === actionCommitSha &&
+        selected.schemaDigest === storedAuthorization.schemaDigest
         ? selected.producerReleaseId
         : null;
     },
@@ -1090,6 +1702,15 @@ export class ProductionReviewInvestigationAuthorizationCapability implements Rev
       ReviewInvestigationAuthorizationCapabilityPort["resolve"]
     >[0],
   ) {
+    if (
+      input.protocolContract.schemaDigest !== input.producerRelease.schemaDigest
+    )
+      return null;
+    const extension = reviewActionV2ContractSlot(
+      input.producerRelease.schemaDigest,
+      input.protocolContract.canonicalizerDigest,
+    )?.reviewInvestigationExtensionV1;
+    if (!extension) return null;
     const profile = input.producerRelease.reviewInvestigationProfile;
     if (
       profile === null ||
@@ -1161,10 +1782,9 @@ export class ProductionReviewInvestigationAuthorizationCapability implements Rev
       authorizationDescriptorVersion: 3,
       capability: reviewInvestigationCapabilityV1,
       coverageProfileHash: profile.coverageProfileHash,
-      extensionCanonicalizerDigest:
-        reviewInvestigationExtensionV1.canonicalizerDigest,
-      extensionId: reviewInvestigationExtensionV1.extensionId,
-      extensionSchemaDigest: reviewInvestigationExtensionV1.schemaDigest,
+      extensionCanonicalizerDigest: extension.canonicalizerDigest,
+      extensionId: extension.extensionId,
+      extensionSchemaDigest: extension.schemaDigest,
       policyHash: profile.policyHash,
       providerCapabilities: Object.freeze(providerCapabilities),
     });
@@ -1244,7 +1864,9 @@ function investigationAuthorizationProvider(
         rollout: InvestigationRolloutProvider.Claude,
         authorization: "claude_code",
       };
+    // These engines have no RR investigation descriptor or authorization.
     case ReviewProviderKind.OpenRouter:
+    case ReviewProviderKind.Ocr:
       return null;
   }
 }
@@ -1292,110 +1914,6 @@ class ProductionReviewActionV2Digest {
 
   async digest(value: Uint8Array): Promise<string> {
     return createHash("sha256").update(value).digest("hex");
-  }
-}
-
-type ProducerReleaseManagement = ReturnType<
-  typeof composeReviewRunControl
->["producerReleases"];
-
-export function createTrustedProducerReleaseMaterializer(input: {
-  readonly digest: ProductionReviewActionV2Digest;
-  readonly producerReleases: ProducerReleaseManagement;
-  readonly releaseQueries: ProducerReleaseQueryPort;
-  readonly protocolLimitsQueries: ReviewProtocolLimitsProfileQueryPort;
-  readonly operationalSloQueries: ReviewOperationalSloProfileQueryPort;
-}): TrustedProducerReleaseMaterializerPort {
-  return {
-    async ensureRegistered(release: ProducerRelease): Promise<void> {
-      const existing = await input.releaseQueries.findProducerReleaseById(
-        release.producerReleaseId,
-      );
-      if (
-        existing?.state === ProducerReleaseState.Registered &&
-        producerReleaseImmutableKey(existing) ===
-          producerReleaseImmutableKey(release)
-      ) {
-        return;
-      }
-      const sloProfile = {
-        thresholds: trustedProducerReleaseMaterializationThresholds,
-        ownerRefs: trustedProducerReleaseMaterializationOwnerRefs,
-        runbookRefs: trustedProducerReleaseMaterializationRunbookRefs,
-      } as const;
-      const [existingLimits, existingSlo] = await Promise.all([
-        input.protocolLimitsQueries.findProtocolLimitsProfileById(
-          release.protocolLimitsProfileId,
-        ),
-        input.operationalSloQueries.findOperationalSloProfileById(
-          release.operationalSloProfileId,
-        ),
-      ]);
-      const limitsDigest =
-        existingLimits?.limitsDigest ??
-        (await input.digest.digestUtf8(
-          canonicalReviewProtocolLimits(
-            trustedProducerReleaseMaterializationLimits,
-          ),
-        ));
-      const sloDigest =
-        existingSlo?.sloDigest ??
-        (await input.digest.digestUtf8(
-          canonicalReviewOperationalSloProfile(sloProfile),
-        ));
-      if (!existingLimits) {
-        assertTrustedMaterializationResult(
-          await input.producerReleases.registerProtocolLimitsProfile({
-            protocolLimitsProfileId: release.protocolLimitsProfileId,
-            limitsDigest,
-            limits: trustedProducerReleaseMaterializationLimits,
-          }),
-          "trusted_producer_release_limits_conflict",
-        );
-      }
-      if (!existingSlo) {
-        assertTrustedMaterializationResult(
-          await input.producerReleases.registerOperationalSloProfile({
-            operationalSloProfileId: release.operationalSloProfileId,
-            sloDigest,
-            ...sloProfile,
-          }),
-          "trusted_producer_release_slo_conflict",
-        );
-      }
-      assertTrustedMaterializationResult(
-        await input.producerReleases.registerProducerRelease({
-          candidate: {
-            producerReleaseId: release.producerReleaseId,
-            distributionKind: release.distributionKind,
-            actionCommitSha: release.actionCommitSha,
-            runtimeCommitSha: release.runtimeCommitSha,
-            wrapperEntrypointDigest: release.wrapperEntrypointDigest,
-            runtimeEntrypointDigest: release.runtimeEntrypointDigest,
-            contextGatewayPolicyVersion: release.contextGatewayPolicyVersion,
-            contextGatewayEntrypointDigest:
-              release.contextGatewayEntrypointDigest,
-            schemaDigest: release.schemaDigest,
-            capabilityProfile: release.capabilityProfile,
-            protocolLimitsProfileId: release.protocolLimitsProfileId,
-            operationalSloProfileId: release.operationalSloProfileId,
-            reviewInvestigationProfile: release.reviewInvestigationProfile,
-          },
-          expectedProtocolLimitsDigest: limitsDigest,
-          expectedOperationalSloDigest: sloDigest,
-        }),
-        "trusted_producer_release_conflict",
-      );
-    },
-  };
-}
-
-function assertTrustedMaterializationResult(
-  result: { readonly status: ImmutableRegistryWriteStatus },
-  issue: string,
-): void {
-  if (result.status === ImmutableRegistryWriteStatus.Conflict) {
-    throw new Error(issue);
   }
 }
 
@@ -1505,7 +2023,7 @@ class ProductionCurrentReviewRevisionAdapter implements CurrentReviewRevisionPor
     }>,
   ) {}
 
-  async resolve(scope: ReviewExecutionScope) {
+  private async resolveLocalScope(scope: ReviewExecutionScope) {
     const identity =
       await this.dependencies.identities.findScmRepositoryIdentityById(
         scope.scmRepositoryIdentityId,
@@ -1515,7 +2033,7 @@ class ProductionCurrentReviewRevisionAdapter implements CurrentReviewRevisionPor
       identity.currentWorkspaceId !== scope.workspaceId ||
       identity.currentRepositoryConnectionId !== scope.repositoryConnectionId
     ) {
-      return { status: CurrentReviewRevisionStatus.Unavailable } as const;
+      return null;
     }
     const repository =
       await this.dependencies.actionRepositories.findSelectedRepositoryByGithubId(
@@ -1525,7 +2043,7 @@ class ProductionCurrentReviewRevisionAdapter implements CurrentReviewRevisionPor
       !repository ||
       repository.repositoryId !== scope.repositoryConnectionId
     ) {
-      return { status: CurrentReviewRevisionStatus.Unavailable } as const;
+      return null;
     }
     const source =
       await this.dependencies.prisma.reviewRunAuthorization.findFirst({
@@ -1539,8 +2057,19 @@ class ProductionCurrentReviewRevisionAdapter implements CurrentReviewRevisionPor
         select: { sourceRunId: true },
       });
     if (!source) {
-      return { status: CurrentReviewRevisionStatus.Unavailable } as const;
+      return null;
     }
+    return repository;
+  }
+
+  async hasCurrentLocalScope(scope: ReviewExecutionScope): Promise<boolean> {
+    return (await this.resolveLocalScope(scope)) !== null;
+  }
+
+  async resolve(scope: ReviewExecutionScope) {
+    const repository = await this.resolveLocalScope(scope);
+    if (!repository)
+      return { status: CurrentReviewRevisionStatus.Unavailable } as const;
     const repositoryName = splitRepositoryName(repository.fullName);
     const resolved = await this.dependencies.revisionResolver.resolve({
       workspaceId: scope.workspaceId,
@@ -1949,6 +2478,7 @@ class ProductionFinalizationFactsAdapter implements ReviewActionV2FinalizationFa
         ["finalization_safety_rejected"],
       );
     }
+    assertLifecycleProjectionWire(input, envelope, projectionPolicyVersion);
     const operationsCanonicalJson = canonicalJson(envelope.publishing as never);
     const expectedArtifactHash = await this.dependencies.digest.digestUtf8(
       `rr.review-artifact.v1\0${canonicalJson({
@@ -1978,6 +2508,94 @@ class ProductionFinalizationFactsAdapter implements ReviewActionV2FinalizationFa
       retainUntil: new Date(input.execution.retainUntil),
     });
   }
+}
+
+/** Optional verification fields are authoritative wire data, never renderer hints. */
+function assertLifecycleProjectionWire(
+  input: Parameters<ReviewActionV2FinalizationFactsPort["resolve"]>[0],
+  envelope: Record<string, unknown>,
+  policyVersion: string,
+): void {
+  const publishing = envelope.publishing;
+  const mergeGate = envelope.mergeGate;
+  const rows =
+    publishing && typeof publishing === "object" && !Array.isArray(publishing)
+      ? (publishing as Record<string, unknown>).lifecycle
+      : undefined;
+  const blocking =
+    mergeGate && typeof mergeGate === "object" && !Array.isArray(mergeGate)
+      ? (mergeGate as Record<string, unknown>)
+          .blockingConfirmedLifecycleTargetIds
+      : undefined;
+  const confirmedOpen = new Set<string>();
+  let hasVerification = false;
+  let hasModelConfirmation = false;
+  if (Array.isArray(rows))
+    for (const value of rows) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const row = value as Record<string, unknown>;
+      if (!Object.hasOwn(row, "verification")) continue;
+      hasVerification = true;
+      if (typeof row.targetId !== "string")
+        throw finalizationFailure("projection_verification_target_invalid");
+      try {
+        validateReviewPublicationLifecycleVerification(
+          row.verification,
+          row.targetId,
+        );
+      } catch {
+        throw finalizationFailure("projection_verification_invalid");
+      }
+      const fact = row.verification;
+      if (
+        fact.confirmationState === "confirmed_open" ||
+        fact.confirmationState === "fix_confirmed_thread_open"
+      )
+        hasModelConfirmation = true;
+      if (fact.confirmationState === "confirmed_open")
+        confirmedOpen.add(fact.targetId);
+      for (const observationId of fact.observationIds) {
+        const ref = input.observationRefs.find(
+          (item) => item.observationId === observationId,
+        );
+        if (
+          !ref ||
+          input.execution.workSlots.find(
+            (slot) => slot.workSlotId === ref.workSlotId,
+          )?.taskKind !== ExecutionTaskKind.LifecycleRevalidation
+        )
+          throw finalizationFailure(
+            "projection_verification_observation_unattached",
+          );
+      }
+    }
+  if (
+    blocking !== undefined &&
+    (!Array.isArray(blocking) ||
+      new Set(blocking).size !== blocking.length ||
+      blocking.some(
+        (id) =>
+          typeof id !== "string" ||
+          !id ||
+          id.length > 512 ||
+          !confirmedOpen.has(id),
+      ))
+  )
+    throw finalizationFailure(
+      "projection_verification_blocking_targets_invalid",
+    );
+  if (
+    (hasVerification || blocking !== undefined) &&
+    policyVersion !== lifecycleVerificationReviewProjectionPolicyVersion
+  )
+    throw finalizationFailure("projection_verification_policy_required");
+  if (
+    hasModelConfirmation &&
+    !parseReviewRunRuntimeSnapshot(
+      input.authorization.runtimeSnapshotCanonicalJson,
+    )?.lifecycleVerificationCapability
+  )
+    throw finalizationFailure("projection_verification_capability_required");
 }
 
 function readProviderVoteLanes(
@@ -2160,9 +2778,11 @@ function executionProviderTask(
   return {
     providerKind: provider as unknown as ReviewProviderKind,
     taskKind:
-      task === ExecutionTaskKind.FindingDiscovery
-        ? ReviewTaskKind.CodeReview
-        : ReviewTaskKind.FindingRevalidation,
+      task === ExecutionTaskKind.PrDescription
+        ? ReviewTaskKind.PrDescription
+        : task === ExecutionTaskKind.FindingDiscovery
+          ? ReviewTaskKind.CodeReview
+          : ReviewTaskKind.FindingRevalidation,
   };
 }
 
@@ -2174,6 +2794,8 @@ function evidenceProvider(provider: EvidenceProviderKind): ReviewProviderKind {
       return ReviewProviderKind.ClaudeCode;
     case EvidenceProviderKind.OpenRouter:
       return ReviewProviderKind.OpenRouter;
+    case EvidenceProviderKind.Ocr:
+      return ReviewProviderKind.Ocr;
     case EvidenceProviderKind.Unknown:
       throw new Error("review_action_v2_evidence_provider_unknown");
   }
@@ -2185,6 +2807,8 @@ function evidenceTask(task: EvidenceTaskKind): ReviewTaskKind {
       return ReviewTaskKind.CodeReview;
     case EvidenceTaskKind.LifecycleRevalidation:
       return ReviewTaskKind.FindingRevalidation;
+    case EvidenceTaskKind.PrDescription:
+      throw new Error("review_action_v2_auxiliary_task_is_not_evidence");
     case EvidenceTaskKind.Unknown:
       throw new Error("review_action_v2_evidence_task_unknown");
   }
@@ -2200,6 +2824,8 @@ function executionEvidenceProvider(
       return EvidenceProviderKind.ClaudeCode;
     case ReviewExecutionProviderKind.OpenRouter:
       return EvidenceProviderKind.OpenRouter;
+    case ReviewExecutionProviderKind.Ocr:
+      return EvidenceProviderKind.Ocr;
   }
 }
 
@@ -2209,6 +2835,8 @@ function executionEvidenceTask(task: ExecutionTaskKind): EvidenceTaskKind {
       return EvidenceTaskKind.FindingDiscovery;
     case ExecutionTaskKind.LifecycleRevalidation:
       return EvidenceTaskKind.LifecycleRevalidation;
+    case ExecutionTaskKind.PrDescription:
+      return EvidenceTaskKind.PrDescription;
   }
 }
 
@@ -2320,6 +2948,23 @@ function requiredEnv(
   return value;
 }
 
+function readMaxAuthorizationLifetimeMs(
+  env: Readonly<Record<string, string | undefined>>,
+): number {
+  const raw = env.REVIEW_ROUTER_REVIEW_V2_MAX_AUTHORIZATION_LIFETIME_MS;
+  if (raw === undefined) return productionTiming.maxAuthorizationLifetimeMs;
+  const value = Number(raw);
+  if (
+    !/^[0-9]+$/.test(raw) ||
+    !Number.isSafeInteger(value) ||
+    value < 1 ||
+    value > productionTiming.maxAuthorizationLifetimeMs
+  ) {
+    throw new Error("review_action_v2_max_authorization_lifetime_invalid");
+  }
+  return value;
+}
+
 function parseJsonArray(value: string, errorCode: string): unknown[] {
   try {
     const parsed: unknown = JSON.parse(value);
@@ -2377,42 +3022,6 @@ function isSha256(value: unknown): value is string {
   return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 }
 
-const trustedProducerReleaseMaterializationLimits: ReviewProtocolLimits =
-  Object.freeze({
-    maxWorkSlots: 200,
-    maxAttemptsPerSlot: 4,
-    maxObservationBytes: 1_000_000,
-    maxObservationFindings: 1_000,
-    maxProjectionBytes: 2_000_000,
-    maxProjectionFindings: 2_000,
-    maxPublicationOperations: 500,
-    maxPublicationChunks: 500,
-    maxPublicationBodyBytes: 2_000_000,
-    maxRequestBatchSize: 100,
-    maxLeaseDurationMs: 600_000,
-    maxResultReportDurationMs: 1_200_000,
-    maxReconciliationDurationMs: 3_600_000,
-  });
-
-const trustedProducerReleaseMaterializationThresholds: ReviewOperationalSloThresholds =
-  Object.freeze({
-    integrationEventDeliveryMs: 60_000,
-    outboxClaimAgeMs: 120_000,
-    missingCompletionProcessMs: 300_000,
-    dueCompletionProcessMs: 300_000,
-    publicationReconciliationMs: 600_000,
-    v1DrainMs: 3_600_000,
-    admissionMs: 30_000,
-    pruningBacklogAgeMs: 86_400_000,
-  });
-
-const trustedProducerReleaseMaterializationOwnerRefs = [
-  "team-reviewrouter",
-] as const;
-const trustedProducerReleaseMaterializationRunbookRefs = [
-  "docs/operations/review-action-v2-cutover.md",
-] as const;
-
 const executionTiming: ReviewActionV2ExecutionTimingPolicy = Object.freeze({
   admissionDurationMs: 30_000,
   executionDurationMs: 6 * 60 * 60 * 1_000,
@@ -2429,3 +3038,5 @@ const productionTiming = Object.freeze({
 });
 
 const zeroHash = "0".repeat(64);
+import { ProductionReviewSkillsSnapshot } from "./review-run-skills-snapshot";
+import { createReviewRunSkillsReader } from "./review-run-skills";

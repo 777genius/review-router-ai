@@ -23,8 +23,13 @@ import {
 } from "../../application/use-cases/exchange-github-oidc-token.js";
 import {
   preleaseCodexRotatingOAuth,
+  PreleaseVerifiedClaimsValidationError,
   type PreleaseCodexRotatingOAuthDependencies,
 } from "../../application/use-cases/prelease-codex-rotating-oauth.js";
+import {
+  projectPreleaseErrorDiagnostic,
+  type PreleaseFailureStage,
+} from "./prelease-error-diagnostic.js";
 import {
   finalizeCodexRotatingOAuthLease,
   type FinalizeCodexRotatingOAuthLeaseDependencies,
@@ -125,6 +130,7 @@ export type RegisterActionControlPlaneRoutesDependencies =
 
 const exchangeBodySchema = z
   .object({
+    usagePublicKey: z.string().min(32).max(2048).optional(),
     oidcToken: z.string().min(1),
     audience: z.string().min(1).optional(),
     conflictDispatch: actionConflictReviewDispatchPayloadSchema.optional(),
@@ -133,6 +139,7 @@ const exchangeBodySchema = z
 
 const codexRotatingPreleaseBodySchema = z
   .object({
+    usagePublicKey: z.string().min(32).max(2048).optional(),
     oidcToken: z.string().min(1),
     audience: z.string().min(1).optional(),
     providerInstanceId: z.string().min(8).max(160),
@@ -248,6 +255,42 @@ const conflictPostingStatusBodySchema = z
   })
   .strict();
 
+// Optional telemetry stays outside the legacy strict exchange/prelease JSON body.
+function usageRegistrationPublicKey(
+  header: unknown,
+  bodyKey: string | undefined,
+): string | undefined {
+  if (header === undefined) return bodyKey;
+  const encoded = z
+    .string()
+    .min(43)
+    .max(2731)
+    .regex(/^[A-Za-z0-9_-]+$/)
+    .parse(header);
+  const bytes = Buffer.from(encoded, "base64url");
+  const key = z
+    .string()
+    .min(32)
+    .max(2048)
+    .regex(
+      /^-----BEGIN PUBLIC KEY-----\n[A-Za-z0-9+/=\n]+-----END PUBLIC KEY-----\n?$/,
+    )
+    .parse(bytes.toString("utf8"));
+  if (
+    bytes.toString("base64url") !== encoded ||
+    (bodyKey !== undefined && bodyKey !== key)
+  ) {
+    throw new z.ZodError([
+      {
+        code: "custom",
+        path: ["usagePublicKey"],
+        message: "Invalid or conflicting usage registration key",
+      },
+    ]);
+  }
+  return key;
+}
+
 type ActionErrorFormat = "legacy" | "v1";
 
 export async function registerActionControlPlaneRoutes(
@@ -267,6 +310,10 @@ export async function registerActionControlPlaneRoutes(
       }
       try {
         const body = exchangeBodySchema.parse(request.body);
+        const usagePublicKey = usageRegistrationPublicKey(
+          request.headers["x-reviewrouter-usage-public-key"],
+          body.usagePublicKey,
+        );
         const audience = resolveServerOwnedOidcAudience(
           body.audience,
           dependencies.oidcAudience,
@@ -275,6 +322,7 @@ export async function registerActionControlPlaneRoutes(
           {
             oidcToken: body.oidcToken,
             audience,
+            ...(usagePublicKey ? { usagePublicKey } : {}),
             ...(body.conflictDispatch
               ? { conflictDispatchPayload: body.conflictDispatch }
               : {}),
@@ -317,8 +365,14 @@ export async function registerActionControlPlaneRoutes(
           errorFormat,
         );
       }
+      let stage: PreleaseFailureStage = "request_body_validation";
       try {
         const body = codexRotatingPreleaseBodySchema.parse(request.body);
+        const usagePublicKey = usageRegistrationPublicKey(
+          request.headers["x-reviewrouter-usage-public-key"],
+          body.usagePublicKey,
+        );
+        stage = "use_case_rejection";
         const audience = resolveServerOwnedOidcAudience(
           body.audience,
           dependencies.oidcAudience,
@@ -329,12 +383,36 @@ export async function registerActionControlPlaneRoutes(
             audience,
             providerInstanceId: body.providerInstanceId,
             workflowSchemaVersion: body.workflowSchemaVersion,
+            ...(usagePublicKey ? { usagePublicKey } : {}),
           },
           dependencies as PreleaseCodexRotatingOAuthDependencies,
         );
         return reply.send(result);
       } catch (error) {
-        return sendActionError(reply, error, errorFormat);
+        let failure = error;
+        if (error instanceof PreleaseVerifiedClaimsValidationError) {
+          stage = "verified_claim_validation";
+          failure = error.validationError;
+        }
+        try {
+          request.log.warn(
+            projectPreleaseErrorDiagnostic(
+              stage,
+              failure,
+              failure instanceof z.ZodError
+                ? "invalid_action_request"
+                : safeActionErrorCode(
+                    failure instanceof Error
+                      ? failure.message
+                      : "unknown_error",
+                  ),
+            ),
+            "Codex OAuth prelease rejected",
+          );
+        } catch {
+          // Observation must not change the existing rejection response.
+        }
+        return sendActionError(reply, failure, errorFormat);
       }
     };
 
@@ -1090,6 +1168,13 @@ function sendActionErrorCode(
 
 function statusCodeForActionError(message: string): number {
   if (
+    [
+      "review_policy_resave_required",
+      "review_provider_selection_required",
+    ].includes(message)
+  )
+    return 409;
+  if (
     message.includes("codex_rotating_new_work_admission_closed") ||
     message.includes("codex_rotating_new_work_cohort_required")
   ) {
@@ -1170,7 +1255,6 @@ function statusCodeForActionError(message: string): number {
     message.includes("workflow_ref_not_allowed") ||
     message.startsWith("legacy_review_mutation_blocked:") ||
     message.includes("codex_rotating_not_enabled") ||
-    message.includes("codex_legacy_auth_requires_reconnect") ||
     message.includes("codex_provider_requires_rotating_workflow") ||
     message.includes("entitlement_denied") ||
     message.includes("mismatch")
@@ -1200,6 +1284,13 @@ function statusCodeForActionError(message: string): number {
 }
 
 function safeActionErrorCode(message: string): string {
+  if (
+    [
+      "review_policy_resave_required",
+      "review_provider_selection_required",
+    ].includes(message)
+  )
+    return message;
   if (message.includes("codex_rotating_new_work_admission_closed")) {
     return "codex_rotating_new_work_admission_closed";
   }
@@ -1291,9 +1382,6 @@ function safeActionErrorCode(message: string): string {
   if (message.includes("codex_rotating_not_enabled")) {
     return "codex_rotating_not_enabled";
   }
-  if (message.includes("codex_legacy_auth_requires_reconnect")) {
-    return "codex_legacy_auth_requires_reconnect";
-  }
   if (message.includes("codex_provider_requires_rotating_workflow")) {
     return "codex_provider_requires_rotating_workflow";
   }
@@ -1346,6 +1434,10 @@ function safeActionErrorCode(message: string): string {
 
 function safeActionErrorMessage(code: string): string {
   switch (code) {
+    case "review_policy_resave_required":
+      return "Saved review policy uses a retired or unreadable format. Review and save it explicitly before running reviews.";
+    case "review_provider_selection_required":
+      return "Choose a review provider for this repository or a workspace default before running reviews.";
     case "action_control_plane_disabled":
       return "ReviewRouter action control plane is temporarily disabled.";
     case "legacy_review_mutation_blocked":
@@ -1374,8 +1466,6 @@ function safeActionErrorMessage(code: string): string {
       return "Another Codex OAuth run is still active for this repository.";
     case "codex_rotating_not_enabled":
       return "Codex OAuth rotating is not enabled for this repository.";
-    case "codex_legacy_auth_requires_reconnect":
-      return "Legacy Codex OAuth is disabled. Reconnect Codex from the ReviewRouter dashboard.";
     case "codex_provider_requires_rotating_workflow":
       return "Codex now requires the rotating ReviewRouter Codex workflow. Reconnect Codex from the dashboard.";
     case "unknown_auth_state":

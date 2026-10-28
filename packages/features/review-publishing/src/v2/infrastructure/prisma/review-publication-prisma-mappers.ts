@@ -262,6 +262,8 @@ export function toDbPublicationKind(
   value: ReviewPublicationKind,
 ): DbPublicationKind {
   switch (value) {
+    case ReviewPublicationKind.PrDescription:
+      return DbPublicationKind.pr_description;
     case ReviewPublicationKind.Summary:
       return DbPublicationKind.summary;
     case ReviewPublicationKind.ManagedCheck:
@@ -415,6 +417,8 @@ function toDomainPublicationKind(
   value: DbPublicationKind,
 ): ReviewPublicationKind {
   switch (value) {
+    case DbPublicationKind.pr_description:
+      return ReviewPublicationKind.PrDescription;
     case DbPublicationKind.summary:
       return ReviewPublicationKind.Summary;
     case DbPublicationKind.managed_check:

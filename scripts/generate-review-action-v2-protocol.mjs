@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { format } from "prettier";
+import { reviewActionCompanionContractsSource } from "./lib/review-action-companion-contracts.mjs";
 import {
   assembleReviewActionV2Contract,
   createPublishedProtocolArtifacts,
@@ -48,6 +49,12 @@ export async function generateReviewActionV2Protocol(input = {}) {
     publishedContract,
     published,
   );
+  if (sources.contextToolsContract !== undefined) {
+    manifest.contextToolsProfile = {
+      extensionId: sources.contextToolsContract.extensionId,
+      descriptorDigest: `sha256:${sha256(canonicalJson(sources.contextToolsContract))}`,
+    };
+  }
   const generatedIndex = await format(generatedIndexSource(), {
     parser: "typescript",
   });
@@ -90,7 +97,160 @@ export async function generateReviewActionV2Protocol(input = {}) {
   const generatedManifest = await format(prettyJson(manifest), {
     parser: "json",
   });
+  const usageSource = await readFile(
+    join(
+      repositoryRoot,
+      "packages/features/provider-usage/src/domain/usage.ts",
+    ),
+    "utf8",
+  );
+  const wireBoundary = usageSource.indexOf("export interface UsageProjection");
+  if (wireBoundary < 0) throw new Error("usage_wire_boundary_missing");
   const files = new Map([
+    [
+      "generated/review-skills-contract.ts",
+      await format(
+        "// Generated from shared/src/review-skills-contract.ts. Do not edit.\n" +
+          (await readFile(
+            join(
+              repositoryRoot,
+              "packages/shared/src/review-skills-contract.ts",
+            ),
+            "utf8",
+          )),
+        { parser: "typescript" },
+      ),
+    ],
+    [
+      "generated/review-action-v2-legacy.ts",
+      await readFile(
+        join(
+          repositoryRoot,
+          "scripts/lib/review-action-v2-legacy-slot.ts.source",
+        ),
+        "utf8",
+      ),
+    ],
+    [
+      "generated/review-action-v2-pinned171.ts",
+      await readFile(
+        join(
+          repositoryRoot,
+          "scripts/lib/review-action-v2-pinned171-slot.ts.source",
+        ),
+        "utf8",
+      ),
+    ],
+    [
+      "generated/usage-v1.ts",
+      await format(
+        "// Generated from provider-usage/domain/usage.ts. Do not edit.\n" +
+          usageSource
+            .slice(0, wireBoundary)
+            .replace('"./usage-price"', '"./usage-price-v1.js"'),
+        { parser: "typescript" },
+      ),
+    ],
+    [
+      "generated/usage-price-v1.ts",
+      await format(
+        "// Generated from provider-usage/domain/usage-price.ts. Do not edit.\n" +
+          (await readFile(
+            join(
+              repositoryRoot,
+              "packages/features/provider-usage/src/domain/usage-price.ts",
+            ),
+            "utf8",
+          )),
+        { parser: "typescript" },
+      ),
+    ],
+    [
+      "generated/fixtures/context-tools-v1.json",
+      await format(
+        await readFile(
+          join(
+            repositoryRoot,
+            "packages/features/review-context-tools/src/tests/fixtures/context-tools-v1.json",
+          ),
+          "utf8",
+        ),
+        { parser: "json" },
+      ),
+    ],
+    [
+      "generated/companion-contracts.ts",
+      await format(await reviewActionCompanionContractsSource(repositoryRoot), {
+        parser: "typescript",
+      }),
+    ],
+    [
+      "generated/review-agent-profile.ts",
+      await format(
+        "// Generated from shared/src/review-agent-profile.ts. Do not edit.\n" +
+          (await readFile(
+            join(repositoryRoot, "packages/shared/src/review-agent-profile.ts"),
+            "utf8",
+          )),
+        { parser: "typescript" },
+      ),
+    ],
+    [
+      "generated/usage-producer-v1.ts",
+      await format(
+        "// Generated from codex-oauth-rotating/action/provider-usage-delivery.ts. Do not edit.\n" +
+          (
+            await readFile(
+              join(
+                repositoryRoot,
+                "packages/features/codex-oauth-rotating/src/action/provider-usage-delivery.ts",
+              ),
+              "utf8",
+            )
+          )
+            .replaceAll(
+              "'@reviewrouter/protocol-review-action-v2'",
+              "'./usage-v1.js'",
+            )
+            .replaceAll(
+              '"@reviewrouter/protocol-review-action-v2"',
+              '"./usage-v1.js"',
+            ),
+        { parser: "typescript" },
+      ),
+    ],
+    [
+      "generated/usage-responses-v1.ts",
+      await format(
+        "// Generated from codex-oauth-rotating/action/provider-usage-responses.ts. Do not edit.\n" +
+          (
+            await readFile(
+              join(
+                repositoryRoot,
+                "packages/features/codex-oauth-rotating/src/action/provider-usage-responses.ts",
+              ),
+              "utf8",
+            )
+          )
+            .replaceAll(
+              "'@reviewrouter/protocol-review-action-v2'",
+              "'./usage-v1.js'",
+            )
+            .replaceAll(
+              '"@reviewrouter/protocol-review-action-v2"',
+              '"./usage-v1.js"',
+            )
+            .replaceAll(
+              "'./provider-usage-delivery.js'",
+              "'./usage-producer-v1.js'",
+            )
+            .replaceAll(
+              '"./provider-usage-delivery.js"',
+              '"./usage-producer-v1.js"',
+            ),
+        { parser: "typescript" },
+      ),
+    ],
     ["index.ts", generatedIndex],
     ["generated/review-action-v2-negotiation.ts", generatedContract],
     ["generated/review-action-v2-negotiation.schema.json", generatedSchema],
@@ -123,6 +283,12 @@ export async function generateReviewActionV2Protocol(input = {}) {
     files.set(
       `generated/fixtures/${canonicalizerId.replaceAll("_", "-")}.golden.json`,
       await format(prettyJson(goldenFixture), { parser: "json" }),
+    );
+  }
+  for (const entry of published.auxiliaryCanonicalizers) {
+    files.set(
+      `generated/fixtures/${entry.descriptor.canonicalizerId.replaceAll("_", "-")}.golden.json`,
+      await format(prettyJson(entry.fixture), { parser: "json" }),
     );
   }
   for (const operationDescriptor of publishedContract.operations) {
@@ -448,6 +614,9 @@ function createManifest(
         ],
       },
     ],
+    auxiliaryExtensions: published.auxiliaryCanonicalizers.map(
+      (entry) => entry.extension,
+    ),
     canonicalizerGoldenFixtureDigest:
       published.canonicalizerGoldenFixtureDigest,
     negotiationBridge: {
@@ -484,7 +653,7 @@ function createManifest(
 }
 
 function generatedIndexSource() {
-  return `// Generated by scripts/generate-review-action-v2-protocol.mjs. Do not edit.\nexport * from "./generated/review-action-v2-negotiation.js";\nexport * from "./generated/review-action-v2.js";\nexport * from "./generated/provider-invocation-manifest-v1.js";\n`;
+  return `// Generated by scripts/generate-review-action-v2-protocol.mjs. Do not edit.\nexport * from "./generated/review-action-v2-negotiation.js";\nexport * from "./generated/review-action-v2.js";\nexport * from "./generated/provider-invocation-manifest-v1.js";\nexport { normalizePrDescriptionInvocationManifestV1, canonicalizePrDescriptionInvocationManifestV1, serializePrDescriptionInvocationManifestV1CanonicalWireJson, prDescriptionInvocationManifestV1CanonicalizerDescriptor, prDescriptionExtensionV1 } from "./generated/pr-description-invocation-manifest-v1.js";\nexport * from "./generated/usage-v1.js";\nexport * as reviewActionV2LegacySlot from "./generated/review-action-v2-legacy.js";\nexport * from "./schema-slots.js";\n`;
 }
 
 function generatedContractSource(contract, operation, schemaDigest, fixture) {
@@ -768,7 +937,11 @@ export async function loadCompiledContractSources() {
     "../packages/features/review-snapshots/package.json",
     "@reviewrouter/features-review-snapshots/v2/contract-source",
   );
+  const companion = await importCompiledContractSourceFile(
+    "../packages/shared/src/review-action-companion-contracts.ts",
+  );
   return {
+    contextToolsContract: companion.contextToolsContract,
     negotiationContract: actionControlPlane.reviewActionV2NegotiationContract,
     transportContract: actionControlPlane.reviewActionV2TransportContract,
     publishedContracts: [

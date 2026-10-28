@@ -75,7 +75,7 @@ Render one-off creation sends only `startCommand` and optional compute
 `REVIEW_ROUTER_RUNNER_LEDGER_URL` is mandatory. Its bearer credentials are
 scoped by protected environment and visible only to the exact step using them.
 The service implements the endpoints consumed by
-`AuthenticatedRunnerLedgerAdapter` over SaaS migration
+`AuthenticatedRunnerLedgerAdapter` over control plane migration
 `000069_release_rollout_ledger`:
 
 - atomically claim a never-used rollout ID bound to commit, run, attempt, and

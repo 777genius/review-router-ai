@@ -1,0 +1,86 @@
+{
+  "qualifiedConsumer": {
+    "typescript": "6.0.3",
+    "module": "NodeNext",
+    "skipLibCheck": false
+  },
+  "artifacts": [
+    {
+      "name": "@get-modular/core",
+      "version": "0.2.0",
+      "integrity": "sha512-npn2dAR5TuVobDzuI7MRZS0p6/0qzTWbRbPo5y9EaDz4qFtBNF6+YBhU92QPwOkYzVjo9xAJtIgMkly7wlkdWw==",
+      "exports": {
+        ".": {
+          "import": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+          },
+          "default": "./dist/index.js"
+        }
+      }
+    },
+    {
+      "name": "@get-modular/assembly",
+      "version": "0.2.0",
+      "integrity": "sha512-xZTgfMUzHnA8DR7wk/3mAdLppTlwAsm6pfW5bgoW6lvGh8hYGBJwcwzbdynJduRVBVW7aFmchsrLTP5w4rcmlw==",
+      "exports": {
+        ".": {
+          "import": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+          },
+          "default": "./dist/index.js"
+        }
+      }
+    },
+    {
+      "name": "@agent-teams/engineering-foundation",
+      "version": "2.1.0",
+      "integrity": "sha512-cDj7ExxSm9hcQ1Wlvt4YOgcjNdzqFy0TePCMEmRokLQucQ/s6f8BUl5BGrDlGXtFTGnIy8nMl22nrI2JZNG6VA==",
+      "exports": {
+        ".": {
+          "types": "./dist/index.d.ts",
+          "import": "./dist/index.js"
+        },
+        "./local-mode": {
+          "types": "./dist/local-mode/index.d.ts",
+          "import": "./dist/local-mode/index.js"
+        },
+        "./scaffolding/qualification": {
+          "types": "./dist/scaffolding/qualification.d.ts",
+          "import": "./dist/scaffolding/qualification.js"
+        },
+        "./scaffolding": {
+          "types": "./dist/scaffolding/index.d.ts",
+          "import": "./dist/scaffolding/index.js"
+        },
+        "./ratchet": {
+          "types": "./dist/ratchet.d.ts",
+          "import": "./dist/ratchet.js"
+        },
+        "./source-graph": {
+          "types": "./dist/source-graph.d.ts",
+          "import": "./dist/source-graph.js"
+        },
+        "./sdk-growth-authority": {
+          "types": "./dist/sdk-growth-authority.d.ts",
+          "import": "./dist/sdk-growth-authority.js"
+        },
+        "./schemas/*": "./schemas/*",
+        "./presets/*": "./presets/*",
+        "./package.json": "./package.json"
+      }
+    }
+  ],
+  "foundationAdoption": {
+    "capability": "architecture.source-dependencies",
+    "profile": "architecture/foundation/provider-seams.yaml",
+    "schemaVersion": 1,
+    "v2Qualification": {
+      "outcome": "incompatible-with-scoped-adoption",
+      "errorCode": "WORKSPACE_PACKAGE_OUTSIDE_PACKAGE_ROOTS",
+      "firstOutsidePackage": "apps/api/package.json",
+      "reason": "v2 requires a closed complete pnpm workspace and governed sources for every selected package; v1 enforces the existing catalog boundary without repository-wide adoption. Future features extend the scope only when present."
+    }
+  }
+}

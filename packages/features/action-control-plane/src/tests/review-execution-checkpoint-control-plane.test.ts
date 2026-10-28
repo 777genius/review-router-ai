@@ -21,6 +21,26 @@ const firstWorkKey = "1".repeat(64);
 const secondWorkKey = "2".repeat(64);
 
 describe("Codex OAuth review execution checkpoint routes", () => {
+  it.each([
+    "review_policy_resave_required",
+    "review_provider_selection_required",
+  ])("maps %s to an actionable conflict", async (code) => {
+    const { app, access } = await buildRouteContext();
+    vi.mocked(
+      access.withAuthorizedReviewExecutionCheckpointAccess,
+    ).mockRejectedValueOnce(new Error(code));
+    try {
+      const response = await post(app, "restore", restoreBody());
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({
+        error: { code, retryable: false },
+      });
+      expect(response.json().error.message).toContain("review");
+    } finally {
+      await app.close();
+    }
+  });
+
   it("restores, starts, commits idempotently, finalizes, and clears", async () => {
     const context = await buildRouteContext();
     const { app, checkpoints } = context;

@@ -53,7 +53,7 @@ describe("resolveCodexRotatingSeedScriptDescriptor", () => {
     expect(() =>
       resolveCodexRotatingSeedScriptDescriptor({
         REVIEW_ROUTER_CODEX_ROTATING_INSTALLER_URL:
-          "https://reviewrouter.site/install/codex-rotating",
+          "https://reviewrouter.org/install/codex-rotating",
       } as unknown as NodeJS.ProcessEnv),
     ).toThrow("codex_rotating_installer_descriptor_incomplete");
   });
@@ -116,7 +116,7 @@ describe("resolveCodexRotatingSeedScriptDescriptor", () => {
   it("requires an independently issued URL and SHA-256 for hosted bytes", () => {
     expect(() =>
       resolveCodexRotatingSeedScriptDescriptor({
-        REVIEW_ROUTER_WEB_URL: "https://reviewrouter.site",
+        REVIEW_ROUTER_WEB_URL: "https://reviewrouter.org",
         REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF:
           "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
         NODE_ENV: "production",
@@ -136,10 +136,10 @@ describe("resolveCodexRotatingSeedScriptDescriptor", () => {
   });
 
   it.each([
-    "http://reviewrouter.site/installer.sh",
-    "ftp://reviewrouter.site/installer.sh",
-    "https://user@reviewrouter.site/installer.sh",
-    "https://reviewrouter.site/installer.sh#mutable",
+    "http://reviewrouter.org/installer.sh",
+    "ftp://reviewrouter.org/installer.sh",
+    "https://user@reviewrouter.org/installer.sh",
+    "https://reviewrouter.org/installer.sh#mutable",
     "malformed",
   ])("rejects an unsafe explicit installer URL: %s", (url) => {
     expect(() =>
@@ -200,9 +200,9 @@ describe("resolveCodexRotatingSeedScriptDescriptor", () => {
     expect(
       resolveCodexRotatingPublicWebUrl({
         NODE_ENV: "production",
-        REVIEW_ROUTER_WEB_URL: "https://reviewrouter.site/",
+        REVIEW_ROUTER_WEB_URL: "https://reviewrouter.org/",
       } as unknown as NodeJS.ProcessEnv),
-    ).toBe("https://reviewrouter.site");
+    ).toBe("https://reviewrouter.org");
   });
 
   it("rejects unsafe production setup callback URLs", () => {
@@ -228,7 +228,7 @@ describe("resolveCodexRotatingSeedScriptDescriptor", () => {
   });
 
   it.each([
-    "https://reviewrouter.site",
+    "https://reviewrouter.org",
     "http://localhost:43123",
     "http://127.0.0.1:43123",
     "http://setup.localhost:43123",
@@ -252,12 +252,12 @@ describe("resolveCodexRotatingSeedScriptDescriptor", () => {
     "rejects a cross-origin %s ledger endpoint",
     (endpoint) => {
       const urls = {
-        manifest: "https://reviewrouter.site/api/codex-rotating/setup-manifest",
-        prepare: "https://reviewrouter.site/api/codex-rotating/setup-prepare",
-        dispatch: "https://reviewrouter.site/api/codex-rotating/setup-dispatch",
+        manifest: "https://reviewrouter.org/api/codex-rotating/setup-manifest",
+        prepare: "https://reviewrouter.org/api/codex-rotating/setup-prepare",
+        dispatch: "https://reviewrouter.org/api/codex-rotating/setup-dispatch",
         dispatchOutcome:
-          "https://reviewrouter.site/api/codex-rotating/setup-dispatch-outcome",
-        status: "https://reviewrouter.site/api/codex-rotating/setup-status",
+          "https://reviewrouter.org/api/codex-rotating/setup-dispatch-outcome",
+        status: "https://reviewrouter.org/api/codex-rotating/setup-status",
       };
       urls[endpoint] = `https://attacker.invalid/${endpoint}`;
 
@@ -272,11 +272,11 @@ describe("resolveCodexRotatingSeedScriptDescriptor", () => {
 
   it("rejects non-loopback HTTP ledger URLs", () => {
     const result = validateInstallerLedgerUrls({
-      manifest: "http://reviewrouter.site/setup-manifest",
-      prepare: "http://reviewrouter.site/setup-prepare",
-      dispatch: "http://reviewrouter.site/setup-dispatch",
-      dispatchOutcome: "http://reviewrouter.site/setup-dispatch-outcome",
-      status: "http://reviewrouter.site/setup-status",
+      manifest: "http://reviewrouter.org/setup-manifest",
+      prepare: "http://reviewrouter.org/setup-prepare",
+      dispatch: "http://reviewrouter.org/setup-dispatch",
+      dispatchOutcome: "http://reviewrouter.org/setup-dispatch-outcome",
+      status: "http://reviewrouter.org/setup-status",
     });
 
     expect(result.status).not.toBe(0);
@@ -1712,7 +1712,7 @@ function createRotatingInstallerFixture(
   const installerSha256 = createHash("sha256")
     .update(readFileSync(scriptPath))
     .digest("hex");
-  const installerUrl = "https://reviewrouter.site/install/codex-rotating";
+  const installerUrl = "https://reviewrouter.org/install/codex-rotating";
   const installerVersion = "test";
   const manifestBase64 = Buffer.from(
     JSON.stringify({

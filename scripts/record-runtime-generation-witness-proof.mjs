@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createPrismaClient } from "@reviewrouter/platform-db";
+import { createPrismaClient } from "../packages/platform/db/dist/index.js";
 import { verifyRuntimeGenerationWitness } from "./verify-runtime-generation-witness.mjs";
 
 const required = (name) => {
@@ -21,7 +21,7 @@ export async function recordRuntimeGenerationWitnessProof(env = process.env) {
     throw new Error("runtime_generation_proof_identity_invalid");
   const prisma = createPrismaClient({ databaseUrl: required("DATABASE_URL") });
   try {
-    await prisma.$queryRawUnsafe(
+    await prisma.$executeRawUnsafe(
       "SELECT public.reviewrouter_record_runtime_generation_witness_proof($1,$2,$3,$4)",
       rolloutId,
       runtimeRole,

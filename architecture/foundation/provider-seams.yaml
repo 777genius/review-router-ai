@@ -1,0 +1,610 @@
+schemaVersion: 1
+workspace:
+  kind: pnpm
+  manifest: pnpm-workspace.yaml
+governedRoots:
+  - packages/features/review-statistics/src
+  - packages/features/review-providers/src
+  - packages/features/provider-usage/src
+  - packages/features/review-skills/src/domain
+  - packages/features/review-skills/src/application
+  # Adopt only the new limits seam; existing account/lifecycle code stays outside this scope.
+  - packages/features/provider-accounts/src/account-limits
+  - packages/features/memory/src
+boundaries:
+  - id: account-limits.domain
+    roots:
+      - packages/features/provider-accounts/src/account-limits/domain/account-limits.ts
+    entrypoints:
+      - packages/features/provider-accounts/src/account-limits/domain/account-limits.ts
+    allow:
+      boundaries: []
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: account-limits.application
+    roots:
+      - packages/features/provider-accounts/src/account-limits/application/ports/account-limits-reader.ts
+      - packages/features/provider-accounts/src/account-limits/application/use-cases/read-account-limits.ts
+    entrypoints:
+      - packages/features/provider-accounts/src/account-limits/application/ports/account-limits-reader.ts
+      - packages/features/provider-accounts/src/account-limits/application/use-cases/read-account-limits.ts
+    allow:
+      boundaries:
+        - account-limits.domain
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: account-limits.infrastructure
+    roots:
+      - packages/features/provider-accounts/src/account-limits/infrastructure/gateway/gateway-account-limits-reader.ts
+    entrypoints:
+      - packages/features/provider-accounts/src/account-limits/infrastructure/gateway/gateway-account-limits-reader.ts
+    allow:
+      boundaries:
+        - account-limits.domain
+        - account-limits.application
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: account-limits.composition
+    roots:
+      - packages/features/provider-accounts/src/account-limits/composition.ts
+    entrypoints:
+      - packages/features/provider-accounts/src/account-limits/composition.ts
+    allow:
+      boundaries:
+        - account-limits.application
+      packages:
+        - "@get-modular/core"
+        - "@get-modular/assembly"
+      builtins: []
+      runtimeReferences: []
+  - id: account-limits.tests
+    roots:
+      - packages/features/provider-accounts/src/account-limits/domain/account-limits.test.ts
+      - packages/features/provider-accounts/src/account-limits/infrastructure/gateway/gateway-account-limits-reader.test.ts
+      - packages/features/provider-accounts/src/account-limits/composition.test.ts
+    entrypoints: []
+    allow:
+      boundaries:
+        - account-limits.domain
+        - account-limits.application
+        - account-limits.infrastructure
+        - account-limits.composition
+      packages:
+        - vitest
+      builtins: []
+      runtimeReferences: []
+    dependencyMode: development
+  - id: catalog.domain
+    roots:
+      - packages/features/review-providers/src/domain
+    entrypoints:
+      - packages/features/review-providers/src/domain/provider-catalog.ts
+      - packages/features/review-providers/src/domain/provider-model-catalog.ts
+      - packages/features/review-providers/src/domain/provider-models.ts
+      - packages/features/review-providers/src/domain/provider-runtime-plan.ts
+    allow:
+      boundaries: []
+      packages:
+        - zod
+      builtins: []
+      runtimeReferences: []
+  - id: catalog.application
+    roots:
+      - packages/features/review-providers/src/application
+    entrypoints:
+      - packages/features/review-providers/src/application/ports/provider-model-catalog-port.ts
+      - packages/features/review-providers/src/application/use-cases/list-review-model-options.ts
+    allow:
+      boundaries:
+        - catalog.domain
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: catalog.infrastructure
+    roots:
+      - packages/features/review-providers/src/infrastructure/catalog/public-model-catalog.ts
+      - packages/features/review-providers/src/infrastructure/openrouter/openrouter-model-catalog.ts
+    entrypoints:
+      - packages/features/review-providers/src/infrastructure/catalog/public-model-catalog.ts
+      - packages/features/review-providers/src/infrastructure/openrouter/openrouter-model-catalog.ts
+    allow:
+      boundaries:
+        - catalog.domain
+        - catalog.application
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  # Adapt the shared wire descriptors at the protocol boundary; the catalog's
+  # domain and application layers retain no shared-package dependency.
+  - id: catalog.protocol
+    roots:
+      - packages/features/review-providers/src/infrastructure/protocol/api-key-providers.ts
+    entrypoints:
+      - packages/features/review-providers/src/infrastructure/protocol/api-key-providers.ts
+    allow:
+      boundaries:
+        - catalog.domain
+      packages:
+        - "@reviewrouter/shared"
+      builtins: []
+      runtimeReferences: []
+  - id: catalog.composition
+    roots:
+      - packages/features/review-providers/src/composition/index.ts
+    entrypoints:
+      - packages/features/review-providers/src/composition/index.ts
+    allow:
+      boundaries:
+        - catalog.domain
+        - catalog.application
+        - catalog.infrastructure
+      packages:
+        - "@get-modular/core"
+        - "@get-modular/assembly"
+      builtins: []
+      runtimeReferences: []
+  - id: catalog.public
+    roots:
+      - packages/features/review-providers/src/index.ts
+    entrypoints:
+      - packages/features/review-providers/src/index.ts
+    allow:
+      boundaries:
+        - catalog.domain
+        - catalog.application
+        - catalog.infrastructure
+        - catalog.protocol
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: catalog.tests
+    roots:
+      - packages/features/review-providers/src/tests
+      - packages/features/review-providers/src/composition/index.test.ts
+      - packages/features/review-providers/src/infrastructure/catalog/public-model-catalog.test.ts
+      - packages/features/review-providers/src/infrastructure/openrouter/openrouter-model-catalog.test.ts
+    entrypoints: []
+    allow:
+      boundaries:
+        - catalog.domain
+        - catalog.application
+        - catalog.infrastructure
+        - catalog.composition
+        - catalog.public
+      packages:
+        - vitest
+      builtins: []
+      runtimeReferences: []
+    dependencyMode: development
+  - id: usage.domain
+    roots:
+      - packages/features/provider-usage/src/domain
+    entrypoints:
+      - packages/features/provider-usage/src/domain/estimate-usage-cost.ts
+      - packages/features/provider-usage/src/domain/usage-price.ts
+      - packages/features/provider-usage/src/domain/usage.ts
+    allow:
+      boundaries: []
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: usage.application
+    roots:
+      - packages/features/provider-usage/src/application
+    entrypoints:
+      - packages/features/provider-usage/src/application/ingest-usage.ts
+      - packages/features/provider-usage/src/application/operator-report.ts
+      - packages/features/provider-usage/src/application/ports.ts
+      - packages/features/provider-usage/src/application/report-usage.ts
+      - packages/features/provider-usage/src/application/redrive-usage-source.ts
+    allow:
+      boundaries:
+        - usage.domain
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: usage.infrastructure
+    roots:
+      - packages/features/provider-usage/src/infrastructure/prisma-operator-usage-report-reader.ts
+      - packages/features/provider-usage/src/infrastructure/prisma-usage-reconciliation.ts
+      - packages/features/provider-usage/src/infrastructure/prisma-usage-source-redrive.ts
+      - packages/features/provider-usage/src/infrastructure/prisma-usage-store.ts
+      - packages/features/provider-usage/src/infrastructure/public-model-price-snapshot.ts
+    entrypoints:
+      - packages/features/provider-usage/src/infrastructure/prisma-operator-usage-report-reader.ts
+      - packages/features/provider-usage/src/infrastructure/prisma-usage-reconciliation.ts
+      - packages/features/provider-usage/src/infrastructure/prisma-usage-source-redrive.ts
+      - packages/features/provider-usage/src/infrastructure/prisma-usage-store.ts
+      - packages/features/provider-usage/src/infrastructure/public-model-price-snapshot.ts
+    allow:
+      boundaries:
+        - usage.domain
+        - usage.application
+      packages:
+        - "@prisma/client"
+      builtins:
+        - node:crypto
+      runtimeReferences: []
+  - id: usage.composition
+    roots:
+      - packages/features/provider-usage/src/composition/index.ts
+    entrypoints:
+      - packages/features/provider-usage/src/composition/index.ts
+    allow:
+      boundaries:
+        - usage.domain
+        - usage.application
+        - usage.infrastructure
+      packages:
+        - "@get-modular/core"
+        - "@get-modular/assembly"
+      builtins: []
+      runtimeReferences: []
+  - id: usage.public
+    roots:
+      - packages/features/provider-usage/src/index.ts
+    entrypoints:
+      - packages/features/provider-usage/src/index.ts
+    allow:
+      boundaries:
+        - usage.domain
+        - usage.application
+        - usage.infrastructure
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: usage.tests
+    roots:
+      - packages/features/provider-usage/src/tests
+      - packages/features/provider-usage/src/infrastructure/public-model-price-snapshot.test.ts
+    entrypoints: []
+    allow:
+      boundaries:
+        - usage.domain
+        - usage.application
+        - usage.infrastructure
+        - usage.composition
+        - usage.public
+      packages:
+        - vitest
+        - "@prisma/client"
+        - "@prisma/adapter-pg"
+        - "@reviewrouter/platform-db"
+        - pg
+      builtins:
+        - node:crypto
+        - node:assert/strict
+        - node:child_process
+        - node:fs
+        - node:os
+        - node:path
+      runtimeReferences: []
+    dependencyMode: development
+  - id: review-skills.domain
+    roots:
+      - packages/features/review-skills/src/domain
+    entrypoints:
+      - packages/features/review-skills/src/domain/errors.ts
+      - packages/features/review-skills/src/domain/author-policy.ts
+    allow:
+      boundaries: []
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: review-skills.application
+    roots:
+      - packages/features/review-skills/src/application
+    entrypoints:
+      - packages/features/review-skills/src/application/contracts.ts
+      - packages/features/review-skills/src/application/create-review-skills-service.ts
+    allow:
+      boundaries:
+        - review-skills.domain
+      packages:
+        - "@reviewrouter/shared"
+      builtins: []
+      runtimeReferences: []
+  - id: memory.domain
+    roots:
+      - "packages/features/memory/src/domain"
+    entrypoints:
+      - "packages/features/memory/src/domain/memory-actor.ts"
+      - "packages/features/memory/src/domain/memory-body.ts"
+      - "packages/features/memory/src/domain/memory-bundle-policy.ts"
+      - "packages/features/memory/src/domain/memory-knowledge.ts"
+      - "packages/features/memory/src/domain/memory-safety-policy.ts"
+      - "packages/features/memory/src/domain/memory-scope-policy.ts"
+    allow:
+      boundaries: []
+      packages:
+        - "@reviewrouter/shared"
+      builtins:
+        - "node:crypto"
+      runtimeReferences: []
+  - id: memory.application
+    roots:
+      - "packages/features/memory/src/application"
+    entrypoints:
+      - "packages/features/memory/src/application/memory-cleanup-policy.ts"
+      - "packages/features/memory/src/application/ports/memory-cleanup-proof-port.ts"
+      - "packages/features/memory/src/application/ports/memory-knowledge-access-port.ts"
+      - "packages/features/memory/src/application/ports/memory-knowledge-provider-port.ts"
+      - "packages/features/memory/src/application/ports/memory-knowledge-store-port.ts"
+      - "packages/features/memory/src/application/ports/memory-permission-port.ts"
+      - "packages/features/memory/src/application/ports/memory-policy-config-port.ts"
+      - "packages/features/memory/src/application/ports/memory-quota-policy-port.ts"
+      - "packages/features/memory/src/application/ports/memory-usage-event-retention-port.ts"
+      - "packages/features/memory/src/application/use-cases/memory-knowledge-service.ts"
+      - "packages/features/memory/src/application/use-cases/prune-memory-usage-events.ts"
+    allow:
+      boundaries:
+        - "memory.domain"
+      packages:
+        - "@reviewrouter/shared"
+      builtins:
+        - "node:buffer"
+        - "node:crypto"
+      runtimeReferences: []
+  - id: memory.config
+    roots:
+      - "packages/features/memory/src/infrastructure/config/memory-operator-config.ts"
+      - "packages/features/memory/src/infrastructure/config/memory-provider-config.ts"
+      - "packages/features/memory/src/infrastructure/config/memory-service-flag.ts"
+    entrypoints:
+      - "packages/features/memory/src/infrastructure/config/memory-operator-config.ts"
+      - "packages/features/memory/src/infrastructure/config/memory-provider-config.ts"
+      - "packages/features/memory/src/infrastructure/config/memory-service-flag.ts"
+    allow:
+      boundaries: []
+      packages: []
+      builtins:
+        - "node:crypto"
+      runtimeReferences: []
+  - id: memory.infrastructure
+    roots:
+      - "packages/features/memory/src/infrastructure/entitlements/entitlement-memory-policy-config.ts"
+      - "packages/features/memory/src/infrastructure/entitlements/entitlement-memory-quota-policy.ts"
+      - "packages/features/memory/src/infrastructure/prisma/approved-memory-source-applicable.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-access.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-store.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-permission.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-repository-maintainers.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-usage-event-repository.ts"
+    entrypoints:
+      - "packages/features/memory/src/infrastructure/entitlements/entitlement-memory-policy-config.ts"
+      - "packages/features/memory/src/infrastructure/entitlements/entitlement-memory-quota-policy.ts"
+      - "packages/features/memory/src/infrastructure/prisma/approved-memory-source-applicable.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-access.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-store.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-permission.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-repository-maintainers.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-usage-event-repository.ts"
+    allow:
+      boundaries:
+        - "memory.domain"
+        - "memory.application"
+        - "memory.config"
+      packages:
+        - "@prisma/client"
+        - "@reviewrouter/features-entitlements"
+        - "@reviewrouter/features-outbox"
+      builtins:
+        - "node:crypto"
+      runtimeReferences: []
+  - id: memory.hindsight
+    roots:
+      - "packages/features/memory/src/infrastructure/hindsight"
+    entrypoints:
+      - "packages/features/memory/src/infrastructure/hindsight/hindsight-cleanup-proof-adapter.ts"
+      - "packages/features/memory/src/infrastructure/hindsight/hindsight-cleanup-receipt.ts"
+      - "packages/features/memory/src/infrastructure/hindsight/hindsight-memory-provider.ts"
+      - "packages/features/memory/src/infrastructure/hindsight/hindsight-scope.ts"
+    allow:
+      boundaries:
+        - "memory.domain"
+        - "memory.application"
+        - "memory.config"
+      packages:
+        - "@vectorize-io/hindsight-client"
+      builtins:
+        - "node:crypto"
+      runtimeReferences: []
+  - id: memory.composition
+    roots:
+      - "packages/features/memory/src/composition/index.ts"
+      - "packages/features/memory/src/composition/memory-knowledge-runtime.ts"
+    entrypoints:
+      - "packages/features/memory/src/composition/index.ts"
+      - "packages/features/memory/src/composition/memory-knowledge-runtime.ts"
+    allow:
+      boundaries:
+        - "memory.domain"
+        - "memory.application"
+        - "memory.config"
+        - "memory.infrastructure"
+        - "memory.hindsight"
+      packages:
+        - "@get-modular/core"
+        - "@get-modular/assembly"
+        - "@prisma/client"
+        - "@reviewrouter/features-entitlements"
+      builtins: []
+      runtimeReferences: []
+  - id: memory.public
+    roots:
+      - "packages/features/memory/src/index.ts"
+    entrypoints:
+      - "packages/features/memory/src/index.ts"
+    allow:
+      boundaries:
+        - "memory.domain"
+        - "memory.application"
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: memory.infrastructure-public
+    roots:
+      - "packages/features/memory/src/infrastructure/index.ts"
+    entrypoints:
+      - "packages/features/memory/src/infrastructure/index.ts"
+    allow:
+      boundaries:
+        - "memory.config"
+        - "memory.infrastructure"
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: memory.tests
+    roots:
+      - "packages/features/memory/src/tests"
+      - "packages/features/memory/src/composition/memory-knowledge-runtime.test.ts"
+      - "packages/features/memory/src/infrastructure/prisma/approved-memory-source-applicable.test.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-access.test.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-permission.test.ts"
+    entrypoints: []
+    allow:
+      boundaries:
+        - "memory.domain"
+        - "memory.application"
+        - "memory.config"
+        - "memory.infrastructure"
+        - "memory.infrastructure-public"
+        - "memory.hindsight"
+        - "memory.composition"
+        - "memory.public"
+      packages:
+        - "vitest"
+        - "@prisma/client"
+        - "@prisma/adapter-pg"
+        - "@reviewrouter/features-entitlements"
+        - "@reviewrouter/features-outbox"
+        - "@reviewrouter/platform-db"
+        - "@reviewrouter/shared"
+        - "pg"
+      builtins:
+        - "node:assert/strict"
+        - "node:buffer"
+        - "node:crypto"
+        - "node:fs"
+        - "node:fs/promises"
+        - "node:http"
+        - "node:net"
+        - "node:os"
+        - "node:path"
+        - "node:url"
+      runtimeReferences: []
+    dependencyMode: development
+  - id: statistics.domain
+    roots:
+      - packages/features/review-statistics/src/domain
+    entrypoints:
+      - packages/features/review-statistics/src/domain/statistics.ts
+      - packages/features/review-statistics/src/domain/statistics-policy.ts
+    allow:
+      boundaries: []
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: statistics.application
+    roots:
+      - packages/features/review-statistics/src/application
+    entrypoints:
+      - packages/features/review-statistics/src/application/ports.ts
+    allow:
+      boundaries:
+        - "statistics.domain"
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: statistics.infrastructure
+    roots:
+      - packages/features/review-statistics/src/infrastructure
+    entrypoints:
+      - packages/features/review-statistics/src/infrastructure/prisma-statistics-reader.ts
+      - packages/features/review-statistics/src/infrastructure/prisma-statistics-projector.ts
+      - packages/features/review-statistics/src/infrastructure/prisma-statistics-outbox.ts
+      - packages/features/review-statistics/src/infrastructure/statistics-hash.ts
+    allow:
+      boundaries:
+        - "statistics.domain"
+        - "statistics.application"
+      packages:
+        - "@prisma/client"
+      builtins:
+        - "node:crypto"
+        - "node:buffer"
+      runtimeReferences: []
+  - id: statistics.composition
+    roots:
+      - packages/features/review-statistics/src/composition/index.ts
+    entrypoints:
+      - packages/features/review-statistics/src/composition/index.ts
+    allow:
+      boundaries:
+        - "statistics.domain"
+        - "statistics.application"
+        - "statistics.infrastructure"
+      packages:
+        - "@get-modular/core"
+        - "@get-modular/assembly"
+        - "@prisma/client"
+      builtins: []
+      runtimeReferences: []
+  - id: statistics.public
+    roots:
+      - packages/features/review-statistics/src/index.ts
+    entrypoints:
+      - packages/features/review-statistics/src/index.ts
+    allow:
+      boundaries:
+        - "statistics.domain"
+        - "statistics.application"
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: statistics.tests
+    roots:
+      - packages/features/review-statistics/src/tests
+      - packages/features/review-statistics/src/composition/index.test.ts
+    entrypoints: []
+    allow:
+      boundaries:
+        - "statistics.domain"
+        - "statistics.application"
+        - "statistics.infrastructure"
+        - "statistics.composition"
+        - "statistics.public"
+        - "statistics.testing"
+      packages:
+        - "vitest"
+        - "@prisma/client"
+        - "@prisma/adapter-pg"
+        - "@reviewrouter/platform-db"
+        - "@get-modular/core"
+        - "@get-modular/assembly"
+        - "pg"
+      builtins:
+        - "node:crypto"
+        - "node:buffer"
+        - "node:assert/strict"
+        - "node:fs"
+        - "node:fs/promises"
+        - "node:perf_hooks"
+        - "node:path"
+        - "node:url"
+      runtimeReferences: []
+    dependencyMode: development
+  - id: statistics.testing
+    roots:
+      - packages/features/review-statistics/src/testing
+    entrypoints:
+      - packages/features/review-statistics/src/testing/index.ts
+    allow:
+      boundaries:
+        - statistics.domain
+      packages: []
+      builtins: []
+      runtimeReferences: []

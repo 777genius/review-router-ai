@@ -16,10 +16,21 @@ reviewrouter config get --repo OWNER/REPOSITORY
 reviewrouter config set --repo OWNER/REPOSITORY --effort xhigh
 ```
 
+## Dashboard > Other
+
+**Review draft pull requests** controls App-first automatic reviews for every
+repository in the selected workspace. It is enabled by default for existing and
+new workspaces, with no repository exceptions or overrides. Workspace owners and
+admins can change the checkbox and save the setting.
+
+Queued reviews check the latest setting before dispatch, so disabling it also
+stops queued draft reviews. Reviews that are already running continue.
+
 ## GitHub workflow controls
 
-For generated GitHub workflows, repository variables control draft review,
-timeout and PR size without another setup PR:
+Older and client-triggered GitHub workflows use repository variables to control
+draft review, timeout and PR size without another setup PR. These draft controls
+are separate from the current App-first workspace setting above:
 
 ```bash
 gh variable set REVIEW_ROUTER_REVIEW_DRAFTS --repo OWNER/REPOSITORY --body true

@@ -1,0 +1,31 @@
+{
+  "builtinTools": ["github.issue.read"],
+  "limits": {
+    "callTimeoutMs": 30000,
+    "maxCalls": 128,
+    "responseBytes": 1048576,
+    "startupTimeoutMs": 30000
+  },
+  "planDigest": "sha256:61487e815d7dae008206c9b76b360f1d2d05218b3ee8681dd094f7378869f5eb",
+  "servers": [
+    {
+      "credentials": {
+        "CONTEXT7_KEY": {
+          "credentialRef": "context7",
+          "source": "dashboard-secret",
+          "version": 2
+        },
+        "DOCS_TOKEN": { "name": "DOCS_MCP_TOKEN", "source": "github-secret" }
+      },
+      "headers": {
+        "Api-Key": "{{ secrets.CONTEXT7_KEY }}",
+        "Authorization": "Bearer ${{ secrets.DOCS_TOKEN }}"
+      },
+      "id": "context7",
+      "tools": ["resolve-library-id", "query-docs"],
+      "url": "https://mcp.context7.com/mcp",
+      "version": 2
+    }
+  ],
+  "version": 1
+}

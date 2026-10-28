@@ -8,13 +8,24 @@
       "types": "./src/index.ts",
       "production": "./dist/index.js",
       "default": "./src/index.ts"
+    },
+    "./composition": {
+      "types": "./src/composition/index.ts",
+      "production": "./dist/composition/index.js",
+      "default": "./src/composition/index.ts"
     }
   },
   "dependencies": {
-    "zod": "^4.4.2"
+    "@reviewrouter/shared": "workspace:*",
+    "zod": "^4.4.2",
+    "@get-modular/core": "0.7.0",
+    "@get-modular/assembly": "0.7.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "build": "node ../../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",
+    "typecheck": "node ../../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "vitest": "4.1.10"
   }
 }

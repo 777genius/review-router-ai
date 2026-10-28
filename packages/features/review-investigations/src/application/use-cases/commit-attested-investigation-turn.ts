@@ -545,7 +545,9 @@ function assertEvidenceReferences(
   kind: string,
 ): void {
   if (receiptIds.some((receiptId) => !evidence.has(receiptId))) {
-    throw new Error(`investigation_${kind}_evidence_invalid`);
+    throw new ReviewInvestigationDomainError(
+      `investigation_${kind}_evidence_invalid`,
+    );
   }
 }
 
@@ -568,7 +570,9 @@ async function assertFindingEvidenceBindings(
       isCompleteFileReadGroup,
     );
     if (completeGroups.length === 0) {
-      throw new Error("investigation_finding_evidence_path_invalid");
+      throw new ReviewInvestigationDomainError(
+        "investigation_finding_evidence_path_invalid",
+      );
     }
     const findingLine = finding.line;
     if (
@@ -583,7 +587,9 @@ async function assertFindingEvidenceBindings(
           ) && findingLine <= group[0]!.lineCount!,
       )
     ) {
-      throw new Error("investigation_finding_evidence_line_invalid");
+      throw new ReviewInvestigationDomainError(
+        "investigation_finding_evidence_line_invalid",
+      );
     }
   }
 }

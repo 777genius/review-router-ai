@@ -1,4 +1,7 @@
+import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import type { AuditLogRepositoryPort } from "@reviewrouter/features-audit-log";
+import type { ReviewConfigurationRepositoryPort } from "@reviewrouter/features-review-config";
+import type { ReviewRouterMcpSecrets } from "@reviewrouter/protocol-review-workflow";
 import type {
   ReviewRouterDiscussionMode,
   ReviewRouterWorkflowStyle,
@@ -24,6 +27,9 @@ export type ProvisionRepositoryReviewRouterWorkflowInput = {
   readonly actionRef: string;
   readonly apiUrl: string;
   readonly runtimeConfigMode: "oidc" | "static";
+  readonly codexSessionMode?: "account-gateway";
+  readonly mcpSecrets?: ReviewRouterMcpSecrets;
+  readonly providerApiAuthMode?: ProviderApiAuthMode;
   readonly staticRuntimeEnv?: Readonly<Record<string, string>>;
   readonly workflowStyle?: ReviewRouterWorkflowStyle;
   readonly discussionMode?: ReviewRouterDiscussionMode;
@@ -39,12 +45,15 @@ export type ProvisionRepositoryReviewRouterWorkflowInput = {
 export async function provisionRepositoryReviewRouterWorkflow(
   input: ProvisionRepositoryReviewRouterWorkflowInput,
   dependencies: {
+    readonly secretsRuntimeActionRef?: string;
     readonly targets: WorkflowProvisioningTargetPort;
     readonly setupGateway: WorkflowSetupGatewayPort;
     readonly provisioning: WorkflowProvisioningRepositoryPort;
     readonly auditLog?: AuditLogRepositoryPort;
     readonly enabled?: boolean;
     readonly auditMetadata?: Readonly<Record<string, unknown>>;
+    readonly configurations?: ReviewConfigurationRepositoryPort;
+    readonly trustedGithubRepositoryId?: string;
   },
 ) {
   const target =
@@ -91,6 +100,15 @@ export async function provisionRepositoryReviewRouterWorkflow(
       actionRef: input.actionRef,
       apiUrl: input.apiUrl,
       runtimeConfigMode: input.runtimeConfigMode,
+      ...(input.providerApiAuthMode
+        ? { providerApiAuthMode: input.providerApiAuthMode }
+        : {}),
+      ...(input.codexSessionMode
+        ? { codexSessionMode: input.codexSessionMode }
+        : {}),
+      ...(input.mcpSecrets !== undefined
+        ? { mcpSecrets: input.mcpSecrets }
+        : {}),
       ...(input.workflowPath ? { workflowPath: input.workflowPath } : {}),
       ...(input.workflowStyle ? { workflowStyle: input.workflowStyle } : {}),
       ...(input.discussionMode ? { discussionMode: input.discussionMode } : {}),
@@ -141,8 +159,17 @@ export async function provisionRepositoryReviewRouterWorkflow(
         : {}),
     },
     {
+      ...(dependencies.secretsRuntimeActionRef
+        ? { secretsRuntimeActionRef: dependencies.secretsRuntimeActionRef }
+        : {}),
       setupGateway: dependencies.setupGateway,
       provisioning: dependencies.provisioning,
+      ...(dependencies.configurations
+        ? { configurations: dependencies.configurations }
+        : {}),
+      ...(dependencies.trustedGithubRepositoryId
+        ? { trustedGithubRepositoryId: dependencies.trustedGithubRepositoryId }
+        : {}),
       ...(dependencies.auditLog ? { auditLog: dependencies.auditLog } : {}),
       ...(dependencies.enabled === undefined
         ? {}

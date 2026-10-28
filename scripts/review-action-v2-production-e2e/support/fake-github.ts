@@ -34,6 +34,7 @@ export class FakeGitHubTransport {
   readonly checkRuns: StoredCheckRun[] = [];
   revision: FakeGitHubRevision;
   sourceRunId: string;
+  sourceRunAttempt = "1";
   failNextCommentAfterWrite = false;
   private nextExternalId = 10_000;
 
@@ -43,6 +44,7 @@ export class FakeGitHubTransport {
       repo: string;
       pullRequestNumber: number;
       sourceRunId: string;
+      repositoryId: string;
       installationId: string;
       appSlug: string;
       oidcKeyId: string;
@@ -125,12 +127,27 @@ export class FakeGitHubTransport {
     }
 
     const repositoryPrefix = `/repos/${this.options.owner}/${this.options.repo}`;
+    const attemptPrefix = `${repositoryPrefix}/actions/runs/${this.sourceRunId}/attempts/`;
+    const attempt = url.pathname.startsWith(attemptPrefix)
+      ? url.pathname.slice(attemptPrefix.length)
+      : null;
+    if (method === "GET" && attempt !== null && /^[1-9][0-9]*$/.test(attempt)) {
+      return json(200, {
+        id: Number(this.sourceRunId),
+        repository: { id: Number(this.options.repositoryId) },
+        run_attempt: Number(attempt),
+        pull_requests: [{ number: this.options.pullRequestNumber }],
+      });
+    }
+
     if (
       method === "GET" &&
       url.pathname === `${repositoryPrefix}/actions/runs/${this.sourceRunId}`
     ) {
       return json(200, {
         id: Number(this.sourceRunId),
+        repository: { id: Number(this.options.repositoryId) },
+        run_attempt: Number(this.sourceRunAttempt),
         pull_requests: [{ number: this.options.pullRequestNumber }],
       });
     }

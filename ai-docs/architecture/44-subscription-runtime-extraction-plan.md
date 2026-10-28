@@ -65,7 +65,7 @@ The v1 should support:
 The first extraction must preserve the existing ReviewRouter production
 behavior:
 
-- ReviewRouter SaaS does not receive plaintext Codex `auth.json`
+- ReviewRouter does not receive plaintext Codex `auth.json`
 - GitHub-hosted runner refreshes the session
 - refreshed session is written back as encrypted GitHub Secret payload
 - workflow receives only minimal permissions
@@ -81,7 +81,7 @@ These are intentionally out of scope for v1:
 - promising that every subscription provider supports CI automation
 - making backend-custody the default path
 - creating a browser automation login system inside CI
-- storing user sessions in ReviewRouter SaaS by default
+- storing user sessions in ReviewRouter by default
 - replacing ReviewRouter's review-thread lifecycle
 - supporting every runner/OS/container matrix in the first release
 - supporting reusable GitHub workflows before direct workflow source binding is
@@ -301,14 +301,14 @@ throw away.
 
 Current package ownership:
 
-| Package / area                                              | Keep or change                                                     | Why                                                                                                                                                                                                         |
-| ----------------------------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/subscription-runtime/core`                        | **Keep and harden**                                                | This is already the right home for leases, session envelopes, generation hashes, writeback coordination, redaction, and provider-neutral orchestration.                                                     |
-| `packages/subscription-runtime/provider-codex`              | **Keep current refresh path, add new execution engines beside it** | `CodexCliSessionDriver.refreshSession` is the production refresh/writeback baseline. Future SDK/JSON/app-server task engines must reuse this session path unless they prove an equivalent refresh contract. |
-| `packages/subscription-runtime/runner-github-action`        | **Keep as GitHub Actions process boundary**                        | This isolates child process execution and env policy for GitHub-hosted jobs. Add stricter environment policy here or in provider adapters; do not spread `spawn` calls back into feature code.              |
-| `packages/subscription-runtime/store-github-actions-secret` | **Keep as no-custody store adapter**                               | This remains the ReviewRouter SaaS-safe writeback path. It may prepare encrypted payloads and metadata, but must never send plaintext credentials to the backend.                                           |
-| `packages/subscription-runtime/store-local-file`            | **Keep for local/dev/backend-custody adapters**                    | Useful for local certification and future backend worker deployments. It is not the default for ReviewRouter SaaS no-custody CI.                                                                            |
-| `packages/features/codex-oauth-rotating` action code        | **Keep as host-app compatibility wrapper**                         | ReviewRouter still owns OIDC checks, workflow inputs, PR review formatting, inline comments, fail gates, and SaaS control-plane calls. Do not move these product concerns into the generic package.         |
+| Package / area                                              | Keep or change                                                     | Why                                                                                                                                                                                                          |
+| ----------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `packages/subscription-runtime/core`                        | **Keep and harden**                                                | This is already the right home for leases, session envelopes, generation hashes, writeback coordination, redaction, and provider-neutral orchestration.                                                      |
+| `packages/subscription-runtime/provider-codex`              | **Keep current refresh path, add new execution engines beside it** | `CodexCliSessionDriver.refreshSession` is the production refresh/writeback baseline. Future SDK/JSON/app-server task engines must reuse this session path unless they prove an equivalent refresh contract.  |
+| `packages/subscription-runtime/runner-github-action`        | **Keep as GitHub Actions process boundary**                        | This isolates child process execution and env policy for GitHub-hosted jobs. Add stricter environment policy here or in provider adapters; do not spread `spawn` calls back into feature code.               |
+| `packages/subscription-runtime/store-github-actions-secret` | **Keep as no-custody store adapter**                               | This remains the ReviewRouter-safe writeback path. It may prepare encrypted payloads and metadata, but must never send plaintext credentials to the backend.                                                 |
+| `packages/subscription-runtime/store-local-file`            | **Keep for local/dev/backend-custody adapters**                    | Useful for local certification and future backend worker deployments. It is not the default for ReviewRouter no-custody CI.                                                                                  |
+| `packages/features/codex-oauth-rotating` action code        | **Keep as host-app compatibility wrapper**                         | ReviewRouter still owns OIDC checks, workflow inputs, PR review formatting, inline comments, fail gates, and control plane control-plane calls. Do not move these product concerns into the generic package. |
 
 Concrete migration sequence from the current code:
 
@@ -388,7 +388,7 @@ Approx changes: 5000-10000 LOC
 The library orchestrates provider session refresh and execution, but storage is
 chosen by the host app. The default production adapter remains no-custody:
 GitHub Actions reads an existing secret, refreshes on runner, and writes back
-only through a storage adapter that never exposes plaintext to the SaaS.
+only through a storage adapter that never exposes plaintext to the control plane.
 
 Pros:
 
@@ -396,7 +396,7 @@ Pros:
 - future providers can be added with new drivers
 - storage remains flexible
 - easiest path from current code
-- SaaS users can still avoid API billing when provider subscriptions allow it
+- control plane users can still avoid API billing when provider subscriptions allow it
 
 Cons:
 
@@ -438,11 +438,11 @@ Approx changes: 6000-14000 LOC
 ```
 
 The customer runs a local/VPS daemon that keeps sessions on their own machine.
-The SaaS sends jobs; the daemon performs refresh and provider execution.
+The control plane sends jobs; the daemon performs refresh and provider execution.
 
 Pros:
 
-- no SaaS custody
+- no control plane custody
 - works outside GitHub Actions
 - long-lived local sessions possible
 
@@ -1140,7 +1140,7 @@ Does not own:
 - where session is stored
 - whether a PR is allowed
 - how results are posted
-- SaaS permission UX
+- control plane permission UX
 
 ### Storage Adapter Context
 
@@ -1593,12 +1593,12 @@ second provider.
 
 | Perspective          | Main risk                                                                                        | Required plan response                                                                                  |
 | -------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| Security/custody     | Plaintext session leaks into SaaS, logs, job payloads, crash dumps, or debug artifacts           | custody mode is explicit; redaction canary; no-custody store rejects plaintext; temp dirs are cleaned   |
+| Security/custody     | Plaintext session leaks into control plane, logs, job payloads, crash dumps, or debug artifacts  | custody mode is explicit; redaction canary; no-custody store rejects plaintext; temp dirs are cleaned   |
 | Provider semantics   | Codex refresh rules get treated as universal OAuth rules                                         | provider-owned session drivers; `RuntimeExecutionPlan`; fake Claude-like provider tests                 |
 | Credential selection | Host env silently changes provider auth source                                                   | provider-owned env policy; denied env stripped before spawn; selected source recorded as safe metadata  |
 | Runtime/process      | Provider child process hangs, leaks env, leaves orphan children, or outputs malformed JSON       | runner process group cleanup; bounded stdout/stderr; malformed output classification                    |
 | Product/UX           | User sees generic reconnect/error copy and cannot understand what action is needed               | failure taxonomy maps to host-owned actionable copy; setup/runtime states are separate                  |
-| Operations/release   | Core, adapter, action SHA, and SaaS env drift during rollout                                     | release gates include version matrix, action artifact check, rollback flag, and production canary       |
+| Operations/release   | Core, adapter, action SHA, and control plane env drift during rollout                            | release gates include version matrix, action artifact check, rollback flag, and production canary       |
 | Performance/cost     | Worker concurrency worsens account limits or uses a provider-specific credit bucket unexpectedly | provider-account limiter; cost/usage category metadata; provider docs certification                     |
 | Developer API        | Host apps have to adopt our queue, storage, or ReviewRouter concepts                             | queue/store/runner are ports; host app chooses adapters; examples include no-session and static-session |
 | Legal/terms          | Subscription automation may be allowed for one provider path but not another                     | adapter certification includes terms/compatibility check before shipping                                |
@@ -3114,7 +3114,7 @@ They should be called out in code review and certification.
 | `--json` vs `--experimental-json` ambiguity        | A flag rename can silently break execution                                                   | Capability-probe the pinned binary during certification; production command builder uses only the certified flag set                 |
 | Global binary drift                                | Local or container `codex` can be older than the package                                     | Resolve from exact `@openai/codex` package path; log only version metadata; fail startup on mismatch                                 |
 | Worker cache leaks state                           | A one-shot task can accidentally inherit history or stale auth                               | Cache only `CODEX_HOME` auth/config; never reuse thread ids for one-shot jobs; key by provider instance id plus generation hash      |
-| No-custody vs backend-custody confusion            | ReviewRouter must not read plaintext provider secrets on SaaS                                | Materializer mode is selected by runtime policy; `worker-cache` is rejected when `requireNoBackendPlaintext` is true                 |
+| No-custody vs backend-custody confusion            | ReviewRouter must not read plaintext provider secrets on control plane                       | Materializer mode is selected by runtime policy; `worker-cache` is rejected when `requireNoBackendPlaintext` is true                 |
 | Concurrent refresh races                           | Two workers can refresh the same account and overwrite newer secret material                 | Use account lease plus generation precondition; writeback is idempotent; stale generation invalidates local cache                    |
 | Refresh during active task                         | A task can run with an artifact that was superseded mid-run                                  | Task uses the artifact returned by its own refresh step; later writeback generation does not mutate the running process              |
 | Account rate limits                                | More workers can make latency worse or trigger provider lockouts                             | Add provider-account concurrency limiter, 429/quota classifier, retry budget, and p95/429 metrics                                    |
@@ -3378,9 +3378,9 @@ one explicitly.
 | Mode                   | Plaintext session visible to backend | Typical store                             | Typical runner           | Default? |
 | ---------------------- | -----------------------------------: | ----------------------------------------- | ------------------------ | -------: |
 | `no-plaintext-backend` |                                   No | GitHub Actions Secret encrypted writeback | GitHub-hosted Action     |      Yes |
-| `local-only`           |                      No SaaS backend | local encrypted file                      | local daemon/process     |       No |
+| `local-only`           |             No control plane backend | local encrypted file                      | local daemon/process     |       No |
 | `backend-custody`      |                                  Yes | Postgres/KMS                              | backend worker/container |       No |
-| `split-custody`        |                   Depends on adapter | customer vault + SaaS lease               | remote runner            |    Later |
+| `split-custody`        |                   Depends on adapter | customer vault + control plane lease      | remote runner            |    Later |
 
 Policy example:
 
@@ -3747,7 +3747,7 @@ const store = new GitHubActionsSecretStore({
   secretName: "REVIEWROUTER_CODEX_AUTH_JSON",
   runnerSecretReader: new GitHubActionInputSecretReader(),
   encryptedWriteback: new ReviewRouterEncryptedWritebackClient({
-    apiUrl: "https://api.reviewrouter.site",
+    apiUrl: "https://api.reviewrouter.org",
   }),
   publicKeyProvider: new GitHubRepositoryPublicKeyProvider(),
 });
@@ -3982,7 +3982,7 @@ Generic pieces should move to subscription runtime:
 
 ### ReviewRouter No-Custody HTTP Boundary
 
-ReviewRouter SaaS remains a coordination/control plane in no-custody mode. It
+ReviewRouter remains a coordination/control plane in no-custody mode. It
 must not receive provider plaintext. The boundary should be explicit enough
 that another host app can copy the pattern.
 
@@ -4343,7 +4343,7 @@ Each provider must implement:
 
 These invariants should be encoded as tests and runtime assertions.
 
-1. **No plaintext in SaaS no-custody mode.**
+1. **No plaintext in control plane no-custody mode.**
    In `no-plaintext-backend`, no backend route, queue message, database row, log,
    error, or metric can contain plaintext session bytes or token fields.
 
@@ -4632,7 +4632,7 @@ Required controls:
 - actionable error codes
 - idempotent rerun
 - setup status refresh button
-- rollout order: action release, SaaS env, deploy, then customer workflow update
+- rollout order: action release, control plane env, deploy, then customer workflow update
 
 ### Multi-Tenant Boundaries
 
@@ -5092,7 +5092,7 @@ Actions:
 
 Symptoms:
 
-- action SHA changed before SaaS env changed
+- action SHA changed before control plane env changed
 - workflow uses old action ref
 - OIDC claims do not match expected action owner/repo/SHA
 
@@ -5142,7 +5142,7 @@ Actions:
 ### Configuration DSL
 
 The public API should support direct construction for tests and a typed config
-DSL for host apps that want declarative wiring. The DSL is useful for SaaS
+DSL for host apps that want declarative wiring. The DSL is useful for control plane
 products because it can be validated at boot and shown in diagnostics.
 
 Example:
@@ -5751,7 +5751,7 @@ V1 extraction is complete when:
 - Codex convenience adapter can still expose `SubscriptionProviderDriver`
 - GitHub Secret writeback is implemented as store adapter
 - existing AgentTeams E2E passes with subscription runtime path
-- no plaintext provider session reaches ReviewRouter SaaS in no-custody mode
+- no plaintext provider session reaches ReviewRouter in no-custody mode
 - tests prove stale generation and idempotent replay handling
 - docs explain custody modes clearly
 - future provider can be added by implementing session/agent drivers and tests

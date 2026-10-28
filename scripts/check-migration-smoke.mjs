@@ -1,13 +1,29 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import dotenv from "dotenv";
-import { sanitizedDiagnosticError } from "../packages/features/release-rollout/src/domain/sanitized-diagnostic.js";
+import {
+  isSanitizedDiagnosticError,
+  sanitizedDiagnosticError,
+} from "../packages/features/release-rollout/src/domain/sanitized-diagnostic.js";
 import {
   createDatabaseCredentialBoundary,
   runSecretSafePostgresCommand,
 } from "./lib/secret-safe-command-boundary.mjs";
+import {
+  disposableBefore87HandoffSql,
+  disposableFreshDatabasePreflightSql,
+  disposableFullChainVerificationSql,
+  writeDisposableMigrationCatalog,
+} from "./self-hosted-e2e/disposable-release-role-fixture.mjs";
 
 if (existsSync(".env.local")) {
   dotenv.config({ path: ".env.local", override: false });
@@ -16,9 +32,10 @@ if (existsSync(".env")) {
   dotenv.config({ path: ".env", override: false });
 }
 
+class MigrationSmokeFailure extends Error {}
+
 const fail = (message) => {
-  console.error(`ERROR: ${message}`);
-  process.exit(1);
+  throw new MigrationSmokeFailure(message);
 };
 
 const requireCommand = (command) => {
@@ -62,7 +79,12 @@ const quoteIdentifier = (identifier) => {
 const baseUrlValue = process.env.DATABASE_URL;
 if (!baseUrlValue) fail("DATABASE_URL is required for migration smoke test");
 
-const baseUrl = new URL(baseUrlValue);
+let baseUrl;
+try {
+  baseUrl = new URL(baseUrlValue);
+} catch {
+  fail("DATABASE_URL is invalid for migration smoke test");
+}
 const sourceDbName = decodeURIComponent(baseUrl.pathname.replace(/^\//, ""));
 if (!sourceDbName) fail("DATABASE_URL must include a database name");
 
@@ -130,15 +152,75 @@ const prismaRoot = resolve("packages/platform/db/prisma");
 const dispatchMigrationName = "000034_review_request_dispatch_reconciliation";
 let created = false;
 let rollbackCreated = false;
+let catalogDirectory;
+let failure;
 try {
   console.log("Creating migration smoke database...");
   psql(`CREATE DATABASE ${quoteIdentifier(smokeDbName)}`);
   created = true;
 
+  // The release pair is cluster-wide. A new database created after CI provisions
+  // it must make the same guarded owner handoff as the ordinary test database.
+  const releaseRoleCount = Number(
+    psql(
+      "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname IN ('reviewrouter_release_schema_owner', 'reviewrouter_release_migration')",
+      adminUrl.toString(),
+      ["-At"],
+    ).stdout.trim(),
+  );
+  if (releaseRoleCount !== 0 && releaseRoleCount !== 2) {
+    fail("migration_smoke_release_role_catalog_incomplete");
+  }
+
+  if (releaseRoleCount === 2) {
+    console.log(
+      "Applying Prisma migrations through the release owner handoff...",
+    );
+    psql(disposableFreshDatabasePreflightSql, smokeUrl.toString());
+    catalogDirectory = mkdtempSync(
+      join(tmpdir(), "rr-migration-smoke-catalog-"),
+    );
+    const catalogConfig = writeDisposableMigrationCatalog(
+      "before87",
+      catalogDirectory,
+    );
+    const catalogRoot = dirname(catalogConfig);
+    const credentialConfig = join(catalogRoot, "smoke.config.mjs");
+    writeFileSync(
+      credentialConfig,
+      `import { readFileSync } from "node:fs";
+export default {
+  schema: ${JSON.stringify(join(catalogRoot, "prisma/schema.prisma"))},
+  migrations: { path: ${JSON.stringify(join(catalogRoot, "prisma/migrations"))} },
+  datasource: { url: readFileSync(process.env.REVIEW_ROUTER_DATABASE_URL_FILE, "utf8").trim() },
+};
+`,
+      { mode: 0o600, flag: "wx" },
+    );
+    run(
+      "pnpm",
+      [
+        "--filter",
+        "@reviewrouter/platform-db",
+        "exec",
+        "prisma",
+        "migrate",
+        "deploy",
+        "--config",
+        credentialConfig,
+      ],
+      { env: smokeCredential.environment },
+    );
+    psql(disposableBefore87HandoffSql, smokeUrl.toString());
+  }
+
   console.log("Applying Prisma migrations to fresh database...");
   run("pnpm", ["--filter", "@reviewrouter/platform-db", "db:migrate:deploy"], {
     env: smokeCredential.environment,
   });
+  if (releaseRoleCount === 2) {
+    psql(disposableFullChainVerificationSql, smokeUrl.toString());
+  }
 
   console.log("Verifying migrated schema invariants...");
   const invariantSql = `
@@ -280,10 +362,12 @@ try {
   `;
   const result = psql(invariantSql, smokeUrl.toString(), ["-At"]);
   const output = result.stdout.trim();
-  if (
-    output !==
-    "1|1|1|1|1|1|1|1|1|1|1|1|1|1|1|1|1|4|1|1|1|1|1|27|6|4|5|1|43|4|2|1|5|6|3|2|1|3|3|6|1|1|1|1|0"
-  ) {
+  // Migration 79 keeps the baseline guard on the dev path. The release-pair
+  // handoff replaces that guard with five owner-controlled operator routines.
+  const expectedInvariant =
+    "1|1|1|1|1|1|1|1|1|1|1|1|1|1|1|1|1|4|1|1|1|1|1|27|6|4|5|1|43|4|2|1|5|6|3|2|1|3|3|6|1|1|1|" +
+    (releaseRoleCount === 2 ? "0|5" : "1|0");
+  if (output !== expectedInvariant) {
     fail("Migrated schema invariants failed");
   }
 
@@ -365,8 +449,8 @@ try {
   ) {
     fail("Dispatch migration preflight did not roll back atomically");
   }
-
-  console.log("Migration smoke test passed.");
+} catch (error) {
+  failure = error;
 } finally {
   const databasesToDrop = [];
   if (rollbackCreated) databasesToDrop.push(rollbackDbName);
@@ -374,5 +458,31 @@ try {
     console.log("Dropping migration smoke database...");
     databasesToDrop.push(smokeDbName);
   }
-  cleanupResources(databasesToDrop, smokeCredential);
+  try {
+    cleanupResources(databasesToDrop, smokeCredential);
+  } catch (error) {
+    failure = error;
+  } finally {
+    if (catalogDirectory) {
+      try {
+        rmSync(catalogDirectory, { recursive: true, force: true });
+      } catch (error) {
+        failure = error;
+      }
+    }
+  }
+}
+if (failure) {
+  const safeMessage =
+    failure instanceof MigrationSmokeFailure ||
+    isSanitizedDiagnosticError(failure)
+      ? failure.message
+      : failure?.message === "migration_smoke_database_cleanup_failed" ||
+          failure?.message === "migration_smoke_cleanup_incomplete"
+        ? failure.message
+        : "migration_smoke_failed";
+  console.error(`ERROR: ${safeMessage}`);
+  process.exitCode = 1;
+} else {
+  console.log("Migration smoke test passed.");
 }

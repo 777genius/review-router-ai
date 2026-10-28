@@ -1,0 +1,46 @@
+{
+  "name": "@reviewrouter/features-provider-accounts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./gateway-probe": {
+      "types": "./src/gateway-probe.ts",
+      "production": "./dist/gateway-probe.js",
+      "default": "./src/gateway-probe.ts"
+    },
+    ".": {
+      "types": "./src/index.ts",
+      "production": "./dist/index.js",
+      "default": "./src/index.ts"
+    },
+    "./synchronization": {
+      "types": "./src/synchronization.ts",
+      "production": "./dist/synchronization.js",
+      "default": "./src/synchronization.ts"
+    },
+    "./composition": {
+      "types": "./src/composition.ts",
+      "production": "./dist/composition.js",
+      "default": "./src/composition.ts"
+    }
+  },
+  "dependencies": {
+    "@get-modular/core": "0.7.0",
+    "@get-modular/assembly": "0.7.0",
+    "@prisma/client": "7.8.0",
+    "@reviewrouter/features-auth": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "4.1.10",
+    "@prisma/adapter-pg": "7.8.0",
+    "@types/pg": "8.23.1",
+    "pg": "8.23.0"
+  },
+  "scripts": {
+    "build": "node ../../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",
+    "typecheck": "node ../../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json && node ../../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.tests.json",
+    "test": "node --import ./tests/register-source-loader.mjs --test tests/use-cases.test.mts tests/database-target.test.mts tests/fences.test.mts tests/binding-policy.test.mts tests/account-lifecycle.test.mts",
+    "test:postgres": "node --import tsx --import ./tests/register-source-loader.mjs --test tests/postgres.test.mts"
+  }
+}

@@ -31,7 +31,7 @@ describe("setup manifest repository identity locking", () => {
       repositoryFullName: "owner/repository",
       repositoryId: "123456",
       repositoryIdentityVersion: 6,
-      installerUrl: "https://reviewrouter.site/installer.sh",
+      installerUrl: "https://reviewrouter.org/installer.sh",
       installerVersion: "v1",
       installerSha256: "a".repeat(64),
       now: new Date("2999-01-01T00:00:00.000Z"),
@@ -256,12 +256,12 @@ describe("ordinary setup recovery-witness admission", () => {
       repositoryDefaultBranch: "main",
       githubRepositoryId: "123456",
       installer: {
-        url: "https://reviewrouter.site/installer.sh",
+        url: "https://reviewrouter.org/installer.sh",
         version: "v1",
         sha256: "a".repeat(64),
       },
       setupManifestUrl:
-        "https://reviewrouter.site/api/codex-rotating/setup-manifest",
+        "https://reviewrouter.org/api/codex-rotating/setup-manifest",
       databaseRecoveryWitness: firstWitness,
       admittedOperation,
       runtimeEnvironment: {
@@ -314,12 +314,12 @@ describe("ordinary setup recovery-witness admission", () => {
         repositoryDefaultBranch: "main",
         githubRepositoryId: "123456",
         installer: {
-          url: "https://reviewrouter.site/installer.sh",
+          url: "https://reviewrouter.org/installer.sh",
           version: "v1",
           sha256: "a".repeat(64),
         },
         setupManifestUrl:
-          "https://reviewrouter.site/api/codex-rotating/setup-manifest",
+          "https://reviewrouter.org/api/codex-rotating/setup-manifest",
         databaseRecoveryWitness: firstWitness,
         admittedOperation: async () => {
           throw new Error("rate_limit_exceeded:setup");
@@ -376,12 +376,12 @@ describe("ordinary setup recovery-witness admission", () => {
         repositoryDefaultBranch: "main",
         githubRepositoryId: "123456",
         installer: {
-          url: "https://reviewrouter.site/install/codex-rotating",
+          url: "https://reviewrouter.org/install/codex-rotating",
           version: "v1",
           sha256: "a".repeat(64),
         },
         setupManifestUrl:
-          "https://reviewrouter.site/api/codex-rotating/setup-manifest",
+          "https://reviewrouter.org/api/codex-rotating/setup-manifest",
         databaseRecoveryWitness: secondWitness,
         admittedOperation,
         runtimeEnvironment: {
@@ -416,12 +416,12 @@ describe("ordinary setup recovery-witness admission", () => {
         repositoryDefaultBranch: "main",
         githubRepositoryId: "123456",
         installer: {
-          url: "https://reviewrouter.site/install/codex-rotating",
+          url: "https://reviewrouter.org/install/codex-rotating",
           version: "v1",
           sha256: "a".repeat(64),
         },
         setupManifestUrl:
-          "https://reviewrouter.site/api/codex-rotating/setup-manifest",
+          "https://reviewrouter.org/api/codex-rotating/setup-manifest",
         databaseRecoveryWitness: "malformed",
         admittedOperation,
         runtimeEnvironment: {

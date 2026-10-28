@@ -1,3 +1,9 @@
+import {
+  lifecycleVerificationContract,
+  lifecycleVerificationDescriptorDigest,
+} from "@reviewrouter/shared";
+import Fastify from "fastify";
+import { registerReviewExecutionV2Routes } from "@reviewrouter/features-action-control-plane/v2";
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -25,6 +31,7 @@ import {
 import {
   AcquireOrJoinInvocationFlightStatus,
   CurrentReviewExecutionRevisionStatus,
+  LeaseTransitionDecisionStatus,
   ReviewCoverageState,
   ReviewExecutionProviderKind,
   ReviewExecutionFinalizeStatus,
@@ -41,6 +48,9 @@ import {
   StartReviewExecutionStatus,
   canonicalReviewAssignmentManifestHashPreimage,
   canonicalReviewExecutionPlanHashPreimage,
+  decideLeaseAcquire,
+  decideLeaseRelease,
+  decideLeaseRenewal,
   type ReviewExecutionSnapshot,
   type FinalizedReviewProjectionArtifact,
   type InvocationFlight,
@@ -56,6 +66,8 @@ import {
 } from "@reviewrouter/features-review-run-control";
 import {
   canonicalizeReviewActionV2Request,
+  reviewActionV2LegacySlot,
+  prDescriptionExtensionV1,
   ReviewActionV2OperationId,
   ReviewActionV2ProtocolErrorCode,
   ReviewEvidenceLookupResultStatus,
@@ -107,6 +119,367 @@ describe("Review Action v2 execution/evidence composition", () => {
     ).toThrow("review_action_v2_execution_dependencies_unavailable");
   });
 
+  it("restores the persisted lifecycle plan before any replacement planning", async () => {
+    const storedPlan = canonicalJson({
+      manifestVersion: 2,
+      lifecyclePlan: { targets: [{ targetId: "A" }, { targetId: "B" }] },
+    });
+    const restored = {
+      ...snapshot,
+      execution: {
+        ...snapshot.execution,
+        assignmentManifestCanonicalJson: storedPlan,
+      },
+    };
+    const base = executionDependencies({ findExecution: async () => restored });
+    const d = {
+      ...base,
+      executionQueries: {
+        ...base.executionQueries,
+        findStream: async () => restored.stream,
+      },
+    };
+    const response = await createReviewActionV2ExecutionHandlers(
+      d,
+    ).restore.execute({
+      ...envelope("restore-plan"),
+      authorizationToken: "authorization-token",
+      authorizationId: authorization.authorizationId,
+      reviewRevisionHash: authorization.reviewRevisionHash,
+    });
+    expect(response.result).toHaveProperty("executionCanonicalJson");
+    if (!("executionCanonicalJson" in response.result))
+      throw new Error("restore missing");
+    expect(
+      JSON.parse(response.result.executionCanonicalJson).persistedPlan,
+    ).toMatchObject({
+      planHash: snapshot.execution.planHash,
+      assignmentManifestCanonicalJson: storedPlan,
+      workSlots: [
+        {
+          workSlotId: "slot-1",
+          taskKind: ReviewTaskKind.FindingDiscovery,
+          attemptBudget: 2,
+        },
+      ],
+      artifact: null,
+    });
+    expect(d.executions.startReviewExecution.execute).not.toHaveBeenCalled();
+    expect(d.executions.invocationFlights.execute).not.toHaveBeenCalled();
+  });
+
+  it("restores accepted invocation identity from a released persisted source lease", async () => {
+    const sourceLease = lease({ state: ReviewInvocationLeaseState.Released });
+    const acceptedRef = {
+      observationRefId: "accepted-ref",
+      executionId: snapshot.execution.executionId,
+      workSlotId: sourceLease.workSlotId,
+      providerInvocationKey: sourceLease.providerInvocationKey,
+      observationId: "accepted-observation",
+      providerVoteIdentityHash: sourceLease.providerVoteIdentityHash,
+      attachmentKind: ReviewObservationAttachmentKind.FreshLease,
+      eligibilityPolicyVersion: reviewReuseEligibilityPolicyVersion,
+      reuseSafetyDecisionHash: null,
+      sourceExecutionId: sourceLease.executionId,
+      sourceLeaseId: sourceLease.leaseId,
+      sourceFencingToken: sourceLease.fencingToken,
+      payloadHash: hash("a"),
+      byteCount: 100,
+      findingCount: 0,
+      attachedAt: now,
+    };
+    const restored = {
+      ...snapshot,
+      observationRefs: [acceptedRef],
+      activeLeases: [],
+      execution: {
+        ...snapshot.execution,
+        workSlots: [
+          {
+            ...snapshot.execution.workSlots[0]!,
+            state: ReviewWorkSlotState.Satisfied,
+            acceptedObservationRefId: acceptedRef.observationRefId,
+          },
+        ],
+      },
+    };
+    const base = executionDependencies({
+      findExecution: async () => restored,
+      findLease: vi.fn(async () => sourceLease),
+    });
+    const d = {
+      ...base,
+      authorizations: {
+        resolveReviewRunAuthorizationToken: async () => ({
+          status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+          authorization: lifecycleAuthorization(),
+        }),
+      },
+      executionQueries: {
+        ...base.executionQueries,
+        findStream: async () => restored.stream,
+      },
+    };
+    const response = await createReviewActionV2ExecutionHandlers(
+      d,
+    ).restore.execute({
+      ...envelope("restore-accepted"),
+      authorizationToken: "authorization-token",
+      authorizationId: authorization.authorizationId,
+      reviewRevisionHash: authorization.reviewRevisionHash,
+    });
+    if (!("executionCanonicalJson" in response.result))
+      throw new Error("restore missing");
+    expect(
+      JSON.parse(response.result.executionCanonicalJson).persistedPlan
+        .acceptedManifests,
+    ).toEqual([
+      {
+        workSlotId: sourceLease.workSlotId,
+        manifestCanonicalJson: sourceLease.preparedManifestCanonicalJson,
+        manifestKey: sourceLease.preparedManifestKey,
+        providerInvocationKey: sourceLease.providerInvocationKey,
+        providerVoteIdentityHash: sourceLease.providerVoteIdentityHash,
+      },
+    ]);
+    expect(d.executionQueries.findLease).toHaveBeenCalledWith(
+      sourceLease.leaseId,
+    );
+    expect(d.executions.invocationFlights.execute).not.toHaveBeenCalled();
+  });
+
+  it("refuses enabled verifier work without its captured assignment plan before admission", async () => {
+    const base = executionDependencies();
+    const enabled = lifecycleAuthorization();
+    const d = {
+      ...base,
+      authorizations: {
+        resolveReviewRunAuthorizationToken: async () => ({
+          status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+          authorization: enabled,
+        }),
+      },
+    };
+    const slot = {
+      ...snapshot.execution.workSlots[0]!,
+      taskKind: ReviewTaskKind.LifecycleRevalidation,
+      required: false,
+      attemptBudget: 1,
+    };
+    const {
+      state: _state,
+      activeLeaseId: _active,
+      acceptedObservationRefId: _accepted,
+      nextAttemptOrdinal: _ordinal,
+      ...planSlot
+    } = slot;
+    void [_state, _active, _accepted, _ordinal];
+    await expect(
+      createReviewActionV2ExecutionHandlers(d).start.execute(
+        await startRequest({
+          workSlotsCanonicalJson: canonicalJson([planSlot]),
+        }),
+      ),
+    ).rejects.toMatchObject({
+      issues: ["lifecycle_verification_plan_required"],
+    });
+    expect(d.executions.startReviewExecution.execute).not.toHaveBeenCalled();
+  });
+
+  it("requires durable completed dispatch proof before accepting verifier evidence from a signed lease", async () => {
+    const capabilities = capabilityAdapter();
+    const currentLease = lease();
+    const leaseCapability = await capabilities.issueLease(
+      currentLease,
+      manifest().scopeHash,
+    );
+    const prepared = prepareReviewObservationPayload(
+      reusableObservation().payload,
+    );
+    const observation = reusableObservation({
+      sourceExecutionId: currentLease.executionId,
+      sourceLeaseId: currentLease.leaseId,
+      attemptId: currentLease.attemptId!,
+      providerInvocationKey: currentLease.providerInvocationKey,
+      payloadHash: await digest.digest(prepared.canonicalBytes),
+      byteCount: prepared.byteCount,
+    });
+    const accepted = vi.fn();
+    const base = evidenceDependencies({
+      capabilities,
+      currentLease,
+      acceptObservation: accepted,
+    });
+    const enabled = lifecycleAuthorization();
+    const d = {
+      ...base,
+      authorizations: {
+        resolveReviewRunAuthorizationToken: async () => ({
+          status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+          authorization: enabled,
+        }),
+      },
+      executionQueries: {
+        ...base.executionQueries,
+        findExecution: async () => ({
+          ...snapshot,
+          execution: {
+            ...snapshot.execution,
+            workSlots: [
+              {
+                ...snapshot.execution.workSlots[0]!,
+                taskKind: ReviewTaskKind.LifecycleRevalidation,
+                required: false,
+                attemptBudget: 1,
+              },
+            ],
+          },
+        }),
+      },
+    };
+    await expect(
+      createReviewActionV2EvidenceHandlers(d).commit.execute(
+        await commitRequest(
+          leaseCapability,
+          observation,
+          stableJsonForTest(observation.payload),
+        ),
+      ),
+    ).rejects.toMatchObject({
+      issues: ["lifecycle_verification_dispatch_proof_unavailable"],
+    });
+    expect(accepted).not.toHaveBeenCalled();
+  });
+
+  it("refuses new-profile description publication without a completed scoped dispatch", async () => {
+    const fixture = await finalizationFixture(new Date(now.getTime() + 60000));
+    const enabled = lifecycleAuthorization();
+    const runtime = JSON.parse(enabled.runtimeSnapshotCanonicalJson!);
+    runtime.prDescriptionCapability = prDescriptionExtensionV1;
+    const auth = {
+      ...enabled,
+      runtimeSnapshotCanonicalJson: canonicalJson(runtime),
+    };
+    const descriptionSnapshot = {
+      ...snapshot,
+      execution: {
+        ...snapshot.execution,
+        workSlots: [
+          {
+            ...snapshot.execution.workSlots[0]!,
+            taskKind: ReviewTaskKind.PrDescription,
+            required: false,
+            attemptBudget: 1,
+          },
+        ],
+      },
+    };
+    const sourceLease = lease({
+      state: ReviewInvocationLeaseState.Released,
+      preparedManifestCanonicalJson: canonicalJson({
+        ...manifest(),
+        taskKindSet: [EvidenceTaskKind.PrDescription],
+        providerPolicyVersion: "pr-description-provider-policy.v1",
+      }),
+    });
+    const base = executionDependencies({
+      currentLease: sourceLease,
+      findExecution: async () => descriptionSnapshot,
+      finalize: fixture.finalize,
+      finalizationFacts: fixture.finalizationFacts,
+    });
+    const d = {
+      ...base,
+      authorizations: {
+        resolveReviewRunAuthorizationToken: async () => ({
+          status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+          authorization: auth,
+        }),
+      },
+    };
+    const projection = {
+      publishing: {
+        prDescription: {
+          generatedMarkdown: "Description",
+          generationProvenance: {
+            leaseId: sourceLease.leaseId,
+            providerIndex: 0,
+            requestedModel: "gpt-5-codex",
+            actualModel: "gpt-5-codex",
+            providerRequestEnvelopeHash: manifest().providerRequestEnvelopeHash,
+          },
+        },
+      },
+    };
+    const canonical = canonicalJson(projection);
+    const request = await withBodyHash(
+      ReviewActionV2OperationId.ReviewExecutionFinalize,
+      {
+        ...fixture.request,
+        projectionEnvelopeCanonicalJson: canonical,
+        projectionHash: await digest.digestUtf8(canonical),
+      },
+    );
+    await expect(
+      createReviewActionV2ExecutionHandlers(d).finalize.execute(request),
+    ).rejects.toMatchObject({
+      issues: ["pr_description_dispatch_proof_unavailable"],
+    });
+    expect(fixture.finalizationFacts).not.toHaveBeenCalled();
+    expect(fixture.finalize).not.toHaveBeenCalled();
+  });
+
+  it("accepts a frozen historical client request at the hashed native execution seam", async () => {
+    const base = executionDependencies();
+    const d = {
+      ...base,
+      authorizations: {
+        resolveReviewRunAuthorizationToken: async () => ({
+          status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+          authorization: {
+            ...authorization,
+            schemaDigest:
+              reviewActionV2LegacySlot.reviewActionV2PublishedSchemaDigest,
+          },
+        }),
+      },
+    };
+    const request = {
+      ...(await startRequest()),
+      schemaDigest:
+        reviewActionV2LegacySlot.reviewActionV2PublishedSchemaDigest,
+    };
+    const hashed = {
+      ...request,
+      requestBodyHash: await digest.digestUtf8(
+        reviewActionV2LegacySlot.canonicalizeReviewActionV2Request(
+          reviewActionV2LegacySlot.ReviewActionV2OperationId
+            .ReviewExecutionStart,
+          request,
+        ),
+      ),
+    };
+    const app = Fastify({ logger: false });
+    await registerReviewExecutionV2Routes(app, {
+      ...createReviewActionV2ExecutionHandlers(d),
+      readServerTime: async () => now,
+      createRequestId: () => "old-start",
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/action/v2/review-executions/start",
+      payload: hashed,
+    });
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({
+      schemaDigest:
+        reviewActionV2LegacySlot.reviewActionV2PublishedSchemaDigest,
+      result: { status: "admitted" },
+    });
+    await app.close();
+    expect(d.executions.startReviewExecution.execute).toHaveBeenCalledOnce();
+  });
+
   it("rejects authorization and revision mismatches before starting", async () => {
     const d = executionDependencies();
     const handlers = createReviewActionV2ExecutionHandlers(d);
@@ -122,6 +495,56 @@ describe("Review Action v2 execution/evidence composition", () => {
     ).rejects.toMatchObject({ statusCode: 403 });
     expect(d.executions.startReviewExecution.execute).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["malformed", '{"privateManifest":"never-expose-this",'],
+    ["noncanonical", ' { "privateManifest": "never-expose-this" } '],
+  ])(
+    "rejects %s assignment JSON with a safe protocol error before admission",
+    async (_kind, assignmentManifestCanonicalJson) => {
+      const d = executionDependencies();
+      const enabled = lifecycleAuthorization();
+      d.authorizations.resolveReviewRunAuthorizationToken = vi.fn(async () => ({
+        status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+        authorization: enabled,
+      }));
+      // Start from a valid hashed envelope, then corrupt the wire field so the
+      // real protocol parser rejects it before entering the handler.
+      const request = {
+        ...(await startRequest()),
+        assignmentManifestCanonicalJson,
+        assignmentManifestHash: hash("a"),
+      };
+      const app = Fastify({ logger: false });
+      await registerReviewExecutionV2Routes(app, {
+        ...createReviewActionV2ExecutionHandlers(d),
+        readServerTime: async () => now,
+        createRequestId: () => "invalid-assignment-start",
+      });
+      try {
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/action/v2/review-executions/start",
+          payload: request,
+        });
+        expect(response.statusCode).toBe(400);
+        expect(response.json().error).toMatchObject({
+          errorCode: ReviewActionV2ProtocolErrorCode.InvalidRequest,
+          details: {
+            issues: ["field_invalid:assignmentManifestCanonicalJson"],
+          },
+        });
+        expect(response.body).not.toContain("never-expose-this");
+        expect(response.body).not.toContain("SyntaxError");
+        expect(
+          d.executions.startReviewExecution.execute,
+        ).not.toHaveBeenCalled();
+        expect(d.executions.invocationFlights.execute).not.toHaveBeenCalled();
+      } finally {
+        await app.close();
+      }
+    },
+  );
 
   it("validates and binds a canonical assignment manifest before starting", async () => {
     const d = executionDependencies();
@@ -706,6 +1129,498 @@ describe("Review Action v2 execution/evidence composition", () => {
     expect(issueLease).not.toHaveBeenCalled();
   });
 
+  it("acquires an invocation lease for an OCR work slot without execution_provider_unknown", async () => {
+    // Discriminating pair for evidenceProviderForExecution: manifest
+    // validation on the invocation-lease acquire path must map the Ocr
+    // execution provider kind. Without the explicit Ocr case the same
+    // request rejects 422 execution_provider_unknown before any lease work.
+    const capabilities = capabilityAdapter();
+    const acquiredLease = lease();
+    const acquire = vi.fn(async () => ({
+      status: AcquireOrJoinInvocationFlightStatus.OwnerAcquired,
+      flight: invocationFlight(acquiredLease),
+    }));
+    const ocrSnapshot = {
+      ...snapshot,
+      execution: {
+        ...snapshot.execution,
+        workSlots: [
+          {
+            ...snapshot.execution.workSlots[0]!,
+            providerKind: ReviewExecutionProviderKind.Ocr,
+          },
+        ],
+      },
+    } as ReviewExecutionSnapshot;
+    const prepared: ProviderInvocationManifest = {
+      ...manifest(),
+      providerKind: ReviewProviderKind.Ocr,
+    };
+    const identity = await buildProviderInvocationIdentity(digest, {
+      manifest: prepared,
+      providerVoteIdentityHash: hash("c"),
+    });
+    const request = await withBodyHash(
+      ReviewActionV2OperationId.ReviewInvocationLeaseAcquire,
+      {
+        ...envelope("acquire-ocr-work-slot"),
+        authorizationToken: "authorization-token",
+        idempotencyKey: "acquire-ocr-work-slot",
+        requestBodyHash: hash("0"),
+        executionId: snapshot.execution.executionId,
+        workSlotId: "slot-1",
+        purpose: ReviewInvocationLeasePurpose.ProviderExecution,
+        manifestCanonicalJson:
+          serializeProviderInvocationManifestCanonicalWireJson(prepared),
+        manifestKey: identity.manifestKey,
+        providerVoteIdentityHash: hash("c"),
+        providerInvocationKey: identity.providerInvocationKey,
+        acquireRequestId: "acquire-ocr-work-slot",
+        ownerIdHash: acquiredLease.ownerIdHash,
+      } satisfies ReviewInvocationLeaseAcquireRequest,
+    );
+
+    await expect(
+      createReviewActionV2ExecutionHandlers(
+        executionDependencies({
+          capabilities,
+          acquire,
+          findExecution: vi.fn(async () => ocrSnapshot),
+          leaseSafety: vi.fn(async () => ({
+            allowed: true,
+            decisionHash: hash("6"),
+          })),
+        }),
+      ).acquireLease.execute(request),
+    ).resolves.toMatchObject({
+      statusCode: 201,
+      result: {
+        status: ReviewInvocationLeaseResultStatus.Acquired,
+        leaseId: acquiredLease.leaseId,
+      },
+    });
+    expect(acquire).toHaveBeenCalledTimes(1);
+  });
+
+  it("acquires and renews a valid lease when authorization has less than the initial lease duration left", async () => {
+    const delayedNow = new Date(now.getTime() + 1_000);
+    let currentNow = delayedNow;
+    const delayedSnapshot = {
+      ...snapshot,
+      execution: {
+        ...snapshot.execution,
+        executionDeadlineAt: new Date(now.getTime() + 6 * 60 * 60 * 1_000),
+      },
+    };
+    let acquiredLease: ReviewInvocationLease | undefined;
+    const acquire = vi.fn<
+      ReviewActionV2ExecutionHandlerDependencies["executions"]["invocationFlights"]["execute"]
+    >(async (command) => {
+      const decision = decideLeaseAcquire({
+        ...command,
+        stream: delayedSnapshot.stream,
+        execution: delayedSnapshot.execution,
+        activeLease: null,
+        fencingToken: 1n,
+      });
+      if (!("lease" in decision)) throw new Error("test_lease_not_acquired");
+      acquiredLease = decision.lease;
+      return {
+        status: AcquireOrJoinInvocationFlightStatus.OwnerAcquired,
+        flight: invocationFlight(acquiredLease),
+      };
+    });
+    const renew = vi.fn<
+      ReviewActionV2ExecutionHandlerDependencies["executions"]["invocationLeases"]["renew"]
+    >(async (command) => {
+      if (!acquiredLease) throw new Error("test_lease_not_acquired");
+      const decision = decideLeaseRenewal({
+        ...command,
+        lease: acquiredLease,
+        execution: delayedSnapshot.execution,
+      });
+      if (decision.status === LeaseTransitionDecisionStatus.InvalidDeadline) {
+        return {
+          status: ReviewInvocationLeaseTransitionStatus.InvalidDeadline,
+        };
+      }
+      if (decision.status !== LeaseTransitionDecisionStatus.Restored)
+        throw new Error("test_lease_not_restored");
+      acquiredLease = decision.lease;
+      return {
+        status: ReviewInvocationLeaseTransitionStatus.Restored,
+        lease: decision.lease,
+      };
+    });
+    const dependencies = executionDependencies({
+      now: () => currentNow,
+      findExecution: vi.fn(async () => delayedSnapshot),
+      findLease: vi.fn(async () => acquiredLease ?? null),
+      acquire,
+      renew,
+      leaseSafety: vi.fn(async () => ({
+        allowed: true,
+        decisionHash: hash("6"),
+      })),
+    });
+    const d: ReviewActionV2ExecutionHandlerDependencies = {
+      ...dependencies,
+      timing: { ...dependencies.timing, initialLeaseDurationMs: 600_000 },
+      protocolLimits: {
+        ...dependencies.protocolLimits,
+        findProtocolLimitsProfileById: vi.fn(async () => ({
+          ...protocolLimits,
+          maxLeaseDurationMs: 600_000,
+          maxResultReportDurationMs: 1_200_000,
+        })),
+      },
+    };
+    const prepared = manifest();
+    const identity = await buildProviderInvocationIdentity(digest, {
+      manifest: prepared,
+      providerVoteIdentityHash: hash("c"),
+    });
+    const request = await withBodyHash(
+      ReviewActionV2OperationId.ReviewInvocationLeaseAcquire,
+      {
+        ...envelope("acquire-short-authorization"),
+        authorizationToken: "authorization-token",
+        idempotencyKey: "acquire-short-authorization",
+        requestBodyHash: hash("0"),
+        executionId: delayedSnapshot.execution.executionId,
+        workSlotId: "slot-1",
+        purpose: ReviewInvocationLeasePurpose.ProviderExecution,
+        manifestCanonicalJson:
+          serializeProviderInvocationManifestCanonicalWireJson(prepared),
+        manifestKey: identity.manifestKey,
+        providerVoteIdentityHash: hash("c"),
+        providerInvocationKey: identity.providerInvocationKey,
+        acquireRequestId: "acquire-short-authorization",
+        ownerIdHash: hash("d"),
+      } satisfies ReviewInvocationLeaseAcquireRequest,
+    );
+
+    const handlers = createReviewActionV2ExecutionHandlers(d);
+    const acquired = await handlers.acquireLease.execute(request);
+    expect(acquired).toMatchObject({ statusCode: 201 });
+    expect(acquiredLease?.expiresAt).toEqual(authorization.expiresAt);
+    expect(acquiredLease?.resultReportUntil).toEqual(authorization.expiresAt);
+    expect(acquiredLease?.expiresAt.getTime()).toBeGreaterThan(
+      delayedNow.getTime(),
+    );
+    if (!acquiredLease || !acquired.result.leaseCapability)
+      throw new Error("test_acquired_capability_missing");
+    const originalLease = acquiredLease;
+    currentNow = new Date(delayedNow.getTime() + 30_000);
+    const renewed = await handlers.renewLease.execute(
+      await withBodyHash(ReviewActionV2OperationId.ReviewInvocationLeaseRenew, {
+        ...envelope("renew-short-authorization"),
+        leaseCapability: acquired.result.leaseCapability,
+        idempotencyKey: "renew-short-authorization",
+        requestBodyHash: hash("0"),
+        leaseId: originalLease.leaseId,
+        ownerIdHash: originalLease.ownerIdHash,
+        fencingToken: originalLease.fencingToken.toString(10),
+        renewRequestId: "renew-short-authorization",
+      }),
+    );
+    expect(renewed).toMatchObject({
+      statusCode: 200,
+      result: {
+        status: ReviewInvocationLeaseResultStatus.Restored,
+        expiresAt: authorization.expiresAt.toISOString(),
+        fencingToken: originalLease.fencingToken.toString(10),
+      },
+    });
+    expect(acquiredLease.resultReportUntil).toEqual(
+      originalLease.resultReportUntil,
+    );
+    expect(acquiredLease.expiresAt.getTime()).toBeGreaterThan(
+      currentNow.getTime(),
+    );
+    if (!renewed.result.leaseCapability)
+      throw new Error("test_renewed_capability_missing");
+    await expect(
+      d.capabilities.verifyLease(renewed.result.leaseCapability, currentNow),
+    ).resolves.toMatchObject({
+      ownershipExpiresAt: originalLease.expiresAt,
+      resultReportUntil: originalLease.resultReportUntil,
+    });
+  });
+
+  it("rolls a live invocation lease beyond ten minutes without exceeding ownership TTL or the execution deadline", async () => {
+    let currentNow = new Date(now);
+    const hardDeadline = new Date(now.getTime() + 35 * 60_000);
+    const liveAuthorization = {
+      ...authorization,
+      expiresAt: new Date(now.getTime() + 6 * 60 * 60_000),
+      maxExpiresAt: new Date(now.getTime() + 6 * 60 * 60_000),
+    };
+    const longSnapshot = {
+      ...snapshot,
+      execution: { ...snapshot.execution, executionDeadlineAt: hardDeadline },
+    };
+    let currentLease: ReviewInvocationLease | null = null;
+    const acquire = vi.fn<
+      ReviewActionV2ExecutionHandlerDependencies["executions"]["invocationFlights"]["execute"]
+    >(async (command) => {
+      const decision = decideLeaseAcquire({
+        ...command,
+        stream: longSnapshot.stream,
+        execution: longSnapshot.execution,
+        activeLease: null,
+        fencingToken: 1n,
+      });
+      if (!("lease" in decision)) throw new Error("test_lease_not_acquired");
+      currentLease = decision.lease;
+      return {
+        status: AcquireOrJoinInvocationFlightStatus.OwnerAcquired,
+        flight: invocationFlight(currentLease),
+      };
+    });
+    const renew = vi.fn<
+      ReviewActionV2ExecutionHandlerDependencies["executions"]["invocationLeases"]["renew"]
+    >(async (command) => {
+      if (!currentLease) throw new Error("test_lease_not_acquired");
+      const decision = decideLeaseRenewal({
+        ...command,
+        lease: currentLease,
+        execution: longSnapshot.execution,
+      });
+      if (
+        decision.status !== LeaseTransitionDecisionStatus.Applied &&
+        decision.status !== LeaseTransitionDecisionStatus.Restored
+      )
+        throw new Error(`test_renewal_rejected:${decision.status}`);
+      currentLease = decision.lease;
+      return {
+        status:
+          decision.status === LeaseTransitionDecisionStatus.Applied
+            ? ReviewInvocationLeaseTransitionStatus.Applied
+            : ReviewInvocationLeaseTransitionStatus.Restored,
+        lease: currentLease,
+      };
+    });
+    const release = vi.fn<
+      ReviewActionV2ExecutionHandlerDependencies["executions"]["invocationLeases"]["release"]
+    >(async (command) => {
+      if (!currentLease) throw new Error("test_lease_not_acquired");
+      const decision = decideLeaseRelease({
+        ...command,
+        lease: currentLease,
+        execution: longSnapshot.execution,
+      });
+      if (decision.status !== LeaseTransitionDecisionStatus.Applied)
+        throw new Error("test_release_rejected");
+      currentLease = decision.lease;
+      return {
+        status: ReviewInvocationLeaseTransitionStatus.Applied,
+        lease: currentLease,
+      };
+    });
+    const dependencies = executionDependencies({
+      now: () => currentNow,
+      findExecution: vi.fn(async () => longSnapshot),
+      findLease: vi.fn(async () => currentLease),
+      acquire,
+      renew,
+      release,
+      leaseSafety: vi.fn(async () => ({
+        allowed: true,
+        decisionHash: hash("6"),
+      })),
+    });
+    const d: ReviewActionV2ExecutionHandlerDependencies = {
+      ...dependencies,
+      timing: { ...dependencies.timing, initialLeaseDurationMs: 600_000 },
+    };
+    d.authorizations.resolveReviewRunAuthorizationToken = vi.fn(async () => ({
+      status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+      authorization: liveAuthorization,
+    }));
+    d.authorizationQueries.findReviewRunAuthorizationById = vi.fn(
+      async () => liveAuthorization,
+    );
+    d.protocolLimits.findProtocolLimitsProfileById = vi.fn(async () => ({
+      ...protocolLimits,
+      maxLeaseDurationMs: 600_000,
+      maxResultReportDurationMs: 1_200_000,
+    }));
+    const prepared = manifest();
+    const identity = await buildProviderInvocationIdentity(digest, {
+      manifest: prepared,
+      providerVoteIdentityHash: hash("c"),
+    });
+    const handlers = createReviewActionV2ExecutionHandlers(d);
+    const acquired = await handlers.acquireLease.execute(
+      await withBodyHash(
+        ReviewActionV2OperationId.ReviewInvocationLeaseAcquire,
+        {
+          ...envelope("acquire-rolling"),
+          authorizationToken: "authorization-token",
+          idempotencyKey: "acquire-rolling",
+          requestBodyHash: hash("0"),
+          executionId: longSnapshot.execution.executionId,
+          workSlotId: "slot-1",
+          purpose: ReviewInvocationLeasePurpose.ProviderExecution,
+          manifestCanonicalJson:
+            serializeProviderInvocationManifestCanonicalWireJson(prepared),
+          manifestKey: identity.manifestKey,
+          providerVoteIdentityHash: hash("c"),
+          providerInvocationKey: identity.providerInvocationKey,
+          acquireRequestId: "acquire-rolling",
+          ownerIdHash: hash("d"),
+        } satisfies ReviewInvocationLeaseAcquireRequest,
+      ),
+    );
+    let capability = acquired.result.leaseCapability;
+    if (!capability) throw new Error("test_capability_missing");
+    for (const minute of [5, 10, 15, 20, 25, 30]) {
+      currentNow = new Date(now.getTime() + minute * 60_000);
+      const liveLease = await d.executionQueries.findLease("lease-generated");
+      if (!liveLease) throw new Error("test_lease_missing");
+      const request = await withBodyHash(
+        ReviewActionV2OperationId.ReviewInvocationLeaseRenew,
+        {
+          ...envelope(`renew-rolling-${minute}`),
+          leaseCapability: capability,
+          idempotencyKey: `renew-rolling-${minute}`,
+          requestBodyHash: hash("0"),
+          leaseId: liveLease.leaseId,
+          ownerIdHash: liveLease.ownerIdHash,
+          fencingToken: liveLease.fencingToken.toString(10),
+          renewRequestId: `renew-rolling-${minute}`,
+        },
+      );
+      const renewed = await handlers.renewLease.execute(request);
+      expect(renewed.result).toMatchObject({
+        status:
+          minute === 30
+            ? ReviewInvocationLeaseResultStatus.Restored
+            : ReviewInvocationLeaseResultStatus.Applied,
+        expiresAt: new Date(
+          Math.min(currentNow.getTime() + 600_000, hardDeadline.getTime()),
+        ).toISOString(),
+      });
+      const expectedReportUntil = new Date(
+        Math.min(currentNow.getTime() + 1_200_000, hardDeadline.getTime()),
+      );
+      expect(
+        (await d.executionQueries.findLease(liveLease.leaseId))
+          ?.resultReportUntil,
+      ).toEqual(expectedReportUntil);
+      if (!renewed.result.leaseCapability)
+        throw new Error("test_capability_missing");
+      await expect(
+        d.capabilities.verifyLease(renewed.result.leaseCapability, currentNow),
+      ).resolves.toMatchObject({ resultReportUntil: expectedReportUntil });
+      // Lost acknowledgement: the same request restores the original dates.
+      currentNow = new Date(currentNow.getTime() + 1_000);
+      await expect(handlers.renewLease.execute(request)).resolves.toMatchObject(
+        {
+          result: {
+            ...renewed.result,
+            status: ReviewInvocationLeaseResultStatus.Restored,
+            leaseCapability: expect.any(String),
+          },
+        },
+      );
+      expect(
+        (await d.executionQueries.findLease(liveLease.leaseId))
+          ?.resultReportUntil,
+      ).toEqual(expectedReportUntil);
+      if (minute === 30) {
+        await handlers.releaseLease.execute(
+          await withBodyHash(
+            ReviewActionV2OperationId.ReviewInvocationLeaseRelease,
+            {
+              ...envelope("release-rolling"),
+              leaseCapability: capability,
+              idempotencyKey: "release-rolling",
+              releaseRequestId: "release-rolling",
+              requestBodyHash: hash("0"),
+              leaseId: liveLease.leaseId,
+              ownerIdHash: liveLease.ownerIdHash,
+              fencingToken: liveLease.fencingToken.toString(10),
+            },
+          ),
+        );
+        const renewCount = renew.mock.calls.length;
+        await expect(
+          handlers.renewLease.execute(request),
+        ).rejects.toMatchObject({ statusCode: 410 });
+        expect(renew).toHaveBeenCalledTimes(renewCount);
+      }
+      if (!renewed.result.leaseCapability)
+        throw new Error("test_capability_missing");
+      capability = renewed.result.leaseCapability;
+    }
+    const renewCount = renew.mock.calls.length;
+    currentNow = hardDeadline;
+    await expect(
+      handlers.renewLease.execute(
+        await withBodyHash(
+          ReviewActionV2OperationId.ReviewInvocationLeaseRenew,
+          {
+            ...envelope("renew-at-hard-deadline"),
+            leaseCapability: capability,
+            idempotencyKey: "renew-at-hard-deadline",
+            requestBodyHash: hash("0"),
+            leaseId: "lease-generated",
+            ownerIdHash: hash("d"),
+            fencingToken: "1",
+            renewRequestId: "renew-at-hard-deadline",
+          },
+        ),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 401,
+      issues: ["lease_capability_invalid"],
+    });
+    expect(renew).toHaveBeenCalledTimes(renewCount);
+  });
+
+  it.each(["revoked", "expired"] as const)(
+    "denies rolling renewal when the original authorization is %s",
+    async (condition) => {
+      const capabilities = capabilityAdapter();
+      const currentLease = lease();
+      const capability = await capabilities.issueLease(
+        currentLease,
+        manifest().scopeHash,
+      );
+      const d = executionDependencies({ capabilities, currentLease });
+      d.authorizationQueries.findReviewRunAuthorizationById = vi.fn(
+        async () => ({
+          ...authorization,
+          ...(condition === "revoked"
+            ? { state: ReviewRunAuthorizationState.Revoked }
+            : { expiresAt: now }),
+        }),
+      );
+      const issueLease = vi.spyOn(capabilities, "issueLease");
+      await expect(
+        createReviewActionV2ExecutionHandlers(d).renewLease.execute(
+          await withBodyHash(
+            ReviewActionV2OperationId.ReviewInvocationLeaseRenew,
+            {
+              ...envelope(`renew-${condition}-authorization`),
+              leaseCapability: capability,
+              idempotencyKey: `renew-${condition}-authorization`,
+              requestBodyHash: hash("0"),
+              leaseId: currentLease.leaseId,
+              ownerIdHash: currentLease.ownerIdHash,
+              fencingToken: currentLease.fencingToken.toString(10),
+              renewRequestId: `renew-${condition}-authorization`,
+            },
+          ),
+        ),
+      ).rejects.toMatchObject({ statusCode: 410 });
+      expect(d.executions.invocationLeases.renew).not.toHaveBeenCalled();
+      expect(issueLease).not.toHaveBeenCalled();
+    },
+  );
+
   it("returns busy for an exact-revision join without issuing owner capability", async () => {
     const capabilities = capabilityAdapter();
     const issueLease = vi.spyOn(capabilities, "issueLease");
@@ -849,70 +1764,89 @@ describe("Review Action v2 execution/evidence composition", () => {
     );
   });
 
-  it("releases a renewed lease when the revision changes before capability issuance", async () => {
-    const capabilities = capabilityAdapter();
-    const originalLease = lease();
-    const renewedLease = lease({
-      renewedAt: new Date(now),
-      expiresAt: new Date(now.getTime() + 60_000),
-    });
-    const leaseCapability = await capabilities.issueLease(
-      originalLease,
-      manifest().scopeHash,
-    );
-    const issueLease = vi.spyOn(capabilities, "issueLease");
-    issueLease.mockClear();
-    const renew = vi.fn(async () => ({
-      status: ReviewInvocationLeaseTransitionStatus.Applied,
-      lease: renewedLease,
-    }));
-    const release = vi.fn(async () => ({
-      status: ReviewInvocationLeaseTransitionStatus.Applied,
-      lease: {
-        ...renewedLease,
-        state: ReviewInvocationLeaseState.Released,
-      },
-    }));
-    const currentRevision = vi
-      .fn()
-      .mockResolvedValueOnce(CurrentReviewExecutionRevisionStatus.Current)
-      .mockResolvedValueOnce(CurrentReviewExecutionRevisionStatus.Stale);
-    const request = await withBodyHash(
-      ReviewActionV2OperationId.ReviewInvocationLeaseRenew,
-      {
-        ...envelope("renew-revision-race"),
-        leaseCapability,
-        idempotencyKey: "renew-revision-race",
-        requestBodyHash: hash("0"),
-        leaseId: originalLease.leaseId,
-        ownerIdHash: originalLease.ownerIdHash,
-        fencingToken: originalLease.fencingToken.toString(10),
-        renewRequestId: "renew-revision-race",
-      },
-    );
+  it.each(["revision", "authorization"] as const)(
+    "releases a renewed lease when the %s changes before capability issuance",
+    async (changedAuthority) => {
+      const capabilities = capabilityAdapter();
+      const originalLease = lease();
+      const renewedLease = lease({
+        renewedAt: new Date(now),
+        expiresAt: new Date(now.getTime() + 60_000),
+      });
+      const leaseCapability = await capabilities.issueLease(
+        originalLease,
+        manifest().scopeHash,
+      );
+      const issueLease = vi.spyOn(capabilities, "issueLease");
+      issueLease.mockClear();
+      const renew = vi.fn(async () => ({
+        status: ReviewInvocationLeaseTransitionStatus.Applied,
+        lease: renewedLease,
+      }));
+      const release = vi.fn(async () => ({
+        status: ReviewInvocationLeaseTransitionStatus.Applied,
+        lease: {
+          ...renewedLease,
+          state: ReviewInvocationLeaseState.Released,
+        },
+      }));
+      const currentRevision = vi
+        .fn()
+        .mockResolvedValueOnce(CurrentReviewExecutionRevisionStatus.Current)
+        .mockResolvedValueOnce(
+          changedAuthority === "revision"
+            ? CurrentReviewExecutionRevisionStatus.Stale
+            : CurrentReviewExecutionRevisionStatus.Current,
+        );
+      const request = await withBodyHash(
+        ReviewActionV2OperationId.ReviewInvocationLeaseRenew,
+        {
+          ...envelope("renew-revision-race"),
+          leaseCapability,
+          idempotencyKey: "renew-revision-race",
+          requestBodyHash: hash("0"),
+          leaseId: originalLease.leaseId,
+          ownerIdHash: originalLease.ownerIdHash,
+          fencingToken: originalLease.fencingToken.toString(10),
+          renewRequestId: "renew-revision-race",
+        },
+      );
 
-    await expect(
-      createReviewActionV2ExecutionHandlers(
-        executionDependencies({
-          capabilities,
-          currentLease: originalLease,
-          currentRevision,
-          renew,
-          release,
+      const d = executionDependencies({
+        capabilities,
+        currentLease: originalLease,
+        currentRevision,
+        renew,
+        release,
+      });
+      if (changedAuthority === "authorization") {
+        d.authorizationQueries.findReviewRunAuthorizationById = vi
+          .fn()
+          .mockResolvedValueOnce(authorization)
+          .mockResolvedValueOnce({
+            ...authorization,
+            state: ReviewRunAuthorizationState.Revoked,
+          });
+      }
+      await expect(
+        createReviewActionV2ExecutionHandlers(d).renewLease.execute(request),
+      ).rejects.toMatchObject({
+        statusCode: changedAuthority === "revision" ? 412 : 410,
+        issues: [
+          changedAuthority === "revision"
+            ? "execution_revision_stale"
+            : "lease_authorization_inactive",
+        ],
+      });
+      expect(release).toHaveBeenCalledWith(
+        expect.objectContaining({
+          leaseId: renewedLease.leaseId,
+          fencingToken: renewedLease.fencingToken,
         }),
-      ).renewLease.execute(request),
-    ).rejects.toMatchObject({
-      statusCode: 412,
-      issues: ["execution_revision_stale"],
-    });
-    expect(release).toHaveBeenCalledWith(
-      expect.objectContaining({
-        leaseId: renewedLease.leaseId,
-        fencingToken: renewedLease.fencingToken,
-      }),
-    );
-    expect(issueLease).not.toHaveBeenCalled();
-  });
+      );
+      expect(issueLease).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects a renewal replay identity reused with a different body", async () => {
     const capabilities = capabilityAdapter();
@@ -1220,34 +2154,49 @@ describe("Review Action v2 execution/evidence composition", () => {
     expect(issuePublicationPermit).not.toHaveBeenCalled();
   });
 
-  it("does not issue a publication permit when the revision becomes unavailable after finalization", async () => {
-    const fixture = await finalizationFixture(new Date(now.getTime() + 60_000));
-    const capabilities = capabilityAdapter();
-    const issuePublicationPermit = vi.spyOn(
-      capabilities,
-      "issuePublicationPermit",
-    );
-    const currentRevision = vi
-      .fn()
-      .mockResolvedValueOnce(CurrentReviewExecutionRevisionStatus.Current)
-      .mockResolvedValueOnce(CurrentReviewExecutionRevisionStatus.Unavailable);
+  it.each([
+    CurrentReviewExecutionRevisionStatus.Unavailable,
+    CurrentReviewExecutionRevisionStatus.Stale,
+  ])(
+    "does not issue a publication permit when the revision becomes %s after finalization",
+    async (revisionStatus) => {
+      const fixture = await finalizationFixture(
+        new Date(now.getTime() + 60_000),
+      );
+      const capabilities = capabilityAdapter();
+      const issuePublicationPermit = vi.spyOn(
+        capabilities,
+        "issuePublicationPermit",
+      );
+      const currentRevision = vi
+        .fn()
+        .mockResolvedValueOnce(CurrentReviewExecutionRevisionStatus.Current)
+        .mockResolvedValueOnce(revisionStatus);
 
-    await expect(
-      createReviewActionV2ExecutionHandlers(
-        executionDependencies({
-          capabilities,
-          finalize: fixture.finalize,
-          finalizationFacts: fixture.finalizationFacts,
-          currentRevision,
-        }),
-      ).finalize.execute(fixture.request),
-    ).rejects.toMatchObject({
-      statusCode: 503,
-      issues: ["execution_revision_unavailable"],
-    });
-    expect(fixture.finalize).toHaveBeenCalledTimes(1);
-    expect(issuePublicationPermit).not.toHaveBeenCalled();
-  });
+      await expect(
+        createReviewActionV2ExecutionHandlers(
+          executionDependencies({
+            capabilities,
+            finalize: fixture.finalize,
+            finalizationFacts: fixture.finalizationFacts,
+            currentRevision,
+          }),
+        ).finalize.execute(fixture.request),
+      ).rejects.toMatchObject({
+        statusCode:
+          revisionStatus === CurrentReviewExecutionRevisionStatus.Stale
+            ? 412
+            : 503,
+        issues: [
+          revisionStatus === CurrentReviewExecutionRevisionStatus.Stale
+            ? "execution_revision_stale"
+            : "execution_revision_unavailable",
+        ],
+      });
+      expect(fixture.finalize).toHaveBeenCalledTimes(1);
+      expect(issuePublicationPermit).not.toHaveBeenCalled();
+    },
+  );
 
   it("fails finalization before projection work when context policy is stale", async () => {
     const fixture = await finalizationFixture(new Date(now.getTime() + 60_000));
@@ -1643,6 +2592,9 @@ function executionDependencies(
   );
   return {
     ...shared,
+    authorizationQueries: {
+      findReviewRunAuthorizationById: vi.fn(async () => authorization),
+    },
     executionQueries: {
       ...shared.executionQueries,
       ...(overrides.findExecution
@@ -2108,6 +3060,7 @@ const authorization = {
   headSha: gitSha("c"),
   reviewRevisionHash: hash("b"),
   expiresAt: new Date(now.getTime() + 600_000),
+  maxExpiresAt: new Date(now.getTime() + 600_000),
 } as unknown as ReviewRunAuthorization;
 
 const protocolLimits = {
@@ -2344,4 +3297,102 @@ function hash(character: string): string {
 }
 function gitSha(character: string): string {
   return character.repeat(40);
+}
+
+function lifecycleAuthorization(): ReviewRunAuthorization {
+  const capability = {
+    extensionId: lifecycleVerificationContract.extensionId,
+    descriptorDigest: lifecycleVerificationDescriptorDigest,
+    executor: lifecycleVerificationContract.executor,
+    modelTransport: "account_gateway",
+    providerIndex: 0,
+    providerKind: "codex",
+    model: "gpt-5-codex",
+    maxDispatches: 2,
+    maxPromptBytes: 98304,
+    maxResponseBytes: 32768,
+    maxOutputTokens: 4096,
+    deadlineMs: 60000,
+    attemptBudget: 1,
+  };
+  const configuration = {
+    schemaVersion: 3,
+    providers: [
+      {
+        kind: "codex",
+        authMode: "codex_account_gateway",
+        model: "gpt-5-codex",
+        gatewayBindingId: "binding",
+        gatewayProfileRef: "profile",
+        agenticContext: true,
+        fastMode: false,
+        requiredHealthy: false,
+      },
+    ],
+    execution: {
+      providerLimit: 1,
+      providerMaxParallel: 1,
+      inlineMinAgreement: 1,
+    },
+    blockingPolicy: { failOnSeverity: "off" },
+    limits: { inlineMaxComments: 10, targetTokensPerBatch: 8000 },
+    reviewLanguage: null,
+    investigationRollout: {
+      recordingEnabled: false,
+      shadowEnabled: false,
+      contextCriticEnabled: false,
+      verifiedCleanEnabled: false,
+      crossRevisionReplayEnabled: false,
+      productionEffectsEnabled: false,
+    },
+  };
+  return {
+    ...authorization,
+    runtimeSnapshotCanonicalJson: canonicalJson({
+      snapshotVersion: 3,
+      lifecycleVerificationCapability: capability,
+      configurationSource: "workspace",
+      configurationVersion: 1,
+      workspaceConfigurationVersion: 1,
+      repositoryConfigurationVersion: null,
+      effectivePolicyDigest: `sha256:${hash("a")}`,
+      agent: {
+        profileRef: "codex-default",
+        agentKind: "codex",
+        binarySha256: hash("a"),
+        packageVersion: "1.0.0",
+        modelTransports: ["account_gateway"],
+        cancellation: true,
+        contextGateway: true,
+      },
+      agentProfileDigest: hash("b"),
+      producer: {
+        producerReleaseId: "release-1",
+        actionCommitSha: gitSha("a"),
+        runtimeCommitSha: gitSha("b"),
+      },
+      configurationCanonicalJson: canonicalJson(configuration),
+      deadline: authorization.expiresAt.toISOString(),
+      gateway: {
+        providerIndex: 0,
+        bindingId: "binding",
+        connectionId: "connection",
+        bindingRevision: 1,
+        policySubject: "binding",
+        policyRevision: 1,
+        permittedAccountRef: "account",
+        profileRef: "profile",
+        invocationId: "invocation",
+        attemptId: "attempt",
+        operationId: "operation",
+        limits: {
+          requests: 9,
+          concurrency: 1,
+          requestBytes: 98304,
+          outputBytes: 32768,
+          tokens: 4096,
+        },
+      },
+    }),
+  };
 }

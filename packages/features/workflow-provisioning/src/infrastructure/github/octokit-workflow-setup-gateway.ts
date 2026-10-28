@@ -411,7 +411,28 @@ const hostedPoolSetupPullRequestBody = [
   "- `.github/workflows/reviewrouter-codex.yml` - hosted pull request review workflow",
 ].join("\n");
 
+const gatewaySetupPullRequestBody = [
+  "This PR installs the keyless ReviewRouter Gateway workflow.",
+  "",
+  "- uses GitHub OIDC and the repository-scoped Gateway connection; no provider secrets are required",
+  "- removes legacy ReviewRouter workflows matching trusted markers; `/rr` comment commands (`reviewrouter-interaction.yml`) are removed",
+  "",
+  "Workflow file: `.github/workflows/reviewrouter-review.yml`.",
+].join("\n");
+
 function resolveSetupPullRequestBody(input: WorkflowSetupGatewayInput): string {
+  if (input.setupMode === "provider_api")
+    return [
+      "This PR installs the App-first ReviewRouter workflow for one OpenRouter model.",
+      "",
+      "- uses GitHub OIDC, server-admitted configuration and GitHub App publication",
+      "- reads the repository's OPENROUTER_API_KEY secret only in GitHub Actions",
+      "- runs the built-in ReviewRouter engine; OpenCodeReview requires Account Gateway",
+      "- removes legacy ReviewRouter workflows matching trusted markers",
+      "",
+      "Workflow file: `.github/workflows/reviewrouter-review.yml`.",
+    ].join("\n");
+  if (input.setupMode === "gateway") return gatewaySetupPullRequestBody;
   return input.setupMode === "hosted_pool"
     ? hostedPoolSetupPullRequestBody
     : setupPullRequestBody;

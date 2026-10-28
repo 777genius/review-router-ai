@@ -33,6 +33,23 @@ describe("review request ingress handler", () => {
     });
   });
 
+  it("uses the latest workspace setting to admit or cancel draft requests", async () => {
+    const fixture = createFixture();
+    fixture.current.draft = true;
+    fixture.settings.reviewDrafts = true;
+    await fixture.handler.handle(event());
+    await expect(
+      fixture.store.findByRequestId(`review-request-${"d".repeat(64)}`),
+    ).resolves.toMatchObject({
+      state: ReviewRequestedIntentState.PendingDispatch,
+    });
+    fixture.settings.reviewDrafts = false;
+    await fixture.handler.handle(event());
+    await expect(
+      fixture.store.findByRequestId(`review-request-${"d".repeat(64)}`),
+    ).resolves.toMatchObject({ state: ReviewRequestedIntentState.Superseded });
+  });
+
   it("does not resurrect an ingress event for an older head", async () => {
     const fixture = createFixture({ currentHeadSha: "f".repeat(40) });
 
@@ -90,7 +107,9 @@ function createFixture(
     headRepositoryFullName: "777genius/agent-teams-ai",
     authorType: "User",
   };
+  const settings = { reviewDrafts: false };
   return {
+    settings,
     store,
     current,
     handler: createReviewRequestIngressHandler({
@@ -116,7 +135,10 @@ function createFixture(
           createHash("sha256").update(value).digest("hex"),
       },
       clock: { now: () => now },
-      reviewDrafts: () => false,
+      reviewDrafts: async (workspaceId) => {
+        expect(workspaceId).toBe("workspace-1");
+        return settings.reviewDrafts;
+      },
     }),
   };
 }

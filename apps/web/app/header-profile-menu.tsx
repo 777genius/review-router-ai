@@ -75,6 +75,16 @@ export function HeaderProfileMenu({
             </div>
           </div>
           <DropdownMenu.Item asChild>
+            <LinkButton
+              href="/dashboard"
+              variant="ghost"
+              size="sm"
+              className="mt-2 w-full justify-center rounded-xl border border-white/10 text-cyan-100 hover:border-cyan-200/30 hover:bg-cyan-300/[0.08] focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300"
+            >
+              Dashboard
+            </LinkButton>
+          </DropdownMenu.Item>
+          <DropdownMenu.Item asChild>
             <GitHubSignOutButton
               variant="ghost"
               size="sm"

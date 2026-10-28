@@ -1,14 +1,13 @@
-import { createHash } from "node:crypto";
-import {
-  safeDefaultReviewConfiguration,
-  type ReviewConfiguration,
-} from "../../domain/review-configuration";
+import { type ReviewConfiguration } from "../../domain/review-configuration";
+import type { ReviewProviderSelection } from "../../domain/review-policy-document";
 import type { ReviewConfigurationTarget } from "../../domain/review-configuration-target";
 import type {
   PersistedReviewConfiguration,
   ReviewConfigurationRepositoryPort,
+  ReviewPolicyHeadReaderPort,
 } from "../ports/review-configuration-repository-port";
 import { mapConfigToRuntimeEnv } from "./map-config-to-runtime-env";
+import { resolveEffectiveReviewConfiguration } from "./resolve-effective-review-configuration";
 
 export type ResolvedReviewConfigurationSource =
   | "repository"
@@ -17,9 +16,14 @@ export type ResolvedReviewConfigurationSource =
 
 export type ResolvedReviewConfiguration = {
   readonly version: number;
-  readonly source: ResolvedReviewConfigurationSource;
+  readonly source: Exclude<ResolvedReviewConfigurationSource, "default">;
+  readonly workspaceVersion: number | null;
+  readonly repositoryVersion: number | null;
+  readonly effectivePolicyDigest: string;
   readonly revisionToken: string;
   readonly config: ReviewConfiguration;
+  readonly policy: PersistedReviewConfiguration["policy"];
+  readonly selections: readonly ReviewProviderSelection[];
 };
 
 export type ResolvedReviewRuntimeEnv = ResolvedReviewConfiguration & {
@@ -31,63 +35,44 @@ export async function resolveReviewConfiguration(
   dependencies: {
     readonly configurations: ReviewConfigurationRepositoryPort;
   },
-): Promise<ResolvedReviewConfiguration> {
-  if (target.scope === "repository") {
-    const repositoryConfig =
-      await dependencies.configurations.findLatest(target);
-    if (repositoryConfig) {
-      return {
-        ...repositoryConfig,
-        source: "repository",
-        revisionToken: revisionTokenFor("repository", repositoryConfig),
-      };
-    }
-  }
-
-  const workspaceConfig = await dependencies.configurations.findLatest({
-    scope: "workspace",
-    workspaceId: target.workspaceId,
-  });
-  if (workspaceConfig) {
-    return {
-      ...workspaceConfig,
-      source: "workspace",
-      revisionToken: revisionTokenFor("workspace", workspaceConfig),
-    };
-  }
-
-  return {
-    version: 1,
-    source: "default",
-    config: safeDefaultReviewConfiguration,
-    revisionToken: revisionTokenFor("default", {
-      version: 1,
-      config: safeDefaultReviewConfiguration,
-    }),
-  };
+): Promise<ResolvedReviewConfiguration | null> {
+  const persisted = await dependencies.configurations.findLatest(target);
+  return persisted ? toResolvedConfiguration(persisted) : null;
 }
 
-function revisionTokenFor(
-  source: ResolvedReviewConfigurationSource,
+function toResolvedConfiguration(
   persisted: PersistedReviewConfiguration,
-): string {
-  if (persisted.revisionToken) return persisted.revisionToken;
-  const digest = createHash("sha256")
-    .update(JSON.stringify(persisted.config))
-    .digest("hex");
-  return `logical:${source}:${persisted.version}:${digest}`;
+): ResolvedReviewConfiguration {
+  return {
+    version: persisted.version,
+    source: persisted.source,
+    workspaceVersion: persisted.workspaceVersion,
+    repositoryVersion: persisted.repositoryVersion,
+    effectivePolicyDigest: persisted.effectivePolicyDigest,
+    revisionToken:
+      persisted.revisionToken ??
+      `policy:${persisted.workspaceVersion ?? 0}:${persisted.repositoryVersion ?? 0}:${persisted.effectivePolicyDigest}`,
+    config: persisted.config,
+    policy: persisted.policy,
+    selections: persisted.selections,
+  };
 }
 
 export async function resolveReviewRuntimeEnv(
   target: ReviewConfigurationTarget,
-  dependencies: {
-    readonly configurations: ReviewConfigurationRepositoryPort;
-  },
+  dependencies: { readonly policyHeads: ReviewPolicyHeadReaderPort },
 ): Promise<ResolvedReviewRuntimeEnv> {
-  const resolved = await resolveReviewConfiguration(target, dependencies);
+  const resolved = await resolveEffectiveReviewConfiguration(
+    target,
+    dependencies,
+  );
+  if (resolved.status === "resave_required")
+    throw new Error("review_policy_resave_required");
+  if (resolved.status === "provider_selection_required")
+    throw new Error("review_provider_selection_required");
 
   return {
-    ...resolved,
+    ...toResolvedConfiguration(resolved),
     runtimeEnv: mapConfigToRuntimeEnv(resolved.config),
   };
 }

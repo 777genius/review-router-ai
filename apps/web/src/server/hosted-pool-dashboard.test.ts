@@ -1,7 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
-import type {
-  HostedAccountSafeSummary,
-  HostedPoolQueryPort,
+import {
+  enrollHostedPoolAccount,
+  fingerprintCodexAuthJson,
+  hostedAccountId,
+  hostedPoolId,
+  reconnectHostedAccount,
+  workspaceId,
+  type HostedAccountRepositoryPort,
+  type HostedCodexDeviceLoginRecord,
+  type HostedPoolAccount,
+  type HostedCodexDeviceReconnectTarget,
+  type HostedAccountSafeSummary,
+  type HostedPoolQueryPort,
 } from "@reviewrouter/features-hosted-account-pool";
 import {
   changeHostedRepositorySessionSource,
@@ -47,6 +57,8 @@ function mutationDependencies(
       visibility: "private",
     })),
     mutations: {
+      assertReconnectTarget: vi.fn(async () => undefined),
+      reconnectAccount: vi.fn(async () => safeAccount()),
       importAccount: vi.fn(async () => safeAccount()),
       setAccountState: vi.fn(async () => undefined),
       removeAccount: vi.fn(async () => undefined),
@@ -62,18 +74,7 @@ function mutationDependencies(
 function deviceLoginDependencies(
   overrides: Partial<HostedPoolDeviceLoginDependencies> = {},
 ): HostedPoolDeviceLoginDependencies {
-  const pending = new Map<
-    string,
-    {
-      actor: string;
-      workspaceId: string;
-      deviceAuthId: string;
-      userCode: string;
-      verificationUrl: string;
-      expiresAt: Date;
-      status: "pending";
-    }
-  >();
+  const pending = new Map<string, HostedCodexDeviceLoginRecord>();
   return {
     ...mutationDependencies(),
     deviceLoginStore: {
@@ -101,15 +102,7 @@ function deviceLoginDependencies(
           : null;
       }),
       createPending: vi.fn(async (record) => {
-        pending.set(record.id, {
-          actor: record.actor,
-          workspaceId: record.workspaceId,
-          deviceAuthId: record.deviceAuthId ?? "device-auth-secret",
-          userCode: record.userCode,
-          verificationUrl: record.verificationUrl,
-          expiresAt: record.expiresAt,
-          status: "pending",
-        });
+        pending.set(record.id, { ...record });
       }),
       findById: vi.fn(async (id) => {
         const row = pending.get(id);
@@ -120,6 +113,7 @@ function deviceLoginDependencies(
               actor: row.actor,
               label: "Primary",
               priority: 10,
+              reconnectTarget: row.reconnectTarget,
               userCode: row.userCode,
               verificationUrl: row.verificationUrl,
               deviceAuthId: row.deviceAuthId,
@@ -130,7 +124,17 @@ function deviceLoginDependencies(
             } as never)
           : null;
       }),
-      markTerminal: vi.fn(async () => true),
+      markTerminal: vi.fn(async (command) => {
+        const row = pending.get(command.id);
+        if (!row || row.status !== command.expectedStatus) return false;
+        pending.set(command.id, {
+          ...row,
+          status: command.status,
+          deviceAuthId: null,
+          updatedAt: command.now,
+        });
+        return true;
+      }),
     },
     deviceAuth: {
       requestUserCode: vi.fn(async () => ({
@@ -161,6 +165,7 @@ describe("hosted pool dashboard boundary", () => {
         order.push("entitlement");
       }),
       mutations: {
+        ...mutationDependencies().mutations,
         importAccount: vi.fn(async () => {
           order.push("import");
           return safeAccount();
@@ -192,6 +197,7 @@ describe("hosted pool dashboard boundary", () => {
     const authJson = new TextEncoder().encode("secret bytes");
     const dependencies = mutationDependencies({
       mutations: {
+        ...mutationDependencies().mutations,
         importAccount: vi.fn(async () => {
           throw new Error("credential_enrollment_failed");
         }),
@@ -255,6 +261,7 @@ describe("hosted pool dashboard boundary", () => {
     });
     const dependencies = deviceLoginDependencies({
       mutations: {
+        ...mutationDependencies().mutations,
         importAccount: vi.fn(async () => enrolled),
         setAccountState: vi.fn(async () => undefined),
         removeAccount: vi.fn(async () => undefined),
@@ -292,6 +299,296 @@ describe("hosted pool dashboard boundary", () => {
         dependencies,
       ),
     ).resolves.toMatchObject({ status: "imported", account: enrolled });
+  });
+
+  it("reconnects an explicitly selected paused identity once instead of duplicate import", async () => {
+    // Regression: routing this fresh exchange to create rejects the duplicate
+    // and terminalizes the flight, without replacing the selected generation.
+    const now = new Date("2026-08-15T12:00:00.000Z");
+    const pepper = Buffer.alloc(32, 7);
+    const claims = Buffer.from(
+      JSON.stringify({
+        iss: "https://auth.openai.com",
+        sub: "fixture-subject",
+        "https://api.openai.com/auth": {
+          chatgpt_account_id: "fixture-account",
+        },
+      }),
+    ).toString("base64url");
+    const tokens = {
+      idToken: `e30.${claims}.fixture-signature`,
+      accessToken: "fixture-access-token",
+      refreshToken: "fixture-refresh-token",
+    };
+    const initialAuth = Buffer.from(
+      JSON.stringify({
+        auth_mode: "chatgpt",
+        tokens: {
+          id_token: tokens.idToken,
+          refresh_token: tokens.refreshToken,
+        },
+        last_refresh: now.toISOString(),
+      }),
+    );
+    const initial = enrollHostedPoolAccount({
+      id: hostedAccountId("selected-account"),
+      poolId: hostedPoolId("pool-1"),
+      label: "Same display label",
+      priority: 10,
+      credential: {
+        credentialRef: "opaque",
+        subjectFingerprint: fingerprintCodexAuthJson(initialAuth, pepper),
+        authGeneration: 3,
+        validatedAt: now,
+        expiresAt: null,
+      },
+      now,
+    });
+    const rows: HostedPoolAccount[] = [
+      {
+        ...initial,
+        availability: { status: "paused", reason: "Operator" },
+        healthVersion: 9,
+      },
+    ];
+    const accounts: HostedAccountRepositoryPort = {
+      findById: async (id) => rows.find((row) => row.id === id) ?? null,
+      findBySubjectFingerprint: async (command) =>
+        rows.find(
+          (row) =>
+            row.poolId === command.poolId &&
+            row.credential.subjectFingerprint === command.subjectFingerprint,
+        ) ?? null,
+      listByPoolId: async () => rows,
+      replaceCredential: async () => {
+        throw new Error("wrong refresh path");
+      },
+      saveAvailability: async () => {
+        throw new Error("must stay paused");
+      },
+      tombstone: async () => {
+        throw new Error("must preserve account");
+      },
+    };
+    const assertTarget = async (
+      target: HostedCodexDeviceReconnectTarget & { workspaceId: string },
+    ) => {
+      const row = rows[0]!;
+      if (
+        target.workspaceId !== "workspace-1" ||
+        target.accountId !== row.id ||
+        target.expectedGeneration !== row.credential.authGeneration ||
+        target.expectedHealthVersion !== row.healthVersion ||
+        row.availability.status !== "paused"
+      ) {
+        throw new Error("hosted_codex_reconnect_conflict");
+      }
+    };
+    let exchangedBytes: Uint8Array | undefined;
+    const commit = vi.fn(
+      async (command: {
+        expectedGeneration: number;
+        expectedHealthVersion: number;
+      }) => {
+        const row = rows[0]!;
+        if (
+          row.credential.authGeneration !== command.expectedGeneration ||
+          row.healthVersion !== command.expectedHealthVersion
+        ) {
+          return { status: "stale_generation" };
+        }
+        rows[0] = {
+          ...row,
+          credential: {
+            ...row.credential,
+            authGeneration: command.expectedGeneration + 1,
+          },
+          healthVersion: command.expectedHealthVersion + 1,
+        };
+        return {
+          status: "accepted",
+          generation: command.expectedGeneration + 1,
+        };
+      },
+    );
+    let flightNumber = 0;
+    const dependencies = deviceLoginDependencies({
+      createLoginId: () => `fresh-flight-${++flightNumber}`,
+      mutations: {
+        ...mutationDependencies().mutations,
+        assertReconnectTarget: vi.fn(assertTarget),
+        importAccount: vi.fn(async (command) => {
+          exchangedBytes = command.authJson;
+          if (
+            fingerprintCodexAuthJson(command.authJson, pepper) ===
+            rows[0]!.credential.subjectFingerprint
+          ) {
+            throw new Error("hosted_account_subject_already_enrolled");
+          }
+          throw new Error("unexpected identity");
+        }),
+        reconnectAccount: vi.fn(async (command) => {
+          exchangedBytes = command.authJson;
+          await assertTarget(command);
+          await reconnectHostedAccount(
+            {
+              workspaceId: workspaceId(command.workspaceId),
+              poolId: hostedPoolId("pool-1"),
+              accountId: hostedAccountId(command.accountId),
+              expectedGeneration: command.expectedGeneration,
+              expectedHealthVersion: command.expectedHealthVersion,
+              authJsonBytes: command.authJson,
+            },
+            {
+              accounts,
+              validate: (bytes) => ({
+                fingerprint: fingerprintCodexAuthJson(bytes, pepper),
+                generationHash: "fixture-hash",
+              }),
+              acquire: async () => "fixture-fence",
+              release: async () => undefined,
+              commit,
+            },
+          );
+          const row = rows[0]!;
+          return safeAccount({
+            id: row.id,
+            label: row.label,
+            authGeneration: row.credential.authGeneration,
+            healthVersion: row.healthVersion,
+            availability: row.availability,
+          });
+        }),
+      },
+      deviceAuth: {
+        requestUserCode: vi.fn(async () => ({
+          deviceAuthId: "fixture-device",
+          userCode: "ABCD-EFGH",
+          verificationUrl: "https://auth.openai.com/codex/device",
+          intervalSeconds: 3,
+        })),
+        pollAuthorization: vi.fn(async () => ({
+          status: "authorized" as const,
+          authorizationCode: "fixture-code",
+          codeVerifier: "fixture-verifier",
+        })),
+        exchangeAuthorizationCode: vi.fn(async () => tokens),
+      },
+    });
+    const create = await startHostedPoolDeviceLogin(
+      { workspaceId: "workspace-1", label: initial.label, priority: 10 },
+      dependencies,
+    );
+    await expect(
+      pollHostedPoolDeviceLogin(
+        { workspaceId: "workspace-1", loginId: create.loginId },
+        dependencies,
+      ),
+    ).rejects.toThrow("hosted_account_subject_already_enrolled");
+    expect(exchangedBytes?.every((byte) => byte === 0)).toBe(true);
+    const target = {
+      accountId: String(initial.id),
+      expectedGeneration: 3,
+      expectedHealthVersion: 9,
+    };
+    const reconnect = await startHostedPoolDeviceLogin(
+      {
+        workspaceId: "workspace-1",
+        label: initial.label,
+        priority: 10,
+        reconnectTarget: target,
+      },
+      dependencies,
+    );
+    target.expectedGeneration = 999; // caller mutation cannot retarget persisted intent
+    const poll = { workspaceId: "workspace-1", loginId: reconnect.loginId };
+    await expect(
+      pollHostedPoolDeviceLogin(poll, dependencies),
+    ).resolves.toMatchObject({
+      status: "imported",
+      account: {
+        id: initial.id,
+        authGeneration: 4,
+        healthVersion: 10,
+        availability: { status: "paused" },
+      },
+    });
+    await expect(
+      pollHostedPoolDeviceLogin(poll, dependencies),
+    ).resolves.toMatchObject({ status: "imported" });
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(dependencies.mutations.importAccount).toHaveBeenCalledTimes(1);
+    expect(dependencies.mutations.reconnectAccount).toHaveBeenCalledTimes(1);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.availability.status).toBe("paused");
+    expect(exchangedBytes?.every((byte) => byte === 0)).toBe(true);
+  });
+
+  it("rejects a reconnect target conflict before requesting a device code", async () => {
+    const dependencies = deviceLoginDependencies();
+    dependencies.mutations.assertReconnectTarget = vi.fn(async () => {
+      throw new Error("hosted_codex_reconnect_conflict");
+    });
+    await expect(
+      startHostedPoolDeviceLogin(
+        {
+          workspaceId: "workspace-1",
+          label: "Primary",
+          priority: 10,
+          reconnectTarget: {
+            accountId: "foreign-or-stale",
+            expectedGeneration: 3,
+            expectedHealthVersion: 9,
+          },
+        },
+        dependencies,
+      ),
+    ).rejects.toThrow("hosted_codex_reconnect_conflict");
+    expect(dependencies.deviceAuth.requestUserCode).not.toHaveBeenCalled();
+  });
+
+  it("rejects an actor change during token exchange before reconnect mutation", async () => {
+    const authorize = vi.fn(async () => ({ actor: "user:owner" }));
+    const dependencies = deviceLoginDependencies({
+      authorizeWorkspaceAdmin: authorize,
+    });
+    dependencies.deviceAuth.pollAuthorization = vi.fn(async () => ({
+      status: "authorized" as const,
+      authorizationCode: "fixture-code",
+      codeVerifier: "fixture-verifier",
+    }));
+    dependencies.deviceAuth.exchangeAuthorizationCode = vi.fn(async () => {
+      authorize.mockResolvedValue({ actor: "user:different-admin" });
+      return {
+        idToken: "fixture-id-token",
+        accessToken: "fixture-access-token",
+        refreshToken: "fixture-refresh-token",
+      };
+    });
+    const started = await startHostedPoolDeviceLogin(
+      {
+        workspaceId: "workspace-1",
+        label: "Primary",
+        priority: 10,
+        reconnectTarget: {
+          accountId: "account-1",
+          expectedGeneration: 3,
+          expectedHealthVersion: 9,
+        },
+      },
+      dependencies,
+    );
+    await expect(
+      pollHostedPoolDeviceLogin(
+        { workspaceId: "workspace-1", loginId: started.loginId },
+        dependencies,
+      ),
+    ).rejects.toThrow("hosted_pool_device_login_forbidden");
+    expect(dependencies.mutations.reconnectAccount).not.toHaveBeenCalled();
+    expect(dependencies.mutations.importAccount).not.toHaveBeenCalled();
+    expect(
+      await dependencies.deviceLoginStore.findById(started.loginId as never),
+    ).toMatchObject({ status: "failed", deviceAuthId: null });
   });
 
   it("rejects unknown visibility before a hosted binding mutation", async () => {

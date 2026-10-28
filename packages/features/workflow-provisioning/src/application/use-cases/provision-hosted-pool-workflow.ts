@@ -4,6 +4,7 @@ import {
 } from "@reviewrouter/features-audit-log";
 import { createProvisionWorkflowPlan } from "../../domain/workflow-provisioning";
 import { renderCanonicalHostedPoolWorkflowV2 } from "../../domain/hosted-pool-workflow-template";
+import { workflowRequirement } from "../../domain/workflow-transport";
 import {
   defaultCodexRotatingWorkflowPath,
   defaultInteractionWorkflowPath,
@@ -70,6 +71,7 @@ export async function provisionHostedPoolRepositoryWorkflow(
     workflowPath: plan.workflowPath,
     workflowStyle: "reusable" as const,
     actionVersion: plan.actionRef,
+    workflowRequirement: workflowRequirement("hosted_pool", []),
   };
   const attempt = await dependencies.provisioning.beginAttempt({
     ...record,

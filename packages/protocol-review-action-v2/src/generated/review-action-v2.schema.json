@@ -23427,6 +23427,16 @@
         "reviewRevisionHash": {
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
+        },
+        "purpose": {
+          "anyOf": [
+            {
+              "enum": ["comparison_baseline.v1"]
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },

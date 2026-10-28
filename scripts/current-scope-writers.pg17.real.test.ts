@@ -150,9 +150,12 @@ describe.skipIf(process.env.REVIEW_ROUTER_RUN_CURRENT_SCOPE_PG17 !== "1")(
         });
       } else if (kind === "repo-delete") {
         expect(
-          await new PrismaReviewConfigurationRepository(db).deleteTarget(
-            target,
-          ),
+          await new PrismaReviewConfigurationRepository(
+            db,
+            undefined,
+            false,
+            undefined,
+          ).deleteTarget(target),
         ).toBe(true);
       } else if (kind === "transaction-config") {
         await db.$transaction(async (tx) => {
@@ -162,6 +165,9 @@ describe.skipIf(process.env.REVIEW_ROUTER_RUN_CURRENT_SCOPE_PG17 !== "1")(
           await tx.$queryRaw`SELECT "id" FROM "Workspace" WHERE "id" = ${target.workspaceId} FOR UPDATE`;
           await new PrismaReviewConfigurationTransactionRepository(
             tx,
+            undefined,
+            false,
+            undefined,
           ).saveNextVersion({
             target,
             config: safeDefaultReviewConfiguration,
@@ -169,7 +175,12 @@ describe.skipIf(process.env.REVIEW_ROUTER_RUN_CURRENT_SCOPE_PG17 !== "1")(
           });
         });
       } else {
-        await new PrismaReviewConfigurationRepository(db).saveNextVersion({
+        await new PrismaReviewConfigurationRepository(
+          db,
+          undefined,
+          false,
+          undefined,
+        ).saveNextVersion({
           target: configTarget(kind, target),
           config: safeDefaultReviewConfiguration,
           expectedVersion: null,
@@ -189,14 +200,20 @@ describe.skipIf(process.env.REVIEW_ROUTER_RUN_CURRENT_SCOPE_PG17 !== "1")(
       }
       const row = await new PrismaReviewConfigurationTransactionRepository(
         tx,
+        undefined,
+        false,
+        undefined,
       ).findLatest(configTarget(kind, target));
       return row ? `version:${row.version}` : "absent";
     }
     async function prepare(kind: Kind, target: Target) {
       if (kind === "repo-delete")
-        await new PrismaReviewConfigurationRepository(observer).saveNextVersion(
-          { target, config: safeDefaultReviewConfiguration },
-        );
+        await new PrismaReviewConfigurationRepository(
+          observer,
+          undefined,
+          false,
+          undefined,
+        ).saveNextVersion({ target, config: safeDefaultReviewConfiguration });
     }
     const before = (kind: Kind) =>
       kind === "repo-delete" ? "version:1" : "absent";

@@ -9,6 +9,11 @@
       "production": "./dist/index.js",
       "default": "./src/index.ts"
     },
+    "./review-skills-contract": {
+      "types": "./src/review-skills-contract.ts",
+      "production": "./dist/review-skills-contract.js",
+      "default": "./src/review-skills-contract.ts"
+    },
     "./scm": {
       "types": "./src/scm/index.ts",
       "production": "./dist/scm/index.js",

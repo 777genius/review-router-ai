@@ -104,6 +104,7 @@ describe("review v2 production worker composition", () => {
           env,
           githubAppId: "1",
           githubPrivateKey: privateKey,
+          settlementHook: async () => {},
         }),
     });
 
@@ -123,9 +124,20 @@ describe("review v2 production worker composition", () => {
         env: {},
         githubAppId: "1",
         githubPrivateKey: "unused",
+        settlementHook: async () => {},
       }),
     ).toThrow(
       `review_v2_worker_config_missing:${reviewV2CapabilityActiveKeyIdEnv}`,
+    );
+  });
+
+  it("maps a persisted OCR provider kind to its real enum value", () => {
+    // Discriminating pair: before the explicit Ocr case the persisted "ocr"
+    // string collapsed to EvidenceProviderKind.Unknown, erasing the OCR
+    // identity that downstream safety mapping needs to answer fail-closed
+    // non-participation explicitly.
+    expect(mapPersistedContextReuseProviderKind("ocr")).toBe(
+      EvidenceProviderKind.Ocr,
     );
   });
 

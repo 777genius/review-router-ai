@@ -448,6 +448,8 @@ function toPrismaProviderKind(value: ReviewProviderKind): PrismaProviderKind {
       return PrismaProviderKind.claude_code;
     case ReviewProviderKind.OpenRouter:
       return PrismaProviderKind.openrouter;
+    case ReviewProviderKind.Ocr:
+      return PrismaProviderKind.ocr;
     case ReviewProviderKind.Unknown:
       throw new Error("review_observation_provider_kind_unknown");
   }
@@ -461,6 +463,8 @@ function fromPrismaProviderKind(value: PrismaProviderKind): ReviewProviderKind {
       return ReviewProviderKind.ClaudeCode;
     case PrismaProviderKind.openrouter:
       return ReviewProviderKind.OpenRouter;
+    case PrismaProviderKind.ocr:
+      return ReviewProviderKind.Ocr;
   }
 }
 
@@ -470,6 +474,8 @@ function toPrismaTaskKind(value: ReviewTaskKind): PrismaTaskKind {
       return PrismaTaskKind.finding_discovery;
     case ReviewTaskKind.LifecycleRevalidation:
       return PrismaTaskKind.lifecycle_revalidation;
+    case ReviewTaskKind.PrDescription:
+      throw new Error("review_observation_auxiliary_task_forbidden");
     case ReviewTaskKind.Unknown:
       throw new Error("review_observation_task_kind_unknown");
   }
@@ -481,6 +487,7 @@ function fromPrismaTaskKind(value: PrismaTaskKind): ReviewTaskKind {
       return ReviewTaskKind.FindingDiscovery;
     case PrismaTaskKind.lifecycle_revalidation:
       return ReviewTaskKind.LifecycleRevalidation;
+    case PrismaTaskKind.pr_description:
     case PrismaTaskKind.code_review:
     case PrismaTaskKind.finding_revalidation:
     case PrismaTaskKind.conflict_review:

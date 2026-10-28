@@ -392,19 +392,18 @@ function SetupStartCard({
           </h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
             {hasConnectedApp
-              ? "ReviewRouter already has an active GitHub App installation for this signed-in account. Open the dashboard to choose repositories, create setup PRs, and connect provider credentials."
-              : "Install the GitHub App for a personal account or organization. Select only the repositories that should run ReviewRouter, then GitHub will send you back here with a link to the dashboard. You can manage repository access later from GitHub."}
+              ? "ReviewRouter already has an active GitHub App installation for this account. Open the dashboard to pick repositories, create setup PRs, and connect provider credentials."
+              : "Install the GitHub App on your personal account or your organization. Pick only the repositories that should run ReviewRouter — GitHub sends you back here afterwards. Repository access can be changed later in GitHub."}
           </p>
           {!hasConnectedApp ? (
             <div className="mt-4 rounded-2xl border border-cyan-200/10 bg-cyan-300/[0.04] p-4 text-sm leading-6 text-slate-300">
               <p className="font-semibold text-cyan-50">
-                Choose personal account on GitHub
+                Pick the owner on GitHub
               </p>
               <p className="mt-1">
-                On the GitHub install screen, pick your username for a personal
-                repository or pick an organization for organization
-                repositories. ReviewRouter shows each install as a separate
-                workspace after you sign in.
+                Choose your username for personal repositories, or an
+                organization for its repositories. Each install becomes a
+                separate workspace after you sign in.
               </p>
             </div>
           ) : null}

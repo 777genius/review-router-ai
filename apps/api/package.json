@@ -31,6 +31,7 @@
     "@reviewrouter/features-review-progress": "workspace:*",
     "@reviewrouter/features-review-publishing": "workspace:*",
     "@reviewrouter/features-review-run-control": "workspace:*",
+    "@reviewrouter/features-review-skills": "workspace:*",
     "@reviewrouter/features-review-snapshots": "workspace:*",
     "@reviewrouter/features-system-health": "workspace:*",
     "@reviewrouter/features-workflow-provisioning": "workspace:*",
@@ -39,18 +40,24 @@
     "@reviewrouter/platform-logger": "workspace:*",
     "@reviewrouter/platform-signed-capabilities": "workspace:*",
     "@reviewrouter/protocol-review-action-v2": "workspace:*",
+    "@reviewrouter/protocol-review-workflow": "workspace:*",
     "@reviewrouter/shared": "workspace:*",
     "@trpc/server": "^11.17.0",
     "fastify": "^5.10.0",
     "zod": "^4.4.2",
     "@reviewrouter/platform-locks": "workspace:*",
-    "@reviewrouter/features-sdk-growth-authority": "workspace:*"
+    "@reviewrouter/features-sdk-growth-authority": "workspace:*",
+    "@reviewrouter/features-provider-accounts": "workspace:*",
+    "@agent-teams/account-gateway": "file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz",
+    "@reviewrouter/features-review-context-tools": "workspace:*",
+    "@reviewrouter/features-provider-usage": "workspace:*",
+    "@reviewrouter/features-review-providers": "workspace:*"
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "release-control:start": "node --conditions=production dist/release-control-server.js",
     "release-witness:start": "node --conditions=production dist/release-witness-server.js",
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "build": "node ../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",
+    "typecheck": "node ../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json"
   }
 }

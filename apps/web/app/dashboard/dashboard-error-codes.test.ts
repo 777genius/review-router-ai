@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { safeDashboardErrorCode } from "./dashboard-error-codes";
+import {
+  dashboardUntrustedWorkflowPathFromError,
+  safeDashboardErrorCode,
+} from "./dashboard-error-codes";
 
 describe("safeDashboardErrorCode", () => {
   it.each([
@@ -54,6 +57,8 @@ describe("safeDashboardErrorCode", () => {
       safeDashboardErrorCode(new Error("codex_legacy_auth_requires_reconnect")),
     ).toBe("codex_legacy_auth_requires_reconnect");
     for (const code of [
+      "account_gateway_workflow_options_not_supported",
+      "gateway_review_reasoning_effort_unsupported",
       "codex_rotating_workflow_reattestation_stale",
       "codex_rotating_workflow_reattestation_invalid",
       "codex_rotating_workflow_reattestation_forbidden",
@@ -93,4 +98,94 @@ describe("safeDashboardErrorCode", () => {
       );
     },
   );
+});
+
+// Legacy policy failures must survive transport normalization for actionable recovery.
+describe("policy readiness errors", () => {
+  it.each([
+    "review_policy_resave_required",
+    "review_provider_selection_required",
+  ])("preserves %s", (code) => {
+    expect(safeDashboardErrorCode(new Error(code))).toBe(code);
+  });
+  it("removes untrusted workflow paths from the public code", () => {
+    expect(
+      safeDashboardErrorCode(
+        new Error(
+          "workflow_delete_untrusted:.github/workflows/reviewrouter-codex.yml",
+        ),
+      ),
+    ).toBe("workflow_delete_untrusted");
+  });
+});
+
+// A code with shipped guidance must reach that guidance instead of the generic notice.
+describe("codes with dedicated dashboard copy", () => {
+  it.each([
+    "gateway_repository_identity_missing",
+    "gateway_review_v2_provisioning_failed",
+    "gateway_review_v2_dispatch_unavailable",
+    "mutation_authority_unavailable",
+    "dashboard_action_stale",
+  ])("preserves %s", (code) => {
+    expect(safeDashboardErrorCode(new Error(code))).toBe(code);
+  });
+
+  it.each([
+    "no_such_code_at_all",
+    "github_operation_failed",
+    "Prisma client failed on table ReviewExecutionV2",
+    "secret_token_abc123xyz",
+  ])("collapses unrecognized message %s", (message) => {
+    expect(safeDashboardErrorCode(new Error(message))).toBe(
+      "github_operation_failed",
+    );
+  });
+});
+
+// Removing the file by hand is the documented recovery, so the audit trail has to
+// say which file, without letting an arbitrary message path through.
+describe("dashboardUntrustedWorkflowPathFromError", () => {
+  it.each([
+    ".github/workflows/reviewrouter-codex.yml",
+    ".github/workflows/reviewrouter.yml",
+    ".github/workflows/reviewrouter-interaction.yml",
+  ])("keeps the ReviewRouter workflow path %s", (path) => {
+    expect(
+      dashboardUntrustedWorkflowPathFromError(
+        new Error(`workflow_delete_untrusted:${path}`),
+      ),
+    ).toBe(path);
+  });
+
+  it.each([
+    "../../etc/passwd",
+    ".github/workflows/../../secrets.yml",
+    "/etc/passwd",
+    ".github/workflows/x.yml?token=secret",
+    "",
+  ])("drops %s as an untrusted path", (path) => {
+    expect(
+      dashboardUntrustedWorkflowPathFromError(
+        new Error(`workflow_delete_untrusted:${path}`),
+      ),
+    ).toBeNull();
+  });
+
+  it("returns nothing for unrelated errors", () => {
+    expect(
+      dashboardUntrustedWorkflowPathFromError(
+        new Error("setup_pr_branch_deleted"),
+      ),
+    ).toBeNull();
+    expect(dashboardUntrustedWorkflowPathFromError("not-an-error")).toBeNull();
+  });
+});
+
+it.each([
+  "provider_api_direct_requires_single_provider",
+  "provider_api_fast_mode_unsupported",
+  "provider_api_reasoning_effort_unsupported",
+])("preserves the actionable direct-provider correction code %s", (reason) => {
+  expect(safeDashboardErrorCode(new Error(reason))).toBe(reason);
 });

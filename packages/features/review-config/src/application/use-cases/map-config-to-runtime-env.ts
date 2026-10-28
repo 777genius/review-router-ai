@@ -7,6 +7,7 @@ export function mapConfigToRuntimeEnv(
   const investigation = config.investigationRollout;
   const runtimeEnv: Record<string, string> = {
     ...buildProviderRuntimePlan(config).runtimeEnv,
+    UPDATE_PR_DESCRIPTION: String(config.updatePrDescription !== false),
     REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED: runtimeToggle(
       investigation.recordingEnabled,
     ),
@@ -25,6 +26,14 @@ export function mapConfigToRuntimeEnv(
       runtimeToggle(investigation.productionEffectsEnabled),
   };
   if (
+    config.providers.some(
+      (provider) => provider.authMode === "codex_account_gateway",
+    )
+  ) {
+    // Match the gateway's one-hour request ceiling. The caller deadline and
+    // completion reserve can stop an invocation earlier.
+    runtimeEnv.RUN_TIMEOUT_SECONDS = "3600";
+  } else if (
     config.providers.some(
       (provider) =>
         provider.kind === "codex" && provider.reasoningEffort === "ultra",

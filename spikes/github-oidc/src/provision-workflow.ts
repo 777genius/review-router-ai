@@ -8,7 +8,7 @@ import {
   provisionReviewRouterWorkflow,
 } from "../../../packages/features/workflow-provisioning/src/index.ts";
 import {
-  PrismaReviewConfigurationRepository,
+  PrismaReviewPolicyHeadReader,
   resolveReviewRuntimeEnv,
 } from "../../../packages/features/review-config/src/index.ts";
 import { createGitHubApp, findInstallationForRepo } from "./github-app.js";
@@ -115,14 +115,13 @@ async function loadStaticRuntimeEnv(input: {
   readonly workspaceId: string;
   readonly repositoryId: string;
 }): Promise<Record<string, string>> {
-  const configurations = new PrismaReviewConfigurationRepository(input.prisma);
   const resolved = await resolveReviewRuntimeEnv(
     {
       scope: "repository",
       workspaceId: input.workspaceId,
       repositoryId: input.repositoryId,
     },
-    { configurations },
+    { policyHeads: new PrismaReviewPolicyHeadReader(input.prisma) },
   );
   return resolved.runtimeEnv;
 }

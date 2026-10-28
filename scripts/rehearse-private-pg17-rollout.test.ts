@@ -64,6 +64,12 @@ function gitCustodyFixture() {
   git("init", "-q");
   git("config", "user.name", "iliya");
   git("config", "user.email", "iliyazelenkog@gmail.com");
+  expect(git("var", "GIT_AUTHOR_IDENT")).toContain(
+    "iliya <iliyazelenkog@gmail.com>",
+  );
+  expect(git("var", "GIT_COMMITTER_IDENT")).toContain(
+    "iliya <iliyazelenkog@gmail.com>",
+  );
   writeFileSync(join(root, "evidence.txt"), "base\n");
   git("add", "evidence.txt");
   git("commit", "-qm", "base");
@@ -74,21 +80,33 @@ function gitCustodyFixture() {
   return { root, base, head, cleanup: () => rmSync(root, { recursive: true }) };
 }
 
-const migrationManifestIdentity = (migrationNames: readonly string[]) => {
+const migrationManifestIdentity = (
+  migrationNames: readonly string[],
+  checksumOverrides: Readonly<Record<string, string>> = {},
+) => {
   const migrationsRoot = "packages/platform/db/prisma/migrations";
   const manifest = [...migrationNames]
     .sort()
     .map((migrationName) => {
-      const checksum = createHash("sha256")
-        .update(
-          readFileSync(join(migrationsRoot, migrationName, "migration.sql")),
-        )
-        .digest("hex");
+      const checksum =
+        checksumOverrides[migrationName] ??
+        createHash("sha256")
+          .update(
+            readFileSync(join(migrationsRoot, migrationName, "migration.sql")),
+          )
+          .digest("hex");
       return `${migrationName}:${checksum}`;
     })
     .join(",");
   return `sha256:${createHash("sha256").update(manifest).digest("hex")}`;
 };
+
+// Historical checkout assertions keep the original119 source pin explicitly.
+const historicalMigrationManifestIdentity = (names: readonly string[]) =>
+  migrationManifestIdentity(names, {
+    "000119_review_configuration_gateway_binding":
+      "2c0dde1720111063059d5226c6011c15389b6877a6a1f924177a24a36aa81a70",
+  });
 
 describe("disposable dual-version rehearsal", () => {
   it("reports only allowlisted static rehearsal stage errors", () => {
@@ -1264,7 +1282,192 @@ describe("disposable dual-version rehearsal", () => {
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name);
 
-    const exclusions = resolvePreReleaseMigrationExclusions(migrationNames);
+    const currentMigrationNames = migrationNames;
+    const legacyMigrationNames = currentMigrationNames.filter(
+      (name) =>
+        name !== "000149_api_key_repository_secret_profiles" &&
+        name !== "000142_memory_knowledge_authority" &&
+        name !== "000143_memory_maintenance_fence" &&
+        name !== "000148_lifecycle_verification" &&
+        name !== "000147_review_skills_mutation_identity" &&
+        name !== "000146_drop_review_configuration_projection" &&
+        name !== "000145_workspace_provider_profiles" &&
+        name !== "000144_review_statistics" &&
+        name !== "000136_review_skills" &&
+        name !== "000137_review_skills_capture",
+    );
+    expect(currentMigrationNames).toHaveLength(153);
+    expect(
+      [...currentMigrationNames]
+        .sort()
+        .filter(
+          (name) =>
+            name === "000136_review_skills" ||
+            name === "000137_review_skills_capture",
+        ),
+    ).toEqual(["000136_review_skills", "000137_review_skills_capture"]);
+    const exclusions = resolvePreReleaseMigrationExclusions(
+      currentMigrationNames,
+    );
+    const historicalCheckout = legacyMigrationNames.filter(
+      (name) =>
+        name !== "000125_hosted_codex_device_reconnect" &&
+        name !== "000126_review_configuration_mimo_auth_kind" &&
+        name !== "000127_owner_workspace_deletion" &&
+        name !== "000128_account_admission_row_lock" &&
+        name !== "000129_personal_run_snapshot_v2" &&
+        name !== "000130_personal_canonical_operations" &&
+        name !== "000131_personal_canonical_unentered_claim" &&
+        name !== "000132_review_policy_schema_v3" &&
+        name !== "000134_account_lifecycle" &&
+        name !== "000134_review_provider_kind_v2_ocr" &&
+        name !== "000136_provider_usage" &&
+        name !== "000135_review_run_checkout_repository_lock" &&
+        name !== "000136_review_skills" &&
+        name !== "000137_review_skills_capture" &&
+        name !== "000138_pr_description" &&
+        name !== "000139_review_context_tools" &&
+        name !== "000140_personal_oauth_method" &&
+        name !== "000141_memory_search_projections" &&
+        name !== "000142_optional_gateway_reasoning" &&
+        name !== "000144_review_statistics" &&
+        name !== "000143_workspace_draft_review_setting" &&
+        name !== "000145_workspace_provider_profiles" &&
+        name !== "000149_api_key_repository_secret_profiles" &&
+        name !== "000142_memory_knowledge_authority" &&
+        name !== "000143_memory_maintenance_fence" &&
+        name !== "000148_lifecycle_verification" &&
+        name !== "000147_review_skills_mutation_identity" &&
+        name !== "000146_drop_review_configuration_projection" &&
+        name !== "000133_allow_first_time_scm_identity_bind",
+    );
+    const withoutProviderKey = historicalCheckout.filter(
+      (name) => name !== "000110_provider_api_key_workspace_management",
+    );
+    const previousCheckout = withoutProviderKey.filter(
+      (name) =>
+        name !== "000117_provider_accounts" &&
+        name !== "000118_workspace_binding_fences" &&
+        name !== "000119_review_configuration_gateway_binding" &&
+        name !== "000120_review_run_runtime_snapshot" &&
+        name !== "000121_review_run_gateway_execution_binding" &&
+        name !== "000122_review_configuration_operation_receipt" &&
+        name !== "000123_personal_workspace_identity" &&
+        name !== "000124_personal_account_operations",
+    );
+    expect(previousCheckout).toHaveLength(115);
+    expect(migrationManifestIdentity(previousCheckout)).toBe(
+      "sha256:30f68ffc62e0b46815bc007339d83aa7894b61b23f301c012b8990713cc0ad14",
+    );
+    expect(() =>
+      resolvePreReleaseMigrationExclusions(previousCheckout),
+    ).toThrow("private_pg17_rehearsal_migration_boundary_unclassified");
+    expect(
+      migrationManifestIdentity(
+        withoutProviderKey.filter(
+          (name) =>
+            name !== "000118_workspace_binding_fences" &&
+            name !== "000119_review_configuration_gateway_binding" &&
+            name !== "000120_review_run_runtime_snapshot" &&
+            name !== "000121_review_run_gateway_execution_binding" &&
+            name !== "000122_review_configuration_operation_receipt" &&
+            name !== "000123_personal_workspace_identity" &&
+            name !== "000124_personal_account_operations",
+        ),
+      ),
+    ).toBe(
+      "sha256:c5c0618f105799d06d21424433cec4a59fc052e63f594c2aace0657ebb52d1dd",
+    );
+    expect(withoutProviderKey).toHaveLength(123);
+    expect(historicalMigrationManifestIdentity(withoutProviderKey)).toBe(
+      "sha256:f26da08b44ad6830f4486f93ed33979acda7b5669a8550601c34dbf9c0322443",
+    );
+    expect(
+      migrationManifestIdentity(
+        migrationNames.filter(
+          (name) =>
+            previousCheckout.includes(name) ||
+            name === "000110_provider_api_key_workspace_management",
+        ),
+      ),
+    ).toBe(
+      "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
+    );
+    expect(migrationManifestIdentity(currentMigrationNames)).toBe(
+      "sha256:5d42e163ba89faae7c49fa4fa9ff65bc2a8b87a6774b57a5f70c6a027e4331dd",
+    );
+    expect(
+      migrationManifestIdentity(
+        currentMigrationNames.filter(
+          (name) =>
+            name !== "000149_api_key_repository_secret_profiles" &&
+            name !== "000142_memory_knowledge_authority" &&
+            name !== "000143_memory_maintenance_fence",
+        ),
+      ),
+    ).toBe(
+      "sha256:ae1f73631c1ae9e359a22c421d7bb83751fd831f22ba77304be1d20d01878472",
+    );
+    expect(
+      migrationManifestIdentity(
+        currentMigrationNames.filter(
+          (name) =>
+            name !== "000149_api_key_repository_secret_profiles" &&
+            name !== "000142_memory_knowledge_authority" &&
+            name !== "000143_memory_maintenance_fence" &&
+            name !== "000148_lifecycle_verification",
+        ),
+      ),
+    ).toBe(
+      "sha256:597739d44aa5f10551930c1349bed5c1a634b868fd55f9738b32b33ac230e897",
+    );
+    expect(legacyMigrationNames).toHaveLength(143);
+    expect(migrationManifestIdentity(legacyMigrationNames)).toBe(
+      "sha256:4fe4b459218a0cc56c8638b6f6d5a33d08d09579205d612b72d2781a7a0962bf",
+    );
+    expect(historicalCheckout).toHaveLength(124);
+    expect(historicalMigrationManifestIdentity(historicalCheckout)).toBe(
+      "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
+    );
+    expect(
+      historicalMigrationManifestIdentity(
+        withoutProviderKey.filter(
+          (name) => name !== "000124_personal_account_operations",
+        ),
+      ),
+    ).toBe(
+      "sha256:5629630be035cbf1677692e840bc07c7292729bfb5bfc0c242f38179f3230df4",
+    );
+    expect(
+      historicalMigrationManifestIdentity(
+        withoutProviderKey.filter(
+          (name) =>
+            name !== "000122_review_configuration_operation_receipt" &&
+            name !== "000123_personal_workspace_identity" &&
+            name !== "000124_personal_account_operations",
+        ),
+      ),
+    ).toBe(
+      "sha256:5f01c4416620cf984ffa5fee8dbb26bcf171ae3a89ec4e4b8615e4c7c8461c64",
+    );
+    expect(
+      historicalMigrationManifestIdentity(
+        withoutProviderKey.filter(
+          (name) =>
+            name !== "000123_personal_workspace_identity" &&
+            name !== "000124_personal_account_operations",
+        ),
+      ),
+    ).toBe(
+      "sha256:858537d185e32ef6258ddf674b5a201e6cc0c4e44fa948a18af23d6dd55905ec",
+    );
+    const receiptSql = readFileSync(
+      "packages/platform/db/prisma/migrations/000122_review_configuration_operation_receipt/migration.sql",
+    );
+    expect(receiptSql).toHaveLength(997);
+    expect(createHash("sha256").update(receiptSql).digest("hex")).toBe(
+      "89f9f4eadeb88733adddb051bca5e50bdc86bbb06e45905d3bdf18eedbd1386e",
+    );
 
     expect(exclusions).toEqual([
       "000060_codex_oauth_setup_serialization",
@@ -1299,6 +1502,51 @@ describe("disposable dual-version rehearsal", () => {
       "000107_hosted_v4_relay_turn_contract",
       "000108_sdk_growth_verifier_assignment",
       "000109_sdk_growth_verifier_assignment_lock",
+      "000110_historical_unknown_scope_barrier",
+      "000110_provider_api_key_workspace_management",
+      "000111_sdk_growth_source_binding",
+      "000112_sdk_growth_operator_credential",
+      "000113_sdk_growth_approval_ledger",
+      "000114_sdk_growth_v3_tool_artifact",
+      "000115_sdk_growth_v3_approved_manifest",
+      "000116_hosted_codex_relay_admission_utc",
+      "000117_provider_accounts",
+      "000118_workspace_binding_fences",
+      "000119_review_configuration_gateway_binding",
+      "000120_review_run_runtime_snapshot",
+      "000121_review_run_gateway_execution_binding",
+      "000122_review_configuration_operation_receipt",
+      "000123_personal_workspace_identity",
+      "000124_personal_account_operations",
+      "000125_hosted_codex_device_reconnect",
+      "000126_review_configuration_mimo_auth_kind",
+      "000127_owner_workspace_deletion",
+      "000128_account_admission_row_lock",
+      "000129_personal_run_snapshot_v2",
+      "000130_personal_canonical_operations",
+      "000131_personal_canonical_unentered_claim",
+      "000132_review_policy_schema_v3",
+      "000133_allow_first_time_scm_identity_bind",
+      "000134_account_lifecycle",
+      "000134_review_provider_kind_v2_ocr",
+      "000135_review_run_checkout_repository_lock",
+      "000136_provider_usage",
+      "000136_review_skills",
+      "000137_review_skills_capture",
+      "000138_pr_description",
+      "000139_review_context_tools",
+      "000140_personal_oauth_method",
+      "000141_memory_search_projections",
+      "000142_memory_knowledge_authority",
+      "000142_optional_gateway_reasoning",
+      "000143_memory_maintenance_fence",
+      "000143_workspace_draft_review_setting",
+      "000144_review_statistics",
+      "000145_workspace_provider_profiles",
+      "000146_drop_review_configuration_projection",
+      "000147_review_skills_mutation_identity",
+      "000148_lifecycle_verification",
+      "000149_api_key_repository_secret_profiles",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1334,7 +1582,7 @@ describe("disposable dual-version rehearsal", () => {
     ).toBe(canonicalReleaseMigrationArtifact.preManifestIdentity);
     expect(
       migrationManifestIdentity(
-        migrationNames.filter(
+        historicalCheckout.filter(
           (name) =>
             name !== "000098_certified_fork_effect_archive" &&
             name !== "000099_certified_fork_proof_facts" &&
@@ -1347,7 +1595,23 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000106_sdk_growth_finalized_report_logical_identity" &&
             name !== "000107_hosted_v4_relay_turn_contract" &&
             name !== "000108_sdk_growth_verifier_assignment" &&
-            name !== "000109_sdk_growth_verifier_assignment_lock",
+            name !== "000109_sdk_growth_verifier_assignment_lock" &&
+            name !== "000110_historical_unknown_scope_barrier" &&
+            name !== "000110_provider_api_key_workspace_management" &&
+            name !== "000111_sdk_growth_source_binding" &&
+            name !== "000112_sdk_growth_operator_credential" &&
+            name !== "000113_sdk_growth_approval_ledger" &&
+            name !== "000114_sdk_growth_v3_tool_artifact" &&
+            name !== "000115_sdk_growth_v3_approved_manifest" &&
+            name !== "000116_hosted_codex_relay_admission_utc" &&
+            name !== "000117_provider_accounts" &&
+            name !== "000118_workspace_binding_fences" &&
+            name !== "000119_review_configuration_gateway_binding" &&
+            name !== "000120_review_run_runtime_snapshot" &&
+            name !== "000121_review_run_gateway_execution_binding" &&
+            name !== "000122_review_configuration_operation_receipt" &&
+            name !== "000123_personal_workspace_identity" &&
+            name !== "000124_personal_account_operations",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1355,7 +1619,7 @@ describe("disposable dual-version rehearsal", () => {
     // Historical95 checkout retains its exact immutable identity.
     expect(
       migrationManifestIdentity(
-        migrationNames.filter(
+        historicalCheckout.filter(
           (name) =>
             name !== "000096_hosted_pool_public_repository_eligibility" &&
             name !== "000098_certified_fork_effect_archive" &&
@@ -1369,7 +1633,23 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000106_sdk_growth_finalized_report_logical_identity" &&
             name !== "000107_hosted_v4_relay_turn_contract" &&
             name !== "000108_sdk_growth_verifier_assignment" &&
-            name !== "000109_sdk_growth_verifier_assignment_lock",
+            name !== "000109_sdk_growth_verifier_assignment_lock" &&
+            name !== "000110_historical_unknown_scope_barrier" &&
+            name !== "000110_provider_api_key_workspace_management" &&
+            name !== "000111_sdk_growth_source_binding" &&
+            name !== "000112_sdk_growth_operator_credential" &&
+            name !== "000113_sdk_growth_approval_ledger" &&
+            name !== "000114_sdk_growth_v3_tool_artifact" &&
+            name !== "000115_sdk_growth_v3_approved_manifest" &&
+            name !== "000116_hosted_codex_relay_admission_utc" &&
+            name !== "000117_provider_accounts" &&
+            name !== "000118_workspace_binding_fences" &&
+            name !== "000119_review_configuration_gateway_binding" &&
+            name !== "000120_review_run_runtime_snapshot" &&
+            name !== "000121_review_run_gateway_execution_binding" &&
+            name !== "000122_review_configuration_operation_receipt" &&
+            name !== "000123_personal_workspace_identity" &&
+            name !== "000124_personal_account_operations",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1391,12 +1671,78 @@ describe("disposable dual-version rehearsal", () => {
   });
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
-    const exactTail = "000109_sdk_growth_verifier_assignment_lock";
+    const exactTail = "000121_review_run_gateway_execution_binding";
+    const currentTail = "000149_api_key_repository_secret_profiles";
     for (const candidate of [
+      names.filter((name) => name !== currentTail),
+      names.filter(
+        (name) => name !== "000146_drop_review_configuration_projection",
+      ),
+      names.filter((name) => name !== "000145_workspace_provider_profiles"),
+      names.filter((name) => name !== "000144_review_statistics"),
+      names.filter((name) => name !== "000143_workspace_draft_review_setting"),
+      names.filter((name) => name !== "000136_review_skills"),
+      names.filter((name) => name !== "000137_review_skills_capture"),
+      names.filter((name) => name !== "000142_optional_gateway_reasoning"),
+      names.filter((name) => name !== "000140_personal_oauth_method"),
+      names.filter(
+        (name) => name !== "000135_review_run_checkout_repository_lock",
+      ),
+      names.filter((name) => name !== "000130_personal_canonical_operations"),
+      names.filter((name) => name !== "000129_personal_run_snapshot_v2"),
+      names.filter((name) => name !== "000127_owner_workspace_deletion"),
+      [...names, currentTail],
+      [...names, "000145_workspace_provider_profiles"],
+      [...names, "000144_review_statistics"],
+      [...names, "000143_workspace_draft_review_setting"],
+      [...names, "000142_optional_gateway_reasoning"],
+      [...names, "000140_personal_oauth_method"],
+      names.map((name) => (name === currentTail ? "000146_relabelled" : name)),
+      names.map((name) =>
+        name === "000145_workspace_provider_profiles"
+          ? "000145_relabelled"
+          : name,
+      ),
+      names.map((name) =>
+        name === "000144_review_statistics" ? "000144_relabelled" : name,
+      ),
+      names.map((name) =>
+        name === "000143_workspace_draft_review_setting"
+          ? "000143_relabelled"
+          : name,
+      ),
+      names.map((name) =>
+        name === "000142_optional_gateway_reasoning"
+          ? "000142_relabelled"
+          : name,
+      ),
+      names.map((name) =>
+        name === "000140_personal_oauth_method" ? "000140_relabelled" : name,
+      ),
+      [...names, "000127_future_migration"],
+      names.filter((name) => name !== "000125_hosted_codex_device_reconnect"),
+      names.filter(
+        (name) => name !== "000122_review_configuration_operation_receipt",
+      ),
+      [...names, "000122_review_configuration_operation_receipt"],
       names.filter((name) => name !== exactTail),
+      names.filter(
+        (name) => name !== "000119_review_configuration_gateway_binding",
+      ),
+      names.filter((name) => name !== "000117_provider_accounts"),
+      names.filter(
+        (name) => name !== "000116_hosted_codex_relay_admission_utc",
+      ),
+      [...names, "000116_hosted_codex_relay_admission_utc"],
       [...names, exactTail],
       names.map((name) => (name === exactTail ? "000108_unknown" : name)),
       [...names, "000109_future_migration"],
+      [...names, "000111_future_migration"],
+      names.map((name) =>
+        name === "000110_historical_unknown_scope_barrier"
+          ? "000110_relabelled"
+          : name,
+      ),
     ]) {
       expect(() => resolvePreReleaseMigrationExclusions(candidate)).toThrow(
         "private_pg17_rehearsal_migration_boundary_unclassified",
@@ -1417,6 +1763,51 @@ describe("disposable dual-version rehearsal", () => {
     "000107_hosted_v4_relay_turn_contract",
     "000108_sdk_growth_verifier_assignment",
     "000109_sdk_growth_verifier_assignment_lock",
+    "000110_historical_unknown_scope_barrier",
+    "000110_provider_api_key_workspace_management",
+    "000111_sdk_growth_source_binding",
+    "000112_sdk_growth_operator_credential",
+    "000113_sdk_growth_approval_ledger",
+    "000114_sdk_growth_v3_tool_artifact",
+    "000115_sdk_growth_v3_approved_manifest",
+    "000116_hosted_codex_relay_admission_utc",
+    "000117_provider_accounts",
+    "000118_workspace_binding_fences",
+    "000119_review_configuration_gateway_binding",
+    "000120_review_run_runtime_snapshot",
+    "000121_review_run_gateway_execution_binding",
+    "000122_review_configuration_operation_receipt",
+    "000123_personal_workspace_identity",
+    "000124_personal_account_operations",
+    "000125_hosted_codex_device_reconnect",
+    "000126_review_configuration_mimo_auth_kind",
+    "000127_owner_workspace_deletion",
+    "000128_account_admission_row_lock",
+    "000129_personal_run_snapshot_v2",
+    "000130_personal_canonical_operations",
+    "000131_personal_canonical_unentered_claim",
+    "000132_review_policy_schema_v3",
+    "000133_allow_first_time_scm_identity_bind",
+    "000134_account_lifecycle",
+    "000134_review_provider_kind_v2_ocr",
+    "000135_review_run_checkout_repository_lock",
+    "000136_provider_usage",
+    "000136_review_skills",
+    "000137_review_skills_capture",
+    "000138_pr_description",
+    "000139_review_context_tools",
+    "000140_personal_oauth_method",
+    "000141_memory_search_projections",
+    "000142_memory_knowledge_authority",
+    "000143_memory_maintenance_fence",
+    "000142_optional_gateway_reasoning",
+    "000143_workspace_draft_review_setting",
+    "000144_review_statistics",
+    "000145_workspace_provider_profiles",
+    "000146_drop_review_configuration_projection",
+    "000147_review_skills_mutation_identity",
+    "000148_lifecycle_verification",
+    "000149_api_key_repository_secret_profiles",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1455,7 +1846,52 @@ describe("disposable dual-version rehearsal", () => {
                   "000106_sdk_growth_finalized_report_logical_identity" &&
                 name !== "000107_hosted_v4_relay_turn_contract" &&
                 name !== "000108_sdk_growth_verifier_assignment" &&
-                name !== "000109_sdk_growth_verifier_assignment_lock",
+                name !== "000109_sdk_growth_verifier_assignment_lock" &&
+                name !== "000110_historical_unknown_scope_barrier" &&
+                name !== "000110_provider_api_key_workspace_management" &&
+                name !== "000111_sdk_growth_source_binding" &&
+                name !== "000112_sdk_growth_operator_credential" &&
+                name !== "000113_sdk_growth_approval_ledger" &&
+                name !== "000114_sdk_growth_v3_tool_artifact" &&
+                name !== "000115_sdk_growth_v3_approved_manifest" &&
+                name !== "000116_hosted_codex_relay_admission_utc" &&
+                name !== "000117_provider_accounts" &&
+                name !== "000118_workspace_binding_fences" &&
+                name !== "000119_review_configuration_gateway_binding" &&
+                name !== "000120_review_run_runtime_snapshot" &&
+                name !== "000121_review_run_gateway_execution_binding" &&
+                name !== "000122_review_configuration_operation_receipt" &&
+                name !== "000123_personal_workspace_identity" &&
+                name !== "000124_personal_account_operations" &&
+                name !== "000125_hosted_codex_device_reconnect" &&
+                name !== "000126_review_configuration_mimo_auth_kind" &&
+                name !== "000127_owner_workspace_deletion" &&
+                name !== "000128_account_admission_row_lock" &&
+                name !== "000129_personal_run_snapshot_v2" &&
+                name !== "000130_personal_canonical_operations" &&
+                name !== "000131_personal_canonical_unentered_claim" &&
+                name !== "000132_review_policy_schema_v3" &&
+                name !== "000134_account_lifecycle" &&
+                name !== "000134_review_provider_kind_v2_ocr" &&
+                name !== "000136_provider_usage" &&
+                name !== "000135_review_run_checkout_repository_lock" &&
+                name !== "000136_review_skills" &&
+                name !== "000137_review_skills_capture" &&
+                name !== "000138_pr_description" &&
+                name !== "000139_review_context_tools" &&
+                name !== "000140_personal_oauth_method" &&
+                name !== "000141_memory_search_projections" &&
+                name !== "000142_optional_gateway_reasoning" &&
+                name !== "000144_review_statistics" &&
+                name !== "000143_workspace_draft_review_setting" &&
+                name !== "000145_workspace_provider_profiles" &&
+                name !== "000149_api_key_repository_secret_profiles" &&
+                name !== "000142_memory_knowledge_authority" &&
+                name !== "000143_memory_maintenance_fence" &&
+                name !== "000148_lifecycle_verification" &&
+                name !== "000147_review_skills_mutation_identity" &&
+                name !== "000146_drop_review_configuration_projection" &&
+                name !== "000133_allow_first_time_scm_identity_bind",
               "000102_sdk_growth_current_authority",
             ),
           ),

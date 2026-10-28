@@ -21,6 +21,10 @@ import {
   canonicalReleaseMigrationEntries,
 } from "../packages/features/release-rollout/src/domain/release-migration-transition.ts";
 import { normalizeSecretSafePostgresArguments } from "./lib/secret-safe-command-boundary.mjs";
+import {
+  reviewSkillsRuntimeGrantStatements,
+  reviewSkillsRuntimeGateStatements,
+} from "./review-skills-runtime-grants.ts";
 import { effectivePrincipalInventorySql } from "../packages/features/release-rollout/src/adapters/effective-principal-postgres.mjs";
 import { fencedLiveV70V73CatalogDigestSql } from "../packages/features/release-rollout/src/adapters/live-v70-v72-catalog-digest.mjs";
 import {
@@ -476,10 +480,15 @@ export const runtimeAuthorityReadOnlyTables = Object.freeze([
   "HostedCodexRuntimeGate",
   "HostedCodexRuntimeClosure",
   "ReviewProviderScopeConcurrencyControl",
+  "HostedHistoricalScopePolicy",
+  "HostedHistoricalUnknownScope",
+  "HostedHistoricalScopeAlias",
+  "HostedHistoricalScopeComplete",
 ]);
 
 export const workerOwnedMaintenanceCheckpointTable =
   "ReviewInvestigationMaintenanceCheckpoint";
+export const dashboardOwnedContextConnectionTable = "ReviewContextConnection";
 
 export const providerRuntimeUpdateColumns = Object.freeze([
   "state",
@@ -2762,7 +2771,8 @@ BEGIN
         '${workerOwnedMaintenanceCheckpointTable}','HostedCodexRuntimeGate',
         'HostedCodexRuntimeClosure','HostedCodexCommentTokenMint',
         'HostedCodexCommentTokenRevocationProof','HostedCodexCommentRefreshCapability',
-        'HostedCodexCommentRefreshUse','ReviewProviderScopeConcurrencyControl'
+        'HostedCodexCommentRefreshUse','ReviewProviderScopeConcurrencyControl',
+        'ProviderAccountConnection','WorkspaceAccountBinding','${dashboardOwnedContextConnectionTable}'
       ) AND attribute.attnum>0 AND NOT attribute.attisdropped
     ), sequence_facts AS (
       SELECT role_name, role_kind, relname,
@@ -2809,8 +2819,10 @@ BEGIN
            AND relname NOT IN ('CodexOAuthDatabaseAuthorityKey','CodexOAuthDatabaseAuthorityReceipt',
              'HostedCodexCommentTokenMint','HostedCodexCommentTokenRevocationProof','RuntimeGenerationWitnessProof','RuntimeCanaryChallenge','RuntimeCanaryChallengeProof')
            AND (relname <> 'CodexOAuthWorkflowCompatibility' OR role_kind IN ('api','web'))
+           AND (relname <> '${dashboardOwnedContextConnectionTable}' OR role_kind IN ('api','web'))
            AND (relname <> '${workerOwnedMaintenanceCheckpointTable}' OR role_kind = 'worker') END)
          OR can_insert IS DISTINCT FROM (CASE WHEN role_kind='custody' THEN relname='HostedCodexCommentRefreshUse'
+         WHEN role_kind='api' AND relname IN ('ProviderAccountConnection','WorkspaceAccountBinding') THEN false
          ELSE role_kind <> 'effect-authority' AND relname NOT IN (
            '_prisma_migrations','RepositoryConnection','CodexOAuthChildIdentityQuarantine',
            'CodexOAuthProviderIdentityQuarantine','CodexOAuthDatabaseAuthorityKey',
@@ -2819,8 +2831,10 @@ BEGIN
            AND relname NOT IN ('HostedCodexRuntimeGate','HostedCodexRuntimeClosure',
              'ReviewProviderScopeConcurrencyControl')
            AND relname <> 'HostedCodexCommentTokenMint'
+           AND (relname <> '${dashboardOwnedContextConnectionTable}' OR role_kind = 'web')
            AND (relname <> '${workerOwnedMaintenanceCheckpointTable}' OR role_kind = 'worker') END)
          OR can_update IS DISTINCT FROM (CASE WHEN role_kind='custody' THEN false
+         WHEN role_kind='api' AND relname IN ('ProviderAccountConnection','WorkspaceAccountBinding') THEN false
          ELSE role_kind <> 'effect-authority' AND relname NOT IN (
            '_prisma_migrations','RepositoryConnection','CodexOAuthChildIdentityQuarantine',
            'CodexOAuthProviderIdentityQuarantine','CodexOAuthProviderInstance',
@@ -2829,8 +2843,12 @@ BEGIN
            AND relname NOT IN ('HostedCodexRuntimeGate','HostedCodexRuntimeClosure',
              'ReviewProviderScopeConcurrencyControl')
            AND relname <> 'HostedCodexCommentTokenMint'
+           AND (relname <> '${dashboardOwnedContextConnectionTable}' OR role_kind = 'web')
            AND (relname <> '${workerOwnedMaintenanceCheckpointTable}' OR role_kind = 'worker') END)
-         OR can_delete IS DISTINCT FROM (role_kind NOT IN ('effect-authority','custody') AND relname NOT IN (
+         OR can_delete IS DISTINCT FROM (role_kind NOT IN ('effect-authority','custody')
+           AND (relname <> '${dashboardOwnedContextConnectionTable}' OR role_kind = 'web')
+           AND NOT (role_kind='api' AND relname IN ('ProviderAccountConnection','WorkspaceAccountBinding'))
+           AND relname NOT IN (
            '_prisma_migrations','RepositoryConnection','CodexOAuthChildIdentityQuarantine','CodexOAuthLease',
            'CodexOAuthProviderIdentityQuarantine','CodexOAuthProviderInstance','CodexOAuthSecretNamespace',
            'CodexOAuthSetupDispatchAttempt','CodexOAuthSetupManifest','CodexOAuthSetupPayloadClaim',
@@ -2855,6 +2873,10 @@ BEGIN
             WHEN column_facts.role_kind NOT IN ('effect-authority','custody')
               AND column_facts.relname='CodexOAuthProviderInstance'
                AND column_facts.attname=ANY(ARRAY[${providerRuntimeUpdateColumns.map((column) => `'${column}'`).join(",")}])
+             THEN true
+             WHEN column_facts.role_kind='api'
+               AND column_facts.relname IN ('ProviderAccountConnection','WorkspaceAccountBinding')
+               AND column_facts.attname='id'
              THEN true
              ELSE table_facts.can_update
            END
@@ -5031,6 +5053,55 @@ function assertConnectionRole(
     );
 }
 
+// Scoped C1 ACL projection; executed by the existing table owner, never API.
+export function accountAdmissionApiGrantStatements() {
+  return `DO $account_admission_api_acl$
+DECLARE account_table text;
+DECLARE account_column record;
+BEGIN
+  -- Fresh targets receive this same ACL from canonical role provisioning.
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'reviewrouter_api') THEN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'reviewrouter_api'
+      AND (rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls))
+      OR pg_catalog.has_parameter_privilege('reviewrouter_api', 'session_replication_role', 'SET') THEN
+      RAISE EXCEPTION 'account admission API role is privileged';
+    END IF;
+    FOREACH account_table IN ARRAY ARRAY['ProviderAccountConnection', 'WorkspaceAccountBinding'] LOOP
+      -- Historical fixtures do not contain checkout-only C1 tables.
+      IF pg_catalog.to_regclass(pg_catalog.format('public.%I', account_table)) IS NULL THEN CONTINUE; END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_trigger guard
+        WHERE guard.tgrelid = pg_catalog.to_regclass(pg_catalog.format('public.%I', account_table))
+          AND guard.tgname = account_table || '_guard'
+          AND NOT guard.tgisinternal AND guard.tgenabled IN ('O', 'A')
+      ) OR pg_catalog.pg_has_role('reviewrouter_api', (
+        SELECT relowner FROM pg_catalog.pg_class
+        WHERE oid = pg_catalog.to_regclass(pg_catalog.format('public.%I', account_table))
+      ), 'SET') THEN
+        RAISE EXCEPTION 'account admission guard/owner authority is incompatible: %', account_table;
+      END IF;
+      EXECUTE pg_catalog.format('REVOKE ALL ON TABLE public.%I FROM reviewrouter_api', account_table);
+      FOR account_column IN SELECT attname FROM pg_catalog.pg_attribute
+        WHERE attrelid = pg_catalog.to_regclass(pg_catalog.format('public.%I', account_table))
+          AND attnum > 0 AND NOT attisdropped
+      LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL (%I) ON TABLE public.%I FROM reviewrouter_api', account_column.attname, account_table);
+      END LOOP;
+      EXECUTE pg_catalog.format('GRANT SELECT, UPDATE(id) ON TABLE public.%I TO reviewrouter_api', account_table);
+      IF pg_catalog.has_table_privilege('reviewrouter_api', pg_catalog.format('public.%I', account_table), 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        OR EXISTS (SELECT 1 FROM pg_catalog.pg_attribute
+          WHERE attrelid = pg_catalog.to_regclass(pg_catalog.format('public.%I', account_table))
+            AND attnum > 0 AND NOT attisdropped
+            AND (pg_catalog.has_column_privilege('reviewrouter_api', attrelid, attnum, 'INSERT,REFERENCES')
+              OR (attname <> 'id' AND pg_catalog.has_column_privilege('reviewrouter_api', attrelid, attnum, 'UPDATE')))) THEN
+        RAISE EXCEPTION 'account admission API has unexpected effective writes: %', account_table;
+      END IF;
+    END LOOP;
+  END IF;
+END
+$account_admission_api_acl$;`;
+}
+
 export function runtimeGrantStatements(
   configuration,
   databaseTarget = ':"DBNAME"',
@@ -5055,6 +5126,7 @@ export function runtimeGrantStatements(
     ...fullyProtectedRuntimeTables,
     ...runtimeAuthorityReadOnlyTables,
     workerOwnedMaintenanceCheckpointTable,
+    dashboardOwnedContextConnectionTable,
   ]
     .map((table) => `'${table}'`)
     .join(",");
@@ -5077,6 +5149,36 @@ ${configuration.roles
     }) => `${databaseAclStatement(`GRANT CONNECT ON DATABASE __DATABASE_TARGET__ TO ${username};`)}
 GRANT USAGE ON SCHEMA public TO ${username};
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM ${username};
+-- SQL127's invoker triggers use this gate for workspace-bound writes,
+-- including ReviewRunAuthorization INSERT. Older catalogs omit the helper.
+DO $workspace_delete_admission_acl$
+BEGIN
+  IF pg_catalog.to_regprocedure('public.rr_workspace_delete_admission(text)') IS NOT NULL THEN
+    EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION public.rr_workspace_delete_admission(text) TO %I', '${username}');
+  END IF;
+END
+$workspace_delete_admission_acl$;
+${
+  role === "api"
+    ? `DO $checkout_repository_lock_acl$
+BEGIN
+  IF pg_catalog.to_regprocedure('public.rr_review_run_checkout_repository_lock(text,text)') IS NOT NULL THEN
+    EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION public.rr_review_run_checkout_repository_lock(text,text) TO %I', '${username}');
+  END IF;
+END
+$checkout_repository_lock_acl$;`
+    : ""
+}
+DO $historical_function_acl$
+BEGIN
+  IF pg_catalog.to_regprocedure('public.hosted_historical_assert_ready()') IS NOT NULL THEN
+    EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION public.hosted_historical_set_digest() TO %I', '${username}');
+    EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION public.hosted_historical_assert_ready() TO %I', '${username}');
+    EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION public.hosted_historical_assert_grant(public."HostedCodexInvocationGrant") TO %I', '${username}');
+    ${role === "api" ? `EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION public.hosted_historical_lock_runtime_gate() TO %I', '${username}');` : ""}
+  END IF;
+END
+$historical_function_acl$;
 GRANT EXECUTE ON FUNCTION public."codex_oauth_database_authority_challenge"(text, text, integer) TO ${username};
 GRANT EXECUTE ON FUNCTION public."codex_oauth_consume_database_authority"(text, text, integer) TO ${username};
 ${
@@ -5183,6 +5285,15 @@ ${
     ? `GRANT SELECT, INSERT, UPDATE ON TABLE public."${workerOwnedMaintenanceCheckpointTable}" TO ${username};`
     : ""
 }
+DO $context_connection_acl$
+BEGIN
+  IF to_regclass('public."${dashboardOwnedContextConnectionTable}"') IS NOT NULL THEN
+    EXECUTE format('REVOKE ALL ON TABLE public.%I FROM %I', '${dashboardOwnedContextConnectionTable}', '${username}');
+    ${role === "web" ? `EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO %I', '${dashboardOwnedContextConnectionTable}', '${username}');` : role === "api" ? `EXECUTE format('GRANT SELECT ON TABLE public.%I TO %I', '${dashboardOwnedContextConnectionTable}', '${username}');` : ""}
+  END IF;
+END
+$context_connection_acl$;
+${role === "api" ? accountAdmissionApiGrantStatements() : ""}
 REVOKE TRUNCATE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA public FROM ${username};
 GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ${username};
 ALTER DEFAULT PRIVILEGES FOR ROLE ${releaseSchemaOwnerRoleName} IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${username};
@@ -5215,6 +5326,29 @@ GRANT SELECT ON TABLE public."HostedCodexRuntimeGate", public."GitHubInstallatio
   public."HostedCodexRepositoryBinding", public."HostedCodexInvocationGrant",
   public."HostedCodexCommentRefreshCapability", public."HostedCodexCommentRefreshUse",
   public."HostedCodexCommentTokenMint" TO reviewrouter_comment_token_custody;
+DO $historical_custody_acl$
+DECLARE historical_table text; protected_column record;
+BEGIN
+  IF pg_catalog.to_regclass('public."HostedHistoricalScopePolicy"') IS NOT NULL THEN
+    FOREACH historical_table IN ARRAY ARRAY['HostedHistoricalScopePolicy','HostedHistoricalUnknownScope',
+      'HostedHistoricalScopeAlias','HostedHistoricalScopeComplete'] LOOP
+      FOR protected_column IN
+        SELECT attribute.attname AS column_name
+        FROM pg_catalog.pg_attribute attribute
+        WHERE attribute.attrelid = pg_catalog.to_regclass(pg_catalog.format('public.%I', historical_table))
+          AND attribute.attnum > 0 AND NOT attribute.attisdropped
+      LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL (%I) ON TABLE public.%I FROM reviewrouter_comment_token_custody',
+          protected_column.column_name, historical_table);
+      END LOOP;
+      EXECUTE pg_catalog.format('GRANT SELECT ON TABLE public.%I TO reviewrouter_comment_token_custody', historical_table);
+    END LOOP;
+    GRANT EXECUTE ON FUNCTION public.hosted_historical_set_digest() TO reviewrouter_comment_token_custody;
+    GRANT EXECUTE ON FUNCTION public.hosted_historical_assert_ready() TO reviewrouter_comment_token_custody;
+    GRANT EXECUTE ON FUNCTION public.hosted_historical_assert_grant(public."HostedCodexInvocationGrant") TO reviewrouter_comment_token_custody;
+  END IF;
+END
+$historical_custody_acl$;
 GRANT INSERT ON TABLE public."HostedCodexCommentRefreshUse" TO reviewrouter_comment_token_custody;
 GRANT UPDATE ("useCount", "lastUsedAt", "revision", "updatedAt") ON TABLE public."HostedCodexCommentRefreshCapability" TO reviewrouter_comment_token_custody;
 GRANT EXECUTE ON FUNCTION public.hosted_codex_finalize_comment_token_revocation(text,text,text,text,bigint,text,text)
@@ -5226,6 +5360,7 @@ GRANT EXECUTE ON FUNCTION public.hosted_codex_mutate_comment_token_mint(text,jso
   public.hosted_codex_claim_comment_token_delivery(text,text,text)
   TO reviewrouter_comment_token_custody;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
+${reviewSkillsRuntimeGrantStatements(configuration.roles)}
 `;
 }
 
@@ -5246,7 +5381,8 @@ export function runtimeAclGateStatements(
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA public FROM ${username};
 REVOKE USAGE, UPDATE ON ALL SEQUENCES IN SCHEMA public FROM ${username};`,
     )
-    .join("\n")}`;
+    .join("\n")}
+${reviewSkillsRuntimeGateStatements(configuration.roles)}`;
 }
 
 /**

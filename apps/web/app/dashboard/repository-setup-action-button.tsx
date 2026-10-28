@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactElement } from "react";
-import { Button } from "@reviewrouter/ui";
+import { Button, Checkbox } from "@reviewrouter/ui";
 import { ActionToast } from "../action-toast";
 import { dashboardErrorText } from "./dashboard-copy";
 import {
@@ -27,6 +27,7 @@ export function RepositorySetupActionButton({
   setupStatus,
   workflowCurrent,
   workflowRefresh = false,
+  gatewayWorkflow = false,
   mutationsEnabled,
   variant = "solid",
   onComplete,
@@ -38,6 +39,7 @@ export function RepositorySetupActionButton({
   readonly setupStatus: string;
   readonly workflowCurrent: boolean;
   readonly workflowRefresh?: boolean;
+  readonly gatewayWorkflow?: boolean;
   readonly mutationsEnabled: boolean;
   readonly variant?: "solid" | "soft" | "outline" | "ghost";
   readonly onComplete?: (params: Record<string, string>) => void;
@@ -51,6 +53,15 @@ export function RepositorySetupActionButton({
     archived ||
     (workflowCurrent && !workflowRefresh) ||
     isPending;
+  const disabledReason = !mutationsEnabled
+    ? "Dashboard changes are disabled for this workspace."
+    : !selected
+      ? "This repository is no longer selected for the GitHub App installation."
+      : archived
+        ? "Archived repositories cannot be provisioned."
+        : workflowCurrent && !workflowRefresh
+          ? "ReviewRouter workflow is already current."
+          : undefined;
 
   function completeWithoutUrl(params: Record<string, string>): void {
     setToast((current) => ({
@@ -102,30 +113,32 @@ export function RepositorySetupActionButton({
       <input type="hidden" name="workspaceId" value={workspaceId} />
       <input type="hidden" name="repositoryId" value={repositoryId} />
       <input type="hidden" name="workflowStyle" value="reusable" />
-      <label className="mb-3 flex max-w-xl items-start gap-3 rounded-lg border border-cyan-200/15 bg-slate-950/40 px-3 py-3 text-left text-sm text-slate-200">
-        <input
-          type="checkbox"
-          name="reviewDiscussionMode"
-          value="suggest"
-          disabled={disabled}
-          className="mt-1 h-4 w-4 rounded border-cyan-200/30 bg-slate-950 text-cyan-300"
-        />
-        <span className="grid gap-1">
-          <span className="font-semibold text-cyan-50">
-            Enable AI suggested replies
+      {gatewayWorkflow ? null : (
+        <label className="mb-3 flex max-w-xl items-start gap-3 rounded-lg border border-cyan-200/15 bg-slate-950/40 px-3 py-3 text-left text-sm text-slate-200">
+          <Checkbox
+            name="reviewDiscussionMode"
+            value="suggest"
+            disabled={disabled}
+            className="mt-1 h-4 w-4"
+          />
+          <span className="grid gap-1">
+            <span className="font-semibold text-cyan-50">
+              Enable AI suggested replies
+            </span>
+            <span className="text-xs leading-5 text-slate-400">
+              Adds suggest-only AI replies to ReviewRouter finding discussions
+              after this setup PR is merged.
+            </span>
           </span>
-          <span className="text-xs leading-5 text-slate-400">
-            Adds suggest-only AI replies to ReviewRouter finding discussions
-            after this setup PR is merged.
-          </span>
-        </span>
-      </label>
+        </label>
+      )}
       <Button
         type="submit"
         variant={variant}
         size="sm"
         className="min-h-11 w-full min-w-0 rounded-lg px-3 sm:w-auto sm:min-w-[9.5rem] sm:px-5"
         disabled={disabled}
+        {...(disabled && disabledReason ? { title: disabledReason } : {})}
         aria-busy={isPending}
       >
         {isPending ? (
@@ -178,6 +191,13 @@ export function RepositorySetupMergedButton({
   const [isPending, startTransition] = useTransition();
   const [toast, setToast] = useState<SetupActionToast | null>(null);
   const disabled = !mutationsEnabled || !selected || archived || isPending;
+  const disabledReason = !mutationsEnabled
+    ? "Dashboard changes are disabled for this workspace."
+    : !selected
+      ? "This repository is no longer selected for the GitHub App installation."
+      : archived
+        ? "Archived repositories cannot be provisioned."
+        : undefined;
 
   function completeWithoutUrl(params: Record<string, string>): void {
     setToast((current) => ({
@@ -234,6 +254,7 @@ export function RepositorySetupMergedButton({
         size="sm"
         className="min-h-9 w-full min-w-0 rounded-lg border border-cyan-300/20 bg-cyan-300/[0.035] px-3 text-xs sm:w-auto"
         disabled={disabled}
+        {...(disabled && disabledReason ? { title: disabledReason } : {})}
         aria-busy={isPending}
       >
         {isPending ? (
@@ -348,7 +369,9 @@ function setupActionErrorText(error: string): string {
     case "setup_pr_branch_deleted":
       return "The saved setup PR branch was deleted. Recreate the setup PR to continue.";
     case "setup_pr_wrong_base_branch":
-      return "The saved setup PR was merged outside the allowed setup branches. Recreate the setup PR, then merge it into dev, develop, or the repository default branch.";
+      return "The saved setup PR was merged outside the allowed setup branches. Recreate the setup PR, then merge it into the repository default branch.";
+    case "setup_pr_workflow_mismatch":
+      return "The merged setup PR does not contain the expected ReviewRouter workflow. Recreate the setup PR and merge it without edits, then check again.";
     case "github_operation_forbidden":
       return "GitHub refused the setup PR update. Check GitHub App Contents, Workflows, and Pull requests write permissions, then retry.";
     case "github_operation_not_found":

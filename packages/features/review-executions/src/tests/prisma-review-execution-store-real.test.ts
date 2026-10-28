@@ -22,6 +22,7 @@ import {
   ReviewExecutionAdmissionVerdict,
   ReviewExecutionFinalizeStatus,
   ReviewExecutionPrepareStatus,
+  ReviewInvocationLeaseAcquireStatus,
 } from "../application/ports/review-execution-ports";
 import {
   ReviewRequestedClaimStatus,
@@ -42,6 +43,13 @@ let prisma: PrismaClient;
 const currentWorkspaceIds = new Set<string>();
 const limitsProfileId = "limits-contract";
 const sloProfileId = "slo-contract";
+// This suite intentionally runs against the historical through-000079 schema.
+// Current Prisma must not select attachment columns added after that boundary.
+const historicalAuthorizationOmit = {
+  runtimeSnapshotCanonicalJson: true,
+  gatewayExecutionCanonicalJson: true,
+  skillsSnapshotCanonicalJson: true,
+} as const;
 
 if (databaseUrl) {
   beforeAll(async () => {
@@ -69,6 +77,133 @@ if (databaseUrl) {
   runReviewExecutionStoreContract("Prisma", createHarness);
 
   describe("Prisma review execution PostgreSQL invariants", () => {
+    it("rejects stale input before charging a budget-one slot and restores an already granted capability", async () => {
+      const harness = await createHarness();
+      const identity = `memory-input-${randomUUID()}`;
+      const slot = { ...workSlot(`slot-${identity}`, 4), attemptBudget: 1 };
+      const prepared = await harness.executions.prepareExecution({
+        ...prepareCommand(harness, identity, [workSlot(slot.workSlotId, 4)]),
+        workSlots: [slot],
+      });
+      expect(prepared.status).toBe(ReviewExecutionPrepareStatus.Prepared);
+      const admission = await harness.executions.confirmAdmission({
+        scope: harness.scope,
+        expectedStreamVersion: prepared.snapshot!.stream.version,
+        executionId: prepared.snapshot!.execution.executionId,
+        authorizationId: harness.authorizationId,
+        mutationEpoch: 1n,
+        requestedRevision: prepared.snapshot!.execution.revision,
+        observedRevision: prepared.snapshot!.execution.revision,
+        verdict: ReviewExecutionAdmissionVerdict.Current,
+        checkedAt: new Date(),
+      });
+      expect(admission.status).toBe(ReviewExecutionAdmissionStatus.Admitted);
+      let inputCurrent = false;
+      let admissionCalls = 0;
+      const executions = new PrismaReviewExecutionStore(prisma, {
+        inputAdmission: {
+          async lock() {},
+          async admit() {
+            admissionCalls++;
+            return inputCurrent;
+          },
+        },
+      });
+      const request = leaseCommand(harness, admission.snapshot!, identity);
+      expect((await executions.acquireLease(request)).status).toBe(
+        ReviewInvocationLeaseAcquireStatus.InputStale,
+      );
+      const unchanged = await executions.findExecution(
+        admission.snapshot!.execution.executionId,
+      );
+      expect(unchanged?.execution.workSlots[0]?.nextAttemptOrdinal).toBe(1);
+      expect(
+        await prisma.reviewInvocationLeaseV2.count({
+          where: { executionId: request.executionId },
+        }),
+      ).toBe(0);
+      inputCurrent = true;
+      const granted = await executions.acquireLease(request);
+      expect(granted.status).toBe(ReviewInvocationLeaseAcquireStatus.Acquired);
+      expect(granted.lease?.attemptOrdinal).toBe(1);
+      inputCurrent = false;
+      const callsBeforeReplay = admissionCalls;
+      const restored = await executions.acquireLease(request);
+      expect(restored.status).toBe(ReviewInvocationLeaseAcquireStatus.Restored);
+      expect(restored.lease?.fencingToken).toBe(granted.lease?.fencingToken);
+      expect(admissionCalls).toBe(callsBeforeReplay);
+    });
+
+    it("reclaims a stale provider lane incumbent instead of blocking the lane", async () => {
+      const suffix = randomUUID();
+      const owner = await createHarness();
+      const ownerRun = await prepareAndAdmit(owner, `lane-owner-${suffix}`);
+      const ownerLease = await owner.executions.acquireLease(
+        leaseCommand(owner, ownerRun.snapshot, `lane-owner-${suffix}`),
+      );
+      expect(ownerLease.status).toBe(
+        ReviewInvocationLeaseAcquireStatus.Acquired,
+      );
+
+      // The production incident: a crashed run leaves state=active past
+      // expiresAt while the auto-revoke sweeper has not run yet. The check
+      // constraint keeps expiresAt > acquiredAt, so age the whole row.
+      await prisma.reviewInvocationLeaseV2.update({
+        where: { leaseId: `lease-lane-owner-${suffix}` },
+        data: {
+          acquiredAt: new Date(Date.now() - 90_000),
+          renewedAt: new Date(Date.now() - 90_000),
+          expiresAt: new Date(Date.now() - 60_000),
+        },
+      });
+
+      const newcomer = await createHarness();
+      const newcomerRun = await prepareAndAdmit(
+        newcomer,
+        `lane-newcomer-${suffix}`,
+      );
+      const acquired = await newcomer.executions.acquireLease(
+        leaseCommand(newcomer, newcomerRun.snapshot, `lane-newcomer-${suffix}`),
+      );
+      expect(acquired.status).toBe(ReviewInvocationLeaseAcquireStatus.Acquired);
+      await expect(
+        prisma.reviewInvocationLeaseV2.findUnique({
+          where: { leaseId: `lease-lane-owner-${suffix}` },
+          select: { state: true },
+        }),
+      ).resolves.toEqual({ state: "expired" });
+    });
+
+    it("keeps a live provider lane incumbent blocking", async () => {
+      const suffix = randomUUID();
+      const owner = await createHarness();
+      const ownerRun = await prepareAndAdmit(
+        owner,
+        `lane-live-owner-${suffix}`,
+      );
+      expect(
+        (
+          await owner.executions.acquireLease(
+            leaseCommand(owner, ownerRun.snapshot, `lane-live-owner-${suffix}`),
+          )
+        ).status,
+      ).toBe(ReviewInvocationLeaseAcquireStatus.Acquired);
+
+      const newcomer = await createHarness();
+      const newcomerRun = await prepareAndAdmit(
+        newcomer,
+        `lane-live-newcomer-${suffix}`,
+      );
+      const busy = await newcomer.executions.acquireLease(
+        leaseCommand(
+          newcomer,
+          newcomerRun.snapshot,
+          `lane-live-newcomer-${suffix}`,
+        ),
+      );
+      expect(busy.status).toBe(ReviewInvocationLeaseAcquireStatus.Busy);
+    });
+
     it("serializes concurrent prepare attempts without allocating duplicate executions", async () => {
       const harness = await createHarness();
       const command = prepareCommand(harness, "concurrent-prepare", [
@@ -274,7 +409,9 @@ if (databaseUrl) {
         claimUntil: new Date(now.getTime() + 30_000),
       });
       expect(claimed.status).toBe(ReviewRequestedClaimStatus.Claimed);
-      const claim = claimed.intent!.claim!;
+      if (!("intent" in claimed) || !claimed.intent?.claim)
+        throw new Error("fixture_claim_missing");
+      const claim = claimed.intent.claim;
       await expect(
         intentStore.beginSubmission({
           requestId: oldRequestId,
@@ -339,9 +476,11 @@ if (databaseUrl) {
         registration,
       );
       expect(registrationProgress).toEqual({ status: "compare_and_set" });
+      if (!("intent" in dispatched) || !dispatched.intent)
+        throw new Error("fixture_dispatch_missing");
       const admission = await intentStore.recordAdmissionDecision({
         requestId: oldRequestId,
-        expectedVersion: dispatched.intent!.version,
+        expectedVersion: dispatched.intent.version,
         changedLines: 100,
         maxChangedLines: 250_000,
         policySnapshotId: "hosted-review-size-v1:admission-race",
@@ -717,6 +856,7 @@ if (databaseUrl) {
         },
       });
       await prisma.reviewRunAuthorization.update({
+        omit: historicalAuthorizationOmit,
         where: { authorizationId: harness.authorizationId },
         data: {
           state: "expired",
@@ -1317,7 +1457,9 @@ if (databaseUrl) {
         now,
         claimUntil: new Date(now.getTime() + 30_000),
       });
-      const claim = claimed.intent!.claim!;
+      if (!("intent" in claimed) || !claimed.intent?.claim)
+        throw new Error("fixture_claim_missing");
+      const claim = claimed.intent.claim;
       await intentStore.beginSubmission({
         requestId,
         claimId: claim.claimId,
@@ -1338,9 +1480,11 @@ if (databaseUrl) {
         nextResolutionAt: new Date(now.getTime() + 1_000),
         resolutionDeadlineAt: new Date(now.getTime() + 60_000),
       });
+      if (!("intent" in dispatched) || !dispatched.intent)
+        throw new Error("fixture_dispatch_missing");
       await intentStore.recordAdmissionDecision({
         requestId,
-        expectedVersion: dispatched.intent!.version,
+        expectedVersion: dispatched.intent.version,
         changedLines: 100,
         maxChangedLines: 250_000,
         policySnapshotId: "hosted-review-size-v1:test",
@@ -1391,9 +1535,12 @@ async function createHarness(
   currentWorkspaceIds.add(workspaceId);
   const now = new Date();
 
-  await prisma.workspace.create({
-    data: { id: workspaceId, slug: workspaceId, name: workspaceId },
-  });
+  // Current Prisma inserts deletion defaults added by 000127 even with an
+  // id-only selection. This fixture intentionally stops at 000079.
+  await prisma.$executeRaw`
+    INSERT INTO "Workspace" ("id", "slug", "name", "updatedAt")
+    VALUES (${workspaceId}, ${workspaceId}, ${workspaceId}, ${now})
+  `;
   await prisma.scmRepositoryIdentity.create({
     data: {
       scmRepositoryIdentityId,
@@ -1427,6 +1574,13 @@ async function createHarness(
     },
   });
   await prisma.producerRelease.create({
+    // Later optional metadata is absent from this historical SQL079 database.
+    omit: {
+      agentProfilesJson: true,
+      prDescriptionProfile: true,
+      contextToolsProfile: true,
+      lifecycleVerificationProfile: true,
+    },
     data: {
       producerReleaseId,
       distributionKind: "hosted_composite",
@@ -1443,6 +1597,7 @@ async function createHarness(
     },
   });
   await prisma.reviewRunAuthorization.create({
+    omit: historicalAuthorizationOmit,
     data: {
       authorizationId,
       workspaceId,
@@ -1556,11 +1711,13 @@ async function createPullRequestHarness(
   pullRequestNumber: number,
 ): Promise<ReviewExecutionStoreContractHarness> {
   const source = await prisma.reviewRunAuthorization.findUniqueOrThrow({
+    omit: historicalAuthorizationOmit,
     where: { authorizationId: base.authorizationId },
   });
   const suffix = randomUUID();
   const authorizationId = `execution-authorization-${suffix}`;
   await prisma.reviewRunAuthorization.create({
+    omit: historicalAuthorizationOmit,
     data: {
       ...source,
       authorizationId,
@@ -1734,6 +1891,9 @@ async function seedSharedProfiles(): Promise<void> {
 }
 
 async function cleanupScope(workspaceId: string): Promise<void> {
+  // Fixed contract execution IDs are reused on a fresh workspace in later runs.
+  // Their finalized-event idempotency keys must leave with this owned fixture.
+  await prisma.outboxEvent.deleteMany({ where: { workspaceId } });
   const executions = await prisma.reviewExecutionV2.findMany({
     where: { workspaceId },
     select: { executionId: true },
@@ -1802,7 +1962,10 @@ async function cleanupScope(workspaceId: string): Promise<void> {
       });
     }
   }
-  await prisma.workspace.delete({ where: { id: workspaceId } });
+  await prisma.workspace.delete({
+    where: { id: workspaceId },
+    select: { id: true },
+  });
 }
 
 function hash(index: number): string {

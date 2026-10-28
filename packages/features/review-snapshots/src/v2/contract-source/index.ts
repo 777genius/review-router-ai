@@ -21,6 +21,10 @@ export const reviewSnapshotV2ActionContractFragment = Object.freeze({
   boundedContext: "review_snapshots",
   publishedEnums: Object.freeze([
     Object.freeze({
+      typeName: "ReviewSnapshotRestorePurpose",
+      values: Object.freeze(["comparison_baseline.v1"]),
+    }),
+    Object.freeze({
       typeName: "ReviewSnapshotRestoreResultStatus",
       values: Object.freeze([
         "found",
@@ -43,6 +47,13 @@ export const reviewSnapshotV2ActionContractFragment = Object.freeze({
       semanticRetryClass: "read_only",
       requestFields: Object.freeze([
         Object.freeze({ name: "reviewRevisionHash", type: "hash" }),
+        Object.freeze({
+          name: "purpose",
+          optional: true,
+          type: "nullable_enum",
+          enumTypeName: "ReviewSnapshotRestorePurpose",
+          enumValues: Object.freeze(["comparison_baseline.v1"]),
+        }),
       ]),
       resultStatusEnum: "ReviewSnapshotRestoreResultStatus",
       resultFields: Object.freeze([

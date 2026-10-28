@@ -1,6 +1,7 @@
 import {
-  mapConfigToRuntimeEnv,
-  safeDefaultReviewConfiguration,
+  resolveReviewConfiguration,
+  providerApiConfigurationMode,
+  type ReviewConfigurationRepositoryPort,
 } from "@reviewrouter/features-review-config";
 import {
   recordAuditEvent,
@@ -9,28 +10,151 @@ import {
 import {
   renderCanonicalCodexRotatingInteractionWorkflowV3,
   renderReviewRouterWorkflowFiles,
+  renderAccountGatewayWorkflow,
+  renderProviderApiWorkflow,
+  defaultWorkflowPath,
+  defaultCodexRotatingWorkflowPath,
+  defaultInteractionWorkflowPath,
+  getObsoleteGatewayCallerDeletionMarkerGroups,
+  getLegacyReviewRouterWorkflowDeletionMarkerGroups,
+  getLegacyReviewRouterInteractionWorkflowDeletionMarkerGroups,
+  reviewRouterWorkflowContract,
 } from "../../domain/workflow-template";
 import {
   createProvisionWorkflowPlan,
   type ProvisionWorkflowInput,
 } from "../../domain/workflow-provisioning";
+import {
+  renderedWorkflowRequirement,
+  inspectRequiredWorkflowTransport,
+  type WorkflowTransport,
+} from "../../domain/workflow-transport";
 import type { WorkflowProvisioningRepositoryPort } from "../ports/workflow-provisioning-repository-port";
 import type { WorkflowSetupGatewayPort } from "../ports/workflow-setup-gateway-port";
 
 export type ProvisionReviewRouterWorkflowDependencies = {
+  readonly secretsRuntimeActionRef?: string;
   readonly setupGateway: WorkflowSetupGatewayPort;
   readonly provisioning: WorkflowProvisioningRepositoryPort;
   readonly auditLog?: AuditLogRepositoryPort;
   readonly enabled?: boolean;
   readonly actor?: string;
   readonly auditMetadata?: Readonly<Record<string, unknown>>;
+  readonly configurations?: ReviewConfigurationRepositoryPort;
+  readonly trustedGithubRepositoryId?: string;
 };
 
 export async function provisionReviewRouterWorkflow(
   input: ProvisionWorkflowInput,
   dependencies: ProvisionReviewRouterWorkflowDependencies,
 ) {
-  const plan = createProvisionWorkflowPlan(input);
+  const saved = dependencies.configurations
+    ? await resolveReviewConfiguration(
+        {
+          scope: "repository",
+          workspaceId: input.workspaceId,
+          repositoryId: input.repositoryId,
+        },
+        { configurations: dependencies.configurations },
+      )
+    : undefined;
+  const transport = saved
+    ? inspectRequiredWorkflowTransport(saved.config)
+    : null;
+  if (transport !== null && typeof transport !== "string")
+    throw new Error(transport.reason);
+  const gatewaySelected = transport === "gateway";
+  const providerApiSelected = transport === "provider_api";
+  const selectedProviderApiMode =
+    providerApiSelected && saved
+      ? providerApiConfigurationMode(saved.config)
+      : undefined;
+  if (
+    !gatewaySelected &&
+    input.mcpSecrets &&
+    Object.keys(input.mcpSecrets).length
+  )
+    throw new Error("mcp_secrets_gateway_workflow_required");
+  if (input.providerApiAuthMode && !providerApiSelected)
+    throw new Error("openrouter_direct_requires_single_provider");
+  if (
+    providerApiSelected &&
+    (input.providerApiAuthMode !== selectedProviderApiMode ||
+      input.codexSessionMode !== undefined ||
+      input.runtimeConfigMode !== "oidc" ||
+      input.staticRuntimeEnv !== undefined ||
+      (input.workflowStyle !== undefined &&
+        input.workflowStyle !== "reusable") ||
+      input.conflictReviewFallbackEnabled === true ||
+      input.forkAgenticSandboxEnabled === true ||
+      (input.discussionMode !== undefined && input.discussionMode !== "off") ||
+      input.codexRotatingProviderInstanceId !== undefined ||
+      input.codexRotatingWorkflowSecretNamespace !== undefined ||
+      input.codexRotatingReviewActionV2Mode !== undefined ||
+      input.codexRotatingWorkflowSchemaVersion !== undefined ||
+      (input.workflowPath !== undefined &&
+        input.workflowPath !== reviewRouterWorkflowContract.callerPath))
+  )
+    throw new Error("openrouter_direct_workflow_options_not_supported");
+  const gatewayHint =
+    input.codexSessionMode !== undefined ||
+    input.staticRuntimeEnv?.REVIEW_AUTH_MODE === "codex-account-gateway" ||
+    input.staticRuntimeEnv?.REVIEW_ROUTER_GATEWAY_BINDING_ID !== undefined ||
+    input.staticRuntimeEnv?.REVIEW_ROUTER_GATEWAY_PROFILE_REF !== undefined;
+  if (gatewayHint && !gatewaySelected) {
+    throw new Error("account_gateway_saved_config_required");
+  }
+  if (
+    (gatewaySelected || providerApiSelected) &&
+    (!dependencies.trustedGithubRepositoryId ||
+      input.githubRepositoryId !== dependencies.trustedGithubRepositoryId)
+  ) {
+    throw new Error("account_gateway_repository_identity_required");
+  }
+  if (
+    gatewaySelected &&
+    (input.providerApiAuthMode !== undefined ||
+      input.codexSessionMode !== "account-gateway" ||
+      input.runtimeConfigMode !== "oidc" ||
+      input.staticRuntimeEnv !== undefined ||
+      (input.workflowStyle !== undefined &&
+        input.workflowStyle !== "reusable") ||
+      input.conflictReviewFallbackEnabled === true ||
+      input.forkAgenticSandboxEnabled === true ||
+      (input.discussionMode !== undefined && input.discussionMode !== "off") ||
+      input.codexRotatingProviderInstanceId !== undefined ||
+      input.codexRotatingWorkflowSecretNamespace !== undefined ||
+      input.codexRotatingReviewActionV2Mode !== undefined ||
+      input.codexRotatingWorkflowSchemaVersion !== undefined ||
+      (input.workflowPath !== undefined &&
+        input.workflowPath !== reviewRouterWorkflowContract.callerPath))
+  ) {
+    throw new Error("account_gateway_workflow_options_not_supported");
+  }
+  const managedFile = gatewaySelected
+    ? renderAccountGatewayWorkflow({
+        actionRef: input.actionRef,
+        apiUrl: input.apiUrl,
+        githubRepositoryId: dependencies.trustedGithubRepositoryId!,
+        ...(input.mcpSecrets !== undefined
+          ? { mcpSecrets: input.mcpSecrets }
+          : {}),
+      })
+    : providerApiSelected
+      ? renderProviderApiWorkflow({
+          ...(selectedProviderApiMode
+            ? { providerApiAuthMode: selectedProviderApiMode }
+            : {}),
+          actionRef: input.actionRef,
+          apiUrl: input.apiUrl,
+        })
+      : undefined;
+  const plan = createProvisionWorkflowPlan(
+    managedFile ? { ...input, workflowPath: managedFile.path } : input,
+  );
+  const actionVersion = gatewaySelected
+    ? reviewRouterWorkflowContract.channel
+    : plan.actionRef;
   if (plan.codexRotatingProviderInstanceId) {
     renderCanonicalCodexRotatingInteractionWorkflowV3({
       actionRef: plan.actionRef,
@@ -39,6 +163,19 @@ export async function provisionReviewRouterWorkflow(
     });
   }
 
+  // What the workflow this attempt renders requires, not what the policy does.
+  const attemptTransport: WorkflowTransport = gatewaySelected
+    ? "gateway"
+    : providerApiSelected
+      ? "provider_api"
+      : plan.codexRotatingProviderInstanceId
+        ? "rotating"
+        : "ci_secrets";
+  const attemptRequirement = renderedWorkflowRequirement(
+    attemptTransport,
+    plan.staticRuntimeEnv,
+    selectedProviderApiMode,
+  );
   const attempt = await dependencies.provisioning.beginAttempt({
     workspaceId: plan.workspaceId,
     repositoryId: plan.repositoryId,
@@ -47,7 +184,8 @@ export async function provisionReviewRouterWorkflow(
     branch: plan.setupBranch,
     workflowPath: plan.workflowPath,
     workflowStyle: plan.workflowStyle,
-    actionVersion: plan.actionRef,
+    actionVersion,
+    workflowRequirement: attemptRequirement,
   });
 
   if (dependencies.enabled === false) {
@@ -59,7 +197,8 @@ export async function provisionReviewRouterWorkflow(
       branch: attempt.branch,
       workflowPath: plan.workflowPath,
       workflowStyle: plan.workflowStyle,
-      actionVersion: plan.actionRef,
+      actionVersion,
+      workflowRequirement: attemptRequirement,
       pullRequestUrl: null,
       errorMessage: "workflow_provisioning_disabled",
     });
@@ -83,49 +222,84 @@ export async function provisionReviewRouterWorkflow(
   }
 
   try {
-    const staticRuntimeEnv =
-      plan.staticRuntimeEnv ??
-      mapConfigToRuntimeEnv(safeDefaultReviewConfiguration);
-    assertProductionCodexWorkflowProvisioningAllowed({
-      codexRotatingProviderInstanceId: plan.codexRotatingProviderInstanceId,
-      staticRuntimeEnv,
-    });
+    if (
+      !managedFile &&
+      plan.runtimeConfigMode === "static" &&
+      plan.staticRuntimeEnv === undefined
+    ) {
+      throw new Error("workflow_static_policy_required");
+    }
+    const staticRuntimeEnv = managedFile ? {} : (plan.staticRuntimeEnv ?? {});
+    if (!managedFile) {
+      assertProductionCodexWorkflowProvisioningAllowed({
+        codexRotatingProviderInstanceId: plan.codexRotatingProviderInstanceId,
+        staticRuntimeEnv,
+      });
+    }
 
-    const workflowFiles = renderReviewRouterWorkflowFiles({
-      actionRef: plan.actionRef,
-      apiUrl: plan.apiUrl,
-      runtimeConfigMode: plan.runtimeConfigMode,
-      workflowStyle: plan.workflowStyle,
-      conflictReviewFallbackEnabled:
-        plan.conflictReviewFallbackEnabled === true,
-      forkAgenticSandboxEnabled: plan.forkAgenticSandboxEnabled === true,
-      ...(plan.codexRotatingProviderInstanceId
-        ? {
-            codexRotatingProviderInstanceId:
-              plan.codexRotatingProviderInstanceId,
-            codexRotatingWorkflowPath: plan.workflowPath,
-            ...(plan.codexRotatingWorkflowSecretNamespace
-              ? {
-                  codexRotatingActiveSecretNamespace:
-                    plan.codexRotatingWorkflowSecretNamespace,
-                }
-              : {}),
-          }
-        : {}),
-      ...(plan.codexRotatingReviewActionV2Mode
-        ? {
-            codexRotatingReviewActionV2Mode:
-              plan.codexRotatingReviewActionV2Mode,
-          }
-        : {}),
-      ...(plan.codexRotatingWorkflowSchemaVersion !== undefined
-        ? {
-            codexRotatingWorkflowSchemaVersion:
-              plan.codexRotatingWorkflowSchemaVersion,
-          }
-        : {}),
-      staticRuntimeEnv,
-    });
+    const workflowFiles = managedFile
+      ? [
+          {
+            path: defaultCodexRotatingWorkflowPath,
+            operation: "delete" as const,
+            markerGroups: getObsoleteGatewayCallerDeletionMarkerGroups(),
+          },
+          {
+            path: defaultWorkflowPath,
+            operation: "delete" as const,
+            markerGroups: getLegacyReviewRouterWorkflowDeletionMarkerGroups(),
+          },
+          {
+            path: defaultInteractionWorkflowPath,
+            operation: "delete" as const,
+            markerGroups:
+              getLegacyReviewRouterInteractionWorkflowDeletionMarkerGroups(),
+          },
+          managedFile,
+        ]
+      : renderReviewRouterWorkflowFiles({
+          ...(!plan.codexRotatingProviderInstanceId &&
+          !plan.conflictReviewFallbackEnabled &&
+          !plan.forkAgenticSandboxEnabled &&
+          plan.runtimeConfigMode === "oidc" &&
+          (plan.workflowStyle ?? "reusable") === "reusable" &&
+          dependencies.secretsRuntimeActionRef
+            ? { secretsRuntimeActionRef: dependencies.secretsRuntimeActionRef }
+            : {}),
+          actionRef: plan.actionRef,
+          apiUrl: plan.apiUrl,
+          runtimeConfigMode: plan.runtimeConfigMode,
+          workflowStyle: plan.workflowStyle,
+          conflictReviewFallbackEnabled:
+            plan.conflictReviewFallbackEnabled === true,
+          forkAgenticSandboxEnabled: plan.forkAgenticSandboxEnabled === true,
+          ...(plan.codexRotatingProviderInstanceId
+            ? {
+                codexRotatingProviderInstanceId:
+                  plan.codexRotatingProviderInstanceId,
+                codexRotatingWorkflowPath: plan.workflowPath,
+                ...(plan.codexRotatingWorkflowSecretNamespace
+                  ? {
+                      codexRotatingActiveSecretNamespace:
+                        plan.codexRotatingWorkflowSecretNamespace,
+                    }
+                  : {}),
+              }
+            : {}),
+          ...(plan.codexRotatingReviewActionV2Mode
+            ? {
+                codexRotatingReviewActionV2Mode:
+                  plan.codexRotatingReviewActionV2Mode,
+              }
+            : {}),
+          ...(plan.codexRotatingWorkflowSchemaVersion !== undefined
+            ? {
+                codexRotatingWorkflowSchemaVersion:
+                  plan.codexRotatingWorkflowSchemaVersion,
+              }
+            : {}),
+          staticRuntimeEnv,
+        });
 
     const pullRequest =
       await dependencies.setupGateway.createOrUpdateSetupPullRequest({
@@ -133,6 +307,13 @@ export async function provisionReviewRouterWorkflow(
         repo: plan.name,
         baseBranch: plan.defaultBranch,
         setupBranch: attempt.branch,
+        ...(managedFile
+          ? {
+              setupMode: gatewaySelected
+                ? ("gateway" as const)
+                : ("provider_api" as const),
+            }
+          : {}),
         workflowFiles,
       });
 
@@ -144,7 +325,8 @@ export async function provisionReviewRouterWorkflow(
       branch: pullRequest.branch,
       workflowPath: plan.workflowPath,
       workflowStyle: plan.workflowStyle,
-      actionVersion: plan.actionRef,
+      actionVersion,
+      workflowRequirement: attemptRequirement,
       pullRequestUrl: pullRequest.url,
       pullRequestHeadSha: pullRequest.headSha,
       errorMessage: null,
@@ -161,7 +343,7 @@ export async function provisionReviewRouterWorkflow(
             branch: pullRequest.branch,
             workflowPath: plan.workflowPath,
             workflowStyle: plan.workflowStyle,
-            actionVersion: plan.actionRef,
+            actionVersion,
             pullRequestUrl: pullRequest.url,
             ...(dependencies.auditMetadata ?? {}),
           },
@@ -181,7 +363,8 @@ export async function provisionReviewRouterWorkflow(
       branch: attempt.branch,
       workflowPath: plan.workflowPath,
       workflowStyle: plan.workflowStyle,
-      actionVersion: plan.actionRef,
+      actionVersion,
+      workflowRequirement: attemptRequirement,
       pullRequestUrl: null,
       errorMessage: message,
     });
@@ -197,7 +380,7 @@ export async function provisionReviewRouterWorkflow(
             branch: attempt.branch,
             workflowPath: plan.workflowPath,
             workflowStyle: plan.workflowStyle,
-            actionVersion: plan.actionRef,
+            actionVersion,
             errorSummary: message.slice(0, 500),
             ...(dependencies.auditMetadata ?? {}),
           },
@@ -230,6 +413,9 @@ function assertProductionCodexWorkflowProvisioningAllowed(input: {
 
 function safeWorkflowProvisioningErrorSummary(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
+  if (message.startsWith("workflow_delete_untrusted:")) {
+    return "workflow_delete_untrusted";
+  }
   if (
     [
       "invalid_workflow_action_ref",

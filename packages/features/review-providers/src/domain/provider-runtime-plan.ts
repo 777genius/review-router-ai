@@ -1,5 +1,7 @@
 import {
   cliToolsForProvider,
+  gatewayReferenceSchema,
+  gatewayModelSchema,
   getProviderCatalogEntry,
   getProviderAuthModeMetadata,
   providerAuthModeBelongsToKind,
@@ -12,15 +14,41 @@ import type { CodexReasoningEffort } from "./provider-models";
 
 export type RuntimePlanReasoningEffort = CodexReasoningEffort;
 
-export type RuntimePlanProviderConfiguration = {
+type RuntimePlanProviderSettings = {
   readonly kind: ProviderKind;
-  readonly authMode: ProviderAuthMode;
   readonly model: string;
-  readonly reasoningEffort: RuntimePlanReasoningEffort;
   readonly agenticContext: boolean;
   readonly fastMode: boolean;
   readonly requiredHealthy?: boolean;
 };
+
+// Safe selection, not a relay grant or execution capability.
+export type RuntimePlanProviderConfiguration = RuntimePlanProviderSettings &
+  (
+    | {
+        readonly kind: "codex";
+        readonly authMode: "codex_account_gateway";
+        readonly reasoningEffort?: RuntimePlanReasoningEffort | undefined;
+        readonly gatewayBindingId: string;
+        readonly gatewayProfileRef: string;
+      }
+    | {
+        readonly kind: "kimi";
+        readonly authMode: "kimi_code_api_key";
+        readonly reasoningEffort?: undefined;
+        readonly gatewayBindingId?: undefined;
+        readonly gatewayProfileRef?: undefined;
+      }
+    | {
+        readonly authMode: Exclude<
+          ProviderAuthMode,
+          "codex_account_gateway" | "kimi_code_api_key"
+        >;
+        readonly reasoningEffort: RuntimePlanReasoningEffort;
+        readonly gatewayBindingId?: undefined;
+        readonly gatewayProfileRef?: undefined;
+      }
+  );
 
 export type RuntimePlanExecutionConfiguration = {
   readonly providerLimit: number;
@@ -38,9 +66,8 @@ export type RuntimePlanLimits = {
 };
 
 export type ProviderRuntimePlanInput = {
-  readonly schemaVersion: number;
+  readonly schemaVersion: 3;
   readonly providers: readonly RuntimePlanProviderConfiguration[];
-  readonly provider?: RuntimePlanProviderConfiguration;
   readonly execution: RuntimePlanExecutionConfiguration;
   readonly blockingPolicy: RuntimePlanBlockingPolicy;
   readonly limits: RuntimePlanLimits;
@@ -84,11 +111,7 @@ export function buildProviderRuntimePlan(
       Math.min(input.execution.providerMaxParallel, providers.length),
     ),
     INLINE_MIN_AGREEMENT: String(input.execution.inlineMinAgreement),
-    INLINE_MAX_COMMENTS: String(
-      input.limits.inlineMaxComments === 5
-        ? 50
-        : input.limits.inlineMaxComments,
-    ),
+    INLINE_MAX_COMMENTS: String(input.limits.inlineMaxComments),
     INLINE_MIN_SEVERITY: "minor",
     TARGET_TOKENS_PER_BATCH: String(input.limits.targetTokensPerBatch),
     FAIL_ON_SEVERITY: input.blockingPolicy.failOnSeverity,
@@ -101,7 +124,8 @@ export function buildProviderRuntimePlan(
 
   const codexBackedProvider = providers.find(isCodexBackedProvider);
   if (codexBackedProvider) {
-    runtimeEnv.CODEX_REASONING_EFFORT = codexBackedProvider.reasoningEffort;
+    if (codexBackedProvider.reasoningEffort !== undefined)
+      runtimeEnv.CODEX_REASONING_EFFORT = codexBackedProvider.reasoningEffort;
     runtimeEnv.CODEX_AGENTIC_CONTEXT = String(
       codexBackedProvider.agenticContext,
     );
@@ -151,11 +175,7 @@ export function assertRuntimeEnvIsNonSecret(
 function normalizeRuntimePlanProviders(
   input: ProviderRuntimePlanInput,
 ): readonly RuntimePlanProviderConfiguration[] {
-  const providers = input.providers.length
-    ? input.providers
-    : input.provider
-      ? [input.provider]
-      : [];
+  const providers = input.providers;
   if (!providers.length) {
     throw new Error("provider_runtime_plan_requires_provider");
   }
@@ -176,6 +196,16 @@ function validateRuntimePlanProvider(
   if (!providerAuthModeBelongsToKind(provider.authMode, provider.kind)) {
     throw new Error("provider_auth_mode_kind_mismatch");
   }
+  if (provider.authMode === "codex_account_gateway") {
+    gatewayModelSchema.parse(provider.model);
+    gatewayReferenceSchema.parse(provider.gatewayBindingId);
+    gatewayReferenceSchema.parse(provider.gatewayProfileRef);
+  } else if (
+    provider.gatewayBindingId !== undefined ||
+    provider.gatewayProfileRef !== undefined
+  ) {
+    throw new Error("gateway_selection_forbidden_for_auth_mode");
+  }
   if (!provider.model.trim()) {
     throw new Error("provider_model_required");
   }
@@ -190,7 +220,9 @@ export function isCodexBackedProvider(
   provider: RuntimePlanProviderConfiguration,
 ): boolean {
   return (
+    provider.kind === "kimi" ||
     provider.kind === "openrouter" ||
+    provider.kind === "codex-mimo" ||
     getProviderCatalogEntry(provider.kind).runtimeProviderPrefix.startsWith(
       "codex",
     )

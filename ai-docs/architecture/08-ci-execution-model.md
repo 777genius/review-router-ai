@@ -17,7 +17,7 @@ pull_request event
 ## Why CI Execution
 
 - keeps private code in customer environment
-- keeps Codex OAuth outside SaaS
+- keeps Codex OAuth outside control plane
 - shifts heavy LLM/runtime load away from ReviewRouter servers
 - aligns with enterprise privacy needs
 - gives customers control over runners/network/policies
@@ -59,7 +59,7 @@ ReviewRouter skipped secret-backed review because this pull request comes from a
 
 Maintainer can use a trusted rerun/manual flow later if needed.
 
-## Reporting Back to SaaS
+## Reporting Back to control plane
 
 v1 should support metadata-only reporting through GitHub Actions OIDC, but review execution must still work from static workflow config if OIDC is unavailable.
 

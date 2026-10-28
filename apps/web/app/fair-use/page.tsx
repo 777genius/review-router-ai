@@ -84,8 +84,8 @@ export default function FairUsePage(): React.ReactElement {
         <h2 className="text-2xl font-semibold text-cyan-50">
           Current public-facing defaults
         </h2>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+        <div className="overflow-x-auto lg:overflow-clip">
+          <table className="rr-sticky-table w-full min-w-[640px] border-collapse text-left text-sm">
             <thead className="text-cyan-100">
               <tr>
                 <th className="border-b border-cyan-200/15 px-3 py-2">Limit</th>

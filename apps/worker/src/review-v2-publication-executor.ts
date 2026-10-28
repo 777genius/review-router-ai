@@ -13,6 +13,8 @@ import {
   ReviewPublicationReceiptStatus,
   ReviewPublicationTerminalOutcome,
   TerminalizeUnknownReviewPublicationStatus,
+  hasEveryRequiredCanonicalReceipt,
+  isOptionalPrDescriptionOperation,
   operationCapabilityFacts,
   planPublicationSiblingTerminalizations,
   publicationOperationsWithExternalEffectRisk,
@@ -103,7 +105,19 @@ export class ExecuteReviewV2PublicationOperation {
       view,
       requestedCommand.publicationOperationId,
     );
-    const riskOperations = externalEffectRiskOperations(view);
+    if (
+      isOptionalPrDescriptionOperation(requestedOperation) &&
+      !hasEveryRequiredCanonicalReceipt({
+        operations: view.attempt.operations,
+        receipts: view.receipts,
+      })
+    ) {
+      return retryable("pr_description_awaiting_required_publication");
+    }
+    const riskOperations = reconciliationRiskOperations(
+      view,
+      requestedOperation,
+    );
     const requestedOperationHasRisk = riskOperations.some(
       (candidate) =>
         candidate.publicationOperationId ===
@@ -377,6 +391,19 @@ export class ExecuteReviewV2PublicationOperation {
           gateway: mutationSession.gateway,
           inventory,
           effectKind: ReviewPublicationExternalEffectKind.MarkerReconciled,
+        });
+      }
+
+      if (
+        potentialEffect &&
+        begun.operation.publicationKind === ReviewPublicationKind.PrDescription
+      ) {
+        return this.terminalizeKnownAmbiguity({
+          command,
+          operation: begun.operation,
+          claim,
+          finalReason: "pr_description_prior_write_unreconciled",
+          lastErrorCode: "pr_description_write_outcome_unknown",
         });
       }
 
@@ -874,6 +901,22 @@ export class ExecuteReviewV2PublicationOperation {
         };
       }
       if (!hasCurrentOperationObject(inventory, input.operation)) {
+        if (
+          input.operation.publicationKind ===
+          ReviewPublicationKind.PrDescription
+        ) {
+          return {
+            settled: true,
+            result: await this.terminalizeOrRetry({
+              command: input.command,
+              view: input.view,
+              operation: input.operation,
+              claim,
+              finalReason: "pr_description_prior_write_unreconciled",
+              lastErrorCode: "pr_description_write_outcome_unknown",
+            }),
+          };
+        }
         const freshness = await this.readFreshness(
           input.command.provider,
           input.view.attempt.permit,
@@ -946,6 +989,13 @@ export class ExecuteReviewV2PublicationOperation {
             lastErrorCode: input.error.safeCode,
             noEffectCapability: input.capability,
           });
+    }
+    if (
+      input.operation.publicationKind === ReviewPublicationKind.PrDescription &&
+      input.error instanceof ReviewV2ScmMutationError &&
+      input.error.safeCode === "github_pr_description_post_write_conflict"
+    ) {
+      return manual(input.error.safeCode);
     }
     const errorCode =
       input.error instanceof ReviewV2ScmMutationError
@@ -1065,7 +1115,7 @@ export class ExecuteReviewV2PublicationOperation {
       view.attempt.permit,
     );
     if (freshness.status !== "current") {
-      if (externalEffectRiskOperations(view).length > 1) {
+      if (reconciliationRiskOperations(view, input.operation).length > 1) {
         return this.terminalizeKnownAmbiguity({
           command: input.command,
           operation: input.operation,
@@ -1181,7 +1231,7 @@ export class ExecuteReviewV2PublicationOperation {
       view.attempt.permit,
     );
     if (finalFreshness.status !== "current") {
-      if (externalEffectRiskOperations(view).length > 1) {
+      if (reconciliationRiskOperations(view, input.operation).length > 1) {
         return this.terminalizeKnownAmbiguity({
           command: input.command,
           operation: input.operation,
@@ -1252,6 +1302,49 @@ export class ExecuteReviewV2PublicationOperation {
     >;
     readonly lastErrorCode: string;
   }): Promise<ReviewV2PublicationExecutionResult> {
+    if (isOptionalPrDescriptionOperation(input.operation)) {
+      // Closing inference can revoke the run while its accepted body write is
+      // returning. Settle that known effect without authorizing another write.
+      try {
+        const view = await this.dependencies.attempts.findById(
+          input.command.publicationAttemptId,
+        );
+        const visible = currentOperationObjects(
+          await this.loadInventory(input.gateway, input.operation),
+          input.operation,
+        );
+        const effect = view
+          ? canonicalVisibleEffect(view, input.operation, visible)
+          : null;
+        if (
+          effect?.effectKind ===
+            ReviewPublicationExternalEffectKind.MutationAcknowledged &&
+          visible.some(
+            (object) =>
+              object.externalObjectId === effect.externalObjectId &&
+              object.observedObjectHash === effect.observedObjectHash,
+          )
+        ) {
+          return this.terminalizeKnownOutcome({
+            command: input.command,
+            operation: input.operation,
+            claim: input.claim,
+            finalOutcome: ReviewPublicationTerminalOutcome.StaleVisible,
+            finalReason: "optional_pr_description_stale_visible",
+            lastErrorCode: input.lastErrorCode,
+          });
+        }
+      } catch {
+        // Missing readback remains ambiguous; never replay the body mutation.
+      }
+      return this.terminalizeKnownAmbiguity({
+        command: input.command,
+        operation: input.operation,
+        claim: input.claim,
+        finalReason: "optional_pr_description_stale_visible",
+        lastErrorCode: input.lastErrorCode,
+      });
+    }
     const objects = normalizeInventory(input.inventory, input.operation);
     const currentObjects = currentOperationObjects(objects, input.operation);
     if (input.freshness.status === "changed" && input.freshness.snapshot) {
@@ -1545,13 +1638,22 @@ export class ExecuteReviewV2PublicationOperation {
         return {
           status: ReviewV2PublicationExecutionStatus.Terminalized,
           safeReason: input.finalReason,
-          terminalOutcome: input.finalOutcome,
+          terminalOutcome:
+            terminalized.attempt.terminalOutcome ?? input.finalOutcome,
         };
       case TerminalizeUnknownReviewPublicationStatus.VersionConflict:
       case TerminalizeUnknownReviewPublicationStatus.StaleClaim:
         return retryable(`publication_terminal_outcome_${terminalized.status}`);
       case TerminalizeUnknownReviewPublicationStatus.ExternalEffectRisk:
-        return retryable(input.lastErrorCode);
+        // A rejected operation can coexist with published siblings. Preserve
+        // those effects and use their canonical deadlines for the manual handoff.
+        return this.terminalizeKnownAmbiguity({
+          command: input.command,
+          operation: input.operation,
+          claim: input.claim,
+          finalReason: "attempt_effect_risk_requires_reconciliation",
+          lastErrorCode: input.lastErrorCode,
+        });
       case TerminalizeUnknownReviewPublicationStatus.Conflict:
         return this.terminalizeKnownAmbiguity({
           command: input.command,
@@ -1605,7 +1707,9 @@ export class ExecuteReviewV2PublicationOperation {
         return {
           status: ReviewV2PublicationExecutionStatus.Terminalized,
           safeReason: input.finalReason,
-          terminalOutcome: ReviewPublicationTerminalOutcome.SupersededNoEffect,
+          terminalOutcome:
+            terminalized.attempt.terminalOutcome ??
+            ReviewPublicationTerminalOutcome.SupersededNoEffect,
         };
       case TerminalizeUnknownReviewPublicationStatus.VersionConflict:
       case TerminalizeUnknownReviewPublicationStatus.StaleClaim:
@@ -1664,6 +1768,16 @@ export class ExecuteReviewV2PublicationOperation {
     switch (terminalized.status) {
       case TerminalizeUnknownReviewPublicationStatus.Terminalized:
       case TerminalizeUnknownReviewPublicationStatus.Restored:
+        if (
+          terminalized.attempt.terminalOutcome ===
+          ReviewPublicationTerminalOutcome.Succeeded
+        ) {
+          return {
+            status: ReviewV2PublicationExecutionStatus.Terminalized,
+            safeReason: "optional_pr_description_closed",
+            terminalOutcome: ReviewPublicationTerminalOutcome.Succeeded,
+          };
+        }
         return {
           status: ReviewV2PublicationExecutionStatus.TerminalUnknown,
           safeReason: "publication_terminal_unknown_manual_review_required",
@@ -2189,6 +2303,20 @@ function inspectTerminal(
     };
   }
   if (view.attempt.state === ReviewPublicationAttemptState.Terminal) {
+    const operation = view.attempt.operations.find(
+      (row) => row.publicationOperationId === operationId,
+    );
+    if (
+      operation &&
+      isOptionalPrDescriptionOperation(operation) &&
+      view.tombstones.some((row) => row.publicationOperationId === operationId)
+    ) {
+      return {
+        status: ReviewV2PublicationExecutionStatus.Terminalized,
+        safeReason: "optional_pr_description_closed",
+        terminalOutcome: ReviewPublicationTerminalOutcome.Succeeded,
+      };
+    }
     return manual("publication_attempt_terminal_without_operation_receipt");
   }
   return null;
@@ -2229,6 +2357,25 @@ function mayHaveExternalEffect(
     (candidate) =>
       candidate.publicationOperationId === operation.publicationOperationId,
   );
+}
+
+function reconciliationRiskOperations(
+  view: ReviewPublicationAttemptView,
+  operation: ReviewPublicationOperation,
+): readonly ReviewPublicationOperation[] {
+  const risks = externalEffectRiskOperations(view);
+  if (
+    isOptionalPrDescriptionOperation(operation) &&
+    hasEveryRequiredCanonicalReceipt({
+      operations: view.attempt.operations,
+      receipts: view.receipts,
+    })
+  ) {
+    // Required canonical receipts are settled independently of optional body
+    // reconciliation. Retain every optional risk, including unresolved siblings.
+    return risks.filter((candidate) => !candidate.required);
+  }
+  return risks;
 }
 
 function externalEffectRiskOperations(

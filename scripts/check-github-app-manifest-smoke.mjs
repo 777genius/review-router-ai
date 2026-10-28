@@ -5,15 +5,15 @@ const result = runManifestHelper(["--dry-run", "--no-open"]);
 
 const manifest = parseManifest(result.stdout);
 
-assertEqual(manifest.setup_url, "https://reviewrouter.site/setup", "setup_url");
+assertEqual(manifest.setup_url, "https://reviewrouter.org/setup", "setup_url");
 assertEqual(
   manifest.hook_attributes?.url,
-  "https://api.reviewrouter.site/webhooks/github",
+  "https://api.reviewrouter.org/webhooks/github",
   "hook_attributes.url",
 );
 assertEqual(
   manifest.callback_urls?.[0],
-  "https://reviewrouter.site/api/auth/callback/github",
+  "https://reviewrouter.org/api/auth/callback/github",
   "callback_urls[0]",
 );
 assertEqual(

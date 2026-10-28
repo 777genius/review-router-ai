@@ -181,6 +181,7 @@ describe("conflict runtime", () => {
         sourceEnv: {
           CODEX_MODEL: "gpt-5.5",
           OPENAI_API_KEY: "sk-provider",
+          MIMO_TOKEN_PLAN_API_KEY: "synthetic-mimo-key",
           OPENROUTER_API_KEY: "sk-openrouter",
           CLAUDE_CODE_OAUTH_TOKEN: "claude-token",
           CLAUDE_MODEL: "sonnet",
@@ -194,6 +195,7 @@ describe("conflict runtime", () => {
     ).toEqual({
       CODEX_MODEL: "gpt-5.5",
       OPENAI_API_KEY: "sk-provider",
+      MIMO_TOKEN_PLAN_API_KEY: "synthetic-mimo-key",
     });
 
     expect(() =>

@@ -1,0 +1,56 @@
+{
+  "contract": "grok-code-rr-qualification/v1",
+  "reviewedSourceCommit": "93c6c4d0e13379b6810a636d5bf086cc843108a1",
+  "currentMainIntegrated": "21f903e731014a4d443f99b50f04c28b5c1ccf97",
+  "sdkArchiveSHA256": "130ca3f00dcc66eafcc23fecec9ddc9a9c351341f0cd2273d9e87e02fc05e446",
+  "installedSDK": {
+    "normalFrozenInstall": true,
+    "pinnedPnpm": "11.28.7",
+    "node": "26.11.1",
+    "all16FilesMatchArchive": true
+  },
+  "focusedTests": {
+    "files": 6,
+    "passed": 76,
+    "failed": 0,
+    "skipped": 0
+  },
+  "typecheck": {
+    "web": true,
+    "browserHarness": true
+  },
+  "affectedESLint": true,
+  "browser": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "database": "isolated-pglite",
+    "actualRevision": "93c6c4d0e13379b6810a636d5bf086cc843108a1",
+    "boundary": "Real browser, RR SSR/session/canonical server actions and installed SDK against controlled Gateway fixture; no live provider/native proof",
+    "coverage": [
+      "Kimi/GLM/MiniMax key connection; wrong key/retry",
+      "Grok plain code from issuer popup, reload and completion",
+      "Grok reconnect and deletion",
+      "GLM personal-only access and receipt",
+      "Quiet unavailable limits; bounded two bars and Details",
+      "Desktop/mobile keyboard, no overflow or secret storage"
+    ],
+    "visualInspection": true,
+    "existingReactDevWarningsRemain": true
+  },
+  "review": {
+    "agent": "/root/review_gateway_release",
+    "findings": 0
+  },
+  "evidenceSHA256": {
+    "grok-code-browser-93c6.log": "11328097ba76e8f148c54d623ee6efda558fed25813eed2af4d77663ce6c4b7c",
+    "grok-code-eslint-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "grok-code-focused-final.log": "5ed4822fc3372b08fa0c06a0dea72f79f883162a8cead0242db0dbbd1b952c37",
+    "grok-code-harness-ts-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "grok-code-web-ts-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "result.json": "e940218d341c25e2297074174b6e0671c8a9d6246ea0d310c361be0ae42742d0",
+    "subscriptions-desktop.png": "1c522a6004b994a9190c8ef71521629d3f7d91c336dd53bbc16aeb682e09b656",
+    "subscriptions-mobile.png": "573088b0f72a9ca4c956cb68a13cf22e938408c33a262f4094ef71575882067c"
+  },
+  "liveProviderProof": false
+}

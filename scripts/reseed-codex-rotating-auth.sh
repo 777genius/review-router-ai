@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-API_URL="${REVIEW_ROUTER_CODEX_RESEED_API_URL:-https://reviewrouter.site/api/codex-rotating/cli/setup-command}"
+API_URL="${REVIEW_ROUTER_CODEX_RESEED_API_URL:-https://reviewrouter.org/api/codex-rotating/cli/setup-command}"
 REPOSITORY=""
 REUSE_CURRENT_AUTH="false"
 TEMP_DIR=""

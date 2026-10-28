@@ -523,12 +523,25 @@ function assertHostedUrl(name, value) {
   }
 }
 
+function assertReviewAgentProfileEnv(env) {
+  const value = env.REVIEW_ROUTER_AGENT_PROFILE;
+  if (
+    value !== undefined &&
+    (typeof value !== "string" ||
+      !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u.test(value))
+  )
+    throw new Error(
+      "REVIEW_ROUTER_AGENT_PROFILE must be an opaque profile reference or unset",
+    );
+}
+
 export function assertHostedDeployEnv({ apiUrl, env, envFile, webUrl }) {
   // URL identity is security-sensitive workflow input and is never bypassed,
   // including staging deploys using REVIEW_ROUTER_ALLOW_LOCAL_DEPLOY_ENV.
   assertHostedUrl("REVIEW_ROUTER_WEB_URL", webUrl);
   assertHostedUrl("REVIEW_ROUTER_API_URL", apiUrl);
   if (env.NEXTAUTH_URL) assertHostedUrl("NEXTAUTH_URL", env.NEXTAUTH_URL);
+  assertReviewAgentProfileEnv(env);
 
   if (env.REVIEW_ROUTER_ALLOW_LOCAL_DEPLOY_ENV === "1") return;
 
@@ -577,6 +590,44 @@ function readOptionalEnvVars(env, keys) {
     const value = env[key];
     if (value !== undefined && String(value).trim() !== "") {
       values[key] = value;
+    }
+  }
+  return values;
+}
+
+function accountGatewayRuntimeEnvForRole(env, role) {
+  const apiKeys = [
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY",
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY",
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN",
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN",
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER",
+  ];
+  const webKeys = [
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN",
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN",
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_ACCOUNTS_CONTEXT_SECRET",
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_MIMO_PROFILE_ID",
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_OPENROUTER_PROFILE_ID",
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_CODEX_OAUTH_PROFILE_ID",
+  ];
+  if (role !== "api" && role !== "web") return {};
+  const values = readOptionalEnvVars(env, [
+    "ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID",
+    ...(role === "api" ? apiKeys : webKeys),
+  ]);
+  if (role === "api") {
+    const enabled = env.REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED ?? "0";
+    if (enabled !== "0" && enabled !== "1")
+      throw new Error(
+        "REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED must be 0 or 1",
+      );
+    values.REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED = enabled;
+    if (enabled === "1") {
+      for (const key of apiKeys) {
+        if (key !== "REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN")
+          values[key] = requiredEnv(key, env);
+      }
     }
   }
   return values;
@@ -736,7 +787,22 @@ export const reviewV2SharedRuntimeEnvNames = Object.freeze([
   "REVIEW_ROUTER_REVIEW_V2_WORKFLOW_PROVISIONING_MODE",
   ...reviewV2RequiredRuntimeEnvNames,
   reviewV2ProjectionPolicyVersionEnvKey,
+  "REVIEW_ROUTER_AGENT_PROFILE",
 ]);
+
+/** Skills support reads and admission must share the raw selection authority.
+ * Missing is intentionally distinct from an explicit default profile. */
+export function assertReviewV2WebApiSelectionEnvConvergence(webEnv, apiEnv) {
+  for (const key of [
+    "REVIEW_ROUTER_AGENT_PROFILE",
+    "REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON",
+  ]) {
+    if (webEnv[key] !== apiEnv[key])
+      throw new Error(
+        `Review v2 web/API selection environment drift for ${key}`,
+      );
+  }
+}
 
 function reviewV2RuntimeActive(env) {
   return (
@@ -936,6 +1002,9 @@ function reviewV2RuntimeEnvForRole(env, role) {
     ...flags,
     REVIEW_ROUTER_REVIEW_V2_WORKFLOW_PROVISIONING_MODE: provisioningMode,
     ...common,
+    ...(env.REVIEW_ROUTER_AGENT_PROFILE === undefined
+      ? {}
+      : { REVIEW_ROUTER_AGENT_PROFILE: env.REVIEW_ROUTER_AGENT_PROFILE }),
   };
   if (role === "api") {
     Object.assign(
@@ -1011,6 +1080,7 @@ export function buildServiceEnv({
   webUrl,
   apiUrl,
 }) {
+  assertReviewAgentProfileEnv(env);
   const runtimeGeneration = resolveRuntimeGenerationProofEnv(env);
   const stableSecrets = resolveStableSecuritySecrets(env);
   const installer = resolveCodexRotatingInstallerDescriptor(env);
@@ -1029,7 +1099,7 @@ export function buildServiceEnv({
       env.GITHUB_CLIENT_SECRET ?? requiredEnv("GITHUB_APP_CLIENT_SECRET", env),
     GITHUB_WEBHOOK_SECRET: requiredEnv("GITHUB_WEBHOOK_SECRET", env),
     NODE_ENV: "production",
-    NODE_VERSION: "24",
+    NODE_VERSION: "26.11.1",
     REVIEW_ROUTER_ACTION_REF: resolveHostedActionRef(env),
     REVIEW_ROUTER_ALLOWED_ACTION_REFS:
       env.REVIEW_ROUTER_ALLOWED_ACTION_REFS ?? "",
@@ -1127,6 +1197,7 @@ export function buildServiceEnv({
   Object.assign(values, sdkGrowthRuntimeEnvForRole(env, role));
   Object.assign(values, reviewV2ContextEnvForRole(env, role));
   Object.assign(values, hostedPoolRuntimeEnvForRole(env, role));
+  Object.assign(values, accountGatewayRuntimeEnvForRole(env, role));
   if (
     values.REVIEW_ROUTER_REVIEW_V2_RUN_CONTROL_ENABLED === "1" ||
     values.REVIEW_ROUTER_REVIEW_V2_WORKER_ENABLED === "1" ||
@@ -2026,8 +2097,8 @@ export async function main() {
     );
   const imageUrl = `ghcr.io/777genius/review-router-saas-runtime@${imageDigest}`;
   if (phase === "runtime-deploy") assertRuntimeReleaseCommit(env, commit);
-  const webUrl = env.REVIEW_ROUTER_WEB_URL ?? "https://reviewrouter.site";
-  const apiUrl = env.REVIEW_ROUTER_API_URL ?? "https://api.reviewrouter.site";
+  const webUrl = env.REVIEW_ROUTER_WEB_URL ?? "https://reviewrouter.org";
+  const apiUrl = env.REVIEW_ROUTER_API_URL ?? "https://api.reviewrouter.org";
   assertHostedDeployEnv({ apiUrl, env, envFile, webUrl });
   // Resolve every cross-process security value before constructing a Render
   // client or mutating hosted state. buildServiceEnv revalidates defensively.
@@ -2177,6 +2248,10 @@ export async function main() {
   assertReviewV2ApiWorkerEnvConvergence(
     convergedEnvByRole.api,
     convergedEnvByRole.worker,
+  );
+  assertReviewV2WebApiSelectionEnvConvergence(
+    convergedEnvByRole.web,
+    convergedEnvByRole.api,
   );
   for (const { service, spec } of services)
     await convergeImmutableRuntimeImage(client, service, spec, imageUrl);

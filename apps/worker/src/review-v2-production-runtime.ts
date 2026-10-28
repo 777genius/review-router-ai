@@ -1,3 +1,4 @@
+import { PrismaWorkspaceReviewSettings } from "@reviewrouter/features-review-config";
 import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
 import { createHash, randomUUID } from "node:crypto";
 import { hostname } from "node:os";
@@ -5,7 +6,6 @@ import { App } from "@octokit/app";
 import {
   HmacActionLedgerKey,
   PrismaActionControlPlaneRepository,
-  managedCodexWorkflowPath,
 } from "@reviewrouter/features-action-control-plane";
 import {
   ReviewCoverageState,
@@ -39,6 +39,7 @@ import {
   PrismaReviewCompletionProcessRepository,
   PrismaReviewCompletionRecoveryFeed,
   composeReviewCompletionProcesses,
+  type ReviewCompletionSettlementHook,
 } from "@reviewrouter/features-review-processes/composition";
 import {
   CurrentMutationAuthorityStatus,
@@ -106,13 +107,17 @@ import {
   JoseRotatingCapabilityCodec,
   type ConfiguredCapabilityVerificationKey,
 } from "@reviewrouter/platform-signed-capabilities";
-import type { SystemClock } from "@reviewrouter/shared";
+import {
+  reviewRouterWorkflowPath,
+  type SystemClock,
+} from "@reviewrouter/shared";
 import {
   DeterministicReviewPublicationRequestFactory,
   ReviewCompletionExecutionContextAdapter,
   ReviewCompletionPublicationContextAdapter,
   ReviewCompletionSnapshotContextAdapter,
   reviewPublicationReceiptSetHash,
+  reviewSnapshotSourceCoverage,
   type FinalizedArtifactIdentityQueryPort,
 } from "./review-v2-context-adapters";
 import {
@@ -152,6 +157,7 @@ import { PrismaReviewProgressPublicationStore } from "./review-progress-store";
 import { GitHubActionsReviewRequestedDispatchGateway } from "./review-v2-intent-dispatcher";
 import { GitHubReviewRequestEligibilityGateway } from "./review-v2-request-eligibility-gateway";
 import { createGitHubReviewRequestIngressHandler } from "./review-v2-github-request-ingress-handler";
+import { createWorkspaceDraftDispatchGate } from "./review-v2-draft-dispatch-gate";
 import {
   ReviewRequestIngressApplicationService,
   createReviewRequestIngressHandler,
@@ -197,6 +203,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly githubAppId: string;
   readonly githubPrivateKey: string;
+  readonly settlementHook: ReviewCompletionSettlementHook;
 }): ProductionReviewV2WorkerRuntime {
   const capabilityKeyRing = readCapabilityKeyRing(input.env);
   const executions = new PrismaReviewExecutionStore(
@@ -331,7 +338,10 @@ export function createProductionReviewV2WorkerRuntime(input: {
     "review_v2_completion_claim_ms_invalid",
   );
   const completion = composeReviewCompletionProcesses({
-    processes: new PrismaReviewCompletionProcessRepository(input.prisma),
+    processes: new PrismaReviewCompletionProcessRepository(
+      input.prisma,
+      input.settlementHook,
+    ),
     executions: executionContext,
     publications: publicationContext,
     snapshots: snapshotContext,
@@ -393,23 +403,21 @@ export function createProductionReviewV2WorkerRuntime(input: {
       releases,
       digest: { digestUtf8: async (value) => sha256(value) },
     });
-  const draftRepositories = new Set(
-    (input.env.REVIEW_ROUTER_REVIEW_V2_DRAFT_REPOSITORIES ?? "")
-      .split(",")
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean),
+  const workspaceReviewSettings = new PrismaWorkspaceReviewSettings(
+    input.prisma,
   );
+  const requestEligibility = new GitHubReviewRequestEligibilityGateway({
+    appId: input.githubAppId,
+    privateKey: input.githubPrivateKey,
+  });
   const ingressApplicationDependencies = {
     intents: intentService,
     revisions: intentPrerequisites.revisionResolver,
-    eligibility: new GitHubReviewRequestEligibilityGateway({
-      appId: input.githubAppId,
-      privateKey: input.githubPrivateKey,
-    }),
+    eligibility: requestEligibility,
     digest: { digestUtf8: async (value: string) => sha256(value) },
     clock: input.clock,
-    reviewDrafts: (repositoryFullName: string) =>
-      draftRepositories.has(repositoryFullName.toLowerCase()),
+    reviewDrafts: (workspaceId: string) =>
+      workspaceReviewSettings.reviewDrafts(workspaceId),
   } as const;
   const ingressApplication = new ReviewRequestIngressApplicationService(
     ingressApplicationDependencies,
@@ -441,7 +449,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
     input.prisma,
     { appId: input.githubAppId, privateKey: input.githubPrivateKey },
     input.env.REVIEW_ROUTER_REVIEW_V2_WORKFLOW_PATH?.trim() ||
-      managedCodexWorkflowPath,
+      reviewRouterWorkflowPath,
   );
   const intentClaimDurationMs = positiveInteger(
     input.env.REVIEW_ROUTER_REVIEW_V2_INTENT_CLAIM_MS,
@@ -496,6 +504,30 @@ export function createProductionReviewV2WorkerRuntime(input: {
     intentIds,
     intentDigest,
     intentDispatchPolicy,
+    createWorkspaceDraftDispatchGate({
+      reviewDrafts: (workspaceId) =>
+        workspaceReviewSettings.reviewDrafts(workspaceId),
+      findGitHubRepository: async (repositoryConnectionId) => {
+        const repository = await input.prisma.repositoryConnection.findUnique({
+          where: { id: repositoryConnectionId },
+          select: {
+            workspaceId: true,
+            fullName: true,
+            installation: { select: { githubInstallationId: true } },
+          },
+        });
+        return repository?.installation
+          ? {
+              workspaceId: repository.workspaceId,
+              fullName: repository.fullName,
+              githubInstallationId: String(
+                repository.installation.githubInstallationId,
+              ),
+            }
+          : null;
+      },
+      eligibility: requestEligibility,
+    }),
   );
   const intentRecovery = new RecoverReviewRequestedDispatches(
     requestedIntents,
@@ -1366,9 +1398,12 @@ class PrismaFinalizedArtifactIdentityQuery implements FinalizedArtifactIdentityQ
   }
 }
 
-class PrismaReviewSnapshotEligibility implements ReviewSnapshotCommitEligibilityPort {
+export class PrismaReviewSnapshotEligibility implements ReviewSnapshotCommitEligibilityPort {
   constructor(
-    private readonly executions: ReviewExecutionQueryPort,
+    private readonly executions: Pick<
+      ReviewExecutionQueryPort,
+      "findExecution"
+    >,
     private readonly attempts: ReviewPublicationAttemptQueryPort,
     private readonly artifactIdentities: FinalizedArtifactIdentityQueryPort,
   ) {}
@@ -1401,7 +1436,8 @@ class PrismaReviewSnapshotEligibility implements ReviewSnapshotCommitEligibility
       sourceRunId: snapshot.execution.sourceRunId,
       sourceRunAttempt: snapshot.execution.sourceRunAttempt,
       coverageState:
-        snapshot.artifact.coverageState === ReviewCoverageState.Completed
+        reviewSnapshotSourceCoverage(snapshot.artifact) ===
+        ReviewCoverageState.Completed
           ? SnapshotSourceCoverageState.Completed
           : SnapshotSourceCoverageState.Partial,
       effectivePublicationOutcome: mapSnapshotPublicationOutcome(outcome),
@@ -1487,6 +1523,7 @@ class PrismaReviewV2PublicationWorkFeed implements ReviewV2PublicationWorkFeed {
         nextEligibleAt: { lte: input.now },
       },
       orderBy: [
+        { required: "desc" },
         { nextEligibleAt: "asc" },
         { reconcileUntil: "asc" },
         { publicationOperationId: "asc" },
@@ -1818,6 +1855,11 @@ export function mapPersistedContextReuseProviderKind(
       return EvidenceProviderKind.ClaudeCode;
     case EvidenceProviderKind.OpenRouter:
       return EvidenceProviderKind.OpenRouter;
+    // OCR keeps its real enum identity here so downstream safety mapping
+    // can answer fail-closed non-participation explicitly instead of
+    // swallowing the kind into Unknown.
+    case EvidenceProviderKind.Ocr:
+      return EvidenceProviderKind.Ocr;
     default:
       return EvidenceProviderKind.Unknown;
   }

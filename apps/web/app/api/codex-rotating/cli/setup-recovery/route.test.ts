@@ -61,7 +61,7 @@ describe("Codex rotating CLI setup recovery", () => {
   it("returns 401 when the CLI credential is missing", async () => {
     const response = await POST(
       new Request(
-        "https://reviewrouter.site/api/codex-rotating/cli/setup-recovery",
+        "https://reviewrouter.org/api/codex-rotating/cli/setup-recovery",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -94,7 +94,7 @@ describe("Codex rotating CLI setup recovery", () => {
     body.recoveryRequestId = "bad id";
     const response = await POST(
       new Request(
-        "https://reviewrouter.site/api/codex-rotating/cli/setup-recovery",
+        "https://reviewrouter.org/api/codex-rotating/cli/setup-recovery",
         {
           method: "POST",
           headers: {
@@ -175,7 +175,7 @@ function request(acknowledge: boolean): Request {
 
 function jsonRequest(body: unknown): Request {
   return new Request(
-    "https://reviewrouter.site/api/codex-rotating/cli/setup-recovery",
+    "https://reviewrouter.org/api/codex-rotating/cli/setup-recovery",
     {
       method: "POST",
       headers: {

@@ -121,7 +121,7 @@ describe("Codex rotating release migration workflow", () => {
     );
     expect(
       registerRelease.indexOf('git switch --detach "$RELEASE_COMMIT_SHA"'),
-    ).toBeLessThan(registerRelease.indexOf("corepack enable"));
+    ).toBeLessThan(registerRelease.indexOf("npm install --global"));
     expect(registerRelease).toContain(
       '[[ "$RELEASE_COMMIT_SHA" =~ ^[a-f0-9]{40}$ ]]',
     );
@@ -257,8 +257,8 @@ describe("Codex rotating release migration workflow", () => {
     );
     expect(workflow).toContain("canonicalPrismaMigrationCatalog");
     expect(canonicalPrismaMigrationCatalog).toEqual({
-      appliedMigrationCount: 108,
-      latestMigration: "000109_sdk_growth_verifier_assignment_lock",
+      appliedMigrationCount: 153,
+      latestMigration: "000149_api_key_repository_secret_profiles",
     });
     expect(workflow).toContain(".runtimeRoleCount == 5");
     expect(workflow).toContain(".custodyFunction == true");

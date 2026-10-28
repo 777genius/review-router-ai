@@ -13,7 +13,7 @@ Controls:
 - persist rate-limit errors as safe summaries
 - avoid polling when webhook-driven updates are enough
 
-## SaaS API Rate Limits
+## Control Plane API Rate Limits
 
 Protect public endpoints:
 
@@ -25,7 +25,7 @@ Implemented baseline:
 
 - fixed-window buckets live in Postgres so limits work across multiple API/web instances
 - action OIDC exchange and health-report routes use DB-backed limits
-- interaction OIDC exchanges also have per-repository and per-actor buckets so comment storms are throttled before SaaS issues action sessions
+- interaction OIDC exchanges also have per-repository and per-actor buckets so comment storms are throttled before control plane issues action sessions
 - dashboard mutations use DB-backed limits
 - expired buckets are removed by the worker in bounded periodic batches through `REVIEW_ROUTER_RATE_LIMIT_PRUNE_BATCH_SIZE` and `REVIEW_ROUTER_RATE_LIMIT_PRUNE_INTERVAL_MS`
 - action OIDC replay nonces live in Postgres so duplicate `jti` claims are rejected across multiple API instances

@@ -1,29 +1,28 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:24-bookworm-slim@sha256:65932751ed4073ed02f5c04e494e4b2572a891b7dbea0568a863dc80341bf848 AS build
+FROM node:26.11.1-bookworm-slim@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda25cde66e2b66e95ed86c4567 AS build
 
 WORKDIR /app
 
 ENV CI=1 \
     NEXT_TELEMETRY_DISABLED=1 \
-    REVIEW_ROUTER_WEB_URL=https://reviewrouter.site \
+    REVIEW_ROUTER_WEB_URL=https://reviewrouter.org \
     PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
-  && corepack enable \
-  && corepack prepare pnpm@10.33.0 --activate
+  && npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
 
 # Fetch the pinned public dependency over HTTPS in the build stage.
 COPY . .
 RUN pnpm install --frozen-lockfile \
   && pnpm db:generate \
-  && pnpm build \
+  && TURBO_CONCURRENCY=2 pnpm build \
   && pnpm store prune
 
-FROM node:24-bookworm-slim@sha256:65932751ed4073ed02f5c04e494e4b2572a891b7dbea0568a863dc80341bf848 AS runtime
+FROM node:26.11.1-bookworm-slim@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda25cde66e2b66e95ed86c4567 AS runtime
 
 ARG IMAGE_REVISION
 ARG IMAGE_VERSION
@@ -41,8 +40,10 @@ ENV CI=1 \
     PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH
 
-RUN corepack enable \
-  && corepack prepare pnpm@10.33.0 --activate
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
 
 COPY --from=build --chown=node:node /app /app
 COPY --chown=root:root deploy/render-runtime/entrypoint.sh /usr/local/bin/reviewrouter-runtime

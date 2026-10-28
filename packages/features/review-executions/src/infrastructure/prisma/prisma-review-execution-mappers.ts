@@ -225,7 +225,10 @@ export function executionToDomain(
     compatibilityKey: record.compatibilityKey,
     planHash: record.planHash,
     assignmentManifestVersion:
-      record.assignmentManifestVersion === 1 ? 1 : null,
+      record.assignmentManifestVersion === 1 ||
+      record.assignmentManifestVersion === 2
+        ? record.assignmentManifestVersion
+        : null,
     assignmentManifestHash: record.assignmentManifestHash,
     assignmentManifestCanonicalJson:
       record.assignmentManifestJson === null
@@ -531,11 +534,15 @@ export function providerKindToPrisma(
       return PrismaProviderKind.claude_code;
     case ReviewExecutionProviderKind.OpenRouter:
       return PrismaProviderKind.openrouter;
+    case ReviewExecutionProviderKind.Ocr:
+      return PrismaProviderKind.ocr;
   }
 }
 
 export function taskKindToPrisma(value: ReviewTaskKind): PrismaTaskKind {
   switch (value) {
+    case ReviewTaskKind.PrDescription:
+      return PrismaTaskKind.pr_description;
     case ReviewTaskKind.FindingDiscovery:
       return PrismaTaskKind.finding_discovery;
     case ReviewTaskKind.LifecycleRevalidation:
@@ -744,11 +751,15 @@ function providerKindFromPrisma(
       return ReviewExecutionProviderKind.ClaudeCode;
     case PrismaProviderKind.openrouter:
       return ReviewExecutionProviderKind.OpenRouter;
+    case PrismaProviderKind.ocr:
+      return ReviewExecutionProviderKind.Ocr;
   }
 }
 
 function taskKindFromPrisma(value: PrismaTaskKind): ReviewTaskKind {
   switch (value) {
+    case PrismaTaskKind.pr_description:
+      return ReviewTaskKind.PrDescription;
     case PrismaTaskKind.finding_discovery:
       return ReviewTaskKind.FindingDiscovery;
     case PrismaTaskKind.lifecycle_revalidation:

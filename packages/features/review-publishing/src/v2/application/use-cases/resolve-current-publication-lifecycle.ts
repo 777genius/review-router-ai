@@ -1,3 +1,5 @@
+import { evaluateResolutionHistory } from "../../domain/review-thread-resolution-history";
+import type { ReviewPublicationResolutionHistoryPort } from "../ports/review-publication-ports";
 import {
   CurrentPublicationLifecycleStatus,
   LiveReviewPublicationLifecycleStatus,
@@ -22,6 +24,7 @@ export class ResolveCurrentPublicationLifecycle implements CurrentPublicationLif
     private readonly dependencies: {
       readonly expectations: ReviewPublicationLifecycleExpectationPort;
       readonly live: LiveReviewPublicationLifecyclePort;
+      readonly resolutionHistory?: ReviewPublicationResolutionHistoryPort;
     },
   ) {}
 
@@ -61,6 +64,44 @@ export class ResolveCurrentPublicationLifecycle implements CurrentPublicationLif
         return unavailable();
       }
       assertLiveLifecycle(live);
+      if (this.dependencies.resolutionHistory) {
+        const histories = await this.dependencies.resolutionHistory.read(
+          scope,
+          expectation.targets
+            .filter((target) => target.mutationEligible)
+            .map((target) => target.threadId),
+        );
+        const byThread = new Map(
+          histories.map((history) => [history.threadId, history]),
+        );
+        for (const expected of expectation.targets.filter(
+          (target) => target.mutationEligible,
+        )) {
+          const current = live.targets.find(
+            (target) =>
+              target.targetId === expected.targetId &&
+              target.threadId === expected.threadId,
+          );
+          const history = byThread.get(expected.threadId);
+          if (!history || !current) return changed();
+          // Before activation legacy writers remain supported, with all known positives enforced.
+          if (
+            !history.historyCut &&
+            !history.confirmed &&
+            history.pending.length === 0
+          )
+            continue;
+          const decision = evaluateResolutionHistory({
+            history,
+            parentCreatedAt: current.parentCreatedAt.toISOString(),
+            isResolved: current.isResolved,
+            ...(expected.ownResolutionOperation
+              ? { ownOperation: expected.ownResolutionOperation }
+              : {}),
+          });
+          if (decision.status === "blocked") return changed();
+        }
+      }
       if (
         live.reviewedHeadSha !== expectation.reviewedHeadSha ||
         live.commandLedgerWatermark !== expectation.commandLedgerWatermark ||

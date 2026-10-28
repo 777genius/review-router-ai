@@ -2,7 +2,7 @@
 
 ## One Sentence
 
-ReviewRouter is a SaaS control plane that installs, configures, audits, and updates AI pull request review workflows while review execution runs in the customer's CI/CD.
+ReviewRouter is a control plane that installs, configures, audits, and updates AI pull request review workflows while review execution runs in the customer's CI/CD.
 
 ## High-Level Components
 
@@ -27,7 +27,7 @@ Customer Repository
           -> GitHub PR comments/status
 ```
 
-## SaaS Responsibilities
+## Control Plane Responsibilities
 
 - GitHub OAuth login.
 - Shared GitHub App installation lifecycle.
@@ -48,18 +48,18 @@ Customer Repository
 - Run ReviewRouter Action.
 - Run Codex CLI / provider calls.
 - Post review comments and status checks.
-- Report optional health/status metadata back to SaaS in future.
+- Report optional health/status metadata back to control plane in future.
 
 ## Trust Boundary
 
-ReviewRouter SaaS v1 should not receive:
+ReviewRouter v1 should not receive:
 
 - repository source code
 - pull request diffs
 - Codex OAuth `auth.json`
 - model API keys
 
-ReviewRouter SaaS v1 may receive:
+ReviewRouter v1 may receive:
 
 - GitHub Actions OIDC claims for action authentication
 - action health metadata without code/diff/secrets

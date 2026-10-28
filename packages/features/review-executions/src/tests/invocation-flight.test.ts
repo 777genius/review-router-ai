@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   AcquireOrJoinInvocationFlight,
   AcquireOrJoinInvocationFlightStatus,
@@ -8,6 +8,7 @@ import {
   ReviewInvocationLeasePurpose,
   ReviewInvocationLeaseTransitionStatus,
   ReviewTaskKind,
+  ReviewWorkSlotState,
   canonicalInvocationFlightIdentity,
   invocationFlightIdentityFrom,
   type PrepareReviewExecutionCommand,
@@ -41,6 +42,307 @@ const revision = revisionFixture("a", "b", "c", "d");
 const nextRevision = revisionFixture("a", "b", "e", "f");
 
 describe("InvocationFlight singleflight", () => {
+  it("restores the exact owner request after a lost acquire acknowledgement", async () => {
+    const store = new InMemoryReviewExecutionStore();
+    await prepareAndAdmit(store, scope, "execution-1", revision);
+    const useCase = new AcquireOrJoinInvocationFlight(store, store, store);
+    const request = leaseCommand({
+      index: 1,
+      scope,
+      executionId: "execution-1",
+      now: plus(2),
+    });
+    const owner = await useCase.execute(request);
+    const replay = await useCase.execute({
+      ...request,
+      leaseId: "unused-retry-lease",
+      attemptId: "unused-retry-attempt",
+      leaseCapabilityId: "unused-retry-capability",
+      now: plus(3),
+    });
+
+    expect(owner.status).toBe(
+      AcquireOrJoinInvocationFlightStatus.OwnerAcquired,
+    );
+    expect(replay.status).toBe(
+      AcquireOrJoinInvocationFlightStatus.OwnerRestored,
+    );
+    expect(replay.flight).toEqual(owner.flight);
+    const snapshot = await store.findExecution("execution-1");
+    expect(snapshot?.activeLeases).toHaveLength(1);
+    expect(snapshot?.activeLeases[0]).toMatchObject({
+      leaseId: "lease-1",
+      attemptId: "attempt-1",
+      attemptOrdinal: 1,
+      leaseCapabilityId: "capability-1",
+      fencingToken: owner.flight!.fencingToken,
+    });
+    expect(snapshot?.execution.workSlots[0]?.nextAttemptOrdinal).toBe(2);
+  });
+
+  it("restores an exact retry whose target was read before the owner committed", async () => {
+    const store = new InMemoryReviewExecutionStore();
+    await prepareAndAdmit(store, scope, "execution-1", revision);
+    const staleTarget = await store.findExecution("execution-1");
+    const useCase = new AcquireOrJoinInvocationFlight(store, store, store);
+    const request = leaseCommand({
+      index: 1,
+      scope,
+      executionId: "execution-1",
+      now: plus(2),
+    });
+    const owner = await useCase.execute(request);
+    vi.spyOn(store, "findExecution").mockResolvedValueOnce(staleTarget);
+
+    const replay = await useCase.execute({ ...request, now: plus(3) });
+
+    expect(replay.status).toBe(
+      AcquireOrJoinInvocationFlightStatus.OwnerRestored,
+    );
+    expect(replay.flight).toEqual(owner.flight);
+    expect(
+      (await store.findExecution("execution-1"))?.execution.workSlots[0]
+        ?.nextAttemptOrdinal,
+    ).toBe(2);
+  });
+
+  it("does not restore an owner superseded while its acquire replay completes", async () => {
+    const store = new InMemoryReviewExecutionStore();
+    await prepareAndAdmit(store, scope, "execution-1", revision);
+    const useCase = new AcquireOrJoinInvocationFlight(store, store, store);
+    const request = leaseCommand({
+      index: 1,
+      scope,
+      executionId: "execution-1",
+      now: plus(2),
+    });
+    await useCase.execute(request);
+    const acquireLease = store.acquireLease.bind(store);
+    vi.spyOn(store, "acquireLease").mockImplementationOnce(async (command) => {
+      const restored = await acquireLease(command);
+      const stream = await store.findStream(scope);
+      await store.supersedeExecution({
+        scope,
+        executionId: "execution-1",
+        expectedStreamVersion: stream!.version,
+        observedCurrentRevision: nextRevision,
+        now: plus(4),
+      });
+      return restored;
+    });
+
+    const replay = await useCase.execute({ ...request, now: plus(3) });
+
+    expect(replay.status).toBe(AcquireOrJoinInvocationFlightStatus.NotRunnable);
+    expect(replay.flight).toBeUndefined();
+    expect(
+      (await store.findExecution("execution-1"))?.execution.workSlots[0]
+        ?.nextAttemptOrdinal,
+    ).toBe(2);
+  });
+
+  it("does not restore an owner whose lease expires while its acquire replay completes", async () => {
+    const store = new InMemoryReviewExecutionStore();
+    await prepareAndAdmit(store, scope, "execution-1", revision);
+    const useCase = new AcquireOrJoinInvocationFlight(store, store, store);
+    const request = leaseCommand({
+      index: 1,
+      scope,
+      executionId: "execution-1",
+      now: plus(2),
+      expiresAt: plus(1_000),
+    });
+    await useCase.execute(request);
+    let databaseTime = plus(3);
+    const observe = store.observeActiveInvocationFlight.bind(store);
+    vi.spyOn(store, "observeActiveInvocationFlight").mockImplementation(
+      (input) => observe({ ...input, requestedAt: databaseTime }),
+    );
+    const acquireLease = store.acquireLease.bind(store);
+    vi.spyOn(store, "acquireLease").mockImplementationOnce(async (command) => {
+      const restored = await acquireLease(command);
+      databaseTime = plus(1_001);
+      return restored;
+    });
+
+    const replay = await useCase.execute({ ...request, now: plus(3) });
+
+    expect(replay.status).toBe(AcquireOrJoinInvocationFlightStatus.NotRunnable);
+    expect(replay.flight).toBeUndefined();
+    expect(
+      (await store.findExecution("execution-1"))?.execution.workSlots[0]
+        ?.nextAttemptOrdinal,
+    ).toBe(2);
+  });
+
+  it.each([
+    { acquireRequestHash: hash("changed-request") },
+    { ownerIdHash: "changed-owner" },
+    { preparedManifestCanonicalJson: '{"manifestVersion":2}' },
+    { preparedManifestKey: hash("changed-manifest") },
+  ])(
+    "rejects a changed identity under the same acquire request: %j",
+    async (changed) => {
+      const store = new InMemoryReviewExecutionStore();
+      await prepareAndAdmit(store, scope, "execution-1", revision);
+      const useCase = new AcquireOrJoinInvocationFlight(store, store, store);
+      const request = leaseCommand({
+        index: 1,
+        scope,
+        executionId: "execution-1",
+        now: plus(2),
+      });
+      await useCase.execute(request);
+
+      const replay = await useCase.execute({
+        ...request,
+        ...changed,
+        now: plus(3),
+      });
+
+      expect(replay.status).toBe(
+        AcquireOrJoinInvocationFlightStatus.IdempotencyConflict,
+      );
+      expect(replay.flight).toBeUndefined();
+      expect(
+        (await store.findExecution("execution-1"))?.activeLeases,
+      ).toHaveLength(1);
+    },
+  );
+
+  it("rejects a reused acquire request that changes the work slot", async () => {
+    const store = new InMemoryReviewExecutionStore();
+    const command = prepareCommand(scope, "execution-1", revision);
+    await prepareAndAdmit(store, scope, "execution-1", revision, [
+      ...command.workSlots,
+      {
+        ...command.workSlots[0]!,
+        workSlotId: "slot-2",
+        shardKey: "other-shard",
+      },
+    ]);
+    const useCase = new AcquireOrJoinInvocationFlight(store, store, store);
+    const request = leaseCommand({
+      index: 1,
+      scope,
+      executionId: "execution-1",
+      now: plus(2),
+    });
+    await useCase.execute(request);
+
+    const replay = await useCase.execute({
+      ...request,
+      workSlotId: "slot-2",
+      acquireRequestHash: hash("changed-work-slot"),
+      now: plus(3),
+    });
+
+    expect(replay.status).toBe(
+      AcquireOrJoinInvocationFlightStatus.IdempotencyConflict,
+    );
+    expect(replay.flight).toBeUndefined();
+    const snapshot = await store.findExecution("execution-1");
+    expect(snapshot?.activeLeases).toHaveLength(1);
+    expect(snapshot?.execution.workSlots[1]?.nextAttemptOrdinal).toBe(1);
+  });
+
+  it.each([
+    { at: 3, expected: AcquireOrJoinInvocationFlightStatus.Busy },
+    { at: 2_000, expected: AcquireOrJoinInvocationFlightStatus.TakenOver },
+  ])(
+    "namespaces the same acquire ID by invocation key at $at",
+    async ({ at, expected }) => {
+      const store = new InMemoryReviewExecutionStore();
+      await prepareAndAdmit(store, scope, "execution-1", revision);
+      const useCase = new AcquireOrJoinInvocationFlight(store, store, store);
+      const request = leaseCommand({
+        index: 1,
+        scope,
+        executionId: "execution-1",
+        now: plus(2),
+        expiresAt: plus(1_000),
+      });
+      const owner = await useCase.execute(request);
+
+      const differentKey = await useCase.execute({
+        ...request,
+        providerInvocationKey: hash("other-invocation"),
+        acquireRequestHash: hash("same-id-other-key"),
+        leaseId: "lease-other-key",
+        attemptId: "attempt-other-key",
+        leaseCapabilityId: "capability-other-key",
+        now: plus(at),
+        expiresAt: plus(3_000),
+      });
+
+      expect(differentKey.status).toBe(expected);
+      const snapshot = await store.findExecution("execution-1");
+      expect(snapshot?.activeLeases).toHaveLength(1);
+      if (expected === AcquireOrJoinInvocationFlightStatus.TakenOver) {
+        expect(differentKey.flight?.ownerLeaseId).toBe("lease-other-key");
+        expect(differentKey.flight!.fencingToken).toBeGreaterThan(
+          owner.flight!.fencingToken,
+        );
+        expect(snapshot?.activeLeases[0]?.attemptOrdinal).toBe(2);
+      } else {
+        expect(snapshot?.activeLeases[0]?.leaseId).toBe("lease-1");
+        expect(snapshot?.activeLeases[0]?.attemptOrdinal).toBe(1);
+      }
+    },
+  );
+
+  it("still joins a distinct acquire request from the same owner", async () => {
+    const store = new InMemoryReviewExecutionStore();
+    await prepareAndAdmit(store, scope, "execution-1", revision);
+    const useCase = new AcquireOrJoinInvocationFlight(store, store, store);
+    const owner = await useCase.execute(
+      leaseCommand({
+        index: 1,
+        scope,
+        executionId: "execution-1",
+        now: plus(2),
+      }),
+    );
+    const joined = await useCase.execute({
+      ...leaseCommand({
+        index: 2,
+        scope,
+        executionId: "execution-1",
+        now: plus(3),
+      }),
+      ownerIdHash: "owner-1",
+    });
+
+    expect(joined.status).toBe(AcquireOrJoinInvocationFlightStatus.Joined);
+    expect(joined.flight).toEqual(owner.flight);
+    expect(
+      (await store.findExecution("execution-1"))?.activeLeases,
+    ).toHaveLength(1);
+  });
+
+  it("does not restore an expired owner request or consume another attempt", async () => {
+    const store = new InMemoryReviewExecutionStore();
+    await prepareAndAdmit(store, scope, "execution-1", revision);
+    const useCase = new AcquireOrJoinInvocationFlight(store, store, store);
+    const request = leaseCommand({
+      index: 1,
+      scope,
+      executionId: "execution-1",
+      now: plus(2),
+      expiresAt: plus(1_000),
+    });
+    await useCase.execute(request);
+
+    const replay = await useCase.execute({ ...request, now: plus(2_000) });
+
+    expect(replay.status).toBe(AcquireOrJoinInvocationFlightStatus.NotRunnable);
+    expect(replay.flight).toBeUndefined();
+    expect(
+      (await store.findExecution("execution-1"))?.execution.workSlots[0]
+        ?.nextAttemptOrdinal,
+    ).toBe(2);
+  });
+
   it("joins simultaneous exact-revision requests onto one durable flight", async () => {
     const store = new InMemoryReviewExecutionStore();
     await prepareAndAdmit(store, scope, "execution-1", revision);
@@ -77,6 +379,61 @@ describe("InvocationFlight singleflight", () => {
     expect(
       (await store.findExecution("execution-1"))?.activeLeases,
     ).toHaveLength(1);
+  });
+
+  it("reports exhausted attempt budget after the final provider lease is released", async () => {
+    const store = new InMemoryReviewExecutionStore();
+    await prepareAndAdmit(store, scope, "execution-1", revision);
+    const useCase = new AcquireOrJoinInvocationFlight(store, store, store);
+
+    for (let index = 1; index <= 4; index += 1) {
+      const owner = await useCase.execute(
+        leaseCommand({
+          index,
+          scope,
+          executionId: "execution-1",
+          now: plus(index * 2),
+        }),
+      );
+      expect(owner.status).toBe(
+        AcquireOrJoinInvocationFlightStatus.OwnerAcquired,
+      );
+      const released = await store.releaseLease({
+        leaseId: owner.flight!.ownerLeaseId,
+        ownerIdHash: owner.flight!.ownerIdHash,
+        leaseCapabilityId: `capability-${index}`,
+        fencingToken: owner.flight!.fencingToken,
+        now: plus(index * 2 + 1),
+      });
+      expect(released.status).toBe(
+        ReviewInvocationLeaseTransitionStatus.Applied,
+      );
+    }
+
+    const exhausted = await store.findExecution("execution-1");
+    expect(exhausted?.execution.workSlots[0]).toMatchObject({
+      state: ReviewWorkSlotState.Exhausted,
+      attemptBudget: 4,
+      nextAttemptOrdinal: 5,
+    });
+    expect(exhausted?.activeLeases).toHaveLength(0);
+    for (const index of [5, 6]) {
+      const result = await useCase.execute(
+        leaseCommand({
+          index,
+          scope,
+          executionId: "execution-1",
+          now: plus(index * 2),
+        }),
+      );
+      expect(result.status).toBe(
+        AcquireOrJoinInvocationFlightStatus.AttemptBudgetExhausted,
+      );
+      expect(result.flight).toBeUndefined();
+    }
+    expect(
+      (await store.findExecution("execution-1"))?.activeLeases,
+    ).toHaveLength(0);
   });
 
   it("never joins an active flight from another revision", async () => {
@@ -289,10 +646,17 @@ async function prepareAndAdmit(
   requestedScope: ReviewExecutionScope,
   executionId: string,
   requestedRevision: ReviewRevision,
+  workSlots?: PrepareReviewExecutionCommand["workSlots"],
 ) {
-  const prepared = await store.prepareExecution(
-    prepareCommand(requestedScope, executionId, requestedRevision),
+  const command = prepareCommand(
+    requestedScope,
+    executionId,
+    requestedRevision,
   );
+  const prepared = await store.prepareExecution({
+    ...command,
+    workSlots: workSlots ?? command.workSlots,
+  });
   const admitted = await store.confirmAdmission({
     scope: requestedScope,
     expectedStreamVersion: prepared.snapshot!.stream.version,

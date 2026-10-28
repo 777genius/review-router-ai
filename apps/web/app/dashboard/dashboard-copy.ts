@@ -286,6 +286,7 @@ export function isMemoryError(error: string): boolean {
     "contains_prompt_injection",
     "contains_secret_like_text",
     "memory_active_item_quota_exceeded",
+    "memory_dashboard_in_development",
     "memory_disabled",
     "memory_not_found",
     "memory_pending_suggestion_quota_exceeded",
@@ -306,7 +307,8 @@ export function isSetupRecoveryIssue(
   return (
     value === "setup_pr_closed" ||
     value === "setup_pr_branch_deleted" ||
-    value === "setup_pr_wrong_base_branch"
+    value === "setup_pr_wrong_base_branch" ||
+    value === "setup_pr_workflow_mismatch"
   );
 }
 
@@ -407,6 +409,42 @@ export function dashboardErrorText(error: string): string {
       return "Another setup or sync operation is already running. Try again shortly.";
     case "rate_limited":
       return "Too many dashboard requests for this resource. Wait a bit before retrying.";
+    case "review_policy_resave_required":
+      return "Saved review policy uses a retired or unreadable format and reviews are stopped. Review and save the policy explicitly, or remove the repository override to inherit workspace settings.";
+    case "review_provider_selection_required":
+      return "No review provider applies here yet. Choose a workspace default or a provider for this repository before enabling reviews.";
+    case "review_provider_profile_unavailable":
+      return "The selected provider was archived or removed. Choose another provider and save again.";
+    case "rotating_profile_repository_only":
+      return "A rotating Codex provider belongs to its own repository and cannot be used anywhere else.";
+    case "review_configuration_gateway_profile_mismatch":
+      return "The account behind this provider now uses another profile. Choose the account again to create a new provider.";
+    case "review_workspace_policy_retired":
+      return "The workspace settings use a retired format. An owner or admin replaces them by choosing a default provider; then choose this repository's provider.";
+    case "hosted_pool_session_source_required":
+      return "A hosted Codex pool is turned on for each repository with its session source setting, so it cannot be chosen here or made the default.";
+    case "provider_profile_invalid":
+      return "The provider details are invalid. Check the model and label, then try again.";
+    case "provider_profile_not_found":
+      return "This provider no longer exists in the workspace. Refresh the dashboard.";
+    case "provider_profile_credential_unavailable":
+      return "The credential of this provider is not available. Connect the account or upload the managed key first.";
+    case "provider_profile_workspace_unavailable":
+      return "This workspace is being deleted, so its providers cannot change.";
+    case "provider_profile_duplicate":
+      return "A provider with the same credential and model already exists in this workspace.";
+    case "provider_profile_in_use":
+      return "This provider is still selected by the workspace default or a repository. Choose another provider there first.";
+    case "provider_profile_model_incompatible":
+      return "The new model does not support the reasoning or fast settings some repositories use with this provider.";
+    case "review_provider_settings_incompatible":
+      return "The reasoning or fast settings do not fit this provider's model. Choose the provider again and check its settings.";
+    case "review_execution_limits_incompatible":
+      return "The saved parallel review or agreement limits name more providers than are selected. Choose the provider again in its provider dialog: that fits the limits to it.";
+    case "provider_management_forbidden":
+      return "Your role cannot manage this provider. Ask a workspace owner or admin.";
+    case "workflow_delete_untrusted":
+      return "A ReviewRouter workflow belongs to another active mode (GitHub Secrets/Hosted Pool) or was edited, so it is not removed automatically. Disconnect that mode, or remove the exact file named in the Diagnostics audit event, then retry.";
     case "invalid_form":
       return "The submitted form is invalid. Refresh the dashboard and try again.";
     case "dashboard_action_failed":
@@ -427,6 +465,52 @@ export function dashboardErrorText(error: string): string {
       return "GitHub is temporarily unavailable for this action. Retry after GitHub recovers.";
     case "hosted_account_subject_already_enrolled":
       return "This ChatGPT is already on the list, or it was removed and cannot be added again.";
+    case "account_gateway_workflow_options_not_supported":
+      return "Gateway setup requires the reusable workflow style and review discussions turned off. Update these options and try again.";
+    case "gateway_review_reasoning_effort_unsupported":
+      return "The selected Gateway model does not support this reasoning effort. Choose a supported reasoning effort in review settings and save again.";
+    case "agent_profile_requires_agentic_context":
+      return "OpenCodeReview needs native repository context. Enable Agentic context or choose a compatible ReviewRouter profile before saving.";
+    case "provider_api_direct_requires_single_provider":
+      return "Use one supported provider and model, then save the review settings.";
+    case "provider_api_fast_mode_unsupported":
+      return "Turn off Fast mode for MiMo and save the review settings.";
+    case "provider_api_reasoning_effort_unsupported":
+      return "Choose Low, Medium, or High review depth for MiMo, then save.";
+    case "openrouter_direct_requires_single_provider":
+      return "Direct OpenRouter reviews currently support one provider and one model. Select a single OpenRouter provider without multi-provider agreement before saving or installing the workflow. Your saved policy has not been replaced.";
+    case "openrouter_direct_workflow_options_not_supported":
+      return "Direct OpenRouter requires the reusable App-first workflow without discussion or conflict fallback. Use Account Gateway for OpenCodeReview.";
+    case "gateway_review_v2_inventory_retry":
+      return "GitHub is still calculating pull request mergeability, or branches changed during the workflow check. Wait a minute, then click “I merged it” again to check the setup.";
+    case "gateway_review_v2_workflow_incompatible":
+      return "Gateway found incompatible ReviewRouter workflows. Check the base branches of open pull requests for legacy .github/workflows/reviewrouter.yml or reviewrouter-codex.yml; remove only obsolete ReviewRouter files from those branches, and close obsolete setup PRs that add them. Then check the merged setup again.";
+    case "gateway_review_v2_provisioning_failed":
+      return "Gateway setup verification failed. Check audit events or ask your workspace administrator for the safe server error code before trying again.";
+    case "gateway_review_v2_release_untrusted":
+      return "The Gateway runtime release is not approved. Ask your workspace administrator to check the configured release and its registration, then check the merged setup again.";
+    case "gateway_review_v2_dispatch_unavailable":
+      return "The GitHub App cannot dispatch reviews for this repository. Check its repository access and Actions write permission, then check the merged setup again.";
+    case "gateway_review_v2_proof_blocked":
+      return "Gateway authorization prerequisites are incomplete. Ask your workspace administrator to check the repository enrollment and safe server error code.";
+    case "gateway_review_v2_safety_blocked":
+      return "Workspace safety policy or an emergency stop blocks Gateway reviews. Ask your workspace administrator to review that restriction before checking setup again.";
+    case "gateway_review_v2_runtime_not_ready":
+      return "The Gateway review runtime is not ready on the server. Ask your workspace administrator to check the worker and runtime registration, then check the merged setup again.";
+    case "gateway_review_v2_release_registry_missing":
+      return "The Gateway release registry is not configured on the server. Ask your workspace administrator to register the review runtime release, then check the merged setup again.";
+    case "gateway_review_v2_policy_conflict":
+      return "The repository policy conflicts with the Gateway enrollment state. Ask your workspace administrator to review the saved policy and retry.";
+    case "gateway_review_v2_authority_conflict":
+      return "Another Gateway enrollment update is in progress for this repository. Wait a minute, then check the merged setup again.";
+    case "gateway_review_v2_authority_invalid":
+      return "The Gateway enrollment record is out of date. Refresh the dashboard and check the merged setup again.";
+    case "gateway_repository_identity_missing":
+      return "The repository identity is not registered with the Gateway yet. Sync the installation, then check the merged setup again.";
+    case "gateway_repository_binding_conflict":
+      return "This repository is already bound to a different Gateway enrollment. Ask your workspace administrator to reconcile the binding, then retry.";
+    case "mutation_authority_unavailable":
+      return "The service that applies this change is temporarily unavailable. Wait a minute, then retry.";
     case "github_operation_failed":
       return "GitHub operation failed. Check audit events or server logs for the safe error code.";
     case "repository_not_selected":
@@ -442,7 +526,9 @@ export function dashboardErrorText(error: string): string {
     case "setup_pr_branch_deleted":
       return "The saved setup PR branch was deleted, so GitHub cannot merge that PR anymore. Recreate the setup PR to continue.";
     case "setup_pr_wrong_base_branch":
-      return "The saved setup PR was merged outside the allowed setup branches. Recreate the setup PR, then merge it into dev, develop, or the repository default branch.";
+      return "The saved setup PR was merged outside the allowed setup branches. Recreate the setup PR, then merge it into the repository default branch.";
+    case "setup_pr_workflow_mismatch":
+      return "The merged setup PR does not contain the expected ReviewRouter workflow. Recreate the setup PR and merge it without edits, then check again.";
     case "repository_not_visible_to_github_app":
       return "The GitHub App installation cannot read this repository. Update App repository access or sync repositories, then try again.";
     case "provider_secret_not_found":
@@ -513,6 +599,8 @@ export function dashboardErrorText(error: string): string {
       return "This repository is not available for memory changes. It may be archived, unselected, or outside the workspace.";
     case "memory_active_item_quota_exceeded":
       return "Workspace memory quota is full. Disable or delete older memory before saving or confirming new memory.";
+    case "memory_dashboard_in_development":
+      return "The memory dashboard is in development. No memory was changed.";
     case "memory_disabled":
       return "Balanced Memory is disabled for this workspace or environment. Existing memory can still be reviewed and removed by authorized admins.";
     case "memory_pending_suggestion_quota_exceeded":
@@ -536,8 +624,23 @@ export function dashboardErrorText(error: string): string {
     case "memory_safety_blocked":
       return "Memory policy blocked this change. Refresh and try again with a safer distilled memory.";
     default:
-      return "GitHub operation failed. Check audit events or server logs for the safe error code.";
+      return unmappedDashboardErrorText(error);
   }
+}
+
+/**
+ * The single text for "no dedicated guidance exists". Compared against
+ * `dashboardErrorText` to decide whether a code may reach the UI, so the switch
+ * stays the only source of truth about which codes are explained.
+ */
+export function unmappedDashboardErrorText(code: string): string {
+  return code
+    ? `GitHub operation failed (code: ${code}). Ask your workspace administrator to look up this code in Diagnostics audit events.`
+    : "GitHub operation failed. Check audit events or server logs for the safe error code.";
+}
+
+export function hasDedicatedDashboardErrorCopy(code: string): boolean {
+  return dashboardErrorText(code) !== unmappedDashboardErrorText(code);
 }
 
 function isCodexRotatingProviderState(

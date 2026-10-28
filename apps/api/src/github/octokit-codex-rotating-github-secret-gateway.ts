@@ -1,9 +1,17 @@
+import type { ProviderApiAuthMode } from "@reviewrouter/shared";
+import { reviewRouterApiUrlsMatch } from "@reviewrouter/shared";
+import {
+  ManagedReviewV2WorkflowInventory,
+  readManagedReviewRouterCallerSource,
+} from "@reviewrouter/features-workflow-provisioning";
+import { reviewRouterWorkflowContract } from "@reviewrouter/protocol-review-workflow";
 import { App } from "@octokit/app";
 import { request as githubRequest } from "@octokit/request";
 import { createHash } from "node:crypto";
 import {
   assertCanonicalCodexRotatingProviderId,
   canonicalCodexRotatingProviderId,
+  areManagedWorkflowDocumentsAttested,
   areWorkflowDocumentsSemanticallyEqual,
   readCanonicalCodexRotatingT0WorkflowSourceMetadata,
   readCanonicalIsolatedQualityWorkflowSourceMetadata,
@@ -12,7 +20,6 @@ import {
   isolatedQualityWorkflowRepository,
   isolatedQualityWorkflowRepositoryId,
   isCodexWorkflowRepositoryIdentityAdmitted,
-  scanCodexRotatingAdvisoryWorkflow,
   createVersionedSecretWorkflowSourceAttestation,
   serializeVersionedProviderSecretNamespaceMetadata,
   workflowDocumentSemanticSha256,
@@ -27,10 +34,7 @@ import {
   renderCanonicalCodexRotatingInteractionWorkflowV2,
   renderCanonicalCodexRotatingInteractionWorkflowV3,
 } from "@reviewrouter/features-workflow-provisioning";
-import {
-  isLoopbackHostname,
-  REVIEW_ROUTER_ACTION_REPOSITORY,
-} from "@reviewrouter/platform-config";
+import { isLoopbackHostname } from "@reviewrouter/platform-config";
 import {
   managedCodexWorkflowPath,
   managedInteractionWorkflowPath,
@@ -87,10 +91,6 @@ type RepositoryResponse = {
   readonly data?: unknown;
 };
 
-type PullRequestListResponse = {
-  readonly data?: unknown;
-};
-
 type PullRequestResponse = {
   readonly data?: unknown;
 };
@@ -103,48 +103,12 @@ type CompareResponse = {
   readonly data?: unknown;
 };
 
-enum ReviewInventoryReferenceKind {
-  DefaultBranch = "default_branch",
-  ActiveBaseBranch = "active_base_branch",
-  PullRequestMerge = "pull_request_merge",
-}
-
-enum ReviewInventoryPullRequestMergeState {
-  Ready = "ready",
-  Conflicted = "conflicted",
-  StaleBase = "stale_base",
-}
-
-type ReviewInventoryPullRequestSnapshot = {
-  readonly number: number;
-  readonly draft: boolean;
-  readonly baseRef: string;
-  readonly baseSha: string;
-  readonly headSha: string;
-  readonly mergeState: ReviewInventoryPullRequestMergeState;
-  readonly mergeCommitSha: string | null;
+type RepositoryActionsPublicKeyResponse = {
+  readonly data?: {
+    readonly key_id?: unknown;
+    readonly key?: unknown;
+  };
 };
-
-type ReviewInventoryReferenceSnapshot = {
-  readonly ref: string;
-  readonly headSha: string;
-  readonly isDefault: boolean;
-  readonly kind: ReviewInventoryReferenceKind;
-  readonly pullRequestNumber: number | null;
-};
-
-type ReviewInventoryCoverageSnapshot = {
-  readonly defaultBranch: string;
-  readonly pullRequests: readonly ReviewInventoryPullRequestSnapshot[];
-  readonly references: readonly ReviewInventoryReferenceSnapshot[];
-};
-
-const REVIEW_INVENTORY_PULLS_PER_PAGE = 100;
-const REVIEW_INVENTORY_MAX_PULL_PAGES = 10;
-const REVIEW_INVENTORY_MAX_BRANCHES = 64;
-const REVIEW_INVENTORY_MAX_REFERENCES = 128;
-const REVIEW_INVENTORY_MAX_CONCURRENCY = 4;
-const REVIEW_INVENTORY_COVERAGE_POLICY_VERSION = 3;
 
 export class OctokitCodexRotatingGitHubSecretGateway
   implements
@@ -221,6 +185,38 @@ export class OctokitCodexRotatingGitHubSecretGateway
       permission: "write",
     });
     return { status: "ready" };
+  }
+
+  async getRepositoryActionsPublicKey(input: {
+    readonly githubInstallationId: string;
+    readonly githubRepositoryId: string;
+    readonly owner: string;
+    readonly repo: string;
+  }): Promise<{ readonly keyId: string; readonly key: string }> {
+    const token = await this.mintRepositorySecretsToken({
+      githubInstallationId: input.githubInstallationId,
+      githubRepositoryId: input.githubRepositoryId,
+      permission: "read",
+    });
+    const response = (await githubRequest(
+      "GET /repos/{owner}/{repo}/actions/secrets/public-key",
+      {
+        owner: input.owner,
+        repo: input.repo,
+        headers: {
+          authorization: `Bearer ${token.token}`,
+        },
+      },
+    )) as RepositoryActionsPublicKeyResponse;
+    if (
+      typeof response.data?.key_id !== "string" ||
+      response.data.key_id.length === 0 ||
+      typeof response.data.key !== "string" ||
+      response.data.key.length === 0
+    ) {
+      throw new Error("provider_api_key_public_key_invalid_response");
+    }
+    return { keyId: response.data.key_id, key: response.data.key };
   }
 
   async issueContentsReadToken(input: {
@@ -359,7 +355,7 @@ export class OctokitCodexRotatingGitHubSecretGateway
       : readCanonicalCodexRotatingT0WorkflowSourceMetadata(currentSource);
     if (
       metadata.providerInstanceId !== input.providerInstanceId ||
-      metadata.apiUrl !== this.expectedApiUrl ||
+      !reviewRouterApiUrlsMatch(metadata.apiUrl, this.expectedApiUrl) ||
       !this.trustedActionRefs.has(metadata.actionRef.toLowerCase())
     ) {
       throw new Error("codex_rotating_workflow_publish_source_untrusted");
@@ -514,7 +510,7 @@ export class OctokitCodexRotatingGitHubSecretGateway
     if (metadata.providerInstanceId !== input.expectedProviderInstanceId) {
       throw new Error("codex_rotating_workflow_provider_instance_mismatch");
     }
-    if (metadata.apiUrl !== this.expectedApiUrl) {
+    if (!reviewRouterApiUrlsMatch(metadata.apiUrl, this.expectedApiUrl)) {
       throw new Error("codex_rotating_workflow_api_url_mismatch");
     }
     if (
@@ -605,7 +601,54 @@ export class OctokitCodexRotatingGitHubSecretGateway
     readonly owner: string;
     readonly workflowPath: string;
     readonly workflowSha: string;
-  }): Promise<{ readonly compatible: boolean }> {
+    readonly expectedProviderApiActionCommitSha?: string;
+  }): Promise<{
+    readonly compatible: boolean;
+    readonly providerApiAuthMode?: ProviderApiAuthMode;
+    readonly mcpSecrets?: Readonly<Record<string, string>>;
+  }> {
+    if (input.workflowPath === reviewRouterWorkflowContract.callerPath) {
+      let source: string | null;
+      try {
+        const token = await this.mintRepositoryToken({
+          githubInstallationId: input.githubInstallationId,
+          githubRepositoryId: input.githubRepositoryId,
+          permissions: { contents: "read" },
+        });
+        source = await this.readWorkflowAtRef({
+          token: token.token,
+          owner: input.owner,
+          repo: repoNameFromFullName(input.repositoryFullName),
+          path: reviewRouterWorkflowContract.callerPath,
+          ref: input.workflowSha,
+          missingAllowed: true,
+        });
+      } catch {
+        throw new Error("managed_workflow_source_temporarily_unavailable");
+      }
+      if (!source) return { compatible: false };
+      try {
+        const caller = readManagedReviewRouterCallerSource(source);
+        // Source proves the installation ABI, never the executed release.
+        // Signed executable SHA and registry state are checked by admission.
+        const compatible =
+          (input.expectedProviderApiActionCommitSha !== undefined
+            ? caller.modelTransport === "provider_api" &&
+              caller.runtimeRef === input.expectedProviderApiActionCommitSha
+            : caller.modelTransport === "account_gateway") &&
+          reviewRouterApiUrlsMatch(caller.controlPlaneUrl, this.expectedApiUrl);
+        if (!compatible) return { compatible: false };
+        return {
+          compatible: true,
+          ...(caller.mcpSecrets ? { mcpSecrets: caller.mcpSecrets } : {}),
+          ...(caller.providerApiAuthMode
+            ? { providerApiAuthMode: caller.providerApiAuthMode }
+            : {}),
+        };
+      } catch {
+        return { compatible: false };
+      }
+    }
     const isolatedQualitySource =
       input.githubRepositoryId === isolatedQualityWorkflowRepositoryId &&
       input.repositoryFullName === isolatedQualityWorkflowRepository &&
@@ -658,7 +701,7 @@ export class OctokitCodexRotatingGitHubSecretGateway
           readCanonicalIsolatedQualityWorkflowSourceMetadata(claimedWorkflow);
         return {
           compatible:
-            quality.apiUrl === this.expectedApiUrl &&
+            reviewRouterApiUrlsMatch(quality.apiUrl, this.expectedApiUrl) &&
             quality.providerInstanceId ===
               `codex-rotating:${input.githubRepositoryId}` &&
             this.trustedActionRefs.has(quality.actionRef.toLowerCase()),
@@ -679,7 +722,7 @@ export class OctokitCodexRotatingGitHubSecretGateway
       return { compatible: false };
     }
     if (
-      metadata.apiUrl !== this.expectedApiUrl ||
+      !reviewRouterApiUrlsMatch(metadata.apiUrl, this.expectedApiUrl) ||
       metadata.providerInstanceId !==
         `codex-rotating:${input.githubRepositoryId}` ||
       !this.trustedActionRefs.has(metadata.actionRef.toLowerCase())
@@ -692,17 +735,17 @@ export class OctokitCodexRotatingGitHubSecretGateway
     const expectedInteractionWorkflows = [
       renderCanonicalCodexRotatingInteractionWorkflowV3({
         actionRef: metadata.actionRef,
-        apiUrl: this.expectedApiUrl,
+        apiUrl: metadata.apiUrl,
         runtimeConfigMode: "oidc",
       }),
       renderCanonicalCodexRotatingInteractionWorkflowV2({
         actionRef: metadata.actionRef,
-        apiUrl: this.expectedApiUrl,
+        apiUrl: metadata.apiUrl,
         runtimeConfigMode: "oidc",
       }),
       renderCanonicalCodexRotatingInteractionWorkflowV1({
         actionRef: metadata.actionRef,
-        apiUrl: this.expectedApiUrl,
+        apiUrl: metadata.apiUrl,
         runtimeConfigMode: "oidc",
       }),
     ];
@@ -710,7 +753,7 @@ export class OctokitCodexRotatingGitHubSecretGateway
       compatible:
         claimedWorkflow !== null &&
         expectedInteractionWorkflows.some((expectedInteractionWorkflow) =>
-          areWorkflowDocumentsSemanticallyEqual(
+          areManagedWorkflowDocumentsAttested(
             claimedWorkflow,
             expectedInteractionWorkflow,
           ),
@@ -723,210 +766,19 @@ export class OctokitCodexRotatingGitHubSecretGateway
     readonly githubRepositoryId: string;
     readonly repositoryFullName: string;
     readonly owner: string;
-  }): Promise<{
-    readonly compatible: boolean;
-    readonly inventoryHash: string;
-    readonly actionCommitSha: string | null;
-    readonly workflowSchemaVersion: number | null;
-    readonly defaultBranchHeadSha: string;
-  }> {
-    const repositoryIdentityAdmitted =
-      isCodexWorkflowRepositoryIdentityAdmitted({
-        repositoryId: input.githubRepositoryId,
-        repositoryFullName: input.repositoryFullName,
-      });
-    const token = await this.mintRepositoryToken({
-      githubInstallationId: input.githubInstallationId,
-      githubRepositoryId: input.githubRepositoryId,
-      permissions: { contents: "read", pull_requests: "read" },
-    });
-    const repo = repoNameFromFullName(input.repositoryFullName);
-    const reviewPath = codexWorkflowPathForRepository({
-      repositoryId: input.githubRepositoryId,
-      repositoryFullName: input.repositoryFullName,
-    });
-    const competingReviewPaths = [
-      ".github/workflows/reviewrouter.yml",
-      ...(reviewPath === isolatedQualityWorkflowPath
-        ? [managedCodexWorkflowPath]
-        : []),
-    ];
-    const coverage = await this.resolveReviewInventoryCoverage({
-      token: token.token,
-      owner: input.owner,
-      repo,
-      githubRepositoryId: input.githubRepositoryId,
-    });
-    const referenceInventories = await mapWithConcurrency(
-      coverage.references,
-      REVIEW_INVENTORY_MAX_CONCURRENCY,
-      async (reference) => {
-        const [reviewWorkflow, legacyPresence] = await Promise.all([
-          this.readWorkflowAtRef({
-            token: token.token,
-            owner: input.owner,
-            repo,
-            path: reviewPath,
-            ref: reference.headSha,
-            missingAllowed: !reference.isDefault,
+  }) {
+    return new ManagedReviewV2WorkflowInventory({
+      expectedApiUrl: this.expectedApiUrl,
+      access: {
+        request: (route, parameters) =>
+          githubRequest(route as never, parameters as never),
+        issueRepositoryReadToken: (target) =>
+          this.mintRepositoryToken({
+            ...target,
+            permissions: { contents: "read", pull_requests: "read" },
           }),
-          Promise.all(
-            competingReviewPaths.map(async (path) => ({
-              path,
-              present:
-                (await this.readWorkflowAtRef({
-                  token: token.token,
-                  owner: input.owner,
-                  repo,
-                  path,
-                  ref: reference.headSha,
-                  missingAllowed: true,
-                })) !== null,
-            })),
-          ),
-        ]);
-        let metadata = null;
-        if (reviewWorkflow) {
-          try {
-            metadata =
-              reviewPath === isolatedQualityWorkflowPath
-                ? readCanonicalIsolatedQualityWorkflowSourceMetadata(
-                    reviewWorkflow,
-                  )
-                : readCanonicalCodexRotatingT0WorkflowSourceMetadata(
-                    reviewWorkflow,
-                  );
-          } catch {
-            // Managed T0 inventory only trusts the exact admitted source.
-          }
-        }
-        const scan = reviewWorkflow
-          ? reviewPath === isolatedQualityWorkflowPath && metadata
-            ? { valid: true, errors: [] }
-            : scanCodexRotatingAdvisoryWorkflow(reviewWorkflow)
-          : {
-              valid: !reference.isDefault,
-              errors: reference.isDefault ? ["review_workflow_missing"] : [],
-            };
-        const scanErrors =
-          reviewWorkflow && !metadata
-            ? [...scan.errors, "t0_workflow_source_not_canonical"]
-            : [...scan.errors];
-        const immutableT0 =
-          reviewWorkflow === null
-            ? !reference.isDefault
-            : Boolean(
-                metadata &&
-                /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+@[a-f0-9]{40}$/.test(
-                  metadata.actionRef,
-                ) &&
-                reviewWorkflow.includes(
-                  "/.github/workflows/reviewrouter-t0-reusable.yml@",
-                ),
-              );
-        return {
-          ref: reference.ref,
-          headSha: reference.headSha,
-          isDefault: reference.isDefault,
-          kind: reference.kind,
-          pullRequestNumber: reference.pullRequestNumber,
-          reviewWorkflowPresent: reviewWorkflow !== null,
-          reviewWorkflowSha256: reviewWorkflow
-            ? createHash("sha256").update(reviewWorkflow, "utf8").digest("hex")
-            : null,
-          actionRef: metadata?.actionRef ?? null,
-          apiUrl: metadata?.apiUrl ?? null,
-          actionCommitSha:
-            metadata?.actionRef.match(/@([a-f0-9]{40})$/)?.[1] ?? null,
-          providerInstanceId: metadata?.providerInstanceId ?? null,
-          workflowSchemaVersion: metadata?.workflowSchemaVersion ?? null,
-          scanErrors: [...new Set(scanErrors)].sort(),
-          immutableT0,
-          legacyPresence,
-        };
       },
-    );
-    const defaultInventory = referenceInventories.find(
-      (reference) => reference.isDefault,
-    );
-    if (!defaultInventory) {
-      throw new Error("codex_rotating_default_branch_inventory_missing");
-    }
-    const reviewActionCommitSha = defaultInventory.actionCommitSha;
-    const defaultBindingCompatible = Boolean(
-      defaultInventory.actionRef?.startsWith(
-        `${REVIEW_ROUTER_ACTION_REPOSITORY}@`,
-      ) &&
-      defaultInventory.apiUrl === this.expectedApiUrl &&
-      defaultInventory.providerInstanceId ===
-        `codex-rotating:${input.githubRepositoryId}` &&
-      defaultInventory.workflowSchemaVersion !== null,
-    );
-    const interactionPath = managedInteractionWorkflowPath;
-    const interactionWorkflow = await this.readWorkflowAtRef({
-      token: token.token,
-      owner: input.owner,
-      repo,
-      path: interactionPath,
-      ref: defaultInventory.headSha,
-      missingAllowed: true,
-    });
-    const interaction = inspectReviewV2InteractionWorkflow(
-      interactionWorkflow,
-      defaultInventory.actionRef,
-      this.expectedApiUrl,
-    );
-    const revalidatedCoverage = await this.resolveReviewInventoryCoverage({
-      token: token.token,
-      owner: input.owner,
-      repo,
-      githubRepositoryId: input.githubRepositoryId,
-    });
-    if (!sameReviewInventoryCoverage(coverage, revalidatedCoverage)) {
-      throw new Error("codex_rotating_workflow_inventory_coverage_moved");
-    }
-    const referencesWithCompatibility = referenceInventories.map(
-      (reference) => ({
-        ...reference,
-        compatible:
-          reference.scanErrors.length === 0 &&
-          reference.immutableT0 &&
-          reference.legacyPresence.every((entry) => !entry.present) &&
-          (!reference.reviewWorkflowPresent ||
-            (defaultBindingCompatible &&
-              reference.actionRef === defaultInventory.actionRef &&
-              reference.apiUrl === defaultInventory.apiUrl &&
-              reference.providerInstanceId ===
-                defaultInventory.providerInstanceId &&
-              reference.workflowSchemaVersion ===
-                defaultInventory.workflowSchemaVersion)),
-      }),
-    );
-    const inventory = {
-      coveragePolicyVersion: REVIEW_INVENTORY_COVERAGE_POLICY_VERSION,
-      defaultBranch: {
-        ref: defaultInventory.ref,
-        headSha: defaultInventory.headSha,
-      },
-      pullRequests: coverage.pullRequests,
-      reviewPath,
-      references: referencesWithCompatibility,
-      interaction,
-    };
-    return {
-      compatible:
-        repositoryIdentityAdmitted &&
-        referencesWithCompatibility.every(
-          (reference) => reference.compatible,
-        ) &&
-        interaction.compatible,
-      inventoryHash: createHash("sha256")
-        .update(JSON.stringify(inventory), "utf8")
-        .digest("hex"),
-      actionCommitSha: reviewActionCommitSha,
-      workflowSchemaVersion: defaultInventory.workflowSchemaVersion,
-      defaultBranchHeadSha: defaultInventory.headSha,
-    };
+    }).inspectReviewV2ManagedWorkflowInventory(input);
   }
 
   async resolveWorkflowRunPullRequest(input: {
@@ -1097,166 +949,6 @@ export class OctokitCodexRotatingGitHubSecretGateway
     return { token: data.token, expiresAt };
   }
 
-  private async resolveReviewInventoryCoverage(input: {
-    readonly token: string;
-    readonly owner: string;
-    readonly repo: string;
-    readonly githubRepositoryId: string;
-  }): Promise<ReviewInventoryCoverageSnapshot> {
-    const repositoryResponse = (await githubRequest(
-      "GET /repos/{owner}/{repo}",
-      {
-        owner: input.owner,
-        repo: input.repo,
-        headers: { authorization: `Bearer ${input.token}` },
-      },
-    )) as RepositoryResponse;
-    const defaultBranch = decodeRepositoryDefaultBranch(
-      repositoryResponse.data,
-      input.githubRepositoryId,
-      `${input.owner}/${input.repo}`,
-    );
-    const pullRequests: ReviewInventoryPullRequestSnapshot[] = [];
-    let paginationComplete = false;
-    for (let page = 1; page <= REVIEW_INVENTORY_MAX_PULL_PAGES + 1; page += 1) {
-      const response = (await githubRequest("GET /repos/{owner}/{repo}/pulls", {
-        owner: input.owner,
-        repo: input.repo,
-        state: "open",
-        per_page: REVIEW_INVENTORY_PULLS_PER_PAGE,
-        page,
-        headers: { authorization: `Bearer ${input.token}` },
-      })) as PullRequestListResponse;
-      const pagePullRequests = decodeOpenPullRequests(
-        response.data,
-        input.githubRepositoryId,
-      );
-      if (
-        page > REVIEW_INVENTORY_MAX_PULL_PAGES &&
-        pagePullRequests.length > 0
-      ) {
-        throw new Error("codex_rotating_workflow_inventory_pull_cap_exceeded");
-      }
-      pullRequests.push(
-        ...(await mapWithConcurrency(
-          pagePullRequests,
-          REVIEW_INVENTORY_MAX_CONCURRENCY,
-          (pullRequest) =>
-            pullRequest.mergeCommitSha === null
-              ? this.resolvePullRequestMergeability({
-                  token: input.token,
-                  owner: input.owner,
-                  repo: input.repo,
-                  githubRepositoryId: input.githubRepositoryId,
-                  pullRequest,
-                })
-              : Promise.resolve(pullRequest),
-        )),
-      );
-      if (pagePullRequests.length < REVIEW_INVENTORY_PULLS_PER_PAGE) {
-        paginationComplete = true;
-        break;
-      }
-    }
-    if (!paginationComplete) {
-      throw new Error("codex_rotating_workflow_inventory_pull_cap_exceeded");
-    }
-    assertUniquePullRequestNumbers(pullRequests);
-    pullRequests.sort((left, right) => left.number - right.number);
-    const branchRefs = new Set<string>([
-      defaultBranch,
-      ...pullRequests.map((pullRequest) => pullRequest.baseRef),
-    ]);
-    if (branchRefs.size > REVIEW_INVENTORY_MAX_BRANCHES) {
-      throw new Error("codex_rotating_workflow_inventory_branch_cap_exceeded");
-    }
-    const references = await mapWithConcurrency(
-      [...branchRefs].sort(),
-      REVIEW_INVENTORY_MAX_CONCURRENCY,
-      async (ref): Promise<ReviewInventoryReferenceSnapshot> => ({
-        ref,
-        headSha: await this.readBranchHead({
-          token: input.token,
-          owner: input.owner,
-          repo: input.repo,
-          branch: ref,
-        }),
-        isDefault: ref === defaultBranch,
-        kind:
-          ref === defaultBranch
-            ? ReviewInventoryReferenceKind.DefaultBranch
-            : ReviewInventoryReferenceKind.ActiveBaseBranch,
-        pullRequestNumber: null,
-      }),
-    );
-    for (let index = 0; index < pullRequests.length; index += 1) {
-      const pullRequest = pullRequests[index]!;
-      const baseReference = references.find(
-        (reference) => reference.ref === pullRequest.baseRef,
-      );
-      if (!baseReference) {
-        throw new Error(
-          "codex_rotating_workflow_inventory_base_reference_missing",
-        );
-      }
-      if (baseReference.headSha !== pullRequest.baseSha) {
-        pullRequests[index] = {
-          ...pullRequest,
-          mergeState: ReviewInventoryPullRequestMergeState.StaleBase,
-        };
-      }
-    }
-    for (const pullRequest of pullRequests) {
-      if (
-        pullRequest.mergeState !== ReviewInventoryPullRequestMergeState.Ready
-      ) {
-        continue;
-      }
-      if (pullRequest.mergeCommitSha === null) {
-        throw new Error(
-          "codex_rotating_workflow_inventory_mergeability_invalid",
-        );
-      }
-      references.push({
-        ref: `refs/pull/${pullRequest.number}/merge`,
-        headSha: pullRequest.mergeCommitSha,
-        isDefault: false,
-        kind: ReviewInventoryReferenceKind.PullRequestMerge,
-        pullRequestNumber: pullRequest.number,
-      });
-    }
-    if (references.length > REVIEW_INVENTORY_MAX_REFERENCES) {
-      throw new Error(
-        "codex_rotating_workflow_inventory_reference_cap_exceeded",
-      );
-    }
-    references.sort((left, right) => left.ref.localeCompare(right.ref));
-    return { defaultBranch, pullRequests, references };
-  }
-
-  private async resolvePullRequestMergeability(input: {
-    readonly token: string;
-    readonly owner: string;
-    readonly repo: string;
-    readonly githubRepositoryId: string;
-    readonly pullRequest: ReviewInventoryPullRequestSnapshot;
-  }): Promise<ReviewInventoryPullRequestSnapshot> {
-    const response = (await githubRequest(
-      "GET /repos/{owner}/{repo}/pulls/{pull_number}",
-      {
-        owner: input.owner,
-        repo: input.repo,
-        pull_number: input.pullRequest.number,
-        headers: { authorization: `Bearer ${input.token}` },
-      },
-    )) as PullRequestResponse;
-    return decodePullRequestMergeability(
-      response.data,
-      input.githubRepositoryId,
-      input.pullRequest,
-    );
-  }
-
   private async readBranchHead(input: {
     readonly token: string;
     readonly owner: string;
@@ -1337,27 +1029,6 @@ export class OctokitCodexRotatingGitHubSecretGateway
   }
 }
 
-async function mapWithConcurrency<T, R>(
-  values: readonly T[],
-  limit: number,
-  mapper: (value: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(values.length);
-  let nextIndex = 0;
-  const workers = Array.from(
-    { length: Math.min(limit, values.length) },
-    async () => {
-      while (nextIndex < values.length) {
-        const index = nextIndex;
-        nextIndex += 1;
-        results[index] = await mapper(values[index]!, index);
-      }
-    },
-  );
-  await Promise.all(workers);
-  return results;
-}
-
 function decodeRepositoryDefaultBranch(
   data: unknown,
   expectedRepositoryId: string,
@@ -1428,146 +1099,6 @@ function decodeCompareStatus(data: unknown): string {
   return status;
 }
 
-function decodeOpenPullRequests(
-  data: unknown,
-  expectedRepositoryId: string,
-): ReviewInventoryPullRequestSnapshot[] {
-  if (!Array.isArray(data)) {
-    throw new Error("codex_rotating_pull_request_inventory_invalid_response");
-  }
-  const pullRequests: ReviewInventoryPullRequestSnapshot[] = [];
-  for (const value of data) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new Error("codex_rotating_pull_request_inventory_invalid_response");
-    }
-    const pullRequest = value as {
-      readonly number?: unknown;
-      readonly draft?: unknown;
-      readonly merge_commit_sha?: unknown;
-      readonly base?: {
-        readonly ref?: unknown;
-        readonly sha?: unknown;
-        readonly repo?: { readonly id?: unknown } | null;
-      };
-      readonly head?: { readonly sha?: unknown };
-    };
-    const number = pullRequest.number;
-    const draft = pullRequest.draft;
-    const ref = pullRequest.base?.ref;
-    const baseSha = pullRequest.base?.sha;
-    const headSha = pullRequest.head?.sha;
-    const mergeCommitSha = pullRequest.merge_commit_sha;
-    if (
-      typeof number !== "number" ||
-      !Number.isSafeInteger(number) ||
-      number <= 0 ||
-      typeof draft !== "boolean" ||
-      String(pullRequest.base?.repo?.id ?? "") !== expectedRepositoryId ||
-      typeof ref !== "string" ||
-      ref.length === 0 ||
-      ref.trim() !== ref ||
-      typeof baseSha !== "string" ||
-      !isCommitSha(baseSha) ||
-      typeof headSha !== "string" ||
-      !isCommitSha(headSha) ||
-      (mergeCommitSha !== null &&
-        (typeof mergeCommitSha !== "string" || !isCommitSha(mergeCommitSha)))
-    ) {
-      throw new Error("codex_rotating_pull_request_base_identity_mismatch");
-    }
-    pullRequests.push({
-      number,
-      draft,
-      baseRef: ref,
-      baseSha: baseSha.toLowerCase(),
-      headSha: headSha.toLowerCase(),
-      mergeState:
-        mergeCommitSha === null
-          ? ReviewInventoryPullRequestMergeState.Conflicted
-          : ReviewInventoryPullRequestMergeState.Ready,
-      mergeCommitSha:
-        typeof mergeCommitSha === "string"
-          ? mergeCommitSha.toLowerCase()
-          : null,
-    });
-  }
-  return pullRequests;
-}
-
-function decodePullRequestMergeability(
-  data: unknown,
-  expectedRepositoryId: string,
-  expected: ReviewInventoryPullRequestSnapshot,
-): ReviewInventoryPullRequestSnapshot {
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
-    throw new Error("codex_rotating_pull_request_inventory_invalid_response");
-  }
-  const pullRequest = data as {
-    readonly number?: unknown;
-    readonly draft?: unknown;
-    readonly mergeable?: unknown;
-    readonly merge_commit_sha?: unknown;
-    readonly base?: {
-      readonly ref?: unknown;
-      readonly sha?: unknown;
-      readonly repo?: { readonly id?: unknown } | null;
-    };
-    readonly head?: { readonly sha?: unknown };
-  };
-  if (
-    pullRequest.number !== expected.number ||
-    pullRequest.draft !== expected.draft ||
-    String(pullRequest.base?.repo?.id ?? "") !== expectedRepositoryId ||
-    pullRequest.base?.ref !== expected.baseRef ||
-    normalizeCommitSha(pullRequest.base?.sha) !== expected.baseSha ||
-    normalizeCommitSha(pullRequest.head?.sha) !== expected.headSha
-  ) {
-    throw new Error("codex_rotating_workflow_inventory_coverage_moved");
-  }
-  if (pullRequest.mergeable === null) {
-    throw new Error(
-      "codex_rotating_workflow_inventory_mergeability_unavailable",
-    );
-  }
-  if (pullRequest.mergeable === false) {
-    if (pullRequest.merge_commit_sha !== null) {
-      throw new Error("codex_rotating_workflow_inventory_mergeability_invalid");
-    }
-    return {
-      ...expected,
-      mergeState: ReviewInventoryPullRequestMergeState.Conflicted,
-      mergeCommitSha: null,
-    };
-  }
-  const mergeCommitSha = normalizeCommitSha(pullRequest.merge_commit_sha);
-  if (pullRequest.mergeable !== true || mergeCommitSha === null) {
-    throw new Error("codex_rotating_workflow_inventory_mergeability_invalid");
-  }
-  return {
-    ...expected,
-    mergeState: ReviewInventoryPullRequestMergeState.Ready,
-    mergeCommitSha,
-  };
-}
-
-function assertUniquePullRequestNumbers(
-  pullRequests: readonly ReviewInventoryPullRequestSnapshot[],
-): void {
-  if (
-    new Set(pullRequests.map((pullRequest) => pullRequest.number)).size !==
-    pullRequests.length
-  ) {
-    throw new Error("codex_rotating_pull_request_inventory_duplicate_response");
-  }
-}
-
-function sameReviewInventoryCoverage(
-  left: ReviewInventoryCoverageSnapshot,
-  right: ReviewInventoryCoverageSnapshot,
-): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
 function normalizeCommitSha(value: unknown): string | null {
   return typeof value === "string" && isCommitSha(value)
     ? value.toLowerCase()
@@ -1595,45 +1126,6 @@ function decodeBranchHead(data: unknown, expectedBranch: string): string {
     throw new Error("codex_rotating_branch_identity_mismatch");
   }
   return sha.toLowerCase();
-}
-
-function inspectReviewV2InteractionWorkflow(
-  workflow: string | null,
-  expectedActionRef: string | null,
-  expectedApiUrl: string,
-) {
-  const expectedActionCommitSha =
-    expectedActionRef?.match(/@([a-f0-9]{40})$/i)?.[1]?.toLowerCase() ?? null;
-  if (workflow === null) {
-    return {
-      path: managedInteractionWorkflowPath,
-      present: false,
-      compatible: true,
-      actionCommitSha: null,
-      errors: [] as string[],
-    };
-  }
-
-  const expectedWorkflow =
-    expectedActionRef && expectedActionCommitSha
-      ? renderCanonicalCodexRotatingInteractionWorkflowV3({
-          actionRef: expectedActionRef,
-          apiUrl: expectedApiUrl,
-          runtimeConfigMode: "oidc",
-        })
-      : null;
-  const errors =
-    expectedWorkflow &&
-    areWorkflowDocumentsSemanticallyEqual(workflow, expectedWorkflow)
-      ? []
-      : ["interaction_workflow_source_mismatch"];
-  return {
-    path: managedInteractionWorkflowPath,
-    present: true,
-    compatible: errors.length === 0,
-    actionCommitSha: expectedActionCommitSha,
-    errors: errors.sort(),
-  };
 }
 
 function decodeWorkflowRunPullRequest(

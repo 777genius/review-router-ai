@@ -44,6 +44,25 @@ describe("review evidence canonicalization", () => {
     ]);
   });
 
+  it("isolates the optional description language from original review V1 bytes", () => {
+    const auxiliary = manifest({ taskKindSet: [ReviewTaskKind.PrDescription] });
+    expect(
+      new TextDecoder()
+        .decode(canonicalizeProviderInvocationManifest(auxiliary))
+        .startsWith("rr.pr-description-invocation-manifest.v1\0"),
+    ).toBe(true);
+    expect(() =>
+      canonicalizeProviderInvocationManifest(
+        manifest({
+          taskKindSet: [
+            ReviewTaskKind.PrDescription,
+            ReviewTaskKind.FindingDiscovery,
+          ],
+        }),
+      ),
+    ).toThrow("review_evidence_task_kind_count_invalid");
+  });
+
   it("hashes exact request semantics while canonicalizing object key order", async () => {
     const first = requestEnvelope({
       inferenceOptions: {

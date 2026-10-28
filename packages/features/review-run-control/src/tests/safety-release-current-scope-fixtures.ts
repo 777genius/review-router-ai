@@ -33,6 +33,7 @@ export const sloProfile = {
 export function releaseFixture(id: string): ProducerRelease {
   return {
     ...releaseCandidate,
+    agentProfiles: releaseCandidate.agentProfiles ?? null,
     producerReleaseId: id,
     runtimeCommitSha: id.replaceAll("-", "").padEnd(40, "a").slice(0, 40),
     protocolLimitsProfileId: limitsProfile.protocolLimitsProfileId,

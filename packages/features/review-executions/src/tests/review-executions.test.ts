@@ -43,6 +43,9 @@ import {
   claimReviewRequestedIntent,
   decideExecutionPreparation,
   decideExecutionPreparationReplay,
+  decideLeaseAcquire,
+  decideLeaseRelease,
+  LeaseAcquireDecisionStatus,
   ExecutionPreparationReplayDecisionStatus,
   ExecutionLifecycleDecisionStatus,
   decideReviewRequestedAdmission,
@@ -162,6 +165,75 @@ describe("review execution domain", () => {
         "slot-1",
       ]),
     ).toThrowError("review_assignment_manifest_eligible_unaccounted");
+  });
+
+  it("binds bounded lifecycle ownership without adding discovery coverage", () => {
+    const candidate = lifecycleAssignmentFixture();
+    const parsed = validateReviewAssignmentManifest(candidate, [
+      "slot-1",
+      "slot-verifier",
+    ]);
+    expect(parsed.manifestVersion).toBe(2);
+    expect(parsed.eligiblePaths).toEqual(["src/a.ts"]);
+    expect(parsed.assignments[1]?.paths).toEqual([]);
+    expect(
+      canonicalReviewAssignmentManifestHashPreimage(
+        canonicalReviewAssignmentManifestJson(parsed),
+      ),
+    ).toBe(
+      `rr.review-assignment-manifest.v2\0${canonicalReviewAssignmentManifestJson(parsed)}`,
+    );
+    candidate.lifecyclePlan.targets[0]!.parentId = "changed-after-parse";
+    expect(parsed.lifecyclePlan?.targets[0]?.parentId).toBe("parent-1");
+    const coverageTheft = lifecycleAssignmentFixture();
+    coverageTheft.assignments[1]!.paths = ["src/a.ts"];
+    expect(() =>
+      validateReviewAssignmentManifest(coverageTheft, [
+        "slot-1",
+        "slot-verifier",
+      ]),
+    ).toThrow("review_lifecycle_assignment_slot_invalid");
+    const duplicate = lifecycleAssignmentFixture();
+    duplicate.lifecyclePlan.assignments[0]!.targetIds.push("target-1");
+    expect(() =>
+      validateReviewAssignmentManifest(duplicate, ["slot-1", "slot-verifier"]),
+    ).toThrow("review_lifecycle_assignment_target_assignment_invalid");
+    const wrongCount = lifecycleAssignmentFixture();
+    wrongCount.lifecyclePlan.inventoryCount = 2;
+    expect(() =>
+      validateReviewAssignmentManifest(wrongCount, ["slot-1", "slot-verifier"]),
+    ).toThrow("review_lifecycle_assignment_accounting_invalid");
+    const oversized = lifecycleAssignmentFixture();
+    oversized.lifecyclePlan.targets[0]!.parentId = "x".repeat(64 * 1024);
+    expect(() =>
+      validateReviewAssignmentManifest(oversized, ["slot-1", "slot-verifier"]),
+    ).toThrow("review_lifecycle_assignment_bounds_invalid");
+  });
+
+  it("rejects array-valued lifecycle witness enums", () => {
+    const invalidSeverity = lifecycleAssignmentFixture();
+    Reflect.set(invalidSeverity.lifecyclePlan.targets[0]!, "severity", [
+      "major",
+    ]);
+    expect(() =>
+      validateReviewAssignmentManifest(invalidSeverity, [
+        "slot-1",
+        "slot-verifier",
+      ]),
+    ).toThrow("review_lifecycle_assignment_severity_invalid");
+
+    const invalidHistory = lifecycleAssignmentFixture();
+    Reflect.set(
+      invalidHistory.lifecyclePlan.targets[0]!.resolutionHistory,
+      "state",
+      ["effect_unknown"],
+    );
+    expect(() =>
+      validateReviewAssignmentManifest(invalidHistory, [
+        "slot-1",
+        "slot-verifier",
+      ]),
+    ).toThrow("review_lifecycle_assignment_history_invalid");
   });
 
   it("domain-separates manifest and manifest-bound plan hashes", () => {
@@ -513,6 +585,74 @@ describe("review execution domain", () => {
     expect(admitted.intent.state).toBe(
       ReviewRequestedIntentState.AwaitingAuthorization,
     );
+  });
+
+  it("cancels a queued request when workspace eligibility changes before dispatch", async () => {
+    const intents = new InMemoryReviewRequestedIntentStore();
+    await intents.registerIntent({
+      candidate: intentCandidate("request-optout", "31", scope, revision),
+    });
+    const prepare = vi.fn();
+    const gateway = {
+      prepare,
+      findByRequestIdentity: vi.fn(),
+      inspectKnownRun: vi.fn(),
+      cancelKnownRun: vi.fn(),
+    };
+    const dispatcher = new DispatchDueReviewRequestedIntents(
+      intents,
+      intents,
+      gateway,
+      { now: () => baseTime },
+      { nextClaimId: () => "claim-optout", nextRequestId: () => "unused" },
+      {
+        digestUtf8: async (value) =>
+          createHash("sha256").update(value).digest("hex"),
+      },
+      undefined,
+      async () => false,
+    );
+    await expect(
+      dispatcher.execute({ ownerIdHash: hash("d"), limit: 10 }),
+    ).resolves.toMatchObject({ dispatched: 0, failed: 0 });
+    expect(prepare).not.toHaveBeenCalled();
+    await expect(
+      intents.findByRequestId("request-optout"),
+    ).resolves.toMatchObject({ state: ReviewRequestedIntentState.Superseded });
+  });
+
+  it("keeps a queued request retryable when the dispatch gate cannot decide", async () => {
+    const intents = new InMemoryReviewRequestedIntentStore();
+    await intents.registerIntent({
+      candidate: intentCandidate("request-unknown", "31", scope, revision),
+    });
+    const prepare = vi.fn();
+    const dispatcher = new DispatchDueReviewRequestedIntents(
+      intents,
+      intents,
+      {
+        prepare,
+        findByRequestIdentity: vi.fn(),
+        inspectKnownRun: vi.fn(),
+        cancelKnownRun: vi.fn(),
+      },
+      { now: () => baseTime },
+      { nextClaimId: () => "claim-unknown", nextRequestId: () => "unused" },
+      {
+        digestUtf8: async (value) =>
+          createHash("sha256").update(value).digest("hex"),
+      },
+      undefined,
+      async () => {
+        throw new Error("review_request_eligibility_unavailable");
+      },
+    );
+    await expect(
+      dispatcher.execute({ ownerIdHash: hash("d"), limit: 10 }),
+    ).resolves.toMatchObject({ dispatched: 0, failed: 1 });
+    expect(prepare).not.toHaveBeenCalled();
+    const stored = await intents.findByRequestId("request-unknown");
+    expect(stored?.state).not.toBe(ReviewRequestedIntentState.Superseded);
   });
 
   it("reconciles a timeout-after-success without issuing a second POST", async () => {
@@ -1087,6 +1227,98 @@ describe("start and admission saga", () => {
     });
   });
 
+  it.each(["wrong_task", "wrong_vote", "unassigned"] as const)(
+    "rejects v2 lifecycle slot authority %s before execution is prepared",
+    async (fault) => {
+      const store = new InMemoryReviewExecutionStore();
+      const useCase = startUseCase(store, {
+        authorizationRevision: revision,
+        revisions: [revision, revision],
+      });
+      const request = lifecycleStartInput(`execution-${fault}`, fault);
+      const result = await useCase.execute(request);
+      expect(result).toMatchObject({
+        status: StartReviewExecutionStatus.AssignmentManifestRejected,
+        rejectionReason:
+          fault === "unassigned"
+            ? "review_lifecycle_assignment_slot_unassigned"
+            : "review_lifecycle_assignment_slot_authority_invalid",
+      });
+      expect(await store.findExecution(request.executionId)).toBeNull();
+    },
+  );
+
+  it("admits a v2 lifecycle assignment only with its actual lifecycle task and roster vote", async () => {
+    const store = new InMemoryReviewExecutionStore();
+    const useCase = startUseCase(store, {
+      authorizationRevision: revision,
+      revisions: [revision, revision],
+    });
+    const request = lifecycleStartInput("execution-lifecycle-authority");
+    expect((await useCase.execute(request)).status).toBe(
+      StartReviewExecutionStatus.Admitted,
+    );
+    expect(
+      (await store.findExecution(request.executionId))?.execution.workSlots,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          workSlotId: "slot-verifier",
+          taskKind: ReviewTaskKind.LifecycleRevalidation,
+          providerVoteIdentityHash: hash("c"),
+        }),
+      ]),
+    );
+  });
+
+  it("persists v2 zero-work lifecycle inventory under the same admitted plan identity", async () => {
+    const store = new InMemoryReviewExecutionStore();
+    const useCase = startUseCase(store, {
+      authorizationRevision: revision,
+      revisions: [revision, revision],
+    });
+    const base = startInput("execution-manifest-v2");
+    const candidate = lifecycleAssignmentFixture();
+    candidate.lifecyclePlan.targets = [];
+    candidate.lifecyclePlan.assignments = [];
+    candidate.lifecyclePlan.inventoryCount = 1;
+    candidate.lifecyclePlan.dispositionCounts.eligible = 0;
+    candidate.lifecyclePlan.dispositionCounts.manual = 1;
+    candidate.assignments = [candidate.assignments[0]!];
+    const canonical = canonicalReviewAssignmentManifestJson(
+      validateReviewAssignmentManifest(candidate, ["slot-1"]),
+    );
+    const assignmentManifestHash = createHash("sha256")
+      .update(canonicalReviewAssignmentManifestHashPreimage(canonical))
+      .digest("hex");
+    const planHash = createHash("sha256")
+      .update(
+        canonicalReviewExecutionPlanHashPreimage({
+          assignmentManifestHash,
+          compatibilityKey: hash("b"),
+          reviewRevisionHash: revision.reviewRevisionHash,
+          workSlots: base.workSlots,
+        }),
+      )
+      .digest("hex");
+    const result = await useCase.execute({
+      ...base,
+      compatibilityKey: hash("b"),
+      planHash,
+      assignmentManifestHash,
+      assignmentManifestCanonicalJson: canonical,
+    });
+    expect(result.status).toBe(StartReviewExecutionStatus.Admitted);
+    expect(
+      (await store.findExecution(base.executionId))?.execution,
+    ).toMatchObject({
+      assignmentManifestVersion: 2,
+      assignmentManifestHash,
+      assignmentManifestCanonicalJson: canonical,
+      planHash,
+    });
+  });
+
   it("admits only a canonical manifest bound to both manifest and plan hashes", async () => {
     const store = new InMemoryReviewExecutionStore();
     const useCase = startUseCase(store, {
@@ -1452,6 +1684,98 @@ describe("start and admission saga", () => {
 });
 
 describe("work slots and fenced invocation leases", () => {
+  it("reports exhausted slots after the final lease is released", () => {
+    const prepared = decideExecutionPreparation({
+      stream: createEmptyReviewExecutionStream(scope, baseTime),
+      priorPrepared: null,
+      ...prepareCommand(),
+    });
+    const execution = {
+      ...prepared.execution,
+      state: ReviewExecutionState.Running,
+    };
+    const stream = {
+      ...prepared.stream,
+      preparedExecutionId: null,
+      activeExecutionId: execution.executionId,
+      currentRevision: revision,
+    };
+    const input = {
+      ...leaseCommand(),
+      stream,
+      execution,
+      activeLease: null,
+      fencingToken: 1n,
+    };
+    const acquired = decideLeaseAcquire(input);
+    if (acquired.status !== LeaseAcquireDecisionStatus.Acquired)
+      throw new Error("fixture_lease_not_acquired");
+    const released = decideLeaseRelease({
+      ...leaseTerm(acquired.lease),
+      lease: acquired.lease,
+      execution: acquired.execution,
+      now: plus(3),
+    });
+    if (!released.execution) throw new Error("fixture_execution_missing");
+    expect(released.execution.workSlots[0]).toMatchObject({
+      state: ReviewWorkSlotState.Exhausted,
+      attemptBudget: 1,
+      nextAttemptOrdinal: 2,
+      activeLeaseId: null,
+    });
+    const before = structuredClone(released.execution);
+    const retry = { ...input, execution: released.execution };
+    const exhausted = decideLeaseAcquire(retry);
+    expect(exhausted).toEqual({
+      status: LeaseAcquireDecisionStatus.AttemptBudgetExhausted,
+      execution: released.execution,
+      expiredLease: null,
+    });
+    if (!("execution" in exhausted)) throw new Error("exhaustion_missing");
+    expect(exhausted.execution).toBe(released.execution);
+    expect(released.execution).toEqual(before);
+
+    for (const state of [
+      ReviewWorkSlotState.Satisfied,
+      ReviewWorkSlotState.Cancelled,
+    ]) {
+      expect(
+        decideLeaseAcquire({
+          ...retry,
+          execution: {
+            ...released.execution,
+            workSlots: released.execution.workSlots.map((slot) => ({
+              ...slot,
+              state,
+            })),
+          },
+        }),
+      ).toEqual({ status: LeaseAcquireDecisionStatus.NotRunnable });
+    }
+    expect(
+      decideLeaseAcquire({
+        ...retry,
+        stream: { ...stream, activeExecutionId: null },
+      }),
+    ).toEqual({ status: LeaseAcquireDecisionStatus.NotRunnable });
+    expect(
+      decideLeaseAcquire({
+        ...retry,
+        execution: {
+          ...released.execution,
+          state: ReviewExecutionState.Failed,
+        },
+      }),
+    ).toEqual({ status: LeaseAcquireDecisionStatus.NotRunnable });
+    expect(
+      decideLeaseAcquire({ ...retry, workSlotId: "missing-slot" }),
+    ).toEqual({ status: LeaseAcquireDecisionStatus.MissingSlot });
+    expect(() =>
+      decideLeaseAcquire({ ...retry, providerVoteIdentityHash: hash("8") }),
+    ).toThrow("review_execution_provider_lane_identity_mismatch");
+    expect(released.execution).toEqual(before);
+  });
+
   it("forbids planned execution leases", async () => {
     const store = new InMemoryReviewExecutionStore();
     const prepared = await store.prepareExecution(prepareCommand());
@@ -2816,4 +3140,123 @@ function plus(milliseconds: number): Date {
 
 function hash(character: string): string {
   return character.repeat(64).slice(0, 64);
+}
+
+function lifecycleAssignmentFixture() {
+  return {
+    manifestVersion: 2,
+    assignments: [
+      { workSlotId: "slot-1", paths: ["src/a.ts"] },
+      { workSlotId: "slot-verifier", paths: [] as string[] },
+    ],
+    eligiblePaths: ["src/a.ts"],
+    uncoveredPaths: [],
+    excludedPaths: [],
+    lifecyclePlan: {
+      version: 1,
+      capabilityHash: hash("a"),
+      descriptorDigest: `sha256:${hash("b")}`,
+      policyDigest: hash("c"),
+      inventoryHash: hash("d"),
+      inventoryCount: 1,
+      dispositionCounts: {
+        eligible: 1,
+        manual: 0,
+        unsupported: 0,
+        capped: 0,
+        unavailable: 0,
+        resolved: 0,
+      },
+      participantRoster: [{ providerVoteIdentityHash: hash("c") }],
+      targets: [
+        {
+          targetId: "target-1",
+          threadId: "thread-1",
+          fingerprint: "rrl_" + "f".repeat(32),
+          parentId: "parent-1",
+          parentCreatedAt: "2026-10-20T00:00:00.000Z",
+          parentUpdatedAt: "2026-10-20T00:00:00.000Z",
+          parentBodyHash: hash("a"),
+          claimHash: hash("b"),
+          commentStateHash: hash("c"),
+          ledgerWatermark: "0",
+          originalPath: "src/outside-diff.ts",
+          currentPath: "src/outside-diff.ts",
+          originalLine: 1,
+          currentLine: 1,
+          severity: "major",
+          resolutionHistory: {
+            historyCut: "2026-10-19T00:00:00.000Z",
+            guardVersion: "0",
+            state: "before_cut_unobserved",
+          },
+        },
+      ],
+      assignments: [
+        {
+          workSlotId: "slot-verifier",
+          packetHash: hash("e"),
+          targetIds: ["target-1"],
+          lifecycleTargetSetHash: hash("f"),
+          liveLifecycleStateHash: hash("a"),
+        },
+      ],
+    },
+  };
+}
+
+function lifecycleStartInput(
+  executionId: string,
+  fault?: "wrong_task" | "wrong_vote" | "unassigned",
+) {
+  const base = startInput(executionId);
+  const verifier = {
+    ...slotFixture("slot-verifier", false, 1),
+    taskKind:
+      fault === "wrong_task"
+        ? ReviewTaskKind.FindingDiscovery
+        : ReviewTaskKind.LifecycleRevalidation,
+    providerVoteIdentityHash: fault === "wrong_vote" ? hash("b") : hash("c"),
+  };
+  const workSlots = [
+    ...base.workSlots,
+    verifier,
+    ...(fault === "unassigned"
+      ? [
+          {
+            ...verifier,
+            workSlotId: "slot-unassigned",
+            shardKey: "unassigned-packet",
+          },
+        ]
+      : []),
+  ];
+  const canonical = canonicalReviewAssignmentManifestJson(
+    validateReviewAssignmentManifest(
+      lifecycleAssignmentFixture(),
+      workSlots.map((slot) => slot.workSlotId),
+    ),
+  );
+  const assignmentManifestHash = createHash("sha256")
+    .update(canonicalReviewAssignmentManifestHashPreimage(canonical))
+    .digest("hex");
+  const compatibilityKey = hash("b");
+  const planHash = createHash("sha256")
+    .update(
+      canonicalReviewExecutionPlanHashPreimage({
+        assignmentManifestHash,
+        compatibilityKey,
+        reviewRevisionHash: revision.reviewRevisionHash,
+        workSlots,
+      }),
+    )
+    .digest("hex");
+  return {
+    ...base,
+    workSlots,
+    compatibilityKey,
+    planHash,
+    assignmentManifestHash,
+    assignmentManifestCanonicalJson: canonical,
+  };
 }

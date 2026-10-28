@@ -1,3 +1,5 @@
+import type { ActionSessionUsageGrantPort } from "../ports/action-session-usage-grant-port.js";
+import type { BootstrapUsageGrant } from "../ports/bootstrap-usage-grant-port.js";
 import type { Clock } from "@reviewrouter/shared";
 import { isolatedQualityWorkflowRepositoryId } from "@reviewrouter/features-codex-oauth-rotating";
 import {
@@ -27,6 +29,7 @@ import {
 } from "../ports/legacy-review-mutation-admission-port.js";
 
 export type ExchangeGitHubOidcTokenDependencies = {
+  readonly actionSessionUsageGrants?: ActionSessionUsageGrantPort;
   readonly oidcVerifier: GitHubActionsOidcTokenVerifierPort;
   readonly repositories: ActionControlPlaneRepositoryPort;
   readonly sessions: ActionSessionTokenServicePort;
@@ -41,12 +44,14 @@ export type ExchangeGitHubOidcTokenDependencies = {
 
 export async function exchangeGitHubOidcToken(
   input: {
+    readonly usagePublicKey?: string;
     readonly oidcToken: string;
     readonly audience: string;
     readonly conflictDispatchPayload?: ActionConflictReviewDispatchPayload;
   },
   dependencies: ExchangeGitHubOidcTokenDependencies,
 ): Promise<{
+  readonly providerUsageGrants?: readonly BootstrapUsageGrant[];
   readonly protocolVersion: 1;
   readonly sessionToken: string;
   readonly expiresAt: string;
@@ -149,6 +154,7 @@ export async function exchangeGitHubOidcToken(
       ? { identityBindingEpoch: repository.identityBindingEpoch }
       : {}),
     githubActorLogin: claims.actor,
+    ...(claims.actor_id ? { githubActorId: claims.actor_id } : {}),
     githubRunId: claims.run_id,
     githubRunAttempt: claims.run_attempt,
     eventName: claims.event_name,
@@ -173,7 +179,32 @@ export async function exchangeGitHubOidcToken(
     issuedAt,
   });
 
+  let providerUsageGrants: readonly BootstrapUsageGrant[] | undefined;
+  if (input.usagePublicKey && dependencies.actionSessionUsageGrants) {
+    try {
+      const configuration =
+        await dependencies.repositories.findRuntimeReviewConfiguration({
+          workspaceId: repository.workspaceId,
+          repositoryId: repository.repositoryId,
+        });
+      if (configuration)
+        providerUsageGrants = await dependencies.actionSessionUsageGrants.issue(
+          {
+            publicKey: input.usagePublicKey,
+            claims,
+            repository,
+            session: sessionClaims,
+            issuedAt,
+            expiresAt: session.expiresAt,
+            configuration,
+          },
+        );
+    } catch {
+      /* Usage delivery cannot expand or fail existing session admission. */
+    }
+  }
   return {
+    ...(providerUsageGrants?.length ? { providerUsageGrants } : {}),
     protocolVersion: 1,
     sessionToken: session.token,
     expiresAt: session.expiresAt.toISOString(),

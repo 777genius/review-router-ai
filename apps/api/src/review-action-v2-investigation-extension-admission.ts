@@ -4,7 +4,7 @@ import {
   isInvestigationRolloutCapability,
   isInvestigationRolloutCapabilitySetDependencyClosed,
 } from "@reviewrouter/features-review-investigation-operations";
-import { reviewInvestigationExtensionV1 } from "@reviewrouter/protocol-review-action-v2";
+import { reviewActionV2InvestigationExtensionForSchema } from "@reviewrouter/protocol-review-action-v2";
 
 export type ReviewInvestigationAuthorizedProviderKind = "codex" | "claude_code";
 
@@ -16,7 +16,7 @@ export type ReviewInvestigationExtensionRequirement = Readonly<{
 export function hasAuthorizedReviewInvestigationExtension(
   authorization: Pick<
     ReviewRunAuthorization,
-    "reviewInvestigationAuthorizationDescriptorCanonicalJson"
+    "reviewInvestigationAuthorizationDescriptorCanonicalJson" | "schemaDigest"
   >,
   requirement?: ReviewInvestigationExtensionRequirement,
 ): boolean {
@@ -44,15 +44,18 @@ export function hasAuthorizedReviewInvestigationExtension(
   ) {
     return false;
   }
+  const extension = reviewActionV2InvestigationExtensionForSchema(
+    authorization.schemaDigest,
+    value.extensionCanonicalizerDigest,
+  );
+  if (!extension) return false;
   if (
     value.authorizationDescriptorVersion === 3 &&
     value.capability === "review_investigation_v1" &&
     isSha256(value.coverageProfileHash) &&
-    value.extensionId === reviewInvestigationExtensionV1.extensionId &&
-    value.extensionSchemaDigest ===
-      reviewInvestigationExtensionV1.schemaDigest &&
-    value.extensionCanonicalizerDigest ===
-      reviewInvestigationExtensionV1.canonicalizerDigest &&
+    value.extensionId === extension.extensionId &&
+    value.extensionSchemaDigest === extension.schemaDigest &&
+    value.extensionCanonicalizerDigest === extension.canonicalizerDigest &&
     isSha256(value.policyHash)
   ) {
     const providerCapabilities = validatedProviderCapabilities(

@@ -3,7 +3,7 @@
 const apiUrl = normalizeUrl(
   process.env.REVIEW_ROUTER_PUBLIC_API_URL ??
     process.env.REVIEW_ROUTER_API_URL ??
-    "https://api.reviewrouter.site",
+    "https://api.reviewrouter.org",
 );
 
 async function fetchJson(path) {
@@ -128,7 +128,7 @@ assert(
 );
 assert(
   demo.providers?.every((provider) => provider.sentToSaas === false),
-  "demo provider secrets must not be sent to SaaS",
+  "demo provider secrets must not be sent to control plane",
 );
 assert(
   demo.quickStart?.some(

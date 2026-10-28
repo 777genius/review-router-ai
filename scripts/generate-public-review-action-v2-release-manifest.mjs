@@ -103,6 +103,18 @@ export function generateReleaseManifest(input) {
     runtimeEntrypointPath: verified.runtimeEntrypointPath,
     runtimeEntrypointDigest: verified.runtimeEntrypointDigest,
     contextGatewayReleaseMetadata: verified.contextGatewayReleaseMetadata,
+    agentProfiles: verified.agentProfiles,
+    ...(verified.lifecycleVerificationProfile === undefined
+      ? {}
+      : {
+          lifecycleVerificationProfile: verified.lifecycleVerificationProfile,
+        }),
+    ...(verified.contextToolsProfile === undefined
+      ? {}
+      : { contextToolsProfile: verified.contextToolsProfile }),
+    ...(verified.prDescriptionProfile === undefined
+      ? {}
+      : { prDescriptionProfile: verified.prDescriptionProfile }),
   });
   const bytes = canonicalJson(manifest);
   if (input.output) writeImmutable(input.output, bytes);

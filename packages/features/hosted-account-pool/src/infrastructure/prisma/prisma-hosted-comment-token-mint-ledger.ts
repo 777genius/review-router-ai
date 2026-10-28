@@ -67,17 +67,28 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
     }>,
   ) {}
 
+  private withUtcTransaction<T>(
+    operation: (transaction: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    return this.prisma.$transaction(async (transaction) => {
+      // Prisma's timestamp-without-zone columns hold UTC wall times. SQL
+      // casts/comparisons must use the same convention, scoped to this transaction.
+      await transaction.$executeRaw`SET LOCAL TIME ZONE 'UTC'`;
+      return operation(transaction);
+    }, transactionOptions);
+  }
+
   async recoverStale(
     input: Parameters<HostedCommentTokenMintLedgerPort["recoverStale"]>[0],
   ) {
     if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100)
       throw new Error("hosted_comment_mint_recovery_batch_invalid");
-    return this.prisma.$transaction(async (transaction) => {
+    return this.withUtcTransaction(async (transaction) => {
       const rows = await mutateMint(transaction, "recover_stale", {
         limit: input.limit,
       });
       return rows.length;
-    }, transactionOptions);
+    });
   }
 
   async prepare(
@@ -98,7 +109,7 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
   private async prepareOnce(
     input: Parameters<HostedCommentTokenMintLedgerPort["prepare"]>[0],
   ) {
-    return this.prisma.$transaction(async (transaction) => {
+    return this.withUtcTransaction(async (transaction) => {
       // One lock order is used by every authority transaction: gate;
       // installation/repository; pool/binding; grant/capability; mint.
       const rows = await readAuthoritySnapshot(transaction, input.grantId);
@@ -234,13 +245,13 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
       }
       await this.testHooks?.afterPrepare?.();
       return prepared(created);
-    }, transactionOptions);
+    });
   }
 
   async authorizeDispatch(
     input: Parameters<HostedCommentTokenMintLedgerPort["authorizeDispatch"]>[0],
   ) {
-    await this.prisma.$transaction(async (transaction) => {
+    await this.withUtcTransaction(async (transaction) => {
       await lockRuntimeGate(transaction);
       await lockAuthorityForMintId(transaction, input.mintId);
       const attempt = await lockMint(transaction, input.mintId);
@@ -276,13 +287,13 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
       });
       if (changed.length !== 1)
         throw new Error("hosted_comment_mint_dispatch_conflict");
-    }, transactionOptions);
+    });
   }
 
   async releasePrepared(
     input: Parameters<HostedCommentTokenMintLedgerPort["releasePrepared"]>[0],
   ) {
-    await this.prisma.$transaction(async (transaction) => {
+    await this.withUtcTransaction(async (transaction) => {
       const changed = await mutateMint(transaction, "release_prepared", {
         mintId: input.mintId,
         ownerIdHash: input.ownerIdHash,
@@ -290,13 +301,13 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
       });
       if (changed.length !== 1)
         throw new Error("hosted_comment_mint_prepared_release_conflict");
-    }, transactionOptions);
+    });
   }
 
   async confirmDispatch(
     input: Parameters<HostedCommentTokenMintLedgerPort["confirmDispatch"]>[0],
   ) {
-    return this.prisma.$transaction(async (transaction) => {
+    return this.withUtcTransaction(async (transaction) => {
       await lockRuntimeGate(transaction);
       await lockAuthorityForMintId(transaction, input.mintId);
       const mint = await lockMint(transaction, input.mintId);
@@ -316,13 +327,13 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
         remainingBudgetMs:
           mint.dispatchAuthorizedUntil.getTime() - databaseNow.getTime(),
       };
-    }, transactionOptions);
+    });
   }
 
   async replayAuthorized(
     input: Parameters<HostedCommentTokenMintLedgerPort["replayAuthorized"]>[0],
   ) {
-    return this.prisma.$transaction(async (transaction) => {
+    return this.withUtcTransaction(async (transaction) => {
       await lockRuntimeGate(transaction);
       await lockAuthorityForMintId(transaction, input.mintId);
       const mint = await lockMint(transaction, input.mintId);
@@ -351,7 +362,7 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
         poolId: mint.poolId as string,
         secretEnvelope,
       };
-    }, transactionOptions);
+    });
   }
 
   async confirmReplayDelivery(
@@ -359,7 +370,7 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
       HostedCommentTokenMintLedgerPort["confirmReplayDelivery"]
     >[0],
   ) {
-    await this.prisma.$transaction(async (transaction) => {
+    await this.withUtcTransaction(async (transaction) => {
       await lockRuntimeGate(transaction);
       await lockAuthorityForMintId(transaction, input.mintId);
       const mint = await lockMint(transaction, input.mintId);
@@ -380,13 +391,13 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
       });
       if (changed.length !== 1)
         throw new Error("hosted_comment_mint_replay_not_authorized");
-    }, transactionOptions);
+    });
   }
 
   async releaseDelivery(
     input: Parameters<HostedCommentTokenMintLedgerPort["releaseDelivery"]>[0],
   ) {
-    await this.prisma.$transaction(async (transaction) => {
+    await this.withUtcTransaction(async (transaction) => {
       const changed = await mutateMint(transaction, "release_delivery", {
         mintId: input.mintId,
         tokenHash: input.tokenHash,
@@ -405,7 +416,7 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
         )
           throw new Error("hosted_comment_mint_delivery_release_conflict");
       }
-    }, transactionOptions);
+    });
   }
 
   async finalizeKnownToken(
@@ -415,7 +426,7 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
   ) {
     const persistedEnvelope = copyEnvelope(input.secretEnvelope);
     try {
-      return await this.prisma.$transaction(async (transaction) => {
+      return await this.withUtcTransaction(async (transaction) => {
         await lockRuntimeGate(transaction);
         await lockAuthorityForMintId(transaction, input.mintId);
         const mint = await lockMint(transaction, input.mintId);
@@ -465,7 +476,7 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
         });
         if (changed.length !== 1) return "revoke_pending" as const;
         return state;
-      }, transactionOptions);
+      });
     } finally {
       zeroEnvelope(persistedEnvelope);
     }
@@ -478,7 +489,7 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
       ? copyEnvelope(input.secretEnvelope)
       : undefined;
     try {
-      await this.prisma.$transaction(async (transaction) => {
+      await this.withUtcTransaction(async (transaction) => {
         // Closure completion and activation both serialize through the runtime
         // gate. Keep the global gate -> mint order used by every custody path
         // so a staged bearer cannot appear behind either barrier unnoticed.
@@ -514,7 +525,7 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
         });
         if (changed.length !== 1)
           throw new Error("hosted_comment_mint_stage_revocation_conflict");
-      }, transactionOptions);
+      });
     } finally {
       if (persistedEnvelope) zeroEnvelope(persistedEnvelope);
     }
@@ -531,7 +542,7 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
   ) {
     if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100)
       throw new Error("hosted_comment_mint_revocation_batch_invalid");
-    return this.prisma.$transaction(async (transaction) => {
+    return this.withUtcTransaction(async (transaction) => {
       await lockRuntimeGate(transaction);
       const gateRows = await transaction.$queryRaw<Array<{ status: string }>>`
         SELECT "status"::text AS "status" FROM "HostedCodexRuntimeGate"
@@ -610,12 +621,12 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
       } finally {
         for (const row of rows) zeroMintRowSecretBuffers(row);
       }
-    }, transactionOptions);
+    });
   }
   async releaseRevocation(
     input: Parameters<HostedCommentTokenMintLedgerPort["releaseRevocation"]>[0],
   ) {
-    await this.prisma.$transaction(async (transaction) => {
+    await this.withUtcTransaction(async (transaction) => {
       const changed = await mutateMint(transaction, "release_revocation", {
         mintId: input.mintId,
         ownerIdHash: input.ownerIdHash,
@@ -631,12 +642,12 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
         if (observed?.state !== "revoked" && observed?.state !== "expired")
           throw new Error("hosted_comment_mint_revocation_release_conflict");
       }
-    }, transactionOptions);
+    });
   }
   async finalizeRevoked(
     input: Parameters<HostedCommentTokenMintLedgerPort["finalizeRevoked"]>[0],
   ) {
-    await this.prisma.$transaction(async (transaction) => {
+    await this.withUtcTransaction(async (transaction) => {
       await transaction.$queryRaw<
         Array<{ hosted_codex_finalize_comment_token_revocation: boolean }>
       >`
@@ -646,7 +657,7 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
           ${input.receipt.authority}, ${input.receipt.result}
         )
       `;
-    }, transactionOptions);
+    });
   }
   async observe(
     input: Parameters<HostedCommentTokenMintLedgerPort["observe"]>[0],
@@ -671,7 +682,7 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
     errorCode: string;
     unsafeUntil?: Date;
   }) {
-    await this.prisma.$transaction(async (transaction) => {
+    await this.withUtcTransaction(async (transaction) => {
       const current = input.unsafeUntil
         ? await lockMint(transaction, input.mintId)
         : null;
@@ -697,7 +708,7 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
         if (observed?.state !== "outcome_unknown")
           throw new Error("hosted_comment_mint_finalize_conflict");
       }
-    }, transactionOptions);
+    });
   }
 }
 
@@ -990,11 +1001,16 @@ async function readAuthoritySnapshot(
 async function readDatabaseNow(
   transaction: Prisma.TransactionClient,
 ): Promise<Date> {
-  const rows = await transaction.$queryRaw<Array<{ now: Date }>>`
-    SELECT clock_timestamp() AS "now"
+  // Read actual wall time after authority locks, without timestamptz decoding.
+  const rows = await transaction.$queryRaw<Array<{ epochMs: bigint }>>`
+    SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint AS "epochMs"
   `;
-  const now = rows[0]?.now;
-  if (!(now instanceof Date) || !Number.isFinite(now.getTime()))
+  const epochMs = rows[0]?.epochMs;
+  if (typeof epochMs !== "bigint")
+    throw new Error("hosted_comment_mint_database_time_invalid");
+  const numericEpochMs = Number(epochMs);
+  const now = new Date(numericEpochMs);
+  if (!Number.isSafeInteger(numericEpochMs) || !Number.isFinite(now.getTime()))
     throw new Error("hosted_comment_mint_database_time_invalid");
   return now;
 }

@@ -2,16 +2,26 @@ import { isMemoryError } from "./dashboard-copy";
 
 export type DashboardSection =
   | "repositories"
+  | "skills"
   | "memory"
   | "setup"
+  | "providers"
   | "policy"
-  | "diagnostics";
+  | "diagnostics"
+  | "usage"
+  | "statistics"
+  | "other";
 
 export const DASHBOARD_SECTIONS = [
   "repositories",
+  "statistics",
   "setup",
+  "providers",
   "policy",
   "diagnostics",
+  "usage",
+  "other",
+  "skills",
   "memory",
 ] as const satisfies readonly DashboardSection[];
 
@@ -28,34 +38,70 @@ export const dashboardSectionMeta: Record<
     eyebrow: "Repository setup",
     title: "Repositories",
     description:
-      "This page lists repositories from the GitHub App or GitLab group or project attached to this workspace. Create setup PRs and confirm runtime health here. ChatGPT logins for reviews are on Accounts.",
+      "Choose a provider and follow each repository's setup steps. Finish its connection and workflow setup here.",
     navDescription: "Setup PRs and health",
   },
+  skills: {
+    eyebrow: "Review instructions",
+    title: "Skills",
+    description:
+      "Create and share review instructions, then choose the repositories that use them.",
+    navDescription: "Reusable review instructions",
+  },
   memory: {
-    eyebrow: "In development",
+    eyebrow: "Shared review knowledge",
     title: "Memory",
-    description: "Memory management is in development and not available yet.",
-    navDescription: "In development",
+    description:
+      "Manage approved rules and historical knowledge for future reviews.",
+    navDescription: "Approved review knowledge",
   },
   setup: {
-    eyebrow: "ChatGPT",
+    eyebrow: "Workspace credentials",
     title: "Accounts",
     description:
-      "We encrypt ChatGPT sessions at rest. Stored sessions are never returned to the browser.",
-    navDescription: "Encrypted subscription accounts",
+      "Connect accounts to ReviewRouter and choose which workspaces can use them. Select them for reviews in Providers.",
+    navDescription: "Workspace provider accounts",
+  },
+  providers: {
+    eyebrow: "Workspace providers",
+    title: "Providers",
+    description:
+      "Save provider and model choices, and choose a workspace default. Finish each repository's connection and workflow setup in Repositories.",
+    navDescription: "Credentials and models",
   },
   policy: {
     eyebrow: "Review behavior",
     title: "Model",
     description:
-      "Choose provider auth, model, reasoning effort, context mode, and blocking severity.",
-    navDescription: "Provider, model, gates",
+      "The default provider and the review settings every repository starts with.",
+    navDescription: "Default provider, gates",
+  },
+  statistics: {
+    eyebrow: "Review activity",
+    title: "Statistics",
+    description:
+      "Published reviews, pull requests and issues caught in your workspace.",
+    navDescription: "Reviews and issues caught",
+  },
+  usage: {
+    eyebrow: "Measured consumption",
+    title: "Usage",
+    description:
+      "Provider attempts, known tokens and cost, with source coverage.",
+    navDescription: "Provider usage and coverage",
+  },
+  other: {
+    eyebrow: "Workspace settings",
+    title: "Other",
+    description:
+      "Additional review settings for every repository in this workspace.",
+    navDescription: "Workspace review settings",
   },
   diagnostics: {
     eyebrow: "Operations",
     title: "Diagnostics",
     description:
-      "Inspect metadata-only health, queue failures, audit events, and support diagnostics.",
+      "Metadata-only health, queue failures, audit events, and support diagnostics.",
     navDescription: "Queue, audit, support",
   },
 };

@@ -3,6 +3,7 @@ import { AuthorityError } from "../domain/contracts.js";
 import { assertOwner } from "../domain/policy.js";
 import { equal } from "../domain/validation.js";
 import type { AuthenticatedEfExecution } from "./ef-authority-service.js";
+import { executionSourceBinding } from "./source-binding.js";
 import type { CanonicalAuthorityMaterial } from "./ports.js";
 
 export interface VerifierCurrentAuthority {
@@ -37,6 +38,7 @@ export class SdkGrowthVerifierAuthorityPolicy implements VerifierAuthorityPolicy
     readonly current: VerifierCurrentAuthority;
   }): VerifierAuthorityLink {
     const { execution, current, expectedEpoch } = input;
+    const sourceBinding = executionSourceBinding(execution);
     const { material } = current;
     const now = this.now();
     if (
@@ -53,6 +55,9 @@ export class SdkGrowthVerifierAuthorityPolicy implements VerifierAuthorityPolicy
       material.binding.repositoryId !== execution.repositoryId ||
       material.binding.pullRequest !== execution.pullRequest ||
       material.binding.head !== execution.sourceCommit ||
+      (sourceBinding !== null &&
+        (material.binding.base !== sourceBinding.baseCommit ||
+          material.binding.mergeBase !== sourceBinding.mergeBaseCommit)) ||
       material.ownerEvidence.tenantId !== execution.tenantId ||
       material.provenance.subject !== material.ownerEvidence.ownerSubject ||
       material.provenance.sourceDigest !==

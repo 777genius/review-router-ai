@@ -1,11 +1,14 @@
 {
   "name": "review-router",
   "private": true,
+  "engines": {
+    "node": ">=24.21.0 <25 || >=26.10.0 <27"
+  },
   "bin": {
     "reviewrouter": "./apps/api/dist/reviewrouter-operator-cli.js"
   },
   "type": "module",
-  "packageManager": "pnpm@10.33.0",
+  "packageManager": "pnpm@11.28.7",
   "scripts": {
     "dev": "node scripts/run-with-env.mjs turbo run dev --parallel",
     "web:dev": "node scripts/run-with-env.mjs pnpm --filter @reviewrouter/web dev",
@@ -20,11 +23,14 @@
     "protocol:release-manifest": "node scripts/generate-public-review-action-v2-release-manifest.mjs",
     "protocol:release-manifest:check": "node scripts/check-public-review-action-v2-release-manifest.mjs",
     "protocol:handoff:test": "vitest run scripts/review-action-v2-release-manifests.test.ts scripts/export-public-review-action-v2-contract.test.ts",
-    "typecheck": "turbo run typecheck && tsc --noEmit -p tsconfig.spikes.json",
+    "skills:architecture": "node scripts/review-skills-tooling/check.ts",
+    "skills:tooling:prepare": "npx --yes pnpm@11.25.0 --dir scripts/review-skills-tooling install --ignore-scripts --frozen-lockfile",
+    "skills:test": "vitest run packages/shared/src/review-skills-contract.test.ts packages/features/review-skills/src/tests scripts/review-skills-runtime-grants.test.ts scripts/review-skills-runtime-acl.postgres.test.ts",
+    "typecheck": "turbo run typecheck && tsc --noEmit -p tsconfig.spikes.json && tsc --noEmit -p tsconfig.one-shot-test-handoff.json && node scripts/local-checks/compiler-cli.ts --legacy --noEmit -p tsconfig.tooling.json",
     "test": "vitest run",
     "lint": "eslint .",
     "format:check": "prettier --check .",
-    "postinstall": "pnpm db:generate",
+    "postinstall": "node scripts/prepare-pinned-subscription-runtime.ts && pnpm db:generate && pnpm compiler:prepare",
     "local:bootstrap": "bash scripts/bootstrap-local.sh",
     "local:check": "bash scripts/check-local-readiness.sh",
     "hosted:check": "node scripts/check-hosted-readiness.mjs",
@@ -39,7 +45,11 @@
     "hosted-pool:e2e:postgres": "node --import tsx scripts/run-hosted-pool-postgres-e2e.mjs --postgres-only",
     "hosted-pool:production-contract": "tsc --noEmit -p tsconfig.hosted-pool-operations.json && vitest run scripts/verify-hosted-pool-action-release.test.ts scripts/hosted-pool-production-control.test.ts scripts/hosted-pool-production-github-dispatch.test.ts scripts/hosted-pool-production-evidence.test.ts scripts/hosted-pool-production-rollback-verification.test.ts scripts/run-hosted-pool-production-canary.test.ts scripts/hosted-pool-canary-phase-recovery.test.ts scripts/deploy-render-hosted-beta.test.ts packages/platform/config/src/index.test.ts packages/platform/config/src/hosted-pool-action-release-catalog.test.ts packages/platform/config/src/hosted-codex-canary-config.test.ts apps/api/src/hosted-codex-canary-fault-plan.test.ts apps/api/src/hosted-codex-canary-fault-composition.test.ts apps/api/src/hosted-codex-relay-composition.test.ts apps/api/src/hosted-pool-action-release-provision.test.ts packages/features/hosted-account-pool/src/tests/hosted-codex-quota-failover.test.ts",
     "hosted-pool:action-release:verify": "node scripts/verify-hosted-pool-action-release.mjs",
+    "provider-profiles:migrate": "tsx scripts/migrate-provider-profiles.ts",
+    "provider-setup:visual": "tsx scripts/provider-setup-visual/run.ts",
+    "provider-setup:visual:seed": "tsx scripts/provider-setup-visual/seed.ts",
     "hosted-pool:control": "tsx scripts/hosted-pool-production-control.ts",
+    "hosted-pool:test-handoff:contract": "tsc --noEmit -p tsconfig.one-shot-test-handoff.json && vitest run scripts/one-shot-test-handoff/contiguous-launch.test.mts",
     "hosted-pool:canary": "tsx scripts/run-hosted-pool-production-canary.ts",
     "hosted-pool:restore": "tsx scripts/hosted-pool-restore-operation.ts",
     "hosted-pool:certification-evidence": "tsx scripts/hosted-pool-certification-evidence.ts",
@@ -48,6 +58,7 @@
     "beta:check": "bash scripts/check-beta-readiness.sh",
     "web:smoke": "node scripts/run-with-env.mjs node scripts/check-web-pages.mjs",
     "db:generate": "node scripts/run-with-env.mjs pnpm --filter @reviewrouter/platform-db db:generate",
+    "db:generate:offline": "REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA=1 node scripts/generate-prisma-offline.mjs",
     "db:push": "node scripts/run-with-env.mjs pnpm --filter @reviewrouter/platform-db db:push",
     "db:migrate": "node scripts/run-with-env.mjs pnpm --filter @reviewrouter/platform-db db:migrate",
     "spike:github:list-installations": "tsx spikes/github-oidc/src/list-installations.ts",
@@ -59,7 +70,6 @@
     "spike:action:e2e": "tsx spikes/github-oidc/src/action-control-plane-e2e.ts",
     "spike:review-config:e2e": "tsx spikes/github-oidc/src/review-config-override-e2e.ts",
     "spike:support-diagnostics:e2e": "tsx spikes/github-oidc/src/support-diagnostics-e2e.ts",
-    "spike:memory:e2e": "node scripts/run-memory-e2e.mjs",
     "spike:auth-workspace:e2e": "tsx spikes/github-oidc/src/auth-workspace-access-e2e.ts",
     "spike:webhook-lifecycle:e2e": "tsx spikes/github-oidc/src/webhook-lifecycle-e2e.ts",
     "spike:server": "tsx spikes/github-oidc/src/server.ts",
@@ -90,7 +100,7 @@
     "codex-rotating:secret-write-boundary": "node scripts/check-codex-secret-write-boundary.mjs",
     "review-v2:e2e": "REVIEW_ROUTER_REVIEW_V2_E2E=1 vitest run scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts",
     "review-investigation:e2e": "bash scripts/review-investigation-production-e2e/support/run-ci.fixture.sh",
-    "review-investigation:paired-e2e": "REVIEW_ROUTER_REVIEW_INVESTIGATION_PAIRED_E2E=1 vitest run scripts/review-investigation-paired-e2e/review-investigation-paired.e2e.test.ts",
+    "review-investigation:paired-e2e": "REVIEW_ROUTER_REVIEW_INVESTIGATION_PAIRED_E2E=1 vitest run --no-file-parallelism scripts/review-investigation-paired-e2e/review-investigation-paired.e2e.test.ts scripts/review-investigation-paired-e2e/openrouter-direct-paired.e2e.test.ts scripts/review-investigation-paired-e2e/pr-description-paired.e2e.test.ts scripts/review-investigation-paired-e2e/review-banner-comparison-paired.e2e.test.ts scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts",
     "review-v2:admin": "node scripts/run-with-env.mjs node --conditions=production apps/api/dist/review-action-v2-operator-cli.js",
     "reviewrouter": "node scripts/run-with-env.mjs node --conditions=production apps/api/dist/reviewrouter-operator-cli.js",
     "reviewrouter:install": "node scripts/install-reviewrouter-cli.mjs",
@@ -99,15 +109,14 @@
     "spike:repo-health:e2e": "tsx spikes/github-oidc/src/repo-health-workflow-e2e.ts",
     "spike:rate-limit:e2e": "tsx spikes/github-oidc/src/rate-limit-e2e.ts",
     "spike:distributed-lock:e2e": "tsx spikes/github-oidc/src/distributed-lock-e2e.ts",
-    "spike:github-memory:e2e": "node scripts/run-github-memory-smoke.mjs",
     "api:start": "node --conditions=production apps/api/dist/server.js",
     "release-control:start": "pnpm --filter @reviewrouter/api release-control:start",
     "release-witness:start": "pnpm --filter @reviewrouter/api release-witness:start",
     "worker:start": "node --conditions=production apps/worker/dist/worker.js",
     "runtime:smoke": "node scripts/run-with-env.mjs node scripts/check-production-runtime.mjs",
-    "action:build": "node scripts/build-codex-rotating-action.mjs",
-    "action:artifact:check": "node scripts/check-codex-rotating-action-artifact.mjs",
-    "action:artifact:check:smoke": "REVIEWROUTER_CODEX_ROTATING_ACTION_REQUIRE_BINARY=0 node scripts/check-codex-rotating-action-artifact.mjs",
+    "action:build": "node scripts/build-codex-rotating-action.mjs && node scripts/build-conflict-runtime.ts",
+    "action:artifact:check": "node scripts/check-codex-rotating-action-artifact.mjs && node scripts/build-conflict-runtime.ts --check",
+    "action:artifact:check:smoke": "REVIEWROUTER_CODEX_ROTATING_ACTION_REQUIRE_BINARY=0 node scripts/check-codex-rotating-action-artifact.mjs && node scripts/build-conflict-runtime.ts --check",
     "action:sync-public-runtime": "node scripts/sync-public-action-runtime.mjs",
     "subscription-runtime:contract": "node scripts/check-external-subscription-runtime.mjs",
     "subscription-runtime:redaction-canary": "node scripts/check-external-subscription-runtime.mjs",
@@ -119,7 +128,8 @@
     "subscription-runtime:sync-public-mirrors": "node -e \"console.log('subscription-runtime mirrors are deprecated; use 777genius/ar')\"",
     "subscription-runtime:check": "node scripts/check-external-subscription-runtime.mjs && pnpm action:artifact:check:smoke && pnpm subscription-runtime:live-e2e:smoke",
     "subscription-runtime:release-gate": "pnpm subscription-runtime:check && pnpm codex-rotating:secret-write-boundary && pnpm action:artifact:check && pnpm exec vitest run packages/features/codex-oauth-rotating/src/tests/codex-oauth-rotating.test.ts packages/features/codex-oauth-rotating/src/tests/github-action.test.ts && pnpm architecture:check && pnpm typecheck && git diff --check",
-    "architecture:check": "node scripts/check-architecture-boundaries.mjs",
+    "architecture:web-host-cms": "tsx scripts/check-web-host-cms-profile-cli.ts",
+    "architecture:check": "node scripts/check-architecture-boundaries.mjs && pnpm architecture:web-host-cms && pnpm foundation:check && pnpm foundation:assert-dev-only && pnpm foundation:assert-registry && pnpm foundation:qualify-memory && pnpm foundation:qualify-statistics",
     "github-app:check": "node scripts/run-with-env.mjs node scripts/check-github-app-readiness.mjs",
     "github-app:create": "node scripts/create-github-app-manifest.mjs",
     "github-app:manifest:smoke": "node scripts/check-github-app-manifest-smoke.mjs",
@@ -129,9 +139,21 @@
     "ops:sync-action-ref": "node scripts/sync-render-action-ref.mjs",
     "hosted:api-demo:check": "node scripts/check-hosted-api-demo.mjs",
     "web:ui-audit": "node scripts/check-ui-layout.mjs",
-    "hosted:ui-audit": "node scripts/check-ui-layout.mjs --base-url https://reviewrouter.site",
+    "hosted:ui-audit": "node scripts/check-ui-layout.mjs --base-url https://reviewrouter.org",
     "hosted:progress-canary": "node scripts/run-hosted-live-progress-canary.mjs",
-    "release:sync-major": "node scripts/sync-major-release-tag.mjs"
+    "release:sync-major": "node scripts/sync-major-release-tag.mjs",
+    "lint:native:files": "node scripts/local-checks/lint-format-lint.mts",
+    "typecheck:lint-format": "tsc --noEmit -p tsconfig.lint-format.json",
+    "compiler:pilot": "node scripts/local-checks/compiler-cli.ts --legacy --noEmit -p tsconfig.tooling.json && vitest run --config scripts/local-checks/compiler-vitest.config.ts",
+    "compiler:prepare": "pnpm --dir scripts/local-checks/native install --ignore-workspace --ignore-scripts --frozen-lockfile",
+    "foundation:check": "agent-teams-foundation check",
+    "foundation:assert-dev-only": "agent-teams-foundation assert-dev-only",
+    "foundation:assert-registry": "agent-teams-foundation assert-registry",
+    "foundation:qualify": "node scripts/provider-foundation/qualify-packed.ts && tsc -p scripts/provider-foundation/tsconfig.json && node --import tsx scripts/provider-foundation/qualify-boundaries.ts",
+    "subscription-runtime:prepare": "node scripts/prepare-pinned-subscription-runtime.ts",
+    "foundation:qualify-memory": "node --import tsx scripts/memory-foundation/qualify-boundaries.ts",
+    "modular:qualify": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.modular.json && vitest run packages/features/review-providers/src/composition/index.test.ts packages/features/provider-usage/src/tests/composition.test.ts packages/features/provider-accounts/src/account-limits/composition.test.ts packages/features/memory/src/composition/memory-knowledge-runtime.test.ts packages/features/review-statistics/src/composition/index.test.ts",
+    "foundation:qualify-statistics": "node --import tsx scripts/statistics-foundation/qualify-boundaries.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
@@ -158,7 +180,9 @@
     "tailwind-variants": "^3.2.2",
     "tailwindcss": "^4.2.4",
     "zod": "^4.4.2",
-    "zustand": "^5.0.12"
+    "zustand": "^5.0.12",
+    "@get-modular/core": "0.7.0",
+    "@get-modular/assembly": "0.7.0"
   },
   "optionalDependencies": {
     "@777genius/subscription-runtime": "git+https://github.com/777genius/ar.git#83a7329f4383b05ac5c39356b79f82f029182d42"
@@ -182,19 +206,11 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.1",
     "vitest": "^4.1.10",
-    "yaml": "^2.9.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "@hono/node-server": "2.0.11",
-      "brace-expansion@>=3.0.0 <5.0.7": "5.0.8",
-      "esbuild@>=0.27.3 <0.28.1": "0.28.1",
-      "fast-uri@>=3.0.0 <4.0.0": "3.1.4",
-      "hono": "4.12.32",
-      "postcss": "8.5.14",
-      "sharp": "0.35.3",
-      "undici@>=7.0.0 <8.0.0": "7.29.0",
-      "vite@>=8.0.0 <9.0.0": "8.1.5"
-    }
+    "yaml": "^2.9.0",
+    "oxlint": "1.87.0",
+    "oxfmt": "0.72.0",
+    "@agent-teams/engineering-foundation": "2.1.0",
+    "playwright-core": "1.64.1",
+    "@types/pg": "8.23.1"
   }
 }

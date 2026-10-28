@@ -1,4 +1,9 @@
 import {
+  reviewPolicyFixture,
+  fixtureProviderSettings,
+} from "./review-policy-fixture.js";
+import { systemPolicyWriteFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture.ts";
+import {
   defaultActionOidcAudience,
   githubActionsOidcIssuer,
   JoseActionSessionTokenService,
@@ -10,7 +15,6 @@ import {
 import {
   clearReviewConfiguration,
   PrismaReviewConfigurationRepository,
-  safeDefaultReviewConfiguration,
   saveReviewConfiguration,
 } from "../../../packages/features/review-config/src/index.ts";
 import { createPrismaClient } from "../../../packages/platform/db/src/index.ts";
@@ -97,9 +101,14 @@ try {
     select: { id: true, owner: true, githubRepositoryId: true, fullName: true },
   });
 
-  const configurations = new PrismaReviewConfigurationRepository(prisma);
+  const configurations = new PrismaReviewConfigurationRepository(
+    prisma,
+    undefined,
+    false,
+    undefined,
+  );
   const workspaceProvider = {
-    ...safeDefaultReviewConfiguration.provider,
+    ...fixtureProviderSettings,
     kind: "openrouter" as const,
     authMode: "openrouter_api_key" as const,
     model: "poolside/laguna-m.1:free",
@@ -107,7 +116,7 @@ try {
   };
   const repositoryProviders = [
     {
-      ...safeDefaultReviewConfiguration.provider,
+      ...fixtureProviderSettings,
       kind: "openrouter" as const,
       authMode: "openrouter_api_key" as const,
       model: "openai/gpt-5.3-codex",
@@ -123,36 +132,54 @@ try {
       requiredHealthy: false,
     },
   ];
+  // OpenRouter is delivered only by the workspace's managed API key; this
+  // disposable fixture registers a placeholder one.
+  await prisma.providerApiKeyConnection.create({
+    data: {
+      workspaceId: workspace.id,
+      providerType: "openrouter",
+      encryptedApiKey: "spike-e2e-placeholder-ciphertext",
+      keyVersion: 1,
+      latestOperationId: `spike-config-e2e-${marker}`,
+    },
+  });
+  const workspaceTarget = {
+    scope: "workspace" as const,
+    workspaceId: workspace.id,
+  };
   const workspaceConfig = await saveReviewConfiguration(
     {
-      target: { scope: "workspace", workspaceId: workspace.id },
-      config: {
-        ...safeDefaultReviewConfiguration,
-        provider: workspaceProvider,
-        providers: [workspaceProvider],
-        blockingPolicy: { failOnSeverity: "critical" },
-      },
+      target: workspaceTarget,
+      ...systemPolicyWriteFixture(
+        {
+          ...reviewPolicyFixture([workspaceProvider]),
+          blockingPolicy: { failOnSeverity: "critical" },
+        },
+        workspaceTarget,
+      ),
     },
     { configurations },
   );
+  const repositoryTarget = {
+    scope: "repository" as const,
+    workspaceId: workspace.id,
+    repositoryId: repository.id,
+  };
   const repositoryConfig = await saveReviewConfiguration(
     {
-      target: {
-        scope: "repository",
-        workspaceId: workspace.id,
-        repositoryId: repository.id,
-      },
-      config: {
-        ...safeDefaultReviewConfiguration,
-        provider: repositoryProviders[0]!,
-        providers: repositoryProviders,
-        execution: {
-          providerLimit: 2,
-          providerMaxParallel: 2,
-          inlineMinAgreement: 2,
+      target: repositoryTarget,
+      ...systemPolicyWriteFixture(
+        {
+          ...reviewPolicyFixture(repositoryProviders),
+          execution: {
+            providerLimit: 2,
+            providerMaxParallel: 2,
+            inlineMinAgreement: 2,
+          },
+          blockingPolicy: { failOnSeverity: "major" },
         },
-        blockingPolicy: { failOnSeverity: "major" },
-      },
+        repositoryTarget,
+      ),
     },
     { configurations },
   );

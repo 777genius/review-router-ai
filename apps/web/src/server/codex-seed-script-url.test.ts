@@ -33,9 +33,9 @@ describe("resolveCodexSeedScriptUrl", () => {
     expect(
       resolveCodexSeedScriptUrl({
         NODE_ENV: "production",
-        NEXTAUTH_URL: "https://reviewrouter.site/",
+        NEXTAUTH_URL: "https://reviewrouter.org/",
       } as NodeJS.ProcessEnv),
-    ).toBe("https://reviewrouter.site/install/codex");
+    ).toBe("https://reviewrouter.org/install/codex");
   });
 
   it("rejects localhost and loopback production URLs", () => {

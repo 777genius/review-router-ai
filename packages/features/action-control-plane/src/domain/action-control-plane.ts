@@ -14,11 +14,13 @@ import {
   looksLikeSecretValue,
   safeConflictReviewDispatchId,
   safeGitHubBranchName,
+  reviewRouterWorkflowPath,
+  managedCodexWorkflowPath,
 } from "@reviewrouter/shared";
 import {
-  managedCodexWorkflowPath,
   managedInteractionWorkflowPath,
   managedReviewRouterWorkflowPaths,
+  reviewRouterRuntimeWorkflowRefPattern,
 } from "@reviewrouter/protocol-review-workflow";
 import { z } from "zod";
 
@@ -60,7 +62,8 @@ export function isManagedV2SessionBootstrapSource(input: {
     repositoryFullName: input.repositoryFullName ?? "",
   });
   if (
-    input.workflowPath === managedCodexWorkflowPath &&
+    (input.workflowPath === reviewRouterWorkflowPath ||
+      input.workflowPath === managedCodexWorkflowPath) &&
     repositoryReviewWorkflowPath === managedCodexWorkflowPath &&
     (input.eventName === "workflow_dispatch" ||
       input.eventName === "schedule" ||
@@ -87,7 +90,7 @@ export function isManagedV2SessionBootstrapSource(input: {
   );
 }
 export const trustedReviewRouterReusableWorkflowRefPattern =
-  /^777genius\/review-router\/\.github\/workflows\/(?:reviewrouter(?:-interaction)?-reusable\.ya?ml@(refs\/tags\/v1(?:\.[0-9]+\.[0-9]+)?|refs\/heads\/main|[a-fA-F0-9]{40})|reviewrouter-execution-reusable\.ya?ml@[a-fA-F0-9]{40})$/i;
+  /^777genius\/review-router\/\.github\/workflows\/(?:reviewrouter(?:-interaction)?-reusable\.ya?ml@(refs\/tags\/v1(?:\.[0-9]+\.[0-9]+)?|refs\/heads\/main|[a-fA-F0-9]{40})|reviewrouter-execution-reusable\.ya?ml@[a-fA-F0-9]{40}|reviewrouter-secrets-runtime\.yml@[a-f0-9]{40})$/;
 
 export const allowedActionEvents = [
   "pull_request",
@@ -125,6 +128,10 @@ export const githubActionsOidcClaimsSchema = z.object({
     .optional(),
   runner_environment: z.string().optional(),
   actor: z.string().min(1),
+  actor_id: z
+    .string()
+    .regex(/^[1-9]\d{0,19}$/)
+    .optional(),
   iat: z.number().optional(),
   nbf: z.number().optional(),
   exp: z.number().optional(),
@@ -163,6 +170,8 @@ export type ActionSessionClaims = {
   readonly repository: string;
   readonly identityBindingEpoch?: string;
   readonly githubActorLogin: string | null;
+  /** Signed GitHub numeric identity; absent only on legacy sessions. */
+  readonly githubActorId?: string;
   readonly githubRunId: string;
   readonly githubRunAttempt: string;
   readonly eventName: (typeof allowedActionEvents)[number];
@@ -353,13 +362,35 @@ const actionRuntimeProviderSchema = z
     kind: providerKindSchema,
     authMode: providerAuthModeSchema,
     model: z.string().min(1),
-    reasoningEffort: z.enum(["low", "medium", "high", "xhigh", "max", "ultra"]),
+    reasoningEffort: z
+      .enum(["minimal", "low", "medium", "high", "xhigh", "max", "ultra"])
+      .optional(),
     agenticContext: z.boolean(),
     fastMode: z.boolean(),
     requiredHealthy: z.boolean().default(false),
     secretBackedProviderEnabled: z.boolean(),
   })
   .superRefine((provider, context) => {
+    if (
+      provider.authMode !== "codex_account_gateway" &&
+      provider.reasoningEffort === "minimal"
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["reasoningEffort"],
+        message: "minimal reasoning requires an account-scoped Gateway catalog",
+      });
+    }
+    if (
+      provider.authMode !== "codex_account_gateway" &&
+      provider.reasoningEffort === undefined
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["reasoningEffort"],
+        message: "reasoning effort is required for legacy providers",
+      });
+    }
     if (!providerAuthModeBelongsToKind(provider.authMode, provider.kind)) {
       context.addIssue({
         code: "custom",
@@ -777,7 +808,7 @@ export function validateOidcClaimsAgainstRepository(input: {
           : [
               ...allowedWorkflowPaths.filter(
                 (path) =>
-                  path !== managedCodexWorkflowPath ||
+                  path !== reviewRouterWorkflowPath ||
                   codexWorkflowIdentityAdmitted,
               ),
             ],
@@ -932,7 +963,10 @@ function isTrustedWorkflowRef(
   workflowRef: string,
   trustedWorkflowRefs: readonly string[] | undefined,
 ): boolean {
-  if (trustedReviewRouterReusableWorkflowRefPattern.test(workflowRef)) {
+  if (
+    reviewRouterRuntimeWorkflowRefPattern.test(workflowRef) ||
+    trustedReviewRouterReusableWorkflowRefPattern.test(workflowRef)
+  ) {
     return true;
   }
 

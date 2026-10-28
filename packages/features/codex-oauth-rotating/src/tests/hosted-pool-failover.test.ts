@@ -322,7 +322,7 @@ describe("hosted pool account failover", () => {
         if (call < 2) {
           await new Promise<void>((resolve) => releases.push(resolve));
         }
-        return successfulSse();
+        return successfulSse(`capacity-response-${call + 1}`);
       }) as unknown as typeof fetch,
     });
     const firstActive = fetch(`${proxy.baseUrl}/responses`, {
@@ -407,7 +407,7 @@ describe("hosted pool account failover", () => {
           }
           secondStarted.resolve();
           await secondGate.promise;
-          return successfulSse();
+          return successfulSse("after-fence-response");
         }) as unknown as typeof fetch,
       });
       try {
@@ -445,7 +445,7 @@ describe("hosted pool account failover", () => {
           new Headers(init?.headers).get("x-reviewrouter-request-ordinal") ??
             "",
         );
-        return successfulSse();
+        return successfulSse("body-budget-response");
       }) as unknown as typeof fetch,
     });
     try {
@@ -491,7 +491,9 @@ describe("hosted pool account failover", () => {
                 );
                 void finishFirst.promise.then(() => {
                   controller.enqueue(
-                    new TextEncoder().encode("data: [DONE]\n\n"),
+                    new TextEncoder().encode(
+                      completedSse("concurrent-response-1"),
+                    ),
                   );
                   controller.close();
                 });
@@ -501,7 +503,7 @@ describe("hosted pool account failover", () => {
           );
         }
         secondStarted.resolve();
-        return successfulSse();
+        return successfulSse("concurrent-response-2");
       }) as unknown as typeof fetch,
     });
     try {
@@ -579,8 +581,15 @@ function proxyInput(policy: {
   };
 }
 
-function successfulSse(): Response {
-  return new Response("data: [DONE]\n\n", {
+function completedSse(responseId: string): string {
+  return `data: ${JSON.stringify({
+    type: "response.completed",
+    response: { id: responseId, status: "completed" },
+  })}\n\ndata: [DONE]\n\n`;
+}
+
+function successfulSse(responseId: string): Response {
+  return new Response(completedSse(responseId), {
     headers: { "content-type": "text/event-stream" },
   });
 }

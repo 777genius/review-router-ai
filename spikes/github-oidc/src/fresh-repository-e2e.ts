@@ -1,4 +1,9 @@
 import {
+  reviewPolicyFixture,
+  fixtureProviderSettings,
+} from "./review-policy-fixture.js";
+import { systemPolicyWriteFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture.ts";
+import {
   execFileSync,
   spawnSync,
   type SpawnSyncReturns,
@@ -22,8 +27,8 @@ import {
 } from "../../../packages/features/workflow-provisioning/src/index.ts";
 import {
   PrismaReviewConfigurationRepository,
+  PrismaReviewPolicyHeadReader,
   resolveReviewRuntimeEnv,
-  safeDefaultReviewConfiguration,
   saveReviewConfiguration,
 } from "../../../packages/features/review-config/src/index.ts";
 import { createGitHubApp, findInstallationForRepo } from "./github-app.js";
@@ -374,23 +379,56 @@ async function saveRequestedReviewConfiguration(input: {
     return;
   }
 
-  const configurations = new PrismaReviewConfigurationRepository(input.prisma);
-  await saveReviewConfiguration(
-    {
-      target: {
-        scope: "repository",
-        workspaceId: input.workspaceId,
-        repositoryId: input.repositoryId,
-      },
-      config: {
-        ...safeDefaultReviewConfiguration,
-        provider: {
-          ...safeDefaultReviewConfiguration.provider,
-          kind: "openrouter",
-          authMode: "openrouter_api_key",
-          model: openRouterModel,
+  const configurations = new PrismaReviewConfigurationRepository(
+    input.prisma,
+    undefined,
+    false,
+    undefined,
+  );
+  const workspaceTarget = {
+    scope: "workspace" as const,
+    workspaceId: input.workspaceId,
+  };
+  // OpenRouter is delivered only by the workspace's managed API key; a live
+  // run stores the real key through the dashboard first.
+  if (
+    !(await input.prisma.providerApiKeyConnection.findUnique({
+      where: {
+        workspaceId_providerType: {
+          workspaceId: input.workspaceId,
+          providerType: "openrouter",
         },
       },
+      select: { id: true },
+    }))
+  )
+    throw new Error("fresh_repository_e2e_openrouter_managed_key_required");
+  const config = reviewPolicyFixture([
+    {
+      ...fixtureProviderSettings,
+      kind: "openrouter",
+      authMode: "openrouter_api_key",
+      model: openRouterModel,
+    },
+  ]);
+  if (!(await configurations.findLatest(workspaceTarget))) {
+    await saveReviewConfiguration(
+      {
+        target: workspaceTarget,
+        ...systemPolicyWriteFixture(config, workspaceTarget),
+      },
+      { configurations },
+    );
+  }
+  const repositoryTarget = {
+    scope: "repository" as const,
+    workspaceId: input.workspaceId,
+    repositoryId: input.repositoryId,
+  };
+  await saveReviewConfiguration(
+    {
+      target: repositoryTarget,
+      ...systemPolicyWriteFixture(config, repositoryTarget),
     },
     { configurations },
   );
@@ -401,14 +439,13 @@ async function loadStaticRuntimeEnv(input: {
   readonly workspaceId: string;
   readonly repositoryId: string;
 }): Promise<Record<string, string>> {
-  const configurations = new PrismaReviewConfigurationRepository(input.prisma);
   const resolved = await resolveReviewRuntimeEnv(
     {
       scope: "repository",
       workspaceId: input.workspaceId,
       repositoryId: input.repositoryId,
     },
-    { configurations },
+    { policyHeads: new PrismaReviewPolicyHeadReader(input.prisma) },
   );
   return resolved.runtimeEnv;
 }

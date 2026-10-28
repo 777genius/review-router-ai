@@ -53,7 +53,7 @@ Do not store full raw webhook payloads by default.
 
 ### pull_request.synchronize
 
-For v1 SaaS, do not store PR body/title/diff.
+For v1 control plane, do not store PR body/title/diff.
 
 ```json
 {

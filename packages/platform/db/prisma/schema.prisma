@@ -7,11 +7,29 @@ datasource db {
 }
 
 model Workspace {
+  reviewSkills ReviewSkill[]
+  reviewSkillGrants ReviewSkillGrant[]
+  reviewSkillLinks ReviewSkillLink[]
   id        String   @id @default(cuid())
   slug      String   @unique
   name      String
+  reviewDraftPullRequests Boolean @default(true)
+  // Access rights: only owners and admins manage provider profiles and selections.
+  providerManagementAdminOnly Boolean @default(false)
+  deletionState WorkspaceDeletionState @default(active)
+  deletionRevision Int @default(1)
+  deletionTombstonedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Stable identity only; personal account management/use remains disabled.
+  personalOwnerUserId String? @unique
+  personalOwnerUser User? @relation("PersonalWorkspaceOwner", fields: [personalOwnerUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  ownedProviderAccountConnections ProviderAccountConnection[] @relation("WorkspaceProviderAccountOwner")
+  accountBindings WorkspaceAccountBinding[]
+  personalAccountOperationScopes PersonalAccountOperation[] @relation("PersonalOperationScope")
+  owningAccountOperations PersonalAccountOperation[] @relation("OwningWorkspaceAccountOperation")
+  personalAccountOperationTargets PersonalAccountOperation[] @relation("PersonalOperationTarget")
 
   members                      WorkspaceMember[]
   installations                GitHubInstallation[]
@@ -36,6 +54,10 @@ model Workspace {
   reviewExecutionCheckpoints   ReviewExecutionCheckpoint[]
   hostedCodexPools             HostedCodexPool[]
   hostedCodexDeviceLogins      HostedCodexDeviceLogin[]
+  providerApiKeyConnections    ProviderApiKeyConnection[]
+  providerApiKeyGrants         ProviderApiKeyWorkspaceGrant[]
+  deletionOperations          WorkspaceDeletionOperation[]
+  providerProfiles            WorkspaceProviderProfile[]
 }
 
 model User {
@@ -54,8 +76,195 @@ model User {
   repositoryPermissionCaches RepositoryPermissionCache[]
   memoryItems                MemoryItem[]
   memorySuggestions          MemorySuggestion[]
+  personalWorkspaces Workspace? @relation("PersonalWorkspaceOwner")
+  ownedProviderAccountConnections ProviderAccountConnection[] @relation("UserProviderAccountOwner")
+  personalAccountOperations PersonalAccountOperation[]
+  createdProviderProfiles WorkspaceProviderProfile[]
 
   @@index([githubLogin])
+}
+
+// Product ownership and safe gateway status only; credentials stay in the gateway.
+model ProviderAccountConnection {
+  id String @id @default(cuid())
+  ownerUserId String?
+  ownerWorkspaceId String?
+  gatewayAccountRef String @unique
+  gatewayOperationRef String?
+  profileRef String?
+  displayName String
+  state ProviderAccountConnectionState @default(unknown)
+  metadataRevision Int @default(1)
+  authorizationEpochMirror BigInt?
+  pendingSourceOperationId String? @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ownerUser User? @relation("UserProviderAccountOwner", fields: [ownerUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  ownerWorkspace Workspace? @relation("WorkspaceProviderAccountOwner", fields: [ownerWorkspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  bindings WorkspaceAccountBinding[]
+  pendingSourceOperation PersonalAccountOperation? @relation("PendingPersonalOperation", fields: [pendingSourceOperationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  personalOperationIntents PersonalAccountOperation[] @relation("PersonalOperationSource")
+  personalOperationResults PersonalAccountOperation[] @relation("PersonalOperationResultSource")
+
+  @@index([ownerUserId])
+  @@index([ownerWorkspaceId, state])
+}
+
+model WorkspaceAccountBinding {
+  id String @id @default(cuid())
+  workspaceId String
+  connectionId String
+  state WorkspaceAccountBindingState
+  revision Int @default(1)
+  policyRevision Int @default(1)
+  pendingFenceOperationId String?
+  pendingFencePolicySubject String?
+  pendingFencePolicyRevision Int?
+  fenceAckOperationId String?
+  fenceAckPolicyRevision Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  connection ProviderAccountConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  personalOperationPredecessors PersonalAccountOperation[] @relation("PersonalOperationPredecessor")
+  personalOperationSelectors PersonalAccountOperation[] @relation("PersonalOperationBinding")
+  personalOperationResults PersonalAccountOperation[] @relation("PersonalOperationResultBinding")
+
+  reviewConfigurationVersions ReviewConfigurationVersion[] @relation("PrimaryGatewayBinding")
+  providerProfiles WorkspaceProviderProfile[]
+
+  // Active pair uniqueness is a partial SQL index in 000124. Retired IDs remain.
+  @@index([workspaceId, connectionId, state])
+  // Configuration pointers enforce the workspace through a composite FK.
+  @@unique([id, workspaceId])
+}
+
+// Stable RR owner/workspace deletion custody. Physical identity and all
+// historical FKs remain; only access is removed at terminal tombstoning.
+model WorkspaceDeletionOperation {
+  id                       String   @id
+  workspaceId              String   @unique
+  expectedWorkspaceRevision Int
+  normalizedIntentHash     String
+  actorRef                 String
+  stage                    WorkspaceDeletionStage
+  stageReason              String
+  targets                  Json
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+  completedAt              DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  facts     WorkspaceDeletionFact[]
+
+  @@index([stage, updatedAt])
+}
+
+// Immutable safe lifecycle references. No credential/native wire or SQL proof.
+model WorkspaceDeletionFact {
+  id          String   @id @default(cuid())
+  operationId String
+  kind        WorkspaceDeletionFactKind
+  subjectRef  String
+  proofRef    String
+  detail      Json
+  digest      String
+  createdAt   DateTime @default(now())
+
+  operation WorkspaceDeletionOperation @relation(fields: [operationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([operationId, kind, subjectRef])
+  @@index([operationId, createdAt])
+}
+
+// Safe, finite disabled personal operations. No credential or arbitrary payload.
+model PersonalAccountOperation {
+  id String @id
+  actorUserId String
+  clientOperationId String
+  action String
+  personalWorkspaceId String?
+  owningWorkspaceId String?
+  proposedSourceId String? @unique // Reservation scalar: the source does not exist yet.
+  sourceId String?
+  originalOperationId String?
+  targetWorkspaceId String?
+  profileId String?
+  displayName String?
+  ingress String?
+  oauthMethod String? // Only device_code; null preserves legacy browser identity.
+  normalizedIntentHash String
+  expectedSourceMetadataRevision Int?
+  expectedGatewayRevision BigInt?
+  expectedAuthorizationEpoch BigInt? // Original Gateway epoch, never metadata revision.
+  predecessorBindingId String?
+  expectedPredecessorRevision Int?
+  bindingId String?
+  expectedBindingRevision Int?
+  resultSourceId String?
+  resultBindingId String?
+  noEffectRejectionProofRef String?
+  deleteRemoteRetirementProofRef String?
+  deleteBindingErasureProofRef String?
+  deleteTransportErasureProofRef String?
+  deleteNativeErasureProofRef String?
+  phase String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  actor User @relation(fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  personalWorkspace Workspace? @relation("PersonalOperationScope", fields: [personalWorkspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  owningWorkspace Workspace? @relation("OwningWorkspaceAccountOperation", fields: [owningWorkspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  targetWorkspace Workspace? @relation("PersonalOperationTarget", fields: [targetWorkspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  source ProviderAccountConnection? @relation("PersonalOperationSource", fields: [sourceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  resultSource ProviderAccountConnection? @relation("PersonalOperationResultSource", fields: [resultSourceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  predecessor WorkspaceAccountBinding? @relation("PersonalOperationPredecessor", fields: [predecessorBindingId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  binding WorkspaceAccountBinding? @relation("PersonalOperationBinding", fields: [bindingId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  resultBinding WorkspaceAccountBinding? @relation("PersonalOperationResultBinding", fields: [resultBindingId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  pendingSources ProviderAccountConnection[] @relation("PendingPersonalOperation")
+
+  @@unique([actorUserId, clientOperationId])
+}
+
+enum ProviderAccountConnectionState {
+  active
+  disabled
+  quarantined
+  pending
+  suspended
+  unknown
+}
+
+enum WorkspaceAccountBindingState {
+  active
+  revoked
+}
+
+enum WorkspaceDeletionState {
+  active
+  delete_pending
+  deleted
+}
+
+enum WorkspaceDeletionStage {
+  delete_pending
+  fences_pending
+  execution_closure_pending
+  erase_pending
+  finalize_pending
+  deleted
+  refused
+}
+
+enum WorkspaceDeletionFactKind {
+  binding_fence
+  execution_closure
+  generation_erasure
+  inert_readback
+  final_scope
 }
 
 model UserExternalIdentity {
@@ -158,6 +367,9 @@ model GitLabInstallation {
 }
 
 model RepositoryConnection {
+  resolutionGuards ReviewThreadResolutionGuardV1[]
+  reviewSkillBindings ReviewSkillBinding[]
+  reviewSkillSource ReviewSkillRepositorySource?
   id                      String                @id @default(cuid())
   workspaceId             String
   provider                ScmProvider           @default(github)
@@ -177,6 +389,11 @@ model RepositoryConnection {
   stargazersCount         Int                   @default(0)
   setupStatus             RepositorySetupStatus @default(not_configured)
   inventoryGeneration     BigInt                @default(0)
+  lifecycleResolutionMode String                @default("legacy_open")
+  lifecycleResolutionActivatedAt DateTime?
+  lifecycleResolutionActivationVersion Int      @default(0)
+  lifecycleResolutionWriterDigest String?
+  lifecycleResolutionBootstrapJson Json?
   lastSyncedAt            DateTime?
   createdAt               DateTime              @default(now())
   updatedAt               DateTime              @updatedAt
@@ -200,7 +417,11 @@ model RepositoryConnection {
   codexOAuthSetupPayloadClaims CodexOAuthSetupPayloadClaim[]
   reviewSnapshots              ReviewSnapshot[]
   reviewExecutionCheckpoints   ReviewExecutionCheckpoint[]
+  statisticsReviews           ReviewStatisticsReviewFact[]
+  statisticsIssues            ReviewStatisticsIssueFact[]
   hostedCodexBindings          HostedCodexRepositoryBinding[]
+  providerApiKeyLinks          ProviderApiKeyRepositoryLink[]
+  providerProfiles             WorkspaceProviderProfile[]
 
   @@unique([provider, externalRepositoryId, sourceBaseUrl])
   @@unique([workspaceId, provider, fullName, sourceBaseUrl])
@@ -210,6 +431,63 @@ model RepositoryConnection {
   @@index([gitlabInstallationId])
   @@index([workspaceId, setupStatus])
   @@index([workspaceId, provider, sourceBaseUrl, selected, fullName])
+}
+
+model ProviderApiKeyConnection {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  providerType      String
+  encryptedApiKey   String
+  keyVersion        Int
+  latestOperationId String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace       Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  repositoryLinks ProviderApiKeyRepositoryLink[]
+  providerProfiles WorkspaceProviderProfile[]
+
+  @@unique([workspaceId, providerType])
+  @@unique([id, workspaceId])
+  @@index([workspaceId])
+}
+
+model ProviderApiKeyWorkspaceGrant {
+  id          String   @id @default(cuid())
+  workspaceId String   @unique
+  grantedBy   String?
+  grantReason String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model ProviderApiKeyRepositoryLink {
+  id                         String    @id @default(cuid())
+  workspaceId                String
+  providerApiKeyConnectionId String
+  repositoryId               String
+  status                     String    @default("pending")
+  operationId                String?
+  attemptedKeyVersion        Int
+  appliedKeyVersion          Int?
+  attemptCount               Int       @default(0)
+  reconciliationNeeded       Boolean   @default(false)
+  lastErrorReason            String?
+  lastErrorSummary           String?
+  lastAttemptAt              DateTime?
+  appliedAt                  DateTime?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  connection ProviderApiKeyConnection @relation(fields: [providerApiKeyConnectionId, workspaceId], references: [id, workspaceId], onDelete: Cascade, map: "ProviderApiKeyRepositoryLink_connection_workspace_fkey")
+  repository RepositoryConnection     @relation(fields: [repositoryId, workspaceId], references: [id, workspaceId], onDelete: Cascade, map: "ProviderApiKeyRepositoryLink_repository_workspace_fkey")
+
+  @@unique([providerApiKeyConnectionId, repositoryId])
+  @@index([repositoryId])
+  @@index([providerApiKeyConnectionId, status])
+  @@index([providerApiKeyConnectionId, appliedKeyVersion], map: "ProviderApiKeyRepositoryLink_appliedKeyVersion_idx")
 }
 
 model RepositoryPermissionCache {
@@ -239,34 +517,37 @@ model ReviewConfiguration {
   workspaceId  String
   repositoryId String?
   targetKey    String
+  active       Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   workspace  Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  repository RepositoryConnection?        @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  repository RepositoryConnection?        @relation(fields: [repositoryId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: Restrict)
   versions   ReviewConfigurationVersion[]
 
   @@unique([workspaceId, targetKey])
+  @@unique([id, workspaceId])
   @@index([workspaceId, repositoryId])
 }
 
 model ReviewConfigurationVersion {
   id                                      String   @id @default(cuid())
   configurationId                         String
+  operationId                             String?
+  operationIntentHash                     String?
+  operationSnapshotJson                   String?
+  workspaceId                             String
+  gatewayBindingId                        String?
+  gatewayProfileRef                       String?
   version                                 Int
   schemaVersion                           Int      @default(1)
-  providerKind                            String
-  providerAuthMode                        String
-  model                                   String
-  reasoningEffort                         String
+  policyJson                              String?
+  // Left from the schema 1-3 projection; schema 4 versions keep defaults.
   agenticContext                          Boolean  @default(true)
   fastMode                                Boolean  @default(false)
-  failOnSeverity                          String
-  inlineMaxComments                       Int
   providerLimit                           Int      @default(1)
   providerMaxParallel                     Int      @default(1)
   inlineMinAgreement                      Int      @default(1)
-  targetTokensPerBatch                    Int
   reviewLanguage                          String?
   investigationRecordingEnabled           Boolean  @default(false)
   investigationShadowEnabled              Boolean  @default(false)
@@ -276,29 +557,50 @@ model ReviewConfigurationVersion {
   investigationProductionEffectsEnabled   Boolean  @default(false)
   createdAt                               DateTime @default(now())
 
-  configuration ReviewConfiguration                  @relation(fields: [configurationId], references: [id], onDelete: Cascade)
-  providers     ReviewConfigurationVersionProvider[]
+  configuration ReviewConfiguration @relation(fields: [configurationId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: Restrict)
+  gatewayBinding WorkspaceAccountBinding? @relation("PrimaryGatewayBinding", fields: [gatewayBindingId, workspaceId], references: [id, workspaceId], onDelete: Restrict, onUpdate: Restrict)
 
+  @@unique([id, workspaceId])
+  @@index([gatewayBindingId, workspaceId])
   @@unique([configurationId, version])
+  @@unique([configurationId, operationId])
   @@index([configurationId, createdAt])
 }
 
-model ReviewConfigurationVersionProvider {
-  id                     String  @id @default(cuid())
-  configurationVersionId String
-  order                  Int
-  providerKind           String
-  providerAuthMode       String
-  model                  String
-  reasoningEffort        String
-  agenticContext         Boolean @default(true)
-  fastMode               Boolean @default(false)
-  requiredHealthy        Boolean @default(false)
+// A reusable workspace provider: an immutable credential source plus a model.
+// Never stores a secret. Exactly the reference of the credential kind is set
+// (SQL CHECK) and the credential source is immutable (SQL trigger, 000145).
+model WorkspaceProviderProfile {
+  id                 String                 @id @default(cuid())
+  workspaceId        String
+  // NULL is a system creator or a deleted user: only owners/admins manage it.
+  createdByUserId    String?
+  credentialKind     ProviderCredentialKind
+  authMode           String
+  gatewayBindingId   String?
+  // Captured from the binding at creation; part of the credential source.
+  gatewayProfileRef  String?
+  apiKeyConnectionId String?
+  repositoryId       String?
+  model              String
+  label              String
+  // credentialKind:credentialRef-or-authMode:normalizedModel; NULL once archived.
+  identityKey        String?
+  archivedAt         DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
 
-  configurationVersion ReviewConfigurationVersion @relation(fields: [configurationVersionId], references: [id], onDelete: Cascade)
+  workspace        Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy        User?                     @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  gatewayBinding   WorkspaceAccountBinding?  @relation(fields: [gatewayBindingId, workspaceId], references: [id, workspaceId], onDelete: NoAction, onUpdate: NoAction)
+  apiKeyConnection ProviderApiKeyConnection? @relation(fields: [apiKeyConnectionId, workspaceId], references: [id, workspaceId], onDelete: NoAction, onUpdate: NoAction)
+  repository       RepositoryConnection?     @relation(fields: [repositoryId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: NoAction)
 
-  @@unique([configurationVersionId, order])
-  @@index([configurationVersionId])
+  @@unique([workspaceId, identityKey])
+  @@index([createdByUserId])
+  @@index([gatewayBindingId, workspaceId])
+  @@index([apiKeyConnectionId, workspaceId])
+  @@index([repositoryId, workspaceId])
 }
 
 model ProviderSetupState {
@@ -835,6 +1137,10 @@ model ReviewOperationalSloProfileV2 {
 }
 
 model ProducerRelease {
+  contextToolsProfile                     Json?
+  prDescriptionProfile                    Json?
+  lifecycleVerificationProfile            Json?
+  agentProfilesJson                       String?
   producerReleaseId                      String                     @id
   distributionKind                       ProducerDistributionKindV2
   actionCommitSha                        String
@@ -959,6 +1265,9 @@ model ReviewRunAuthorization {
   operationalSloProfileId                                 String
   mutationEpoch                                           BigInt
   providerVoteLanes                                       Json
+  runtimeSnapshotCanonicalJson                            String?
+  skillsSnapshotCanonicalJson                             String?
+  gatewayExecutionCanonicalJson                           String?
   reviewInvestigationAuthorizationDescriptorCanonicalJson String?
   authorizationSafetyDecisionHash                         String
   protocolOfferHash                                       String
@@ -1470,6 +1779,68 @@ model HostedCodexRuntimeGate {
   @@index([status, authzEpoch, revision], map: "HostedCodexRuntimeGate_authority_idx")
 }
 
+// Offline verified-set projection for the bounded v1 historical unknown cohort.
+// Runtime roles have read access only; no generated client is emitted here.
+model HostedHistoricalScopePolicy {
+  id                       String @id
+  mode                     String
+  databaseResourceIdentity String
+  databaseIncarnation      String
+  receiptDigest            String
+  archiveDigest            String
+  expectedCount            Int
+  expectedSetDigest        String
+}
+
+model HostedHistoricalUnknownScope {
+  id                            String @id
+  githubRepositoryId            BigInt
+  pullRequestNumber             Int
+  headSha                       String
+  providerFamily                String
+  sourceWorkspaceId             String
+  sourceRepositoryConnectionId  String
+  sourceScmRepositoryIdentityId String
+  sourceBaseSha                 String
+  sourceMergeBaseSha            String
+  sourceReviewRevisionHash      String
+  sourceProviderInstanceId      String
+  sourceRunId                   String
+  sourceRunAttempt              String
+  sourceWorkflowRef             String
+  sourceBindingId               String
+  sourceBindingRevision         BigInt
+  sourceRuntimeAuthzEpoch       BigInt?
+  sourceDatabaseIncarnation     String?
+  sourceRelayId                 String @unique
+  sourceAttemptId               String? @unique
+  cohort                        String
+  receiptDigest                 String
+  aliases                       HostedHistoricalScopeAlias[]
+
+  @@index([githubRepositoryId, pullRequestNumber, headSha, providerFamily], map: "HostedHistoricalUnknownScope_match_idx")
+}
+
+model HostedHistoricalScopeAlias {
+  scopeId String
+  kind    String
+  value   String
+  scope   HostedHistoricalUnknownScope @relation(fields: [scopeId], references: [id], onDelete: Restrict)
+
+  @@id([scopeId, kind, value])
+  @@index([kind, value], map: "HostedHistoricalScopeAlias_lookup_idx")
+}
+
+model HostedHistoricalScopeComplete {
+  id                       String @id
+  databaseResourceIdentity String
+  databaseIncarnation      String
+  receiptDigest            String
+  archiveDigest            String
+  memberCount              Int
+  setDigest                String
+}
+
 model HostedCodexCommentTokenMint {
   id                      String                             @id
   purpose                 HostedCodexCommentTokenMintPurpose
@@ -1793,6 +2164,9 @@ model HostedCodexInvocationGrant {
   backupAccountId           String?
   reviewRequestId           String
   providerInvocationKey     String
+  historicalGithubRepositoryId BigInt?
+  historicalPullRequestNumber  Int?
+  historicalHeadSha            String?
   runId                     String
   runAttempt                Int
   model                     String
@@ -2035,6 +2409,9 @@ model HostedCodexDeviceLogin {
   userCode        String
   verificationUrl String
   deviceAuthId    String?
+  targetAccountId String?
+  targetGeneration BigInt?
+  targetHealthVersion BigInt?
   status          HostedCodexDeviceLoginStatus @default(pending)
   expiresAt       DateTime
   createdAt       DateTime                     @default(now())
@@ -2772,6 +3149,11 @@ model WorkflowProvisioning {
   pullRequestHeadSha String?
   pullRequestUrl     String?
   errorMessage       String?
+  // What the current attempt's workflow and the workflow last confirmed
+  // installed are rendered for (transport plus provider kinds, e.g.
+  // ci_secrets+claude). NULL means unknown (rows before 000145).
+  attemptWorkflowRequirement   String?
+  installedWorkflowRequirement String?
   createdAt          DateTime                   @default(now())
   updatedAt          DateTime                   @updatedAt
 
@@ -2912,6 +3294,103 @@ model WorkspaceEntitlement {
   @@index([plan, status])
 }
 
+// Product authority and delivery metadata. Current content belongs to the provider.
+// No foreign-key cascade: cleanup/revocation debt must survive product deletion.
+model MemoryKnowledgeScopeState {
+  generation  String
+  scopeKey    String
+  workspaceId String
+  epoch       BigInt   @default(0)
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@id([generation, scopeKey])
+  @@index([workspaceId])
+}
+
+model MemoryKnowledgeEntry {
+  generation          String
+  scopeKey            String
+  entryId             String
+  workspaceId         String
+  revision            Int
+  lifecycle           String
+  metadata            Json
+  pendingCommandId    String?
+  revocationCommandId String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @default(now()) @updatedAt
+
+  @@id([generation, scopeKey, entryId])
+  @@index([workspaceId, lifecycle])
+  @@index([generation, scopeKey, entryId])
+}
+
+model MemoryKnowledgeCommand {
+  id                      String   @id
+  generation              String
+  scopeKey                String
+  workspaceId             String
+  entryId                 String
+  revision                Int
+  commandKind             String
+  digest                  String
+  approval                Json
+  // Immutable approved input while unresolved; never serves any content read.
+  envelope                Json?
+  state                   String
+  safeReason              String?
+  contentApprovalRevision String
+  originalStatementAt     String?
+  deliveryExpiresAt       DateTime
+  resubmitUntil           DateTime
+  claimId                 String?
+  claimUntil              DateTime?
+  firstDispatchedAt       DateTime?
+  deliveryAttempt         Int      @default(0)
+  cleanupReceiptId        String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @default(now()) @updatedAt
+
+  @@unique([generation, scopeKey, entryId, revision])
+  @@index([generation, scopeKey, entryId, state])
+  @@index([state, deliveryExpiresAt])
+}
+
+model MemoryKnowledgeBundleReceipt {
+  id               String   @id
+  authorizationId  String
+  bindingDigest    String
+  snapshotHash     String?
+  workspaceId      String
+  receipt          Json
+  policyVersion    Int
+  eligibilityEpoch String
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+
+  @@index([expiresAt])
+  @@unique([authorizationId, snapshotHash])
+}
+
+model MemoryKnowledgeMaintenanceFence {
+  generation String   @id
+  epoch      BigInt   @default(0)
+  paused     Boolean  @default(false)
+  actor      String
+  updatedAt  DateTime @default(now()) @updatedAt
+}
+
+model MemoryKnowledgeSourceCursor {
+  key         String   @id
+  generation  String
+  workspaceId String
+  revision    String
+  sourceAt    DateTime
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@index([workspaceId])
+}
+
 model MemoryItem {
   id                  String               @id @default(cuid())
   schemaVersion       Int                  @default(1)
@@ -2944,7 +3423,6 @@ model MemoryItem {
   workspace   Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   repository  RepositoryConnection? @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   user        User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  usageEvents MemoryUsageEvent[]
 
   @@index([workspaceId, scope, status, updatedAt])
   @@index([workspaceId, repositoryId, status, updatedAt])
@@ -2953,6 +3431,33 @@ model MemoryItem {
   @@index([status, updatedAt, workspaceId])
   @@index([workspaceId, bodyHash])
   @@index([originSuggestionId])
+}
+
+// Derived search lifecycle metadata deliberately survives canonical cascades.
+// Never add memory bodies, queries, credentials or provider errors to this model.
+model MemoryProjectionReceipt {
+  id               String   @id @default(uuid())
+  indexIdentity    String
+  workspaceId      String
+  memoryItemId     String
+  repositoryId     String?
+  userId           String?
+  scope            String
+  bodyVersion      Int
+  bodyHash         String
+  sequenceOrdinal  Int      @unique @default(autoincrement())
+  state            String   @default("reserved")
+  remoteDocumentId String?
+  deleteRequested  Boolean  @default(false)
+  nextAttemptAt    DateTime @default(now())
+  lastErrorCode    String?
+  retiredAt        DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now()) @updatedAt
+
+  @@unique([indexIdentity, workspaceId, memoryItemId, bodyVersion, bodyHash], map: "MemoryProjectionReceipt_revision_key")
+  @@index([indexIdentity, state, nextAttemptAt], map: "MemoryProjectionReceipt_due_idx")
+  @@index([indexIdentity, workspaceId, memoryItemId], map: "MemoryProjectionReceipt_item_idx")
 }
 
 model MemorySuggestion {
@@ -3012,7 +3517,6 @@ model MemoryUsageEvent {
 
   workspace  Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   repository RepositoryConnection @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  memoryItem MemoryItem           @relation(fields: [memoryItemId], references: [id], onDelete: Cascade)
 
   @@unique([dedupeKey])
   @@index([workspaceId, occurredAt])
@@ -3105,9 +3609,11 @@ enum ReviewProviderKindV2 {
   codex
   claude_code
   openrouter
+  ocr
 }
 
 enum ReviewTaskKindV2 {
+  pr_description
   finding_discovery
   lifecycle_revalidation
   code_review
@@ -3484,6 +3990,7 @@ enum ReviewPublicationClaimStateV2 {
 }
 
 enum ReviewPublicationKindV2 {
+  pr_description
   summary
   managed_check
   pending_review_create
@@ -3600,6 +4107,14 @@ enum WorkflowProvisioningStatus {
   setup_pr_open
   configured
   failed
+}
+
+enum ProviderCredentialKind {
+  gateway_binding
+  managed_api_key
+  hosted_pool
+  repository_rotating
+  user_ci_secret
 }
 
 enum OrgRulesetProvisioningStatus {
@@ -3850,13 +4365,83 @@ model SdkGrowthAuthorityRecord {
 model SdkGrowthCurrentAuthority {
   scopeKey String                    @id
   epoch    BigInt
+  lastWriteXid BigInt?
   bindings SdkGrowthBindingVersion[]
+}
+
+// Append-only G1 administrative facts, written with an authority epoch advance.
+model SdkGrowthApprovalFact {
+  scopeKey             String
+  epoch                BigInt
+  action               String
+  approvalEpoch        BigInt?
+  proposalReference    String?   @db.VarChar(256)
+  credentialId         String    @db.VarChar(64)
+  credentialGeneration BigInt
+  bindingDigest        String    @db.VarChar(71)
+  decisionDigest       String    @db.VarChar(71)
+  record               Json?
+  v3ManifestId         String?   @db.VarChar(64)
+  recordedAt           DateTime  @default(now()) @db.Timestamptz(6)
+  owner                SdkGrowthOwnerVersion @relation(fields: [scopeKey, epoch], references: [scopeKey, epoch], onDelete: Restrict, onUpdate: NoAction)
+  credential           SdkGrowthOperatorCredential @relation(fields: [credentialId], references: [credentialId], onDelete: Restrict, onUpdate: NoAction)
+  approval             SdkGrowthApprovalFact? @relation("SdkGrowthApprovalRevocations", fields: [scopeKey, approvalEpoch], references: [scopeKey, epoch], onDelete: Restrict, onUpdate: NoAction)
+  revocations          SdkGrowthApprovalFact[] @relation("SdkGrowthApprovalRevocations")
+  v3Manifest           SdkGrowthV3ApprovedManifest? @relation(fields: [v3ManifestId], references: [manifestId], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([scopeKey, epoch])
+  @@index([scopeKey, epoch(sort: Desc)], map: "SdkGrowthApprovalFact_latest_idx")
+}
+
+model SdkGrowthV3ApprovedManifest {
+  manifestId                   String   @id @db.VarChar(64)
+  scopeKey                     String
+  epoch                        BigInt
+  manifestVersion              Int      @default(1)
+  manifestWire                 Bytes
+  manifestByteLength           Int
+  manifestSha256               String   @db.VarChar(71)
+  requestWire                  Bytes
+  requestByteLength            Int
+  requestWireSha256            String   @db.VarChar(71)
+  validationEvidenceWire       Bytes
+  validationEvidenceByteLength Int
+  validationEvidenceSha256     String   @db.VarChar(71)
+  toolArtifactId               String   @db.VarChar(64)
+  recordedAt                   DateTime @default(now()) @db.Timestamptz(6)
+  owner                        SdkGrowthOwnerVersion @relation(fields: [scopeKey, epoch], references: [scopeKey, epoch], onDelete: Restrict, onUpdate: NoAction)
+  toolArtifact                 SdkGrowthV3ToolArtifact @relation(fields: [toolArtifactId], references: [artifactId], onDelete: Restrict, onUpdate: NoAction)
+  approvalFacts                SdkGrowthApprovalFact[]
+
+  @@unique([scopeKey, epoch])
+}
+
+// Dormant G1 operator identity. Only a verifier is durable; later authority
+// mutations must lock and recheck credential generation and disabled state.
+model SdkGrowthOperatorCredential {
+  credentialId       String   @id @db.VarChar(64)
+  generation         BigInt
+  verifierSha256     String   @db.VarChar(64)
+  disabled           Boolean  @default(true)
+  expiresAtMs        BigInt
+  tenantId           String   @db.VarChar(256)
+  repositoryId       String   @db.VarChar(256)
+  pullRequest        BigInt
+  githubRepositoryId String   @db.VarChar(256)
+  installationId     String   @db.VarChar(256)
+  issuer             String   @db.VarChar(256)
+  subject            String   @db.VarChar(256)
+  allowedOperations  String[]
+  approvalFacts      SdkGrowthApprovalFact[]
+
+  @@index([tenantId, repositoryId, pullRequest], map: "SdkGrowthOperatorCredential_scope_idx")
 }
 
 model SdkGrowthBindingVersion {
   scopeKey String
   epoch    BigInt
   binding  Json
+  lastWriteXid BigInt?
   current  SdkGrowthCurrentAuthority @relation(fields: [scopeKey], references: [scopeKey], onDelete: Restrict, onUpdate: NoAction)
   owner    SdkGrowthOwnerVersion?
 
@@ -3871,7 +4456,10 @@ model SdkGrowthOwnerVersion {
   installationActive Boolean
   verifierActive     Boolean
   reason             String
+  lastWriteXid       BigInt?
   binding            SdkGrowthBindingVersion @relation(fields: [scopeKey, epoch], references: [scopeKey, epoch], onDelete: Restrict, onUpdate: NoAction)
+  approvalFact       SdkGrowthApprovalFact?
+  v3Manifest         SdkGrowthV3ApprovedManifest?
 
   @@id([scopeKey, epoch])
 }
@@ -3890,6 +4478,7 @@ model SdkGrowthAuthorityCustody {
   verifierRevision            String                      @db.VarChar(256)
   sourceCommit                String                      @db.VarChar(40)
   sourceTree                  String                      @db.VarChar(40)
+  sourceBinding               Json?
   requestDigest               String                      @db.VarChar(71)
   requestWire                 Bytes
   grantDigest                 String                      @db.VarChar(71)
@@ -3949,9 +4538,28 @@ model SdkGrowthVerifierAssignment {
   createdAt    DateTime  @default(now()) @db.Timestamptz(3)
   expiresAt    DateTime  @db.Timestamptz(3)
   revokedAt    DateTime? @db.Timestamptz(3)
+  efToolArtifactId String? @db.VarChar(64)
+  efToolArtifact SdkGrowthV3ToolArtifact? @relation(fields: [efToolArtifactId], references: [artifactId], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([expiresAt], map: "SdkGrowthVerifierAssignment_expires_idx")
   // SQL migration has a partial unique index on jobKey WHERE revokedAt IS NULL.
+}
+
+model SdkGrowthV3ToolArtifact {
+  artifactId                  String   @id @db.VarChar(64)
+  packageName                 String   @db.VarChar(128)
+  packageVersion              String   @db.VarChar(128)
+  sourceCommit                String   @db.VarChar(40)
+  sourceTree                  String   @db.VarChar(40)
+  installedDistributionDigest String   @db.VarChar(71)
+  provenanceKind              String   @db.VarChar(32)
+  archive                     Bytes
+  archiveByteLength           Int
+  archiveSha256               String   @db.VarChar(71)
+  archiveSha512Sri            String   @db.VarChar(128)
+  recordedAt                  DateTime @default(now()) @db.Timestamptz(6)
+  assignments                 SdkGrowthVerifierAssignment[]
+  manifests                   SdkGrowthV3ApprovedManifest[]
 }
 
 model SdkGrowthVerifierEvidence {
@@ -3967,6 +4575,7 @@ model SdkGrowthVerifierEvidence {
   verifierRevision            String   @db.VarChar(40)
   sourceCommit                String   @db.VarChar(40)
   sourceTree                  String   @db.VarChar(40)
+  sourceBinding               Json?
   producer                    String
   candidateWritable           Boolean  @default(false)
   authorityBinding            Json
@@ -3994,6 +4603,7 @@ model SdkGrowthFinalizedReportEvidence {
   runId             String                    @db.VarChar(256)
   runAttempt        String                    @db.VarChar(256)
   verifierRevision  String                    @db.VarChar(40)
+  sourceBinding     Json?
   producer          String
   candidateWritable Boolean                   @default(false)
   reportDigest      String                    @db.VarChar(71)
@@ -4006,4 +4616,308 @@ model SdkGrowthFinalizedReportEvidence {
   createdAt         DateTime                  @default(now()) @db.Timestamptz(3)
   evidence          SdkGrowthVerifierEvidence @relation(fields: [evidenceId], references: [evidenceId], onDelete: Restrict, onUpdate: Restrict)
 
+}
+
+// Explicit user-managed instructions. Repository skill bytes never enter these tables.
+model ReviewSkill {
+  id String @id
+  sourceWorkspaceId String
+  authorUserId String
+  createOperationId String?
+  headRevisionId String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+  sourceWorkspace Workspace @relation(fields: [sourceWorkspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  headRevision ReviewSkillRevision @relation("ReviewSkillHead", fields: [headRevisionId, id], references: [id, skillId], onDelete: Restrict, onUpdate: Restrict)
+  revisions ReviewSkillRevision[] @relation("ReviewSkillRevisions")
+  grants ReviewSkillGrant[]
+  links ReviewSkillLink[]
+  bindings ReviewSkillBinding[]
+  @@index([sourceWorkspaceId, id])
+  @@unique([sourceWorkspaceId, authorUserId, createOperationId])
+}
+
+model ReviewSkillRevision {
+  id String @id
+  skillId String
+  revisionNumber Int
+  name String
+  description String
+  instructions String
+  contentDigest String @db.VarChar(71)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  skill ReviewSkill @relation("ReviewSkillRevisions", fields: [skillId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  headFor ReviewSkill[] @relation("ReviewSkillHead")
+  @@unique([id, skillId])
+  @@unique([skillId, revisionNumber])
+}
+
+model ReviewSkillGrant {
+  skillId String
+  destinationWorkspaceId String
+  grantedBy String
+  grantedAt DateTime @default(now()) @db.Timestamptz(3)
+  revokedAt DateTime? @db.Timestamptz(3)
+  version Int @default(1)
+  skill ReviewSkill @relation(fields: [skillId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  destinationWorkspace Workspace @relation(fields: [destinationWorkspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  @@id([skillId, destinationWorkspaceId])
+  @@index([destinationWorkspaceId, skillId])
+}
+
+model ReviewSkillLink {
+  workspaceId String
+  skillId String
+  acceptedGrantVersion Int
+  acceptedBy String
+  acceptedAt DateTime @default(now()) @db.Timestamptz(3)
+  unlinkedAt DateTime? @db.Timestamptz(3)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  skill ReviewSkill @relation(fields: [skillId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  @@id([workspaceId, skillId])
+}
+
+model ReviewSkillBinding {
+  workspaceId String
+  repositoryConnectionId String
+  skillId String
+  includePaths Json
+  excludePaths Json
+  generation String @default(dbgenerated("gen_random_uuid()::text"))
+  version Int @default(1)
+  repository RepositoryConnection @relation(fields: [repositoryConnectionId, workspaceId], references: [id, workspaceId], onDelete: Restrict, onUpdate: Restrict)
+  skill ReviewSkill @relation(fields: [skillId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  @@id([repositoryConnectionId, skillId])
+  @@index([workspaceId, skillId])
+}
+
+model ReviewSkillRepositorySource {
+  repositoryConnectionId String @id
+  roots Json
+  version Int @default(1)
+  repository RepositoryConnection @relation(fields: [repositoryConnectionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+}
+
+model ReviewContextConnection {
+  workspaceId      String
+  connectionId     String
+  revision         Int
+  definition       Json
+  encryptedSecrets String?  @db.Text
+  enabled          Boolean @default(true)
+  updatedAt        DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@id([workspaceId, connectionId])
+}
+
+// Provider usage facts are immutable. JSON holds only the versioned safe RR DTO.
+model UsageSourceFact {
+  sourceInstance String
+  eventId String
+  revision Int
+  hash String
+  callId String
+  workspaceId String
+  fact Json
+  occurredAt DateTime @db.Timestamptz(3)
+  receivedAt DateTime @default(now()) @db.Timestamptz(3)
+  @@id([sourceInstance, eventId, revision])
+  @@index([callId])
+  @@index([receivedAt])
+}
+model UsageCall {
+  callId String @id
+  workspaceId String
+  actorId String?
+  provider String
+  actualModel String?
+  route String
+  bindingId String?
+  runId String?
+  purpose String
+  occurredAt DateTime @db.Timestamptz(3)
+  identityHash String
+  projection Json
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  @@index([workspaceId, occurredAt, provider, actualModel])
+}
+model UsageDedupeTombstone {
+  sourceInstance String
+  eventId String
+  callId String
+  workspaceId String
+  identityHash String
+  lastRevision Int
+  lastHash String
+  lastAcceptedAt DateTime @db.Timestamptz(3)
+  expiresAt DateTime @db.Timestamptz(3)
+  @@id([sourceInstance, eventId])
+  @@index([expiresAt])
+}
+model UsageSourceCheckpoint {
+  failureCount Int @default(0)
+  nextAttemptAt DateTime? @db.Timestamptz(3)
+  deadLetteredAt DateTime? @db.Timestamptz(3)
+  lastErrorCode String?
+  sourceInstance String @id
+  workspaceId String
+  cursor String?
+  highWaterMark String?
+  fence BigInt @default(0)
+  leaseOwner String?
+  leaseUntil DateTime? @db.Timestamptz(3)
+  coveredFrom DateTime @db.Timestamptz(3)
+  asOf DateTime? @db.Timestamptz(3)
+  disabledAt DateTime? @db.Timestamptz(3)
+  @@index([workspaceId])
+}
+model UsageIngestionConflict {
+  id String @id
+  workspaceId String
+  sourceInstance String
+  eventId String
+  revision Int
+  code String
+  incomingHash String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  @@index([workspaceId, createdAt])
+}
+model ProviderUsageGrant {
+  purpose String @default("review")
+  bootstrapLeaseId String?
+  bootstrapScope Json?
+  actionSessionScope Json?
+  producerCoverage Json?
+  priceSnapshot Json?
+  githubInstallationId String?
+  repositoryFullName String?
+  artifactDeletedAt DateTime? @db.Timestamptz(3)
+  recoveryClaimToken String?
+  recoveryClaimUntil DateTime? @db.Timestamptz(3)
+  recoveryNextAttemptAt DateTime? @db.Timestamptz(3)
+  recoveredAt DateTime? @db.Timestamptz(3)
+  id String @id
+  tokenHash String @unique
+  workspaceId String
+  invocationId String
+  repositoryId String
+  runId String
+  runAttempt Int
+  authorizationId String
+  actorId String?
+  bindingId String?
+  producerDigest String
+  workflowIdentity String
+  jobIdentity String
+  publicKey String
+  issuedAt DateTime @db.Timestamptz(3)
+  expiresAt DateTime @db.Timestamptz(3)
+  closedAt DateTime? @db.Timestamptz(3)
+  revokedAt DateTime? @db.Timestamptz(3)
+  @@index([workspaceId, invocationId])
+  @@index([workspaceId,actorId])
+  @@index([revokedAt,artifactDeletedAt])
+  @@index([recoveredAt,recoveryNextAttemptAt])
+}
+model UsageUnattributedObservation {
+  nextResolutionAt DateTime @default(now()) @db.Timestamptz(3)
+  sourceInstance String
+  eventId String
+  revision Int
+  hash String
+  payload Json
+  workspaceId String?
+  observedAt DateTime @db.Timestamptz(3)
+  receivedAt DateTime @default(now()) @db.Timestamptz(3)
+  reason String
+  resolvedAt DateTime? @db.Timestamptz(3)
+  @@id([sourceInstance,eventId,revision])
+  @@index([receivedAt])
+  @@index([resolvedAt,nextResolutionAt])
+}
+
+
+// Durable compact statistics; deliberately independent of operational retention.
+model ReviewStatisticsCoverage {
+  id String @id
+  activatedAt DateTime @db.Timestamp(3)
+}
+
+model ReviewStatisticsReviewFact {
+  executionId String @id
+  workspaceId String
+  repositoryConnectionId String
+  scmRepositoryIdentityId String
+  pullRequestNumber Int
+  settledAt DateTime @db.Timestamp(3)
+  payloadHash String
+  repository RepositoryConnection @relation(fields: [repositoryConnectionId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: Restrict, map: "ReviewStatisticsReviewFact_repository_tenant_fkey")
+  @@index([workspaceId, settledAt, executionId], map: "statistics_review_workspace_time_idx")
+  @@index([repositoryConnectionId, workspaceId], map: "statistics_review_repository_idx")
+}
+
+model ReviewStatisticsIssueFact {
+  id String @id
+  workspaceId String
+  repositoryConnectionId String
+  scmRepositoryIdentityId String
+  pullRequestNumber Int
+  lineageId String
+  severity String
+  title String
+  caughtAt DateTime @db.Timestamp(3)
+  sourceExecutionId String
+  repository RepositoryConnection @relation(fields: [repositoryConnectionId, workspaceId], references: [id, workspaceId], onDelete: Cascade, onUpdate: Restrict, map: "ReviewStatisticsIssueFact_repository_tenant_fkey")
+  @@unique([workspaceId, scmRepositoryIdentityId, pullRequestNumber, lineageId], map: "ReviewStatisticsIssueFact_lineage_key")
+  @@index([workspaceId, caughtAt, id], map: "statistics_issue_workspace_time_idx")
+  @@index([workspaceId, severity, caughtAt, id], map: "statistics_issue_severity_time_idx")
+  @@index([workspaceId, repositoryConnectionId, caughtAt, id], map: "statistics_issue_repository_time_idx")
+  @@index([workspaceId, repositoryConnectionId, severity, caughtAt, id], map: "statistics_issue_repo_severity_time_idx")
+  @@index([repositoryConnectionId, workspaceId], map: "statistics_issue_repository_idx")
+}
+
+// One durable claim permits at most one native companion request per slot attempt.
+model ReviewRunCompanionDispatchV1 {
+  authorizationId String
+  dispatchId String
+  role String
+  executionId String
+  workSlotId String
+  attemptOrdinal Int
+  leaseId String
+  fencingToken BigInt
+  preparedManifestKey String
+  providerRequestEnvelopeHash String
+  nativeRequestRef String
+  state String
+  usageHash String?
+  resultHash String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  claimedAt DateTime
+  completedAt DateTime?
+  retainUntil DateTime
+
+  @@id([authorizationId, dispatchId])
+  @@unique([authorizationId, workSlotId, attemptOrdinal])
+  @@index([retainUntil])
+}
+
+// Compact target history deliberately outlives detailed publication receipts.
+model ReviewThreadResolutionGuardV1 {
+  workspaceId String
+  repositoryConnectionId String
+  scmRepositoryIdentityId String
+  pullRequestNumber Int
+  threadId String
+  version Int @default(0)
+  confirmedFactJson Json?
+  pendingFactsJson Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  repositoryConnection RepositoryConnection @relation(fields: [repositoryConnectionId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, repositoryConnectionId, scmRepositoryIdentityId, pullRequestNumber, threadId])
 }

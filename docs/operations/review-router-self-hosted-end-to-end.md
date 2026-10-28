@@ -39,7 +39,7 @@ Prepare:
 - a Linux host with Docker and Docker Compose v2
 - public HTTPS web and API names, for example
   `reviewrouter.example.com` and `api.reviewrouter.example.com`
-- Node.js 24 LTS, Corepack, Git, `gh`, `curl`, and OpenSSL on the operator
+- Node.js 26.11.1 (supports the repository's `>=24` engines range), npm, Git, `gh`, `curl`, and OpenSSL on the operator
   machine
 - a GitHub organization or account that can create and install a GitHub App
 - a disposable repository for the first live review
@@ -57,7 +57,7 @@ On the **host**, clone and install:
 ```bash
 git clone https://github.com/777genius/review-router-ai.git
 cd review-router-ai
-corepack enable
+npm install --global pnpm@10.33.0
 pnpm install --frozen-lockfile
 cp deploy/self-hosted/.env.example deploy/self-hosted/.env
 chmod 600 deploy/self-hosted/.env

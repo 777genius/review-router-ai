@@ -1,5 +1,9 @@
 "use server";
 
+import { providerApiConfigurationMode } from "@reviewrouter/features-review-config";
+
+import { contextToolsWorkflowSecrets } from "../../src/server/context-tools";
+
 import { createHash, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -7,11 +11,6 @@ import {
   recordAuditEvent,
   PrismaAuditLogRepository,
 } from "@reviewrouter/features-audit-log";
-import {
-  assertWorkspaceFeatureEntitlement,
-  PrismaEntitlementRepository,
-  type EntitlementFeature,
-} from "@reviewrouter/features-entitlements";
 import { OutboxInstallationSyncRequester } from "@reviewrouter/features-github-installations";
 import {
   PrismaOutboxEventRepository,
@@ -25,33 +24,23 @@ import {
   type OrgRulesetScope,
 } from "@reviewrouter/features-org-ruleset-provisioning";
 import {
-  clearReviewConfiguration,
-  PrismaReviewConfigurationRepository,
+  PrismaReviewPolicyHeadReader,
   resolveReviewRuntimeEnv,
+  saveRepositoryReviewSettings,
+  saveWorkspaceReviewSettings,
+  type RepositoryReviewSettings,
   type ResolvedReviewRuntimeEnv,
-  saveReviewConfiguration,
   type ReviewConfiguration,
+  type SavedReviewPolicy,
 } from "@reviewrouter/features-review-config";
-import {
-  confirmMemorySuggestion,
-  createDashboardMemorySource,
-  deleteMemoryItem,
-  disableMemoryItem,
-  editMemoryItem,
-  rejectMemorySuggestion,
-  rememberMemoryDirectly,
-  type MemoryMutationResult,
-} from "@reviewrouter/features-memory";
-import type { ProviderKind } from "@reviewrouter/features-review-providers";
 import type { PrismaClient } from "@reviewrouter/platform-db";
+import { resolveApprovedSecretsRuntimeActionRef } from "../../src/server/workflow-provisioning/approved-secrets-action-ref";
 import {
   CodexDeviceAuthGateway,
   PrismaHostedCodexDeviceLoginStore,
   type HostedAccountSafeSummary,
 } from "@reviewrouter/features-hosted-account-pool";
 import {
-  isCodexRotatingOAuthAllowedForRepository,
-  isCodexRotatingOAuthAllowedForWorkspaceDefault,
   isConflictReviewFallbackAllowedForRepository,
   isWorkflowProvisioningEnabled,
   isHostedCodexPoolEnabled,
@@ -85,8 +74,14 @@ import {
   readCanonicalIsolatedQualityWorkflowSourceMetadata,
   readCanonicalHostedPoolWorkflowMetadata,
   workflowDocumentSemanticSha256,
+  workflowChecksOutReviewRouterRuntime,
   WorkflowSourceTrust,
   type ReviewRouterWorkflowStyle,
+  ciSecretsWorkflowProviderKind,
+  requiredWorkflowTransport,
+  verifiedWorkflowRequirement,
+  validateAccountGatewayActionRef,
+  reviewRouterWorkflowContract,
 } from "@reviewrouter/features-workflow-provisioning";
 import {
   confirmCodexRotatingSetupReadiness,
@@ -106,13 +101,14 @@ import {
   dashboardMutationAccessAuditMetadata,
   getDashboardSignedInActor,
   getDashboardWorkspaceScope,
-  type DashboardMutationActor,
 } from "../../src/server/dashboard-mutations";
-import {
-  createDashboardMemoryDependencies,
-  resolveDashboardMemoryActor,
-} from "../../src/server/dashboard-memory";
 import { createDashboardRateLimitPolicy } from "../../src/server/dashboard-rate-limits";
+import {
+  assertDashboardEntitlement,
+  assertGatewayReviewActorUnchanged,
+  assertRepositoryConfigMutable,
+  loadDashboardRepository,
+} from "../../src/server/dashboard-repository-guards";
 import { refreshGitHubUserRepositoryAccess } from "../../src/server/github-user-repository-access";
 import { getPrisma } from "../../src/server/prisma";
 import { inspectSetupPullRequest } from "../../src/server/setup-pull-request-status";
@@ -136,18 +132,20 @@ import {
   providerSecretNamesForAuthMode,
   providerSetupStateForSecretCheckError,
   readFormString,
-  readMemoryScope,
-  readOptionalEditedMemory,
   readOptionalFormString,
-  readOptionalPositiveInteger,
   readProviderSecretScope,
   readProviderSetupConfirmationMode,
   readProviderSetupSelection,
-  readReviewConfigurationForm,
+  readRepositoryReviewSettingsForm,
+  readReviewPolicyExpectedVersion,
   readReviewDiscussionMode,
   readWorkflowStyle,
+  readWorkspaceReviewSettingsForm,
 } from "./dashboard-action-form-readers";
-import { safeDashboardErrorCode } from "./dashboard-error-codes";
+import {
+  dashboardUntrustedWorkflowPathFromError,
+  safeDashboardErrorCode,
+} from "./dashboard-error-codes";
 import { dashboardPath } from "./dashboard-section";
 import {
   changeHostedPoolAccountState,
@@ -161,6 +159,17 @@ import {
   type HostedSessionSource,
 } from "../../src/server/hosted-pool-dashboard";
 import { createPrismaHostedPoolDashboardMutationPort } from "../../src/server/prisma-hosted-pool-mutations";
+import {
+  assertCodexRotatingOAuthRepositoryAllowed,
+  assertCodexRotatingReviewConfigAllowed,
+} from "../../src/server/dashboard-review-configuration-validation";
+import {
+  dashboardProviderActor,
+  dashboardRepositoryCapability,
+  dashboardReviewConfigurations,
+  dashboardSelectionDependencies,
+} from "../../src/server/dashboard-provider-selections";
+import { provisionGatewayReviewV2Repository } from "../../src/server/prisma-gateway-review-v2-provisioning";
 
 export async function requestInstallationSyncAction(
   formData: FormData,
@@ -234,6 +243,21 @@ export async function startHostedPoolDeviceLoginClientAction(
         workspaceId,
         label: readFormString(formData, "label"),
         priority: readNonNegativeInteger(formData, "priority"),
+        ...(formData.get("accountId") !== null
+          ? {
+              reconnectTarget: {
+                accountId: readFormString(formData, "accountId"),
+                expectedGeneration: readNonNegativeInteger(
+                  formData,
+                  "expectedGeneration",
+                ),
+                expectedHealthVersion: readNonNegativeInteger(
+                  formData,
+                  "expectedHealthVersion",
+                ),
+              },
+            }
+          : {}),
       },
       createHostedPoolDeviceLoginDependencies(),
     );
@@ -953,16 +977,15 @@ export async function confirmProviderSecretSetupClientAction(
 export async function createMemoryItemAction(
   formData: FormData,
 ): Promise<never> {
-  const params = await createMemoryItemMutation(formData);
+  const params = await refusePausedMemoryMutation(formData);
 
-  revalidateDashboard();
   redirectAfterMutation(formData, params);
 }
 
 export async function createMemoryItemClientAction(
   formData: FormData,
 ): Promise<{ readonly params: Record<string, string> }> {
-  const params = await createMemoryItemMutation(formData);
+  const params = await refusePausedMemoryMutation(formData);
 
   return { params };
 }
@@ -970,16 +993,15 @@ export async function createMemoryItemClientAction(
 export async function confirmMemorySuggestionAction(
   formData: FormData,
 ): Promise<never> {
-  const params = await confirmMemorySuggestionMutation(formData);
+  const params = await refusePausedMemoryMutation(formData);
 
-  revalidateDashboard();
   redirectAfterMutation(formData, params);
 }
 
 export async function confirmMemorySuggestionClientAction(
   formData: FormData,
 ): Promise<{ readonly params: Record<string, string> }> {
-  const params = await confirmMemorySuggestionMutation(formData);
+  const params = await refusePausedMemoryMutation(formData);
 
   return { params };
 }
@@ -987,31 +1009,29 @@ export async function confirmMemorySuggestionClientAction(
 export async function rejectMemorySuggestionAction(
   formData: FormData,
 ): Promise<never> {
-  const params = await rejectMemorySuggestionMutation(formData);
+  const params = await refusePausedMemoryMutation(formData);
 
-  revalidateDashboard();
   redirectAfterMutation(formData, params);
 }
 
 export async function rejectMemorySuggestionClientAction(
   formData: FormData,
 ): Promise<{ readonly params: Record<string, string> }> {
-  const params = await rejectMemorySuggestionMutation(formData);
+  const params = await refusePausedMemoryMutation(formData);
 
   return { params };
 }
 
 export async function editMemoryItemAction(formData: FormData): Promise<never> {
-  const params = await editMemoryItemMutation(formData);
+  const params = await refusePausedMemoryMutation(formData);
 
-  revalidateDashboard();
   redirectAfterMutation(formData, params);
 }
 
 export async function editMemoryItemClientAction(
   formData: FormData,
 ): Promise<{ readonly params: Record<string, string> }> {
-  const params = await editMemoryItemMutation(formData);
+  const params = await refusePausedMemoryMutation(formData);
 
   return { params };
 }
@@ -1019,16 +1039,15 @@ export async function editMemoryItemClientAction(
 export async function disableMemoryItemAction(
   formData: FormData,
 ): Promise<never> {
-  const params = await disableMemoryItemMutation(formData);
+  const params = await refusePausedMemoryMutation(formData);
 
-  revalidateDashboard();
   redirectAfterMutation(formData, params);
 }
 
 export async function disableMemoryItemClientAction(
   formData: FormData,
 ): Promise<{ readonly params: Record<string, string> }> {
-  const params = await disableMemoryItemMutation(formData);
+  const params = await refusePausedMemoryMutation(formData);
 
   return { params };
 }
@@ -1036,16 +1055,15 @@ export async function disableMemoryItemClientAction(
 export async function deleteMemoryItemAction(
   formData: FormData,
 ): Promise<never> {
-  const params = await deleteMemoryItemMutation(formData);
+  const params = await refusePausedMemoryMutation(formData);
 
-  revalidateDashboard();
   redirectAfterMutation(formData, params);
 }
 
 export async function deleteMemoryItemClientAction(
   formData: FormData,
 ): Promise<{ readonly params: Record<string, string> }> {
-  const params = await deleteMemoryItemMutation(formData);
+  const params = await refusePausedMemoryMutation(formData);
 
   return { params };
 }
@@ -1072,7 +1090,7 @@ export async function checkProviderRepositorySecretClientAction(
     : providerSecretNamesForAuthMode(providerSetup.authMode);
 
   try {
-    const repository = await loadRepositoryForWorkspace({
+    const repository = await loadDashboardRepository({
       prisma,
       workspaceId,
       repositoryId,
@@ -1149,6 +1167,10 @@ async function createSetupPullRequestMutation(
   const workflowStyle = readWorkflowStyle(formData);
   const discussionMode = readReviewDiscussionMode(formData);
   let params: Record<string, string>;
+  let auditSubject: {
+    readonly actor: string;
+    readonly repository: string;
+  } | null = null;
 
   try {
     const repository = await prisma.repositoryConnection.findUnique({
@@ -1193,6 +1215,7 @@ async function createSetupPullRequestMutation(
       actor: actor.actor,
       feature: "workflow_provisioning",
     });
+    auditSubject = { actor: actor.actor, repository: repository.fullName };
     await createDashboardRateLimitPolicy(prisma).assertWorkflowSetupPrAllowed({
       workspaceId,
       repositoryId,
@@ -1202,21 +1225,52 @@ async function createSetupPullRequestMutation(
       workspaceId,
       repositoryId,
     });
-    assertCodexProductionReviewConfigAllowed(resolvedRuntime.config);
+    const transport = requiredWorkflowTransport(resolvedRuntime.config);
+    const accountGateway = transport === "gateway";
+    const mcpSecrets = accountGateway
+      ? await contextToolsWorkflowSecrets(
+          workspaceId,
+          resolvedRuntime.config.contextTools,
+        )
+      : undefined;
+    const openRouterDirect = transport === "provider_api";
+    const providerApiAuthMode = openRouterDirect
+      ? providerApiConfigurationMode(resolvedRuntime.config)
+      : undefined;
+    const managedReview = accountGateway || openRouterDirect;
+    if (
+      managedReview &&
+      (workflowStyle === "explicit" || discussionMode === "suggest")
+    ) {
+      throw new Error(
+        openRouterDirect
+          ? "openrouter_direct_workflow_options_not_supported"
+          : "account_gateway_workflow_options_not_supported",
+      );
+    }
+    const gatewayActionRef = accountGateway
+      ? validateAccountGatewayActionRef(
+          process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF,
+        )
+      : openRouterDirect
+        ? resolveReviewRouterCodexRotatingActionRef()
+        : undefined;
     assertCodexRotatingReviewConfigAllowed({
       config: resolvedRuntime.config,
       repository: githubRepository,
     });
-    const workflowProviderKind = workflowReadinessProviderKind(
-      resolvedRuntime.config,
-    );
+    const workflowProviderKind = managedReview
+      ? undefined
+      : ciSecretsWorkflowProviderKind(resolvedRuntime.config);
     const codexRotatingProviderInstanceId =
-      resolveCodexRotatingProviderInstanceId({
-        config: resolvedRuntime.config,
-        githubRepositoryId: githubRepository.githubRepositoryId.toString(),
-        repositoryFullName: repository.fullName,
-        repositoryVisibility: repository.visibility,
-      });
+      transport === "rotating"
+        ? resolveCodexRotatingProviderInstanceId({
+            config: resolvedRuntime.config,
+            githubRepositoryId: githubRepository.githubRepositoryId.toString(),
+            repositoryFullName: repository.fullName,
+            repositoryVisibility: repository.visibility,
+          })
+        : undefined;
     const codexRotatingSecretInputs = codexRotatingProviderInstanceId
       ? codexRotatingWorkflowSecretInputs(resolvedRuntime.config)
       : null;
@@ -1253,30 +1307,74 @@ async function createSetupPullRequestMutation(
       name: repository.name,
       defaultBranch: repository.defaultBranch,
     });
-    const actionRef = codexRotatingProviderInstanceId
-      ? await resolveCodexRotatingProvisioningActionRef({
-          prisma,
-          inspection: codexRotatingWorkflowNamespaceInspection!,
-          octokit,
-          owner: repository.owner,
-          name: repository.name,
-          defaultBranch: repository.defaultBranch,
-          expectedRepositoryId: githubRepository.githubRepositoryId.toString(),
-          expectedRepositoryFullName: repository.fullName,
-          expectedProviderInstanceId: codexRotatingProviderInstanceId,
-        })
-      : resolveReviewRouterActionRef();
-    const conflictReviewFallbackAllowed = codexRotatingProviderInstanceId
-      ? false
-      : isConflictReviewFallbackAllowedForRepository(repository.fullName);
-    const workflowPath = codexRotatingProviderInstanceId
-      ? codexWorkflowPathForRepository({
-          repositoryId: githubRepository.githubRepositoryId.toString(),
-          repositoryFullName: repository.fullName,
-        })
-      : defaultWorkflowPath;
+    const actionRef =
+      gatewayActionRef ??
+      (codexRotatingProviderInstanceId
+        ? await resolveCodexRotatingProvisioningActionRef({
+            prisma,
+            inspection: codexRotatingWorkflowNamespaceInspection!,
+            octokit,
+            owner: repository.owner,
+            name: repository.name,
+            defaultBranch: repository.defaultBranch,
+            expectedRepositoryId:
+              githubRepository.githubRepositoryId.toString(),
+            expectedRepositoryFullName: repository.fullName,
+            expectedProviderInstanceId: codexRotatingProviderInstanceId,
+          })
+        : resolveReviewRouterActionRef());
+    const conflictReviewFallbackAllowed =
+      managedReview || codexRotatingProviderInstanceId
+        ? false
+        : isConflictReviewFallbackAllowedForRepository(repository.fullName);
+    const secretsRuntimeActionRef =
+      !managedReview &&
+      !codexRotatingProviderInstanceId &&
+      !conflictReviewFallbackAllowed &&
+      workflowStyle === "reusable"
+        ? await resolveApprovedSecretsRuntimeActionRef(actionRef, {
+            isRegistered: async (commitSha) =>
+              !!(await prisma.producerRelease.findFirst({
+                where: {
+                  actionCommitSha: commitSha,
+                  distributionKind: "public_reusable",
+                  state: "registered",
+                  revokedAt: null,
+                },
+                select: { producerReleaseId: true },
+              })),
+            hasSecretsRuntime: async (commitSha) => {
+              try {
+                const result = await octokit.request(
+                  "GET /repos/{owner}/{repo}/contents/{path}",
+                  {
+                    owner: "777genius",
+                    repo: "review-router",
+                    path: ".github/workflows/reviewrouter-secrets-runtime.yml",
+                    ref: commitSha,
+                    request: { timeout: 15000 },
+                  },
+                );
+                return (
+                  !Array.isArray(result.data) && result.data.type === "file"
+                );
+              } catch {
+                return false;
+              }
+            },
+          })
+        : undefined;
+    const workflowPath = managedReview
+      ? reviewRouterWorkflowContract.callerPath
+      : codexRotatingProviderInstanceId
+        ? codexWorkflowPathForRepository({
+            repositoryId: githubRepository.githubRepositoryId.toString(),
+            repositoryFullName: repository.fullName,
+          })
+        : defaultWorkflowPath;
     const workflowReady = await isWorkflowSetupAlreadyCurrent(
       {
+        ...(secretsRuntimeActionRef ? { secretsRuntimeActionRef } : {}),
         githubInstallationId:
           githubRepository.installation.githubInstallationId.toString(),
         githubRepositoryId: githubRepository.githubRepositoryId.toString(),
@@ -1286,6 +1384,14 @@ async function createSetupPullRequestMutation(
         defaultBranch: setupBaseBranch,
         actionRef,
         discussionMode,
+        ...(accountGateway
+          ? {
+              codexSessionMode: "account-gateway" as const,
+              ...(mcpSecrets ? { mcpSecrets } : {}),
+            }
+          : openRouterDirect
+            ? { providerApiAuthMode: providerApiAuthMode! }
+            : {}),
         conflictReviewFallbackEnabled: conflictReviewFallbackAllowed,
         ...(codexRotatingProviderInstanceId
           ? {
@@ -1374,7 +1480,14 @@ async function createSetupPullRequestMutation(
               actionRef,
               apiUrl: resolveWorkflowPublicApiUrl(),
               runtimeConfigMode: "oidc",
-              staticRuntimeEnv: resolvedRuntime.runtimeEnv,
+              ...(accountGateway
+                ? {
+                    codexSessionMode: "account-gateway" as const,
+                    ...(mcpSecrets ? { mcpSecrets } : {}),
+                  }
+                : openRouterDirect
+                  ? { providerApiAuthMode: providerApiAuthMode! }
+                  : { staticRuntimeEnv: resolvedRuntime.runtimeEnv }),
               workflowStyle,
               discussionMode,
               conflictReviewFallbackEnabled: conflictReviewFallbackAllowed,
@@ -1391,6 +1504,13 @@ async function createSetupPullRequestMutation(
             },
             {
               targets: new PrismaWorkflowProvisioningTarget(prisma),
+              ...(secretsRuntimeActionRef ? { secretsRuntimeActionRef } : {}),
+              configurations: dashboardReviewConfigurations(
+                prisma,
+                actor.userId,
+              ),
+              trustedGithubRepositoryId:
+                githubRepository.githubRepositoryId.toString(),
               setupGateway,
               provisioning: new PrismaWorkflowProvisioningRepository(prisma),
               auditLog: new PrismaAuditLogRepository(prisma),
@@ -1410,8 +1530,34 @@ async function createSetupPullRequestMutation(
       };
     }
   } catch (error) {
+    const errorCode = safeDashboardErrorCode(error);
+    const untrustedWorkflowPath =
+      dashboardUntrustedWorkflowPathFromError(error);
+    if (auditSubject) {
+      try {
+        await recordAuditEvent(
+          {
+            workspaceId,
+            actor: auditSubject.actor,
+            action: "workflow.setup_pr_failed",
+            targetType: "repository",
+            targetId: repositoryId,
+            metadata: {
+              repository: auditSubject.repository,
+              errorCode,
+              ...(untrustedWorkflowPath
+                ? { workflowPath: untrustedWorkflowPath }
+                : {}),
+            },
+          },
+          { auditLog: new PrismaAuditLogRepository(prisma) },
+        );
+      } catch {
+        // A failed diagnostics write must not replace the user's own error.
+      }
+    }
     params = {
-      error: safeDashboardErrorCode(error),
+      error: errorCode,
       workspace: workspaceId,
       section: "repositories",
     };
@@ -1427,6 +1573,12 @@ async function confirmSetupPullRequestMergedMutation(
   const repositoryId = readFormString(formData, "repositoryId");
   const workspaceId = readFormString(formData, "workspaceId");
   let params: Record<string, string>;
+  let gatewayReviewV2Audit: {
+    readonly actor: string;
+    readonly repository: string;
+    readonly status: string;
+    readonly issue?: string;
+  } | null = null;
 
   try {
     const writerSchemaPolicy = createCodexRotatingWriterSchemaPolicy();
@@ -1516,21 +1668,19 @@ async function confirmSetupPullRequestMergedMutation(
         )
       : null;
     const setupPullRequestStatus = setupPullRequestInspection?.status ?? null;
-    // Migrated PRs have no immutable head binding. They must independently
-    // verify the installed workflow before using the fenced recovery path.
+    // Missing or changed PR heads cannot establish the original artifact.
+    // Recover only through independent installed-workflow verification and CAS.
     const historicalMergedSetupPullRequest =
       setupPullRequestInspection?.merged === true &&
-      setupProvisioning?.pullRequestHeadSha === null;
+      (setupProvisioning?.pullRequestHeadSha === null ||
+        (setupPullRequestStatus === "merged" &&
+          setupProvisioning?.pullRequestHeadSha !==
+            setupPullRequestInspection.headSha));
     const setupPullRequestMerged =
       setupPullRequestStatus === "merged" &&
-      setupProvisioning?.pullRequestHeadSha != null;
-    if (
-      setupPullRequestMerged &&
-      (!setupProvisioning?.pullRequestHeadSha ||
-        setupProvisioning.pullRequestHeadSha !==
-          setupPullRequestInspection?.headSha)
-    )
-      throw new Error("workflow_provisioning_match_not_found");
+      setupProvisioning?.pullRequestHeadSha != null &&
+      setupProvisioning.pullRequestHeadSha ===
+        setupPullRequestInspection?.headSha;
     const setupBaseBranch = historicalMergedSetupPullRequest
       ? repository.defaultBranch
       : (setupPullRequestInspection?.baseBranch ??
@@ -1578,7 +1728,6 @@ async function confirmSetupPullRequestMergedMutation(
       workspaceId,
       repositoryId,
     });
-    assertCodexProductionReviewConfigAllowed(resolvedRuntime.config);
     assertCodexRotatingReviewConfigAllowed({
       config: resolvedRuntime.config,
       repository: githubRepository,
@@ -1586,19 +1735,34 @@ async function confirmSetupPullRequestMergedMutation(
     // A stored PR head binds the attempt, not the installed runtime. Both hosted
     // reconfirmation and an intentional rotating switch can start with the same
     // active binding and hosted configuration. Inspect the current artifact.
+    const transport = requiredWorkflowTransport(resolvedRuntime.config);
+    const accountGateway = transport === "gateway";
+    const mcpSecrets = accountGateway
+      ? await contextToolsWorkflowSecrets(
+          workspaceId,
+          resolvedRuntime.config.contextTools,
+        )
+      : undefined;
+    const openRouterDirect = transport === "provider_api";
+    const providerApiAuthMode = openRouterDirect
+      ? providerApiConfigurationMode(resolvedRuntime.config)
+      : undefined;
+    const managedReview = accountGateway || openRouterDirect;
+    const gatewayActionRef = accountGateway
+      ? validateAccountGatewayActionRef(
+          process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF,
+        )
+      : openRouterDirect
+        ? resolveReviewRouterCodexRotatingActionRef()
+        : undefined;
+    const codexTransport =
+      transport === "rotating" || transport === "hosted_pool";
     const codexWorkflowExpected =
-      hostedBinding !== null ||
-      resolvedRuntime.config.providers.some(
-        (provider) =>
-          provider.authMode === "codex_subscription_oauth_hosted_pool" ||
-          provider.authMode === "codex_subscription_oauth_rotating",
-      );
-    const rotatingWorkflowExpected = resolvedRuntime.config.providers.some(
-      (provider) => provider.authMode === "codex_subscription_oauth_rotating",
-    );
-    const selectedCodexWorkflowPath =
-      setupProvisioning?.workflowPath === isolatedQualityWorkflowPath ||
-      (!setupProvisioning?.workflowPath && rotatingWorkflowExpected)
+      !managedReview && (hostedBinding !== null || codexTransport);
+    const selectedCodexWorkflowPath = managedReview
+      ? reviewRouterWorkflowContract.callerPath
+      : setupProvisioning?.workflowPath === isolatedQualityWorkflowPath ||
+          (!setupProvisioning?.workflowPath && transport === "rotating")
         ? codexWorkflowPathForRepository({
             repositoryId: githubRepository.githubRepositoryId.toString(),
             repositoryFullName: repository.fullName,
@@ -1615,7 +1779,9 @@ async function confirmSetupPullRequestMergedMutation(
       readonly actionRef: string;
       readonly commitSha: string;
     } | null = null;
-    if (codexWorkflowExpected) {
+    let assertCurrentGatewaySource: (() => Promise<void>) | undefined;
+    let currentGatewaySourceCommitSha: string | null = null;
+    if (managedReview || codexWorkflowExpected) {
       const repositoryRoute = "GET /repos/{owner}/{repo}";
       const refRoute = "GET /repos/{owner}/{repo}/git/ref/{ref}";
       const contentRoute = "GET /repos/{owner}/{repo}/contents/{path}";
@@ -1647,11 +1813,26 @@ async function confirmSetupPullRequestMergedMutation(
       const commitSha = readCommit(
         (await octokit.request(refRoute, refParameters)).data,
       );
-      const content = await octokit.request(contentRoute, {
-        ...location,
-        path: selectedCodexWorkflowPath,
-        ref: commitSha,
-      });
+      if (managedReview) currentGatewaySourceCommitSha = commitSha;
+      const content = await octokit
+        .request(contentRoute, {
+          ...location,
+          path: selectedCodexWorkflowPath,
+          ref: commitSha,
+        })
+        .catch((error: unknown) => {
+          if (
+            managedReview &&
+            setupPullRequestStatus === "open" &&
+            setupPullRequestInspection?.merged === false &&
+            typeof error === "object" &&
+            error !== null &&
+            "status" in error &&
+            error.status === 404
+          )
+            throw new Error("setup_pr_not_merged");
+          throw error;
+        });
       if (
         (content.data as { path?: unknown } | null)?.path !==
         selectedCodexWorkflowPath
@@ -1660,30 +1841,32 @@ async function confirmSetupPullRequestMergedMutation(
       const blob = readGitHubWorkflowBlob(content.data);
       // Parsing selects a candidate only. The selected adapter must still verify
       // canonical content, trust, namespace/binding and immutable source identity.
-      try {
-        const metadata = readCanonicalHostedPoolWorkflowMetadata(blob.source);
-        codexWorkflow = {
-          hosted: true,
-          actionRef: metadata.actionRef,
-          commitSha,
-        };
-      } catch {
-        const metadata =
-          selectedCodexWorkflowPath === defaultCodexRotatingWorkflowPath
-            ? readCanonicalCodexRotatingT0WorkflowSourceMetadata(blob.source)
-            : readCanonicalIsolatedQualityWorkflowSourceMetadata(blob.source);
-        codexWorkflow = {
-          hosted: false,
-          actionRef: metadata.actionRef,
-          commitSha,
-        };
-      }
-      if (
-        !resolveReviewRouterCodexRotatingTrustedActionRefs().includes(
-          codexWorkflow.actionRef,
+      if (!managedReview) {
+        try {
+          const metadata = readCanonicalHostedPoolWorkflowMetadata(blob.source);
+          codexWorkflow = {
+            hosted: true,
+            actionRef: metadata.actionRef,
+            commitSha,
+          };
+        } catch {
+          const metadata =
+            selectedCodexWorkflowPath === defaultCodexRotatingWorkflowPath
+              ? readCanonicalCodexRotatingT0WorkflowSourceMetadata(blob.source)
+              : readCanonicalIsolatedQualityWorkflowSourceMetadata(blob.source);
+          codexWorkflow = {
+            hosted: false,
+            actionRef: metadata.actionRef,
+            commitSha,
+          };
+        }
+        if (
+          !resolveReviewRouterCodexRotatingTrustedActionRefs().includes(
+            codexWorkflow.actionRef,
+          )
         )
-      )
-        throw new Error("workflow_provisioning_match_not_found");
+          throw new Error("workflow_provisioning_match_not_found");
+      }
       // Keep readiness and activation on the artifact that selected the route.
       // Repeated reads still reach GitHub; changed heads, identities or blobs fail.
       workflowOctokit = {
@@ -1716,8 +1899,25 @@ async function confirmSetupPullRequestMergedMutation(
           return response;
         },
       };
-      await workflowOctokit.request(repositoryRoute, location);
-      await workflowOctokit.request(refRoute, refParameters);
+      await Promise.all([
+        workflowOctokit.request(repositoryRoute, location),
+        workflowOctokit.request(refRoute, refParameters),
+      ]);
+      if (managedReview) {
+        assertCurrentGatewaySource = async () => {
+          // Independent reads of the same pinned source: verify concurrently so
+          // repeated re-checks cost one round trip instead of three.
+          await Promise.all([
+            workflowOctokit.request(repositoryRoute, location),
+            workflowOctokit.request(refRoute, refParameters),
+            workflowOctokit.request(contentRoute, {
+              ...location,
+              path: selectedCodexWorkflowPath,
+              ref: commitSha,
+            }),
+          ]);
+        };
+      }
     }
     const hostedWorkflowRequired = codexWorkflow?.hosted === true;
     if (
@@ -1726,11 +1926,11 @@ async function confirmSetupPullRequestMergedMutation(
         !hostedWorkflowRequired)
     )
       throw new Error("hosted_pool_binding_activation_conflict");
-    const workflowProviderKind = workflowReadinessProviderKind(
-      resolvedRuntime.config,
-    );
+    const workflowProviderKind = managedReview
+      ? undefined
+      : ciSecretsWorkflowProviderKind(resolvedRuntime.config);
     const codexRotatingProviderInstanceId =
-      codexWorkflow && !hostedWorkflowRequired
+      codexWorkflow && !hostedWorkflowRequired && codexTransport
         ? resolveCodexRotatingProviderInstanceId({
             config: {
               ...resolvedRuntime.config,
@@ -1781,11 +1981,14 @@ async function confirmSetupPullRequestMergedMutation(
         }
       : null;
     const forkAgenticSandboxEnabled = false;
-    const conflictReviewFallbackAllowed = codexRotatingProviderInstanceId
-      ? false
-      : isConflictReviewFallbackAllowedForRepository(repository.fullName);
+    const conflictReviewFallbackAllowed =
+      managedReview || codexRotatingProviderInstanceId
+        ? false
+        : isConflictReviewFallbackAllowedForRepository(repository.fullName);
     const verifiedWorkflowActionRef =
-      codexWorkflow?.actionRef ?? resolveReviewRouterActionRef();
+      gatewayActionRef ??
+      codexWorkflow?.actionRef ??
+      resolveReviewRouterActionRef();
     let genericWorkflowStyle: ReviewRouterWorkflowStyle | undefined;
     const workflowProbe = new OctokitRepositoryWorkflowProbe({
       createRequester: async () => workflowOctokit,
@@ -1804,6 +2007,14 @@ async function confirmSetupPullRequestMergedMutation(
             name: repository.name,
             defaultBranch: setupBaseBranch,
             actionRef: verifiedWorkflowActionRef,
+            ...(accountGateway
+              ? {
+                  codexSessionMode: "account-gateway" as const,
+                  ...(mcpSecrets ? { mcpSecrets } : {}),
+                }
+              : openRouterDirect
+                ? { providerApiAuthMode: providerApiAuthMode! }
+                : {}),
             conflictReviewFallbackEnabled: conflictReviewFallbackAllowed,
             ...(codexRotatingProviderInstanceId
               ? {
@@ -1833,6 +2044,10 @@ async function confirmSetupPullRequestMergedMutation(
                             !input.expectedContentValidator(workflow)
                           )
                             return false;
+                          if (managedReview) {
+                            genericWorkflowStyle = "reusable";
+                            return true;
+                          }
                           // Classify the same bytes the probe checks for action
                           // and provider markers, never the stored setup style.
                           const refs = workflow
@@ -1845,9 +2060,12 @@ async function confirmSetupPullRequestMergedMutation(
                                     /^-?\s*uses:\s*["']?([^"'\s#]+)["']?/,
                                   )?.[1],
                             );
-                          const explicit = refs.includes(
-                            input.expectedActionRef,
-                          );
+                          const explicit =
+                            refs.includes(input.expectedActionRef) ||
+                            workflowChecksOutReviewRouterRuntime(
+                              workflow,
+                              input.expectedActionRef,
+                            );
                           const reusable = refs.includes(
                             input.expectedActionRef.replace(
                               "@",
@@ -1869,12 +2087,21 @@ async function confirmSetupPullRequestMergedMutation(
     if (!workflowReady) {
       if (
         setupPullRequestStatus === "closed" ||
-        setupPullRequestStatus === "branch_deleted"
+        setupPullRequestStatus === "branch_deleted" ||
+        // A merged PR whose head differs from the recorded artifact merged
+        // bytes the setup never generated. Waiting cannot make it verify, so
+        // route straight to recovery instead of an endless not-merged retry.
+        (setupPullRequestStatus === "merged" &&
+          setupProvisioning?.pullRequestHeadSha != null &&
+          setupProvisioning.pullRequestHeadSha !==
+            setupPullRequestInspection?.headSha)
       ) {
         const reason =
           setupPullRequestStatus === "closed"
             ? "setup_pr_closed"
-            : "setup_pr_branch_deleted";
+            : setupPullRequestStatus === "branch_deleted"
+              ? "setup_pr_branch_deleted"
+              : "setup_pr_workflow_mismatch";
         await markRepositoryWorkflowSetupNeedsAttention({
           prisma,
           repositoryId,
@@ -1894,13 +2121,17 @@ async function confirmSetupPullRequestMergedMutation(
     if (!codexWorkflow && !genericWorkflowStyle)
       throw new Error("workflow_provisioning_match_not_found");
     let verifiedWorkflowArtifact = {
-      workflowPath: codexWorkflow
-        ? selectedCodexWorkflowPath
-        : defaultWorkflowPath,
+      workflowPath: managedReview
+        ? reviewRouterWorkflowContract.callerPath
+        : codexWorkflow
+          ? selectedCodexWorkflowPath
+          : defaultWorkflowPath,
       workflowStyle: codexWorkflow
         ? ("reusable" as const)
         : genericWorkflowStyle!,
-      actionVersion: verifiedWorkflowActionRef,
+      actionVersion: accountGateway
+        ? reviewRouterWorkflowContract.channel
+        : verifiedWorkflowActionRef,
     };
     const assertCurrentSetup = async (artifact: {
       readonly workflowPath: string;
@@ -1996,7 +2227,7 @@ async function confirmSetupPullRequestMergedMutation(
       if (activation.status === "not_configured")
         throw new Error("hosted_pool_binding_activation_conflict");
       verifiedWorkflowArtifact = activation;
-    } else {
+    } else if (!managedReview) {
       await assertCurrentSetup(verifiedWorkflowArtifact);
       await assertCurrentBinding();
       const activation =
@@ -2037,6 +2268,67 @@ async function confirmSetupPullRequestMergedMutation(
       }
     }
 
+    if (managedReview) {
+      await assertCurrentSetup(verifiedWorkflowArtifact);
+      await assertCurrentBinding();
+      await assertCurrentGatewaySource!();
+      const actionCommitSha =
+        verifiedWorkflowArtifact.actionVersion.match(
+          /@([a-f0-9]{40})$/iu,
+        )?.[1] ?? gatewayActionRef?.match(/@([a-f0-9]{40})$/iu)?.[1];
+      if (!actionCommitSha || !currentGatewaySourceCommitSha)
+        throw new Error("workflow_provisioning_match_not_found");
+      const gatewayProvisioning = await provisionGatewayReviewV2Repository({
+        prisma,
+        env: process.env,
+        command: {
+          workspaceId,
+          repositoryId,
+          installationId: repository.installationId,
+          actor: actor.actor,
+          expectedAttempt: setupProvisioning
+            ? {
+                attemptId: setupProvisioning.attemptId,
+                revision: setupProvisioning.revision,
+              }
+            : null,
+          repository: {
+            githubRepositoryId: githubRepository.githubRepositoryId.toString(),
+            githubInstallationId:
+              repository.installation.githubInstallationId.toString(),
+            fullName: repository.fullName,
+            owner: repository.owner,
+          },
+          expectedGatewaySource: {
+            actionRef: gatewayActionRef!,
+            actionCommitSha: actionCommitSha.toLowerCase(),
+            apiUrl: resolveWorkflowPublicApiUrl(),
+            sourceRevision: currentGatewaySourceCommitSha,
+          },
+        },
+        assertCurrentSetupAndSource: async () => {
+          await assertCurrentSetup(verifiedWorkflowArtifact);
+          await assertCurrentBinding();
+          await assertCurrentGatewaySource!();
+        },
+      });
+      const gatewayIssue =
+        "issue" in gatewayProvisioning
+          ? gatewayProvisioning.issue
+          : `gateway_review_v2_${gatewayProvisioning.status}`;
+      gatewayReviewV2Audit = {
+        actor: actor.actor,
+        repository: repository.fullName,
+        status: gatewayProvisioning.status,
+        ...(gatewayProvisioning.status === "ready"
+          ? {}
+          : { issue: gatewayIssue }),
+      };
+      if (gatewayProvisioning.status !== "ready") throw new Error(gatewayIssue);
+      await assertCurrentSetup(verifiedWorkflowArtifact);
+      await assertCurrentBinding();
+      await assertCurrentGatewaySource!();
+    }
     await assertCurrentSetup(verifiedWorkflowArtifact);
 
     const setupAuthority = new PrismaWorkflowProvisioningStatusAuthority(
@@ -2066,6 +2358,18 @@ async function confirmSetupPullRequestMergedMutation(
         workflowPath: verifiedWorkflowArtifact.workflowPath,
         workflowStyle: verifiedWorkflowArtifact.workflowStyle,
         actionVersion: verifiedWorkflowArtifact.actionVersion,
+        // The artifact verified above, not the policy read before a hosted
+        // pool activation or switch changed it.
+        workflowRequirement: verifiedWorkflowRequirement({
+          managedTransport: accountGateway
+            ? "gateway"
+            : openRouterDirect
+              ? "provider_api"
+              : null,
+          ...(providerApiAuthMode ? { providerApiAuthMode } : {}),
+          codexWorkflow,
+          config: resolvedRuntime.config,
+        }),
       });
     }
     await recordAuditEvent(
@@ -2079,6 +2383,7 @@ async function confirmSetupPullRequestMergedMutation(
           repository: repository.fullName,
           source: setupPullRequestMerged ? "github_pull_request" : "workflow",
           pullRequestNumber,
+          gatewayReviewV2Provisioning: gatewayReviewV2Audit?.status ?? null,
           ...dashboardMutationAccessAuditMetadata(actor),
         },
       },
@@ -2092,8 +2397,25 @@ async function confirmSetupPullRequestMergedMutation(
       section: "repositories",
     };
   } catch (error) {
+    if (gatewayReviewV2Audit && gatewayReviewV2Audit.status !== "ready") {
+      await recordAuditEvent(
+        {
+          workspaceId,
+          actor: gatewayReviewV2Audit.actor,
+          action: "workflow.gateway_review_v2_blocked",
+          targetType: "repository",
+          targetId: repositoryId,
+          metadata: {
+            repository: gatewayReviewV2Audit.repository,
+            state: gatewayReviewV2Audit.status,
+            issue: gatewayReviewV2Audit.issue ?? null,
+          },
+        },
+        { auditLog: new PrismaAuditLogRepository(prisma) },
+      );
+    }
     params = {
-      error: safeDashboardErrorCode(error),
+      error: gatewayReviewV2Audit?.issue ?? safeDashboardErrorCode(error),
       workspace: workspaceId,
       section: "repositories",
     };
@@ -2120,7 +2442,7 @@ async function confirmProviderSecretSetupMutation(
 
   try {
     const writerSchemaPolicy = createCodexRotatingWriterSchemaPolicy();
-    const repository = await loadRepositoryForWorkspace({
+    const repository = await loadDashboardRepository({
       prisma,
       workspaceId,
       repositoryId,
@@ -2290,259 +2612,19 @@ async function confirmProviderSecretSetupMutation(
   return params;
 }
 
-async function createMemoryItemMutation(
+// Keep old server-action references safe while every dashboard memory control is
+// paused. Only the workspace needed for authentication is read from the request.
+async function refusePausedMemoryMutation(
   formData: FormData,
 ): Promise<Record<string, string>> {
-  const prisma = getPrisma();
   const workspaceId = readFormString(formData, "workspaceId");
-  let params: Record<string, string>;
-
+  const params = { workspace: workspaceId, section: "memory" };
   try {
-    const scope = readMemoryScope(formData);
-    const context = await createMemoryActionContext({
-      prisma,
-      workspaceId,
-      rateLimitResourceId: `memory:${scope}`,
-    });
-    const result = await rememberMemoryDirectly(
-      {
-        workspaceId,
-        repositoryId:
-          scope === "repository"
-            ? readFormString(formData, "repositoryId")
-            : null,
-        userId: scope === "user_prefs" ? context.memoryActor.id : null,
-        scope,
-        body: readFormString(formData, "body"),
-        source: createDashboardMemorySource({
-          actorLogin: context.dashboardActor.githubLogin,
-        }),
-        actor: context.memoryActor,
-      },
-      context.dependencies,
-    );
-    params = memoryMutationParams({
-      workspaceId,
-      successNotice: "memory_saved",
-      result,
-    });
+    await assertDashboardMutationAllowed(workspaceId);
+    return { ...params, error: "memory_dashboard_in_development" };
   } catch (error) {
-    params = {
-      error: safeDashboardErrorCode(error),
-      workspace: workspaceId,
-      section: "memory",
-    };
+    return { ...params, error: safeDashboardErrorCode(error) };
   }
-
-  return params;
-}
-
-async function confirmMemorySuggestionMutation(
-  formData: FormData,
-): Promise<Record<string, string>> {
-  const prisma = getPrisma();
-  const workspaceId = readFormString(formData, "workspaceId");
-  const suggestionId = readFormString(formData, "suggestionId");
-  let params: Record<string, string>;
-
-  try {
-    const context = await createMemoryActionContext({
-      prisma,
-      workspaceId,
-      rateLimitResourceId: `memory-suggestion:${suggestionId}`,
-    });
-    const result = await confirmMemorySuggestion(
-      {
-        workspaceId,
-        suggestionId,
-        actor: context.memoryActor,
-        ...readOptionalEditedMemory(formData),
-      },
-      context.dependencies,
-    );
-    params = memoryMutationParams({
-      workspaceId,
-      successNotice: "memory_suggestion_confirmed",
-      result,
-    });
-  } catch (error) {
-    params = {
-      error: safeDashboardErrorCode(error),
-      workspace: workspaceId,
-      section: "memory",
-    };
-  }
-
-  return params;
-}
-
-async function rejectMemorySuggestionMutation(
-  formData: FormData,
-): Promise<Record<string, string>> {
-  const prisma = getPrisma();
-  const workspaceId = readFormString(formData, "workspaceId");
-  const suggestionId = readFormString(formData, "suggestionId");
-  let params: Record<string, string>;
-
-  try {
-    const context = await createMemoryActionContext({
-      prisma,
-      workspaceId,
-      rateLimitResourceId: `memory-suggestion:${suggestionId}`,
-    });
-    const result = await rejectMemorySuggestion(
-      {
-        workspaceId,
-        suggestionId,
-        actor: context.memoryActor,
-        reason: readOptionalFormString(formData, "reason") ?? "rejected",
-      },
-      context.dependencies,
-    );
-    params = memoryMutationParams({
-      workspaceId,
-      successNotice: "memory_suggestion_rejected",
-      result,
-    });
-  } catch (error) {
-    params = {
-      error: safeDashboardErrorCode(error),
-      workspace: workspaceId,
-      section: "memory",
-    };
-  }
-
-  return params;
-}
-
-async function editMemoryItemMutation(
-  formData: FormData,
-): Promise<Record<string, string>> {
-  const prisma = getPrisma();
-  const workspaceId = readFormString(formData, "workspaceId");
-  const itemId = readFormString(formData, "memoryItemId");
-  const expectedVersion = readOptionalPositiveInteger(
-    formData,
-    "expectedVersion",
-  );
-  let params: Record<string, string>;
-
-  try {
-    const context = await createMemoryActionContext({
-      prisma,
-      workspaceId,
-      rateLimitResourceId: `memory-item:${itemId}:edit`,
-    });
-    const result = await editMemoryItem(
-      {
-        workspaceId,
-        itemId,
-        body: readFormString(formData, "body"),
-        ...(expectedVersion === undefined ? {} : { expectedVersion }),
-        actor: context.memoryActor,
-      },
-      context.dependencies,
-    );
-    params = memoryMutationParams({
-      workspaceId,
-      successNotice: "memory_edited",
-      result,
-    });
-  } catch (error) {
-    params = {
-      error: safeDashboardErrorCode(error),
-      workspace: workspaceId,
-      section: "memory",
-    };
-  }
-
-  return params;
-}
-
-async function disableMemoryItemMutation(
-  formData: FormData,
-): Promise<Record<string, string>> {
-  const prisma = getPrisma();
-  const workspaceId = readFormString(formData, "workspaceId");
-  const itemId = readFormString(formData, "memoryItemId");
-  const expectedVersion = readOptionalPositiveInteger(
-    formData,
-    "expectedVersion",
-  );
-  let params: Record<string, string>;
-
-  try {
-    const context = await createMemoryActionContext({
-      prisma,
-      workspaceId,
-      rateLimitResourceId: `memory-item:${itemId}`,
-    });
-    const result = await disableMemoryItem(
-      {
-        workspaceId,
-        itemId,
-        ...(expectedVersion === undefined ? {} : { expectedVersion }),
-        actor: context.memoryActor,
-      },
-      context.dependencies,
-    );
-    params = memoryMutationParams({
-      workspaceId,
-      successNotice: "memory_disabled",
-      result,
-    });
-  } catch (error) {
-    params = {
-      error: safeDashboardErrorCode(error),
-      workspace: workspaceId,
-      section: "memory",
-    };
-  }
-
-  return params;
-}
-
-async function deleteMemoryItemMutation(
-  formData: FormData,
-): Promise<Record<string, string>> {
-  const prisma = getPrisma();
-  const workspaceId = readFormString(formData, "workspaceId");
-  const itemId = readFormString(formData, "memoryItemId");
-  const expectedVersion = readOptionalPositiveInteger(
-    formData,
-    "expectedVersion",
-  );
-  let params: Record<string, string>;
-
-  try {
-    const context = await createMemoryActionContext({
-      prisma,
-      workspaceId,
-      rateLimitResourceId: `memory-item:${itemId}`,
-    });
-    const result = await deleteMemoryItem(
-      {
-        workspaceId,
-        itemId,
-        ...(expectedVersion === undefined ? {} : { expectedVersion }),
-        actor: context.memoryActor,
-      },
-      context.dependencies,
-    );
-    params = memoryMutationParams({
-      workspaceId,
-      successNotice: "memory_deleted",
-      result,
-    });
-  } catch (error) {
-    params = {
-      error: safeDashboardErrorCode(error),
-      workspace: workspaceId,
-      section: "memory",
-    };
-  }
-
-  return params;
 }
 
 export async function enableOrgRulesetWorkflowAction(
@@ -2687,21 +2769,24 @@ async function saveWorkspaceReviewConfigMutation(
     await createDashboardRateLimitPolicy(prisma).assertReviewConfigSaveAllowed({
       workspaceId,
     });
-    const config = readReviewConfigurationForm(formData);
-    assertCodexProductionReviewConfigAllowed(config);
-    assertCodexRotatingReviewConfigAllowed({
-      config,
-      repository: null,
-    });
-
-    const saved = await saveReviewConfiguration(
+    const saved = await saveWorkspaceReviewSettings(
       {
-        target: { scope: "workspace", workspaceId },
-        config,
+        workspaceId,
+        actor: dashboardProviderActor(actor),
+        settings: readWorkspaceReviewSettingsForm(formData),
+        expectedVersion: readReviewPolicyExpectedVersion(formData),
       },
-      {
-        configurations: new PrismaReviewConfigurationRepository(prisma),
-      },
+      dashboardSelectionDependencies({
+        prisma,
+        workspaceId,
+        actor,
+        repositories: new Map(),
+        recheck: async () =>
+          assertGatewayReviewActorUnchanged(
+            actor,
+            await assertDashboardMutationAllowed(workspaceId),
+          ),
+      }),
     );
 
     await recordAuditEvent(
@@ -2713,10 +2798,7 @@ async function saveWorkspaceReviewConfigMutation(
         targetId: workspaceId,
         metadata: {
           version: saved.version,
-          providerKind: saved.config.provider.kind,
-          authMode: saved.config.provider.authMode,
-          model: saved.config.provider.model,
-          failOnSeverity: saved.config.blockingPolicy.failOnSeverity,
+          ...savedReviewConfigAuditMetadata(saved),
           ...dashboardMutationAccessAuditMetadata(actor),
         },
       },
@@ -2760,80 +2842,9 @@ export async function saveRepositoryReviewConfigClientAction(
 async function saveRepositoryReviewConfigMutation(
   formData: FormData,
 ): Promise<Record<string, string>> {
-  const prisma = getPrisma();
-  const workspaceId = readFormString(formData, "workspaceId");
-  const repositoryId = readFormString(formData, "repositoryId");
-  let params: Record<string, string>;
-
-  try {
-    const repository = await loadRepositoryForWorkspace({
-      prisma,
-      workspaceId,
-      repositoryId,
-    });
-    assertRepositoryConfigMutable(repository);
-
-    const actor = await assertDashboardRepositoryConfigMutationAllowed(
-      workspaceId,
-      repository,
-    );
-    await assertDashboardEntitlement({
-      prisma,
-      workspaceId,
-      actor: actor.actor,
-      feature: "action_control_plane",
-    });
-    await createDashboardRateLimitPolicy(prisma).assertReviewConfigSaveAllowed({
-      workspaceId,
-      resourceId: repositoryId,
-    });
-    const config = readReviewConfigurationForm(formData);
-    assertCodexProductionReviewConfigAllowed(config);
-    assertCodexRotatingReviewConfigAllowed({
-      config,
-      repository,
-    });
-
-    const saved = await saveReviewConfiguration(
-      {
-        target: { scope: "repository", workspaceId, repositoryId },
-        config,
-      },
-      {
-        configurations: new PrismaReviewConfigurationRepository(prisma),
-      },
-    );
-
-    await recordAuditEvent(
-      {
-        workspaceId,
-        actor: actor.actor,
-        action: "review_config.saved",
-        targetType: "repository",
-        targetId: repositoryId,
-        metadata: {
-          repository: repository.fullName,
-          version: saved.version,
-          providerKind: saved.config.provider.kind,
-          authMode: saved.config.provider.authMode,
-          model: saved.config.provider.model,
-          failOnSeverity: saved.config.blockingPolicy.failOnSeverity,
-          ...dashboardMutationAccessAuditMetadata(actor),
-        },
-      },
-      { auditLog: new PrismaAuditLogRepository(prisma) },
-    );
-
-    params = {
-      notice: "repository_review_config_saved",
-      repository: repository.fullName,
-      version: String(saved.version),
-    };
-  } catch (error) {
-    params = { error: safeDashboardErrorCode(error) };
-  }
-
-  return params;
+  return saveRepositoryReviewSettingsMutation(formData, (form) =>
+    readRepositoryReviewSettingsForm(form),
+  );
 }
 
 export async function clearRepositoryReviewConfigAction(
@@ -2853,8 +2864,20 @@ export async function clearRepositoryReviewConfigClientAction(
   return { params };
 }
 
+/**
+ * Removes every repository override of the review settings. The repository's
+ * own provider stays; "Use the workspace default" in the provider dialog
+ * removes that.
+ */
 async function clearRepositoryReviewConfigMutation(
   formData: FormData,
+): Promise<Record<string, string>> {
+  return saveRepositoryReviewSettingsMutation(formData, () => ({}));
+}
+
+async function saveRepositoryReviewSettingsMutation(
+  formData: FormData,
+  readSettings: (formData: FormData) => RepositoryReviewSettings,
 ): Promise<Record<string, string>> {
   const prisma = getPrisma();
   const workspaceId = readFormString(formData, "workspaceId");
@@ -2862,7 +2885,7 @@ async function clearRepositoryReviewConfigMutation(
   let params: Record<string, string>;
 
   try {
-    const repository = await loadRepositoryForWorkspace({
+    const repository = await loadDashboardRepository({
       prisma,
       workspaceId,
       repositoryId,
@@ -2883,24 +2906,53 @@ async function clearRepositoryReviewConfigMutation(
       workspaceId,
       resourceId: repositoryId,
     });
-
-    const cleared = await clearReviewConfiguration(
-      { scope: "repository", workspaceId, repositoryId },
+    const settings = readSettings(formData);
+    const saved = await saveRepositoryReviewSettings(
       {
-        configurations: new PrismaReviewConfigurationRepository(prisma),
+        workspaceId,
+        actor: dashboardProviderActor(actor),
+        repository: {
+          repositoryId,
+          capability: dashboardRepositoryCapability(actor),
+        },
+        settings,
+        expectedVersion: readReviewPolicyExpectedVersion(formData),
       },
+      dashboardSelectionDependencies({
+        prisma,
+        workspaceId,
+        actor,
+        repositories: new Map([[repositoryId, repository]]),
+        recheck: async () => {
+          const current = await loadDashboardRepository({
+            prisma,
+            workspaceId,
+            repositoryId,
+          });
+          assertRepositoryConfigMutable(current);
+          assertGatewayReviewActorUnchanged(
+            actor,
+            await assertDashboardRepositoryConfigMutationAllowed(
+              workspaceId,
+              current,
+            ),
+          );
+        },
+      }),
     );
+    const cleared = Object.keys(settings).length === 0;
 
     await recordAuditEvent(
       {
         workspaceId,
         actor: actor.actor,
-        action: "review_config.cleared",
+        action: cleared ? "review_config.cleared" : "review_config.saved",
         targetType: "repository",
         targetId: repositoryId,
         metadata: {
           repository: repository.fullName,
-          cleared,
+          version: saved.version,
+          ...savedReviewConfigAuditMetadata(saved),
           ...dashboardMutationAccessAuditMetadata(actor),
         },
       },
@@ -2908,14 +2960,36 @@ async function clearRepositoryReviewConfigMutation(
     );
 
     params = {
-      notice: "repository_review_config_cleared",
+      notice: cleared
+        ? "repository_review_config_cleared"
+        : "repository_review_config_saved",
       repository: repository.fullName,
+      version: String(saved.version),
     };
   } catch (error) {
     params = { error: safeDashboardErrorCode(error) };
   }
 
   return params;
+}
+
+/** What a settings save reviews with now, without any secret or reference. */
+function savedReviewConfigAuditMetadata(
+  saved: SavedReviewPolicy,
+): Record<string, string | boolean> {
+  const config = saved.configuration?.config;
+  const provider = config?.providers[0];
+  return {
+    providerSelected: provider !== undefined,
+    ...(provider
+      ? {
+          providerKind: provider.kind,
+          authMode: provider.authMode,
+          model: provider.model,
+        }
+      : {}),
+    ...(config ? { failOnSeverity: config.blockingPolicy.failOnSeverity } : {}),
+  };
 }
 
 export async function retryOutboxEventAction(
@@ -2991,160 +3065,11 @@ async function retryOutboxEventMutation(
   return params;
 }
 
-async function assertDashboardEntitlement(input: {
-  readonly prisma: PrismaClient;
-  readonly workspaceId: string;
-  readonly actor: string;
-  readonly feature: EntitlementFeature;
-}): Promise<void> {
-  await assertWorkspaceFeatureEntitlement(
-    {
-      workspaceId: input.workspaceId,
-      actor: input.actor,
-      feature: input.feature,
-    },
-    {
-      entitlements: new PrismaEntitlementRepository(input.prisma),
-      auditLog: new PrismaAuditLogRepository(input.prisma),
-    },
-  );
-}
-
-async function createMemoryActionContext(input: {
-  readonly prisma: PrismaClient;
-  readonly workspaceId: string;
-  readonly rateLimitResourceId: string;
-}) {
-  const dashboardActor = await assertDashboardMutationAllowed(
-    input.workspaceId,
-  );
-  await assertDashboardEntitlement({
-    prisma: input.prisma,
-    workspaceId: input.workspaceId,
-    actor: dashboardActor.actor,
-    feature: "repository_dashboard",
-  });
-  await createDashboardRateLimitPolicy(
-    input.prisma,
-  ).assertReviewConfigSaveAllowed({
-    workspaceId: input.workspaceId,
-    resourceId: input.rateLimitResourceId,
-  });
-
-  const memoryActor = await resolveDashboardMemoryActor(
-    dashboardMemoryActorInput(dashboardActor),
-    input.prisma,
-  );
-
-  return {
-    dashboardActor,
-    memoryActor,
-    dependencies: createDashboardMemoryDependencies({
-      prisma: input.prisma,
-      actor: dashboardMemoryActorInput(dashboardActor),
-    }),
-  };
-}
-
-function dashboardMemoryActorInput(
-  actor: DashboardMutationActor,
-): Parameters<typeof resolveDashboardMemoryActor>[0] {
-  return {
-    userId: actor.userId,
-    sourceProvider: actor.sourceProvider,
-    sourceLogin: actor.sourceLogin,
-    githubUserId: actor.githubUserId,
-    githubLogin: actor.githubLogin,
-  };
-}
-
-function memoryMutationParams(input: {
-  readonly workspaceId: string;
-  readonly successNotice: string;
-  readonly result: MemoryMutationResult;
-}): Record<string, string> {
-  const base = { workspace: input.workspaceId, section: "memory" };
-  if (input.result.status === "created" || input.result.status === "updated") {
-    return { ...base, notice: input.successNotice, memory: input.result.id };
-  }
-  if (input.result.status === "rejected") {
-    return { ...base, error: input.result.reason };
-  }
-  switch (input.result.reason) {
-    case "memory_duplicate":
-      return { ...base, notice: "memory_duplicate" };
-    case "memory_not_found":
-      return { ...base, error: "memory_not_found" };
-    case "confirmed":
-    case "rejected":
-    case "disabled":
-    case "deleted":
-      return { ...base, notice: `memory_already_${input.result.reason}` };
-    default:
-      return { ...base, notice: "memory_noop" };
-  }
-}
-
-async function loadRepositoryForWorkspace(input: {
-  readonly prisma: PrismaClient;
-  readonly workspaceId: string;
-  readonly repositoryId: string;
-}): Promise<{
-  readonly id: string;
-  readonly workspaceId: string;
-  readonly githubRepositoryId: bigint;
-  readonly owner: string;
-  readonly name: string;
-  readonly fullName: string;
-  readonly defaultBranch: string;
-  readonly visibility: string;
-  readonly selected: boolean;
-  readonly archived: boolean;
-  readonly installation: {
-    readonly status: string;
-    readonly githubInstallationId: bigint;
-  };
-}> {
-  const repository = await input.prisma.repositoryConnection.findUnique({
-    where: { id: input.repositoryId },
-    select: {
-      id: true,
-      workspaceId: true,
-      provider: true,
-      githubRepositoryId: true,
-      owner: true,
-      name: true,
-      fullName: true,
-      defaultBranch: true,
-      visibility: true,
-      selected: true,
-      archived: true,
-      installation: { select: { status: true, githubInstallationId: true } },
-    },
-  });
-  if (!repository || repository.workspaceId !== input.workspaceId) {
-    throw new Error("repository_not_found");
-  }
-  if (
-    repository.provider !== "github" ||
-    !repository.githubRepositoryId ||
-    !repository.installation
-  ) {
-    throw new Error("repository_not_found");
-  }
-
-  return {
-    ...repository,
-    githubRepositoryId: repository.githubRepositoryId,
-    installation: repository.installation,
-  };
-}
-
 async function verifyProviderSecrets(input: {
   readonly octokit: Awaited<
     ReturnType<typeof createGitHubAppInstallationOctokit>
   >;
-  readonly repository: Awaited<ReturnType<typeof loadRepositoryForWorkspace>>;
+  readonly repository: Awaited<ReturnType<typeof loadDashboardRepository>>;
   readonly secretNames: readonly string[];
   readonly secretScope: ProviderSecretScope;
 }): Promise<void> {
@@ -3169,7 +3094,7 @@ async function checkProviderSecretAvailability(input: {
   readonly octokit: Awaited<
     ReturnType<typeof createGitHubAppInstallationOctokit>
   >;
-  readonly repository: Awaited<ReturnType<typeof loadRepositoryForWorkspace>>;
+  readonly repository: Awaited<ReturnType<typeof loadDashboardRepository>>;
   readonly secretNames: readonly string[];
   readonly allowOrganizationSecrets?: boolean;
 }): Promise<{
@@ -3212,7 +3137,7 @@ async function checkOrganizationProviderSecretAvailability(input: {
   readonly octokit: Awaited<
     ReturnType<typeof createGitHubAppInstallationOctokit>
   >;
-  readonly repository: Awaited<ReturnType<typeof loadRepositoryForWorkspace>>;
+  readonly repository: Awaited<ReturnType<typeof loadDashboardRepository>>;
   readonly secretName: string;
 }): Promise<{
   readonly status:
@@ -3241,7 +3166,7 @@ async function assertRepositoryVisibleToGitHubApp(input: {
   readonly octokit: Awaited<
     ReturnType<typeof createGitHubAppInstallationOctokit>
   >;
-  readonly repository: Awaited<ReturnType<typeof loadRepositoryForWorkspace>>;
+  readonly repository: Awaited<ReturnType<typeof loadDashboardRepository>>;
 }): Promise<void> {
   try {
     await input.octokit.request("GET /repos/{owner}/{repo}", {
@@ -3293,7 +3218,7 @@ async function verifyRepositorySecret(input: {
   readonly octokit: Awaited<
     ReturnType<typeof createGitHubAppInstallationOctokit>
   >;
-  readonly repository: Awaited<ReturnType<typeof loadRepositoryForWorkspace>>;
+  readonly repository: Awaited<ReturnType<typeof loadDashboardRepository>>;
   readonly secretName: string;
 }): Promise<void> {
   await requestProviderSecretMetadata(async () => {
@@ -3312,7 +3237,7 @@ async function verifyOrganizationSecret(input: {
   readonly octokit: Awaited<
     ReturnType<typeof createGitHubAppInstallationOctokit>
   >;
-  readonly repository: Awaited<ReturnType<typeof loadRepositoryForWorkspace>>;
+  readonly repository: Awaited<ReturnType<typeof loadDashboardRepository>>;
   readonly secretName: string;
 }): Promise<void> {
   const secret = await requestProviderSecretMetadata(async () => {
@@ -3499,44 +3424,19 @@ function toRepositoryIdRecords(
     );
 }
 
-function assertRepositoryConfigMutable(input: {
-  readonly selected: boolean;
-  readonly archived: boolean;
-  readonly installation: { readonly status: string };
-}): void {
-  if (!input.selected) {
-    throw new Error("repository_not_selected");
-  }
-  if (input.archived) {
-    throw new Error("repository_archived");
-  }
-  if (input.installation.status !== "active") {
-    throw new Error("installation_not_active");
-  }
-}
-
 async function loadResolvedReviewRuntime(input: {
   readonly prisma: PrismaClient;
   readonly workspaceId: string;
   readonly repositoryId: string;
 }): Promise<ResolvedReviewRuntimeEnv> {
-  const configurations = new PrismaReviewConfigurationRepository(input.prisma);
   return resolveReviewRuntimeEnv(
     {
       scope: "repository",
       workspaceId: input.workspaceId,
       repositoryId: input.repositoryId,
     },
-    { configurations },
+    { policyHeads: new PrismaReviewPolicyHeadReader(input.prisma) },
   );
-}
-
-function workflowReadinessProviderKind(
-  config: ReviewConfiguration,
-): ProviderKind | undefined {
-  return config.providers.some((provider) => provider.kind === "claude")
-    ? "claude"
-    : undefined;
 }
 
 async function resolveCodexWorkflowSecretNamespace(input: {
@@ -3782,6 +3682,7 @@ function readGitHubWorkflowBlob(data: unknown): {
 function codexRotatingWorkflowSecretInputs(config: ReviewConfiguration): {
   readonly codexRotatingClaudeCodeOAuthTokenSecret: boolean;
   readonly codexRotatingOpenRouterApiKeySecret: boolean;
+  readonly codexRotatingMimoTokenPlanApiKeySecret: boolean;
 } {
   return {
     codexRotatingClaudeCodeOAuthTokenSecret: config.providers.some(
@@ -3789,6 +3690,9 @@ function codexRotatingWorkflowSecretInputs(config: ReviewConfiguration): {
     ),
     codexRotatingOpenRouterApiKeySecret: config.providers.some(
       (provider) => provider.kind === "openrouter",
+    ),
+    codexRotatingMimoTokenPlanApiKeySecret: config.providers.some(
+      (provider) => provider.kind === "codex-mimo",
     ),
   };
 }
@@ -3798,17 +3702,13 @@ function resolveCodexRotatingProviderInstanceId(input: {
   readonly githubRepositoryId: string;
   readonly repositoryFullName: string;
   readonly repositoryVisibility: string;
-}): string | undefined {
+}): string {
+  assertCodexRotatingOAuthRepositoryAllowed({
+    repositoryFullName: input.repositoryFullName,
+  });
   const rotatingProviders = input.config.providers.filter(
     (provider) => provider.authMode === "codex_subscription_oauth_rotating",
   );
-  if (rotatingProviders.length === 0) {
-    return undefined;
-  }
-  assertCodexRotatingOAuthRepositoryAllowed({
-    repositoryFullName: input.repositoryFullName,
-    repositoryVisibility: input.repositoryVisibility,
-  });
   if (
     rotatingProviders.length !== 1 ||
     rotatingProviders[0]?.kind !== "codex"
@@ -3825,74 +3725,10 @@ function assertCodexRotatingProviderSetupAllowed(input: {
   readonly repositoryFullName: string;
   readonly repositoryVisibility: string;
 }): void {
-  if (input.providerSetup.authMode === "codex_subscription_oauth") {
-    throw new Error("codex_legacy_auth_requires_reconnect");
-  }
-  if (input.providerSetup.authMode === "codex_openai_api_key") {
-    throw new Error("codex_api_key_setup_disabled");
-  }
   if (input.providerSetup.authMode !== "codex_subscription_oauth_rotating") {
     return;
   }
   assertCodexRotatingOAuthRepositoryAllowed(input);
-}
-
-function assertCodexProductionReviewConfigAllowed(
-  config: ReviewConfiguration,
-): void {
-  const unsupportedCodex = config.providers.find(
-    (provider) =>
-      provider.authMode === "codex_subscription_oauth" ||
-      provider.authMode === "codex_openai_api_key",
-  );
-  if (!unsupportedCodex) {
-    return;
-  }
-  throw new Error(
-    unsupportedCodex.authMode === "codex_subscription_oauth"
-      ? "codex_legacy_auth_requires_reconnect"
-      : "codex_api_key_setup_disabled",
-  );
-}
-
-function assertCodexRotatingReviewConfigAllowed(input: {
-  readonly config: ReviewConfiguration;
-  readonly repository: {
-    readonly fullName: string;
-    readonly visibility: string;
-  } | null;
-}): void {
-  const rotatingProviders = input.config.providers.filter(
-    (provider) => provider.authMode === "codex_subscription_oauth_rotating",
-  );
-  if (rotatingProviders.length === 0) {
-    return;
-  }
-  if (!input.repository) {
-    if (!isCodexRotatingOAuthAllowedForWorkspaceDefault()) {
-      throw new Error("codex_rotating_repository_scope_required");
-    }
-  } else {
-    assertCodexRotatingOAuthRepositoryAllowed({
-      repositoryFullName: input.repository.fullName,
-      repositoryVisibility: input.repository.visibility,
-    });
-  }
-  if (
-    rotatingProviders.length !== 1 ||
-    rotatingProviders[0]?.kind !== "codex"
-  ) {
-    throw new Error("codex_rotating_single_provider_required");
-  }
-}
-
-function assertCodexRotatingOAuthRepositoryAllowed(input: {
-  readonly repositoryFullName: string;
-  readonly repositoryVisibility: string;
-}): void {
-  if (!isCodexRotatingOAuthAllowedForRepository(input.repositoryFullName)) {
-    throw new Error("codex_rotating_not_enabled");
-  }
 }
 
 async function markRepositoryWorkflowSetupNeedsAttention(input: {
@@ -3909,7 +3745,8 @@ async function markRepositoryWorkflowSetupNeedsAttention(input: {
   readonly reason:
     | "setup_pr_closed"
     | "setup_pr_branch_deleted"
-    | "setup_pr_wrong_base_branch";
+    | "setup_pr_wrong_base_branch"
+    | "setup_pr_workflow_mismatch";
 }): Promise<void> {
   await new PrismaWorkflowProvisioningStatusAuthority(
     input.prisma,

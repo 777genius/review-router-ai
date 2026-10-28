@@ -93,7 +93,7 @@ export type PrepareExecutionTransitionInput = {
   readonly admissionSafetyDecisionHash: string;
   readonly compatibilityKey: string;
   readonly planHash: string;
-  readonly assignmentManifestVersion?: 1 | null;
+  readonly assignmentManifestVersion?: 1 | 2 | null;
   readonly assignmentManifestHash?: string | null;
   readonly assignmentManifestCanonicalJson?: string | null;
   readonly workSlots: readonly ReviewWorkSlotPlan[];
@@ -449,10 +449,16 @@ export function decideLeaseAcquire(
   if (slot.providerVoteIdentityHash !== input.providerVoteIdentityHash) {
     throw new Error("review_execution_provider_lane_identity_mismatch");
   }
+  if (slot.state === ReviewWorkSlotState.Exhausted) {
+    return {
+      status: LeaseAcquireDecisionStatus.AttemptBudgetExhausted,
+      execution: input.execution,
+      expiredLease: null,
+    };
+  }
   if (
     slot.state === ReviewWorkSlotState.Satisfied ||
-    slot.state === ReviewWorkSlotState.Cancelled ||
-    slot.state === ReviewWorkSlotState.Exhausted
+    slot.state === ReviewWorkSlotState.Cancelled
   ) {
     return { status: LeaseAcquireDecisionStatus.NotRunnable };
   }

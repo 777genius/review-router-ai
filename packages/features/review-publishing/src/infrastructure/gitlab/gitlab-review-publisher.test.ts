@@ -115,6 +115,10 @@ describe("GitLabReviewPublisher", () => {
     expect(result.summaryCommentCount).toBe(1);
     expect(result.skippedInlineFindings).toEqual([]);
     expect(postedBodies).toHaveLength(4);
+    expect(postedBodies[0]?.get("body")).toContain(
+      `https://gitlab.test/group/project/-/blob/${headSha}/src/app.ts#L3`,
+    );
+    expect(postedBodies[0]?.get("body")).not.toContain("<picture>");
     expect(postedBodies[1]?.get("position[new_line]")).toBe("3");
     expect(postedBodies[1]?.get("position[old_line]")).toBeNull();
     expect(postedBodies[2]?.get("position[old_line]")).toBe("2");

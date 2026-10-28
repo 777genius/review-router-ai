@@ -2,7 +2,7 @@
 
 ## Goal
 
-Action-to-SaaS communication must preserve the v1 boundary: no code, no diffs, no secrets.
+Action-to-control plane communication must preserve the v1 boundary: no code, no diffs, no secrets.
 
 ## Allowed Health Report Fields
 
@@ -90,7 +90,7 @@ Before sending any health report, action should apply local redaction:
 - PEM blocks
 - environment variable dumps
 
-SaaS should also validate and reject obvious secret-looking strings. Do not rely only on client-side redaction.
+control plane should also validate and reject obvious secret-looking strings. Do not rely only on client-side redaction.
 
 ## Error Categories
 
@@ -113,7 +113,7 @@ unknown
 ## Review v2 Payloads
 
 Action requests carry canonical hashes and bounded normalized observations, not
-raw credentials or an SCM mutation token. SaaS derives tenant/repository/PR scope
+raw credentials or an SCM mutation token. control plane derives tenant/repository/PR scope
 from signed authorization. Error details are finite safe codes. Contract and E2E
 fixtures scan payloads/logs for token, cookie, source, diff and prompt leakage.
 

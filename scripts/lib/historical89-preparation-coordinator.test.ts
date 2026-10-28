@@ -319,6 +319,7 @@ describe("native executing source closure", () => {
         .match(/const executableFiles = Object.freeze\(\[([\s\S]*?)\]\);/u)![1]
         .matchAll(/"([^"]+)"/gu),
     ].map((m) => m[1]);
+    expect(files).toContain("scripts/review-skills-runtime-grants.ts");
     for (const file of files) {
       mkdirSync(dirname(join(directory, file)), { recursive: true });
       copyFileSync(join(root, file), join(directory, file));
@@ -476,6 +477,14 @@ describe("native executing source closure", () => {
       "executable_source",
     );
     git(["reset", "--hard", activationCommit]);
+    const skillsGrants = "scripts/review-skills-runtime-grants.ts";
+    writeFileSync(
+      join(directory, skillsGrants),
+      readFileSync(join(directory, skillsGrants), "utf8") +
+        "\n// alternate dirty Skills ACL helper\n",
+    );
+    expect(run().stderr).toContain("executable_closure");
+    copyFileSync(join(root, skillsGrants), join(directory, skillsGrants));
     const renderer = "scripts/lib/render-historical89-preparation-custody.mjs";
     writeFileSync(
       join(directory, renderer),

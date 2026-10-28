@@ -3,6 +3,7 @@ import type { ReviewObservation } from "./review-observation";
 import {
   ProviderExecutionProfile,
   ReviewObservationQualityFlag,
+  ReviewProviderKind,
   ReviewTaskKind,
   compareStrings,
   sameRevision,
@@ -190,6 +191,23 @@ export function decideReviewReuseEligibility(
       return denied(
         ReuseEligibility.DeniedIncompatible,
         ReviewReuseDenialReason.PlanMismatch,
+        ReviewReuseTier.T0ExactRevision,
+      );
+    }
+    // Narrow §8.3 guard: a partial OCR observation whose context inspection is
+    // incomplete never satisfies the next exact-revision discovery lookup. It
+    // stays historical/publishable evidence, but the follow-up discovery run
+    // cannot be closed from cache. Other engines keep their current T0 path.
+    if (
+      observation.providerKind === ReviewProviderKind.Ocr &&
+      observation.taskKindSet.includes(ReviewTaskKind.FindingDiscovery) &&
+      observation.qualityFlags.includes(
+        ReviewObservationQualityFlag.ContextInspectionIncomplete,
+      )
+    ) {
+      return denied(
+        ReuseEligibility.DeniedIncompatible,
+        ReviewReuseDenialReason.ReuseDenyingQualityFlag,
         ReviewReuseTier.T0ExactRevision,
       );
     }

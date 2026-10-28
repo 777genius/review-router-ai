@@ -112,13 +112,13 @@ export function assertTargetBranch(value) {
 }
 
 export async function exportPublicContract(input) {
-  assertGitRepository(input.saasRepo, "SaaS");
+  assertGitRepository(input.saasRepo, "control plane");
   assertGitRepository(input.actionRepo, "public Action");
 
   const saasSourceCommit = currentCommit(input.saasRepo);
   if (input.expectedSaasHead && input.expectedSaasHead !== saasSourceCommit) {
     throw new Error(
-      `SaaS HEAD ${saasSourceCommit} does not match --expected-saas-head ${input.expectedSaasHead}`,
+      `control plane HEAD ${saasSourceCommit} does not match --expected-saas-head ${input.expectedSaasHead}`,
     );
   }
   const branch = currentBranch(input.actionRepo);
@@ -369,9 +369,9 @@ function usage() {
 
 Options:
   --action-repo <path>         Public Action Git worktree.
-  --saas-repo <path>           SaaS Git worktree. Default: current directory.
-  --source-directory <path>    Canonical generated source within SaaS.
-  --expected-saas-head <sha>   Optional exact SaaS HEAD fence.
+  --saas-repo <path>           control plane Git worktree. Default: current directory.
+  --source-directory <path>    Canonical generated source within control plane.
+  --expected-saas-head <sha>   Optional exact control plane HEAD fence.
   --write                      Atomically replace only the managed generated target.
   --help                       Show this help.
 

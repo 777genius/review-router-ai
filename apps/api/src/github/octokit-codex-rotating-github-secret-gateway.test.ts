@@ -1,5 +1,12 @@
+import { captureContextToolsPlan } from "@reviewrouter/features-review-context-tools";
+import { assertContextGithubBindings } from "../review-run-runtime-snapshot";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
+import {
+  renderReviewRouterCaller,
+  renderReviewRouterProviderApiCaller,
+  reviewRouterWorkflowContract,
+} from "@reviewrouter/protocol-review-workflow";
 import {
   allocateVersionedProviderSecretNamespace,
   assertActiveVersionedSecretWorkflowAttestation,
@@ -25,7 +32,7 @@ class OctokitCodexRotatingGitHubSecretGateway extends ExplicitApiUrlOctokitCodex
       readonly expectedApiUrl?: string;
     },
   ) {
-    super({ expectedApiUrl: "https://api.reviewrouter.site", ...options });
+    super({ expectedApiUrl: "https://api.reviewrouter.org", ...options });
   }
 }
 
@@ -49,6 +56,183 @@ vi.mock("@octokit/request", () => ({
 }));
 
 describe("OctokitCodexRotatingGitHubSecretGateway", () => {
+  it("joins the canonical rendered named bundle at signed workflow SHA to captured GitHub refs", async () => {
+    const source = renderReviewRouterCaller({
+      mcpSecrets: { DOCS_TOKEN: "DOCS_MCP_TOKEN" },
+    });
+    mocks.auth.mockResolvedValueOnce({
+      token: "fixture-read",
+      expiresAt: "2126-01-01T00:00:00.000Z",
+      permissions: { contents: "read" },
+    });
+    mocks.request.mockResolvedValueOnce(fileContent(source));
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "fixture-key",
+      trustedActionRefs: [],
+    });
+    const actual = await gateway.verifyManagedV2SessionBootstrapSource({
+      githubInstallationId: "123",
+      githubRepositoryId: "456",
+      repositoryFullName: "owner/repo",
+      owner: "owner",
+      workflowPath: reviewRouterWorkflowContract.callerPath,
+      workflowSha: "a".repeat(40),
+    });
+    expect(actual).toEqual({
+      compatible: true,
+      mcpSecrets: { DOCS_TOKEN: "DOCS_MCP_TOKEN" },
+    });
+    const plan = captureContextToolsPlan(
+      {
+        version: 1,
+        builtinTools: [],
+        mcp: [{ connection: "docs", tools: ["search"] }],
+      },
+      [
+        {
+          workspaceId: "w",
+          version: 1,
+          enabled: true,
+          encryptedSecrets: null,
+          definition: {
+            id: "docs",
+            url: "https://mcp.example.com",
+            headers: { Authorization: "Bearer {{ secrets.DOCS_TOKEN }}" },
+            tools: ["search"],
+            credentials: {
+              DOCS_TOKEN: { source: "github-secret", name: "DOCS_MCP_TOKEN" },
+            },
+          },
+        },
+      ],
+    );
+    expect(() =>
+      assertContextGithubBindings(plan, actual.mcpSecrets),
+    ).not.toThrow();
+    expect(() =>
+      assertContextGithubBindings(plan, { DOCS_TOKEN: "GITHUB_TOKEN" }),
+    ).toThrow("context_workflow_secret_binding_mismatch");
+    expect(mocks.request).toHaveBeenCalledWith(
+      "GET /repos/{owner}/{repo}/contents/{path}",
+      expect.objectContaining({
+        ref: "a".repeat(40),
+        path: reviewRouterWorkflowContract.callerPath,
+      }),
+    );
+  });
+  it.each([
+    ["canonical channel", renderReviewRouterCaller(), true],
+    [
+      "retained public service alias",
+      renderReviewRouterCaller({
+        controlPlaneUrl: "https://api.reviewrouter.site",
+      }),
+      true,
+    ],
+    [
+      "extra permission",
+      renderReviewRouterCaller().replace("contents: read", "contents: write"),
+      false,
+    ],
+    [
+      "foreign runtime",
+      renderReviewRouterCaller().replace(
+        "777genius/review-router/",
+        "other/runtime/",
+      ),
+      false,
+    ],
+    [
+      "different control plane",
+      renderReviewRouterCaller({ controlPlaneUrl: "https://other.example" }),
+      false,
+    ],
+  ])(
+    "checks the neutral caller at the signed source SHA: %s",
+    async (_name, source, compatible) => {
+      mocks.auth.mockResolvedValueOnce({
+        token: "fixture-read",
+        expiresAt: "2026-10-14T20:00:00.000Z",
+        permissions: { contents: "read" },
+      });
+      mocks.request.mockResolvedValueOnce(fileContent(source));
+      const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+        appId: "123",
+        privateKey: "fixture-key",
+        trustedActionRefs: [],
+      });
+      await expect(
+        gateway.verifyManagedV2SessionBootstrapSource({
+          githubInstallationId: "129500385",
+          githubRepositoryId: "123456",
+          repositoryFullName: "777genius/example",
+          owner: "777genius",
+          workflowPath: reviewRouterWorkflowContract.callerPath,
+          workflowSha: "b".repeat(40),
+        }),
+      ).resolves.toEqual({ compatible });
+      expect(mocks.request).toHaveBeenCalledTimes(1);
+      expect(mocks.request).toHaveBeenCalledWith(
+        "GET /repos/{owner}/{repo}/contents/{path}",
+        expect.objectContaining({
+          path: reviewRouterWorkflowContract.callerPath,
+          ref: "b".repeat(40),
+        }),
+      );
+    },
+  );
+  it.each(["canonical", "wrong-pin", "wrong-secret", "gateway-source"])(
+    "checks direct source transport and executed pin: %s",
+    async (scenario) => {
+      const expectedSha = "a".repeat(40);
+      let source = renderReviewRouterProviderApiCaller({
+        runtimeRef: expectedSha,
+      });
+      if (scenario === "wrong-pin")
+        source = renderReviewRouterProviderApiCaller({
+          runtimeRef: "c".repeat(40),
+        });
+      if (scenario === "wrong-secret")
+        source = source.replace(
+          "secrets.OPENROUTER_API_KEY",
+          "secrets.OTHER_KEY",
+        );
+      if (scenario === "gateway-source")
+        source = renderReviewRouterCaller({ runtimeRef: expectedSha });
+      mocks.auth.mockResolvedValueOnce({
+        token: "fixture-read",
+        expiresAt: "2026-10-14T20:00:00.000Z",
+        permissions: { contents: "read" },
+      });
+      mocks.request.mockResolvedValueOnce(fileContent(source));
+      const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+        appId: "123",
+        privateKey: "fixture-key",
+        trustedActionRefs: [],
+      });
+      await expect(
+        gateway.verifyManagedV2SessionBootstrapSource({
+          githubInstallationId: "129500385",
+          githubRepositoryId: "123456",
+          repositoryFullName: "777genius/example",
+          owner: "777genius",
+          workflowPath: reviewRouterWorkflowContract.callerPath,
+          workflowSha: "b".repeat(40),
+          expectedProviderApiActionCommitSha: expectedSha,
+        }),
+      ).resolves.toEqual({
+        compatible: scenario === "canonical",
+        ...(scenario === "canonical"
+          ? { providerApiAuthMode: "openrouter-api" }
+          : {}),
+      });
+      expect(mocks.request).toHaveBeenCalledWith(
+        "GET /repos/{owner}/{repo}/contents/{path}",
+        expect.objectContaining({ ref: "b".repeat(40) }),
+      );
+    },
+  );
   beforeEach(() => {
     mocks.auth.mockReset();
     mocks.request.mockReset();
@@ -171,7 +355,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
         "777genius/review-router@2222222222222222222222222222222222222222";
       const current = renderCodexRotatingAdvisoryWorkflow({
         actionRef,
-        apiUrl: "https://reviewrouter.site",
+        apiUrl: "https://reviewrouter.org",
         providerInstanceId: "codex-rotating:123456",
         reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
         workflowSchemaVersion,
@@ -179,7 +363,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
       });
       const next = renderCodexRotatingAdvisoryWorkflow({
         actionRef,
-        apiUrl: "https://reviewrouter.site",
+        apiUrl: "https://reviewrouter.org",
         providerInstanceId: "codex-rotating:123456",
         reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
         workflowSchemaVersion,
@@ -237,7 +421,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
       const gateway = new OctokitCodexRotatingGitHubSecretGateway({
         appId: "123",
         privateKey: "private-key",
-        expectedApiUrl: "https://reviewrouter.site",
+        expectedApiUrl: "https://reviewrouter.org",
         trustedActionRefs: [actionRef],
       });
       await expect(
@@ -377,7 +561,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
       "777genius/review-router@2222222222222222222222222222222222222222";
     const current = renderCodexRotatingAdvisoryWorkflow({
       actionRef,
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
       workflowSchemaVersion:
@@ -438,7 +622,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
     const gateway = new OctokitCodexRotatingGitHubSecretGateway({
       appId: "123",
       privateKey: "private-key",
-      expectedApiUrl: "https://reviewrouter.site",
+      expectedApiUrl: "https://reviewrouter.org",
       trustedActionRefs: [actionRef],
     });
 
@@ -472,6 +656,48 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
       3,
       "GET /repos/{owner}/{repo}/contents/{path}",
       expect.objectContaining({ ref: pinnedHeadSha }),
+    );
+  });
+
+  it("fetches the repository Actions public key with a repository-scoped Secrets: read token", async () => {
+    mocks.auth.mockResolvedValueOnce({
+      token: "ghs_secret_read_token",
+      expiresAt: "2026-05-25T12:15:00.000Z",
+      permissions: { secrets: "read" },
+    });
+    mocks.request.mockResolvedValueOnce({
+      status: 200,
+      data: {
+        key_id: "github-key-id",
+        key: Buffer.from("0123456789abcdef0123456789abcdef").toString("base64"),
+      },
+    });
+
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "private-key",
+    });
+
+    await expect(
+      gateway.getRepositoryActionsPublicKey({
+        githubInstallationId: "129500385",
+        githubRepositoryId: "123456",
+        owner: "777genius",
+        repo: "example",
+      }),
+    ).resolves.toEqual({
+      keyId: "github-key-id",
+      key: Buffer.from("0123456789abcdef0123456789abcdef").toString("base64"),
+    });
+    expect(mocks.request).toHaveBeenCalledWith(
+      "GET /repos/{owner}/{repo}/actions/secrets/public-key",
+      {
+        owner: "777genius",
+        repo: "example",
+        headers: {
+          authorization: "Bearer ghs_secret_read_token",
+        },
+      },
     );
   });
 
@@ -625,7 +851,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef:
         "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
     })
       .replaceAll(", converted_to_draft", "")
@@ -657,7 +883,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
     const gateway = new OctokitCodexRotatingGitHubSecretGateway({
       appId: "123",
       privateKey: "private-key",
-      expectedApiUrl: "https://reviewrouter.site",
+      expectedApiUrl: "https://reviewrouter.org",
     });
 
     await expect(
@@ -694,12 +920,9 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
 
   it("accepts only an immutable T0 workflow inventory without legacy writers", async () => {
     const actionSha = "a".repeat(40);
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     mockManagedWorkflowInventory({ reviewWorkflow: workflow });
     const gateway = new OctokitCodexRotatingGitHubSecretGateway({
@@ -735,7 +958,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
     });
     const unrelatedCanonicalWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:1228051727",
       workflowSchemaVersion: 5,
       activeSecretNamespace,
@@ -776,7 +999,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
     const actionSha = "a".repeat(40);
     const standardWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:1228051727",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -812,54 +1035,70 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
     expect(contentPaths).toContain(".github/workflows/reviewrouter-codex.yml");
   });
 
-  it("reports canonical client-triggered T0 workflow schema v2", async () => {
-    const actionSha = "a".repeat(40);
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      workflowSchemaVersion: 2,
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
-    });
-    mockManagedWorkflowInventory({ reviewWorkflow: workflow });
-    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
-      appId: "123",
-      privateKey: "private-key",
-    });
+  it.each(["https://api.reviewrouter.org", "https://api.reviewrouter.site"])(
+    "reports the current caller ABI independently of producer versions at %s",
+    async (apiUrl) => {
+      const actionSha = "a".repeat(40);
+      const workflow = renderReviewRouterCaller({
+        runtimeRef: actionSha,
+        controlPlaneUrl: apiUrl,
+      });
+      mockManagedWorkflowInventory({ reviewWorkflow: workflow });
+      const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+        appId: "123",
+        privateKey: "private-key",
+      });
 
-    await expect(
-      gateway.inspectReviewV2ManagedWorkflowInventory({
-        githubInstallationId: "129500385",
-        githubRepositoryId: "123456",
-        repositoryFullName: "777genius/example",
-        owner: "777genius",
-      }),
-    ).resolves.toMatchObject({
-      compatible: true,
-      actionCommitSha: actionSha,
-      workflowSchemaVersion: 2,
-    });
-  });
+      await expect(
+        gateway.inspectReviewV2ManagedWorkflowInventory({
+          githubInstallationId: "129500385",
+          githubRepositoryId: "123456",
+          repositoryFullName: "777genius/example",
+          owner: "777genius",
+        }),
+      ).resolves.toMatchObject({
+        compatible: true,
+        actionCommitSha: actionSha,
+        workflowSchemaVersion: 1,
+      });
+    },
+  );
 
   it.each([
-    ["current V3", renderCodexRotatingInteractionWorkflow],
-    ["prior V2", renderCanonicalCodexRotatingInteractionWorkflowV2],
-    ["legacy V1", renderCanonicalCodexRotatingInteractionWorkflowV1],
+    [
+      "current V3",
+      renderCodexRotatingInteractionWorkflow,
+      "https://api.reviewrouter.org",
+    ],
+    [
+      "retained alias V3",
+      renderCodexRotatingInteractionWorkflow,
+      "https://api.reviewrouter.site",
+    ],
+    [
+      "prior V2",
+      renderCanonicalCodexRotatingInteractionWorkflowV2,
+      "https://api.reviewrouter.org",
+    ],
+    [
+      "legacy V1",
+      renderCanonicalCodexRotatingInteractionWorkflowV1,
+      "https://api.reviewrouter.org",
+    ],
   ])(
     "attests the %s interaction workflow at the signed workflow revision",
-    async (_version, renderInteractionWorkflow) => {
+    async (_version, renderInteractionWorkflow, apiUrl) => {
       const actionRef = `777genius/review-router@${"a".repeat(40)}`;
       const codexWorkflow = renderCodexRotatingAdvisoryWorkflow({
         actionRef,
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl,
         providerInstanceId: "codex-rotating:123456",
         reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
       });
       const interactionWorkflow = `# formatting is not authority
 ${renderInteractionWorkflow({
   actionRef,
-  apiUrl: "https://api.reviewrouter.site",
+  apiUrl,
   runtimeConfigMode: "oidc",
 })}`;
       mocks.auth.mockResolvedValueOnce({
@@ -895,11 +1134,96 @@ ${renderInteractionWorkflow({
     },
   );
 
+  it("attests the interaction workflow despite repository node-version tooling drift", async () => {
+    const actionRef = `777genius/review-router@${"a".repeat(40)}`;
+    const codexWorkflow = renderCodexRotatingAdvisoryWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.org",
+      providerInstanceId: "codex-rotating:123456",
+      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    });
+    const interactionWorkflow =
+      renderCanonicalCodexRotatingInteractionWorkflowV2({
+        actionRef,
+        apiUrl: "https://api.reviewrouter.org",
+        runtimeConfigMode: "oidc",
+      }).replace('node-version: "24"', 'node-version: "26.11.1"');
+    mocks.auth.mockResolvedValueOnce({
+      token: "ghs_contents_read_token",
+      expiresAt: "2026-05-25T12:15:00.000Z",
+      permissions: { contents: "read" },
+    });
+    mocks.request
+      .mockResolvedValueOnce(fileContent(codexWorkflow))
+      .mockResolvedValueOnce(fileContent(interactionWorkflow));
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "private-key",
+      trustedActionRefs: [actionRef],
+    });
+
+    await expect(
+      gateway.verifyManagedV2SessionBootstrapSource({
+        githubInstallationId: "129500385",
+        githubRepositoryId: "123456",
+        repositoryFullName: "777genius/example",
+        owner: "777genius",
+        workflowPath: ".github/workflows/reviewrouter-interaction.yml",
+        workflowSha: "b".repeat(40),
+      }),
+    ).resolves.toEqual({ compatible: true });
+  });
+
+  it("still rejects interaction workflow tampering beyond node-version drift", async () => {
+    const actionRef = `777genius/review-router@${"a".repeat(40)}`;
+    const codexWorkflow = renderCodexRotatingAdvisoryWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.org",
+      providerInstanceId: "codex-rotating:123456",
+      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    });
+    const interactionWorkflow =
+      renderCanonicalCodexRotatingInteractionWorkflowV2({
+        actionRef,
+        apiUrl: "https://api.reviewrouter.org",
+        runtimeConfigMode: "oidc",
+      })
+        .replace('node-version: "24"', 'node-version: "26.11.1"')
+        .replace(
+          'REVIEW_ROUTER_MODE: "interaction"',
+          'REVIEW_ROUTER_MODE: "interaction-tampered"',
+        );
+    mocks.auth.mockResolvedValueOnce({
+      token: "ghs_contents_read_token",
+      expiresAt: "2026-05-25T12:15:00.000Z",
+      permissions: { contents: "read" },
+    });
+    mocks.request
+      .mockResolvedValueOnce(fileContent(codexWorkflow))
+      .mockResolvedValueOnce(fileContent(interactionWorkflow));
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "private-key",
+      trustedActionRefs: [actionRef],
+    });
+
+    await expect(
+      gateway.verifyManagedV2SessionBootstrapSource({
+        githubInstallationId: "129500385",
+        githubRepositoryId: "123456",
+        repositoryFullName: "777genius/example",
+        owner: "777genius",
+        workflowPath: ".github/workflows/reviewrouter-interaction.yml",
+        workflowSha: "b".repeat(40),
+      }),
+    ).resolves.toEqual({ compatible: false });
+  });
+
   it("rejects non-canonical or unregistered managed workflow source", async () => {
     const actionRef = `777genius/review-router@${"a".repeat(40)}`;
     const workflow = `${renderCodexRotatingAdvisoryWorkflow({
       actionRef,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
     })}
@@ -936,7 +1260,7 @@ ${renderInteractionWorkflow({
     const actionRef = `777genius/review-router@${"a".repeat(40)}`;
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:1228051727",
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
     });
@@ -991,18 +1315,15 @@ ${renderInteractionWorkflow({
 
   it("rejects a T0 workflow bound to an unexpected API endpoint", async () => {
     const actionSha = "a".repeat(40);
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://attacker.example",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://attacker.example",
     });
     mockManagedWorkflowInventory({ reviewWorkflow: workflow });
     const gateway = new OctokitCodexRotatingGitHubSecretGateway({
       appId: "123",
       privateKey: "private-key",
-      expectedApiUrl: "https://api.reviewrouter.site",
+      expectedApiUrl: "https://api.reviewrouter.org",
     });
 
     await expect(
@@ -1022,7 +1343,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = `${renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -1058,7 +1379,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -1086,13 +1407,10 @@ ${renderInteractionWorkflow({
 
   it("rejects a default workflow bound to a different Action repository", async () => {
     const actionSha = "a".repeat(40);
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `attacker/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
-    });
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.org",
+    }).replace("777genius/review-router/", "attacker/review-router/");
     mockManagedWorkflowInventory({ reviewWorkflow: workflow });
     const gateway = new OctokitCodexRotatingGitHubSecretGateway({
       appId: "123",
@@ -1108,7 +1426,7 @@ ${renderInteractionWorkflow({
       }),
     ).resolves.toMatchObject({
       compatible: false,
-      actionCommitSha: actionSha,
+      actionCommitSha: null,
     });
   });
 
@@ -1116,14 +1434,14 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const defaultWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
     });
     const mismatchedWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:654321",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -1159,16 +1477,13 @@ ${renderInteractionWorkflow({
 
   it("rejects a stale legacy writer on an active non-default PR base branch", async () => {
     const actionSha = "a".repeat(40);
-    const t0Workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const t0Workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     const legacyWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
     });
@@ -1204,12 +1519,9 @@ ${renderInteractionWorkflow({
 
   it("accepts an active PR base branch pinned to the selected T0 runtime", async () => {
     const actionSha = "a".repeat(40);
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     mockManagedWorkflowInventory({
       reviewWorkflow: workflow,
@@ -1245,7 +1557,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -1282,14 +1594,14 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const t0Workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
     });
     const legacyWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
     });
@@ -1324,16 +1636,13 @@ ${renderInteractionWorkflow({
 
   it("does not treat a test merge built from an old base tip as current authority", async () => {
     const actionSha = "a".repeat(40);
-    const t0Workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const t0Workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     const legacyWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
     });
@@ -1369,12 +1678,9 @@ ${renderInteractionWorkflow({
 
   it("ignores a stale merge ref after GitHub proves the PR is conflicted", async () => {
     const actionSha = "a".repeat(40);
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     mockManagedWorkflowInventory({
       reviewWorkflow: workflow,
@@ -1409,7 +1715,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -1445,11 +1751,155 @@ ${renderInteractionWorkflow({
     );
   });
 
+  it("recovers when GitHub mergeability resolves during retry", async () => {
+    const actionSha = "a".repeat(40);
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.org",
+    });
+    mockManagedWorkflowInventory({
+      reviewWorkflow: workflow,
+      activePullRequests: [
+        {
+          number: 240,
+          baseRef: "dev",
+          baseHeadSha: "d".repeat(40),
+          headSha: "c".repeat(40),
+          mergeCommitSha: null,
+          detailMergeCommitSha: "e".repeat(40),
+          mergeableSequence: [null, true],
+          reviewWorkflowAtBase: workflow,
+          reviewWorkflowAtMerge: workflow,
+        },
+      ],
+    });
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "private-key",
+    });
+
+    await expect(
+      gateway.inspectReviewV2ManagedWorkflowInventory({
+        githubInstallationId: "129500385",
+        githubRepositoryId: "123456",
+        repositoryFullName: "777genius/example",
+        owner: "777genius",
+      }),
+    ).resolves.toMatchObject({ compatible: true });
+  });
+
+  it("drops a pull request that merges between the list and detail reads", async () => {
+    const actionSha = "a".repeat(40);
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.org",
+    });
+    mockManagedWorkflowInventory({
+      reviewWorkflow: workflow,
+      activePullRequests: [
+        {
+          number: 240,
+          baseRef: "dev",
+          baseHeadSha: "d".repeat(40),
+          headSha: "c".repeat(40),
+          mergeCommitSha: null,
+          mergedInDetail: true,
+          reviewWorkflowAtBase: workflow,
+        },
+      ],
+    });
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "private-key",
+    });
+
+    await expect(
+      gateway.inspectReviewV2ManagedWorkflowInventory({
+        githubInstallationId: "129500385",
+        githubRepositoryId: "123456",
+        repositoryFullName: "777genius/example",
+        owner: "777genius",
+      }),
+    ).resolves.toMatchObject({ compatible: true });
+  });
+
+  it("propagates an interaction workflow read failure without an unhandled rejection", async () => {
+    const actionSha = "a".repeat(40);
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.org",
+    });
+    mockManagedWorkflowInventory({
+      reviewWorkflow: workflow,
+      interactionReadFailure: true,
+      activePullRequests: [
+        {
+          number: 240,
+          baseRef: "dev",
+          baseHeadSha: "d".repeat(40),
+          headSha: "c".repeat(40),
+          mergeCommitSha: null,
+          mergeable: false,
+          reviewWorkflowAtBase: workflow,
+        },
+      ],
+    });
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "private-key",
+    });
+
+    await expect(
+      gateway.inspectReviewV2ManagedWorkflowInventory({
+        githubInstallationId: "129500385",
+        githubRepositoryId: "123456",
+        repositoryFullName: "777genius/example",
+        owner: "777genius",
+      }),
+    ).rejects.toMatchObject({ status: 500 });
+  });
+
+  it("recovers when a pull request base moves between list and detail reads", async () => {
+    const actionSha = "a".repeat(40);
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.org",
+    });
+    mockManagedWorkflowInventory({
+      reviewWorkflow: workflow,
+      activePullRequests: [
+        {
+          number: 240,
+          baseRef: "dev",
+          baseHeadSha: "d".repeat(40),
+          headSha: "c".repeat(40),
+          mergeCommitSha: null,
+          mergeable: false,
+          detailBaseShaSequence: ["b".repeat(40), "d".repeat(40)],
+          reviewWorkflowAtBase: workflow,
+        },
+      ],
+    });
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "private-key",
+    });
+
+    await expect(
+      gateway.inspectReviewV2ManagedWorkflowInventory({
+        githubInstallationId: "129500385",
+        githubRepositoryId: "123456",
+        repositoryFullName: "777genius/example",
+        owner: "777genius",
+      }),
+    ).resolves.toMatchObject({ compatible: true });
+  });
+
   it("fails closed when a merge ref moves during inspection", async () => {
     const actionSha = "a".repeat(40);
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -1488,7 +1938,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -1522,14 +1972,11 @@ ${renderInteractionWorkflow({
     ).rejects.toThrow("codex_rotating_workflow_inventory_coverage_moved");
   });
 
-  it("accepts an interaction workflow pinned to the same immutable T0 runtime", async () => {
+  it("rejects an obsolete interaction writer even when its producer pin matches", async () => {
     const actionSha = "a".repeat(40);
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     mockManagedWorkflowInventory({
       reviewWorkflow: workflow,
@@ -1548,7 +1995,7 @@ ${renderInteractionWorkflow({
         owner: "777genius",
       }),
     ).resolves.toMatchObject({
-      compatible: true,
+      compatible: false,
       actionCommitSha: actionSha,
     });
   });
@@ -1556,18 +2003,15 @@ ${renderInteractionWorkflow({
   it("treats a prior V2 interaction workflow as stale inventory", async () => {
     const actionSha = "a".repeat(40);
     const actionRef = `777genius/review-router@${actionSha}`;
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     mockManagedWorkflowInventory({
       reviewWorkflow: workflow,
       interactionWorkflow: renderCanonicalCodexRotatingInteractionWorkflowV2({
         actionRef,
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         runtimeConfigMode: "oidc",
       }),
     });
@@ -1588,12 +2032,9 @@ ${renderInteractionWorkflow({
 
   it("rejects an interaction workflow pinned to a different runtime", async () => {
     const actionSha = "a".repeat(40);
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     mockManagedWorkflowInventory({
       reviewWorkflow: workflow,
@@ -1616,12 +2057,9 @@ ${renderInteractionWorkflow({
 
   it("rejects extra interaction workflow steps even when the runtime pin matches", async () => {
     const actionSha = "a".repeat(40);
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     const interactionWorkflow = `${renderT0InteractionWorkflow(actionSha)}
       - name: Exfiltrate session
@@ -1756,7 +2194,7 @@ ${renderInteractionWorkflow({
   it("rejects rotating workflow source from an unexpected action repository", async () => {
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: "evil/review-router@0123456789abcdef0123456789abcdef01234567",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
     });
     mocks.auth.mockResolvedValueOnce({
@@ -1800,7 +2238,7 @@ ${renderInteractionWorkflow({
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef:
         "777genius/review-router@2222222222222222222222222222222222222222",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
     });
     mocks.auth.mockResolvedValueOnce({
@@ -1819,7 +2257,7 @@ ${renderInteractionWorkflow({
     const gateway = new OctokitCodexRotatingGitHubSecretGateway({
       appId: "123",
       privateKey: "private-key",
-      expectedApiUrl: "https://reviewrouter.site",
+      expectedApiUrl: "https://reviewrouter.org",
       trustedActionRefs: [
         "777genius/review-router@2222222222222222222222222222222222222222",
       ],
@@ -1856,7 +2294,7 @@ ${renderInteractionWorkflow({
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef:
         "777genius/review-router@2222222222222222222222222222222222222222",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
       workflowSchemaVersion:
@@ -1893,7 +2331,7 @@ ${renderInteractionWorkflow({
     const gateway = new OctokitCodexRotatingGitHubSecretGateway({
       appId: "123",
       privateKey: "private-key",
-      expectedApiUrl: "https://reviewrouter.site",
+      expectedApiUrl: "https://reviewrouter.org",
       trustedActionRefs: [
         "777genius/review-router@2222222222222222222222222222222222222222",
       ],
@@ -2111,6 +2549,7 @@ function mockManagedWorkflowInventory(input: {
   readonly reviewPath?: string;
   readonly competingStandardWorkflow?: string;
   readonly interactionWorkflow?: string;
+  readonly interactionReadFailure?: boolean;
   readonly activePullRequests?: readonly {
     readonly number: number;
     readonly draft?: boolean;
@@ -2122,6 +2561,10 @@ function mockManagedWorkflowInventory(input: {
     readonly mergeCommitSha?: string | null;
     readonly movedMergeCommitSha?: string | null;
     readonly mergeable?: boolean | null;
+    readonly mergeableSequence?: readonly (boolean | null)[];
+    readonly detailMergeCommitSha?: string | null;
+    readonly detailBaseShaSequence?: readonly string[];
+    readonly mergedInDetail?: boolean;
     readonly reviewWorkflowAtBase?: string;
     readonly legacyWorkflowAtBase?: string;
     readonly reviewWorkflowAtMerge?: string;
@@ -2138,6 +2581,10 @@ function mockManagedWorkflowInventory(input: {
     readonly mergeCommitSha?: string | null;
     readonly movedMergeCommitSha?: string | null;
     readonly mergeable?: boolean | null;
+    readonly mergeableSequence?: readonly (boolean | null)[];
+    readonly detailMergeCommitSha?: string | null;
+    readonly detailBaseShaSequence?: readonly string[];
+    readonly mergedInDetail?: boolean;
     readonly reviewWorkflowAtBase?: string;
     readonly legacyWorkflowAtBase?: string;
     readonly reviewWorkflowAtMerge?: string;
@@ -2164,18 +2611,26 @@ function mockManagedWorkflowInventory(input: {
       legacyWorkflow: pullRequest.legacyWorkflowAtBase,
     })),
   ];
-  const mergeReferences = activePullRequests.flatMap((pullRequest) =>
-    pullRequest.mergeCommitSha
+  // The production code derives merge references from the resolved detail
+  // merge sha (the list sha is null while GitHub is still computing).
+  const mergeReferences = activePullRequests.flatMap((pullRequest) => {
+    const resolvedMergeCommitSha = (
+      "detailMergeCommitSha" in pullRequest
+        ? pullRequest.detailMergeCommitSha
+        : (pullRequest.mergeCommitSha ?? null)
+    )?.toLowerCase();
+    return typeof resolvedMergeCommitSha === "string"
       ? [
           {
-            ref: pullRequest.mergeCommitSha,
+            ref: resolvedMergeCommitSha,
             reviewWorkflow: pullRequest.reviewWorkflowAtMerge,
             legacyWorkflow: pullRequest.legacyWorkflowAtMerge,
           },
         ]
-      : [],
-  );
+      : [];
+  });
   const branchReads = new Map<string, number>();
+  const detailReads = new Map<number, number>();
   let pullListReads = 0;
   mocks.auth.mockResolvedValueOnce({
     token: "ghs_contents_read_token",
@@ -2228,16 +2683,43 @@ function mockManagedWorkflowInventory(input: {
           (candidate) => candidate.number === request.pull_number,
         );
         if (!pullRequest) throw { status: 404 };
+        const detailReadCount = detailReads.get(pullRequest.number) ?? 0;
+        detailReads.set(pullRequest.number, detailReadCount + 1);
         return {
           data: {
             number: pullRequest.number,
             draft: pullRequest.draft ?? false,
-            mergeable:
-              "mergeable" in pullRequest ? pullRequest.mergeable : false,
-            merge_commit_sha: pullRequest.mergeCommitSha ?? null,
+            ...(pullRequest.mergedInDetail
+              ? { state: "closed", merged: true }
+              : {}),
+            mergeable: pullRequest.mergeableSequence
+              ? (pullRequest.mergeableSequence[
+                  Math.min(
+                    detailReadCount,
+                    pullRequest.mergeableSequence.length - 1,
+                  )
+                ] ?? null)
+              : "mergeable" in pullRequest
+                ? pullRequest.mergeable
+                : pullRequest.mergedInDetail
+                  ? // Real GitHub keeps reporting `mergeable: null` forever for
+                    // merged or closed pull requests.
+                    null
+                  : false,
+            merge_commit_sha:
+              "detailMergeCommitSha" in pullRequest
+                ? pullRequest.detailMergeCommitSha
+                : (pullRequest.mergeCommitSha ?? null),
             base: {
               ref: pullRequest.baseRef,
-              sha: pullRequest.listedBaseSha ?? pullRequest.baseHeadSha,
+              sha: pullRequest.detailBaseShaSequence
+                ? (pullRequest.detailBaseShaSequence[
+                    Math.min(
+                      detailReadCount,
+                      pullRequest.detailBaseShaSequence.length - 1,
+                    )
+                  ] ?? pullRequest.baseHeadSha)
+                : (pullRequest.listedBaseSha ?? pullRequest.baseHeadSha),
               repo: { id: input.repositoryId ?? 123456 },
             },
             head: { sha: pullRequest.headSha },
@@ -2271,8 +2753,7 @@ function mockManagedWorkflowInventory(input: {
         if (!reference) throw { status: 404 };
         const path = String(request.path);
         if (
-          path ===
-          (input.reviewPath ?? ".github/workflows/reviewrouter-codex.yml")
+          path === (input.reviewPath ?? reviewRouterWorkflowContract.callerPath)
         ) {
           if (!reference.reviewWorkflow) throw { status: 404 };
           return fileContent(reference.reviewWorkflow);
@@ -2294,6 +2775,7 @@ function mockManagedWorkflowInventory(input: {
           return fileContent(input.competingStandardWorkflow);
         }
         if (path === ".github/workflows/reviewrouter-interaction.yml") {
+          if (input.interactionReadFailure) throw { status: 500 };
           if (
             !("interactionWorkflow" in reference) ||
             typeof reference.interactionWorkflow !== "string"
@@ -2329,7 +2811,7 @@ function gitBlobSha(source: string): string {
 function renderT0InteractionWorkflow(actionSha: string) {
   return renderCodexRotatingInteractionWorkflow({
     actionRef: `777genius/review-router@${actionSha}`,
-    apiUrl: "https://api.reviewrouter.site",
+    apiUrl: "https://api.reviewrouter.org",
     runtimeConfigMode: "oidc",
   });
 }

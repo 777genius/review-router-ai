@@ -367,9 +367,12 @@ describe("private-network PG17 workflow security contract", () => {
     expect(controller).not.toContain("pnpm install --frozen-lockfile");
     for (const job of installJobs) {
       expect(job).not.toContain("SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64");
-      expect(job.match(/name: Enable pnpm/gu)).toHaveLength(1);
-      expect(job).toContain("run: corepack enable");
-      expect(job.indexOf("name: Enable pnpm")).toBeLessThan(
+      expect(job.match(/name: Install pnpm/gu)).toHaveLength(1);
+      expect(job).toContain(
+        "run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7",
+      );
+      expect(job).not.toContain("corepack");
+      expect(job.indexOf("name: Install pnpm")).toBeLessThan(
         job.indexOf(installCommand),
       );
       expect(job.match(new RegExp(installCommand, "gu"))).toHaveLength(1);
@@ -681,7 +684,7 @@ describe("private-network PG17 workflow security contract", () => {
 
   it("pins base image and runner download, and never supplies the App private key by env", () => {
     expect(dockerfile).toMatch(
-      /^FROM node:24-bookworm-slim@sha256:[a-f0-9]{64}/mu,
+      /^FROM node:26\.11\.1-bookworm-slim@sha256:[a-f0-9]{64}/mu,
     );
     expect(dockerfile).toContain("GITHUB_ACTIONS_RUNNER_SHA256");
     expect(dockerfile).toContain("sha256sum --check --strict");

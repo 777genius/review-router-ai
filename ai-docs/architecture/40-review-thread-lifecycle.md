@@ -2,9 +2,24 @@
 
 ## Status
 
-Proposed final design.
+Implemented lifecycle policy with legacy and admitted-companion execution paths.
 
-Overall recommendation:
+This document retains the original legacy prompt-based design. Its
+normal-provider-prompt/no-extra-inference assumptions apply to that path only.
+The implemented provider-neutral verifier uses a separate, tools-disabled
+companion after discovery inside the same admitted execution; its current
+source contract and qualification scope are documented in
+[architecture 60](60-provider-neutral-finding-revalidation-plan.md).
+It uses the saved Gateway model/lane, at most two calls within the existing
+aggregate grant, and the same canonical publication authority. Unsupported
+transports do not gain a fallback verifier.
+
+Both paths require positive evidence and live mutation guards. A verified fix is
+a semantic candidate, not proof of native thread closure. The companion's frozen
+summary says "fixes verified" as of projection; actual closure is established by
+native state and canonical receipts, without rewriting that artifact.
+
+Original legacy recommendation and estimate (historical):
 
 ```text
 Strict quorum lifecycle inside existing provider prompts
@@ -13,9 +28,10 @@ Estimated implementation size: 600-900 changed lines with focused tests
 ```
 
 This document describes the ReviewRouter Action runtime behavior, primarily in
-`777genius/review-router`. The SaaS control plane may expose config, but it
-should not inspect customer diffs, model prompts, provider output, or review
-thread contents.
+`777genius/review-router`. The Action owns source-context materialization and
+model requests; the control plane owns captured authorization, scoped dispatch
+claims and canonical publication. The companion does not introduce a second
+mutation route or expose upstream credentials to CI.
 
 ## Final Implementation Contract
 
@@ -31,10 +47,12 @@ below explain the edge cases.
    from auto-resolve.
 
 2. During review:
-   Add bounded existing_findings_to_revalidate targets to the normal provider
-   prompts.
-   Do not launch extra provider processes only for lifecycle.
-   Providers return normal findings plus optional revalidations.
+   Legacy prompt path: add bounded existing_findings_to_revalidate targets to
+   normal provider prompts; providers return findings plus revalidations.
+   Admitted companion path: finish discovery, then independently revalidate
+   bounded target-centric current-head packets under architecture 60.
+   Do not launch a second agent process or infer lifecycle verdicts from OCR
+   discovery output. The separate companion calls require their own authority.
 
 3. After provider responses:
    Parse revalidations defensively.
@@ -42,10 +60,12 @@ below explain the edge cases.
    valid still_valid blocks close and becomes previousStillValid.
 
 4. Quorum:
-   single-provider review plan -> one strict resolved can close.
-   multi-provider review plan -> at least two strict resolved votes are required.
-   A failed or omitted provider in multi-provider mode is uncertainty, not a
-   downgrade to single-provider mode.
+   Use the authoritative planned lifecycle participants, never only responders.
+   Legacy path uses the review-provider plan; the new companion uses its
+   explicit single-verifier roster. One strict resolved vote can satisfy that
+   single-verifier policy; two calls from one identity are not two votes.
+   A planned multi-provider lifecycle quorum requires at least two identities.
+   Missing participants never downgrade it to single-provider mode.
 
 5. Before mutation:
    Re-fetch PR headRefOid.
@@ -76,35 +96,37 @@ This matrix ties the user-facing decisions to concrete implementation rules.
 If implementation changes a row, it changes the product behavior and needs a new
 decision.
 
-| Requirement                                 | Locked implementation rule                                                                         |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Close resolved comments for convenience     | `resolve` mode calls `resolveReviewThread` only after strict quorum and guards                     |
-| Do not launch extra processes               | Revalidation is added to normal provider prompts only                                              |
-| Do not recheck closed comments every commit | Resolved threads are ignored by lifecycle inventory                                                |
-| Do not close because code changed           | Missing finding, moved line, changed fingerprint, and outdated hunk are not verdicts               |
-| Multi-provider cross-check                  | Review plan with 2+ providers requires at least two provider identities with valid `resolved`      |
-| Single provider remains usable              | Single-provider review plan can close with one strict `resolved`                                   |
-| `still_valid` wins                          | Any valid `still_valid` blocks resolve, even with resolved quorum                                  |
-| Missing/failed/invalid output is safe       | Missing, parse error, provider failure, invalid evidence become `uncertain`                        |
-| Human discussion is respected               | Human/unknown reply puts thread in manual attention and blocks mutation                            |
-| Old resolved comment cannot hide new bug    | Dedupe index uses trusted unresolved threads only                                                  |
-| Summary must be honest                      | `previousStillValid` affects counters, uncertainty blocks `All Clear`, mutation failures are shown |
-| Race-safe mutation                          | Head SHA and candidate thread are refreshed immediately before mutation                            |
-| No prompt injection from old comments       | Old finding data is delimited as untrusted evidence                                                |
-| Manual skip/dismiss is policy               | Active command ledger state blocks v1 auto-resolve                                                 |
+| Requirement                                 | Locked implementation rule                                                                                         |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Close resolved comments for convenience     | `resolve` mode calls `resolveReviewThread` only after strict quorum and guards                                     |
+| Bounded lifecycle execution                 | Legacy uses normal prompts; admitted companion uses separate bounded calls, no second agent process                |
+| Do not recheck closed comments every commit | Resolved threads are ignored by lifecycle inventory                                                                |
+| Do not close because code changed           | Missing finding, moved line, changed fingerprint, and outdated hunk are not verdicts                               |
+| Multi-provider cross-check                  | Planned lifecycle roster with 2+ identities requires two valid `resolved` votes; discovery is not a companion vote |
+| Single participant remains usable           | One planned lifecycle participant can close with one strict `resolved` under its admitted policy                   |
+| `still_valid` wins                          | Any valid `still_valid` blocks resolve, even with resolved quorum                                                  |
+| Missing/failed/invalid output is safe       | Missing, parse error, provider failure, invalid evidence become `uncertain`                                        |
+| Human discussion is respected               | Human/unknown reply puts thread in manual attention and blocks mutation                                            |
+| Old resolved comment cannot hide new bug    | Dedupe index uses trusted unresolved threads only                                                                  |
+| Summary must be honest                      | `previousStillValid` affects counters, uncertainty blocks `All Clear`, mutation failures are shown                 |
+| Race-safe mutation                          | Head SHA and candidate thread are refreshed immediately before mutation                                            |
+| No prompt injection from old comments       | Old finding data is delimited as untrusted evidence                                                                |
+| Manual skip/dismiss is policy               | Active command ledger state blocks v1 auto-resolve                                                                 |
 
 ## Locked Decisions
 
-These decisions are fixed for the first implementation. Do not reopen them
-during implementation unless a test proves the design is impossible:
+These preserve the original policy, with the execution-path amendment accepted
+in architecture 60:
 
 ```text
 1. Auto-close is a lifecycle feature for unresolved ReviewRouter threads only.
 2. Already resolved threads are not rechecked on every commit.
 3. Closing requires provider revalidation, not fingerprint absence.
-4. Revalidation happens inside the normal provider review prompts.
-5. No extra Codex/Claude/provider processes are launched just for lifecycle.
-6. If the review plan is multi-provider, closing requires strict quorum.
+4. Legacy revalidation uses normal prompts; the admitted companion revalidates
+   independently after discovery under its own bounded capability.
+5. No extra Codex/Claude agent process is launched just for lifecycle; separate
+   companion model calls are explicitly authorized under architecture 60.
+6. Closing uses strict quorum from the planned lifecycle participants.
 7. Any valid still_valid vote blocks closing.
 8. Missing, invalid, failed, or uncertain provider output never closes.
 9. Human discussion blocks auto-resolve for that thread.
@@ -206,8 +228,9 @@ ReviewRouter manages unresolved ReviewRouter finding lifecycle.
 
 - Do not delete comments.
 - Do not auto-unresolve previously resolved threads in v1.
-- Do not start extra Codex, Claude, or provider processes only for lifecycle
-  rechecks.
+- Do not start an extra Codex/Claude agent or a separate lifecycle job. Legacy
+  prompt rechecks and the explicitly admitted bounded companion are the two
+  supported execution forms; the latter permits separate model calls.
 - Do not recheck already resolved ReviewRouter threads on every commit.
 - Do not close a thread because its line moved, became outdated, or the file
   diff changed.
@@ -1525,7 +1548,14 @@ facts for comparison, but they remain mutation-ineligible.
 
 ## Mutation Order
 
-Recommended order:
+The admitted companion follows architecture 60 instead: discovery, bounded
+verification, optional description, immutable projection/publication, then native
+operations and receipts. Its summary/check report verification-time facts, not
+future mutation success. A later ordinary projection can incorporate confirmed
+native closure. There is no second render job or automatic model run to refresh
+the frozen artifact. The order below remains the legacy contract.
+
+Legacy prompt-path order:
 
 ```text
 1. Load unresolved thread inventory.
@@ -2287,7 +2317,7 @@ Reason code rules:
 These must remain true:
 
 ```text
-1. SaaS does not receive code, diffs, prompts, provider output, or thread bodies.
+1. control plane does not receive code, diffs, prompts, provider output, or thread bodies.
 2. Provider/model subprocesses do not receive GitHub tokens.
 3. GitHub write token is used only by trusted runtime posting/mutation code.
 4. Hidden comment markers are never treated as trust by themselves.
@@ -2449,7 +2479,7 @@ interface LifecycleAggregationInput {
 ```
 
 Keep these types internal to the runtime. Do not expose thread bodies or
-provider rationales to SaaS health payloads.
+provider rationales to control plane health payloads.
 
 Module boundary rules:
 
@@ -3271,7 +3301,7 @@ adopted.
 
 ```text
 GraphQL unresolved ReviewRouter thread inventory
--> bounded revalidation targets inside normal provider prompts
+-> legacy normal-prompt targets OR admitted independent companion after discovery
 -> strict quorum aggregation
 -> head-SHA-guarded resolveReviewThread mutations
 -> honest summary/check counters from current findings + lifecycle state
@@ -3286,5 +3316,5 @@ Do not recheck already resolved threads.
 Do not let resolved old threads suppress new bugs.
 Do not say "All Clear" while old unresolved findings are uncertain.
 Do count still-valid old findings as active.
-Do require two resolved votes in multi-provider mode.
+Do require two resolved votes for a planned multi-provider lifecycle roster.
 ```

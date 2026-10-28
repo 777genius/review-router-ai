@@ -50,8 +50,12 @@ export class CodexCliConflictProviderRunner implements ConflictRuntimeProviderRu
     readonly providerEnv: Readonly<Record<string, string>>;
   }): Promise<unknown> {
     const authMode = input.providerEnv.REVIEW_AUTH_MODE;
-    if (authMode !== "codex-oauth" && authMode !== "openai-api") {
+    const isMimo = authMode === "mimo-token-plan-api";
+    if (authMode !== "codex-oauth" && authMode !== "openai-api" && !isMimo) {
       throw new Error("conflict_provider_runtime_unsupported");
+    }
+    if (isMimo && !input.providerEnv.MIMO_TOKEN_PLAN_API_KEY?.trim()) {
+      throw new Error("conflict_provider_mimo_api_key_missing");
     }
     const model = input.providerEnv.CODEX_MODEL?.trim();
     if (!model) {
@@ -78,6 +82,7 @@ export class CodexCliConflictProviderRunner implements ConflictRuntimeProviderRu
         command: this.command,
         args: buildCodexExecArgs({
           model,
+          isMimo,
           reasoningEffort: input.providerEnv.CODEX_REASONING_EFFORT,
           schemaFile,
           outputFile,
@@ -100,6 +105,7 @@ export class CodexCliConflictProviderRunner implements ConflictRuntimeProviderRu
 
 function buildCodexExecArgs(input: {
   readonly model: string;
+  readonly isMimo: boolean;
   readonly reasoningEffort?: string | undefined;
   readonly schemaFile: string;
   readonly outputFile: string;
@@ -120,12 +126,35 @@ function buildCodexExecArgs(input: {
     "never",
     "--cd",
     input.workspace,
-    "--output-schema",
-    input.schemaFile,
     "--output-last-message",
     input.outputFile,
     "-",
   ];
+  if (input.isMimo) {
+    args.splice(
+      args.indexOf("--ephemeral"),
+      0,
+      "--config",
+      'model_provider="mimo"',
+      "--config",
+      'model_providers.mimo.name="MiMo Token Plan"',
+      "--config",
+      'model_providers.mimo.base_url="https://token-plan-sgp.xiaomimimo.com/v1"',
+      "--config",
+      'model_providers.mimo.wire_api="responses"',
+      "--config",
+      'model_providers.mimo.env_key="MIMO_TOKEN_PLAN_API_KEY"',
+      "--config",
+      'web_search="disabled"',
+    );
+  } else {
+    args.splice(
+      args.indexOf("--output-last-message"),
+      0,
+      "--output-schema",
+      input.schemaFile,
+    );
+  }
   if (input.reasoningEffort?.trim()) {
     args.splice(
       args.indexOf("--ephemeral"),
@@ -148,6 +177,9 @@ function buildCodexConflictReviewPrompt(input: {
     "Review only the provided bounded diff for bugs, security issues, and clear regressions.",
     "This is not a merge-result review. Do not claim branch protection passed or that the merge result was reviewed.",
     "Return only JSON that matches the provided schema.",
+    ...(input.providerEnv.REVIEW_AUTH_MODE === "mimo-token-plan-api"
+      ? [JSON.stringify(modelOutputJsonSchema)]
+      : []),
     "For findings without a file path or line range, set path, startLine, and endLine to null.",
     ...conflictReviewLanguageDirective(
       input.providerEnv.REVIEW_OUTPUT_LANGUAGE,
@@ -222,6 +254,9 @@ async function prepareCodexHome(
   const codexHome = join(tempDir, "codex-home");
   await writeFile(join(tempDir, ".keep"), "", { mode: 0o600 });
   await mkdir(codexHome, { recursive: true, mode: 0o700 });
+  if (providerEnv.REVIEW_AUTH_MODE === "mimo-token-plan-api") {
+    return codexHome;
+  }
   const authJson = providerEnv.CODEX_AUTH_JSON;
   if (authJson) {
     const authFile = join(codexHome, "auth.json");
@@ -253,7 +288,9 @@ function buildCodexCommandEnvironment(input: {
     LC_ALL: process.env.LC_ALL,
     CI: "true",
     CODEX_HOME: input.codexHome,
-    OPENAI_API_KEY: input.providerEnv.OPENAI_API_KEY,
+    ...(input.providerEnv.REVIEW_AUTH_MODE === "mimo-token-plan-api"
+      ? { MIMO_TOKEN_PLAN_API_KEY: input.providerEnv.MIMO_TOKEN_PLAN_API_KEY }
+      : { OPENAI_API_KEY: input.providerEnv.OPENAI_API_KEY }),
   };
 }
 

@@ -101,7 +101,9 @@ export function DashboardShell({
     <DashboardShellContext.Provider value={setWorkspaces}>
       {selectedWorkspace ? (
         <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-5 px-4 py-6 sm:px-6 md:py-10">
+          <DashboardLayoutMetrics workspaceCount={workspaces.length} />
           <WorkspaceSwitcher
+            part="intro"
             workspaces={workspaces}
             selectedWorkspaceId={selectedWorkspace.workspace.id}
             selectedSection={selectedSection}
@@ -111,18 +113,26 @@ export function DashboardShell({
             )}
             fallbackUser={fallbackUser}
           />
-          <section id="dashboard-workspace" className="grid gap-5 scroll-mt-28">
+          <section id="dashboard-workspace" className="min-w-0">
+            <WorkspaceSwitcher
+              part="tabs"
+              workspaces={workspaces}
+              selectedWorkspaceId={selectedWorkspace.workspace.id}
+              selectedSection={selectedSection}
+              appInstallUrl={appInstallUrl}
+              pendingOrganizationInstallRequest={buildPendingOrganizationInstallRequest(
+                displayedParams,
+              )}
+              fallbackUser={fallbackUser}
+            />
             <DashboardCollapsibleShell
               nav={
                 <DashboardSectionNav
-                  workspace={selectedWorkspace.workspace}
-                  repositoryCount={selectedWorkspace.repositoryCount}
                   selectedSection={selectedSection}
                   workspaceKey={dashboardWorkspaceUrlKey(
                     selectedWorkspace.workspace,
                     workspaces,
                   )}
-                  fallbackUser={fallbackUser}
                 />
               }
             >
@@ -139,6 +149,59 @@ export function DashboardShell({
       )}
     </DashboardShellContext.Provider>
   );
+}
+
+function DashboardLayoutMetrics({
+  workspaceCount,
+}: {
+  workspaceCount: number;
+}): null {
+  useEffect(() => {
+    const root = document.documentElement;
+    const header = document.querySelector<HTMLElement>("[data-global-header]");
+    const workspaceBar = document.getElementById("dashboard-workspace-bar");
+    const compactNav = document.getElementById("dashboard-compact-nav");
+    const read = (element: HTMLElement | null) =>
+      // Sticky offsets are CSS layout pixels. Viewport rects include CSS zoom,
+      // which would apply the scale twice when published back into CSS.
+      element ? element.offsetHeight : 0;
+    const previousPadding = root.style.scrollPaddingTop;
+    const publish = () => {
+      root.style.setProperty("--rr-header-height", `${read(header)}px`);
+      root.style.setProperty(
+        "--rr-workspace-bar-height",
+        `${read(workspaceBar)}px`,
+      );
+      root.style.setProperty(
+        "--rr-compact-nav-height",
+        `${read(compactNav)}px`,
+      );
+      root.style.scrollPaddingTop = `${read(header)}px`;
+      if (header && read(header) > 0)
+        root.dataset.dashboardLayoutReady = "true";
+    };
+    publish();
+    if (typeof ResizeObserver === "undefined")
+      return () => {
+        delete root.dataset.dashboardLayoutReady;
+        root.style.removeProperty("--rr-header-height");
+        root.style.removeProperty("--rr-workspace-bar-height");
+        root.style.removeProperty("--rr-compact-nav-height");
+        root.style.scrollPaddingTop = previousPadding;
+      };
+    const observer = new ResizeObserver(publish);
+    for (const element of [header, workspaceBar, compactNav])
+      if (element) observer.observe(element);
+    return () => {
+      observer.disconnect();
+      root.style.scrollPaddingTop = previousPadding;
+      delete root.dataset.dashboardLayoutReady;
+      root.style.removeProperty("--rr-header-height");
+      root.style.removeProperty("--rr-workspace-bar-height");
+      root.style.removeProperty("--rr-compact-nav-height");
+    };
+  }, [workspaceCount]);
+  return null;
 }
 
 function firstValueParams(

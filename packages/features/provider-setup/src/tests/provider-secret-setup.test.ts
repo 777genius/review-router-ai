@@ -13,7 +13,7 @@ describe("provider secret setup guidance", () => {
       rotatingSetup: {
         repositoryId: "123456",
         repositoryIdentityVersion: 1,
-        installerUrl: "https://reviewrouter.site/install/codex-rotating",
+        installerUrl: "https://reviewrouter.org/install/codex-rotating",
         installerVersion: "v1.2.3",
         installerSha256:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -61,56 +61,20 @@ describe("provider secret setup guidance", () => {
     expect(guidance.commands[0]?.failureRecovery).toContain("--force-reseed");
   });
 
-  it("builds a Codex OAuth org selected-repository command without sending secrets to SaaS", () => {
-    const guidance = buildProviderSecretSetupGuidance({
-      provider: "codex_oauth",
-      repoFullName: "agent-teams-ai/tvaity",
-      organizationLogin: "agent-teams-ai",
-    });
-
-    expect(guidance.recommendedScope).toBe(
-      "organization_selected_repositories",
-    );
-    expect(guidance.commands[0]).toMatchObject({
-      scope: "organization_selected_repositories",
-      storesSecretIn: "github_org_secret",
-      targetLabel: "agent-teams-ai organization secret, selected repo tvaity",
-      secretNames: ["CODEX_AUTH_JSON"],
-      selectedRepositories: ["agent-teams-ai/tvaity"],
-      validatesBeforeWrite: true,
-      sendsSecretToReviewRouter: false,
-    });
-    expect(guidance.commands[0]?.command).toContain("--scope org");
-    expect(guidance.commands[0]?.command).toContain("--visibility selected");
-    expect(guidance.commands[0]?.command).toContain("--confirm-write");
-    expect(guidance.commands[0]?.command).toContain("--repos tvaity");
-    expect(guidance.commands[0]?.command).not.toContain("CODEX_AUTH_JSON=");
-    expect(
-      guidance.commands.find(
-        (command) => command.scope === "organization_private_repositories",
-      )?.command,
-    ).toContain("--visibility private");
-    expect(
-      guidance.commands.find(
-        (command) => command.scope === "organization_all_repositories",
-      )?.command,
-    ).toContain("--visibility all");
-  });
-
   it("builds repository API key commands without embedding secret values", () => {
     const guidance = buildProviderSecretSetupGuidance({
-      provider: "openai_api_key",
+      provider: "openrouter_api_key",
       repoFullName: "777genius/example",
     });
 
     expect(guidance.recommendedScope).toBe("repository");
     expect(guidance.commands[0]?.command).toBe(
-      "gh secret set OPENAI_API_KEY --repo 777genius/example",
+      "gh secret set OPENROUTER_API_KEY --repo 777genius/example --app actions",
     );
     expect(guidance.commands[0]).toMatchObject({
       scope: "repository",
       targetLabel: "777genius/example repository secret",
-      secretNames: ["OPENAI_API_KEY"],
+      secretNames: ["OPENROUTER_API_KEY"],
       selectedRepositories: ["777genius/example"],
       validatesBeforeWrite: false,
     });
@@ -229,6 +193,28 @@ describe("provider secret setup guidance", () => {
       )?.command,
     ).toBe(
       "gh secret set CLAUDE_CODE_OAUTH_TOKEN --org agent-teams-ai --visibility all --app actions",
+    );
+  });
+
+  it("builds an interactive repository MiMo command without a key value", () => {
+    const guidance = buildProviderSecretSetupGuidance({
+      provider: "mimo_token_plan_api_key",
+      repoFullName: "777genius/catalog-c1-r4",
+    });
+
+    expect(guidance.commands[0]?.command).toBe(
+      "gh secret set MIMO_TOKEN_PLAN_API_KEY --repo 777genius/catalog-c1-r4 --app actions",
+    );
+    expect(guidance.commands[0]?.command).not.toMatch(/=\s*\S+/);
+    expect(guidance.commands[0]?.secretNames).toEqual([
+      "MIMO_TOKEN_PLAN_API_KEY",
+    ]);
+    expect(guidance.commands[0]?.sendsSecretToReviewRouter).toBe(false);
+    expect(guidance.warnings.join(" ")).toContain(
+      "never silently falls back to Codex or OpenRouter",
+    );
+    expect(guidance.warnings.join(" ")).toContain(
+      "fork pull requests are skipped",
     );
   });
 });

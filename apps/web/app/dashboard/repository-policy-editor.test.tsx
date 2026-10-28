@@ -5,24 +5,22 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
+import type { WorkspaceReviewSettings } from "@reviewrouter/features-review-config";
 import {
-  safeDefaultReviewConfiguration,
-  type ReviewConfiguration,
-  type ReviewProviderConfiguration,
-} from "@reviewrouter/features-review-config";
+  readRepositoryReviewSettingsForm,
+  readWorkspaceReviewSettingsForm,
+} from "./dashboard-action-form-readers";
 import {
-  checkProviderRepositorySecretClientAction,
   clearRepositoryReviewConfigClientAction,
-  saveRepositoryReviewConfigClientAction,
   saveWorkspaceReviewConfigClientAction,
 } from "./actions";
 import {
-  clearProviderSecretStatusCacheForTest,
-  ReviewConfigForm,
-  RepositoryPolicyOverrideDetails,
+  RepositoryPolicyEditor,
+  ReviewSettingsForm,
+  WorkspaceReviewSettingsForm,
 } from "./repository-policy-editor";
 
 const routerMock = vi.hoisted(() => ({
@@ -34,61 +32,49 @@ vi.mock("next/navigation", () => ({
   useRouter: () => routerMock,
 }));
 
+vi.mock("sonner", () => ({
+  toast: { custom: vi.fn(), dismiss: vi.fn() },
+}));
+
 vi.mock("./actions", () => ({
-  checkProviderRepositorySecretClientAction: vi.fn(),
   clearRepositoryReviewConfigClientAction: vi.fn(),
   saveRepositoryReviewConfigClientAction: vi.fn(),
   saveWorkspaceReviewConfigClientAction: vi.fn(),
 }));
 
-const modelOptions = [
-  {
-    value: "gpt-5.6-sol",
-    label: "gpt-5.6-sol",
-    provider: "codex" as const,
-    description: "Codex default model.",
+vi.stubGlobal(
+  "ResizeObserver",
+  class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
   },
-  {
-    value: "gpt-5.5",
-    label: "gpt-5.5",
-    provider: "codex" as const,
-    description: "Codex model.",
+);
+
+const settings: WorkspaceReviewSettings = {
+  execution: { providerMaxParallel: 1, inlineMinAgreement: 1 },
+  blockingPolicy: { failOnSeverity: "critical" },
+  limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
+  reviewLanguage: null,
+  investigationRollout: {
+    recordingEnabled: false,
+    shadowEnabled: false,
+    contextCriticEnabled: false,
+    verifiedCleanEnabled: false,
+    crossRevisionReplayEnabled: false,
+    productionEffectsEnabled: false,
   },
-  {
-    value: "poolside/laguna-m.1:free",
-    label: "Poolside: Laguna M.1",
-    provider: "openrouter" as const,
-    description: "poolside/laguna-m.1:free - $0/$0 per 1M - 131K context",
-    badge: "FREE RECOMMENDED" as const,
-  },
-  {
-    value: "anthropic/claude-sonnet-4.5",
-    label: "Anthropic: Claude Sonnet 4.5",
-    provider: "openrouter" as const,
-    description:
-      "anthropic/claude-sonnet-4.5 - $3.00/$15.00 per 1M input/output",
-    badge: "PAID" as const,
-  },
-  {
-    value: "sonnet",
-    label: "sonnet",
-    provider: "claude" as const,
-    description: "Claude Code default model.",
-  },
-  {
-    value: "opus",
-    label: "opus",
-    provider: "claude" as const,
-    description: "Claude Code model.",
-  },
-];
+};
+
+const repository = {
+  id: "repo_1",
+  fullName: "test/disposable",
+  selected: true,
+  archived: false,
+};
 
 afterEach(() => {
   vi.clearAllMocks();
-  vi.mocked(clearRepositoryReviewConfigClientAction).mockReset();
-  vi.mocked(saveRepositoryReviewConfigClientAction).mockReset();
-  vi.mocked(saveWorkspaceReviewConfigClientAction).mockReset();
-  clearProviderSecretStatusCacheForTest();
   cleanup();
 });
 
@@ -96,834 +82,304 @@ function pageText(): string {
   return document.body.textContent?.replace(/\s+/g, " ") ?? "";
 }
 
-describe("ReviewConfigForm", () => {
-  it("preserves configured investigation rollout values in dashboard submissions", () => {
-    renderReviewConfigForm({
-      config: {
-        ...safeDefaultReviewConfiguration,
-        investigationRollout: {
-          recordingEnabled: true,
-          shadowEnabled: true,
-          contextCriticEnabled: true,
-          verifiedCleanEnabled: true,
-          crossRevisionReplayEnabled: true,
-          productionEffectsEnabled: true,
-        },
-      },
-    });
+function form(): HTMLFormElement {
+  return document.querySelector("form")!;
+}
 
-    for (const flag of [
-      "recordingEnabled",
-      "shadowEnabled",
-      "contextCriticEnabled",
-      "verifiedCleanEnabled",
-      "crossRevisionReplayEnabled",
-      "productionEffectsEnabled",
-    ]) {
-      expect(
-        (
-          document.querySelector(
-            `input[name="investigationRollout.${flag}"]`,
-          ) as HTMLInputElement
-        ).value,
-      ).toBe("true");
-    }
-  });
-
-  it("keeps at least one provider and adds an OpenRouter provider", () => {
-    renderReviewConfigForm({ config: openRouterReviewConfiguration() });
-
-    expect(
-      (screen.getByRole("button", { name: "Remove" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
-
-    fireEvent.click(screen.getByRole("button", { name: "Add provider" }));
-
-    expect(screen.getByText("Provider 2")).toBeTruthy();
-    expect(
-      screen.getAllByRole("combobox", { name: "Provider auth" }),
-    ).toHaveLength(2);
-    expect(
-      (screen.getAllByRole("textbox", { name: "Model" })[1] as HTMLInputElement)
-        .value,
-    ).toBe("poolside/laguna-m.1:free");
-    expect(
-      (
-        screen.getAllByRole("checkbox", {
-          name: "Required healthy",
-        })[0] as HTMLInputElement
-      ).checked,
-    ).toBe(true);
-    expect(
-      (
-        screen.getAllByRole("checkbox", {
-          name: "Required healthy",
-        })[1] as HTMLInputElement
-      ).checked,
-    ).toBe(false);
-    expect(screen.getAllByText("FREE RECOMMENDED").length).toBeGreaterThan(0);
-    expect(
-      (
-        screen.getAllByRole("button", {
-          name: "Remove",
-        })[1] as HTMLButtonElement
-      ).disabled,
-    ).toBe(false);
-  });
-
-  it("keeps one provider marked as required healthy", () => {
-    renderReviewConfigForm({ config: openRouterReviewConfiguration() });
-
-    const requiredToggle = screen.getByRole("checkbox", {
-      name: "Required healthy",
-    }) as HTMLInputElement;
-
-    expect(requiredToggle.checked).toBe(true);
-    fireEvent.click(requiredToggle);
-    expect(requiredToggle.checked).toBe(true);
-
-    fireEvent.click(screen.getByRole("button", { name: "Add provider" }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]!);
-
-    expect(
-      (
-        screen.getByRole("checkbox", {
-          name: "Required healthy",
-        }) as HTMLInputElement
-      ).checked,
-    ).toBe(true);
-  });
-
-  it("filters model options by selected provider", () => {
-    renderReviewConfigForm();
-
-    fireEvent.click(
-      screen.getAllByRole("button", { name: "Open model options" })[0]!,
-    );
-
-    expect(screen.getByRole("option", { name: /gpt-5\.6-sol/ })).toBeTruthy();
-    expect(screen.queryByRole("option", { name: /Poolside/ })).toBeNull();
-  });
-
-  it("allows paid model options when they match the typed search", () => {
-    renderReviewConfigForm({ config: openRouterReviewConfiguration() });
-
-    fireEvent.click(screen.getByRole("button", { name: "Add provider" }));
-    const modelInput = screen.getAllByRole("textbox", {
-      name: "Model",
-    })[1] as HTMLInputElement;
-    modelInput.focus();
-    fireEvent.change(modelInput, { target: { value: "anthropic" } });
-
-    const listbox = screen.getByRole("listbox");
-    const paidOption = within(listbox).getByRole("option", {
-      name: /Anthropic: Claude/,
-    });
-    expect(paidOption).toHaveProperty("disabled", false);
-    expect(
-      within(listbox).queryByRole("option", { name: /Poolside/ }),
-    ).toBeNull();
-
-    fireEvent.click(paidOption);
-    expect(
-      (screen.getAllByRole("textbox", { name: "Model" })[1] as HTMLInputElement)
-        .value,
-    ).toBe("anthropic/claude-sonnet-4.5");
-  });
-
-  it("filters model options by typed model text while keeping custom input", () => {
-    renderReviewConfigForm({ config: openRouterReviewConfiguration() });
-
-    fireEvent.click(screen.getByRole("button", { name: "Add provider" }));
-    const modelInput = screen.getAllByRole("textbox", {
-      name: "Model",
-    })[1] as HTMLInputElement;
-    modelInput.focus();
-    fireEvent.change(modelInput, { target: { value: "anthropic" } });
-
-    const listbox = screen.getByRole("listbox");
-    expect(
-      within(listbox).getByRole("option", { name: /Anthropic: Claude/ }),
-    ).toBeTruthy();
-    expect(
-      within(listbox).queryByRole("option", { name: /Poolside/ }),
-    ).toBeNull();
-
-    fireEvent.change(modelInput, { target: { value: "custom/new-model" } });
-
-    expect(modelInput.value).toBe("custom/new-model");
-    expect(screen.getByText(/custom model value will be saved/i)).toBeTruthy();
-  });
-
-  it("allows custom model text", () => {
-    renderReviewConfigForm();
-
-    const modelInput = screen.getByRole("textbox", {
-      name: "Model",
-    }) as HTMLInputElement;
-    modelInput.focus();
-    fireEvent.change(modelInput, { target: { value: "custom/model-1" } });
-
-    const updatedModelInput = screen.getByRole("textbox", {
-      name: "Model",
-    }) as HTMLInputElement;
-    expect(document.activeElement).toBe(updatedModelInput);
-
-    fireEvent.change(updatedModelInput, {
-      target: { value: "custom/model-123" },
-    });
-
-    expect(updatedModelInput.value).toBe("custom/model-123");
-  });
-
-  it("shows a green OpenRouter secret status when the repository secret exists", async () => {
-    vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValue({
-      status: "available_repository",
-    });
-
-    renderReviewConfigForm({
-      config: openRouterReviewConfiguration(),
-      repositoryFullName: "777genius/agent-teams-ai",
-      repositorySecretCheckTarget: {
-        workspaceId: "workspace_1",
-        repositoryId: "repo_1",
-      },
-    });
-
-    await waitFor(() => {
-      const status = screen.getByRole("status");
-      expect(status.textContent).toContain(
-        "OPENROUTER_API_KEY is set in this repository's GitHub Actions secrets",
-      );
-    });
-    expect(screen.queryByText(/OpenRouter requires/i)).toBeNull();
-  });
-
-  it("derives rotating Codex readiness from the exact versioned activation chain", async () => {
-    vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValue({
-      status: "available_repository",
-    });
-
-    renderReviewConfigForm({
-      config: codexReviewConfiguration("codex_subscription_oauth_rotating"),
-      repositoryFullName: "777genius/agent-teams-ai",
-      repositorySecretCheckTarget: {
-        workspaceId: "workspace_1",
-        repositoryId: "repo_1",
-      },
-    });
-
-    await waitFor(() => {
-      const status = screen.getByRole("status");
-      expect(status.textContent).toContain(
-        "Authorized versioned Codex setup is active for this repository",
-      );
-      expect(status.textContent).toContain(
-        "Readiness comes from the confirmed versioned claim and namespace activation chain",
-      );
-      expect(status.textContent).not.toContain("REVIEWROUTER_CODEX_AUTH_JSON");
-      expect(status.textContent).not.toContain("can use this secret in CI");
-    });
-  });
-
-  it("never offers a generic stable-secret fallback for rotating Codex", async () => {
-    vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValue({
-      status: "missing",
-    });
-
-    renderReviewConfigForm({
-      config: codexReviewConfiguration("codex_subscription_oauth_rotating"),
-      repositoryFullName: "777genius/agent-teams-ai",
-      repositorySecretCheckTarget: {
-        workspaceId: "workspace_1",
-        repositoryId: "repo_1",
-      },
-    });
-
-    expect(
-      await screen.findByText(
-        /Rotating Codex setup is not ready for this repository/i,
-      ),
-    ).toBeTruthy();
-    expect(pageText()).toContain(
-      "A generic repository secret cannot satisfy this readiness check",
-    );
-    expect(pageText()).not.toContain("REVIEWROUTER_CODEX_AUTH_JSON");
-    expect(pageText()).not.toContain("gh secret set");
-  });
-
-  it.each(["codex_subscription_oauth", "codex_openai_api_key"] as const)(
-    "migrates legacy Codex auth mode %s to rotating OAuth in the form",
-    async (authMode) => {
-      vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValue({
-        status: "missing",
-      });
-
-      renderReviewConfigForm({
-        config: codexReviewConfiguration(authMode),
-        repositoryFullName: "777genius/agent-teams-ai",
-        repositorySecretCheckTarget: {
-          workspaceId: "workspace_1",
-          repositoryId: "repo_1",
-        },
-      });
-
-      await waitFor(() => {
-        expect(
-          screen.getByText(/Rotating Codex setup is not ready/i),
-        ).toBeTruthy();
-      });
-      expect(
-        screen.getByText(/Legacy Codex setup requires reconnect/i),
-      ).toBeTruthy();
-      expect(pageText()).toContain("server-authorized versioned namespace");
-      expect(pageText()).not.toContain("REVIEWROUTER_CODEX_AUTH_JSON");
-      expect(pageText()).not.toContain("gh secret set");
-      expect(pageText()).not.toContain("gh secret set CODEX_AUTH_JSON");
-      expect(pageText()).not.toContain("OPENAI_API_KEY");
-      const formData = vi.mocked(checkProviderRepositorySecretClientAction).mock
-        .calls[0]?.[0] as FormData;
-      expect(formData.get("providerKind")).toBe("codex");
-      expect(formData.get("authMode")).toBe(
-        "codex_subscription_oauth_rotating",
-      );
-    },
+function addOverrideField(label: string | RegExp): void {
+  fireEvent.pointerDown(
+    screen.getByRole("button", { name: "+ Add field to override" }),
   );
+  fireEvent.click(screen.getByRole("menuitem", { name: label }));
+}
 
-  it("preserves inherited legacy Codex hybrid config as rotating Codex plus other providers", async () => {
-    vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValue({
-      status: "missing",
-    });
-
-    renderReviewConfigForm({
-      config: legacyCodexMultiProviderReviewConfiguration(),
-      repositoryFullName: "777genius/agent-teams-ai",
-      repositorySecretCheckTarget: {
-        workspaceId: "workspace_1",
-        repositoryId: "repo_1",
-      },
-    });
-
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Rotating Codex setup is not ready/i),
-      ).toBeTruthy();
-    });
-    expect(screen.getByText("Provider 1")).toBeTruthy();
-    expect(screen.getByText("Provider 2")).toBeTruthy();
-    expect(screen.getByText("Provider 3")).toBeTruthy();
+describe("review settings forms", () => {
+  it("never submits a provider, so an old page cannot revert one", () => {
+    render(
+      <ReviewSettingsForm
+        action={vi.fn()}
+        settings={settings}
+        providerCount={1}
+        hiddenFields={[]}
+        mutationsEnabled
+        submitLabel="Save"
+      />,
+    );
+    const names = [...new FormData(form()).keys()];
     expect(
-      (
-        document.querySelector(
-          'input[name="providerCount"]',
-        ) as HTMLInputElement
-      ).value,
-    ).toBe("3");
-    expect(
-      (
-        screen.getByRole("button", {
-          name: "Add provider",
-        }) as HTMLButtonElement
-      ).disabled,
+      names.some(
+        (name) => name.startsWith("provider") && name !== "providerMaxParallel",
+      ),
     ).toBe(false);
-    const formData = vi.mocked(checkProviderRepositorySecretClientAction).mock
-      .calls[0]?.[0] as FormData;
-    expect(formData.get("providerKind")).toBe("codex");
-    expect(formData.get("authMode")).toBe("codex_subscription_oauth_rotating");
+    expect(readWorkspaceReviewSettingsForm(new FormData(form()))).toEqual({
+      ...settings,
+      updatePrDescription: true,
+    });
+    // One provider has nothing to run in parallel or agree on.
+    expect(screen.queryByLabelText("Max parallel providers")).toBeNull();
   });
 
-  it("switching one provider to Codex rotating keeps other providers and blocks a second rotating Codex", () => {
-    renderReviewConfigForm({
-      config: duplicateOpenRouterReviewConfiguration(),
-      repositoryFullName: "777genius/agent-teams-ai",
-    });
-
-    expect(screen.getByText("Provider 2")).toBeTruthy();
-
-    fireEvent.click(
-      screen.getAllByRole("combobox", { name: "Provider auth" })[0]!,
+  it("enables PR description updates by default and persists an explicit opt-out", () => {
+    render(
+      <ReviewSettingsForm
+        action={vi.fn()}
+        settings={settings}
+        providerCount={1}
+        primaryAuthMode="claude_code_oauth"
+        hiddenFields={[]}
+        mutationsEnabled
+        submitLabel="Save"
+      />,
     );
-    fireEvent.click(
-      screen.getByRole("option", { name: /Codex OAuth with refresh/i }),
+    const toggle = screen.getByRole("checkbox", {
+      name: "Update PR description",
+    }) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    expect(pageText()).toContain(
+      "AI PR descriptions are unavailable for this provider.",
     );
-
-    expect(screen.getByText("Provider 2")).toBeTruthy();
+    fireEvent.click(toggle);
     expect(
-      (
-        document.querySelector(
-          'input[name="providerCount"]',
-        ) as HTMLInputElement
-      ).value,
-    ).toBe("2");
-    expect(
-      (
-        screen.getByRole("button", {
-          name: "Add provider",
-        }) as HTMLButtonElement
-      ).disabled,
+      readWorkspaceReviewSettingsForm(new FormData(form())).updatePrDescription,
     ).toBe(false);
-
-    fireEvent.click(
-      screen.getAllByRole("combobox", { name: "Provider auth" })[1]!,
-    );
-    expect(
-      screen
-        .getByRole("option", { name: /Only one Codex OAuth with refresh/i })
-        .getAttribute("aria-disabled"),
-    ).toBe("true");
   });
 
-  it("shows Claude Code by default, allows disabling it, and hides Codex controls after selection", () => {
-    renderReviewConfigForm();
-    fireEvent.click(screen.getByRole("combobox", { name: "Provider auth" }));
-    expect(
-      screen.getByRole("option", { name: /Claude Code subscription/i }),
-    ).toBeTruthy();
+  it("inherits the PR description opt-out and saves only explicit repository overrides", () => {
+    render(
+      <ReviewSettingsForm
+        action={vi.fn()}
+        settings={{ ...settings, updatePrDescription: false }}
+        overrides={{}}
+        providerCount={1}
+        hiddenFields={[]}
+        mutationsEnabled
+        submitLabel="Save"
+      />,
+    );
+    const toggle = screen.getByRole("checkbox", {
+      name: "Update PR description",
+    }) as HTMLInputElement;
+    const saved = () => readRepositoryReviewSettingsForm(new FormData(form()));
+    expect(toggle.checked).toBe(false);
+    expect(toggle.disabled).toBe(true);
+    expect(saved()).toEqual({});
+    addOverrideField("Update Pr Description");
+    expect(toggle.disabled).toBe(false);
+    fireEvent.click(toggle);
+    expect(saved()).toEqual({ updatePrDescription: true });
+    fireEvent.change(
+      form().querySelector('select[name="policyMode.updatePrDescription"]')!,
+      { target: { value: "inherit" } },
+    );
+    expect(toggle.disabled).toBe(true);
+    expect(saved()).toEqual({});
+  });
 
-    cleanup();
-    renderReviewConfigForm({ claudeCodeProviderEnabled: false });
-    fireEvent.click(screen.getByRole("combobox", { name: "Provider auth" }));
+  it("keeps explicit zero and false overrides and removes them when reset to inherit", () => {
+    render(
+      <ReviewSettingsForm
+        action={vi.fn()}
+        settings={{
+          ...settings,
+          limits: { ...settings.limits, inlineMaxComments: 0 },
+        }}
+        overrides={{
+          limits: { inlineMaxComments: 0 },
+          investigationRollout: { productionEffectsEnabled: false },
+        }}
+        providerCount={1}
+        hiddenFields={[]}
+        mutationsEnabled
+        submitLabel="Save"
+      />,
+    );
+    const zeroMode = form().querySelector<HTMLSelectElement>(
+      '[name="policyMode.limits.inlineMaxComments"]',
+    )!;
+    const falseMode = form().querySelector<HTMLSelectElement>(
+      '[name="policyMode.investigationRollout.productionEffectsEnabled"]',
+    )!;
+    expect(readRepositoryReviewSettingsForm(new FormData(form()))).toEqual({
+      limits: { inlineMaxComments: 0 },
+      investigationRollout: { productionEffectsEnabled: false },
+    });
+    fireEvent.change(zeroMode, { target: { value: "inherit" } });
+    fireEvent.change(falseMode, { target: { value: "inherit" } });
+    expect(readRepositoryReviewSettingsForm(new FormData(form()))).toEqual({});
+  });
+
+  it("offers execution limits only where more than one provider runs", () => {
+    const view = render(
+      <ReviewSettingsForm
+        action={vi.fn()}
+        settings={settings}
+        overrides={{}}
+        providerCount={1}
+        hiddenFields={[]}
+        mutationsEnabled
+        submitLabel="Save"
+      />,
+    );
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "+ Add field to override" }),
+    );
     expect(
-      screen.queryByRole("option", { name: /Claude Code subscription/i }),
+      screen.queryByRole("menuitem", { name: "Inline Min Agreement" }),
     ).toBeNull();
+    view.unmount();
+    render(
+      <ReviewSettingsForm
+        action={vi.fn()}
+        settings={{
+          ...settings,
+          execution: { providerMaxParallel: 2, inlineMinAgreement: 2 },
+        }}
+        providerCount={2}
+        hiddenFields={[]}
+        mutationsEnabled
+        submitLabel="Save"
+      />,
+    );
+    expect(
+      readWorkspaceReviewSettingsForm(new FormData(form())).execution,
+    ).toEqual({ providerMaxParallel: 2, inlineMinAgreement: 2 });
+  });
 
-    cleanup();
-    renderReviewConfigForm();
-    fireEvent.click(screen.getByRole("combobox", { name: "Provider auth" }));
+  it("preserves configured investigation rollout values in submissions", () => {
+    const enabled = Object.fromEntries(
+      Object.keys(settings.investigationRollout).map((name) => [name, true]),
+    ) as WorkspaceReviewSettings["investigationRollout"];
+    render(
+      <ReviewSettingsForm
+        action={vi.fn()}
+        settings={{ ...settings, investigationRollout: enabled }}
+        providerCount={1}
+        hiddenFields={[]}
+        mutationsEnabled
+        submitLabel="Save"
+      />,
+    );
+    expect(
+      readWorkspaceReviewSettingsForm(new FormData(form()))
+        .investigationRollout,
+    ).toEqual(enabled);
+  });
+
+  it("requires confirmation before replacing retired settings and retains raw CAS", async () => {
+    vi.mocked(clearRepositoryReviewConfigClientAction).mockResolvedValue({
+      params: { notice: "repository_review_config_cleared" },
+    });
+    const editor = (version: number) => (
+      <RepositoryPolicyEditor
+        workspaceId="workspace_1"
+        repository={repository}
+        settings={settings}
+        overrides={null}
+        legacy
+        expectedVersion={version}
+        providerCount={1}
+        mutationsEnabled
+      />
+    );
+    const { rerender } = render(editor(11));
+    fireEvent.click(screen.getByRole("button", { name: /Edit settings/ }));
+    expect(
+      screen.getByRole("button", { name: "Replace retired settings" }),
+    ).toBeTruthy();
+    expect(new FormData(form()).get("policyExpectedVersion")).toBe("11");
     fireEvent.click(
-      screen.getByRole("option", { name: /Claude Code subscription/i }),
+      screen.getByRole("button", {
+        name: "Replace retired settings with the workspace settings",
+      }),
     );
-
-    expect(
-      (screen.getByRole("textbox", { name: "Model" }) as HTMLInputElement)
-        .value,
-    ).toBe("sonnet");
-    expect(screen.queryByText("Reasoning effort")).toBeNull();
-    expect(screen.queryByText("Fast mode")).toBeNull();
-    expect(screen.queryByText("Agentic context")).toBeNull();
-  });
-
-  it("shows only the production Codex OAuth mode", () => {
-    renderReviewConfigForm();
-    fireEvent.click(screen.getByRole("combobox", { name: "Provider auth" }));
-    expect(
-      screen.getByRole("option", { name: /Codex OAuth with refresh/i }),
-    ).toBeTruthy();
-    expect(
-      screen.queryByRole("option", { name: /Codex legacy OAuth/i }),
-    ).toBeNull();
-    expect(screen.queryByRole("option", { name: /Codex API key/i })).toBeNull();
-  });
-
-  it("offers max and ultra reasoning effort for Codex", () => {
-    renderReviewConfigForm();
-
-    fireEvent.click(screen.getByRole("combobox", { name: "Reasoning effort" }));
-
-    expect(screen.getByRole("option", { name: /Max/ })).toBeTruthy();
-    expect(screen.getByRole("option", { name: /Ultra/ })).toBeTruthy();
-  });
-
-  it("hides max and ultra for an older Codex model", () => {
-    renderReviewConfigForm({
-      config: codexReviewConfiguration("codex_subscription_oauth_rotating"),
-    });
-
-    fireEvent.click(screen.getByRole("combobox", { name: "Reasoning effort" }));
-
-    expect(screen.queryByRole("option", { name: /Max/ })).toBeNull();
-    expect(screen.queryByRole("option", { name: /Ultra/ })).toBeNull();
-    expect(screen.getByRole("option", { name: /XHigh/ })).toBeTruthy();
-  });
-
-  it("clamps ultra to xhigh when the model changes away from gpt-5.6-sol", () => {
-    renderReviewConfigForm();
-
-    fireEvent.click(screen.getByRole("combobox", { name: "Reasoning effort" }));
-    fireEvent.click(screen.getByRole("option", { name: /Ultra/ }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Model" }), {
-      target: { value: "gpt-5.5" },
-    });
-
-    expect(
-      screen.getByRole("combobox", { name: "Reasoning effort" }).textContent,
-    ).toContain("XHigh");
-  });
-
-  it("checks the Claude Code OAuth secret for a saved Claude provider", async () => {
-    vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValue({
-      status: "missing",
-    });
-
-    renderReviewConfigForm({
-      config: claudeReviewConfiguration(),
-      claudeCodeProviderEnabled: false,
-      repositoryFullName: "777genius/agent-teams-ai",
-      repositorySecretCheckTarget: {
-        workspaceId: "workspace_1",
-        repositoryId: "repo_1",
-      },
-    });
-
-    await waitFor(() => {
-      expect(
-        screen.getByText(
-          /Claude Code subscription mode uses CLAUDE_CODE_OAUTH_TOKEN/i,
-        ),
-      ).toBeTruthy();
-    });
-    expect(
-      screen.getByText(
-        "gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo 777genius/agent-teams-ai --app actions",
-      ),
-    ).toBeTruthy();
-    const formData = vi.mocked(checkProviderRepositorySecretClientAction).mock
-      .calls[0]?.[0] as FormData;
-    expect(formData.get("providerKind")).toBe("claude");
-    expect(formData.get("authMode")).toBe("claude_code_oauth");
-  });
-
-  it("shows a loader instead of a setup warning while secret status is loading", () => {
-    vi.mocked(checkProviderRepositorySecretClientAction).mockReturnValue(
-      new Promise(() => undefined),
-    );
-
-    renderReviewConfigForm({
-      config: openRouterReviewConfiguration(),
-      repositoryFullName: "777genius/agent-teams-ai",
-      repositorySecretCheckTarget: {
-        workspaceId: "workspace_1",
-        repositoryId: "repo_1",
-      },
-    });
-
-    expect(
-      screen.getByText(/Checking GitHub Actions secret metadata/i),
-    ).toBeTruthy();
-    expect(screen.queryByText(/Set a repository secret/i)).toBeNull();
-  });
-
-  it("refreshes provider secret status on demand", async () => {
-    vi.mocked(checkProviderRepositorySecretClientAction)
-      .mockResolvedValueOnce({ status: "missing" })
-      .mockResolvedValueOnce({ status: "available_repository" });
-
-    renderReviewConfigForm({
-      config: openRouterReviewConfiguration(),
-      repositoryFullName: "777genius/agent-teams-ai",
-      repositorySecretCheckTarget: {
-        workspaceId: "workspace_1",
-        repositoryId: "repo_1",
-      },
-    });
-
-    await screen.findByText(/OpenRouter providers use OPENROUTER_API_KEY/i);
-
+    expect(clearRepositoryReviewConfigClientAction).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    // A refresh while this confirmation is open must not authorize a newer head.
+    rerender(editor(12));
     fireEvent.click(
-      screen.getByRole("button", { name: "Refresh secret status" }),
+      screen.getByRole("button", { name: "Remove all overrides" }),
     );
-
-    await waitFor(() => {
-      expect(screen.getByRole("status").textContent).toContain(
-        "OPENROUTER_API_KEY is set in this repository's GitHub Actions secrets",
-      );
-    });
-    expect(checkProviderRepositorySecretClientAction).toHaveBeenCalledTimes(2);
+    await waitFor(() =>
+      expect(clearRepositoryReviewConfigClientAction).toHaveBeenCalledOnce(),
+    );
+    expect(
+      vi
+        .mocked(clearRepositoryReviewConfigClientAction)
+        .mock.calls[0]![0].get("policyExpectedVersion"),
+    ).toBe("11");
   });
 
-  it("keeps the setup warning when OpenRouter secret metadata is missing", async () => {
-    vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValue({
-      status: "missing",
-    });
+  it("says that removing overrides keeps the repository's provider", () => {
+    render(
+      <RepositoryPolicyEditor
+        workspaceId="workspace_1"
+        repository={repository}
+        settings={settings}
+        overrides={{ limits: { inlineMaxComments: 2 } }}
+        legacy={false}
+        expectedVersion={3}
+        providerCount={1}
+        mutationsEnabled
+      />,
+    );
+    expect(pageText()).toContain("1 option overridden");
+    fireEvent.click(screen.getByRole("button", { name: /Edit settings/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove all repository overrides…" }),
+    );
+    expect(pageText()).toContain("Its provider does not change.");
+  });
 
-    renderReviewConfigForm({
-      config: openRouterReviewConfiguration(),
-      repositoryFullName: "777genius/agent-teams-ai",
-      repositorySecretCheckTarget: {
-        workspaceId: "workspace_1",
-        repositoryId: "repo_1",
-      },
-    });
-
-    await waitFor(() => {
+  it("preserves the unsaved review language after a failed save and retries it", async () => {
+    vi.mocked(saveWorkspaceReviewConfigClientAction)
+      .mockResolvedValueOnce({ params: { error: "dashboard_action_stale" } })
+      .mockResolvedValueOnce({ params: { notice: "review_config_saved" } });
+    render(
+      <WorkspaceReviewSettingsForm
+        workspaceId="workspace_1"
+        expectedVersion={1}
+        settings={settings}
+        providerCount={1}
+        mutationsEnabled
+      />,
+    );
+    const language = document.querySelector<HTMLInputElement>(
+      'input[name="reviewLanguage"]',
+    )!;
+    fireEvent.change(language, { target: { value: "Ukrainian" } });
+    const save = () =>
+      fireEvent.click(
+        screen.getByRole("button", { name: "Save workspace settings" }),
+      );
+    save();
+    await waitFor(() =>
+      expect(saveWorkspaceReviewConfigClientAction).toHaveBeenCalledOnce(),
+    );
+    await waitFor(() =>
+      expect(toast.custom).toHaveBeenCalledWith(
+        expect.any(Function),
+        expect.objectContaining({
+          id: expect.stringContaining("danger|Action needs attention|"),
+        }),
+      ),
+    );
+    await waitFor(() =>
       expect(
-        screen.getByText(/OpenRouter providers use OPENROUTER_API_KEY/i),
-      ).toBeTruthy();
-    });
+        screen
+          .getByRole("button", { name: "Save workspace settings" })
+          .hasAttribute("disabled"),
+      ).toBe(false),
+    );
+    expect(language.value).toBe("Ukrainian");
+    expect(routerMock.refresh).not.toHaveBeenCalled();
+    save();
+    await waitFor(() =>
+      expect(saveWorkspaceReviewConfigClientAction).toHaveBeenCalledTimes(2),
+    );
     expect(
-      screen.getByText(
-        "gh secret set OPENROUTER_API_KEY --repo 777genius/agent-teams-ai",
-      ),
-    ).toBeTruthy();
-  });
-
-  it("checks a shared provider secret only once for duplicate auth modes", async () => {
-    vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValue({
-      status: "available_repository",
-    });
-
-    renderReviewConfigForm({
-      config: duplicateOpenRouterReviewConfiguration(),
-      repositoryFullName: "777genius/agent-teams-ai",
-      repositorySecretCheckTarget: {
-        workspaceId: "workspace_1",
-        repositoryId: "repo_1",
-      },
-    });
-
-    await waitFor(() => {
-      expect(screen.getByRole("status").textContent).toContain(
-        "OPENROUTER_API_KEY is set in this repository's GitHub Actions secrets",
-      );
-    });
-    expect(
-      screen.getByText(
-        "Checked once for 2 providers using OpenRouter API key.",
-      ),
-    ).toBeTruthy();
-    expect(checkProviderRepositorySecretClientAction).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not mount repository override secret checks until the row is opened", async () => {
-    vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValue({
-      status: "available_repository",
-    });
-
-    renderRepositoryPolicyOverrideDetails({
-      repositoryConfig: {
-        version: 6,
-        config: duplicateOpenRouterReviewConfiguration(),
-      },
-    });
-
-    expect(screen.getByText("777genius/agent-teams-ai")).toBeTruthy();
-    expect(screen.queryByText("Provider 1")).toBeNull();
-    expect(checkProviderRepositorySecretClientAction).not.toHaveBeenCalled();
-
-    const rowButton = screen
-      .getByText("777genius/agent-teams-ai")
-      .closest("button");
-    expect(rowButton).not.toBeNull();
-    fireEvent.click(rowButton!);
-
-    expect(screen.getByText("Provider 1")).toBeTruthy();
-    await waitFor(() => {
-      expect(screen.getByRole("status").textContent).toContain(
-        "OPENROUTER_API_KEY is set in this repository's GitHub Actions secrets",
-      );
-    });
-    expect(checkProviderRepositorySecretClientAction).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(rowButton!);
-    expect(screen.queryByText("Provider 1")).toBeNull();
-    fireEvent.click(rowButton!);
-
-    await waitFor(() => {
-      expect(screen.getByRole("status").textContent).toContain(
-        "OPENROUTER_API_KEY is set in this repository's GitHub Actions secrets",
-      );
-    });
-    expect(checkProviderRepositorySecretClientAction).toHaveBeenCalledTimes(1);
-  });
-
-  it("explains when an organization OpenRouter secret is not selected for this repository", async () => {
-    vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValue({
-      status: "not_available_to_repository",
-    });
-
-    renderReviewConfigForm({
-      config: openRouterReviewConfiguration(),
-      repositoryFullName: "777genius/agent-teams-ai",
-      repositorySecretCheckTarget: {
-        workspaceId: "workspace_1",
-        repositoryId: "repo_1",
-      },
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText(/not selected for access/i)).toBeTruthy();
-    });
-    expect(screen.getByText(/Repository access/i)).toBeTruthy();
-    expect(
-      screen.getByText(
-        "gh secret set OPENROUTER_API_KEY --repo 777genius/agent-teams-ai",
-      ),
-    ).toBeTruthy();
+      vi
+        .mocked(saveWorkspaceReviewConfigClientAction)
+        .mock.calls[1]![0].get("reviewLanguage"),
+    ).toBe("Ukrainian");
   });
 });
-
-function renderReviewConfigForm(input?: {
-  readonly config?: ReviewConfiguration;
-  readonly repositoryFullName?: string;
-  readonly codexRotatingOAuthEnabled?: boolean;
-  readonly claudeCodeProviderEnabled?: boolean;
-  readonly repositorySecretCheckTarget?: {
-    readonly workspaceId: string;
-    readonly repositoryId: string;
-  };
-}): void {
-  render(
-    <ReviewConfigForm
-      action={() => undefined}
-      config={input?.config ?? safeDefaultReviewConfiguration}
-      modelOptions={modelOptions}
-      codexRotatingOAuthEnabled={input?.codexRotatingOAuthEnabled ?? true}
-      claudeCodeProviderEnabled={input?.claudeCodeProviderEnabled ?? true}
-      hiddenFields={[{ name: "workspaceId", value: "workspace_1" }]}
-      mutationsEnabled={true}
-      submitLabel="Save workspace default"
-      repositoryFullName={input?.repositoryFullName}
-      repositorySecretCheckTarget={input?.repositorySecretCheckTarget}
-    />,
-  );
-}
-
-function renderRepositoryPolicyOverrideDetails(input?: {
-  readonly repositoryConfig?: {
-    readonly version: number;
-    readonly config: ReviewConfiguration;
-  } | null;
-}): void {
-  const repositoryConfig = input?.repositoryConfig ?? null;
-  render(
-    <RepositoryPolicyOverrideDetails
-      workspaceId="workspace_1"
-      repository={{
-        id: "repo_1",
-        fullName: "777genius/agent-teams-ai",
-        selected: true,
-        archived: false,
-      }}
-      repositoryConfig={repositoryConfig}
-      effectiveConfig={
-        repositoryConfig?.config ?? duplicateOpenRouterReviewConfiguration()
-      }
-      configVersion={repositoryConfig?.version ?? 6}
-      modelOptions={modelOptions}
-      mutationsEnabled={true}
-    />,
-  );
-}
-
-function openRouterReviewConfiguration(): ReviewConfiguration {
-  const openRouterProvider: ReviewProviderConfiguration = {
-    kind: "openrouter",
-    authMode: "openrouter_api_key",
-    model: "poolside/laguna-m.1:free",
-    reasoningEffort: "medium",
-    agenticContext: true,
-    fastMode: false,
-    requiredHealthy: true,
-  };
-
-  return {
-    ...safeDefaultReviewConfiguration,
-    provider: openRouterProvider,
-    providers: [openRouterProvider],
-  };
-}
-
-function duplicateOpenRouterReviewConfiguration(): ReviewConfiguration {
-  const firstOpenRouterProvider: ReviewProviderConfiguration = {
-    kind: "openrouter",
-    authMode: "openrouter_api_key",
-    model: "poolside/laguna-m.1:free",
-    reasoningEffort: "medium",
-    agenticContext: true,
-    fastMode: false,
-    requiredHealthy: true,
-  };
-  const secondOpenRouterProvider: ReviewProviderConfiguration = {
-    ...firstOpenRouterProvider,
-    model: "anthropic/claude-sonnet-4.5",
-    requiredHealthy: false,
-  };
-
-  return {
-    ...safeDefaultReviewConfiguration,
-    provider: firstOpenRouterProvider,
-    providers: [firstOpenRouterProvider, secondOpenRouterProvider],
-  };
-}
-
-function legacyCodexMultiProviderReviewConfiguration(): ReviewConfiguration {
-  const codexProvider: ReviewProviderConfiguration = {
-    kind: "codex",
-    authMode: "codex_subscription_oauth",
-    model: "gpt-5.5",
-    reasoningEffort: "high",
-    agenticContext: true,
-    fastMode: false,
-    requiredHealthy: true,
-  };
-  const firstOpenRouterProvider: ReviewProviderConfiguration = {
-    kind: "openrouter",
-    authMode: "openrouter_api_key",
-    model: "poolside/laguna-m.1:free",
-    reasoningEffort: "medium",
-    agenticContext: true,
-    fastMode: false,
-    requiredHealthy: false,
-  };
-  const secondOpenRouterProvider: ReviewProviderConfiguration = {
-    ...firstOpenRouterProvider,
-    model: "anthropic/claude-sonnet-4.5",
-  };
-
-  return {
-    ...safeDefaultReviewConfiguration,
-    provider: codexProvider,
-    providers: [
-      codexProvider,
-      firstOpenRouterProvider,
-      secondOpenRouterProvider,
-    ],
-    execution: {
-      ...safeDefaultReviewConfiguration.execution,
-      providerLimit: 3,
-      providerMaxParallel: 2,
-    },
-  };
-}
-
-function codexReviewConfiguration(
-  authMode:
-    | "codex_subscription_oauth"
-    | "codex_subscription_oauth_rotating"
-    | "codex_openai_api_key",
-): ReviewConfiguration {
-  const codexProvider: ReviewProviderConfiguration = {
-    kind: "codex",
-    authMode,
-    model: "gpt-5.5",
-    reasoningEffort: "medium",
-    agenticContext: true,
-    fastMode: false,
-    requiredHealthy: true,
-  };
-
-  return {
-    ...safeDefaultReviewConfiguration,
-    provider: codexProvider,
-    providers: [codexProvider],
-  };
-}
-
-function claudeReviewConfiguration(): ReviewConfiguration {
-  const claudeProvider: ReviewProviderConfiguration = {
-    kind: "claude",
-    authMode: "claude_code_oauth",
-    model: "sonnet",
-    reasoningEffort: "medium",
-    agenticContext: true,
-    fastMode: false,
-    requiredHealthy: true,
-  };
-
-  return {
-    ...safeDefaultReviewConfiguration,
-    provider: claudeProvider,
-    providers: [claudeProvider],
-  };
-}

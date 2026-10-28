@@ -4,6 +4,14 @@ import tseslint from "typescript-eslint";
 export default [
   {
     ignores: [
+      ".codex-tmp/**",
+      ".worktrees/**",
+      ".pnpm-store/**",
+      ".tmp-*",
+      "goal-*.js",
+      "tmp/**",
+      "playwright-report/**",
+      "test-results/**",
       "node_modules/**",
       "dist/**",
       "action-dist/**",

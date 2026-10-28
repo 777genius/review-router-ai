@@ -102,7 +102,7 @@ import {
   canonicalizeReviewContextReplayEvent,
   canonicalizeReviewContextReplayHandle,
   canonicalizeReviewContextSearchQuery,
-  canonicalizeReviewActionV2Request,
+  canonicalizeReviewActionV2RequestForSlot,
   type ReviewActionV2RequestMap,
   type ReviewContextGatewayOpenRequest,
   type ReviewContextGatewaySealRequest,
@@ -520,7 +520,7 @@ async function openGateway(
     },
     store: d.store,
     identities: contextIdentities(d),
-    clock: { nowMs: () => d.now().getTime() },
+    clock: { nowMs: () => now.getTime() },
   });
   const outcome = await open.execute({
     attemptId: request.attemptId,
@@ -2265,6 +2265,10 @@ async function resolveOpeningFacts(input: {
     confinementProofHash,
     eventChainSeedHash: "0".repeat(64),
     sessionLifetimeMs: d.config.sessionLifetimeMs,
+    sessionExpiresAtLimitMs: Math.min(
+      authorization.expiresAt.getTime(),
+      snapshot.execution.executionDeadlineAt.getTime(),
+    ),
   });
 }
 
@@ -2617,7 +2621,9 @@ function extensionProvider(
       return "codex";
     case ReviewExecutionProviderKind.ClaudeCode:
       return "claude_code";
+    // These engines have no RR investigation authorization.
     case ReviewExecutionProviderKind.OpenRouter:
+    case ReviewExecutionProviderKind.Ocr:
       return null;
   }
 }
@@ -2631,6 +2637,7 @@ function rolloutProvider(
     case ReviewExecutionProviderKind.ClaudeCode:
       return InvestigationRolloutProvider.Claude;
     case ReviewExecutionProviderKind.OpenRouter:
+    case ReviewExecutionProviderKind.Ocr:
       return InvestigationRolloutProvider.Unknown;
   }
 }
@@ -3557,7 +3564,7 @@ async function assertBodyHash<O extends ReviewActionV2OperationId>(
 ) {
   if (
     (await digest.digestUtf8(
-      canonicalizeReviewActionV2Request(operation, request),
+      canonicalizeReviewActionV2RequestForSlot(operation, request),
     )) !== (request as { requestBodyHash?: string }).requestBodyHash
   ) {
     throw failure(

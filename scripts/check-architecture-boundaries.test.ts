@@ -162,6 +162,54 @@ describe("release-rollout provider-neutral boundary", () => {
   });
 });
 
+describe("usage producer protocol transport boundary", () => {
+  function protocolFixture(): string {
+    const root = createFixture("export type Investigation = string;\n");
+    writeFile(
+      root,
+      "packages/protocol-review-action-v2/src/index.ts",
+      "export {};\n",
+    );
+    writeFile(
+      root,
+      "packages/features/action-control-plane/package.json",
+      JSON.stringify({
+        exports: { ".": {}, "./v2": {}, "./v2/contract-source": {} },
+      }),
+    );
+    return root;
+  }
+  it("accepts only the three named usage transport adapters and fixture", () => {
+    const root = protocolFixture();
+    for (const file of [
+      "action/provider-usage-delivery.ts",
+      "action/provider-usage-responses.ts",
+      "tests/provider-usage-bootstrap.test.ts",
+    ]) {
+      writeFile(
+        root,
+        `packages/features/codex-oauth-rotating/src/${file}`,
+        'import type { UsageFact } from "@reviewrouter/protocol-review-action-v2";\nexport type Fact = UsageFact;\n',
+      );
+    }
+    expect(runChecker(root)).toContain("Architecture boundary check passed");
+  });
+  it.each(["action/random-usage.ts", "domain/provider-usage-delivery.ts"])(
+    "rejects unapproved protocol consumption in %s",
+    (file) => {
+      const root = protocolFixture();
+      writeFile(
+        root,
+        `packages/features/codex-oauth-rotating/src/${file}`,
+        'import { UsageDelivery } from "@reviewrouter/protocol-review-action-v2/usage-producer-v1";\nexport const value = UsageDelivery;\n',
+      );
+      expect(() => runChecker(root)).toThrow(
+        /generated (?:Review Action v2 protocol|transport DTOs)/,
+      );
+    },
+  );
+});
+
 function createFixture(domainSource: string): string {
   const root = mkdtempSync(join(tmpdir(), "reviewrouter-architecture-"));
   fixtureRoots.push(root);

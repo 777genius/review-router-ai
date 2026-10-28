@@ -1,0 +1,32 @@
+schemaVersion: 1
+workspace:
+  kind: pnpm
+  manifest: pnpm-workspace.yaml
+governedRoots:
+  - packages/features/review-skills/src/domain
+  - packages/features/review-skills/src/application
+boundaries:
+  - id: review-skills.domain
+    roots:
+      - packages/features/review-skills/src/domain
+    entrypoints:
+      - packages/features/review-skills/src/domain/errors.ts
+      - packages/features/review-skills/src/domain/author-policy.ts
+    allow:
+      boundaries: []
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: review-skills.application
+    roots:
+      - packages/features/review-skills/src/application
+    entrypoints:
+      - packages/features/review-skills/src/application/contracts.ts
+      - packages/features/review-skills/src/application/create-review-skills-service.ts
+    allow:
+      boundaries:
+        - review-skills.domain
+      packages:
+        - "@reviewrouter/shared"
+      builtins: []
+      runtimeReferences: []

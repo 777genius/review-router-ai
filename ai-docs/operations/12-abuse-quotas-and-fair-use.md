@@ -2,7 +2,7 @@
 
 ## Why This Matters
 
-Even without cloud review execution, SaaS endpoints can be abused through webhook floods, OIDC exchanges, repository syncs, setup PR creation, and health report spam.
+Even without cloud review execution, control plane endpoints can be abused through webhook floods, OIDC exchanges, repository syncs, setup PR creation, and health report spam.
 
 ## Free Beta Limits
 

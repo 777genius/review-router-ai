@@ -1,3 +1,4 @@
+import { savedWorkspaceRuntimeFixture } from "./runtime-configuration-fixture";
 import { describe, expect, it, vi } from "vitest";
 import Fastify from "fastify";
 import type {
@@ -206,7 +207,7 @@ describe("Codex rotating OAuth local E2E", () => {
     const githubPublicKeyBase64 = Buffer.alloc(32, 1).toString("base64");
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef,
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
       workflowSchemaVersion: 5,
@@ -250,7 +251,9 @@ describe("Codex rotating OAuth local E2E", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,
@@ -436,7 +439,7 @@ describe("Codex rotating OAuth local E2E", () => {
     const reviewSnapshots = new InMemoryReviewSnapshotRepository();
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef,
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
       workflowSchemaVersion: 5,
@@ -455,7 +458,9 @@ describe("Codex rotating OAuth local E2E", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,
@@ -871,7 +876,9 @@ describe("Codex rotating OAuth local E2E", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,
@@ -972,7 +979,9 @@ describe("Codex rotating OAuth local E2E", () => {
           findSelectedRepositoryByGithubId: vi
             .fn()
             .mockResolvedValue(repository),
-          findRuntimeReviewConfiguration: vi.fn(),
+          findRuntimeReviewConfiguration: vi
+            .fn()
+            .mockResolvedValue(savedWorkspaceRuntimeFixture),
           recordHealthReport: vi.fn(),
         },
         codexRotatingOAuth,
@@ -1043,7 +1052,7 @@ describe("Codex rotating OAuth local E2E", () => {
     ]);
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef,
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
       workflowSchemaVersion: 5,
@@ -1066,7 +1075,9 @@ describe("Codex rotating OAuth local E2E", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,
@@ -1161,7 +1172,9 @@ describe("Codex rotating OAuth local E2E", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,

@@ -64,24 +64,31 @@ describe("conflict runtime reusable workflow contract", () => {
     expect(workflow).toContain("ref: ${{ inputs.runtime_ref }}");
     expect(workflow).toContain("repository: ${{ github.repository }}");
     expect(workflow).toContain("ref: ${{ inputs.conflict_head_sha }}");
-    expect(
-      workflow.indexOf("pnpm --filter @reviewrouter/platform-db db:generate"),
-    ).toBeGreaterThan(workflow.indexOf("pnpm install --frozen-lockfile"));
-    expect(
-      workflow.indexOf(
-        "pnpm --filter @reviewrouter/features-conflict-runtime... build",
-      ),
-    ).toBeGreaterThan(
-      workflow.indexOf("pnpm --filter @reviewrouter/platform-db db:generate"),
+    // The consumer executes the checked-in standalone bundle, not workspace
+    // source or a dependency installation influenced by the target checkout.
+    const bundleCheck = workflow.indexOf(
+      "node --check action-dist/conflict-runtime.cjs",
     );
-    expect(
-      workflow.indexOf("node scripts/rewrite-dist-esm-imports.mjs"),
-    ).toBeGreaterThan(
-      workflow.indexOf(
-        "pnpm --filter @reviewrouter/features-conflict-runtime... build",
-      ),
+    const preflight = workflow.indexOf(
+      "node action-dist/conflict-runtime.cjs preflight",
     );
-    expect(workflow.match(/node --conditions=production /g)).toHaveLength(2);
+    const targetCheckout = workflow.indexOf("Checkout exact conflict head");
+    const run = workflow.indexOf("node action-dist/conflict-runtime.cjs run");
+    expect(bundleCheck).toBeGreaterThan(
+      workflow.indexOf("Checkout trusted ReviewRouter runtime"),
+    );
+    expect(preflight).toBeGreaterThan(bundleCheck);
+    expect(targetCheckout).toBeGreaterThan(preflight);
+    expect(run).toBeGreaterThan(targetCheckout);
+    expect(workflow).not.toContain("pnpm install");
+    expect(workflow).not.toContain("db:generate");
+    expect(workflow).not.toContain("rewrite-dist-esm-imports");
+    expect(workflow).not.toContain("node --conditions=production");
+    expect(
+      workflow.match(
+        /node action-dist\/conflict-runtime\.cjs (?:preflight|run)/g,
+      ),
+    ).toHaveLength(2);
     expect(workflow.match(/persist-credentials: false/g)).toHaveLength(2);
     expect(jobEnv).not.toContain("REVIEW_ROUTER_CONFLICT_SESSION_FILE");
     expect(
@@ -94,16 +101,17 @@ describe("conflict runtime reusable workflow contract", () => {
     expect(scriptBodies).not.toContain("${{ secrets.");
     expect(workflow).not.toContain("if: ${{ secrets.");
     expect(workflow).toContain(
-      "if: ${{ env.CODEX_AUTH_JSON_PRESENT == '1' || env.OPENAI_API_KEY_PRESENT == '1' }}",
+      "if: ${{ env.CODEX_AUTH_JSON_PRESENT == '1' || env.OPENAI_API_KEY_PRESENT == '1' || env.MIMO_TOKEN_PLAN_API_KEY_PRESENT == '1' }}",
     );
   });
 
-  it("passes only Codex-backed model secrets to the conflict runtime", () => {
+  it("passes only supported Codex-transport model secrets to the conflict runtime", () => {
     const workflow = readFileSync(workflowPath, "utf8");
 
     expect(workflow).toContain("CODEX_AUTH_JSON:");
     expect(workflow).toContain("CODEX_CONFIG_TOML:");
     expect(workflow).toContain("OPENAI_API_KEY:");
+    expect(workflow).toContain("MIMO_TOKEN_PLAN_API_KEY:");
     expect(workflow).not.toContain("REVIEW_ROUTER_LEDGER_KEY");
     expect(workflow).not.toContain("CLAUDE_CODE_OAUTH_TOKEN");
     expect(workflow).not.toContain("OPENROUTER_API_KEY");

@@ -1,0 +1,236 @@
+{
+  "schema": "reviewrouter.web-trust-host-cms-profile.v1",
+  "decision": {
+    "adr": "ADR-030",
+    "path": "ai-docs/decisions/030-web-trust-host-consumer-module-standard-scope.md",
+    "status": "accepted-scoped",
+    "acceptedBy": "Root delegation for this bounded slice, 2026-10-11"
+  },
+  "scope": {
+    "slice": "exact private C11 WEB trust-overlap Host slice plus the public configuration-only finished-context factory boundary",
+    "organizationWideAdoption": false,
+    "node26Qualification": false,
+    "fullProductCi": false,
+    "productSourceInRepository": false,
+    "governedPaths": []
+  },
+  "authority": {
+    "consumerModuleStandard": {
+      "repository": "agent-teams-ai/get-modular",
+      "path": "docs/architecture/common-assembly.md",
+      "anchor": "#consumer-module-standard",
+      "commit": "4728b276b87378ca9d72a7be2b89a5fd49b97eea",
+      "gitBlob": "20c281b3137f5d3c198250e9f8101c0ecd4cbc75",
+      "bytes": 54680,
+      "lines": 927,
+      "documentSha256": "859fbca1e8a0c61b6ae873bea0057735a55b80230100e6e73a74de22e123165a",
+      "acceptingAdr": "ADR-0026",
+      "role": "fixed content pin; never follows a moving branch"
+    },
+    "priorStandard": {
+      "commit": "d6127e2d3f499b91b220a222fc3672d29dff1ab2",
+      "documentSha256": "49d08b6d1762e94308157fb59b3aa82ac1630c91f529f6efcd4915dfffee7ba7",
+      "role": "history only"
+    },
+    "sharedDelta": {
+      "name": "cms-d612-to4728-shared-delta-complete.diff",
+      "diffSha256": "f5da152530e6c0830afb9a26f93863347eed8f76e9067aee9442db2c6c0717b6",
+      "diffLines": 260
+    },
+    "featureModuleStandard": {
+      "gitBlob": "d0bfff2033faf544fe65268c1dcdfd524d093015",
+      "sha256": "851653f96643cf0466b67ab22963661976b00de44840fa3144a48a8c054f95fa"
+    },
+    "engineeringQualityStandard": {
+      "repository": "agent-teams-ai/.github",
+      "path": "docs/engineering-quality-standard.md",
+      "commit": "66d6d3d2c2643edac414ded48c0ee0586774dd07",
+      "gitBlob": "705f14cd5048e24b7d61e1d8102b86395d7b014d",
+      "bytes": 18080,
+      "sha256": "d55f9f498da213dfa7b14aeac5df5b2fcf37b2cfed4c63dd88b51bde6f56ebe8",
+      "role": "reference pin only; central wording is not copied into product policy"
+    }
+  },
+  "hostSlice": {
+    "id": "web-trust-successor-owner",
+    "classification": "host-owned-lifecycle-transition",
+    "graphNode": false,
+    "owner": "WEB Host (ReviewRouter operator transition owner)",
+    "release": "existing-web-trust-overlap-successor-20261011-v26web-c11",
+    "target": "releases/existing-web-trust-overlap-successor-20261011-v26web-c11",
+    "status": "web-trust-finished",
+    "operation": "868258c2-9846-474b-8365-84fce37cc576",
+    "native": ["ready", 54, "868258c2-9846-474b-8365-84fce37cc576", false],
+    "newWebId": "9bbcb0b2e3b47f74c5380a22441aa5aaddead35e3950431011b5b7fe72c81855",
+    "priorApiOperation": "704109cc-8c1c-4dc8-8d4a-6e84f28ac82a",
+    "rootSha256": "035d9aa446ef274be76e2f66072a5bd55f494bb8b07ffb8ce647415242969039",
+    "controlSha256": "569ff22d0f82b380338453a42e6adbb1374bace050ed2e1829f3fc802ccfd945",
+    "installerSha256": "d1614b082fe6a10815e135527b38f18f129427e5394be0f2ae7d4c82b02bb984",
+    "sourceManifestSha256": "8cadae38dc32bfdf5ed078f337fd2c36ea100e51b68fbdc6d46b316bf9609fd9",
+    "bundlePinsSha256": "d334d721c34e5ae5a4fdd8f0ad19f4163ce1c3132f5bc575734390049ad9a757",
+    "loaderSha256": "c50aca4d785701f8bc0971ab092355a255688b2a0376155ffb66239ad4000c35",
+    "mixedManifestSha256": "8b58748166de54f40f7a4004a1f343a8e66e1660589cba0ef622c5c3e7b3d0c9",
+    "startupSha256": "0556b0ff6c8df6a83d1d6e0d41be9c3d915cf90d869e34c0a6ba5cd0fc02de20",
+    "publication": {
+      "name": "WARM_WEB_TRUST_V26_PUBLICATION.json",
+      "sha256": "71b8009e45462de000502e3793e3ea1748de49b1df1aa0b92fe95fef99f15c22",
+      "bytes": 601,
+      "mode": "0600"
+    },
+    "installedClosure": {
+      "releaseFiles": {
+        "web_trust_predecessor.py": "0555",
+        "web_trust_source.py": "0555",
+        "web_trust_fleet.py": "0555",
+        "web_trust_ready.py": "0555",
+        "web_trust_rollback.py": "0555",
+        "web_trust_publish.py": "0555",
+        "web_trust_io.py": "0555",
+        "web_trust_manifest.py": "0555",
+        "web_trust_callbacks.py": "0555",
+        "web_trust_coordinator.py": "0555",
+        "web_trust_driver.py": "0555",
+        "web_trust_finished_context.py": "0555",
+        "web_trust_loader.py": "0555",
+        "api_diag_catalog.py": "0555",
+        "catalog-legacy-order-witness.json": "0400",
+        "web_trust_stop.py": "0555",
+        "web_trust_boot.py": "0555",
+        "web_reconnect_daemon.py": "0555",
+        "web_reconnect_store.py": "0555",
+        "candidate-image-provenance.json": "0400",
+        "review68.json": "0400",
+        "schema110-receipt.json": "0400",
+        "api_mimo_schema110.py": "0555",
+        "schema118-reference.json": "0400",
+        "schema125-reference-PG17.json": "0400",
+        "web-only.compose.json": "0400",
+        "warm.sh": "0555",
+        "boot.sh": "0555",
+        "stop.sh": "0555",
+        "bundle-pins.json": "0400"
+      },
+      "sealedAfterActivation": { "mixed-fleet.json": "0400" },
+      "rootSource": "web_trust_overlap_successor.py"
+    }
+  },
+  "factoryBoundary": {
+    "id": "web-trust-finished-context-derivative",
+    "classification": "sealed-derived-factory-of-a-retained-owner",
+    "graphNode": false,
+    "owner": "finished-context factory line (retained v3 factory; derivative shipped in the WEB closure) / WEB Host (consumer)",
+    "dependencyDirection": "WEB package -> derivative factory -> retained classes",
+    "publicInitializer": "initialize_retained_worker_configuration",
+    "identity": {
+      "classChain": ["Schema125Context", "CurrentFinishedContext"],
+      "definingModules": [
+        "schema125_current_context",
+        "schema125_finished_context_factory"
+      ],
+      "sealedModule": "web_trust_finished_context.py"
+    },
+    "refusals": [
+      "foreign class chain",
+      "impostor with copied names",
+      "already bound fingerprint",
+      "warm-admitted or owner-adopted context",
+      "wrong or extra pinned bodies"
+    ],
+    "reviewTrigger": "a second consumer of the initializer, or any change of the retained context classes"
+  },
+  "boundaries": [
+    {
+      "id": "web-trust-successor-owner",
+      "classification": "host-owned-lifecycle-transition",
+      "graphNode": false
+    },
+    {
+      "id": "web-trust-private-helpers",
+      "classification": "fixed-dependency-private-helpers",
+      "graphNode": false
+    },
+    {
+      "id": "web-trust-api-published-language",
+      "classification": "fixed-dependency-read-only-anti-corruption",
+      "graphNode": false
+    },
+    {
+      "id": "web-trust-finished-context-derivative",
+      "classification": "sealed-derived-factory-of-a-retained-owner",
+      "graphNode": false
+    },
+    {
+      "id": "web-trust-catalog-adapter-copy",
+      "classification": "byte-equal-copy-of-owner-artifact",
+      "graphNode": false
+    },
+    {
+      "id": "web-trust-action-ref-policy",
+      "classification": "duplicated-constants-guarded",
+      "graphNode": false
+    }
+  ],
+  "legacy": [
+    {
+      "path": "retained spent V23->V24 WEB owner (guard v5)",
+      "status": "not-adopted",
+      "owner": "WEB Host",
+      "reviewTrigger": "removal of the V24 package"
+    },
+    {
+      "path": "finished API V25 g4 owner sources",
+      "status": "not-adopted",
+      "owner": "API Host",
+      "reviewTrigger": "any change of the g4 records, physical names or catalog adapter"
+    }
+  ],
+  "exceptions": [],
+  "conditionalAssemblyGates": {
+    "declared": false,
+    "note": "profileId roots, checkNamespaces, scoped ModuleContext factories, contract lint and row oracles become mandatory only if this slice declares those elements"
+  },
+  "qualification": {
+    "deterministicGate": {
+      "script": "scripts/check-web-host-cms-profile-cli.ts",
+      "library": "scripts/check-web-host-cms-profile.ts",
+      "command": "pnpm architecture:web-host-cms",
+      "chainedInto": "pnpm architecture:check",
+      "ci": ".github/workflows/ci.yml step 'Architecture boundaries'",
+      "proves": "pins, boundary inventory, claim limits, reciprocal ADR/profile references and hook wiring",
+      "doesNotProve": "the installed host state, physical adoption or Node26 qualification"
+    },
+    "installedGate": {
+      "kind": "operator",
+      "status": "operator-run-passed",
+      "tool": "cms_delivery_gate.py (delivery packet; reads retained standard bytes, the installed C11 owner on the ALT host and the install/describe/activate/observe receipts)",
+      "command": "cd /tmp && python3 -I -B <delivery-packet>/cms_delivery_gate.py --packet <delivery-packet> --receipts-dir <receipts> --installed-release /srv/platform/projects/review-router/releases/existing-web-trust-overlap-successor-20261011-v26web-c11 --activation-dir /srv/platform/projects/review-router/runtime/activation --installed-root /srv/platform/projects/review-router/runtime/web-trust-overlap-v26-c11-root.py --installed-control /srv/platform/projects/review-router/runtime/activation/WEB_TRUST_V26_C11_ROOT_CONTROL.json",
+      "receiptRetention": "the immutable operator receipt stays outside this repository; only its reference, sha256 and the finite projection below (the receipt's own field names) are recorded",
+      "proves": "the installed C11 owner (release closure, root, control, sealed manifest, startup and publication records) matched the reviewed profile when the read-only gate ran",
+      "doesNotProve": "live lifecycle row or container state, other generations, organization-wide adoption or Node26 qualification; it must be re-run for any new installed generation",
+      "receipt": {
+        "reference": "web-cms-installed-readonly-gate-actual-a1.json",
+        "sha256": "121108083bc53d95d006b1d725952ba02c704c015c68b4d72917676c411a043a",
+        "projection": {
+          "status": "cms-delivery-gate-pass",
+          "returncode": 0,
+          "native": [
+            "ready",
+            54,
+            "868258c2-9846-474b-8365-84fce37cc576",
+            false
+          ],
+          "standardCommit": "4728b276b87378ca9d72a7be2b89a5fd49b97eea",
+          "cmsAdoption": "pending",
+          "productionAdoption": false,
+          "wholeOrganizationQualification": false,
+          "noActivationReplay": true,
+          "packetManifestSha256": "dfc5e3c9142369fa2da0dac01c3d23c16460e9abed95b4014fc996b293c6347e",
+          "unverified": [
+            "live lifecycle row and container state (outside this gate; separate Root observation)"
+          ]
+        }
+      }
+    },
+    "executionEvidence": "Actual run facts (test counts, tool versions, input hashes of strict-typecheck and Vitest runs) live in immutable operator evidence, not in this source profile, so that the profile never fingerprints its own execution. They are focused checks only: not full-project strict, not the full product CI, not Node26 qualification."
+  }
+}

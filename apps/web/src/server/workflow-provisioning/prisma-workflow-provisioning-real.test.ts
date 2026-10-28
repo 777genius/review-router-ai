@@ -40,9 +40,10 @@ withDatabase("WorkflowProvisioning PostgreSQL concurrency and transfer", () => {
     installationId,
     status: "not_started" as const,
     branch: "reviewrouter/setup",
-    workflowPath: ".github/workflows/reviewrouter-codex.yml",
+    workflowPath: ".github/workflows/reviewrouter-review.yml",
     workflowStyle: "reusable" as const,
     actionVersion: "a".repeat(40),
+    workflowRequirement: "ci_secrets+claude",
     pullRequestHeadSha: "b".repeat(40),
   };
   const identity = {
@@ -366,6 +367,68 @@ withDatabase("WorkflowProvisioning PostgreSQL concurrency and transfer", () => {
     expect(
       await prisma.workflowProvisioning.count({ where: { repositoryId } }),
     ).toBe(1);
+  });
+  it("records each attempt's workflow requirement and installs it only on confirmation", async () => {
+    await prisma.workflowProvisioning.deleteMany({ where: { repositoryId } });
+    const writer = new PrismaWorkflowProvisioningRepository(prisma);
+    const authority = new PrismaWorkflowProvisioningStatusAuthority(prisma);
+    const row = () =>
+      prisma.workflowProvisioning.findUniqueOrThrow({
+        where: { repositoryId },
+      });
+    const gateway = { ...record, workflowRequirement: "gateway" };
+    const first = await writer.beginAttempt(gateway);
+    await writer.markSetupPullRequestOpen({
+      ...gateway,
+      ...first,
+      pullRequestUrl: "https://github.com/acme/widget/pull/7",
+    });
+    identity.setupBranch = first.branch;
+    expect(await row()).toMatchObject({
+      attemptWorkflowRequirement: "gateway",
+      installedWorkflowRequirement: null,
+    });
+    expect(await authority.markConfigured(identity)).toBe(true);
+    expect(await row()).toMatchObject({
+      status: "configured",
+      installedWorkflowRequirement: "gateway",
+    });
+    // A newer attempt leaves the installed workflow until it is confirmed.
+    const second = await writer.beginAttempt(record);
+    expect(await row()).toMatchObject({
+      attemptId: second.attemptId,
+      attemptWorkflowRequirement: "ci_secrets+claude",
+      installedWorkflowRequirement: "gateway",
+    });
+    // Verified installed evidence records what it was verified for.
+    await prisma.workflowProvisioning.deleteMany({ where: { repositoryId } });
+    await authority.confirmInstalledWorkflow({
+      ...record,
+      workflowRequirement: "rotating",
+      baseBranch: "main",
+      expectedAttempt: null,
+    });
+    expect(await row()).toMatchObject({
+      status: "configured",
+      attemptWorkflowRequirement: "rotating",
+      installedWorkflowRequirement: "rotating",
+    });
+    // A provider variant of the same transport is a different workflow.
+    await authority.confirmInstalledWorkflow({
+      ...record,
+      workflowRequirement: "ci_secrets+codex-mimo",
+      baseBranch: "main",
+      expectedAttempt: null,
+    });
+    expect(await row()).toMatchObject({
+      installedWorkflowRequirement: "ci_secrets+codex-mimo",
+    });
+    await expect(
+      prisma.workflowProvisioning.update({
+        where: { repositoryId },
+        data: { installedWorkflowRequirement: "ci_secrets; DROP" },
+      }),
+    ).rejects.toThrow();
   });
   it("isolates remote writes after A pauses, expires, B finishes and A resumes", async () => {
     const remote = new WorkflowGitHubFixture();

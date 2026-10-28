@@ -1,6 +1,9 @@
+import type { ProviderApiAuthMode } from "@reviewrouter/shared";
+import { reviewRouterApiUrlsMatch } from "@reviewrouter/shared";
 import type { RepositoryWorkflowProbePort } from "@reviewrouter/features-repo-health";
 import type { ProviderKind } from "@reviewrouter/features-review-providers";
 import {
+  areManagedWorkflowDocumentsAttested,
   areWorkflowDocumentsSemanticallyEqual,
   assertSameVersionedProviderSecretNamespace,
   type CodexRotatingReviewActionV2Mode,
@@ -19,10 +22,18 @@ import {
   codexWorkflowPathForRepository,
   isolatedQualityWorkflowPath,
   type ReviewRouterDiscussionMode,
+  type ReviewRouterMcpSecrets,
+  renderAccountGatewayWorkflow,
+  renderProviderApiWorkflow,
+  renderReviewRouterSecretsCaller,
+  readManagedReviewRouterCallerSource,
+  readReviewRouterCallerSource,
+  reviewRouterWorkflowContract,
 } from "@reviewrouter/features-workflow-provisioning";
 import { resolveWorkflowPublicApiUrl } from "./workflow-public-api-url";
 
 export type WorkflowSetupReadinessInput = {
+  readonly secretsRuntimeActionRef?: string;
   readonly githubInstallationId: string;
   readonly githubRepositoryId: string;
   readonly repositoryFullName: string;
@@ -30,6 +41,9 @@ export type WorkflowSetupReadinessInput = {
   readonly name: string;
   readonly defaultBranch: string;
   readonly actionRef: string;
+  readonly codexSessionMode?: "account-gateway";
+  readonly mcpSecrets?: ReviewRouterMcpSecrets;
+  readonly providerApiAuthMode?: ProviderApiAuthMode;
   readonly providerKind?: ProviderKind;
   readonly discussionMode?: ReviewRouterDiscussionMode;
   readonly conflictReviewFallbackEnabled?: boolean;
@@ -37,6 +51,7 @@ export type WorkflowSetupReadinessInput = {
   readonly codexRotatingProviderInstanceId?: string;
   readonly codexRotatingClaudeCodeOAuthTokenSecret?: boolean;
   readonly codexRotatingOpenRouterApiKeySecret?: boolean;
+  readonly codexRotatingMimoTokenPlanApiKeySecret?: boolean;
   readonly codexRotatingReviewActionV2Mode?: CodexRotatingReviewActionV2Mode;
   readonly codexRotatingWorkflowSchemaVersion?: CodexRotatingT0WorkflowSchemaVersion;
   readonly codexRotatingWorkflowSecretNamespace?: VersionedProviderSecretNamespace;
@@ -49,8 +64,125 @@ export async function isWorkflowSetupAlreadyCurrent(
     readonly resolvePublicApiUrl?: () => string;
   },
 ): Promise<boolean> {
+  if (
+    input.codexSessionMode !== "account-gateway" &&
+    input.mcpSecrets &&
+    Object.keys(input.mcpSecrets).length
+  )
+    return false;
   if (input.discussionMode === "suggest") {
     return false;
+  }
+  if (
+    input.secretsRuntimeActionRef &&
+    !input.codexSessionMode &&
+    !input.providerApiAuthMode &&
+    !input.codexRotatingProviderInstanceId &&
+    !input.conflictReviewFallbackEnabled &&
+    !input.forkAgenticSandboxEnabled
+  ) {
+    const expected = renderReviewRouterSecretsCaller({
+      actionRef: input.secretsRuntimeActionRef,
+      apiUrl:
+        dependencies.resolvePublicApiUrl?.() ?? resolveWorkflowPublicApiUrl(),
+    });
+    const check = await dependencies.workflowProbe.probeWorkflow({
+      githubInstallationId: input.githubInstallationId,
+      owner: input.owner,
+      name: input.name,
+      defaultBranch: input.defaultBranch,
+      workflowPath: defaultWorkflowPath,
+      expectedActionRef: input.secretsRuntimeActionRef.replace(
+        "@",
+        "/.github/workflows/reviewrouter-secrets-runtime.yml@",
+      ),
+      expectedContentValidator: (workflow) =>
+        areWorkflowDocumentsSemanticallyEqual(workflow, expected),
+    });
+    return (
+      check.status === "present" &&
+      check.expectedActionRefFound &&
+      check.expectedContentMarkersFound === true
+    );
+  }
+
+  if (
+    input.codexSessionMode === "account-gateway" ||
+    input.providerApiAuthMode !== undefined
+  ) {
+    if (input.codexSessionMode && input.providerApiAuthMode) return false;
+    if (
+      input.codexRotatingProviderInstanceId ||
+      input.codexRotatingWorkflowSecretNamespace ||
+      input.codexRotatingWorkflowSchemaVersion !== undefined ||
+      input.codexRotatingReviewActionV2Mode ||
+      input.codexRotatingClaudeCodeOAuthTokenSecret ||
+      input.codexRotatingOpenRouterApiKeySecret ||
+      input.conflictReviewFallbackEnabled ||
+      input.forkAgenticSandboxEnabled ||
+      input.providerKind
+    )
+      return false;
+    let expected: ReturnType<typeof renderAccountGatewayWorkflow>;
+    try {
+      expected =
+        input.providerApiAuthMode !== undefined
+          ? renderProviderApiWorkflow({
+              providerApiAuthMode: input.providerApiAuthMode,
+              actionRef: input.actionRef,
+              apiUrl:
+                dependencies.resolvePublicApiUrl?.() ??
+                resolveWorkflowPublicApiUrl(),
+            })
+          : renderAccountGatewayWorkflow({
+              actionRef: input.actionRef,
+              apiUrl:
+                dependencies.resolvePublicApiUrl?.() ??
+                resolveWorkflowPublicApiUrl(),
+              githubRepositoryId: input.githubRepositoryId,
+              ...(input.mcpSecrets !== undefined
+                ? { mcpSecrets: input.mcpSecrets }
+                : {}),
+            });
+    } catch {
+      return false;
+    }
+    const check = await dependencies.workflowProbe.probeWorkflow({
+      githubInstallationId: input.githubInstallationId,
+      owner: input.owner,
+      name: input.name,
+      defaultBranch: input.defaultBranch,
+      workflowPath: expected.path,
+      expectedActionRef:
+        input.providerApiAuthMode !== undefined
+          ? `${reviewRouterWorkflowContract.runtimeRepository}/.github/workflows/reviewrouter-execution-reusable.yml@${readManagedReviewRouterCallerSource(expected.content).runtimeRef}`
+          : `${reviewRouterWorkflowContract.runtimeRepository}/${reviewRouterWorkflowContract.runtimePath}@${readReviewRouterCallerSource(expected.content).runtimeRef}`,
+      expectedContentValidator: (workflow) =>
+        areWorkflowDocumentsSemanticallyEqual(workflow, expected.content),
+    });
+    if (
+      check.status !== "present" ||
+      !check.expectedActionRefFound ||
+      check.expectedContentMarkersFound !== true
+    )
+      return false;
+    const competingChecks = await Promise.all(
+      [
+        defaultWorkflowPath,
+        defaultCodexRotatingWorkflowPath,
+        defaultInteractionWorkflowPath,
+      ].map((workflowPath) =>
+        dependencies.workflowProbe.probeWorkflow({
+          githubInstallationId: input.githubInstallationId,
+          owner: input.owner,
+          name: input.name,
+          defaultBranch: input.defaultBranch,
+          workflowPath,
+          expectedActionRef: input.actionRef,
+        }),
+      ),
+    );
+    return competingChecks.every((competing) => competing.status === "missing");
   }
 
   const codexWorkflowPath = input.codexRotatingProviderInstanceId
@@ -91,6 +223,8 @@ export async function isWorkflowSetupAlreadyCurrent(
                       input.codexRotatingClaudeCodeOAuthTokenSecret === true,
                     openRouterApiKeySecret:
                       input.codexRotatingOpenRouterApiKeySecret === true,
+                    mimoTokenPlanApiKeySecret:
+                      input.codexRotatingMimoTokenPlanApiKeySecret === true,
                     forkAgenticSandboxEnabled:
                       input.forkAgenticSandboxEnabled === true,
                     reviewActionV2Mode: input.codexRotatingReviewActionV2Mode,
@@ -165,7 +299,7 @@ export async function isWorkflowSetupAlreadyCurrent(
       workflowPath: defaultInteractionWorkflowPath,
       expectedActionRef: input.actionRef,
       expectedContentValidator: (workflow: string) =>
-        areWorkflowDocumentsSemanticallyEqual(
+        areManagedWorkflowDocumentsAttested(
           workflow,
           expectedInteractionWorkflow,
         ),
@@ -216,7 +350,7 @@ function isCanonicalVersionedCodexWorkflowReady(input: {
       : readCanonicalCodexRotatingT0WorkflowSourceMetadata(input.workflow);
     if (
       metadata.actionRef !== input.expectedActionRef ||
-      metadata.apiUrl !== input.expectedApiUrl ||
+      !reviewRouterApiUrlsMatch(metadata.apiUrl, input.expectedApiUrl) ||
       metadata.providerInstanceId !== input.expectedProviderInstanceId ||
       metadata.workflowSchemaVersion !== input.expectedWorkflowSchemaVersion ||
       !metadata.secretNamespace

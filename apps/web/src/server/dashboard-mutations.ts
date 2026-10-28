@@ -1,7 +1,9 @@
 import { App } from "@octokit/app";
+import { githubAppTestTransport } from "./github-app-test-transport";
 import type { Session } from "next-auth";
 import { getServerSession } from "next-auth";
 import { cache } from "react";
+import { z } from "zod";
 import {
   assertWorkspaceAdminAllowed,
   assertWorkspaceMutationAllowed,
@@ -20,6 +22,7 @@ import {
 import { getValidGitHubUserAccessToken } from "./github-user-authorization";
 import { updateRepositoryPermissionCacheFromLiveCheck } from "./github-user-repository-access";
 import { getPrisma } from "./prisma";
+import { DashboardMutationRefusedError } from "./dashboard-mutation-errors";
 
 // Both the persistent shell and the section ask for identity during one RSC
 // request. React's request-scoped cache avoids repeating the session and
@@ -163,6 +166,16 @@ export async function assertDashboardMutationAllowed(
   return withWorkspaceAdminAccess(actor);
 }
 
+/**
+ * The signed-in user of a dashboard write whose authority is decided later,
+ * under the write's own locks (provider profile edits and removals, where a
+ * member who added a provider may change it). Refuses like every other
+ * dashboard write when changes are off or nobody is signed in.
+ */
+export async function assertDashboardSignedInMutationActor(): Promise<DashboardMutationActor> {
+  return readDashboardMutationActor();
+}
+
 export async function assertDashboardRepositoryMutationAllowed(
   workspaceId: string,
   repository: {
@@ -193,6 +206,20 @@ export async function assertDashboardRepositoryMutationAllowed(
   });
 
   return withRepositoryAccess(actor, repositoryAccess);
+}
+
+/** Skills requires an actual SCM manager proof; local override is not enough. */
+export async function assertDashboardSkillsRepositoryManagementAllowed(
+  _workspaceId: string,
+  repository: Parameters<typeof assertDashboardRepositoryMutationAllowed>[1],
+): Promise<DashboardMutationActor> {
+  const actor = await readDashboardMutationActor();
+  const access = await assertRepositoryPermissionForActor({
+    actor,
+    repository,
+    capability: "repo_manager",
+  });
+  return withRepositoryAccess(actor, access);
 }
 
 /**
@@ -257,8 +284,13 @@ export async function assertDashboardRepositoryConfigMutationAllowed(
   return withRepositoryAccess(actor, repositoryAccess);
 }
 
-export async function getDashboardSignedInActor(): Promise<DashboardMutationActor | null> {
-  if (!getAuthEnvironmentStatus().configured || !dashboardMutationsEnabled()) {
+export async function getDashboardSignedInActor(options?: {
+  readonly readOnly?: boolean;
+}): Promise<DashboardMutationActor | null> {
+  if (
+    !getAuthEnvironmentStatus().configured ||
+    (!options?.readOnly && !dashboardMutationsEnabled())
+  ) {
     return null;
   }
 
@@ -299,6 +331,27 @@ export async function canDashboardActorMutateRepository(input: {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Read-only form of the workspace admin gate enforced by
+ * assertDashboardMutationAllowed, so the UI and the action cannot disagree.
+ */
+export async function canDashboardActorAdminWorkspace(input: {
+  readonly actor: DashboardMutationActor | null;
+  readonly workspaceId: string;
+}): Promise<boolean> {
+  if (!input.actor) return false;
+  try {
+    await assertWorkspaceMutationAllowedForActor(
+      input.workspaceId,
+      input.actor,
+    );
+    return true;
+  } catch (error) {
+    if (isWorkspaceMutationForbidden(error)) return false;
+    throw error;
   }
 }
 
@@ -363,18 +416,26 @@ async function readDashboardMutationActor(): Promise<DashboardMutationActor> {
   }
 
   if (!dashboardMutationsEnabled()) {
-    throw new Error("dashboard_mutations_disabled");
+    throw new DashboardMutationRefusedError("dashboard_mutations_disabled");
   }
 
   const session = await getDashboardServerSession();
   const identity = readSessionSourceIdentity(session);
   if (!identity) {
+    // Only successful session absence proves sign-out. A malformed present
+    // session is missing authority facts and remains an uncertain failure.
+    if (session === null)
+      throw new DashboardMutationRefusedError(
+        "dashboard_mutation_requires_sign_in",
+      );
     throw new Error("dashboard_mutation_requires_sign_in");
   }
 
   const user = await findUserForSourceIdentity(identity);
   if (!user) {
-    throw new Error("dashboard_mutation_requires_sign_in");
+    throw new DashboardMutationRefusedError(
+      "dashboard_mutation_requires_sign_in",
+    );
   }
 
   return {
@@ -451,8 +512,9 @@ async function assertRepositoryPermissionForActor(input: {
     input.repository.installation.githubInstallationId.toString(),
   );
 
+  let response: { data: unknown };
   try {
-    const response = await octokit.request(
+    response = await octokit.request(
       "GET /repos/{owner}/{repo}/collaborators/{username}/permission",
       {
         owner: input.repository.owner,
@@ -460,70 +522,7 @@ async function assertRepositoryPermissionForActor(input: {
         username: githubActor.githubLogin,
       },
     );
-    const data = response.data as {
-      readonly permission?: unknown;
-      readonly role_name?: unknown;
-      readonly user?: {
-        readonly id?: unknown;
-        readonly login?: unknown;
-      };
-    };
-
-    const responseUserId =
-      typeof data.user?.id === "number" || typeof data.user?.id === "string"
-        ? String(data.user.id)
-        : null;
-    if (responseUserId && responseUserId !== githubActor.githubUserId) {
-      throw new Error("repository_mutation_forbidden");
-    }
-
-    const permission =
-      typeof data.permission === "string" ? data.permission : "";
-    const roleName = typeof data.role_name === "string" ? data.role_name : "";
-    const canManage = repositoryPermissionAllowsRepoManagement({
-      permission,
-      roleName,
-    });
-    if (input.repository.id && input.permissionCacheMode !== "read_only") {
-      await updateRepositoryPermissionCacheFromLiveCheck({
-        prisma: getPrisma(),
-        actor: githubActor,
-        repositoryId: input.repository.id,
-        githubInstallationId:
-          input.repository.installation.githubInstallationId,
-        permission,
-        roleName,
-        canManage,
-      });
-    }
-
-    if (!canManage) {
-      throw new Error("repository_mutation_forbidden");
-    }
-    if (
-      !repositoryPermissionAllowsCapability(
-        { permission, roleName },
-        input.capability,
-      )
-    ) {
-      throw new Error("repository_config_mutation_forbidden");
-    }
-
-    return {
-      source: "repo_manager",
-      capability: input.capability,
-      permission: permission || null,
-      roleName: roleName || null,
-    };
   } catch (error) {
-    if (
-      error instanceof Error &&
-      (error.message === "repository_mutation_forbidden" ||
-        error.message === "repository_config_mutation_forbidden")
-    ) {
-      throw error;
-    }
-
     const status = githubApiStatus(error);
     if (status === 401 || status === 403 || status === 404) {
       if (input.repository.id && input.permissionCacheMode !== "read_only") {
@@ -538,11 +537,87 @@ async function assertRepositoryPermissionForActor(input: {
           canManage: false,
         });
       }
+      // Keep the legacy message, but transport status never proves a refusal.
       throw new Error("repository_mutation_forbidden", { cause: error });
     }
-
     throw error;
   }
+
+  // A successful HTTP response needs explicit permission AND identity facts.
+  // An absent, empty or unrecognized permission is not evidence of refusal.
+  const facts = z
+    .object({
+      permission: z.enum([
+        "admin",
+        "maintain",
+        "write",
+        "triage",
+        "read",
+        "none",
+      ]),
+      role_name: z.string().trim().min(1).optional(),
+      user: z.object({
+        id: z.union([
+          z.number().int().positive().refine(Number.isSafeInteger),
+          z.string().regex(/^[1-9][0-9]*$/),
+        ]),
+        login: z.string().trim().min(1),
+      }),
+    })
+    .safeParse(response.data);
+  if (!facts.success) throw new Error("repository_mutation_forbidden");
+  const data = facts.data;
+  // Facts for another principal do not prove this actor's permission decision.
+  if (
+    String(data.user.id) !== githubActor.githubUserId ||
+    data.user.login.toLowerCase() !== githubActor.githubLogin.toLowerCase()
+  )
+    throw new Error("repository_mutation_forbidden");
+
+  const permission = data.permission;
+  const roleName = data.role_name ?? "";
+  const canManage = repositoryPermissionAllowsRepoManagement({
+    permission,
+    roleName,
+  });
+  const allowsCapability = repositoryPermissionAllowsCapability(
+    { permission, roleName },
+    input.capability,
+  );
+  // Both policies can grant access from the role independently of permission.
+  // Missing role facts cannot prove a negative decision, but do not invalidate
+  // access already established by the explicit permission.
+  if ((!canManage || !allowsCapability) && data.role_name === undefined) {
+    throw new Error(
+      canManage
+        ? "repository_config_mutation_forbidden"
+        : "repository_mutation_forbidden",
+    );
+  }
+  if (input.repository.id && input.permissionCacheMode !== "read_only") {
+    await updateRepositoryPermissionCacheFromLiveCheck({
+      prisma: getPrisma(),
+      actor: githubActor,
+      repositoryId: input.repository.id,
+      githubInstallationId: input.repository.installation.githubInstallationId,
+      permission,
+      roleName,
+      canManage,
+    });
+  }
+  if (!canManage)
+    throw new DashboardMutationRefusedError("repository_mutation_forbidden");
+  if (!allowsCapability)
+    throw new DashboardMutationRefusedError(
+      "repository_config_mutation_forbidden",
+    );
+
+  return {
+    source: "repo_manager",
+    capability: input.capability,
+    permission,
+    roleName: roleName || null,
+  };
 }
 
 function withWorkspaceAdminAccess(
@@ -625,6 +700,19 @@ export async function assertDashboardWorkspaceAdminAllowed(
   };
 }
 
+/**
+ * The owner/admin gate of a write that does not go through the dashboard's
+ * other mutation gates (managed key uploads): refused like every dashboard
+ * write while changes are off for the deployment.
+ */
+export async function assertDashboardWorkspaceAdminMutationAllowed(
+  workspaceId: string,
+): Promise<DashboardWorkspaceAdminActor> {
+  if (!dashboardMutationsEnabled())
+    throw new DashboardMutationRefusedError("dashboard_mutations_disabled");
+  return assertDashboardWorkspaceAdminAllowed(workspaceId);
+}
+
 export async function getDashboardWorkspaceScope(): Promise<DashboardWorkspaceScope> {
   if (!getAuthEnvironmentStatus().configured) {
     return { kind: "none", reason: "signed_out" };
@@ -660,6 +748,7 @@ export async function createGitHubAppInstallationOctokit(
   const app = new App({
     appId,
     privateKey: requireGitHubAppPrivateKey(),
+    ...githubAppTestTransport(),
   });
 
   return app.getInstallationOctokit(Number(githubInstallationId));
@@ -880,36 +969,58 @@ function readSessionSourceIdentity(
   const sourceProvider = user?.sourceProvider;
   const externalUserId = user?.externalUserId;
   const sourceLogin = user?.sourceLogin;
-  if (
-    (sourceProvider !== "github" && sourceProvider !== "gitlab") ||
-    !externalUserId ||
-    !sourceLogin
-  ) {
-    if (user?.githubUserId && user.githubLogin) {
+  // Legacy sessions have no modern source tuple. A present malformed modern
+  // tuple must not fall back to another provider's identity.
+  if (sourceProvider == null && externalUserId == null && sourceLogin == null) {
+    if (
+      user &&
+      isNonblankSessionIdentityField(user.githubUserId) &&
+      isNonblankSessionIdentityField(user.githubLogin)
+    ) {
       return {
         sourceProvider: "github",
         externalUserId: user.githubUserId,
         sourceLogin: user.githubLogin,
-        sourceAvatarUrl: user.githubAvatarUrl ?? null,
+        sourceAvatarUrl: user?.githubAvatarUrl ?? null,
         githubUserId: user.githubUserId,
         githubLogin: user.githubLogin,
       };
     }
     return null;
   }
+  if (
+    (sourceProvider !== "github" && sourceProvider !== "gitlab") ||
+    !isNonblankSessionIdentityField(externalUserId) ||
+    !isNonblankSessionIdentityField(sourceLogin)
+  )
+    return null;
+  if (sourceProvider === "github") {
+    if (
+      (user?.githubUserId != null &&
+        !isNonblankSessionIdentityField(user.githubUserId)) ||
+      (user?.githubLogin != null &&
+        !isNonblankSessionIdentityField(user.githubLogin))
+    )
+      return null;
+  }
   return {
     sourceProvider,
     externalUserId,
     sourceLogin,
     sourceAvatarUrl:
-      user.sourceAvatarUrl ??
+      user?.sourceAvatarUrl ??
       (sourceProvider === "github"
-        ? user.githubAvatarUrl
-        : user.gitlabAvatarUrl) ??
+        ? user?.githubAvatarUrl
+        : user?.gitlabAvatarUrl) ??
       null,
-    githubUserId: user.githubUserId ?? null,
-    githubLogin: user.githubLogin ?? null,
+    githubUserId: user?.githubUserId ?? null,
+    githubLogin: user?.githubLogin ?? null,
   };
+}
+
+function isNonblankSessionIdentityField(value: unknown): value is string {
+  // Keep the decoded identity unchanged; only validate its primitive contract.
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function githubUserIdForIdentity(

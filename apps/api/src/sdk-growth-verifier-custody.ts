@@ -16,11 +16,18 @@ import {
   parseBinding,
   parseGrant,
   parseOwnerEvidence,
+  executionSourceBinding,
+  parseSdkGrowthSourceBinding,
+  sameSourceBinding,
+  sourceBindingIdentity,
 } from "@reviewrouter/features-sdk-growth-authority";
 
 export interface VerifierCustodyRecord extends TrustedVerifierEvidence {
   readonly producer: "reviewrouter-verifier";
   readonly candidateWritable: false;
+  readonly sourceBinding?: NonNullable<
+    AuthenticatedEfExecution["sourceBinding"]
+  >;
 }
 
 export interface FinalizedVerifierReportRecord {
@@ -31,6 +38,9 @@ export interface FinalizedVerifierReportRecord {
   readonly runId: string;
   readonly runAttempt: string;
   readonly verifierRevision: string;
+  readonly sourceBinding?: NonNullable<
+    AuthenticatedEfExecution["sourceBinding"]
+  >;
   readonly reportDigest: string;
   readonly reportLength: number;
   readonly grantId: string;
@@ -57,6 +67,8 @@ export interface AuthenticatedSdkGrowthVerifierProducer {
   readonly subject: string;
   readonly authenticationId: string;
   readonly execution: AuthenticatedEfExecution;
+  /** Present only for a v3 assignment; legacy producer custody ignores it. */
+  readonly efToolArtifactId?: string;
 }
 
 /** Implemented by protected service identity (for example workload mTLS or a
@@ -116,7 +128,8 @@ export class SdkGrowthVerifierCustody implements TrustedVerifierCustodyPort {
       record.candidateWritable !== false ||
       record.verifierRevision !== execution.verifierRevision ||
       record.sourceCommit !== execution.sourceCommit ||
-      record.sourceTree !== execution.sourceTree
+      record.sourceTree !== execution.sourceTree ||
+      !sameSourceBinding(record.sourceBinding, execution)
     )
       throw new AuthorityError("owner-evidence");
     return structuredClone(record);
@@ -145,6 +158,7 @@ export class SdkGrowthVerifierCustody implements TrustedVerifierCustodyPort {
       record.runId !== input.execution.runId ||
       record.runAttempt !== input.execution.runAttempt ||
       record.verifierRevision !== input.execution.verifierRevision ||
+      !sameSourceBinding(record.sourceBinding, input.execution) ||
       record.reportDigest !== digest ||
       record.reportLength !== input.report.byteLength ||
       !Buffer.from(record.finalizedReport).equals(Buffer.from(input.report)) ||
@@ -211,6 +225,10 @@ function authorityLink(value: unknown): AuthorityEvidenceLink {
 
 function recordFromRow(row: Record<string, unknown>): VerifierCustodyRecord {
   const link = authorityLink(row.authorityBinding);
+  const sourceBinding =
+    row.sourceBinding == null
+      ? null
+      : parseSdkGrowthSourceBinding(row.sourceBinding);
   const record: VerifierCustodyRecord = {
     producer: row.producer as VerifierCustodyRecord["producer"],
     candidateWritable: row.candidateWritable as false,
@@ -220,6 +238,7 @@ function recordFromRow(row: Record<string, unknown>): VerifierCustodyRecord {
     verifierRevision: String(row.verifierRevision),
     sourceCommit: String(row.sourceCommit),
     sourceTree: String(row.sourceTree),
+    ...(sourceBinding ? { sourceBinding } : {}),
     candidateArchiveSha256: String(row.candidateArchiveSha256),
     candidateArchiveSha512Sri: String(row.candidateArchiveSha512Sri),
     releasedArchiveSha256: String(row.releasedArchiveSha256),
@@ -289,6 +308,7 @@ export class PrismaSdkGrowthVerifierEvidenceSource implements SdkGrowthVerifierE
         });
         return (
           isDeepStrictEqual(authorized, link) &&
+          sameSourceBinding(row.sourceBinding, execution) &&
           row.evidenceId === sdkGrowthVerifierExecutionId(execution, link)
         );
       } catch (error) {
@@ -309,7 +329,7 @@ export class PrismaSdkGrowthVerifierEvidenceSource implements SdkGrowthVerifierE
     if (!evidence) return null;
     const evidenceId = sdkGrowthVerifierExecutionId(execution, evidence);
     const [value] = await this.prisma.$queryRaw`
-      SELECT r.*, e."pullRequest" FROM "SdkGrowthFinalizedReportEvidence" r
+      SELECT r.*, e."pullRequest", e."sourceBinding" AS "evidenceSourceBinding" FROM "SdkGrowthFinalizedReportEvidence" r
       JOIN "SdkGrowthVerifierEvidence" e ON e."evidenceId" = r."evidenceId"
       WHERE r."evidenceId" = ${evidenceId}
         AND r."reportDigest" = ${reportDigest}
@@ -326,6 +346,11 @@ export class PrismaSdkGrowthVerifierEvidenceSource implements SdkGrowthVerifierE
         AND e."sourceTree" = ${execution.sourceTree}`;
     if (!value || typeof value !== "object") return null;
     const row = value as Record<string, unknown>;
+    if (
+      !sameSourceBinding(row.sourceBinding, execution) ||
+      !sameSourceBinding(row.evidenceSourceBinding, execution)
+    )
+      return null;
     const report = reportRecordFromRow(row);
     if (
       row.reportEvidenceId !==
@@ -393,6 +418,7 @@ function authenticatedProducer(value: AuthenticatedSdkGrowthVerifierProducer) {
     !/^[a-f0-9]{40}$/.test(execution.sourceTree)
   )
     throw new AuthorityError("wrong-identity");
+  executionSourceBinding(execution);
   return structuredClone(value);
 }
 
@@ -491,6 +517,7 @@ function assertEvidenceIdentity(
     row.verifierRevision !== execution.verifierRevision ||
     row.sourceCommit !== execution.sourceCommit ||
     row.sourceTree !== execution.sourceTree ||
+    !sameSourceBinding(row.sourceBinding, execution) ||
     row.producer !== "reviewrouter-verifier" ||
     row.candidateWritable !== false
   )
@@ -538,6 +565,7 @@ export class PrismaSdkGrowthVerifierEvidenceCustody {
         if (!isDeepStrictEqual(currentProducer, producer))
           throw new AuthorityError("wrong-identity");
         const evidenceId = sdkGrowthVerifierExecutionId(execution, link);
+        const sourceBinding = executionSourceBinding(execution);
         const candidateSha256 = sha256(candidate);
         const candidateSha512 = sha512(candidate);
         const releasedSha256 = sha256(released);
@@ -548,7 +576,7 @@ export class PrismaSdkGrowthVerifierEvidenceCustody {
         await transaction.$executeRaw`
           INSERT INTO "SdkGrowthVerifierEvidence" (
             "evidenceId", "tenantId", "repositoryId", "pullRequest", "githubRepositoryId", "installationId", "subject",
-            "runId", "runAttempt", "verifierRevision", "sourceCommit", "sourceTree", "producer", "candidateWritable",
+            "runId", "runAttempt", "verifierRevision", "sourceCommit", "sourceTree", "sourceBinding", "producer", "candidateWritable",
             "authorityBinding", "candidateArchive", "candidateArchiveSha256", "candidateArchiveSha512Sri",
             "releasedArchive", "releasedArchiveSha256", "releasedArchiveSha512Sri",
             "toolArchive", "toolArchiveSha256", "toolArchiveSha512Sri", "installedDistributionWire", "installedDistributionDigest"
@@ -556,6 +584,7 @@ export class PrismaSdkGrowthVerifierEvidenceCustody {
             ${evidenceId}, ${execution.tenantId}, ${execution.repositoryId}, ${execution.pullRequest},
             ${execution.githubRepositoryId}, ${execution.installationId}, ${execution.subject}, ${execution.runId},
             ${execution.runAttempt}, ${execution.verifierRevision}, ${execution.sourceCommit}, ${execution.sourceTree},
+            ${sourceBinding === null ? null : JSON.stringify(sourceBinding)}::jsonb,
             'reviewrouter-verifier', FALSE, ${JSON.stringify(link)}::jsonb,
             ${candidate}, ${candidateSha256}, ${candidateSha512}, ${released}, ${releasedSha256}, ${releasedSha512},
             ${tool}, ${toolSha256}, ${toolSha512}, ${distribution}, ${distributionDigest}
@@ -639,7 +668,7 @@ export class PrismaSdkGrowthVerifierEvidenceCustody {
         )
           throw new AuthorityError("owner-evidence");
         const [admission] = await transaction.$queryRaw`
-          SELECT "requestDigest", "grantDigest", "grantWire"
+          SELECT "requestDigest", "grantDigest", "grantWire", "sourceBinding"
           FROM "SdkGrowthAuthorityCustody"
           WHERE "tenantId" = ${execution.tenantId}
             AND "repositoryId" = ${execution.repositoryId}
@@ -656,6 +685,13 @@ export class PrismaSdkGrowthVerifierEvidenceCustody {
             AND "grantDigest" = ${grantDigest}`;
         if (!admission || typeof admission !== "object")
           throw new AuthorityError("not-found");
+        if (
+          !sameSourceBinding(
+            (admission as Record<string, unknown>).sourceBinding,
+            execution,
+          )
+        )
+          throw new AuthorityError("owner-evidence");
         const grant = decodePinnedGrant(
           bytes((admission as Record<string, unknown>).grantWire),
           requestDigest,
@@ -678,19 +714,21 @@ export class PrismaSdkGrowthVerifierEvidenceCustody {
           evidenceId,
           grant.grantId,
         );
+        const sourceBinding = executionSourceBinding(execution);
         await transaction.$executeRaw`
           INSERT INTO "SdkGrowthFinalizedReportEvidence" (
-            "reportEvidenceId", "evidenceId", "repositoryId", "runId", "runAttempt", "verifierRevision",
+            "reportEvidenceId", "evidenceId", "repositoryId", "runId", "runAttempt", "verifierRevision", "sourceBinding",
             "producer", "candidateWritable", "reportDigest", "finalizedReport", "grantId", "outcome", "coverage",
             "coveredScopes", "phases"
           ) VALUES (
             ${reportEvidenceId}, ${evidenceId}, ${execution.repositoryId}, ${execution.runId}, ${execution.runAttempt},
-            ${execution.verifierRevision}, 'reviewrouter-verifier', FALSE, ${reportDigest}, ${report}, ${grant.grantId},
+            ${execution.verifierRevision}, ${sourceBinding === null ? null : JSON.stringify(sourceBinding)}::jsonb,
+            'reviewrouter-verifier', FALSE, ${reportDigest}, ${report}, ${grant.grantId},
             ${input.decision.outcome}, ${input.decision.coverage}, ${JSON.stringify(input.decision.coveredScopes)}::jsonb,
             ${JSON.stringify(input.decision.phases)}::jsonb
           ) ON CONFLICT ("reportEvidenceId") DO NOTHING`;
         const [stored] = await transaction.$queryRaw`
-          SELECT r.*, e."pullRequest" FROM "SdkGrowthFinalizedReportEvidence" r
+          SELECT r.*, e."pullRequest", e."sourceBinding" AS "evidenceSourceBinding" FROM "SdkGrowthFinalizedReportEvidence" r
           JOIN "SdkGrowthVerifierEvidence" e ON e."evidenceId" = r."evidenceId"
           WHERE r."reportEvidenceId" = ${reportEvidenceId}`;
         if (!stored || typeof stored !== "object")
@@ -706,6 +744,8 @@ export class PrismaSdkGrowthVerifierEvidenceCustody {
           retainedReport.runId !== execution.runId ||
           retainedReport.runAttempt !== execution.runAttempt ||
           retainedReport.verifierRevision !== execution.verifierRevision ||
+          !sameSourceBinding(row.sourceBinding, execution) ||
+          !sameSourceBinding(row.evidenceSourceBinding, execution) ||
           retainedReport.grantId !== grant.grantId ||
           retainedReport.reportDigest !== reportDigest ||
           !Buffer.from(retainedReport.finalizedReport).equals(
@@ -772,6 +812,10 @@ function reportRecordFromRow(
   row: Record<string, unknown>,
 ): FinalizedVerifierReportRecord {
   const report = bytes(row.finalizedReport);
+  const sourceBinding =
+    row.sourceBinding == null
+      ? null
+      : parseSdkGrowthSourceBinding(row.sourceBinding);
   return {
     producer: row.producer as "reviewrouter-verifier",
     candidateWritable: row.candidateWritable as false,
@@ -780,6 +824,7 @@ function reportRecordFromRow(
     runId: String(row.runId),
     runAttempt: String(row.runAttempt),
     verifierRevision: String(row.verifierRevision),
+    ...(sourceBinding ? { sourceBinding } : {}),
     reportDigest: String(row.reportDigest),
     reportLength: report.byteLength,
     grantId: String(row.grantId),
@@ -805,22 +850,44 @@ export function sdkGrowthVerifierExecutionId(
     "authorityEpoch" | "ownerEvidenceId" | "ownerSourceDigest"
   >,
 ) {
+  const sourceIdentity = sourceBindingIdentity(execution);
   return createHash("sha256")
     .update(
-      JSON.stringify([
-        execution.tenantId,
-        execution.repositoryId,
-        execution.pullRequest,
-        execution.githubRepositoryId,
-        execution.installationId,
-        execution.subject,
-        execution.runId,
-        execution.runAttempt,
-        execution.verifierRevision,
-        authority.authorityEpoch,
-        authority.ownerEvidenceId,
-        authority.ownerSourceDigest,
-      ]),
+      JSON.stringify(
+        sourceIdentity === null
+          ? [
+              execution.tenantId,
+              execution.repositoryId,
+              execution.pullRequest,
+              execution.githubRepositoryId,
+              execution.installationId,
+              execution.subject,
+              execution.runId,
+              execution.runAttempt,
+              execution.verifierRevision,
+              authority.authorityEpoch,
+              authority.ownerEvidenceId,
+              authority.ownerSourceDigest,
+            ]
+          : [
+              "sdk-growth-verifier-evidence:v2",
+              execution.tenantId,
+              execution.repositoryId,
+              execution.pullRequest,
+              execution.githubRepositoryId,
+              execution.installationId,
+              execution.subject,
+              execution.runId,
+              execution.runAttempt,
+              execution.verifierRevision,
+              execution.sourceCommit,
+              execution.sourceTree,
+              ...sourceIdentity,
+              authority.authorityEpoch,
+              authority.ownerEvidenceId,
+              authority.ownerSourceDigest,
+            ],
+      ),
     )
     .digest("hex");
 }

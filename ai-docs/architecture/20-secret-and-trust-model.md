@@ -5,7 +5,7 @@
 ReviewRouter has three trust zones:
 
 ```text
-SaaS control plane - metadata/config only
+control plane - metadata/config only
 Customer CI - review execution and provider credentials
 Pull request code - potentially untrusted input
 ```
@@ -50,11 +50,11 @@ Generated workflow should:
 
 ## Secret Names and Secret Values
 
-Secret values are always forbidden in SaaS payloads, logs, and health reports.
+Secret values are always forbidden in control plane payloads, logs, and health reports.
 
 Secret names are less sensitive but still reveal provider setup. Treat them as configuration metadata.
 
-Allowed in SaaS config:
+Allowed in control plane config:
 
 ```text
 fixed expected environment variable names, e.g. CODEX_AUTH_JSON or OPENAI_API_KEY
@@ -98,7 +98,7 @@ Inputs:
 - pull request head repository full name/id
 - pull request base repository full name/id
 - fork flag from event payload where available
-- configured policy from static/SaaS config
+- configured policy from static/control plane config
 
 Rules:
 

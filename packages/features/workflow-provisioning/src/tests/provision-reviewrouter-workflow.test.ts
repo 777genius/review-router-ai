@@ -1,4 +1,17 @@
+import { InMemoryReviewConfigurationRepository } from "../../../review-config/src/tests/in-memory-review-configuration";
+import {
+  providerProfileFixture,
+  workspacePolicyDocumentFixture,
+} from "../../../review-config/src/tests/current-policy-fixture";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
+import {
+  parseReviewConfigurationStrict,
+  reviewProviderSelectionFor,
+  type ReviewConfiguration,
+  type ReviewConfigurationRepositoryPort,
+} from "@reviewrouter/features-review-config";
+import type { ProvisionWorkflowInput } from "../domain/workflow-provisioning";
 import {
   allocateVersionedProviderSecretNamespace,
   CodexRotatingT0WorkflowSchemaVersion,
@@ -97,6 +110,313 @@ const activeTarget = {
   archived: false,
   installationStatus: "active",
 } satisfies WorkflowProvisioningTarget;
+
+const workspacePolicy = parseReviewConfigurationStrict({
+  schemaVersion: 3,
+  providers: [
+    {
+      kind: "codex",
+      authMode: "codex_subscription_oauth_rotating",
+      model: "gpt-5.5",
+      reasoningEffort: "high",
+      agenticContext: true,
+      fastMode: false,
+    },
+  ],
+  execution: {
+    providerLimit: 1,
+    providerMaxParallel: 1,
+    inlineMinAgreement: 1,
+  },
+  blockingPolicy: { failOnSeverity: "critical" },
+  limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
+  reviewLanguage: null,
+  investigationRollout: {
+    recordingEnabled: false,
+    shadowEnabled: false,
+    contextCriticEnabled: false,
+    verifiedCleanEnabled: false,
+    crossRevisionReplayEnabled: false,
+    productionEffectsEnabled: false,
+  },
+});
+
+const savedGatewayConfig = parseReviewConfigurationStrict({
+  ...workspacePolicy,
+  schemaVersion: 3,
+  providers: [
+    {
+      kind: "codex",
+      authMode: "codex_account_gateway",
+      model: "gpt-6.1-sol",
+      reasoningEffort: "high",
+      fastMode: false,
+      gatewayBindingId: "binding-account-v",
+      gatewayProfileRef: "default",
+    },
+  ],
+});
+const gatewayInput: ProvisionWorkflowInput = {
+  ...activeTarget,
+  githubRepositoryId: "123456",
+  repositoryFullName: activeTarget.fullName,
+  actionRef: "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
+  apiUrl: "https://app.reviewrouter.dev",
+  runtimeConfigMode: "oidc",
+  codexSessionMode: "account-gateway",
+};
+
+it("preserves explicit MCP GitHub bindings through repository setup to the canonical caller", async () => {
+  const setupGateway = new CapturingSetupGateway();
+  await provisionRepositoryReviewRouterWorkflow(
+    { ...gatewayInput, mcpSecrets: { DOCS_KEY: "ORG_DOCS_TOKEN" } },
+    {
+      targets: new StaticWorkflowProvisioningTarget(activeTarget),
+      setupGateway,
+      provisioning: new CapturingProvisioningRepository(),
+      configurations: savedConfigurations(),
+      trustedGithubRepositoryId: "123456",
+    },
+  );
+  const file = setupGateway.input?.workflowFiles.find(
+    (file) =>
+      file.path === ".github/workflows/reviewrouter-review.yml" &&
+      file.operation !== "delete",
+  );
+  expect(
+    parse(file && "content" in file ? file.content : "").jobs.review.secrets,
+  ).toEqual({
+    mcp_secrets_json:
+      "${{ format('{{\"DOCS_KEY\":{0}}}', toJSON(secrets.ORG_DOCS_TOKEN)) }}",
+  });
+});
+
+it("rejects MCP bindings on other workflow modes before creating an attempt", async () => {
+  const setupGateway = new CapturingSetupGateway();
+  const provisioning = new CapturingProvisioningRepository();
+  await expect(
+    provisionReviewRouterWorkflow(
+      { ...gatewayInput, mcpSecrets: { DOCS_KEY: "ORG_DOCS_TOKEN" } },
+      { setupGateway, provisioning },
+    ),
+  ).rejects.toThrow("mcp_secrets_gateway_workflow_required");
+  expect(provisioning.attempts).toBe(0);
+  expect(setupGateway.input).toBeNull();
+});
+
+/** Selections of stand-in profiles for a saved runtime configuration. */
+function selectionsOf(config: ReviewConfiguration) {
+  return config.providers.map((provider, index) =>
+    reviewProviderSelectionFor(provider, `profile_${index}`),
+  );
+}
+
+function withSelections(config: ReviewConfiguration) {
+  return { config, selections: selectionsOf(config) };
+}
+
+function savedConfigurations(
+  selection = "repository",
+): ReviewConfigurationRepositoryPort {
+  return {
+    findLatest: async (target) =>
+      target.scope === "repository" &&
+      (selection === "repository" || selection === "workspace")
+        ? {
+            version: 1,
+            source:
+              selection === "workspace"
+                ? ("workspace" as const)
+                : ("repository" as const),
+            workspaceVersion: 1,
+            repositoryVersion: selection === "workspace" ? null : 1,
+            effectivePolicyDigest: "a".repeat(64),
+            policy: { schemaVersion: 4 as const },
+            config: savedGatewayConfig,
+            selections: selectionsOf(savedGatewayConfig),
+          }
+        : null,
+    saveNextVersion: async () => {
+      throw new Error("unexpected_config_write");
+    },
+    saveNextVersions: async () => {
+      throw new Error("unexpected_config_write");
+    },
+    deleteTarget: async () => {
+      throw new Error("unexpected_config_delete");
+    },
+  };
+}
+it.each(["repository", "workspace"])(
+  "provisions only the keyless caller from server-loaded saved %s config",
+  async (selection) => {
+    const setupGateway = new CapturingSetupGateway();
+    await provisionRepositoryReviewRouterWorkflow(gatewayInput, {
+      targets: new StaticWorkflowProvisioningTarget(activeTarget),
+      setupGateway,
+      provisioning: new CapturingProvisioningRepository(),
+      configurations: savedConfigurations(selection),
+      trustedGithubRepositoryId: "123456",
+    });
+    const files = setupGateway.input!.workflowFiles;
+    expect(files).toHaveLength(4);
+    expect(setupGateway.input!.setupMode).toBe("gateway");
+    expect(files.slice(0, 3)).toMatchObject([
+      { operation: "delete", path: ".github/workflows/reviewrouter-codex.yml" },
+      { operation: "delete", path: ".github/workflows/reviewrouter.yml" },
+      {
+        operation: "delete",
+        path: ".github/workflows/reviewrouter-interaction.yml",
+      },
+    ]);
+    expect(files[3]!.path).toBe(".github/workflows/reviewrouter-review.yml");
+    const file = files[3]!;
+    const job = parse("content" in file ? file.content : "").jobs.review;
+    expect(job.with).toMatchObject({
+      review_request_id: "${{ inputs.review_request_id }}",
+      pr_number: "${{ inputs.pr_number }}",
+      review_head_sha: "${{ inputs.review_head_sha }}",
+    });
+    expect(job.uses).toBe(
+      "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@workflow-v1",
+    );
+    expect(job.secrets).toBeUndefined();
+  },
+);
+it.each([
+  "777genius/review-router@main",
+  "",
+  `other/repo@${"a".repeat(40)}`,
+  `777genius/review-router@${"A".repeat(40)}`,
+])(
+  "uses the canonical managed channel independently of old actionRef=%s",
+  async (actionRef) => {
+    const setupGateway = new CapturingSetupGateway();
+    const provisioning = new CapturingProvisioningRepository();
+    await provisionReviewRouterWorkflow(
+      { ...gatewayInput, actionRef },
+      {
+        setupGateway,
+        provisioning,
+        configurations: savedConfigurations(),
+        trustedGithubRepositoryId: "123456",
+      },
+    );
+    expect(provisioning.opened?.actionVersion).toBe("workflow-v1");
+    const file = setupGateway.input!.workflowFiles[3]!;
+    expect(parse("content" in file ? file.content : "").jobs.review.uses).toBe(
+      "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@workflow-v1",
+    );
+  },
+);
+it.each([
+  ["missing-mode", { codexSessionMode: undefined }],
+  ["wrong-mode", { codexSessionMode: "oauth" }],
+  ["missing-identity", { githubRepositoryId: undefined }],
+  ["invalid-identity", { githubRepositoryId: "01" }],
+  ["different-identity", { githubRepositoryId: "654321" }],
+  ["isolated-path", { githubRepositoryId: "1228051727" }],
+  ["static", { runtimeConfigMode: "static" }],
+  ["static-env", { staticRuntimeEnv: {} }],
+  ["explicit", { workflowStyle: "explicit" }],
+  ["conflict", { conflictReviewFallbackEnabled: true }],
+  ["rotating", { codexRotatingProviderInstanceId: "codex-rotating:123456" }],
+] as const)(
+  "denies gateway %s before setup effects",
+  async (_reason, overrides) => {
+    const setupGateway = new CapturingSetupGateway();
+    const provisioning = new CapturingProvisioningRepository();
+    await expect(
+      provisionReviewRouterWorkflow(
+        { ...gatewayInput, ...overrides } as ProvisionWorkflowInput,
+        {
+          setupGateway,
+          provisioning,
+          configurations: savedConfigurations(),
+          trustedGithubRepositoryId: "123456",
+        },
+      ),
+    ).rejects.toThrow();
+    expect(setupGateway.input).toBeNull();
+    expect(provisioning.attempts).toBe(0);
+  },
+);
+it("provisions from inherited workspace policy without creating a repository override", async () => {
+  const setupGateway = new CapturingSetupGateway();
+  await provisionReviewRouterWorkflow(gatewayInput, {
+    setupGateway,
+    provisioning: new CapturingProvisioningRepository(),
+    configurations: savedConfigurations("workspace"),
+    trustedGithubRepositoryId: "123456",
+  });
+  const file = setupGateway.input!.workflowFiles[3]!;
+  expect(file.path).toBe(".github/workflows/reviewrouter-review.yml");
+  expect(parse("content" in file ? file.content : "").jobs.review.uses).toBe(
+    "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@workflow-v1",
+  );
+});
+it.each(["missing", "mixed"])(
+  "denies %s saved gateway selection before setup",
+  async (selection) => {
+    const setupGateway = new CapturingSetupGateway();
+    const configurations = savedConfigurations(
+      selection === "mixed" ? "repository" : selection,
+    );
+    if (selection === "mixed")
+      configurations.findLatest = async () => ({
+        version: 1,
+        source: "repository",
+        workspaceVersion: 1,
+        repositoryVersion: 1,
+        effectivePolicyDigest: "a".repeat(64),
+        policy: { schemaVersion: 4 },
+        ...withSelections(
+          parseReviewConfigurationStrict({
+            ...savedGatewayConfig,
+            providers: [
+              ...savedGatewayConfig.providers,
+              workspacePolicy.providers[0],
+            ],
+          }),
+        ),
+      });
+    await expect(
+      provisionReviewRouterWorkflow(gatewayInput, {
+        setupGateway,
+        provisioning: new CapturingProvisioningRepository(),
+        configurations,
+        trustedGithubRepositoryId: "123456",
+      }),
+    ).rejects.toThrow();
+    expect(setupGateway.input).toBeNull();
+  },
+);
+it("denies forged gateway runtime hints without saved configuration", async () => {
+  const setupGateway = new CapturingSetupGateway();
+  const input = {
+    ...gatewayInput,
+    staticRuntimeEnv: { REVIEW_AUTH_MODE: "codex-account-gateway" },
+  };
+  delete input.codexSessionMode;
+  await expect(
+    provisionReviewRouterWorkflow(input, {
+      setupGateway,
+      provisioning: new CapturingProvisioningRepository(),
+    }),
+  ).rejects.toThrow("account_gateway_saved_config_required");
+  expect(setupGateway.input).toBeNull();
+});
+it("requires server repository identity even when the caller supplies a valid numeric ID", async () => {
+  const setupGateway = new CapturingSetupGateway();
+  await expect(
+    provisionReviewRouterWorkflow(gatewayInput, {
+      setupGateway,
+      provisioning: new CapturingProvisioningRepository(),
+      configurations: savedConfigurations(),
+    }),
+  ).rejects.toThrow("account_gateway_repository_identity_required");
+  expect(setupGateway.input).toBeNull();
+});
 
 describe("provisionReviewRouterWorkflow", () => {
   it("renders non-Codex workflow and records setup PR state", async () => {
@@ -861,3 +1181,228 @@ it("rejects schema 6 before GitHub provisioning mutations", async () => {
     "workflow.setup_pr_failed",
   ]);
 });
+
+it("persists a normalized untrusted deletion failure without the workflow path", async () => {
+  const provisioning = new CapturingProvisioningRepository();
+  await expect(
+    provisionReviewRouterWorkflow(gatewayInput, {
+      setupGateway: new CapturingSetupGateway(
+        new Error(
+          "workflow_delete_untrusted:.github/workflows/reviewrouter-codex.yml",
+        ),
+      ),
+      provisioning,
+      configurations: savedConfigurations(),
+      trustedGithubRepositoryId: "123456",
+    }),
+  ).rejects.toThrow("workflow_delete_untrusted:");
+  expect(provisioning.failed?.errorMessage).toBe("workflow_delete_untrusted");
+});
+
+it("installs one exact-pinned App-first direct caller and rejects extra votes before any attempt", async () => {
+  const config = parseReviewConfigurationStrict({
+    ...workspacePolicy,
+    providers: [
+      {
+        kind: "openrouter",
+        authMode: "openrouter_api_key",
+        model: "openai/gpt-5.3-codex",
+        reasoningEffort: "high",
+        agenticContext: true,
+        fastMode: false,
+        requiredHealthy: true,
+      },
+    ],
+  });
+  const configurations = savedConfigurations();
+  const originalFind = configurations.findLatest;
+  const directConfigurations: ReviewConfigurationRepositoryPort = {
+    ...configurations,
+    findLatest: async (target) => {
+      const result = await originalFind(target);
+      return result ? { ...result, ...withSelections(config) } : null;
+    },
+  };
+  const { codexSessionMode, ...base } = gatewayInput;
+  expect(codexSessionMode).toBe("account-gateway");
+  const input = { ...base, providerApiAuthMode: "openrouter-api" as const };
+  const setupGateway = new CapturingSetupGateway();
+  const provisioning = new CapturingProvisioningRepository();
+  const dependencies = {
+    setupGateway,
+    provisioning,
+    configurations: directConfigurations,
+    trustedGithubRepositoryId: "123456",
+  };
+  await provisionReviewRouterWorkflow(input, dependencies);
+  expect(setupGateway.input?.setupMode).toBe("provider_api");
+  const file = setupGateway.input?.workflowFiles.find(
+    (file) => file.path === ".github/workflows/reviewrouter-review.yml",
+  );
+  expect(file && "content" in file ? file.content : "").toContain(
+    "provider_api_auth_mode: openrouter-api",
+  );
+  expect(file && "content" in file ? file.content : "").toContain(
+    "secrets.OPENROUTER_API_KEY",
+  );
+  expect(provisioning.opened?.actionVersion).toBe(input.actionRef);
+  const attempts = provisioning.attempts;
+  const before = structuredClone(config);
+  config.providers.push({ ...config.providers[0]! });
+  config.execution.providerLimit = 2;
+  config.execution.providerMaxParallel = 2;
+  await expect(
+    provisionReviewRouterWorkflow(input, dependencies),
+  ).rejects.toThrow("openrouter_direct_requires_single_provider");
+  expect(provisioning.attempts).toBe(attempts);
+  expect(before.providers).toHaveLength(1);
+  expect(config.providers).toHaveLength(2);
+});
+
+it.each([
+  [
+    "legacy managed key",
+    {
+      kind: "managed_api_key",
+      authMode: "mimo_token_plan_api_key",
+      apiKeyConnectionId: "mimo-key",
+    },
+  ],
+  [
+    "repository secret",
+    { kind: "user_ci_secret", authMode: "mimo_token_plan_api_key" },
+  ],
+] as const)(
+  "MiMo current preparation preserves %s custody and refuses unsupported settings before effects",
+  async (_name, credential) => {
+    for (const setting of ["supported", "fast", "xhigh"] as const) {
+      const config = parseReviewConfigurationStrict({
+        ...workspacePolicy,
+        providers: [
+          {
+            kind: "codex-mimo",
+            authMode: "mimo_token_plan_api_key",
+            model: "mimo-v2.6-pro",
+            reasoningEffort: setting === "xhigh" ? "xhigh" : "high",
+            agenticContext: true,
+            fastMode: setting === "fast",
+            requiredHealthy: true,
+          },
+        ],
+      });
+      const profile = providerProfileFixture({
+        id: `mimo-${credential.kind}`,
+        workspaceId: gatewayInput.workspaceId,
+        credential,
+        model: "mimo-v2.6-pro",
+      });
+      const configurations =
+        new InMemoryReviewConfigurationRepository().addProfile(profile);
+      const target = {
+        scope: "workspace",
+        workspaceId: gatewayInput.workspaceId,
+      } as const;
+      await configurations.saveNextVersion({
+        target,
+        policy: workspacePolicyDocumentFixture(config, [profile.id]),
+      });
+      const before = await configurations.findLatest(target);
+      expect(before?.config).toEqual(config);
+      expect(configurations.profiles.get(profile.id)?.credential).toEqual(
+        credential,
+      );
+      const { codexSessionMode, ...base } = gatewayInput;
+      expect(codexSessionMode).toBe("account-gateway");
+      const setupGateway = new CapturingSetupGateway();
+      const provisioning = new CapturingProvisioningRepository();
+      const prepared = provisionReviewRouterWorkflow(
+        { ...base, providerApiAuthMode: "mimo-token-plan-api" },
+        {
+          setupGateway,
+          provisioning,
+          configurations,
+          trustedGithubRepositoryId: "123456",
+        },
+      );
+      if (setting === "supported") {
+        await prepared;
+        expect(setupGateway.input?.setupMode).toBe("provider_api");
+        expect(provisioning.attempts).toBe(1);
+        const file = setupGateway.input?.workflowFiles.find(
+          (file) => file.path === ".github/workflows/reviewrouter-review.yml",
+        );
+        expect(file && "content" in file ? file.content : "").toContain(
+          "secrets.MIMO_TOKEN_PLAN_API_KEY",
+        );
+      } else {
+        await expect(prepared).rejects.toThrow(
+          setting === "fast"
+            ? "provider_api_fast_mode_unsupported"
+            : "provider_api_reasoning_effort_unsupported",
+        );
+        expect(provisioning.attempts).toBe(0);
+        expect(setupGateway.input).toBeNull();
+      }
+      expect(await configurations.findLatest(target)).toEqual(before);
+      expect(configurations.profiles.get(profile.id)?.credential).toEqual(
+        credential,
+      );
+    }
+  },
+);
+
+it.each([
+  {
+    kind: "codex-mimo",
+    authMode: "mimo_token_plan_api_key",
+    model: "mimo-v2.6-pro",
+    reasoningEffort: "high",
+  },
+  { kind: "kimi", authMode: "kimi_code_api_key", model: "k3-256k" },
+] as const)(
+  "refuses a saved $kind-first mixed policy before a legacy setup attempt",
+  async (provider) => {
+    const config = parseReviewConfigurationStrict({
+      ...workspacePolicy,
+      providers: [
+        {
+          ...provider,
+          agenticContext: true,
+          fastMode: false,
+          requiredHealthy: true,
+        },
+        workspacePolicy.providers[0]!,
+      ],
+      execution: {
+        providerLimit: 2,
+        providerMaxParallel: 1,
+        inlineMinAgreement: 1,
+      },
+    });
+    const configurations = savedConfigurations();
+    const originalFind = configurations.findLatest;
+    const directConfigurations: ReviewConfigurationRepositoryPort = {
+      ...configurations,
+      findLatest: async (target) => {
+        const result = await originalFind(target);
+        return result ? { ...result, ...withSelections(config) } : null;
+      },
+    };
+    const before = structuredClone(config);
+    const { codexSessionMode, ...input } = gatewayInput;
+    expect(codexSessionMode).toBe("account-gateway");
+    const setupGateway = new CapturingSetupGateway();
+    const provisioning = new CapturingProvisioningRepository();
+    await expect(
+      provisionReviewRouterWorkflow(input, {
+        setupGateway,
+        provisioning,
+        configurations: directConfigurations,
+        trustedGithubRepositoryId: "123456",
+      }),
+    ).rejects.toThrow("provider_api_direct_requires_single_provider");
+    expect(provisioning.attempts).toBe(0);
+    expect(setupGateway.input).toBeNull();
+    expect(config).toEqual(before);
+  },
+);

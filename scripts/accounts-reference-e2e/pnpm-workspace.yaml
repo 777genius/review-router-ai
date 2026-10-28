@@ -1,0 +1,10 @@
+# This harness owns its lockfile and does not join the application workspace.
+packages:
+  - "."
+
+allowBuilds:
+  "esbuild@0.28.2": true
+  "sharp@0.34.5": true
+
+# Running a check must not implicitly reinstall dependencies.
+verifyDepsBeforeRun: false

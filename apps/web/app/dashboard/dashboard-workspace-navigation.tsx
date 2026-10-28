@@ -1,8 +1,9 @@
-import { Badge } from "@reviewrouter/ui";
 import type { PendingOrganizationInstallRequest } from "../../src/server/dashboard-app-install-request";
 import { ConnectSourceDialog } from "../connect-source-dialog";
-import { GitHubAccountAvatar } from "../github-account-avatar";
-import { DashboardWorkspaceTabs } from "./dashboard-workspace-tabs";
+import {
+  DashboardWorkspaceTabs,
+  workspaceAddTabClass,
+} from "./dashboard-workspace-tabs";
 import {
   DashboardSectionCompactNav,
   DashboardSectionTabs,
@@ -13,7 +14,6 @@ import {
   dashboardSectionMeta,
   type DashboardSection,
 } from "./dashboard-section";
-import { workspaceInstallSummary } from "./dashboard-copy";
 
 export type DashboardWorkspace = {
   readonly id: string;
@@ -187,7 +187,9 @@ export function WorkspaceSwitcher({
   appInstallUrl,
   pendingOrganizationInstallRequest,
   fallbackUser,
+  part = "all",
 }: {
+  readonly part?: "all" | "intro" | "tabs";
   readonly workspaces: readonly DashboardWorkspaceSummary[];
   readonly selectedWorkspaceId: string;
   readonly selectedSection: DashboardSection;
@@ -199,16 +201,17 @@ export function WorkspaceSwitcher({
   };
 }): React.ReactElement | null {
   if (workspaces.length < 2 && !pendingOrganizationInstallRequest) {
+    if (part === "tabs") return null;
     return (
       <section className="py-3">
-        <div className="flex justify-end px-1">
+        <div className="flex justify-end border-b border-cyan-200/15 px-1 pb-px">
           <ConnectSourceDialog
             appInstallUrl={appInstallUrl}
             workspaceId={selectedWorkspaceId}
-            triggerLabel="Add repos"
-            triggerVariant="outline"
+            triggerLabel="Add workspace"
+            triggerVariant="ghost"
             triggerSize="sm"
-            triggerClassName="inline-flex w-auto items-center gap-2 px-3"
+            triggerClassName={workspaceAddTabClass}
           />
         </div>
       </section>
@@ -241,55 +244,40 @@ export function WorkspaceSwitcher({
     : null;
 
   return (
-    <section className="py-3">
-      <div className="grid gap-3">
-        <div className="flex flex-wrap items-end justify-between gap-3 px-1">
-          <div className="min-w-0">
-            <p className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-cyan-100">
-              Workspace
-            </p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
-              Personal accounts and organizations stay isolated.
-            </p>
-          </div>
-          <ConnectSourceDialog
-            appInstallUrl={appInstallUrl}
-            workspaceId={selectedWorkspaceId}
-            triggerLabel="Add repos"
-            triggerVariant="outline"
-            triggerSize="sm"
-            triggerClassName="inline-flex w-auto items-center gap-2 px-3"
-          />
-        </div>
-        {items.length > 1 || pendingTab ? (
+    <>
+      {part !== "intro" && (items.length > 1 || pendingTab) ? (
+        <div
+          id="dashboard-workspace-bar"
+          className="z-30 bg-[var(--rr-page-bg)] pb-3 pt-1"
+        >
           <DashboardWorkspaceTabs
             items={items}
             selectedWorkspaceId={selectedWorkspaceId}
             pendingInstallRequest={pendingTab}
+            addWorkspace={
+              <ConnectSourceDialog
+                appInstallUrl={appInstallUrl}
+                workspaceId={selectedWorkspaceId}
+                triggerLabel="Add workspace"
+                triggerVariant="ghost"
+                triggerSize="sm"
+                triggerClassName={workspaceAddTabClass}
+              />
+            }
           />
-        ) : null}
-      </div>
-    </section>
+        </div>
+      ) : null}
+    </>
   );
 }
 
 export function DashboardSectionNav({
-  workspace,
-  repositoryCount,
   selectedSection,
   workspaceKey,
-  fallbackUser,
 }: {
-  readonly workspace: DashboardWorkspace;
-  readonly repositoryCount: number;
   readonly selectedSection: DashboardSection;
   readonly workspaceKey: string;
-  readonly fallbackUser: {
-    readonly githubLogin: string | null;
-    readonly githubAvatarUrl: string | null;
-  };
 }): React.ReactElement {
-  const avatarUrl = workspaceAvatarUrl(workspace, fallbackUser);
   const items = DASHBOARD_SECTIONS.map((section) => ({
     section,
     label: dashboardSectionMeta[section].title,
@@ -298,33 +286,12 @@ export function DashboardSectionNav({
   }));
 
   return (
-    <aside className="min-w-0 px-1 py-1 lg:p-5">
+    <aside className="min-w-0">
       <DashboardSectionCompactNav
         items={items}
         selectedSection={selectedSection}
       />
-      <div className="hidden gap-4 lg:sticky lg:top-24 lg:grid">
-        <div className="px-1 py-1">
-          <p className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Current workspace
-          </p>
-          <div className="mt-2 flex min-w-0 items-center gap-3">
-            <GitHubAccountAvatar
-              avatarUrl={avatarUrl}
-              login={workspace.name}
-              size="md"
-            />
-            <p className="truncate text-xl font-semibold text-cyan-50">
-              {workspace.name}
-            </p>
-          </div>
-          <p className="mt-2 text-xs leading-5 text-slate-500">
-            {workspaceInstallSummary(workspace)}
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Badge tone="neutral">{repositoryCount} repos</Badge>
-          </div>
-        </div>
+      <div className="dashboard-section-nav-scroll hidden lg:grid">
         <DashboardSectionTabs items={items} selectedSection={selectedSection} />
       </div>
     </aside>

@@ -1,7 +1,7 @@
 # Release And Git Flow
 
 This file is the source of truth for ReviewRouter git flow, deploy sequencing,
-and release tags. Keep `README.md`, `AGENT.md`, and `AGENTS.md` as links to this
+and release tags. Keep `README.md` and `AGENTS.md` as links to this
 file instead of duplicating the process there.
 
 ## Repositories
@@ -55,7 +55,30 @@ as issued and generate fresh evidence for future releases.
 main     - live Action channel, default for hosted beta setup PRs
 v1       - stable moving major channel, conservative customer option
 v1.0.x   - immutable exact release tag, conservative pinned customer option
+workflow-v1 - compatible neutral Gateway caller ABI, independent of product semver
 ```
+
+The neutral Gateway caller uses
+`777genius/review-router/.github/workflows/reviewrouter-runtime.yml@workflow-v1`.
+Compatible agent, model and runtime updates keep its inputs and permissions
+unchanged. Product release does not move this workflow channel. Publish the exact
+public release, deliver and activate the paired private runtime, and register the
+verified exact producer before explicitly promoting the channel to that existing
+immutable release tag. Promotion checks the existing workflow ABI and compares
+the previous channel SHA before moving it; the signed actual executable SHA must
+still be approved in the producer registry. Keep the previous approved producer
+available for already admitted runs. A channel tag is never execution authority
+by itself.
+
+Installed callers must remain semantically compatible with the server template
+throughout `workflow-v1`. A template change must continue accepting installed
+documents or introduce a new workflow ABI major with an installation update.
+
+The first pre-launch publication introduces an unused channel: keep known
+installations stopped until the paired API/schema, producer registration and new
+caller are ready. GitHub Secrets and Hosted Pool keep their existing entrypoints.
+Breaking caller inputs or permissions require a new workflow ABI major; changing
+the public repository or reusable workflow path requires an installation update.
 
 Rules:
 
@@ -65,12 +88,12 @@ Rules:
 - Do not move `v1` for breaking workflow inputs, protocol breaks, or untested runtime changes.
 - Release both repositories with the same exact version when generated workflows can use that ref in both places.
 - Do not use the legacy local `pnpm release:sync-major` helper for normal releases.
-- Hosted-pool SaaS workflows are an exception to the mutable hosted-beta
+- Hosted-pool control plane workflows are an exception to the mutable hosted-beta
   channel: they consume the exact public Action commit recorded with its
-  immutable release tag and `dist/index.js` SHA-256. Before configuring SaaS,
+  immutable release tag and `dist/index.js` SHA-256. Before configuring control plane,
   run `pnpm hosted-pool:action-release:verify` against a clean checkout of that
   Action commit. The verifier requires `HEAD`, the tag's peeled commit, the
-  SaaS-consumed action ref, and the bundle digest to be one exact tuple.
+  control plane-consumed action ref, and the bundle digest to be one exact tuple.
 
 ## Daily Git Flow
 
@@ -90,7 +113,7 @@ Working rules:
 - If the tree is dirty with unrelated work, do not stage or revert it. Commit only the intended files.
 - Prefer PRs into `main`. Direct pushes are only for an explicitly approved urgent operator action.
 
-Recommended local checks before pushing SaaS changes:
+Recommended local checks before pushing control plane changes:
 
 ```bash
 pnpm format:check
@@ -117,7 +140,7 @@ git diff --check
 The Action repo commits bundled `dist/` output. If a change affects runtime
 code, rebuild and commit the bundle.
 
-For hosted beta `@main` customers, SaaS action runtime changes must also be
+For hosted beta `@main` customers, control plane action runtime changes must also be
 synced into the public Action repo before they can be picked up by customer
 workflows:
 
@@ -133,7 +156,7 @@ Then commit and push the resulting public Action repo changes to
 `uses: 777genius/review-router@main` pick up that commit on their next run.
 
 The `Sync Public Action Runtime` GitHub workflow performs this automatically
-after a successful SaaS `CI` run on `main`. It requires one cross-repository
+after a successful control plane `CI` run on `main`. It requires one cross-repository
 credential because the default `GITHUB_TOKEN` is scoped to
 `777genius/review-router-ai` and cannot push to `777genius/review-router`.
 
@@ -154,18 +177,49 @@ For a new public/stable runtime release:
 
 ```text
 1. Release 777genius/review-router at v1.0.x
-2. Pin REVIEW_ROUTER_PAIRED_ACTION_REF in SaaS CI to that exact Action commit
-3. Merge the pin and wait for SaaS CI on the resulting exact commit
+2. Pin REVIEW_ROUTER_PAIRED_ACTION_REF in control plane CI to that exact Action commit
+3. Merge the pin and wait for control plane CI on the resulting exact commit
 4. Release 777genius/review-router-ai at the same v1.0.x
 5. Verify both v1 tags resolve to the new exact release commits
-6. Verify generated/setup PRs still use @v1 unless an exact pin was requested
+6. Activate the paired private runtime and verify the exact public producer is registered; align REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF and REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF with the approved target producer before promotion
+7. Explicitly promote workflow-v1 to the existing public exact release tag after its ABI check and previous-channel SHA comparison
+8. Verify generated/setup PRs use their intended channel or exact pin
 ```
+
+### Compatible Action-only hotfix on the installed private image
+
+The accepted Action173/174 producer overlays on unchanged SaaS171 establish this
+bounded alternative for compatible public runtime fixes. It does not publish a
+same-version private release: for an Action180 hotfix on private179, private `v1`
+and the private exact tag remain179. Consumers checking out both repositories by
+one exact `runtime_ref` cannot use the unpaired180 tag.
+
+Use this seam only when private code, image and database remain unchanged and the
+installed backend accepts the unchanged workflow ABI, schema/canonicalizer,
+capability/policy and immutable agent/runtime/protocol profiles. Any incompatibility
+or required private change uses the normal paired Release Order above.
+
+1. Accept the exact public commit, independent review, required CI, official exact
+   release and canonical manifest/checker. Verify compatibility against the actual
+   installed private source and retain its signed image/publication acceptance.
+2. Through the existing reviewed producer-overlay operator, append only the actual
+   approved producer to all role registries; retain every old row and profile.
+   Preserve the private image, database, credentials, flags and admission limits.
+3. Align the WEB Gateway Action ref and complete public seed/installer tuple with
+   the rotating Action ref. Preserve overlap order and retain the previous primary
+   for admitted runs; do not relabel the signed private release descriptor.
+4. Verify backend health, unchanged image/configuration and exact registry/ref
+   readback before the existing workflow ABI check and previous-SHA CAS promotion
+   of `workflow-v1`. Record this as Action-only adoption, not a paired private release.
+
+No review, CI, artifact-signature or runtime-admission gate is waived; no new
+release automation or mutable-tag execution authority is introduced.
 
 Why the Action repo goes first:
 
-- SaaS release workflow checks that the matching Action tag already exists.
+- control plane release workflow checks that the matching Action tag already exists.
 - Customer workflows call the Action/reusable workflow first.
-- Conflict runtime then checks out the SaaS runtime using the same `runtime_ref`.
+- Conflict runtime then checks out the control plane runtime using the same `runtime_ref`.
 
 ## Action Runtime Release
 
@@ -198,7 +252,7 @@ The Action `Release` workflow validates:
 - the requested version is `vN.N.N`
 - it is running on `main`
 - local `HEAD` matches `origin/main`
-- the exact tag is absent, or already points to the same SaaS `HEAD` for a safe
+- the exact tag is absent, or already points to the same control plane `HEAD` for a safe
   rerun
 - the version is newer than the latest existing `v1.*.*` tag
 - package metadata and installer fallback match the requested version
@@ -207,7 +261,8 @@ The Action `Release` workflow validates:
 - committed release artifacts are clean after build
 
 Only after those gates pass, it creates `v1.0.x`, force-moves `v1`, and creates
-the GitHub Release.
+the GitHub Release. It leaves `workflow-v1` unchanged; that channel is promoted
+separately after paired private activation and producer registration.
 
 ## Self-hosted Control Plane Runtime Release
 
@@ -241,7 +296,7 @@ procedure is in
 
 Before running the workflow:
 
-1. Merge the SaaS/runtime commit to `main`.
+1. Merge the control plane/runtime commit to `main`.
 2. Confirm the matching Action tag already exists, for example:
 
 ```bash
@@ -279,7 +334,7 @@ gh workflow run release.yml \
   -f create_github_release=true
 ```
 
-The SaaS `Release` workflow validates:
+The control plane `Release` workflow validates:
 
 - an inline, read-only bootstrap runs before checkout or repository code and
   proves that the dispatch workflow ref is `refs/heads/main`, the dispatch SHA
@@ -291,7 +346,7 @@ The SaaS `Release` workflow validates:
 - the exact tag does not already exist locally or remotely
 - the version is newer than the latest existing `v1.*.*` tag
 - the matching Action tag exists
-- one successful trusted `CI` run exists for the exact SaaS `HEAD`, and that
+- one successful trusted `CI` run exists for the exact control plane `HEAD`, and that
   exact run contains successful, non-skipped `Dedicated Release Authority PG17
 contract` and `Full private PG16 to PG17 rehearsal` jobs
 - the same exact CI run owns both unexpired, digest-addressed evidence
@@ -323,7 +378,7 @@ gh workflow run release.yml \
 ```
 
 If the workflow fails after publishing the exact tag, rerun with the same
-version only when that exact tag already points to the same SaaS `GITHUB_SHA`.
+version only when that exact tag already points to the same control plane `GITHUB_SHA`.
 The workflow allows that recovery path and still fails closed if the tag points
 anywhere else.
 
@@ -366,7 +421,7 @@ Expected:
 - new setup PRs that use stable mode still generate `@v1` and `runtime_ref: v1`.
 - exact pinned mode generates the new `v1.0.x`.
 
-If production Render deploy is part of the batch, deploy after the SaaS commit
+If production Render deploy is part of the batch, deploy after the control plane commit
 has passed CI and after the relevant runtime release is validated. Check Render
 logs after deploy for startup errors, webhook errors, and action session/config
 errors.
@@ -419,8 +474,8 @@ pnpm ops:sync-action-ref --allowlist-window 3
 Post-sync production checks:
 
 ```bash
-curl -fsS https://api.reviewrouter.site/health
-curl -fsS -o /dev/null -w '%{http_code}\n' https://reviewrouter.site
+curl -fsS https://api.reviewrouter.org/health
+curl -fsS -o /dev/null -w '%{http_code}\n' https://reviewrouter.org
 pnpm ops:sync-action-ref --dry-run --no-deploy
 ```
 
@@ -452,18 +507,118 @@ the attestation strands queued A, while retaining it blocks B. Concurrent
 in-place migration requires a future bounded attestation-history schema; until
 then, drain and allocate a fresh namespace.
 
+## Public API hostname convergence
+
+When aligning web/API/worker public URLs to `https://api.reviewrouter.org`,
+retain `https://api.reviewrouter.site` as a direct alias to the same backend.
+Verify the shared reverse-proxy route before the configuration change; do not
+replace it with a redirect that could drop authenticated requests. Source
+verification accepts only this exact owned HTTPS origin pair; custom/self-hosted
+origins retain exact matching. Existing canonical workflow bytes, namespaces,
+signing keys, admitted tokens and captured runtime snapshots remain unchanged.
+New callers use the canonical `.org` origin.
+
 ## Rollback
 
 Rollback options, safest first:
 
 1. Disable the risky feature flag or block the bad exact runtime version.
-2. Roll back the SaaS app deployment in Render if the deployed app is bad.
+2. Roll back the control plane app deployment in Render if the deployed app is bad.
 3. Publish a fixed `v1.0.x` release and move `v1` forward through the release workflows.
 4. Emergency only: move `v1` back to the last known-good exact tag in both repos.
 
 Emergency rollback is the only normal exception to "do not move `v1` manually".
 If used, record the incident, the old and new SHAs, and follow up with a fixed
 release workflow run. Never rewrite exact `v1.0.x` tags.
+
+### API rollback protocol preflight
+
+Rule: the control plane API may only be rolled back to a build that supports the
+contract of the current `workflow-v1` channel **and** every still-active review
+run. Before option 2 (or any API replacement) run the preflight from the target
+build's exact release checkout or target image:
+
+```bash
+node dist/apps/api/src/review-action-v2-operator-cli.js \
+  rollback protocol-preflight \
+  --channel-manifest /path/to/workflow-v1-manifest.json
+```
+
+Inputs:
+
+- **Target build descriptors** come from the build being rolled back to (the CLI
+  runs inside that checkout/image and reads its own compiled schema slots) —
+  never from the currently deployed production build.
+- **Channel manifest** is the Action manifest at the exact SHA `workflow-v1`
+  currently points to, read via Git
+  (`git show <workflow-v1-sha>:src/control-plane/generated/review-action-v2/manifest.json`).
+  The channel entry is resolved to `protocolVersion + schemaDigest +
+canonicalizerDigest`.
+- **Active runs inventory** comes from the existing operational records:
+  active (non-expired) `ReviewRunAuthorization` rows and retained
+  (`state=registered`) `ProducerRelease` rows, plus the configured producer
+  release attestations env
+  (`REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON`).
+
+Outcomes:
+
+| Result                                   | Meaning                                                                                                                                 | Action                                   |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `rollback_protocol_preflight_passed`     | Target supports the whole required set                                                                                                  | Proceed with the rollback                |
+| `rollback_protocol_preflight_rejected`   | Target lacks a required contract                                                                                                        | Stop before replacing the API            |
+| `rollback_protocol_preflight_not_proven` | Inventory incomplete (missing channel manifest, unreadable attestations, attestation missing/ambiguous or disagreeing with a DB record) | Stop — a safe rollback is **not proven** |
+
+If the inventory is incomplete, a safe rollback is not considered proven; do not
+replace the API. On incompatibility or an unproven inventory, practical recovery
+paths are: pick a different target build that supports the required set, or ship
+a fixed release forward. The scheduled channel-protocol monitor
+(`monitor-workflow-channel-protocol.yml`) reports any bypass of this procedure;
+it never deploys or rolls back anything by itself.
+
+Schema slots are additive: all compiled contracts stay in place, legacy slot bytes
+are never regenerated or edited, and removing or replacing a slot requires a
+separate check of all still-active consumers first. This deliberately restricts
+the set of allowed rollbacks.
+
+One schema can have multiple published canonicalizers. The approved Action171
+contract (`32bb25… / 95a433…`) and the later legacy contract
+(`32bb25… / 124087…`) remain distinct frozen contracts. Admission selects the
+exact compiled contract through the verified producer Action SHA; schema equality
+alone does not identify its canonicalizer. The authorization's internal
+`review_action_v2` enum maps explicitly to published protocol version `2`.
+Retirement of obsolete registered producers must preserve approved GitHub Secrets
+and Hosted Pool pins, even when no run currently uses them.
+
+### Coordinated Action/API emergency rollback
+
+Rolling back the API to a build that does not support the current channel (for
+example when the deployed API build is fundamentally bad and no compatible older
+build exists) is an emergency procedure, separate from the normal rollback
+above:
+
+1. Stop new review runs (block the exact runtime version or disable the feature).
+2. Drain in-flight runs to completion (or revoke their authorizations).
+3. Roll `workflow-v1` back to a channel whose contract the target API supports,
+   and verify the channel SHA after the move.
+4. Only then replace the API deployment.
+
+Record the incident, the old and new SHAs for both the channel and the API
+deployment. Do not use this procedure to avoid the preflight in normal
+rollbacks.
+
+### Workflow channel rollback — 2026-10-15
+
+Public release 177 (`175e3a1f86712373226e767561c3cd0d32066228`) moved
+`workflow-v1` before producer adoption. A fresh production read showed registry
+revision 18 approved producer 176 and did not approve 177. The release owner
+restored only `workflow-v1` to `9428b431a4b6a3bb6dcdd789cde0cd67ed59dacb`
+using a comparison against the observed 177 channel SHA and verified the result.
+The immutable `v1.0.177` tag and product `v1` were unchanged. Promote the workflow
+channel to 177 only after paired private activation and producer registration
+revision 19 are verified. This recovery is not evidence of a successful 177 E2E.
+The public rollback receipt is retained at
+`tmp/shared-summary177/channel-rollback.actual.public.json` in the release owner's
+workspace.
 
 Helpful emergency checks:
 
@@ -517,6 +672,32 @@ The new migration bytes and post-manifest invalidate the previous activation
 catalog capture. Its trust root is pending until fresh authenticated captures
 and independent review prove the new catalog. Production remains HOLD; old
 capture digests must never be relabeled as evidence for the new manifest.
+
+### Provider registry cutover (000145 through 000146)
+
+`000145_workspace_provider_profiles` adds provider profiles and schema 4
+selections; `000146_drop_review_configuration_projection` then drops the
+schema 1-3 projection columns of `ReviewConfigurationVersion` and the
+`ReviewConfigurationVersionProvider` table. Binaries built before 000146 still
+name those columns in every review configuration query, so they fail on the new
+schema, and the dropped data cannot be recreated by a later migration. This is
+a stopped-fleet upgrade, in this order, for every environment (developer
+database, hosted beta, self-hosted, any other):
+
+1. Take a `pg_dump` of the database and keep it until the new app is verified.
+2. Stop every old web, API and worker process before `migrate deploy`, not just
+   before the script. A deploy that migrates while the old fleet still serves
+   (a pre-deploy migration hook, a compose `migrate` service started before the
+   old `web`/`api`/`worker` containers are stopped) is not allowed here.
+3. Run `migrate deploy`, then `pnpm provider-profiles:migrate --dry-run` and,
+   after reading its report, `pnpm provider-profiles:migrate`. A schema 3 document the
+   script leaves unconverted makes the new app fail closed with
+   `resave_required` for that workspace or repository.
+4. Start the new web, API and worker code.
+
+Rolling back to an old binary after 000146 is forbidden. Restore the
+`pg_dump` with the fleet stopped and start the old binaries against it, or fix
+forward.
 
 ### Provider-scope concurrency bridge
 
@@ -573,7 +754,7 @@ Recommended:
 ## Review Action v2 Release Order
 
 Deploy the typed 426 bridge first. Then deploy additive migrations and disabled
-SaaS readers, export the generated contract to a public Action feature branch,
+control plane readers, export the generated contract to a public Action feature branch,
 rebuild/commit `dist/index.js`, and register the exact final Action/runtime/schema
 digests. For an allowlisted repository: preflight all decisions and credentials,
 enter `v1_draining`, wait the release-bound drain window, prove no legacy/static

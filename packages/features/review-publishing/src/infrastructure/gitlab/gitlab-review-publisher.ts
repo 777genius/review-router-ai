@@ -151,7 +151,10 @@ export class GitLabReviewPublisher implements ReviewPublisherPort {
         discussions: existingDiscussions,
         marker: reviewSummaryMarker(effectivePlan.marker),
       }),
-      body: renderReviewSummaryMarkdown({ plan: effectivePlan }),
+      body: renderReviewSummaryMarkdown({
+        plan: effectivePlan,
+        sourceBaseUrl: this.apiBaseUrl.replace(/\/api\/v4$/, ""),
+      }),
     });
     externalIds.push(`gitlab:summary:${summaryId}`);
 

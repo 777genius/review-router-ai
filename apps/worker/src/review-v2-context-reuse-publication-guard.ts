@@ -301,10 +301,20 @@ function safetyProvider(
       return ReviewProviderKind.ClaudeCode;
     case EvidenceProviderKind.OpenRouter:
       return ReviewProviderKind.OpenRouter;
+    // OCR is an explicit fail-closed non-participant in context-reuse
+    // publication safety: it is never coerced onto a safety lane and the
+    // guard answers non-participation instead of publishing.
+    case EvidenceProviderKind.Ocr:
+      return null;
     case EvidenceProviderKind.Unknown:
       return null;
-    default:
+    default: {
+      // A wire value outside the typed enum stays fail-closed; the never
+      // binding keeps every typed provider kind explicitly cased above.
+      const exhaustive: never = value;
+      void exhaustive;
       return null;
+    }
   }
 }
 

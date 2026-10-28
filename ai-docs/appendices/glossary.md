@@ -2,7 +2,7 @@
 
 ## Control Plane
 
-The SaaS part of ReviewRouter: dashboard, config, GitHub App integration, workflow provisioning, audit, and health.
+The control plane part of ReviewRouter: dashboard, config, GitHub App integration, workflow provisioning, audit, and health.
 
 ## Execution Plane
 

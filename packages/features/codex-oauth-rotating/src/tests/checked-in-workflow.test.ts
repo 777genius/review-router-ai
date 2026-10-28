@@ -24,7 +24,7 @@ describe("checked-in Codex OAuth workflow", () => {
     ).toEqual({
       actionRef:
         "777genius/review-router@0048e0efe355dc1a5f2a060a63672215bac43024",
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:1228690265",
       workflowSchemaVersion: 1,
     });

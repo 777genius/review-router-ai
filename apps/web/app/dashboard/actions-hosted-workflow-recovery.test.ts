@@ -1,8 +1,15 @@
+import {
+  providerProfileFixture,
+  providerProfileRowFixture,
+  workspacePolicyFixture,
+} from "../../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { createHash } from "node:crypto";
 import {
+  canonicalJson,
   mapConfigToRuntimeEnv,
   parseReviewConfiguration,
-  safeDefaultReviewConfiguration,
+  parseWorkspaceReviewPolicy,
+  providerProfileIdentityKey,
 } from "@reviewrouter/features-review-config";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -20,6 +27,7 @@ import {
   PrismaWorkflowProvisioningRepository,
   OctokitWorkflowSetupGateway,
   renderReviewRouterWorkflowFiles,
+  renderAccountGatewayWorkflow,
 } from "@reviewrouter/features-workflow-provisioning";
 import {
   createProvisioningPrisma,
@@ -42,6 +50,7 @@ const mocks = vi.hoisted(() => ({
   activeAttestation: vi.fn(),
   validateActive: vi.fn(),
   persistReplacement: vi.fn(),
+  gatewayProvisioning: vi.fn(),
 }));
 vi.mock("../../src/server/workflow-setup-readiness", async (original) => {
   const actual =
@@ -55,6 +64,11 @@ vi.mock("../../src/server/workflow-setup-readiness", async (original) => {
     ),
   };
 });
+// The source-fence composition fixture stops at the Gateway authority adapter.
+// Its actual policies/registry/dispatch capabilities have their own fixtures.
+vi.mock("../../src/server/prisma-gateway-review-v2-provisioning", () => ({
+  provisionGatewayReviewV2Repository: mocks.gatewayProvisioning,
+}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 vi.mock("../../src/server/hosted-pool-dashboard", () => ({}));
@@ -229,13 +243,18 @@ vi.mock("../../src/server/prisma-hosted-pool-mutations", async () => {
     },
   };
 });
-vi.mock("../../src/server/workflow-public-api-url", () => ({
-  resolveWorkflowPublicApiUrl: () => "https://api.reviewrouter.test",
-}));
-
 import { fingerprintDatabaseRecoveryWitness } from "@reviewrouter/features-provider-setup";
 
 import { confirmSetupPullRequestMergedClientAction } from "./actions";
+
+const { resolveReviewRuntimeEnv: resolveSavedReviewRuntimeEnv } =
+  await vi.importActual<typeof import("@reviewrouter/features-review-config")>(
+    "@reviewrouter/features-review-config",
+  );
+const { isWorkflowSetupAlreadyCurrent: checkWorkflowReadiness } =
+  await vi.importActual<
+    typeof import("../../src/server/workflow-setup-readiness")
+  >("../../src/server/workflow-setup-readiness");
 
 const actionRef = `777genius/review-router@${"a".repeat(40)}`;
 const commitSha = "d".repeat(40);
@@ -270,12 +289,18 @@ function matches(
 function fixture(
   baseBranch: "main" | "master",
   scenario = "valid",
-  mode?: "stored_active" | "rotating_hosted" | "generic",
+  mode?: "stored_active" | "rotating_hosted" | "generic" | "gateway",
 ) {
+  const gateway = mode === "gateway";
+  const workflowPath = gateway
+    ? ".github/workflows/reviewrouter-review.yml"
+    : ".github/workflows/reviewrouter-codex.yml";
   const rotating =
     scenario.startsWith("rotating_") || mode === "rotating_hosted";
   const activeStored =
-    scenario.startsWith("stored_active_") || mode === "stored_active";
+    gateway ||
+    scenario.startsWith("stored_active_") ||
+    mode === "stored_active";
   const rotatingWithBinding =
     rotating &&
     (mode === "rotating_hosted" ||
@@ -296,7 +321,8 @@ function fixture(
       mode === "rotating_hosted" ||
       scenario.startsWith("stored_") ||
       scenario.includes("stored_head")
-        ? scenario === "stored_head_mismatch"
+        ? scenario === "stored_head_mismatch" ||
+          scenario.startsWith("changed_head")
           ? "c".repeat(40)
           : "b".repeat(40)
         : null,
@@ -311,7 +337,11 @@ function fixture(
         ? ("explicit" as const)
         : ("reusable" as const),
     actionVersion:
-      scenario === "artifact_version" ? "obsolete" : actualActionRef,
+      scenario === "artifact_version"
+        ? "obsolete"
+        : gateway
+          ? "workflow-v1"
+          : actualActionRef,
     ...(scenario === "no_history" ? { pullRequestUrl: null } : {}),
   };
   const state = createProvisioningPrisma(
@@ -343,6 +373,7 @@ function fixture(
       installation: { ...repository.installation, status: "suspended" },
     };
   let binding: Record<string, unknown> | null =
+    (gateway && scenario !== "active_binding") ||
     mode === "generic" ||
     scenario === "missing_binding" ||
     (rotating && !rotatingWithBinding)
@@ -385,6 +416,7 @@ function fixture(
     bindingId: scenario === "wrong_binding" ? "binding-2" : "binding-1",
     bindingRevision: scenario === "wrong_binding_revision" ? 4 : 3,
   });
+  const initialHostedSource = source;
   if (scenario === "invalid_workflow")
     source = source.replace("id-token: write", "id-token: read");
   if (scenario === "runtime_ref_mismatch")
@@ -402,7 +434,8 @@ function fixture(
     vi.stubEnv("REVIEW_ROUTER_ENABLE_CODEX_ROTATING_OAUTH", "1");
     vi.stubEnv("REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS", "W".repeat(43));
     mocks.runtime.mockResolvedValue({
-      config: {
+      config: parseReviewConfiguration({
+        ...workspacePolicyFixture,
         providers: [
           {
             kind: "codex",
@@ -410,7 +443,7 @@ function fixture(
             model: "gpt-5.3-codex",
           },
         ],
-      },
+      }),
     });
     if (rotating)
       source = renderCodexRotatingAdvisoryWorkflow({
@@ -426,7 +459,8 @@ function fixture(
   }
   if (mode === "rotating_hosted" || scenario.includes("hosted_config"))
     mocks.runtime.mockResolvedValue({
-      config: {
+      config: parseReviewConfiguration({
+        ...workspacePolicyFixture,
         providers: [
           {
             kind: "codex",
@@ -434,7 +468,7 @@ function fixture(
             model: "gpt-5.3-codex",
           },
         ],
-      },
+      }),
     });
   if (rotating) {
     if (scenario === "invalid_workflow")
@@ -458,20 +492,44 @@ function fixture(
     vi.stubEnv("REVIEW_ROUTER_ENABLE_CONFLICT_REVIEW_FALLBACK", "1");
     vi.stubEnv("REVIEW_ROUTER_CONFLICT_REVIEW_FALLBACK_REPOSITORIES", "");
     mocks.runtime.mockResolvedValue({
-      config: { providers: [{ kind: "openrouter", authMode: "api_key" }] },
+      config: parseReviewConfiguration({
+        ...workspacePolicyFixture,
+        providers: [
+          {
+            kind: "claude",
+            authMode: "claude_code_oauth",
+            model: "sonnet",
+          },
+        ],
+      }),
     });
     source = renderReviewRouterReusableWorkflow({
       actionRef,
       apiUrl: "https://api.reviewrouter.test",
       runtimeConfigMode: "oidc",
       conflictReviewFallbackEnabled: true,
+      staticRuntimeEnv: {
+        REVIEW_AUTH_MODE: "claude-oauth",
+        REVIEW_PROVIDERS: "claude/sonnet",
+      },
     });
+  }
+  if (gateway) {
+    vi.stubEnv("REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF", actionRef);
+    source = renderAccountGatewayWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.test",
+      githubRepositoryId: "456",
+    }).content;
+    mocks.runtime.mockImplementation(resolveSavedReviewRuntimeEnv);
   }
   if (scenario === "source_changed_after_selection")
     vi.stubEnv(
       "REVIEW_ROUTER_CODEX_ROTATING_ALLOWED_ACTION_REFS",
       `777genius/review-router@${"c".repeat(40)}`,
     );
+  if (scenario === "changed_head_tampered")
+    source = source.replace("id-token: write", "id-token: read");
   const blobSha = createHash("sha1")
     .update(`blob ${Buffer.byteLength(source)}\0`)
     .update(source)
@@ -488,6 +546,18 @@ function fixture(
       attestedBindingRevision:
         scenario === "active_attestation_invalid" ? 2n : 3n,
       attestedGithubRepositoryId: 456n,
+    });
+  if (gateway && binding)
+    Object.assign(binding, {
+      workflowSourceBlobSha: createHash("sha1")
+        .update(`blob ${Buffer.byteLength(initialHostedSource)}\0`)
+        .update(initialHostedSource)
+        .digest("hex"),
+      workflowSourceSha256: createHash("sha256")
+        .update(initialHostedSource)
+        .digest("hex"),
+      workflowSemanticSha256:
+        hostedPoolWorkflowSemanticSha256(initialHostedSource),
     });
   const initialBinding = binding ? { ...binding } : null;
   let expectedCurrent = state.current();
@@ -588,35 +658,118 @@ function fixture(
     findUnique: findBinding,
     updateMany: updateBinding,
   };
+  // Profiles of the workspace with their real identity keys, so a hosted
+  // pool switch finds the profile it selects instead of creating one.
+  const profileRows = new Map(
+    [
+      providerProfileFixture({
+        id: "profile-rotating",
+        credential: {
+          kind: "repository_rotating",
+          authMode: "codex_subscription_oauth_rotating",
+          repositoryId: "repository_1",
+        },
+        model: "gpt-5.3-codex",
+      }),
+      providerProfileFixture({
+        id: "profile-hosted",
+        credential: {
+          kind: "hosted_pool",
+          authMode: "codex_subscription_oauth_hosted_pool",
+        },
+        model: "gpt-5.3-codex",
+      }),
+      providerProfileFixture({
+        id: "profile-gateway",
+        credential: {
+          kind: "gateway_binding",
+          authMode: "codex_account_gateway",
+          bindingId: "binding-account-v",
+          gatewayProfileRef: "default",
+        },
+        model: "gpt-6.1-sol",
+      }),
+    ].map((profile) => [
+      profile.id,
+      {
+        ...providerProfileRowFixture(profile),
+        identityKey: providerProfileIdentityKey(
+          profile.credential,
+          profile.model,
+        ),
+      },
+    ]),
+  );
+  const selection = gateway
+    ? {
+        profileId: "profile-gateway",
+        reasoningEffort: "high" as const,
+        agenticContext: false,
+        fastMode: false,
+        requiredHealthy: true,
+      }
+    : {
+        profileId:
+          rotating && !rotatingWithBinding
+            ? "profile-rotating"
+            : "profile-hosted",
+        reasoningEffort: "medium" as const,
+        agenticContext: false,
+        fastMode: false,
+        requiredHealthy: true,
+      };
+  // Rotating is repository-only, so a rotating workspace has no default.
+  const workspacePolicyJson = canonicalJson(
+    parseWorkspaceReviewPolicy({
+      schemaVersion: 4,
+      ...(selection.profileId === "profile-rotating"
+        ? {}
+        : { providers: [selection] }),
+      execution: { providerMaxParallel: 1, inlineMinAgreement: 1 },
+      blockingPolicy: { failOnSeverity: "off" },
+      limits: { inlineMaxComments: 10, targetTokensPerBatch: 8000 },
+      reviewLanguage: null,
+      investigationRollout: workspacePolicyFixture.investigationRollout,
+    }),
+  );
   let configurationVersion: Record<string, unknown> | null = {
     id: "configuration-version-0",
+    workspaceId: "workspace_1",
     version: 1,
-    schemaVersion: 2,
-    providerKind: "codex",
-    providerAuthMode:
-      rotating && !rotatingWithBinding
-        ? "codex_subscription_oauth_rotating"
-        : "codex_subscription_oauth_hosted_pool",
-    model: "gpt-5.3-codex",
-    reasoningEffort: "medium",
-    agenticContext: false,
-    fastMode: false,
-    failOnSeverity: "off",
-    inlineMaxComments: 10,
-    providerLimit: 1,
-    providerMaxParallel: 1,
-    inlineMinAgreement: 1,
-    targetTokensPerBatch: 8000,
-    reviewLanguage: null,
-    providers: [],
+    schemaVersion: 4,
+    policyJson: canonicalJson({ schemaVersion: 4, providers: [selection] }),
+  };
+  if (gateway && scenario === "inherited_workspace")
+    configurationVersion = null;
+  /** The auth mode of the first profile a stored document selects. */
+  const selectedAuthMode = (policyJson: unknown) => {
+    const providers = (
+      JSON.parse(String(policyJson)) as {
+        readonly providers?: readonly { readonly profileId: string }[];
+      }
+    ).providers;
+    return providers?.[0]
+      ? profileRows.get(providers[0].profileId)?.authMode
+      : undefined;
+  };
+  const configuration = {
+    id: "configuration-1",
+    workspaceId: "workspace_1",
+    repositoryId: "repository_1",
+    targetKey: "repo:repository_1",
+    active: true,
   };
   const configWrites = vi.fn(
     async ({ data }: { data: Record<string, unknown> }) => {
-      events.push(`configuration_write:${data.providerAuthMode}`);
+      if (
+        data.configurationId !== configuration.id ||
+        data.workspaceId !== configuration.workspaceId
+      )
+        throw new Error("fixture_configuration_scope_mismatch");
+      events.push(`configuration_write:${selectedAuthMode(data.policyJson)}`);
       configurationVersion = {
         ...data,
-        id: "configuration-version-1",
-        providers: (data.providers as { create: unknown[] }).create,
+        id: `configuration-version-${data.version}`,
       };
       return configurationVersion;
     },
@@ -801,14 +954,124 @@ function fixture(
     repositoryConnection: { findFirst: scopedRepository },
     hostedCodexRepositoryBinding,
     hostedCodexPool: { findFirst: vi.fn(async () => ({ id: "pool-1" })) },
-    reviewConfiguration: {
-      findUnique: vi.fn(async () =>
-        configurationVersion ? { versions: [configurationVersion] } : null,
+    workspaceProviderProfile: {
+      findMany: vi.fn(
+        async ({ where }: { where: { id: { in: readonly string[] } } }) =>
+          where.id.in.flatMap((id) => {
+            const row = profileRows.get(id);
+            return row ? [row] : [];
+          }),
       ),
-      upsert: vi.fn(async () => ({ id: "configuration-1" })),
+      findUnique: vi.fn(
+        async ({
+          where,
+        }: {
+          where: { workspaceId_identityKey: { identityKey: string } };
+        }) =>
+          [...profileRows.values()].find(
+            (row) =>
+              row.identityKey === where.workspaceId_identityKey.identityKey,
+          ) ?? null,
+      ),
+    },
+    reviewConfiguration: {
+      findMany: vi.fn(
+        async ({
+          where,
+        }: {
+          where: { workspaceId: string; OR: readonly { targetKey: string }[] };
+        }) => {
+          if (where.workspaceId !== "workspace_1") return [];
+          const requestedTargets = new Set(
+            where.OR.map((target) => target.targetKey),
+          );
+          return [
+            ...(requestedTargets.has("workspace:default")
+              ? [{ targetKey: "workspace:default", versions: [{ version: 1 }] }]
+              : []),
+            ...(configuration.active &&
+            configurationVersion &&
+            requestedTargets.has(configuration.targetKey)
+              ? [
+                  {
+                    targetKey: configuration.targetKey,
+                    versions: [{ version: configurationVersion.version }],
+                  },
+                ]
+              : []),
+          ];
+        },
+      ),
+      findUnique: vi.fn(
+        async ({
+          where,
+        }: {
+          where: {
+            workspaceId_targetKey: { workspaceId: string; targetKey: string };
+          };
+        }) =>
+          where.workspaceId_targetKey.workspaceId === "workspace_1" &&
+          where.workspaceId_targetKey.targetKey === "workspace:default"
+            ? {
+                active: true,
+                repositoryId: null,
+                versions: [
+                  {
+                    version: 1,
+                    schemaVersion: 4,
+                    policyJson: workspacePolicyJson,
+                  },
+                ],
+              }
+            : matches(configuration, where.workspaceId_targetKey)
+              ? {
+                  active: configuration.active,
+                  versions: configurationVersion ? [configurationVersion] : [],
+                }
+              : null,
+      ),
+      upsert: vi.fn(
+        async ({
+          where,
+          update,
+        }: {
+          where: {
+            workspaceId_targetKey: { workspaceId: string; targetKey: string };
+          };
+          update: { repositoryId: string | null };
+        }) => {
+          if (!matches(configuration, where.workspaceId_targetKey))
+            throw new Error("unexpected_fixture_configuration_target");
+          Object.assign(configuration, update);
+          return {
+            id: configuration.id,
+            workspaceId: configuration.workspaceId,
+            active: configuration.active,
+          };
+        },
+      ),
+      update: vi.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: { id: string };
+          data: { active: boolean };
+        }) => {
+          if (where.id !== configuration.id)
+            throw new Error("fixture_configuration_not_found");
+          configuration.active = data.active;
+          return { ...configuration };
+        },
+      ),
     },
     reviewConfigurationVersion: {
-      findFirst: vi.fn(async () => configurationVersion),
+      findFirst: vi.fn(
+        async ({ where }: { where: { configurationId: string } }) =>
+          where.configurationId === configuration.id && configurationVersion
+            ? { version: configurationVersion.version }
+            : null,
+      ),
       create: configWrites,
     },
     codexOAuthSecretNamespace: {
@@ -895,7 +1158,7 @@ function fixture(
             },
           };
         }
-        if (rotating) {
+        if (rotating && !gateway) {
           if (scenario.endsWith("_during_probe")) race();
           if (scenario === "workflow_absent")
             throw Object.assign(new Error("absent"), { status: 404 });
@@ -936,7 +1199,10 @@ function fixture(
         if (scenario.endsWith("_during_probe")) race();
         if (parameters?.path !== workflowPath || scenario === "workflow_absent")
           throw Object.assign(new Error("absent"), { status: 404 });
-        if (parameters.ref !== commitSha)
+        if (
+          parameters.ref !== commitSha &&
+          !(gateway && parameters.ref === "main")
+        )
           throw new Error("workflow_not_pinned_to_current_main");
         return {
           data: {
@@ -1010,17 +1276,30 @@ function fixture(
     binding: () => binding,
     initialBinding,
     configWrites,
-    configuration: () => configurationVersion,
+    // The stored repository head with the auth mode of its selected profile.
+    configuration: () =>
+      configurationVersion
+        ? {
+            ...configurationVersion,
+            policyJson: configurationVersion.policyJson,
+            providerAuthMode: selectedAuthMode(configurationVersion.policyJson),
+          }
+        : null,
   };
 }
 
 describe("hosted setup recovery composition", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.readiness.mockImplementation(checkWorkflowReadiness);
+    // Exercise the real URL reader with controlled public facts, independent of CI env.
+    vi.stubEnv("REVIEW_ROUTER_PUBLIC_API_URL", "https://api.reviewrouter.test");
+    vi.stubEnv("REVIEW_ROUTER_API_URL", "https://api.reviewrouter.test");
     vi.stubEnv("REVIEW_ROUTER_ACTION_REF", actionRef);
     vi.stubEnv("REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF", actionRef);
     mocks.runtime.mockResolvedValue({
-      config: {
+      config: parseReviewConfiguration({
+        ...workspacePolicyFixture,
         providers: [
           {
             kind: "codex",
@@ -1028,11 +1307,214 @@ describe("hosted setup recovery composition", () => {
             model: "gpt-5.3-codex",
           },
         ],
-      },
+      }),
     });
     mocks.ledgerActivate.mockResolvedValue({ status: "activated" });
+    mocks.gatewayProvisioning.mockImplementation(
+      async (
+        input: Parameters<
+          typeof import("../../src/server/prisma-gateway-review-v2-provisioning").provisionGatewayReviewV2Repository
+        >[0],
+      ) => {
+        await input.assertCurrentSetupAndSource();
+        return {
+          status: "ready",
+          outcome: "restored",
+          scmRepositoryIdentityId: "fixture-scm-identity",
+          authorityVersion: 1,
+          authorityEpoch: "1",
+          actionCommitSha: input.command.expectedGatewaySource.actionCommitSha,
+        };
+      },
+    );
   });
   afterEach(() => vi.unstubAllEnvs());
+
+  it.each([false, true])(
+    "reports a missing Gateway caller with actual merged=%s",
+    async (merged) => {
+      const f = fixture("main", "exact", "gateway");
+      const transport = f.request.getMockImplementation()!;
+      f.request.mockImplementation(async (route, parameters) => {
+        if (route === "GET /repos/{owner}/{repo}/pulls/{pull_number}") {
+          return {
+            data: {
+              merged,
+              state: merged ? "closed" : "open",
+              base: { ref: "main" },
+              head: { ref: f.historical.branch, sha: "b".repeat(40) },
+            },
+          };
+        }
+        // An open PR also requires the inspector to verify its setup branch.
+        // The shared fixture otherwise accepts only the pinned default ref.
+        if (
+          route === "GET /repos/{owner}/{repo}/git/ref/{ref}" &&
+          parameters?.ref === `heads/${f.historical.branch}`
+        )
+          return { data: { object: { sha: "b".repeat(40) } } };
+        if (route === "GET /repos/{owner}/{repo}/contents/{path}")
+          throw Object.assign(new Error("missing caller"), { status: 404 });
+        return transport(route, parameters);
+      });
+      const result = await confirmSetupPullRequestMergedClientAction(f.form);
+      expect(result.params.error).toBe(
+        merged ? "github_operation_not_found" : "setup_pr_not_merged",
+      );
+      expect(f.request).toHaveBeenCalledWith(
+        "GET /repos/{owner}/{repo}/contents/{path}",
+        expect.objectContaining({
+          path: ".github/workflows/reviewrouter-review.yml",
+          ref: commitSha,
+        }),
+      );
+      if (!merged)
+        expect(f.request).toHaveBeenCalledWith(
+          "GET /repos/{owner}/{repo}/git/ref/{ref}",
+          expect.objectContaining({ ref: `heads/${f.historical.branch}` }),
+        );
+      expect(mocks.gatewayProvisioning).not.toHaveBeenCalled();
+      expect(f.state.workflowProvisioning.updateMany).not.toHaveBeenCalled();
+      expect(f.state.current()).toEqual(f.historical);
+    },
+  );
+
+  it.each([
+    "exact",
+    "inherited_workspace",
+    "producer_updated",
+    "rotating_provider",
+    "active_binding",
+    "head_moved",
+    "caller_removed",
+    "caller_replaced",
+  ] as const)(
+    "confirms the saved keyless caller with source fences: %s",
+    async (scenario) => {
+      const f = fixture("main", scenario, "gateway");
+      const workflowPath = ".github/workflows/reviewrouter-review.yml";
+      if (scenario === "producer_updated") {
+        vi.stubEnv(
+          "REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF",
+          `777genius/review-router@${"f".repeat(40)}`,
+        );
+        vi.stubEnv("REVIEW_ROUTER_AGENT_PROFILE", "qualified-next");
+      }
+      const sourceChanged = [
+        "head_moved",
+        "caller_removed",
+        "caller_replaced",
+      ].includes(scenario);
+      let changed = false;
+      const transport = f.request.getMockImplementation()!;
+      f.request.mockImplementation(async (route, parameters) => {
+        if (
+          changed &&
+          route === "GET /repos/{owner}/{repo}/git/ref/{ref}" &&
+          scenario === "head_moved"
+        )
+          return { data: { object: { sha: "e".repeat(40) } } };
+        if (changed && route === "GET /repos/{owner}/{repo}/contents/{path}") {
+          if (scenario === "caller_removed")
+            throw Object.assign(new Error("caller_removed"), { status: 404 });
+          if (scenario === "caller_replaced")
+            return {
+              data: {
+                type: "file",
+                path: workflowPath,
+                encoding: "base64",
+                content: Buffer.from(
+                  "name: replacement\non: pull_request\njobs: {}\n",
+                ).toString("base64"),
+                sha: "f".repeat(40),
+              },
+            };
+        }
+        return transport(route, parameters);
+      });
+      let markProbed!: () => void;
+      let releaseProbe!: () => void;
+      const probed = new Promise<void>((resolve) => {
+        markProbed = resolve;
+      });
+      const released = new Promise<void>((resolve) => {
+        releaseProbe = resolve;
+      });
+      mocks.readiness.mockImplementation(
+        async (...args: Parameters<typeof checkWorkflowReadiness>) => {
+          const ready = await checkWorkflowReadiness(...args);
+          expect(ready).toBe(true);
+          markProbed();
+          await released;
+          return ready;
+        },
+      );
+      if (scenario === "rotating_provider")
+        expect(
+          await mocks.getPrisma().codexOAuthProviderInstance.findUnique(),
+        ).not.toBeNull();
+      const confirmation = confirmSetupPullRequestMergedClientAction(f.form);
+      try {
+        expect(
+          await Promise.race([
+            probed.then(() => true),
+            confirmation.then(() => false),
+          ]),
+        ).toBe(true);
+        changed = sourceChanged;
+      } finally {
+        releaseProbe();
+      }
+      const result = await confirmation;
+      if (sourceChanged) {
+        expect(result.params).toHaveProperty("error");
+        expect(result.params).not.toHaveProperty("notice");
+        expect(f.state.current()).toEqual(f.historical);
+        expect(f.state.workflowProvisioning.updateMany).not.toHaveBeenCalled();
+        expect(mocks.audit).not.toHaveBeenCalled();
+      } else {
+        expect(result.params).toHaveProperty("notice", "setup_pr_merged");
+        expect(f.state.current()).toMatchObject({
+          status: "configured",
+          workflowPath,
+          actionVersion: "workflow-v1",
+        });
+        expect(f.events).toContain(`workflow:${workflowPath}:${commitSha}`);
+      }
+      expect(mocks.gatewayProvisioning).toHaveBeenCalledTimes(
+        sourceChanged ? 0 : 1,
+      );
+      expect(mocks.activateCodex).not.toHaveBeenCalled();
+      expect(mocks.namespace).not.toHaveBeenCalled();
+      expect(mocks.ledgerActivate).not.toHaveBeenCalled();
+      expect(mocks.setRepositorySource).not.toHaveBeenCalled();
+      expect(mocks.switchConfiguration).not.toHaveBeenCalled();
+      expect(f.configWrites).not.toHaveBeenCalled();
+      expect(f.updateBinding).not.toHaveBeenCalled();
+      expect(f.binding()).toEqual(f.initialBinding);
+      if (scenario === "inherited_workspace")
+        expect(f.configuration()).toBeNull();
+      else {
+        // The stored Gateway selection is untouched.
+        expect(f.configuration()).toMatchObject({
+          providerAuthMode: "codex_account_gateway",
+          version: 1,
+        });
+        expect(JSON.parse(String(f.configuration()!.policyJson))).toEqual({
+          schemaVersion: 4,
+          providers: [
+            {
+              profileId: "profile-gateway",
+              reasoningEffort: "high",
+              agenticContext: false,
+              fastMode: false,
+              requiredHealthy: true,
+            },
+          ],
+        });
+      }
+    },
+  );
 
   it.each([
     ["explicit", "matching"],
@@ -1049,12 +1531,12 @@ describe("hosted setup recovery composition", () => {
       f.state.replace(null);
       const remote = new WorkflowGitHubFixture();
       const config = parseReviewConfiguration({
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         providers: [
           {
-            kind: "openrouter" as const,
-            authMode: "openrouter_api_key" as const,
-            model: "openai/gpt-5",
+            kind: "claude" as const,
+            authMode: "claude_code_oauth" as const,
+            model: "sonnet",
           },
         ],
       });
@@ -1115,11 +1597,16 @@ describe("hosted setup recovery composition", () => {
             (response.data as { content: string }).content,
             "base64",
           ).toString("utf8");
-          if (scenario === "wrong_action_ref")
+          if (scenario === "wrong_action_ref") {
             source = source.replaceAll(
               actionRef,
               `777genius/review-router@${"c".repeat(40)}`,
             );
+            source = source.replaceAll(
+              `ref: ${actionRef.split("@")[1]}`,
+              `ref: ${"c".repeat(40)}`,
+            );
+          }
           if (scenario === "ambiguous_style")
             source += `\n  duplicate:\n    uses: 777genius/review-router/.github/workflows/reviewrouter-reusable.yml@${"a".repeat(40)}\n`;
           reads.push({ path: parameters?.path, ref: parameters?.ref, source });
@@ -1184,6 +1671,8 @@ describe("hosted setup recovery composition", () => {
         expect(f.state.current()).toEqual({
           ...before,
           status: "configured",
+          // The verified generic workflow delivers the Claude CI secret.
+          installedWorkflowRequirement: "ci_secrets+claude",
           revision: 2,
         });
         expect(f.state.workflowProvisioning.updateMany).toHaveBeenCalledTimes(
@@ -1419,6 +1908,7 @@ describe("hosted setup recovery composition", () => {
       expect(f.state.current()).toEqual({
         ...f.historical,
         status: "configured",
+        installedWorkflowRequirement: "hosted_pool",
         revision: f.historical.revision + 1,
       });
       expect(f.updateBinding).toHaveBeenCalledTimes(1);
@@ -1444,6 +1934,85 @@ describe("hosted setup recovery composition", () => {
       expect(mocks.createOctokit).toHaveBeenCalledWith("123");
     },
   );
+  describe.each(["gateway", "stored_active", "rotating_hosted"] as const)(
+    "recovers changed merged PR heads only with canonical installed %s artifacts",
+    (mode) => {
+      it("refuses a changed head merged into the wrong base", async () => {
+        const f = fixture("master", "changed_head_valid", mode);
+        const result = await confirmSetupPullRequestMergedClientAction(f.form);
+        expect(result.params.error).toBe("setup_pr_wrong_base_branch");
+        expect(f.events).toEqual(["inspect_pr"]);
+        expect(mocks.gatewayProvisioning).not.toHaveBeenCalled();
+        expect(mocks.ledgerActivate).not.toHaveBeenCalled();
+        expect(f.configWrites).not.toHaveBeenCalled();
+        expect(f.updateBinding).not.toHaveBeenCalled();
+        expect(f.state.current()).toMatchObject({ status: "failed" });
+      });
+      it.each([
+        "changed_head_valid",
+        "changed_head_tampered",
+        "changed_head_attempt_during_probe",
+      ])("%s", async (scenario) => {
+        const f = fixture("main", scenario, mode);
+        const result = await confirmSetupPullRequestMergedClientAction(f.form);
+        expect(f.historical.pullRequestHeadSha).toBe("c".repeat(40));
+        if (scenario === "changed_head_valid") {
+          expect(result.params, f.events.join(", ")).toHaveProperty(
+            "notice",
+            "setup_pr_merged",
+          );
+          expect(f.state.current()).toMatchObject({
+            status: "configured",
+            attemptId: f.historical.attemptId,
+            revision: f.historical.revision + 1,
+            pullRequestHeadSha: f.historical.pullRequestHeadSha,
+          });
+          expect(mocks.audit).toHaveBeenCalledWith(
+            expect.objectContaining({
+              metadata: expect.objectContaining({ source: "workflow" }),
+            }),
+            expect.anything(),
+          );
+        } else if (scenario === "changed_head_tampered" && mode === "gateway") {
+          // The gateway caller merged foreign bytes under a changed head: a
+          // permanent mismatch that recovers by recreation instead of retrying
+          // an endless not-merged wait. Tampered artifacts still never activate.
+          expect(result.params).toHaveProperty(
+            "error",
+            "setup_pr_workflow_mismatch",
+          );
+          expect(f.state.current()).toEqual({
+            ...f.historical,
+            status: "failed",
+            errorMessage: "setup_pr_workflow_mismatch",
+            revision: f.historical.revision + 1,
+          });
+          expect(f.state.workflowProvisioning.updateMany).toHaveBeenCalledTimes(
+            1,
+          );
+          expect(mocks.gatewayProvisioning).not.toHaveBeenCalled();
+          expect(mocks.ledgerActivate).not.toHaveBeenCalled();
+          expect(f.configWrites).not.toHaveBeenCalled();
+          expect(f.updateBinding).not.toHaveBeenCalled();
+        } else {
+          expect(result.params).toHaveProperty("error");
+          expect(f.state.current()).toEqual(f.expectedCurrent());
+          expect(
+            f.state.workflowProvisioning.updateMany,
+          ).not.toHaveBeenCalled();
+          expect(mocks.gatewayProvisioning).not.toHaveBeenCalled();
+          expect(mocks.ledgerActivate).not.toHaveBeenCalled();
+          expect(f.configWrites).not.toHaveBeenCalled();
+          expect(f.updateBinding).not.toHaveBeenCalled();
+        }
+        expect(f.state.workflowProvisioning.create).not.toHaveBeenCalled();
+        expect(f.events).toContain(
+          `workflow:${f.historical.workflowPath}:${commitSha}`,
+        );
+      });
+    },
+  );
+
   it.each([
     "workflow_absent",
     "invalid_workflow",
@@ -1485,7 +2054,6 @@ describe("hosted setup recovery composition", () => {
     "binding_revised_during_probe",
     "binding_state_during_probe",
     "binding_draining_during_probe",
-    "stored_head_mismatch",
     "stored_attempt_during_probe",
     "stored_revision_during_probe",
   ])("refuses %s with zero activation or status effects", async (scenario) => {
@@ -1539,7 +2107,16 @@ describe("hosted setup recovery composition", () => {
     );
     if (scenario === "pending_generic_config")
       mocks.runtime.mockResolvedValue({
-        config: { providers: [{ kind: "openrouter", authMode: "api_key" }] },
+        config: parseReviewConfiguration({
+          ...workspacePolicyFixture,
+          providers: [
+            {
+              kind: "claude",
+              authMode: "claude_code_oauth",
+              model: "sonnet",
+            },
+          ],
+        }),
       });
     if (scenario === "trusted_overlap")
       vi.stubEnv(

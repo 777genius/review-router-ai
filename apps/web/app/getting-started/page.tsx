@@ -22,7 +22,7 @@ import { createPublicPageMetadata } from "../seo";
 export const metadata: Metadata = createPublicPageMetadata({
   title: "Getting started with ReviewRouter",
   description:
-    "Install the ReviewRouter GitHub App, merge the current setup PR, connect Codex, Claude Code, or OpenRouter credentials into GitHub Actions secrets, and run AI review in your repository runtime.",
+    "Install the ReviewRouter GitHub App, merge the current setup PR, connect Codex, Claude Code, MiMo Token Plan, or OpenRouter credentials into GitHub Actions secrets, and run AI review in your repository runtime.",
   path: "/getting-started",
 });
 
@@ -35,6 +35,7 @@ const claudeCommand = `claude setup-token
 gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo owner/repo --app actions`;
 
 const apiKeyCommands = `gh secret set OPENROUTER_API_KEY --repo owner/repo --app actions`;
+const mimoTokenPlanCommand = `gh secret set MIMO_TOKEN_PLAN_API_KEY --repo owner/repo --app actions`;
 
 const workflowManifest = `.github/workflows/reviewrouter.yml
 .github/workflows/reviewrouter-interaction.yml
@@ -132,6 +133,15 @@ const providerRows = [
     badge: "OAuth",
   },
   {
+    name: "MiMo Token Plan",
+    auth: "MIMO_TOKEN_PLAN_API_KEY",
+    model: "codex-mimo/mimo-v2.6-pro",
+    setup:
+      "Run the repository-specific gh command and enter the key only at GitHub's secret prompt.",
+    icon: "mimo",
+    badge: "API key",
+  },
+  {
     name: "OpenRouter",
     auth: "OPENROUTER_API_KEY",
     model: "Dynamic model catalog",
@@ -170,9 +180,9 @@ const boundaryRows = [
 
 export default function GettingStartedPage(): React.ReactElement {
   return (
-    <main className="home-shell min-h-screen w-full overflow-hidden py-8 md:py-10">
+    <main className="home-shell min-h-screen w-full overflow-clip py-8 md:py-10">
       <section className="mx-auto w-[calc(100%-2rem)] max-w-7xl sm:w-[calc(100%-3rem)]">
-        <div className="relative isolate overflow-hidden rounded-[2rem] border border-cyan-200/12 bg-[var(--rr-surface-card-strong)] p-4 shadow-[0_28px_120px_-70px_rgba(0,240,255,0.95)] sm:p-6 lg:p-7">
+        <div className="relative isolate overflow-clip rounded-[2rem] border border-cyan-200/12 bg-[var(--rr-surface-card-strong)] p-4 shadow-[0_28px_120px_-70px_rgba(0,240,255,0.95)] sm:p-6 lg:p-7">
           <div
             aria-hidden="true"
             className="absolute inset-0 -z-10 bg-[linear-gradient(rgba(103,232,249,0.055)_1px,transparent_1px),linear-gradient(90deg,rgba(103,232,249,0.035)_1px,transparent_1px),radial-gradient(circle_at_76%_8%,rgba(163,230,53,0.13),transparent_24rem),radial-gradient(circle_at_18%_34%,rgba(0,240,255,0.12),transparent_23rem),linear-gradient(180deg,rgba(2,6,12,0.1),rgba(0,0,0,0.28))] bg-[size:56px_56px,56px_56px,auto,auto,auto]"
@@ -453,9 +463,9 @@ function SectionHeading({
 
 function WorkflowPanel(): React.ReactElement {
   return (
-    <div className="overflow-hidden rounded-2xl border border-cyan-200/12 bg-[var(--rr-surface-panel)] shadow-[inset_0_1px_0_rgba(103,232,249,0.08)]">
-      <div className="overflow-x-auto">
-        <table className="min-w-[760px] w-full border-collapse text-left text-sm">
+    <div className="overflow-clip rounded-2xl border border-cyan-200/12 bg-[var(--rr-surface-panel)] shadow-[inset_0_1px_0_rgba(103,232,249,0.08)]">
+      <div className="overflow-x-auto lg:overflow-clip">
+        <table className="rr-sticky-table min-w-[760px] w-full border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-cyan-200/14 bg-cyan-300/[0.035] font-mono text-[0.68rem] uppercase tracking-[0.18em] text-slate-400">
               <th className="px-4 py-4 font-semibold">File</th>
@@ -569,6 +579,12 @@ function CommandGrid(): React.ReactElement {
         body="Use normal provider billing when you do not want subscription OAuth."
         code={apiKeyCommands}
       />
+      <CommandPanel
+        badge="MiMo"
+        title="MiMo Token Plan"
+        body="Use the supported codex-mimo public engine path. The command prompts for the key and never embeds it."
+        code={mimoTokenPlanCommand}
+      />
     </div>
   );
 }
@@ -655,6 +671,8 @@ function ProviderMark({
         />
       ) : provider === "openrouter" ? (
         <OpenRouterMark />
+      ) : provider === "mimo" ? (
+        <span className="font-mono text-sm font-semibold">MiMo</span>
       ) : (
         <OpenAIMark />
       )}

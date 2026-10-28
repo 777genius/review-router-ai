@@ -24,7 +24,11 @@ export type WorkflowSetupGatewayInput = {
   readonly repo: string;
   readonly baseBranch: string;
   readonly setupBranch: string;
-  readonly setupMode?: "repository_owned" | "hosted_pool";
+  readonly setupMode?:
+    | "repository_owned"
+    | "hosted_pool"
+    | "gateway"
+    | "provider_api";
   readonly workflowFiles: readonly WorkflowSetupFile[];
 };
 

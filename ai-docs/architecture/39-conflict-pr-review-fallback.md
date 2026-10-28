@@ -31,8 +31,8 @@ Use `repository_dispatch` as a controlled conflict fallback:
 
 ```text
 GitHub pull_request webhook
-  -> SaaS conflict detector
-  -> SaaS idempotency record
+  -> control plane conflict detector
+  -> control plane idempotency record
   -> repository_dispatch: reviewrouter_conflict_review
   -> trusted generated caller workflow on default branch
   -> ReviewRouter runtime in conflict-head mode
@@ -59,7 +59,7 @@ Why this is the best fit:
 - It avoids a new GitHub App `Actions: write` permission request.
 - It uses the existing GitHub App `Contents: write` permission for
   `repository_dispatch`.
-- It lets SaaS orchestrate without running model review itself.
+- It lets control plane orchestrate without running model review itself.
 - It can be made idempotent and observable.
 
 ## Review Corrections After Threat Modeling
@@ -69,7 +69,7 @@ keep the feature from creating production bugs:
 
 ```text
 1. Conflict review must never use the normal ReviewRouter check/status context.
-2. Provider-backed conflict review must require a valid SaaS fallback record and nonce.
+2. Provider-backed conflict review must require a valid control plane fallback record and nonce.
 3. The workflow must have an explicit token path for posting status/check output.
 4. Diff source should prefer GitHub PR files/diff data, not a naive local compare.
 5. Raw repository_dispatch payload must never be interpolated into shell scripts.
@@ -266,16 +266,16 @@ rolling back the same database row that should have made the retry idempotent.
 
 ## Permission Decision Matrix
 
-| Need                              | Recommended mechanism                           | New GitHub App permission?                                                      |
-| --------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------- |
-| Start fallback workflow           | `repository_dispatch` with installation token   | No, if `Contents: write` is already granted                                     |
-| App-invoked workflow alternative  | `workflow_dispatch` REST API                    | Yes, requires `Actions: write`                                                  |
-| User-clicked manual workflow run  | GitHub UI `workflow_dispatch`                   | No app permission, but it must stay normal-review only                          |
-| Detect base-push conflicts        | `push` webhook or scheduled open-PR scan        | No repository permission, but app event subscription changes                    |
-| PR-visible conflict status        | preferred: ReviewRouter OIDC posting capability | No, if current App profile already has `statuses: write`                        |
-| PR-visible conflict check run     | preferred: ReviewRouter OIDC posting capability | No, if current App profile already has `checks: write`                          |
-| SaaS/App posts status itself      | GitHub App installation token                   | No if current standard profile already has statuses/checks write; otherwise yes |
-| Existing summary/comment identity | existing ReviewRouter comment token path        | No new app permission if current comment flow already works                     |
+| Need                                  | Recommended mechanism                           | New GitHub App permission?                                                      |
+| ------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------- |
+| Start fallback workflow               | `repository_dispatch` with installation token   | No, if `Contents: write` is already granted                                     |
+| App-invoked workflow alternative      | `workflow_dispatch` REST API                    | Yes, requires `Actions: write`                                                  |
+| User-clicked manual workflow run      | GitHub UI `workflow_dispatch`                   | No app permission, but it must stay normal-review only                          |
+| Detect base-push conflicts            | `push` webhook or scheduled open-PR scan        | No repository permission, but app event subscription changes                    |
+| PR-visible conflict status            | preferred: ReviewRouter OIDC posting capability | No, if current App profile already has `statuses: write`                        |
+| PR-visible conflict check run         | preferred: ReviewRouter OIDC posting capability | No, if current App profile already has `checks: write`                          |
+| control plane/App posts status itself | GitHub App installation token                   | No if current standard profile already has statuses/checks write; otherwise yes |
+| Existing summary/comment identity     | existing ReviewRouter comment token path        | No new app permission if current comment flow already works                     |
 
 Recommended v1 permission answer:
 
@@ -291,7 +291,7 @@ push event subscription. That is not a new repository permission, but it is a
 visible app configuration rollout.
 ```
 
-Only request a new app permission if the product deliberately chooses SaaS-side
+Only request a new app permission if the product deliberately chooses control plane-side
 status/check posting later and the installed App profile does not already include
 the needed status/check permission.
 
@@ -328,8 +328,8 @@ Pros:
 - Trusted workflow comes from the default branch.
 - No `pull_request_target`.
 - No `Actions: write` permission.
-- Fits the current SaaS orchestration model.
-- Can be gated by SaaS records and OIDC.
+- Fits the current control plane orchestration model.
+- Can be gated by control plane records and OIDC.
 
 Cons:
 
@@ -442,12 +442,12 @@ deciding whether the current PR state was reviewed.
 | ------------------------------------------------------- | -----: | ---------: | ----: | ------------------------------------------------------------------------- |
 | False green under normal ReviewRouter context           |     10 |          6 |    10 | Separate `ReviewRouter conflict review` context only                      |
 | PR-controlled code executes with secrets available      |     10 |          4 |    10 | Read-only checkout, no package scripts, trusted runtime only              |
-| Manual or spoofed dispatch obtains config               |      9 |          5 |     9 | SaaS fallback record + nonce + OIDC validation                            |
+| Manual or spoofed dispatch obtains config               |      9 |          5 |     9 | control plane fallback record + nonce + OIDC validation                   |
 | `repository_dispatch` opens normal config exchange      |     10 |          4 |     9 | Context-specific OIDC validation, dispatch only for conflict-head         |
 | Dispatch nonce leaks through logs/health metadata       |      8 |          4 |     8 | Mask nonce, never log it, short TTL, run-bound exchange                   |
 | Stale run comments after a new commit or retarget       |      8 |          7 |     9 | Head/base ref/SHA validation before review and before posting             |
 | PR closes or becomes draft before posting               |      7 |          5 |     8 | Full PR state validation immediately before comments/status               |
-| PR head controls ReviewRouter config/policy             |      9 |          4 |     9 | Resolve config from SaaS/default branch/trusted workflow only             |
+| PR head controls ReviewRouter config/policy             |      9 |          4 |     9 | Resolve config from control plane/default branch/trusted workflow only    |
 | Duplicate summaries/inline comments                     |      7 |          7 |     8 | DB idempotency + markers + fingerprints + stale guards                    |
 | Status/check cannot be posted to PR head                |      7 |          5 |     8 | Explicit status/check token path and fallback behavior                    |
 | Wrong/noisy diff from base/head comparison              |      7 |          5 |     8 | Prefer PR files/diff API, validate changed-line mapping                   |
@@ -643,7 +643,7 @@ Required controls:
 
 ### Invariant 5: Duplicate Events Must Not Duplicate Reviews
 
-GitHub can send repeated webhooks. SaaS retries can happen. Users can edit PRs.
+GitHub can send repeated webhooks. control plane retries can happen. Users can edit PRs.
 
 Risk:
 
@@ -653,7 +653,7 @@ Risk:
 
 Required controls:
 
-- SaaS DB unique key:
+- control plane DB unique key:
 
 ```text
 repositoryId + prNumber + headSha + baseRef + baseSha + fallbackVersion
@@ -704,7 +704,7 @@ ReviewRouter validates OIDC and nonce. Correctness must come from DB
 idempotency, summary markers, finding fingerprints, and stale guards.
 
 If product UX requires cancelling older runs for a newer head/base ref/SHA pair,
-implement it through a trusted SaaS-side record and Actions API only after the
+implement it through a trusted control plane-side record and Actions API only after the
 run has authenticated through OIDC. Otherwise, let older runs exit stale.
 
 ### Invariant 6: Fork PRs Stay Skipped in v1
@@ -899,10 +899,10 @@ Required controls:
   outside the footer, treat the marker as invalid and create a new safe summary
   rather than updating the ambiguous comment.
 
-### Invariant 11: Provider-Backed Runs Require a SaaS Dispatch Record
+### Invariant 11: Provider-Backed Runs Require a control plane Dispatch Record
 
 A `repository_dispatch` event can be created by any token that has enough
-repository permission. The workflow cannot treat the event as proof that SaaS
+repository permission. The workflow cannot treat the event as proof that control plane
 approved the review.
 
 Risk:
@@ -913,19 +913,19 @@ Risk:
 
 Required controls:
 
-- SaaS creates a fallback attempt record before dispatch.
-- SaaS stores only a hash of the dispatch nonce.
+- control plane creates a fallback attempt record before dispatch.
+- control plane stores only a hash of the dispatch nonce.
 - The runtime sends `dispatch_id`, nonce, repo id, PR number, head SHA, base ref,
   base SHA, and OIDC claims to the config exchange endpoint.
 - Treat OIDC `actor` and repository dispatch `sender` as audit metadata only.
   Do not use actor identity as the authorization proof for provider-backed
   config.
-- SaaS verifies the record exists, is unexpired, belongs to the same repository,
+- control plane verifies the record exists, is unexpired, belongs to the same repository,
   and matches the PR/head/base ref/base SHA.
-- SaaS validates the OIDC audience, issuer, repository id, workflow identity,
+- control plane validates the OIDC audience, issuer, repository id, workflow identity,
   reusable workflow identity, run id, run attempt, event name, runner
   environment, and current base ref/SHA before returning runtime config.
-- SaaS marks the record `started` with `run_id` and `run_attempt`.
+- control plane marks the record `started` with `run_id` and `run_attempt`.
 - No provider-backed runtime config is returned without a valid record.
 
 Nonce consumption should be run-bound, not just a blind single-use flag:
@@ -945,9 +945,9 @@ different run_id:
 ```
 
 If that rerun policy is too complex for v1, disable GitHub UI reruns for this
-mode operationally and require a fresh SaaS-triggered conflict fallback attempt.
+mode operationally and require a fresh control plane-triggered conflict fallback attempt.
 
-For static config mode, where SaaS cannot enforce a nonce in config exchange,
+For static config mode, where control plane cannot enforce a nonce in config exchange,
 the default should be stricter:
 
 ```text
@@ -1051,7 +1051,7 @@ Failure behavior:
 - Do not silently omit the PR-visible status/check.
 - Do not fall back to the normal `ReviewRouter` context.
 - The status/check target URL should point to the GitHub Actions run or safe PR
-  summary, never to a SaaS URL containing bearer tokens or secret-bearing query
+  summary, never to a control plane URL containing bearer tokens or secret-bearing query
   parameters.
 - Status posting should use one stable context per mode. Do not include model,
   provider, run id, or attempt number in the status context.
@@ -1124,8 +1124,8 @@ Risk:
 
 Required controls:
 
-- Runtime calls SaaS during config exchange with `dispatch_id`.
-- SaaS records `run_id`, `run_attempt`, event name, and workflow ref from OIDC
+- Runtime calls control plane during config exchange with `dispatch_id`.
+- control plane records `run_id`, `run_attempt`, event name, and workflow ref from OIDC
   claims.
 - A background reconciler can mark records `no_run_observed` only after a TTL.
 - Do not rely on immediate Actions API polling as the only source of run state.
@@ -1303,7 +1303,7 @@ merge-result review.
 ### Invariant 22: Dispatch Webhooks Must Not Re-enter Review Scheduling
 
 The `repository_dispatch` API can trigger both a workflow and GitHub App
-webhooks. Since ReviewRouter owns the GitHub App, the SaaS webhook pipeline can
+webhooks. Since ReviewRouter owns the GitHub App, the control plane webhook pipeline can
 see events caused by its own fallback.
 
 Risk:
@@ -1379,7 +1379,7 @@ Risk:
 Required controls:
 
 - Never use `github.sha` as the reviewed commit in conflict-head mode.
-- Require `expected_head_sha` from the SaaS dispatch record and validate it
+- Require `expected_head_sha` from the control plane dispatch record and validate it
   against a fresh PR fetch.
 - Checkout exactly `expected_head_sha`.
 - Post the commit status/check to `expected_head_sha`, not to the default branch
@@ -1391,7 +1391,7 @@ Required controls:
 
 The generated review workflow already supports `workflow_dispatch` for manual
 normal review runs. That manual path must not become a way to run conflict-head
-review without the SaaS detector, dispatch record, and nonce.
+review without the control plane detector, dispatch record, and nonce.
 
 Risk:
 
@@ -1410,7 +1410,7 @@ Required controls:
 - The runtime rejects `repository_dispatch` unless the dispatch event type is
   exactly `reviewrouter_conflict_review`.
 
-If a manual conflict rerun is needed later, make it a SaaS action that creates a
+If a manual conflict rerun is needed later, make it a control plane action that creates a
 fresh fallback attempt and repository dispatch, not a free-form GitHub UI input.
 
 ### Invariant 26: Dispatch Payload Schema Must Be Tiny and Versioned
@@ -1565,7 +1565,7 @@ Risk:
 
 Required controls:
 
-- Resolve provider policy from SaaS runtime config, trusted static workflow
+- Resolve provider policy from control plane runtime config, trusted static workflow
   config, or default-branch configuration only.
 - Do not load ReviewRouter control config from the checked-out PR head.
 - Treat files such as `.reviewrouter*`, `.github/reviewrouter*`,
@@ -1584,7 +1584,7 @@ Required controls:
   conclusion, and posting-token exchange must all use the same snapshot id/hash.
 - If trusted config changes while the model is running, the current attempt
   continues with its original snapshot. A new config snapshot affects only a new
-  attempt or an explicit operator/SaaS retry designed to create a new attempt.
+  attempt or an explicit operator/control plane retry designed to create a new attempt.
 - If posting-token exchange sees a different config snapshot than the one used
   for model execution, fail closed with `config_snapshot_mismatch` and do not
   post comments or status/check output.
@@ -1597,7 +1597,7 @@ Allowed:
 ```text
 Read PR files to review code.
 Read PR docs as review input.
-Use trusted SaaS/default-branch/static config for ReviewRouter behavior.
+Use trusted control plane/default-branch/static config for ReviewRouter behavior.
 ```
 
 Forbidden:
@@ -1652,7 +1652,7 @@ record safe health metadata only
 ### Invariant 32: Repository Identity Must Survive Rename and Transfer Races
 
 GitHub REST calls require owner/name, but owner/name can change. Runtime and
-SaaS records must use immutable GitHub repository id as authority.
+control plane records must use immutable GitHub repository id as authority.
 
 Risk:
 
@@ -1709,7 +1709,7 @@ do not execute repository scripts
 
 ### Invariant 34: Sensitive Runtime Data Must Not Leak Through Logs or Artifacts
 
-The SaaS privacy boundary says code, full diffs, prompts, provider output, model
+The control plane privacy boundary says code, full diffs, prompts, provider output, model
 output, provider secrets, GitHub tokens, and nonce values do not leave the
 customer CI/runtime boundary as persisted operational data.
 
@@ -2091,7 +2091,7 @@ Required controls:
   `review_id_if_any`, `status_context`, `status_state`, `status_sha`, and
   `posting_completed`.
 - Do not store source code, full diffs, prompts, full model output, or full
-  comment bodies in SaaS. Store hashes and GitHub ids only.
+  comment bodies in control plane. Store hashes and GitHub ids only.
 - Preferred v1 write order:
   1. pre-post validation
   2. create or update summary comment with runtime-owned marker
@@ -2142,7 +2142,7 @@ Required controls:
 - Do not set the normal `ReviewRouter` context from conflict mode.
 - Do not mark repo/review health green based only on conflict fallback resolving.
 - If ReviewRouter already has a safe normal-review rerun mechanism, enqueue that
-  mechanism from SaaS after fresh PR validation. It must review normal
+  mechanism from control plane after fresh PR validation. It must review normal
   pull_request semantics, not conflict-head semantics.
 - If no safe normal-review rerun mechanism exists in v1, surface remediation in
   PR summary/dashboard: conflict is gone, but normal review still needs a new
@@ -2254,7 +2254,7 @@ Dispatch only when:
 - PR mergeability has a positive conflict signal
 - no fallback record exists for this `head_sha`, `base_ref`, and `base_sha`
 - repository has not exceeded conflict fallback rate limits
-- provider-backed mode can be gated by a SaaS nonce
+- provider-backed mode can be gated by a control plane nonce
 - repository Actions and target workflow are enabled
 
 Do nothing when:
@@ -2554,7 +2554,7 @@ The runtime must reject conflict mode unless:
 - `expected_base_ref` is present, passes the base-ref data validation rules, and
   is treated only as an exact string to compare with GitHub API data
 - `expected_base_sha` is present and is a 40-char SHA for conflict fallback
-- SaaS fallback nonce is valid before any provider-backed execution
+- control plane fallback nonce is valid before any provider-backed execution
 - PR fetched from GitHub is open
 - PR head SHA equals expected head SHA
 - PR base ref equals expected base ref
@@ -2571,7 +2571,7 @@ The runtime must reject conflict mode unless:
 - current mergeability still has a positive conflict signal, or the runtime
   exits stale before posting
 - reviewed commit SHA is `expected_head_sha`, not `github.sha`
-- runtime config source is SaaS/default-branch/static trusted config, not PR
+- runtime config source is control plane/default-branch/static trusted config, not PR
   head files
 - `review_config_snapshot_id` and `review_config_hash` match the snapshot used
   for model execution
@@ -2787,7 +2787,7 @@ Tasks:
   workflow output.
 - Add tests for generated workflow content.
 - Add capability detection for fallback-supported workflow.
-- Add capability versioning so SaaS can distinguish old and new workflows.
+- Add capability versioning so control plane can distinguish old and new workflows.
 - Add normalized template hash or equivalent trusted-shape check.
 - Store allowed `job_workflow_sha` values for the trusted reusable workflow
   release/capability version.
@@ -2811,7 +2811,7 @@ Acceptance:
 - Config exchange later rejects a mutable trusted ref if `job_workflow_sha` is
   missing or not in the allowed manifest.
 
-### Phase 2: SaaS Conflict Detector
+### Phase 2: control plane Conflict Detector
 
 ```text
 🎯 9   🛡️ 8   🧠 7
@@ -3031,7 +3031,7 @@ If it still happens, mark fallback attempt as no_run_observed.
 Expected:
 
 ```text
-Runtime requires valid SaaS fallback nonce for OIDC config.
+Runtime requires valid control plane fallback nonce for OIDC config.
 Without it, no runtime config and no review.
 ```
 
@@ -3051,7 +3051,7 @@ No setup or repository health is marked green from this event alone.
 Expected:
 
 ```text
-No SaaS config nonce is available.
+No control plane config nonce is available.
 Default is disabled for conflict fallback unless explicitly allowed.
 If explicitly allowed, runtime still validates same-repo PR, open state, current head SHA, and trusted workflow.
 ```
@@ -3063,7 +3063,7 @@ Expected:
 ```text
 Conflict runtime may read the changed config file as review input.
 It does not use PR-head config to choose providers, limits, trusted refs, prompts, or posting behavior.
-Runtime config still comes from SaaS/default-branch/static trusted source.
+Runtime config still comes from control plane/default-branch/static trusted source.
 ```
 
 ### Provider Secrets Missing
@@ -3072,7 +3072,7 @@ Expected:
 
 ```text
 Conflict review reports provider auth missing through existing safe health path.
-No code/diff is sent to SaaS.
+No code/diff is sent to control plane.
 ```
 
 ### Inline Position Invalid
@@ -3415,7 +3415,7 @@ Surface setup/permission remediation instead of retrying forever.
 Expected:
 
 ```text
-SaaS refreshes repository metadata by GitHub repository id.
+control plane refreshes repository metadata by GitHub repository id.
 If the installation still controls the repository, dispatch uses the fresh owner/name.
 If not, attempt is skipped with installation_not_active or repository_not_selected.
 Runtime validates repository_id before returning config or posting.
@@ -3427,7 +3427,7 @@ Expected:
 
 ```text
 Workflow may start.
-Runtime cannot obtain provider-backed config without a matching SaaS record and nonce.
+Runtime cannot obtain provider-backed config without a matching control plane record and nonce.
 No review comments are posted.
 ```
 
@@ -3461,7 +3461,7 @@ Expected:
 ```text
 Old run may continue briefly.
 Old run exits stale before comments after head SHA validation.
-If trusted SaaS-side cancellation is implemented later, old attempt is marked cancelled.
+If trusted control plane-side cancellation is implemented later, old attempt is marked cancelled.
 No duplicate comments.
 ```
 
@@ -3531,7 +3531,7 @@ Expected:
 
 ```text
 Capability probe detects disabled Actions/workflow where possible.
-SaaS does not dispatch.
+control plane does not dispatch.
 If dispatch already happened, mark no_run_observed after TTL and surface remediation.
 ```
 
@@ -3916,7 +3916,7 @@ Test matrix:
 
 ## Observability
 
-SaaS should record metadata only:
+control plane should record metadata only:
 
 ```text
 fallback_detected_count
@@ -4295,7 +4295,7 @@ These GitHub constraints drive the design:
   permission set, and otherwise inherit the installation's granted access. They
   do not provide native one-PR, one-SHA, one-status-context, or one-comment-id
   scoping, so ReviewRouter must enforce operation-level limits itself.
-- GitHub `push` events can be filtered by branch in Actions. For SaaS webhook
+- GitHub `push` events can be filtered by branch in Actions. For control plane webhook
   detection, adding `push` is an App event-subscription change, not a new
   repository permission.
 - The PR files endpoint is paginated, returns 30 files per page by default, and
@@ -4391,7 +4391,7 @@ repository_dispatch + conflict-head mode + ReviewRouter OIDC posting capability 
 Do not use `pull_request_target`. Do not make conflict review satisfy the normal
 required ReviewRouter check. Do not execute PR code. Do not trust dispatch
 payload. Do not dispatch without idempotency. Do not run provider-backed review
-without a valid SaaS fallback record and nonce. Do not make write-capable
+without a valid control plane fallback record and nonce. Do not make write-capable
 `GITHUB_TOKEN` scopes globally available to the conflict review workflow.
 
 This gives ReviewRouter CodeRabbit-like usefulness on conflicted PRs while

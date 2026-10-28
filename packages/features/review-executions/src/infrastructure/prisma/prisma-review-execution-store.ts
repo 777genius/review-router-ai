@@ -1,3 +1,4 @@
+import type { ReviewExecutionInputAdmissionPort } from "./review-execution-input-admission-port";
 import { createHash } from "node:crypto";
 import {
   Prisma,
@@ -146,6 +147,7 @@ export class PrismaReviewExecutionStore
     private readonly prisma: PrismaClient,
     private readonly options: Readonly<{
       progressCapture?: ReviewExecutionProgressCapturePort;
+      inputAdmission?: ReviewExecutionInputAdmissionPort;
     }> = {},
   ) {}
 
@@ -625,6 +627,7 @@ export class PrismaReviewExecutionStore
       try {
         return await this.prisma.$transaction(
           async (transaction) => {
+            await this.options.inputAdmission?.lock(transaction, command);
             await lockScopes(transaction, [command.scope]);
             const executionIdentity =
               await transaction.reviewExecutionV2.findUnique({
@@ -683,7 +686,20 @@ export class PrismaReviewExecutionStore
             if (snapshot === null) {
               return { status: ReviewInvocationLeaseAcquireStatus.Missing };
             }
-            const now = await databaseNow(transaction);
+            let now = await databaseNow(transaction);
+            if (
+              this.options.inputAdmission &&
+              !(await this.options.inputAdmission.admit(transaction, {
+                command,
+                execution: snapshot.execution,
+                now,
+              }))
+            ) {
+              return { status: ReviewInvocationLeaseAcquireStatus.InputStale };
+            }
+            // Input admission may wait on current-authority locks. All deadline and
+            // lease-duration decisions use the database clock after those waits.
+            now = await databaseNow(transaction);
             let decision = await decideLeaseAcquireForSnapshot(
               transaction,
               snapshot,
@@ -822,6 +838,13 @@ export class PrismaReviewExecutionStore
           command.purpose === ReviewInvocationLeasePurpose.ProviderExecution &&
           isLegacyProviderVoteLaneUniqueConstraintError(error)
         ) {
+          // The 000079 bridge has no expiresAt filter, so a crashed run's
+          // stale lease must be expired here or it busy-polls the whole lane.
+          const laneClear =
+            await this.reclaimStaleProviderVoteLaneIncumbent(command);
+          if (laneClear && attempt < acquireTransactionRetryLimit) {
+            continue;
+          }
           return { status: ReviewInvocationLeaseAcquireStatus.Busy };
         }
         if (isUniqueConstraintError(error)) {
@@ -1544,6 +1567,70 @@ export class PrismaReviewExecutionStore
     return { status: ReviewExecutionAdmissionStatus.ConcurrencyConflict };
   }
 
+  // Mirrors the 000079 bridge trigger's account-wide lane scope: report a
+  // live incumbent busy, expire incumbents already past expiresAt.
+  private async reclaimStaleProviderVoteLaneIncumbent(
+    command: AcquireReviewInvocationLeaseCommand,
+  ): Promise<boolean> {
+    try {
+      return await this.prisma.$transaction(
+        async (transaction) => {
+          const now = await databaseNow(transaction);
+          const incumbentRecords =
+            await transaction.reviewInvocationLeaseV2.findMany({
+              where: {
+                providerVoteIdentityHash: command.providerVoteIdentityHash,
+                purpose: leasePurposeToPrisma(
+                  ReviewInvocationLeasePurpose.ProviderExecution,
+                ),
+                state: PrismaLeaseState.active,
+              },
+              orderBy: { leaseId: "asc" },
+            });
+          if (
+            incumbentRecords.some(
+              (record) => leaseToDomain(record).expiresAt > now,
+            )
+          ) {
+            return false;
+          }
+          for (const incumbentRecord of incumbentRecords) {
+            const incumbent = leaseToDomain(incumbentRecord);
+            const incumbentExecutionRecord =
+              await transaction.reviewExecutionV2.findUnique({
+                where: { executionId: incumbent.executionId },
+              });
+            const incumbentExecution = incumbentExecutionRecord
+              ? await loadExecution(transaction, incumbentExecutionRecord)
+              : null;
+            const expiry = decideLeaseExpiry({
+              lease: incumbent,
+              execution: incumbentExecution,
+              now,
+            });
+            await persistLeaseTransition(
+              transaction,
+              incumbent,
+              expiry.lease,
+              incumbentExecution,
+              expiry.execution,
+              this.options.progressCapture,
+            );
+          }
+          return true;
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (error) {
+      if (isSerializationError(error)) {
+        // A concurrent renew or reclaim won the race; the caller retries and
+        // re-observes the lane.
+        return true;
+      }
+      throw error;
+    }
+  }
+
   private async resolveLeaseAcquireRace(
     command: AcquireReviewInvocationLeaseCommand,
   ): Promise<ReviewInvocationLeaseAcquireResult> {
@@ -1575,6 +1662,9 @@ export class PrismaReviewExecutionStore
           select: { leaseId: true },
         });
         if (incumbent !== null) {
+          // Expire a stale incumbent so the lane unblocks on the next attempt;
+          // never reinterpret that incumbent as joinable.
+          await this.reclaimStaleProviderVoteLaneIncumbent(command);
           return { status: ReviewInvocationLeaseAcquireStatus.Busy };
         }
       }
@@ -2647,6 +2737,9 @@ function isLegacyProviderVoteLaneUniqueConstraintError(
   if (!isUniqueConstraintError(error)) return false;
   const legacyConstraint =
     "ReviewInvocationLeaseV2_one_active_provider_vote_lane";
+  // The bridge RAISE uses this stable message; driver adapters surface it as
+  // originalMessage without the constraint identity.
+  const legacyBridgeMessage = "mixed-version provider vote lane is busy";
   let metadata = "";
   try {
     metadata = JSON.stringify(error.meta) ?? "";
@@ -2655,7 +2748,9 @@ function isLegacyProviderVoteLaneUniqueConstraintError(
   }
   return (
     metadata.includes(legacyConstraint) ||
-    error.message.includes(legacyConstraint)
+    metadata.includes(legacyBridgeMessage) ||
+    error.message.includes(legacyConstraint) ||
+    error.message.includes(legacyBridgeMessage)
   );
 }
 

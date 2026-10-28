@@ -7,6 +7,7 @@ import {
   mkdtemp,
   realpath,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -401,10 +402,12 @@ describe("Codex rotating GitHub Action runtime", () => {
         GITHUB_TOKEN: "source-github-token",
         OPENAI_API_KEY: "source-openai-key",
         REVIEW_THREAD_LIFECYCLE_RESOLVE_TOKEN: "source-lifecycle-token",
+        CODEX_REASONING_EFFORT: "xhigh",
+        CODEX_FAST_MODE: "true",
       },
       inputs: {
         mode: "fork-agentic-sandbox",
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         providerInstanceId: "codex-rotating:123456",
         workflowSchemaVersion: 1,
         reviewDrafts: false,
@@ -430,6 +433,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       runtimeConfigVersion: 7,
       runtimeEnv: {
         REVIEW_PROVIDERS: "codex/gpt-5.5",
+        REVIEW_AUTH_MODE: "codex-account-gateway",
       },
       reviewThreadLifecycleResolveToken: "repo-scoped-lifecycle-token",
       reviewSnapshotInputPath: "/tmp/home/snapshot-input.json",
@@ -447,11 +451,13 @@ describe("Codex rotating GitHub Action runtime", () => {
     expect(childEnv.REVIEWROUTER_COMMENT_TOKEN_EXPIRES_AT).toBe(
       "2026-07-16T14:00:00.000Z",
     );
-    expect(childEnv.REVIEWROUTER_API_URL).toBe("https://api.reviewrouter.site");
+    expect(childEnv.REVIEWROUTER_API_URL).toBe("https://api.reviewrouter.org");
     expect(childEnv.REVIEWROUTER_CONTROL_PLANE_URL).toBe(
-      "https://api.reviewrouter.site",
+      "https://api.reviewrouter.org",
     );
     expect(childEnv.OPENAI_API_KEY).toBeUndefined();
+    expect(childEnv.CODEX_REASONING_EFFORT).toBeUndefined();
+    expect(childEnv.CODEX_FAST_MODE).toBeUndefined();
     expect(childEnv.REVIEW_THREAD_LIFECYCLE_RESOLVE_TOKEN).toBe(
       "repo-scoped-lifecycle-token",
     );
@@ -495,7 +501,7 @@ describe("Codex rotating GitHub Action runtime", () => {
 
   it("reads hyphenated GitHub action inputs without reading auth-json", () => {
     const inputs = readActionInputs({
-      "INPUT_API-URL": "https://api.reviewrouter.site/",
+      "INPUT_API-URL": "https://api.reviewrouter.org/",
       "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
       "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
       "INPUT_CLAUDE-CODE-OAUTH-TOKEN": " sk-ant-oat01-provider-secret\n",
@@ -504,7 +510,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     });
 
     expect(inputs).toMatchObject({
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       workflowSchemaVersion: 1,
       reviewDrafts: false,
@@ -521,7 +527,7 @@ describe("Codex rotating GitHub Action runtime", () => {
   it("prefers the explicit control-plane URL action input over api-url", () => {
     const inputs = readActionInputs({
       "INPUT_CONTROL-PLANE-URL": "https://self-hosted.reviewrouter.test/",
-      "INPUT_API-URL": "https://api.reviewrouter.site/",
+      "INPUT_API-URL": "https://api.reviewrouter.org/",
       "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
     });
 
@@ -531,7 +537,7 @@ describe("Codex rotating GitHub Action runtime", () => {
   it("accepts underscore control plane URL inputs from workflow shims", () => {
     const inputs = readActionInputs({
       INPUT_CONTROL_PLANE_URL: "https://control-plane.internal/",
-      INPUT_API_URL: "https://api.reviewrouter.site/",
+      INPUT_API_URL: "https://api.reviewrouter.org/",
       INPUT_PROVIDER_INSTANCE_ID: "codex-rotating:123456",
     });
 
@@ -543,7 +549,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       sourceEnv: { PATH: "/usr/bin" },
       inputs: {
         mode: "codex-oauth-rotating",
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         providerInstanceId: "codex-rotating:123456",
         workflowSchemaVersion: 1,
         reviewDrafts: false,
@@ -586,7 +592,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       sourceEnv: { PATH: "/usr/bin" },
       inputs: {
         mode: "codex-oauth-rotating",
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         providerInstanceId: "codex-rotating:123456",
         workflowSchemaVersion: 1,
         reviewDrafts: false,
@@ -627,14 +633,14 @@ describe("Codex rotating GitHub Action runtime", () => {
   it("reads an exact boolean draft review action input", () => {
     expect(
       readActionInputs({
-        "INPUT_API-URL": "https://api.reviewrouter.site/",
+        "INPUT_API-URL": "https://api.reviewrouter.org/",
         "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
         "INPUT_REVIEW-DRAFTS": "true",
       }).reviewDrafts,
     ).toBe(true);
     expect(() =>
       readActionInputs({
-        "INPUT_API-URL": "https://api.reviewrouter.site/",
+        "INPUT_API-URL": "https://api.reviewrouter.org/",
         "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
         "INPUT_REVIEW-DRAFTS": "yes",
       }),
@@ -644,14 +650,14 @@ describe("Codex rotating GitHub Action runtime", () => {
   it("reads a non-negative changed-line limit", () => {
     expect(
       readActionInputs({
-        "INPUT_API-URL": "https://api.reviewrouter.site/",
+        "INPUT_API-URL": "https://api.reviewrouter.org/",
         "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
         "INPUT_MAX-CHANGED-LINES": "10000",
       }).maxChangedLines,
     ).toBe(10_000);
     expect(() =>
       readActionInputs({
-        "INPUT_API-URL": "https://api.reviewrouter.site/",
+        "INPUT_API-URL": "https://api.reviewrouter.org/",
         "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
         "INPUT_MAX-CHANGED-LINES": "-1",
       }),
@@ -661,7 +667,7 @@ describe("Codex rotating GitHub Action runtime", () => {
   it("reads a bounded repository review timeout", () => {
     expect(
       readActionInputs({
-        "INPUT_API-URL": "https://api.reviewrouter.site/",
+        "INPUT_API-URL": "https://api.reviewrouter.org/",
         "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
         "INPUT_REVIEW-TIMEOUT-MINUTES": "180",
       }).reviewTimeoutMinutes,
@@ -669,7 +675,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     for (const value of ["9", "361", "1.5"]) {
       expect(() =>
         readActionInputs({
-          "INPUT_API-URL": "https://api.reviewrouter.site/",
+          "INPUT_API-URL": "https://api.reviewrouter.org/",
           "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
           "INPUT_REVIEW-TIMEOUT-MINUTES": value,
         }),
@@ -693,7 +699,7 @@ describe("Codex rotating GitHub Action runtime", () => {
   it("reads fork agentic sandbox action inputs through the rotating contract", () => {
     const inputs = readActionInputs({
       INPUT_MODE: "fork-agentic-sandbox",
-      "INPUT_API-URL": "https://api.reviewrouter.site/",
+      "INPUT_API-URL": "https://api.reviewrouter.org/",
       "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
       "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
       "INPUT_CLAUDE-CODE-OAUTH-TOKEN": " sk-ant-oat01-provider-secret\n",
@@ -701,7 +707,7 @@ describe("Codex rotating GitHub Action runtime", () => {
 
     expect(inputs).toMatchObject({
       mode: "fork-agentic-sandbox",
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       workflowSchemaVersion: 1,
       reviewDrafts: false,
@@ -773,7 +779,7 @@ describe("Codex rotating GitHub Action runtime", () => {
           protocolVersion: 1,
           grant: "opaque-hosted-grant",
           relayUrl:
-            "https://api.reviewrouter.site/api/action/v1/hosted-codex/responses",
+            "https://api.reviewrouter.org/api/action/v1/hosted-codex/responses",
           invocationLeaseId: "hosted-lease-1",
           runtimeConfigVersion: 9,
           runtimeEnv: {
@@ -883,7 +889,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     });
     const env: NodeJS.ProcessEnv = {
       INPUT_MODE: "fork-agentic-sandbox-hosted-pool",
-      "INPUT_API-URL": "https://api.reviewrouter.site/",
+      "INPUT_API-URL": "https://api.reviewrouter.org/",
       "INPUT_PROVIDER-INSTANCE-ID": "hosted-pool:repository:777",
       "INPUT_WORKFLOW-SCHEMA-VERSION": "5",
       "INPUT_SESSION-BINDING-ID": "binding-123",
@@ -986,7 +992,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     const stderr = vi.fn();
     const env: NodeJS.ProcessEnv = {
       INPUT_MODE: "fork-agentic-sandbox-hosted-pool",
-      "INPUT_API-URL": "https://api.reviewrouter.site/",
+      "INPUT_API-URL": "https://api.reviewrouter.org/",
       "INPUT_PROVIDER-INSTANCE-ID": "codex-hosted:123456",
       "INPUT_WORKFLOW-SCHEMA-VERSION": "5",
       "INPUT_SESSION-BINDING-ID": "binding-123",
@@ -1114,6 +1120,19 @@ describe("Codex rotating GitHub Action runtime", () => {
         return jsonResponse({ value: "oidc.jwt.value" });
       }
       if (href.endsWith("/api/action/v1/codex-oauth/prelease")) {
+        // bb277462 installed APIs reject unknown JSON fields before admission.
+        expect(Object.keys(JSON.parse(String(init?.body))).sort()).toEqual([
+          "oidcToken",
+          "providerInstanceId",
+          "workflowSchemaVersion",
+        ]);
+        const header = new Headers(init?.headers).get(
+          "x-reviewrouter-usage-public-key",
+        );
+        expect(header).toMatch(/^[A-Za-z0-9_-]+$/);
+        expect(Buffer.from(header!, "base64url").toString("utf8")).toContain(
+          "-----BEGIN PUBLIC KEY-----",
+        );
         return jsonResponse({
           leaseId: "lease_1",
           generationHashSalt: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
@@ -1205,6 +1224,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       expect(config).toContain('model_provider = "reviewrouter_proxy"');
       expect(config).toContain('wire_api = "responses"');
       expect(config).toContain('sandbox_mode = "read-only"');
+      expect(config).toContain('web_search = "disabled"');
       expect(config).not.toContain("refreshed-access-token");
       expect(() =>
         readFileSync(join(input.tempCodexHome, "auth.json"), "utf8"),
@@ -1215,7 +1235,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       await runCodexRotatingGitHubAction({
         env: {
           INPUT_MODE: "fork-agentic-sandbox",
-          "INPUT_API-URL": "https://api.reviewrouter.site/",
+          "INPUT_API-URL": "https://api.reviewrouter.org/",
           "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
           "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
           "INPUT_AUTH-JSON": JSON.stringify({
@@ -1391,7 +1411,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       await runCodexRotatingGitHubAction({
         env: {
           INPUT_MODE: "codex-oauth-refresh",
-          "INPUT_API-URL": "https://api.reviewrouter.site/",
+          "INPUT_API-URL": "https://api.reviewrouter.org/",
           "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
           "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
           "INPUT_AUTH-JSON": JSON.stringify({
@@ -1479,7 +1499,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       await expect(
         runCodexRotatingGitHubAction({
           env: {
-            "INPUT_API-URL": "https://api.reviewrouter.site/",
+            "INPUT_API-URL": "https://api.reviewrouter.org/",
             "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
             "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
             GITHUB_EVENT_NAME: "pull_request",
@@ -1517,7 +1537,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       }),
     );
     const baseEnv = {
-      "INPUT_API-URL": "https://api.reviewrouter.site/",
+      "INPUT_API-URL": "https://api.reviewrouter.org/",
       "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
       GITHUB_EVENT_PATH: eventPath,
       GITHUB_REPOSITORY: "777genius/agent-teams-ai",
@@ -1588,7 +1608,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     const fetchImpl = vi.fn() as unknown as typeof fetch;
     const stdout = { write: vi.fn() };
     const env = {
-      "INPUT_API-URL": "https://api.reviewrouter.site/",
+      "INPUT_API-URL": "https://api.reviewrouter.org/",
       "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
       "INPUT_REVIEW-DRAFTS": "true",
       "INPUT_MAX-CHANGED-LINES": "10000",
@@ -1669,7 +1689,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       await expect(
         runCodexRotatingGitHubAction({
           env: {
-            "INPUT_API-URL": "https://api.reviewrouter.site/",
+            "INPUT_API-URL": "https://api.reviewrouter.org/",
             "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
             "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
             "INPUT_AUTH-JSON": JSON.stringify({
@@ -1741,7 +1761,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     }) as unknown as typeof fetch;
 
     const env = {
-      "INPUT_API-URL": "https://api.reviewrouter.site/",
+      "INPUT_API-URL": "https://api.reviewrouter.org/",
       "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
       "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
       ACTIONS_ID_TOKEN_REQUEST_URL:
@@ -1817,7 +1837,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       await expect(
         runCodexRotatingGitHubAction({
           env: {
-            "INPUT_API-URL": "https://api.reviewrouter.site/",
+            "INPUT_API-URL": "https://api.reviewrouter.org/",
             "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
             "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
             ACTIONS_ID_TOKEN_REQUEST_URL:
@@ -2350,7 +2370,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     ]);
   });
 
-  it("runs fork sandbox E2E with certified provider context in the child runtime", async () => {
+  async function runForkSandboxE2E(installMissingClaude = false) {
     const tempDir = await mkdtemp(join(tmpdir(), "reviewrouter-fork-e2e-"));
     const binDir = join(tempDir, "bin");
     const eventPath = join(tempDir, "event.json");
@@ -2367,6 +2387,8 @@ describe("Codex rotating GitHub Action runtime", () => {
     const fakeFullRuntime = join(tempDir, "dist", "index.js");
     const runtimeEnvLog = join(tempDir, "fork-runtime-env.json");
     const claudeInstallEnvLog = join(tempDir, "claude-install-env.json");
+    const curlEnvLog = join(tempDir, "curl-env.json");
+    const installerEnvLog = join(tempDir, "installer-env.json");
     const invokedUrls: string[] = [];
     const requestBodies: string[] = [];
     const refreshedAuthJson = JSON.stringify({
@@ -2426,23 +2448,83 @@ describe("Codex rotating GitHub Action runtime", () => {
       { mode: 0o700 },
     );
     await writeCodexManifest(fakeCodex);
-    await writeFile(
-      fakeClaude,
-      [
-        "#!/usr/bin/env node",
-        "const { writeFileSync } = require('node:fs');",
-        `writeFileSync(${JSON.stringify(claudeInstallEnvLog)}, JSON.stringify({`,
-        "  cwd: process.cwd(),",
-        "  githubToken: process.env.GITHUB_TOKEN,",
-        "  claudeToken: process.env.CLAUDE_CODE_OAUTH_TOKEN,",
-        "  openrouterKey: process.env.OPENROUTER_API_KEY,",
-        "  path: process.env.PATH,",
-        "}));",
-        "process.stdout.write('claude 1.0.0\\n');",
+    const fakeClaudeSource = [
+      "#!/usr/bin/env node",
+      "const { writeFileSync } = require('node:fs');",
+      `writeFileSync(${JSON.stringify(claudeInstallEnvLog)}, JSON.stringify({`,
+      "  cwd: process.cwd(),",
+      "  home: process.env.HOME,",
+      "  githubToken: process.env.GITHUB_TOKEN,",
+      "  claudeToken: process.env.CLAUDE_CODE_OAUTH_TOKEN,",
+      "  openrouterKey: process.env.OPENROUTER_API_KEY,",
+      "  path: process.env.PATH,",
+      "}));",
+      "process.stdout.write('claude 1.0.0\\n');",
+      "",
+    ].join("\n");
+    if (installMissingClaude) {
+      // A closed PATH prevents a machine-installed Claude or curl from hiding
+      // the installer branch or reaching the network.
+      await symlink(process.execPath, join(binDir, "node"));
+      const realBash = execFileSync("bash", ["-c", "command -v bash"], {
+        encoding: "utf8",
+      }).trim();
+      for (const tool of ["tar", "gzip"]) {
+        const executable = execFileSync(
+          realBash,
+          ["-c", 'command -v "$1"', "fixture", tool],
+          { encoding: "utf8" },
+        ).trim();
+        await symlink(executable, join(binDir, tool));
+      }
+      await writeFile(
+        join(binDir, "bash"),
+        [
+          "#!/usr/bin/env node",
+          "const { spawnSync } = require('node:child_process');",
+          "const { realpathSync, writeFileSync } = require('node:fs');",
+          "const { basename, dirname, join } = require('node:path');",
+          "const args = process.argv.slice(2);",
+          "if (!['-c', '-s'].includes(args[0])) throw new Error('fixture_refuses_login_shell');",
+          "const home = realpathSync(process.env.HOME);",
+          `if (dirname(home) !== realpathSync(${JSON.stringify(tmpdir())}) || !basename(home).startsWith('reviewrouter-review-home-')) throw new Error('fixture_requires_owned_review_home');`,
+          // Only the Action's disposable home receives this profile. The real
+          // non-login Bash must ignore it, including when executing the pipe.
+          "if (args[0] === '-c') writeFileSync(join(home, '.bash_profile'), 'exit 93\\n', { flag: 'wx', mode: 0o600 });",
+          `const result = spawnSync(${JSON.stringify(realBash)}, args, { env: process.env, stdio: 'inherit' });`,
+          "process.exit(result.status ?? 1);",
+          "",
+        ].join("\n"),
+        { mode: 0o700 },
+      );
+      const installer = [
+        "node <<'REVIEW_ROUTER_TEST_INSTALLER'",
+        "const { mkdirSync, writeFileSync } = require('node:fs');",
+        "const { dirname, join } = require('node:path');",
+        `writeFileSync(${JSON.stringify(installerEnvLog)}, JSON.stringify(process.env));`,
+        "const cli = join(process.env.HOME, '.local', 'bin', 'claude');",
+        "mkdirSync(dirname(cli), { recursive: true });",
+        `writeFileSync(cli, ${JSON.stringify(fakeClaudeSource)}, { mode: 0o700 });`,
+        "REVIEW_ROUTER_TEST_INSTALLER",
         "",
-      ].join("\n"),
-      { mode: 0o700 },
-    );
+      ].join("\n");
+      await writeFile(
+        join(binDir, "curl"),
+        [
+          "#!/usr/bin/env node",
+          "const { existsSync, writeFileSync } = require('node:fs');",
+          "const { join } = require('node:path');",
+          "const args = process.argv.slice(2);",
+          "if (JSON.stringify(args) !== JSON.stringify(['-fsSL', 'https://claude.ai/install.sh'])) throw new Error('unexpected_fixture_download');",
+          `writeFileSync(${JSON.stringify(curlEnvLog)}, JSON.stringify({ env: process.env, profileExists: existsSync(join(process.env.HOME, '.bash_profile')) }));`,
+          `process.stdout.write(${JSON.stringify(installer)});`,
+          "",
+        ].join("\n"),
+        { mode: 0o700 },
+      );
+    } else {
+      await writeFile(fakeClaude, fakeClaudeSource, { mode: 0o700 });
+    }
     await writeFile(
       fakeFullRuntime,
       [
@@ -2453,6 +2535,8 @@ describe("Codex rotating GitHub Action runtime", () => {
         "const config = readFileSync(configPath, 'utf8');",
         `writeFileSync(${JSON.stringify(runtimeEnvLog)}, JSON.stringify({`,
         "  cwd: process.cwd(),",
+        "  home: process.env.HOME,",
+        "  path: process.env.PATH,",
         "  githubWorkspace: process.env.GITHUB_WORKSPACE,",
         "  safeFileExists: existsSync(join(process.cwd(), 'file.ts')),",
         "  relatedFileExists: existsSync(join(process.cwd(), 'related.ts')),",
@@ -2494,7 +2578,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       { mode: 0o700 },
     );
     await chmod(fakeCodex, 0o700);
-    await chmod(fakeClaude, 0o700);
+    if (!installMissingClaude) await chmod(fakeClaude, 0o700);
     await chmod(fakeFullRuntime, 0o700);
 
     const fetchImpl = vi.fn(async (url: string | URL, init?: RequestInit) => {
@@ -2579,7 +2663,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       await runCodexRotatingGitHubAction({
         env: {
           INPUT_MODE: "fork-agentic-sandbox",
-          "INPUT_API-URL": "https://api.reviewrouter.site/",
+          "INPUT_API-URL": "https://api.reviewrouter.org/",
           "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
           "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
           "INPUT_CLAUDE-CODE-OAUTH-TOKEN": "sk-ant-oat01-claude-input",
@@ -2611,7 +2695,9 @@ describe("Codex rotating GitHub Action runtime", () => {
           DB_PASSWORD: "db-password-inherited",
           CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-inherited",
           OPENROUTER_API_KEY: "sk-or-inherited",
-          PATH: `${binDir}:${process.env.PATH ?? ""}`,
+          PATH: installMissingClaude
+            ? binDir
+            : `${binDir}:${process.env.PATH ?? ""}`,
           ...supportedRunnerEnv(tempDir),
         },
         fetchImpl,
@@ -2688,6 +2774,31 @@ describe("Codex rotating GitHub Action runtime", () => {
       expect(claudeInstallEnv.githubToken).toBeUndefined();
       expect(claudeInstallEnv.claudeToken).toBeUndefined();
       expect(claudeInstallEnv.openrouterKey).toBeUndefined();
+      expect(claudeInstallEnv.home).toBe(reviewEnv.home);
+      expect(claudeInstallEnv.path).toBe(reviewEnv.path);
+      expect(String(claudeInstallEnv.path).split(":")).toContain(binDir);
+      if (installMissingClaude) {
+        const curlReceipt = JSON.parse(readFileSync(curlEnvLog, "utf8")) as {
+          env: Record<string, string>;
+          profileExists: boolean;
+        };
+        expect(curlReceipt.profileExists).toBe(true);
+        const installerEnv = JSON.parse(
+          readFileSync(installerEnvLog, "utf8"),
+        ) as Record<string, string>;
+        for (const toolEnv of [curlReceipt.env, installerEnv]) {
+          expect(toolEnv.HOME).toBe(reviewEnv.home);
+          expect(toolEnv.PATH).toBe(reviewEnv.path);
+          expect(toolEnv.CI).toBe("true");
+          expect(
+            Object.keys(toolEnv).filter(
+              (key) =>
+                !["HOME", "PATH", "CI", "PWD", "SHLVL", "_"].includes(key),
+            ),
+          ).toEqual([]);
+        }
+        expect(existsSync(fakeClaude)).toBe(false);
+      }
       expect(
         stdoutWrite.mock.calls.map(([chunk]) => String(chunk)).join(""),
       ).toContain("fork runtime marker");
@@ -2697,7 +2808,19 @@ describe("Codex rotating GitHub Action runtime", () => {
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
-  }, 60_000);
+  }
+
+  it(
+    "runs fork sandbox E2E with certified provider context in the child runtime",
+    () => runForkSandboxE2E(),
+    60_000,
+  );
+
+  it(
+    "installs missing Claude through a real non-login shell with an isolated environment",
+    () => runForkSandboxE2E(true),
+    60_000,
+  );
 
   it("runs the local Action transport with MiMo and existing provider keys isolated and masked", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "reviewrouter-action-e2e-"));
@@ -2856,6 +2979,7 @@ describe("Codex rotating GitHub Action runtime", () => {
         `writeFileSync(${JSON.stringify(codexReviewEnvLog)}, JSON.stringify({`,
         "  codexHome: process.env.CODEX_HOME,",
         "  home: process.env.HOME,",
+        "  path: process.env.PATH,",
         "  authExists: existsSync(join(process.env.CODEX_HOME, 'auth.json')),",
         "  codexBinExists: existsSync(codexBin),",
         "  configIncludesProxy: config.includes('model_provider = \"reviewrouter_proxy\"'),",
@@ -3106,7 +3230,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     try {
       await runCodexRotatingGitHubAction({
         env: {
-          "INPUT_API-URL": "https://api.reviewrouter.site/",
+          "INPUT_API-URL": "https://api.reviewrouter.org/",
           "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
           "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
           "INPUT_CLAUDE-CODE-OAUTH-TOKEN": "sk-ant-oat01-claude-input",
@@ -3250,7 +3374,7 @@ describe("Codex rotating GitHub Action runtime", () => {
         runtimeMode: "static",
         commentTokenMode: "codex-oauth-rotating",
         commentTokenRefreshUrl:
-          "https://api.reviewrouter.site/api/action/v1/codex-oauth/comment-token",
+          "https://api.reviewrouter.org/api/action/v1/codex-oauth/comment-token",
         commentTokenLeaseId: "lease_1",
         commentTokenProviderInstanceId: "codex-rotating:123456",
         scmProvider: "github",
@@ -3288,6 +3412,8 @@ describe("Codex rotating GitHub Action runtime", () => {
       expect(claudeInstallEnv.claudeToken).toBeUndefined();
       expect(claudeInstallEnv.openrouterKey).toBeUndefined();
       expect(claudeInstallEnv.home).toBe(reviewEnv.home);
+      expect(claudeInstallEnv.path).toBe(reviewEnv.path);
+      expect(String(claudeInstallEnv.path).split(":")).toContain(binDir);
       expect(String(reviewEnv.githubOutput)).toContain("github-output");
       const childStdout = stdoutWrite.mock.calls
         .map(([chunk]) => String(chunk))
@@ -3547,7 +3673,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       try {
         await runCodexRotatingGitHubAction({
           env: {
-            "INPUT_API-URL": "https://api.reviewrouter.site/",
+            "INPUT_API-URL": "https://api.reviewrouter.org/",
             "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
             "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
             "INPUT_AUTH-JSON": JSON.stringify({
@@ -3699,7 +3825,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       await expect(
         runCodexRotatingGitHubAction({
           env: {
-            "INPUT_API-URL": "https://api.reviewrouter.site/",
+            "INPUT_API-URL": "https://api.reviewrouter.org/",
             "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
             "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
             "INPUT_AUTH-JSON": JSON.stringify({
@@ -3821,7 +3947,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       await expect(
         runCodexRotatingGitHubAction({
           env: {
-            "INPUT_API-URL": "https://api.reviewrouter.site/",
+            "INPUT_API-URL": "https://api.reviewrouter.org/",
             "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
             "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
             "INPUT_AUTH-JSON": JSON.stringify({
@@ -3947,6 +4073,31 @@ function processIsAlive(pid: number): boolean {
   }
 }
 
+function processFailureDiagnostic(pid: number): string {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    // The parenthesized command may contain spaces and closing parentheses.
+    // Read only the following state and PPID; never expose command or argv.
+    const fields = stat
+      .slice(stat.lastIndexOf(")") + 1)
+      .trim()
+      .split(/\s+/u);
+    const state = /^[RSDZTtXxKWPI]$/u.test(fields[0] ?? "")
+      ? fields[0]
+      : "other";
+    const parentPid = /^\d+$/u.test(fields[1] ?? "")
+      ? Number(fields[1])
+      : Number.NaN;
+    const ppid =
+      Number.isSafeInteger(parentPid) && parentPid >= 0
+        ? String(parentPid)
+        : "other";
+    return `state=${state}:ppid=${ppid}`;
+  } catch {
+    return "state=unavailable:ppid=unavailable";
+  }
+}
+
 async function waitForFileContents(
   path: string,
   timeoutMs: number,
@@ -3967,7 +4118,11 @@ async function expectProcessToExit(pid: number): Promise<void> {
     if (!processIsAlive(pid)) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error(`process_still_alive:${pid}`);
+  // A zombie still fails the existing strict assertion, but is distinguishable
+  // from a running descendant on runners whose PID 1 has not reaped it.
+  throw new Error(
+    `process_still_alive:${pid}:${processFailureDiagnostic(pid)}`,
+  );
 }
 
 describe("default-off certified fork Action ingress", () => {
@@ -3994,7 +4149,7 @@ describe("default-off certified fork Action ingress", () => {
 
   it("reads the explicit mode/schema contract without changing ordinary defaults", () => {
     const config = {
-      "INPUT_API-URL": "https://api.reviewrouter.site",
+      "INPUT_API-URL": "https://api.reviewrouter.org",
       "INPUT_PROVIDER-INSTANCE-ID": "provider",
     };
     expect(readActionInputs(config).mode).toBe("codex-oauth-rotating");
@@ -4050,7 +4205,7 @@ describe("default-off certified fork Action ingress", () => {
     const env: NodeJS.ProcessEnv = {
       INPUT_MODE: "fork_prompt_only_v2",
       "INPUT_WORKFLOW-SCHEMA-VERSION": "6",
-      "INPUT_API-URL": "https://api.reviewrouter.site",
+      "INPUT_API-URL": "https://api.reviewrouter.org",
       GITHUB_EVENT_NAME: "pull_request_target",
       GITHUB_EVENT_PATH: path,
       GITHUB_REPOSITORY: "base/project",
@@ -4091,7 +4246,7 @@ describe("default-off certified fork Action ingress", () => {
       });
       expect(fetchImpl).toHaveBeenCalledTimes(2);
       expect(fetchImpl.mock.calls[1]?.[0]).toBe(
-        "https://api.reviewrouter.site/api/action/v1/certified-fork/review",
+        "https://api.reviewrouter.org/api/action/v1/certified-fork/review",
       );
       const body = JSON.parse(
         String((fetchImpl.mock.calls[1]?.[1] as RequestInit).body),

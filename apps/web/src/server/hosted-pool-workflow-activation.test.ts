@@ -75,6 +75,27 @@ describe("activateConfirmedHostedPoolBindingAfterWorkflowMerge", () => {
     );
   });
 
+  it("accepts the retained public API alias without rewriting Hosted Pool evidence", async () => {
+    const source = workflow.replace(
+      "https://api.reviewrouter.test",
+      "https://api.reviewrouter.site",
+    );
+    const fixture = createFixture(commitSha, source);
+    fixture.input.expectedApiUrl = "https://api.reviewrouter.org";
+    await expect(
+      activateConfirmedHostedPoolBindingAfterWorkflowMerge(fixture.input),
+    ).resolves.toMatchObject({ status: "activated", bindingRevision: 3 });
+    expect(fixture.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          workflowSourceSha256: createHash("sha256")
+            .update(source)
+            .digest("hex"),
+        }),
+      }),
+    );
+  });
+
   it("fails closed if default-branch head moves during verification", async () => {
     const fixture = createFixture("c".repeat(40));
     await expect(

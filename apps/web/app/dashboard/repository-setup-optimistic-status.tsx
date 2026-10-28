@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { RepositorySetupStepId } from "@reviewrouter/features-provider-setup";
 import type { ProviderAuthMode } from "@reviewrouter/features-review-providers";
 import {
   providerSetupConfirmedEventName,
@@ -9,37 +10,49 @@ import {
   type SetupPullRequestMergedEventDetail,
 } from "./repository-setup-optimistic-events";
 
-type SetupStep = 1 | 2 | 3 | 4;
+export type SetupStep = RepositorySetupStepId;
 
-export function RepositorySetupDisclosureToggle({
-  repositoryId,
-  disclosureId,
-  currentStep,
-  expectedProviderAuthModes = [],
-}: {
-  readonly repositoryId: string;
-  readonly disclosureId: string;
-  readonly currentStep: SetupStep;
-  readonly expectedProviderAuthModes?: readonly ProviderAuthMode[];
-}): React.ReactElement {
-  const optimisticStep = useOptimisticSetupStep({
+/** Position of each setup step in the stepper. */
+export const setupStepNumber: Readonly<Record<SetupStep, 1 | 2 | 3 | 4>> = {
+  setup_pr: 1,
+  merge_setup_pr: 2,
+  provider: 3,
+  ready: 4,
+};
+
+/** A credential confirmation cannot complete an unfinished workflow setup. */
+export function hasCompletedWorkflowSetup(step: SetupStep): boolean {
+  return setupStepNumber[step] >= setupStepNumber.provider;
+}
+
+export function repositorySetupScopeKey(
+  repositoryId: string,
+  expectedProviderAuthModes: readonly ProviderAuthMode[],
+): string {
+  return JSON.stringify([
     repositoryId,
-    currentStep,
-    expectedProviderAuthModes,
-  });
+    [...new Set(expectedProviderAuthModes)].sort(),
+  ]);
+}
 
-  const isComplete = optimisticStep === 4;
+export function repositorySetupStepPillClassName(isComplete: boolean): string {
+  return [
+    "setup-toggle inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-2.5 font-mono text-xs font-semibold uppercase tracking-[0.12em] transition duration-200 ease-out hover:saturate-125",
+    isComplete
+      ? "border-emerald-300/40 bg-emerald-400/[0.09] text-emerald-100 hover:border-emerald-300/60 hover:bg-emerald-400/[0.14]"
+      : "border-cyan-300/25 bg-cyan-300/[0.035] text-cyan-100 hover:border-cyan-300/50 hover:bg-cyan-300/[0.075]",
+  ].join(" ");
+}
+
+export function RepositorySetupStepPillBody({
+  step,
+}: {
+  readonly step: SetupStep;
+}): React.ReactElement {
+  const isComplete = step === "ready";
+
   return (
-    <label
-      htmlFor={disclosureId}
-      title={repositorySetupProgressSummary(optimisticStep)}
-      className={[
-        "setup-toggle inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-2.5 font-mono text-xs font-semibold uppercase tracking-[0.12em] transition duration-200 ease-out hover:saturate-125",
-        isComplete
-          ? "border-emerald-300/40 bg-emerald-400/[0.09] text-emerald-100 hover:border-emerald-300/60 hover:bg-emerald-400/[0.14]"
-          : "border-cyan-300/25 bg-cyan-300/[0.035] text-cyan-100 hover:border-cyan-300/50 hover:bg-cyan-300/[0.075]",
-      ].join(" ")}
-    >
+    <>
       <span>Setup</span>
       <span
         className={[
@@ -47,9 +60,41 @@ export function RepositorySetupDisclosureToggle({
           isComplete ? "text-emerald-200/80" : "text-slate-400",
         ].join(" ")}
       >
-        {optimisticStep}/4
+        {setupStepNumber[step]}/4
       </span>
       {isComplete ? <SetupCompleteCheckIcon /> : <SetupDisclosureChevron />}
+    </>
+  );
+}
+
+export function RepositorySetupDisclosureToggle({
+  repositoryId,
+  disclosureId,
+  currentStep,
+  expectedProviderAuthModes = [],
+  gatewayReviewV2Ready = false,
+}: {
+  readonly repositoryId: string;
+  readonly disclosureId: string;
+  readonly currentStep: SetupStep;
+  readonly expectedProviderAuthModes?: readonly ProviderAuthMode[];
+  readonly gatewayReviewV2Ready?: boolean;
+}): React.ReactElement {
+  const optimisticStep = useOptimisticSetupStep({
+    repositoryId,
+    currentStep,
+    expectedProviderAuthModes,
+    gatewayReviewV2Ready,
+  });
+
+  const isComplete = optimisticStep === "ready";
+  return (
+    <label
+      htmlFor={disclosureId}
+      title={repositorySetupProgressSummary(optimisticStep)}
+      className={repositorySetupStepPillClassName(isComplete)}
+    >
+      <RepositorySetupStepPillBody step={optimisticStep} />
     </label>
   );
 }
@@ -58,45 +103,60 @@ export function RepositorySetupReadyGate({
   repositoryId,
   currentStep,
   expectedProviderAuthModes = [],
+  gatewayReviewV2Ready = false,
   children,
 }: {
   readonly repositoryId: string;
   readonly currentStep: SetupStep;
   readonly expectedProviderAuthModes?: readonly ProviderAuthMode[];
+  readonly gatewayReviewV2Ready?: boolean;
   readonly children: ReactNode;
 }): React.ReactElement | null {
   const optimisticStep = useOptimisticSetupStep({
     repositoryId,
     currentStep,
     expectedProviderAuthModes,
+    gatewayReviewV2Ready,
   });
 
-  return optimisticStep === 4 ? <>{children}</> : null;
+  return optimisticStep === "ready" ? <>{children}</> : null;
 }
 
 function useOptimisticSetupStep({
   repositoryId,
   currentStep,
   expectedProviderAuthModes,
+  gatewayReviewV2Ready,
 }: {
   readonly repositoryId: string;
   readonly currentStep: SetupStep;
   readonly expectedProviderAuthModes: readonly ProviderAuthMode[];
+  readonly gatewayReviewV2Ready: boolean;
 }): SetupStep {
+  const scopeKey = repositorySetupScopeKey(
+    repositoryId,
+    expectedProviderAuthModes,
+  );
+  const [optimisticScopeKey, setOptimisticScopeKey] = useState(scopeKey);
   const [optimisticStep, setOptimisticStep] = useState(currentStep);
   const optimisticProviderAuthModesRef = useRef(new Set<ProviderAuthMode>());
 
   useEffect(() => {
     optimisticProviderAuthModesRef.current = new Set();
+    setOptimisticScopeKey(scopeKey);
     setOptimisticStep(currentStep);
-  }, [currentStep]);
+  }, [currentStep, scopeKey]);
 
   useEffect(() => {
     function handleSetupPullRequestMerged(event: Event): void {
       const detail = (event as CustomEvent<SetupPullRequestMergedEventDetail>)
         .detail;
       if (detail?.repositoryId === repositoryId) {
-        setOptimisticStep((current) => (current < 3 ? 3 : current));
+        setOptimisticStep((current) =>
+          setupStepNumber[current] < setupStepNumber.provider
+            ? "provider"
+            : current,
+        );
       }
     }
 
@@ -119,7 +179,13 @@ function useOptimisticSetupStep({
             expectedProviderAuthModes,
           )
         ) {
-          setOptimisticStep(4);
+          if (
+            !expectedProviderAuthModes.includes("codex_account_gateway") ||
+            gatewayReviewV2Ready
+          )
+            setOptimisticStep((current) =>
+              hasCompletedWorkflowSetup(current) ? "ready" : current,
+            );
         }
       }
     }
@@ -142,9 +208,16 @@ function useOptimisticSetupStep({
         handleProviderSetupConfirmed,
       );
     };
-  }, [expectedProviderAuthModes, repositoryId]);
+  }, [expectedProviderAuthModes, repositoryId, gatewayReviewV2Ready]);
 
-  return optimisticStep;
+  // Do not render the old scope's progress while its reset effect is pending.
+  const scopedStep =
+    optimisticScopeKey === scopeKey ? optimisticStep : currentStep;
+  return scopedStep === "ready" &&
+    expectedProviderAuthModes.includes("codex_account_gateway") &&
+    !gatewayReviewV2Ready
+    ? "provider"
+    : scopedStep;
 }
 
 function providerSetupConfirmationMatchesAnyExpectedAuthMode(
@@ -252,13 +325,13 @@ function SetupCompleteCheckIcon(): React.ReactElement {
 
 function repositorySetupProgressSummary(step: SetupStep): string {
   switch (step) {
-    case 1:
+    case "setup_pr":
       return "1 of 4 - setup PR needed";
-    case 2:
+    case "merge_setup_pr":
       return "2 of 4 - merge setup PR";
-    case 3:
+    case "provider":
       return "3 of 4 - enable review";
-    case 4:
+    case "ready":
       return "4 of 4 - complete";
   }
 }

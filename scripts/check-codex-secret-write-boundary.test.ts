@@ -12,7 +12,11 @@ import { checkCodexSecretWriteBoundary } from "./check-codex-secret-write-bounda
 
 describe("Codex rotating secret write boundary", () => {
   it("accepts the checked-in audited adapters", () => {
-    expect(checkCodexSecretWriteBoundary()).toMatchObject({ status: "pass" });
+    const result = checkCodexSecretWriteBoundary();
+    expect(result).toMatchObject({ status: "pass" });
+    expect(result.auditedAdapters).toContain(
+      "apps/web/src/server/provider-api-key-github-gateway.ts",
+    );
   });
 
   it("accepts hardened flags on continued reseed curl commands", () => {
@@ -34,6 +38,88 @@ describe("Codex rotating secret write boundary", () => {
     );
     expect(() => checkCodexSecretWriteBoundary(root)).toThrow(
       "direct Octokit secret PUT",
+    );
+  });
+
+  const endpointCatalogue = `const endpoints = {
+    actions: { createOrUpdateRepoSecret: ["PUT /repos/{owner}/{repo}/actions/secrets/{secret_name}"] },
+    codespaces: { createOrUpdateRepoSecret: ["PUT /repos/{owner}/{repo}/codespaces/secrets/{secret_name}"] },
+    dependabot: { "createOrUpdateRepoSecret": ["PUT /repos/{owner}/{repo}/dependabot/secrets/{secret_name}"] }
+  };`;
+
+  it("accepts static Octokit endpoint descriptors in a bundled SDK", () => {
+    const root = mkdtempSync(join(tmpdir(), "rr-write-boundary-catalogue-"));
+    mkdirSync(join(root, "action-dist"), { recursive: true });
+    writeFileSync(join(root, "action-dist/index.cjs"), endpointCatalogue);
+
+    expect(checkCodexSecretWriteBoundary(root)).toMatchObject({
+      status: "pass",
+    });
+  });
+
+  it.each([
+    ["direct call", "octokit.rest.actions.createOrUpdateRepoSecret({});"],
+    ["computed call", 'octokit.rest.actions["createOrUpdateRepoSecret"]({});'],
+    [
+      "aliased method",
+      "const write = octokit.rest.actions.createOrUpdateRepoSecret; write({});",
+    ],
+    [
+      "destructured method",
+      "const { createOrUpdateRepoSecret: write } = octokit.rest.actions; write({});",
+    ],
+    [
+      "descriptor used as a request",
+      "octokit.request(...endpoints.actions.createOrUpdateRepoSecret);",
+    ],
+    [
+      "executable descriptor initializer",
+      'const rogue = { createOrUpdateRepoSecret: [octokit.request("PUT /repos/x/y/actions/secrets/SECRET")] };',
+    ],
+    [
+      "invoked descriptor initializer",
+      'const rogue = { createOrUpdateRepoSecret: ["PUT /repos/{owner}/{repo}/actions/secrets/{secret_name}"]({}) };',
+    ],
+    ["unparseable bundle", "const broken = ;"],
+    [
+      "catalogue-looking string",
+      `const text = '{ createOrUpdateRepoSecret: ["PUT /repos/{owner}/{repo}/actions/secrets/{secret_name}"] }';`,
+    ],
+    [
+      "catalogue-looking template",
+      'const text = `{ createOrUpdateRepoSecret: ["PUT /repos/{owner}/{repo}/actions/secrets/{secret_name}"] }`;',
+    ],
+    [
+      "catalogue-looking comment",
+      '/* { createOrUpdateRepoSecret: ["PUT /repos/{owner}/{repo}/actions/secrets/{secret_name}"] } */',
+    ],
+    [
+      "catalogue-looking regular expression",
+      'const pattern = /[{ createOrUpdateRepoSecret: ["PUT /repos/{owner}/{repo}/actions/secrets/{secret_name}"] }]/;',
+    ],
+  ])("rejects %s alongside a static endpoint catalogue", (_, mutation) => {
+    const root = mkdtempSync(join(tmpdir(), "rr-write-boundary-bundle-"));
+    mkdirSync(join(root, "action-dist"), { recursive: true });
+    writeFileSync(
+      join(root, "action-dist/index.cjs"),
+      `${endpointCatalogue}\n${mutation}`,
+    );
+
+    expect(() => checkCodexSecretWriteBoundary(root)).toThrow(
+      "direct Octokit secret PUT outside audited gateway",
+    );
+  });
+
+  it("rejects a direct provider route alongside a static endpoint catalogue", () => {
+    const root = mkdtempSync(join(tmpdir(), "rr-write-boundary-route-"));
+    mkdirSync(join(root, "action-dist"), { recursive: true });
+    writeFileSync(
+      join(root, "action-dist/index.cjs"),
+      `${endpointCatalogue}\noctokit.request("PUT /repos/x/y/actions/secrets/SECRET");`,
+    );
+
+    expect(() => checkCodexSecretWriteBoundary(root)).toThrow(
+      "provider secret PUT outside audited adapter",
     );
   });
 
@@ -74,6 +160,64 @@ describe("Codex rotating secret write boundary", () => {
     mkdirSync(join(file, ".."), { recursive: true });
     writeFileSync(file, source);
     expect(() => checkCodexSecretWriteBoundary(root)).toThrow();
+  });
+
+  it.each([
+    [
+      "unaudited copy of the web one-shot writer",
+      "apps/web/src/server/provider-api-key-github-gateway-copy.ts",
+      1,
+    ],
+    [
+      "second PUT inside the exact audited web path",
+      "apps/web/src/server/provider-api-key-github-gateway.ts",
+      2,
+    ],
+  ])(
+    "rejects provider writes outside exact audited adapter content: %s",
+    (_, relativePath, putCount) => {
+      const root = mkdtempSync(
+        join(tmpdir(), "rr-provider-key-write-boundary-"),
+      );
+      const source = readFileSync(
+        join(
+          process.cwd(),
+          "apps/web/src/server/provider-api-key-github-gateway.ts",
+        ),
+        "utf8",
+      );
+      const target = join(root, relativePath);
+      mkdirSync(join(target, ".."), { recursive: true });
+      const extraPut = 'request("PUT /repos/x/y/actions/secrets/SECRET");\n';
+      writeFileSync(target, putCount === 1 ? source : `${source}\n${extraPut}`);
+
+      expect(() => checkCodexSecretWriteBoundary(root)).toThrow(
+        putCount === 1
+          ? "provider secret PUT outside audited adapter"
+          : "audited one-shot gateway must expose exactly one provider PUT",
+      );
+    },
+  );
+
+  it("rejects an ambient-agent mutation in the audited web one-shot path", () => {
+    const root = mkdtempSync(join(tmpdir(), "rr-provider-key-agent-boundary-"));
+    const target = join(
+      root,
+      "apps/web/src/server/provider-api-key-github-gateway.ts",
+    );
+    mkdirSync(join(target, ".."), { recursive: true });
+    const source = readFileSync(
+      join(
+        process.cwd(),
+        "apps/web/src/server/provider-api-key-github-gateway.ts",
+      ),
+      "utf8",
+    ).replace("agent: testAgent ?? false", "agent: undefined");
+    writeFileSync(target, source);
+
+    expect(() => checkCodexSecretWriteBoundary(root)).toThrow(
+      "audited one-shot transport is missing pinned request invariants",
+    );
   });
 
   it.each([

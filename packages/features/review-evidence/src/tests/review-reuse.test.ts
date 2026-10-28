@@ -6,6 +6,7 @@ import {
   ProviderExecutionProfile,
   ReuseEligibility,
   ReviewObservationQualityFlag,
+  ReviewProviderKind,
   ReviewReuseDenialReason,
   ReviewReuseEffectMode,
   ReviewReuseTier,
@@ -84,6 +85,61 @@ describe("ReviewReuseEligibilityPolicy", () => {
       tier: ReviewReuseTier.T0ExactRevision,
       reason: ReviewReuseDenialReason.PlanMismatch,
       canAttach: false,
+    });
+  });
+
+  it("does not let a partial OCR observation close the next T0 discovery run", () => {
+    const ocrManifest = manifest({ providerKind: ReviewProviderKind.Ocr });
+    const decision = decideReviewReuseEligibility(
+      observation({
+        providerKind: ReviewProviderKind.Ocr,
+        qualityFlags: [
+          ReviewObservationQualityFlag.ContextInspectionIncomplete,
+        ],
+      }),
+      target({ manifest: ocrManifest }),
+    );
+
+    expect(decision).toMatchObject({
+      eligibility: ReuseEligibility.DeniedIncompatible,
+      tier: ReviewReuseTier.T0ExactRevision,
+      reason: ReviewReuseDenialReason.ReuseDenyingQualityFlag,
+      canAttach: false,
+    });
+  });
+
+  it("keeps a fully compatible OCR observation reusable at T0 exact revision", () => {
+    const ocrManifest = manifest({ providerKind: ReviewProviderKind.Ocr });
+    const decision = decideReviewReuseEligibility(
+      observation({
+        providerKind: ReviewProviderKind.Ocr,
+        qualityFlags: [],
+      }),
+      target({ manifest: ocrManifest }),
+    );
+
+    expect(decision).toMatchObject({
+      eligibility: ReuseEligibility.ExactRevision,
+      tier: ReviewReuseTier.T0ExactRevision,
+      reason: ReviewReuseDenialReason.None,
+      canAttach: true,
+    });
+  });
+
+  it("leaves other engine T0 paths unaffected by the OCR incomplete guard", () => {
+    const decision = decideReviewReuseEligibility(
+      observation({
+        qualityFlags: [
+          ReviewObservationQualityFlag.ContextInspectionIncomplete,
+        ],
+      }),
+      target(),
+    );
+
+    expect(decision).toMatchObject({
+      eligibility: ReuseEligibility.ExactRevision,
+      tier: ReviewReuseTier.T0ExactRevision,
+      canAttach: true,
     });
   });
 

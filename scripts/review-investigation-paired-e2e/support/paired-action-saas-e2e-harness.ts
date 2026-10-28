@@ -34,6 +34,14 @@ import {
   reviewActionV2CanonicalizerDigest,
   reviewActionV2PublishedSchemaDigest,
 } from "../../../packages/protocol-review-action-v2/src/index.js";
+import {
+  parseReviewConfigurationStrict,
+  PrismaReviewConfigurationRepository,
+} from "../../../packages/features/review-config/src/index.js";
+import {
+  systemPolicyWriteFixture,
+  workspacePolicyDocumentFixture,
+} from "../../../packages/features/review-config/src/tests/current-policy-fixture.js";
 import { createApiApp } from "../../../apps/api/src/app.js";
 import {
   composeReviewActionV2ProductionRoutes,
@@ -77,6 +85,19 @@ const pullRequestNumber = 73;
 const githubRepositoryId = "9988776655";
 const githubInstallationId = "887766";
 const sourceRunId = "770001";
+// This isolated investigation runner uses a scripted provider, not the released CLI installer.
+// Its explicit fixture producer profile never registers or qualifies a live producer.
+const pairedAgentProfiles = [
+  {
+    profileRef: "codex-default",
+    agentKind: "codex",
+    binarySha256: sha256("paired-scripted-agent"),
+    packageVersion: "0.147.0",
+    modelTransports: ["provider_api"],
+    contextGateway: true,
+    cancellation: true,
+  },
+];
 const providerVoteIdentityHash = sha256("paired-action-saas-provider-vote");
 const capabilityKeyId = "paired-action-saas-capability-key";
 const contextReplayKeyId = "paired-action-saas-context-replay-key";
@@ -276,6 +297,7 @@ export class PairedActionSaasE2EHarness {
       repo,
       pullRequestNumber,
       sourceRunId,
+      repositoryId: githubRepositoryId,
       installationId: githubInstallationId,
       appSlug: "reviewrouter-paired-e2e",
       oidcKeyId,
@@ -536,15 +558,15 @@ export class PairedActionSaasE2EHarness {
     const expiresAt = issuedAt + 10 * 60;
     this.oidcOrdinal += 1;
     const token = await new SignJWT({
-      sub: `repo:${owner}/${repo}:pull_request`,
+      sub: `repo:${owner}/${repo}:ref:refs/heads/main`,
       repository: `${owner}/${repo}`,
       repository_id: githubRepositoryId,
       repository_owner: owner,
-      event_name: "pull_request",
-      ref: `refs/pull/${pullRequestNumber}/merge`,
+      event_name: "workflow_dispatch",
+      ref: "refs/heads/main",
       run_id: this.fakeGitHub.sourceRunId,
       run_attempt: "1",
-      workflow_ref: `${owner}/${repo}/.github/workflows/reviewrouter.yml@refs/pull/${pullRequestNumber}/merge`,
+      workflow_ref: `${owner}/${repo}/.github/workflows/reviewrouter-codex.yml@refs/heads/main`,
       workflow_sha: this.repository.headSha,
       job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${this.actionRef}`,
       job_workflow_sha: this.actionRef,
@@ -774,6 +796,7 @@ async function seedControlPlane(
     data: {
       producerReleaseId: input.producerReleaseId,
       distributionKind: "public_reusable",
+      agentProfilesJson: JSON.stringify(pairedAgentProfiles),
       actionCommitSha: input.release.actionCommitSha,
       runtimeCommitSha: input.release.runtimeCommitSha,
       wrapperEntrypointDigest: null,
@@ -799,7 +822,7 @@ async function seedControlPlane(
     data: {
       id: input.workspaceId,
       slug: `${input.prefix}-workspace`,
-      name: "Paired Action SaaS E2E",
+      name: "Paired Action control plane E2E",
     },
   });
   await prisma.gitHubInstallation.create({
@@ -847,6 +870,68 @@ async function seedControlPlane(
       currentRepositoryConnectionId: input.repositoryConnectionId,
       boundAt: now,
     },
+  });
+  // Rotating is repository-only: the workspace document keeps the settings
+  // without a default and the repository selects its rotating profile.
+  const pairedConfig = parseReviewConfigurationStrict({
+    schemaVersion: 3,
+    providers: [
+      {
+        kind: "codex",
+        authMode: "codex_subscription_oauth_rotating",
+        model: "gpt-paired-e2e",
+        reasoningEffort: "xhigh",
+        agenticContext: true,
+        fastMode: false,
+        requiredHealthy: false,
+      },
+    ],
+    execution: {
+      providerLimit: 1,
+      providerMaxParallel: 1,
+      inlineMinAgreement: 1,
+    },
+    blockingPolicy: { failOnSeverity: "major" },
+    limits: { inlineMaxComments: 5, targetTokensPerBatch: 12000 },
+    reviewLanguage: null,
+    investigationRollout: {
+      recordingEnabled: true,
+      shadowEnabled: true,
+      contextCriticEnabled: true,
+      verifiedCleanEnabled: true,
+      crossRevisionReplayEnabled: true,
+      productionEffectsEnabled: true,
+    },
+  });
+  const repositoryTarget = {
+    scope: "repository" as const,
+    workspaceId: input.workspaceId,
+    repositoryId: input.repositoryConnectionId,
+  };
+  const repositoryWrite = systemPolicyWriteFixture(
+    pairedConfig,
+    repositoryTarget,
+  );
+  await new PrismaReviewConfigurationRepository(
+    prisma,
+    undefined,
+    false,
+    undefined,
+  ).saveNextVersions({
+    workspaceId: input.workspaceId,
+    writes: [
+      {
+        target: { scope: "workspace", workspaceId: input.workspaceId },
+        policy: workspacePolicyDocumentFixture(pairedConfig),
+        expectedVersion: null,
+      },
+      {
+        target: repositoryTarget,
+        policy: repositoryWrite.policy,
+        expectedVersion: null,
+      },
+    ],
+    profileDrafts: repositoryWrite.profileDrafts,
   });
   await prisma.reviewMutationAuthority.create({
     data: {
@@ -915,6 +1000,7 @@ function productionEnvironment(input: {
   ]);
   return {
     NODE_ENV: "production",
+    REVIEW_ROUTER_AGENT_PROFILE: "codex-default",
     GITHUB_APP_ID: "1",
     GITHUB_APP_PRIVATE_KEY: input.appPrivateKey,
     REVIEW_ROUTER_PUBLIC_API_URL: "https://api.reviewrouter.test",
@@ -925,6 +1011,7 @@ function productionEnvironment(input: {
       {
         producerReleaseId: input.producerReleaseId,
         distributionKind: "public_reusable",
+        agentProfiles: pairedAgentProfiles,
         actionCommitSha: input.release.actionCommitSha,
         runtimeCommitSha: input.release.runtimeCommitSha,
         wrapperEntrypointDigest: null,

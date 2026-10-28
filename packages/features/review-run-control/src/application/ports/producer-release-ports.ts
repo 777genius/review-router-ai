@@ -4,6 +4,10 @@ import type {
   ReviewProtocolLimitsV2,
 } from "../../domain/producer-release";
 
+export interface TrustedProducerReleaseMaterializerPort {
+  ensureRegistered(release: ProducerRelease): Promise<void>;
+}
+
 export enum ImmutableRegistryWriteStatus {
   Created = "created",
   Restored = "restored",

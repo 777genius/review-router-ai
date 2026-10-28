@@ -155,11 +155,48 @@ describe("review investigation coverage profile", () => {
     ).toThrow("investigation_coverage_profile_unsupported");
   });
 
+  it.each([
+    [
+      reviewInvestigationCoverageProfileV9.turnPromptContractHash,
+      "86a68eda454aff14d596da321ad635c7e67b3d6f18b990c2c1e02dfb3f9298b8",
+    ],
+    [
+      "e73f81f5506c1f9c33510faff8a1a872b439596c694a70753927e84ff3ea0fa1",
+      "021acf02bba4c0cc8d194edd921652adf6427bb073798a718520a01b245c5e9a",
+    ],
+  ])(
+    "preserves V10 prompt tuple %s while rejecting unknown prompts",
+    (turnPromptContractHash, profileHash) => {
+      const previousProfile = {
+        ...reviewInvestigationCoverageProfileV10,
+        turnPromptContractHash,
+      };
+      const previous = {
+        ...previousProfile,
+        producerReleaseId: "release-draining-v10",
+      };
+      expect(
+        resolveReviewInvestigationCoverageProfileGeneration(previous),
+      ).toBe(ReviewInvestigationCoverageProfileGeneration.V10);
+      expect(
+        createHash("sha256")
+          .update(canonicalJson(previousProfile))
+          .digest("hex"),
+      ).toBe(profileHash);
+      expect(() =>
+        resolveReviewInvestigationCoverageProfileGeneration({
+          ...previous,
+          turnPromptContractHash: "f".repeat(64),
+        }),
+      ).toThrow("investigation_coverage_profile_unsupported");
+    },
+  );
+
   it("matches the current public Action capability golden vector", () => {
     expect(
       createHash("sha256")
         .update(canonicalJson(reviewInvestigationCoverageProfileV10), "utf8")
         .digest("hex"),
-    ).toBe("86a68eda454aff14d596da321ad635c7e67b3d6f18b990c2c1e02dfb3f9298b8");
+    ).toBe("359b9499b5cf7244bc734c2c8f352ce63ea99b285e67136f1214148ef0dd8dba");
   });
 });

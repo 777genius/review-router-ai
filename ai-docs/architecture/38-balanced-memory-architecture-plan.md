@@ -4,7 +4,7 @@
 
 Статус: beta-ready v1 released, local proof passed, real GitHub memory smoke passed, production deployed
 
-Merged via PR #2 and PR #3 into SaaS `main`; action runtime released through action repo PR #6 and PR #7.
+Merged via PR #2 and PR #3 into control plane `main`; action runtime released through action repo PR #6 and PR #7.
 
 ## Решение
 
@@ -49,7 +49,7 @@ Merged via PR #2 and PR #3 into SaaS `main`; action runtime released through act
   - эмитит action candidate payload только для repository/workspace scopes, а `user_prefs` оставляет как instruction для будущего linked-user flow;
   - хэширует source text и отправляет только redacted excerpt/candidate body, не raw thread.
 - action API получил `POST /api/action/v1/memory-commands`, который принимает только нормализованные ids/commands из interaction workflows и делегирует в use cases `confirm/reject/disable/delete`;
-- interaction normalizer теперь отдаёт отдельные `commands[]` для management-команд, чтобы runtime не отправлял raw comment body в SaaS;
+- interaction normalizer теперь отдаёт отдельные `commands[]` для management-команд, чтобы runtime не отправлял raw comment body в control plane;
 - OpenAPI/demo contract публикует command request/response schemas для подтверждения, отклонения, disable/forget и безопасного `list_memory` noop.
 - action memory endpoints получили явный fail-fast guard против raw conversation/code/diff/prompt/model-response полей, отдельно от strict transport schemas.
 - explicit generated workflows прокидывают стабильные `REVIEW_ROUTER_MEMORY_*` endpoint flags для review и interaction runtime modes.
@@ -134,17 +134,17 @@ Merged via PR #2 and PR #3 into SaaS `main`; action runtime released through act
   - `bash -n scripts/check-beta-readiness.sh` - passed;
   - guard check without `REVIEW_ROUTER_GITHUB_MEMORY_E2E=1` stops before GitHub side effects - passed;
   - preflight on `777genius/review-router-saas-e2e` PR #4 passed after adding `.github/workflows/reviewrouter-interaction.yml` on the disposable repo default branch;
-  - full real GitHub memory smoke on PR #4 passed with marker `rr-memory-smoke-1778965736933`, proving `/rr remember repo`, natural-language suggestion, `/rr remember mem_suggestion_*`, `/rr forget mem_*` and bot-loop guard through production GitHub Actions and production SaaS endpoints.
+  - full real GitHub memory smoke on PR #4 passed with marker `rr-memory-smoke-1778965736933`, proving `/rr remember repo`, natural-language suggestion, `/rr remember mem_suggestion_*`, `/rr forget mem_*` and bot-loop guard through production GitHub Actions and production control plane endpoints.
 - Beta-ready v1 finish proof, 2026-05-16:
-  - SaaS/control-plane after merge with `origin/main`: `pnpm format:check` - passed;
-  - SaaS/control-plane after merge with `origin/main`: `pnpm typecheck` - passed for 29 packages plus `tsconfig.spikes.json`;
-  - SaaS/control-plane after merge with `origin/main`: `pnpm test` - 97 files, 602 tests passed;
-  - SaaS/control-plane after merge with `origin/main`: `pnpm lint` - passed;
-  - SaaS/control-plane after merge with `origin/main`: `pnpm architecture:check` - passed for 158 domain/application files;
-  - SaaS/control-plane after merge with `origin/main`: `pnpm build` - 29 build tasks passed, then ESM import rewrite passed;
-  - SaaS/control-plane after merge with `origin/main`: `pnpm spike:memory:e2e` - passed with fresh temporary Postgres DB, marker `1778961973538`, canonical bundle/search/disable/prune/usage assertions;
-  - SaaS/control-plane after merge with `origin/main`: memory preview UI audit passed for 24 pages at `390x844`, `900x1100`, `1440x1000`; artifacts: `tmp/design-verification/memory-post-merge`;
-  - SaaS/control-plane after merge with `origin/main`: `git diff --check` - passed;
+  - control plane/control-plane after merge with `origin/main`: `pnpm format:check` - passed;
+  - control plane/control-plane after merge with `origin/main`: `pnpm typecheck` - passed for 29 packages plus `tsconfig.spikes.json`;
+  - control plane/control-plane after merge with `origin/main`: `pnpm test` - 97 files, 602 tests passed;
+  - control plane/control-plane after merge with `origin/main`: `pnpm lint` - passed;
+  - control plane/control-plane after merge with `origin/main`: `pnpm architecture:check` - passed for 158 domain/application files;
+  - control plane/control-plane after merge with `origin/main`: `pnpm build` - 29 build tasks passed, then ESM import rewrite passed;
+  - control plane/control-plane after merge with `origin/main`: `pnpm spike:memory:e2e` - passed with fresh temporary Postgres DB, marker `1778961973538`, canonical bundle/search/disable/prune/usage assertions;
+  - control plane/control-plane after merge with `origin/main`: memory preview UI audit passed for 24 pages at `390x844`, `900x1100`, `1440x1000`; artifacts: `tmp/design-verification/memory-post-merge`;
+  - control plane/control-plane after merge with `origin/main`: `git diff --check` - passed;
   - action runtime worktree `feat/balanced-memory-runtime`: `npm test -- --runInBand` - 111 suites passed, 1344 tests passed, 2 skipped;
   - action runtime: `npm run typecheck` - passed;
   - action runtime: `npm run lint` - passed with 0 errors and existing warning debt only;
@@ -161,10 +161,10 @@ Merged via PR #2 and PR #3 into SaaS `main`; action runtime released through act
 - Production deployment evidence, 2026-05-16:
   - action repo `v1` and `v1.0.47` point to `c7146af585ecfe89c1b4948ffb98adb9119195ed`;
   - action release workflow <https://github.com/777genius/review-router/actions/runs/25972665885> passed;
-  - SaaS main `94e7df085d936ab2e2613c5b5a93cf22f06638cf` is live on Render web/api/worker;
-  - `REVIEW_ROUTER_PUBLIC_WEB_URL=https://reviewrouter.site pnpm hosted:web:check` - passed;
-  - `REVIEW_ROUTER_API_URL=https://api.reviewrouter.site pnpm hosted:api-demo:check` - passed;
-  - unauthenticated `GET https://api.reviewrouter.site/api/action/v1/memory` returns `401 missing_action_session_token`, proving the production route exists and stays session-protected.
+  - control plane main `94e7df085d936ab2e2613c5b5a93cf22f06638cf` is live on Render web/api/worker;
+  - `REVIEW_ROUTER_PUBLIC_WEB_URL=https://reviewrouter.org pnpm hosted:web:check` - passed;
+  - `REVIEW_ROUTER_API_URL=https://api.reviewrouter.org pnpm hosted:api-demo:check` - passed;
+  - unauthenticated `GET https://api.reviewrouter.org/api/action/v1/memory` returns `401 missing_action_session_token`, proving the production route exists and stays session-protected.
 - Action runtime memory integration implemented on `feat/balanced-memory-runtime`:
   - review runtime fetches scoped memory bundle through `ControlPlaneMemoryClient` and injects it as low-priority prompt context;
   - runtime sends only sanitized PR metadata as `safeRetrievalQuery`, never raw diff/code/comment text;
@@ -189,7 +189,7 @@ Current beta blocker:
 - GitHub permission check вынесен в отдельный application port;
 - repository/workspace/user_prefs scopes проверяются в domain policy и в persistence query constraints;
 - memory suggestions не влияют на runtime, пока не подтверждены;
-- action runtime не отправляет diff/code/query text в SaaS для поиска памяти;
+- action runtime не отправляет diff/code/query text в control plane для поиска памяти;
 - UI строится по сохранённым дизайн-референсам, а не как новый произвольный экран;
 - каждый edge case из раздела `Edge Cases` покрыт хотя бы unit/application test или явно помечен как E2E-only.
 
@@ -198,7 +198,7 @@ Current beta blocker:
 | Критерий                 | Оценка | Комментарий                                                                                              |
 | ------------------------ | -----: | -------------------------------------------------------------------------------------------------------- |
 | Масштабируемость         |   9/10 | Canonical store и search index разделены портами, можно заменить Postgres search на внешний vector index |
-| Privacy safety           |   9/10 | SaaS хранит только confirmed distilled memory, diff/code retrieval остаётся локально в Actions           |
+| Privacy safety           |   9/10 | control plane хранит только confirmed distilled memory, diff/code retrieval остаётся локально в Actions  |
 | Реализационная сложность |   8/10 | Много слоёв и use cases, но сложность оправдана blast radius                                             |
 | Поддерживаемость         |   9/10 | DDD + ports/adapters + feature package снижают связность                                                 |
 | Риск memory poisoning    |   7/10 | Сильно снижен, но остаётся риск через maintainer mistake и слабую redaction policy                       |
@@ -207,11 +207,11 @@ Current beta blocker:
 
 ### Candidate generation boundary
 
-1. **Chosen: local action/runtime extracts `MemoryCandidateEnvelope`; SaaS validates only bounded candidate.** 🎯 9 🛡️ 10 🧠 7, ~900-1500 LOC.
+1. **Chosen: local action/runtime extracts `MemoryCandidateEnvelope`; control plane validates only bounded candidate.** 🎯 9 🛡️ 10 🧠 7, ~900-1500 LOC.
    Best privacy fit. More code in runtime/interaction parser, but no hidden raw-discussion upload path.
 2. **Command-only memory in v1, no model suggestions.** 🎯 8 🛡️ 10 🧠 4, ~500-900 LOC.
    Safest fallback if runtime candidate extraction becomes too risky. Worse product UX and less "Balanced" value.
-3. **SaaS receives raw comment/conversation and extracts candidate centrally.** 🎯 3 🛡️ 2 🧠 5, ~600-1000 LOC.
+3. **control plane receives raw comment/conversation and extracts candidate centrally.** 🎯 3 🛡️ 2 🧠 5, ~600-1000 LOC.
    Reject. Easier engineering, but breaks ReviewRouter privacy positioning and creates a new sensitive data surface.
 
 ### Search/index strategy
@@ -239,7 +239,7 @@ Current beta blocker:
 - GitHub Actions fork PR behavior: GitHub не передаёт secrets в fork PR workflows, а `pull_request_review_comment` и `issue_comment` events отправляются в base repository. Это подтверждает, что memory feature должна иметь отдельный trust policy для fork/untrusted events.
 - GitHub repository permission API: GitHub отдаёт `permission` и `role_name`; `maintain` в legacy `permission` мапится в `write`, поэтому для точного maintainer/admin решения нужно смотреть `role_name`, а не только `permission`.
 - GitHub `issue_comment`: комментарии на PR приходят через issue API surface, поэтому interaction workflow должен проверять `github.event.issue.pull_request`; обычные issue comments не должны создавать memory candidate для repository review context.
-- GitHub Actions untrusted contexts: поля вроде `github.event.comment.body`, `github.event.issue.title`, `github.event.pull_request.body`, `head_ref` и `ref` считаются attacker-controlled input. Их нельзя вставлять в shell/run, bot reply или SaaS payload без structured parsing/redaction.
+- GitHub Actions untrusted contexts: поля вроде `github.event.comment.body`, `github.event.issue.title`, `github.event.pull_request.body`, `head_ref` и `ref` считаются attacker-controlled input. Их нельзя вставлять в shell/run, bot reply или control plane payload без structured parsing/redaction.
 - OIDC: GitHub требует `id-token: write` для запроса OIDC JWT; текущий ReviewRouter workflow уже выдаёт это permission в interaction workflow.
 - Prisma and pgvector: Prisma поддерживает unsupported field types через `Unsupported(...)`, но такие поля не доступны в generated Prisma Client. Поэтому vector column и index должны жить строго внутри infrastructure adapter/raw SQL, а canonical entities не должны зависеть от них.
 - Postgres RLS: RLS может быть defence-in-depth для memory tables, но не заменяет application authorization. Если включать, нужно помнить, что table owner bypass может обойти policies без `FORCE ROW LEVEL SECURITY`.
@@ -318,13 +318,13 @@ If generated design files are updated later, update this plan in the same commit
 
 ## Главный архитектурный принцип
 
-⚠️ **SaaS не должен видеть код, diff, raw prompts и raw model output ради memory retrieval.**
+⚠️ **control plane не должен видеть код, diff, raw prompts и raw model output ради memory retrieval.**
 
 ReviewRouter может хранить только подтверждённые distilled memory snippets и безопасные metadata. Это сохраняет privacy-first позиционирование:
 
 - review execution остаётся в GitHub Actions;
 - code/diff остаются в customer CI;
-- SaaS хранит явно подтверждённые знания, а не сырые обсуждения;
+- control plane хранит явно подтверждённые знания, а не сырые обсуждения;
 - runtime получает scoped memory bundle;
 - локальный action runtime решает, какую память вставлять в prompt рядом с diff/code.
 
@@ -352,19 +352,19 @@ Privacy/docs impact:
 
 ## Data Classification
 
-| Data                    | Stored?        | Where         | Notes                                         |
-| ----------------------- | -------------- | ------------- | --------------------------------------------- |
-| Repository code         | No             | Never in SaaS | Only local GitHub Actions runtime may see it  |
-| PR diff                 | No             | Never in SaaS | Do not use as SaaS vector query               |
-| Raw model prompt        | No             | Never in SaaS | Existing privacy invariant remains            |
-| Raw model response      | No             | Never in SaaS | Store only safe candidate text after policy   |
-| Raw GitHub comment body | No by default  | Not canonical | Use bounded redacted excerpt only when needed |
-| Memory suggestion       | Yes            | SaaS DB       | Pending, expires, not used by runtime         |
-| Confirmed memory item   | Yes            | SaaS DB       | Distilled text only                           |
-| Embedding vector        | Yes if enabled | Index adapter | Derived from confirmed memory body only       |
-| Memory usage event      | Yes            | SaaS DB       | IDs/counts only, no local query text          |
-| Source URL/comment id   | Yes            | SaaS DB       | Metadata only                                 |
-| Actor identity metadata | Yes            | SaaS DB       | GitHub id/login snapshots, workspace user id  |
+| Data                    | Stored?        | Where                  | Notes                                         |
+| ----------------------- | -------------- | ---------------------- | --------------------------------------------- |
+| Repository code         | No             | Never in control plane | Only local GitHub Actions runtime may see it  |
+| PR diff                 | No             | Never in control plane | Do not use as control plane vector query      |
+| Raw model prompt        | No             | Never in control plane | Existing privacy invariant remains            |
+| Raw model response      | No             | Never in control plane | Store only safe candidate text after policy   |
+| Raw GitHub comment body | No by default  | Not canonical          | Use bounded redacted excerpt only when needed |
+| Memory suggestion       | Yes            | control plane DB       | Pending, expires, not used by runtime         |
+| Confirmed memory item   | Yes            | control plane DB       | Distilled text only                           |
+| Embedding vector        | Yes if enabled | Index adapter          | Derived from confirmed memory body only       |
+| Memory usage event      | Yes            | control plane DB       | IDs/counts only, no local query text          |
+| Source URL/comment id   | Yes            | control plane DB       | Metadata only                                 |
+| Actor identity metadata | Yes            | control plane DB       | GitHub id/login snapshots, workspace user id  |
 
 ## Data Residency And Tenant Isolation Contract
 
@@ -431,7 +431,7 @@ Retention rules:
 ## Memory Candidate Boundary
 
 ⚠️ Critical privacy rule: suggestion generation must not become a hidden path for
-uploading repository discussions, PR comments or model output to SaaS.
+uploading repository discussions, PR comments or model output to control plane.
 
 Use this contract instead of `rawText`:
 
@@ -472,21 +472,21 @@ Forbidden fields:
 
 Extraction responsibilities:
 
-| Path                            | Extracts candidate where?         | Sends full source to SaaS? | v1 behavior                                                             |
-| ------------------------------- | --------------------------------- | -------------------------- | ----------------------------------------------------------------------- |
-| `/rr remember repo <text>`      | interaction workflow command      | No                         | direct confirm if actor has repo maintainer/admin authority             |
-| `/rr remember workspace <text>` | interaction workflow command      | No                         | direct confirm only for workspace admin                                 |
-| "запомни ..."                   | interaction workflow command scan | No                         | pending suggestion with extracted text after command phrase             |
-| model-suggested candidate       | local action runtime              | No                         | pending suggestion only if runtime can produce safe distilled candidate |
-| ambiguous discussion            | nowhere                           | No                         | no suggestion, optionally reply with explicit command syntax            |
+| Path                            | Extracts candidate where?         | Sends full source to control plane? | v1 behavior                                                             |
+| ------------------------------- | --------------------------------- | ----------------------------------- | ----------------------------------------------------------------------- |
+| `/rr remember repo <text>`      | interaction workflow command      | No                                  | direct confirm if actor has repo maintainer/admin authority             |
+| `/rr remember workspace <text>` | interaction workflow command      | No                                  | direct confirm only for workspace admin                                 |
+| "запомни ..."                   | interaction workflow command scan | No                                  | pending suggestion with extracted text after command phrase             |
+| model-suggested candidate       | local action runtime              | No                                  | pending suggestion only if runtime can produce safe distilled candidate |
+| ambiguous discussion            | nowhere                           | No                                  | no suggestion, optionally reply with explicit command syntax            |
 
 If local extraction cannot confidently isolate a safe candidate without sending
-the surrounding conversation to SaaS, the correct result is `no_memory_intent`.
+the surrounding conversation to control plane, the correct result is `no_memory_intent`.
 The bot can ask the user to run an explicit command with the exact text.
 
 This boundary is what keeps the feature compatible with ReviewRouter's privacy
 positioning. Vector retrieval later can improve ranking over confirmed memory,
-but it must not use raw PR context as a SaaS query.
+but it must not use raw PR context as a control plane query.
 
 ### Candidate Trust State Machine
 
@@ -615,7 +615,7 @@ Schema integration rules:
    Memory body хранит distilled fact, policy, preference или instruction. Не хранит raw prompt, raw response, raw comment thread, raw diff.
 
 4. **Candidate envelope boundary**
-   SaaS suggestion endpoint принимает только bounded candidate envelope. Полный GitHub conversation, diff, prompt, model response или локальный retrieval query не являются допустимыми input DTO.
+   control plane suggestion endpoint принимает только bounded candidate envelope. Полный GitHub conversation, diff, prompt, model response или локальный retrieval query не являются допустимыми input DTO.
 
 5. **No cross-repo leak**
    Repository memory не участвует в другом repo. Workspace memory участвует только внутри workspace. User prefs не содержат project facts.
@@ -3408,7 +3408,7 @@ Accessibility:
 - user can disable/delete confirmed memory;
 - user sees source and redacted context;
 - user sees "No code or diff stored" privacy indicator;
-- user sees retrieval preview without sending code/diff to SaaS;
+- user sees retrieval preview without sending code/diff to control plane;
 - keyboard navigation works for list/detail/inbox;
 - mobile/tablet layout degrades to stacked list/detail.
 
@@ -3867,7 +3867,7 @@ Reason: runtime needs guidance, not provenance. Provenance stays in dashboard.
 Local runtime responsibilities:
 
 - choose relevant items based on local PR context;
-- do not report local query text to SaaS;
+- do not report local query text to control plane;
 - insert selected memory into prompt under clear heading;
 - preserve existing read-only Codex sandbox behavior.
 
@@ -3885,7 +3885,7 @@ Prompt assembly rules:
 - runtime keeps deterministic item ordering so tests can snapshot prompts
   without storing code/diff.
 
-SaaS responsibilities:
+control plane responsibilities:
 
 - only send scoped memory;
 - enforce trust policy;
@@ -3896,8 +3896,8 @@ Protocol compatibility:
 - memory bundle has independent `memoryVersion`;
 - action config can advertise memory capability without requiring older runtimes to call it;
 - older action versions ignore memory field and keep current behavior;
-- SaaS can disable memory bundle for blocked action versions through existing compatibility policy;
-- if action runtime reports unsupported memory version, SaaS returns empty bundle with safe warning.
+- control plane can disable memory bundle for blocked action versions through existing compatibility policy;
+- if action runtime reports unsupported memory version, control plane returns empty bundle with safe warning.
 
 Runtime insertion format:
 
@@ -3919,7 +3919,7 @@ Prompt contract tests:
   changes;
 - prove ordering is deterministic for identical inputs;
 - prove prompt assembly works when memory bundle fetch fails;
-- prove local runtime does not send diff/code relevance query back to SaaS;
+- prove local runtime does not send diff/code relevance query back to control plane;
 - snapshot tests store safe synthetic diff/context only, never real repository
   code.
 
@@ -3943,7 +3943,7 @@ Rules:
   never resurrect disabled/deleted memory after cache invalidation;
 - if cache backend is unavailable, compute bundle directly or return safe
   non-blocking `memory_bundle_unavailable`;
-- do not cache per-run local relevance because SaaS never receives local diff
+- do not cache per-run local relevance because control plane never receives local diff
   query.
 
 Invalidation matrix:
@@ -4064,19 +4064,19 @@ Runtime:
 
 - local relevance against PR context;
 - deterministic cap;
-- no SaaS access to diff query.
+- no control plane access to diff query.
 
 ### v2
 
 Server:
 
 - hybrid search for dashboard/admin/search use cases;
-- memory bundle still avoids diff-query-to-SaaS;
+- memory bundle still avoids diff-query-to-control plane;
 - optional action-provided safe query only if it is metadata-only.
 
-### Why not full SaaS RAG
+### Why not full control plane RAG
 
-Full SaaS RAG would require sending PR diff/comment context to SaaS. That breaks the current privacy promise. We can later support opt-in cloud mode, but it must be a separate product mode with explicit disclosure.
+Full control plane RAG would require sending PR diff/comment context to control plane. That breaks the current privacy promise. We can later support opt-in cloud mode, but it must be a separate product mode with explicit disclosure.
 
 ### Retrieval Quality Loop
 
@@ -4128,7 +4128,7 @@ Quality metrics:
 Rules:
 
 - quality evaluation uses safe fixtures and confirmed memory bodies only;
-- no real code/diff is uploaded to SaaS for evaluation;
+- no real code/diff is uploaded to control plane for evaluation;
 - tuning rank weights changes `memoryVersion` or bundle policy hash if runtime
   semantics change;
 - dashboard retrieval preview is diagnostic and bounded. It cannot trigger
@@ -4721,7 +4721,7 @@ Interface adapter rejects request before application use case:
 If local action cannot isolate durable memory text:
 
 - return `no_memory_intent`;
-- do not send raw conversation to SaaS for classification;
+- do not send raw conversation to control plane for classification;
 - bot reply can suggest `/rr remember repo <text>` or dashboard create.
 
 ### Natural language asks to remember previous context
@@ -4734,7 +4734,7 @@ Default:
 - ask user to provide exact text;
 - reason code `memory_requires_explicit_text`.
 
-Reason: SaaS should not infer from hidden context or retrieve raw conversation.
+Reason: control plane should not infer from hidden context or retrieve raw conversation.
 
 ### Conversation Memory Extraction Contract
 
@@ -4765,7 +4765,7 @@ Rules:
   they are followed by explicit memory text;
 - model may propose a distilled candidate, but that proposal is pending and must
   be confirmed by an authorized actor;
-- SaaS does not fetch prior conversation to infer missing text;
+- control plane does not fetch prior conversation to infer missing text;
 - UI/bot asks for exact memory text with examples and safe command syntax;
 - if a maintainer replies with exact text, create a new suggestion/direct save
   using that new source, not hidden earlier context.
@@ -5231,18 +5231,18 @@ These invariants must hold across unit, contract, integration and browser tests.
 They are intentionally phrased as product truths instead of implementation
 details.
 
-| Invariant                             | Required proof                                                                                        |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| unauthorized actor cannot save memory | repo write/triage/read actors fail for project memory, PR author alone fails, admin/maintainer passes |
-| text confirmation is explicit         | casual discussion creates at most a pending suggestion, direct save requires command or clear request |
-| tenant boundary is absolute           | workspace A cannot list, search, bundle, export, import over or diagnose workspace B records          |
-| vector search is never authority      | every search/bundle result is reloaded from canonical storage and ACL checked before exposure         |
-| privacy boundary is preserved         | raw code/diff/prompt/source/model response never reaches SaaS provider, logs, outbox or diagnostics   |
-| policy changes are safe immediately   | disabling scope/provider/runtime exposure invalidates bundles before new runtime fetch can use memory |
-| deletion wins                         | disabled/deleted item cannot reappear through stale embedding, stale cache, dead-letter replay or UI  |
-| provider outage degrades gracefully   | memory list and confirmed items remain usable when embeddings or provider calls fail                  |
-| imports are staged                    | imported memory is never active until policy, ownership, safety and quota checks complete             |
-| design contract is visible            | dashboard screenshots match reference layout, spacing and density within documented tolerance         |
+| Invariant                             | Required proof                                                                                               |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| unauthorized actor cannot save memory | repo write/triage/read actors fail for project memory, PR author alone fails, admin/maintainer passes        |
+| text confirmation is explicit         | casual discussion creates at most a pending suggestion, direct save requires command or clear request        |
+| tenant boundary is absolute           | workspace A cannot list, search, bundle, export, import over or diagnose workspace B records                 |
+| vector search is never authority      | every search/bundle result is reloaded from canonical storage and ACL checked before exposure                |
+| privacy boundary is preserved         | raw code/diff/prompt/source/model response never reaches control plane provider, logs, outbox or diagnostics |
+| policy changes are safe immediately   | disabling scope/provider/runtime exposure invalidates bundles before new runtime fetch can use memory        |
+| deletion wins                         | disabled/deleted item cannot reappear through stale embedding, stale cache, dead-letter replay or UI         |
+| provider outage degrades gracefully   | memory list and confirmed items remain usable when embeddings or provider calls fail                         |
+| imports are staged                    | imported memory is never active until policy, ownership, safety and quota checks complete                    |
+| design contract is visible            | dashboard screenshots match reference layout, spacing and density within documented tolerance                |
 
 ### Interface/API Tests
 
@@ -5769,8 +5769,8 @@ Feature is not done until:
 - UI screenshots were compared against saved references;
 - privacy copy and data retention docs are updated;
 - edge case test coverage matrix is checked;
-- no new provider secrets are stored in SaaS;
-- no code/diff/prompt/model-output data path to SaaS was added;
+- no new provider secrets are stored in control plane;
+- no code/diff/prompt/model-output data path to control plane was added;
 - rollout flag can disable memory at workspace and service level.
 
 ## External References
@@ -5810,7 +5810,7 @@ Feature is not done until:
 - confirmed distilled memory only;
 - repository/workspace/user_prefs scopes;
 - strict maintainer/admin confirmation;
-- no SaaS RAG over code/diff;
+- no control plane RAG over code/diff;
 - action-local relevance selection;
 - storage/search hidden behind ports;
 - full dashboard management from day one;

@@ -58,6 +58,166 @@ function checkRecoveryProcess(result: ReturnType<typeof spawnSync>) {
   throw new RecoveryFixtureProcessFailure(category);
 }
 
+export const pg17BaseImage =
+  "postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317";
+// The host's official Node binary is copied into the offline container and its
+// ELF NEEDED set includes libatomic.so.1, which the PostgreSQL image lacks. The
+// package is installed once, here, before any offline container exists. The tag
+// is bound to this recipe (base digest + install step), not to image content:
+// the libatomic1 version is resolved by apt at build time.
+const pg17FixtureDockerfile = `FROM ${pg17BaseImage}
+LABEL reviewrouter.fixture.base="${pg17BaseImage}"
+RUN apt-get update \\
+  && apt-get install -y --no-install-recommends libatomic1 \\
+  && rm -rf /var/lib/apt/lists/*
+`;
+export const pg17FixtureImage = `reviewrouter-pg17-fixture:${createHash("sha256").update(pg17FixtureDockerfile).digest("hex").slice(0, 16)}`;
+
+type DockerResult = {
+  status: number | null;
+  signal?: NodeJS.Signals | null;
+  stdout?: string | Buffer | null;
+  stderr?: string | Buffer | null;
+  error?: Error;
+};
+type DockerRun = (
+  args: string[],
+  input?: string | Buffer,
+  timeout?: number,
+) => DockerResult;
+
+// Base inspection can fail before Docker runs. Report only known process facts;
+// never mislabel an unavailable binary/socket probe as an absent image, or echo
+// child diagnostics, arbitrary errno/signal text, environment or arguments.
+function baseInspectionDiagnostic(result: DockerResult): string {
+  const knownCodes = new Set([
+    "ENOENT",
+    "EACCES",
+    "EPERM",
+    "EAGAIN",
+    "ENOMEM",
+    "ENOBUFS",
+    "ETIMEDOUT",
+    "E2BIG",
+    "EMFILE",
+    "ENFILE",
+  ]);
+  const knownSignals = new Set([
+    "SIGABRT",
+    "SIGALRM",
+    "SIGBUS",
+    "SIGHUP",
+    "SIGILL",
+    "SIGINT",
+    "SIGKILL",
+    "SIGPIPE",
+    "SIGSEGV",
+    "SIGTERM",
+    "SIGTRAP",
+    "SIGXCPU",
+    "SIGXFSZ",
+  ]);
+  const errorCode = (result.error as NodeJS.ErrnoException | undefined)?.code;
+  const code = !result.error
+    ? "none"
+    : errorCode && knownCodes.has(errorCode)
+      ? errorCode
+      : "other";
+  const signal = !result.signal
+    ? "none"
+    : knownSignals.has(result.signal)
+      ? result.signal
+      : "other";
+  const status =
+    result.status === null
+      ? "none"
+      : Number.isInteger(result.status) &&
+          result.status >= 0 &&
+          result.status <= 255
+        ? String(result.status)
+        : "other";
+  return `status=${status}:code=${code}:signal=${signal}`;
+}
+
+// Finite, non-secret diagnostic: exit code or errno plus the printable tail of
+// stderr from OUR fixture commands (loader, dpkg, apt). Never environment or input.
+function boundedDiagnostic(result: DockerResult) {
+  const code =
+    (result.error as NodeJS.ErrnoException | undefined)?.code ??
+    result.status ??
+    result.signal;
+  const text = String(result.stderr ?? "")
+    .replace(/[^\x20-\x7e]+/g, " ")
+    .trim()
+    .slice(-200);
+  return `${code}:${text}`;
+}
+
+// Builds (once per content tag) and qualifies the fixture image. Runs before
+// the --network none container is created; the base is never pulled here.
+export function ensurePg17FixtureImage(run: DockerRun) {
+  const baseInspection = run(["image", "inspect", pg17BaseImage]);
+  if (
+    baseInspection.status !== 0 ||
+    baseInspection.error ||
+    baseInspection.signal
+  )
+    throw new Error(
+      `managed_pg17_fixture_image:base_inspect:${baseInspectionDiagnostic(baseInspection)}`,
+    );
+  if (run(["image", "inspect", pg17FixtureImage]).status !== 0) {
+    const built = run(
+      ["build", "--pull=false", "--tag", pg17FixtureImage, "-"],
+      pg17FixtureDockerfile,
+      120_000,
+    );
+    // Parallel suites may both miss the tag before either build exports it.
+    // Adopt the winner only through the same label/dependency qualification below.
+    if (
+      (built.status !== 0 || built.error) &&
+      run(["image", "inspect", pg17FixtureImage]).status !== 0
+    )
+      throw new Error(
+        `managed_pg17_fixture_image:build:${boundedDiagnostic(built)}`,
+      );
+  }
+  const base = run([
+    "image",
+    "inspect",
+    "--format",
+    '{{ index .Config.Labels "reviewrouter.fixture.base" }}',
+    pg17FixtureImage,
+  ]);
+  if (base.status !== 0 || String(base.stdout).trim() !== pg17BaseImage)
+    throw new Error("managed_pg17_fixture_image:base_label");
+  const dependency = run([
+    "run",
+    "--rm",
+    "--pull=never",
+    "--network",
+    "none",
+    "--read-only",
+    "--entrypoint",
+    "dpkg-query",
+    pg17FixtureImage,
+    "-W",
+    "-f=${db:Status-Abbrev}",
+    "libatomic1",
+  ]);
+  if (dependency.status !== 0 || String(dependency.stdout).trim() !== "ii")
+    throw new Error(
+      `managed_pg17_fixture_image:libatomic1:${boundedDiagnostic(dependency)}`,
+    );
+}
+
+// A copied host Node that cannot execute (for example a missing shared library,
+// exit 127) must fail here with its real loader error, not later as a closed
+// wire or an observation timeout.
+export function assertFixtureNodeRuns(result: DockerResult) {
+  if (result.status === 0 && !result.error) return;
+  throw new Error(`managed_pg17_node_runtime:${boundedDiagnostic(result)}`);
+}
+
 // Only an owned, labelled, offline container. No database URL, Docker context,
 // image override, host mount, published port or ambient credential is accepted.
 export function managedPg17Fixture() {
@@ -67,8 +227,7 @@ export function managedPg17Fixture() {
   // Adapter options are still validated separately, before any Docker call.
   const environment = { PATH: "/usr/local/bin:/usr/bin:/bin", LANG: "C.UTF-8" };
   const host = ["--host", "unix:///var/run/docker.sock"];
-  const image =
-    "postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317";
+  const image = pg17FixtureImage;
   let created = false;
   const docker = (args: string[], input?: string | Buffer, timeout = 30_000) =>
     spawnSync("docker", [...host, ...args], {
@@ -145,7 +304,7 @@ export function managedPg17Fixture() {
       throw new Error("managed_pg17_cleanup_identity_unknown");
   };
   const start = async () => {
-    checked(["image", "inspect", image]);
+    ensurePg17FixtureImage(docker);
     // A timed-out create can still leave a daemon-owned object. Cleanup must
     // establish its absence or remove this exact label even without an ACK.
     created = true;
@@ -214,6 +373,14 @@ export function managedPg17Fixture() {
         ),
       ),
     );
+  };
+  const installNode = (path: string) => {
+    checked(
+      ["exec", "-i", name, "sh", "-c", `cat > ${path}`],
+      readFileSync(process.execPath),
+    );
+    checked(["exec", name, "chmod", "0755", path]);
+    assertFixtureNodeRuns(docker(["exec", name, path, "--version"]));
   };
   const apply = (database: string, count: number, applicationName: string) => {
     const catalog = readRenderSchemaHandoffCatalog().slice(0, count);
@@ -352,11 +519,7 @@ export function managedPg17Fixture() {
     // disposable container. It withholds COMMIT's actual wire response until
     // the server sends CommandComplete + ReadyForQuery(I), then disconnects.
     // Discarding a subprocess's stdout would not test acknowledgement loss.
-    checked(
-      ["exec", "-i", name, "sh", "-c", "cat > /tmp/rr-managed-node"],
-      readFileSync(process.execPath),
-    );
-    checked(["exec", name, "chmod", "0755", "/tmp/rr-managed-node"]);
+    installNode("/tmp/rr-managed-node");
     checked(
       [
         "exec",
@@ -417,11 +580,7 @@ export function managedPg17Fixture() {
   let wireNodeInstalled = false;
   const wireStream = () => {
     if (!wireNodeInstalled) {
-      checked(
-        ["exec", "-i", name, "sh", "-c", "cat > /tmp/rr-managed-wire-node"],
-        readFileSync(process.execPath),
-      );
-      checked(["exec", name, "chmod", "0755", "/tmp/rr-managed-wire-node"]);
+      installNode("/tmp/rr-managed-wire-node");
       wireNodeInstalled = true;
     }
     // PostgreSQL and both TCP endpoints remain inside --network=none. Only raw

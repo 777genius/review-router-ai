@@ -1,0 +1,40 @@
+{
+  "contract": "provider-connections-sdk-provenance/v1",
+  "archive": "agent-teams-account-gateway-0.1.0-provider-plan-ef8884317a26.tgz",
+  "sha256": "ef8884317a26c10d5c35be27f0ee07bb5103bdd5ce2b238629a025d350c3f2c3",
+  "sdkSourceRepository": "agent-teams-ai/account-gateway",
+  "sdkSourceCommit": "90b29b2d24ae7d68e386bbea391056aca7012431",
+  "sourceHashes": {
+    "packages/account-gateway/src/contracts/index.ts": "5c32215f697476a9cfebc045feb7ff96853028127d47bf0b6bfb93bdedf0f72a",
+    "packages/account-gateway/src/features/facade-client/contracts/index.ts": "74eb924934f33a8a05d454f5905893731ac89ae85c8a34f24a5d5286750081c9",
+    "packages/account-gateway/src/features/facade-client/http/index.ts": "84c873d6e4dfd3909bfd133f5d5bb07b1f586c7fb845182fada0dcf0c8914db8",
+    "packages/account-gateway/src/features/facade-client/http/ingress.ts": "95f0adbe914b652027f4743f26cf03553d3f1e6088d7d1547e50419fe5a0de99",
+    "packages/account-gateway/src/get-modular/index.ts": "e6ea38b7b03cab7ef80bfa19e8027c579908eaaf695f3e576e6189c1ee69c614",
+    "packages/account-gateway/src/http/index.ts": "e4ebce88f63243c11312fd5aafd2e9495e3e3c40e21c6330dcad311002bb1405",
+    "packages/account-gateway/src/index.ts": "337933a146db8dd1efcb5b608cfd961e4728bff896d860b920d93f2c9fa42399"
+  },
+  "qualification": {
+    "candidateReceipt": "provider-connections-sdk-review-receipt.json",
+    "rrInstalledChecks": {
+      "baseCommit": "8d9b6ba29af64784f155484b21dcc8388c69a65d",
+      "frozenInstall": true,
+      "focusedTests": 140,
+      "testFiles": 8,
+      "actionReproducible": true,
+      "actionSha256": "f752c5ad2798d95fe7c193dea8dabb834973fb4f23681baae748dc426a95c996",
+      "typecheck": true,
+      "controlledJoinedReceipt": "provider-connections-qualification.json"
+    },
+    "nativeProviderJoined": true,
+    "rrActualInstalledCaller": true,
+    "liveProviderCanary": false,
+    "browser": {
+      "sourceCommit": "b591b38ed30cc4a533082baac737c82245c95d57",
+      "providers": 4,
+      "outcome": "passed",
+      "desktopMobileVisuallyInspected": true
+    }
+  },
+  "publicPublished": false,
+  "previousProvenance": "provider-connections-a9d0c48cb9f8-provenance.json"
+}

@@ -18,4 +18,15 @@ describe("GettingStartedPage", () => {
     expect(text).not.toContain("curl -fsSL ");
     expect(text).not.toContain("/install/codex-reseed");
   });
+
+  it("shows the repository-specific interactive MiMo secret command", () => {
+    const { container } = render(<GettingStartedPage />);
+    const text = container.textContent ?? "";
+
+    expect(text).toContain("codex-mimo/mimo-v2.6-pro");
+    expect(text).toContain(
+      "gh secret set MIMO_TOKEN_PLAN_API_KEY --repo owner/repo --app actions",
+    );
+    expect(text).toContain("enter the key only at GitHub's secret prompt");
+  });
 });

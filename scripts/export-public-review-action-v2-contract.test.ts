@@ -1,3 +1,7 @@
+import {
+  lifecycleVerificationContract,
+  lifecycleVerificationDescriptorDigest,
+} from "../packages/protocol-review-action-v2/src/generated/companion-contracts.js";
 import { execFileSync } from "node:child_process";
 import {
   cpSync,
@@ -30,6 +34,8 @@ import {
   REVIEW_INVESTIGATION_RELEASE_COVERAGE_PROFILE_HASH,
   REVIEW_INVESTIGATION_RELEASE_POLICY_HASH,
   sha256Digest,
+  parseReleaseManifest,
+  buildReleaseRegistrationCandidateFields,
 } from "./lib/review-action-v2-release-manifests.mjs";
 
 const temporaryDirectories: string[] = [];
@@ -47,6 +53,52 @@ afterEach(() => {
 });
 
 describe("public Review Action v2 contract handoff", () => {
+  it("hands off the canonical usage v1 validator and dependency as managed digest-bound artifacts", async () => {
+    const fixture = createRepositories();
+    for (const file of [
+      "usage-v1.ts",
+      "usage-price-v1.ts",
+      "usage-producer-v1.ts",
+      "usage-responses-v1.ts",
+    ]) {
+      write(
+        join(fixture.saasRepo, sourceDirectory, file),
+        readFileSync(
+          join(
+            process.cwd(),
+            "packages/protocol-review-action-v2/src/generated",
+            file,
+          ),
+          "utf8",
+        ),
+      );
+    }
+    git(fixture.saasRepo, ["add", sourceDirectory]);
+    git(fixture.saasRepo, [
+      "commit",
+      "-m",
+      "test: add generated usage contract",
+    ]);
+    fixture.saasHead = head(fixture.saasRepo);
+    const result = await exportFixture(fixture, { write: true });
+    for (const file of [
+      "usage-v1.ts",
+      "usage-price-v1.ts",
+      "usage-producer-v1.ts",
+      "usage-responses-v1.ts",
+    ]) {
+      const contents = readFileSync(
+        join(fixture.actionRepo, PUBLIC_GENERATED_DIRECTORY, file),
+      );
+      expect(
+        contents.equals(
+          readFileSync(join(fixture.saasRepo, sourceDirectory, file)),
+        ),
+      ).toBe(true);
+      expect(JSON.stringify(result.handoff)).toContain(sha256Digest(contents));
+    }
+  });
+
   it("exports, commits, generates, and verifies one immutable release", async () => {
     const fixture = createRepositories();
     const exported = await exportFixture(fixture, { write: true });
@@ -144,6 +196,182 @@ describe("public Review Action v2 contract handoff", () => {
         output: releasePath,
       }),
     ).toThrow("refusing to overwrite a different release manifest");
+  });
+
+  it.each(["supported", "unsupported", "unbound"] as const)(
+    "projects handoff-bound lifecycle bytes through normal release registration (%s)",
+    async (kind) => {
+      const fixture = createRepositories();
+      const companion = readFileSync(
+        join(
+          process.cwd(),
+          "packages/protocol-review-action-v2/src/generated/companion-contracts.ts",
+        ),
+        "utf8",
+      );
+      write(
+        join(fixture.saasRepo, sourceDirectory, "companion-contracts.ts"),
+        kind === "unsupported"
+          ? companion.replace(
+              "lifecycle-verification.v1",
+              "lifecycle-verification.v2",
+            )
+          : companion,
+      );
+      git(fixture.saasRepo, ["add", sourceDirectory]);
+      git(fixture.saasRepo, ["commit", "-m", "test: bind lifecycle contract"]);
+      fixture.saasHead = head(fixture.saasRepo);
+      await exportFixture(fixture, { write: true });
+      if (kind === "unbound")
+        write(
+          join(
+            fixture.actionRepo,
+            PUBLIC_GENERATED_DIRECTORY,
+            "companion-contracts.ts",
+          ),
+          companion + "\n",
+        );
+      write(join(fixture.actionRepo, "dist/index.js"), "fresh bundle\n");
+      write(
+        join(fixture.actionRepo, "dist/context-gateway.js"),
+        "fresh context gateway\n",
+      );
+      writeContextGatewayReleaseMetadata(fixture.actionRepo);
+      git(fixture.actionRepo, ["add", PUBLIC_GENERATED_DIRECTORY, "dist"]);
+      git(fixture.actionRepo, [
+        "commit",
+        "-m",
+        "test: release lifecycle contract",
+      ]);
+      const input = {
+        actionRepo: fixture.actionRepo,
+        targetBranch,
+        expectedHead: head(fixture.actionRepo),
+        runtimeEntrypointPath: "dist/index.js",
+        contextGatewayEntrypointPath: "dist/context-gateway.js",
+        output: join(fixture.root, "lifecycle-release.json"),
+      };
+      if (kind !== "supported") {
+        expect(() => generateReleaseManifest(input)).toThrow(
+          kind === "unbound"
+            ? "committed generated file digest mismatch"
+            : "unsupported lifecycle verification companion contract bytes",
+        );
+        return;
+      }
+      const release = generateReleaseManifest(input);
+      const expectedProfile = {
+        extensionId: lifecycleVerificationContract.extensionId,
+        descriptorDigest: lifecycleVerificationDescriptorDigest,
+      };
+      expect(release.manifest.lifecycleVerificationProfile).toEqual(
+        expectedProfile,
+      );
+      expect(parseReleaseManifest(release.bytes)).toEqual(release.manifest);
+      expect(
+        buildReleaseRegistrationCandidateFields(release.manifest)
+          .lifecycleVerificationProfile,
+      ).toEqual(expectedProfile);
+      expect(
+        checkReleaseManifest({
+          manifest: input.output,
+          saasRepo: fixture.saasRepo,
+          actionRepo: fixture.actionRepo,
+          sourceDirectory,
+        }).lifecycleVerificationProfile,
+      ).toEqual(expectedProfile);
+      expect(
+        JSON.parse(
+          readFileSync(
+            join(
+              fixture.actionRepo,
+              PUBLIC_GENERATED_DIRECTORY,
+              "manifest.json",
+            ),
+            "utf8",
+          ),
+        ),
+      ).not.toHaveProperty("lifecycleVerificationProfile");
+    },
+  );
+
+  it("qualifies PR description approval from committed generated metadata and rejects a rewritten claim", async () => {
+    const fixture = createRepositories();
+    const profile = {
+      extensionId: "pr-description.v1",
+      canonicalizerDigest:
+        "aa043184eb0a1a0cf230d8fbb03c6a63a05b950c82c0107bee7d2533c386eed0",
+    };
+    const sourceManifestPath = join(
+      fixture.saasRepo,
+      sourceDirectory,
+      "manifest.json",
+    );
+    write(
+      sourceManifestPath,
+      canonicalJson({
+        ...JSON.parse(readFileSync(sourceManifestPath, "utf8")),
+        auxiliaryExtensions: [profile],
+      }),
+    );
+    git(fixture.saasRepo, ["add", sourceDirectory]);
+    git(fixture.saasRepo, [
+      "commit",
+      "-m",
+      "test: approve PR description extension",
+    ]);
+    fixture.saasHead = head(fixture.saasRepo);
+    await exportFixture(fixture, { write: true });
+    write(join(fixture.actionRepo, "dist/index.js"), "fresh bundle\n");
+    write(
+      join(fixture.actionRepo, "dist/context-gateway.js"),
+      "fresh context gateway\n",
+    );
+    writeContextGatewayReleaseMetadata(fixture.actionRepo);
+    git(fixture.actionRepo, [
+      "add",
+      PUBLIC_GENERATED_DIRECTORY,
+      "dist/index.js",
+      "dist/context-gateway.js",
+      PUBLIC_CONTEXT_GATEWAY_RELEASE_METADATA,
+    ]);
+    git(fixture.actionRepo, [
+      "commit",
+      "-m",
+      "test: bind approved extension release",
+    ]);
+    const releasePath = join(fixture.root, "description-release.json");
+    const release = generateReleaseManifest({
+      actionRepo: fixture.actionRepo,
+      targetBranch,
+      expectedHead: head(fixture.actionRepo),
+      runtimeEntrypointPath: "dist/index.js",
+      contextGatewayEntrypointPath: "dist/context-gateway.js",
+      output: releasePath,
+    });
+    expect(release.manifest.prDescriptionProfile).toEqual(profile);
+    const checkInput = {
+      manifest: releasePath,
+      saasRepo: fixture.saasRepo,
+      actionRepo: fixture.actionRepo,
+      sourceDirectory,
+    };
+    expect(checkReleaseManifest(checkInput).prDescriptionProfile).toEqual(
+      profile,
+    );
+    write(
+      releasePath,
+      canonicalJson({
+        ...release.manifest,
+        prDescriptionProfile: {
+          ...profile,
+          canonicalizerDigest: "f".repeat(64),
+        },
+      }),
+    );
+    expect(() => checkReleaseManifest(checkInput)).toThrow(
+      "release manifest does not match committed source",
+    );
   });
 
   it("generates and verifies an immutable investigation registration candidate", async () => {
@@ -366,6 +594,21 @@ function createRepositories(): Repositories {
 
   initializeRepository(actionRepo, targetBranch);
   write(join(actionRepo, "dist/index.js"), "old bundle\n");
+  write(
+    join(actionRepo, "src/control-plane/review-agent-profiles.json"),
+    JSON.stringify([
+      {
+        profileRef: "fixture-codex",
+        agentKind: "codex",
+        binarySha256: "a".repeat(64),
+        packageVersion: "0.147.0",
+        modelTransports: ["account_gateway"],
+        contextGateway: true,
+        cancellation: true,
+      },
+    ]),
+  );
+  git(actionRepo, ["add", "src/control-plane/review-agent-profiles.json"]);
   git(actionRepo, ["add", "dist/index.js"]);
   git(actionRepo, ["commit", "-m", "test: add existing bundle"]);
   return {
@@ -415,8 +658,8 @@ function writeContextGatewayReleaseMetadata(
 function initializeRepository(repository: string, branch: string): void {
   mkdirSync(repository, { recursive: true });
   git(repository, ["init", "-b", branch]);
-  git(repository, ["config", "user.name", "ReviewRouter Test"]);
-  git(repository, ["config", "user.email", "test@reviewrouter.invalid"]);
+  git(repository, ["config", "user.name", "iliya"]);
+  git(repository, ["config", "user.email", "iliyazelenkog@gmail.com"]);
   write(join(repository, "README.md"), "fixture\n");
   git(repository, ["add", "README.md"]);
   git(repository, ["commit", "-m", "test: initialize"]);
@@ -447,6 +690,16 @@ function head(repository: string): string {
 }
 
 function git(repository: string, args: string[]): string {
+  if (args[0] === "commit") {
+    for (const variable of ["GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"]) {
+      const identity = execFileSync("git", ["var", variable], {
+        cwd: repository,
+        encoding: "utf8",
+      });
+      if (!identity.startsWith("iliya <iliyazelenkog@gmail.com> "))
+        throw new Error(`fixture commit identity invalid: ${variable}`);
+    }
+  }
   return execFileSync("git", args, {
     cwd: repository,
     encoding: "utf8",

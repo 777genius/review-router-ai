@@ -1,0 +1,384 @@
+{
+  "kind": "private_sdk_committed_source_pack",
+  "sourceRepository": "https://github.com/agent-teams-ai/account-gateway",
+  "sourceCommit": "c044e3a27859e067524eafef2142012d92a33da7",
+  "sourceTree": "aa85105c06ee3764fbce8eaaf2b8a2fdb6edfc99",
+  "uncommittedSource": false,
+  "sourceFiles": {
+    "package.json": "393001ac7637ffff8f3c8cedb6bcb22ede465a5e39aba09e126b6e260c6361af",
+    "packages/account-gateway/README.md": "ebe03161a3ef0060a024bdf6bb578f161691f3a36e3f9890933fbae2777e2875",
+    "packages/account-gateway/package.json": "8d3865e24fd23b97da4ea3ff9bb48e322107868f62a8f06f2bb2c81d05bc468c",
+    "packages/account-gateway/src/contracts/index.ts": "91017acf331d2ddddb11ec17013f6737c84163fa71326675c5cbb11a59c30495",
+    "packages/account-gateway/src/features/facade-client/contracts/index.ts": "5cb253c912b5e216b7390831bd0792db8ad2d08d8e8e23f6eb3d12d14eda3858",
+    "packages/account-gateway/src/features/facade-client/http/index.ts": "73a6cbce28aa50e53b3da9065cc56edd3f7881bc53ebe72f44a9e714d2aac643",
+    "packages/account-gateway/src/features/facade-client/http/ingress.ts": "72f953199bbeb4fa24885e8e3fafd9c89bbbf51157378900736a16f7d9506a45",
+    "packages/account-gateway/src/get-modular/index.ts": "e6ea38b7b03cab7ef80bfa19e8027c579908eaaf695f3e576e6189c1ee69c614",
+    "packages/account-gateway/src/http/index.ts": "f3b19f5b8597915c712fcf3063b20862d2a4a2b458aaea62a84143041686871c",
+    "packages/account-gateway/src/index.ts": "e67d4430eba1decac66beb54ba2090b9b1b75165d7ed31ceff6a47709ad723b0",
+    "pnpm-lock.yaml": "949be1d3932f3834bdc2cbaee156852d33861b4697e40158a5167d5b5b7bf09b",
+    "scripts/build.mjs": "ae12115a0b19f9ff327d75cbcdd2d337bea39d8aa58b8e3e50e563c3982d30d8",
+    "tsconfig.json": "21975dfe7b0c3ba51990fc3e675e917245b32845dbb9404364555f011bf229d4"
+  },
+  "vendoredArchive": "vendor/account-gateway/agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz",
+  "sha256": "ef19e22850029466f7bb7c7c1ee42c101838b0ecb10629e052cd8a3b56202162",
+  "integrity": "sha512-2m6yfYE3VPAtlBPUrowOauDsHsoBwl1oIB8ph10Cvw4kFU8nzhV+msgUrHj9StUEzcGTEZFvKb6AB7vX6rMxgw==",
+  "bytes": 23277,
+  "published": false,
+  "archiveFiles": {
+    "package/dist/contracts/index.js": "d98369f48bd4e956811a154f71b00f9e500378a6ef133e5b64fd07bd86d4339d",
+    "package/dist/features/facade-client/contracts/index.js": "02477f1348594feb08e91f50d499cd096a96b690de83d76a1acca1cb80f960f0",
+    "package/dist/features/facade-client/http/index.js": "96e8fd19e6eb84722c75575c8c35a26b46b67c77fdf69373c9a37f14a34373e3",
+    "package/dist/get-modular/index.js": "caa8d14e7dd8c0a3caf8867212a4e7217ca1e29a522d7cd13de1ee2638e1cc48",
+    "package/dist/http/index.js": "a490e8c6281d94da18b0b4ca44d749894d298e2f33c561ddf7e39bc44f0f9255",
+    "package/dist/index.js": "01855885dc3cd63a7ce472bfdb64af279653ca4e648c29b873498c367fce19ba",
+    "package/dist/features/facade-client/http/ingress.js": "46ea5f054c63b6475b1d51a6bed0a323111964de409e58f18531f9879aab2967",
+    "package/package.json": "8d3865e24fd23b97da4ea3ff9bb48e322107868f62a8f06f2bb2c81d05bc468c",
+    "package/README.md": "ebe03161a3ef0060a024bdf6bb578f161691f3a36e3f9890933fbae2777e2875",
+    "package/dist/contracts/index.d.ts": "1287cf6c8ff53fecf8cacc0fa6c09b77371c9fe8948730b33aa88ac65c5f2dd8",
+    "package/dist/features/facade-client/contracts/index.d.ts": "94bb0d7a95a04a4f1f351119105dcd4a77e2264d87116dcdd7878038aed8f8cd",
+    "package/dist/features/facade-client/http/index.d.ts": "603afe5203a7a35e303e73d0cdd81794a131221c995fc17dd7dd2d7a01dc94a9",
+    "package/dist/get-modular/index.d.ts": "57282f6f2ea3fd1649f92f1f008438e9dc20acb8e188b79e1eb0ff011b8cedc0",
+    "package/dist/http/index.d.ts": "1d7110c154deefff5d7155aab99e9ecb2c2f7973ec7fd1c0b7951fa605f924b4",
+    "package/dist/index.d.ts": "e67d4430eba1decac66beb54ba2090b9b1b75165d7ed31ceff6a47709ad723b0",
+    "package/dist/features/facade-client/http/ingress.d.ts": "3ff66b2a37a449580a9164b3393ebc2a553eb1249bb4e41addcccf5b01f63cd8"
+  },
+  "archiveReceipt": {
+    "file": "gateway-sdk-c044-receipt.json",
+    "sha256": "a2191ecf6ed1d7e3715a560c13d3018b9731eec4d11ede24eb81ac3361fdb443",
+    "sourceClean": true
+  },
+  "gatewayRuntime": {
+    "repository": "https://github.com/agent-teams-ai/account-gateway",
+    "commit": "36027f164c149a4fff4a2eff16c557f360650853",
+    "treeSHA1": "593f3e76878a2a39b9e86cb2064910115fe2845a",
+    "sdkSourcesIdenticalToArchiveBuild": true,
+    "comparedFiles": 13,
+    "sdkSourceManifestSHA256": "be40241178259fc2165aa2d336f737c33bcaeec2653629542ab9a0289f8c9188"
+  },
+  "nativeDependency": {
+    "repository": "https://github.com/agent-teams-ai/sub2api",
+    "commit": "e0acd64002de0cce6ea6fe25e3f13bb2fd8d674f",
+    "migration": 253,
+    "treeSHA1": "267da9d2742fc868a5fe29a7359e13d33e457669",
+    "sourceFileSHA256": {
+      "backend/internal/gatewaybootstrap/authority.go": "d06fad8474ffa562b619b5761c09479fdc1169ff43f7f750a3c9a6b2e088ceff",
+      "backend/internal/gatewaybootstrap/config.go": "ab2a3a4393794c8ffcd813776e7f6167668d431e339c8316d3af62e7808420a6",
+      "backend/internal/gatewaybootstrap/server_linux.go": "446f387f488ffc433c4dfcd830e4b813c0a225ade3963e6e68818d90114b35e6",
+      "backend/internal/gatewaytransport/claude_test.go": "c683862213e5e621a0b2cdce397cbb8a8fb330acbf44315a0338545340aa9858",
+      "backend/internal/gatewaytransport/http.go": "a406bb1e2b38fbefaaf225b0c36d143c3e42672b3b87105eec73ef2a0ee428c3",
+      "backend/internal/gatewaytransport/registry.go": "d27c8abc0e0eeac1daf0f03ab484142bd3d6b4381dacf5a3e0487d94eae5c3d4",
+      "backend/internal/gatewaytransport/wire.go": "5cb65c346883cb4f9e76d3e7a224a58cda31d667c1c6323fe37ed774951de6aa",
+      "backend/internal/handler/admin/native_gateway_claude_oauth.go": "99505db5a5bb932eb668df9d2131a2f957cd5ceb3a1ae487614ae70637b96480",
+      "backend/internal/handler/admin/native_gateway_oauth_connect.go": "ba7c78bd0b34329c69fe170f107a6ee1ea062c4459a0c3c1d7ed536f1849adfa",
+      "backend/internal/handler/admin/native_gateway_oauth_descriptor.go": "3c7b5e34c2924b9f0f013efdbcc3826a7e374a294f0de23b1a30d95c428a3093",
+      "backend/internal/repository/account_repo.go": "b615bb4069af6ef54c4e23d653e2618af78cc197f88b8512883ab37c8e17e278",
+      "backend/internal/repository/native_gateway_account_limits.go": "b0575d2dbe0a133a11c4828b96650316244db73aae6ed3516ac573b83a98a38c",
+      "backend/internal/repository/native_gateway_claude.go": "57fcc1d19c3eddeff9ad16e6421898ce8f76857a087647cb0179832ffe9df8b5",
+      "backend/internal/repository/native_gateway_claude_postgres_test.go": "117df6903b1dc3cfd3c29719ac40b3f6950ca92b9ebc0142e2c5f6e9080dfe8d",
+      "backend/internal/service/native_gateway_account_limits.go": "babd0c4353045128aa53a19298e80382fde484c18a8d5bbe213799e49f66d10b",
+      "backend/internal/service/native_gateway_claude_dispatch.go": "94e7b0cee52532a985cd77330f66e7120ad7b7e9cc3fd218efdcd5990da08ce5",
+      "backend/internal/service/native_gateway_claude_limits.go": "e0a3b6a0956f91f768a808e6cbe670885c64b8c33ca39c38b2a441b3bb49c9ee",
+      "backend/internal/service/native_gateway_claude_limits_test.go": "a578af8ebae7b7588fd1183cabf18d757734cef63b18aeb653fe505260266aad",
+      "backend/internal/service/native_gateway_claude_messages.go": "7f3101b5383bd2f07d202e3cea1788a95904cc79590dc20bf861163915b41b05",
+      "backend/internal/service/native_gateway_claude_messages_test.go": "87431f71215469617e50138cd125ade40e06706dffa2b0f23d08dac08ce5ebba",
+      "backend/internal/service/native_gateway_claude_oauth.go": "a3bf6adadae048687b94c02fa7e3f256d181c5cd4ed5fee4f17cda1b3cb869f8",
+      "backend/internal/service/native_gateway_identity.go": "aafe769a40596dea466e941b8f6d2d3478f939a74df822fcd1eeb6512a393e3e",
+      "backend/internal/service/native_gateway_oauth_dispatch.go": "dd4c279d5a2a2a7213ae910180818917e87374079cd842bed9e91d8f5795bb08",
+      "backend/migrations/253_gateway_claude_oauth.sql": "fcad0d05d4be09f9d1bb2348217011bb8316b5fb909d71a6ece34993066c4d11"
+    },
+    "workflowSHA256": "a69e05287e26954ab062e0c116afd78baee2fd2a2412ce7fe01648e6b066768d"
+  },
+  "capabilities": {
+    "cachedRead": true,
+    "quotaOnlyRefresh": false,
+    "supportedFamilies": ["codex", "claude"],
+    "claude": {
+      "profileId": "anthropic-claude-oauth-messages-v1",
+      "modelId": "claude-sonnet-4-6",
+      "catalogProtocol": "openai-responses",
+      "nativeProviderProtocol": "anthropic-messages",
+      "oauthMethods": ["browser"]
+    }
+  },
+  "qualification": {
+    "status": "controlled_fixture_qualified_native_ci_unavailable",
+    "gatewayCI": {
+      "head": "36027f164c149a4fff4a2eff16c557f360650853",
+      "status": "completed",
+      "conclusion": "success",
+      "runs": [39842019099, 39842019296],
+      "runURLs": [
+        "https://github.com/agent-teams-ai/account-gateway/actions/runs/39842019099",
+        "https://github.com/agent-teams-ai/account-gateway/actions/runs/39842019296"
+      ],
+      "nodeLanes": ["24.21.0", "26.11.1"],
+      "checkCount": 6,
+      "checks": [
+        "kernel",
+        "qualify",
+        "kernel (Node 26.11.1)",
+        "kernel (Node 24.21.0)",
+        "qualify (Node 26.11.1)",
+        "qualify (Node 24.21.0)"
+      ],
+      "evidence": "GitHub check-runs read after completion; all six checks completed successfully for this exact head."
+    },
+    "nativeCI": {
+      "head": "e0acd64002de0cce6ea6fe25e3f13bb2fd8d674f",
+      "status": "unavailable",
+      "attemptHead": "2a6e3b5187eaa19db2249ce2257f5a19cf893d41",
+      "httpStatus": 422,
+      "reason": "Actions has been disabled for this repository",
+      "actionsPermissionsReadbackEnabled": true,
+      "workflowReadbackState": "active",
+      "attemptHeadCheckRuns": 0,
+      "workflowOnlyChangeAfterRefusedAttempt": true,
+      "retried": false,
+      "receipt": {
+        "file": "native-actions-dispatch-refusal.json",
+        "sha256": "afc89de95037107d68e1bc43c350d93ba1e829d2313849f56586f57a5f6991ec"
+      },
+      "scope": "The original workflow dispatch was refused; enabled readback does not establish runnable CI. No successful GitHub CI claim for either head."
+    },
+    "nativeHosted": {
+      "status": "passed",
+      "head": "e0acd64002de0cce6ea6fe25e3f13bb2fd8d674f",
+      "focusedReceipt": {
+        "file": "native-focused-r4-result.json",
+        "sha256": "4ee228a4e59e6adfbc4016dc3a337f369557e1494c1f8497d48d60354ae07c7d",
+        "jobId": "e31c39cde99525bd7fae9aa2f93cc3e9",
+        "exitCode": 0
+      },
+      "compatibilityReceipt": {
+        "file": "native-compat-result.json",
+        "sha256": "dda87d37c8a531fb6f6b763c50f84ad0a0d635655694139bc4afd1a8e5049176",
+        "jobId": "5fe334c9e5349c06cdbc698faf297552",
+        "exitCode": 0
+      },
+      "sourceManifestSHA256": "2558036eadedb19ee3221431fbf6a8a2c898477ce28f8dfc505a5bed1970d872",
+      "changedCommittedSourceFilesCompared": 24,
+      "scope": "Focused service, handler, PostgreSQL lifecycle/passive limits migration253 tests plus final Responses wire compatibility checks. Final committed changed files match the compatibility source manifest; focused lifecycle source was unchanged.",
+      "codeCommit": "2a6e3b5187eaa19db2249ce2257f5a19cf893d41",
+      "workflowOnlyChangeAfterHostedTests": true
+    },
+    "installedIndependentConsumers": {
+      "status": "passed",
+      "count": 2,
+      "archiveSHA256": "ef19e22850029466f7bb7c7c1ee42c101838b0ecb10629e052cd8a3b56202162",
+      "installedHTTPAndIsolationTests": 21,
+      "receipt": {
+        "file": "gateway-installed-result.json",
+        "sha256": "89b51521030deceb81b310b05f1e6515eb9026260097cd04918febc12f1b5539",
+        "jobId": "c565977bb1f65ac71ddbef6b8ae3aafb",
+        "exitCode": 0
+      },
+      "scope": "Two separately installed SDK consumers and authenticated namespaces against a disposable HTTP fixture; not native-service tenant-isolation proof."
+    },
+    "joined": {
+      "status": "passed",
+      "nativeBinarySHA256": "2e078e0076752189fb5366ab422d1eea711689b60b219ad85a64229432fd4111",
+      "nativeHead": "e0acd64002de0cce6ea6fe25e3f13bb2fd8d674f",
+      "gatewayHead": "36027f164c149a4fff4a2eff16c557f360650853",
+      "sourceHashes": {
+        "harness": "56236a5c9801828cd07adec5fc788c24e333376f439d88770929271b71c0de3b",
+        "nativeFixture": "b743007d447c06bc26736f606490c48531b8a8b79df6612bab7162dcebb9071e",
+        "sdkHTTP": "a490e8c6281d94da18b0b4ca44d749894d298e2f33c561ddf7e39bc44f0f9255"
+      },
+      "nativeHTTP": true,
+      "gatewayFacadeAndSDK": true,
+      "liveOwnerCallback": true,
+      "actualPostgreSQL": true,
+      "browserFreshOnly": true,
+      "wrongOwnerDenied": true,
+      "deviceDenied": true,
+      "account": "active",
+      "descriptor": "verified",
+      "rrAcceptance": true,
+      "nativeDiagnosticBytes": 428,
+      "accountLimits": {
+        "cachedRead": true,
+        "passiveMessagesProducer": true,
+        "missingUnknown": true,
+        "nativeTombstoneUnavailable": true,
+        "renamePreserved": true,
+        "upstreamCallsForRead": 0
+      },
+      "provider": {
+        "exchanges": 1,
+        "refreshes": 0,
+        "messages": 1,
+        "unexpected": 0
+      },
+      "contract": "gateway-native-claude-joined/v1",
+      "archiveSHA256": "ef19e22850029466f7bb7c7c1ee42c101838b0ecb10629e052cd8a3b56202162",
+      "sdkHTTPEntryPoint": "package/dist/http/index.js",
+      "receipt": {
+        "file": "joined-final-receipt.json",
+        "sha256": "b4443e1506aaeb59c5f1cfd09334915b1fdf71e67d2182194c000eab378fd448"
+      },
+      "executionReceipt": {
+        "file": "joined-final-result.json",
+        "sha256": "1a82f56700092970ce1da138e3db5f5ee2beb904e217644f10a21154b4cad49b",
+        "jobId": "0806422e59d91b061e5f4822d4c99655",
+        "exitCode": 0
+      },
+      "scope": "Controlled actual native HTTP, Gateway facade, installed SDK and mandatory RR projection acceptance over disposable PostgreSQL. One fixture token exchange and one fixture Messages response seeded passive limits; cached reads made zero upstream calls. Refresh lifecycle is covered separately by focused native tests."
+    },
+    "reviewRouter": {
+      "status": "passed",
+      "baseCommit": "9cc02f68fe8f8bcef9a52bd6c5eeddbb51f6b8ca",
+      "uncommittedSource": true,
+      "sourceManifestSHA256": "4a9f1fb029652bee83934e75178a552792210a09b6e9d28ac6340903beb32c7d",
+      "changedConsumerFilesMatched": 15,
+      "sourceFileSHA256": {
+        "apps/web/app/dashboard/account-gateway-account-controls.oauth.test.tsx": "92cf5c6a54c1a13a342a69e448e0beeaf94c9168df977e6e720b2dfaca784a78",
+        "apps/web/app/dashboard/account-gateway-account-controls.tsx": "78f654904090678f621ab293839459ed1e64671ec64e38979af94928657abf23",
+        "apps/web/package.json": "c886c09ac7c3fe2050b3e5d3b26a1af94338b6bcc3386e35f704f561d4b9a687",
+        "apps/web/src/server/account-device-oauth.test.ts": "6c6cc68b416af1021f5e18d6c5af10acf699ba45bff47bda3b0d916a6c4d0aa4",
+        "apps/web/src/server/account-gateway-accounts.integration.test.ts": "12bb844053ce99020f31eea69bdd43719e2493bbe16b73e6ddb3021877e943c1",
+        "apps/web/src/server/account-gateway-accounts.ts": "b29641032fd1c6113152f8017ec0dd0cdd9a389fe2777199b5447d21c236a559",
+        "apps/web/src/server/personal-account-composition.ts": "db81296a7a20623d5066ce3ab5f582799af54784902cccd5355f1ef7abcba84a",
+        "apps/web/src/server/personal-canonical-accounts.ts": "3f293dcf224e15d39e83e7518205b5cc126b11bd5bd4024a8a353284e96e4c65",
+        "packages/features/provider-accounts/src/account-limits/domain/account-limits.test.ts": "18588ab9cf5a77926a213d799e811ca3306cd738302d2d804b5006fa51bd1b95",
+        "packages/features/provider-accounts/src/account-limits/domain/account-limits.ts": "f187ffeda62d2cf05c20bed786c50dea1c16bd1c4c2840581d9109d4f81935d5",
+        "scripts/accounts-reference-e2e/src/contracts.ts": "e52bac89e76f52d74a8bff832f7cf9d827bb0504649f65b74081feb2d0dda693",
+        "scripts/accounts-reference-e2e/src/database.ts": "5981568daa83d090540043f845f8bd098f16186206b4a7e25352521049bef44c",
+        "scripts/accounts-reference-e2e/src/gateway-fixture.ts": "2720a246e9ce3f07ff5e4849d6ddb312e8c86434f66df9cfa43a9a0b61f85111",
+        "scripts/accounts-reference-e2e/src/limits-fixture.ts": "ac800c7a539955c524c23d1bf07431493e14eeee4358e456646d26241f6402ca",
+        "scripts/accounts-reference-e2e/src/tests/account-limits.spec.ts": "9f9926dc168de26672225954763a8c23f1e259505d395a824b330afe582aef2f"
+      },
+      "focused": {
+        "status": "passed",
+        "oauthAndCanonicalTests": 41,
+        "integrationTests": 1,
+        "integrationSkipped": 1,
+        "receipt": {
+          "file": "rr-final-focused-result.json",
+          "sha256": "6c2f131e8778258c81144475fc860ea66179fe37165f48db0352434a56447f5d",
+          "jobId": "ab192be59fa2bf32ab1428ed88f50e22",
+          "exitCode": 0
+        }
+      },
+      "domainAndLimitsUI": {
+        "status": "passed",
+        "tests": 37,
+        "receipt": {
+          "file": "rr-domain-result.json",
+          "sha256": "3382c88a4a06b60ff1a80b203c0074dc382cb64333ca527f3f2e19c0ab0544db",
+          "jobId": "8e90b43dd95d4b61d394c8b5e8193d7f",
+          "exitCode": 0
+        },
+        "scope": "Earlier focused domain and limits UI receipt retained; these behaviors were unchanged by the final OAuth callback/type fixes."
+      },
+      "webTypecheck": "passed",
+      "browserHarnessTypecheck": "passed",
+      "changedFilesLint": "passed",
+      "browser": {
+        "status": "passed",
+        "tests": 8,
+        "receipts": [
+          {
+            "file": "rr-browser-r2-result.json",
+            "sha256": "0b6cd28bdd31b4134d345acb60590a5ecccd656620df78fdd58a2258c77c5f6d",
+            "jobId": "cca8a9d3d49bc8c196410c539e22512a",
+            "exitCode": 0
+          },
+          {
+            "file": "rr-browser-shared-result.json",
+            "sha256": "6602395d396da10dda50fca9794c6ca113f4ca19fe3f762a83e4a485126a5393",
+            "jobId": "6d401a490220c15d041b9316d5bd75a7",
+            "exitCode": 0
+          }
+        ],
+        "screenshots": {
+          "artifact": "rr-browser-screenshots.tar.gz",
+          "sha256": "be6e9e5ab589d4b146b3115b5c9e729d73e4c634f3f2d0d5676278d0e4ec18da",
+          "pngFiles": 17,
+          "visualReview": "Root agent reviewed the actual desktop/mobile screenshots."
+        },
+        "scope": "Real Chromium over the final RR source manifest with controlled Gateway cached-read HTTP and isolated PGlite; SSR, desktop/mobile remaining values and model buckets, keyboard details/reload, stale/unknown observations and shared-owner privacy. This is not live native/provider quota proof."
+      },
+      "nativeAcceptanceTypecheck": "passed",
+      "branchBaseCommit": "430a25c907581d17feccbd019ba37a5bd6908291",
+      "sourceReuse": "Focused/static/browser receipts were produced on the recorded tested base. All 15 changed consumer source files remain byte-identical after the main fast-forward; final ReviewRouter branch CI is separate."
+    },
+    "scope": "Controlled provider fixtures and disposable PostgreSQL only. No production migration, activation, live login, live provider request or deployment qualification.",
+    "gatewayHosted": {
+      "status": "passed",
+      "facadeTests": 26,
+      "oauthEnrollmentTests": 74,
+      "receipt": {
+        "file": "gateway-pg-r2-result.json",
+        "sha256": "f4f2e3a025179ab988b0e00f20b0b32748047f89329f08b901b9d78e816fd229",
+        "jobId": "0b4a8b2b42aa5aa92c78d589a9a86f69",
+        "exitCode": 0
+      },
+      "scope": "Disposable PostgreSQL facade and OAuth enrollment; no real provider.",
+      "sourceBinding": {
+        "runtimeCommit": "c044e3a27859e067524eafef2142012d92a33da7",
+        "testOverlayCommit": "ff75411885b6e755120e34d98fc54d4834c8f2ae",
+        "finalHead": "36027f164c149a4fff4a2eff16c557f360650853",
+        "productionInputsIdentical": true,
+        "postgresTestInputsIdenticalToFinal": true,
+        "testOverlayFiles": {
+          "architecture/foundation/source-dependencies.yaml": "34e54f2adf7a566725735040685ca902a91e9eb650a07c74efbf9c6f6cd2d758",
+          "services/account-gateway/test/facade-postgres.test.ts": "215f13f629aa64cac341f7cc3a670d43b55884263c5ff74afaa678b80acd1eaa"
+        },
+        "laterChangedFiles": [
+          "services/account-gateway/test/fixtures/native-claude-joined/main.go",
+          "services/account-gateway/test/native-claude-joined.ts"
+        ],
+        "evidence": "Validation confirmed the hosted PostgreSQL source was the clean build commit plus the exact two-file ff754 overlay. Later commits change only the independent joined Go fixture/harness, including fresh-clone scratch creation and safe failure diagnostics; runtime, SDK and PostgreSQL inputs are unchanged.",
+        "receipt": {
+          "file": "gateway-pg-source-binding.json",
+          "sha256": "4a341d1594b3f21d92d630e89964835e00d1586464b985d5b699bf1e9708165d",
+          "comparedFiles": 133,
+          "mismatches": 0
+        },
+        "laterHarnessFixCommit": "36027f164c149a4fff4a2eff16c557f360650853",
+        "finalReuseReceipt": {
+          "file": "gateway-final-reuse.json",
+          "sha256": "5d073a9feceeaefa179f693301c0a73daa1bc0dd3fe1066d85b1730497e0349e"
+        }
+      },
+      "sourcePolicyTests": 3
+    }
+  },
+  "history": [
+    {
+      "checkpoint": "codex_cached_account_limits",
+      "sourceCommit": "b36a5400b6747d2569ca236d868cd494ea0bd6a1",
+      "sourceTree": "e1cef1f9d0833a2de1a87bb262c2bfe947706f8d",
+      "vendoredArchive": "vendor/account-gateway/agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz",
+      "sha256": "c41b9e7d3de44c1b25f8f2e3202092db1371bc55bd39d927e384a9f44a876b57",
+      "integrity": "sha512-O1KJh9UJ+XCvNCO8XKTK6/ABBp3HeOkZi2LlhycW/RqK11z6rwk26FCjDMvxbPCnSEsZN3i0lUqUxJs5LP16jA==",
+      "nativeCommit": "14383534b0b0cb3161f0b806270a65810d51dc4a",
+      "nativeMigration": 252,
+      "qualification": {
+        "gatewayCI": {
+          "head": "b36a5400b6747d2569ca236d868cd494ea0bd6a1",
+          "conclusion": "success",
+          "runs": [39785120815, 39785120835],
+          "nodeLanes": ["24.21.0", "26.11.1"],
+          "checkCount": 6
+        },
+        "installedIndependentConsumers": 2,
+        "joined": {
+          "nativeHead": "14383534b0b0cb3161f0b806270a65810d51dc4a",
+          "gatewayHead": "b36a5400b6747d2569ca236d868cd494ea0bd6a1",
+          "nativeBinarySHA256": "8d375e31a2ad10e2087081830055c0d343dcf66a738a5cd9a7099c7b7839f6de",
+          "sdkHTTP_SHA256": "a490e8c6281d94da18b0b4ca44d749894d298e2f33c561ddf7e39bc44f0f9255",
+          "rrAcceptance": true,
+          "usedPercent": 37.5,
+          "remainingPercent": 62.5,
+          "cachedReadProviderRequests": 0,
+          "inferenceRequests": 0,
+          "sourceReceiptSHA256": "2783a4d7a217a58faad24afe8458e175aa28fcd46cd335e9398d19bd42a26afd",
+          "sdkHTTPEntryPoint": "package/dist/http/index.js",
+          "sdkHTTPImplementationSHA256": "96e8fd19e6eb84722c75575c8c35a26b46b67c77fdf69373c9a37f14a34373e3"
+        },
+        "scope": "Controlled local provider fixtures and disposable PostgreSQL. No production migration, activation, live login or live provider request."
+      }
+    }
+  ]
+}

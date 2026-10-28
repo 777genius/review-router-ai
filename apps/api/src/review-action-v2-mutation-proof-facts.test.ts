@@ -7,7 +7,6 @@ import {
   ProducerReleaseState,
   ReviewCapabilityProfile,
   ReviewMutationLaneKind,
-  ReviewMutationExecutionAuthorityMode,
   ReviewMutationMode,
   ReviewSafetyDecisionKind,
   ScmProvider,
@@ -52,9 +51,11 @@ describe("ProductionReviewMutationAuthorityProofFacts", () => {
     expect(facts.facts.noTrackedLegacyActivity).toBe(false);
   });
 
-  it("reports a missing dispatch permission as an activation fact", async () => {
+  it("rejects activation without dispatch for a dispatch-only workflow", async () => {
     const facts = await createFacts({
       dispatchCapabilityAvailable: false,
+      workflowSchemaVersion:
+        CodexRotatingT0WorkflowSchemaVersion.DurableDispatchV1,
     }).inspectActivationFacts({
       scmRepositoryIdentityId: "identity-1",
       laneKind: ReviewMutationLaneKind.HostedReviewRouterApp,
@@ -63,7 +64,36 @@ describe("ProductionReviewMutationAuthorityProofFacts", () => {
     expect(facts.facts.dispatchCapabilityAvailable).toBe(false);
   });
 
-  it("proves fresh direct V2 with a canonical client-triggered workflow", async () => {
+  it("denies activation without managed dispatch even with canonical source", async () => {
+    const facts = await createFacts({
+      dispatchCapabilityAvailable: false,
+    }).inspectActivationFacts({
+      scmRepositoryIdentityId: "identity-1",
+      laneKind: ReviewMutationLaneKind.HostedReviewRouterApp,
+    });
+
+    expect(facts.facts).toMatchObject({
+      noTrackedLegacyActivity: true,
+      workflowInventoryCompatible: true,
+      registeredReleaseSelected: true,
+      dispatchCapabilityAvailable: false,
+    });
+  });
+
+  it("does not substitute an incompatible client-triggered inventory for dispatch", async () => {
+    const facts = await createFacts({
+      dispatchCapabilityAvailable: false,
+      inventoryCompatible: false,
+    }).inspectActivationFacts({
+      scmRepositoryIdentityId: "identity-1",
+      laneKind: ReviewMutationLaneKind.HostedReviewRouterApp,
+    });
+
+    expect(facts.facts.workflowInventoryCompatible).toBe(false);
+    expect(facts.facts.dispatchCapabilityAvailable).toBe(false);
+  });
+
+  it("keeps direct V2 execution authority absent without managed dispatch", async () => {
     const facts = await createFacts({
       authorityMissing: true,
       directV2InitializationEnabled: true,
@@ -81,12 +111,11 @@ describe("ProductionReviewMutationAuthorityProofFacts", () => {
       workflowInventoryCompatible: true,
       registeredReleaseSelected: true,
       completionWorkerConfigured: true,
-      executionAuthorityMode:
-        ReviewMutationExecutionAuthorityMode.ClientTriggered,
+      executionAuthorityMode: null,
     });
   });
 
-  it("accepts the schema-v3 client-triggered lifecycle workflow", async () => {
+  it("does not restore client-triggered authority for an old schema", async () => {
     const facts = await createFacts({
       authorityMissing: true,
       directV2InitializationEnabled: true,
@@ -97,9 +126,7 @@ describe("ProductionReviewMutationAuthorityProofFacts", () => {
       scmRepositoryIdentityId: "identity-1",
     });
 
-    expect(facts.facts.executionAuthorityMode).toBe(
-      ReviewMutationExecutionAuthorityMode.ClientTriggered,
-    );
+    expect(facts.facts.executionAuthorityMode).toBeNull();
   });
 
   it("rejects direct V2 when the configured release is revoked despite another registered release sharing its action SHA", async () => {
@@ -152,6 +179,7 @@ const configuredRelease: ProducerRelease = {
   contextGatewayPolicyVersion: "review-context-gateway.v1",
   contextGatewayEntrypointDigest: "3".repeat(64),
   reviewInvestigationProfile: null,
+  agentProfiles: null,
   schemaDigest: "4".repeat(64),
   capabilityProfile: ReviewCapabilityProfile.ExactRevisionV2,
   protocolLimitsProfileId: "limits-v2",
@@ -163,6 +191,7 @@ const configuredRelease: ProducerRelease = {
 
 function createFacts(
   input: {
+    readonly inventoryCompatible?: boolean;
     readonly drainNotBefore?: Date;
     readonly dispatchCapabilityAvailable?: boolean;
     readonly authorityMissing?: boolean;
@@ -202,6 +231,7 @@ function createFacts(
     pausedAt: null,
   };
   return new ProductionReviewMutationAuthorityProofFacts({
+    selectedProducerActionCommitSha: () => "c".repeat(40),
     prisma: {
       producerRelease: { count: async () => 1 },
       reviewRunAuthorization: { count: async () => 0 },
@@ -225,8 +255,6 @@ function createFacts(
         selected: true,
         installationStatus: "active",
       }),
-      findRuntimeReviewConfiguration: async () => null,
-      recordHealthReport: async () => undefined,
     },
     releaseAttestations: {
       attest: async () =>
@@ -259,9 +287,11 @@ function createFacts(
     },
     workflowInventory: {
       inspectReviewV2ManagedWorkflowInventory: async () => ({
-        compatible: true,
+        compatible: input.inventoryCompatible ?? true,
         inventoryHash: "a".repeat(64),
         actionCommitSha: "c".repeat(40),
+        runtimeRef: null,
+        defaultBranchHeadSha: "d".repeat(40),
         workflowSchemaVersion:
           input.workflowSchemaVersion ??
           CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredV2,

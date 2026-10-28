@@ -6,8 +6,10 @@ import { Tabs } from "@base-ui/react/tabs";
 import {
   Activity,
   Brain,
+  BookOpen,
   Cpu,
   GitPullRequest,
+  Layers,
   Settings2,
   type LucideIcon,
 } from "lucide-react";
@@ -16,8 +18,10 @@ import { dashboardClientNavigationHref } from "./dashboard-section";
 
 const dashboardSectionIcons: Record<string, LucideIcon> = {
   repositories: GitPullRequest,
+  skills: BookOpen,
   memory: Brain,
   setup: Settings2,
+  providers: Layers,
   policy: Cpu,
   diagnostics: Activity,
 };
@@ -56,8 +60,9 @@ export function DashboardSectionCompactNav({
   const { startNavigation } = useNavigationFeedback();
   return (
     <nav
+      id="dashboard-compact-nav"
       aria-label="Dashboard sections"
-      className="flex gap-1 overflow-x-auto lg:hidden"
+      className="z-20 flex gap-1 overflow-x-auto overflow-y-hidden bg-[var(--rr-header-bg)] py-1 backdrop-blur-xl lg:hidden"
     >
       {items.map((item) => {
         const active = selectedSection === item.section;
@@ -83,11 +88,6 @@ export function DashboardSectionCompactNav({
               className="h-3.5 w-3.5 shrink-0 text-current opacity-80"
             />
             {item.label}
-            {item.section === "memory" ? (
-              <span className="rounded-full border border-amber-300/30 px-1.5 py-0.5 text-[0.55rem] tracking-[0.08em] text-amber-200">
-                In development
-              </span>
-            ) : null}
           </Link>
         );
       })}
@@ -147,16 +147,11 @@ export function DashboardSectionTabs({
                   <span className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.16em]">
                     {item.label}
                   </span>
-                  {item.section === "memory" ? (
-                    <span className="mt-1 w-fit rounded-full border border-amber-300/30 px-1.5 py-0.5 font-mono text-[0.58rem] font-semibold uppercase tracking-[0.08em] text-amber-200">
-                      In development
-                    </span>
-                  ) : null}
-                  {item.section === "memory" ? null : (
+                  {
                     <span className="mt-1 overflow-hidden text-xs leading-4 text-slate-500 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] group-hover:text-slate-300 group-data-[active]:text-cyan-100/80">
                       {item.description}
                     </span>
-                  )}
+                  }
                 </span>
               </span>
             </Tabs.Tab>

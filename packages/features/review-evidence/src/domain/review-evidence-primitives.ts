@@ -10,12 +10,14 @@ export enum ReviewProviderKind {
   Codex = "codex",
   ClaudeCode = "claude_code",
   OpenRouter = "openrouter",
+  Ocr = "ocr",
   Unknown = "unknown",
 }
 
 export enum ReviewTaskKind {
   FindingDiscovery = "finding_discovery",
   LifecycleRevalidation = "lifecycle_revalidation",
+  PrDescription = "pr_description",
   Unknown = "unknown",
 }
 

@@ -10,7 +10,10 @@ import {
 } from "@reviewrouter/platform-signed-capabilities";
 import {
   ReviewPublicationExternalEffectKind,
+  ReviewPublicationKind,
   ReviewPublicationReceiptStatus,
+  mergeReviewPrDescription,
+  readReviewPrDescriptionBlock,
   type ReviewPublicationGatewayObject,
   type ReviewPublicationPermitIdentity,
   type ReviewPublicationOperation,
@@ -96,6 +99,12 @@ export class ProviderNeutralReviewV2ScmCredentialRouter implements ReviewV2ScmCr
   async acquire(
     input: Parameters<ReviewV2ScmCredentialAcquisitionPort["acquire"]>[0],
   ): Promise<ReviewV2ScmGatewaySession> {
+    if (
+      input.operation.publicationKind === ReviewPublicationKind.PrDescription &&
+      input.provider !== ReviewV2ScmProvider.GitHub
+    ) {
+      throw new Error("review_v2_pr_description_github_app_required");
+    }
     const provider = this.providers.get(input.provider);
     if (!provider) {
       throw new Error("review_v2_scm_credential_provider_missing");
@@ -550,6 +559,8 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
   }) {
     const payload = await this.requirePayload(input.operation);
     switch (payload.kind) {
+      case ReviewV2PublicationPayloadKind.PrDescription:
+        return this.findPrDescription(payload);
       case ReviewV2PublicationPayloadKind.Summary:
         return this.findIssueComments(payload, input.cursor);
       case ReviewV2PublicationPayloadKind.ManagedCheck:
@@ -574,6 +585,8 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
     }
     try {
       switch (payload.kind) {
+        case ReviewV2PublicationPayloadKind.PrDescription:
+          return await this.updatePrDescription(payload, input.operation);
         case ReviewV2PublicationPayloadKind.Summary:
           return await this.createIssueComment(payload, input.operation);
         case ReviewV2PublicationPayloadKind.ManagedCheck:
@@ -610,6 +623,12 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
       ]),
     ];
     switch (payload.kind) {
+      case ReviewV2PublicationPayloadKind.PrDescription:
+        // The endpoint has no atomic body CAS. Never compensate by overwriting
+        // author edits or remove a description after an uncertain mutation.
+        return input.compensateCanonical
+          ? ReviewPublicationReceiptStatus.StaleVisible
+          : ReviewPublicationReceiptStatus.Succeeded;
       case ReviewV2PublicationPayloadKind.Summary:
         await Promise.all(
           staleObjectIds.map((id) =>
@@ -704,6 +723,110 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
     });
     if (!payload) throw new Error("review_v2_publication_payload_unavailable");
     return payload;
+  }
+
+  private async readPullRequestBody() {
+    const response = await this.request(
+      "GET /repos/{owner}/{repo}/pulls/{pull_number}",
+      { pull_number: this.options.permit.pullRequestNumber },
+    );
+    const row = requireRecord(response.data, "github_pull_request_invalid");
+    const head = requireRecord(row.head, "github_pull_request_head_invalid");
+    return {
+      body:
+        row.body === null
+          ? ""
+          : requiredString(row.body, "github_pull_request_body_invalid"),
+      headSha: requiredCommitId(head.sha, "github_pull_request_head_invalid"),
+    };
+  }
+
+  private async findPrDescription(
+    payload: Extract<
+      ReviewV2PublicationPayload,
+      { readonly kind: ReviewV2PublicationPayloadKind.PrDescription }
+    >,
+  ) {
+    const current = await this.readPullRequestBody();
+    const block = readReviewPrDescriptionBlock(current.body);
+    return {
+      objects:
+        block === null
+          ? []
+          : [
+              gatewayObject(
+                `pull-request-body:${this.options.permit.pullRequestNumber}`,
+                payload,
+                sha256(block),
+                prDescriptionVisibleObjectHash(current),
+              ),
+            ],
+      nextCursor: null,
+    };
+  }
+
+  private async updatePrDescription(
+    payload: Extract<
+      ReviewV2PublicationPayload,
+      { readonly kind: ReviewV2PublicationPayloadKind.PrDescription }
+    >,
+    operation: ReviewPublicationOperation,
+  ) {
+    let before: { readonly body: string; readonly headSha: string };
+    let target: string;
+    try {
+      before = await this.readPullRequestBody();
+      target = mergeReviewPrDescription(before.body, payload.body);
+      const fresh = await this.readPullRequestBody();
+      if (
+        before.headSha !== operation.targetCommitId ||
+        fresh.headSha !== operation.targetCommitId
+      ) {
+        throw new Error("github_pr_description_head_changed");
+      }
+      if (fresh.body !== before.body) {
+        throw new Error("github_pr_description_body_conflict");
+      }
+      // GitHub pull-request update documents no conditional body mutation. These
+      // are optimistic freshness checks, not an atomic compare-and-swap.
+      if (Buffer.byteLength(target, "utf8") > 65_536) {
+        throw new Error("github_pr_description_body_limit_exceeded");
+      }
+    } catch (error) {
+      throw new ReviewV2ScmMutationError(
+        error instanceof Error &&
+          error.message.startsWith("github_pr_description_")
+          ? error.message
+          : "github_pr_description_preimage_unavailable",
+        ReviewV2ScmMutationFailureOutcome.DefinitelyNoEffect,
+        false,
+      );
+    }
+    if (target !== before.body) {
+      await this.request("PATCH /repos/{owner}/{repo}/pulls/{pull_number}", {
+        pull_number: this.options.permit.pullRequestNumber,
+        body: target,
+      });
+    }
+    try {
+      const after = await this.readPullRequestBody();
+      if (after.headSha !== operation.targetCommitId || after.body !== target) {
+        throw new ReviewV2ScmMutationError(
+          "github_pr_description_post_write_conflict",
+          ReviewV2ScmMutationFailureOutcome.EffectMayExist,
+          false,
+        );
+      }
+      return gatewayObject(
+        `pull-request-body:${this.options.permit.pullRequestNumber}`,
+        payload,
+        sha256(payload.body),
+        prDescriptionVisibleObjectHash(after),
+      );
+    } catch (error) {
+      if (error instanceof ReviewV2ScmMutationError) throw error;
+      throw githubPostMutationObservationError(error);
+    }
   }
 
   private async findIssueComments(
@@ -1411,6 +1534,15 @@ function canonicalJson(value: unknown): string {
     .sort()
     .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
     .join(",")}}`;
+}
+
+function prDescriptionVisibleObjectHash(current: {
+  readonly body: string;
+  readonly headSha: string;
+}): string {
+  return sha256(
+    canonicalJson({ bodyHash: sha256(current.body), headSha: current.headSha }),
+  );
 }
 
 function sha256(value: string): string {

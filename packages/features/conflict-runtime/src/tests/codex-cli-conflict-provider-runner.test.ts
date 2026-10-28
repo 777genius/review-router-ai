@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -56,6 +56,94 @@ const diffPacket = {
 } as const;
 
 describe("CodexCliConflictProviderRunner", () => {
+  it("rejects a missing MiMo key before invoking the command", async () => {
+    let called = false;
+    await expect(
+      new CodexCliConflictProviderRunner({
+        workspace: "/repo",
+        runCommand: async () => {
+          called = true;
+          throw new Error("unexpected_command");
+        },
+      }).runReview({
+        config,
+        diffPacket,
+        providerEnv: {
+          REVIEW_AUTH_MODE: "mimo-token-plan-api",
+          CODEX_MODEL: "mimo-v2.6-pro",
+          OPENAI_API_KEY: "synthetic-openai-is-not-a-fallback",
+        },
+      }),
+    ).rejects.toThrow("conflict_provider_mimo_api_key_missing");
+    expect(called).toBe(false);
+  });
+
+  it("uses MiMo Responses without seeding ChatGPT auth or passing other secrets", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "rr-mimo-conflict-test-"));
+    try {
+      let called = 0;
+      const result = await new CodexCliConflictProviderRunner({
+        workspace: "/repo",
+        tempRoot,
+        runCommand: async (input) => {
+          called += 1;
+          expect(input.args).toEqual(
+            expect.arrayContaining([
+              'model_provider="mimo"',
+              'model_providers.mimo.wire_api="responses"',
+              'model_providers.mimo.env_key="MIMO_TOKEN_PLAN_API_KEY"',
+              'web_search="disabled"',
+              "--sandbox",
+              "read-only",
+              "--ignore-user-config",
+            ]),
+          );
+          expect(input.args).not.toContain("--output-schema");
+          expect(input.env?.MIMO_TOKEN_PLAN_API_KEY).toBe("synthetic-mimo-key");
+          expect(input.env).not.toHaveProperty("OPENAI_API_KEY");
+          expect(input.env).not.toHaveProperty("CODEX_AUTH_JSON");
+          expect(input.env).not.toHaveProperty("GITHUB_TOKEN");
+          expect(await readdir(String(input.env?.CODEX_HOME))).toEqual([]);
+          expect(input.stdin).toContain('"protocolVersion"');
+          expect(input.stdin).not.toContain("synthetic-mimo-key");
+          await writeFile(
+            String(input.args[input.args.indexOf("--output-last-message") + 1]),
+            JSON.stringify({
+              protocolVersion: 1,
+              summaryMarkdown: "MiMo test review.",
+              findings: [],
+            }),
+          );
+          return {
+            stdout: "",
+            stderr: "",
+            stdoutTruncated: false,
+            stderrTruncated: false,
+          };
+        },
+      }).runReview({
+        config,
+        diffPacket,
+        providerEnv: {
+          REVIEW_AUTH_MODE: "mimo-token-plan-api",
+          CODEX_MODEL: "mimo-v2.6-pro",
+          MIMO_TOKEN_PLAN_API_KEY: "synthetic-mimo-key",
+          OPENAI_API_KEY: "synthetic-openai",
+          CODEX_AUTH_JSON: "synthetic-auth-must-not-be-written",
+          CODEX_CONFIG_TOML: "synthetic-config-must-not-be-written",
+        },
+      });
+      expect(called).toBe(1);
+      expect(result).toEqual({
+        protocolVersion: 1,
+        summaryMarkdown: "MiMo test review.",
+        findings: [],
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("runs codex with read-only sandbox, schema output, and no runtime/posting secrets", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "rr-codex-test-"));
     const calls: ConflictRuntimeCommandInput[] = [];

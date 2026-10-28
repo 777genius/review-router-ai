@@ -277,6 +277,13 @@ describe("private hosted v4 client boundary", () => {
   it.each([
     { authorizationFactsCanonicalJson: JSON.stringify(facts) },
     { protocolLimitsCanonicalJson: "{}" },
+    // Deployed strict consumers cannot accept the new direct-route-only fact.
+    {
+      authorizationFactsCanonicalJson: canonicalJson({
+        ...facts,
+        workflowIdentityHash: "f".repeat(64),
+      }),
+    },
     {
       authorizationFactsCanonicalJson: `{"headSha":"${"e".repeat(40)}",${canonicalJson(facts).slice(1)}`,
     },

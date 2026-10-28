@@ -4,6 +4,16 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./usage-responses-v1": {
+      "types": "./src/generated/usage-responses-v1.ts",
+      "production": "./dist/generated/usage-responses-v1.js",
+      "default": "./src/generated/usage-responses-v1.ts"
+    },
+    "./usage-producer-v1": {
+      "types": "./src/generated/usage-producer-v1.ts",
+      "production": "./dist/generated/usage-producer-v1.js",
+      "default": "./src/generated/usage-producer-v1.ts"
+    },
     ".": {
       "types": "./src/index.ts",
       "production": "./dist/index.js",

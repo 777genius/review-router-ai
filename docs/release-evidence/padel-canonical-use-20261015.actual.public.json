@@ -1,0 +1,25 @@
+{
+  "kind": "padel_explicit_canonical_codex_use_grant",
+  "padelUse": {
+    "state": "active",
+    "revision": 1,
+    "bindingId": "cmv91lfx6000207nvuuys9x6v",
+    "workspaceId": "cmp6uhxh4000i30l17qas7qyf",
+    "connectionId": "agc_f8c3b910b90c3908b5da87e91de5b9ded3ebe6061a8707ae62f050b623f7",
+    "pendingFence": false,
+    "policyRevision": 1
+  },
+  "observedAt": "2026-10-15T06:33:40.755476+02:00",
+  "canonicalAccount": {
+    "state": "active",
+    "profileRef": "openai-codex-oauth-responses-v1",
+    "connectionId": "agc_f8c3b910b90c3908b5da87e91de5b9ded3ebe6061a8707ae62f050b623f7",
+    "ownerWorkspaceId": "cmoss4xkf000228sbtcmpdjb5",
+    "gatewayAccountRef": "8be745af-d76f-454b-bd12-edcb39cda001",
+    "displayNameMatches": true
+  },
+  "activePadelUseCount": 1,
+  "actorAdminInBothVerified": true,
+  "canonicalConnectionCount": 1,
+  "databaseIdentityVerified": true
+}

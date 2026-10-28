@@ -17,6 +17,12 @@ import {
 } from "./review-run-control-types";
 import type { ReviewRunAuthorizationTokenAudience } from "./review-run-control-types";
 
+import { parseReviewRunRuntimeSnapshot } from "./review-run-runtime-snapshot";
+import {
+  canonicalReviewSkillsJson,
+  parseCapturedReviewSkills,
+} from "@reviewrouter/shared/review-skills-contract";
+
 export type ReviewRunRevision = {
   readonly baseSha: string;
   readonly mergeBaseSha: string;
@@ -26,6 +32,10 @@ export type ReviewRunRevision = {
 
 export type ReviewRunAuthorization = ReviewRunScope &
   ReviewRunRevision & {
+    /** Nullable for authorizations admitted before runtime pinning. Private only. */
+    readonly runtimeSnapshotCanonicalJson?: string | null;
+    /** Private immutable attachment. Historical null must never capture current Skills. */
+    readonly skillsSnapshotCanonicalJson?: string | null;
     readonly authorizationId: string;
     readonly version: number;
     readonly sourceRunId: string;
@@ -73,6 +83,9 @@ export function createReviewRunAuthorization(
   assertAuthorizationCandidate(candidate);
   return {
     ...candidate,
+    runtimeSnapshotCanonicalJson:
+      candidate.runtimeSnapshotCanonicalJson ?? null,
+    skillsSnapshotCanonicalJson: candidate.skillsSnapshotCanonicalJson ?? null,
     reviewInvestigationAuthorizationDescriptorCanonicalJson:
       normalizeReviewInvestigationAuthorizationDescriptor(
         candidate.reviewInvestigationAuthorizationDescriptorCanonicalJson,
@@ -281,6 +294,26 @@ function assertAuthorizationCandidate(
   ) {
     invalid("authorization_expiry_invalid");
   }
+  const runtime = parseReviewRunRuntimeSnapshot(
+    candidate.runtimeSnapshotCanonicalJson,
+  );
+  if (runtime && runtime.deadline !== candidate.maxExpiresAt.toISOString()) {
+    invalid("runtime_snapshot_deadline_mismatch");
+  }
+  const skillsJson = candidate.skillsSnapshotCanonicalJson ?? null;
+  if (runtime?.agent.reviewSkillsVersion === 1) {
+    if (skillsJson === null) invalid("review_skills_capture_required");
+  } else if (skillsJson !== null) invalid("review_skills_capability_required");
+  if (skillsJson !== null) {
+    if (new TextEncoder().encode(skillsJson).byteLength > 262144)
+      invalid("review_skills_capture_too_large");
+    const capture = parseCapturedReviewSkills(JSON.parse(skillsJson));
+    if (
+      capture.baseSha !== candidate.baseSha ||
+      canonicalReviewSkillsJson(capture) !== skillsJson
+    )
+      invalid("review_skills_capture_mismatch");
+  }
   normalizeProviderVoteLanes(candidate.providerVoteLanes);
   normalizeReviewInvestigationAuthorizationDescriptor(
     candidate.reviewInvestigationAuthorizationDescriptorCanonicalJson,
@@ -309,6 +342,123 @@ function normalizeReviewInvestigationAuthorizationDescriptor(
     invalid("review_investigation_authorization_descriptor_invalid");
   }
   return value;
+}
+
+const optionalInvestigationDescriptorLegacyKeys = [
+  "authorizationDescriptorVersion",
+  "capability",
+  "coverageProfileHash",
+  "policyHash",
+  "providerCapabilities",
+] as const;
+
+const optionalInvestigationDescriptorKeys = [
+  ...optionalInvestigationDescriptorLegacyKeys,
+  "extensionCanonicalizerDigest",
+  "extensionId",
+  "extensionSchemaDigest",
+] as const;
+
+export type ReviewInvestigationDescriptorVoteLaneBinding =
+  | { readonly bound: true; readonly canonicalJson: string | null }
+  | { readonly bound: false };
+
+/** Bind the OPTIONAL RR investigation descriptor (participation eligibility
+ * only) to the SELECTED vote lanes. Rows survive only for selected lanes; when
+ * no row binds (the OCR lane) the descriptor is ABSENT. A value that is not a
+ * recognizable optional capability cannot be proven optional: callers must
+ * reject such a mandatory investigation policy demand for an engine that
+ * cannot satisfy it (§4.2) instead of silently weakening the requirement.
+ */
+export function bindReviewInvestigationAuthorizationDescriptorToVoteLanes(
+  value: string | null | undefined,
+  lanes: readonly ProviderVoteLane[],
+): ReviewInvestigationDescriptorVoteLaneBinding {
+  if (value === null || value === undefined)
+    return { bound: true, canonicalJson: null };
+  if (value.length === 0 || value.length > 16_384) return { bound: false };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return { bound: false };
+  }
+  if (
+    parsed === null ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed) ||
+    canonicalJson(parsed) !== value
+  )
+    return { bound: false };
+  const descriptor = parsed as Readonly<Record<string, unknown>>;
+  const legacyShape = hasExactKeys(
+    descriptor,
+    optionalInvestigationDescriptorLegacyKeys,
+  );
+  const currentShape = hasExactKeys(
+    descriptor,
+    optionalInvestigationDescriptorKeys,
+  );
+  if (
+    (!legacyShape && !currentShape) ||
+    (legacyShape && descriptor.authorizationDescriptorVersion !== 2) ||
+    (currentShape && descriptor.authorizationDescriptorVersion !== 3) ||
+    descriptor.capability !== "review_investigation_v1"
+  )
+    return { bound: false };
+  const rows = descriptor.providerCapabilities;
+  if (!Array.isArray(rows) || rows.length === 0 || rows.length > 2)
+    return { bound: false };
+  const selectedProviderKinds = new Set<string>(
+    lanes.map((lane) => lane.providerKind),
+  );
+  const boundRows: Readonly<Record<string, unknown>>[] = [];
+  for (const row of rows) {
+    if (
+      row === null ||
+      typeof row !== "object" ||
+      Array.isArray(row) ||
+      !hasExactKeys(row as Readonly<Record<string, unknown>>, [
+        "capabilities",
+        "providerKind",
+      ])
+    )
+      return { bound: false };
+    const { providerKind, capabilities } = row as Readonly<
+      Record<string, unknown>
+    >;
+    if (
+      (providerKind !== "codex" && providerKind !== "claude_code") ||
+      !Array.isArray(capabilities) ||
+      capabilities.length === 0 ||
+      capabilities.length > 6 ||
+      capabilities.some((capability) => typeof capability !== "string")
+    )
+      return { bound: false };
+    if (selectedProviderKinds.has(providerKind)) {
+      boundRows.push(row as Readonly<Record<string, unknown>>);
+    }
+  }
+  if (boundRows.length === 0) return { bound: true, canonicalJson: null };
+  return {
+    bound: true,
+    canonicalJson: canonicalJson({
+      ...descriptor,
+      providerCapabilities: boundRows,
+    }),
+  };
+}
+
+function hasExactKeys(
+  value: Readonly<Record<string, unknown>>,
+  expected: readonly string[],
+): boolean {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  return (
+    actual.length === sortedExpected.length &&
+    actual.every((key, index) => key === sortedExpected[index])
+  );
 }
 
 function normalizeProviderVoteLanes(

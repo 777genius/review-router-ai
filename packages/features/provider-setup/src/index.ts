@@ -5,6 +5,7 @@ export * from "./domain/codex-rotating-setup-payload-claim";
 export * from "./domain/codex-rotating-setup-readiness";
 export * from "./domain/codex-rotating-workflow-namespace";
 export * from "./domain/codex-rotating-workflow-reattestation";
+export * from "./domain/effective-provider-readiness";
 export * from "./application/ports/codex-rotating-setup-recovery-port";
 export * from "./application/ports/codex-rotating-setup-payload-claim-port";
 export * from "./application/ports/codex-rotating-setup-readiness-port";
@@ -28,6 +29,9 @@ export {
   versionedProviderSecretNamePattern,
 } from "@reviewrouter/features-codex-oauth-rotating";
 export * from "./infrastructure/memory/in-memory-codex-rotating-setup-payload-claim";
+export * from "./provider-api-key-management/provider-api-key";
+export * from "./provider-api-key-management/provider-api-key-ports";
+export * from "./provider-api-key-management/apply-provider-api-key";
 export {
   buildCodexRotatingSetupManifest,
   assertCanonicalCodexRotatingProviderId,

@@ -90,7 +90,7 @@ Options:
 
 The installer is repo-scoped and writes one never-reused versioned
 REVIEWROUTER_CODEX_AUTH_JSON_R<repository-id>_P<provider-hash>_E<epoch>_<entropy> name directly to GitHub
-Actions secrets through gh. ReviewRouter SaaS does not receive plaintext
+Actions secrets through gh. ReviewRouter does not receive plaintext
 auth.json. The exact destination name is accepted only from the server's
 dispatch authorization.
 

@@ -12,7 +12,27 @@ import {
   Search,
   Wrench,
 } from "lucide-react";
-import { RepositorySetupRowDisclosureController } from "./repository-setup-optimistic-status";
+import { Badge } from "@reviewrouter/ui";
+import {
+  RepositorySetupRowDisclosureController,
+  RepositorySetupStepPillBody,
+  repositorySetupStepPillClassName,
+  type SetupStep,
+} from "./repository-setup-optimistic-status";
+import {
+  RepositorySelectionCheckbox,
+  RepositorySelectionToolbar,
+} from "./repository-action-selection";
+import {
+  RepositoryNameLink,
+  RepositoryStarsBadge,
+} from "../repository-row-display";
+import { RepositoryVisibilityBadge } from "../repository-visibility-badge";
+import {
+  SourceProviderLogo,
+  sourceProviderName,
+  type SourceProvider,
+} from "../source-provider-logo";
 
 export type RepositorySearchFilter =
   | "all"
@@ -27,8 +47,10 @@ export type RepositorySearchIndexItem = {
   readonly fullName: string;
   readonly sourceUrl: string | null;
   readonly searchText: string;
+  readonly provider: SourceProvider;
   readonly visibility: string;
   readonly readiness: "ready" | "needs_setup" | "needs_attention";
+  readonly setupProgressStep: SetupStep;
   readonly stargazersCount: number;
   readonly archived: boolean;
 };
@@ -53,6 +75,7 @@ export function RepositoryLiveSearch({
   totalRepositoryCount,
   rowLimit,
   richRowIds,
+  selectable = false,
   children,
 }: {
   readonly workspaceKey: string;
@@ -65,6 +88,8 @@ export function RepositoryLiveSearch({
   readonly totalRepositoryCount: number;
   readonly rowLimit: number;
   readonly richRowIds: readonly string[];
+  /** Rows carry a checkbox of the table-wide repository selection. */
+  readonly selectable?: boolean;
   readonly children: React.ReactNode;
 }): React.ReactElement {
   const router = useRouter();
@@ -74,6 +99,7 @@ export function RepositoryLiveSearch({
   const [pendingRepositoryId, setPendingRepositoryId] = useState<string | null>(
     null,
   );
+  const [visibleLimit, setVisibleLimit] = useState(rowLimit);
   const normalizedQuery = query.trim();
   const matchingIds = useMemo(
     () => filterLocalSearch(searchIndex, normalizedQuery, activeFilter),
@@ -81,7 +107,7 @@ export function RepositoryLiveSearch({
   );
   const visibleIds = selectVisibleRepositoryIds(
     matchingIds,
-    rowLimit,
+    visibleLimit,
     selectedRepositoryId,
   );
   const richRows = Children.toArray(children);
@@ -141,6 +167,10 @@ export function RepositoryLiveSearch({
   useEffect(() => {
     setPendingRepositoryId(null);
   }, [selectedRepositoryFullName, workspaceKey]);
+
+  useEffect(() => {
+    setVisibleLimit(rowLimit);
+  }, [activeFilter, normalizedQuery, rowLimit]);
 
   const searchControls = (
     <section
@@ -268,6 +298,10 @@ export function RepositoryLiveSearch({
         </div>
       </div>
 
+      {selectable ? (
+        <RepositorySelectionToolbar matchingIds={matchingIds} />
+      ) : null}
+
       {hasActiveFilter && matchingCount === 0 ? (
         <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/[0.055] p-3">
           <p className="font-mono text-xs font-semibold uppercase tracking-[0.16em] text-amber-100">
@@ -289,37 +323,70 @@ export function RepositoryLiveSearch({
       {searchControls}
       <div data-repository-results className="grid text-slate-200">
         <RepositorySetupRowDisclosureController />
-        {orderedIds.map((id) => {
+        {orderedIds.map((id, rowIndex) => {
+          const visible = visibleIdSet.has(id);
           const richRow = richRowById.get(id);
-          if (richRow) {
-            return (
-              <div
-                key={id}
-                hidden={!visibleIdSet.has(id)}
-                data-repository-result-slot
-              >
-                {richRow}
-              </div>
-            );
-          }
           const item = summaryById.get(id);
-          return item ? (
-            <div key={id} data-repository-result-slot>
-              <RepositorySummaryRow
-                item={item}
-                pending={pendingRepositoryId === id}
-                selected={id === selectedRepositoryId}
-                onOpen={() => {
-                  setPendingRepositoryId(id);
-                  router.replace(
-                    buildRepositorySelectionUrl(workspaceKey, item.fullName),
-                    { scroll: false },
-                  );
-                }}
-              />
+          const stripeClass = repositoryRowStripeClass({
+            rowIndex,
+            selected: id === selectedRepositoryId,
+            setupComplete: item?.setupProgressStep === "ready",
+          });
+          return (
+            <div
+              key={id}
+              hidden={!visible}
+              data-repository-result-slot
+              className={
+                visible
+                  ? [
+                      selectable
+                        ? "grid grid-cols-[2.75rem_minmax(0,1fr)] items-start"
+                        : "grid items-start",
+                      "border-t border-cyan-200/10 transition-colors",
+                      stripeClass,
+                    ].join(" ")
+                  : "hidden"
+              }
+            >
+              {selectable ? (
+                <RepositorySelectionCheckbox repositoryId={id} />
+              ) : null}
+              <div className="min-w-0">
+                {richRow ??
+                  (item ? (
+                    <RepositorySummaryRow
+                      item={item}
+                      pending={pendingRepositoryId === id}
+                      onOpen={() => {
+                        setPendingRepositoryId(id);
+                        router.replace(
+                          buildRepositorySelectionUrl(
+                            workspaceKey,
+                            item.fullName,
+                          ),
+                          { scroll: false },
+                        );
+                      }}
+                    />
+                  ) : null)}
+              </div>
             </div>
-          ) : null;
+          );
         })}
+        {matchingIds.length > visibleIds.length ? (
+          <div className="border-t border-cyan-200/10 px-4 py-4 sm:px-5 lg:px-6">
+            <button
+              type="button"
+              data-repository-load-more
+              onClick={() => setVisibleLimit((limit) => limit + rowLimit)}
+              className="w-full rounded-xl border border-cyan-300/35 px-4 py-2.5 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/[0.08]"
+            >
+              Show {Math.min(rowLimit, matchingIds.length - visibleIds.length)}{" "}
+              more
+            </button>
+          </div>
+        ) : null}
       </div>
     </>
   );
@@ -466,69 +533,88 @@ export function selectVisibleRepositoryIds(
   return firstPage;
 }
 
+function repositoryRowStripeClass({
+  rowIndex,
+  selected,
+  setupComplete,
+}: {
+  readonly rowIndex: number;
+  readonly selected: boolean;
+  readonly setupComplete: boolean;
+}): string {
+  if (selected) {
+    return setupComplete ? "bg-emerald-400/[0.075]" : "bg-cyan-300/[0.045]";
+  }
+  if (setupComplete) {
+    return rowIndex % 2 === 0
+      ? "bg-emerald-400/[0.04] hover:bg-emerald-400/[0.07]"
+      : "bg-emerald-300/[0.07] hover:bg-emerald-300/[0.095]";
+  }
+  return rowIndex % 2 === 0
+    ? "bg-slate-950/[0.2] hover:bg-cyan-300/[0.035]"
+    : "bg-cyan-300/[0.035] hover:bg-cyan-300/[0.06]";
+}
+
 function RepositorySummaryRow({
   item,
   pending,
-  selected,
   onOpen,
 }: {
   readonly item: RepositorySearchIndexItem;
   readonly pending: boolean;
-  readonly selected: boolean;
   readonly onOpen: () => void;
 }): React.ReactElement {
-  const readinessLabel = {
-    ready: "Ready",
-    needs_setup: "Needs setup",
-    needs_attention: "Needs attention",
-  }[item.readiness];
-
   return (
     <div
       data-repository-row-id={item.id}
       data-repository-summary-row
-      className={[
-        "grid gap-2 border-t border-cyan-200/10 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center lg:px-6",
-        selected ? "bg-cyan-300/[0.045]" : "hover:bg-cyan-300/[0.035]",
-      ].join(" ")}
+      className="grid gap-3 px-4 py-3 lg:px-6 lg:py-3.5"
     >
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          {item.sourceUrl ? (
-            <a
-              href={item.sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="break-words text-sm font-semibold text-cyan-50 hover:underline"
-            >
-              {item.fullName}
-            </a>
-          ) : (
-            <span className="break-words text-sm font-semibold text-cyan-50">
-              {item.fullName}
-            </span>
-          )}
-          <span className="text-xs text-slate-400">{item.visibility}</span>
-          {item.archived ? (
-            <span className="text-xs text-amber-200">Archived</span>
-          ) : null}
-          {item.stargazersCount > 0 ? (
-            <span className="text-xs text-amber-200">
-              {item.stargazersCount} stars
-            </span>
+      <div className="repository-setup-row-header grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span
+            title={`${sourceProviderName(item.provider)} repository`}
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-cyan-200/15 bg-cyan-300/[0.07]"
+          >
+            <SourceProviderLogo
+              provider={item.provider}
+              className="h-3.5 w-3.5"
+            />
+          </span>
+          <RepositoryNameLink
+            fullName={item.fullName}
+            repositoryUrl={item.sourceUrl}
+            className="min-w-0 break-words text-sm font-semibold leading-snug text-cyan-50 sm:text-[0.95rem]"
+          />
+          <Badge tone="neutral">{sourceProviderName(item.provider)}</Badge>
+          {item.provider === "github" ? (
+            <RepositoryStarsBadge stargazersCount={item.stargazersCount} />
           ) : null}
         </div>
-        <p className="mt-1 text-xs text-slate-400">{readinessLabel}</p>
+        <div className="repository-setup-toggle-row flex flex-wrap items-center gap-2 sm:justify-end">
+          <RepositoryVisibilityBadge visibility={item.visibility} />
+          {item.archived ? <Badge tone="warning">Archived</Badge> : null}
+          <button
+            type="button"
+            onClick={onOpen}
+            disabled={pending}
+            title={`Open setup/settings for ${item.fullName}`}
+            aria-label={`Open setup/settings for ${item.fullName}`}
+            className={[
+              repositorySetupStepPillClassName(
+                item.setupProgressStep === "ready",
+              ),
+              "disabled:cursor-wait disabled:opacity-70",
+            ].join(" ")}
+          >
+            {pending ? (
+              "Opening..."
+            ) : (
+              <RepositorySetupStepPillBody step={item.setupProgressStep} />
+            )}
+          </button>
+        </div>
       </div>
-      <button
-        type="button"
-        onClick={onOpen}
-        disabled={pending}
-        aria-label={`Open setup/settings for ${item.fullName}`}
-        className="w-fit rounded-lg border border-cyan-300/35 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/[0.08] disabled:cursor-wait disabled:opacity-70"
-      >
-        {pending ? "Opening..." : "Open setup/settings"}
-      </button>
     </div>
   );
 }

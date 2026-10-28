@@ -15,6 +15,9 @@ type DeviceLoginRow = {
   readonly actor: string;
   readonly label: string;
   readonly priority: number;
+  readonly targetAccountId: string | null;
+  readonly targetGeneration: bigint | null;
+  readonly targetHealthVersion: bigint | null;
   readonly userCode: string;
   readonly verificationUrl: string;
   readonly deviceAuthId: string | null;
@@ -78,6 +81,13 @@ export class PrismaHostedCodexDeviceLoginStore implements HostedCodexDeviceLogin
           actor: record.actor,
           label: record.label,
           priority: record.priority,
+          targetAccountId: record.reconnectTarget?.accountId ?? null,
+          targetGeneration: record.reconnectTarget
+            ? BigInt(record.reconnectTarget.expectedGeneration)
+            : null,
+          targetHealthVersion: record.reconnectTarget
+            ? BigInt(record.reconnectTarget.expectedHealthVersion)
+            : null,
           userCode: record.userCode,
           verificationUrl: record.verificationUrl,
           deviceAuthId: record.deviceAuthId,
@@ -129,6 +139,14 @@ function toRecord(row: DeviceLoginRow): HostedCodexDeviceLoginRecord {
     actor: row.actor,
     label: row.label,
     priority: row.priority,
+    reconnectTarget:
+      row.targetAccountId == null
+        ? null
+        : {
+            accountId: row.targetAccountId,
+            expectedGeneration: toSafeVersion(row.targetGeneration),
+            expectedHealthVersion: toSafeVersion(row.targetHealthVersion),
+          },
     userCode: row.userCode,
     verificationUrl: row.verificationUrl,
     deviceAuthId: row.deviceAuthId,
@@ -137,6 +155,13 @@ function toRecord(row: DeviceLoginRow): HostedCodexDeviceLoginRecord {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+function toSafeVersion(value: bigint | null): number {
+  const version = value === null ? NaN : Number(value);
+  if (!Number.isSafeInteger(version) || version < 1)
+    throw new Error("hosted_codex_reconnect_conflict");
+  return version;
 }
 
 function isPrismaErrorCode(error: unknown, code: string): boolean {

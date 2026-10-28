@@ -1,4 +1,9 @@
 import {
+  reviewPolicyFixture,
+  fixtureProviderSettings,
+} from "./review-policy-fixture.js";
+import { systemPolicyWriteFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture.ts";
+import {
   defaultActionOidcAudience,
   githubActionsOidcIssuer,
   JoseActionSessionTokenService,
@@ -9,7 +14,6 @@ import {
 } from "../../../packages/features/action-control-plane/src/index.ts";
 import {
   PrismaReviewConfigurationRepository,
-  safeDefaultReviewConfiguration,
   saveReviewConfiguration,
 } from "../../../packages/features/review-config/src/index.ts";
 import { createPrismaClient } from "../../../packages/platform/db/src/index.ts";
@@ -57,26 +61,71 @@ try {
     throw new Error("fixture repository is missing GitHub id");
   }
   const e2eProvider = {
-    ...safeDefaultReviewConfiguration.provider,
+    ...fixtureProviderSettings,
     kind: "openrouter" as const,
     authMode: "openrouter_api_key" as const,
     model: "poolside/laguna-m.1:free",
   };
 
-  await saveReviewConfiguration(
-    {
-      target: {
-        scope: "repository",
+  // OpenRouter is delivered only by the workspace's managed API key; this
+  // disposable fixture registers a placeholder one.
+  await prisma.providerApiKeyConnection.upsert({
+    where: {
+      workspaceId_providerType: {
         workspaceId: repository.workspaceId,
-        repositoryId: repository.id,
-      },
-      config: {
-        ...safeDefaultReviewConfiguration,
-        provider: e2eProvider,
-        providers: [e2eProvider],
+        providerType: "openrouter",
       },
     },
-    { configurations: new PrismaReviewConfigurationRepository(prisma) },
+    update: {},
+    create: {
+      workspaceId: repository.workspaceId,
+      providerType: "openrouter",
+      encryptedApiKey: "spike-e2e-placeholder-ciphertext",
+      keyVersion: 1,
+      latestOperationId: "spike-action-e2e",
+    },
+  });
+  const configurations = new PrismaReviewConfigurationRepository(
+    prisma,
+    undefined,
+    false,
+    undefined,
+  );
+  const workspaceTarget = {
+    scope: "workspace" as const,
+    workspaceId: repository.workspaceId,
+  };
+  await saveReviewConfiguration(
+    {
+      target: workspaceTarget,
+      ...systemPolicyWriteFixture(
+        reviewPolicyFixture([e2eProvider]),
+        workspaceTarget,
+      ),
+    },
+    { configurations },
+  );
+  const repositoryTarget = {
+    scope: "repository" as const,
+    workspaceId: repository.workspaceId,
+    repositoryId: repository.id,
+  };
+  await saveReviewConfiguration(
+    {
+      target: repositoryTarget,
+      ...systemPolicyWriteFixture(
+        reviewPolicyFixture([e2eProvider]),
+        repositoryTarget,
+      ),
+    },
+    {
+      configurations: new PrismaReviewConfigurationRepository(
+        prisma,
+        undefined,
+        false,
+        undefined,
+      ),
+    },
   );
   const runId = `local-e2e-${Date.now()}`;
   const oidcJti = `local-e2e-jti-${Date.now()}`;

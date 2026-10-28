@@ -1,3 +1,4 @@
+import type { RepositorySetupStepId } from "@reviewrouter/features-provider-setup";
 import type { RepositoryHealthStatus } from "@reviewrouter/features-repo-health";
 import { describeRepositoryHealth } from "./repository-health-view";
 
@@ -18,8 +19,6 @@ export type RepositorySearchReadiness =
   | "ready"
   | "needs_setup"
   | "needs_attention";
-
-export type RepositorySetupStep = 1 | 2 | 3 | 4;
 
 export function buildRepositorySearchText({
   fullName,
@@ -96,52 +95,17 @@ export function tokenizeRepositorySearch(query: string): string[] {
   return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
 }
 
-export function repositorySetupProgressStep({
-  setupStatus,
-  healthStatus,
-  workflowCurrent,
-  providerSetupConfirmed,
-  setupNeedsAttention = false,
-}: {
-  readonly setupStatus: string;
-  readonly healthStatus: string | undefined;
-  readonly workflowCurrent: boolean;
-  readonly providerSetupConfirmed: boolean;
-  readonly setupNeedsAttention?: boolean;
-}): RepositorySetupStep {
-  if (setupNeedsAttention) return 1;
-  if (healthStatus === "healthy") return 4;
-  if (workflowCurrent && providerSetupConfirmed) return 4;
-  if (workflowCurrent) return 3;
-  if (setupStatus === "setup_pr_open" || healthStatus === "setup_pr_open") {
-    return 2;
-  }
-
-  return 1;
-}
-
 export function repositorySearchReadiness({
   setupProgressStep,
   healthStatus,
 }: {
-  readonly setupProgressStep: RepositorySetupStep;
+  readonly setupProgressStep: RepositorySetupStepId;
   readonly healthStatus: RepositoryHealthStatus | undefined;
 }): RepositorySearchReadiness {
   const healthView = describeRepositoryHealth(healthStatus);
   if (healthView.tone === "danger") return "needs_attention";
   if (healthView.blocksReview) return "needs_setup";
-  return setupProgressStep === 4 ? "ready" : "needs_setup";
-}
-
-export function workflowSetupAlreadyCurrent(
-  status: string | undefined,
-): boolean {
-  return [
-    "healthy",
-    "provider_needs_setup",
-    "provider_unhealthy",
-    "provider_report_stale",
-  ].includes(status ?? "");
+  return setupProgressStep === "ready" ? "ready" : "needs_setup";
 }
 
 export function describeRepositorySetup(

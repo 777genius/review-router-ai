@@ -282,6 +282,7 @@ function supportedInvestigationProvider(
     case EvidenceProviderKind.ClaudeCode:
       return InvestigationRolloutProvider.Claude;
     case EvidenceProviderKind.OpenRouter:
+    case EvidenceProviderKind.Ocr:
     case EvidenceProviderKind.Unknown:
       return null;
   }

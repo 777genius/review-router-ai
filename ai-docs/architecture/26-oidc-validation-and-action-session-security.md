@@ -6,7 +6,7 @@ GitHub Actions OIDC is the trust root for runtime config fetch and health report
 
 ## OIDC Verification Requirements
 
-SaaS must verify:
+control plane must verify:
 
 ```text
 issuer is GitHub Actions OIDC issuer

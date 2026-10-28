@@ -1,0 +1,26 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "scripts/context-tools-e2e/**/*.ts",
+    "scripts/update-mcp-catalog.ts",
+    "scripts/lib/server-rendered-heading.ts",
+    "scripts/lib/server-rendered-heading.test.ts",
+    "scripts/local-checks/compiler-*.ts",
+    "scripts/local-checks/compiler-*.mts",
+    "scripts/local-checks/lint-format-*.ts",
+    "scripts/local-checks/lint-format-*.mts",
+    "scripts/memory-foundation/**/*.ts",
+    "scripts/memory-ui-e2e/**/*.ts",
+    "scripts/memory-e2e/**/*.ts",
+    "scripts/statistics-foundation/**/*.ts",
+    "scripts/statistics-e2e/**/*.ts",
+    "scripts/migrate-provider-profiles.ts",
+    "scripts/provider-setup-visual/**/*.ts",
+    "scripts/migrate-provider-profiles.postgres.test.ts"
+  ],
+  "exclude": ["node_modules", "dist", ".next"]
+}

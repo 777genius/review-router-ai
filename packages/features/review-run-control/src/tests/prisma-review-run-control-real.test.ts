@@ -586,6 +586,7 @@ describeWithDatabase("review-run-control Prisma adapters", () => {
           contextGatewayPolicyVersion: null,
           contextGatewayEntrypointDigest: null,
           reviewInvestigationProfile: null,
+          agentProfiles: null,
           schemaDigest,
           capabilityProfile: ReviewCapabilityProfile.ExactRevisionV2,
           protocolLimitsProfileId: limitsId,

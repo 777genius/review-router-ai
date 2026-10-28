@@ -23,8 +23,10 @@ const index: RepositorySearchIndexItem[] = Array.from(
     fullName: `personal/project-${i + 1}`,
     sourceUrl: `https://github.com/personal/project-${i + 1}`,
     searchText: `personal/project-${i + 1}`,
+    provider: "github",
     visibility: i === 39 ? "public" : "private",
     readiness: i === 39 ? "needs_setup" : "ready",
+    setupProgressStep: i === 39 ? "setup_pr" : "ready",
     stargazersCount: i + 1,
     archived: i === 39,
   }),
@@ -54,7 +56,8 @@ describe("RepositoryLiveSearch", () => {
     renderFixture({ searchIndex: [...index, deep] });
     search("project-395");
     expect(rowIds()).toEqual(["repo_395"]);
-    expect(screen.getByText("personal/project-395")).toBeTruthy();
+    expect(screen.getByText("project-395")).toBeTruthy();
+    expect(screen.getByLabelText("personal/project-395")).toBeTruthy();
     expect(
       screen.getByRole("button", {
         name: /Open setup\/settings for personal\/project-395/,
@@ -62,6 +65,29 @@ describe("RepositoryLiveSearch", () => {
     ).toBeTruthy();
     expect(routerMock.replace).not.toHaveBeenCalled();
     expect(window.location.search).toContain("q=project-395");
+  });
+
+  it("renders summary rows in the same row block and design as rich rows", () => {
+    renderFixture({ richIds: ["repo_1"] });
+    const summaryRow = document.querySelector<HTMLElement>(
+      '[data-repository-summary-row][data-repository-row-id="repo_2"]',
+    );
+    expect(summaryRow).not.toBeNull();
+    const slot = summaryRow!.closest<HTMLElement>(
+      "[data-repository-result-slot]",
+    )!;
+    expect(slot.querySelector("[data-repository-summary-row]")).not.toBeNull();
+    // Divider and zebra/hover background live on the row block itself.
+    expect(slot.className).toContain("border-t");
+    expect(slot.className).toContain("bg-");
+    // Summary rows mirror the rich row header: provider logo, name, setup pill.
+    expect(
+      summaryRow!.querySelector('img[src="/service-icons/github.svg"]'),
+    ).not.toBeNull();
+    expect(summaryRow!.querySelector(".setup-toggle")?.textContent).toMatch(
+      /^Setup\s*4\/4$/,
+    );
+    expect(screen.getByLabelText("personal/project-2")).toBeTruthy();
   });
 
   it("orders rich and summary rows by the search index, with no duplicates", () => {
@@ -98,6 +124,11 @@ describe("RepositoryLiveSearch", () => {
     fireEvent.click(checkbox!);
     search("project-40");
     expect(rowIds()).toEqual(["repo_40"]);
+    expect(
+      document
+        .querySelector('[data-repository-row-id="repo_1"]')
+        ?.closest("[data-repository-result-slot]")?.className,
+    ).toBe("hidden");
     search("");
     expect(
       document.querySelector<HTMLInputElement>(
@@ -229,6 +260,29 @@ describe("RepositoryLiveSearch", () => {
     expect(rowIds()).toHaveLength(24);
     expect(window.location.search).not.toContain("q=");
     expect(routerMock.replace).not.toHaveBeenCalled();
+  });
+
+  it("reveals all matching rows on demand and hides the load-more control", () => {
+    renderFixture();
+    expect(rowIds()).toHaveLength(24);
+    expect(
+      screen.getByText(
+        "Showing 24 of 40. Search or filter to find a repository.",
+      ),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show 16 more" }));
+    expect(rowIds()).toHaveLength(40);
+    expect(screen.queryByRole("button", { name: /Show \d+ more/ })).toBeNull();
+  });
+
+  it("returns to the first page when the search query changes", () => {
+    renderFixture();
+    fireEvent.click(screen.getByRole("button", { name: "Show 16 more" }));
+    expect(rowIds()).toHaveLength(40);
+    search("project-40");
+    search("");
+    expect(rowIds()).toHaveLength(24);
+    expect(screen.getByRole("button", { name: "Show 16 more" })).toBeTruthy();
   });
 
   it("resets controls when workspace key changes", () => {

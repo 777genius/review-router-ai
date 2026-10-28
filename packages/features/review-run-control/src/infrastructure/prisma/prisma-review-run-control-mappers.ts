@@ -14,7 +14,13 @@ import type {
   ReviewOperationalSloProfileV2,
   ReviewProtocolLimitsV2,
 } from "../../domain/producer-release";
-import { reviewInvestigationCapabilityV1 } from "../../domain/producer-release";
+import {
+  parseProducerContextToolsProfile,
+  parseProducerPrDescriptionProfile,
+  parseProducerLifecycleVerificationProfile,
+  reviewInvestigationCapabilityV1,
+} from "../../domain/producer-release";
+import { parseReviewAgentProfiles } from "../../domain/review-agent-profile";
 import type { ReviewMutationAuthority } from "../../domain/review-mutation-authority";
 import type { ReviewRunAuthorization } from "../../domain/review-run-authorization";
 import type {
@@ -67,10 +73,38 @@ export function producerReleaseToDomain(
     reviewInvestigationCapability,
     reviewInvestigationCoverageProfileHash,
     reviewInvestigationPolicyHash,
+    agentProfilesJson,
+    contextToolsProfile,
+    prDescriptionProfile,
+    lifecycleVerificationProfile,
     ...release
   } = row;
   return {
     ...release,
+    ...(contextToolsProfile == null
+      ? {}
+      : {
+          contextToolsProfile:
+            parseProducerContextToolsProfile(contextToolsProfile),
+        }),
+    ...(prDescriptionProfile == null
+      ? {}
+      : {
+          prDescriptionProfile:
+            parseProducerPrDescriptionProfile(prDescriptionProfile),
+        }),
+    ...(lifecycleVerificationProfile == null
+      ? {}
+      : {
+          lifecycleVerificationProfile:
+            parseProducerLifecycleVerificationProfile(
+              lifecycleVerificationProfile,
+            ),
+        }),
+    agentProfiles:
+      agentProfilesJson === null
+        ? null
+        : parseReviewAgentProfiles(JSON.parse(agentProfilesJson)),
     reviewInvestigationProfile:
       reviewInvestigationCapability === null &&
       reviewInvestigationCoverageProfileHash === null &&
@@ -179,6 +213,8 @@ export function reviewRunAuthorizationToDomain(
   row: PrismaReviewRunAuthorization,
 ): ReviewRunAuthorization {
   return {
+    runtimeSnapshotCanonicalJson: row.runtimeSnapshotCanonicalJson ?? null,
+    skillsSnapshotCanonicalJson: row.skillsSnapshotCanonicalJson ?? null,
     authorizationId: row.authorizationId,
     version: row.version,
     workspaceId: row.workspaceId,
@@ -250,8 +286,12 @@ export function reviewSafetyScopeColumns(scope: ReviewSafetyScope): {
 }
 
 export function reviewSafetySelectorColumns(selector: ProviderTaskSelector): {
-  readonly providerKind: "codex" | "claude_code" | "openrouter";
-  readonly taskKind: "code_review" | "finding_revalidation" | "conflict_review";
+  readonly providerKind: "codex" | "claude_code" | "openrouter" | "ocr";
+  readonly taskKind:
+    | "code_review"
+    | "finding_revalidation"
+    | "conflict_review"
+    | "pr_description";
 } {
   return {
     providerKind: reviewProviderKindToPersistence(selector.providerKind),
@@ -427,6 +467,8 @@ function reviewProviderKindToDomain(value: string): ReviewProviderKind {
       return ReviewProviderKind.ClaudeCode;
     case "openrouter":
       return ReviewProviderKind.OpenRouter;
+    case "ocr":
+      return ReviewProviderKind.Ocr;
     default:
       return corrupt("review_provider_kind", value);
   }
@@ -434,7 +476,7 @@ function reviewProviderKindToDomain(value: string): ReviewProviderKind {
 
 function reviewProviderKindToPersistence(
   value: ReviewProviderKind,
-): "codex" | "claude_code" | "openrouter" {
+): "codex" | "claude_code" | "openrouter" | "ocr" {
   switch (value) {
     case ReviewProviderKind.Codex:
       return "codex";
@@ -442,6 +484,8 @@ function reviewProviderKindToPersistence(
       return "claude_code";
     case ReviewProviderKind.OpenRouter:
       return "openrouter";
+    case ReviewProviderKind.Ocr:
+      return "ocr";
   }
 }
 
@@ -453,6 +497,8 @@ function reviewTaskKindToDomain(value: string): ReviewTaskKind {
       return ReviewTaskKind.FindingRevalidation;
     case "conflict_review":
       return ReviewTaskKind.ConflictReview;
+    case "pr_description":
+      return ReviewTaskKind.PrDescription;
     default:
       return corrupt("review_task_kind", value);
   }
@@ -460,7 +506,11 @@ function reviewTaskKindToDomain(value: string): ReviewTaskKind {
 
 function reviewTaskKindToPersistence(
   value: ReviewTaskKind,
-): "code_review" | "finding_revalidation" | "conflict_review" {
+):
+  | "code_review"
+  | "finding_revalidation"
+  | "conflict_review"
+  | "pr_description" {
   switch (value) {
     case ReviewTaskKind.CodeReview:
       return "code_review";
@@ -468,6 +518,8 @@ function reviewTaskKindToPersistence(
       return "finding_revalidation";
     case ReviewTaskKind.ConflictReview:
       return "conflict_review";
+    case ReviewTaskKind.PrDescription:
+      return "pr_description";
   }
 }
 

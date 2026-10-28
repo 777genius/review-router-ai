@@ -16,58 +16,60 @@ const competitorRows = [
     product: "ReviewRouter",
     mark: "RR",
     iconSrc: "/review-router-logo.png",
-    execution: "Customer-owned runtime",
-    executionDetail: "Runs in your environment",
-    codePath: "Vendor cloud skips code by default",
-    bestFit: "Security-first teams with strict data policies",
+    execution: "Runs in your GitHub Actions",
+    executionDetail: "Inside your CI, on your runners",
+    codePath: "Code and diffs never reach our servers",
+    bestFit: "Teams that can't send code to a vendor",
     control: "Highest",
-    controlDetail: "You own keys, data, and execution",
+    controlDetail: "You own the code, keys, and runs",
     accent: true,
   },
   {
     product: "CodeRabbit",
     mark: "CR",
     iconSrc: "/service-icons/coderabbit.svg",
-    execution: "Cloud, enterprise self-hosted",
-    executionDetail: "SaaS by default; self-host from 500 Enterprise seats",
-    codePath: "Cloud reviews leave your network; self-host keeps them inside",
-    bestFit: "Fast PR setup; self-host only at enterprise scale",
+    execution: "Cloud, or self-hosted at enterprise scale",
+    executionDetail:
+      "SaaS by default; self-host starts at 500 Enterprise seats",
+    codePath:
+      "Cloud reviews leave your network; self-hosting keeps them inside",
+    bestFit: "Fast setup; self-host only at enterprise scale",
     control: "Medium-High",
-    controlDetail: "Higher only on the Enterprise self-hosted path",
+    controlDetail: "Higher only on the self-hosted Enterprise path",
   },
   {
     product: "Qodo",
     mark: "QO",
     iconSrc: "/service-icons/qodo.svg",
-    execution: "SaaS, single-tenant, or on-prem",
+    execution: "Cloud, private cloud, or on-prem",
     executionDetail:
-      "Managed multi-tenant by default; VPC or air-gap for Enterprise",
-    codePath: "Depends on selected deployment model",
-    bestFit: "Teams that want managed review plus governance options",
+      "Shared cloud by default; private or offline for Enterprise",
+    codePath: "Depends on the deployment you pick",
+    bestFit: "Managed review with governance options",
     control: "Medium-High",
-    controlDetail: "Highest on on-prem; OSS PR-Agent is a separate path",
+    controlDetail: "Highest on-prem; the open-source PR-Agent is separate",
   },
   {
     product: "Greptile",
     mark: "GT",
     iconSrc: "/service-icons/greptile.svg",
     execution: "Cloud or self-hosted",
-    executionDetail: "Cloud, Docker/K8s, or air-gapped with your LLMs",
-    codePath: "Code graph lives in Greptile cloud or your infra",
-    bestFit: "Context-aware review from a full-repo graph",
+    executionDetail: "Cloud, Docker/K8s, or fully offline with your own models",
+    codePath: "The code index lives in Greptile cloud or your infra",
+    bestFit: "Deep context from a full-repo index",
     control: "Medium-High",
-    controlDetail: "Stronger on private or air-gapped deployments",
+    controlDetail: "Stronger on private or offline deployments",
   },
   {
     product: "GitHub Copilot Code Review",
     mark: "GH",
     iconSrc: "/service-icons/github-copilot.svg",
     execution: "GitHub-hosted, optional self-hosted runners",
-    executionDetail: "Native GitHub review; agentic context uses Actions",
-    codePath: "Review context stays in GitHub/Copilot",
-    bestFit: "Teams already standardized on GitHub and Copilot",
+    executionDetail: "Native GitHub review; extra context comes from Actions",
+    codePath: "Review context stays inside GitHub/Copilot",
+    bestFit: "Teams already on GitHub and Copilot",
     control: "Medium",
-    controlDetail: "GitHub-bound even with self-hosted runners",
+    controlDetail: "Tied to GitHub even with self-hosted runners",
   },
   {
     product: "Cursor Bugbot",
@@ -75,7 +77,7 @@ const competitorRows = [
     iconSrc: "/service-icons/cursor.svg",
     execution: "Cursor cloud",
     executionDetail: "PR reviewer for GitHub and GitLab; no self-host",
-    codePath: "Diff and repo context processed by Cursor",
+    codePath: "Diffs and repo context are processed by Cursor",
     bestFit: "Teams already using Cursor",
     control: "Low-Medium",
     controlDetail: "Managed reviewer only",
@@ -84,12 +86,12 @@ const competitorRows = [
     product: "Claude Code Review",
     mark: "CC",
     iconSrc: "/service-icons/claude.svg",
-    execution: "Anthropic hosted or your CI",
+    execution: "Anthropic-hosted or your CI",
     executionDetail:
       "Managed Team/Enterprise preview, GitHub Action, or local Claude Code",
     codePath:
-      "Hosted path sends code to Anthropic; Action stays in your runner",
-    bestFit: "Claude-heavy teams that can pick hosted vs Action",
+      "Hosted sends code to Anthropic; the Action keeps it in your runner",
+    bestFit: "Claude-heavy teams that can choose hosted vs Action",
     control: "Medium",
     controlDetail: "Higher if you run the Action in your CI",
   },
@@ -101,65 +103,60 @@ const competitorRows = [
     executionDetail:
       "GitHub-only SaaS inside Graphite; Cursor-owned since 2025",
     codePath: "PR data follows Graphite and GitHub",
-    bestFit: "Stacked PR and merge-queue teams on GitHub",
+    bestFit: "Stacked-PR and merge-queue teams on GitHub",
     control: "Medium",
     controlDetail: "Vendor workflow; GHES on Enterprise, no GitLab",
   },
 ] as const;
 
 const boundaryColumns = [
-  "Hosted reviewer",
-  "Enterprise self-hosted",
+  "Typical SaaS",
+  "Enterprise self-host",
   "ReviewRouter",
-  "Customer-owned agent",
+  "Your own agent",
 ] as const;
 
 const boundaryRows = [
   {
     icon: Cloud,
-    label: "Control plane",
-    hint: "Where policies and routing live",
-    values: [
-      "Vendor cloud",
-      "Your infrastructure",
-      "Hosted by ReviewRouter",
-      "You host",
-    ],
+    label: "Dashboard & settings",
+    hint: "Where setup and policies live",
+    values: ["Vendor cloud", "Your servers", "Hosted by us", "You host"],
   },
   {
     icon: Code2,
-    label: "Review execution",
-    hint: "Where code is processed",
+    label: "Where reviews run",
+    hint: "The machine that sees your diff",
     values: [
       "Vendor cloud",
-      "Your infrastructure",
-      "Your environment",
+      "Your servers",
+      "Your GitHub Actions",
       "Your environment",
     ],
   },
   {
     icon: LockKeyhole,
-    label: "Code in vendor cloud",
-    hint: "Default SaaS code path",
-    values: ["Yes", "No", "No by default", "No"],
+    label: "Code leaves your network",
+    hint: "Default path",
+    values: ["Yes", "No", "No", "No"],
   },
   {
     icon: KeyRound,
-    label: "Credential custody",
-    hint: "Who owns provider tokens",
+    label: "Who holds your keys",
+    hint: "Model and provider credentials",
     values: ["Vendor or you", "You", "You", "You"],
   },
   {
     icon: Grid2X2,
-    label: "Model choice",
-    hint: "Bring your own model",
+    label: "Which AI you can use",
+    hint: "Subscription or API key",
     values: ["Limited", "Full", "Full", "Full"],
   },
   {
     icon: BarChart3,
-    label: "Deployment effort",
-    hint: "Time to useful setup",
-    values: ["Minutes", "Weeks+", "Hours", "Weeks-Months"],
+    label: "Setup effort",
+    hint: "Time to the first review",
+    values: ["Minutes", "Weeks+", "Minutes", "Weeks-months"],
   },
 ] as const;
 
@@ -180,7 +177,7 @@ export function CompareSection({
     >
       <div className="relative isolate py-4 sm:py-6 lg:py-7">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,0.82fr)_minmax(430px,1.18fr)] lg:items-stretch">
-          <div className="flex min-w-0 flex-col justify-center py-2 lg:py-4">
+          <div className="rr-reveal flex min-w-0 flex-col justify-center py-2 lg:py-4">
             <Badge tone="accent">Comparison</Badge>
             <Heading
               id="compare-title"
@@ -189,8 +186,8 @@ export function CompareSection({
               ReviewRouter vs AI code review apps
             </Heading>
             <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg sm:leading-8 lg:max-w-xl">
-              Compare concrete reviewers first, then compare the cloud boundary
-              that decides where code, credentials, and model prompts travel.
+              See how popular reviewers compare — then look at where your code,
+              keys, and prompts actually go.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <LinkButton href="/security" variant="soft" tone="success">
@@ -208,7 +205,7 @@ export function CompareSection({
         </div>
 
         <div className="mt-7">
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="rr-reveal mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <div className="mb-3 inline-flex h-11 w-11 items-center justify-center rounded-xl border border-cyan-300/25 bg-cyan-300/[0.08] text-cyan-200 shadow-[0_0_28px_-16px_rgba(0,240,255,0.9)]">
                 <BarChart3 aria-hidden="true" className="size-5" />
@@ -217,7 +214,7 @@ export function CompareSection({
                 Competitor matrix
               </h3>
               <p className="mt-1 text-sm text-slate-400">
-                Concrete review apps compared across what matters.
+                Review apps compared on what matters.
               </p>
             </div>
             <p className="font-mono text-[0.68rem] uppercase tracking-[0.18em] text-slate-500">
@@ -231,38 +228,38 @@ export function CompareSection({
               className="mt-0.5 size-4 shrink-0 text-cyan-300"
             />
             Information reflects public vendor docs checked on September 17,
-            2026. Verify current compliance details before procurement.
+            2026. Confirm compliance details before buying.
           </p>
         </div>
 
         <div className="mt-8">
-          <div className="mb-4 flex items-start gap-3">
+          <div className="rr-reveal mb-4 flex items-start gap-3">
             <div className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-cyan-300/25 bg-cyan-300/[0.08] text-cyan-200">
               <Grid2X2 aria-hidden="true" className="size-5" />
             </div>
             <div>
               <h3 className="text-2xl font-semibold text-cyan-50 sm:text-3xl">
-                Boundary matrix
+                Who owns what
               </h3>
               <p className="mt-1 text-sm text-slate-400">
-                Hosted cloud reviewers vs repository-owned execution.
+                Where each option keeps your code and your keys.
               </p>
             </div>
           </div>
           <BoundaryTable />
         </div>
 
-        <div className="rr-accent-callout mt-7 grid gap-5 rounded-2xl border border-fuchsia-400/30 bg-[linear-gradient(90deg,rgba(217,70,239,0.08),rgba(0,240,255,0.055),rgba(163,230,53,0.05))] p-5 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
+        <div className="rr-accent-callout rr-reveal mt-7 grid gap-5 rounded-2xl border border-fuchsia-400/30 bg-[linear-gradient(90deg,rgba(217,70,239,0.08),rgba(0,240,255,0.055),rgba(163,230,53,0.05))] p-5 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
           <div className="grid h-14 w-14 place-items-center rounded-2xl border border-lime-300/30 bg-lime-300/[0.08] text-lime-200">
             <LockKeyhole aria-hidden="true" className="size-6" />
           </div>
           <div>
             <h3 className="text-lg font-semibold text-cyan-50">
-              Keep code private. Keep control.
+              Keep your code and keys.
             </h3>
             <p className="mt-1 text-sm leading-6 text-slate-300">
-              ReviewRouter gives you a hosted control plane without taking
-              ownership of review execution.
+              Use a hosted dashboard without handing over your code, keys, or
+              review runs.
             </p>
           </div>
           <div className="flex flex-wrap gap-3 sm:justify-end">
@@ -291,32 +288,32 @@ function InsightPanel(): React.ReactElement {
         <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_10px_rgba(103,232,249,0.8)]" />
         <span className="h-1.5 w-1.5 rounded-full bg-fuchsia-400 shadow-[0_0_10px_rgba(217,70,239,0.8)]" />
       </div>
-      <Badge tone="success">Core difference</Badge>
+      <Badge tone="success">The key difference</Badge>
       <h3 className="mt-5 text-2xl font-semibold leading-tight text-cyan-50 sm:text-3xl">
-        The control plane is hosted.{" "}
-        <span className="text-lime-300">The review workload is yours.</span>
+        A hosted dashboard.{" "}
+        <span className="text-lime-300">Reviews run on your side.</span>
       </h3>
       <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-300">
-        ReviewRouter keeps orchestration, policy, health, and audit in the
-        product while review execution stays in a runtime you control.
+        We handle setup, history, and health. The AI review runs inside your
+        GitHub Actions, so your code and credentials stay with you.
       </p>
 
       <div className="mt-7 grid gap-4 md:grid-cols-[1fr_auto_1fr_auto_1fr] md:items-center">
         <BoundaryNode
-          title="ReviewRouter control plane"
-          body="Hosted by ReviewRouter"
+          title="ReviewRouter dashboard"
+          body="Hosted by us"
           icon={<LogoMark size="sm" className="h-12 w-12 rounded-xl" />}
         />
         <BoundaryConnector />
         <BoundaryNode
-          title="Customer repo runtime"
-          body="Runs in your environment"
+          title="Your GitHub Actions"
+          body="Runs on your runners"
           icon={<Code2 aria-hidden="true" className="size-7 text-lime-200" />}
         />
         <BoundaryConnector />
         <BoundaryNode
-          title="Selected model provider"
-          body="LLM inference on your terms"
+          title="The AI you choose"
+          body="Your subscription or key"
           icon={
             <Cloud aria-hidden="true" className="size-7 text-fuchsia-300" />
           }
@@ -324,7 +321,7 @@ function InsightPanel(): React.ReactElement {
       </div>
 
       <div className="mt-7 grid gap-2 border-t border-cyan-200/10 pt-4 text-xs text-slate-300 sm:grid-cols-3">
-        {["Code stays private", "You own credentials", "Pick any model"].map(
+        {["Code stays with you", "You own the keys", "Pick your model"].map(
           (item) => (
             <span key={item} className="inline-flex items-center gap-2">
               <ShieldCheck
@@ -426,14 +423,14 @@ function CompetitorTable(): React.ReactElement {
           );
         })}
       </div>
-      <div className="hidden overflow-x-auto rounded-2xl border border-cyan-200/12 bg-[var(--rr-surface-panel)] shadow-[inset_0_1px_0_rgba(103,232,249,0.09)] md:block">
-        <table className="w-full min-w-[1040px] border-collapse text-left">
+      <div className="hidden overflow-x-auto rounded-2xl border border-cyan-200/12 bg-[var(--rr-surface-panel)] shadow-[inset_0_1px_0_rgba(103,232,249,0.09)] md:block lg:overflow-clip">
+        <table className="rr-sticky-table w-full min-w-[1040px] border-collapse text-left">
           <thead>
             <tr className="border-b border-cyan-200/10 font-mono text-[0.68rem] uppercase tracking-[0.18em] text-slate-400">
               <th className="px-5 py-4 font-semibold">Product</th>
-              <th className="px-5 py-4 font-semibold">Execution</th>
-              <th className="px-5 py-4 font-semibold">Code path</th>
-              <th className="px-5 py-4 font-semibold">Best fit</th>
+              <th className="px-5 py-4 font-semibold">Where it runs</th>
+              <th className="px-5 py-4 font-semibold">Where code goes</th>
+              <th className="px-5 py-4 font-semibold">Best for</th>
               <th className="px-5 py-4 font-semibold">Control</th>
             </tr>
           </thead>
@@ -615,11 +612,11 @@ function BoundaryTable(): React.ReactElement {
           );
         })}
       </div>
-      <div className="hidden overflow-x-auto rounded-2xl border border-cyan-200/10 bg-[var(--rr-surface-panel)] md:block">
-        <table className="w-full min-w-[940px] border-collapse text-left text-sm">
+      <div className="hidden overflow-x-auto rounded-2xl border border-cyan-200/10 bg-[var(--rr-surface-panel)] md:block lg:overflow-clip">
+        <table className="rr-sticky-table w-full min-w-[940px] border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-cyan-200/10 font-mono text-[0.68rem] uppercase tracking-[0.16em] text-slate-400">
-              <th className="px-5 py-4 font-semibold">Dimension</th>
+              <th className="px-5 py-4 font-semibold">What matters</th>
               {boundaryColumns.map((column) => (
                 <th
                   key={column}

@@ -1,3 +1,10 @@
+import { assertReviewRunCompanionDispatchEvidence } from "./review-lifecycle-verification.js";
+import {
+  appliedComparisonResolutions,
+  bindComparisonResolutionHistory,
+} from "./review-comparison-baseline-resolutions.js";
+import { exactRestoredPublication } from "./review-execution-publication-restore.js";
+import { buildReviewComparisonBaseline } from "./review-comparison-baseline.js";
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import type {
@@ -29,9 +36,13 @@ import {
   ReviewPublicationOccurrenceState,
   ReviewPublicationLifecycleObservationVersion,
   ReviewPublicationLifecycleExpectationStatus,
+  LiveReviewPublicationLifecycleStatus,
   ReviewPublicationRunControlStatus,
   ResolveCurrentPublicationLifecycle,
   isReviewFindingFingerprint,
+  hasEveryRequiredCanonicalReceipt,
+  hasPendingPrDescriptionContinuation,
+  ReviewPublicationTerminalOutcome,
   renderCanonicalReviewPublication,
   resolveReviewPublicationRenderPolicyVersion,
   resolveCurrentReviewPublicationOperationIdentity,
@@ -39,6 +50,8 @@ import {
   planReviewPublicationOperations,
   publishedReviewProjectionPublicationEnvelopeVersion,
   reviewPublicationLifecycleExpectationFromProjection,
+  bindOwnPublicationResolutionOperations,
+  validateReviewPublicationLifecycleVerification,
   type LiveReviewPublicationLifecyclePort,
   type CurrentPublicationLifecyclePort,
   type PublishedReviewProjectionPublicationEnvelope,
@@ -47,9 +60,13 @@ import {
   type ReviewPublicationDecisionPorts,
   type ReviewPublicationPermitIdentity,
   type ReviewPublicationPlanningLimits,
+  type ReviewPublicationLifecycleExpectationDecision,
+  type ReviewPublicationResolutionHistoryPort,
+  type ReviewPublicationLifecycleVerificationFact,
 } from "@reviewrouter/features-review-publishing/v2";
 import {
   PrismaReviewPublicationRepository,
+  PrismaReviewThreadResolutionHistory,
   createReviewPublicationV2Application,
 } from "@reviewrouter/features-review-publishing/v2/composition";
 import {
@@ -60,6 +77,7 @@ import {
   ReviewRunAuthorizationTokenResolutionStatus,
   ReviewSafetyDecisionKind,
   canonicalJson,
+  parseReviewRunRuntimeSnapshot,
   type ProducerReleaseQueryPort,
   type ReviewMutationAuthorityQueryPort,
   type ReviewProtocolLimitsProfileQueryPort,
@@ -76,7 +94,7 @@ import {
 import { PrismaReviewSnapshotV2Repository } from "@reviewrouter/features-review-snapshots/v2/composition";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import {
-  canonicalizeReviewActionV2Request,
+  canonicalizeReviewActionV2RequestForSlot,
   ReviewActionV2OperationId,
   ReviewActionV2ProtocolErrorCode,
   ReviewPublicationRequestResultStatus,
@@ -96,6 +114,11 @@ import type {
   VerifiedReviewActionV2PublicationPermit,
 } from "./review-action-v2-execution-evidence-capabilities.js";
 
+import {
+  assertPrDescriptionArtifact,
+  parseGeneratedPrDescription,
+} from "./review-pr-description.js";
+
 type Runtime = Pick<
   RegisterReviewSnapshotReadV2RoutesDependencies,
   "readServerTime" | "createRequestId"
@@ -106,7 +129,8 @@ type ReleaseQueries = ProducerReleaseQueryPort &
 type FinalizedExecutionQueries = Pick<
   ReviewExecutionQueryPort,
   "findExecution"
->;
+> &
+  Partial<Pick<ReviewExecutionQueryPort, "findLease">>;
 
 export interface ReviewPublicationContextPolicyPort {
   assertCurrentPolicy(input: {
@@ -135,6 +159,9 @@ export function composeReviewActionV2SnapshotPublicationRoutes(input: {
 }> {
   const snapshots = new PrismaReviewSnapshotV2Repository(input.prisma);
   const publications = new PrismaReviewPublicationRepository(input.prisma);
+  const resolutionHistory = new PrismaReviewThreadResolutionHistory(
+    input.prisma,
+  );
   const publicationApplication = createReviewPublicationV2Application({
     clock: { now: input.now },
     decisions: productionPublicationDecisions({
@@ -145,6 +172,8 @@ export function composeReviewActionV2SnapshotPublicationRoutes(input: {
       authorities: input.authorities,
       safety: input.safety,
       liveLifecycle: input.liveLifecycle,
+      resolutionHistory,
+      publications,
       contextPolicy: input.contextPolicy,
     }),
     attempts: publications,
@@ -181,6 +210,13 @@ export function composeReviewActionV2SnapshotPublicationRoutes(input: {
     capabilities: input.capabilities,
     digest: input.digest,
     contextPolicy: input.contextPolicy,
+    liveLifecycle: input.liveLifecycle,
+    resolutionHistory,
+    verifyCompanionDispatchEvidence: (facts) =>
+      assertReviewRunCompanionDispatchEvidence({
+        ...facts,
+        prisma: input.prisma,
+      }),
     now: input.now,
   });
 }
@@ -198,6 +234,14 @@ export function createReviewActionV2SnapshotPublicationRoutes(input: {
   readonly capabilities: ReviewActionV2ExecutionEvidenceCapabilityAdapter;
   readonly digest: ReviewActionV2DigestPort;
   readonly contextPolicy: ReviewPublicationContextPolicyPort;
+  readonly verifyCompanionDispatchEvidence?: (
+    facts: Omit<
+      Parameters<typeof assertReviewRunCompanionDispatchEvidence>[0],
+      "prisma"
+    >,
+  ) => Promise<void>;
+  readonly liveLifecycle?: LiveReviewPublicationLifecyclePort;
+  readonly resolutionHistory?: ReviewPublicationResolutionHistoryPort;
   readonly now: () => Date;
 }): Readonly<{
   snapshot: RegisterReviewSnapshotReadV2RoutesDependencies;
@@ -212,6 +256,14 @@ export function createReviewActionV2SnapshotPublicationRoutes(input: {
           restoreSnapshot(request, {
             authorizations: input.authorizations,
             snapshots: input.snapshots,
+            executions: input.executions,
+            publications: input.publications,
+            ...(input.liveLifecycle
+              ? { liveLifecycle: input.liveLifecycle }
+              : {}),
+            ...(input.resolutionHistory
+              ? { resolutionHistory: input.resolutionHistory }
+              : {}),
             now: input.now,
           }),
       },
@@ -230,6 +282,12 @@ export function createReviewActionV2SnapshotPublicationRoutes(input: {
             capabilities: input.capabilities,
             digest: input.digest,
             contextPolicy: input.contextPolicy,
+            ...(input.verifyCompanionDispatchEvidence
+              ? {
+                  verifyCompanionDispatchEvidence:
+                    input.verifyCompanionDispatchEvidence,
+                }
+              : {}),
             now: input.now,
           }),
       },
@@ -246,13 +304,103 @@ export function createReviewActionV2SnapshotPublicationRoutes(input: {
   });
 }
 
+type SnapshotRestoreDependencies = {
+  readonly authorizations: ReviewActionV2AuthorizationResolverPort;
+  readonly snapshots: ReviewSnapshotV2QueryPort;
+  readonly executions: FinalizedExecutionQueries;
+  readonly publications: ReviewPublicationAttemptQueryPort;
+  readonly liveLifecycle?: LiveReviewPublicationLifecyclePort;
+  readonly resolutionHistory?: ReviewPublicationResolutionHistoryPort;
+  readonly now: () => Date;
+};
+
+async function restoreComparisonBaseline(
+  authorization: ReviewRunAuthorization,
+  dependencies: SnapshotRestoreDependencies,
+) {
+  const record = await dependencies.snapshots.findCurrent(
+    authorizationScope(authorization),
+  );
+  if (
+    !record ||
+    record.schemaVersion !== 2 ||
+    record.expiresAt <= dependencies.now()
+  ) {
+    return {
+      statusCode: 200,
+      result: {
+        status: !record
+          ? ReviewSnapshotRestoreResultStatus.Missing
+          : record.schemaVersion !== 2
+            ? ReviewSnapshotRestoreResultStatus.LegacyUntrusted
+            : ReviewSnapshotRestoreResultStatus.Expired,
+      },
+    } as const;
+  }
+  const scope = authorizationScope(authorization);
+  const scoped =
+    record.workspaceId === scope.workspaceId &&
+    record.repositoryConnectionId === scope.repositoryConnectionId &&
+    record.scmRepositoryIdentityId === scope.scmRepositoryIdentityId &&
+    record.pullRequestNumber === scope.pullRequestNumber;
+  let payload = scoped ? buildReviewComparisonBaseline(record) : null;
+  if (payload !== null) {
+    try {
+      const previous = await dependencies.executions.findExecution(
+        record.sourceExecutionId,
+      );
+      const artifact = previous?.artifact;
+      const permit = artifact?.publicationPermit;
+      if (
+        artifact &&
+        permit &&
+        artifact.executionId === record.sourceExecutionId &&
+        artifact.generation === BigInt(record.sourceExecutionGeneration) &&
+        artifact.reviewedHeadSha === record.sourceReviewedHeadSha &&
+        artifact.reviewRevisionHash === record.sourceReviewRevisionHash &&
+        artifact.projectionHash === record.payload.projectionHash &&
+        canonicalJson(JSON.parse(artifact.projectionEnvelopeJson)) ===
+          canonicalJson(record.payload.projectionEnvelope) &&
+        permit.workspaceId === record.workspaceId &&
+        permit.repositoryConnectionId === record.repositoryConnectionId &&
+        permit.scmRepositoryIdentityId === record.scmRepositoryIdentityId &&
+        permit.pullRequestNumber === record.pullRequestNumber
+      ) {
+        const view =
+          await dependencies.publications.findByPermitIdentity(permit);
+        payload = buildReviewComparisonBaseline(
+          record,
+          view &&
+            canonicalPublicationPermitIdentity(view.attempt.permit) ===
+              canonicalPublicationPermitIdentity(permit)
+            ? appliedComparisonResolutions(record, view)
+            : [],
+        );
+      }
+    } catch {
+      // Unavailable or malformed receipt evidence never confirms a resolution.
+    }
+  }
+  return payload === null
+    ? ({
+        statusCode: 200,
+        result: { status: ReviewSnapshotRestoreResultStatus.TrustRejected },
+      } as const)
+    : ({
+        statusCode: 200,
+        result: {
+          status: ReviewSnapshotRestoreResultStatus.Found,
+          restoreMode: "comparison_baseline.v1",
+          snapshotVersion: record.version,
+          sourceExecutionGeneration: String(record.sourceExecutionGeneration),
+          payloadCanonicalJson: payload,
+        },
+      } as const);
+}
+
 async function restoreSnapshot(
   request: ReviewSnapshotRestoreRequest,
-  dependencies: {
-    readonly authorizations: ReviewActionV2AuthorizationResolverPort;
-    readonly snapshots: ReviewSnapshotV2QueryPort;
-    readonly now: () => Date;
-  },
+  dependencies: SnapshotRestoreDependencies,
 ) {
   const authorization = await requireAuthorization(
     request.authorizationToken,
@@ -262,6 +410,76 @@ async function restoreSnapshot(
     return {
       statusCode: 200,
       result: { status: ReviewSnapshotRestoreResultStatus.RevisionChanged },
+    } as const;
+  }
+  if (request.purpose === "comparison_baseline.v1") {
+    const baseline = await restoreComparisonBaseline(
+      authorization,
+      dependencies,
+    );
+    const snapshot = parseReviewRunRuntimeSnapshot(
+      authorization.runtimeSnapshotCanonicalJson,
+    );
+    if (!snapshot?.lifecycleVerificationCapability) return baseline;
+    let resolutionHistory: ReturnType<
+      typeof bindComparisonResolutionHistory
+    > | null = null;
+    let historyUnavailableReason: string | undefined;
+    try {
+      if (!dependencies.liveLifecycle || !dependencies.resolutionHistory)
+        throw new Error("resolution_history_ports_unavailable");
+      const scope = authorizationScope(authorization);
+      const live = await dependencies.liveLifecycle.resolve(scope);
+      if (
+        live.status !== LiveReviewPublicationLifecycleStatus.Available ||
+        live.reviewedHeadSha !== authorization.headSha
+      )
+        throw new Error("resolution_history_live_scope_unavailable");
+      const targets = live.targets.filter((target) => !target.isResolved);
+      const histories = await dependencies.resolutionHistory.read(
+        scope,
+        targets.map((target) => target.threadId),
+      );
+      if (
+        !Array.isArray(histories) ||
+        histories.some((history) => history.historyCut === null)
+      )
+        throw new Error("resolution_history_activation_unavailable");
+      resolutionHistory = bindComparisonResolutionHistory(
+        targets.map((target) => ({
+          targetId: target.targetId,
+          threadId: target.threadId,
+          parentCommentId: target.parentCommentId ?? "",
+          parentCreatedAt: target.parentCreatedAt.toISOString(),
+          parentBodyHash: target.parentBodyHash ?? "",
+        })),
+        histories,
+      );
+    } catch {
+      historyUnavailableReason = "resolution_history_unavailable";
+    }
+    const found =
+      baseline.result.status === ReviewSnapshotRestoreResultStatus.Found
+        ? baseline.result
+        : null;
+    return {
+      statusCode: 200,
+      result: {
+        status: ReviewSnapshotRestoreResultStatus.Found,
+        restoreMode: "comparison_baseline.v1",
+        ...(found
+          ? {
+              snapshotVersion: found.snapshotVersion,
+              sourceExecutionGeneration: found.sourceExecutionGeneration,
+            }
+          : {}),
+        payloadCanonicalJson: canonicalJson({
+          comparisonVersion: 2,
+          baseline: found ? JSON.parse(found.payloadCanonicalJson) : null,
+          resolutionHistory,
+          ...(historyUnavailableReason ? { historyUnavailableReason } : {}),
+        }),
+      },
     } as const;
   }
   const restored = await restoreReviewSnapshotV2(
@@ -295,6 +513,31 @@ async function restoreSnapshot(
   } as const;
 }
 
+/** Repositories may carry execution implementation fields alongside this identity. */
+function canonicalPublicationPermitIdentity(
+  permit: ReviewPublicationPermitIdentity,
+): string {
+  const identity: ReviewPublicationPermitIdentity = {
+    workspaceId: permit.workspaceId,
+    repositoryConnectionId: permit.repositoryConnectionId,
+    scmRepositoryIdentityId: permit.scmRepositoryIdentityId,
+    pullRequestNumber: permit.pullRequestNumber,
+    executionId: permit.executionId,
+    generation: permit.generation,
+    authorizationId: permit.authorizationId,
+    producerReleaseId: permit.producerReleaseId,
+    reviewedHeadSha: permit.reviewedHeadSha,
+    reviewRevisionHash: permit.reviewRevisionHash,
+    projectionHash: permit.projectionHash,
+    lifecycleStateHash: permit.lifecycleStateHash,
+    commandLedgerWatermark: permit.commandLedgerWatermark,
+    permitEpoch: permit.permitEpoch,
+    publicationSafetyDecisionHash: permit.publicationSafetyDecisionHash,
+    publicationNotAfter: permit.publicationNotAfter,
+  };
+  return canonicalJson(identity);
+}
+
 async function requestPublication(
   request: ReviewPublicationRequest,
   dependencies: {
@@ -308,6 +551,12 @@ async function requestPublication(
     readonly capabilities: ReviewActionV2ExecutionEvidenceCapabilityAdapter;
     readonly digest: ReviewActionV2DigestPort;
     readonly contextPolicy: ReviewPublicationContextPolicyPort;
+    readonly verifyCompanionDispatchEvidence?: (
+      facts: Omit<
+        Parameters<typeof assertReviewRunCompanionDispatchEvidence>[0],
+        "prisma"
+      >,
+    ) => Promise<void>;
     readonly now: () => Date;
   },
 ) {
@@ -351,9 +600,7 @@ async function requestPublication(
     !release ||
     release.state !== ProducerReleaseState.Registered ||
     !limits ||
-    release.protocolLimitsProfileId !== limits.protocolLimitsProfileId ||
-    Buffer.byteLength(request.operationsCanonicalJson, "utf8") >
-      limits.maxPublicationBodyBytes
+    release.protocolLimitsProfileId !== limits.protocolLimitsProfileId
   ) {
     throw routeFailure(
       403,
@@ -368,6 +615,62 @@ async function requestPublication(
     protocolLimitsProfileId: limits.protocolLimitsProfileId,
     limitsDigest: limits.limitsDigest,
   });
+  await assertPrDescriptionArtifact({
+    authorization,
+    execution: snapshot.execution,
+    leases: dependencies.executions,
+    projection: JSON.parse(artifact.projectionEnvelopeJson),
+  });
+  const generatedDescription = publicationProjection(
+    JSON.parse(artifact.projectionEnvelopeJson).publishing,
+  ).prDescription;
+  if (
+    parseReviewRunRuntimeSnapshot(authorization.runtimeSnapshotCanonicalJson)
+      ?.lifecycleVerificationCapability &&
+    generatedDescription !== undefined
+  ) {
+    const provenance = generatedDescription.generationProvenance;
+    const lease = await dependencies.executions.findLease?.(provenance.leaseId);
+    if (
+      !lease?.preparedManifestKey ||
+      !dependencies.verifyCompanionDispatchEvidence
+    )
+      throw routeFailure(
+        422,
+        ReviewActionV2ProtocolErrorCode.InvariantViolation,
+        "pr_description_dispatch_proof_unavailable",
+      );
+    await dependencies.verifyCompanionDispatchEvidence({
+      authorization,
+      role: "pr_description",
+      executionId: snapshot.execution.executionId,
+      workSlotId: lease.workSlotId,
+      leaseId: lease.leaseId,
+      fencingToken: lease.fencingToken,
+      preparedManifestKey: lease.preparedManifestKey,
+      providerRequestEnvelopeHash: provenance.providerRequestEnvelopeHash,
+    });
+  }
+  // The full canonical source and auxiliary authority were verified above.
+  // Charge only required source bytes to the original publication budget;
+  // strict description/provenance bounds and the HTTP body limit still apply.
+  const requiredPublishing = {
+    ...parseCanonicalRecord(
+      request.operationsCanonicalJson,
+      "publication_payload_invalid",
+    ),
+  };
+  delete requiredPublishing.prDescription;
+  if (
+    Buffer.byteLength(canonicalJson(requiredPublishing), "utf8") >
+    limits.maxPublicationBodyBytes
+  ) {
+    throw routeFailure(
+      403,
+      ReviewActionV2ProtocolErrorCode.Forbidden,
+      "publication_release_or_limits_invalid",
+    );
+  }
   const publicationAttemptId = reviewPublicationAttemptId({
     executionId: artifact.executionId,
     artifactId: artifact.artifactId,
@@ -627,20 +930,30 @@ async function readPublicationStatus(
     );
   }
   assertPublicationReadAuthority(view, authorization);
+  const requiredReviewSucceeded =
+    view.attempt.operations.some((operation) => operation.required) &&
+    hasPendingPrDescriptionContinuation(view.attempt.operations) &&
+    hasEveryRequiredCanonicalReceipt({
+      operations: view.attempt.operations,
+      receipts: view.receipts,
+    });
+  const mainTerminal =
+    requiredReviewSucceeded ||
+    view.attempt.state === ReviewPublicationAttemptState.Terminal;
   return {
     statusCode: 200,
     result: {
-      status: publicationStatus(view.attempt.state),
+      status: requiredReviewSucceeded
+        ? ReviewPublicationStatusResultStatus.Terminal
+        : publicationStatus(view.attempt.state),
       publicationAttemptId: view.attempt.publicationAttemptId,
-      terminalOutcome: view.attempt.terminalOutcome,
-      canonicalReceiptSetHash:
-        view.attempt.state === ReviewPublicationAttemptState.Terminal
-          ? publicationReceiptSetHash(view)
-          : null,
-      pollAfterMs:
-        view.attempt.state === ReviewPublicationAttemptState.Terminal
-          ? null
-          : 1_000,
+      terminalOutcome: requiredReviewSucceeded
+        ? ReviewPublicationTerminalOutcome.Succeeded
+        : view.attempt.terminalOutcome,
+      canonicalReceiptSetHash: mainTerminal
+        ? publicationReceiptSetHash(view)
+        : null,
+      pollAfterMs: mainTerminal ? null : 1_000,
     },
   } as const;
 }
@@ -655,58 +968,107 @@ export function createProductionPublicationLifecyclePort(input: {
     "findReviewRunAuthorizationById"
   >;
   readonly liveLifecycle: LiveReviewPublicationLifecyclePort;
+  readonly resolutionHistory?: ReviewPublicationResolutionHistoryPort;
+  readonly publications?: ReviewPublicationAttemptQueryPort;
 }): CurrentPublicationLifecyclePort {
-  return new ResolveCurrentPublicationLifecycle({
-    expectations: {
-      async resolve(scope) {
-        let projectionInput: Parameters<
-          typeof reviewPublicationLifecycleExpectationFromProjection
-        >[0];
-        try {
-          const stream = await input.executions.findStream(scope);
-          const snapshot = stream?.activeExecutionId
-            ? await input.executions.findExecution(stream.activeExecutionId)
-            : null;
-          const artifact = snapshot?.artifact;
-          if (!artifact) {
-            return {
-              status: ReviewPublicationLifecycleExpectationStatus.Missing,
-            };
-          }
+  return {
+    async resolve(scope) {
+      let expectation: ReviewPublicationLifecycleExpectationDecision;
+      let requireResolutionHistory = false;
+      try {
+        const stream = await input.executions.findStream(scope);
+        const snapshot = stream?.activeExecutionId
+          ? await input.executions.findExecution(stream.activeExecutionId)
+          : null;
+        const artifact = snapshot?.artifact;
+        if (!artifact) {
+          expectation = {
+            status: ReviewPublicationLifecycleExpectationStatus.Missing,
+          };
+        } else {
           const authorization =
             await input.authorizationQueries.findReviewRunAuthorizationById(
               artifact.publicationPermit.authorizationId,
             );
           if (!authorization) {
-            return {
+            expectation = {
               status: ReviewPublicationLifecycleExpectationStatus.Missing,
             };
+          } else {
+            requireResolutionHistory = !!parseReviewRunRuntimeSnapshot(
+              authorization.runtimeSnapshotCanonicalJson,
+            )?.lifecycleVerificationCapability;
+            try {
+              expectation = reviewPublicationLifecycleExpectationFromProjection(
+                {
+                  reviewedHeadSha: artifact.reviewedHeadSha,
+                  lifecycleStateHash: artifact.lifecycleStateHash,
+                  commandLedgerWatermark: artifact.commandLedgerWatermark,
+                  projectionEnvelopeJson: artifact.projectionEnvelopeJson,
+                  legacyObservationBoundary: authorization.createdAt,
+                },
+              );
+            } catch {
+              expectation = {
+                status: ReviewPublicationLifecycleExpectationStatus.Invalid,
+              };
+            }
+            if (
+              requireResolutionHistory &&
+              expectation.status ===
+                ReviewPublicationLifecycleExpectationStatus.Available
+            ) {
+              if (!input.resolutionHistory || !input.publications)
+                throw new Error("resolution_history_ports_unavailable");
+              const view = exactRestoredPublication(
+                snapshot!,
+                await input.publications.findByPermitIdentity(
+                  artifact.publicationPermit,
+                ),
+              );
+              expectation = bindOwnPublicationResolutionOperations(
+                expectation,
+                view,
+                (value) => createHash("sha256").update(value).digest("hex"),
+              );
+            }
           }
-          projectionInput = {
-            reviewedHeadSha: artifact.reviewedHeadSha,
-            lifecycleStateHash: artifact.lifecycleStateHash,
-            commandLedgerWatermark: artifact.commandLedgerWatermark,
-            projectionEnvelopeJson: artifact.projectionEnvelopeJson,
-            legacyObservationBoundary: authorization.createdAt,
-          };
-        } catch {
-          return {
-            status: ReviewPublicationLifecycleExpectationStatus.Unavailable,
-          };
         }
-        try {
-          return reviewPublicationLifecycleExpectationFromProjection(
-            projectionInput,
-          );
-        } catch {
-          return {
-            status: ReviewPublicationLifecycleExpectationStatus.Invalid,
-          };
-        }
-      },
+      } catch {
+        expectation = {
+          status: ReviewPublicationLifecycleExpectationStatus.Unavailable,
+        };
+      }
+      return new ResolveCurrentPublicationLifecycle({
+        expectations: {
+          async resolve() {
+            return expectation;
+          },
+        },
+        live: input.liveLifecycle,
+        ...(requireResolutionHistory && input.resolutionHistory
+          ? {
+              resolutionHistory: {
+                read: async (scope, threadIds) => {
+                  const histories = await input.resolutionHistory!.read(
+                    scope,
+                    threadIds,
+                  );
+                  if (
+                    !Array.isArray(histories) ||
+                    histories.some((history) => history.historyCut === null)
+                  )
+                    throw new Error(
+                      "resolution_history_activation_unavailable",
+                    );
+                  return histories;
+                },
+              },
+            }
+          : {}),
+      }).resolve(scope);
     },
-    live: input.liveLifecycle,
-  });
+  };
 }
 
 function productionPublicationDecisions(input: {
@@ -718,11 +1080,17 @@ function productionPublicationDecisions(input: {
   readonly safety: ReviewSafetyDecisionResolverPort;
   readonly liveLifecycle: LiveReviewPublicationLifecyclePort;
   readonly contextPolicy: ReviewPublicationContextPolicyPort;
+  readonly resolutionHistory?: ReviewPublicationResolutionHistoryPort;
+  readonly publications?: ReviewPublicationAttemptQueryPort;
 }): ReviewPublicationDecisionPorts {
   const lifecycle = createProductionPublicationLifecyclePort({
     executions: input.executions,
     authorizationQueries: input.authorizationQueries,
     liveLifecycle: input.liveLifecycle,
+    ...(input.resolutionHistory
+      ? { resolutionHistory: input.resolutionHistory }
+      : {}),
+    ...(input.publications ? { publications: input.publications } : {}),
   });
   return {
     permits: {
@@ -983,6 +1351,9 @@ function publishedEnvelope(input: {
       semantic: rendered.summary.semantic,
       ...bodyFactsOf(rendered.summary),
     },
+    ...(rendered.prDescription === undefined
+      ? {}
+      : { prDescription: bodyFactsOf(rendered.prDescription) }),
     managedCheck:
       rendered.managedCheck === null
         ? null
@@ -1005,7 +1376,8 @@ function publicationRenderingInvariantIssue(error: unknown): string | null {
   if (!(error instanceof Error)) return null;
   return error.message === "publication_occurrence_counts_invalid" ||
     error.message === "publication_occurrence_counts_mismatch" ||
-    error.message === "publication_occurrence_state_invalid"
+    error.message === "publication_occurrence_state_invalid" ||
+    error.message === "publication_pr_description_markdown_invalid"
     ? error.message
     : null;
 }
@@ -1048,7 +1420,7 @@ function publicationProjection(value: unknown) {
   const root = exactRecordWithOptional(
     value,
     ["summary", "check", "inlineReviewChunks", "lifecycle"],
-    ["lifecycleObservationVersion"],
+    ["lifecycleObservationVersion", "prDescription"],
     "publication_projection_shape_invalid",
   );
   const lifecycleObservationVersion = publicationLifecycleObservationVersion(
@@ -1079,6 +1451,9 @@ function publicationProjection(value: unknown) {
     ...(lifecycleObservationVersion === null
       ? {}
       : { lifecycleObservationVersion }),
+    ...(root.prDescription === undefined
+      ? {}
+      : { prDescription: parseGeneratedPrDescription(root.prDescription) }),
     summary: {
       marker: boundedString(summary.marker, 4_096),
       body: boundedString(summary.body, 1_000_000),
@@ -1136,7 +1511,7 @@ function publicationProjection(value: unknown) {
             ? []
             : ["markerFingerprint", "threadStateHash"]),
         ],
-        ["lineageId"],
+        ["lineageId", "verification"],
         "publication_lifecycle_shape_invalid",
       );
       optionalBoundedString(entry.lineageId, 512);
@@ -1150,11 +1525,23 @@ function publicationProjection(value: unknown) {
               ),
               threadStateHash: sha256String(entry.threadStateHash),
             };
+      if (entry.verification !== undefined) {
+        validateReviewPublicationLifecycleVerification(
+          entry.verification,
+          boundedString(entry.targetId, 512),
+        );
+      }
       return {
         targetId: boundedString(entry.targetId, 512),
         threadId: boundedString(entry.threadId, 512),
         verdict: boundedString(entry.verdict, 64),
         mutationEligible: boolean(entry.mutationEligible),
+        ...(entry.verification === undefined
+          ? {}
+          : {
+              verification:
+                entry.verification as ReviewPublicationLifecycleVerificationFact,
+            }),
         ...observation,
       };
     }),
@@ -1343,7 +1730,7 @@ async function assertRequestBodyHash(
   digest: ReviewActionV2DigestPort,
 ) {
   const actual = await digest.digestUtf8(
-    canonicalizeReviewActionV2Request(
+    canonicalizeReviewActionV2RequestForSlot(
       ReviewActionV2OperationId.ReviewPublicationRequest,
       request,
     ),
@@ -1398,6 +1785,14 @@ function publicationReceiptSetHash(view: ReviewPublicationAttemptView): string {
   return sha256(
     canonicalJson(
       [...view.receipts]
+        .filter(
+          (receipt) =>
+            view.attempt.operations.find(
+              (operation) =>
+                operation.publicationOperationId ===
+                receipt.publicationOperationId,
+            )?.required,
+        )
         .map((receipt) => ({
           operationId: receipt.publicationOperationId,
           receiptHash: receipt.receiptHash,

@@ -7,6 +7,13 @@ import type {
   ReviewConfiguration,
   ReviewInvestigationRolloutConfiguration,
 } from "../../domain/review-configuration";
+import {
+  parseRepositoryReviewPolicy,
+  STORED_REVIEW_POLICY_SCHEMA_VERSION,
+  type RepositoryReviewPolicy,
+  type ReviewPolicyDocument,
+  type ReviewProviderSelection,
+} from "../../domain/review-policy-document";
 import { ReviewReasoningEffort } from "../../domain/review-reasoning-effort";
 import {
   isReviewConfigurationWriteConflictError,
@@ -36,6 +43,7 @@ export enum ReviewConfigurationOperatorErrorCode {
   ReviewProviderNotFound = "review_provider_not_found",
   UnsupportedReasoningEffort = "unsupported_reasoning_effort",
   ConfigurationChanged = "configuration_changed",
+  ConfigurationMissing = "configuration_missing",
   InvalidInvestigationRollout = "invalid_investigation_rollout",
 }
 
@@ -113,6 +121,10 @@ export async function getOperatorReviewConfiguration(
   const repository = await resolveRepository(input, dependencies.repositories);
   const target = repositoryTarget(repository);
   const resolved = await resolveReviewConfiguration(target, dependencies);
+  if (!resolved)
+    throw new ReviewConfigurationOperatorError(
+      ReviewConfigurationOperatorErrorCode.ConfigurationMissing,
+    );
 
   await dependencies.audit.record({
     workspaceId: repository.workspaceId,
@@ -150,11 +162,16 @@ export async function setOperatorReviewReasoningEffort(
   const repository = await resolveRepository(input, dependencies.repositories);
   const target = repositoryTarget(repository);
   const previous = await resolveReviewConfiguration(target, dependencies);
-  const updatedConfig = withReasoningEffort(previous.config, input.effort);
-  const currentProvider = previous.config.providers.find(isCodexBackedProvider);
+  if (!previous)
+    throw new ReviewConfigurationOperatorError(
+      ReviewConfigurationOperatorErrorCode.ConfigurationMissing,
+    );
+  const providerIndex = codexBackedProviderIndex(previous.config, input.effort);
+  const repositoryPolicy = existingRepositoryOverrides(previous);
   const alreadyExplicitAndEqual =
     previous.source === "repository" &&
-    currentProvider?.reasoningEffort === input.effort;
+    repositoryPolicy.providers !== undefined &&
+    previous.config.providers[providerIndex]?.reasoningEffort === input.effort;
   const auditEvent = {
     workspaceId: repository.workspaceId,
     actor: principal.operatorId,
@@ -168,7 +185,7 @@ export async function setOperatorReviewReasoningEffort(
       changed: !alreadyExplicitAndEqual,
       previousSource: previous.source,
       previousVersion: previous.version,
-      providers: updatedConfig.providers.length,
+      providers: previous.config.providers.length,
       reviewProvider: "codex-backed",
       reason: normalizeReason(input.reason),
     },
@@ -180,7 +197,15 @@ export async function setOperatorReviewReasoningEffort(
       : await dependencies.mutations.commit({
           target,
           expectedRevisionToken: previous.revisionToken,
-          config: updatedConfig,
+          // The same profiles as before, now explicit with the new effort.
+          policy: {
+            ...repositoryPolicy,
+            providers: withSelectionReasoningEffort(
+              previous.selections,
+              providerIndex,
+              input.effort,
+            ),
+          },
           auditEvent,
         });
   } catch (error) {
@@ -233,6 +258,10 @@ export async function setOperatorReviewInvestigationRollout(
   const repository = await resolveRepository(input, dependencies.repositories);
   const target = repositoryTarget(repository);
   const previous = await resolveReviewConfiguration(target, dependencies);
+  if (!previous)
+    throw new ReviewConfigurationOperatorError(
+      ReviewConfigurationOperatorErrorCode.ConfigurationMissing,
+    );
   const previousRepositoryVersion =
     previous.source === "repository" ? previous.version : null;
   if (previousRepositoryVersion !== input.expectedCurrentVersion) {
@@ -269,8 +298,8 @@ export async function setOperatorReviewInvestigationRollout(
     saved = await dependencies.mutations.commit({
       target,
       expectedRevisionToken: previous.revisionToken,
-      config: {
-        ...previous.config,
+      policy: {
+        ...existingRepositoryOverrides(previous),
         investigationRollout: { ...input.investigationRollout },
       },
       auditEvent,
@@ -414,10 +443,20 @@ function repositoryTarget(repository: ReviewConfigurationOperatorRepository) {
   };
 }
 
-function withReasoningEffort(
+function existingRepositoryOverrides(previous: {
+  readonly source: "workspace" | "repository";
+  readonly policy: ReviewPolicyDocument;
+}): RepositoryReviewPolicy {
+  return previous.source === "repository"
+    ? parseRepositoryReviewPolicy(previous.policy)
+    : { schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION };
+}
+
+/** The runtime-selected Codex-backed provider, if it supports the effort. */
+function codexBackedProviderIndex(
   config: ReviewConfiguration,
   effort: ReviewReasoningEffort,
-): ReviewConfiguration {
+): number {
   const providerIndex = config.providers.findIndex(isCodexBackedProvider);
   if (providerIndex < 0) {
     throw new ReviewConfigurationOperatorError(
@@ -430,16 +469,20 @@ function withReasoningEffort(
       ReviewConfigurationOperatorErrorCode.UnsupportedReasoningEffort,
     );
   }
-  const providers = config.providers.map((provider, index) =>
+  return providerIndex;
+}
+
+/** Selections follow the order of the materialized runtime providers. */
+function withSelectionReasoningEffort(
+  selections: readonly ReviewProviderSelection[],
+  providerIndex: number,
+  effort: ReviewReasoningEffort,
+): ReviewProviderSelection[] {
+  return selections.map((selection, index) =>
     index === providerIndex
-      ? { ...provider, reasoningEffort: effort }
-      : provider,
+      ? { ...selection, reasoningEffort: effort }
+      : selection,
   );
-  return {
-    ...config,
-    providers,
-    provider: providerIndex === 0 ? providers[0]! : config.provider,
-  };
 }
 
 function toOperatorReviewConfiguration(

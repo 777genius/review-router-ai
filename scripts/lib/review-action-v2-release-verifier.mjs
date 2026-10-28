@@ -1,12 +1,20 @@
+import {
+  lifecycleCompanionContractFile,
+  projectLifecycleVerificationReleaseProfile,
+} from "./review-lifecycle-release-profile.ts";
 import { posix as posixPath } from "node:path";
 import {
   HANDOFF_MANIFEST_FILE,
   parseContextGatewayReleaseMetadata,
   parseHandoffManifest,
+  parseProtocolGenerationManifest,
+  PROTOCOL_GENERATION_MANIFEST_FILE,
   PUBLIC_CONTEXT_GATEWAY_BUNDLE,
   PUBLIC_CONTEXT_GATEWAY_RELEASE_METADATA,
   PUBLIC_GENERATED_DIRECTORY,
   PUBLIC_RUNTIME_BUNDLE,
+  PUBLIC_REVIEW_AGENT_PROFILES,
+  readAgentProfileMetadata,
   sha256Digest,
 } from "./review-action-v2-release-manifests.mjs";
 import {
@@ -70,6 +78,35 @@ export function verifyPublicActionReleaseCommit(input) {
       throw new Error(`committed generated file digest mismatch: ${file}`);
     }
   }
+  // This descriptor comes from committed bytes already bound by the handoff.
+  const {
+    prDescriptionProfile,
+    contextToolsProfile,
+    lifecycleVerificationProfile: declaredProfile,
+  } = parseProtocolGenerationManifest(
+    readCommitFile(
+      input.actionRepo,
+      input.actionCommitSha,
+      posixPath.join(targetDirectory, PROTOCOL_GENERATION_MANIFEST_FILE),
+    ).toString("utf8"),
+  );
+  const lifecycleVerificationProfile =
+    projectLifecycleVerificationReleaseProfile({
+      generatedFileDigests: handoff.generatedFileDigests,
+      declaredProfile,
+      ...(Object.hasOwn(
+        handoff.generatedFileDigests,
+        lifecycleCompanionContractFile,
+      )
+        ? {
+            bytes: readCommitFile(
+              input.actionRepo,
+              input.actionCommitSha,
+              posixPath.join(targetDirectory, lifecycleCompanionContractFile),
+            ),
+          }
+        : {}),
+    });
   assertAncestor(
     input.actionRepo,
     handoff.expectedPublicActionBaseCommit,
@@ -114,7 +151,22 @@ export function verifyPublicActionReleaseCommit(input) {
       "context gateway release metadata does not match the committed bundle",
     );
   }
+  const agentProfiles = readAgentProfileMetadata(
+    JSON.parse(
+      readCommitFile(
+        input.actionRepo,
+        input.actionCommitSha,
+        PUBLIC_REVIEW_AGENT_PROFILES,
+      ).toString("utf8"),
+    ),
+  );
   return Object.freeze({
+    ...(lifecycleVerificationProfile === undefined
+      ? {}
+      : { lifecycleVerificationProfile }),
+    ...(contextToolsProfile === undefined ? {} : { contextToolsProfile }),
+    ...(prDescriptionProfile === undefined ? {} : { prDescriptionProfile }),
+    agentProfiles,
     handoff,
     handoffBytes,
     handoffDigest: sha256Digest(handoffBytes),
@@ -132,6 +184,7 @@ export function verifyPublicActionReleaseCommit(input) {
 
 function assertRegularReleaseArtifacts(input) {
   const paths = [
+    { path: PUBLIC_REVIEW_AGENT_PROFILES, allowedModes: new Set(["100644"]) },
     {
       path: input.runtimeEntrypointPath,
       allowedModes: new Set(["100644", "100755"]),

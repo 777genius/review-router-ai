@@ -1,0 +1,149 @@
+{
+  "kind": "private_sdk_normal_pack",
+  "sourceCommit": "28d6da0539fc7b879e3c2b9a955b7ef91ba4ecd1",
+  "sourceTree": "fe29e0e880f46fbbbbf2abfeba5309ac2d0d0b46",
+  "reviewedSourceCommit": "7c278c0087b03b34fca88882deb66bb76c34ac6f",
+  "archive": "/srv/workers/TEST-gateway-retirement-artifact-28d6-20261013/sdk-archive/agent-teams-account-gateway-0.1.0-28d6da0.tgz",
+  "bytes": 17155,
+  "sha256": "d7b290883053d52138ba273c8653dedc202663bb1d0e044b7dfbcaa7d178a866",
+  "integrity": "sha512-ND8uEBMirCXEQr/YYFE1r34D85Rv/QF8mTUTJC3fkcBMdWeJRAhqej/KVnusubwC9/DX4bg6YPJl19fsg6rPEA==",
+  "packageVersion": "0.1.0",
+  "private": true,
+  "published": false,
+  "exitCode": 0,
+  "node": "26.11.1",
+  "pnpm": "11.28.2",
+  "sourceFiles": [
+    {
+      "path": "packages/account-gateway/src/contracts/index.ts",
+      "sha256": "47732bb20471c65f263e64dc84f0bbfd8d17c8a21b19944820391bc5e174f249"
+    },
+    {
+      "path": "packages/account-gateway/src/features/facade-client/contracts/index.ts",
+      "sha256": "2e450c674cdad39157986a82a15e190eaf94bd7016645f64a08b6e9efa9c6839"
+    },
+    {
+      "path": "packages/account-gateway/src/features/facade-client/http/index.ts",
+      "sha256": "059074ae185f54134e7697056f5862b3c4e1b33ae2e8746548558691b6fc6335"
+    },
+    {
+      "path": "packages/account-gateway/src/features/facade-client/http/ingress.ts",
+      "sha256": "b8af9b59805f010c084a175b717ca2ca5c2dc64569ffb1b54196ed326034b757"
+    },
+    {
+      "path": "packages/account-gateway/src/get-modular/index.ts",
+      "sha256": "e6ea38b7b03cab7ef80bfa19e8027c579908eaaf695f3e576e6189c1ee69c614"
+    },
+    {
+      "path": "packages/account-gateway/src/http/index.ts",
+      "sha256": "95be6aed7254655215cea7d186f754be28f22a5b11bd866aded20ec4f8d57838"
+    },
+    {
+      "path": "packages/account-gateway/package.json",
+      "sha256": "6ce2154f64ddac9228576af40e747bad8a96340783fd03fbead53f49d6a7a488"
+    },
+    {
+      "path": "packages/account-gateway/README.md",
+      "sha256": "ebe03161a3ef0060a024bdf6bb578f161691f3a36e3f9890933fbae2777e2875"
+    },
+    {
+      "path": "scripts/build.mjs",
+      "sha256": "ae12115a0b19f9ff327d75cbcdd2d337bea39d8aa58b8e3e50e563c3982d30d8"
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "21975dfe7b0c3ba51990fc3e675e917245b32845dbb9404364555f011bf229d4"
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "sha256": "949be1d3932f3834bdc2cbaee156852d33861b4697e40158a5167d5b5b7bf09b"
+    }
+  ],
+  "archiveFiles": [
+    {
+      "path": "dist/contracts/index.js",
+      "bytes": 520,
+      "sha256": "fd77f1cfb2192d1e09624bcf371ffda0ca55403c3f5e180a531ddbe1c2cc4152"
+    },
+    {
+      "path": "dist/features/facade-client/contracts/index.js",
+      "bytes": 12396,
+      "sha256": "85705c632c5c2ee13a7e7d65169aad4b5990e75bd48ab872a2e4830442e234ae"
+    },
+    {
+      "path": "dist/features/facade-client/http/index.js",
+      "bytes": 16725,
+      "sha256": "4d840e6dc92dce835a66db97615664d393f940a3aab9dbb51287f667b0254e3b"
+    },
+    {
+      "path": "dist/get-modular/index.js",
+      "bytes": 5558,
+      "sha256": "caa8d14e7dd8c0a3caf8867212a4e7217ca1e29a522d7cd13de1ee2638e1cc48"
+    },
+    {
+      "path": "dist/http/index.js",
+      "bytes": 194,
+      "sha256": "6d09a1298e30e372763a97fa6e971a700fb8ff5c4254b51a8e55ad5e444e7e1c"
+    },
+    {
+      "path": "dist/features/facade-client/http/ingress.js",
+      "bytes": 3511,
+      "sha256": "70ebf7675a7d16ea9df80b3129509ad63b57876829a5984fb5bac03d14a29d22"
+    },
+    {
+      "path": "package.json",
+      "bytes": 763,
+      "sha256": "c559a38262321a8eb43e37a163bf72315b483e7b19ff907b7c7884155b61602f"
+    },
+    {
+      "path": "README.md",
+      "bytes": 3078,
+      "sha256": "ebe03161a3ef0060a024bdf6bb578f161691f3a36e3f9890933fbae2777e2875"
+    },
+    {
+      "path": "dist/contracts/index.d.ts",
+      "bytes": 801,
+      "sha256": "6259bcbf0a7bc171a1645f551a2b99bac28066d209be7b6dcc679e01dd255e86"
+    },
+    {
+      "path": "dist/features/facade-client/contracts/index.d.ts",
+      "bytes": 31524,
+      "sha256": "6b8ad42cda1f8e11f91bccd73a56247a621358f6c05bd18478fa0ebe9e428d13"
+    },
+    {
+      "path": "dist/features/facade-client/http/index.d.ts",
+      "bytes": 41269,
+      "sha256": "92aafc9b985bb6c13339608a702ebe0c67ecccac82a681ca878871ca0d5b79ab"
+    },
+    {
+      "path": "dist/get-modular/index.d.ts",
+      "bytes": 30957,
+      "sha256": "2ef278ddc53dc1b439e9eeae130b4b8c8046d60ed5ab16207d871d022d48a680"
+    },
+    {
+      "path": "dist/http/index.d.ts",
+      "bytes": 437,
+      "sha256": "59833955177a33fa8dc762c57528c9e27acf740d3d20f783dd1f8ddaada1cd68"
+    },
+    {
+      "path": "dist/features/facade-client/http/ingress.d.ts",
+      "bytes": 3111,
+      "sha256": "3c82c11f26d1986ba6bbbc300850f75804a53b2dd3d26b343ea2806ade4c7450"
+    }
+  ],
+  "buildReused": true,
+  "newBuilds": 0,
+  "providerCalls": 0,
+  "productionEffects": 0,
+  "package": "@agent-teams/account-gateway",
+  "sourceRepository": "https://github.com/agent-teams-ai/account-gateway",
+  "vendoredArchive": "vendor/account-gateway/agent-teams-account-gateway-0.1.0-28d6da0.tgz",
+  "packReceiptSHA256": "5abea19a6c7f39174449ef82b018df12e98609f497e3046e1ca41cbc17ef8ad2",
+  "qualification": {
+    "joinedReceiptSHA256": "67afbfda0ea10fbe938a2a83bbbdfcbea643bcafa5789a490a2aad6f2226a420",
+    "joinedLogSHA256": "d21fecd326c80af3a83d08bd08b960ff04419608608b68db1ce6614329db9611",
+    "scope": "One controlled actual Go/Node/PostgreSQL held retirement and RR owner/borrower deletion acceptance; no production deletion",
+    "providerCalls": 0,
+    "productionEffects": 0
+  }
+}

@@ -36,6 +36,10 @@ export const runtimeEnvSchema = z.object({
   GITHUB_APP_PRIVATE_KEY_FILE: z.string().optional(),
   GITHUB_WEBHOOK_SECRET: z.string().optional(),
   REVIEW_ROUTER_ACTION_REF: z.string().optional(),
+  REVIEW_ROUTER_AGENT_PROFILE: z
+    .string()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/)
+    .default("codex-default"),
   REVIEW_ROUTER_ALLOWED_ACTION_REFS: z.string().default(""),
   REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: z.string().optional(),
   REVIEW_ROUTER_CODEX_ROTATING_ALLOWED_ACTION_REFS: z.string().default(""),
@@ -584,19 +588,6 @@ export function isCodexRotatingOAuthAllowedForRepository(
     "REVIEW_ROUTER_CODEX_ROTATING_OAUTH_REPOSITORIES",
   );
   return allowlist.includes(normalizedRepository);
-}
-
-export function isCodexRotatingOAuthAllowedForWorkspaceDefault(
-  input: NodeJS.ProcessEnv = process.env,
-): boolean {
-  if (!isCodexRotatingOAuthEnabled(input)) {
-    return false;
-  }
-  return (
-    parseCodexRotatingOAuthRepositoryAllowlist(
-      input.REVIEW_ROUTER_CODEX_ROTATING_OAUTH_REPOSITORIES,
-    ).length === 0
-  );
 }
 
 export function parseCodexRotatingOAuthRepositoryAllowlist(

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AuthenticatedEfExecution } from "@reviewrouter/features-sdk-growth-authority";
 import { PrismaSdkGrowthVerifierAssignmentStore } from "./sdk-growth-verifier-producer-identity.js";
+import { PrismaSdkGrowthV3ToolArtifactStore } from "./sdk-growth-v3-tool-artifact.js";
 
 const url = process.env.SDK_GROWTH_TEST_DATABASE_URL;
 const suffix = randomUUID().replaceAll("-", "");
@@ -108,9 +109,13 @@ describe.skipIf(!url)("verifier assignment / disposable PostgreSQL", () => {
     await owner.query(
       `CREATE TABLE "${schema}"."SdkGrowthOwnerVersion" ("scopeKey" text NOT NULL, "epoch" bigint NOT NULL, "evidence" jsonb NOT NULL, "provenance" jsonb NOT NULL, "installationActive" boolean NOT NULL, "verifierActive" boolean NOT NULL)`,
     );
+    await owner.query(
+      `CREATE FUNCTION "${schema}".sdk_growth_snapshot_immutable() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'immutable'; END; $$`,
+    );
     for (const name of [
       "000108_sdk_growth_verifier_assignment",
       "000109_sdk_growth_verifier_assignment_lock",
+      "000114_sdk_growth_v3_tool_artifact",
     ]) {
       const migration = readFileSync(
         new URL(
@@ -222,5 +227,56 @@ describe.skipIf(!url)("verifier assignment / disposable PostgreSQL", () => {
       [a.jobKey],
     );
     expect(active.rows).toHaveLength(1);
+  });
+
+  // Regression: a producer must not replace its selected EF archive or attach
+  // an arbitrary archive ID after the scheduler created its assignment.
+  it("retains exact fixture archive bytes and makes the assignment pin immutable", async () => {
+    const artifacts = new PrismaSdkGrowthV3ToolArtifactStore(adapter(owner));
+    const archive = Uint8Array.from([31, 139, 8, 0, 1, 2, 3]);
+    const input = {
+      archive,
+      packageVersion: "1.6.1",
+      sourceCommit: "a".repeat(40),
+      sourceTree: "b".repeat(40),
+      installedDistributionDigest: `sha256:${"c".repeat(64)}`,
+    };
+    const artifact = await artifacts.retain(input);
+    expect((await artifacts.retain(input)).artifactId).toBe(
+      artifact.artifactId,
+    );
+    expect((await artifacts.load(artifact.artifactId))?.archive).toEqual(
+      archive,
+    );
+    const assignments = new PrismaSdkGrowthVerifierAssignmentStore(
+      adapter(owner),
+    );
+    const row = await assignments.createPinned(
+      { ...execution, pullRequest: 19 },
+      new Date(Date.now() + 15 * 60_000),
+      artifact.artifactId,
+    );
+    expect((await assignments.load(row.assignmentId))?.efToolArtifactId).toBe(
+      artifact.artifactId,
+    );
+    await expect(
+      owner.query(
+        `UPDATE "SdkGrowthVerifierAssignment" SET "efToolArtifactId" = NULL WHERE "assignmentId" = $1`,
+        [row.assignmentId],
+      ),
+    ).rejects.toThrow(/immutable/);
+    await expect(
+      owner.query(
+        `UPDATE "SdkGrowthV3ToolArtifact" SET "archive" = $1 WHERE "artifactId" = $2`,
+        [Buffer.from([9]), artifact.artifactId],
+      ),
+    ).rejects.toThrow(/immutable/);
+    await expect(
+      assignments.createPinned(
+        { ...execution, pullRequest: 20 },
+        new Date(Date.now() + 15 * 60_000),
+        "d".repeat(64),
+      ),
+    ).rejects.toThrow(/foreign key/);
   });
 });

@@ -1,37 +1,47 @@
 import {
-  parseReviewConfigurationStrict,
-  type ReviewConfiguration,
-} from "../../domain/review-configuration";
+  parseReviewPolicyDocument,
+  type ReviewPolicyDocument,
+} from "../../domain/review-policy-document";
 import type { ReviewConfigurationTarget } from "../../domain/review-configuration-target";
 import type {
   PersistedReviewConfiguration,
-  ReviewConfigurationBatchReaderPort,
+  ProviderProfileDraft,
+  ProviderSelectionAuthority,
   ReviewConfigurationRepositoryPort,
 } from "../ports/review-configuration-repository-port";
 
-export type RepositoryReviewConfigurationResult = Readonly<{
-  repositoryId: string;
-  config: PersistedReviewConfiguration | null;
-}>;
-
+/**
+ * Saves one stored document. Signed-in writers pass their selection
+ * authority, which decides any change of the stored provider selection;
+ * system and operator writers omit it.
+ */
 export async function saveReviewConfiguration(
   input: {
     readonly target: ReviewConfigurationTarget;
-    readonly config: ReviewConfiguration;
+    readonly policy: ReviewPolicyDocument;
     readonly expectedVersion?: number | null;
+    readonly expectedEffectivePolicyDigest?: string;
+    readonly selectionAuthority?: ProviderSelectionAuthority;
+    /** Providers created with the selection that names them. */
+    readonly profileDrafts?: readonly ProviderProfileDraft[];
   },
   dependencies: {
     readonly configurations: ReviewConfigurationRepositoryPort;
   },
 ): Promise<PersistedReviewConfiguration> {
-  const config = parseReviewConfigurationStrict(input.config);
-
   return dependencies.configurations.saveNextVersion({
     target: input.target,
-    config,
+    policy: parseReviewPolicyDocument(input.target.scope, input.policy),
     ...(input.expectedVersion !== undefined
       ? { expectedVersion: input.expectedVersion }
       : {}),
+    ...(input.expectedEffectivePolicyDigest !== undefined
+      ? { expectedEffectivePolicyDigest: input.expectedEffectivePolicyDigest }
+      : {}),
+    ...(input.selectionAuthority
+      ? { selectionAuthority: input.selectionAuthority }
+      : {}),
+    ...(input.profileDrafts ? { profileDrafts: input.profileDrafts } : {}),
   });
 }
 
@@ -44,48 +54,24 @@ export async function findReviewConfiguration(
   return dependencies.configurations.findLatest(target);
 }
 
-/**
- * Returns one entry for every requested repository ID, preserving input order
- * and duplicates. Repositories without an override receive null, matching the
- * single-target findReviewConfiguration semantics.
- */
-export async function findRepositoryReviewConfigurations(
-  input: {
-    readonly workspaceId: string;
-    readonly repositoryIds: readonly string[];
-  },
-  dependencies: {
-    readonly configurations: ReviewConfigurationBatchReaderPort;
-  },
-): Promise<readonly RepositoryReviewConfigurationResult[]> {
-  if (input.repositoryIds.length === 0) {
-    return [];
-  }
-
-  const uniqueRepositoryIds = [...new Set(input.repositoryIds)];
-  const persisted = await dependencies.configurations.findLatestForRepositories(
-    {
-      workspaceId: input.workspaceId,
-      repositoryIds: uniqueRepositoryIds,
-    },
-  );
-  const configByRepositoryId = new Map(
-    persisted.map(
-      ({ repositoryId, config }) => [repositoryId, config] as const,
-    ),
-  );
-
-  return input.repositoryIds.map((repositoryId) => ({
-    repositoryId,
-    config: configByRepositoryId.get(repositoryId) ?? null,
-  }));
-}
-
 export async function clearReviewConfiguration(
-  target: ReviewConfigurationTarget,
+  target: ReviewConfigurationTarget & {
+    readonly expectedVersion?: number | null;
+    readonly selectionAuthority?: ProviderSelectionAuthority;
+  },
   dependencies: {
     readonly configurations: ReviewConfigurationRepositoryPort;
   },
 ): Promise<boolean> {
-  return dependencies.configurations.deleteTarget(target);
+  return dependencies.configurations.deleteTarget(
+    target.scope === "repository"
+      ? {
+          scope: "repository",
+          workspaceId: target.workspaceId,
+          repositoryId: target.repositoryId,
+        }
+      : { scope: "workspace", workspaceId: target.workspaceId },
+    target.expectedVersion,
+    target.selectionAuthority,
+  );
 }

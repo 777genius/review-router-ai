@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   ImmutableRegistryWriteStatus,
@@ -28,11 +29,58 @@ import {
 import {
   canonicalReviewProtocolLimits,
   createProducerRelease,
+  producerReleaseImmutableKey,
+  parseProducerPrDescriptionProfile,
+  parseProducerLifecycleVerificationProfile,
+  cloneProducerRelease,
   reviewInvestigationCapabilityV1,
   type ProducerReviewInvestigationProfile,
 } from "../domain/producer-release";
 
 describe("immutable release registries", () => {
+  it("keeps historical immutable keys stable and binds exact PR description approval", () => {
+    const legacy = createProducerRelease(releaseCandidate, new Date(0));
+    expect(Object.hasOwn(legacy, "prDescriptionProfile")).toBe(false);
+    expect(
+      createHash("sha256")
+        .update(producerReleaseImmutableKey(legacy))
+        .digest("hex"),
+    ).toBe("edf66a624bdb6baff0625f58a47f44b337cbc43c6454917f9d0cbd2607008f08");
+    expect(
+      producerReleaseImmutableKey({ ...legacy, prDescriptionProfile: null }),
+    ).toBe(producerReleaseImmutableKey(legacy));
+    const profile = {
+      extensionId: "pr-description.v1" as const,
+      canonicalizerDigest: hashA,
+    };
+    const approved = createProducerRelease(
+      { ...releaseCandidate, prDescriptionProfile: profile },
+      new Date(0),
+    );
+    profile.canonicalizerDigest = hashB;
+    expect(approved.prDescriptionProfile?.canonicalizerDigest).toBe(hashA);
+    expect(producerReleaseImmutableKey(approved)).not.toBe(
+      producerReleaseImmutableKey(legacy),
+    );
+    expect(producerReleaseImmutableKey(approved)).not.toBe(
+      producerReleaseImmutableKey({
+        ...approved,
+        prDescriptionProfile: profile,
+      }),
+    );
+    for (const malformed of [
+      { extensionId: "pr-description.v2", canonicalizerDigest: hashA },
+      { extensionId: "pr-description.v1", canonicalizerDigest: "invalid" },
+      {
+        extensionId: "pr-description.v1",
+        canonicalizerDigest: hashA,
+        enabled: true,
+      },
+    ]) {
+      expect(() => parseProducerPrDescriptionProfile(malformed)).toThrow();
+    }
+  });
+
   it("rejects caller-supplied profile digests that do not match canonical bytes", async () => {
     const kit = createReviewRunControlTestKit();
     await expect(
@@ -373,5 +421,59 @@ describe("ScmRepositoryIdentity", () => {
         expectedVersion: "identity" in bound ? bound.identity.version : 0,
       });
     expect(unbound.status).toBe(ScmRepositoryIdentityBindingStatus.Unbound);
+  });
+});
+
+describe("immutable lifecycle verifier producer approval", () => {
+  it("keeps absence byte compatible and detaches a recognized profile", () => {
+    const legacy = createProducerRelease(releaseCandidate, new Date(0));
+    const profile = {
+      extensionId: "lifecycle-verification.v1" as const,
+      descriptorDigest: `sha256:${"a".repeat(64)}`,
+    };
+    const release = createProducerRelease(
+      { ...releaseCandidate, lifecycleVerificationProfile: profile },
+      new Date(0),
+    );
+    const approvedKey = producerReleaseImmutableKey(release);
+    profile.descriptorDigest = `sha256:${"b".repeat(64)}`;
+    expect(release.lifecycleVerificationProfile?.descriptorDigest).toBe(
+      `sha256:${"a".repeat(64)}`,
+    );
+    expect(cloneProducerRelease(release).lifecycleVerificationProfile).toEqual(
+      release.lifecycleVerificationProfile,
+    );
+    expect(
+      producerReleaseImmutableKey({
+        ...legacy,
+        lifecycleVerificationProfile: null,
+      }),
+    ).toBe(producerReleaseImmutableKey(legacy));
+    expect(approvedKey).not.toBe(producerReleaseImmutableKey(legacy));
+    expect(approvedKey).not.toBe(
+      producerReleaseImmutableKey({
+        ...release,
+        lifecycleVerificationProfile: profile,
+      }),
+    );
+    expect(Object.hasOwn(legacy, "lifecycleVerificationProfile")).toBe(false);
+  });
+  it("rejects a malformed extension identity and unapproved profile fields", () => {
+    for (const value of [
+      null,
+      {},
+      {
+        extensionId: "lifecycle-verification.v2",
+        descriptorDigest: `sha256:${"a".repeat(64)}`,
+      },
+      { extensionId: "lifecycle-verification.v1", descriptorDigest: "bad" },
+      {
+        extensionId: "lifecycle-verification.v1",
+        descriptorDigest: `sha256:${"a".repeat(64)}`,
+        model: "caller-model",
+      },
+    ]) {
+      expect(() => parseProducerLifecycleVerificationProfile(value)).toThrow();
+    }
   });
 });

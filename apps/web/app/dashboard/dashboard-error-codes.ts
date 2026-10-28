@@ -1,9 +1,13 @@
+import { hasDedicatedDashboardErrorCopy } from "./dashboard-copy";
+
 export function safeDashboardErrorCode(error: unknown): string {
   const message = error instanceof Error ? error.message : "unknown_error";
   const summarizedGitHubApiError = githubDashboardErrorCodeFromMessage(message);
   if (summarizedGitHubApiError) {
     return summarizedGitHubApiError;
   }
+  if (message.startsWith("workflow_delete_untrusted:"))
+    return "workflow_delete_untrusted";
   if (message.startsWith("workspace_mutation_forbidden:")) {
     return "workspace_mutation_forbidden";
   }
@@ -12,6 +16,12 @@ export function safeDashboardErrorCode(error: unknown): string {
   }
   if (message.startsWith("rate_limit_exceeded:")) {
     return "rate_limited";
+  }
+  if (message.startsWith("provider_management_forbidden:")) {
+    return "provider_management_forbidden";
+  }
+  if (message === "review_configuration_write_conflict") {
+    return "dashboard_action_stale";
   }
   if (message.startsWith("github_user_token_request_failed:401")) {
     return "repository_access_token_revoked";
@@ -32,6 +42,9 @@ export function safeDashboardErrorCode(error: unknown): string {
   }
   if (
     [
+      "review_policy_resave_required",
+      "review_provider_selection_required",
+      "workflow_delete_untrusted",
       "repository_access_token_missing",
       "repository_access_token_revoked",
       "repository_access_token_expired",
@@ -59,6 +72,7 @@ export function safeDashboardErrorCode(error: unknown): string {
       "setup_pr_closed",
       "setup_pr_branch_deleted",
       "setup_pr_wrong_base_branch",
+      "setup_pr_workflow_mismatch",
       "repository_not_visible_to_github_app",
       "provider_secret_not_found",
       "provider_secret_not_available_to_repository",
@@ -94,6 +108,12 @@ export function safeDashboardErrorCode(error: unknown): string {
       "codex_rotating_workflow_reattestation_stale",
       "codex_rotating_workflow_reattestation_invalid",
       "codex_rotating_workflow_reattestation_forbidden",
+      "account_gateway_workflow_options_not_supported",
+      "gateway_review_model_unsupported",
+      "gateway_review_reasoning_effort_unsupported",
+      "agent_profile_requires_agentic_context",
+      "gateway_review_catalog_unavailable",
+      "gateway_review_config_denied",
       "duplicate_review_provider",
       "codex_rotating_provider_instance_required",
       "codex_legacy_auth_requires_reconnect",
@@ -118,6 +138,7 @@ export function safeDashboardErrorCode(error: unknown): string {
       "contains_prompt_injection",
       "contains_secret_like_text",
       "memory_active_item_quota_exceeded",
+      "memory_dashboard_in_development",
       "memory_not_found",
       "memory_pending_suggestion_quota_exceeded",
       "memory_safety_blocked",
@@ -155,7 +176,40 @@ export function safeDashboardErrorCode(error: unknown): string {
   if (githubStatus > 0) {
     return githubDashboardErrorCodeForStatus(githubStatus);
   }
+  if (
+    isSafeDashboardErrorCodeShape(message) &&
+    hasDedicatedDashboardErrorCopy(message)
+  ) {
+    return message;
+  }
   return "github_operation_failed";
+}
+
+// Machine-generated codes only: free-form text, paths and tokens must never
+// reach the browser as a "safe" code.
+function isSafeDashboardErrorCodeShape(code: string): boolean {
+  return /^[a-z][a-z0-9_]{3,63}$/.test(code);
+}
+
+const UNTRUSTED_WORKFLOW_DELETE_PREFIX = "workflow_delete_untrusted:";
+const reviewRouterWorkflowPath =
+  /^\.github\/workflows\/[A-Za-z0-9][A-Za-z0-9._-]{0,78}\.ya?ml$/u;
+
+/**
+ * The recovery advice for `workflow_delete_untrusted` is to remove the file by
+ * hand, which is only actionable when it names the file. The path after the code
+ * is chosen by the provisioning gateway from its own expected file list, so it is
+ * echoed only when it still looks like one plain workflow path.
+ */
+export function dashboardUntrustedWorkflowPathFromError(
+  error: unknown,
+): string | null {
+  const message = error instanceof Error ? error.message : "";
+  if (!message.startsWith(UNTRUSTED_WORKFLOW_DELETE_PREFIX)) {
+    return null;
+  }
+  const path = message.slice(UNTRUSTED_WORKFLOW_DELETE_PREFIX.length);
+  return reviewRouterWorkflowPath.test(path) ? path : null;
 }
 
 function githubDashboardErrorCodeFromMessage(message: string): string | null {

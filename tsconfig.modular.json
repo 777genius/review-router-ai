@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "skipLibCheck": false
+  },
+  "include": [
+    "packages/features/review-providers/src/composition/**/*.ts",
+    "packages/features/provider-usage/src/composition/**/*.ts",
+    "packages/features/provider-accounts/src/account-limits/composition*.ts",
+    "packages/features/memory/src/composition/**/*.ts",
+    "packages/features/review-statistics/src/**/*.ts",
+    "apps/worker/src/review-statistics*.ts",
+    "apps/worker/src/worker.ts",
+    "apps/worker/src/review-v2-production-runtime.ts"
+  ],
+  "exclude": ["node_modules", "dist", "**/.next"]
+}

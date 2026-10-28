@@ -1,3 +1,15 @@
+import { InMemoryReviewConfigurationRepository as InMemoryConfigurations } from "./in-memory-review-configuration";
+import {
+  providerProfileFixture,
+  workspacePolicyDocumentFixture,
+  workspacePolicyFixture,
+  workspaceProviderFixture,
+} from "./current-policy-fixture";
+import {
+  parseReviewConfigurationStrict,
+  type ReviewProviderConfiguration,
+} from "../domain/review-configuration";
+import type { ProviderCredentialSource } from "../domain/workspace-provider-profile";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
@@ -7,15 +19,10 @@ import {
   ReviewConfigurationOperatorErrorCode,
   ReviewConfigurationOperatorOperation,
   ReviewReasoningEffort,
-  reviewConfigurationTargetKey,
-  safeDefaultReviewConfiguration,
   setOperatorReviewReasoningEffort,
   type OperatorReviewConfigurationDependencies,
-  type PersistedReviewConfiguration,
   type ReviewConfigurationOperatorAuditEvent,
   type ReviewConfigurationOperatorRepository,
-  type ReviewConfigurationBatchReaderPort,
-  type ReviewConfigurationRepositoryPort,
   ReviewConfigurationWriteConflictError,
   resolveReviewConfiguration,
 } from "../index";
@@ -29,72 +36,20 @@ const repository = {
   sourceBaseUrl: "https://github.com",
   fullName: "777genius/example",
 } satisfies ReviewConfigurationOperatorRepository;
-
-class InMemoryConfigurations
-  implements
-    ReviewConfigurationRepositoryPort,
-    ReviewConfigurationBatchReaderPort
-{
-  readonly versions = new Map<string, PersistedReviewConfiguration[]>();
-  saveCount = 0;
-  conflictNextSave = false;
-
-  async findLatest(
-    target: Parameters<ReviewConfigurationRepositoryPort["findLatest"]>[0],
-  ) {
-    return (
-      this.versions.get(reviewConfigurationTargetKey(target))?.at(-1) ?? null
-    );
-  }
-
-  async findLatestForRepositories(input: {
-    readonly workspaceId: string;
-    readonly repositoryIds: readonly string[];
-  }) {
-    return [...new Set(input.repositoryIds)].flatMap((repositoryId) => {
-      const config = this.versions
-        .get(
-          reviewConfigurationTargetKey({
-            scope: "repository",
-            workspaceId: input.workspaceId,
-            repositoryId,
-          }),
-        )
-        ?.at(-1);
-      return config ? [{ repositoryId, config }] : [];
-    });
-  }
-
-  async saveNextVersion(
-    input: Parameters<ReviewConfigurationRepositoryPort["saveNextVersion"]>[0],
-  ) {
-    if (this.conflictNextSave) {
-      this.conflictNextSave = false;
-      throw new ReviewConfigurationWriteConflictError();
-    }
-    const key = reviewConfigurationTargetKey(input.target);
-    const records = this.versions.get(key) ?? [];
-    if (
-      input.expectedVersion !== undefined &&
-      (records.at(-1)?.version ?? null) !== input.expectedVersion
-    ) {
-      throw new ReviewConfigurationWriteConflictError();
-    }
-    const persisted = {
-      version: (records.at(-1)?.version ?? 0) + 1,
-      config: input.config,
-    } satisfies PersistedReviewConfiguration;
-    this.versions.set(key, [...records, persisted]);
-    this.saveCount += 1;
-    return persisted;
-  }
-
-  async deleteTarget(
-    target: Parameters<ReviewConfigurationRepositoryPort["deleteTarget"]>[0],
-  ) {
-    return this.versions.delete(reviewConfigurationTargetKey(target));
-  }
-}
+const workspaceTarget = {
+  scope: "workspace" as const,
+  workspaceId: repository.workspaceId,
+};
+const repositoryTarget = {
+  scope: "repository" as const,
+  workspaceId: repository.workspaceId,
+  repositoryId: repository.id,
+};
+// A hosted pool Codex provider can be the workspace default.
+const codexProvider = {
+  ...workspaceProviderFixture,
+  authMode: "codex_subscription_oauth_hosted_pool",
+} as const;
 
 class CapturingAuditLog {
   readonly events: ReviewConfigurationOperatorAuditEvent[] = [];
@@ -104,10 +59,72 @@ class CapturingAuditLog {
   }
 }
 
-function createDependencies(
+function credentialFor(
+  provider: ReviewProviderConfiguration,
+): ProviderCredentialSource {
+  switch (provider.authMode) {
+    case "codex_subscription_oauth_hosted_pool":
+      return { kind: "hosted_pool", authMode: provider.authMode };
+    case "openrouter_api_key":
+      return {
+        kind: "managed_api_key",
+        authMode: provider.authMode,
+        apiKeyConnectionId: "key_openrouter",
+      };
+    case "claude_code_oauth":
+    case "mimo_token_plan_api_key":
+      return { kind: "user_ci_secret", authMode: provider.authMode };
+    default:
+      throw new Error(`unsupported_fixture:${provider.authMode}`);
+  }
+}
+
+/** Stores the configuration as the workspace default over its own profiles. */
+async function seedWorkspace(
+  configurations: InMemoryConfigurations,
+  config: ReturnType<typeof parseReviewConfigurationStrict>,
+) {
+  const profileIds = config.providers.map((provider, index) => {
+    const profile = providerProfileFixture({
+      id: `profile_${configurations.profiles.size}_${index}`,
+      workspaceId: repository.workspaceId,
+      credential: credentialFor(provider),
+      model: provider.model,
+    });
+    configurations.addProfile(profile);
+    return profile.id;
+  });
+  return configurations.saveNextVersion({
+    target: workspaceTarget,
+    policy: workspacePolicyDocumentFixture(config, profileIds),
+  });
+}
+
+function workspaceConfig(
+  providers: readonly ReviewProviderConfiguration[],
+): ReturnType<typeof parseReviewConfigurationStrict> {
+  return parseReviewConfigurationStrict({
+    ...workspacePolicyFixture,
+    providers,
+    execution: {
+      providerLimit: providers.length,
+      providerMaxParallel: 1,
+      inlineMinAgreement: 1,
+    },
+  });
+}
+
+async function createDependencies(
   candidates: readonly ReviewConfigurationOperatorRepository[] = [repository],
 ) {
   const configurations = new InMemoryConfigurations();
+  await seedWorkspace(
+    configurations,
+    workspaceConfig([
+      { ...codexProvider, model: "gpt-5.6-sol", reasoningEffort: "xhigh" },
+    ]),
+  );
+  configurations.saveCount = 0;
   const auditLog = new CapturingAuditLog();
   const mutations = {
     async commit(
@@ -118,14 +135,13 @@ function createDependencies(
       const current = await resolveReviewConfiguration(input.target, {
         configurations,
       });
-      if (current.revisionToken !== input.expectedRevisionToken) {
+      if (!current || current.revisionToken !== input.expectedRevisionToken) {
         throw new ReviewConfigurationWriteConflictError();
       }
       const saved = await configurations.saveNextVersion({
         target: input.target,
-        config: input.config,
-        expectedVersion:
-          current.source === "repository" ? current.version : null,
+        policy: input.policy,
+        expectedVersion: current.repositoryVersion,
       });
       await auditLog.record({
         ...input.auditEvent,
@@ -156,9 +172,34 @@ function createDependencies(
   return { dependencies, configurations, auditLog };
 }
 
+async function repositoryConfig(configurations: InMemoryConfigurations) {
+  return (await configurations.findLatest(repositoryTarget))?.config;
+}
+
 describe("operator review configuration", () => {
+  it("refuses an operator update without a saved workspace policy", async () => {
+    const { dependencies, configurations, auditLog } =
+      await createDependencies();
+    configurations.heads.clear();
+    await expect(
+      setOperatorReviewReasoningEffort(
+        {
+          credential,
+          repositoryFullName: repository.fullName,
+          provider: "github",
+          effort: ReviewReasoningEffort.High,
+        },
+        dependencies,
+      ),
+    ).rejects.toMatchObject({
+      code: ReviewConfigurationOperatorErrorCode.ConfigurationMissing,
+    });
+    expect(configurations.saveCount).toBe(0);
+    expect(auditLog.events).toEqual([]);
+  });
+
   it("rejects invalid credentials without repository lookup or audit output", async () => {
-    const { dependencies, auditLog } = createDependencies();
+    const { dependencies, auditLog } = await createDependencies();
     let repositoryLookups = 0;
     let rateLimitCalls = 0;
     const guardedDependencies = {
@@ -195,7 +236,7 @@ describe("operator review configuration", () => {
   });
 
   it("reports missing and ambiguous repositories explicitly", async () => {
-    const missing = createDependencies([]);
+    const missing = await createDependencies([]);
     await expect(
       getOperatorReviewConfiguration(
         {
@@ -211,7 +252,7 @@ describe("operator review configuration", () => {
       ),
     );
 
-    const ambiguous = createDependencies([
+    const ambiguous = await createDependencies([
       repository,
       { ...repository, id: "repo_2", workspaceId: "workspace_2" },
     ]);
@@ -230,7 +271,8 @@ describe("operator review configuration", () => {
   });
 
   it("creates a repository override even when the inherited effort is equal", async () => {
-    const { dependencies, configurations, auditLog } = createDependencies();
+    const { dependencies, configurations, auditLog } =
+      await createDependencies();
 
     const result = await setOperatorReviewReasoningEffort(
       {
@@ -244,7 +286,7 @@ describe("operator review configuration", () => {
 
     expect(result).toMatchObject({
       changed: true,
-      previousSource: "default",
+      previousSource: "workspace",
       source: "repository",
       reasoningEffort: ReviewReasoningEffort.XHigh,
     });
@@ -255,7 +297,7 @@ describe("operator review configuration", () => {
       action: "review_config.operator_reasoning_effort_set",
       metadata: {
         changed: true,
-        previousSource: "default",
+        previousSource: "workspace",
         effort: "xhigh",
       },
     });
@@ -265,22 +307,11 @@ describe("operator review configuration", () => {
   it.each([ReviewReasoningEffort.Max, ReviewReasoningEffort.Ultra])(
     "rejects %s for an inherited Codex model that does not support it",
     async (effort) => {
-      const { dependencies, configurations } = createDependencies();
-      const provider = {
-        ...safeDefaultReviewConfiguration.provider,
-        model: "gpt-5.5",
-      };
-      await configurations.saveNextVersion({
-        target: {
-          scope: "workspace",
-          workspaceId: repository.workspaceId,
-        },
-        config: {
-          ...safeDefaultReviewConfiguration,
-          provider,
-          providers: [provider],
-        },
-      });
+      const { dependencies, configurations } = await createDependencies();
+      await seedWorkspace(
+        configurations,
+        workspaceConfig([{ ...codexProvider, model: "gpt-5.5" }]),
+      );
 
       await expect(
         setOperatorReviewReasoningEffort(
@@ -300,30 +331,19 @@ describe("operator review configuration", () => {
   );
 
   it("updates only the runtime-selected Codex-backed provider and is idempotent", async () => {
-    const { dependencies, configurations, auditLog } = createDependencies();
-    const workspaceTarget = {
-      scope: "workspace" as const,
-      workspaceId: repository.workspaceId,
-    };
+    const { dependencies, configurations, auditLog } =
+      await createDependencies();
     const secondProvider = {
-      ...safeDefaultReviewConfiguration.provider,
+      ...workspaceProviderFixture,
       kind: "openrouter" as const,
       authMode: "openrouter_api_key" as const,
       model: "openai/gpt-5.5",
       requiredHealthy: false,
     };
-    await configurations.saveNextVersion({
-      target: workspaceTarget,
-      config: {
-        ...safeDefaultReviewConfiguration,
-        providers: [safeDefaultReviewConfiguration.provider, secondProvider],
-        execution: {
-          providerLimit: 2,
-          providerMaxParallel: 1,
-          inlineMinAgreement: 1,
-        },
-      },
-    });
+    await seedWorkspace(
+      configurations,
+      workspaceConfig([codexProvider, secondProvider]),
+    );
     configurations.saveCount = 0;
 
     const first = await setOperatorReviewReasoningEffort(
@@ -357,51 +377,30 @@ describe("operator review configuration", () => {
       providers: 2,
     });
     expect(configurations.saveCount).toBe(1);
-    const savedConfig = configurations.versions
-      .get(
-        reviewConfigurationTargetKey({
-          scope: "repository",
-          workspaceId: repository.workspaceId,
-          repositoryId: repository.id,
-        }),
-      )
-      ?.at(-1)?.config;
+    const savedConfig = await repositoryConfig(configurations);
     expect(savedConfig?.providers[0]?.reasoningEffort).toBe("high");
-    expect(savedConfig?.providers[1]?.reasoningEffort).toBe("xhigh");
-    expect(savedConfig?.provider).toEqual(savedConfig?.providers[0]);
+    expect(savedConfig?.providers[1]?.reasoningEffort).toBe("high");
+    expect(savedConfig?.providers).toHaveLength(2);
     expect(auditLog.events).toHaveLength(2);
     expect(auditLog.events[1]?.metadata).toMatchObject({ changed: false });
   });
 
   it("preserves a non-Codex primary provider", async () => {
-    const { dependencies, configurations } = createDependencies();
+    const { dependencies, configurations } = await createDependencies();
     const claudeProvider = {
-      ...safeDefaultReviewConfiguration.provider,
+      ...workspaceProviderFixture,
       kind: "claude" as const,
       authMode: "claude_code_oauth" as const,
       model: "sonnet",
       reasoningEffort: "medium" as const,
     };
-    const codexProvider = {
-      ...safeDefaultReviewConfiguration.provider,
-      requiredHealthy: false,
-    };
-    await configurations.saveNextVersion({
-      target: {
-        scope: "workspace",
-        workspaceId: repository.workspaceId,
-      },
-      config: {
-        ...safeDefaultReviewConfiguration,
-        provider: claudeProvider,
-        providers: [claudeProvider, codexProvider],
-        execution: {
-          providerLimit: 2,
-          providerMaxParallel: 1,
-          inlineMinAgreement: 1,
-        },
-      },
-    });
+    await seedWorkspace(
+      configurations,
+      workspaceConfig([
+        claudeProvider,
+        { ...codexProvider, requiredHealthy: false },
+      ]),
+    );
 
     await setOperatorReviewReasoningEffort(
       {
@@ -413,22 +412,13 @@ describe("operator review configuration", () => {
       dependencies,
     );
 
-    const savedConfig = configurations.versions
-      .get(
-        reviewConfigurationTargetKey({
-          scope: "repository",
-          workspaceId: repository.workspaceId,
-          repositoryId: repository.id,
-        }),
-      )
-      ?.at(-1)?.config;
-    expect(savedConfig?.provider).toEqual(claudeProvider);
+    const savedConfig = await repositoryConfig(configurations);
     expect(savedConfig?.providers[0]).toEqual(claudeProvider);
     expect(savedConfig?.providers[1]?.reasoningEffort).toBe("high");
   });
 
   it("returns the effective source and records a sanitized read audit", async () => {
-    const { dependencies, auditLog } = createDependencies();
+    const { dependencies, auditLog } = await createDependencies();
 
     const result = await getOperatorReviewConfiguration(
       {
@@ -442,7 +432,7 @@ describe("operator review configuration", () => {
     expect(result).toMatchObject({
       repository: repository.fullName,
       workspaceSlug: repository.workspaceSlug,
-      source: "default",
+      source: "workspace",
       version: 1,
       reasoningEffort: ReviewReasoningEffort.XHigh,
     });
@@ -454,7 +444,7 @@ describe("operator review configuration", () => {
   });
 
   it("fails before repository lookup when the operator rate limit is exhausted", async () => {
-    const { dependencies } = createDependencies();
+    const { dependencies } = await createDependencies();
     let repositoryLookups = 0;
 
     await expect(
@@ -486,7 +476,7 @@ describe("operator review configuration", () => {
   });
 
   it("rejects an invalid repository before consuming rate-limit capacity", async () => {
-    const { dependencies } = createDependencies();
+    const { dependencies } = await createDependencies();
     let rateLimitCalls = 0;
 
     await expect(
@@ -513,7 +503,8 @@ describe("operator review configuration", () => {
   });
 
   it("maps an optimistic write conflict to a stable operator error", async () => {
-    const { dependencies, configurations, auditLog } = createDependencies();
+    const { dependencies, configurations, auditLog } =
+      await createDependencies();
     configurations.conflictNextSave = true;
 
     await expect(
@@ -533,24 +524,14 @@ describe("operator review configuration", () => {
   });
 
   it("rejects effort updates when no Codex-backed provider exists", async () => {
-    const { dependencies, configurations } = createDependencies();
+    const { dependencies, configurations } = await createDependencies();
     const claudeProvider = {
-      ...safeDefaultReviewConfiguration.provider,
+      ...workspaceProviderFixture,
       kind: "claude" as const,
       authMode: "claude_code_oauth" as const,
       model: "sonnet",
     };
-    await configurations.saveNextVersion({
-      target: {
-        scope: "workspace",
-        workspaceId: repository.workspaceId,
-      },
-      config: {
-        ...safeDefaultReviewConfiguration,
-        provider: claudeProvider,
-        providers: [claudeProvider],
-      },
-    });
+    await seedWorkspace(configurations, workspaceConfig([claudeProvider]));
 
     await expect(
       setOperatorReviewReasoningEffort(

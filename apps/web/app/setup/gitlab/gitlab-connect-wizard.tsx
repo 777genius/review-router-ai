@@ -1,7 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Badge, Button, CodeBlock, LinkButton } from "@reviewrouter/ui";
+import {
+  Badge,
+  Button,
+  Checkbox,
+  CodeBlock,
+  LinkButton,
+} from "@reviewrouter/ui";
 
 type GitLabProject = {
   readonly projectId: string;
@@ -218,11 +224,10 @@ export function GitLabConnectWizard({
                 key={project.projectId}
                 className="grid cursor-pointer gap-3 rounded-xl border border-cyan-200/10 bg-cyan-300/[0.035] p-3 transition hover:border-cyan-200/25 hover:bg-cyan-300/[0.065] sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center"
               >
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={selectedProjectIds.has(project.projectId)}
                   onChange={() => toggleProject(project.projectId)}
-                  className="mt-1 h-4 w-4 accent-cyan-300 sm:mt-0"
+                  className="mt-1 h-4 w-4 sm:mt-0"
                 />
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-semibold text-cyan-50">

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildProviderRuntimePlan, toRuntimeProviderId } from "../index";
 
 const baseInput = {
-  schemaVersion: 2,
+  schemaVersion: 3 as const,
   execution: {
     providerLimit: 1,
     providerMaxParallel: 1,
@@ -13,13 +13,33 @@ const baseInput = {
 };
 
 describe("provider runtime plan", () => {
+  it("omits reasoning for a Gateway model without a qualified reasoning control", () => {
+    const plan = buildProviderRuntimePlan({
+      ...baseInput,
+      providers: [
+        {
+          kind: "codex",
+          authMode: "codex_account_gateway",
+          model: "k3-256k",
+          gatewayBindingId: "binding",
+          gatewayProfileRef: "kimi-code-global-responses-apikey-v1",
+          agenticContext: true,
+          fastMode: false,
+        },
+      ],
+    });
+    expect(plan.runtimeEnv).not.toHaveProperty("CODEX_REASONING_EFFORT");
+    expect(plan.runtimeEnv.CODEX_FAST_MODE).toBe("false");
+    expect(plan.runtimeEnv.CODEX_MODEL).toBe("k3-256k");
+  });
+
   it("matches existing Codex runtime env contract", () => {
     const plan = buildProviderRuntimePlan({
       ...baseInput,
       providers: [
         {
           kind: "codex",
-          authMode: "codex_subscription_oauth",
+          authMode: "codex_subscription_oauth_rotating",
           model: "gpt-5.5",
           reasoningEffort: "medium",
           agenticContext: true,
@@ -30,7 +50,7 @@ describe("provider runtime plan", () => {
     });
 
     expect(plan.runtimeEnv).toMatchObject({
-      REVIEW_AUTH_MODE: "codex-oauth",
+      REVIEW_AUTH_MODE: "codex-oauth-rotating",
       CODEX_MODEL: "gpt-5.5",
       CODEX_REASONING_EFFORT: "medium",
       CODEX_AGENTIC_CONTEXT: "true",
@@ -42,9 +62,8 @@ describe("provider runtime plan", () => {
       PROVIDER_MAX_PARALLEL: "1",
       INLINE_MIN_AGREEMENT: "1",
     });
-    expect(plan.runtimeEnv.INLINE_MAX_COMMENTS).toBe("50");
+    expect(plan.runtimeEnv.INLINE_MAX_COMMENTS).toBe("5");
     expect(plan.runtimeEnv.INLINE_MIN_SEVERITY).toBe("minor");
-    expect(plan.requiredSecretNames).toEqual(["CODEX_AUTH_JSON"]);
     expect(plan.requiredCliTools).toEqual(["codex"]);
   });
 
@@ -101,7 +120,7 @@ describe("provider runtime plan", () => {
       providers: [
         {
           kind: "codex",
-          authMode: "codex_subscription_oauth",
+          authMode: "codex_subscription_oauth_rotating",
           model: "gpt-5.5",
           reasoningEffort: "medium",
           agenticContext: true,
@@ -183,6 +202,34 @@ describe("provider runtime plan", () => {
     expect(plan.requiredCliTools).toEqual(["codex"]);
   });
 
+  it("plans the exact MiMo public-engine provider without Codex or OpenRouter fallback", () => {
+    const plan = buildProviderRuntimePlan({
+      ...baseInput,
+      providers: [
+        {
+          kind: "codex-mimo",
+          authMode: "mimo_token_plan_api_key",
+          model: "mimo-v2.6-pro",
+          reasoningEffort: "xhigh",
+          agenticContext: true,
+          fastMode: false,
+        },
+      ],
+    });
+
+    expect(plan.runtimeEnv).toMatchObject({
+      REVIEW_AUTH_MODE: "mimo-token-plan-api",
+      REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+      REQUIRED_HEALTHY_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+      SYNTHESIS_MODEL: "codex-mimo/mimo-v2.6-pro",
+      CODEX_REASONING_EFFORT: "xhigh",
+      CODEX_AGENTIC_CONTEXT: "true",
+      CODEX_FAST_MODE: "false",
+    });
+    expect(plan.requiredSecretNames).toEqual(["MIMO_TOKEN_PLAN_API_KEY"]);
+    expect(plan.requiredCliTools).toEqual(["codex"]);
+  });
+
   it("deduplicates mixed provider requirements while preserving provider order", () => {
     const plan = buildProviderRuntimePlan({
       ...baseInput,
@@ -193,9 +240,9 @@ describe("provider runtime plan", () => {
       },
       providers: [
         {
-          kind: "codex",
-          authMode: "codex_subscription_oauth",
-          model: "gpt-5.5",
+          kind: "openrouter",
+          authMode: "openrouter_api_key",
+          model: "openai/gpt-oss-120b:free",
           reasoningEffort: "high",
           agenticContext: true,
           fastMode: false,
@@ -220,18 +267,20 @@ describe("provider runtime plan", () => {
     });
 
     expect(plan.providerIds).toEqual([
-      "codex/gpt-5.5",
+      "openrouter/openai/gpt-oss-120b:free",
       "claude/sonnet",
       "claude/opus",
     ]);
     expect(plan.requiredSecretNames).toEqual([
-      "CODEX_AUTH_JSON",
+      "OPENROUTER_API_KEY",
       "CLAUDE_CODE_OAUTH_TOKEN",
     ]);
     expect(plan.requiredCliTools).toEqual(["codex", "claude"]);
     expect(plan.runtimeEnv.PROVIDER_MAX_PARALLEL).toBe("3");
     expect(plan.runtimeEnv.INLINE_MIN_AGREEMENT).toBe("2");
-    expect(plan.runtimeEnv.REQUIRED_HEALTHY_PROVIDERS).toBe("codex/gpt-5.5");
+    expect(plan.runtimeEnv.REQUIRED_HEALTHY_PROVIDERS).toBe(
+      "openrouter/openai/gpt-oss-120b:free",
+    );
     expect(plan.runtimeEnv.CLAUDE_AGENTIC_CONTEXT).toBe("true");
   });
 
@@ -241,7 +290,7 @@ describe("provider runtime plan", () => {
       providers: [
         {
           kind: "codex",
-          authMode: "codex_subscription_oauth",
+          authMode: "codex_subscription_oauth_rotating",
           model: "gpt-5.5",
           reasoningEffort: "medium",
           agenticContext: true,
@@ -290,5 +339,46 @@ describe("provider runtime plan", () => {
         fastMode: false,
       }),
     ).toThrow("provider_model_required");
+  });
+});
+
+// Detects treating a gateway profile as a new agent or exporting selection as authority.
+it("plans a gateway model with safe settings only, without fallback or credentials", () => {
+  const plan = buildProviderRuntimePlan({
+    ...baseInput,
+    providers: [
+      {
+        kind: "codex",
+        authMode: "codex_account_gateway",
+        model: "mimo-v2-pro",
+        gatewayBindingId: "binding-safe",
+        gatewayProfileRef: "profile-mimo",
+        reasoningEffort: "high",
+        agenticContext: false,
+        fastMode: true,
+      },
+    ],
+  });
+  expect(plan.primaryRuntimeAuthMode).toBe("codex-account-gateway");
+  expect(plan.providerIds).toEqual(["codex/mimo-v2-pro"]);
+  expect(plan.requiredSecretNames).toEqual([]);
+  expect(plan.requiredCliTools).toEqual(["codex"]);
+  expect(plan.runtimeEnv).toEqual({
+    REVIEWROUTER_CONFIG_SCHEMA_VERSION: "3",
+    REVIEW_AUTH_MODE: "codex-account-gateway",
+    REVIEW_PROVIDERS: "codex/mimo-v2-pro",
+    REQUIRED_HEALTHY_PROVIDERS: "codex/mimo-v2-pro",
+    SYNTHESIS_MODEL: "codex/mimo-v2-pro",
+    PROVIDER_LIMIT: "1",
+    PROVIDER_MAX_PARALLEL: "1",
+    INLINE_MIN_AGREEMENT: "1",
+    INLINE_MAX_COMMENTS: "5",
+    INLINE_MIN_SEVERITY: "minor",
+    TARGET_TOKENS_PER_BATCH: "50000",
+    FAIL_ON_SEVERITY: "critical",
+    CODEX_MODEL: "mimo-v2-pro",
+    CODEX_REASONING_EFFORT: "high",
+    CODEX_AGENTIC_CONTEXT: "false",
+    CODEX_FAST_MODE: "true",
   });
 });

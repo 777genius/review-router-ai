@@ -19,6 +19,7 @@ import {
   type LeaseStorePort,
   type ProviderSessionDriver,
   type RuntimePolicy,
+  type RunnerPort,
   type SessionArtifact,
   type SessionEnvelope,
   type SessionStoreCapabilities,
@@ -33,6 +34,15 @@ import {
   sessionArtifactFromCodexAuthJson,
 } from "@777genius/subscription-runtime/provider-codex";
 import { GitHubActionRunner } from "@777genius/subscription-runtime/runner-github-action";
+import {
+  UsageDelivery,
+  withUsageArtifactUploadTimeout,
+  type UsageGrant,
+} from "./provider-usage-delivery.js";
+import {
+  createResponsesUsageObserver,
+  createResponsesUsageStreamObserver,
+} from "./provider-usage-responses.js";
 import {
   mkdtemp,
   readFile,
@@ -192,7 +202,9 @@ type PreleaseResponse = {
   readonly leaseId: string;
   readonly generationHashSalt: string;
   readonly accountFingerprintSalt: string;
+  readonly bootstrapUsageGrant?: UsageGrant;
 };
+const bootstrapUsageDeliveries = new WeakMap<PreleaseResponse, UsageDelivery>();
 
 type FinalizeResponse =
   | {
@@ -2071,6 +2083,7 @@ async function requestCodexRotatingPreleaseWithFreshOidc(input: {
   readonly providerInstanceId: string;
   readonly workflowSchemaVersion: number;
 }): Promise<PreleaseResponse> {
+  const usageRegistration = UsageDelivery.prepareRegistration();
   let lastError: unknown;
   try {
     for (let attempt = 1; attempt <= networkRetryMaxAttempts; attempt += 1) {
@@ -2081,7 +2094,7 @@ async function requestCodexRotatingPreleaseWithFreshOidc(input: {
       });
       mask(input.io, oidcToken);
       try {
-        return await postJson<PreleaseResponse>({
+        const prelease = await postJson<PreleaseResponse>({
           fetchImpl: input.fetchImpl,
           label: "api_prelease",
           url: `${input.apiUrl}/api/action/v1/codex-oauth/prelease`,
@@ -2090,8 +2103,51 @@ async function requestCodexRotatingPreleaseWithFreshOidc(input: {
             providerInstanceId: input.providerInstanceId,
             workflowSchemaVersion: input.workflowSchemaVersion,
           },
+          usagePublicKey: usageRegistration.publicKey,
           maxAttempts: 1,
         });
+        if (prelease.bootstrapUsageGrant) {
+          mask(input.io, prelease.bootstrapUsageGrant.grantToken);
+          try {
+            bootstrapUsageDeliveries.set(
+              prelease,
+              usageRegistration.acceptGrant(
+                {
+                  apiUrl: input.apiUrl,
+                  executionToken: "",
+                  invocationId: prelease.bootstrapUsageGrant.scope.invocationId,
+                  temporaryDirectory: tmpdir(),
+                  fetchImpl: input.fetchImpl,
+                  uploadArtifact: async (name, file) => {
+                    const { DefaultArtifactClient } =
+                      await import("@actions/artifact");
+                    const uploaded = await withUsageArtifactUploadTimeout(() =>
+                      new DefaultArtifactClient().uploadArtifact(
+                        name,
+                        [file],
+                        join(file, ".."),
+                        { retentionDays: 7 },
+                      ),
+                    );
+                    if (!uploaded.id)
+                      throw new Error("usage_artifact_unavailable");
+                  },
+                  status: (status) => {
+                    if (status === "partial")
+                      notice(input.io, "Provider usage telemetry is partial.");
+                  },
+                },
+                prelease.bootstrapUsageGrant,
+              ),
+            );
+          } catch {
+            notice(
+              input.io,
+              "Bootstrap provider usage telemetry is unavailable.",
+            );
+          }
+        }
+        return prelease;
       } catch (error) {
         lastError = error;
         if (
@@ -2129,6 +2185,7 @@ async function postJson<T = unknown>(input: {
   readonly body: unknown;
   readonly signal?: AbortSignal | undefined;
   readonly maxAttempts?: number;
+  readonly usagePublicKey?: string;
 }): Promise<T> {
   const { response, text } = await fetchWithRetry({
     fetchImpl: input.fetchImpl,
@@ -2137,7 +2194,17 @@ async function postJson<T = unknown>(input: {
     url: input.url,
     init: {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...(input.usagePublicKey
+          ? {
+              "x-reviewrouter-usage-public-key": Buffer.from(
+                input.usagePublicKey,
+                "utf8",
+              ).toString("base64url"),
+            }
+          : {}),
+      },
       body: JSON.stringify(input.body),
       ...(input.signal ? { signal: input.signal } : {}),
     },
@@ -2701,13 +2768,15 @@ export async function startCodexLocalProviderProxy(input: {
   readonly fetchImpl: FetchLike;
   readonly accessToken: string;
   readonly upstreamResponsesUrl: string;
+  readonly usageDelivery?: UsageDelivery;
 }): Promise<LocalProviderProxy> {
   const nonce = randomBytes(24).toString("base64url");
   let requestCount = 0;
   let closing = false;
   const activeUpstreamRequests = new Set<AbortController>();
+  const requests = new Set<Promise<void>>();
   const server = http.createServer((req, res) => {
-    void (async () => {
+    const request = (async () => {
       try {
         const body = await readProxyRequestBody(req);
         const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
@@ -2732,7 +2801,12 @@ export async function startCodexLocalProviderProxy(input: {
         }
         const upstreamController = new AbortController();
         activeUpstreamRequests.add(upstreamController);
+        const usage = input.usageDelivery
+          ? createResponsesUsageObserver(input.usageDelivery, "", "codex")
+          : undefined;
+        let failed = false;
         try {
+          usage?.dispatched();
           const upstream = await input.fetchImpl(input.upstreamResponsesUrl, {
             method: "POST",
             headers: buildCodexProxyUpstreamHeaders({
@@ -2742,14 +2816,22 @@ export async function startCodexLocalProviderProxy(input: {
             body: new Uint8Array(body),
             signal: upstreamController.signal,
           });
-          await writeProxyUpstreamResponse(res, upstream);
+          usage?.responseReceived();
+          failed = !upstream.ok;
+          await writeProxyUpstreamResponse(res, upstream, usage);
+        } catch (error) {
+          failed = true;
+          throw error;
         } finally {
+          usage?.finish(failed, upstreamController.signal.aborted);
           activeUpstreamRequests.delete(upstreamController);
         }
       } catch {
         writeProxyError(res, 502, "proxy_upstream_failed");
       }
     })();
+    requests.add(request);
+    void request.finally(() => requests.delete(request));
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -2764,17 +2846,19 @@ export async function startCodexLocalProviderProxy(input: {
     await closeHttpServer(server);
     throw new Error("proxy_listener_invalid_address");
   }
+  let closingPromise: Promise<void> | undefined;
   return {
     baseUrl: `http://127.0.0.1:${address.port}/${nonce}/v1`,
-    close: async () => {
-      closing = true;
-      for (const controller of activeUpstreamRequests) {
-        controller.abort(new Error("proxy_closing"));
-      }
-      const closePromise = closeHttpServer(server);
-      server.closeAllConnections();
-      await closePromise;
-    },
+    close: () =>
+      (closingPromise ??= (async () => {
+        closing = true;
+        for (const controller of activeUpstreamRequests)
+          controller.abort(new Error("proxy_closing"));
+        const closePromise = closeHttpServer(server);
+        server.closeAllConnections();
+        await closePromise;
+        await Promise.all([...requests]);
+      })()),
   };
 }
 
@@ -2857,6 +2941,7 @@ function readProxyRequestBody(req: http.IncomingMessage): Promise<Buffer> {
 async function writeProxyUpstreamResponse(
   res: http.ServerResponse,
   upstream: Response,
+  usage?: ReturnType<typeof createResponsesUsageObserver>,
 ): Promise<void> {
   const headers: Record<string, string> = {};
   const contentType = upstream.headers.get("content-type");
@@ -2869,12 +2954,17 @@ async function writeProxyUpstreamResponse(
     return;
   }
   const reader = upstream.body.getReader();
+  const usageStream = usage
+    ? createResponsesUsageStreamObserver(usage, contentType)
+    : undefined;
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
+      usageStream?.chunk(value);
       res.write(Buffer.from(value));
     }
+    usageStream?.end();
     res.end();
   } finally {
     reader.releaseLock();
@@ -3064,6 +3154,12 @@ async function getAvailableDiskBytes(path: string): Promise<number> {
   }
 }
 
+/** Protected Responses callers expose local function/custom tools only.
+ * Keep server-side web search out of the transport's qualified tool contract. */
+export function protectedResponsesToolPolicyConfigLines(): readonly string[] {
+  return ['web_search = "disabled"'];
+}
+
 async function writeCodexAuthSnapshot(
   codexHome: string,
   authJson: string,
@@ -3073,7 +3169,7 @@ async function writeCodexAuthSnapshot(
     'cli_auth_credentials_store = "file"',
     'approval_policy = "never"',
     'sandbox_mode = "read-only"',
-    'web_search = "disabled"',
+    ...protectedResponsesToolPolicyConfigLines(),
     "disable_response_storage = true",
     'model_verbosity = "low"',
     "",
@@ -3117,7 +3213,7 @@ async function writeCodexProxySnapshot(input: {
     'model_provider = "reviewrouter_proxy"',
     'approval_policy = "never"',
     'sandbox_mode = "read-only"',
-    'web_search = "disabled"',
+    ...protectedResponsesToolPolicyConfigLines(),
     "disable_response_storage = true",
     'model_verbosity = "low"',
     "",
@@ -3159,6 +3255,7 @@ async function runCodexBootstrap(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly tempHome: string;
   readonly tempCodexHome: string;
+  readonly usageProxyBaseUrl?: string;
 }): Promise<void> {
   const emptyCwd = await makeTempDirectory("reviewrouter-empty-");
   try {
@@ -3170,6 +3267,15 @@ async function runCodexBootstrap(input: {
     try {
       await runProcess({
         ...command,
+        ...(input.usageProxyBaseUrl
+          ? {
+              args: [
+                "-c",
+                `model_providers.openai.base_url=${JSON.stringify(input.usageProxyBaseUrl)}`,
+                ...command.args,
+              ],
+            }
+          : {}),
         stdin: "Respond with OK only.",
         env: buildCodexChildEnv(input.env, input.tempHome, input.tempCodexHome),
         timeoutMs: 5 * 60 * 1000,
@@ -3182,7 +3288,7 @@ async function runCodexBootstrap(input: {
   }
 }
 
-async function refreshCodexAuthJson(input: {
+async function refreshCodexAuthJsonUsingRunner(input: {
   readonly authJson: string;
   readonly inputs: ActionInputs;
   readonly fetchImpl: FetchLike;
@@ -3196,6 +3302,7 @@ async function refreshCodexAuthJson(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly tempHome: string;
   readonly tempCodexHome: string;
+  readonly usageProxyBaseUrl?: string;
 }): Promise<{
   readonly authJson: string;
   readonly writebackCommittedByRuntime: boolean;
@@ -3222,6 +3329,22 @@ async function refreshCodexAuthJson(input: {
     sourceEnv: subscriptionRuntimeSourceEnv,
   });
   const redactor = new DefaultRedactor();
+  const baseRunner = new GitHubActionRunner({ redactor });
+  const bootstrapRunner: RunnerPort = input.usageProxyBaseUrl
+    ? {
+        runnerId: baseRunner.runnerId,
+        capabilities: baseRunner.capabilities,
+        run: (request) =>
+          baseRunner.run({
+            ...request,
+            args: [
+              "-c",
+              `model_providers.openai.base_url=${JSON.stringify(input.usageProxyBaseUrl)}`,
+              ...request.args,
+            ],
+          }),
+      }
+    : baseRunner;
   const sessionStore = new ReviewRouterCodexActionSessionStore({
     authJson: input.authJson,
     inputs: input.inputs,
@@ -3241,7 +3364,7 @@ async function refreshCodexAuthJson(input: {
     agentDriver,
     sessionStore,
     leaseStore: new ReviewRouterCodexActionLeaseStore(input.prelease),
-    runner: new GitHubActionRunner({ redactor }),
+    runner: bootstrapRunner,
     workspace: new ExistingPathWorkspace(input.tempHome),
     redactor,
     observability: new NullObservability(),
@@ -3282,6 +3405,43 @@ async function refreshCodexAuthJson(input: {
     authJson: refreshedAuthJson,
     writebackCommittedByRuntime: refresh.status === "ready",
   };
+}
+
+async function refreshCodexAuthJson(
+  input: Parameters<typeof refreshCodexAuthJsonUsingRunner>[0],
+): Promise<Awaited<ReturnType<typeof refreshCodexAuthJsonUsingRunner>>> {
+  const delivery = bootstrapUsageDeliveries.get(input.prelease);
+  let proxy: LocalProviderProxy | undefined;
+  try {
+    if (delivery) {
+      try {
+        proxy = await startCodexLocalProviderProxy({
+          fetchImpl: input.fetchImpl,
+          accessToken: extractCodexAccessToken(input.authJson),
+          upstreamResponsesUrl: resolveCodexProxyUpstreamResponsesUrl(
+            input.env,
+          ),
+          usageDelivery: delivery,
+        });
+      } catch {
+        delivery.markUnavailable();
+      }
+    }
+    return await refreshCodexAuthJsonUsingRunner({
+      ...input,
+      ...(proxy ? { usageProxyBaseUrl: proxy.baseUrl } : {}),
+    });
+  } finally {
+    try {
+      await proxy?.close();
+    } finally {
+      try {
+        await delivery?.cleanup();
+      } catch {
+        delivery?.markUnavailable();
+      }
+    }
+  }
 }
 
 type RefreshCodexAuthJsonInput = Parameters<typeof refreshCodexAuthJson>[0];
@@ -4089,6 +4249,12 @@ export function buildFullReviewRuntimeEnv(input: {
 }): Record<string, string> {
   const inherited = pruneCodexRotatingChildEnv(input.sourceEnv);
   const runtimeEnv = normalizeFullReviewRuntimeEnv(input.runtimeEnv);
+  if (runtimeEnv.REVIEW_AUTH_MODE === "codex-account-gateway") {
+    // The protected policy owns Gateway settings, including intentional absence.
+    // Workflow defaults cannot reintroduce controls unqualified by the catalog.
+    delete inherited.CODEX_REASONING_EFFORT;
+    delete inherited.CODEX_FAST_MODE;
+  }
   const reviewAuthMode =
     runtimeEnv.REVIEW_AUTH_MODE === codexRotatingRuntimeAuthMode
       ? "codex-oauth"
@@ -4239,10 +4405,12 @@ async function ensureFullReviewRuntimeTools(input: {
     return;
   }
 
+  // Preserve the isolated HOME/PATH instead of loading runner login profiles.
   await runProcess({
     command: "bash",
+    // Preserve the deliberately sanitized PATH; login Bash startup may replace it.
     args: [
-      "-lc",
+      "-c",
       [
         "set -euo pipefail",
         "if command -v claude >/dev/null 2>&1; then",

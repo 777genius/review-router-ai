@@ -65,7 +65,7 @@ describe("HostedCommentTokenClosureReconciler", () => {
       ]);
     const ledger = new PrismaHostedCommentTokenMintLedger({
       $transaction: async (operation: (transaction: unknown) => unknown) =>
-        operation({ $queryRaw: queryRaw }),
+        operation({ $queryRaw: queryRaw, $executeRaw: vi.fn(async () => 0) }),
     } as never);
 
     await expect(ledger.recoverStale({ limit: 3 })).resolves.toBe(3);
@@ -127,11 +127,12 @@ describe("HostedCommentTokenClosureReconciler", () => {
       .mockResolvedValueOnce([{ locked: true }])
       .mockResolvedValueOnce([{}])
       .mockResolvedValueOnce([{ locked: true }])
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([{ valid: true }]);
     const ledger = new PrismaHostedCommentTokenMintLedger({
       $transaction: async (operation: (transaction: unknown) => unknown) =>
         operation({
+          $executeRaw: vi.fn(async () => 0),
           $queryRaw: queryRaw,
           hostedCodexCommentTokenMint: { findUnique },
         }),
@@ -180,7 +181,7 @@ describe("HostedCommentTokenClosureReconciler", () => {
       .fn()
       .mockResolvedValueOnce([{}])
       .mockResolvedValueOnce([{ status: "active" }])
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([driverRow]);
     const findMany = vi.fn().mockResolvedValue([
       {
@@ -193,6 +194,7 @@ describe("HostedCommentTokenClosureReconciler", () => {
     const ledger = new PrismaHostedCommentTokenMintLedger({
       $transaction: async (operation: (transaction: unknown) => unknown) =>
         operation({
+          $executeRaw: vi.fn(async () => 0),
           $queryRaw: queryRaw,
           hostedCodexInvocationGrant: { findMany },
         }),
@@ -240,11 +242,12 @@ describe("HostedCommentTokenClosureReconciler", () => {
       .mockResolvedValueOnce([{ locked: true }])
       .mockResolvedValueOnce([{}])
       .mockResolvedValueOnce([{ locked: true }])
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([{ valid: true }]);
     const ledger = new PrismaHostedCommentTokenMintLedger({
       $transaction: async (operation: (transaction: unknown) => unknown) =>
         operation({
+          $executeRaw: vi.fn(async () => 0),
           $queryRaw: queryRaw,
           hostedCodexCommentTokenMint: { findUnique },
         }),
@@ -280,12 +283,13 @@ describe("HostedCommentTokenClosureReconciler", () => {
       .mockResolvedValueOnce([{ locked: true }])
       .mockResolvedValueOnce([{}])
       .mockResolvedValueOnce([{ locked: true }])
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([{ valid: true }])
       .mockResolvedValueOnce([{ id: "mint-claimed" }]);
     const ledger = new PrismaHostedCommentTokenMintLedger({
       $transaction: async (operation: (transaction: unknown) => unknown) =>
         operation({
+          $executeRaw: vi.fn(async () => 0),
           $queryRaw: queryRaw,
           hostedCodexCommentTokenMint: { findUnique },
         }),
@@ -604,9 +608,10 @@ describe("HostedCommentTokenClosureReconciler", () => {
     const ledger = new PrismaHostedCommentTokenMintLedger({
       $transaction: async (operation: (transaction: unknown) => unknown) =>
         operation({
+          $executeRaw: vi.fn(async () => 0),
           $queryRaw: vi
             .fn()
-            .mockResolvedValueOnce([{ now }])
+            .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
             .mockResolvedValueOnce([{ locked: true }])
             .mockRejectedValueOnce(new Error("persistence failed")),
           hostedCodexCommentTokenMint: {

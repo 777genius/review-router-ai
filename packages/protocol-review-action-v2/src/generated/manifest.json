@@ -1,14 +1,14 @@
 {
   "contractSourceVersion": 1,
   "protocolVersion": "2",
-  "schemaDigest": "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-  "goldenFixtureDigest": "d6d5a918ce9e5e01a14aa9714a77d6557fcaee90c68e272cbc3f925f3e4c94a4",
-  "canonicalizerDigest": "95a43332ccff5c8ccf8f6f9cb67d901d5efd3e91522c047c48f83b65c70cb03a",
+  "schemaDigest": "71f316821909667e1b7cc704bed330ef6cfa7ac44cf51d58935ba3238ab92504",
+  "goldenFixtureDigest": "25cbbf9c205d69c8bb9f32d074ce4df8d81a77a3fce070383abbd282245a6b9f",
+  "canonicalizerDigest": "bf61d04d42e158b26e4b651b62700b10212496487d7e20ac6e705272dc1d6a5f",
   "extensions": [
     {
       "extensionId": "review-investigation-shadow.v1",
-      "schemaDigest": "9ab22a39cc983b88ae50576ece6a777d72d904d09654d3f4c51a20fc13c29003",
-      "canonicalizerDigest": "20dc769dd28947fe6ee0c7770199fbb6c5cd490a7d7f71785159da99d793ff77",
+      "schemaDigest": "0a53623b20bfbef7dbe222dea7aed44ae3237d2f0c7facb72bb99086ef9bc5f2",
+      "canonicalizerDigest": "ccaf3515f1c04bc31ba1bcf7084d414221f61cb4b24b440a4ecad121ccdaa378",
       "operationIds": [
         "review_investigation_open_v2",
         "review_investigation_lease_acquire",
@@ -18,6 +18,12 @@
         "review_investigation_context_gateway_open",
         "review_investigation_context_gateway_seal"
       ]
+    }
+  ],
+  "auxiliaryExtensions": [
+    {
+      "extensionId": "pr-description.v1",
+      "canonicalizerDigest": "aa043184eb0a1a0cf230d8fbb03c6a63a05b950c82c0107bee7d2533c386eed0"
     }
   ],
   "canonicalizerGoldenFixtureDigest": "9f638db73ec3696da7f3aa842ed10b7cf7c466986dfbd45b1a602e3b08d75c57",
@@ -2901,5 +2907,9 @@
         }
       }
     }
-  ]
+  ],
+  "contextToolsProfile": {
+    "extensionId": "context-tools.v1",
+    "descriptorDigest": "sha256:c188ad0a29581317f23b6aec3f103a7419f67576bea6fb3dc9910cf9ca3a3f7a"
+  }
 }

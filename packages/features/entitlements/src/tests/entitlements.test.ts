@@ -84,6 +84,9 @@ describe("entitlements", () => {
   it("denies future paid features with a clear error and audit", async () => {
     const entitlements = new InMemoryEntitlements();
     const auditLog = new InMemoryAuditLog();
+    expect(
+      freeBetaEntitlement("workspace_1").flags.provider_key_management,
+    ).toBe(true);
 
     await expect(
       assertWorkspaceFeatureEntitlement(
@@ -101,6 +104,29 @@ describe("entitlements", () => {
         targetId: "cloud_review_execution",
       }),
     );
+  });
+
+  it("allows provider key management for an active workspace with an old false flag", async () => {
+    const entitlements = new InMemoryEntitlements();
+    entitlements.entitlement = {
+      ...freeBetaEntitlement("workspace_1"),
+      plan: "pro",
+      flags: {
+        ...freeBetaEntitlement("workspace_1").flags,
+        provider_key_management: false,
+      },
+    };
+
+    await expect(
+      assertWorkspaceFeatureEntitlement(
+        {
+          workspaceId: "workspace_1",
+          feature: "provider_key_management",
+          actor: "user:777genius",
+        },
+        { entitlements },
+      ),
+    ).resolves.toBeUndefined();
   });
 
   it("includes hosted account enrollment for free beta workspaces", () => {

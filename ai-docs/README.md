@@ -2,6 +2,8 @@
 
 This folder is the canonical planning and architecture knowledge base for ReviewRouter.
 
+Current provider delivery scope: [Sub2API production and legacy direct transport](./operations/provider-transport-scope.md).
+
 ## Reading Order
 
 1. [Agent Start Here](./AGENT_START_HERE.md)
@@ -35,6 +37,7 @@ This folder is the canonical planning and architecture knowledge base for Review
 29. [Review Action v2 Contract Handoff Runbook](./operations/review-action-v2-contract-handoff.md)
 30. [ADR-029: Opt-in Hosted Workspace Account Pool](./decisions/029-opt-in-hosted-workspace-account-pool.md)
 31. [Hosted Workspace Account Pool Plan](./architecture/49-hosted-workspace-account-pool-plan.md)
+32. [Memory Product Vision](./product/09-memory-product-vision.md) - owner requirements and self-hosted Hindsight selection; [replacement plan](./plans/2026-10-23-hindsight-memory-replacement.md) reviewed through three critique/fix rounds; runtime qualification remains.
 
 ## Folder Map
 

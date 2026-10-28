@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import sodium from "libsodium-wrappers";
+import { parse as parseYaml } from "yaml";
 import {
   buildCodexRefreshBootstrapPlan,
   buildCodexRotatingSetupManifest,
@@ -36,6 +37,7 @@ import {
   pruneCodexRotatingChildEnv,
   readCodexRotatingWorkflowSourceMetadata,
   renderCodexRotatingAdvisoryWorkflow,
+  renderCanonicalAccountGatewayWorkflow,
   renderCodexRotatingInstallerCommand,
   scanCodexRotatingAdvisoryWorkflow,
   validateCodexAuthJsonBytes,
@@ -117,7 +119,7 @@ function withRenderedInstallerCommandFixture(input: {
     const binDir = join(root, "bin");
     const installerPath = join(root, "fixture-installer.sh");
     const markerPath = join(root, "install-marker.txt");
-    const installerUrl = "https://reviewrouter.site/install/codex-rotating";
+    const installerUrl = "https://reviewrouter.org/install/codex-rotating";
     mkdirSync(binDir, { recursive: true });
     writeExecutable(installerPath, input.installerBody);
     writeExecutable(
@@ -219,7 +221,7 @@ printf '%s  %s\\n' "$hash" "$file"
     const command = renderCodexRotatingInstallerCommand({
       manifest,
       setupManifestUrl:
-        "https://reviewrouter.site/api/codex-rotating/setup-manifest",
+        "https://reviewrouter.org/api/codex-rotating/setup-manifest",
     });
 
     input.run({
@@ -341,7 +343,7 @@ describe("Codex rotating auth domain", () => {
       repositoryFullName: "777genius/agent-teams-ai",
       repositoryId: "123456",
       repositoryIdentityVersion: 1,
-      installerUrl: "https://reviewrouter.site/install/codex-rotating",
+      installerUrl: "https://reviewrouter.org/install/codex-rotating",
       installerVersion: "v1.2.3",
       installerSha256:
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -364,7 +366,7 @@ describe("Codex rotating auth domain", () => {
       repositoryFullName: "777genius/agent-teams-ai",
       repositoryId: "123456",
       repositoryIdentityVersion: 1,
-      installerUrl: "https://reviewrouter.site/install/codex-rotating",
+      installerUrl: "https://reviewrouter.org/install/codex-rotating",
       installerVersion: "v1.2.3",
       installerSha256:
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -397,7 +399,7 @@ describe("Codex rotating auth domain", () => {
       repositoryFullName: "777genius/agent-teams-ai",
       repositoryId: "123456",
       repositoryIdentityVersion: 1,
-      installerUrl: "https://reviewrouter.site/install/codex-rotating",
+      installerUrl: "https://reviewrouter.org/install/codex-rotating",
       installerVersion: "v1.2.3",
       installerSha256:
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -436,7 +438,7 @@ describe("Codex rotating auth domain", () => {
       repositoryFullName: "777genius/agent-teams-ai",
       repositoryId: "123456",
       repositoryIdentityVersion: 1,
-      installerUrl: "https://reviewrouter.site/install/codex-rotating",
+      installerUrl: "https://reviewrouter.org/install/codex-rotating",
       installerVersion: "v1.2.3",
       installerSha256:
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -533,7 +535,7 @@ exit 17
       repositoryFullName: "777genius/agent-teams-ai",
       repositoryId: "123456",
       repositoryIdentityVersion: 1,
-      installerUrl: "https://reviewrouter.site/install/codex-rotating",
+      installerUrl: "https://reviewrouter.org/install/codex-rotating",
       installerVersion: "v1.2.3",
       installerSha256:
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -544,7 +546,7 @@ exit 17
     const command = renderCodexRotatingInstallerCommand({
       manifest,
       setupManifestUrl:
-        "https://reviewrouter.site/api/codex-rotating/setup-manifest",
+        "https://reviewrouter.org/api/codex-rotating/setup-manifest",
     });
 
     expect(command).toContain("REVIEW_ROUTER_CODEX_ROTATING_SETUP_URL");
@@ -562,7 +564,7 @@ exit 17
   it("renders an advisory workflow with a scheduled refresh heartbeat", () => {
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: "777genius/review-router@main",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
     });
 
@@ -661,7 +663,7 @@ exit 17
 
     const trulyOldSchemaOneWorkflow = renderLegacySchemaOneWorkflow({
       actionRef: "777genius/review-router@main",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
     });
     expect(
@@ -679,7 +681,7 @@ exit 17
     ).toEqual({ valid: true, errors: [] });
     const historicalThirtyMinuteWorkflow = renderLegacySchemaOneWorkflow({
       actionRef: "777genius/review-router@main",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: "17 */6 * * *",
       timeoutMinutes: 30,
@@ -785,7 +787,7 @@ exit 17
 
     const mismatchedFixedTimeout = renderCodexRotatingAdvisoryWorkflow({
       actionRef: "777genius/review-router@main",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       timeoutMinutes: 180,
       refreshScheduleCron: null,
@@ -796,7 +798,7 @@ exit 17
 
     const legacyWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: "777genius/review-router@main",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
     });
@@ -831,7 +833,7 @@ exit 17
     const actionSha = "a".repeat(40);
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:1163183284",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -859,11 +861,11 @@ exit 17
       errors: [],
     });
     expect(readCodexRotatingWorkflowSourceMetadata(workflow)).toMatchObject({
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:1163183284",
     });
     expect(workflowDocumentSemanticSha256(workflow)).toBe(
-      "83ae0ba1aac0eaa24bbe44599b0e01b09866308fb326eaaa123e86e8fe8c96b8",
+      "283d52b2a0c182ffc4463831f8357e158bc780085d6c337f98e3d61293dd77c0",
     );
     expect(
       readCanonicalCodexRotatingT0WorkflowSourceMetadata(
@@ -930,7 +932,7 @@ exit 17
 
     const scheduledWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:1163183284",
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
     });
@@ -941,7 +943,7 @@ exit 17
 
     const clientTriggeredWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:1163183284",
       workflowSchemaVersion: 2,
       refreshScheduleCron: null,
@@ -979,12 +981,12 @@ exit 17
       workflowSchemaVersion: 2,
     });
     expect(workflowDocumentSemanticSha256(clientTriggeredWorkflow)).toBe(
-      "0a2af7cb0a40125afcaa5fb0de3c9d058497e317fa5c68a809bee54fec5a3842",
+      "f673e84038171804f5be3159c246e766a5d0f74ab22f8789e1f0fb69e48a5638",
     );
 
     const lifecycleWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:1163183284",
       workflowSchemaVersion:
         CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredLifecycleV3,
@@ -1006,12 +1008,12 @@ exit 17
       workflowSchemaVersion: 3,
     });
     expect(workflowDocumentSemanticSha256(lifecycleWorkflow)).toBe(
-      "daa7a6562a4a3484f2c2ea6474f3ab5c51df509172456f4565bcc3c437d59e96",
+      "a3c210c01175fc89e73d6424b3e806cb35ebd077f7838112b6273d441b306901",
     );
 
     const versionedSecretWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:1163183284",
       workflowSchemaVersion:
         CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV4,
@@ -1061,7 +1063,7 @@ exit 17
 
     const scheduledLifecycleWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:1163183284",
       workflowSchemaVersion:
         CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredLifecycleV3,
@@ -1113,7 +1115,7 @@ exit 17
     expect(() =>
       renderCodexRotatingAdvisoryWorkflow({
         actionRef: "777genius/review-router@main",
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         providerInstanceId: "codex-rotating:1163183284",
         refreshScheduleCron: null,
         reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -1132,7 +1134,7 @@ exit 17
   it("accepts job-scoped and legacy top-level id-token workflow permissions", () => {
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: "777genius/review-router@main",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
     });
 
@@ -1164,7 +1166,7 @@ exit 17
   it("renders an explicit fixed review timeout when provisioning overrides it", () => {
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: "777genius/review-router@main",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       timeoutMinutes: 180,
     });
@@ -1181,7 +1183,7 @@ exit 17
   it("keeps MiMo and existing provider secrets on their literal Action inputs", () => {
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: "777genius/review-router@main",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       claudeCodeOAuthTokenSecret: true,
       openRouterApiKeySecret: true,
@@ -1225,7 +1227,7 @@ exit 17
   it("rejects extra executable surfaces in fork sandbox workflow", () => {
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: "777genius/review-router@main",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       forkAgenticSandboxEnabled: true,
     });
@@ -1683,9 +1685,97 @@ it("keeps certified-fork schema 6 rendering disabled", () => {
   expect(() =>
     renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${"a".repeat(40)}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       workflowSchemaVersion: 6,
     }),
   ).toThrow("codex_rotating_t0_workflow_schema_unsupported");
+});
+
+describe("account-gateway source metadata", () => {
+  it("retains exact keyless source metadata without legacy session or namespace evidence", () => {
+    const sha = "a".repeat(40);
+    const source = renderCanonicalAccountGatewayWorkflow({
+      actionRef: `777genius/review-router@${sha}`,
+      apiUrl: "https://api.reviewrouter.org",
+      githubRepositoryId: "123456",
+    });
+    const workflow = parseYaml(source);
+    expect(Object.keys(workflow.on)).toEqual(["workflow_dispatch"]);
+    expect(workflow.on.workflow_dispatch.inputs).toEqual({
+      review_request_id: {
+        description: "Durable ReviewRouter request identity",
+        required: true,
+        type: "string",
+      },
+      pr_number: {
+        description: "Pull request number selected by ReviewRouter",
+        required: true,
+        type: "string",
+      },
+      review_head_sha: {
+        description: "Expected pull request head selected by ReviewRouter",
+        required: true,
+        type: "string",
+      },
+    });
+    expect(workflow["run-name"]).toBe(
+      "${{ format('ReviewRouter review {0}', inputs.review_request_id) }}",
+    );
+    expect(workflow.jobs["codex-review"].with).toMatchObject({
+      pr_number: "${{ inputs.pr_number }}",
+      review_head_sha: "${{ inputs.review_head_sha }}",
+    });
+    const metadata = readCodexRotatingWorkflowSourceMetadata(source);
+    expect(metadata).toEqual({
+      actionRef: `777genius/review-router@${sha}`,
+      apiUrl: "https://api.reviewrouter.org",
+      providerInstanceId: "codex-rotating:123456",
+      workflowSchemaVersion: 2,
+      codexSessionMode: "account-gateway",
+      runtimeConfigMode: "oidc",
+      runtimeRef: sha,
+    });
+    expect(readCanonicalCodexRotatingT0WorkflowSourceMetadata(source)).toEqual(
+      metadata,
+    );
+    // Narrowing verifies the gateway metadata contract during the feature typecheck.
+    if (metadata.codexSessionMode === "account-gateway") {
+      const schema: CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredV2 =
+        metadata.workflowSchemaVersion;
+      const config: "oidc" = metadata.runtimeConfigMode;
+      const secret: undefined = metadata.secretNamespace;
+      expect([schema, config, secret]).toEqual([2, "oidc", undefined]);
+    }
+  });
+
+  it("keeps secret-bearing schema-2 mode distinct and rejects explicit session-mode injection", () => {
+    const legacy = renderCodexRotatingAdvisoryWorkflow({
+      actionRef: `777genius/review-router@${"a".repeat(40)}`,
+      apiUrl: "https://api.reviewrouter.org",
+      providerInstanceId: "codex-rotating:123456",
+      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+      workflowSchemaVersion:
+        CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredV2,
+      refreshScheduleCron: null,
+    });
+    expect(scanCodexRotatingAdvisoryWorkflow(legacy)).toEqual({
+      valid: true,
+      errors: [],
+    });
+    expect(
+      readCanonicalCodexRotatingT0WorkflowSourceMetadata(legacy),
+    ).not.toHaveProperty("codexSessionMode");
+    for (const mode of ["account-gateway", "unknown"]) {
+      const injected = legacy.replace(
+        "    with:\n",
+        `    with:\n      codex_session_mode: ${mode}\n`,
+      );
+      expect(scanCodexRotatingAdvisoryWorkflow(injected).valid).toBe(false);
+      expect(() => readCodexRotatingWorkflowSourceMetadata(injected)).toThrow();
+      expect(() =>
+        readCanonicalCodexRotatingT0WorkflowSourceMetadata(injected),
+      ).toThrow();
+    }
+  });
 });

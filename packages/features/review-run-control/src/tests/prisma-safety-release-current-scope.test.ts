@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
 import { CURRENT_SCOPE_GUARD_NAMESPACE } from "@reviewrouter/platform-db";
 import { PrismaReviewSafetyControlRepository } from "../infrastructure/prisma/prisma-review-safety-control-repository";
@@ -30,7 +30,13 @@ function fixture(failGuard = false) {
       }),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         events.push(`${name}.create`);
-        row = { ...data };
+        // Prisma writes DbNull but reads nullable JSON columns as JavaScript null.
+        row = Object.fromEntries(
+          Object.entries(data).map(([key, value]) => [
+            key,
+            value === Prisma.DbNull ? null : value,
+          ]),
+        );
         return row;
       }),
       updateMany: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
@@ -304,6 +310,9 @@ describe("production safety and release current scope participation", () => {
     const release = releaseFixture("id");
     expect((await f.releases.registerProducerRelease(release)).status).toBe(
       "created",
+    );
+    expect((await f.releases.registerProducerRelease(release)).status).toBe(
+      "restored",
     );
     expect(
       (

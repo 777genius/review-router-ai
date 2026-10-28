@@ -1,0 +1,48 @@
+{
+  "scope": "Review Skills context only; no organization-wide or whole-ReviewRouter qualification",
+  "standards": {
+    "consumerModuleStandard": {
+      "repository": "agent-teams-ai/get-modular",
+      "commit": "7131d0d7a6bb5dd4c3e8906ccac065c0be0e0333",
+      "path": "docs/architecture/common-assembly.md",
+      "gitBlob": "dad8b6280cf999d9079d3106094e5626b63d83f4"
+    },
+    "moduleAuthoringGuide": {
+      "repository": "agent-teams-ai/get-modular",
+      "commit": "7131d0d7a6bb5dd4c3e8906ccac065c0be0e0333",
+      "path": "docs/guides/module-authoring.md"
+    },
+    "featureModuleStandard": {
+      "version": "v1.1",
+      "digest": "sha256:cfa088ef7396139554fe5e3bcc839271b23299c6b60c569a3a7f1cd7c9f0bc6c"
+    }
+  },
+  "packages": {
+    "@get-modular/core": "0.7.0",
+    "@get-modular/assembly": "0.7.0",
+    "@get-modular/conformance": "0.5.0",
+    "@get-modular/resources": "0.2.1",
+    "@agent-teams/engineering-foundation": "2.1.0",
+    "@agent-teams/feature-module-standard": "0.2.2"
+  },
+  "productionRoot": "packages/features/review-skills/src/composition/review-skills.root.ts",
+  "governedPaths": ["packages/features/review-skills/src"],
+  "namespace": "reviewrouter",
+  "inputs": [
+    "reviewrouter/skills-store/host",
+    "reviewrouter/skills-access/host"
+  ],
+  "rootImplementation": "reviewrouter/skills/default",
+  "lifetime": {
+    "owner": "existing API/Web application",
+    "borrowed": ["Prisma-backed operation store", "SCM access port"],
+    "ownedResources": []
+  },
+  "blockingCommands": [
+    "node scripts/review-skills-tooling/check.ts",
+    "pnpm --filter @reviewrouter/features-review-skills typecheck",
+    "pnpm --filter @reviewrouter/features-review-skills typecheck:native",
+    "pnpm --filter @reviewrouter/features-review-skills test"
+  ],
+  "qualificationLimits": "Deterministic source/layout/wiring checks and explicit PostgreSQL fixtures; no physical host, deployment, plugin or whole-product claim"
+}

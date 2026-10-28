@@ -1,10 +1,7 @@
 import { createHash } from "node:crypto";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import { PrismaActionControlPlaneRepository } from "@reviewrouter/features-action-control-plane";
-import {
-  mapConfigToRuntimeEnv,
-  safeDefaultReviewConfiguration,
-} from "@reviewrouter/features-review-config";
+import { mapConfigToRuntimeEnv } from "@reviewrouter/features-review-config";
 import { canonicalJson } from "@reviewrouter/features-review-run-control";
 import {
   canonicalHostedPoolProviderInstanceId,
@@ -308,7 +305,8 @@ export class PrismaHostedCodexGrantAdmission implements HostedCodexGrantAdmissio
         workspaceId: repository.workspaceId,
         repositoryId: repository.id,
       });
-    const config = runtime?.config ?? safeDefaultReviewConfiguration;
+    if (!runtime) throw new Error("workspace_review_policy_not_configured");
+    const config = runtime.config;
     const hostedProviders = config.providers.filter(
       (provider) =>
         provider.kind === "codex" &&
@@ -318,7 +316,7 @@ export class PrismaHostedCodexGrantAdmission implements HostedCodexGrantAdmissio
       throw new Error("hosted_provider_strategy_not_configured");
     }
     const provider = hostedProviders[0]!;
-    const runtimeConfigVersion = runtime?.version ?? 1;
+    const runtimeConfigVersion = runtime.version;
     const authorityFacts = {
       workspaceId: repository.workspaceId,
       repositoryId: repository.id,
