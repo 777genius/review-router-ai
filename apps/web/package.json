@@ -52,7 +52,8 @@
     "zustand": "^5.0.12",
     "@reviewrouter/features-review-skills": "workspace:*",
     "@reviewrouter/features-review-context-tools": "workspace:*",
-    "@reviewrouter/features-review-statistics": "workspace:*"
+    "@reviewrouter/features-review-statistics": "workspace:*",
+    "@reviewrouter/features-review-history": "workspace:*"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.4.1",

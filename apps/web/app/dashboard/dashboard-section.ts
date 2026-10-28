@@ -11,10 +11,12 @@ export type DashboardSection =
   | "diagnostics"
   | "usage"
   | "statistics"
+  | "reviews"
   | "other";
 
 export const DASHBOARD_SECTIONS = [
   "repositories",
+  "reviews",
   "statistics",
   "setup",
   "providers",
@@ -83,6 +85,12 @@ export const dashboardSectionMeta: Record<
     description:
       "The default provider and the review settings every repository starts with.",
     navDescription: "Default provider, gates",
+  },
+  reviews: {
+    eyebrow: "Review activity",
+    title: "Reviews",
+    description: "Review history for your workspace's pull requests.",
+    navDescription: "Pull requests and review history",
   },
   statistics: {
     eyebrow: "Review activity",

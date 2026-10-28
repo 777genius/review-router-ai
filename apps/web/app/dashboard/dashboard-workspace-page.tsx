@@ -1,5 +1,6 @@
 import { savedProviderIdentity } from "../../src/server/provider-identity";
 import { ReviewStatisticsSection } from "./review-statistics-section";
+import { ReviewHistorySection } from "./review-history-section";
 import { ReviewSkillsSection } from "./review-skills-section";
 import { RepositorySkillsDialog } from "./repository-skills-dialog";
 import { listDashboardContextConnections } from "../../src/server/context-tools";
@@ -1299,6 +1300,14 @@ export async function DashboardSectionContent({
         </section>
       );
     }
+  }
+  if (selectedSection === "reviews") {
+    return (
+      <ReviewHistorySection
+        workspaceId={selectedWorkspace.workspace.id}
+        params={params}
+      />
+    );
   }
   if (selectedSection === "statistics") {
     return (

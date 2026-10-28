@@ -45,6 +45,17 @@ export class PrismaReviewCompletionProcessRepository implements ReviewCompletion
   constructor(
     private readonly prisma: PrismaClient,
     private readonly captureSettlement: ReviewCompletionSettlementHook,
+    private readonly historyCapture?: Readonly<{
+      beforeMutation(
+        transaction: Prisma.TransactionClient,
+        executionId: string,
+      ): Promise<void>;
+      changed(
+        transaction: Prisma.TransactionClient,
+        next: ReviewCompletionProcess,
+        previous?: ReviewCompletionProcess,
+      ): Promise<void>;
+    }>,
   ) {
     if (typeof captureSettlement !== "function") {
       throw new Error("review_completion_settlement_hook_required");
@@ -59,9 +70,19 @@ export class PrismaReviewCompletionProcessRepository implements ReviewCompletion
       if (!existing) {
         const candidate = createReviewCompletionProcess(input);
         try {
-          const created = await this.prisma.reviewCompletionProcess.create({
-            data: toCreateData(candidate),
-          });
+          const created = await this.prisma.$transaction(
+            async (transaction) => {
+              await this.historyCapture?.beforeMutation(
+                transaction,
+                input.executionId,
+              );
+              const record = await transaction.reviewCompletionProcess.create({
+                data: toCreateData(candidate),
+              });
+              await this.historyCapture?.changed(transaction, toDomain(record));
+              return record;
+            },
+          );
           return {
             status: ReviewCompletionProcessCreateStatus.Created,
             process: toDomain(created),
@@ -215,6 +236,7 @@ export class PrismaReviewCompletionProcessRepository implements ReviewCompletion
     transition: ReviewCompletionTransition,
   ): Promise<ReviewCompletionProcessTransitionResult> {
     return this.prisma.$transaction(async (transaction) => {
+      await this.historyCapture?.beforeMutation(transaction, claim.executionId);
       const record = await transaction.reviewCompletionProcess.findUnique({
         where: { executionId: claim.executionId },
       });
@@ -264,6 +286,7 @@ export class PrismaReviewCompletionProcessRepository implements ReviewCompletion
           settledAt: next.updatedAt,
         });
       }
+      await this.historyCapture?.changed(transaction, next, process);
       const applied = await transaction.reviewCompletionProcess.findUnique({
         where: { executionId: claim.executionId },
       });

@@ -28,11 +28,17 @@ import type {
   StatisticsReport,
   StatisticsIssuePage,
 } from "../../packages/features/review-statistics/src/domain/statistics.js";
+import {
+  seedHistoryFixtures,
+  restoreHistoryCoverage,
+  warmHistoryApis,
+  qualifyHistory,
+} from "./history-scenario.js";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const scenario = process.env.STATISTICS_E2E_SCENARIO ?? "full";
 assert(
-  ["full", "authorization-recovery"].includes(scenario),
+  ["full", "authorization-recovery", "history"].includes(scenario),
   "Unknown statistics qualification scenario",
 );
 const databaseUrl = process.env.STATISTICS_E2E_DATABASE_URL ?? "";
@@ -131,6 +137,8 @@ let seeded = false;
 let roleCreated = false;
 let coverageChanged = false;
 let originalCoverage: string | null = null;
+let originalHistoryCoverage: string | null = null;
+let historyCoverageChanged = false;
 let failure: unknown;
 let appStopRequested = false;
 let appExit: {
@@ -169,6 +177,22 @@ const sourceFiles = [
   "scripts/statistics-e2e/browser-qualify.ts",
   "scripts/statistics-e2e/dev-server.ts",
 ];
+if (scenario === "history")
+  sourceFiles.push(
+    "apps/web/app/dashboard/review-history-section.tsx",
+    "apps/web/src/server/review-history.ts",
+    "apps/web/src/features/review-history/interface/history-view.tsx",
+    "apps/web/src/features/review-history/interface/history-scope.tsx",
+    "apps/web/src/features/review-history/interface/history-repository-filter.tsx",
+    "apps/web/src/features/review-history/interface/history-runs.tsx",
+    "apps/web/src/features/review-history/interface/history-row.tsx",
+    "apps/web/src/features/review-history/interface/history.module.css",
+    "apps/web/src/features/review-history/adapters/history-api.ts",
+    "packages/ui/src/search-select-field/search-select-field.tsx",
+    "packages/features/review-history/src/adapters/outbound/prisma-history-reader.ts",
+    "packages/platform/db/prisma/migrations/000151_review_history/migration.sql",
+    "scripts/statistics-e2e/history-scenario.ts",
+  );
 const migrations = (
   await readdir(join(root, "packages/platform/db/prisma/migrations"))
 ).filter((name) => name.endsWith("_review_statistics"));
@@ -202,6 +226,15 @@ try {
     await admin.query<{ server_version: string }>("SHOW server_version")
   ).rows[0]!.server_version;
   await seed();
+  if (scenario === "history") {
+    originalHistoryCoverage = await seedHistoryFixtures(
+      admin,
+      prefix,
+      main.id,
+      epoch,
+    );
+    historyCoverageChanged = true;
+  }
   console.log("statistics-e2e: real fixtures seeded");
   const appDatabaseUrl = await readOnlyRole();
   const port = await loopbackPort();
@@ -302,7 +335,7 @@ try {
     },
   });
   const warm = await fetch(
-    `${appUrl}/dashboard?section=statistics&workspace=${main.slug}`,
+    `${appUrl}/dashboard?section=${scenario === "history" ? "reviews" : "statistics"}&workspace=${main.slug}`,
     {
       headers: { cookie: `next-auth.session-token=${sessionToken}` },
       signal: AbortSignal.timeout(180_000),
@@ -310,7 +343,11 @@ try {
   );
   assert.equal(warm.status, 200, "Warm real SSR request");
   assert(
-    (await warm.text()).includes("All-severity review summary"),
+    (await warm.text()).includes(
+      scenario === "history"
+        ? "Reviewed pull requests"
+        : "All-severity review summary",
+    ),
     "Initial HTML must contain the server-rendered report",
   );
   checks.push("authorized initial SSR HTML contains the real report");
@@ -320,43 +357,53 @@ try {
     JSON.stringify({
       status: warm.status,
       containsReport: true,
-      expectedFixtureTotals: [12, 90, 180],
+      expectedFixtureTotals:
+        scenario === "history"
+          ? { firstPage: 25, pullRequests: 35 }
+          : [12, 90, 180],
       sourceCommit,
       sourceSha256,
       node: process.version,
       postgres: serverVersion,
     }) + "\n",
   );
-  const warmedReport = await warmApi(
-    `/api/dashboard/review-statistics?workspaceId=${main.id}&days=30&severity=all`,
-  );
-  const report = (await warmedReport.json()) as StatisticsReport;
-  await writeFile(
-    join(outputDir, "warm-report.json"),
-    JSON.stringify(report, null, 2) + "\n",
-  );
-  assert.equal(report.totals.reviews, 90);
-  assert.equal(report.totals.pullRequestsReviewed, 12);
-  assert.equal(report.totals.issuesCaught, 180);
-  const issuesQuery = new URLSearchParams({
-    workspaceId: main.id,
-    from: report.period.from,
-    to: report.period.to,
-    severity: "all",
-  });
-  const warmedIssues = await warmApi(
-    `/api/dashboard/review-statistics/issues?${issuesQuery}`,
-  );
-  assert.equal(
-    ((await warmedIssues.json()) as StatisticsIssuePage).items.length,
-    25,
-  );
-  checks.push(
-    "both actual protected API warmups return200/private-no-store with exact fixture totals and25 issues",
-  );
-  console.log(
-    "statistics-e2e: both protected APIs compiled before browser launch",
-  );
+  if (scenario === "history") {
+    await warmHistoryApis(warmApi, main.id);
+    checks.push(
+      "all three actual protected history API warmups return200/private-no-store,25 PRs,25 repositories and5 runs",
+    );
+  } else {
+    const warmedReport = await warmApi(
+      `/api/dashboard/review-statistics?workspaceId=${main.id}&days=30&severity=all`,
+    );
+    const report = (await warmedReport.json()) as StatisticsReport;
+    await writeFile(
+      join(outputDir, "warm-report.json"),
+      JSON.stringify(report, null, 2) + "\n",
+    );
+    assert.equal(report.totals.reviews, 90);
+    assert.equal(report.totals.pullRequestsReviewed, 12);
+    assert.equal(report.totals.issuesCaught, 180);
+    const issuesQuery = new URLSearchParams({
+      workspaceId: main.id,
+      from: report.period.from,
+      to: report.period.to,
+      severity: "all",
+    });
+    const warmedIssues = await warmApi(
+      `/api/dashboard/review-statistics/issues?${issuesQuery}`,
+    );
+    assert.equal(
+      ((await warmedIssues.json()) as StatisticsIssuePage).items.length,
+      25,
+    );
+    checks.push(
+      "both actual protected API warmups return200/private-no-store with exact fixture totals and25 issues",
+    );
+    console.log(
+      "statistics-e2e: both protected APIs compiled before browser launch",
+    );
+  }
   await fetch(`${appUrl}/api/health`, {
     signal: AbortSignal.timeout(30_000),
   }).then((response) => response.text());
@@ -383,7 +430,23 @@ try {
   const page = await context.newPage();
   page.setDefaultTimeout(30_000);
   observe(page);
-  if (scenario === "authorization-recovery") {
+  if (scenario === "history") {
+    await qualifyHistory({
+      page,
+      context,
+      admin,
+      appUrl,
+      main,
+      empty,
+      actorId: actor.id,
+      role,
+      prefix,
+      checks,
+      snapshot,
+      selectTheme,
+      addMember,
+    });
+  } else if (scenario === "authorization-recovery") {
     await openWorkspace(page, main.slug);
     await selectTheme(page, "dark");
     await populated(page);
@@ -472,6 +535,10 @@ try {
     async () => {
       await rm(join(outputDir, "next-build"), { recursive: true, force: true });
       await rm(runtimeTmp, { recursive: true, force: true });
+    },
+    async () => {
+      if (adminConnected && historyCoverageChanged)
+        await restoreHistoryCoverage(admin, originalHistoryCoverage);
     },
     async () => {
       if (!adminConnected || !coverageChanged) return;
@@ -1061,7 +1128,10 @@ function observe(page: Page) {
   page.on("pageerror", (error) => browserErrors.push(error.message));
   page.on("response", (response) => {
     const url = new URL(response.url());
-    if (url.pathname.startsWith("/api/dashboard/review-statistics"))
+    if (
+      url.pathname.startsWith("/api/dashboard/review-statistics") ||
+      url.pathname.startsWith("/api/dashboard/review-history")
+    )
       requests.push({
         path: url.pathname,
         status: response.status(),
