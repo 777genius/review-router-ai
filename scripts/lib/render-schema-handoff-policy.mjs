@@ -294,6 +294,21 @@ export const renderMemoryKnowledgeCheckoutExtension = Object.freeze([
   }),
 ]);
 
+// Automatic source lineage and conversational processing are checkout-only.
+// Pin the pair and its complete source inventory before retaining checkout155.
+export const renderConversationalMemoryCheckoutExtension = Object.freeze([
+  Object.freeze({
+    migrationName: "000152_memory_automatic_source",
+    checksum:
+      "9aae83ee157aa25f862ffa8f4378dd4ed62ca34e22064c985d32c0399353ada2",
+  }),
+  Object.freeze({
+    migrationName: "000153_conversation_processing",
+    checksum:
+      "df77c25b90c7811fb702f35a557a00465918a61d9caf6e34a3799c83b65638b8",
+  }),
+]);
+
 export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     !Array.isArray(catalog) ||
@@ -306,6 +321,47 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  const conversationalMemoryMigrations = catalog.filter((row) =>
+    renderConversationalMemoryCheckoutExtension.some(
+      (extension) => extension.migrationName === row.migrationName,
+    ),
+  );
+  if (conversationalMemoryMigrations.length > 0) {
+    if (
+      conversationalMemoryMigrations.length !==
+        renderConversationalMemoryCheckoutExtension.length ||
+      conversationalMemoryMigrations.some(
+        (row, index) =>
+          row.migrationName !==
+            renderConversationalMemoryCheckoutExtension[index].migrationName ||
+          row.checksum !==
+            renderConversationalMemoryCheckoutExtension[index].checksum,
+      ) ||
+      manifest(catalog) !==
+        "sha256:142e0ea44ad7c65c9e27e133c2902d35a88c1dcb39c0ea5274059fc81ae2de49"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => !conversationalMemoryMigrations.includes(row)),
+    );
+  }
+  // Review history is checkout-only. Pin its SQL and the complete checkout155
+  // before reducing to the previously reviewed Skills-catalog154 inventory.
+  const reviewHistoryMigration = catalog.find(
+    (row) => row.migrationName === "000151_review_history",
+  );
+  if (reviewHistoryMigration) {
+    if (
+      reviewHistoryMigration.checksum !==
+        "276fc355d90fd41ba95797eeb21a73aa78755c0709a82426f33552ecb2c05274" ||
+      manifest(catalog) !==
+        "sha256:3d7b45be5b1654757f1bf72626e6f3f7c9b1351bb82ce93819bca2e4a38b7dbf"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== reviewHistoryMigration),
+    );
+  }
   // Checked Skills storage is checkout-only. Remove its exact, immutable SQL
   // identity first; the recursive checks still pin the full memory153 (or
   // prior repository151) source manifest and never expand managed92 SQL.

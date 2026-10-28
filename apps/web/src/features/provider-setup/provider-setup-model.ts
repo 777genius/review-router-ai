@@ -1,4 +1,5 @@
 import type { ProviderIdentity } from "./provider-identity";
+import type { SetupProviderId } from "./setup-provider";
 import {
   decideProviderManagement,
   type ProviderManagementActor,
@@ -18,7 +19,6 @@ import {
   apiKeyProviderForAuthMode,
   getApiKeyProvider,
   type ProviderAuthMode,
-  type ApiKeyProviderId,
 } from "@reviewrouter/features-review-providers";
 
 /**
@@ -119,7 +119,7 @@ export type ProviderSetupView = Readonly<{
   sources: readonly ProviderSourceOption[];
   viewerIsAdmin: boolean;
   /** Enrollment capabilities, independent of whether an account exists yet. */
-  gatewayApiKeyProviders?: readonly ApiKeyProviderId[];
+  gatewaySetupProviders?: readonly SetupProviderId[];
 }>;
 
 /** Verified facts of one dialog read. */
@@ -159,7 +159,7 @@ export type ProviderSetupFacts = Readonly<{
     >
   >;
   claudeCodeEnabled: boolean;
-  gatewayApiKeyProviders?: readonly ApiKeyProviderId[];
+  gatewaySetupProviders?: readonly SetupProviderId[];
 }>;
 
 const allowed: ProviderSetupDecision = { allowed: true };
@@ -422,8 +422,8 @@ export function buildProviderSetupView(
     profiles,
     sources,
     viewerIsAdmin: admin,
-    ...(facts.gatewayApiKeyProviders
-      ? { gatewayApiKeyProviders: facts.gatewayApiKeyProviders }
+    ...(facts.gatewaySetupProviders
+      ? { gatewaySetupProviders: facts.gatewaySetupProviders }
       : {}),
   };
 }

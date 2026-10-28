@@ -95,7 +95,7 @@ describe.skipIf(!databaseUrl)(
         await fixture.query(
           await readFile(
             new URL(
-              "../../../../platform/db/prisma/migrations/202610280002_memory_automatic_source/migration.sql",
+              "../../../../platform/db/prisma/migrations/000152_memory_automatic_source/migration.sql",
               import.meta.url,
             ),
             "utf8",

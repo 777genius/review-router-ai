@@ -1,11 +1,26 @@
-import { expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { afterEach, expect, it, vi } from "vitest";
+import {
+  PrismaProviderAccountRepository,
+  type BindingSelection,
+} from "@reviewrouter/features-provider-accounts";
 import { PrismaActionControlPlaneRepository } from "@reviewrouter/features-action-control-plane";
 import {
   conversationDigest,
+  type ConversationIdentity,
   type ConversationRecord,
 } from "@reviewrouter/features-conversations";
 import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
-import { createConversationPublicationAuthority } from "./action-conversation-policy.js";
+import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
+import {
+  createConversationPolicy,
+  createConversationPublicationAuthority,
+} from "./action-conversation-policy.js";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 it.each(["unchanged", "binding", "model"] as const)(
   "checks the actual current selected configuration at publication claim: %s",
@@ -149,3 +164,289 @@ it.each(["unchanged", "binding", "model"] as const)(
     }
   },
 );
+
+function dynamicModelFixture(
+  gates: Readonly<Record<string, string | undefined>>,
+  options: {
+    source?: "codex" | "openrouter";
+    fetchedAt?: string;
+    expiresAt?: string;
+    large?: boolean;
+    oversized?: boolean;
+  } = {},
+) {
+  const profileId = "openrouter-openai-responses-apikey-v1";
+  const model = "vendor/dynamic-qualified-model";
+  const identity: ConversationIdentity = {
+    workspaceId: "workspace_probe",
+    repositoryId: "repository_probe",
+    repositoryStableId: "1234",
+    repositoryFullName: "owner/repository",
+    pullRequestNumber: 42,
+    threadId: "thread_probe",
+    sourceId: "source_probe",
+    sourceCommentId: "comment_probe",
+    sourceRevision: "revision_probe",
+    sourceUpdatedAt: new Date().toISOString(),
+    sourceActor: { id: "actor_probe", login: "maintainer", kind: "human" },
+  };
+  const selection: BindingSelection = {
+    binding: {
+      id: "binding_probe",
+      workspaceId: identity.workspaceId,
+      connectionId: "connection_probe",
+      state: "active",
+      revision: 1,
+      policyRevision: 1,
+      pendingFence: null,
+      fenceAck: null,
+    },
+    connection: {
+      id: "connection_probe",
+      owner: { kind: "workspace", workspaceId: identity.workspaceId },
+      gatewayAccountRef: "account_probe",
+      gatewayOperationRef: null,
+      profileRef: profileId,
+      displayName: "Account",
+      state: "active",
+      metadataRevision: 1,
+    },
+  };
+  const config = parseReviewConfigurationStrict({
+    ...workspacePolicyFixture,
+    providers: [
+      {
+        kind: "codex",
+        authMode: "codex_account_gateway",
+        gatewayBindingId: selection.binding.id,
+        gatewayProfileRef: profileId,
+        model,
+        agenticContext: false,
+        fastMode: false,
+      },
+    ],
+  });
+  vi.spyOn(
+    PrismaActionControlPlaneRepository.prototype,
+    "findRuntimeReviewConfiguration",
+  ).mockResolvedValue({ config } as never);
+  vi.spyOn(
+    PrismaProviderAccountRepository.prototype,
+    "findBinding",
+  ).mockResolvedValue(selection);
+  const transaction = {
+    $queryRaw: async () => [],
+    workspaceAccountBinding: {
+      findMany: async () => [
+        {
+          connectionId: selection.connection.id,
+          connection: { ownerUserId: null },
+        },
+      ],
+    },
+  };
+  const ownerRef = `rrw_${createHash("sha256")
+    .update(`rr-workspace-owner-v1\0${identity.workspaceId}`)
+    .digest("hex")}`;
+  const source = options.source ?? "openrouter";
+  const capability = (modelId: string) => ({
+    modelId,
+    reasoning: null,
+    fast:
+      source === "codex"
+        ? { allowed: ["balanced"], default: "balanced" }
+        : null,
+    tools:
+      source === "codex"
+        ? { allowed: ["function"], default: "function" }
+        : { allowed: ["none"], default: "none" },
+  });
+  const catalog = {
+    status: "snapshot",
+    physicalGeneration: "generation_probe",
+    principalVersion: "principal_probe",
+    source,
+    fetchedAt: options.fetchedAt ?? new Date().toISOString(),
+    expiresAt:
+      options.expiresAt ?? new Date(Date.now() + 300_000).toISOString(),
+    models: [
+      ...(options.large
+        ? Array.from({ length: 2047 }, (_, index) =>
+            capability(`vendor/filler-${index}-`.padEnd(128, "x")),
+          )
+        : []),
+      capability(model),
+    ],
+  };
+  const catalogJson = JSON.stringify(catalog);
+  const fetch = vi.fn(
+    async (target: string | URL | Request, init?: RequestInit) => {
+      const path = new URL(String(target)).pathname;
+      if (path === "/v1/accounts/account_probe")
+        return Response.json({
+          accountRef: selection.connection.gatewayAccountRef,
+          ownerRef,
+          profileId,
+          displayName: "Account",
+          state: "active",
+          metadataRevision: 1,
+          authorizationEpoch: 7,
+        });
+      if (path === "/v1/account-models/read") {
+        expect(JSON.parse(String(init?.body))).toEqual({
+          ownerRef,
+          accountRef: selection.connection.gatewayAccountRef,
+          profileId,
+          expectedAuthorizationEpoch: 7,
+        });
+        return new Response(
+          catalogJson + (options.oversized ? " ".repeat(2 * 1024 * 1024) : ""),
+          { headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`unexpected_gateway_path:${path}`);
+    },
+  );
+  vi.stubGlobal("fetch", fetch);
+  const limits = {
+    requests: 1,
+    concurrency: 1,
+    requestBytes: 131_072,
+    outputBytes: 262_144,
+    tokens: 2048,
+  };
+  const policy = createConversationPolicy({
+    prisma: {
+      $transaction: async (callback: (tx: typeof transaction) => unknown) =>
+        callback(transaction),
+    } as never,
+    runtime: {
+      policy: {
+        getPolicy: async () => ({
+          policyVersion: 1,
+          safetyPolicyVersion: 1,
+          memoryEnabled: true,
+          automaticLearning: true,
+        }),
+      },
+    } as never,
+    qualification: {
+      profileVersion: 1,
+      proofId: "qualified-catalog-probe",
+      sourceProcessingProfile: "transient-checked-inline-v1",
+      runtimeSha: "a".repeat(40),
+      repositories: [identity],
+      models: [
+        {
+          profileId,
+          model,
+          contextWindowTokens: 131_072,
+          tokensPerByteUpperBound: 4,
+        },
+      ],
+    },
+    env: {
+      ...gates,
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN: "https://gateway.example",
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER: "bounded-probe-bearer",
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: JSON.stringify({
+        profiles: [{ profileRef: profileId, limits }],
+      }),
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY: JSON.stringify({
+        profiles: [
+          {
+            profile: {
+              profileId,
+              protocol: "openai-responses",
+              modelIds: ["openai/gpt-5.4-mini"],
+              authKinds: ["api_key"],
+            },
+            outputTokens: 2048,
+          },
+        ],
+        ingressBytes: 131_072,
+        requestTimeoutMs: 10_000,
+        waitBudgetMs: 0,
+        maxWaits: 0,
+        maxSessions: 1,
+        maxInFlight: 1,
+      }),
+    },
+    admitMemory: async () => true,
+  });
+  return {
+    fetch,
+    model,
+    catalogBytes: Buffer.byteLength(catalogJson),
+    capture: () =>
+      policy.capture(identity, "processing_probe", {
+        deadlineAt: new Date(Date.now() + 30_000),
+      }),
+  };
+}
+
+it.each([
+  { REVIEW_ROUTER_ACCOUNT_MODEL_CATALOG_ENABLED: "1" },
+  { REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED: "1" },
+])(
+  "admits the exact qualified dynamic model with catalog rollout %j",
+  async (gates) => {
+    const f = dynamicModelFixture(gates);
+    const policy = await f.capture();
+    expect(policy.bindingManifest.model).toBe(f.model);
+    expect(
+      await policy.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
+    ).toBe(true);
+    expect(
+      f.fetch.mock.calls.filter(([target]) =>
+        String(target).endsWith("/v1/account-models/read"),
+      ),
+    ).toHaveLength(2);
+  },
+);
+
+it("honors an explicit catalog disable even when the legacy gate is enabled", async () => {
+  const f = dynamicModelFixture({
+    REVIEW_ROUTER_ACCOUNT_MODEL_CATALOG_ENABLED: "0",
+    REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED: "1",
+  });
+  await expect(f.capture()).rejects.toThrow("unavailable");
+  expect(
+    f.fetch.mock.calls.some(([target]) =>
+      String(target).endsWith("/v1/account-models/read"),
+    ),
+  ).toBe(false);
+});
+
+it.each([
+  { source: "codex" as const },
+  { fetchedAt: new Date(Date.now() + 60_000).toISOString() },
+  {
+    fetchedAt: new Date(Date.now() - 120_000).toISOString(),
+    expiresAt: new Date(Date.now() - 60_000).toISOString(),
+  },
+])("rejects an inapplicable dynamic model snapshot %j", async (options) => {
+  const f = dynamicModelFixture(
+    { REVIEW_ROUTER_ACCOUNT_MODEL_CATALOG_ENABLED: "1" },
+    options,
+  );
+  await expect(f.capture()).rejects.toThrow("unavailable");
+});
+
+it("reads the complete qualified account catalog beyond the old 256KiB bound", async () => {
+  const f = dynamicModelFixture(
+    { REVIEW_ROUTER_ACCOUNT_MODEL_CATALOG_ENABLED: "1" },
+    { large: true },
+  );
+  expect(f.catalogBytes).toBeGreaterThan(262_144);
+  expect(f.catalogBytes).toBeLessThan(2 * 1024 * 1024);
+  expect((await f.capture()).bindingManifest.model).toBe(f.model);
+});
+
+it("keeps the SDK account catalog response bounded at 2MiB", async () => {
+  const f = dynamicModelFixture(
+    { REVIEW_ROUTER_ACCOUNT_MODEL_CATALOG_ENABLED: "1" },
+    { oversized: true },
+  );
+  await expect(f.capture()).rejects.toThrow("unavailable");
+});

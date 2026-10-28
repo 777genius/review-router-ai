@@ -566,6 +566,15 @@ jobs:
           test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='codex_oauth_provider_identity_guard' AND pg_catalog.pg_get_userbyid(p.proowner)='postgres'")" = 1
           test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_release_migration'")" = 0
 
+      # Keep one idle snapshot before application suites open concurrent sessions.
+      # Replaying 000079 after later migrations create global roles is unsafe.
+      - name: Prepare isolated History template
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -X -h 127.0.0.1 -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_history_template TEMPLATE review_router_ci_test'
+          psql -X -h 127.0.0.1 -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'ALTER DATABASE review_router_history_template ALLOW_CONNECTIONS false'
+
       - name: Apply dev database migrations
         run: pnpm db:migrate:deploy
 
@@ -604,6 +613,9 @@ jobs:
         env:
           USAGE_REDRIVE_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
           STATISTICS_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          HISTORY_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5433/postgres
+          HISTORY_TEST_POSTGRES_TEMPLATE_DATABASE: review_router_history_template
+          HISTORY_REQUIRE_POSTGRES: "1"
         run: pnpm test
 
       - name: Architecture boundaries

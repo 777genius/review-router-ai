@@ -11,6 +11,11 @@ import {
 import type { DashboardWorkspaceSummary } from "./dashboard-workspace-navigation";
 import type { EffectiveReviewConfiguration } from "@reviewrouter/features-review-config";
 
+vi.mock("next/navigation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/navigation")>()),
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
+
 const memoryKnowledge = vi.hoisted(() => ({
   load: vi.fn(async () => ({ workspaceId: "workspace-a", repositoryId: null })),
 }));
@@ -776,7 +781,7 @@ describe("dashboard server loading boundaries", () => {
   );
 
   it.each([true, false])(
-    "renders Accounts without interpreting its unrequested policy as missing (admin %s)",
+    "renders Connections within Providers without requesting policy (admin %s)",
     async (hasWorkspaceWideAccess) => {
       const data = await loadDashboardSectionData(
         { ...workspace, hasWorkspaceWideAccess },
@@ -798,8 +803,12 @@ describe("dashboard server loading boundaries", () => {
       );
       expect(html).toContain("Accounts in acme");
       expect(html).toContain("Your accounts");
-      // The page no longer repeats "Accounts" as a top heading (UX batch 3).
       expect(html).not.toContain(">Accounts</h2>");
+      expect(html).toContain(">Providers</h2>");
+      expect(html).toContain('aria-label="Providers"');
+      expect(html).toContain(">Connections</a>");
+      expect(html).toContain(">Review providers</a>");
+      expect(html).toContain("/dashboard/setup?workspace=acme");
       expect(html).toContain("Choose providers and models for reviews");
       expect(html).not.toContain("Save workspace review settings");
       expect(html).not.toContain("retired format");
@@ -807,6 +816,63 @@ describe("dashboard server loading boundaries", () => {
         hasWorkspaceWideAccess,
       );
       expect(spies.policies).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves the validated provider setup continuation across Providers views", async () => {
+    const data = await loadDashboardSectionData(workspace, "setup", access);
+    const html = renderToStaticMarkup(
+      <WorkspaceCard
+        data={data}
+        mutationsEnabled
+        selectedSection="setup"
+        params={{
+          keyProvider: "openrouter",
+          keyStorage: "reviewrouter",
+          keyWorkspace: "workspace-a",
+          keyRepository: ["repo-a", "repo-b"],
+        }}
+        repositoryAccess={access}
+        workspaceKey="acme"
+        appInstallUrl={null}
+        modelOptions={[]}
+      />,
+    );
+    expect(html).toContain(
+      "/dashboard?workspace=workspace-a&amp;keyProvider=openrouter&amp;keyStorage=reviewrouter&amp;keyWorkspace=workspace-a&amp;section=providers&amp;keyRepository=repo-a&amp;keyRepository=repo-b",
+    );
+    expect(html).toContain(
+      "/dashboard/setup?workspace=workspace-a&amp;keyProvider=openrouter&amp;keyStorage=reviewrouter&amp;keyWorkspace=workspace-a&amp;keyRepository=repo-a&amp;keyRepository=repo-b",
+    );
+  });
+
+  it.each(["provider_selection_required", "resave_required"] as const)(
+    "keeps Review settings focused on behavior and points to Providers (%s)",
+    async (reviewConfigStatus) => {
+      spies.repositories.mockResolvedValueOnce([]);
+      const data = await loadDashboardSectionData(workspace, "policy", access);
+      const html = renderToStaticMarkup(
+        <WorkspaceCard
+          data={{ ...data, reviewConfigStatus }}
+          mutationsEnabled
+          selectedSection="policy"
+          params={{}}
+          repositoryAccess={access}
+          workspaceKey="acme"
+          appInstallUrl={null}
+          modelOptions={[]}
+        />,
+      );
+      expect(html).toContain(">Review settings</h2>");
+      expect(html).toContain('aria-label="Default review provider"');
+      expect(html).toContain(
+        reviewConfigStatus === "resave_required"
+          ? "Default provider unavailable: saved settings use a retired format."
+          : "No default provider selected.",
+      );
+      expect(html).toContain("Manage providers and workspace default");
+      expect(html).toContain("/dashboard?section=providers&amp;workspace=acme");
+      expect(html).not.toContain("Choose a provider");
     },
   );
 

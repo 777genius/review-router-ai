@@ -361,6 +361,9 @@ const preReleaseMigrationBoundary = Object.freeze({
     "000148_lifecycle_verification",
     "000149_api_key_repository_secret_profiles",
     "000150_skills_catalog_security",
+    "000151_review_history",
+    "000152_memory_automatic_source",
+    "000153_conversation_processing",
   ]),
   retained: Object.freeze([
     "000067_review_live_progress",

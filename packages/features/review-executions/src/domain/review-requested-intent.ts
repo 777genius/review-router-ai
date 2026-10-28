@@ -73,6 +73,7 @@ export type ReviewRequestedClaim = {
 
 export type ReviewRequestedIntent = ReviewExecutionScope & {
   readonly requestId: string;
+  readonly historyRootRequestId?: string | null;
   readonly dispatchAttempt: number;
   readonly version: bigint;
   readonly revision: ReviewRevision;
@@ -99,6 +100,10 @@ export type ReviewRequestedIntent = ReviewExecutionScope & {
 };
 
 export type ReviewRequestedIntentCandidate = ReviewExecutionScope & {
+  readonly historyMetadata?: Readonly<{
+    repositoryFullName?: string | null;
+    pullRequestTitle?: string | null;
+  }>;
   readonly requestId: string;
   readonly dispatchAttempt?: number;
   readonly revision: ReviewRevision;
@@ -202,6 +207,7 @@ export function createReviewRequestedIntent(
   assertReviewRequestedIntentCandidate(candidate);
   return {
     ...candidate,
+    historyRootRequestId: candidate.requestId,
     dispatchAttempt: candidate.dispatchAttempt ?? 1,
     revision: { ...candidate.revision },
     version: 1n,
@@ -767,7 +773,10 @@ export function decideReviewRequestedDispatchRecovery(input: {
       createSuccessor: false,
     };
   }
-  const successor = createReviewRequestedIntent(input.successorCandidate);
+  const successor = {
+    ...createReviewRequestedIntent(input.successorCandidate),
+    historyRootRequestId: input.intent.historyRootRequestId ?? null,
+  };
   if (
     successor.requestId === input.intent.requestId ||
     scopeKey(successor) !== scopeKey(input.intent) ||

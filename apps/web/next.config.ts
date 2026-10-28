@@ -14,6 +14,7 @@ const nextConfig: NextConfig = {
   transpilePackages: [
     "@reviewrouter/ui",
     "@reviewrouter/features-review-statistics",
+    "@reviewrouter/features-review-history",
     "@reviewrouter/features-hosted-account-pool",
   ],
   turbopack: {

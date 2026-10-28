@@ -32,10 +32,15 @@ import {
 } from "../../../src/features/provider-setup/provider-list-model";
 import { sourceTitle } from "../../../src/features/provider-setup/provider-setup-model";
 import {
-  apiKeyProviderForCredential,
   apiKeySetupHref,
   apiKeyStorageLabel,
 } from "../../../src/features/provider-setup/api-key-storage";
+import {
+  getSetupProvider,
+  setupProviderForDirectAuthMode,
+  setupProviderForGatewayProfile,
+} from "../../../src/features/provider-setup/setup-provider";
+import { gatewayProviderModelOptions } from "../../../src/features/provider-setup/provider-model-options";
 import type {
   AccountsPage,
   AccountsResult,
@@ -301,7 +306,7 @@ function ProviderListItem({
               {...dialog}
               target={{ kind: "workspace" }}
               initialProfileId={row.id}
-              triggerLabel="Make default"
+              triggerLabel={row.isDefault ? "Review settings" : "Make default"}
               triggerVariant="outline"
               triggerSize="sm"
               triggerClassName="min-h-9 rounded-lg px-3"
@@ -502,24 +507,33 @@ function ProviderProfileEditForm({
   const gatewayAccount = getReadyGatewayAccounts(gatewayOptions.accounts).find(
     (account) => account.binding?.id === row.gatewayBindingId,
   );
-  const replacementProvider = apiKeyProviderForCredential({
-    authMode: row.authMode,
-    profile:
-      gatewayOptions.profileFor(gatewayAccount) ??
-      (gatewayOptions.accounts?.status === "ok"
-        ? gatewayOptions.accounts.value.profiles.find(
-            (profile) => profile.id === row.gatewayProfileRef,
-          )
-        : undefined),
-  });
+  const gatewayProfile =
+    gatewayOptions.profileFor(gatewayAccount) ??
+    (gatewayOptions.accounts?.status === "ok"
+      ? gatewayOptions.accounts.value.profiles.find(
+          (profile) => profile.id === row.gatewayProfileRef,
+        )
+      : undefined);
+  const replacementProvider = gateway
+    ? setupProviderForGatewayProfile(gatewayProfile)
+    : setupProviderForDirectAuthMode(row.authMode);
   const storageLabel = replacementProvider
     ? apiKeyStorageLabel(row.credentialKind)
     : null;
+  const catalogProvider = replacementProvider
+    ? getSetupProvider(replacementProvider).publicCatalogProvider
+    : providerKindForAuthMode(row.authMode);
+  const publicModelOptions = catalogProvider
+    ? catalogs.optionsFor(catalogProvider, true, {
+        allowRoutingModels: gateway,
+      })
+    : [];
   const modelOptions: readonly ReviewModelOption[] = gateway
-    ? (gatewayOptions.profileFor(gatewayAccount)?.models ?? []).map(
-        (value) => ({ value, label: value, provider: "codex" }),
-      )
-    : catalogs.optionsFor(providerKindForAuthMode(row.authMode), true);
+    ? gatewayProviderModelOptions(publicModelOptions, gatewayProfile, {
+        catalog: gatewayAccount?.modelCatalog,
+        requiresTools: true,
+      })
+    : publicModelOptions;
   const trimmedLabel = label.trim();
   const trimmedModel = model.trim();
   const changes = {
@@ -530,7 +544,16 @@ function ProviderProfileEditForm({
     !pending &&
     trimmedLabel.length > 0 &&
     trimmedModel.length > 0 &&
-    Object.keys(changes).length > 0;
+    Object.keys(changes).length > 0 &&
+    (trimmedModel === row.model ||
+      modelOptions.find((option) => option.value === trimmedModel)?.disabled !==
+        true) &&
+    (!gateway ||
+      trimmedModel === row.model ||
+      (gatewayProfile?.models.includes(trimmedModel) === true &&
+        modelOptions.some(
+          (option) => option.value === trimmedModel && !option.disabled,
+        )));
 
   async function save(): Promise<void> {
     if (!canSave) return;
@@ -578,7 +601,8 @@ function ProviderProfileEditForm({
         model={model}
         onModelChange={setModel}
         modelOptions={modelOptions}
-        modelChoice={gateway ? "list" : "catalog"}
+        modelChoice="catalog"
+        allowCustomModel={!gateway}
         emptyListPlaceholder="The account lists no models right now"
         disabled={pending}
       />
@@ -591,12 +615,13 @@ function ProviderProfileEditForm({
             gatewayOptions.refreshModels(row.gatewayBindingId ?? "")
           }
         />
-      ) : (
+      ) : null}
+      {catalogProvider ? (
         <ProviderModelCatalogStatus
-          status={catalogs.status(providerKindForAuthMode(row.authMode))}
-          publicSelection
+          status={catalogs.status(catalogProvider)}
+          publicSelection={!gateway}
         />
-      )}
+      ) : null}
       <div className="grid gap-1 border-t border-cyan-200/10 pt-4">
         <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
           Credential
@@ -604,7 +629,12 @@ function ProviderProfileEditForm({
         <span className="text-sm text-cyan-50">{providerSourceText(row)}</span>
         {storageLabel ? (
           <span className="text-sm text-slate-300">
-            Key storage: {storageLabel}
+            {replacementProvider &&
+            getSetupProvider(replacementProvider).credentialKind ===
+              "subscription"
+              ? "Credential storage"
+              : "Key storage"}
+            : {storageLabel}
           </span>
         ) : null}
         <span className="text-xs leading-5 text-slate-400">

@@ -49,10 +49,11 @@
     "@reviewrouter/platform-locks": "workspace:*",
     "@reviewrouter/features-sdk-growth-authority": "workspace:*",
     "@reviewrouter/features-provider-accounts": "workspace:*",
-    "@agent-teams/account-gateway": "file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz",
+    "@agent-teams/account-gateway": "file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz",
     "@reviewrouter/features-review-context-tools": "workspace:*",
     "@reviewrouter/features-provider-usage": "workspace:*",
-    "@reviewrouter/features-review-providers": "workspace:*"
+    "@reviewrouter/features-review-providers": "workspace:*",
+    "@reviewrouter/features-review-history": "workspace:*"
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",

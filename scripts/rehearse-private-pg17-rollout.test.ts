@@ -1285,6 +1285,9 @@ describe("disposable dual-version rehearsal", () => {
     const currentMigrationNames = migrationNames;
     const legacyMigrationNames = currentMigrationNames.filter(
       (name) =>
+        name !== "000152_memory_automatic_source" &&
+        name !== "000153_conversation_processing" &&
+        name !== "000151_review_history" &&
         name !== "000150_skills_catalog_security" &&
         name !== "000149_api_key_repository_secret_profiles" &&
         name !== "000142_memory_knowledge_authority" &&
@@ -1297,7 +1300,7 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000136_review_skills" &&
         name !== "000137_review_skills_capture",
     );
-    expect(currentMigrationNames).toHaveLength(154);
+    expect(currentMigrationNames).toHaveLength(157);
     expect(
       [...currentMigrationNames]
         .sort()
@@ -1334,6 +1337,9 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000144_review_statistics" &&
         name !== "000143_workspace_draft_review_setting" &&
         name !== "000145_workspace_provider_profiles" &&
+        name !== "000152_memory_automatic_source" &&
+        name !== "000153_conversation_processing" &&
+        name !== "000151_review_history" &&
         name !== "000150_skills_catalog_security" &&
         name !== "000149_api_key_repository_secret_profiles" &&
         name !== "000142_memory_knowledge_authority" &&
@@ -1396,12 +1402,30 @@ describe("disposable dual-version rehearsal", () => {
       "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
     );
     // Both published, independently reviewed manifests remain byte-exact.
-    // Together with the two fixed extension rows they pin checkout154 without
-    // regenerating an unrelated managed/historical release-policy baseline.
+    // Strip only the new reviewed tail before comparing the existing published
+    // checkout manifests; managed/historical release-policy baselines stay fixed.
+    expect(migrationManifestIdentity(currentMigrationNames)).toBe(
+      "sha256:142e0ea44ad7c65c9e27e133c2902d35a88c1dcb39c0ea5274059fc81ae2de49",
+    );
     expect(
       migrationManifestIdentity(
         currentMigrationNames.filter(
-          (name) => name !== "000150_skills_catalog_security",
+          (name) =>
+            name !== "000152_memory_automatic_source" &&
+            name !== "000153_conversation_processing",
+        ),
+      ),
+    ).toBe(
+      "sha256:3d7b45be5b1654757f1bf72626e6f3f7c9b1351bb82ce93819bca2e4a38b7dbf",
+    );
+    expect(
+      migrationManifestIdentity(
+        currentMigrationNames.filter(
+          (name) =>
+            name !== "000152_memory_automatic_source" &&
+            name !== "000153_conversation_processing" &&
+            name !== "000151_review_history" &&
+            name !== "000150_skills_catalog_security",
         ),
       ),
     ).toBe(
@@ -1411,6 +1435,9 @@ describe("disposable dual-version rehearsal", () => {
       migrationManifestIdentity(
         currentMigrationNames.filter(
           (name) =>
+            name !== "000152_memory_automatic_source" &&
+            name !== "000153_conversation_processing" &&
+            name !== "000151_review_history" &&
             name !== "000142_memory_knowledge_authority" &&
             name !== "000143_memory_maintenance_fence",
         ),
@@ -1422,6 +1449,9 @@ describe("disposable dual-version rehearsal", () => {
       migrationManifestIdentity(
         currentMigrationNames.filter(
           (name) =>
+            name !== "000152_memory_automatic_source" &&
+            name !== "000153_conversation_processing" &&
+            name !== "000151_review_history" &&
             name !== "000150_skills_catalog_security" &&
             name !== "000149_api_key_repository_secret_profiles" &&
             name !== "000142_memory_knowledge_authority" &&
@@ -1435,6 +1465,9 @@ describe("disposable dual-version rehearsal", () => {
       migrationManifestIdentity(
         currentMigrationNames.filter(
           (name) =>
+            name !== "000152_memory_automatic_source" &&
+            name !== "000153_conversation_processing" &&
+            name !== "000151_review_history" &&
             name !== "000150_skills_catalog_security" &&
             name !== "000149_api_key_repository_secret_profiles" &&
             name !== "000142_memory_knowledge_authority" &&
@@ -1572,6 +1605,9 @@ describe("disposable dual-version rehearsal", () => {
       "000148_lifecycle_verification",
       "000149_api_key_repository_secret_profiles",
       "000150_skills_catalog_security",
+      "000151_review_history",
+      "000152_memory_automatic_source",
+      "000153_conversation_processing",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1697,9 +1733,11 @@ describe("disposable dual-version rehearsal", () => {
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
     const exactTail = "000121_review_run_gateway_execution_binding";
-    const currentTail = "000150_skills_catalog_security";
+    const currentTail = "000153_conversation_processing";
     for (const candidate of [
       names.filter((name) => name !== currentTail),
+      names.filter((name) => name !== "000152_memory_automatic_source"),
+      names.filter((name) => name !== "000151_review_history"),
       names.filter(
         (name) => name !== "000149_api_key_repository_secret_profiles",
       ),
@@ -1837,6 +1875,9 @@ describe("disposable dual-version rehearsal", () => {
     "000148_lifecycle_verification",
     "000149_api_key_repository_secret_profiles",
     "000150_skills_catalog_security",
+    "000151_review_history",
+    "000152_memory_automatic_source",
+    "000153_conversation_processing",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1914,6 +1955,9 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000144_review_statistics" &&
                 name !== "000143_workspace_draft_review_setting" &&
                 name !== "000145_workspace_provider_profiles" &&
+                name !== "000152_memory_automatic_source" &&
+                name !== "000153_conversation_processing" &&
+                name !== "000151_review_history" &&
                 name !== "000150_skills_catalog_security" &&
                 name !== "000149_api_key_repository_secret_profiles" &&
                 name !== "000142_memory_knowledge_authority" &&

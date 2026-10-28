@@ -1,3 +1,4 @@
+import { createReviewHistoryFeature } from "@reviewrouter/features-review-history/composition";
 import { createMemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
 import {
   registerActionMemoryV2Routes,
@@ -301,6 +302,10 @@ export async function createApiApp(
     sdkGrowthAuthorityEnabled
       ? createPrismaClient()
       : undefined);
+  const historyFeature =
+    prisma && reviewActionV2Env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
+      ? await createReviewHistoryFeature({ prisma })
+      : undefined;
   const codexRotatingOAuthEnabled =
     isCodexRotatingOAuthEnabled(reviewActionV2Env);
   await registerDashboardGatewayProbeAccessRoute(
@@ -703,6 +708,16 @@ export async function createApiApp(
               : undefined;
           const requestedIntentStore = new PrismaReviewRequestedIntentStore(
             prisma,
+            historyFeature
+              ? {
+                  historyCapture: {
+                    register: (tx, intent, metadata) =>
+                      historyFeature.writer.register(tx, intent, metadata),
+                    changed: (tx, intent, previous) =>
+                      historyFeature.writer.captureIntent(tx, intent, previous),
+                  },
+                }
+              : {},
           );
           const ledgerSecret =
             process.env.REVIEW_ROUTER_LEDGER_HMAC_KEY ??
@@ -932,6 +947,7 @@ export async function createApiApp(
     disabledReviewActionV2RuntimeDependencies
       ? composeReviewActionV2ProductionRoutes({
           enabled: true,
+          ...(historyFeature ? { historyWriter: historyFeature.writer } : {}),
           ...(memoryRuntime
             ? {
                 memoryInputAdmission:

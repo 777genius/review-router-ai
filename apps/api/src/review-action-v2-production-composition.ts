@@ -1,3 +1,4 @@
+import type { HistoryCapture } from "@reviewrouter/features-review-history/composition";
 import { attestCompiledReviewActionV2ProducerContract } from "./review-action-v2-producer-contract-attestation.js";
 import {
   validateReviewPublicationLifecycleVerification,
@@ -30,7 +31,11 @@ import {
 } from "@reviewrouter/features-review-context-tools";
 import { createContextIssueReader } from "./github/context-issue-read.js";
 import type { ContextToolsRunAccess } from "./review-context-tools.js";
-import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
+import {
+  accountModelCatalogResponseBytes,
+  readAccountModelCatalogEnabled,
+  readPersonalAccountSharingEnabled,
+} from "@reviewrouter/features-provider-accounts/composition";
 import { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
 export { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
 import {
@@ -507,6 +512,7 @@ export function composeReviewActionV2ProductionRunControl(input: {
 }
 
 export function composeReviewActionV2ProductionRoutes(input: {
+  readonly historyWriter?: HistoryCapture;
   readonly memoryInputAdmission?: ReviewExecutionInputAdmissionPort;
   readonly investigationMemoryInputAdmission?: PrismaInvestigationStoreOptions["inputAdmission"];
   readonly enabled: boolean;
@@ -631,8 +637,24 @@ export function composeReviewActionV2ProductionRoutes(input: {
     ),
   );
 
+  const historyWriter =
+    input.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
+      ? input.historyWriter
+      : undefined;
+  if (input.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1" && !historyWriter)
+    throw new Error("review_history_capture_binding_required");
   const requestedIntentStore = new PrismaReviewRequestedIntentStore(
     input.prisma,
+    historyWriter
+      ? {
+          historyCapture: {
+            register: (tx, intent, metadata) =>
+              historyWriter.register(tx, intent, metadata),
+            changed: (tx, intent, previous) =>
+              historyWriter.captureIntent(tx, intent, previous),
+          },
+        }
+      : {},
   );
   const admissionFacts = createServerOwnedReviewActionV2AdmissionFacts({
     providerApiSource: workflowInventory,
@@ -698,6 +720,12 @@ export function composeReviewActionV2ProductionRoutes(input: {
   } as const;
 
   const executionStore = new PrismaReviewExecutionStore(input.prisma, {
+    ...(historyWriter
+      ? {
+          historyCapture: (tx, execution) =>
+            historyWriter.captureExecution(tx, execution),
+        }
+      : {}),
     ...(input.memoryInputAdmission
       ? { inputAdmission: input.memoryInputAdmission }
       : {}),
@@ -1328,8 +1356,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
   const accountGatewayRelay = accountGatewayRelayPolicy
     ? createReviewRunGatewayRelay({
         policy: accountGatewayRelayPolicy,
-        accountModelCatalogEnabled:
-          input.env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED === "1",
+        accountModelCatalogEnabled: readAccountModelCatalogEnabled(input.env),
         companionDispatches: createReviewRunCompanionDispatchAdmission({
           prisma,
           verifyLease: (token, now) => capabilities.verifyLease(token, now),
@@ -1470,8 +1497,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
   const accountGatewayCheckout = accountGatewayRelayPolicy
     ? createReviewRunGatewayCheckout({
         readSelectedModelSettings: createReviewRunGatewayModelSettingsReader({
-          accountModelCatalogEnabled:
-            input.env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED === "1",
+          accountModelCatalogEnabled: readAccountModelCatalogEnabled(input.env),
           accounts: new PrismaProviderAccountRepository(
             prisma,
             input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
@@ -1490,7 +1516,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
               10000,
               accountGatewayRelayPolicy.requestTimeoutMs,
             ),
-            responseBytes: 262144,
+            responseBytes: accountModelCatalogResponseBytes,
           }),
           profiles: accountGatewayRelayPolicy.profiles.map(
             (entry) => entry.profile,

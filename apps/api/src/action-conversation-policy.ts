@@ -19,7 +19,11 @@ import {
   selectBinding,
   lockProviderAccountBindingUses,
 } from "@reviewrouter/features-provider-accounts";
-import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
+import {
+  accountModelCatalogResponseBytes,
+  readAccountModelCatalogEnabled,
+  readPersonalAccountSharingEnabled,
+} from "@reviewrouter/features-provider-accounts/composition";
 import {
   ConversationError,
   conversationDigest,
@@ -334,7 +338,7 @@ export function createConversationPolicy(input: {
         origin: env.REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN ?? origin,
         token: bearer,
         timeoutMs: Math.min(10_000, relay.requestTimeoutMs),
-        responseBytes: 262_144,
+        responseBytes: accountModelCatalogResponseBytes,
       });
       const remoteCurrent = async (budget: RequestControls) => {
         try {
@@ -369,7 +373,16 @@ export function createConversationPolicy(input: {
           )
             return false;
           if (!profile[0]!.profile.modelIds.includes(selected.provider.model)) {
-            if (env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED !== "1")
+            const discoverySource = profile[0]!.profile.authKinds
+              .map((authKind) =>
+                c.accountModelDiscoverySource({
+                  profileId: profile[0]!.profile.profileId,
+                  protocol: profile[0]!.profile.protocol,
+                  authKind,
+                }),
+              )
+              .find((source) => source !== undefined);
+            if (!readAccountModelCatalogEnabled(env) || !discoverySource)
               return false;
             const models = await control.readAccountModels(
               {
@@ -382,6 +395,8 @@ export function createConversationPolicy(input: {
             );
             if (
               models.status !== "snapshot" ||
+              models.source !== discoverySource ||
+              Date.parse(models.fetchedAt) > Date.now() ||
               Date.parse(models.expiresAt) <= Date.now() ||
               !models.models.some(
                 (model) => model.modelId === selected.provider.model,

@@ -117,7 +117,7 @@ describe.skipIf(!databaseUrl)(
         for (const migration of [
           "000142_memory_knowledge_authority",
           "000143_memory_maintenance_fence",
-          "202610280002_memory_automatic_source",
+          "000152_memory_automatic_source",
         ])
           await fixture.query(
             await readFile(
@@ -131,7 +131,7 @@ describe.skipIf(!databaseUrl)(
         await fixture.query(
           await readFile(
             new URL(
-              "../../../packages/platform/db/prisma/migrations/20261028140000_conversation_processing/migration.sql",
+              "../../../packages/platform/db/prisma/migrations/000153_conversation_processing/migration.sql",
               import.meta.url,
             ),
             "utf8",
