@@ -110,6 +110,8 @@ export async function qualifyNative() {
     HINDSIGHT_API_RERANKER_SILICONFLOW_API_KEY: `${privacySentinel}_RERANK_KEY`,
     HINDSIGHT_API_RERANKER_SILICONFLOW_BASE_URL: stub.url,
     HINDSIGHT_API_LLM_MAX_RETRIES: "0",
+    // Strict preview must override both native content and transport retry defaults.
+    HINDSIGHT_API_RETAIN_LLM_MAX_RETRIES: "3",
     HINDSIGHT_API_EMBEDDINGS_MAX_RETRIES: "0",
     HINDSIGHT_API_RERANKER_MAX_RETRIES: "0",
     HINDSIGHT_API_WORKER_MAX_RETRIES: "0",
@@ -494,9 +496,6 @@ export async function qualifyNative() {
     const strictBank = `${run}-strict-preview`;
     await request(`/v1/default/banks/${strictBank}`, "PUT", {
       name: "Synthetic strict preview qualification",
-    });
-    await request(`/v1/default/banks/${strictBank}/config`, "PATCH", {
-      updates: { retain_llm_max_retries: 3 },
     });
     for (const [mode, size, success] of [
       ["strict-overflow", 800, true],
