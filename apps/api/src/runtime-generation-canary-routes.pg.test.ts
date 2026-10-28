@@ -86,7 +86,6 @@ describe.skipIf(!databaseUrl)(
       const proofs = body.serviceFacts.map((fact) => ({
         ...fact,
         nonce: body.nonce,
-        rolloutId: body.rolloutId,
         requestedAt: body.requestedAt,
         databaseRole: `reviewrouter_${fact.runtimeRole}`,
         systemIdentifier: identity!.systemIdentifier,
@@ -96,7 +95,9 @@ describe.skipIf(!databaseUrl)(
       }));
       await db.$executeRawUnsafe(
         `INSERT INTO "${schema}".proof SELECT * FROM jsonb_populate_recordset(NULL::"${schema}".proof,$1::jsonb)`,
-        JSON.stringify(proofs),
+        JSON.stringify(
+          proofs.map((proof) => ({ ...proof, rolloutId: body.rolloutId })),
+        ),
       );
       // Keep production SQL signatures while isolating every fixture object. Both
       // methods delegate to the real production Prisma client; no query is mocked.
@@ -132,9 +133,7 @@ describe.skipIf(!databaseUrl)(
         expect(response.json()).toMatchObject({
           nonce: body.nonce,
           serviceFacts: body.serviceFacts,
-          runtimeWitnessProofs: proofs.map(
-            ({ rolloutId: _rolloutId, ...proof }) => proof,
-          ),
+          runtimeWitnessProofs: proofs,
           writeReadRoundTrip: true,
         });
         expect(
