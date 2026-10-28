@@ -13,10 +13,10 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
-| Task                                                 | Implementation                                                    | Staging   | Production | Remaining work                                                                                               |
-| ---------------------------------------------------- | ----------------------------------------------------------------- | --------- | ---------- | ------------------------------------------------------------------------------------------------------------ |
-| [Review History](2026-10-28-review-history.md)       | [PR #730](https://github.com/777genius/review-router-ai/pull/730) | `pending` | `blocked`  | Pre-deploy CI gate; manual exception requested, response pending. Then migrate, deploy, activate, verify.    |
-| [Account model catalog](2026-10-28-model-catalog.md) | [PR #739](https://github.com/777genius/review-router-ai/pull/739) | `pending` | `blocked`  | Pre-deploy CI gate; manual exception requested, response pending. Then native258, Gateway, app, live review. |
+| Task                                                 | Implementation                                                    | Staging   | Production    | Remaining work                                                                                                                 |
+| ---------------------------------------------------- | ----------------------------------------------------------------- | --------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| [Review History](2026-10-28-review-history.md)       | [PR #730](https://github.com/777genius/review-router-ai/pull/730) | `pending` | `in_progress` | Manual exception approved; await native readiness, final image, Prisma151/ACL, fleet, capture/activation, live checks.         |
+| [Account model catalog](2026-10-28-model-catalog.md) | [PR #739](https://github.com/777genius/review-router-ai/pull/739) | `pending` | `in_progress` | Manual exception approved; native migrations and application image transfer in progress; final runtime/live review unverified. |
 
 The task file is authoritative; keep this summary in sync in the same commit.
 Missing entries do not prove that older changes are deployed: inspect the installed-to-target change range and

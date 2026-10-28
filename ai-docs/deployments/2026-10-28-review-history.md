@@ -12,10 +12,10 @@
 
 ## Environment status
 
-| Environment | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / remaining action                                                                          |
-| ----------- | --------- | ------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------- |
-| staging     | `pending` | Not verified                    | Not verified        | Reconcile installed state, then complete the rollout and live verification below.                    |
-| production  | `blocked` | `366fa74c` / `29135fbaa6bb`     | 2026-10-28 19:25    | Pre-deploy CI gate; explicit manual exception requested, owner response pending. No runtime changes. |
+| Environment | Status        | Actual deployed version / image                                 | Last verified (UTC) | Evidence / remaining action                                                                                                      |
+| ----------- | ------------- | --------------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| staging     | `pending`     | Not verified                                                    | Not verified        | Reconcile installed state, then complete the rollout and live verification below.                                                |
+| production  | `in_progress` | Serving `1e3a5379` / image prefix `ffae730f`; target `4dd75ecf` | 2026-10-28 20:06    | Manual exception approved; native migrations and image transfer in progress. Await readiness/build/fleet/activation/live checks. |
 
 No environment rollout was performed or verified when this record was created.
 `pending` means completion has no recorded evidence; do not infer existing live
@@ -47,35 +47,61 @@ Migration 151 is additive; that does not make the entire pending migration chain
 safe for a rolling upgrade. No separate prerequisite task records have yet been
 inventoried here; create/link them if the selected rollout needs them.
 
-## Production reconciliation: 2026-10-28
+## Production progress: 2026-10-28
 
-The pre-deploy read-only reconciliation observed the serving application at
-`366fa74c`, image `29135fbaa6bb`. No production application, database, Gateway,
-or native runtime was changed by this attempt.
+The owner explicitly approved a manual deployment with targeted checks without
+waiting for full CI/rehearsal. This resolves the earlier pre-deploy gate; it
+does not establish completed deployment. The selected runtime source remains
+[`4dd75ecfe3d22701ba741f451b046f0b5e440231`](https://github.com/777genius/review-router-ai/commit/4dd75ecfe3d22701ba741f451b046f0b5e440231).
+Subsequent documentation-only commits do not change that selected source.
+The integration preserves the current production Skills/Context tools repair
+checkpoint `1e3a5379ea6268692ed7f0545c9ebd0c9049c5b9` (#735), main `f2f7ae327`
+(including #733 and #730), and the no-flag #739 work. It does not include #732.
 
-The application migration ledger contains 158 entries. Compared with the
-candidate source, shared migration checksums have no drift. Three retained
-historical ledger-only names are `000116_hosted_v4_fenced_dispatch`,
-`000117_hosted_v4_one_shot_dispatch`, and
-`000118_exclusive_test_publication`; their absence from the current source is
-recorded separately from checksum drift. `000151_review_history` is pending.
-The native ledger contains 305 entries with checksum parity; nine native
-migrations remain pending, including 258.
+The application fleet is still healthy on the earlier serving source
+`1e3a5379ea6268692ed7f0545c9ebd0c9049c5b9`, image prefix `ffae730f`.
+Application schema reconciliation found 158 ledger entries with no checksum
+drift among shared source migrations; `000151_review_history` remains pending.
+Retained historical ledger-only names are `000116_hosted_v4_fenced_dispatch`,
+`000117_hosted_v4_one_shot_dispatch`, and `000118_exclusive_test_publication`.
+The encrypted application backup completed successfully: label
+`20261028-203841F`, start `1793216321`, stop `1793216365`.
 
-Prepared application candidate:
-[`f5b62bed64be616272d99cb95913b71e4fb9fccc`](https://github.com/777genius/review-router-ai/commit/f5b62bed64be616272d99cb95913b71e4fb9fccc),
-[PR #739](https://github.com/777genius/review-router-ai/pull/739). Its local
-qualification passed 111 focused tests, API and provider-accounts typechecks,
-and targeted lint/format/diff checks. These results establish preparation,
-not deployment or Review History activation.
+Completed targeted preparation:
 
-**Pre-deploy gate:** the required full exact-commit CI has not completed:
-the #737 runs were cancelled at the owner's request and candidate CI remains
-queued. An explicit exception for a manual deployment without full CI was
-requested in the current owner chat; the response is pending. Keep production
-`blocked` until that decision or the required exact-commit evidence is available.
-This is a pre-deploy gate, not an infrastructure outage or a failed release.
-No migration, fleet rollout, capture enablement, or activation was attempted.
+- 111 catalog/no-flag tests, API and provider-accounts typechecks.
+- 24 UI canary tests and three authorized-workspace redirect cases.
+- Full application base build at `75cd9d59` and Web/API overlay build at `066220eb`.
+- One isolated real-PostgreSQL void-canary test (1/1).
+- Native tagged suite: 131 passed; Node 24 Gateway suite: 57 passed.
+
+The exported `066220eb` image archive is 788645900 bytes, SHA-256
+`80def3c0bff2ec87e30e063bb233d1f35d181214bd846c0993d273234e743c41`,
+with archive config ID
+`7bed7bc01114bb38ec909de03de04f7bc8c89221813cb636f2ce9f79a548b053`.
+Transfer is in progress; import/load has not been confirmed. After import, the
+operator will apply the two-file Web-only redirect overlay and build the final
+selected `4dd75ecf` image on production. That final image is not yet built or
+verified by this record.
+
+Native preparation includes a private backup and verified 503 admission fence.
+Normal Gateway stop and native retirement completed. `ApplyMigrations` is
+processing the nine pending native migrations, including 258; the last received
+status is in progress. The prior 305-row native ledger had checksum parity.
+Do not infer updated native runtime readiness or deployment from these steps.
+Admission remains fenced while the application fleet continues on its earlier
+healthy version.
+
+Remaining sequence: native `READY_FENCED` receipt → final application image
+build → normal Prisma migration through 151 plus canonical ACL handling → fleet
+rollout → capture `1` on all writers and explicit History activation → canary,
+live UI, real review, rerun, and workspace isolation checks. Record each result
+before advancing either task to `deployed`.
+
+Working operator receipts are retained under local
+`tmp/production-release-20261028` and `tmp/app-image-export-066220eb`.
+These ignored scratch paths alone are not durable completion evidence. No final
+runtime/image, live review, or History activation success is claimed here.
 
 ## Ordered rollout
 
@@ -183,7 +209,8 @@ when this registry is read. They are not links to deployment evidence.
 
 ## Execution log
 
-| Time (UTC)       | Environment | Operator           | Actual version / image      | Step and observed result                                                                                        | Evidence                                                                                                                                                                                                                                                                                                                                                                                     | Next action                                                                                                                |
-| ---------------- | ----------- | ------------------ | --------------------------- | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Not executed     | staging     | Unassigned         | Not verified                | No environment work verified by this record.                                                                    | None                                                                                                                                                                                                                                                                                                                                                                                         | Reconcile state and prerequisites; select the approved release.                                                            |
-| 2026-10-28 19:25 | production  | Codex (owner task) | `366fa74c` / `29135fbaa6bb` | Read-only fleet/schema reconciliation and candidate preparation; production unchanged. Pre-deploy gate blocked. | Reconciliation above; [candidate PR #739](https://github.com/777genius/review-router-ai/pull/739), [queued CI](https://github.com/777genius/review-router-ai/actions/runs/40753311508); cancelled #737 CI runs [40751898238](https://github.com/777genius/review-router-ai/actions/runs/40751898238), [40744072509](https://github.com/777genius/review-router-ai/actions/runs/40744072509). | Await explicit owner response on manual exception or successful required exact-commit CI; then resume the ordered rollout. |
+| Time (UTC)       | Environment | Operator           | Actual version / image                             | Step and observed result                                                                                                                                                                           | Evidence                                                                                                                                                                                                                                                                                                                                                                                     | Next action                                                                                                                |
+| ---------------- | ----------- | ------------------ | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Not executed     | staging     | Unassigned         | Not verified                                       | No environment work verified by this record.                                                                                                                                                       | None                                                                                                                                                                                                                                                                                                                                                                                         | Reconcile state and prerequisites; select the approved release.                                                            |
+| 2026-10-28 19:25 | production  | Codex (owner task) | `366fa74c` / `29135fbaa6bb`                        | Read-only fleet/schema reconciliation and candidate preparation; production unchanged. Pre-deploy gate blocked.                                                                                    | Reconciliation above; [candidate PR #739](https://github.com/777genius/review-router-ai/pull/739), [queued CI](https://github.com/777genius/review-router-ai/actions/runs/40753311508); cancelled #737 CI runs [40751898238](https://github.com/777genius/review-router-ai/actions/runs/40751898238), [40744072509](https://github.com/777genius/review-router-ai/actions/runs/40744072509). | Await explicit owner response on manual exception or successful required exact-commit CI; then resume the ordered rollout. |
+| 2026-10-28 20:06 | production  | Codex (owner task) | Serving `1e3a5379` / `ffae730f`; target `4dd75ecf` | Explicit manual exception received. Backup and targeted preparation passed; native migration and application image transfer in progress. Final image, fleet rollout, and activation not confirmed. | Production progress above; [selected runtime source](https://github.com/777genius/review-router-ai/commit/4dd75ecfe3d22701ba741f451b046f0b5e440231).                                                                                                                                                                                                                                         | Native READY_FENCED → final image → Prisma151/ACL → fleet → capture/activation → live review/rerun/isolation.              |
