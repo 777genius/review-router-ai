@@ -5,6 +5,7 @@ import {
   ReviewRequestedDispatchRunStatus,
   ReviewRequestedDispatchSubmissionStatus,
   ReviewRequestedIntentState,
+  ReviewRequestedIntentTerminalReason,
   ReviewRequestedTriggerKind,
   type ReviewRequestedIntent,
 } from "@reviewrouter/features-review-executions";
@@ -188,6 +189,43 @@ describe("GitHubActionsReviewRequestedDispatchGateway", () => {
       ).resolves.toEqual({
         status: ReviewRequestedDispatchRunStatus.TerminalCurrentRevision,
       });
+    },
+  );
+
+  it.each([
+    ReviewRequestedIntentTerminalReason.AuthorizationDeadlineExceeded,
+    ReviewRequestedIntentTerminalReason.DispatchOutcomeUnknown,
+  ])(
+    "acknowledges owned terminal cleanup without a live PR lookup (%s)",
+    async (terminalReason) => {
+      const request = vi.fn(async (route: string) => {
+        if (!route.includes("/actions/runs/"))
+          throw new Error("pull_request_unavailable");
+        return {
+          data: {
+            id: 701,
+            run_attempt: 1,
+            event: "workflow_dispatch",
+            display_title: "ReviewRouter review request-1",
+            status: "completed",
+            path: ".github/workflows/reviewrouter-review.yml",
+          },
+        };
+      });
+      await expect(
+        gatewayWith(request).inspectKnownRun({
+          intent: {
+            ...intentFixture(),
+            state: ReviewRequestedIntentState.Terminal,
+            terminalReason,
+            sourceRunId: "701",
+            sourceRunAttempt: "1",
+          },
+        }),
+      ).resolves.toEqual({
+        status: ReviewRequestedDispatchRunStatus.TerminalStaleRevision,
+      });
+      expect(request).toHaveBeenCalledTimes(1);
     },
   );
 

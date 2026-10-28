@@ -12,7 +12,7 @@ import {
   ReviewRequestedDispatchLookupStatus,
   ReviewRequestedDispatchRunStatus,
   ReviewRequestedDispatchSubmissionStatus,
-  ReviewRequestedIntentState,
+  reviewRequestedDispatchCleanupEvent,
 } from "@reviewrouter/features-review-executions";
 import type { createPrismaClient } from "@reviewrouter/platform-db";
 
@@ -121,7 +121,7 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
     if (!run.completed) {
       return { status: ReviewRequestedDispatchRunStatus.Pending };
     }
-    if (input.intent.state === ReviewRequestedIntentState.Superseded) {
+    if (reviewRequestedDispatchCleanupEvent(input.intent) !== null) {
       return { status: ReviewRequestedDispatchRunStatus.TerminalStaleRevision };
     }
     const pullRequest = await octokit.request(

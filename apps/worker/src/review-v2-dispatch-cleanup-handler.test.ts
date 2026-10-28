@@ -7,6 +7,7 @@ import {
   ReviewRequestedDispatchLookupStatus,
   ReviewRequestedDispatchRunStatus,
   ReviewRequestedIntentState,
+  ReviewRequestedIntentTerminalReason,
   ReviewRequestedTriggerKind,
   reviewRequestedDispatchCleanupEvent,
   type ReviewRequestedDispatchGatewayPort,
@@ -112,6 +113,75 @@ async function fixture(intent = supersede()) {
 }
 
 describe("durable superseded dispatch cleanup", () => {
+  it.each([
+    ReviewRequestedIntentTerminalReason.AuthorizationDeadlineExceeded,
+    ReviewRequestedIntentTerminalReason.DispatchOutcomeUnknown,
+  ])(
+    "cleans terminal unresolved external work (%s)",
+    async (terminalReason) => {
+      const f = await fixture({
+        ...submittedIntent(),
+        state: ReviewRequestedIntentState.Terminal,
+        terminalReason,
+      });
+      expect(await f.tick()).toMatchObject({ processed: 1 });
+      expect(await f.tick()).toMatchObject({ claimed: 0 });
+      expect(f.gateway.cancelKnownRun).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("excludes proven no-effect, exhausted and admitted terminal work", () => {
+    for (const terminalReason of [
+      ReviewRequestedIntentTerminalReason.DispatchFailedNoEffect,
+      ReviewRequestedIntentTerminalReason.DispatchAttemptsExhausted,
+    ]) {
+      expect(
+        reviewRequestedDispatchCleanupEvent({
+          ...submittedIntent(),
+          state: ReviewRequestedIntentState.Terminal,
+          terminalReason,
+        }),
+      ).toBeNull();
+    }
+    const eligible = {
+      ...submittedIntent(),
+      state: ReviewRequestedIntentState.Terminal,
+      terminalReason:
+        ReviewRequestedIntentTerminalReason.DispatchOutcomeUnknown,
+    };
+    expect(
+      reviewRequestedDispatchCleanupEvent({
+        ...eligible,
+        submissionStartedAt: null,
+      }),
+    ).toBeNull();
+    expect(
+      reviewRequestedDispatchCleanupEvent({
+        ...eligible,
+        authorizationId: "authorized",
+      }),
+    ).toBeNull();
+    expect(
+      reviewRequestedDispatchCleanupEvent({
+        ...eligible,
+        executionId: "execution",
+      }),
+    ).toBeNull();
+    expect(
+      reviewRequestedDispatchCleanupEvent({
+        ...eligible,
+        admission: {
+          state: ReviewRequestAdmissionState.Admitted,
+          changedLines: 1,
+          maxChangedLines: 10,
+          policySnapshotId: "policy",
+          decisionHash: "a".repeat(64),
+          checkedAt: start,
+        },
+      }),
+    ).toBeNull();
+  });
+
   it("retries a lost cancel response and acknowledges only terminal readback, with no duplicate effect", async () => {
     const f = await fixture();
     f.gateway.cancelKnownRun.mockRejectedValueOnce(new Error("transport_lost"));

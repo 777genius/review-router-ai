@@ -837,6 +837,12 @@ export class PrismaReviewRequestedIntentStore
             });
           }
           await updateIntent(transaction, intent, decision.intent);
+          if (
+            decision.status ===
+            ReviewRequestedDispatchRecoveryDecisionStatus.Terminalized
+          ) {
+            await enqueueDispatchCleanup(transaction, decision.intent);
+          }
           return {
             status: ReviewRequestedTransitionStatus.Applied,
             intent: decision.intent,

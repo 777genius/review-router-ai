@@ -1,6 +1,7 @@
 import {
   ReviewRequestAdmissionState,
   ReviewRequestedIntentState,
+  ReviewRequestedIntentTerminalReason,
   type ReviewRequestedIntent,
 } from "./review-requested-intent";
 
@@ -8,12 +9,23 @@ export const reviewRequestedDispatchCleanupEventType =
   "review.requested_dispatch_cleanup";
 export const reviewRequestedDispatchCleanupEventVersion = 1;
 
-/** A durable obligation, separate from the original dispatch resolution window. */
+/**
+ * A durable obligation, separate from the original dispatch resolution window.
+ * These terminal reasons leave a submitted run unresolved; proven no-effect and
+ * completed-run recovery must not create cancellation retry obligations.
+ */
 export function reviewRequestedDispatchCleanupEvent(
   intent: ReviewRequestedIntent,
 ) {
   if (
-    intent.state !== ReviewRequestedIntentState.Superseded ||
+    (intent.state !== ReviewRequestedIntentState.Superseded &&
+      !(
+        intent.state === ReviewRequestedIntentState.Terminal &&
+        (intent.terminalReason ===
+          ReviewRequestedIntentTerminalReason.DispatchOutcomeUnknown ||
+          intent.terminalReason ===
+            ReviewRequestedIntentTerminalReason.AuthorizationDeadlineExceeded)
+      )) ||
     intent.admission.state === ReviewRequestAdmissionState.Admitted ||
     intent.submissionStartedAt === null ||
     intent.authorizationId !== null ||
