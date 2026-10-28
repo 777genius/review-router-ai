@@ -1,6 +1,7 @@
 import { appendFileSync } from "node:fs";
 import { freemem, loadavg } from "node:os";
 import { monitorEventLoopDelay, performance } from "node:perf_hooks";
+import { setInterval } from "node:timers";
 
 // Test-owned Next process diagnostics only. No paths, SQL, tokens, or request data.
 const logPath = process.env.REVIEW_ROUTER_E2E_NEXT_PERF_LOG;
