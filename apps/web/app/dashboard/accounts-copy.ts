@@ -10,8 +10,12 @@ export const accountsCopy = {
   resume: "Enable",
   deleteConnection: "Remove connection…",
   detach: "Remove from this workspace",
-  own: "My connections",
-  available: "Available in this workspace",
+  own: "All my connections",
+  available: "For this workspace",
+  ownDescription:
+    "Connections you own, including those used in other workspaces. Choose Access to manage where each connection can be used.",
+  availableDescription:
+    "Connections this workspace can use, including connections shared by other owners.",
   access: "Access",
   add: "Add account",
   connect: "Connect account",

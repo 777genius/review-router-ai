@@ -10,10 +10,12 @@ export type DashboardSection =
   | "diagnostics"
   | "usage"
   | "statistics"
+  | "reviews"
   | "other";
 
 export const DASHBOARD_SECTIONS = [
   "repositories",
+  "reviews",
   "statistics",
   "setup",
   "providers",
@@ -24,6 +26,11 @@ export const DASHBOARD_SECTIONS = [
   "skills",
   "memory",
 ] as const satisfies readonly DashboardSection[];
+
+// Connections retains its setup route as a view within the Providers area.
+export const DASHBOARD_NAV_SECTIONS = DASHBOARD_SECTIONS.filter(
+  (section) => section !== "setup",
+);
 
 export const dashboardSectionMeta: Record<
   DashboardSection,
@@ -56,8 +63,8 @@ export const dashboardSectionMeta: Record<
     navDescription: "Approved review knowledge",
   },
   setup: {
-    eyebrow: "Workspace credentials",
-    title: "Accounts",
+    eyebrow: "Provider connections",
+    title: "Providers",
     description:
       "Connect accounts to ReviewRouter and choose which workspaces can use them. Select them for reviews in Providers.",
     navDescription: "Workspace provider accounts",
@@ -66,15 +73,21 @@ export const dashboardSectionMeta: Record<
     eyebrow: "Workspace providers",
     title: "Providers",
     description:
-      "Save provider and model choices, and choose a workspace default. Finish each repository's connection and workflow setup in Repositories.",
-    navDescription: "Credentials and models",
+      "Choose providers and models for reviews, and manage the connections they use.",
+    navDescription: "Connections and models",
   },
   policy: {
     eyebrow: "Review behavior",
-    title: "Model",
+    title: "Review settings",
     description:
-      "The default provider and the review settings every repository starts with.",
-    navDescription: "Default provider, gates",
+      "Set review behavior and quality gates for repositories in this workspace.",
+    navDescription: "Review behavior and gates",
+  },
+  reviews: {
+    eyebrow: "Review activity",
+    title: "Reviews",
+    description: "Review history for your workspace's pull requests.",
+    navDescription: "Pull requests and review history",
   },
   statistics: {
     eyebrow: "Review activity",

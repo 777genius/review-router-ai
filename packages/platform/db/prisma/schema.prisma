@@ -1508,6 +1508,7 @@ model ReviewContextTargetReplayProof {
 }
 
 model ReviewRequestedIntent {
+  historyRootRequestId      String?
   requestId                 String                                 @id
   dispatchAttempt           Int                                    @default(1)
   version                   BigInt                                 @default(1)
@@ -1578,6 +1579,8 @@ model ReviewExecutionStreamV2 {
 }
 
 model ReviewExecutionV2 {
+  historyRootRequestId        String?
+  historyDispatchAttempt      Int?
   executionId                 String                 @id
   workspaceId                 String
   repositoryConnectionId      String
@@ -4985,4 +4988,61 @@ model ReviewThreadResolutionGuardV1 {
   repositoryConnection RepositoryConnection @relation(fields: [repositoryConnectionId], references: [id], onDelete: Cascade)
 
   @@id([workspaceId, repositoryConnectionId, scmRepositoryIdentityId, pullRequestNumber, threadId])
+}
+
+
+model ReviewHistoryCoverage {
+  id String @id
+  coverageSince DateTime
+}
+
+model ReviewHistoryPullRequest {
+  id String @id
+  workspaceId String
+  scmRepositoryIdentityId String
+  pullRequestNumber Int
+  lastAllocatedRunSequence BigInt @default(0)
+  latestRootRequestId String?
+  latestRunSequence BigInt?
+  latestRequestedAt DateTime?
+  latestStatus String?
+  repositoryFullName String?
+  pullRequestTitle String?
+  sourceBaseUrl String?
+  projectedAt DateTime?
+
+  @@unique([workspaceId, scmRepositoryIdentityId, pullRequestNumber])
+  @@index([workspaceId, latestRequestedAt, id])
+  @@index([workspaceId, scmRepositoryIdentityId, latestRequestedAt, id])
+  @@index([workspaceId, latestStatus, latestRequestedAt, id])
+  @@index([workspaceId, pullRequestNumber, latestRequestedAt, id])
+}
+
+model ReviewHistoryRun {
+  rootRequestId String @id
+  pullRequestId String
+  workspaceId String
+  scmRepositoryIdentityId String
+  pullRequestNumber Int
+  originalRepositoryConnectionId String
+  runSequence BigInt
+  requestedAt DateTime
+  triggerKind String
+  headSha String
+  reviewRevisionHash String
+  repositoryFullName String?
+  pullRequestTitle String?
+  sourceBaseUrl String
+  boundExecutionId String?
+  boundDispatchAttempt Int?
+  selectedDispatchAttempt Int @default(0)
+  intentCursor Json?
+  executionCursor Json?
+  completionCursor Json?
+  status String?
+  projectedAt DateTime?
+  updatedAt DateTime
+
+  @@unique([workspaceId, scmRepositoryIdentityId, pullRequestNumber, runSequence])
+  @@index([workspaceId, pullRequestId, runSequence])
 }

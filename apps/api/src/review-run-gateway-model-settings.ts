@@ -27,32 +27,12 @@ const efforts = [
   "ultra",
 ] as const;
 const effort = z.enum(efforts);
-const settingsSchema = z
-  .strictObject({
-    model: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/),
-    reasoning: z
-      .strictObject({ allowed: z.array(effort).min(1).max(7), default: effort })
-      .nullable(),
-  })
-  .superRefine((value, context) => {
-    if (
-      value.reasoning &&
-      (new Set(value.reasoning.allowed).size !==
-        value.reasoning.allowed.length ||
-        !value.reasoning.allowed.some(
-          (allowed) =>
-            effectiveGatewayReasoningEffort(
-              codexOAuthModelSettingsProfile,
-              allowed,
-            ) ===
-            effectiveGatewayReasoningEffort(
-              codexOAuthModelSettingsProfile,
-              value.reasoning!.default,
-            ),
-        ))
-    )
-      context.addIssue({ code: "custom", message: "invalid_model_reasoning" });
-  });
+const settingsSchema = z.strictObject({
+  model: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/),
+  reasoning: z
+    .strictObject({ allowed: z.array(effort).min(1).max(7), default: effort })
+    .nullable(),
+});
 export type SelectedGatewayModelSettings = z.infer<typeof settingsSchema>;
 export type ReadSelectedGatewayModelSettings = (request: {
   readonly authorization: ReviewRunAuthorization;
@@ -62,18 +42,27 @@ export type ReadSelectedGatewayModelSettings = (request: {
   readonly authorizationEpoch: number;
   readonly settings: SelectedGatewayModelSettings | undefined;
 }>;
-const effectiveEffort = (value: string) =>
-  effectiveGatewayReasoningEffort(codexOAuthModelSettingsProfile, value)!;
-
 /** Deterministic, bounded, selected-only public projection. */
 export function serializeSelectedGatewayModelSettings(
   raw: SelectedGatewayModelSettings,
   model: string,
+  profileRef = codexOAuthModelSettingsProfile,
 ): string {
   const value = settingsSchema.parse(raw);
   if (value.model !== model)
     throw new Error("gateway_model_settings_unavailable");
   const reasoning = value.reasoning;
+  const effectiveEffort = (effort: string) =>
+    effectiveGatewayReasoningEffort(profileRef, effort)!;
+  if (
+    reasoning &&
+    (new Set(reasoning.allowed).size !== reasoning.allowed.length ||
+      !reasoning.allowed.some(
+        (allowed) =>
+          effectiveEffort(allowed) === effectiveEffort(reasoning.default),
+      ))
+  )
+    throw new Error("invalid_model_reasoning");
   const allowed = reasoning
     ? new Set(reasoning.allowed.map(effectiveEffort))
     : null;
@@ -115,7 +104,6 @@ export function createReviewRunGatewayModelSettingsReader(input: {
     if (
       !snapshot ||
       !gateway ||
-      gateway.profileRef !== codexOAuthModelSettingsProfile ||
       snapshot.deadline !== authorization.maxExpiresAt.toISOString()
     )
       throw new Error("gateway_model_settings_unavailable");
@@ -124,13 +112,22 @@ export function createReviewRunGatewayModelSettingsReader(input: {
     );
     const provider = config.providers[gateway.providerIndex];
     const profile = profiles.get(gateway.profileRef);
+    const discoverySource = profile?.authKinds
+      .map((authKind) =>
+        c.accountModelDiscoverySource({
+          profileId: profile.profileId,
+          protocol: profile.protocol,
+          authKind,
+        }),
+      )
+      .find((source) => source !== undefined);
     if (
       provider?.authMode !== "codex_account_gateway" ||
       provider.gatewayBindingId !== gateway.bindingId ||
       provider.gatewayProfileRef !== gateway.profileRef ||
       !profile ||
       profile.protocol !== "openai-responses" ||
-      !profile.authKinds.includes("oauth")
+      !discoverySource
     )
       throw new Error("gateway_model_settings_unavailable");
     async function selected() {
@@ -230,6 +227,8 @@ export function createReviewRunGatewayModelSettingsReader(input: {
       };
     if (
       models.status !== "snapshot" ||
+      models.source !== discoverySource ||
+      Date.parse(models.fetchedAt) > Date.now() ||
       Date.parse(models.expiresAt) <= Date.now()
     )
       throw new Error("gateway_model_settings_unavailable");
@@ -241,6 +240,7 @@ export function createReviewRunGatewayModelSettingsReader(input: {
       serializeSelectedGatewayModelSettings(
         { model: provider.model, reasoning: selectedModel.reasoning },
         provider.model,
+        gateway.profileRef,
       ),
     ) as SelectedGatewayModelSettings;
     const savedEffort = provider.reasoningEffort;
@@ -249,7 +249,10 @@ export function createReviewRunGatewayModelSettingsReader(input: {
         ? savedEffort !== undefined
         : savedEffort !== undefined &&
           !settings.reasoning.allowed.includes(
-            effectiveEffort(savedEffort) as (typeof efforts)[number],
+            effectiveGatewayReasoningEffort(
+              gateway.profileRef,
+              savedEffort,
+            ) as (typeof efforts)[number],
           )
     )
       throw new Error("gateway_model_settings_unavailable");

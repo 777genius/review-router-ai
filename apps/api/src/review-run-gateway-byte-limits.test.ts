@@ -456,7 +456,11 @@ async function fixture(
     failUsageOutcome?: boolean;
   },
   capturedRequests = 128,
-  selection = { profileId: "profile-1", model: "gpt-5.6-sol" },
+  selection: {
+    profileId: string;
+    model: string;
+    authKind?: "oauth" | "api_key";
+  } = { profileId: "profile-1", model: "gpt-5.6-sol" },
   accountModelCatalogEnabled = false,
 ) {
   const deadline = new Date(Date.now() + 120_000).toISOString();
@@ -776,7 +780,7 @@ async function fixture(
             profileId: selection.profileId,
             protocol: "openai-responses",
             modelIds: ["gpt-5.6-sol"],
-            authKinds: ["oauth"],
+            authKinds: [selection.authKind ?? "oauth"],
           },
           outputTokens: 32768,
         },
@@ -1495,15 +1499,17 @@ it("never releases buffered terminal bytes when the real SDK transport fails bef
   }
 }, 10000);
 
-// RED if the immutable Codex anchor rejects an account-catalog model before
+// RED if the immutable enrollment anchor rejects an account-catalog model before
 // the normal owned-run preparation/native admission path.
 it.each([
-  ["openai-codex-oauth-responses-v1", true],
-  ["profile-1", false],
-  ["grok-subscription-responses-oauth-v1", false],
+  ["openai-codex-oauth-responses-v1", "oauth", true],
+  ["openrouter-openai-responses-apikey-v1", "api_key", true],
+  ["openrouter-openai-responses-apikey-v1", "oauth", false],
+  ["profile-1", "oauth", false],
+  ["grok-subscription-responses-oauth-v1", "oauth", false],
 ] as const)(
-  "account model %s keeps the authorized Responses path (dynamic=%s)",
-  async (profileId, dynamic) => {
+  "account model %s with %s keeps the authorized Responses path (dynamic=%s)",
+  async (profileId, authKind, dynamic) => {
     const model = "authorized-account-model-not-in-anchor";
     const f = await fixture(
       MiB,
@@ -1513,7 +1519,7 @@ it.each([
       undefined,
       undefined,
       128,
-      { profileId, model },
+      { profileId, model, authKind },
       true,
     );
     try {

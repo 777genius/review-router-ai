@@ -145,6 +145,8 @@ export type ReviewExecutionStream = ReviewExecutionScope & {
 };
 
 export type ReviewExecution = ReviewExecutionScope & {
+  readonly historyRootRequestId?: string | null;
+  readonly historyDispatchAttempt?: number | null;
   readonly executionId: string;
   readonly version: bigint;
   readonly generation: bigint;

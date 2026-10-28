@@ -9,6 +9,7 @@ import {
   BookOpen,
   Cpu,
   GitPullRequest,
+  History,
   Layers,
   Settings2,
   type LucideIcon,
@@ -18,6 +19,7 @@ import { dashboardClientNavigationHref } from "./dashboard-section";
 
 const dashboardSectionIcons: Record<string, LucideIcon> = {
   repositories: GitPullRequest,
+  reviews: History,
   skills: BookOpen,
   memory: Brain,
   setup: Settings2,
@@ -32,6 +34,54 @@ export type DashboardSectionTabItem = {
   readonly description: string;
   readonly href: string;
 };
+
+export function ProvidersHubNav({
+  selectedSection,
+  providersHref,
+  connectionsHref,
+}: {
+  readonly selectedSection: "providers" | "setup";
+  readonly providersHref: string;
+  readonly connectionsHref: string;
+}): React.ReactElement {
+  const { startNavigation } = useNavigationFeedback();
+  return (
+    <nav
+      aria-label="Providers"
+      className="flex gap-1 border-b border-cyan-200/15"
+    >
+      {[
+        {
+          section: "providers",
+          label: "Review providers",
+          href: providersHref,
+        },
+        { section: "setup", label: "Connections", href: connectionsHref },
+      ].map((item) => {
+        const href = dashboardClientNavigationHref(item.href);
+        const active = selectedSection === item.section;
+        return (
+          <Link
+            key={item.section}
+            href={href}
+            scroll={false}
+            data-navigation-feedback="ignore"
+            onNavigate={() => startNavigation(href)}
+            aria-current={active ? "page" : undefined}
+            className={[
+              "-mb-px min-h-11 border-b-2 px-3 py-2 text-sm font-semibold transition-colors",
+              active
+                ? "border-cyan-300 text-cyan-50"
+                : "border-transparent text-slate-400 hover:border-cyan-200/30 hover:text-cyan-100",
+            ].join(" ")}
+          >
+            {item.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
 
 export function DashboardSectionIcon({
   section,

@@ -1,0 +1,294 @@
+{
+  "contract": "account-gateway-sdk-docs-only-payload-comparison/v1",
+  "previousArchive": "agent-teams-account-gateway-0.1.0-dynamic-models-b5d97308d53b.tgz",
+  "previousSHA256": "b5d97308d53b36e80f37b707ab6ad065770c473d3e762fafd4ec30cc2c29778e",
+  "archive": "agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz",
+  "sha256": "d3c310431c0c7a821246edc89153a3d1a8ffe139e5406bc34b21101f248185f4",
+  "integrity": "sha512-hmZZIk6gvkIagCwBp6buCFmVfrkBcofgnSz7yvUHau+kUtWPMAXnR3Lx0cTyJL3U1H6VFb4vH/84P2KI+fh5NQ==",
+  "toolchain": {
+    "node": "26.11.1",
+    "pnpm": "11.28.2"
+  },
+  "memberCount": 16,
+  "changedMembers": ["package/README.md"],
+  "unchangedMembers": [
+    "package/dist/contracts/index.js",
+    "package/dist/features/facade-client/contracts/index.js",
+    "package/dist/features/facade-client/http/index.js",
+    "package/dist/get-modular/index.js",
+    "package/dist/http/index.js",
+    "package/dist/index.js",
+    "package/dist/features/facade-client/http/ingress.js",
+    "package/package.json",
+    "package/dist/contracts/index.d.ts",
+    "package/dist/features/facade-client/contracts/index.d.ts",
+    "package/dist/features/facade-client/http/index.d.ts",
+    "package/dist/get-modular/index.d.ts",
+    "package/dist/http/index.d.ts",
+    "package/dist/index.d.ts",
+    "package/dist/features/facade-client/http/ingress.d.ts"
+  ],
+  "runtimeAndDeclarationAndPackageBytesIdentical": true,
+  "members": {
+    "package/dist/contracts/index.js": {
+      "previous": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 1659,
+        "sha256": "98a6a25ff1d1ceddedf28208e1e3a5bd62e95545e74a270c4ccfb70b4a98a74d"
+      },
+      "final": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 1659,
+        "sha256": "98a6a25ff1d1ceddedf28208e1e3a5bd62e95545e74a270c4ccfb70b4a98a74d"
+      }
+    },
+    "package/dist/features/facade-client/contracts/index.js": {
+      "previous": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 33697,
+        "sha256": "24cd81b98348e4837451242771bf529ea69166bbfd89fc7740dd56447b600cd5"
+      },
+      "final": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 33697,
+        "sha256": "24cd81b98348e4837451242771bf529ea69166bbfd89fc7740dd56447b600cd5"
+      }
+    },
+    "package/dist/features/facade-client/http/index.js": {
+      "previous": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 24169,
+        "sha256": "29f123fe08ba26d3b5953ef4ebfa9c62c602e36e913f7219a17e3dbacea52648"
+      },
+      "final": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 24169,
+        "sha256": "29f123fe08ba26d3b5953ef4ebfa9c62c602e36e913f7219a17e3dbacea52648"
+      }
+    },
+    "package/dist/get-modular/index.js": {
+      "previous": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 6105,
+        "sha256": "68149077b54e5ec39921c3fc8b19b9339b7a182f2c7844700694526e5bf740e9"
+      },
+      "final": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 6105,
+        "sha256": "68149077b54e5ec39921c3fc8b19b9339b7a182f2c7844700694526e5bf740e9"
+      }
+    },
+    "package/dist/http/index.js": {
+      "previous": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 333,
+        "sha256": "6156abd2c7d0ad69ee9fc95be2815668fc36ecaad6b64fc901add2af3e66fa7b"
+      },
+      "final": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 333,
+        "sha256": "6156abd2c7d0ad69ee9fc95be2815668fc36ecaad6b64fc901add2af3e66fa7b"
+      }
+    },
+    "package/dist/index.js": {
+      "previous": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 188,
+        "sha256": "453afa26bf9f2e1a09940a8d7243319431a5b4e42850eaa071c0305d9145d51e"
+      },
+      "final": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 188,
+        "sha256": "453afa26bf9f2e1a09940a8d7243319431a5b4e42850eaa071c0305d9145d51e"
+      }
+    },
+    "package/dist/features/facade-client/http/ingress.js": {
+      "previous": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 6934,
+        "sha256": "22e6a1fa5d21946b5ffac65c579f99bcf0b0965500dfb06de8182f9e92bd24ca"
+      },
+      "final": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 6934,
+        "sha256": "22e6a1fa5d21946b5ffac65c579f99bcf0b0965500dfb06de8182f9e92bd24ca"
+      }
+    },
+    "package/package.json": {
+      "previous": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 872,
+        "sha256": "b129a3affd804ec7b831e2976a89ffee91f4b80494db852cbfdd0594a5c58429"
+      },
+      "final": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 872,
+        "sha256": "b129a3affd804ec7b831e2976a89ffee91f4b80494db852cbfdd0594a5c58429"
+      }
+    },
+    "package/README.md": {
+      "previous": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 6740,
+        "sha256": "30a64f2d6ce7029f2745d382961cad32b2059b32a8a609fb64a21fc7080dc203"
+      },
+      "final": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 7042,
+        "sha256": "dd59d14318c46879de65a0d8a1ef4bef9a793f4fc7d8deb051b415f1eb00affe"
+      }
+    },
+    "package/dist/contracts/index.d.ts": {
+      "previous": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 2659,
+        "sha256": "02a838a068d98acb6ca8916892868f00bb895c4ef39f3a1e00b7237ecbb8d3e7"
+      },
+      "final": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 2659,
+        "sha256": "02a838a068d98acb6ca8916892868f00bb895c4ef39f3a1e00b7237ecbb8d3e7"
+      }
+    },
+    "package/dist/features/facade-client/contracts/index.d.ts": {
+      "previous": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 73336,
+        "sha256": "05ff19ae0279c48f425634ced1a08568fe36fd4c31a55793a729146188b5359c"
+      },
+      "final": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 73336,
+        "sha256": "05ff19ae0279c48f425634ced1a08568fe36fd4c31a55793a729146188b5359c"
+      }
+    },
+    "package/dist/features/facade-client/http/index.d.ts": {
+      "previous": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 62976,
+        "sha256": "e719bd173fc7ad42c5504027b23f0cc575ee9e4a29b3bb4613badf19fa74be4d"
+      },
+      "final": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 62976,
+        "sha256": "e719bd173fc7ad42c5504027b23f0cc575ee9e4a29b3bb4613badf19fa74be4d"
+      }
+    },
+    "package/dist/get-modular/index.d.ts": {
+      "previous": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 33660,
+        "sha256": "675ac599682ac85fd56d720fd4161f357e0345ec56a2537078258286b32d7de5"
+      },
+      "final": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 33660,
+        "sha256": "675ac599682ac85fd56d720fd4161f357e0345ec56a2537078258286b32d7de5"
+      }
+    },
+    "package/dist/http/index.d.ts": {
+      "previous": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 763,
+        "sha256": "a1f0ff7521f8ee35e5e3530ce52a9e1777d097103a715787620b38fdde54d11d"
+      },
+      "final": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 763,
+        "sha256": "a1f0ff7521f8ee35e5e3530ce52a9e1777d097103a715787620b38fdde54d11d"
+      }
+    },
+    "package/dist/index.d.ts": {
+      "previous": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 638,
+        "sha256": "ece8a03ab621919f597371fc4348d85ab9211af4925cf7639427cb8baf6da3f4"
+      },
+      "final": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 638,
+        "sha256": "ece8a03ab621919f597371fc4348d85ab9211af4925cf7639427cb8baf6da3f4"
+      }
+    },
+    "package/dist/features/facade-client/http/ingress.d.ts": {
+      "previous": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 4547,
+        "sha256": "0c9ad5e2811174f53a34c0fd569fbf9d3dabc20ce11278199f3c5307faa7e58f"
+      },
+      "final": {
+        "type": "0",
+        "mode": "0o644",
+        "link": "",
+        "size": 4547,
+        "sha256": "0c9ad5e2811174f53a34c0fd569fbf9d3dabc20ce11278199f3c5307faa7e58f"
+      }
+    }
+  },
+  "qualificationReuse": "All runtime, type, installed-consumer and ReviewRouter qualification of b5d97308d53b36e80f37b707ab6ad065770c473d3e762fafd4ec30cc2c29778e applies to identical final runtime/declaration/package bytes; README reviewed and docs check passed.",
+  "sdkSourceCommit": "386923fca77ed3ebfb1edcc3b25d294c1b8ad07f",
+  "gatewayServiceCommit": "811f9637ef4fbba1c6958d8c4fafcae6acce5a95",
+  "previousSDKSourceCommit": "999a80aa8f4f3a854c15a1b0414475be6dec9ac7"
+}

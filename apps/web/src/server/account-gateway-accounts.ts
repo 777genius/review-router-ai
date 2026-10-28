@@ -53,6 +53,7 @@ import {
 } from "./account-limits-service";
 import { accountLimitsReader } from "./account-limits-composition";
 import {
+  connectionProfiles,
   configuredSubscriptionProfiles,
   operationCompletion,
 } from "./account-connection-catalog";
@@ -553,6 +554,12 @@ export function createAccountsAdapter(input: {
     }
     return {
       profiles: () => checked(() => gateway.profiles()),
+      ...(gateway.getProviderConnectionCapabilities
+        ? {
+            getProviderConnectionCapabilities: () =>
+              checked(() => gateway.getProviderConnectionCapabilities()),
+          }
+        : {}),
       list: (query: c.ListQuery) => checked(() => gateway.list(query)),
       get: (ref: string) => checked(() => gateway.get(ref)),
       connect: (request: Parameters<ManagementClient["connect"]>[0]) =>
@@ -585,10 +592,13 @@ export function createAccountsAdapter(input: {
   }
   type ScopedClient = ReturnType<typeof scoped>;
   async function profiles(
-    client: Pick<ScopedClient, "profiles">,
+    client: Pick<ScopedClient, "profiles"> &
+      Partial<
+        Pick<ScopedClient, "getProviderConnectionCapabilities" | "reauthorize">
+      >,
   ): Promise<AccountProfileView[]> {
     const catalogue = await client.profiles();
-    return catalogue.profiles
+    const legacy = catalogue.profiles
       .filter((p) => {
         const configured = approved.get(p.profileId);
         return (
@@ -604,6 +614,14 @@ export function createAccountsAdapter(input: {
         protocol: p.protocol,
         models: [...p.modelIds],
       }));
+    const result = await connectionProfiles({
+      legacy,
+      ...(client.getProviderConnectionCapabilities
+        ? { capabilities: client.getProviderConnectionCapabilities }
+        : {}),
+    });
+    await client.reauthorize?.();
+    return result;
   }
   function verified(
     account: c.Account,
@@ -1605,7 +1623,16 @@ export function createAccountsAdapter(input: {
      * account or workspace data, so it needs no Accounts context: a provider
      * selection the caller already authorized validates against it.
      */
-    reviewCatalog: () => profiles({ profiles: () => gateway.profiles() }),
+    reviewCatalog: () =>
+      profiles({
+        profiles: () => gateway.profiles(),
+        ...(gateway.getProviderConnectionCapabilities
+          ? {
+              getProviderConnectionCapabilities: () =>
+                gateway.getProviderConnectionCapabilities(),
+            }
+          : {}),
+      }),
     mutate,
     beginOAuth,
     completeOAuth,

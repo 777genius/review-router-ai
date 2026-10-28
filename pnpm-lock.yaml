@@ -107,6 +107,12 @@ importers:
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.3.0(jiti@2.6.1)(supports-color@8.1.1))
+      '@get-modular/conformance':
+        specifier: 0.5.0
+        version: 0.5.0(@get-modular/assembly@0.7.0)(@get-modular/core@0.7.0)(@get-modular/resources@0.2.1)
+      '@get-modular/resources':
+        specifier: 0.2.1
+        version: 0.2.1
       '@prisma/adapter-pg':
         specifier: 7.8.0
         version: 7.8.0
@@ -181,8 +187,8 @@ importers:
   apps/api:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -258,6 +264,9 @@ importers:
       '@reviewrouter/features-review-executions':
         specifier: workspace:*
         version: link:../../packages/features/review-executions
+      '@reviewrouter/features-review-history':
+        specifier: workspace:*
+        version: link:../../packages/features/review-history
       '@reviewrouter/features-review-investigation-operations':
         specifier: workspace:*
         version: link:../../packages/features/review-investigation-operations
@@ -328,8 +337,8 @@ importers:
   apps/web:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -393,6 +402,9 @@ importers:
       '@reviewrouter/features-review-context-tools':
         specifier: workspace:*
         version: link:../../packages/features/review-context-tools
+      '@reviewrouter/features-review-history':
+        specifier: workspace:*
+        version: link:../../packages/features/review-history
       '@reviewrouter/features-review-providers':
         specifier: workspace:*
         version: link:../../packages/features/review-providers
@@ -526,6 +538,9 @@ importers:
       '@reviewrouter/features-review-executions':
         specifier: workspace:*
         version: link:../../packages/features/review-executions
+      '@reviewrouter/features-review-history':
+        specifier: workspace:*
+        version: link:../../packages/features/review-history
       '@reviewrouter/features-review-investigation-operations':
         specifier: workspace:*
         version: link:../../packages/features/review-investigation-operations
@@ -1065,6 +1080,40 @@ importers:
         specifier: workspace:*
         version: link:../../platform/db
 
+  packages/features/review-history:
+    dependencies:
+      '@get-modular/assembly':
+        specifier: 0.7.0
+        version: 0.7.0
+      '@get-modular/core':
+        specifier: 0.7.0
+        version: 0.7.0
+      '@prisma/client':
+        specifier: 7.8.0
+        version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
+    devDependencies:
+      '@get-modular/conformance':
+        specifier: 0.5.0
+        version: 0.5.0(@get-modular/assembly@0.7.0)(@get-modular/core@0.7.0)(@get-modular/resources@0.2.1)
+      '@get-modular/resources':
+        specifier: 0.2.1
+        version: 0.2.1
+      '@prisma/adapter-pg':
+        specifier: 7.8.0
+        version: 7.8.0
+      '@reviewrouter/features-review-executions':
+        specifier: workspace:*
+        version: link:../review-executions
+      '@reviewrouter/features-review-processes':
+        specifier: workspace:*
+        version: link:../review-processes
+      pg:
+        specifier: 8.23.0
+        version: 8.23.0
+      vitest:
+        specifier: 4.1.10
+        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.1.5(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.23.1)(yaml@2.9.0))
+
   packages/features/review-investigation-operations:
     dependencies:
       '@prisma/client':
@@ -1392,8 +1441,8 @@ packages:
   '@actions/io@3.0.2':
     resolution: {integrity: sha512-nRBchcMM+QK1pdjO7/idu86rbJI5YHUKCvKs0KxnSYbVe3F51UfGxuZX4Qy/fWlp6l7gWFwIkrOzN+oUK03kfw==}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz':
-    resolution: {integrity: sha512-GKTPdvYaxHif8Eue93M5Vd17rSMpChvPEvdYl/V8WuIZmDO02/JhojqoVyNujK+fgllwUjUTlga8/ytTh5ezZQ==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz}
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz':
+    resolution: {integrity: sha512-hmZZIk6gvkIagCwBp6buCFmVfrkBcofgnSz7yvUHau+kUtWPMAXnR3Lx0cTyJL3U1H6VFb4vH/84P2KI+fh5NQ==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz}
     version: 0.1.0
     engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
 
@@ -6538,7 +6587,7 @@ snapshots:
 
   '@actions/io@3.0.2': {}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz':
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz':
     dependencies:
       '@get-modular/assembly': 0.2.0
       '@get-modular/core': 0.2.0

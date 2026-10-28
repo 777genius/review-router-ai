@@ -87,8 +87,14 @@ export function gatewayProfileAcceptsRequestedModel(
 ): boolean {
   return (
     (accountModelCatalogEnabled &&
-      profile.profileId === "openai-codex-oauth-responses-v1" &&
-      profile.authKinds.includes("oauth")) ||
+      profile.authKinds.some(
+        (authKind) =>
+          c.accountModelDiscoverySource({
+            profileId: profile.profileId,
+            protocol: profile.protocol,
+            authKind,
+          }) !== undefined,
+      )) ||
     profile.modelIds.includes(model)
   );
 }

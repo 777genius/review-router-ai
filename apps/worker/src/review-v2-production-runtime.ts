@@ -1,3 +1,4 @@
+import type { HistoryCapture } from "@reviewrouter/features-review-history/composition";
 import { createReviewRequestedDispatchCleanupHandler } from "./review-v2-dispatch-cleanup-handler";
 import { PrismaWorkspaceReviewSettings } from "@reviewrouter/features-review-config";
 import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
@@ -199,6 +200,7 @@ export type ProductionReviewV2WorkerRuntime = {
 };
 
 export function createProductionReviewV2WorkerRuntime(input: {
+  readonly historyWriter?: HistoryCapture;
   readonly prisma: PrismaClient;
   readonly clock: SystemClock;
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -207,17 +209,28 @@ export function createProductionReviewV2WorkerRuntime(input: {
   readonly settlementHook: ReviewCompletionSettlementHook;
 }): ProductionReviewV2WorkerRuntime {
   const capabilityKeyRing = readCapabilityKeyRing(input.env);
-  const executions = new PrismaReviewExecutionStore(
-    input.prisma,
-    input.env.REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE === "1"
+  const historyWriter =
+    input.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
+      ? input.historyWriter
+      : undefined;
+  if (input.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1" && !historyWriter)
+    throw new Error("review_history_capture_binding_required");
+  const executions = new PrismaReviewExecutionStore(input.prisma, {
+    ...(historyWriter
+      ? {
+          historyCapture: (tx, execution) =>
+            historyWriter.captureExecution(tx, execution),
+        }
+      : {}),
+    ...(input.env.REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE === "1"
       ? {
           progressCapture: createPrismaReviewProgressCapture({
             fileCoverageEnabled:
               input.env.REVIEW_ROUTER_PROGRESS_FILE_COVERAGE === "1",
           }),
         }
-      : {},
-  );
+      : {}),
+  });
   const executionRecovery = new RecoverExpiredReviewExecutions(
     executions,
     executions,
@@ -342,6 +355,13 @@ export function createProductionReviewV2WorkerRuntime(input: {
     processes: new PrismaReviewCompletionProcessRepository(
       input.prisma,
       input.settlementHook,
+      historyWriter
+        ? {
+            beforeMutation: (tx, id) => historyWriter.beforeCompletion(tx, id),
+            changed: (tx, next, previous) =>
+              historyWriter.captureCompletion(tx, next, previous),
+          }
+        : undefined,
     ),
     executions: executionContext,
     publications: publicationContext,
@@ -391,7 +411,19 @@ export function createProductionReviewV2WorkerRuntime(input: {
   const ownerIdHash = createReviewV2WorkerOwnerId(
     `${hostname()}:${process.pid}:${randomUUID()}`,
   );
-  const requestedIntents = new PrismaReviewRequestedIntentStore(input.prisma);
+  const requestedIntents = new PrismaReviewRequestedIntentStore(
+    input.prisma,
+    historyWriter
+      ? {
+          historyCapture: {
+            register: (tx, intent, metadata) =>
+              historyWriter.register(tx, intent, metadata),
+            changed: (tx, intent, previous) =>
+              historyWriter.captureIntent(tx, intent, previous),
+          },
+        }
+      : {},
+  );
   const intentService = new ReviewRequestedIntentService(
     requestedIntents,
     requestedIntents,
