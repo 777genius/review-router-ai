@@ -285,12 +285,44 @@ Lint/format/whitespace checks passed. Receipts:
 `tmp/review-history/migration151-release-transition-tests.log` и
 `tmp/review-history/gateway-c2b-reproduction-pkXbLt/receipt.json`.
 
+### CI: изолированный PostgreSQL template и полная цепочка checks
+
+На `5ebcb332` все остальные jobs, включая Dedicated Release Authority, DB contracts
+и Self-hosted E2E, прошли. Quality Checks обнаружила один устаревший exact-string
+assertion и два сбоя подготовки History PostgreSQL suites. Остальные 12 568 tests
+прошли. WEB profile test ещё ожидал architecture chain без нового History gate;
+expected string обновлён с сохранением strict equality и всех прежних звеньев.
+Весь targeted WEB profile suite прошёл: 101 tests, 0 failed.
+
+History suites пытались повторять всю историческую migration chain на общем
+CI cluster. Уже существующая глобальная schema-owner role делала topology
+частичной для fail-closed guard migration 000079: отсутствовала release-migration
+role. Исправление использует существующую template-возможность fixture: CI до
+начала параллельных tests копирует полностью мигрированную ordinary database в
+отдельный template и запрещает прямые connections к нему. Каждый suite по-прежнему
+создаёт и удаляет собственную disposable database. Helper, production source, SQL,
+authority roles и migration guards не менялись. Runbook показывает обязательный
+template для shared-cluster qualification.
+
+На отдельном PG17.10 cluster повторены все 155 migrations и точные template
+commands. Затем оба настоящих History suites прошли параллельно: 11 passed,
+0 failed, 1 opt-in volume case skipped, как в ordinary CI. Volume case уже прошёл
+в отдельной прежней qualification. Во время suites соединение с исходной
+application database оставалось открытым; прямое подключение к template отвергнуто
+с кодом 55000. Глобальные roles остались неизменными, временных per-suite databases
+после cleanup нет. Owned cluster остановлен и удалён. Targeted ESLint, formatting
+и whitespace checks прошли. Независимый critic проверил patch и фактические
+receipts; обязательный CI на новом commit остаётся финальным merge gate.
+
+Receipts: `tmp/review-history/ci-quality-web-profile-tests.log` и
+`tmp/review-history/history-template-reproduction-nxAn6I/receipt.json`.
+
 ## Фактический объём
 
 По Git diff относительно `418c0ff848443d7a3a0553be22eb63c45a51f53b`: 3 958
-добавленных строк production/activation/admission кода, 2 927
+добавленных строк production/activation/admission кода, 2 928
 строк targeted tests/fixtures/browser harness и 418 строк architecture qualification.
-Всего код, проверки и тестовые fixtures — 7 303 добавленные строки; это физические
+Всего код, проверки и тестовые fixtures — 7 304 добавленные строки; это физические
 строки diff, включая комментарии и пустые строки, а не semantic SLOC. Configuration,
 lockfile, Markdown и неизменённые лицензированные Impeccable references считаются
 отдельно. Эти числа не являются требованием к объёму следующей фичи.

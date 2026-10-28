@@ -131,20 +131,29 @@ history deletion or old-data import.
 
 ## Focused qualification
 
-Run the risky PostgreSQL cases against an isolated loopback database server:
+Prepare a dedicated, fully migrated, idle template on an isolated loopback
+database server, then run both PostgreSQL suites:
 
 ```bash
 HISTORY_REQUIRE_POSTGRES=1 \
 HISTORY_TEST_POSTGRES_ADMIN_URL=postgresql://test_role@127.0.0.1:5432/postgres \
+HISTORY_TEST_POSTGRES_TEMPLATE_DATABASE=review_router_history_template \
 pnpm history:test:postgres
 ```
 
-Each suite creates and drops a uniquely named disposable database and applies the
-real migration chain. `HISTORY_TEST_POSTGRES_TEMPLATE_DATABASE` can name a local,
-fully migrated, idle template to avoid repeating migration work. It must never
-identify a production database. `HISTORY_REQUIRE_POSTGRES=1` prevents a missing
-connection from silently skipping the qualification. Set `HISTORY_TEST_VOLUME=1`
-for the bounded 100,000-row read/query-plan fixture.
+Each suite creates and drops a uniquely named disposable database. Without a
+template, a single suite applies the real migration chain and requires a fresh
+isolated cluster with no pre-existing migration authority roles. Use a new
+cluster for each full replay; later migrations create global roles. For shared
+test clusters, set
+`HISTORY_TEST_POSTGRES_TEMPLATE_DATABASE` to a dedicated, fully migrated, idle
+template. CI creates that snapshot from its ordinary application database before
+tests start and disables connections to the template; concurrent suites clone it
+without rerunning historical migrations against later global role state. Keep
+the admin URL on the same cluster. The template must never identify a production
+database. `HISTORY_REQUIRE_POSTGRES=1` prevents a missing connection from silently
+skipping qualification. Set `HISTORY_TEST_VOLUME=1` for the bounded 100,000-row
+read/query-plan fixture.
 
 Run `pnpm history:architecture` for the scoped Get Modular pins, module layout,
 and Foundation rejection checks. Its deliberate temporary forbidden-import
