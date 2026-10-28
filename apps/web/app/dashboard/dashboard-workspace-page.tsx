@@ -157,6 +157,7 @@ import { ConnectSourceDialog } from "../connect-source-dialog";
 import { RepositoryVisibilityBadge } from "../repository-visibility-badge";
 import { DashboardInstallRequestToast } from "./dashboard-install-request-toast";
 import {
+  dashboardClientNavigationHref,
   dashboardPath,
   dashboardPathFromSearchParams,
   dashboardSectionHref,
@@ -1224,6 +1225,17 @@ export async function DashboardWorkspacePage({
     selectedWorkspace.workspace,
     workspaces,
   );
+  if (selectedSection === "context-tools") {
+    redirect(
+      dashboardClientNavigationHref(
+        dashboardSectionHref(
+          "context-tools",
+          workspaceKey,
+          selectedWorkspace.workspace.id,
+        ),
+      ),
+    );
+  }
   const sectionBoundaryKey = JSON.stringify([
     selectedWorkspace.workspace.id,
     selectedSection,
