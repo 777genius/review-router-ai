@@ -73,6 +73,19 @@ import { reviewActionV2ProjectionPolicyVersion } from "../../../apps/api/src/rev
 import { FakeGitHubTransport } from "../../review-action-v2-production-e2e/support/fake-github.js";
 import { assertDisposableDatabaseUrl } from "../../review-action-v2-production-e2e/support/review-action-v2-e2e-harness.js";
 import { resetReviewInvestigationProductionE2EDatabase } from "../../review-investigation-production-e2e/support/review-investigation-production-e2e-harness.js";
+import {
+  audienceMemoryStatements,
+  createApprovedMemoryFixture,
+  cleanupApprovedMemoryFixture,
+} from "../../memory-e2e/support/approved-memory-fixture.js";
+import {
+  createReviewMemoryInputAdmission,
+  createInvestigationMemoryInputAdmission,
+} from "../../../apps/api/src/review-memory-admission.js";
+import {
+  ReviewMemoryRuntimeGateway,
+  registerReviewMemoryRuntimeRoutes,
+} from "../../../apps/api/src/review-memory-runtime.js";
 // @ts-expect-error The shared release parser is intentionally ESM JavaScript.
 import { parseContextGatewayReleaseMetadata } from "../../lib/review-action-v2-release-manifests.mjs";
 
@@ -136,6 +149,18 @@ export type PairedActionProcessResult = Readonly<{
   ok: boolean;
   scenario: PairedActionScenario;
   releaseManifestHash: string;
+  memoryWitness?: Readonly<{
+    snapshotHash: string;
+    providerManifestHash: string;
+    seedReviewPromptHash: string;
+    turns: readonly Readonly<{
+      serializedInputHash: string;
+      promptHash: string;
+      reviewContextPromptHash: string;
+      purpose: string;
+      includesStatements: readonly boolean[];
+    }>[];
+  }>;
   replayPreparationMissing?: boolean;
   preparedObligationCount?: number;
   sourceInvestigationId?: string;
@@ -204,6 +229,7 @@ export class PairedActionSaasE2EHarness {
   private readonly fakeGitHub: FakeGitHubTransport;
   private readonly originalFetch: typeof globalThis.fetch;
   private readonly temporaryRoot: string;
+  private memoryGeneration?: string;
   private oidcOrdinal = 0;
   private runOidcToken?: Readonly<{
     identity: string;
@@ -258,6 +284,7 @@ export class PairedActionSaasE2EHarness {
     databaseUrl: string;
     actionSourceDir: string;
     actionRef: string;
+    memory?: boolean;
   }): Promise<PairedActionSaasE2EHarness> {
     assertDisposableDatabaseUrl(input.databaseUrl);
     const sourceActionDir = path.resolve(input.actionSourceDir);
@@ -348,11 +375,30 @@ export class PairedActionSaasE2EHarness {
           );
         },
       };
+      const memoryGeneration = input.memory ? `${prefix}-memory` : undefined;
+      const approvedMemory = memoryGeneration
+        ? await createApprovedMemoryFixture({
+            prisma,
+            workspaceId,
+            repositoryId: repositoryConnectionId,
+            generation: memoryGeneration,
+            statements: audienceMemoryStatements,
+          })
+        : undefined;
       const routes = composeReviewActionV2ProductionRoutes({
         enabled: true,
         env,
         runtime,
         prisma,
+        ...(approvedMemory
+          ? {
+              memoryInputAdmission: createReviewMemoryInputAdmission(
+                approvedMemory.runtime,
+              ),
+              investigationMemoryInputAdmission:
+                createInvestigationMemoryInputAdmission(approvedMemory.runtime),
+            }
+          : {}),
       });
       const app = await createApiApp({
         prisma,
@@ -366,8 +412,20 @@ export class PairedActionSaasE2EHarness {
         reviewSnapshotReadV2Dependencies: routes.snapshot,
         reviewPublicationRequestV2Dependencies: routes.publication,
       });
+      if (approvedMemory) {
+        if (!routes.contextTools)
+          throw new Error("paired_memory_authorization_missing");
+        await registerReviewMemoryRuntimeRoutes(
+          app,
+          new ReviewMemoryRuntimeGateway({
+            prisma,
+            runtime: approvedMemory.runtime,
+            access: routes.contextTools,
+          }),
+        );
+      }
       const apiUrl = await app.listen({ host: "127.0.0.1", port: 0 });
-      return new PairedActionSaasE2EHarness({
+      const harness = new PairedActionSaasE2EHarness({
         prisma,
         diagnostics,
         releaseManifest: release.manifest,
@@ -388,6 +446,8 @@ export class PairedActionSaasE2EHarness {
         originalFetch,
         temporaryRoot,
       });
+      if (memoryGeneration) harness.memoryGeneration = memoryGeneration;
+      return harness;
     } catch (error) {
       globalThis.fetch = originalFetch;
       await prisma.$disconnect();
@@ -398,6 +458,7 @@ export class PairedActionSaasE2EHarness {
 
   async run(
     scenario: PairedActionScenario,
+    options: Readonly<{ memory?: boolean }> = {},
   ): Promise<PairedActionProcessResult> {
     const configPath = path.join(
       this.temporaryRoot,
@@ -408,6 +469,7 @@ export class PairedActionSaasE2EHarness {
       configPath,
       JSON.stringify({
         scenario,
+        memory: options.memory === true,
         apiUrl: this.apiUrl,
         oidcToken,
         actionSourceDir: this.actionSourceDir,
@@ -528,6 +590,12 @@ export class PairedActionSaasE2EHarness {
 
   async close(): Promise<void> {
     await this.app.close();
+    if (this.memoryGeneration)
+      await cleanupApprovedMemoryFixture(
+        this.prisma,
+        this.memoryGeneration,
+        this.workspaceId,
+      );
     globalThis.fetch = this.originalFetch;
     await this.prisma.$disconnect();
     await rm(this.temporaryRoot, { recursive: true, force: true });
