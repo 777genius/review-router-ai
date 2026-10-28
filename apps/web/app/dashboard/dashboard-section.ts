@@ -2,6 +2,7 @@ import { isMemoryError } from "./dashboard-copy";
 
 export type DashboardSection =
   | "repositories"
+  | "context-tools"
   | "skills"
   | "memory"
   | "setup"
@@ -21,6 +22,7 @@ export const DASHBOARD_SECTIONS = [
   "diagnostics",
   "usage",
   "other",
+  "context-tools",
   "skills",
   "memory",
 ] as const satisfies readonly DashboardSection[];
@@ -40,6 +42,12 @@ export const dashboardSectionMeta: Record<
     description:
       "Choose a provider and follow each repository's setup steps. Finish its connection and workflow setup here.",
     navDescription: "Setup PRs and health",
+  },
+  "context-tools": {
+    eyebrow: "Review context",
+    title: "Context tools",
+    description: "Manage approved MCP connections for review context.",
+    navDescription: "MCP connections for reviews",
   },
   skills: {
     eyebrow: "Review instructions",
@@ -152,7 +160,14 @@ export function dashboardPathFromSearchParams(
 export function dashboardSectionHref(
   section: DashboardSection,
   workspaceKey?: string,
+  workspaceId?: string,
 ): string {
+  if (section === "context-tools") {
+    const query = new URLSearchParams();
+    if (workspaceId) query.set("workspaceId", workspaceId);
+    if (workspaceKey) query.set("workspace", workspaceKey);
+    return `/dashboard/context-tools${query.size ? `?${query}` : ""}#dashboard-section-content`;
+  }
   return `${dashboardPath({
     section,
     ...(workspaceKey ? { workspace: workspaceKey } : {}),

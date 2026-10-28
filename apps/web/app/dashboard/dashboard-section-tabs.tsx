@@ -10,6 +10,7 @@ import {
   Cpu,
   GitPullRequest,
   Layers,
+  Plug,
   Settings2,
   type LucideIcon,
 } from "lucide-react";
@@ -19,6 +20,7 @@ import { dashboardClientNavigationHref } from "./dashboard-section";
 const dashboardSectionIcons: Record<string, LucideIcon> = {
   repositories: GitPullRequest,
   skills: BookOpen,
+  "context-tools": Plug,
   memory: Brain,
   setup: Settings2,
   providers: Layers,

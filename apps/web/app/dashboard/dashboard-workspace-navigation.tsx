@@ -231,7 +231,11 @@ export function WorkspaceSwitcher({
       ...(workspace.hasWorkspaceWideAccess
         ? {}
         : { statusLabel: "Repo access" }),
-      href: dashboardSectionHref(selectedSection, workspaceKey),
+      href: dashboardSectionHref(
+        selectedSection,
+        workspaceKey,
+        workspace.workspace.id,
+      ),
     };
   });
   const pendingTab = pendingOrganizationInstallRequest
@@ -274,15 +278,17 @@ export function WorkspaceSwitcher({
 export function DashboardSectionNav({
   selectedSection,
   workspaceKey,
+  workspaceId,
 }: {
   readonly selectedSection: DashboardSection;
   readonly workspaceKey: string;
+  readonly workspaceId?: string;
 }): React.ReactElement {
   const items = DASHBOARD_SECTIONS.map((section) => ({
     section,
     label: dashboardSectionMeta[section].title,
     description: dashboardSectionMeta[section].navDescription,
-    href: dashboardSectionHref(section, workspaceKey),
+    href: dashboardSectionHref(section, workspaceKey, workspaceId),
   }));
 
   return (
