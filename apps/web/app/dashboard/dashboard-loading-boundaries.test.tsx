@@ -1,8 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { redirect } from "next/navigation";
 import { existsSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DashboardWorkspaceLayout,
+  DashboardWorkspacePage,
   DashboardSectionContent,
   listDashboardRepositoryAccess,
   loadDashboardSectionData,
@@ -11,10 +13,14 @@ import {
 import type { DashboardWorkspaceSummary } from "./dashboard-workspace-navigation";
 import type { EffectiveReviewConfiguration } from "@reviewrouter/features-review-config";
 
-vi.mock("next/navigation", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("next/navigation")>()),
-  useRouter: () => ({ refresh: vi.fn() }),
-}));
+vi.mock("next/navigation", async (importOriginal) => {
+  const original = await importOriginal<typeof import("next/navigation")>();
+  return {
+    ...original,
+    redirect: vi.fn(original.redirect),
+    useRouter: () => ({ refresh: vi.fn() }),
+  };
+});
 
 const memoryKnowledge = vi.hoisted(() => ({
   load: vi.fn(async () => ({ workspaceId: "workspace-a", repositoryId: null })),
@@ -312,6 +318,48 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => vi.restoreAllMocks());
 
 describe("dashboard server loading boundaries", () => {
+  it.each([
+    ["acme", "workspace-a", "acme"],
+    ["second", "workspace-b", "second"],
+    ["unknown", "workspace-a", "acme"],
+  ])(
+    "redirects the Context tools section to the authorized workspace selected by %s",
+    async (requested, id, key) => {
+      spies.summaries.mockResolvedValueOnce([
+        {
+          id: "workspace-a",
+          name: "acme",
+          slug: "acme",
+          installations: [],
+          gitLabInstallations: [],
+          repositories: [{ owner: "acme" }],
+          _count: { repositories: 2 },
+        },
+        {
+          id: "workspace-b",
+          name: "second",
+          slug: "second",
+          installations: [],
+          gitLabInstallations: [],
+          repositories: [{ owner: "second" }],
+          _count: { repositories: 2 },
+        },
+      ]);
+      await expect(
+        DashboardWorkspacePage({
+          searchParams: Promise.resolve({
+            section: "context-tools",
+            workspace: requested,
+            workspaceId: "unauthorized-workspace",
+          }),
+        }),
+      ).rejects.toThrow("NEXT_REDIRECT");
+      expect(redirect).toHaveBeenCalledWith(
+        `/dashboard/context-tools?workspaceId=${id}&workspace=${key}`,
+      );
+    },
+  );
+
   it("starts unrelated workspace reads while policy reads wait for scoped metadata", async () => {
     let resolveRepositories!: (
       value: Awaited<ReturnType<typeof spies.repositories>>,
