@@ -93,9 +93,20 @@ export type MemoryKnowledgeApplicability = {
   readonly exceptionRule: MemoryEntryRef | null;
 };
 
+export type MemoryAutomaticSourceBinding = {
+  readonly lineageKey: string;
+  readonly cohortId: string;
+  readonly epoch: string;
+  readonly sourceRevision: string;
+  readonly policyRevision: string;
+  readonly sourceActorId: string;
+  readonly observedCommitSha: string;
+};
+
 /** Current provider bodies and current topic membership are deliberately absent. */
 export type MemoryKnowledgeEntryMetadata = {
   readonly ref: MemoryEntryRef;
+  readonly automaticSource?: MemoryAutomaticSourceBinding;
   readonly generation: string;
   readonly revision: string;
   readonly contentApprovalRevision: string | null;

@@ -8,3 +8,6 @@ export * from "./prisma/prisma-memory-usage-event-repository";
 export * from "./config/memory-service-flag";
 export * from "./entitlements/entitlement-memory-policy-config";
 export * from "./entitlements/entitlement-memory-quota-policy";
+
+export * from "./prisma/prisma-memory-automatic-source-store";
+export * from "./hindsight/hindsight-source-preview";

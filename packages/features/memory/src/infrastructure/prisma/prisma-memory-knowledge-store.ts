@@ -1,3 +1,7 @@
+import {
+  transitionAutomaticMemoryOwnership,
+  activateAutomaticMemoryCohort,
+} from "./prisma-memory-automatic-source-store";
 import { randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { createMemoryBodyHash } from "../../domain/memory-body";
@@ -295,6 +299,18 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
         throw new MemoryKnowledgeError("quota_exceeded");
       if (!urgent && (counts?.pending ?? 0) >= input.pendingCommandLimit)
         throw new MemoryKnowledgeError("quota_exceeded");
+      await transitionAutomaticMemoryOwnership(tx, {
+        ref: command.ref,
+        metadata: current?.metadata ?? null,
+        commandKind: command.kind,
+        ...(input.automaticSource
+          ? { automaticSource: input.automaticSource }
+          : {}),
+        ...(input.internalRetirement
+          ? { internalRetirement: input.internalRetirement }
+          : {}),
+        now: input.now,
+      });
       if (command.kind === "save")
         await this.reserveSource(tx, command, input.now);
       const revision = (current?.revision ?? 0) + 1;
@@ -338,8 +354,15 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
         createdAt: timestamp,
         updatedAt: timestamp,
       };
+      if (command.kind === "save" && !input.automaticSource) {
+        const { automaticSource: _automaticSource, ...maintained } = metadata;
+        metadata = maintained;
+      }
       metadata = {
         ...metadata,
+        ...(input.automaticSource
+          ? { automaticSource: input.automaticSource }
+          : {}),
         revision: String(revision),
         updatedAt: timestamp,
         pendingCommandId: current?.pendingCommandId ?? command.commandId,
@@ -561,6 +584,7 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
           updatedAt: input.now.toISOString(),
         };
         await this.writeEntry(tx, metadata, input.now);
+        await activateAutomaticMemoryCohort(tx, metadata, input.now);
         await this.bumpEpoch(tx, input.scope, input.generation, input.now);
         if (nextPending)
           await tx.outboxEvent.create({

@@ -6,6 +6,40 @@ datasource db {
   provider = "postgresql"
 }
 
+// Finite accepted conversation identity and bodyless input manifest. The bounded
+// result may contain only an unresolved reply, purged on terminal publication.
+// Source transcript, code, prompts and raw model events never belong in this row.
+model ConversationProcessing {
+  id String @id @default(uuid())
+  workspaceId String
+  repositoryId String
+  repositoryStableId String
+  repositoryFullName String
+  pullRequestNumber Int
+  threadId String
+  sourceId String
+  sourceCommentId String
+  sourceRevision String
+  sourceUpdatedAt DateTime
+  sourceActorId String
+  sourceActorLogin String
+  sourceActorKind String
+  purpose String @default("conversation-v1")
+  deadlineAt DateTime
+  boundManifest String?
+  modelDispatched Boolean @default(false)
+  observedModel String?
+  observedUsage Json?
+  requestEffect String?
+  status String @default("processing")
+  result Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([repositoryStableId, threadId, sourceId, sourceRevision, purpose], map: "ConversationProcessing_source_revision_key")
+  @@index([workspaceId, repositoryId, id])
+}
+
 model Workspace {
   reviewSkillImportCandidates ReviewSkillImportCandidate[]
   reviewSkills ReviewSkill[]
@@ -3379,6 +3413,29 @@ model MemoryKnowledgeMaintenanceFence {
   paused     Boolean  @default(false)
   actor      String
   updatedAt  DateTime @default(now()) @updatedAt
+}
+
+// Bodyless, generation-independent source lineage. Raw source text is never stored.
+model MemoryAutomaticSource {
+  lineageKey String @id
+  workspaceId String
+  scopeKey String
+  state Json
+  updatedAt DateTime @default(now()) @updatedAt
+  @@index([workspaceId, scopeKey])
+}
+
+model MemoryAutomaticEntry {
+  generation String
+  scopeKey String
+  entryId String
+  lineageKey String
+  cohortId String
+  epoch String
+  bodyDigest String
+  ownership String
+  @@id([generation, scopeKey, entryId])
+  @@index([lineageKey, cohortId])
 }
 
 model MemoryKnowledgeSourceCursor {

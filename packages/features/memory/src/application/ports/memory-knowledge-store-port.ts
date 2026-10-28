@@ -6,6 +6,7 @@ import type {
   MemoryKnowledgeErrorCode,
   MemoryKnowledgeOperation,
   MemoryKnowledgeScope,
+  MemoryAutomaticSourceBinding,
 } from "../../domain/memory-knowledge";
 import type { MemoryProviderOperation } from "./memory-knowledge-provider-port";
 
@@ -69,6 +70,8 @@ export interface MemoryKnowledgeStore {
   >;
   admit(input: {
     readonly command: MemoryKnowledgeCommand;
+    readonly automaticSource?: MemoryAutomaticSourceBinding;
+    readonly internalRetirement?: MemoryAutomaticSourceBinding;
     readonly digest: string;
     readonly now: Date;
     readonly deliveryExpiresAt: Date;

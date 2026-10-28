@@ -1,0 +1,30 @@
+CREATE TABLE "ConversationProcessing" (
+  "id" TEXT NOT NULL,
+  "workspaceId" TEXT NOT NULL,
+  "repositoryId" TEXT NOT NULL,
+  "repositoryStableId" TEXT NOT NULL,
+  "repositoryFullName" TEXT NOT NULL,
+  "pullRequestNumber" INTEGER NOT NULL,
+  "threadId" TEXT NOT NULL,
+  "sourceId" TEXT NOT NULL,
+  "sourceCommentId" TEXT NOT NULL,
+  "sourceRevision" TEXT NOT NULL,
+  "sourceUpdatedAt" TIMESTAMP(3) NOT NULL,
+  "sourceActorId" TEXT NOT NULL,
+  "sourceActorLogin" TEXT NOT NULL,
+  "sourceActorKind" TEXT NOT NULL,
+  "purpose" TEXT NOT NULL DEFAULT 'conversation-v1',
+  "deadlineAt" TIMESTAMP(3) NOT NULL,
+  "boundManifest" TEXT,
+  "modelDispatched" BOOLEAN NOT NULL DEFAULT false,
+  "observedModel" TEXT,
+  "observedUsage" JSONB,
+  "requestEffect" TEXT,
+  "status" TEXT NOT NULL DEFAULT 'processing',
+  "result" JSONB NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "ConversationProcessing_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX "ConversationProcessing_source_revision_key" ON "ConversationProcessing"("repositoryStableId", "threadId", "sourceId", "sourceRevision", "purpose");
+CREATE INDEX "ConversationProcessing_workspaceId_repositoryId_id_idx" ON "ConversationProcessing"("workspaceId", "repositoryId", "id");

@@ -1,5 +1,6 @@
 packages:
   - apps/*
+  - packages/context-memory
   - packages/ui
   - packages/shared
   - packages/protocol-review-action-v2

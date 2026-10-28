@@ -1,3 +1,6 @@
+import { PrismaMemoryAutomaticSourceStore } from "../infrastructure/prisma/prisma-memory-automatic-source-store";
+import type { MemoryAutomaticSourceInput } from "../application/ports/memory-automatic-source-port";
+import type { MemoryAutomaticSourceBinding } from "../domain/memory-knowledge";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
@@ -87,6 +90,15 @@ describe.skipIf(!databaseUrl)(
             "utf8",
           ),
         );
+        await fixture.query(
+          await readFile(
+            new URL(
+              "../../../../platform/db/prisma/migrations/202610280002_memory_automatic_source/migration.sql",
+              import.meta.url,
+            ),
+            "utf8",
+          ),
+        );
       } finally {
         await fixture.end();
       }
@@ -110,7 +122,7 @@ describe.skipIf(!databaseUrl)(
 
     beforeEach(async () => {
       await prisma.$executeRawUnsafe(
-        'TRUNCATE "MemoryKnowledgeCommand","MemoryKnowledgeEntry","MemoryKnowledgeScopeState","MemoryKnowledgeSourceCursor","MemoryKnowledgeBundleReceipt","MemoryKnowledgeMaintenanceFence","OutboxEvent","AuditEvent"',
+        'TRUNCATE "MemoryAutomaticSource","MemoryAutomaticEntry","MemoryKnowledgeCommand","MemoryKnowledgeEntry","MemoryKnowledgeScopeState","MemoryKnowledgeSourceCursor","MemoryKnowledgeBundleReceipt","MemoryKnowledgeMaintenanceFence","OutboxEvent","AuditEvent"',
       );
     });
     afterAll(async () => {
@@ -222,6 +234,228 @@ describe.skipIf(!databaseUrl)(
       });
       return { result, entry };
     }
+
+    function automaticInput(revision: number): MemoryAutomaticSourceInput {
+      const updatedAt = new Date(now.getTime() + revision * 1000).toISOString();
+      return {
+        processingId: `processing_${revision}`,
+        scope,
+        policyRevision: "standing-v1",
+        threadId: "thread",
+        threadDigest: "d".repeat(64),
+        headSha: "a".repeat(40),
+        selectableBody: "Synthetic raw source never retained",
+        readOnlyContext: "Synthetic raw thread never retained",
+        sourceActor: {
+          kind: "github_user",
+          id: "actor",
+          githubUserId: "123",
+          login: "maintainer",
+        },
+        source: {
+          type: "github_comment",
+          sourceId: "github-node:SOURCE",
+          revision: `${updatedAt}:digest`,
+          updatedAt,
+          statementAt: updatedAt,
+          repositoryId: scope.repositoryId,
+          pullRequestNumber: 1,
+          url: null,
+          visibility: "private",
+          claimedBodyDigest: createMemoryBodyHash(
+            "Synthetic raw source never retained",
+          ),
+          observedCommitSha: "a".repeat(40),
+        },
+      };
+    }
+    async function autoReserve(revision: number, count: number) {
+      const input = automaticInput(revision);
+      const commands = Array.from({ length: count }, (_, index) =>
+        save({
+          ref: {
+            type: "entry",
+            scope,
+            entryId: `automatic_${revision}_${index}`,
+          },
+          source: input.source,
+          knowledgeKind: "observation",
+        }),
+      );
+      const sources = new PrismaMemoryAutomaticSourceStore(prisma);
+      const state = await sources.reserve({
+        input,
+        generation,
+        entryIds: commands.map((c) => c.ref.entryId),
+        bodyDigests: commands.map((c) => createMemoryBodyHash(c.body)),
+        now,
+      });
+      return { input, commands, sources, state };
+    }
+    async function publishAuto(
+      command: Extract<MemoryKnowledgeCommand, { kind: "save" }>,
+      binding: MemoryAutomaticSourceBinding,
+    ) {
+      await store.admit({
+        command,
+        automaticSource: binding,
+        digest: memoryKnowledgeCommandDigest(command),
+        now,
+        deliveryExpiresAt: new Date(now.getTime() + 86400000),
+        resubmitUntil: now,
+        activeEntryLimit: null,
+        pendingCommandLimit: 100,
+      });
+      const work = await claim(command);
+      await store.settle({
+        commandId: command.commandId,
+        scope,
+        generation,
+        claimId: work!.claimId,
+        result: {
+          commandId: command.commandId,
+          state: "published",
+          verifiedEntry: {
+            ref: command.ref,
+            body: command.body,
+            bodyDigest: createMemoryBodyHash(command.body),
+            contentApprovalRevision: "1",
+            kind: command.knowledgeKind,
+            topicIds: command.topicIds,
+            statementAt: command.source.statementAt,
+            sourceFactIds: ["fact"],
+          },
+        },
+        now,
+      });
+    }
+    it("activates source 2→1→0 cohorts atomically and rejects old/partial children without suppressing future edits", async () => {
+      const first = await autoReserve(1, 2);
+      await publishAuto(first.commands[0]!, first.state.binding);
+      expect(
+        await first.sources.applicable(
+          first.commands[0]!.ref,
+          generation,
+          first.state.binding,
+        ),
+      ).toBe(false);
+      await publishAuto(first.commands[1]!, first.state.binding);
+      expect(
+        await first.sources.applicable(
+          first.commands[0]!.ref,
+          generation,
+          first.state.binding,
+        ),
+      ).toBe(true);
+      const second = await autoReserve(2, 1);
+      expect(
+        await first.sources.applicable(
+          first.commands[0]!.ref,
+          generation,
+          first.state.binding,
+        ),
+      ).toBe(false);
+      await publishAuto(second.commands[0]!, second.state.binding);
+      expect(
+        await second.sources.applicable(
+          second.commands[0]!.ref,
+          generation,
+          second.state.binding,
+        ),
+      ).toBe(true);
+      const empty = await autoReserve(3, 0);
+      expect(empty.state.state).toBe("active");
+      expect(empty.state.entryIds).toEqual([]);
+      expect(
+        await second.sources.applicable(
+          second.commands[0]!.ref,
+          generation,
+          second.state.binding,
+        ),
+      ).toBe(false);
+      expect((await autoReserve(4, 1)).state.suppressed).toBe(false);
+      const rows = await prisma.$queryRaw<{ state: unknown }[]>(
+        Prisma.sql`SELECT "state" FROM "MemoryAutomaticSource"`,
+      );
+      expect(JSON.stringify(rows)).not.toContain(first.input.selectableBody);
+      expect(JSON.stringify(rows)).not.toContain(first.input.readOnlyContext);
+    });
+    it("preserves bodyless lineage suppression across source edits and generation changes while keeping unrequested siblings eligible", async () => {
+      const first = await autoReserve(1, 2);
+      for (const command of first.commands)
+        await publishAuto(command, first.state.binding);
+      const original = first.commands[0]!;
+      await admit({
+        kind: "retire",
+        ref: original.ref,
+        generation,
+        providerProfileVersion: original.providerProfileVersion,
+        approval: original.approval,
+        commandId: randomUUID(),
+        expectedRevision: "1",
+      });
+      expect(
+        (await first.sources.lookup(scope, first.input.source.sourceId))
+          ?.suppressed,
+      ).toBe(true);
+      expect(
+        await first.sources.applicable(
+          first.commands[1]!.ref,
+          generation,
+          first.state.binding,
+        ),
+      ).toBe(true);
+      expect((await autoReserve(2, 1)).state.suppressed).toBe(true);
+      const changed = automaticInput(3);
+      const next = await first.sources.reserve({
+        input: changed,
+        generation: "next_generation",
+        entryIds: [],
+        bodyDigests: [],
+        now,
+      });
+      expect(next.suppressed).toBe(true);
+    });
+    it("detaches an explicitly edited automatic handle inside command reservation and fences internal retirement", async () => {
+      const first = await autoReserve(1, 1);
+      const original = first.commands[0]!;
+      await publishAuto(original, first.state.binding);
+      const update = {
+        ...original,
+        commandId: randomUUID(),
+        expectedRevision: "1",
+        body: "Maintainer corrected exact text.",
+      };
+      await admit(update);
+      expect(
+        (await store.findEntry(original.ref, generation))?.automaticSource,
+      ).toBeUndefined();
+      expect(
+        (await first.sources.lookup(scope, first.input.source.sourceId))
+          ?.entryIds,
+      ).toEqual([]);
+      const retirement = {
+        kind: "retire" as const,
+        commandId: randomUUID(),
+        ref: original.ref,
+        expectedRevision: "2",
+        generation,
+        providerProfileVersion: original.providerProfileVersion,
+        approval: original.approval,
+      };
+      await expect(
+        store.admit({
+          command: retirement,
+          internalRetirement: first.state.binding,
+          digest: memoryKnowledgeCommandDigest(retirement),
+          now,
+          deliveryExpiresAt: new Date(now.getTime() + 86400000),
+          resubmitUntil: now,
+          activeEntryLimit: null,
+          pendingCommandLimit: 100,
+        }),
+      ).rejects.toMatchObject({ code: "conflict" });
+    });
 
     function forgetCommand(
       original: MemoryKnowledgeCommand,

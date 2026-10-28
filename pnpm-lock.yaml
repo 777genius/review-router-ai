@@ -575,6 +575,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
 
+  packages/context-memory: {}
+
   packages/features/action-control-plane:
     dependencies:
       '@prisma/client':
@@ -802,6 +804,9 @@ importers:
       '@vectorize-io/hindsight-client':
         specifier: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz
         version: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz
+      context-memory:
+        specifier: workspace:*
+        version: link:../../context-memory
     devDependencies:
       '@prisma/adapter-pg':
         specifier: 7.8.0

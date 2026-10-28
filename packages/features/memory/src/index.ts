@@ -15,3 +15,6 @@ export * from "./application/ports/memory-quota-policy-port";
 export * from "./application/ports/memory-usage-event-retention-port";
 export * from "./application/use-cases/memory-knowledge-service";
 export * from "./application/use-cases/prune-memory-usage-events";
+
+export * from "./application/ports/memory-automatic-source-port";
+export * from "./application/use-cases/memory-automatic-source-service";

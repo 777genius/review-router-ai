@@ -21,6 +21,7 @@
     }
   },
   "dependencies": {
+    "context-memory": "workspace:*",
     "@get-modular/core": "0.7.0",
     "@get-modular/assembly": "0.7.0",
     "@vectorize-io/hindsight-client": "https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz",

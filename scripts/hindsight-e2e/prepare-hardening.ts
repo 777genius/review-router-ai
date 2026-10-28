@@ -1,3 +1,4 @@
+import { prepareStrictPreview } from "../../deploy/hindsight/prepare-strict-preview.ts";
 import { createHash } from "node:crypto";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
@@ -151,6 +152,7 @@ export async function prepare(source: string, context?: string) {
       "utf8",
     ),
   };
+  await prepareStrictPreview(source, root, files);
   const actualLock = digest(await readFile(join(source, "uv.lock")));
   if (actualLock !== nativeLockSha256)
     throw new Error("Modified upstream dependency lock");
