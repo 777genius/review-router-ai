@@ -13,12 +13,13 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
-| Task                                           | Implementation                                                    | Staging   | Production | Remaining work                                                                  |
-| ---------------------------------------------- | ----------------------------------------------------------------- | --------- | ---------- | ------------------------------------------------------------------------------- |
-| [Review History](2026-10-28-review-history.md) | [PR #730](https://github.com/777genius/review-router-ai/pull/730) | `pending` | `pending`  | Reconcile environment; migrate, deploy fleet, enable capture, activate, verify. |
+| Task                                                             | Implementation                                                                                                                               | Staging   | Production | Remaining work                                                                                            |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------- | ---------- | --------------------------------------------------------------------------------------------------------- |
+| [Review History](2026-10-28-review-history.md)                   | [PR #730](https://github.com/777genius/review-router-ai/pull/730)                                                                            | `pending` | `pending`  | Reconcile environment; migrate, deploy fleet, enable capture, activate, verify.                           |
+| [Skills catalog production repair](2026-10-28-skills-catalog.md) | [PR #735](https://github.com/777genius/review-router-ai/pull/735), [UAP #555](https://github.com/777genius/universal-agent-plugins/pull/555) | `pending` | `deployed` | Final `1e3a5379` production acceptance complete; PR #735 CI/merge pending separately; staging unverified. |
 
 The task file is authoritative; keep this summary in sync in the same commit.
-The initial inventory contains Review History only. Missing entries do not prove
+The inventory includes the bounded Skills production repair and Review History. Missing entries do not prove
 that older changes are deployed: inspect the installed-to-target change range and
 the release runbook for additional required work before each rollout.
 
