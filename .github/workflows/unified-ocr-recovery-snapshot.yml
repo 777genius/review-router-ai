@@ -1,0 +1,54 @@
+# Temporary read-only recovery aid; remove before this draft is ready to merge.
+name: Unified OCR recovery snapshots
+
+on:
+  push:
+    branches: [feat/unified-ocr-review-20261026]
+    paths: [.github/workflows/unified-ocr-recovery-snapshot.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Archive exact control-plane revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ocr-recovery"
+          git archive --format=tar.gz --prefix=control-base/ d3595c2e3e0b21ab539dea0fb7a06d35a4613faf > "$RUNNER_TEMP/ocr-recovery/control-base.tar.gz"
+          git archive --format=tar.gz --prefix=control-head/ 476a2e0c400e3b6abde5d33a41557652e78765d0 > "$RUNNER_TEMP/ocr-recovery/control-head.tar.gz"
+          git archive --format=tar.gz --prefix=control-main/ 5551a572fce38aaa3453bbef1ff9af79d3c293de > "$RUNNER_TEMP/ocr-recovery/control-main.tar.gz"
+          printf '%s\n' 'control-base=d3595c2e3e0b21ab539dea0fb7a06d35a4613faf' 'control-head=476a2e0c400e3b6abde5d33a41557652e78765d0' 'control-main=5551a572fce38aaa3453bbef1ff9af79d3c293de' > "$RUNNER_TEMP/ocr-recovery/revisions.txt"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: 777genius/review-router
+          ref: e226a83359b9b0785c17840bfedf8df8669083d3
+          path: tmp/paired-action
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Archive exact public-runtime revisions
+        shell: bash
+        working-directory: tmp/paired-action
+        run: |
+          set -euo pipefail
+          git archive --format=tar.gz --prefix=action-head/ e226a83359b9b0785c17840bfedf8df8669083d3 > "$RUNNER_TEMP/ocr-recovery/action-head.tar.gz"
+          git archive --format=tar.gz --prefix=action-base/ a8cd9c5818c9c6dd1958e747f89b141a21baf882 > "$RUNNER_TEMP/ocr-recovery/action-base.tar.gz"
+          action_main=$(git rev-parse refs/remotes/origin/main)
+          git archive --format=tar.gz --prefix=action-main/ "$action_main" > "$RUNNER_TEMP/ocr-recovery/action-main.tar.gz"
+          printf '%s\n' 'action-head=e226a83359b9b0785c17840bfedf8df8669083d3' 'action-base=a8cd9c5818c9c6dd1958e747f89b141a21baf882' "action-main=$action_main" >> "$RUNNER_TEMP/ocr-recovery/revisions.txt"
+          cd "$RUNNER_TEMP/ocr-recovery"
+          sha256sum *.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: unified-ocr-recovery-${{ github.sha }}
+          path: ${{ runner.temp }}/ocr-recovery/
+          retention-days: 3
+          if-no-files-found: error
