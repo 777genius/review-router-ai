@@ -1,7 +1,7 @@
 # Контекстное обучение из обсуждений и общий вызов LLM
 
 Дата: 2026-10-28. Статус: **план следующего среза, не реализованная возможность**.
-Версия после первого раунда независимой критики; реализация и production
+Версия после второго раунда независимой критики; реализация и production
 activation в эту работу не входят. Исторические accepted ADR и план 23.10 не переписываются.
 
 ## 1. Результат для пользователя и границы решения
@@ -233,9 +233,11 @@ path/side/line/original position, commit/originalCommit и актуальные 
    записать его под новыми bytes. GitHub не даёт transactional thread snapshot:
    это bounded checked frozen read, не обещание атомарности между последней
    проверкой и внешним эффектом.
-4. До paid dispatch допускается одна повторная сборка в том же accepted processing
-   record/deadline; после dispatch новый платный inference автоматически не
-   запускается. Stale result не применяется; требуется новая source revision или
+4. Одна повторная сборка разрешена в том же accepted processing record/deadline
+   только пока input manifest **unbound** и не было ни native preview, ни
+   product-model dispatch. После final coherent assembly manifest связывается
+   однократно; после binding или любого dispatch он не заменяется, preview/model
+   автоматически не повторяются. Stale result не применяется; требуется новая source revision или
    явно requested reprocess. Pagination failure, missing root, permission loss,
    unresolved coherence race — `context_incomplete`, без durable selection effect.
 5. Delete tombstone достоверен по signed deleted event/current source inventory;
@@ -284,7 +286,9 @@ bounded/deadline-aware; `/status` только читает/reconciles accepted 
 Deleted event через тот же caller/session вызывает metadata-only source revoke;
 не запускает LLM ради отсутствующего body. Пропущенные edit/delete/access changes
 выявляет current source/coherence read перед последующим inference/effect;
-существующий source admission проверяет актуальность. Нет нового polling service.
+новая общая automatic-source applicability branch (§7) проверяет актуальность.
+Current approved/manual predicate не проверяет upstream freshness и сохраняется
+для maintained records. Нет нового polling service.
 
 Production policy разделяет `automaticLearning` и `discussionReplies`.
 Сконфигурированный backend по-прежнему default-on, explicit `disabled` сохраняется.
@@ -344,9 +348,29 @@ call (≤25s, ≤4 facts), ≤2 bounded recall API calls по разрешённ
 reflection/batching в первом срезе; каждый nested call делит общий absolute
 90s deadline. Native extraction profile использует effective context limit,
 выходной bound и max model-attempt=1; selectable source должен помещаться в один
-qualified extraction chunk. Внутреннее разбиение/ретраи, нарушающие этот bound,
-не выдаются за один API call: профиль отклоняет такой input заранее. Recall query не даёт implicit permission
-на дополнительные inference. Async chunks persistence не повторяет extraction;
+qualified extraction chunk. Input-size check сам по себе этого не обеспечивает.
+
+**Новый native prerequisite `strict-preview`** нужен до contextual activation.
+Pinned `fact_extraction.py` при `OutputTooLongError` автоматически делит chunk,
+независимо от `max_retries=0`, а ниже split floor 500 chars может вернуть `[]`
+как успех. Поэтому source-only audit/config не могут квалифицировать current pin.
+В hardened native owner добавить узкий режим **только dry-run**: no autosplit,
+transport retries=0 и content-validation retries=0, overflow/truncated/dropped
+chunk → явный non-success, никогда complete empty/partial. Success с `[]` означает
+настоящую завершённую abstention. Adapter допускает complete result только exact
+qualified strict native image/config; старый endpoint/profile не объявляется strict.
+Это поправка control/error semantics native extractor, не Router extractor и не
+новый semantic algorithm; durable chunks storage profile/generation не меняются.
+Режим реализовать в native extraction/HTTP dry-run owner; provider mapping остаётся
+в `context-memory/src/hindsight/`, shared/domain DTO не принимает native settings.
+
+Один focused native fixture форсирует overflow на source выше и ниже split floor:
+строго один dispatch, error/incomplete, no second half, no successful empty и
+никакого retirement старого set. Проверить zero native transport/content retries
+на том же fixture. Narrow patch входит в existing preview estimate; если её
+реализация требует иной semantic behavior, это новый scope decision.
+
+Recall query не даёт implicit permission на дополнительные inference. Async chunks persistence не повторяет extraction;
 background consolidation оплачивается по operator native limits/concurrency/token
 ceilings и не расходует/не переиспользует review grant. Долгий background process
 не оправдывает сообщение «сохранено» до qualified readback. Service и product cost
@@ -426,15 +450,22 @@ Source revision связывает updatedAt/body digest; stable source пров
 Этот ключ принимается **до** recall/native/model и до full snapshot fingerprint.
 Webhook delivery ID — transport dedupe, не semantic key.
 
-Сначала lookup accepted record. Его first accepted input manifest фиксирует
-thread revision vector/anchor, policy/audience/bundle eligibility, captured account/
-model/bounds и заранее выданные child IDs (`preview`, `model`, `memory-set`,
-`reply`). Повтор того же source/purpose возвращает прежний status/output либо
-reconciles эти IDs до чтения изменившихся dependencies. Собственный reply,
+Сначала lookup accepted record: identity и fixed child IDs (`preview`, `model`,
+`memory-set`, `reply`) принимаются сразу, а input manifest остаётся **unbound**
+до final coherent source/context/budget assembly. Только до binding и любого
+native/product dispatch допустима одна пересборка (§4). Затем однократно связать
+thread vector/anchor, policy/audience/bundle eligibility и captured account/model/
+bounds; дальнейшая drift не разрешает менять manifest или повторять inference.
+Повтор того же source/purpose сначала восстанавливает/reconciles эти IDs и
+возвращает recorded status/доступный unresolved output до чтения изменившихся
+dependencies. Собственный reply,
 новая память или чужой последующий comment не создают новый paid attempt.
 Full snapshot/model/memory hashes — immutable inputs принятого record, не его key.
 Изменение human source revision или явно authorized reprocess создаёт successor;
-последний не обходит source suppression/unknown effect fences.
+последний не обходит source suppression/unknown effect fences. После publication
+purge settled replay возвращает IDs/hash/status; historical reply bytes больше
+не обещаются. Current GitHub body можно прочитать отдельно с current permission,
+но deleted/edited reply не разрешает regenerate/recreate старый effect.
 
 ### Один semantic extraction и exact persistence
 
@@ -457,6 +488,8 @@ Full snapshot/model/memory hashes — immutable inputs принятого record
    product source metadata. Semantic entities/event-date/native world/experience
    fidelity в chunks persistence **не обещается**. Invalid/overlimit/unknown/
    partial selection не считается успешным empty result и не перезапускает preview.
+   Применяется только qualified native strict-preview (§5): current pin без fix
+   не может доказать complete empty и к этому переходу не допускается.
 4. Frozen selected statements → existing product authority/CAS commands → existing
    `router-approved-v1` **chunks** exact persistence/replace. Raw thread не входит
    ни в retain `content`, ни `context`, ни metadata/async payload. Второй semantic
@@ -489,25 +522,83 @@ semantic blacklist. Set принадлежит source, а не номеру chun
 
 Для accepted complete revision создать до 4 новых deterministic child entry IDs
 из processing ID+index frozen result; не угадывать old/new соответствие по тексту.
-Одна metadata transition отзывает admission прежнего auto-set и записывает новый
-pending set; existing per-entry commands реализуют native effects. Новый set
-доступен после его verified readbacks; частичное выполнение не выдаётся за полную
-замену. История `2→1→0`: старые auto entries retire, новый один publish, успешный
-empty selection оставляет empty current set без пустого native document.
-Unknown/failed/partial selection фиксирует `needs_refresh`, а не empty/success;
-source freshness уже исключает старую edited revision из новых admissions.
-Maintained manual rules/authorized exceptions не входят в automatic set и
-автоматически не удаляются вместе с ним.
+Metadata transition отзывает admission прежнего auto-set и записывает новый
+**pending cohort** с checked revision/source epoch. Child commands/verified
+readbacks записывают native evidence, но **не делают children body-visible**.
+Только одна atomic metadata activation при всех verified readbacks переводит
+полный current cohort в active. Проверяются current source/cohort ID/epoch,
+expected ownership и suppression; superseded/partial/unknown cohort не активен.
+Late child callback не может активировать старый cohort по одному entry CAS.
+История `2→1→0`: internal replacement withdraws старый cohort, retiring native
+children, новый complete cohort активируется целиком; successful empty selection
+активирует empty set без native empty document. Unknown/failed/partial →
+`needs_refresh`, не successful empty. Проверенная изменённая source revision
+исключает прежний auto-set из новых admissions, но не означает успешной замены.
+
+Maintained manual rules/authorized exceptions и explicitly maintained observations
+не принадлежат automatic replacement set. Explicit authorized content update auto
+handle атомарно **detach/promote** его в maintained ownership с command reservation
+и source/cohort membership change; kind остаётся observation, если отдельно не
+авторизовано rule/exception. Internal retire CAS проверяет прежние automatic
+ownership/source/cohort и expected entry revision; он не может убрать явно
+исправленный handle. Это deterministic ownership transfer, не semantic matching.
+
+**Причина retirement имеет authority.** Internal source replacement/expiry cleanup
+withdraws cohort и retires children без user-suppression epoch. Только explicit
+authorized user retire/forget (или достоверное selected-source delete) создаёт
+bodyless lineage suppression. Narrow trusted cause хранится в source transition/
+command metadata; model prose и native retire не могут определить его сами.
+Поэтому после обычного `2→1→0` следующий source edit остаётся learnable, а после
+explicit retire — блокируется до explicit authorized relearn.
 
 До clearing `metadata.source` при forget сохранить bodyless lineage suppression.
-Проверять его перед native/paid work и снова при durable admission. Forget или
-retire auto-entry запрещает automatic re-learning той source lineage, включая
-новые source edits, новые entry IDs, full-thread replay и смену generation.
-При нескольких фактах из одного source консервативно suppress весь source для
-**нового learning**; это не удаляет остальные уже действующие siblings без запроса.
-Явный authorized relearn может снять suppression новой policy transition, но
-обычный replay/edit — нет. Семантически похожие новые независимые sources не
-обещаем блокировать; semantic suppression engine не строится.
+Проверять его перед native/paid work и снова при durable admission. Explicit user
+retire/forget auto-entry запрещает re-learning source lineage через edits, новые
+entry IDs/replay/generation. При multi-fact source suppress весь source для
+**нового learning**; прочие уже действующие siblings не удаляются без запроса.
+Explicit authorized relearn снимает suppression отдельной policy transition;
+обычный replay/edit — нет. Similar independent sources не блокируются semantic
+blacklist; existing complete-forget drain/history/late-callback fences сохранены.
+
+### Одна automatic-source applicability для всех context consumers
+
+Current `approved-memory-source-applicable.ts` намеренно не перечитывает source:
+позднее edit/delete не отменяет maintained human-approved statement; at-commit
+records могут быть exact-head only. Эту семантику **не менять** для старого профиля.
+Новый product-owned branch `memory-source-applicability.ts` различает automatic
+source-bound entry и maintained record; App source adapter, а не portable engine,
+проверяет current selected source refs.
+
+Перед freeze bundle (в том числе при recall из **другого thread**) batch-check
+выбранные automatic source IDs/revisions/availability вне grant transaction,
+в рамках общего deadline. Changed/deleted/unavailable source обновляет cursor,
+вызывает source/cohort eligibility epoch bump и исключает entry **и все derived
+evidence**, которые от него зависят. Failed source check не считается fresh.
+Серверный receipt содержит checked source/cohort ID/epoch плюс имеющиеся
+scope/entry/approval/generation/binding facts. Он не утверждает atomic GitHub read;
+coherence/freshness проверена в указанное время, existing issued-lease rule сохраняется.
+
+Один общий automatic-entry predicate требует checked current revision, matching
+current active cohort/epoch, verified complete activation, current authority и
+отсутствия revocation. Применить его к current-body/list/runtime bundle/derived
+source validation и bodyless receipts. Существующие management semantics могут
+показывать inactive metadata с honest state, но не объявляют pending тело current.
+`memory-knowledge-service.ts`, Prisma access/store и
+`apps/api/src/review-memory-admission.ts` должны использовать эту ветвь; ordinary
+review, conversation, investigation и description проверяют receipt epoch под
+**теми же memory-scope/source locks в authoritative grant transaction**. Никакого
+GitHub/native I/O под locks, отдельного poller или consumer-specific retrieval.
+Source transition/complete activation/explicit suppression/detach сериализуются
+по тем же owners; superseded callbacks не clear новые epochs.
+
+**Across-head policy:** сохранить `observedCommitSha` automatic repo observation.
+Source-current active auto entries могут использоваться на следующем head только
+как `historical` context, с original observed commit/time, без claim о нынешнем
+коде. Тот же policy mapping применяется к native-derived evidence и всем tasks.
+Existing records/profile, требующие exact-head/current-code applicability,
+сохраняют этот фильтр; consumer проверяет actual code/diff прежними средствами.
+Не убирать observed commit ради обхода фильтра и не строить ancestry/semantic
+invalidation engine. Это admission successor, не storage migration.
 
 | Событие/ошибка                                     | Обязательное поведение                                                                                       |
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -558,8 +649,8 @@ Memory unavailable — description без памяти либо пропуск �
 **OCR:** повторно проверить actual installed source/schema и outgoing request,
 поскольку поле в Router DTO не доказывает, что CLI его понимает. Известный fix
 PR349 преобразует legacy `{id,content}` в native `{path,rule,merge_system_rule}`
-только при memory. Конкретное schema и CLI доказательство дополнит native/OCR
-research report. Не предполагать наличие native OCR long-term learning или
+только при memory. Native/OCR research report и pinned evidence приведены в §12;
+они подтверждают delivery для своих cases, но выявили integrity prerequisite §2/9. Не предполагать наличие native OCR long-term learning или
 discussion memory по этому request shape. Review→OCR rules delivery и durable
 memory lifecycle — разные owners. Context merge должен сохранить skills/rules
 precedence и exact provider-observable hash, не расширить prompt policy молча.
@@ -573,16 +664,16 @@ prompt formatting и task audience policies намеренно не сливаю
 
 Все следующие paths — target changes, не claim о наличии новых файлов.
 
-| Срез                                      | Изменения и owner                                                                                                                                                                                                                                  | Критерий завершения                                                                                                                                                               |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0. Source-processing successor            | Новый S ADR; §3 этого плана; native input/privacy fixture, authority defaults и budgets                                                                                                                                                            | Raw transient processing и automatic observation разрешены явно; old approved profile/default/disable сохранены                                                                   |
-| 0a. OCR integrity                         | A `tools/ocr/patches/`, build/qualification manifest; native `internal/agent/agent.go` main/plan template owner                                                                                                                                    | One-pass original-template substitution; optional blocks до data insertion; all literal placeholders сохраняются; new immutable artifact/profile и exact CLI qualification        |
-| 1. Portable memory                        | `context-memory/src/{contracts,capabilities,hindsight,index}.ts`, README; S `memory-knowledge-provider-port.ts`, composition/anti-corruption adapter                                                                                               | Native preview once + exact current source read/list/write/operation semantics; real Router + external disposable consumer; no product deps                                       |
-| 2. Actual Gateway conversation entrypoint | S `workflow-provisioning` caller renderer/provisioning; `action-control-plane` source attestation/Prisma trusted refs; A reusable interaction Gateway branch, `main.ts`, `github/discussion.ts`; S new conversation feature/routes/API composition | Exact App-first caller enters finite purpose-authorized process/status route; no provider secret/legacy fallback; selected account/model and SDK Prepare/request/status qualified |
-| 3. Full inline source/context             | S conversation application `conversation-source-port.ts`, infrastructure App source reader; existing `github/github-memory-source-verifier.ts` remains metadata-only for old profile; A `discussion/types.ts`/client mapping                       | All pages/authors/revisions/anchor, full vector coherence and final input budget; explicit incomplete/oversized behavior                                                          |
-| 4. Learning/reply/replay                  | S conversations stable accepted record + `features-memory` source cursor/lineage/CAS/commands/worker; A existing App publisher + CP receipt adapter                                                                                                | Informative turn learns without Save independently of reply caps; fixed effects/output; set 2→1→0, suppression survives edit/generation; truthful status                          |
-| 5. Other actual consumers                 | A investigation application/turn prompt/adapters, `production-t0-review-runner.ts`, `pr-description-generation.ts`; S investigation grant transaction, review/description receipt binder/contracts/admission                                       | Separate investigation/description grants atomically admit exact task-eligible memory; audience before inference; no duplicated retrieval                                         |
-| 6. Paired release                         | Owning protocol/semantic descriptors and generated A artifacts; workflow/profile attestation, Foundation seams/reject fixtures, ops docs                                                                                                           | Focused gates + disposable Gateway-only interaction E2E without provider secrets + native model eval before enable                                                                |
+| Срез                                      | Изменения и owner                                                                                                                                                                                                                                                          | Критерий завершения                                                                                                                                                               |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0. Source-processing successor            | Новый S ADR; §3 этого плана; native input/privacy fixture, authority defaults и budgets                                                                                                                                                                                    | Raw transient processing и automatic observation разрешены явно; old approved profile/default/disable сохранены                                                                   |
+| 0a. OCR integrity                         | A `tools/ocr/patches/`, build/qualification manifest; native `internal/agent/agent.go` main/plan template owner                                                                                                                                                            | One-pass original-template substitution; optional blocks до data insertion; all literal placeholders сохраняются; new immutable artifact/profile и exact CLI qualification        |
+| 1. Portable memory                        | `context-memory/src/{contracts,capabilities,hindsight,index}.ts`, README; S `memory-knowledge-provider-port.ts`, composition/anti-corruption adapter                                                                                                                       | Native preview once + exact current source read/list/write/operation semantics; real Router + external disposable consumer; no product deps                                       |
+| 2. Actual Gateway conversation entrypoint | S `workflow-provisioning` caller renderer/provisioning; `action-control-plane` source attestation/Prisma trusted refs; A reusable interaction Gateway branch, `main.ts`, `github/discussion.ts`; S new conversation feature/routes/API composition                         | Exact App-first caller enters finite purpose-authorized process/status route; no provider secret/legacy fallback; selected account/model and SDK Prepare/request/status qualified |
+| 3. Full inline source/context             | S conversation application `conversation-source-port.ts`, infrastructure App source reader; existing `github/github-memory-source-verifier.ts` remains metadata-only for old profile; A `discussion/types.ts`/client mapping                                               | All pages/authors/revisions/anchor, full vector coherence and final input budget; explicit incomplete/oversized behavior                                                          |
+| 4. Learning/reply/replay                  | S conversations stable accepted record + `features-memory` source cursor/lineage/CAS/commands/worker; A existing App publisher + CP receipt adapter                                                                                                                        | Informative turn learns without Save independently of reply caps; fixed effects/output; set 2→1→0, suppression survives edit/generation; truthful status                          |
+| 5. Other actual consumers                 | A investigation application/turn prompt/adapters, `production-t0-review-runner.ts`, `pr-description-generation.ts`, `control-plane/review-memory-v2.ts`; S investigation grant transaction, `review-memory-wire.ts`, review/description receipt binder/contracts/admission | Separate investigation/description grants atomically admit exact task-eligible memory; audience before inference; no duplicated retrieval                                         |
+| 6. Paired release                         | Owning protocol/semantic descriptors and generated A artifacts; workflow/profile attestation, Foundation seams/reject fixtures, ops docs                                                                                                                                   | Focused gates + disposable Gateway-only interaction E2E without provider secrets + native model eval before enable                                                                |
 
 Первый coherent slice: полный fitting thread → eligible memory recall → native
 preview once → existing exact chunks → следующий contextual ответ выбранным
@@ -622,6 +713,14 @@ inventory не объявляется exact allowlist. Existing review admission
 | Investigation/description/OCR пропускают memory | Actual T0/turn/companion requests, authoritative grant receipts и manifests; actual OCR plan/main/literal integrity + existing Skills/noSkills fixtures                                                     |
 | Forget не полный                                | Existing provenance-aware drain/history/restart proof, source lineage и derived evidence; immediate exclusion и absence после restart                                                                       |
 
+Дополнить уже запланированные fixtures: internal 2→1→0→new edit против explicit
+retire suppression; one readback+one unknown child и late superseded callback;
+explicit update auto handle→old-source replace; pre-bind rebuild против post-native
+drift. Missed edit/delete event из thread A при recall в B исключает auto fact/derived
+evidence, но оставляет maintained rule. Two-head case сохраняет original commit и
+historical label, затем исключает stale source. Это existing PG/source/native
+fixtures, не новые helper suites.
+
 ### Маленький корпус и заранее заданные инженерные цели
 
 Checked-in synthetic/de-identified corpus: **48 целых threads**, 32 tuning и
@@ -637,6 +736,27 @@ negation/quoted bot evidence, «да, это исключение» с prior tur
 rule/observation, два maintainer с несогласием, ordinary contributor context,
 ambiguous update/forget, useful silent learning при reply caps/off, длинная
 история/edit/delete, публичная audience, template literals, follow-up recall.
+
+Внутри тех же 48 threads выделить **8 linked repository scenarios (16 threads)**:
+5 pairs в tuning, 3 pairs в protected hold-out, целиком одним split. Thread A
+содержит informative non-command eligible assertion, Thread B — позже/на другом
+head — не содержит её в raw history/code и требует retained fact для полезного
+ответа. В protected pairs покрыть обычное learning, replies off, cap-exhausted
+silent learning. Каждый A должен дойти до qualified published/readback и active
+cohort; каждый B — получить source-backed recalled fact в actual input и правильно
+использовать его с temporal/source label. No-memory baseline честно abstains либо
+отмечает отсутствие сведений; hallucination не считается полезным ответом.
+Как минимум один protected pair продолжается authorized update/retire/forget и
+повторным B: после заявленного effect state старое знание не используется.
+
+**Decisive release gates:** все protected A→B witnesses и after-mutation follow-ups
+проходят, отдельно counts для non-command/silent-learning facts/events; critical
+non-command recall ≥80% и silent/off/capped recall ≥80% в каждом из tuning/hold-out,
+0 неавторизованных effects. Aggregate ≥80% recall не компенсирует failure этих
+slices. Answer rubric требует нужный fact/source/temporal status и различает
+appropriate abstention от лишнего clarification; exact prose/chain-of-thought
+inspection/ещё один verifier call не нужны. Это labels и scenario rows внутри
+existing corpus/runner allowance.
 
 Default gates фиксируются **до tuning**, не требуют ещё одного owner confirmation:
 
@@ -690,7 +810,8 @@ subsystem и не выполненная работа.
 First useful coherent slice ≈1 500–2 400 prod и 750–1 250 tests/evals **внутри**
 total. Optional native per-account Gateway attribution bridge — ещё **250–500 prod,
 150–300 tests**, не обязателен первой реализации; при его выборе total становится
-**2 950–5 200 / 1 550–2 900**. Native OCR new binary/patch digest/profile attestation,
+**2 950–5 200 / 1 550–2 900**. Narrow strict-preview native control/error fix включён в existing preview row;
+не меняет total. Native OCR/strict-preview new image/config/patch qualification,
 packaging/release, human corpus labels, privacy/canary время — вне LOC.
 Если transient source fidelity/budget требует retained raw history или нового native
 поведения, остановить этот расширенный scope и переоценить, не спрятать platform
@@ -729,13 +850,15 @@ existing bindings; mature upstream Python engine оставляет семант
 **gpt-6.1-sol, xhigh** по explicit owner choice. Это review плана, не acceptance
 реализации/native image/model/deployment. Reports: `tmp/memory-conversation-plan/`.
 
-| Round / reviewed revision                       | Независимый reviewer                                     | Findings → disposition                                                                                                                                                                                           |
-| ----------------------------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| R1 / `c5ba9f81bcde0e465e8fb2a51336534adbecb94c` | Architecture/shared inference/DRY (`r1-architecture.md`) | REVISE: actual Gateway entrypoint → выбран canonical managed interaction, server-worker alternative рассмотрена/отклонена; actual ar/Gateway reuse → §5; accepted identity → §7; audience до LLM → §7/8          |
-| R1 / тот же commit                              | Native memory/authority/portability (`r1-native.md`)     | REVISE: один preview→exact chunks; no nonexistent confidence proof; bodyless cross-generation lineage suppression; bounded 2→1→0 source set; unchanged storage profile/generation → §3/6/7                       |
-| R1 / тот же commit                              | Product/history/evals/minimalism (`r1-product-eval.md`)  | REVISE: whole-thread coherence vector; stable replay; learning отдельно от reply gates; complete/empty/unknown source sets; corpus hold-out+denominators+targets; final assembled/cumulative budgets → §4/5/7/10 |
-| R2                                              | Ещё не выполнен                                          | Pending                                                                                                                                                                                                          |
-| R3                                              | Ещё не выполнен                                          | Pending                                                                                                                                                                                                          |
+| Round / reviewed revision                       | Независимый reviewer                                     | Findings → disposition                                                                                                                                                                                               |
+| ----------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1 / `c5ba9f81bcde0e465e8fb2a51336534adbecb94c` | Architecture/shared inference/DRY (`r1-architecture.md`) | REVISE: actual Gateway entrypoint → выбран canonical managed interaction, server-worker alternative рассмотрена/отклонена; actual ar/Gateway reuse → §5; accepted identity → §7; audience до LLM → §7/8              |
+| R1 / тот же commit                              | Native memory/authority/portability (`r1-native.md`)     | REVISE: один preview→exact chunks; no nonexistent confidence proof; bodyless cross-generation lineage suppression; bounded 2→1→0 source set; unchanged storage profile/generation → §3/6/7                           |
+| R1 / тот же commit                              | Product/history/evals/minimalism (`r1-product-eval.md`)  | REVISE: whole-thread coherence vector; stable replay; learning отдельно от reply gates; complete/empty/unknown source sets; corpus hold-out+denominators+targets; final assembled/cumulative budgets → §4/5/7/10     |
+| R2 / `a772403e262ed1a064789dded074b37d922cc1cd` | Lifecycle/replay/authority (`r2-lifecycle.md`)           | REVISE: internal retirement vs explicit suppression; complete cohort activation/read+grant gate; explicit update detaches auto handle; early identity/unbound manifest; settled replay IDs/status после purge → §4/7 |
+| R2 / тот же commit                              | Product/evals/OCR (`r2-eval-product.md`)                 | REVISE: linked A→B memory-dependent witnesses, non-command/silent-learning critical-slice gates и after-mutation recall внутри48threads → §10; OCR scope/evidence сохранены                                          |
+| R2 / тот же commit                              | Architecture/native/DRY (`r2-architecture-native.md`)    | REVISE: native strict-preview no-split/false-empty prerequisite; one shared automatic-source applicability и live checks; across-head auto observations only historical с observed commit → §5/7                     |
+| R3                                              | Ещё не выполнен                                          | Pending                                                                                                                                                                                                              |
 
 Источники проверены по exact inputs; current API existence не означает qualification:
 
