@@ -3,6 +3,10 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1"],
   devIndicators: false,
+  // Reduce Webpack memory pressure in the real Skills E2E runner only.
+  ...(process.env.REVIEW_ROUTER_SKILLS_E2E === "1"
+    ? { experimental: { webpackMemoryOptimizations: true } }
+    : {}),
   // Server Function arguments include transient API keys and OAuth codes.
   // Keep request/error diagnostics without printing those arguments in dev.
   logging: { serverFunctions: false },
