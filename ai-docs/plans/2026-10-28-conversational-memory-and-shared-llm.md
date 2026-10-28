@@ -509,6 +509,21 @@ purge settled replay возвращает IDs/hash/status; historical reply byte
 
 ### Один semantic extraction и exact persistence
 
+Implementation refinement (2026-10-28): the one product inference is admitted
+against the frozen recall receipt before automatic learning reserves its cohort.
+Otherwise that learning's own scope-epoch change would invalidate the accepted
+input and invite an incorrect recapture/retry. Learning remains independent of
+missing/malformed product output and publication gates; selected facts help the
+next turn. Obtained normalized reply/action decisions are frozen before their
+dependent effects. See [ADR032](../decisions/032-conversational-memory-source-processing.md).
+
+Publication refinement: the existing publication endpoint accepts a one-use
+`dispatching` claim before the first App create. Frozen vector/head, source and
+current publication authority, completed output/digest and original deadline must
+match; atomic `ready→unknown` permits one create. Unknown/lost claim ACK is
+reconcile-only. This completes the original model admission, without a new memory
+admission, account/model recapture or extension of the recall receipt's TTL/hash.
+
 1. Checked complete thread (§4), verified actor/source policy и audience-filtered
    memory; freeze context **до** inference admission. Public inline reply получает
    только те entries/derived evidence, раскрытие которых разрешено всем readers

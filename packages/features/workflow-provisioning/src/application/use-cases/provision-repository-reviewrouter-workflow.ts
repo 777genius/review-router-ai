@@ -45,6 +45,7 @@ export type ProvisionRepositoryReviewRouterWorkflowInput = {
 export async function provisionRepositoryReviewRouterWorkflow(
   input: ProvisionRepositoryReviewRouterWorkflowInput,
   dependencies: {
+    readonly gatewayInteractionRuntimeSha?: string;
     readonly secretsRuntimeActionRef?: string;
     readonly targets: WorkflowProvisioningTargetPort;
     readonly setupGateway: WorkflowSetupGatewayPort;
@@ -159,6 +160,12 @@ export async function provisionRepositoryReviewRouterWorkflow(
         : {}),
     },
     {
+      ...(dependencies.gatewayInteractionRuntimeSha
+        ? {
+            gatewayInteractionRuntimeSha:
+              dependencies.gatewayInteractionRuntimeSha,
+          }
+        : {}),
       ...(dependencies.secretsRuntimeActionRef
         ? { secretsRuntimeActionRef: dependencies.secretsRuntimeActionRef }
         : {}),

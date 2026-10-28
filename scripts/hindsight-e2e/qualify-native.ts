@@ -517,7 +517,10 @@ export async function qualifyNative() {
           },
           body: JSON.stringify({
             strict_preview: true,
-            content: "RR_STRICT_PREVIEW_ONLY " + "x".repeat(size),
+            content:
+              `${privacySentinel}_TRANSIENT_SELECTABLE RR_STRICT_PREVIEW_ONLY ` +
+              "x".repeat(size),
+            context: `${privacySentinel}_TRANSIENT_READONLY_CONTEXT`,
             retain_extraction_mode: "concise",
             retain_extract_causal_links: false,
           }),

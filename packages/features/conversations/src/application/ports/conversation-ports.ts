@@ -52,6 +52,8 @@ export interface ConversationProcessingStore {
   publication(
     receipt: ConversationPublicationReceipt,
   ): Promise<ConversationProcessResult>;
+  claimPublication(id: string, bodyDigest: string): Promise<boolean>;
+  withdrawPublication(id: string): Promise<void>;
 }
 export type ConversationPolicy = {
   readonly revision: string;

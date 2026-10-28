@@ -6,6 +6,9 @@ import {
   MemoryKnowledgeError,
   memoryKnowledgeDigest,
   type MemoryActor,
+  type MemoryAutomaticSourceCurrentPort,
+  type MemoryKnowledgeService,
+  type MemoryContextPolicy,
   type MemoryKnowledgeAdmissionReceipt,
   type MemoryKnowledgeBundleItem,
   type MemoryKnowledgeScope,
@@ -20,6 +23,7 @@ import {
 import type { MemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
 import type { ReviewRunAuthorization } from "@reviewrouter/features-review-run-control";
 import {
+  renderReviewMemoryPrompt,
   reviewMemoryBinding,
   reviewMemorySnapshotHash,
   type ReviewMemoryBinding,
@@ -39,7 +43,11 @@ const bindingSchema = z.object({
   headSha: commit,
   reviewRevisionHash: hash,
 });
-const bundleSchema = bindingSchema.strict();
+const bundleSchema = bindingSchema
+  .extend({
+    task: z.enum(["review", "investigation", "pr_description"]).optional(),
+  })
+  .strict();
 const admitSchema = bindingSchema
   .extend({
     bundleId: identifier,
@@ -84,6 +92,7 @@ export class ReviewMemoryRuntimeGateway {
       readonly access: {
         authorize(token: string): Promise<ReviewRunAuthorization | null>;
       };
+      readonly automaticCurrent?: MemoryAutomaticSourceCurrentPort;
       readonly now?: () => Date;
     },
   ) {}
@@ -134,7 +143,13 @@ export class ReviewMemoryRuntimeGateway {
       },
       now: () => this.now(),
     });
-    return { actor, service: this.dependencies.runtime.forAccess(access) };
+    return {
+      actor,
+      service: this.dependencies.runtime.forAccess(
+        access,
+        this.dependencies.automaticCurrent,
+      ),
+    };
   }
 
   async bundle(
@@ -156,10 +171,33 @@ export class ReviewMemoryRuntimeGateway {
     const query =
       "Approved repository review conventions and maintained project knowledge";
     checkDeadline(controls);
-    const bundle = await service.bundle(
-      { actor, scopes, query, limitPerScope: 6 },
+    const repository =
+      await this.dependencies.prisma.repositoryConnection.findFirst({
+        where: {
+          id: authorization.repositoryConnectionId,
+          workspaceId: authorization.workspaceId,
+        },
+        select: { visibility: true },
+      });
+    const task = input.task ?? "review";
+    const contextPolicy: MemoryContextPolicy =
+      task === "pr_description"
+        ? {
+            audience:
+              repository?.visibility === "private" ? "repository" : "public",
+            repositoryId: authorization.repositoryConnectionId,
+            allowedTasks: ["pr_description"],
+          }
+        : {
+            audience: "internal",
+            repositoryId: authorization.repositoryConnectionId,
+            allowedTasks: ["review", "investigation"],
+          };
+    const context = await captureAuthorizedMemoryContext(
+      { service, actor, scopes, contextPolicy },
       controls,
     );
+    const { bundle, receipt } = context;
     const current = await this.capture(token, input);
     if (
       current.mutationEpoch !== authorization.mutationEpoch ||
@@ -169,9 +207,9 @@ export class ReviewMemoryRuntimeGateway {
       throw new MemoryKnowledgeError("conflict");
     }
     checkDeadline(controls);
-    const receipt = service.createBundleReceipt(bundle);
     const wire: ReviewMemoryBundle = {
       protocolVersion: 2,
+      contextPolicy,
       ...reviewMemoryBinding(input),
       bundleId: randomUUID(),
       policyVersion: String(policy.policyVersion),
@@ -263,6 +301,51 @@ export class ReviewMemoryRuntimeGateway {
   }
 }
 
+/** Shared bounded retrieval, audience filtering, bodyless receipt and rendering for every task. */
+export async function captureAuthorizedMemoryContext(
+  input: {
+    readonly service: MemoryKnowledgeService;
+    readonly actor: MemoryActor;
+    readonly scopes: readonly MemoryKnowledgeScope[];
+    readonly contextPolicy: MemoryContextPolicy;
+  },
+  controls: MemoryRequestControls,
+) {
+  const bundle = await input.service.bundle(
+    {
+      actor: input.actor,
+      scopes: input.scopes,
+      query:
+        "Approved repository review conventions and maintained project knowledge",
+      limitPerScope: 6,
+      contextPolicy: input.contextPolicy,
+    },
+    controls,
+  );
+  const receipt = input.service.createBundleReceipt(bundle);
+  const items = bundle.scopes
+    .flatMap((section) =>
+      section.items.flatMap((item) => {
+        const mapped = wireItem(item, section.scope);
+        return mapped ? [mapped] : [];
+      }),
+    )
+    .slice(0, 12);
+  const text = items.length ? renderReviewMemoryPrompt({ items }) : "";
+  return {
+    bundle,
+    receipt,
+    text,
+    manifest: {
+      memoryBundleHash: bundle.hash,
+      memoryGeneration: bundle.generation,
+      memoryContextPolicy: input.contextPolicy,
+    },
+    admit: (next: MemoryRequestControls) =>
+      input.service.admitReceipt({ actor: input.actor, receipt }, next),
+  };
+}
+
 function checkDeadline(controls: MemoryRequestControls): void {
   if (controls.signal?.aborted || Date.now() >= controls.deadlineAt.getTime())
     throw new MemoryKnowledgeError("deadline_exceeded", true);
@@ -318,6 +401,23 @@ function wireItem(
       ),
       sourceIds: sources.map((source) => source.ref.entryId),
       temporalStatus: "historical",
+      ...(sources.some((source) => source.automaticSource)
+        ? {
+            sourceObservations: sources.flatMap((source) =>
+              source.automaticSource &&
+              source.applicability.observedCommitSha &&
+              source.originalStatementAt
+                ? [
+                    {
+                      entryId: source.ref.entryId,
+                      observedCommitSha: source.applicability.observedCommitSha,
+                      statementAt: source.originalStatementAt,
+                    },
+                  ]
+                : [],
+            ),
+          }
+        : {}),
       statementAt: sources
         .map((source) => source.originalStatementAt!)
         .sort()[0]!,
@@ -342,7 +442,12 @@ function wireItem(
     statementAt: metadata.originalStatementAt,
     lastVerifiedAt: metadata.lastVerifiedAt,
     ...(metadata.kind === "observation" && observedCommitSha
-      ? { observedCommitSha, temporalStatus: "at_commit" as const }
+      ? {
+          observedCommitSha,
+          temporalStatus: metadata.automaticSource
+            ? ("historical" as const)
+            : ("at_commit" as const),
+        }
       : {}),
     ...(metadata.kind === "exception"
       ? { exceptionRuleId: metadata.applicability.exceptionRule!.entryId }

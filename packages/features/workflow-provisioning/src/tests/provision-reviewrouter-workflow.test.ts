@@ -34,6 +34,7 @@ import type {
 } from "../application/ports/workflow-provisioning-target-port";
 import { provisionRepositoryReviewRouterWorkflow } from "../application/use-cases/provision-repository-reviewrouter-workflow";
 import { provisionReviewRouterWorkflow } from "../application/use-cases/provision-reviewrouter-workflow";
+import { readAccountGatewayInteractionCallerSource } from "../domain/workflow-template";
 
 class CapturingSetupGateway implements WorkflowSetupGatewayPort {
   public input: WorkflowSetupGatewayInput | null = null;
@@ -1406,3 +1407,49 @@ it.each([
     expect(config).toEqual(before);
   },
 );
+
+it("installs the qualified immutable Gateway interaction alongside the unchanged neutral review caller", async () => {
+  const setupGateway = new CapturingSetupGateway(),
+    runtimeSha = "d".repeat(40);
+  await provisionReviewRouterWorkflow(
+    { ...gatewayInput, discussionMode: "suggest" },
+    {
+      setupGateway,
+      provisioning: new CapturingProvisioningRepository(),
+      configurations: savedConfigurations(),
+      trustedGithubRepositoryId: "123456",
+      gatewayInteractionRuntimeSha: runtimeSha,
+    },
+  );
+  const files = setupGateway.input!.workflowFiles;
+  const interaction = files.find(
+    (file) => file.path === ".github/workflows/reviewrouter-interaction.yml",
+  );
+  expect(interaction && "content" in interaction).toBe(true);
+  if (!interaction || !("content" in interaction))
+    throw new Error("missing_interaction_caller");
+  expect(
+    readAccountGatewayInteractionCallerSource(interaction.content),
+  ).toEqual({ runtimeSha, apiUrl: gatewayInput.apiUrl });
+  const caller = parse(interaction.content);
+  expect(caller.on.pull_request_review_comment.types).toEqual([
+    "created",
+    "edited",
+    "deleted",
+  ]);
+  expect(caller.jobs.interaction.with.interaction_backend).toBe(
+    "account-gateway",
+  );
+  expect(caller.jobs.interaction.secrets).toBeUndefined();
+  expect(interaction.content).not.toMatch(
+    /CODEX_AUTH_JSON|OPENAI_API_KEY|DISCUSSION_MODEL|github\.token/,
+  );
+  const review = files.find(
+    (file) => file.path === ".github/workflows/reviewrouter-review.yml",
+  );
+  expect(
+    review && "content" in review && parse(review.content).jobs.review.uses,
+  ).toBe(
+    "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@workflow-v1",
+  );
+});

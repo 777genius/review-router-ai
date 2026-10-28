@@ -56,6 +56,12 @@ export class PrismaConversationProcessingStore implements ConversationProcessing
   constructor(
     private readonly prisma: PrismaClient,
     scope: { readonly workspaceId: string; readonly repositoryId: string },
+    private readonly options: {
+      readonly authorizePublication?: (
+        transaction: Prisma.TransactionClient,
+        record: ConversationRecord,
+      ) => Promise<boolean>;
+    } = {},
   ) {
     this.scope = {
       workspaceId: scope.workspaceId,
@@ -130,21 +136,28 @@ export class PrismaConversationProcessingStore implements ConversationProcessing
   ): Promise<ConversationRecord> {
     const current = this.owned(row);
     if (
-      current.result.status !== "processing" ||
+      !["processing", "ready"].includes(current.result.status) ||
       row.deadlineAt.getTime() > Date.now()
     )
       return current;
     // Crash recovery terminates the accepted identity and purges its normalized
     // pending output. It cannot replay inference or manufacture effect success.
+    const { reply: _reply, ...metadata } = current.result;
+    void _reply;
     const result: ConversationProcessResult = {
-      ...current.result,
-      status: current.modelDispatched ? "output_unavailable" : "unavailable",
+      ...metadata,
+      status:
+        current.result.status === "ready"
+          ? "stale"
+          : current.modelDispatched
+            ? "output_unavailable"
+            : "unavailable",
     };
     const settled = await this.prisma.conversationProcessing.updateMany({
       where: {
         id: row.id,
         ...this.scope,
-        status: "processing",
+        status: current.result.status,
         deadlineAt: { lte: new Date() },
       },
       data: {
@@ -224,6 +237,7 @@ export class PrismaConversationProcessingStore implements ConversationProcessing
             modelDispatched: true,
           },
           data: {
+            requestEffect: "completed",
             result: {
               ...current.result,
               pendingOutput: output,
@@ -327,6 +341,85 @@ export class PrismaConversationProcessingStore implements ConversationProcessing
           })
         ).count === 1
       );
+    });
+  }
+  async withdrawPublication(id: string) {
+    const current = await this.read(id);
+    if (!current || current.result.status !== "ready") return;
+    const { reply: _reply, ...metadata } = current.result;
+    void _reply;
+    const result: ConversationProcessResult = { ...metadata, status: "stale" };
+    await this.prisma.conversationProcessing.updateMany({
+      where: { id, ...this.scope, status: "ready" },
+      data: {
+        status: "stale",
+        result: result as unknown as Prisma.InputJsonValue,
+      },
+    });
+  }
+  async claimPublication(id: string, bodyDigest: string) {
+    if (
+      !this.options.authorizePublication ||
+      !/^[a-f0-9]{64}$/.test(bodyDigest)
+    )
+      return false;
+    return this.prisma.$transaction(async (transaction) => {
+      const saved = await transaction.conversationProcessing.findFirst({
+        where: {
+          id,
+          ...this.scope,
+          status: "ready",
+          requestEffect: "completed",
+          deadlineAt: { gt: new Date() },
+        },
+      });
+      if (!saved) return false;
+      const current = record(saved);
+      if (current.result.reply?.bodyDigest !== bodyDigest) return false;
+      if (!(await this.options.authorizePublication!(transaction, current))) {
+        const { reply: _reply, ...metadata } = current.result;
+        void _reply;
+        const result: ConversationProcessResult = {
+          ...metadata,
+          status: "stale",
+        };
+        await transaction.conversationProcessing.updateMany({
+          where: { id, ...this.scope, status: "ready" },
+          data: {
+            status: "stale",
+            result: result as unknown as Prisma.InputJsonValue,
+          },
+        });
+        return false;
+      }
+      await transaction.$queryRaw`SELECT "id" FROM "ConversationProcessing" WHERE "id"=${id} AND "workspaceId"=${this.scope.workspaceId} AND "repositoryId"=${this.scope.repositoryId} FOR UPDATE`;
+      const live = await transaction.conversationProcessing.findFirst({
+        where: {
+          id,
+          ...this.scope,
+          status: "ready",
+          requestEffect: "completed",
+          deadlineAt: { gt: new Date() },
+        },
+      });
+      if (
+        !live ||
+        record(live).result.reply?.bodyDigest !== bodyDigest ||
+        live.boundManifest !== saved.boundManifest
+      )
+        return false;
+      const result: ConversationProcessResult = {
+        ...record(live).result,
+        status: "unknown",
+      };
+      await transaction.conversationProcessing.update({
+        where: { id },
+        data: {
+          status: "unknown",
+          result: result as unknown as Prisma.InputJsonValue,
+        },
+      });
+      return true;
     });
   }
   async publication(receipt: ConversationPublicationReceipt) {

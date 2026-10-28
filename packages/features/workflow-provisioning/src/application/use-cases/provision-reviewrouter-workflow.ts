@@ -11,6 +11,7 @@ import {
   renderCanonicalCodexRotatingInteractionWorkflowV3,
   renderReviewRouterWorkflowFiles,
   renderAccountGatewayWorkflow,
+  renderAccountGatewayInteractionWorkflow,
   renderProviderApiWorkflow,
   defaultWorkflowPath,
   defaultCodexRotatingWorkflowPath,
@@ -33,6 +34,7 @@ import type { WorkflowProvisioningRepositoryPort } from "../ports/workflow-provi
 import type { WorkflowSetupGatewayPort } from "../ports/workflow-setup-gateway-port";
 
 export type ProvisionReviewRouterWorkflowDependencies = {
+  readonly gatewayInteractionRuntimeSha?: string;
   readonly secretsRuntimeActionRef?: string;
   readonly setupGateway: WorkflowSetupGatewayPort;
   readonly provisioning: WorkflowProvisioningRepositoryPort;
@@ -121,7 +123,9 @@ export async function provisionReviewRouterWorkflow(
         input.workflowStyle !== "reusable") ||
       input.conflictReviewFallbackEnabled === true ||
       input.forkAgenticSandboxEnabled === true ||
-      (input.discussionMode !== undefined && input.discussionMode !== "off") ||
+      (input.discussionMode !== undefined &&
+        input.discussionMode !== "off" &&
+        !dependencies.gatewayInteractionRuntimeSha) ||
       input.codexRotatingProviderInstanceId !== undefined ||
       input.codexRotatingWorkflowSecretNamespace !== undefined ||
       input.codexRotatingReviewActionV2Mode !== undefined ||
@@ -249,12 +253,21 @@ export async function provisionReviewRouterWorkflow(
             operation: "delete" as const,
             markerGroups: getLegacyReviewRouterWorkflowDeletionMarkerGroups(),
           },
-          {
-            path: defaultInteractionWorkflowPath,
-            operation: "delete" as const,
-            markerGroups:
-              getLegacyReviewRouterInteractionWorkflowDeletionMarkerGroups(),
-          },
+          ...(gatewaySelected && dependencies.gatewayInteractionRuntimeSha
+            ? [
+                renderAccountGatewayInteractionWorkflow({
+                  runtimeSha: dependencies.gatewayInteractionRuntimeSha,
+                  apiUrl: plan.apiUrl,
+                }),
+              ]
+            : [
+                {
+                  path: defaultInteractionWorkflowPath,
+                  operation: "delete" as const,
+                  markerGroups:
+                    getLegacyReviewRouterInteractionWorkflowDeletionMarkerGroups(),
+                },
+              ]),
           managedFile,
         ]
       : renderReviewRouterWorkflowFiles({

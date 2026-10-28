@@ -5,6 +5,8 @@ export type ConversationProcessRequest = {
   readonly sourceCommentId: string;
   readonly sourceRevision: string;
   readonly eventAction: "created" | "edited" | "deleted";
+  /** The canonical caller may only suppress the qualified publication permission. */
+  readonly replyMode?: "off" | "suggest";
 };
 export type ConversationPublicationReceipt = {
   readonly processingId: string;
@@ -111,7 +113,13 @@ export type ConversationAction =
   | {
       readonly kind: "create";
       readonly body: string;
-      readonly knowledgeKind: "rule" | "exception" | "observation";
+      readonly knowledgeKind: "rule" | "observation";
+    }
+  | {
+      readonly kind: "create";
+      readonly body: string;
+      readonly knowledgeKind: "exception";
+      readonly exceptionRuleId: string;
     }
   | {
       readonly kind: "update";
@@ -155,6 +163,9 @@ export function renderConversation(snapshot: ConversationSnapshot): string {
     baseSha: snapshot.baseSha,
     anchor: snapshot.anchor,
     selectedSourceId: snapshot.sourceId,
+    selectedSourceAuthority: snapshot.sourceMaintainer
+      ? "verified_repository_maintainer"
+      : "ordinary_contributor",
     messages: snapshot.messages,
   });
 }

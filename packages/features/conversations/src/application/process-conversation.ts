@@ -38,9 +38,20 @@ const actionSchema = {
       properties: {
         kind: { const: "create" },
         body: { type: "string", minLength: 1, maxLength: 1000 },
-        knowledgeKind: { enum: ["rule", "exception", "observation"] },
+        knowledgeKind: { enum: ["rule", "observation"] },
       },
       required: ["kind", "body", "knowledgeKind"],
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        kind: { const: "create" },
+        body: { type: "string", minLength: 1, maxLength: 1000 },
+        knowledgeKind: { const: "exception" },
+        exceptionRuleId: { type: "string" },
+      },
+      required: ["kind", "body", "knowledgeKind", "exceptionRuleId"],
     },
     {
       type: "object",
@@ -120,10 +131,16 @@ function decision(text: string): {
       !(
         action.kind === "create" &&
         hasBody &&
-        ["rule", "exception", "observation"].includes(
-          String(action.knowledgeKind),
-        ) &&
+        ["rule", "observation"].includes(String(action.knowledgeKind)) &&
         keys === "body,kind,knowledgeKind"
+      ) &&
+      !(
+        action.kind === "create" &&
+        hasBody &&
+        action.knowledgeKind === "exception" &&
+        typeof action.exceptionRuleId === "string" &&
+        /^(?:mem|auto)_[A-Za-z0-9_-]{1,120}$/.test(action.exceptionRuleId) &&
+        keys === "body,exceptionRuleId,kind,knowledgeKind"
       ) &&
       !(
         action.kind === "update" &&
@@ -206,13 +223,15 @@ export class ProcessConversation {
           conversation: renderConversation(snapshot),
           memory: context.text,
         });
-        const bytes = Buffer.byteLength(
-          JSON.stringify({
-            instructions,
-            messages: [{ role: "user", content: prompt }],
-            outputSchema: conversationOutputSchema,
-          }),
-        );
+        const bytes =
+          4096 +
+          Buffer.byteLength(
+            JSON.stringify({
+              instructions,
+              messages: [{ role: "user", content: prompt }],
+              outputSchema: conversationOutputSchema,
+            }),
+          );
         if (
           bytes > Math.min(131_072, policy.maxInputBytes) ||
           Math.ceil(bytes * policy.tokensPerByteUpperBound) + 2048 >
@@ -239,10 +258,24 @@ export class ProcessConversation {
             message.replyTo,
           ]),
           sourceRevision: snapshot.sourceRevision,
+          sourceAuthority: {
+            actorId: snapshot.sourceActor.id,
+            maintainer: snapshot.sourceMaintainer,
+            visibility: snapshot.visibility,
+          },
           policyRevision: policy.revision,
           account: policy.bindingManifest,
+          publication: {
+            enabled: policy.discussionReplies && input.replyMode !== "off",
+            maxPerThread: 5,
+            maxPerPullRequest: 20,
+          },
           memory: context.manifest,
-          inputDigest: conversationDigest(prompt),
+          inputDigest: conversationDigest({
+            instructions,
+            messages: [{ role: "user", content: prompt }],
+            outputSchema: conversationOutputSchema,
+          }),
           outputSchema: conversationDigest(conversationOutputSchema),
         }),
       );
@@ -328,6 +361,7 @@ export class ProcessConversation {
       }
       const canPublish =
         policy.discussionReplies &&
+        input.replyMode !== "off" &&
         snapshot.repliesInThread < 5 &&
         snapshot.repliesInPullRequest < 20;
       if (!canPublish || selected.kind === "silent" || !answer) {
