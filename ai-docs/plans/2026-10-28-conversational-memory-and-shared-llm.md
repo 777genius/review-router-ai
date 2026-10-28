@@ -1,8 +1,8 @@
 # Контекстное обучение из обсуждений и общий вызов LLM
 
 Дата: 2026-10-28. Статус: **план следующего среза, не реализованная возможность**.
-Начальная версия для независимой критики; реализация и production activation в
-эту работу не входят. Исторические accepted ADR и план 23.10 не переписываются.
+Версия после первого раунда независимой критики; реализация и production
+activation в эту работу не входят. Исторические accepted ADR и план 23.10 не переписываются.
 
 ## 1. Результат для пользователя и границы решения
 
@@ -88,7 +88,7 @@ Render не входит в задачу.
 
 Обязательные источники: [AGENTS](../../AGENTS.md), maintained
 [Engineering Quality Standard](https://github.com/agent-teams-ai/.github/blob/main/docs/engineering-quality-standard.md)
-(прочитан через GitHub, blob `5b292039…`),
+(прочитан через GitHub, blob `5b29203935881c3be8d7148a00a11ea9b77542cb`),
 [development tools catalog](https://github.com/agent-teams-ai/.github/blob/main/docs/development-tools.md)
 (blob `f45a01e3d05ef14616e6753f9e7484bccb39a72d`),
 [provider transport scope](../operations/provider-transport-scope.md),
@@ -104,8 +104,8 @@ runtime library.
 ## 3. Явный successor privacy и authority contracts
 
 Новый ADR `conversational-memory-source-processing` принимается перед активацией
-нового профиля. Это scoped successor §5–7 плана 23.10, raw-ingress clauses ADR018
-и approved-source-only clauses ADR031. Старые документы остаются историческими.
+нового профиля. Это scoped successor §2/5–7/13 плана 23.10, raw-ingress clauses
+ADR018, pending-suggestion default ADR021 и approved-source-only clauses ADR031. Старые документы остаются историческими.
 Старый distilled/manual профиль продолжает действовать, пока новый профиль не
 квалифицирован и не включён для конкретного workspace/repository.
 
@@ -139,7 +139,10 @@ runtime library.
 4. Долговременно Router хранит source ID/revision/hash, author stable ID, scope,
    effect IDs, engine generation, status и policy decision. Existing bounded
    delivery envelope может хранить **выделенные факты**, пока команда unresolved;
-   не сохраняет transcript. Существующие purge/deletion obligations сохраняются.
+   не сохраняет transcript. Новый scoped exception также разрешает bounded exact
+   reply/action result только как unresolved publication envelope, не весь raw
+   model response/events. После settled publication/terminal resolution body
+   purged; digest/IDs/status остаются. Existing purge/deletion obligations сохранены.
 5. Native model-egress проверяется отдельно: selected review account для ответа
    не означает, что Hindsight использует этот же аккаунт для extraction/embeddings.
    Конфигурация native LLM/embedding credentials и residency — явный operator
@@ -166,8 +169,10 @@ mode unavailable. Не создавать новый proxy/account platform ра
 source messages, а не заставляет нажимать Save на каждом факте. Новое информативное
 human message запускает native selection без magic phrases. Разрешённое полезное
 наблюдение привязывается к автору, source revision и code commit, публикуется как
-observation. Авторизация source class и scope проверяется детерминированно до
-effect; low confidence, краткоживущая болтовня и неполная evidence не публикуются.
+observation. Авторизация source class/scope, structure, completeness и bounds
+проверяются детерминированно. Native mission должна abstain на шуме/недостаточном
+подтверждении; usefulness/source fidelity квалифицируются eval, а не вымышленным
+per-fact confidence threshold.
 Эта классификация usefulness/conflict делается native engine, не Router regex/LLM
 extractor рядом с Hindsight.
 
@@ -177,10 +182,11 @@ approval. Нельзя скормить mixed-author transcript и припис�
 human. Для первого native selection selectable content — новая eligible human
 revision, весь chronological thread/anchor — read-only context; native mission
 ограничивает selection этим источником. Source revision и thread digest
-фиксируются отдельно; contamination/negation проверяются eval. Если native
-evidence не позволяет установить источник однозначно, needs_input/suggestion,
-без auto-publication. Router не добавляет второй semantic extractor, чтобы
-восстановить отсутствующее доказательство.
+фиксируются отдельно; contamination/negation проверяются eval. Native prompt
+context не является enforced provenance proof. После qualification valid bounded
+outputs разрешённого selectable source автоматически публикуются по policy.
+Missing structural evidence или ambiguous CRUD target дают needs_input/suggestion;
+Router не добавляет semantic verifier и не требует Save для каждого факта.
 
 Бот/неавторизованный человек может сообщить evidence и влиять на понимание ответа,
 но не становится approval actor. Сведения такого источника не повышаются до
@@ -188,6 +194,13 @@ evidence не позволяет установить источник одно�
 только repo-local observations из verified human maintainer messages; ordinary
 contributors участвуют в контексте, их durable suggestion требует подтверждения
 maintainer. При расширении класса источников менять policy явно.
+
+Automatic observation получает explicit policy-derived authority metadata:
+standing policy revision, verified source actor/revision и exact selected-body
+digest. Это не фиктивная human approval от автора на модельный текст. Existing
+access/command owner получает узкий source-bound automatic-observation grant;
+он не может публиковать rule/exception или другой scope. Explicit authored rule
+по-прежнему содержит действительный maintainer decision/target authority.
 
 Намеренное правило/исключение можно создать или изменить из естественной фразы
 maintainer, когда intent, exact target/text и аудитория однозначны; его обычное
@@ -198,124 +211,163 @@ maintainer, когда intent, exact target/text и аудитория одно�
 
 ## 4. Полный conversation snapshot
 
-В A application вводится `ConversationSourceReader` с GitHub adapter; portable
-memory library получает neutral source messages, не Octokit DTO. Snapshot:
-stable repository/PR/thread ID, trigger comment ID/revision, все сообщения с
-stable actor ID + display login + actor kind, createdAt/updatedAt, reply edges,
-body digest, body, visibility; code anchor path/side/line/original position,
-commit/originalCommit и текущее base/head. Удалённый source представляется
-tombstone только при достоверном delete event/повторной проверке; 404 без права
-доступа не является доказательством удаления.
+Source reader находится в server-side conversation feature; GitHub adapter читает
+через App installation. Portable memory library получает neutral content/context,
+не Octokit DTO. Checked snapshot содержит stable repository/PR/thread ID,
+trigger ID/revision; все сообщения с stable actor ID, display login, actor kind,
+createdAt/updatedAt, reply edges, body digest/body и visibility; code anchor
+path/side/line/original position, commit/originalCommit и актуальные base/head.
 
-Порядок работы:
+1. Проверить signed event, активную installation, repository/PR/trust domain,
+   current trigger и actor authority; webhook body — hint. Source-processing
+   profile отдельно разрешает чтение bodies. Fork policy сохраняется.
+2. Прочитать **все** страницы именно inline thread: root, humans/bots, предыдущие
+   ответы Router. REST pagination существует; точную thread membership/cursor
+   дополнить GraphQL там, где root/reply relation недостаточна. Chronology —
+   createdAt + stable ID tie-breaker; updatedAt отдельно, не sort по ID.
+3. Зафиксировать revision vector `(messageId, updatedAt, bodyDigest, replyTo)` и
+   membership/anchor/head digest. После пагинации и перед первым inference/native
+   admission перечитать thread membership и revisions **всех** контекстных
+   сообщений, не только trigger. Перед durable/public effect ещё раз проверить
+   vector и current authority. Наблюдаемая drift делает результат stale; нельзя
+   записать его под новыми bytes. GitHub не даёт transactional thread snapshot:
+   это bounded checked frozen read, не обещание атомарности между последней
+   проверкой и внешним эффектом.
+4. До paid dispatch допускается одна повторная сборка в том же accepted processing
+   record/deadline; после dispatch новый платный inference автоматически не
+   запускается. Stale result не применяется; требуется новая source revision или
+   явно requested reprocess. Pagination failure, missing root, permission loss,
+   unresolved coherence race — `context_incomplete`, без durable selection effect.
+5. Delete tombstone достоверен по signed deleted event/current source inventory;
+   404 без доступа не доказывает удаления. Удаление любого контекстного сообщения
+   меняет vector; удаление selected source также отзывает его auto-derived set.
 
-1. Проверить App installation, repository, PR, trust domain и trigger actor через
-   текущую server authority; payload — hint. Разрешить body reading только новому
-   source-processing profile. Fork policy не обходится ради ответа.
-2. Прочитать **все** страницы current inline thread, включая root, replies всех
-   humans/bots и собственные предыдущие ответы. REST pagination уже есть;
-   дополнить точной thread membership/GraphQL thread cursor там, где REST root
-   relation недостаточна. Не смешивать другие threads одного PR.
-3. Детерминированно упорядочить по createdAt, stable ID как tie-breaker; сохранить
-   updatedAt отдельно. Разрешить reply edges и current/outdated anchor. Повторно
-   проверить trigger revision и head перед effects; источник изменился —
-   discarded snapshot/new processing revision, не прежняя команда с новыми bytes.
-4. Snapshot содержит completeness result: complete или safe reason/cursor/counts.
-   Pagination error, permission loss, missing root, unknown edit race — incomplete.
-   Сервис не пишет durable memory и не делает destructive resolution из
-   incomplete snapshot. Ответ честно ограничен имеющимся контекстом/просит retry.
-5. Убрать `.slice(-8)` и silent body truncation. Сначала проверить полный размер
-   against captured model context and policy byte/token ceilings. Если помещается,
-   ответ строится по всему snapshot. Если не помещается, native engine обрабатывает
-   историю пакетами с source/revision и связывает evidence; ответ получает native
-   recall/reflection evidence и coverage metadata. Не вводить Router semantic
-   summarizer и не объявлять кусок истории полной историей.
+Убрать `.slice(-8)` и silent truncation. Первый срез обрабатывает только целиком
+помещающиеся threads; все pages прочитаны, превышение **общего** input bound
+обозначается `context_incomplete/oversized`, без last-N ответа с видом полной
+истории. Финальная проверка размера включает instructions, schema, anchor/code,
+полную историю, recalled memory и output reserve. Нативная cross-batch reduction
+для oversized histories — future optional capability, не обязательный framework
+первого среза. Она требует coverage/source/deletion qualification; Router semantic
+summarizer не создаётся.
 
-Для длинного thread нужна доказанная native coverage семантика: каждый message
-revision обработан, native reduction учитывает старые уточнения/отрицания, reply
-может запросить недостающий source segment через ограниченный reader. Если native
-version не может доказуемо покрыть историю в разрешённом transient profile,
-результат `context_incomplete`, а не last-N response с видом полной уверенности.
-Первый срез может честно ограничить **общий максимальный размер обрабатываемого
-thread**, но обязан загрузить все pages и явно сказать о превышении; это не
-ограничение «последние N». Расширение на oversized histories — native capability,
-не собственный summarization engine.
+## 5. Один production путь и переиспользуемая LLM capability
 
-## 5. Общая LLM capability и действительная authority
+### Выбранный App-first Gateway путь
 
-Проверен pinned `777genius/ar@83a7329f4383b05ac5c39356b79f82f029182d42`:
-package exports `agent-task`, `provider-codex`, `openai-compatible-codex` и
-`provider-claude`; `src/provider-codex/app-server/application/app-server-client.ts`
-владеет Codex process/thread/turn execution. Это пригодный existing runtime
-mechanism для соответствующих adapters, **не** готовый общий Sub2API SDK. Selected
-Gateway уже используется через `@agent-teams/account-gateway/{contracts,http}`
-в S `review-run-gateway-model-settings.ts`, `review-run-gateway-relay.ts` и
-`review-action-v2-production-composition.ts`. До изменения подтвердить exact
-public SDK contract у его owner; расширить нужную missing capability там,
-не создавать одноимённый вымышленный runtime API. Новая portable structured task
-capability — proposed extension; из наличия process client её готовность не следует.
+Выбирается **managed App-first interaction caller**: уже есть Action OIDC/session,
+App comment token, source identity и reply publisher. Сейчас Gateway provisioning
+отклоняет `discussionMode != off`, а current reusable interaction восстанавливает
+отдельный Codex secret: это bounded new Gateway profile, не готовая возможность.
+Neutral review caller/workflow ABI не меняется. Server comment-webhook→worker
+alternative рассмотрена и отклонена: текущий webhook игнорирует comment events,
+worker inference/source/publication authority отсутствует, а Gateway run-access
+API-private. Этот путь добавил бы custody/composition вместо переиспользования.
 
-Реальные consumers — review structured calls, discussion и description; agentic
-investigation сохраняет `ReviewAgentPort` с tools/session/cancel/fencing. Общая
-часть — prepared input, structured response, deadline/cancel, model attribution,
-usage/error/effect status. Не загонять различающиеся задачи в `Provider.review()`
-или один интерфейс с двадцатью optional methods.
+| Шаг                            | Existing owner → bounded change                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Canonical event caller         | S `workflow-provisioning/.../provision-reviewrouter-workflow.ts`, `domain/workflow-template.ts`: Gateway branch создаёт один `.github/workflows/reviewrouter-interaction.yml` caller на qualified immutable `A/.github/workflows/reviewrouter-interaction-reusable.yml` Gateway profile; `pull_request_review_comment` types created/edited/deleted. Снять только соответствующий Gateway rejection после profile availability |
+| Event/provisioning eligibility | Existing App installation/permissions и workflow source attestation; existing App manifest не обязан подписываться на server comment webhook: события принимает Actions caller. Проверить actual installed caller, event types, exact runtime/ref и current permissions; no claim от одного YAML                                                                                                                               |
+| OIDC + App identity            | A `main.ts` existing runtime-config exchange/comment-token path; S `features/action-control-plane/src/domain/action-control-plane.ts`, Prisma trusted reusable refs и API mutation source-admission owners квалифицируют точный Gateway interaction source/profile. Нельзя считать старый Codex verifier достаточным                                                                                                           |
+| Accepted finite task           | Новый S product owner `packages/features/conversations/src/{domain,application,infrastructure,composition}` + `apps/api/src/action-conversation-routes.ts`: authenticated `/api/action/v2/conversations/process`, `/status`, publication receipt. Source refs/processing IDs, не raw arbitrary prompts/models. Existing Prisma metadata stores finite binding; no generic workflow engine                                      |
+| Checked source + memory        | CP App source adapter получает current полный thread по trusted refs и выполняет coherence/audience checks; A full-thread DTO остаётся local client context, но client transcript/hash не authority. Existing memory access/bundle/receipt service получает conversation binder                                                                                                                                                |
+| One model dispatch             | A `main.ts#runInteraction`/`github/discussion.ts` инжектируют conversation client вместо env-selected Codex. CP narrow task adapter → current selected account owner → existing SDK `Prepare`/`ExecutionClient.request/status`, finite conversation-purpose grant                                                                                                                                                              |
+| Durable memory                 | Existing `features-memory` permissions/CAS/commands и `apps/worker/src/memory-knowledge-worker.ts` доставляют frozen selected statements. Worker не получает source/inference/publication authority                                                                                                                                                                                                                            |
+| App reply                      | A existing `github/discussion.ts` createReply/update + comment-token custody; immutable bounded reply envelope и stable marker связываются с accepted record. A сообщает publication ID/status CP; после unknown lookup/reconcile, no blind create retry                                                                                                                                                                       |
 
-Иллюстрация переносимого local contract, окончательная форма у владельца runtime:
+Gateway interaction branch не устанавливает Codex CLI, не восстанавливает
+`CODEX_AUTH_JSON`, не выбирает `DISCUSSION_MODEL` и не использует workflow token
+для publication. Account credential остаётся server-side. Server process route
+bounded/deadline-aware; `/status` только читает/reconciles accepted effect, не
+переигрывает paid call. Raw transcript не попадает в persisted request payload.
 
-```ts
-interface StructuredInference {
-  invoke(
-    input: {
-      invocationKey: string;
-      messages: readonly ModelMessage[];
-      responseSchema: JsonSchema;
-      maxOutputTokens: number;
-    },
-    controls: {
-      deadlineAt: Date;
-      signal?: AbortSignal;
-    },
-  ): Promise<InferenceResult>;
-}
-```
+Deleted event через тот же caller/session вызывает metadata-only source revoke;
+не запускает LLM ради отсутствующего body. Пропущенные edit/delete/access changes
+выявляет current source/coherence read перед последующим inference/effect;
+существующий source admission проверяет актуальность. Нет нового polling service.
 
-Bound implementation уже имеет разрешённые account/model/limits; portable request
-не принимает secret, arbitrary baseUrl, reviewRequestId, workspaceId, provider
-bankId или «trusted=true». Он не создаёт admission сам. Result различает complete,
-invalid output, unavailable, cancelled и unknown external effect, содержит actual
-model/usage только при подтверждённых данных. Tools не разрешены в prompt-only
-capability. Повтор после unknown dispatch не выполняется автоматически.
+Production policy разделяет `automaticLearning` и `discussionReplies`.
+Сконфигурированный backend по-прежнему default-on, explicit `disabled` сохраняется.
+Новый contextual profile активируется после qualification; затем supported
+configured repositories обрабатывают eligible informative maintainer messages
+автоматически, без per-fact opt-in. `discussionReplies=off` и cap 5/thread,20/PR
+подавляют publication, **не** разрешённое learning: caller/preflight запускается
+если разрешён хотя бы один gate. Automatic learning off останавливает selection,
+но не обязательно memory-aware ответы. До qualified profile provisioning не
+обещает Gateway discussion; legacy credentials/workflow не становятся fallback.
 
-Router adapter связывает invocationKey/purpose с существующим captured selected
-account/lane, paid grant/lease, immutable manifest, repository trust и usage.
-Review-specific IDs нужны в **этом adapter/remote authorization envelope**, а не
-в независимом library contract. Новый discussion request получает отдельную
-конечную authority и budget у текущего account owner: старый завершённый review
-lease нельзя повторно использовать. Model/account selection и fallback не живут
-в discussion prompt. Если connection удалён/сменился/не даёт нужной capability,
-ответ unavailable; существующие команды могут работать без LLM.
+### Actual reuse и missing controls
 
-При реальном remote вызове расширить existing Gateway task dispatch contract
-небольшим purpose-specific profile/capability и server-owned bounds. Не добавлять
-public `/llm` с arbitrary models/keys. Endpoint является transport adapter того
-же port, не новым источником полномочий. App-first/OIDC, quota/account custody,
-UNKNOWN receipts и release ABI остаются у прежних owners. Scope transport
-документа: Account Gateway/Sub2API выбранный production path; explicit direct
-OpenRouter — отдельный разрешённый режим, не fallback. Его новые capabilities
-сначала unavailable, пока его конкретные auth/spend/effect гарантии не
-квалифицированы. GitHub Secrets/Hosted не активируются по наличию credentials.
+Проверены ar pin `83a7329f4383b05ac5c39356b79f82f029182d42` и vendored Gateway
+`agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz` из lockfile.
+
+| Уже реализовано                                                                                                                          | Решение и настоящий gap                                                                                                                                                                                                           |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ar public `agent-task`: `createAgentTaskRequest`, bridge cancellation, structured-prompt, outputSchema, task/context/result/telemetry    | Переиспользовать public contract/adapter kit за narrow application port. Не вводить второй public `StructuredInference` codec. Соблюсти существующий consumer alias/package pin; не deep-import provider/worker/process internals |
+| Gateway `Prepare`: selected accountRefs, invocation/attempt, policy/binding revisions, limits/deadline; `ExecutionClient.request/status` | Использовать existing SDK из server adapter. Router current `review-run-gateway-preparation.ts` review-bound; добавить conversation purpose binding, не переписать generic SDK и не выдать review lease другому purpose           |
+| Description parent companion и investigation tools/session/fencing                                                                       | Оставить их task owners; общими являются authorized context и inference mechanism, не business workflow                                                                                                                           |
+| Native process clients ar                                                                                                                | Подходят уже поддерживаемым local adapters; не являются доказательством Sub2API compatibility                                                                                                                                     |
+
+Gateway adapter реализует тот же app-facing structured task/result через existing
+bridge handler. Qualify prompt-only/no-tools confinement, exact output schema,
+selected/actual model, usage/effect terminal evidence, final byte/token limits,
+cancel/deadline и unknown handling. SDK extension допускается **только** если
+конкретный нужный контроль отсутствует в pin; another task purpose само по себе
+не требует SDK/protocol API. Application port может ограничить имеющийся public
+contract; policy/account selection остаются снаружи portable library.
+
+Invocation получает captured selected review connection/model текущей repository
+policy. Router authorizes finite `conversation` purpose, independent grant и
+server-owned budget. Credentials/custody/auth/quota остаются у account/Gateway.
+Portable DTO не содержит reviewRequestId/workspaceId/secret/baseUrl/trusted flag;
+эти product facts связывает outer adapter. После unknown paid dispatch `status`
+восстанавливает тот же effect, не создаёт новый attempt/model fallback.
+
+Remote границы — actual Action→CP conversation task и существующий CP→Gateway.
+Public `/llm` или произвольный model dispatch endpoint не создаются. Explicit direct OpenRouter,
+Secrets/Hosted новые conversation capabilities получают только после отдельной
+qualification соответствующего transport; наличие ключа недостаточно. Выбранный
+первый срез — Gateway/Sub2API, без legacy direct fallback.
+
+### Bound budgets до admission
+
+Начальные server-owned ceilings, уменьшаемые captured transport/model limits:
+90s общий processing deadline; ≤1 product structured model call/accepted source
+revision, ≤60s call, ≤2 048 output tokens; final serialized product request ≤128KiB
+и `inputTokens + 2 048 + transport overhead <= captured context window`.
+Проверять реальные tokenizer/native estimates supported model; byte limit не
+объявлять token guarantee. Недостаточно полного budget — honest incomplete,
+без truncation, меньшей модели или нового grant.
+
+Native side имеет **отдельный service-funded** allowance: ≤1 semantic preview
+call (≤25s, ≤4 facts), ≤2 bounded recall API calls по разрешённым scopes, без
+reflection/batching в первом срезе; каждый nested call делит общий absolute
+90s deadline. Native extraction profile использует effective context limit,
+выходной bound и max model-attempt=1; selectable source должен помещаться в один
+qualified extraction chunk. Внутреннее разбиение/ретраи, нарушающие этот bound,
+не выдаются за один API call: профиль отклоняет такой input заранее. Recall query не даёт implicit permission
+на дополнительные inference. Async chunks persistence не повторяет extraction;
+background consolidation оплачивается по operator native limits/concurrency/token
+ceilings и не расходует/не переиспользует review grant. Долгий background process
+не оправдывает сообщение «сохранено» до qualified readback. Service и product cost
+метрики сообщаются отдельно; native retry/budget qualification блокирует профиль,
+если обнаружены неконтролируемые дополнительные calls.
 
 ## 6. Переносимая память без потери native возможностей
 
-Existing owner проверен: `@reviewrouter/features-memory` private и product-specific;
+Существующий `MemoryCandidatePreview` — только объявленный port; production
+Hindsight adapter его сейчас **не реализует**. Native dry-run endpoint существует,
+но новый input/privacy/quality profile ещё не qualified. Existing owner проверен: `@reviewrouter/features-memory` private и product-specific;
 Foundation memory boundary — tooling. Central catalog не объявляет готовый
 provider-neutral memory runtime. Upstream Hindsight SDK переиспользуем, но
 provider-specific и не выполняет новый portable contract. Поэтому latest owner
 request обосновывает scoped successor старой формулировки «не нужен ещё один
 wrapper»: нужен **один небольшой purpose-named package**, а не второй Router
-feature. До реализации проверить maintained repositories ещё раз; найденный
-подходящий owner расширяется вместо создания конкурента.
+feature. Рассмотрен также existing `777genius/infinity-context`: alpha memory product с
+canonical Postgres и capture/approval pipeline, не provider-neutral Hindsight
+mechanism; его второй semantic/canonical store сюда не подключаем. Bounded
+discovery не доказывает отсутствия всех private libraries; подходящий maintained
+owner, если обнаружен до package creation, расширяется вместо конкурента.
 
 Предлагаемая новая единица `context-memory` (название/registry availability ещё
 проверить) — отдельный library repository/subpackage у одного владельца. Файлы
@@ -327,21 +379,23 @@ engine. Переписывание engine на TypeScript/Rust не даёт п�
 У consumers остаются application-owned narrow ports и anti-corruption mapping.
 Library отдаёт **раздельные** capabilities:
 
-| Capability                           | Смысл и honest limitation                                                                               |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| Source extraction preview            | Native useful facts из допустимого source, evidence attribution, no claimed publication                 |
-| Source retain/replace                | Native extraction и lifecycle с stable source/document identity, returned operation                     |
-| Recall                               | Scoped evidence and native ranking; derived evidence complete/incomplete                                |
-| Reflect                              | Только при native implementation: structured answer + evidence, не custom prompt emulation              |
-| Entry mutation/operation observation | Stable writable EntryRef отдельно от derived ObservationRef; expected revision задаёт caller owner      |
-| Invalidation/retirement              | Логическое исключение и статус; не обещает physical erasure                                             |
-| Forget qualification/receipt         | Adapter-specific cleanup proofs остаются implementation, public result честно cleanup_pending/completed |
+| Capability                           | Смысл и honest limitation                                                                                              |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| Source extraction preview            | Native useful facts, explicit input source binding; semantic fidelity qualified by eval, no per-fact proof/publication |
+| Exact statement retain/replace       | Только frozen selected/approved text, stable document identity, honest operation; semantic extraction не повторяется   |
+| Current source read/list             | Provider-owned current body/evidence для management/export; delivery envelope не является источником current text      |
+| Recall                               | Scoped evidence and native ranking; derived evidence complete/incomplete                                               |
+| Reflect                              | Только при native implementation: structured answer + evidence, не custom prompt emulation                             |
+| Entry mutation/operation observation | Stable writable EntryRef отдельно от derived ObservationRef; expected revision задаёт caller owner                     |
+| Invalidation/retirement              | Логическое исключение и статус; не обещает physical erasure                                                            |
+| Forget qualification/receipt         | Adapter-specific cleanup proofs остаются implementation, public result честно cleanup_pending/completed                |
 
 Не тащить Hindsight bank/retain strategy/mental-model DTO в Router domain. Вместо
 universal options bag — narrow capability с реальным consumer и declared
 guarantees; не поддерживается — явный unsupported при composition/qualification.
-Native mission/custom instructions/reflection могут использоваться adapter-ом,
-когда обеспечивают контракт. Native факты/наблюдения не становятся writable
+Native mission/custom instructions используются для preview. Optional raw-source
+semantic retain/reflection — отдельные future capabilities, не включены в первый
+transient profile и не эмулируются Router prompt-ами. Native факты/наблюдения не становятся writable
 Router entries по совпадению строк.
 
 Library переносит provider-neutral mechanism и нейтральные native mappings;
@@ -349,52 +403,128 @@ Router source permissions, automatic-learning policy, revocation epochs, metadat
 commands и cleanup authority остаются в `features-memory`. Не переносить весь
 Hindsight adapter механически: там есть approved policy и Router-specific scopes.
 Existing full-forget identity ledger/drain не заменяются общим delete API.
+Первый срез сохраняет durable `router-approved-v1` chunks storage profile и
+нынешнюю generation: ≤1 000 chars/entry, exact body digest/kind/revision/scope/time
+readback и current fact evidence остаются прежними. Новый semantic **input**
+profile квалифицируется отдельно; не менять bank generation только ради preview.
+Existing approved/manual records не переучиваются/не переклассифицируются. Если
+реальное storage/readback изменение всё же необходимо, отдельный controlled
+migration должен перенести eligible entries unchanged, stable handles/source
+lineage suppression и pending/unknown/forget debt; без dual writer/fallback.
 Упаковка/версионирование+один real Router consumer и disposable ordinary external
 project с injected adapter/config входят **в ту же** delivery; без org credentials,
 review IDs или production data. Не создавать второй production provider ради теста.
 
-## 7. Conversation use case и жизненный цикл
+## 7. Conversation processing, source lineage и жизненный цикл
 
-Последовательность одной source revision:
+### Stable accepted identity до переменных inputs
 
-1. Build checked complete conversation snapshot + actor authority/context policy.
-2. Получить разрешённую память через existing scope/admission service, freeze
-   exact bytes/hash/eligibility и native provenance. Устаревшее или revoked
-   исключается до следующего inference admission, не после prompt assembly.
-3. Native selection/related recall определяет полезные сведения и возможные
-   correction targets. Discussion inference понимает вопрос и готовит ответ;
-   memory mutation исполняется отдельным application step по authority policy.
-   Model JSON сам не является разрешением вызвать CRUD.
-4. Create/update разрешённой observation или однозначной authorized rule;
-   ambiguous target → clarify; retire/forget только при конкретном target и
-   authority. Mutation идёт через existing CAS/durable commands, не прямо SDK.
-5. Reply render получает **фактический effect status**: queued/processing —
-   «принято в обработку», published/readback — «сохранено», unknown — неопределённо,
-   retirement — исключено из новых admissions, forget cleanup_pending — ещё не
-   физически удалено. При no durable knowledge обычный ответ остаётся обычным.
-6. Существующий App-owned publication adapter создаёт/обновляет reply; результат
-   LLM не получает publish token. Ограничения reply rate/count сохраняются.
+Product owner хранит маленький accepted processing record в существующей app DB,
+не generic workflow ledger. Уникальный ключ:
+`repositoryStableId + threadStableId + humanSourceId + trustedSourceRevision + purpose`.
+Source revision связывает updatedAt/body digest; stable source проверяется App read.
+Этот ключ принимается **до** recall/native/model и до full snapshot fingerprint.
+Webhook delivery ID — transport dedupe, не semantic key.
 
-Reply idempotency и memory idempotency — разные эффекты. Маркер reply с hash
-одного comment body недостаточен для conversation: обработка зависит от thread
-revision, anchor, policy и memory eligibility. Metadata fingerprint включает
-source revision/full snapshot digest, target revision, selected profile и
-semantic command digest; не хранит transcript. Одна принятая версия не порождает
-дубликат при webhook redelivery. После crash reconcile прежнюю command/paid
-dispatch identity; не запускать платный inference заново по одному timeout.
+Сначала lookup accepted record. Его first accepted input manifest фиксирует
+thread revision vector/anchor, policy/audience/bundle eligibility, captured account/
+model/bounds и заранее выданные child IDs (`preview`, `model`, `memory-set`,
+`reply`). Повтор того же source/purpose возвращает прежний status/output либо
+reconciles эти IDs до чтения изменившихся dependencies. Собственный reply,
+новая память или чужой последующий comment не создают новый paid attempt.
+Full snapshot/model/memory hashes — immutable inputs принятого record, не его key.
+Изменение human source revision или явно authorized reprocess создаёт successor;
+последний не обходит source suppression/unknown effect fences.
 
-| Событие/ошибка                                             | Обязательное поведение                                                                                                                           |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Redelivery того же event/revision                          | Вернуть прежний effect/status; не повторять retain или reply                                                                                     |
-| Edit source до publication                                 | Проверить актуальную revision; старый result не публиковать под новой версией                                                                    |
-| Edit после publication                                     | Новая revision и native replace/reprocess с прежним source identity; автоматически не редактировать unrelated/manual rule                        |
-| Out-of-order event                                         | Trusted current source revision/cursor определяет новизну; arrival time не authority                                                             |
-| Delete source                                              | Немедленно прекратить новое admission source-derived knowledge; native cleanup/retire по scope policy, explicit maintained rule не удалять молча |
-| Permission/access loss                                     | Revoke eligible context; unavailable provenance не выдавать за «текст удалён»                                                                    |
-| Correction «это уже неверно» с несколькими related entries | Native recall даёт кандидатов; уточнить ID/text/target, не выбирать первый semantic match                                                        |
-| Forget                                                     | Установить existing fence сразу; drain/identity-bound cleanup и verified receipt по complete-forget owner                                        |
-| Late native completion после fence                         | Не восстанавливать видимость; reconcile уже существующие unresolved effects                                                                      |
-| Unknown paid/model/native outcome                          | Честный unknown, bounded reconciliation; без hidden retry/fallback                                                                               |
+### Один semantic extraction и exact persistence
+
+1. Checked complete thread (§4), verified actor/source policy и audience-filtered
+   memory; freeze context **до** inference admission. Public inline reply получает
+   только те entries/derived evidence, раскрытие которых разрешено всем readers
+   PR. Для public PR conservative first policy исключает private workspace/source
+   memory, если metadata не доказывает disclosure eligibility. Применить это
+   **до** LLM, не просить модель скрывать уже переданный secret.
+2. Eligible informative human revision передать native dry-run **один раз** как
+   selectable content; полный checked thread/anchor — labeled untrusted read-only
+   context. Native mission выбирает значимые поддержанные новым turn факты либо
+   abstains. Schema/bounds/source identity/permission проверяет Router; source
+   fidelity/usefulness — native profile quality по eval, не nonexistent confidence
+   score/per-turn proof и не второй semantic verifier.
+3. Успешный **полный** preview frozen: максимум 4 selected statements, каждый
+   nonempty ≤1 000 chars, без Router summary/truncation. Переносим text, native
+   fact type/optional dates/entities как declared preview information; в первом
+   durable profile пишем только exact text, trusted statement/update timestamp и
+   product source metadata. Semantic entities/event-date/native world/experience
+   fidelity в chunks persistence **не обещается**. Invalid/overlimit/unknown/
+   partial selection не считается успешным empty result и не перезапускает preview.
+4. Frozen selected statements → existing product authority/CAS commands → existing
+   `router-approved-v1` **chunks** exact persistence/replace. Raw thread не входит
+   ни в retain `content`, ни `context`, ни metadata/async payload. Второй semantic
+   retain запрещён. Native engine затем сам выполняет consolidation/dedup/recall.
+   Application `kind=observation` — bounded writable source entry; derived native
+   `ObservationRef` — отдельный read-only result с evidence, не CRUD target.
+5. Когда нужен ответ/CRUD, один existing structured conversation inference
+   понимает intent и возвращает
+   `answer | clarify | effect_notice | silent` + bounded authorized action intent;
+   он не повторно извлекает/deduplicates facts. Полезная информация без вопроса
+   может учиться молча; вопрос и однозначный natural CRUD получают ответ/status,
+   когда publication разрешён. Права/target/CAS проверяются product step, model
+   JSON не разрешает CRUD сам. Obvious contextual target разрешается из известных
+   handles; уточнение только при реальной ambiguity.
+6. Reply text и semantic action result фиксируются до внешних effects. Success
+   notice строится deterministic renderer из фактических operation statuses:
+   queued/processing, published/readback, unknown, revoked-for-new-admissions,
+   cleanup_pending/completed. Не хранить raw model prose/prompt долгосрочно:
+   bounded immutable reply output существует только как unresolved publication
+   envelope, purged после подтверждённой App публикации/terminal resolution;
+   hashes/IDs/status остаются для replay. Не генерировать новый текст на retry.
+
+### Selected set и suppression без semantic matching
+
+Расширить existing source cursor/metadata в `features-memory`: stable source
+lineage `(workspace, repositoryStableId, sourceType, sourceId)` **без generation**,
+current checked revision, selected auto-entry IDs, source-state/suppression epoch.
+Generation-specific native bindings остаются отдельно. Никакого source text или
+semantic blacklist. Set принадлежит source, а не номеру chunk/dry-run fact ID.
+
+Для accepted complete revision создать до 4 новых deterministic child entry IDs
+из processing ID+index frozen result; не угадывать old/new соответствие по тексту.
+Одна metadata transition отзывает admission прежнего auto-set и записывает новый
+pending set; existing per-entry commands реализуют native effects. Новый set
+доступен после его verified readbacks; частичное выполнение не выдаётся за полную
+замену. История `2→1→0`: старые auto entries retire, новый один publish, успешный
+empty selection оставляет empty current set без пустого native document.
+Unknown/failed/partial selection фиксирует `needs_refresh`, а не empty/success;
+source freshness уже исключает старую edited revision из новых admissions.
+Maintained manual rules/authorized exceptions не входят в automatic set и
+автоматически не удаляются вместе с ним.
+
+До clearing `metadata.source` при forget сохранить bodyless lineage suppression.
+Проверять его перед native/paid work и снова при durable admission. Forget или
+retire auto-entry запрещает automatic re-learning той source lineage, включая
+новые source edits, новые entry IDs, full-thread replay и смену generation.
+При нескольких фактах из одного source консервативно suppress весь source для
+**нового learning**; это не удаляет остальные уже действующие siblings без запроса.
+Явный authorized relearn может снять suppression новой policy transition, но
+обычный replay/edit — нет. Семантически похожие новые независимые sources не
+обещаем блокировать; semantic suppression engine не строится.
+
+| Событие/ошибка                                     | Обязательное поведение                                                                                       |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Redelivery после собственного reply+learning       | Lookup того же accepted record, прежние child IDs/output/status; no new dispatch                             |
+| Non-trigger edit/delete при unchanged trigger/head | Vector drift → stale/incomplete, no effect из mixed context                                                  |
+| Trigger edit                                       | Новая source revision; prior auto-set перестаёт подходить freshness; complete replacement либо needs_refresh |
+| Out-of-order event                                 | Trusted current source cursor; arrival time не authority                                                     |
+| Delete selected source                             | Bodyless suppression + immediate source-derived admission revoke; maintained rule не удалять молча           |
+| Permission/access loss                             | Revoke eligible context; 404 не объявлять deletion                                                           |
+| Ambiguous correction/forget target                 | Native recall candidates + clarification; не первый semantic match                                           |
+| Forget                                             | Existing immediate body-read fence и identity-bound drain/history cleanup; suppression переживает completion |
+| Late callback/unknown                              | Не clear newer fence; reconcile original identity, no hidden retry/refund/fallback                           |
+
+Reply caps/mode проверяются только на publication этапе. Learning policy и native
+budget имеют собственные gates; cap-exhausted informative turn всё ещё выбирает
+полезные observations. Bots остаются контекстом, никогда новым approval actor;
+собственная paraphrase Router не становится selectable source.
 
 ## 8. Investigation, description и OCR: один контекст, разные права
 
@@ -409,14 +539,17 @@ review при disabled/unavailable; mutation authority при этом fail-clos
 `investigation ? null` только после server capability/manifest update. Знание —
 labelled contextual evidence: правило показывает ожидаемое поведение, observation
 имеет observed commit; оно не становится доказательством, что текущий код такой.
-При replay новая admission проверяет source/revocation eligibility; старый hash
+Существующая authoritative investigation grant transaction должна проверять
+bodyless receipt/current eligibility атомарно перед новым grant, не отдельным
+best-effort preflight. При replay новая admission проверяет source/revocation eligibility; старый hash
 никогда не обозначает другие bytes. Открытое исполнение с уже выданной lease
 сохраняет accepted immutable input по ADR031, без мнимого refund.
 
 **PR description: включить read-only, отдельной audience policy.** Разрешены
 repo-local/shared approved facts только если их можно раскрыть аудитории PR;
 private workspace memory не попадает в публичную description автоматически.
-Никакой memory learning из сгенерированной description и обратной self-reinforcing
+Audience filtering применяется **до inference admission**, как для inline reply;
+нельзя передать private text и надеяться на output redaction. Никакой memory learning из сгенерированной description и обратной self-reinforcing
 петли. Memory объясняет термины/решения, но модель описывает только фактически
 разрешённые изменения PR. Добавить hash/eligibility в existing companion
 manifest/lease и safe provenance; бюджет и primary selected account сохраняются.
@@ -438,130 +571,201 @@ prompt formatting и task audience policies намеренно не сливаю
 
 ## 9. Последовательные slices и точные владельцы
 
-Все следующие пути — target changes, не claim о наличии новых файлов.
+Все следующие paths — target changes, не claim о наличии новых файлов.
 
-| Срез                           | Изменения и owner                                                                                                                                                                                                                                | Критерий завершения                                                                                                 |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| 0. Contract successor          | Новый S ADR/source-processing profile; этот план; narrow native qualification fixture                                                                                                                                                            | Решены transient persistence/authority/model egress; existing profile неизменён                                     |
-| 0a. OCR integrity prerequisite | Native rr.4 owner `internal/agent/agent.go` template substitution; bounded actual CLI outgoing regression + exact Action artifact requalification                                                                                                | Memory placeholders остаются literal bytes; no second expansion; прежний request schema/skills precedence сохранены |
-| 1. Portable memory             | `context-memory/src/{contracts,capabilities,hindsight,index}.ts`, README; S `memory-knowledge-provider-port.ts`, composition and anti-corruption adapter                                                                                         | Real Router + external disposable consumer, no product deps; native effects/readback/error semantics preserved      |
-| 2. LLM reuse                   | Existing runtime/SDK owner narrow structured inference capability; A `discussion/codex-responder.ts`, `main.ts`; S `review-run-gateway-*` task authorization where remote                                                                        | Один selected account/model, конечный отдельный grant/usage; no new generic server                                  |
-| 3. Full inline source          | A `github/discussion.ts`, `discussion/types.ts`, new `discussion/application/conversation-source-port.ts`, `discussion/infrastructure/github-conversation-source.ts`; S `github/github-memory-source-verifier.ts` отдельный body-profile adapter | All pages/authors/revisions/anchor; explicit incomplete/oversized behavior                                          |
-| 4. Learning + reply            | New A `discussion/application/process-conversation.ts`; S existing `memory` domain/access/service/store + `action-memory-v2-routes.ts`, replay/worker                                                                                            | Informative maintainer message learns without Save, answers recall; rule/destructive actions preserve authority     |
-| 5. All actual consumers        | A `review-investigation/application/{review-agent-port,review-investigation-turn-prompt}.ts`, investigation adapters, `production-t0-review-runner.ts`, `pr-description-generation.ts`; S review contracts/admission/description                 | Investigation + description verified exact memory bytes and task audience, no duplicated retrieval                  |
-| 6. Paired rollout              | Generated contract authority S `packages/features/action-control-plane` + owning semantic descriptors; paired A generated artifacts, Foundation seams/reject fixtures, operations docs                                                           | Focused gates + real disposable E2E + live native model eval before enable                                          |
+| Срез                                      | Изменения и owner                                                                                                                                                                                                                                  | Критерий завершения                                                                                                                                                               |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0. Source-processing successor            | Новый S ADR; §3 этого плана; native input/privacy fixture, authority defaults и budgets                                                                                                                                                            | Raw transient processing и automatic observation разрешены явно; old approved profile/default/disable сохранены                                                                   |
+| 0a. OCR integrity                         | A `tools/ocr/patches/`, build/qualification manifest; native `internal/agent/agent.go` main/plan template owner                                                                                                                                    | One-pass original-template substitution; optional blocks до data insertion; all literal placeholders сохраняются; new immutable artifact/profile и exact CLI qualification        |
+| 1. Portable memory                        | `context-memory/src/{contracts,capabilities,hindsight,index}.ts`, README; S `memory-knowledge-provider-port.ts`, composition/anti-corruption adapter                                                                                               | Native preview once + exact current source read/list/write/operation semantics; real Router + external disposable consumer; no product deps                                       |
+| 2. Actual Gateway conversation entrypoint | S `workflow-provisioning` caller renderer/provisioning; `action-control-plane` source attestation/Prisma trusted refs; A reusable interaction Gateway branch, `main.ts`, `github/discussion.ts`; S new conversation feature/routes/API composition | Exact App-first caller enters finite purpose-authorized process/status route; no provider secret/legacy fallback; selected account/model and SDK Prepare/request/status qualified |
+| 3. Full inline source/context             | S conversation application `conversation-source-port.ts`, infrastructure App source reader; existing `github/github-memory-source-verifier.ts` remains metadata-only for old profile; A `discussion/types.ts`/client mapping                       | All pages/authors/revisions/anchor, full vector coherence and final input budget; explicit incomplete/oversized behavior                                                          |
+| 4. Learning/reply/replay                  | S conversations stable accepted record + `features-memory` source cursor/lineage/CAS/commands/worker; A existing App publisher + CP receipt adapter                                                                                                | Informative turn learns without Save independently of reply caps; fixed effects/output; set 2→1→0, suppression survives edit/generation; truthful status                          |
+| 5. Other actual consumers                 | A investigation application/turn prompt/adapters, `production-t0-review-runner.ts`, `pr-description-generation.ts`; S investigation grant transaction, review/description receipt binder/contracts/admission                                       | Separate investigation/description grants atomically admit exact task-eligible memory; audience before inference; no duplicated retrieval                                         |
+| 6. Paired release                         | Owning protocol/semantic descriptors and generated A artifacts; workflow/profile attestation, Foundation seams/reject fixtures, ops docs                                                                                                           | Focused gates + disposable Gateway-only interaction E2E without provider secrets + native model eval before enable                                                                |
 
-Сначала vertical slice «полный допустимый thread → existing memory recall →
-ответ выбранным account → native learning observation → следующий ответ использует
-его»; затем destructive corrections/forget и other consumers. Не выпускать
-параллельно несовместимые writers. Новые optional capabilities backward-compatible
-для already admitted runs; если меняется persisted source identity, нужен explicit
-metadata migration/cursor/rollback, не смена document ID без cleanup.
+Первый coherent slice: полный fitting thread → eligible memory recall → native
+preview once → existing exact chunks → следующий contextual ответ выбранным
+review account. Тот же accepted record содержит silence/effect status. Затем
+source-set corrections/forget и остальные consumers. Не оставлять старый
+несовместимый conversation writer активным на той же Gateway конфигурации.
+Already admitted review runs сохраняют прежний contract; task capabilities
+активируются только для exact qualified caller/runtime. Банк/profile/generation
+не мигрируют без фактического storage incompatibility (§6).
+
+Native OCR fix — bounded prerequisite, не Router escaping/blacklist. После patch
+проверить обычную template expansion, literals во всех replacement values, actual
+plan/main с noSkills и exact-path Skills, второй main round и затронутую compression
+boundary. Current exact-path selection/additive built-ins сохраняются; noSkills
+inventory не объявляется exact allowlist. Existing review admission/restoration
+не переписываются: issued lease может завершить immutable input, restore не
+получает новое inference право под старым hash.
 
 ## 10. Проверки и EVALS по реальным рискам
 
-Не тестировать каждую DTO-функцию и helper. Тестировать границы, где можно
-перепутать власть, деньги, tenant, факт сохранения или историю.
+Не тестировать каждую DTO-функцию/helper. Доказательства выбираются по риску
+перепутать authority, account, tenant, историю или факт эффекта.
 
-| Риск                                              | Минимальное независимое доказательство                                                                                                                                        |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Полная история незаметно обрезалась               | GitHub paginated fixture >100 сообщений, разные humans/bots, старое decisive уточнение вне последних 8, edit/delete/outdated anchor; verify actual model input/coverage       |
-| Forged source/actor или чужая память              | Real authority adapter reject cases: repo/workspace/fork/access/actor mismatch, revoked source, bot policy edit, adjacent repo; no retained content/effect                    |
-| Дубликат после replay/crash                       | Existing PostgreSQL command/worker concurrency fixtures: same revision once, changed bytes same ID conflict, edit races, lost ACK/unknown without second paid/native dispatch |
-| «Saved» без эффекта                               | Real native process/API fixture: queued→published readback, invalid schema, partial/failed child, unknown, late completion after retire/forget; status wording assertions     |
-| Утечка transcript                                 | Canary bodies across actual API/native logs, failed job/operation payloads, outbox/audit/export/errors; prove transient contract or keep new profile disabled                 |
-| Contract только кажется portable                  | Packed ordinary external project без Router/org imports/credentials + same native adapter conformance fixtures                                                                |
-| Same account заявлен, фактически другой           | Actual SDK→Gateway→admitted native transport fixture: selected account/model/usage/effect correlation; quota/auth denial before dispatch, cancellation/unknown no fallback    |
-| Memory потерялась в investigation/description/OCR | Actual production T0 prepared requests + manifests/receipts, exact same bytes/hash for admitted task; actual OCR CLI outgoing request verifies understood native fields       |
-| Забытое воскресло                                 | Existing complete-forget proof + new extracted source ancestry, zero-fact/derived/shared observation cases; exclude immediately and after restart                             |
+| Риск                                            | Минимальное независимое доказательство                                                                                                                                                                      |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Вход реально недоступен Gateway                 | Disposable repo с installed canonical interaction caller, OIDC и App publication; informative created/edited, deleted source, reply-off learning; ни одного provider secret/legacy auth шага                |
+| История обрезана/смешана                        | Paginated fixture >100 сообщений/разные actors/bots/decisive old turn, non-trigger edit/delete на ранней page при unchanged trigger/head; actual final model/native input и revision vector                 |
+| Утечка через model input                        | Public inline reply **и** description не получают private workspace/source facts; internal allowed task получает их; derived evidence проходит ту же source audience policy                                 |
+| Source/account/authority forgery                | Existing real adapter reject cases repo/workspace/fork/access/actor mismatch, bot policy edit, adjacent repo, quota/revoked connection; no dispatch/write                                                   |
+| Self-induced duplicate                          | Первый event учит и публикует reply; затем redelivery при изменившихся thread digest/memory epoch. Lookup old record/output/effects; no second preview/model/retain/publication                             |
+| Selection двойная или изменилась                | Real native transport: one dry-run, frozen ≤4 selected statements, async retain только exact chunks; readback digest/time/body неизменны, no raw context/job data. Consolidation calls учитываются отдельно |
+| Source-set edit/forget                          | Existing PG concurrency fixtures: 2→1→0 complete selection, unknown/partial selection, drift и late callback; forget→source edit→fresh entry ID→generation migration не обходят bodyless suppression        |
+| Status выдуман                                  | Real native/API queued→verified published, invalid output/unknown/failed child, retire/forget pending/completed; deterministic notice отражает stored effect                                                |
+| Transcript retained                             | Canary bodies в actual CP/native/Gateway logs, errors/traces, outbox, async native payload, publication envelope purge/export; input profile disabled при недоказанном transient guarantee                  |
+| Budget/window                                   | Near-window complete thread + nonempty memory + schema/overhead/output reserve; bounded preview/recall cumulative deadline and service budget exhaustion; no truncation/fallback/re-dispatch                |
+| Portable только на бумаге                       | Packed ordinary external consumer без Router/org imports/credentials, current read/list/write + explicit unsupported capabilities                                                                           |
+| Investigation/description/OCR пропускают memory | Actual T0/turn/companion requests, authoritative grant receipts и manifests; actual OCR plan/main/literal integrity + existing Skills/noSkills fixtures                                                     |
+| Forget не полный                                | Existing provenance-aware drain/history/restart proof, source lineage и derived evidence; immediate exclusion и absence после restart                                                                       |
 
-EVALS — отдельный небольшой версионированный corpus, с ручным oracle и rubric,
-а не assertions, сгенерированные той же моделью. Cases RU/EN: полезный контекст
-без команды; transient вопрос; уже известный повтор; contradiction/updated code;
-rule vs observation/exception; два maintainer с несогласием; bot injection; ordinary
-contributor useful evidence; ambiguous update/forget; длинный mixed-author thread;
-deleted/edited source; memory-aware follow-up и публичная description.
+### Маленький корпус и заранее заданные инженерные цели
 
-Измерять learning precision и recall **раздельно**, ошибочное повышение observation
-до policy, верность source/target attribution, recall relevance, ответ с evidence,
-честность effect status, latency/cost. Сравнить current parser/no-memory baseline,
-native engine selected configuration и полный product path. Перед release corpus
-и thresholds фиксируются владельцем: policy/tenant/destructive false-positive —
-0 в blocking fixtures; общая usefulness/reply quality оценивается human review,
-с отдельными error buckets. Не выдавать 11 deterministic CLI tests за модельное
-качество. Prompt/native mission меняются по обнаруженной ошибке, затем повторяется
-затронутый eval set; без собственного semantic fallback.
+Checked-in synthetic/de-identified corpus: **48 целых threads**, 32 tuning и
+16 protected hold-out, примерно 120–180 labeled human events и 80–120 expected
+eligible facts. Hold-out разделяется **по thread/repository scenario**, не по
+отдельным сообщениям; отдельные парафразы того же сценария не пересекают split.
+Labels: eligible fact/text support, source actor/revision, scope/target, forbidden
+write, acceptable answer/evidence/clarification/silence, desired effect status.
+Не создавать generic eval platform: fixtures + тонкий runner + results table.
 
-На реализации запускать focused suites соответствующих owners, protocol generate/
-check/handoff при contract change, Foundation memory boundary fixtures и package
-typecheck/build; перед paired release — обязательные repo gates по действующим
-scripts. Docs-only delivery требует format/diff/link checks, не запуска всего
-production CI ради Markdown. Live native model canary и App-first disposable PR
-нужны до активации, не входят в текущую работу без deploy доступа.
+RU/EN cases: informative non-command context, transient вопрос/шум, повтор,
+negation/quoted bot evidence, «да, это исключение» с prior turn, current code vs
+rule/observation, два maintainer с несогласием, ordinary contributor context,
+ambiguous update/forget, useful silent learning при reply caps/off, длинная
+история/edit/delete, публичная audience, template literals, follow-up recall.
 
-## 11. Объём, альтернативы и нерешённые вопросы
+Default gates фиксируются **до tuning**, не требуют ещё одного owner confirmation:
 
-LOC — оценка **добавленного/существенно изменённого** production/integration кода
-для всего этого плана сверх проверенного Hindsight baseline, без переноса строк
-между файлами, generated artifacts и vendor source. Это total следующего среза,
-не размер уже существующего memory subsystem. Tests/evals указаны отдельно.
+| Метрика и denominator                                                                                  | Стартовая цель                                       |
+| ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
+| Retained-fact precision: supported correct facts / все опубликованные facts                            | ≥95%                                                 |
+| Eligible-fact recall: корректно сохранённые labeled facts / все eligible facts                         | ≥80%                                                 |
+| Event harmful-write rate: events с ≥1 unsupported/wrong-scope fact / events с durable effects          | ≤5%, при этом blocking authority cases ниже всегда 0 |
+| Exact actor/source/target attribution: корректно привязанные effects / все effects                     | 100% на blocking cases; ≥95% на общем corpus         |
+| Supported-answer pass: human rubric pass / events, где нужен ответ                                     | ≥90%                                                 |
+| Unnecessary clarification и unnecessary reply: лишние / соответствующие labeled decision opportunities | ≤10% каждый                                          |
+| Unauthorized/wrong-tenant/wrong-actor/destructive false effect; hard budget breach                     | 0 blocking cases                                     |
 
-| Срез                                                                      | Production/integration LOC, incremental | Targeted tests/evals LOC |
-| ------------------------------------------------------------------------- | --------------------------------------: | -----------------------: |
-| Portable memory capability + native mappings                              |                                 500–900 |                  250–450 |
-| Общая LLM capability + authorized bindings                                |                                 350–650 |                  200–400 |
-| Full thread source/versions/completeness                                  |                                 350–650 |                  200–350 |
-| Conversational orchestration, learning authority, truthful replies/replay |                               700–1 100 |                  350–600 |
-| Investigation/description/OCR integration                                 |                                 300–550 |                  200–350 |
-| Source-processing metadata/rollout/operational adapters                   |                                 250–450 |                  150–300 |
-| **Всего сверх baseline**                                                  |                         **2 450–4 300** |          **1 350–2 450** |
+Показать counts и denominators: небольшой hold-out не доказывает population
+reliability. Сравнить current parser/no-memory baseline, native-selection-only
+и full product отдельно. Record exact native image/model/profile/mission/common
+prompt/connection class и corpus revision, product vs service latency/cost.
+Tune по tuning errors, затем один planned hold-out checkpoint; failed hold-out
+становится regression case, а новый protected набор добавляется из других whole
+threads перед повторным qualification. Не подкручивать mission на hold-out и
+выдавать повторный результат за независимый.
 
-First useful coherent slice (portable/native minimum + checked complete fitting
-thread + recall/reply + automatic observation) ориентировочно 1 300–2 100 prod и
-650–1 100 tests/evals **внутри указанного total**, не дополнительно. Переиспользование
-existing runtime primitive уменьшит LLM строку; обнаруженная обязательная native
-patch/retained-history profile потребует переоценки, не скрытого удвоения scope.
-Release/packaging, threat/privacy qualification, human eval labels и canary время
-не измеряются LOC.
+Править native mission/common task prompt по измеренной ошибке; Router semantic
+confidence/verification fallback не добавлять. Deterministic 11 CLI/350 tests
+проверяют delivery/contracts, не эти targets.
 
-| Вариант в том же scope                                                   | Уверенность /10 | Достижимая надёжность /10 | Сложность /10 | Решение                                                              |
-| ------------------------------------------------------------------------ | --------------: | ------------------------: | ------------: | -------------------------------------------------------------------- |
-| Existing TS ports + маленькая portable memory library + native Hindsight |               8 |                         8 |             5 | Выбран; фактические privacy/quality гарантии требуют qualification   |
-| Только provider-specific SDK внутри Router                               |               9 |                         8 |             3 | Не удовлетворяет concrete multi-project/provider-neutral requirement |
-| Новый service/универсальная LLM+memory platform                          |               4 |                         6 |             9 | Нет отдельного failure/process need; не выбран                       |
-| Свой semantic extractor/consolidator                                     |               3 |                         5 |             9 | Противоречит owner vision; не выбран                                 |
+На реализации — focused changed-owner suites, protocol generate/check/handoff при
+contract change, Foundation memory boundaries и package typecheck/build; перед
+paired release обязательные действующие repo gates. Docs-only — format/diff/link
+checks. Live native selected-model eval и App-first disposable Gateway interaction
+E2E нужны перед enable; этого документа/локального mocked HTTP недостаточно.
 
-Оценки — engineering judgment, не измеренная availability. Нативный upstream engine
-сильнее новой реализации в другом языке для extraction; TypeScript bindings
-соответствуют existing runtime. Дополнительный native runtime/FFI не нужен.
+## 11. Объём, альтернативы и оставшиеся решения
 
-Перед implementation slice 1 закрыть только конкретные решения:
+LOC — добавленный/существенно изменённый production/integration код **всего этого
+плана сверх existing Hindsight baseline**. Перенос existing строк, generated/vendor
+artifacts не считаются новым кодом. Tests/evals отдельно; это не размер существующего
+subsystem и не выполненная работа.
 
-1. Подтверждённый existing reusable owner или final package/repository name;
-   registry/license/release coordinates. Пока `context-memory` — proposed, не
-   installable claimed product.
-2. Pinned native extraction guarantee: полезность, source attribution, raw
-   persistence/logging и безопасный full-thread/large-thread path. Dry-run/chunks
-   сами по себе не отвечают на это. Нет доказательства — feature unavailable.
-3. First profile source class: рекомендация verified maintainer observations,
-   repo-local; broader ordinary-contributor auto-learning требует явного policy
-   решения, а не замены «automatic learning» на manual-only.
-4. Existing ar/Gateway owner точного common inference extension и capability
-   matrix по выбранным account transports; review-bound authority остаётся в
-   adapter. Неподдержанный route не получает credential fallback.
-5. Native LLM/embedding model-egress и transient против retained profile; это
-   конкретное privacy решение, не повод менять все source ingress endpoints.
-6. Task audience policy для description и inclusion/replay policy investigation;
-   проверяется перед first admission, а не только при render.
+| Срез                                                           | Incremental prod/integration LOC | Targeted tests/evals LOC |
+| -------------------------------------------------------------- | -------------------------------: | -----------------------: |
+| Portable memory + preview/current source mappings              |                          500–850 |                  250–400 |
+| Gateway interaction wiring/finite authority + actual LLM reuse |                        650–1 050 |                  300–500 |
+| Checked full-thread source/vector/budget input                 |                          300–500 |                  150–300 |
+| Learning/reply/set replacement/replay                          |                        650–1 100 |                  300–550 |
+| Investigation/description/OCR consumer integration             |                          300–550 |                  200–350 |
+| Lineage/suppression metadata, rollout/operational adapters     |                          260–550 |                  100–280 |
+| Native OCR one-pass integrity remediation                      |                           40–100 |                  100–220 |
+| **Total этого среза сверх baseline**                           |                  **2 700–4 700** |          **1 400–2 600** |
 
-## 12. Независимая критика и evidence
+First useful coherent slice ≈1 500–2 400 prod и 750–1 250 tests/evals **внутри**
+total. Optional native per-account Gateway attribution bridge — ещё **250–500 prod,
+150–300 tests**, не обязателен первой реализации; при его выборе total становится
+**2 950–5 200 / 1 550–2 900**. Native OCR new binary/patch digest/profile attestation,
+packaging/release, human corpus labels, privacy/canary время — вне LOC.
+Если transient source fidelity/budget требует retained raw history или нового native
+поведения, остановить этот расширенный scope и переоценить, не спрятать platform
+в contingency. Confidence medium; существующие mechanisms могут уменьшить код.
 
-Начальная версия записана до трёх требуемых critique/fix rounds. Здесь будут
-зафиксированы round reports, существенные corrections и остаточные ограничения.
-До завершения этих rounds статус не меняется на reviewed.
+| Вариант в одинаковом feature scope                                     | Уверенность /10 | Достижимая надёжность /10 | Сложность /10 | Решение                                                                                         |
+| ---------------------------------------------------------------------- | --------------: | ------------------------: | ------------: | ----------------------------------------------------------------------------------------------- |
+| Existing TS/ar task + Gateway SDK + portable memory + native Hindsight |               8 |                         8 |             5 | Выбран; реальные privacy/quality/admission требуют qualification                                |
+| SDK Hindsight только внутри Router                                     |               9 |                         8 |             3 | Не покрывает concrete multi-project/provider-neutral need                                       |
+| Server comment-webhook→worker executor                                 |               7 |                         8 |             7 | Отложен: новые inference/source/publication/custody composition вместо готового Action App path |
+| Новый service/универсальная platform                                   |               4 |                         6 |             9 | Нет demonstrated process/failure boundary                                                       |
+| Свой semantic extractor/consolidator                                   |               3 |                         5 |             9 | Противоречит owner vision                                                                       |
 
-Исследовательские отчёты располагаются в
-`tmp/memory-conversation-plan/`: owner request, native/reuse source audit, deep
-OCR delivery audit. Они — рабочая evidence, не substitute для commit-pinned
-источников в окончательной версии. Native/API existence, local deterministic
-execution, live quality и deployment readiness в отчётах различаются явно.
+Это engineering judgments, не measured availability. TypeScript подходит для
+existing bindings; mature upstream Python engine оставляет семантику у его owner.
+Новый native runtime/FFI/языковой rewrite не нужен.
+
+Оставшиеся конкретные implementation решения не блокируют написание/проверку плана:
+
+1. Final package name/registry/repository/license; `context-memory` proposed,
+   не claimed installable product. Existing suitable maintained owner предпочтителен.
+2. Exact qualified native input/model/mission profile и no-raw logs/payload proof.
+   Initial representation/storage уже выбрана: one preview → frozen statements →
+   existing exact chunks/generation; без bank migration ради нового input.
+3. Captured Gateway conversation limits/compatibility в existing Prepare/request
+   contract; extension SDK только при доказанном missing control. No paid retry.
+4. Optional native bank-attributed account bridge — separate bounded spike; native
+   service funding/egress в первом срезе раскрыты, customer OAuth не копируется.
+5. Broadening eligible sources beyond verified human maintainers — future policy
+   decision. Current supported default automatic learning уже реализуем без Save;
+   ordinary contributor/bot evidence учитывается в ответе, не присваивает authority.
+
+## 12. Независимая критика и source evidence
+
+Требуются три rounds по три независимых критика. Все исследователи/критики/writer —
+**gpt-6.1-sol, xhigh** по explicit owner choice. Это review плана, не acceptance
+реализации/native image/model/deployment. Reports: `tmp/memory-conversation-plan/`.
+
+| Round / reviewed revision                       | Независимый reviewer                                     | Findings → disposition                                                                                                                                                                                           |
+| ----------------------------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1 / `c5ba9f81bcde0e465e8fb2a51336534adbecb94c` | Architecture/shared inference/DRY (`r1-architecture.md`) | REVISE: actual Gateway entrypoint → выбран canonical managed interaction, server-worker alternative рассмотрена/отклонена; actual ar/Gateway reuse → §5; accepted identity → §7; audience до LLM → §7/8          |
+| R1 / тот же commit                              | Native memory/authority/portability (`r1-native.md`)     | REVISE: один preview→exact chunks; no nonexistent confidence proof; bodyless cross-generation lineage suppression; bounded 2→1→0 source set; unchanged storage profile/generation → §3/6/7                       |
+| R1 / тот же commit                              | Product/history/evals/minimalism (`r1-product-eval.md`)  | REVISE: whole-thread coherence vector; stable replay; learning отдельно от reply gates; complete/empty/unknown source sets; corpus hold-out+denominators+targets; final assembled/cumulative budgets → §4/5/7/10 |
+| R2                                              | Ещё не выполнен                                          | Pending                                                                                                                                                                                                          |
+| R3                                              | Ещё не выполнен                                          | Pending                                                                                                                                                                                                          |
+
+Источники проверены по exact inputs; current API existence не означает qualification:
+
+- S source links далее используют [PR729 head](https://github.com/777genius/review-router-ai/tree/a75789fc2b4cf7476d247a4b0023390307191781),
+  A — [PR349 head](https://github.com/777genius/review-router/tree/8734b1dff5439bdd52d0150602cb933a123ca386).
+  Docs worktree base и открытый статус PR указаны в §2; deployment не проверен.
+- [ar actual app-facing bridge](https://github.com/777genius/ar/blob/83a7329f4383b05ac5c39356b79f82f029182d42/docs/agent-task-bridge.md),
+  [task contracts](https://github.com/777genius/ar/blob/83a7329f4383b05ac5c39356b79f82f029182d42/src/agent-task/task-codec/domain/agent-task-contracts.ts).
+  Gateway exact archive — [vendored SDK](https://github.com/777genius/review-router-ai/blob/a75789fc2b4cf7476d247a4b0023390307191781/vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz);
+  consumer-owned [review preparation](https://github.com/777genius/review-router-ai/blob/a75789fc2b4cf7476d247a4b0023390307191781/apps/api/src/review-run-gateway-preparation.ts).
+- Hindsight **v1.1.0 `a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5`**:
+  [dry-run API](https://github.com/vectorize-io/hindsight/blob/a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5/hindsight-api-slim/hindsight_api/api/http.py),
+  [semantic extraction, prompt/context и chunks](https://github.com/vectorize-io/hindsight/blob/a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5/hindsight-api-slim/hindsight_api/engine/retain/fact_extraction.py),
+  [ExtractedFact fields](https://github.com/vectorize-io/hindsight/blob/a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5/hindsight-api-slim/hindsight_api/engine/response_models.py),
+  [native consolidation](https://github.com/vectorize-io/hindsight/blob/a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5/hindsight-api-slim/hindsight_api/engine/consolidation/consolidator.py),
+  [config allowlist](https://github.com/vectorize-io/hindsight/blob/a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5/hindsight-api-slim/hindsight_api/config.py),
+  [bank attribution](https://github.com/vectorize-io/hindsight/blob/a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5/hindsight-api-slim/hindsight_api/engine/bank_attribution.py).
+  Source availability подтверждена; current Router approved chunks profile не
+  qualified semantic preview/selected-model quality.
+- OCR upstream **`8eb83340a487b1150af00701b94f01af97e4b4d6`**, native
+  [main/plan renderer](https://github.com/alibaba/open-code-review/blob/8eb83340a487b1150af00701b94f01af97e4b4d6/internal/agent/agent.go),
+  [compression owner](https://github.com/alibaba/open-code-review/blob/8eb83340a487b1150af00701b94f01af97e4b4d6/internal/llmloop/compression.go).
+  Audited rr.4 binary SHA256 `0553daafe39d7a9d7608f0d37b26d55c11d07b9d5bbfc5b36b0778f9cd9f3df5`,
+  patches digest `22286440592c8e256482b938842a77fd9252b3e2615532af9ea7ec634174c2b3`;
+  [qualification manifest](https://github.com/777genius/review-router/blob/8734b1dff5439bdd52d0150602cb933a123ca386/tools/ocr/qualifications/review-skills-v1.manifest).
+  Diagnostic probe observed substitution in both actual requests; desired-behavior
+  regression ещё должна быть inverted после native fix. Live model не запускалась.
+
+Native/reuse report `native-reuse-audit.md` и OCR `ocr-deep-audit.md` сохраняют
+research details; `ocr-placeholder-probe.json` — bounded synthetic request summary.
+Большие raw outbound prompt artifacts не коммитить. Maintained standard/catalog
+blob IDs и accepted ADR links находятся в §2/3. Ни один report не меняет production
+configuration, source authority или разрешение на deployment.
