@@ -3,8 +3,8 @@ import {
   providerApiDescriptors,
 } from "@reviewrouter/shared";
 import type { ProviderApiAuthMode } from "@reviewrouter/shared";
+import { accountModelDiscoveryProfile } from "@agent-teams/account-gateway/contracts";
 import {
-  codexOAuthModelSettingsProfile,
   gatewayModelSettingsRuntimeEnvKey,
   serializeSelectedGatewayModelSettings,
   type ReadSelectedGatewayModelSettings,
@@ -294,7 +294,7 @@ function createReviewRunCheckout(
         throw new CheckoutFailure("authorization_denied", 401);
       if (
         input.modelTransport === "account_gateway" &&
-        snapshot.gateway!.profileRef === codexOAuthModelSettingsProfile
+        accountModelDiscoveryProfile(snapshot.gateway!.profileRef)
       ) {
         if (!input.readSelectedModelSettings)
           throw new CheckoutFailure("checkout_unavailable", 503);
@@ -370,6 +370,7 @@ function createReviewRunCheckout(
           serializeSelectedGatewayModelSettings(
             modelSettings.settings,
             provider!.model,
+            snapshot.gateway!.profileRef,
           );
       if (snapshot.contextToolsPlanCanonicalJson !== undefined) {
         runtimeEnv.REVIEW_ROUTER_CONTEXT_TOOLS_PLAN_JSON =

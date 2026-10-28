@@ -4,6 +4,8 @@ This folder is the canonical planning and architecture knowledge base for Review
 
 Current provider delivery scope: [Sub2API production and legacy direct transport](./operations/provider-transport-scope.md).
 
+Current provider navigation and connection UX: [Providers and connections](./product/10-provider-connections-ux.md).
+
 ## Reading Order
 
 1. [Agent Start Here](./AGENT_START_HERE.md)
