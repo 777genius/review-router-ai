@@ -10,6 +10,10 @@ import {
   ReviewRequestedIntentTerminalReason,
   ReviewRequestedTriggerKind,
   reviewRequestedDispatchCleanupEvent,
+  bindReviewRequestedDispatchCleanupTarget,
+  ReviewRequestedTransitionDecisionStatus,
+  ReviewRequestedTransitionStatus,
+  type ReviewRequestedDispatchCleanupTargetPort,
   type ReviewRequestedDispatchGatewayPort,
   type ReviewRequestedIntent,
 } from "@reviewrouter/features-review-executions";
@@ -90,14 +94,41 @@ async function fixture(intent = supersede()) {
       terminal = true;
     }),
   } satisfies ReviewRequestedDispatchGatewayPort;
+  const intents = {
+    findByRequestId: async () => intent,
+    bindCleanupRunTarget: vi.fn(
+      async (
+        command: Parameters<
+          ReviewRequestedDispatchCleanupTargetPort["bindCleanupRunTarget"]
+        >[0],
+      ) => {
+        const decision = bindReviewRequestedDispatchCleanupTarget({
+          ...command,
+          intent,
+          now,
+        });
+        if (decision.status === ReviewRequestedTransitionDecisionStatus.Applied)
+          Object.assign(intent, decision.intent);
+        return {
+          status:
+            decision.status === ReviewRequestedTransitionDecisionStatus.Applied
+              ? ReviewRequestedTransitionStatus.Applied
+              : decision.status ===
+                  ReviewRequestedTransitionDecisionStatus.Restored
+                ? ReviewRequestedTransitionStatus.Restored
+                : ReviewRequestedTransitionStatus.Conflict,
+          ...("intent" in decision ? { intent: decision.intent } : {}),
+        };
+      },
+    ),
+  };
   const handler = createReviewRequestedDispatchCleanupHandler({
-    intents: {
-      findByRequestId: async () => intent,
-    },
+    intents,
     gateway,
   });
   return {
     intent,
+    intents,
     gateway,
     outbox,
     event,
@@ -113,6 +144,163 @@ async function fixture(intent = supersede()) {
 }
 
 describe("durable superseded dispatch cleanup", () => {
+  it("fences cleanup binding by lifecycle/version and never overwrites a known target", () => {
+    const intent = {
+      ...supersede(),
+      sourceRunId: null,
+      sourceRunAttempt: null,
+    };
+    const command = {
+      intent,
+      expectedVersion: intent.version,
+      sourceRunId: "701",
+      sourceRunAttempt: "1",
+      now: start,
+    };
+    const bound = bindReviewRequestedDispatchCleanupTarget(command);
+    expect(bound.status).toBe(ReviewRequestedTransitionDecisionStatus.Applied);
+    if (!("intent" in bound)) throw new Error("fixture_binding_failed");
+    expect(bound.intent).toMatchObject({
+      sourceRunId: "701",
+      sourceRunAttempt: "1",
+      version: intent.version + 1n,
+    });
+    expect(intent.sourceRunId).toBeNull();
+    expect(
+      bindReviewRequestedDispatchCleanupTarget({
+        ...command,
+        intent: bound.intent,
+      }).status,
+    ).toBe(ReviewRequestedTransitionDecisionStatus.Restored);
+    for (const change of [
+      { sourceRunId: "702" },
+      { sourceRunAttempt: "2" },
+      { expectedVersion: bound.intent.version + 1n },
+    ])
+      expect(
+        bindReviewRequestedDispatchCleanupTarget({
+          ...command,
+          intent: bound.intent,
+          ...change,
+        }).status,
+      ).toBe(ReviewRequestedTransitionDecisionStatus.Conflict);
+    for (const change of [
+      { expectedVersion: intent.version - 1n },
+      { expectedVersion: intent.version + 1n },
+      { intent: { ...intent, submissionStartedAt: null } },
+      { intent: { ...intent, authorizationId: "authorized" } },
+      { intent: { ...intent, executionId: "execution" } },
+      { intent: { ...intent, sourceRunId: "701" } },
+      {
+        intent: {
+          ...intent,
+          admission: {
+            state: ReviewRequestAdmissionState.Admitted as const,
+            changedLines: 1,
+            maxChangedLines: 10,
+            policySnapshotId: "policy",
+            decisionHash: "a".repeat(64),
+            checkedAt: start,
+          },
+        },
+      },
+    ])
+      expect(
+        bindReviewRequestedDispatchCleanupTarget({ ...command, ...change })
+          .status,
+      ).toBe(ReviewRequestedTransitionDecisionStatus.Conflict);
+  });
+
+  it("persists the first discovered target and never retargets a later retry", async () => {
+    const f = await fixture({
+      ...supersede(),
+      sourceRunId: null,
+      sourceRunAttempt: null,
+    });
+    const originalPayload = structuredClone(f.event.payload);
+    f.gateway.findByRequestIdentity
+      .mockResolvedValueOnce({
+        status: ReviewRequestedDispatchLookupStatus.Found,
+        sourceRunId: "701",
+        sourceRunAttempt: "1",
+      })
+      .mockResolvedValue({
+        status: ReviewRequestedDispatchLookupStatus.Found,
+        sourceRunId: "702",
+        sourceRunAttempt: "1",
+      });
+    f.gateway.cancelKnownRun.mockRejectedValueOnce(
+      new Error("first_cancel_transport_lost"),
+    );
+    expect(await f.tick()).toMatchObject({ processed: 0, retried: 1 });
+    expect(await f.tick()).toMatchObject({ processed: 1 });
+    expect(
+      f.gateway.cancelKnownRun.mock.calls.map(
+        ([input]) => input.intent.sourceRunId,
+      ),
+    ).toEqual(["701", "701"]);
+    expect(f.gateway.findByRequestIdentity).toHaveBeenCalledTimes(1);
+    expect(f.intent.sourceRunId).toBe("701");
+    expect(f.intents.bindCleanupRunTarget).toHaveBeenCalledTimes(1);
+    expect(f.event.payload).toEqual(originalPayload);
+    expect(f.event.payload).toMatchObject({
+      sourceRunId: null,
+      sourceRunAttempt: null,
+    });
+  });
+
+  it.each([
+    "throw",
+    "conflict",
+    "wrong-target",
+    "wrong-request",
+    "unchanged-version",
+  ] as const)(
+    "fails closed before inspection/cancellation when binding is not proven (%s)",
+    async (mode) => {
+      const f = await fixture({
+        ...supersede(),
+        sourceRunId: null,
+        sourceRunAttempt: null,
+      });
+      if (mode === "throw")
+        f.intents.bindCleanupRunTarget.mockRejectedValueOnce(
+          new Error("database_unavailable"),
+        );
+      else
+        f.intents.bindCleanupRunTarget.mockResolvedValueOnce({
+          status:
+            mode === "conflict"
+              ? ReviewRequestedTransitionStatus.Conflict
+              : ReviewRequestedTransitionStatus.Applied,
+          intent: {
+            ...f.intent,
+            sourceRunId: mode === "wrong-target" ? "702" : "701",
+            sourceRunAttempt: "1",
+            requestId:
+              mode === "wrong-request" ? "other-request" : f.intent.requestId,
+            version:
+              f.intent.version + (mode === "unchanged-version" ? 0n : 1n),
+          },
+        });
+      expect(await f.tick()).toMatchObject({ processed: 0, retried: 1 });
+      expect(f.gateway.inspectKnownRun).not.toHaveBeenCalled();
+      expect(f.gateway.cancelKnownRun).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects mixed or changed original event target identities", async () => {
+    for (const payload of [
+      { sourceRunId: null, sourceRunAttempt: "1" },
+      { sourceRunId: "702", sourceRunAttempt: "1" },
+    ]) {
+      const f = await fixture();
+      Object.assign(f.event.payload, payload);
+      expect(await f.tick()).toMatchObject({ deadLettered: 1, processed: 0 });
+      expect(f.gateway.inspectKnownRun).not.toHaveBeenCalled();
+      expect(f.gateway.cancelKnownRun).not.toHaveBeenCalled();
+    }
+  });
   it.each([
     ReviewRequestedIntentTerminalReason.AuthorizationDeadlineExceeded,
     ReviewRequestedIntentTerminalReason.DispatchOutcomeUnknown,

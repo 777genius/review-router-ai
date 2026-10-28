@@ -2,12 +2,53 @@ import {
   ReviewRequestAdmissionState,
   ReviewRequestedIntentState,
   ReviewRequestedIntentTerminalReason,
+  ReviewRequestedTransitionDecisionStatus,
   type ReviewRequestedIntent,
+  type ReviewRequestedTransitionDecision,
 } from "./review-requested-intent";
+import { assertDate, assertIdentifier } from "./review-execution";
 
 export const reviewRequestedDispatchCleanupEventType =
   "review.requested_dispatch_cleanup";
 export const reviewRequestedDispatchCleanupEventVersion = 1;
+
+/** First discovered cleanup target is immutable across outbox retries. */
+export function bindReviewRequestedDispatchCleanupTarget(input: {
+  readonly intent: ReviewRequestedIntent;
+  readonly expectedVersion: bigint;
+  readonly sourceRunId: string;
+  readonly sourceRunAttempt: string;
+  readonly now: Date;
+}): ReviewRequestedTransitionDecision {
+  assertIdentifier(input.sourceRunId, "dispatch_cleanup_run_id");
+  assertDate(input.now, "dispatch_cleanup_binding_time");
+  const intent = input.intent;
+  if (
+    input.sourceRunAttempt !== "1" ||
+    input.expectedVersion <= 0n ||
+    input.expectedVersion > intent.version ||
+    reviewRequestedDispatchCleanupEvent(intent) === null
+  )
+    return { status: ReviewRequestedTransitionDecisionStatus.Conflict };
+  if (intent.sourceRunId !== null || intent.sourceRunAttempt !== null) {
+    return intent.sourceRunId === input.sourceRunId &&
+      intent.sourceRunAttempt === input.sourceRunAttempt
+      ? { status: ReviewRequestedTransitionDecisionStatus.Restored, intent }
+      : { status: ReviewRequestedTransitionDecisionStatus.Conflict };
+  }
+  if (intent.version !== input.expectedVersion)
+    return { status: ReviewRequestedTransitionDecisionStatus.Conflict };
+  return {
+    status: ReviewRequestedTransitionDecisionStatus.Applied,
+    intent: {
+      ...intent,
+      sourceRunId: input.sourceRunId,
+      sourceRunAttempt: input.sourceRunAttempt,
+      version: intent.version + 1n,
+      updatedAt: new Date(input.now),
+    },
+  };
+}
 
 /**
  * A durable obligation, separate from the original dispatch resolution window.

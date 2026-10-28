@@ -473,6 +473,67 @@ if (databaseUrl) {
           requestId: candidate.requestId,
           sourceRunId: mode === "supersede-unresolved" ? null : "701",
         });
+        if (mode === "supersede-unresolved") {
+          const unknown = (await store.findByRequestId(candidate.requestId))!;
+          const originalPayload = structuredClone(events[0]!.payload);
+          const bindings = await Promise.all(
+            ["701", "702"].map((sourceRunId) =>
+              store.bindCleanupRunTarget({
+                requestId: unknown.requestId,
+                expectedVersion: unknown.version,
+                sourceRunId,
+                sourceRunAttempt: "1",
+              }),
+            ),
+          );
+          const applied = bindings.filter(
+            (binding) =>
+              binding.status === ReviewRequestedTransitionStatus.Applied,
+          );
+          expect(applied).toHaveLength(1);
+          const bound = applied[0]!.intent!;
+          expect(
+            bindings.filter(
+              (binding) =>
+                binding.status === ReviewRequestedTransitionStatus.Conflict ||
+                binding.status === ReviewRequestedTransitionStatus.StaleClaim,
+            ),
+          ).toHaveLength(1);
+          expect(
+            await store.bindCleanupRunTarget({
+              requestId: unknown.requestId,
+              expectedVersion: unknown.version,
+              sourceRunId: bound.sourceRunId!,
+              sourceRunAttempt: "1",
+            }),
+          ).toMatchObject({
+            status: ReviewRequestedTransitionStatus.Restored,
+            intent: { version: bound.version, sourceRunId: bound.sourceRunId },
+          });
+          expect(
+            await store.bindCleanupRunTarget({
+              requestId: unknown.requestId,
+              expectedVersion: bound.version,
+              sourceRunId: bound.sourceRunId === "701" ? "702" : "701",
+              sourceRunAttempt: "1",
+            }),
+          ).toMatchObject({ status: ReviewRequestedTransitionStatus.Conflict });
+          expect(
+            (
+              await prisma.outboxEvent.findUniqueOrThrow({
+                where: { id: events[0]!.id },
+              })
+            ).payload,
+          ).toEqual(originalPayload);
+          expect(
+            await prisma.outboxEvent.count({
+              where: {
+                aggregateId: unknown.requestId,
+                type: "review.requested_dispatch_cleanup",
+              },
+            }),
+          ).toBe(1);
+        }
         await prisma.reviewRequestedIntent.update({
           where: { requestId: candidate.requestId },
           data: { retainUntil: new Date(now.getTime() - 1000) },

@@ -814,8 +814,12 @@ Dispatch recovery is deliberately asymmetric:
 
 Superseding a submitted, unadmitted request also writes
 `review.requested_dispatch_cleanup@v1` in the same database transaction. The
-worker resolves the original request identity, validates the current Actions
-attempt and workflow path, requests cancellation, and marks the event processed
+worker resolves the original request identity and durably binds the first discovered
+run ID/attempt before inspection or cancellation. Binding is version-fenced and
+cannot replace an already known target. Retries use that persisted target and
+do not repeat discovery. The original null-target outbox payload remains immutable
+and replay-valid after binding. The worker validates the current Actions attempt
+and workflow path, requests cancellation, and marks the event processed
 only after terminal readback. Admitted providers keep their existing drain
 contract. Dispatch deadlines retain their original meaning; an absent lookup
 never proves that an in-flight dispatch POST had no effect.
@@ -831,10 +835,13 @@ This change needs no schema or public Action upgrade. Deploy the API and worker
 as one coherent batch, with a compatible worker available to consume cleanup.
 Workers predating cleanup do not own the event type and leave it pending. The
 previous supersession-only consumer knows the type but rejects terminal payloads:
-upgrade the consumer before the terminal-event producer, or stop all previous
-consumers during the coherent API/worker activation. Keep a compatible consumer
-when rolling back the producer until the new terminal events are processed or
-explicitly reconciled; do not roll it back onto pending terminal cleanup.
+stop or coherently replace ALL previous cleanup consumers before ANY new sticky
+binding, including bindings for existing superseded events. Merely upgrading the
+terminal-event producer after one new worker is insufficient: an old consumer
+would reject an immutable null-target payload after another worker binds its
+intent. Keep compatible consumers when rolling back until ALL newly bound,
+unprocessed cleanup events and new terminal events are processed or explicitly
+reconciled; do not roll back onto these pending obligations.
 New workers register the event as known even when review processing is disabled.
 Retry failures use the existing
 bounded outbox backoff (20 attempts); exhaustion retains a dead letter and the
