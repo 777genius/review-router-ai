@@ -5,6 +5,7 @@ export type ConversationProcessRequest = {
   readonly sourceCommentId: string;
   readonly sourceRevision: string;
   readonly eventAction: "created" | "edited" | "deleted";
+  readonly replyMode?: "off" | "suggest";
 };
 export type ConversationStatusRequest = {
   readonly protocolVersion: 2;
