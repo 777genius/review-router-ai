@@ -12,10 +12,10 @@
 
 ## Environment status
 
-| Environment | Status        | Actual deployed version / image                                 | Last verified (UTC) | Evidence / remaining action                                                                                                      |
-| ----------- | ------------- | --------------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| staging     | `pending`     | Not verified                                                    | Not verified        | Reconcile installed state, then complete the rollout and live verification below.                                                |
-| production  | `in_progress` | Serving `1e3a5379` / image prefix `ffae730f`; target `4dd75ecf` | 2026-10-28 20:06    | Manual exception approved; native migrations and image transfer in progress. Await readiness/build/fleet/activation/live checks. |
+| Environment | Status        | Actual deployed version / image      | Last verified (UTC) | Evidence / remaining action                                                                               |
+| ----------- | ------------- | ------------------------------------ | ------------------- | --------------------------------------------------------------------------------------------------------- |
+| staging     | `pending`     | Not verified                         | Not verified        | Reconcile installed state, then complete the rollout and live verification below.                         |
+| production  | `in_progress` | `4dd75ecf` / image prefix `3d2fd2df` | 2026-10-28 23:52    | Prisma151/ACL, fleet/capture and explicit activation passed. Live review running; rerun/isolation remain. |
 
 No environment rollout was performed or verified when this record was created.
 `pending` means completion has no recorded evidence; do not infer existing live
@@ -213,4 +213,19 @@ when this registry is read. They are not links to deployment evidence.
 | ---------------- | ----------- | ------------------ | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | Not executed     | staging     | Unassigned         | Not verified                                       | No environment work verified by this record.                                                                                                                                                       | None                                                                                                                                                                                                                                                                                                                                                                                         | Reconcile state and prerequisites; select the approved release.                                                            |
 | 2026-10-28 19:25 | production  | Codex (owner task) | `366fa74c` / `29135fbaa6bb`                        | Read-only fleet/schema reconciliation and candidate preparation; production unchanged. Pre-deploy gate blocked.                                                                                    | Reconciliation above; [candidate PR #739](https://github.com/777genius/review-router-ai/pull/739), [queued CI](https://github.com/777genius/review-router-ai/actions/runs/40753311508); cancelled #737 CI runs [40751898238](https://github.com/777genius/review-router-ai/actions/runs/40751898238), [40744072509](https://github.com/777genius/review-router-ai/actions/runs/40744072509). | Await explicit owner response on manual exception or successful required exact-commit CI; then resume the ordered rollout. |
-| 2026-10-28 20:06 | production  | Codex (owner task) | Serving `1e3a5379` / `ffae730f`; target `4dd75ecf` | Explicit manual exception received. Backup and targeted preparation passed; native migration and application image transfer in progress. Final image, fleet rollout, and activation not confirmed. | Production progress above; [selected runtime source](https://github.com/777genius/review-router-ai/commit/4dd75ecfe3d22701ba741f451b046f0b5e440231).                                                                                                                                                                                                                                         | Native READY_FENCED → final image → Prisma151/ACL → fleet → capture/activation → live review/rerun/isolation.              |
+| 2026-10-28 23:52 | production  | Codex (owner task) | Serving `1e3a5379` / `ffae730f`; target `4dd75ecf` | Explicit manual exception received. Backup and targeted preparation passed; native migration and application image transfer in progress. Final image, fleet rollout, and activation not confirmed. | Production progress above; [selected runtime source](https://github.com/777genius/review-router-ai/commit/4dd75ecfe3d22701ba741f451b046f0b5e440231).                                                                                                                                                                                                                                         | Native READY_FENCED → final image → Prisma151/ACL → fleet → capture/activation → live review/rerun/isolation.              |
+
+## Production observation: 2026-10-28 23:52 UTC
+
+Prisma151 and canonical runtime ACL grants passed, preserving all prior ledger
+rows. Web/API/worker/scan run source `4dd75ecf`, image
+`sha256:3d2fd2dfd5ff4c4b4c02cd513aeaecd450d6508b0fd1d04c01b7c80516891939`.
+Capture is enabled on all writers and `history:activate --confirm-writers-ready`
+passed at `2026-10-28T20:22:19.946Z`. Fresh API/web/worker canary passed.
+
+A genuine PR18 review is running in workflow40092003089 attempt2. The History
+row `2877eeb7-f6ca-4d14-ac29-76af0c481f0e` has one fresh run and status `running`;
+the authenticated runs endpoint returns that same run. Two History outbox events
+are processed without errors. Completion, second rerun, workspace isolation and
+final outbox checks are still required. See the coordinated catalog task for
+native update evidence and the selected test model.
