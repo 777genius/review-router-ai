@@ -10,52 +10,49 @@ permissions:
   contents: read
 
 jobs:
-  snapshot:
+  dependencies:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    strategy:
-      max-parallel: 2
-      matrix:
-        include:
-          - name: control-base
-            repository: 777genius/review-router-ai
-            ref: d3595c2e3e0b21ab539dea0fb7a06d35a4613faf
-          - name: control-head
-            repository: 777genius/review-router-ai
-            ref: 476a2e0c400e3b6abde5d33a41557652e78765d0
-          - name: control-main
-            repository: 777genius/review-router-ai
-            ref: 5551a572fce38aaa3453bbef1ff9af79d3c293de
-          - name: action-base
-            repository: 777genius/review-router
-            ref: a8cd9c5818c9c6dd1958e747f89b141a21baf882
-          - name: action-head
-            repository: 777genius/review-router
-            ref: e226a83359b9b0785c17840bfedf8df8669083d3
-          - name: action-main
-            repository: 777genius/review-router
-            ref: main
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          repository: ${{ matrix.repository }}
-          ref: ${{ matrix.ref }}
+          ref: 5551a572fce38aaa3453bbef1ff9af79d3c293de
           persist-credentials: false
-      - name: Archive the exact checked-out tree
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.21.0
+      - name: Prepare locked dependency builds without credentials
         shell: bash
         env:
-          SNAPSHOT_NAME: ${{ matrix.name }}
+          DATABASE_URL: postgresql://fixture_owner:synthetic-fixture-password@127.0.0.1:5432/review_router_test
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/ocr-recovery"
-          git rev-parse HEAD > "$RUNNER_TEMP/ocr-recovery/revision.txt"
-          git rev-parse HEAD^{tree} > "$RUNNER_TEMP/ocr-recovery/tree.txt"
-          git archive --format=tar.gz --prefix="$SNAPSHOT_NAME/" HEAD > "$RUNNER_TEMP/ocr-recovery/$SNAPSHOT_NAME.tar.gz"
-          cd "$RUNNER_TEMP/ocr-recovery"
-          sha256sum *.tar.gz > SHA256SUMS
+          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+          node scripts/install-private-dependencies.mjs --frozen-lockfile
+          pnpm compiler:prepare
+          pnpm --filter @reviewrouter/platform-db db:generate
+          pnpm --dir scripts/accounts-reference-e2e install --frozen-lockfile
+      - name: Archive only dependency trees and the pinned Node toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ocr-dependencies" "$RUNNER_TEMP/ocr-toolchain"
+          find . -type d -name node_modules -prune -print0 > "$RUNNER_TEMP/dependency-dirs"
+          tar --null -czf "$RUNNER_TEMP/ocr-dependencies/dependencies.tar.gz" -T "$RUNNER_TEMP/dependency-dirs"
+          cp pnpm-lock.yaml "$RUNNER_TEMP/ocr-dependencies/"
+          git rev-parse HEAD > "$RUNNER_TEMP/ocr-dependencies/revision.txt"
+          node_root=$(dirname "$(dirname "$(command -v node)")")
+          tar -czf "$RUNNER_TEMP/ocr-toolchain/node-toolchain.tar.gz" -C "$node_root" bin lib include share
+          node --version > "$RUNNER_TEMP/ocr-toolchain/version.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: unified-ocr-recovery-${{ matrix.name }}-${{ github.sha }}
-          path: ${{ runner.temp }}/ocr-recovery/
+          name: unified-ocr-offline-dependencies-${{ github.sha }}
+          path: ${{ runner.temp }}/ocr-dependencies/
+          retention-days: 1
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: unified-ocr-offline-toolchain-${{ github.sha }}
+          path: ${{ runner.temp }}/ocr-toolchain/
           retention-days: 1
           if-no-files-found: error
