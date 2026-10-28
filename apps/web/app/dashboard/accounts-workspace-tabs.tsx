@@ -18,7 +18,7 @@ export function AccountsWorkspaceTabs({
     <OwnAccountsView.Provider value={() => setView("own")}>
       <Tabs.Root value={view} onValueChange={setView}>
         <Tabs.List
-          aria-label="Connection views"
+          aria-label="Connection scope"
           className="flex gap-1 overflow-x-auto border-b border-white/[0.10]"
         >
           <AccountsWorkspaceTab value="available">
@@ -30,18 +30,21 @@ export function AccountsWorkspaceTabs({
         </Tabs.List>
         <Tabs.Panel value="available" className="pt-5">
           <p className="mb-4 text-sm text-slate-400">
-            Connections enabled for reviews here.{" "}
+            {accountsCopy.availableDescription}{" "}
             <button
               type="button"
               className="text-cyan-200 underline underline-offset-2"
               onClick={() => setView("own")}
             >
-              Add from My connections
+              Use one of my connections
             </button>
           </p>
           {available}
         </Tabs.Panel>
         <Tabs.Panel value="own" className="pt-5">
+          <p className="mb-4 text-sm text-slate-400">
+            {accountsCopy.ownDescription}
+          </p>
           {own}
         </Tabs.Panel>
       </Tabs.Root>

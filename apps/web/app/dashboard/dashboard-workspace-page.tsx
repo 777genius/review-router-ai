@@ -17,7 +17,10 @@ import {
   type GatewayAgentProfileOption,
 } from "../../src/server/gateway-agent-profile-options";
 import { AccountGatewayAccountsSection } from "./account-gateway-accounts-section";
-import { readApiKeySetupIntent } from "../../src/features/provider-setup/api-key-storage";
+import {
+  apiKeySetupHref,
+  readApiKeySetupIntent,
+} from "../../src/features/provider-setup/api-key-storage";
 import { ApiKeySetupReturn } from "./provider-setup/api-key-setup-return";
 import { apiKeyProviders } from "@reviewrouter/features-review-providers";
 import type { UserCiSecretAuthMode } from "@reviewrouter/features-review-config/workspace-provider-profile";
@@ -156,6 +159,7 @@ import { ActionToast } from "../action-toast";
 import { ConnectSourceDialog } from "../connect-source-dialog";
 import { RepositoryVisibilityBadge } from "../repository-visibility-badge";
 import { DashboardInstallRequestToast } from "./dashboard-install-request-toast";
+import { ProvidersHubNav } from "./dashboard-section-tabs";
 import {
   dashboardPath,
   dashboardPathFromSearchParams,
@@ -1725,6 +1729,22 @@ export function WorkspaceCard({
     hostedPool,
   } = data;
   const keySetupIntent = readApiKeySetupIntent(params, workspace.id);
+  const providerHubNav =
+    selectedSection === "setup" || selectedSection === "providers" ? (
+      <ProvidersHubNav
+        selectedSection={selectedSection}
+        providersHref={
+          keySetupIntent
+            ? apiKeySetupHref("providers", keySetupIntent)
+            : dashboardSectionHref("providers", workspaceKey)
+        }
+        connectionsHref={
+          keySetupIntent
+            ? apiKeySetupHref("accounts", keySetupIntent)
+            : dashboardSectionHref("setup", workspaceKey)
+        }
+      />
+    ) : null;
   const continuationRepositories = keySetupIntent?.repositoryIds.map((id) =>
     repositories.find(
       (repository) =>
@@ -1777,19 +1797,14 @@ export function WorkspaceCard({
           params={params}
           selectedSection={selectedSection}
         />
-        <DashboardSectionHeader selectedSection="setup" />
+        <DashboardSectionHeader selectedSection="providers" />
+        {providerHubNav}
         {keySetupIntent ? (
           <ApiKeySetupReturn
             intent={keySetupIntent}
             accounts={gatewayAccounts}
           />
         ) : null}
-        <a
-          className="inline-block text-sm text-cyan-200 underline"
-          href={dashboardSectionHref("providers", workspaceKey)}
-        >
-          Choose providers and models for reviews
-        </a>
         <AccountGatewayAccountsSection
           workspaceId={workspace.id}
           workspaceName={workspace.name}
@@ -1840,6 +1855,7 @@ export function WorkspaceCard({
           selectedSection={selectedSection}
         />
         <DashboardSectionHeader selectedSection="providers" />
+        {providerHubNav}
         {keySetupIntent && keySetupTarget ? (
           <ProviderSetupDialog
             workspaceId={workspace.id}
@@ -2128,16 +2144,21 @@ export function WorkspaceCard({
                   default provider and these settings. A repository can override
                   both from its row in Repositories.
                 </p>
-                <ProviderLine
-                  {...providerDialog}
-                  summary={defaultSummary}
-                  target={{ kind: "workspace" }}
-                />
+                <p
+                  className="text-sm text-slate-300"
+                  aria-label="Default review provider"
+                >
+                  {defaultSummary.profile
+                    ? `Default provider: ${providerLabelWithModel(defaultSummary.profile)}`
+                    : defaultSummary.source === "unreadable"
+                      ? "Default provider unavailable: saved settings use a retired format."
+                      : "No default provider selected."}
+                </p>
                 <a
                   className="inline-block text-sm text-cyan-200 underline"
                   href={dashboardSectionHref("providers", workspaceKey)}
                 >
-                  Rename, edit or remove providers in Providers
+                  Manage providers and workspace default
                 </a>
                 <WorkspaceReviewSettingsForm
                   workspaceId={workspace.id}
@@ -2386,11 +2407,6 @@ function DashboardSectionHeader(
       },
 ): React.ReactElement | null {
   const { selectedSection } = props;
-  // The header card's eyebrow and description ("Workspace credentials",
-  // "Connect accounts once…") only repeated the Accounts panel below, and the
-  // title repeated it again at the page top; the page opens straight into the
-  // section's own description.
-  if (selectedSection === "setup") return null;
   const meta = dashboardSectionMeta[selectedSection];
   const status =
     selectedSection === "other" || selectedSection === "providers"

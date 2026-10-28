@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { ReviewModelOption } from "@reviewrouter/features-review-providers";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -80,7 +81,13 @@ const facts = (
   ...overrides,
 });
 
-function renderList(input: Partial<ProviderListFacts> = {}) {
+function renderList(
+  input: Partial<ProviderListFacts> = {},
+  modelOptions: readonly ReviewModelOption[] = [
+    { value: "opus", label: "opus", provider: "claude" },
+    { value: "sonnet", label: "sonnet", provider: "claude" },
+  ],
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -89,10 +96,7 @@ function renderList(input: Partial<ProviderListFacts> = {}) {
       <ProviderList
         view={buildProviderListView(facts(input))}
         mutationsEnabled
-        modelOptions={[
-          { value: "opus", label: "opus", provider: "claude" },
-          { value: "sonnet", label: "sonnet", provider: "claude" },
-        ]}
+        modelOptions={modelOptions}
         gatewayAccounts={undefined}
         agentProfileOptions={[]}
         accessRightsHref="/dashboard?section=other"
@@ -188,7 +192,7 @@ describe("Providers list", () => {
         "The credential cannot change. To use a different one, add a new provider.",
       ),
     ).toBeTruthy();
-    fireEvent.change(within(dialog).getByRole("textbox", { name: "Model" }), {
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "Model" }), {
       target: { value: "sonnet" },
     });
     fireEvent.click(
@@ -206,6 +210,36 @@ describe("Providers list", () => {
         "The new model does not support the review depth or fast mode used by acme/web. Change their settings first, or keep the current model.",
       ),
     ).toBeTruthy();
+  });
+
+  it("preserves an unchanged saved model for a rename but rejects changing to a known disabled model", async () => {
+    renderList({}, [
+      {
+        provider: "claude",
+        value: "opus",
+        label: "Saved unavailable model",
+        disabled: true,
+      },
+      {
+        provider: "claude",
+        value: "disabled/model",
+        label: "Disabled model",
+        disabled: true,
+      },
+    ]);
+    fireEvent.click(button(rowOf("My Claude"), "Edit"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Name"), {
+      target: { value: "Renamed Claude" },
+    });
+    const save = within(dialog).getByRole("button", { name: "Save changes" });
+    expect(save).toHaveProperty("disabled", false);
+    const model = within(dialog).getByRole("combobox", { name: "Model" });
+    fireEvent.change(model, { target: { value: "disabled/model" } });
+    expect(save).toHaveProperty("disabled", true);
+    expect(updateProviderProfileAction).not.toHaveBeenCalled();
+    fireEvent.change(model, { target: { value: "custom/unknown-model" } });
+    expect(save).toHaveProperty("disabled", false);
   });
 
   it("names what still uses a provider without changing repository names", () => {

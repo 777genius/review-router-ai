@@ -126,6 +126,9 @@ export async function productionPersonalAccounts() {
       oauthMethods: ["browser"],
     });
   const profiles = [...legacyProfiles];
+  let connectionCapabilities:
+    | Promise<c.ProviderConnectionCapabilities>
+    | undefined;
   if (
     settings.subscriptionProfileIds !== undefined &&
     (settings.subscriptionProfileIds.length > 0 ||
@@ -139,11 +142,14 @@ export async function productionPersonalAccounts() {
       timeoutMs: 10000,
       responseBytes: 65536,
     });
+    connectionCapabilities = checked(() =>
+      management.getProviderConnectionCapabilities(),
+    );
     const subscriptions = await checked(() =>
       connectionProfiles({
         legacy: [],
         subscriptionProfileIds: settings.subscriptionProfileIds,
-        capabilities: () => management.getProviderConnectionCapabilities(),
+        capabilities: () => connectionCapabilities!,
       }),
     );
     profiles.push(
@@ -412,8 +418,16 @@ export async function productionPersonalAccounts() {
           ]
         : [];
     });
+    // Apply the same qualified capabilities to existing API-key and OAuth
+    // profiles as to coding plans. Public model metadata is never admission.
+    const qualified = await connectionProfiles({
+      legacy: available,
+      ...(connectionCapabilities
+        ? { capabilities: () => connectionCapabilities! }
+        : {}),
+    });
     await workspaceAccess(workspaceId);
-    return available;
+    return qualified;
   }
   async function models(workspaceId: string) {
     const available = await reviewProfiles(workspaceId);

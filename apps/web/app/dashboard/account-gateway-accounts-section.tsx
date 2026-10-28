@@ -14,6 +14,7 @@ import { PersonalAccountControls } from "./personal-account-controls";
 import { PersonalAccountsPanel } from "./personal-accounts-panel";
 import { WorkspaceAccountsPanel } from "./workspace-accounts-panel";
 import type { ApiKeySetupIntent } from "../../src/features/provider-setup/api-key-storage";
+import { accountsCopy } from "./accounts-copy";
 
 export async function AccountGatewayAccountsSection({
   workspaceId,
@@ -124,15 +125,18 @@ export async function AccountGatewayAccountsSection({
         {...(ownApi ? { api: ownApi } : {})}
       />
     );
-  // Same page-block shell as the organization branch: the Accounts region is
-  // the page's top anchor on both kinds of workspace (the panel keeps its own
-  // "My connections" heading and description inside).
   if (personalScope)
     return (
       <section
         className="space-y-5 border-b border-cyan-200/10 pb-6"
-        aria-label="Accounts"
+        aria-label="Connections"
       >
+        <div>
+          <h3 className="text-lg font-semibold text-cyan-50">Connections</h3>
+          <p className="mt-1 text-sm text-slate-400">
+            {accountsCopy.ownDescription}
+          </p>
+        </div>
         {ownPanel}
       </section>
     );
@@ -181,7 +185,6 @@ export async function AccountGatewayAccountsSection({
       <div className="space-y-4">
         {recipient.canDetach ? (
           <AccountsAddDialog
-            own={ownPanel}
             personalConnect={personalConnect}
             organizationConnect={
               bootstrap ? (
@@ -233,14 +236,15 @@ export async function AccountGatewayAccountsSection({
   return (
     <section
       className="space-y-5 border-b border-cyan-200/10 pb-6"
-      aria-label="Accounts"
+      aria-label="Connections"
     >
-      <p className="text-sm text-slate-400">
-        {workspaceName
-          ? `Connections available for ${workspaceName}.`
-          : "Available connections."}{" "}
-        Access enables reviews but does not change Models settings.
-      </p>
+      <div>
+        <h3 className="text-lg font-semibold text-cyan-50">Connections</h3>
+        <p className="mt-1 text-sm text-slate-400">
+          Manage credentials and workspace access. Choose models in Review
+          providers.
+        </p>
+      </div>
       <AccountsWorkspaceTabs
         key={workspaceId}
         available={available}

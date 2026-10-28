@@ -165,6 +165,8 @@ export type ProviderModelFieldsProps = Readonly<{
   modelOptions: readonly ReviewModelOption[];
   /** "list" allows only the listed models; "catalog" also a typed one. */
   modelChoice: "list" | "catalog";
+  /** Gateway catalogs require an admitted option; API providers may use a typed id. */
+  allowCustomModel?: boolean;
   settings: ProviderSelectionSettings;
   onSettingsChange: (settings: ProviderSelectionSettings) => void;
   connection?: AccountConnectionView | undefined;
@@ -189,6 +191,7 @@ export function ProviderModelFields({
   onModelChange,
   modelOptions,
   modelChoice,
+  allowCustomModel = true,
   settings,
   onSettingsChange,
   connection,
@@ -292,6 +295,7 @@ export function ProviderModelFields({
         onModelChange={onModelChange}
         modelOptions={modelOptions}
         modelChoice={modelChoice}
+        allowCustomModel={allowCustomModel}
         disabled={disabled}
         emptyListPlaceholder={emptyListPlaceholder}
         className="sm:col-span-2"
@@ -430,6 +434,7 @@ export function ProviderModelPicker({
   onModelChange,
   modelOptions,
   modelChoice,
+  allowCustomModel = true,
   disabled,
   emptyListPlaceholder = "Choose an account first",
   className,
@@ -439,6 +444,7 @@ export function ProviderModelPicker({
   onModelChange: ((model: string) => void) | null;
   modelOptions: readonly ReviewModelOption[];
   modelChoice: "list" | "catalog";
+  allowCustomModel?: boolean;
   disabled: boolean;
   /** The list placeholder while the credential offers no model. */
   emptyListPlaceholder?: string | undefined;
@@ -477,6 +483,15 @@ export function ProviderModelPicker({
             label: option.label,
             ...(option.disabled ? { disabled: true } : {}),
             ...(option.description ? { description: option.description } : {}),
+            ...(option.badge
+              ? {
+                  icon: (
+                    <span className="rounded-md border border-cyan-300/30 px-1.5 py-0.5 text-[0.62rem] font-bold uppercase leading-none text-cyan-100">
+                      {option.badge}
+                    </span>
+                  ),
+                }
+              : {}),
           })),
         ]}
         onValueChange={onModelChange}
@@ -487,6 +502,7 @@ export function ProviderModelPicker({
     <ProviderModelInput
       value={model}
       options={modelOptions}
+      allowCustomModel={allowCustomModel}
       disabled={disabled}
       onValueChange={onModelChange}
       {...(className ? { className } : {})}
@@ -527,17 +543,20 @@ function CheckboxRow({
 function ProviderModelInput({
   value,
   options,
+  allowCustomModel,
   disabled,
   onValueChange,
   className,
 }: {
   readonly value: string;
   readonly options: readonly ReviewModelOption[];
+  readonly allowCustomModel: boolean;
   readonly disabled: boolean;
   readonly onValueChange: (value: string) => void;
   readonly className?: string;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
+  const [activeValue, setActiveValue] = useState<string | null>(null);
   const listboxId = useId();
   const selected = options.find((option) => option.value === value);
   const filtered = useMemo(() => {
@@ -579,11 +598,48 @@ function ProviderModelInput({
       <span className="relative block">
         <input
           value={value}
+          role="combobox"
           disabled={disabled}
-          onChange={(event) => onValueChange(event.target.value)}
+          onChange={(event) => {
+            onValueChange(event.target.value);
+            setActiveValue(null);
+            setOpen(true);
+          }}
           onFocus={() => setOpen(true)}
+          onClick={() => setOpen(true)}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              setOpen(true);
+              const available = filtered.filter((option) => !option.disabled);
+              const current = available.findIndex(
+                (option) => option.value === activeValue,
+              );
+              const next =
+                event.key === "ArrowDown"
+                  ? (current + 1) % available.length
+                  : current <= 0
+                    ? available.length - 1
+                    : current - 1;
+              setActiveValue(available[next]?.value ?? null);
+            } else if (event.key === "Enter" && open) {
+              event.preventDefault();
+              const active = filtered.find(
+                (option) => option.value === activeValue && !option.disabled,
+              );
+              if (!active) return;
+              onValueChange(active.value);
+              setActiveValue(null);
+              setOpen(false);
+            }
+          }}
           aria-controls={listboxId}
           aria-expanded={open}
+          aria-activedescendant={
+            open && activeValue
+              ? `${listboxId}-${filtered.findIndex((option) => option.value === activeValue)}`
+              : undefined
+          }
           aria-autocomplete="list"
           aria-label="Model"
           autoComplete="off"
@@ -600,9 +656,13 @@ function ProviderModelInput({
           <span aria-hidden="true">⌄</span>
         </button>
       </span>
-      {value && !selected ? (
+      {value && (!selected || selected.disabled) ? (
         <span className="text-xs text-slate-400">
-          Not in the list; this name is used as typed.
+          {selected?.disabled
+            ? `${selected.description ?? "This model is unavailable for review."} Choose an available model from the catalog.`
+            : allowCustomModel
+              ? "Not in the list; this name is used as typed."
+              : "Choose an available model from this account's catalog."}
         </span>
       ) : null}
       {open ? (
@@ -613,25 +673,34 @@ function ProviderModelInput({
         >
           {filtered.length === 0 ? (
             <div className="px-3 py-3 text-sm text-slate-400">
-              No listed model matches. The typed name is used.
+              {allowCustomModel
+                ? "No listed model matches. The typed name is used."
+                : "No listed model matches. Try another name or model id."}
             </div>
           ) : null}
-          {filtered.map((option) => (
+          {filtered.map((option, index) => (
             <button
               key={option.value}
               type="button"
               role="option"
+              id={`${listboxId}-${index}`}
+              aria-label={option.label}
+              aria-disabled={option.disabled || undefined}
               aria-selected={option.value === value}
               disabled={option.disabled}
               onMouseDown={(event) => event.preventDefault()}
+              onMouseMove={() =>
+                setActiveValue(option.disabled ? null : option.value)
+              }
               onClick={() => {
                 if (option.disabled) return;
                 onValueChange(option.value);
+                setActiveValue(null);
                 setOpen(false);
               }}
               className={[
                 "grid w-full gap-0.5 rounded-lg px-3 py-2 text-left transition hover:bg-cyan-300/[0.08] disabled:cursor-not-allowed disabled:opacity-55",
-                option.value === value
+                option.value === value || option.value === activeValue
                   ? "bg-cyan-300/[0.1] text-cyan-50"
                   : "text-slate-300",
               ].join(" ")}
@@ -645,6 +714,11 @@ function ProviderModelInput({
                 ) : null}
               </span>
               <span className="text-xs text-slate-500">{option.value}</span>
+              {option.description ? (
+                <span className="text-xs leading-5 text-slate-400">
+                  {option.description}
+                </span>
+              ) : null}
             </button>
           ))}
         </div>

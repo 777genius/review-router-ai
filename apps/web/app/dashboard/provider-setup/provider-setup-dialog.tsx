@@ -11,9 +11,6 @@ import {
 } from "react";
 import type { ProviderSecretSetupGuidance } from "@reviewrouter/features-provider-setup";
 import {
-  apiKeyProviders,
-  getApiKeyProvider,
-  type ApiKeyProviderId,
   getDefaultProviderConfigForAuthMode,
   providerKindForAuthMode,
   type ProviderAuthMode,
@@ -40,13 +37,20 @@ import {
 import type { ProviderCredentialKind } from "@reviewrouter/features-review-config/workspace-provider-profile";
 import type { UserCiSecretAuthMode } from "@reviewrouter/features-review-config/workspace-provider-profile";
 import {
-  apiKeyProviderForGatewayProfile,
   apiKeySetupHref,
   consumeApiKeySetupIntent,
   type ApiKeySetupIntent,
   type ApiKeyStorage,
 } from "../../../src/features/provider-setup/api-key-storage";
 import { ApiKeyStorageChoice } from "./api-key-storage-choice";
+import {
+  setupProviders,
+  getSetupProvider,
+  setupProviderForSource,
+  setupProviderForGatewayProfile,
+  type SetupProviderId,
+} from "../../../src/features/provider-setup/setup-provider";
+import { gatewayProviderModelOptions } from "../../../src/features/provider-setup/provider-model-options";
 import { GatewayAccountLoadMore } from "./gateway-account-load-more";
 import {
   credentialStepLabel,
@@ -657,11 +661,11 @@ function ProviderChoiceStep({
   const firstProvider = !adding && view.profiles.length === 0 && !offersDefault;
   const initialChoice = useMemo<Choice | null>(() => {
     if (initialIntent) {
-      const key: ProviderSourceKey =
+      const key =
         initialIntent.storage === "reviewrouter"
           ? "gateway_binding"
-          : `user_ci_secret:${getApiKeyProvider(initialIntent.provider).directAuthMode}`;
-      if (view.sources.some((source) => source.key === key))
+          : getSetupProvider(initialIntent.provider).githubSource;
+      if (key && view.sources.some((source) => source.key === key))
         return { kind: "new", source: key };
     }
     if (adding || firstProvider) return { kind: "new", source: null };
@@ -739,18 +743,14 @@ function ProviderChoiceStep({
     };
   };
   const [choice, setChoice] = useState<Choice | null>(initialChoice);
-  const [apiKeyProvider, setApiKeyProvider] = useState<ApiKeyProviderId | null>(
+  const [setupProvider, setSetupProvider] = useState<SetupProviderId | null>(
     initialIntent?.provider ??
-      (initialChoice?.kind === "new"
-        ? (apiKeyProviders.find(
-            (provider) =>
-              initialChoice.source ===
-              `user_ci_secret:${provider.directAuthMode}`,
-          )?.id ?? null)
+      (initialChoice?.kind === "new" && initialChoice.source
+        ? (setupProviderForSource({ key: initialChoice.source }) ?? null)
         : null),
   );
   const [keyStorage, setKeyStorage] = useState<ApiKeyStorage>(
-    initialIntent?.storage ?? "github_secrets",
+    initialIntent?.storage ?? "reviewrouter",
   );
   const [draft, setDraft] = useState<DraftProvider>(
     () => startOf(initialChoice).draft,
@@ -795,9 +795,8 @@ function ProviderChoiceStep({
         profile.id === account.profileId &&
         profile.protocol === "openai-responses" &&
         (!source ||
-          (apiKeyProvider
-            ? apiKeyProviderForGatewayProfile(profile) === apiKeyProvider
-            : !apiKeyProviderForGatewayProfile(profile))),
+          (setupProvider !== null &&
+            setupProviderForGatewayProfile(profile) === setupProvider)),
     ),
   );
   const catalogs = useProviderModelCatalogs(modelOptions);
@@ -836,18 +835,19 @@ function ProviderChoiceStep({
           gatewayProfileRef: gatewayProfile?.id,
         })
       : settingsDraft;
+  const catalogProvider = setupProvider
+    ? getSetupProvider(setupProvider).publicCatalogProvider
+    : source
+      ? providerKindForAuthMode(source.authMode)
+      : undefined;
+  const publicModelOptions = catalogProvider
+    ? catalogs.optionsFor(catalogProvider, settings?.agenticContext ?? true)
+    : [];
   const sourceModelOptions: readonly ReviewModelOption[] = !source
     ? []
     : source.key === "gateway_binding"
-      ? (gatewayProfile?.models ?? []).map((value) => ({
-          value,
-          label: value,
-          provider: "codex",
-        }))
-      : catalogs.optionsFor(
-          providerKindForAuthMode(source.authMode),
-          settings?.agenticContext ?? true,
-        );
+      ? gatewayProviderModelOptions(publicModelOptions, gatewayProfile)
+      : publicModelOptions;
   const gatewayReadFailed =
     gatewayOptions.accounts?.status !== "ok" ||
     ("pageError" in gatewayOptions && gatewayOptions.pageError);
@@ -864,8 +864,15 @@ function ProviderChoiceStep({
     (!!source && (source.key !== "gateway_binding" || !!gatewayAccount));
   const modelAvailable =
     !!model.trim() &&
+    (!source ||
+      sourceModelOptions.find((option) => option.value === model.trim())
+        ?.disabled !== true) &&
     (authMode !== "codex_account_gateway" ||
-      gatewayProfile?.models.includes(model.trim()) === true);
+      (gatewayProfile?.models.includes(model.trim()) === true &&
+        (!source ||
+          sourceModelOptions.some(
+            (option) => option.value === model.trim() && !option.disabled,
+          ))));
   const settingsReady =
     hasStoredSettings ||
     (modelAvailable &&
@@ -888,19 +895,17 @@ function ProviderChoiceStep({
 
   function choose(
     next: Choice,
-    provider: ApiKeyProviderId | null = null,
-    storage: ApiKeyStorage = "github_secrets",
+    provider: SetupProviderId | null = null,
+    storage: ApiKeyStorage = "reviewrouter",
   ): void {
     setChoice(next);
     setSettingsEdited(false);
     setError(null);
     setNotice(null);
-    setApiKeyProvider(
+    setSetupProvider(
       provider ??
-        (next.kind === "new"
-          ? (apiKeyProviders.find(
-              (row) => next.source === `user_ci_secret:${row.directAuthMode}`,
-            )?.id ?? null)
+        (next.kind === "new" && next.source
+          ? (setupProviderForSource({ key: next.source }) ?? null)
           : null),
     );
     setKeyStorage(storage);
@@ -909,8 +914,8 @@ function ProviderChoiceStep({
     setSettings(start.settings);
   }
 
-  function chooseApiKey(
-    provider: ApiKeyProviderId,
+  function chooseSetupProvider(
+    provider: SetupProviderId,
     storage: ApiKeyStorage,
   ): void {
     choose(
@@ -919,34 +924,35 @@ function ProviderChoiceStep({
         source:
           storage === "reviewrouter"
             ? "gateway_binding"
-            : `user_ci_secret:${getApiKeyProvider(provider).directAuthMode}`,
+            : getSetupProvider(provider).githubSource,
       },
       provider,
       storage,
     );
   }
 
-  function apiKeyStorageAvailability(provider: ApiKeyProviderId) {
-    const githubAllowed = view.sources.some(
-      (option) =>
-        option.key ===
-          `user_ci_secret:${getApiKeyProvider(provider).directAuthMode}` &&
-        option.decision.allowed,
+  function storageAvailabilityFor(provider: SetupProviderId) {
+    const githubSource = view.sources.find(
+      (option) => option.key === getSetupProvider(provider).githubSource,
     );
     const gatewayAllowed = view.sources.some(
       (option) => option.key === "gateway_binding" && option.decision.allowed,
     );
-    const gatewaySupported = view.gatewayApiKeyProviders
-      ? view.gatewayApiKeyProviders.includes(provider)
+    const gatewaySupported = view.gatewaySetupProviders
+      ? view.gatewaySetupProviders.includes(provider)
       : gatewayPage?.profiles.some(
           (profile) =>
             profile.availability !== "deployment_configuration_required" &&
-            apiKeyProviderForGatewayProfile(profile) === provider,
+            setupProviderForGatewayProfile(profile) === provider,
         );
     return {
-      githubUnavailable: githubAllowed
+      githubUnavailable: githubSource?.decision.allowed
         ? undefined
-        : "You cannot use this provider in GitHub Secrets here.",
+        : githubSource
+          ? deniedText(githubSource.decision)
+          : provider === "codex"
+            ? "Codex in GitHub Secrets is available only for a repository with automatic session refresh enabled."
+            : "GitHub Secrets is not available for this provider here.",
       reviewRouterUnavailable: !gatewayAllowed
         ? "You cannot use a connected account here."
         : gatewaySupported
@@ -954,6 +960,41 @@ function ProviderChoiceStep({
           : "ReviewRouter storage is not available for this provider yet.",
     };
   }
+
+  // Reuse the only eligible connection instead of requiring an extra selection.
+  // More than one connection always leaves the choice to the user.
+  useEffect(() => {
+    if (
+      source?.key !== "gateway_binding" ||
+      draft.bindingId ||
+      gatewayInventoryIncomplete ||
+      gatewayOptions.loading ||
+      gatewayReadFailed
+    )
+      return;
+    const eligible = gatewayAccountList.filter(
+      (account) =>
+        account.origin !== "personal" ||
+        source.personalAccountDecision?.allowed !== false,
+    );
+    if (eligible.length !== 1) return;
+    const account = eligible[0]!;
+    const accountProfile = gatewayOptions.profileFor(account);
+    const nextModel =
+      accountProfile?.models.length === 1 ? accountProfile.models[0]! : "";
+    setDraft((current) => ({
+      ...current,
+      bindingId: account.binding!.id,
+      model: nextModel,
+    }));
+  }, [
+    source,
+    draft.bindingId,
+    gatewayAccountList,
+    gatewayOptions,
+    gatewayInventoryIncomplete,
+    gatewayReadFailed,
+  ]);
 
   function changeModel(next: string): void {
     setDraft((current) => ({ ...current, model: next }));
@@ -977,12 +1018,12 @@ function ProviderChoiceStep({
         sameSettings(settings, selectionSettings(repositoryView.selection))));
   const draftIncomplete =
     source !== undefined &&
-    (!draft.model.trim() ||
+    (!modelAvailable ||
       (source.key === "gateway_binding" &&
         (!gatewayAccount || !modelAvailable)) ||
       (needsKeyUpload && !draft.apiKey.trim()));
-  const storageAvailability = apiKeyProvider
-    ? apiKeyStorageAvailability(apiKeyProvider)
+  const storageAvailability = setupProvider
+    ? storageAvailabilityFor(setupProvider)
     : undefined;
   const selectedStorageUnavailable =
     keyStorage === "github_secrets"
@@ -1308,71 +1349,48 @@ function ProviderChoiceStep({
         >
           <SelectField
             label="Provider"
-            value={
-              apiKeyProvider
-                ? `api_key:${apiKeyProvider}`
-                : (choice.source ?? "")
-            }
+            value={setupProvider ?? ""}
             placeholder="Choose a provider"
-            options={[
-              ...apiKeyProviders.map((provider) => {
-                const availability = apiKeyStorageAvailability(provider.id);
-                const unavailable = Boolean(
-                  availability.githubUnavailable &&
-                  availability.reviewRouterUnavailable,
-                );
-                return {
-                  value: `api_key:${provider.id}`,
-                  label: provider.label,
-                  icon: <ProviderLogo providerId={provider.id} />,
-                  disabled: unavailable,
-                  ...(unavailable
-                    ? {
-                        description: `${availability.githubUnavailable} ${availability.reviewRouterUnavailable}`,
-                      }
-                    : {}),
-                };
-              }),
-              ...visibleSources
-                .filter(
-                  (option) =>
-                    !apiKeyProviders.some(
-                      (provider) => option.authMode === provider.directAuthMode,
-                    ),
-                )
-                .map((option) => ({
-                  value: option.key,
-                  label: sourceTitle(option.credentialKind, option.authMode),
-                  icon: <ProviderAuthLogoFrame authMode={option.authMode} />,
-                  description: option.decision.allowed
-                    ? sourceDescription(option)
-                    : deniedText(option.decision),
-                  disabled: !option.decision.allowed,
-                })),
-            ]}
-            disabled={pending}
-            onValueChange={(value) => {
-              const provider = apiKeyProviders.find(
-                (row) => value === `api_key:${row.id}`,
+            options={setupProviders.map((provider) => {
+              const availability = storageAvailabilityFor(provider.id);
+              const unavailable = Boolean(
+                availability.githubUnavailable &&
+                availability.reviewRouterUnavailable,
               );
-              if (provider) {
-                const availability = apiKeyStorageAvailability(provider.id);
-                chooseApiKey(
-                  provider.id,
-                  availability.githubUnavailable &&
-                    !availability.reviewRouterUnavailable
-                    ? "reviewrouter"
-                    : "github_secrets",
-                );
-              } else
-                choose({ kind: "new", source: value as ProviderSourceKey });
-            }}
+              return {
+                value: provider.id,
+                label: provider.label,
+                icon: <ProviderLogo providerId={provider.identity} />,
+                disabled: unavailable,
+                ...(unavailable
+                  ? {
+                      description: `${availability.reviewRouterUnavailable} ${availability.githubUnavailable}`,
+                    }
+                  : {}),
+              };
+            })}
+            disabled={pending}
+            onValueChange={(value) =>
+              chooseSetupProvider(value as SetupProviderId, "reviewrouter")
+            }
           />
-          {apiKeyProvider ? (
+          {setupProvider ? (
             <ApiKeyStorageChoice
               value={keyStorage}
-              onValueChange={(storage) => chooseApiKey(apiKeyProvider, storage)}
+              onValueChange={(storage) =>
+                chooseSetupProvider(setupProvider, storage)
+              }
               disabled={pending}
+              credentialKind={
+                setupProvider === "codex"
+                  ? "codex_session"
+                  : setupProvider === "claude-code"
+                    ? "claude_subscription"
+                    : getSetupProvider(setupProvider).credentialKind ===
+                        "subscription"
+                      ? "subscription"
+                      : "api_key"
+              }
               {...storageAvailability}
             />
           ) : null}
@@ -1383,8 +1401,9 @@ function ProviderChoiceStep({
               {sourceDescription(source)}
             </p>
           ) : null}
-          {apiKeyProvider &&
+          {setupProvider &&
           keyStorage === "reviewrouter" &&
+          !storageAvailability?.reviewRouterUnavailable &&
           gatewayInventoryEmpty ? (
             <div className="grid gap-2 text-sm text-slate-300">
               <p>
@@ -1394,7 +1413,7 @@ function ProviderChoiceStep({
               <a
                 className="w-fit font-semibold text-cyan-200 underline"
                 href={apiKeySetupHref("accounts", {
-                  provider: apiKeyProvider,
+                  provider: setupProvider,
                   storage: "reviewrouter",
                   workspaceId,
                   repositoryIds: repositoryIds(target),
@@ -1461,7 +1480,7 @@ function ProviderChoiceStep({
               hint={
                 gatewayAccountList.length === 0
                   ? "Connect and activate an account in Accounts first."
-                  : "Credentials stay on the ReviewRouter server."
+                  : "This connected account is reused. Credentials stay on the ReviewRouter server."
               }
             />
           ) : null}
@@ -1495,7 +1514,7 @@ function ProviderChoiceStep({
                   No matching accounts on this page. Load more accounts to
                   continue.
                 </p>
-              ) : gatewayInventoryEmpty && !apiKeyProvider ? (
+              ) : gatewayInventoryEmpty && !setupProvider ? (
                 <div className="grid gap-2 text-sm text-slate-400">
                   <p>No active accounts are available for this workspace.</p>
                   <a
@@ -1571,9 +1590,8 @@ function ProviderChoiceStep({
               model={model}
               onModelChange={changeModel}
               modelOptions={sourceModelOptions}
-              modelChoice={
-                source?.key === "gateway_binding" ? "list" : "catalog"
-              }
+              modelChoice="catalog"
+              allowCustomModel={source?.key !== "gateway_binding"}
               disabled={pending || !mutationsEnabled}
               emptyListPlaceholder="No models available for this account"
             />
@@ -1585,9 +1603,8 @@ function ProviderChoiceStep({
               emptyListPlaceholder="No models available for this account"
               onModelChange={source ? changeModel : null}
               modelOptions={sourceModelOptions}
-              modelChoice={
-                source?.key === "gateway_binding" ? "list" : "catalog"
-              }
+              modelChoice="catalog"
+              allowCustomModel={source?.key !== "gateway_binding"}
               settings={settings}
               hasSavedSettings={hasStoredSettings}
               hasEditedSettings={settingsEdited}
@@ -1635,10 +1652,10 @@ function ProviderChoiceStep({
               onRefresh={() => gatewayOptions.refreshModels(gatewayBindingId)}
             />
           ) : null}
-          {source && authMode !== "codex_account_gateway" ? (
+          {source && catalogProvider ? (
             <ProviderModelCatalogStatus
-              status={catalogs.status(providerKindForAuthMode(authMode))}
-              publicSelection
+              status={catalogs.status(catalogProvider)}
+              publicSelection={source.key !== "gateway_binding"}
             />
           ) : null}
           {modelOnly ? (

@@ -3,14 +3,13 @@
 import { useRef, useState, type ReactNode } from "react";
 import { Button, Dialog, SelectField } from "@reviewrouter/ui";
 import { accountsCopy } from "./accounts-copy";
+import { useOwnAccountsView } from "./accounts-workspace-tabs";
 
 export function AccountsAddDialog({
-  own,
   personalConnect,
   organizationConnect,
   workspaceName,
 }: {
-  own: ReactNode;
   personalConnect: ReactNode;
   organizationConnect: ReactNode;
   workspaceName: string;
@@ -19,18 +18,21 @@ export function AccountsAddDialog({
   const [path, setPath] = useState("personal");
   const cancel = useRef<HTMLButtonElement>(null);
   const popup = useRef<HTMLDivElement>(null);
+  const showOwnConnections = useOwnAccountsView();
+  function clearUnsubmittedCredentials() {
+    popup.current
+      ?.querySelectorAll<HTMLInputElement>(
+        'input[type="password"], input[name="callbackURL"], input[name="authorizationCode"]',
+      )
+      .forEach((field) => {
+        field.value = "";
+      });
+  }
   return (
     <Dialog.Root
       open={open}
       onOpenChange={(next) => {
-        if (!next)
-          popup.current
-            ?.querySelectorAll<HTMLInputElement>(
-              'input[type="password"], input[name="callbackURL"]',
-            )
-            .forEach((field) => {
-              field.value = "";
-            });
+        if (!next) clearUnsubmittedCredentials();
         setOpen(next);
       }}
     >
@@ -42,27 +44,32 @@ export function AccountsAddDialog({
         <Dialog.Popup
           ref={popup}
           initialFocus={cancel}
-          className={
-            path === "existing" ? "w-[min(92vw,44rem)]" : "w-[min(92vw,36rem)]"
-          }
+          className="w-[min(92vw,36rem)]"
         >
           <Dialog.Title>{accountsCopy.add}</Dialog.Title>
           <Dialog.Description>
             Choose your provider and connect securely.
           </Dialog.Description>
+          {showOwnConnections ? (
+            <Button
+              variant="ghost"
+              className="mt-3"
+              onClick={() => {
+                clearUnsubmittedCredentials();
+                setOpen(false);
+                showOwnConnections();
+              }}
+            >
+              Use an existing connection
+            </Button>
+          ) : null}
           <div className="my-4 max-w-sm">
             <SelectField
               name="connectionOwnership"
               label="Owner"
               defaultValue="personal"
               onValueChange={(next) => {
-                popup.current
-                  ?.querySelectorAll<HTMLInputElement>(
-                    'input[type="password"], input[name="callbackURL"]',
-                  )
-                  .forEach((field) => {
-                    field.value = "";
-                  });
+                clearUnsubmittedCredentials();
                 setPath(next);
               }}
               options={[
@@ -70,7 +77,6 @@ export function AccountsAddDialog({
                   value: "personal",
                   label: "You · personal account",
                 },
-                { value: "existing", label: "Use my connection" },
                 {
                   value: "organization",
                   label: `${workspaceName} · organization account`,
@@ -78,24 +84,16 @@ export function AccountsAddDialog({
               ]}
             />
           </div>
-          <div hidden={path !== "existing"}>
-            <p className="mb-3 text-sm text-slate-400">
-              Choose “Access” on your connection to grant {workspaceName}{" "}
-              access.
-            </p>
-            {own}
-          </div>
           <div hidden={path !== "organization"}>
             <p className="mb-4 text-sm text-slate-400">
-              Managed by {workspaceName}. Review availability depends on
-              workspace access and model selection.
+              Owned by {workspaceName}. Workspace admins manage this connection.
             </p>
             {organizationConnect}
           </div>
           <div hidden={path !== "personal"}>
             <p className="mb-4 text-sm text-slate-400">
-              Saved in My connections. Use workspace access to enable reviews
-              here.
+              You own this connection. After connecting, choose Access to enable
+              it for {workspaceName}.
             </p>
             {personalConnect}
           </div>

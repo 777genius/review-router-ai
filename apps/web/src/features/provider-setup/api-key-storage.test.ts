@@ -6,6 +6,7 @@ import {
   apiKeyProviderForGatewayProfile,
   apiKeySetupHref,
   apiKeyStorageLabel,
+  apiKeyStorageOptions,
   consumeApiKeySetupIntent,
   readApiKeySetupIntent,
   type ApiKeySetupIntent,
@@ -14,6 +15,12 @@ import {
 afterEach(() => window.history.replaceState(null, "", "/"));
 
 describe("API key storage and safe continuation", () => {
+  it("presents ReviewRouter before GitHub Secrets", () => {
+    expect(apiKeyStorageOptions.map((option) => option.value)).toEqual([
+      "reviewrouter",
+      "github_secrets",
+    ]);
+  });
   it.each(apiKeyProviders)(
     "maps $label by trusted identity and preserves legacy custody",
     (provider) => {
@@ -39,33 +46,36 @@ describe("API key storage and safe continuation", () => {
     },
   );
 
-  it("round trips the exact workspace and bounded bulk target through only internal routes", () => {
-    const intent: ApiKeySetupIntent = {
-      provider: "kimi",
-      storage: "reviewrouter",
-      workspaceId: "workspace-one",
-      repositoryIds: ["repo-a", "repo-b"],
-    };
-    for (const destination of ["accounts", "providers"] as const) {
-      const url = new URL(
-        apiKeySetupHref(destination, intent),
-        "https://example.test",
-      );
-      const params = Object.fromEntries(url.searchParams);
-      expect(url.origin).toBe("https://example.test");
-      expect(
-        readApiKeySetupIntent(
-          {
-            ...params,
-            keyRepository: url.searchParams.getAll("keyRepository"),
-          },
-          "workspace-one",
-        ),
-      ).toEqual(intent);
-      expect(readApiKeySetupIntent(params, "workspace-two")).toBeNull();
-      expect(url.searchParams.has("returnTo")).toBe(false);
-    }
-  });
+  it.each(["kimi", "codex", "claude-code"] as const)(
+    "round trips %s with the exact workspace and bounded bulk target through only internal routes",
+    (provider) => {
+      const intent: ApiKeySetupIntent = {
+        provider,
+        storage: "reviewrouter",
+        workspaceId: "workspace-one",
+        repositoryIds: ["repo-a", "repo-b"],
+      };
+      for (const destination of ["accounts", "providers"] as const) {
+        const url = new URL(
+          apiKeySetupHref(destination, intent),
+          "https://example.test",
+        );
+        const params = Object.fromEntries(url.searchParams);
+        expect(url.origin).toBe("https://example.test");
+        expect(
+          readApiKeySetupIntent(
+            {
+              ...params,
+              keyRepository: url.searchParams.getAll("keyRepository"),
+            },
+            "workspace-one",
+          ),
+        ).toEqual(intent);
+        expect(readApiKeySetupIntent(params, "workspace-two")).toBeNull();
+        expect(url.searchParams.has("returnTo")).toBe(false);
+      }
+    },
+  );
 
   it.each([
     { keyProvider: "unsupported" },

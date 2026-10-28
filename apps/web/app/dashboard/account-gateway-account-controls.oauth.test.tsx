@@ -139,6 +139,41 @@ test.each(apiKeyProviders)(
   },
 );
 
+test("the provider-first connect dialog changes forms without enrollment and clears one-off keys on switch and cancel", async () => {
+  await mount();
+  const dialog = await openConnectionDialog(/MiMo/);
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(screen.queryByRole("menuitem", { name: /Connect with/ })).toBeNull();
+  const secret = "synthetic-canceled-provider-key";
+  fireEvent.change(within(dialog).getByLabelText("API key"), {
+    target: { value: secret },
+  });
+  fireEvent.click(within(dialog).getByRole("combobox", { name: "Provider" }));
+  const codex = await screen.findByRole("option", { name: /^Codex/ });
+  fireEvent.mouseMove(codex);
+  fireEvent.click(codex);
+  expect(within(dialog).queryByLabelText("API key")).toBeNull();
+  expect(beginGatewayOAuth).not.toHaveBeenCalled();
+  expect(submitGatewayApiKey).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole("combobox", { name: "Provider" }));
+  const mimo = await screen.findByRole("option", { name: /MiMo/ });
+  fireEvent.mouseMove(mimo);
+  fireEvent.click(mimo);
+  expect(within(dialog).getByLabelText("API key")).toHaveProperty("value", "");
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Close connect account" }),
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(document.body.innerHTML).not.toContain(secret);
+  const reopened = await openConnectionDialog(/MiMo/);
+  expect(within(reopened).getByLabelText("API key")).toHaveProperty(
+    "value",
+    "",
+  );
+  expect(beginGatewayOAuth).not.toHaveBeenCalled();
+  expect(submitGatewayApiKey).not.toHaveBeenCalled();
+});
+
 test("non-inline account enrollment preserves a second-profile intent in its visible choice and submission", async () => {
   const profiles = [
     {
@@ -177,17 +212,9 @@ test("non-inline account enrollment preserves a second-profile intent in its vis
       }}
     />,
   );
-  fireEvent.keyDown(
-    await screen.findByRole("button", { name: "Add account" }),
-    { key: "ArrowDown" },
-  );
-  fireEvent.click(
-    await screen.findByRole("menuitem", { name: "Connect with API key" }),
-  );
-  const dialog = await screen.findByRole("dialog");
+  const dialog = await openConnectionDialog();
   expect(
-    within(dialog).getByRole("combobox", { name: "Provider profile" })
-      .textContent,
+    within(dialog).getByRole("combobox", { name: "Provider" }).textContent,
   ).toContain("MiMo");
   fireEvent.change(within(dialog).getByLabelText("API key"), {
     target: { value: "synthetic-intended-mimo-key" },
@@ -302,11 +329,23 @@ async function mount(
     name: /Add account|Connect account/,
   });
   await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
-  fireEvent.keyDown(add, { key: "ArrowDown" });
-  await screen.findByRole("menuitem", {
-    name: /Connect (Codex OAuth|Claude OAuth|with OAuth)/,
-  });
+
   return view;
+}
+async function openConnectionDialog(provider?: RegExp) {
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Add account|Connect account/ }),
+  );
+  const dialog = await screen.findByRole("dialog", {
+    name: "Connect a provider",
+  });
+  if (provider) {
+    fireEvent.click(within(dialog).getByRole("combobox", { name: "Provider" }));
+    const option = await screen.findByRole("option", { name: provider });
+    fireEvent.mouseMove(option);
+    fireEvent.click(option);
+  }
+  return dialog;
 }
 async function chooseBrowser(dialog: HTMLElement) {
   fireEvent.click(
@@ -319,10 +358,7 @@ async function chooseBrowser(dialog: HTMLElement) {
   fireEvent.click(option);
 }
 async function startEnrollment() {
-  fireEvent.click(
-    screen.getByRole("menuitem", { name: "Connect Codex OAuth" }),
-  );
-  const dialog = await screen.findByRole("dialog");
+  const dialog = await openConnectionDialog();
   expect(within(dialog).queryByLabelText("API key")).toBeNull();
   await chooseBrowser(dialog);
   fireEvent.change(within(dialog).getByLabelText("Connection name"), {
@@ -936,10 +972,7 @@ test("MiMo uses its enabled URL and optional default label once, keeping the key
     safeOperation(intent.nonce),
   );
   await mount();
-  fireEvent.click(
-    screen.getByRole("menuitem", { name: "Connect with API key" }),
-  );
-  const dialog = await screen.findByRole("dialog");
+  const dialog = await openConnectionDialog(/MiMo/);
   const label = within(dialog).getByLabelText(
     "Connection name (optional)",
   ) as HTMLInputElement;
@@ -980,10 +1013,7 @@ test("manual MiMo URL rejects unenabled regions and provider changes preserve an
     models: ["fixture"],
   });
   await mount();
-  fireEvent.click(
-    screen.getByRole("menuitem", { name: "Connect with API key" }),
-  );
-  const dialog = await screen.findByRole("dialog");
+  const dialog = await openConnectionDialog(/MiMo/);
   fireEvent.change(
     within(dialog).getByLabelText("Connection name (optional)"),
     {
@@ -1015,9 +1045,7 @@ test("manual MiMo URL rejects unenabled regions and provider changes preserve an
     ).disabled,
   ).toBe(true);
   expect(submitGatewayApiKey).not.toHaveBeenCalled();
-  fireEvent.click(
-    within(dialog).getByRole("combobox", { name: /Provider profile/ }),
-  );
+  fireEvent.click(within(dialog).getByRole("combobox", { name: "Provider" }));
   const routerOption = await screen.findByRole("option", {
     name: /OpenRouter/,
   });
@@ -1531,20 +1559,38 @@ test("OAuth rows hide API-key reconnect and become selectable only after an acti
   expect(pendingBinding.disabled).toBe(true);
   fireEvent.click(pendingBinding);
   expect(bindGatewayAccount).not.toHaveBeenCalled();
-  fireEvent.click(
-    screen.getByRole("menuitem", { name: "Connect with API key" }),
-  );
-  const dialog = await screen.findByRole("dialog");
-  fireEvent.click(
-    within(dialog).getByRole("combobox", { name: /Provider profile/ }),
-  );
+  const dialog = await openConnectionDialog(/MiMo/);
+  fireEvent.click(within(dialog).getByRole("combobox", { name: "Provider" }));
   expect(await screen.findByRole("option", { name: /MiMo/ })).toBeTruthy();
-  expect(screen.queryByRole("option", { name: /Codex/ })).toBeNull();
+  expect(screen.getByRole("option", { name: /Codex/ })).toBeTruthy();
   fireEvent.keyDown(document.activeElement!, { key: "Escape" });
   fireEvent.keyDown(dialog, { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  fireEvent.click(screen.getByRole("button", { name: "Check status" }));
-  await waitFor(() => expect(readGatewayOperation).toHaveBeenCalledTimes(2));
+  const checkStatus = screen.getByRole("button", { name: "Check status" });
+  await waitFor(() => expect(checkStatus).toHaveProperty("disabled", false));
+  // Pending operations also poll every three seconds. Observe this manual
+  // refresh and its result instead of assuming a total background read count.
+  let finishPendingRead!: (
+    result: AccountsResult<AccountOperationView>,
+  ) => void;
+  vi.mocked(readGatewayOperation).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishPendingRead = resolve;
+      }),
+  );
+  const readsBeforeCheck = vi.mocked(readGatewayOperation).mock.calls.length;
+  fireEvent.click(checkStatus);
+  await waitFor(() =>
+    expect(readGatewayOperation).toHaveBeenNthCalledWith(
+      readsBeforeCheck + 1,
+      context,
+      savedNonce,
+    ),
+  );
+  expect(checkStatus).toHaveProperty("disabled", true);
+  await act(async () => finishPendingRead(safeOperation(savedNonce)));
+  await waitFor(() => expect(checkStatus).toHaveProperty("disabled", false));
   expect(pendingBinding.disabled).toBe(true);
   page = { ...page, accounts: [row("active")] };
   vi.mocked(readGatewayOperation).mockResolvedValueOnce({
@@ -1730,7 +1776,6 @@ test("device sign-in stays in one dialog, polls through promotion and recovers u
   render(
     <AccountsAddDialog
       workspaceName="Test workspace"
-      own={<p>My existing connections</p>}
       personalConnect={
         <AccountGatewayControls
           bootstrap={{ context, page: { status: "ok", value: page } }}
@@ -1852,12 +1897,7 @@ test.each(["workspace", "personal"] as const)(
         }),
     );
     await mount({ api, managementScope });
-    fireEvent.click(
-      screen.getByRole("menuitem", { name: "Connect Claude OAuth" }),
-    );
-    const enrollment = await screen.findByRole("dialog", {
-      name: "Connect Claude OAuth",
-    });
+    const enrollment = await openConnectionDialog();
     expect(
       within(enrollment).queryByRole("combobox", { name: "Sign-in method" }),
     ).toBeNull();

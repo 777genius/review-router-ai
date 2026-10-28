@@ -5,9 +5,9 @@ import { DashboardWorkspacePage } from "../../dashboard-workspace-page";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = createNoIndexPageMetadata({
-  title: "Accounts",
+  title: "Provider connections",
   description:
-    "We encrypt ChatGPT accounts for hosted reviews. Sessions stay on ReviewRouter servers and never go to the browser.",
+    "Manage provider connections, workspace access, and account credentials for ReviewRouter reviews.",
 });
 
 export default async function DashboardSetupPage({

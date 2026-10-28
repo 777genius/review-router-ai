@@ -40,9 +40,12 @@ import {
   type ApiKeySetupIntent,
   type ApiKeyStorage,
 } from "../../src/features/provider-setup/api-key-storage";
+import {
+  getSetupProvider,
+  setupProviderForGatewayProfile,
+} from "../../src/features/provider-setup/setup-provider";
 import { ApiKeyStorageChoice } from "./provider-setup/api-key-storage-choice";
 import {
-  AccountActionsMenu,
   AccountMenuItem,
   accountMenuItemClass,
   useAccountMenuReturnFocus,
@@ -973,60 +976,18 @@ function Controls({
             (p.authKind === "api_key" || p.authKind === "oauth") &&
             (personal || !p.connection?.personalOnly),
         ) ? (
-          <AccountActionsMenu
-            label={personal ? accountsCopy.connect : accountsCopy.add}
-            triggerContent={
-              <>
-                <Plus aria-hidden="true" className="size-4" />
-                {personal ? accountsCopy.connect : accountsCopy.add}
-              </>
-            }
-          >
-            {data.value.profiles.some(
+          <ConnectAccountDialog
+            profiles={data.value.profiles.filter(
               (p) =>
-                p.authKind === "api_key" &&
+                (p.authKind === "api_key" || p.authKind === "oauth") &&
                 (personal || !p.connection?.personalOnly),
-            ) ? (
-              <AccountForm
-                accounts={data.value.accounts}
-                profiles={data.value.profiles.filter(
-                  (p) =>
-                    p.authKind === "api_key" &&
-                    (personal || !p.connection?.personalOnly),
-                )}
-                disabled={disabled}
-                disabledReason={
-                  disabled
-                    ? "Wait for the current refresh to finish."
-                    : undefined
-                }
-                managementScope={managementScope}
-                submit={submit}
-              />
-            ) : null}
-            {data.value.profiles.some(
-              (p) =>
-                p.authKind === "oauth" &&
-                (personal || !p.connection?.personalOnly),
-            ) ? (
-              <OAuthForm
-                accounts={data.value.accounts}
-                profiles={data.value.profiles.filter(
-                  (p) =>
-                    p.authKind === "oauth" &&
-                    (personal || !p.connection?.personalOnly),
-                )}
-                disabled={disabled}
-                disabledReason={
-                  disabled
-                    ? "Wait for the current refresh to finish."
-                    : undefined
-                }
-                managementScope={managementScope}
-                begin={beginOAuth}
-              />
-            ) : null}
-          </AccountActionsMenu>
+            )}
+            accounts={data.value.accounts}
+            disabled={disabled}
+            managementScope={managementScope}
+            begin={beginOAuth}
+            submit={submit}
+          />
         ) : null}
         {!connectOnly || page.isError || failure ? (
           <Button
@@ -1241,6 +1202,59 @@ function Controls({
   );
 }
 
+/** One provider-first entry point; operation progress stays with the controller. */
+function ConnectAccountDialog({
+  profiles,
+  accounts,
+  disabled,
+  managementScope,
+  begin,
+  submit,
+}: Parameters<typeof ConnectionForm>[0]): React.ReactElement {
+  const [open, setOpen] = useState(false);
+  return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Trigger
+        render={<Button variant="outline" size="sm" disabled={disabled} />}
+      >
+        <Plus aria-hidden="true" className="size-4" />
+        {managementScope === "personal"
+          ? accountsCopy.connect
+          : accountsCopy.add}
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Backdrop />
+        <Dialog.Popup>
+          <Dialog.CloseButton label="Close connect account" />
+          <Dialog.Title>Connect a provider</Dialog.Title>
+          <Dialog.Description>
+            Choose a provider, then connect its account or credential.
+            {managementScope === "personal"
+              ? " This connection belongs to you. You choose which workspaces can use it."
+              : " This connection belongs to this workspace."}
+          </Dialog.Description>
+          {open ? (
+            <ConnectionForm
+              profiles={profiles}
+              accounts={accounts}
+              disabled={disabled}
+              managementScope={managementScope}
+              begin={(intent) => {
+                setOpen(false);
+                return begin(intent);
+              }}
+              submit={(intent, credential) => {
+                setOpen(false);
+                return submit(intent, credential);
+              }}
+            />
+          ) : null}
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
 function ConnectionForm({
   profiles,
   accounts,
@@ -1266,14 +1280,16 @@ function ConnectionForm({
   const [profileId, setProfileId] = useState(
     ordered.find(
       (profile) =>
-        apiKeyProviderForGatewayProfile(profile) === setup.intent?.provider,
+        setup.intent !== undefined &&
+        setupProviderForGatewayProfile(profile) === setup.intent?.provider,
     )?.id ??
       ordered[0]?.id ??
       "",
   );
   const profile = profiles.find((row) => row.id === profileId);
+  const formContainer = useRef<HTMLDivElement>(null);
   return (
-    <div className="space-y-4">
+    <div ref={formContainer} className="space-y-4">
       <SelectField
         name="connectionProvider"
         label={
@@ -1285,11 +1301,20 @@ function ConnectionForm({
             Provider
           </span>
         }
-        defaultValue={profileId}
-        onValueChange={setProfileId}
+        value={profileId}
+        onValueChange={(id) => {
+          const credential =
+            formContainer.current?.querySelector<HTMLInputElement>(
+              'input[name="credential"]',
+            );
+          if (credential) credential.value = "";
+          setProfileId(id);
+        }}
         options={ordered.map((row) => ({
           value: row.id,
-          label: row.label,
+          label: setupProviderForGatewayProfile(row)
+            ? getSetupProvider(setupProviderForGatewayProfile(row)!).label
+            : row.label,
           icon: (
             <AccountProviderLogo
               connection={row.connection}
@@ -1316,7 +1341,6 @@ function ConnectionForm({
         />
       ) : profile ? (
         <AccountForm
-          key={profile.id}
           inline
           accounts={accounts}
           profiles={[profile]}
@@ -1526,7 +1550,7 @@ function OAuthMethodChoice({
         <SelectField
           name="oauthMethod"
           label="Sign-in method"
-          defaultValue={method}
+          value={method}
           onValueChange={(value) => change(value as "device_code" | "browser")}
           options={[
             ...(methods.includes("device_code")
@@ -2273,7 +2297,9 @@ function AccountForm({
   const [selectedId, setSelectedId] = useState(
     account?.profileId ?? profiles[0]?.id ?? "",
   );
-  const selected = profiles.find((p) => p.id === selectedId);
+  const selected =
+    profiles.find((p) => p.id === selectedId) ??
+    (inline ? profiles[0] : undefined);
   const setup = useContext(ApiKeySetupContext);
   const apiKeyProvider = apiKeyProviderForGatewayProfile(selected);
   const [keyStorage, setKeyStorage] = useState<ApiKeyStorage>("reviewrouter");
@@ -2290,7 +2316,13 @@ function AccountForm({
     ? subscriptionKeyURL(selected.connection.provider)
     : undefined;
   const subscription = !!keyURL;
-  const [labelValue, setLabelValue] = useState(account?.label ?? "");
+  const [labelValue, setLabelValue] = useState(
+    account?.label ??
+      suggestedAccountLabel(
+        selected?.label ?? "Provider",
+        accounts.map((candidate) => candidate.label),
+      ),
+  );
   const [automaticLabel, setAutomaticLabel] = useState(!account);
   const [manualURL, setManualURL] = useState(false);
   const [baseURL, setBaseURL] = useState(selected?.dedicatedBaseURL ?? "");
@@ -2299,6 +2331,15 @@ function AccountForm({
       profile?.label ?? "Provider",
       accounts.map((a) => a.label),
     );
+  const activeProfileId = selected?.id;
+  useEffect(() => {
+    if (!inline || !activeProfileId || activeProfileId === selectedId) return;
+    setSelectedId(activeProfileId);
+    setKeyStorage("reviewrouter");
+    setBaseURL(selected?.dedicatedBaseURL ?? "");
+    setManualURL(false);
+    if (automaticLabel) setLabelValue(suggestion(selected));
+  }, [inline, activeProfileId, selectedId, selected, automaticLabel]);
   const needsMimoURL = mode === "connect" && selected?.label === "MiMo";
   const endpointValid =
     !needsMimoURL ||
@@ -2562,7 +2603,7 @@ function AccountForm({
           const profile =
             profiles.find(
               (profile) =>
-                apiKeyProviderForGatewayProfile(profile) ===
+                setupProviderForGatewayProfile(profile) ===
                 setup.intent?.provider,
             ) ?? profiles[0];
           setSelectedId(profile?.id ?? "");

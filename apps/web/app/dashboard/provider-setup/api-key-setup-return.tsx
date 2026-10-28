@@ -1,6 +1,9 @@
 "use client";
 
-import { getApiKeyProvider } from "@reviewrouter/features-review-providers";
+import {
+  getSetupProvider,
+  setupProviderForGatewayProfile,
+} from "../../../src/features/provider-setup/setup-provider";
 import { GatewayAccountLoadMore } from "./gateway-account-load-more";
 import { Button } from "@reviewrouter/ui";
 import { useRouter } from "next/navigation";
@@ -11,7 +14,6 @@ import type {
 } from "../../../src/server/account-gateway-accounts";
 import { getReadyGatewayAccounts } from "../../../src/server/dashboard-provider-setup-readiness";
 import {
-  apiKeyProviderForGatewayProfile,
   apiKeySetupHref,
   type ApiKeySetupIntent,
 } from "../../../src/features/provider-setup/api-key-storage";
@@ -35,7 +37,7 @@ export function ApiKeySetupReturn({
     options.accounts?.status === "ok" ? options.accounts.value : null;
   const ready = getReadyGatewayAccounts(options.accounts).some(
     (account) =>
-      apiKeyProviderForGatewayProfile(
+      setupProviderForGatewayProfile(
         page?.profiles.find((profile) => profile.id === account.profileId),
       ) === intent.provider,
   );
@@ -45,7 +47,7 @@ export function ApiKeySetupReturn({
       aria-label="Continue provider setup"
     >
       <p>
-        {getApiKeyProvider(intent.provider).label}:{" "}
+        {getSetupProvider(intent.provider).label}:{" "}
         {ready
           ? "An account is ready in this workspace."
           : "Connect an account, then use Access to give this workspace access."}

@@ -1,24 +1,29 @@
 import {
-  apiKeyProviders,
   apiKeyProviderForAuthMode,
   type ApiKeyProviderId,
   type ProviderAuthMode,
 } from "@reviewrouter/features-review-providers";
 import type { ProviderCredentialKind } from "@reviewrouter/features-review-config/workspace-provider-profile";
 import type { AccountProfileView } from "../../server/account-gateway-accounts";
+import {
+  apiKeyProviderForGatewayProfile,
+  setupProviders,
+  type SetupProviderId,
+} from "./setup-provider";
+export { apiKeyProviderForGatewayProfile } from "./setup-provider";
 
 export type ApiKeyStorage = "github_secrets" | "reviewrouter";
 
 export const apiKeyStorageOptions = [
   {
-    value: "github_secrets",
-    label: "GitHub Secrets",
-    description: "Add the key to each repository on GitHub.",
-  },
-  {
     value: "reviewrouter",
     label: "ReviewRouter",
     description: "Store the key encrypted and reuse it across repositories.",
+  },
+  {
+    value: "github_secrets",
+    label: "GitHub Secrets",
+    description: "Add the key to each repository on GitHub.",
   },
 ] as const;
 
@@ -26,24 +31,11 @@ export function apiKeyStorageLabel(
   kind: ProviderCredentialKind,
 ): string | null {
   if (kind === "gateway_binding") return "ReviewRouter";
-  if (kind === "user_ci_secret") return "GitHub Secrets";
+  if (kind === "user_ci_secret" || kind === "repository_rotating")
+    return "GitHub Secrets";
   if (kind === "managed_api_key")
     return "GitHub Secrets · managed by ReviewRouter";
   return null;
-}
-
-/** Safe server-issued profile identity, never an editable connection label. */
-export function apiKeyProviderForGatewayProfile(
-  profile:
-    | Pick<AccountProfileView, "connection" | "provider" | "authKind">
-    | undefined,
-): ApiKeyProviderId | undefined {
-  if (!profile || profile.authKind === "oauth") return undefined;
-  return apiKeyProviders.find((provider) =>
-    profile.connection
-      ? profile.connection.provider === provider.gatewayUpstreamProvider
-      : profile.provider === provider.directProviderKind,
-  )?.id;
 }
 
 export function apiKeyProviderForCredential(input: {
@@ -56,7 +48,7 @@ export function apiKeyProviderForCredential(input: {
 }
 
 export type ApiKeySetupIntent = Readonly<{
-  provider: ApiKeyProviderId;
+  provider: SetupProviderId;
   storage: ApiKeyStorage;
   workspaceId: string;
   repositoryIds: readonly string[];
@@ -77,7 +69,7 @@ export function readApiKeySetupIntent(
 ): ApiKeySetupIntent | null {
   const one = (key: string) =>
     typeof params[key] === "string" ? params[key] : undefined;
-  const provider = apiKeyProviders.find(
+  const provider = setupProviders.find(
     (row) => row.id === one("keyProvider"),
   )?.id;
   const storage = one("keyStorage");
