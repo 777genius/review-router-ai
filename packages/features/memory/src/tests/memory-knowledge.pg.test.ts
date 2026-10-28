@@ -301,6 +301,8 @@ describe.skipIf(!databaseUrl)(
         bodyDigests: commands.map((c) => createMemoryBodyHash(c.body)),
         now,
       });
+      if (state.state === "unselected")
+        throw new Error("expected_selected_cohort");
       return { input, commands, sources, state };
     }
     async function publishAuto(
@@ -492,6 +494,8 @@ describe.skipIf(!databaseUrl)(
         bodyDigests: [createMemoryBodyHash(command.body)],
         now,
       });
+      if (next.state === "unselected")
+        throw new Error("expected_selected_cohort");
       await publishAuto(command, next.binding);
       expect(
         await first.sources.applicable(command.ref, generation, next.binding),
@@ -819,6 +823,118 @@ describe.skipIf(!databaseUrl)(
     }
     const automaticControls = () => ({
       deadlineAt: new Date(now.getTime() + 10000),
+    });
+
+    it("preserves trusted deletion before first admission as a bodyless fence across generations and explicit relearn", async () => {
+      const fixture = automaticFixture();
+      const input = automaticInput(1);
+      const independentSources = new PrismaMemoryAutomaticSourceStore(other);
+      const original = store.admitAutomaticSelection.bind(store);
+      const admission = vi
+        .spyOn(store, "admitAutomaticSelection")
+        .mockImplementationOnce(async (selection) => {
+          // The first selection already passed every source check. A trusted deletion
+          // commits on an independent connection immediately before its SQL admission.
+          await independentSources.invalidate({
+            scope,
+            sourceId: input.source.sourceId,
+            cause: "deleted",
+            now,
+          });
+          return original(selection);
+        });
+      let result;
+      try {
+        result = await fixture.automatic.learn(input, automaticControls());
+      } finally {
+        admission.mockRestore();
+      }
+      expect(result).toMatchObject({
+        state: "suppressed",
+        entryIds: [],
+        operations: [],
+      });
+      const fence = (await fixture.sources.lookup(
+        scope,
+        input.source.sourceId,
+      ))!;
+      expect(fence).toMatchObject({
+        state: "unselected",
+        source: null,
+        sourceUpdatedAt: null,
+        binding: { epoch: "1", cohortId: null, sourceRevision: null },
+        suppressed: true,
+        suppressionEpoch: "1",
+        invalidatedBy: "deleted",
+        entryIds: [],
+      });
+      expect(JSON.stringify(fence)).not.toContain(input.selectableBody);
+      const [counts] = await prisma.$queryRaw<
+        { commands: number; entries: number; effects: number }[]
+      >(
+        Prisma.sql`SELECT (SELECT count(*)::int FROM "MemoryKnowledgeCommand") AS commands, (SELECT count(*)::int FROM "MemoryAutomaticEntry") AS entries, (SELECT count(*)::int FROM "OutboxEvent") AS effects`,
+      );
+      expect(counts).toEqual({ commands: 0, entries: 0, effects: 0 });
+      expect(
+        await fixture.sources.reserve({
+          input,
+          generation: "next_generation",
+          expectedPriorEpoch: null,
+          entryIds: ["stale-first-child"],
+          bodyDigests: ["d".repeat(64)],
+          now,
+        }),
+      ).toEqual(fence);
+      await expect(
+        fixture.sources.clearSuppression({
+          scope,
+          sourceId: input.source.sourceId,
+          expectedEpoch: fence.binding.epoch,
+          expectedSuppressionEpoch: "0",
+          now,
+        }),
+      ).rejects.toMatchObject({ code: "conflict" });
+      await fixture.sources.clearSuppression({
+        scope,
+        sourceId: input.source.sourceId,
+        expectedEpoch: fence.binding.epoch,
+        expectedSuppressionEpoch: fence.suppressionEpoch,
+        now,
+      });
+      const cleared = (await fixture.sources.lookup(
+        scope,
+        input.source.sourceId,
+      ))!;
+      expect(cleared).toMatchObject({
+        state: "unselected",
+        suppressed: false,
+        suppressionEpoch: "2",
+      });
+      // Clearing suppression cannot make an already selected, pre-deletion reservation current.
+      await expect(
+        fixture.sources.reserve({
+          input,
+          generation,
+          expectedPriorEpoch: null,
+          entryIds: [],
+          bodyDigests: [],
+          now,
+        }),
+      ).rejects.toMatchObject({ code: "conflict" });
+      const relearned = await fixture.automatic.learn(
+        automaticInput(2),
+        automaticControls(),
+      );
+      expect(relearned.state).toBe("queued");
+      expect(relearned.operations).toHaveLength(2);
+      expect(
+        await fixture.sources.lookup(scope, input.source.sourceId),
+      ).toMatchObject({
+        state: "pending",
+        suppressed: false,
+        suppressionEpoch: "2",
+        binding: { epoch: "2" },
+      });
     });
 
     it("atomically rolls back the cohort, old retirement, and every child effect when the second envelope insert fails", async () => {

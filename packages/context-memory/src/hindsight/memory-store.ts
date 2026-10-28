@@ -21,12 +21,35 @@ export class MemoryEngineError extends Error {
     readonly code:
       | "unavailable"
       | "incomplete"
+      | "unsupported"
       | "deadline"
       | "invalid_input"
       | "unknown_write",
   ) {
     super(`memory_engine_${code}`);
   }
+}
+/** Named strategies must resolve explicitly to chunks: native unknown names fall back to semantic defaults. */
+export function hasHindsightExactChunksStrategy(
+  config: unknown,
+  strategy: string,
+): boolean {
+  if (!config || typeof config !== "object" || Array.isArray(config))
+    return false;
+  const strategies = (config as Record<string, unknown>).retain_strategies;
+  if (
+    !strategies ||
+    typeof strategies !== "object" ||
+    Array.isArray(strategies)
+  )
+    return false;
+  const selected = (strategies as Record<string, unknown>)[strategy];
+  return (
+    !!selected &&
+    typeof selected === "object" &&
+    !Array.isArray(selected) &&
+    (selected as Record<string, unknown>).retain_extraction_mode === "chunks"
+  );
 }
 /** Native mechanism only. Product approval, scopes, CAS, revocation and full forget stay outside. */
 export class HindsightMemoryStore
@@ -186,6 +209,22 @@ export class HindsightMemoryStore
       !this.config.exactStatementStrategy
     )
       throw new MemoryEngineError("invalid_input");
+    // Verify the addressed bank on every submission; a nonempty name alone is not an exact-storage profile.
+    const profile = await this.result(
+      sdk.getBankConfig({
+        client: this.client,
+        path: this.path(input.source.ref.scope),
+        signal: this.signal(controls),
+      }),
+      controls,
+    );
+    if (
+      !hasHindsightExactChunksStrategy(
+        profile?.config,
+        this.config.exactStatementStrategy,
+      )
+    )
+      throw new MemoryEngineError("unsupported");
     const accepted = await this.result(
       sdk.retainMemories({
         client: this.client,

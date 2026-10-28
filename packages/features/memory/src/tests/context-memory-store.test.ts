@@ -35,6 +35,17 @@ it("ordinary source lifecycle uses exact chunks and exposes current native readb
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
+      if (url.endsWith("/config"))
+        return new Response(
+          JSON.stringify({
+            config: {
+              retain_strategies: {
+                "exact-statements": { retain_extraction_mode: "chunks" },
+              },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
       if (url.includes("/operations/"))
         return new Response(
           JSON.stringify({
@@ -145,3 +156,53 @@ it("keeps HTTP404 source absence distinct from malformed HTTP200", async () => {
     ),
   ).toBeNull();
 });
+
+it.each([
+  { name: "unknown", strategy: undefined },
+  { name: "semantic", strategy: { retain_extraction_mode: "concise" } },
+  { name: "malformed", strategy: ["chunks"] },
+])(
+  "rejects $name exact-storage strategy before native retain",
+  async ({ strategy }) => {
+    const requests: string[] = [];
+    const engine = new HindsightMemoryStore({
+      baseUrl: "http://fixture.invalid",
+      apiKey: "synthetic",
+      bankForScope: (scope) => scope,
+      exactStatementStrategy: "exact-statements",
+      fetch: async (input, init) => {
+        const request =
+          input instanceof Request ? input : new Request(input, init);
+        requests.push(`${request.method} ${new URL(request.url).pathname}`);
+        return new Response(
+          JSON.stringify({
+            config: {
+              retain_extraction_mode: "concise",
+              retain_strategies: strategy
+                ? { "exact-statements": strategy }
+                : {},
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      },
+    });
+    await expect(
+      engine.replaceSource(
+        {
+          source: {
+            ref: { scope: "notebook", id: "note-1" },
+            body: "Use UTC timestamps.",
+            metadata: {},
+            tags: [],
+          },
+          operationId: "11111111-1111-4111-8111-111111111111",
+          statementAt: "2026-10-28T00:00:00.000Z",
+          derivationTags: [],
+        },
+        { deadlineAt: new Date(Date.now() + 5000) },
+      ),
+    ).rejects.toMatchObject({ code: "unsupported" });
+    expect(requests).toEqual(["GET /v1/default/banks/notebook/config"]);
+  },
+);

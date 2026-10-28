@@ -47,18 +47,37 @@ export interface AutomaticMemoryLearningPort {
   ): Promise<void>;
 }
 export type MemoryAutomaticSourceState = {
-  readonly binding: MemoryAutomaticSourceBinding;
   readonly scope: Extract<MemoryKnowledgeScope, { kind: "repository" }>;
   readonly sourceId: string;
-  readonly sourceUpdatedAt: string;
-  readonly source: MemoryKnowledgeSource;
-  readonly state: "pending" | "active" | "needs_refresh";
   readonly suppressed: boolean;
   readonly suppressionEpoch: string;
-  readonly invalidatedBy?: "changed" | "deleted" | "unavailable";
-  readonly lastCompleteCohort?: boolean;
   readonly entryIds: readonly string[];
-};
+} & (
+  | {
+      readonly binding: MemoryAutomaticSourceBinding;
+      readonly sourceUpdatedAt: string;
+      readonly source: MemoryKnowledgeSource;
+      readonly state: "pending" | "active" | "needs_refresh";
+      readonly invalidatedBy?: "changed" | "deleted" | "unavailable";
+      readonly lastCompleteCohort?: boolean;
+    }
+  | {
+      /** A lineage fence may precede the first selected cohort; it invents no source revision or selection. */
+      readonly binding: Pick<
+        MemoryAutomaticSourceBinding,
+        "lineageKey" | "epoch"
+      > & {
+        readonly cohortId: null;
+        readonly sourceRevision: null;
+      };
+      readonly sourceUpdatedAt: null;
+      readonly source: null;
+      readonly state: "unselected";
+      readonly invalidatedBy: "deleted";
+      readonly lastCompleteCohort: false;
+    }
+);
+
 export interface MemoryAutomaticSourceStore {
   lookup(
     scope: MemoryKnowledgeScope,

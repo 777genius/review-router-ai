@@ -51,6 +51,14 @@ const memory = new HindsightMemoryStore({
         });
       return json({ success: true, operation_id: operationId });
     }
+    if (url.endsWith("/config"))
+      return json({
+        config: {
+          retain_strategies: {
+            "exact-statements": { retain_extraction_mode: "chunks" },
+          },
+        },
+      });
     if (url.includes("/operations/"))
       return json({
         status: "completed",

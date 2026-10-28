@@ -1,4 +1,8 @@
-import { HindsightMemoryStore, MemoryEngineError } from "context-memory";
+import {
+  HindsightMemoryStore,
+  MemoryEngineError,
+  hasHindsightExactChunksStrategy,
+} from "context-memory";
 import {
   createClient,
   createConfig,
@@ -507,20 +511,11 @@ export class HindsightMemoryProvider
   }
 
   private matchesProfile(config: Record<string, unknown>): boolean {
-    const strategies = config.retain_strategies;
-    if (
-      config.retain_default_strategy !== strategy ||
-      config.audit_log_enabled !== false ||
-      config.store_document_text !== true ||
-      !strategies ||
-      typeof strategies !== "object"
-    )
-      return false;
-    const selected = (strategies as Record<string, unknown>)[strategy];
     return (
-      !!selected &&
-      typeof selected === "object" &&
-      (selected as Record<string, unknown>).retain_extraction_mode === "chunks"
+      config.retain_default_strategy === strategy &&
+      config.audit_log_enabled === false &&
+      config.store_document_text === true &&
+      hasHindsightExactChunksStrategy(config, strategy)
     );
   }
 

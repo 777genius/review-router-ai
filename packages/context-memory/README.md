@@ -7,7 +7,15 @@ Account Gateway, an agent runtime, or a product model-call interface.
 
 The initial capabilities are **source extraction preview**, **current source read/list**, **exact statement replace**, **native operation observation**, and **native recall evidence**. `HindsightMemoryStore` uses the pinned native SDK for these mechanisms. Operation completion is separate from application publication: callers must verify their own current-body and revision contract. Reflect and complete physical forget remain explicitly unavailable in this library; applications retain their existing qualified cleanup owner.
 
-For source extraction preview, A caller supplies one
+For exact statement replacement, the deployment provisions a named retain strategy
+with `retain_extraction_mode: "chunks"` in each addressed bank. The writer reads
+that bank's configuration before every submission and rejects missing, semantic
+or malformed strategies with `MemoryEngineError("unsupported")` before retaining
+anything. It never provisions or changes banks. Native configuration transport
+failure is `unavailable`; an unchecked strategy name is never proof of exact
+persistence. Preview qualification remains a separate prerequisite.
+
+For source extraction preview, a caller supplies one
 selectable source revision plus read-only context. The native engine owns semantic
 selection. The library validates bounded, complete results; it does not extract,
 verify, deduplicate, or approve facts. Preview output is never publication authority.

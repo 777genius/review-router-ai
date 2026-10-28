@@ -92,7 +92,36 @@ export class PrismaMemoryAutomaticSourceStore implements MemoryAutomaticSourceSt
       await lockExistingSourceScopes(tx, input.scope);
       await sourceLock(tx, key);
       const prior = await read(tx, key);
-      if (!prior) return;
+      if (!prior) {
+        // Trusted deletion is authoritative even while the first preview is in flight.
+        if (input.cause !== "deleted" || input.expectedBinding) return;
+        if (input.scope.kind !== "repository")
+          throw new MemoryKnowledgeError("forbidden");
+        await write(
+          tx,
+          {
+            scope: input.scope,
+            sourceId: input.sourceId,
+            binding: {
+              lineageKey: key,
+              epoch: "1",
+              cohortId: null,
+              sourceRevision: null,
+            },
+            source: null,
+            sourceUpdatedAt: null,
+            state: "unselected",
+            invalidatedBy: "deleted",
+            lastCompleteCohort: false,
+            suppressed: true,
+            suppressionEpoch: "1",
+            entryIds: [],
+          },
+          input.now,
+        );
+        await bump(tx, input.scope, input.now);
+        return;
+      }
       if (
         input.expectedBinding &&
         (prior.binding.lineageKey !== input.expectedBinding.lineageKey ||
@@ -101,6 +130,24 @@ export class PrismaMemoryAutomaticSourceStore implements MemoryAutomaticSourceSt
           prior.binding.sourceRevision !== input.expectedBinding.sourceRevision)
       )
         return;
+      if (prior.state === "unselected") {
+        if (input.cause !== "deleted" || prior.suppressed) return;
+        await write(
+          tx,
+          {
+            ...prior,
+            suppressed: true,
+            suppressionEpoch: String(BigInt(prior.suppressionEpoch) + 1n),
+            binding: {
+              ...prior.binding,
+              epoch: String(BigInt(prior.binding.epoch) + 1n),
+            },
+          },
+          input.now,
+        );
+        await bump(tx, input.scope, input.now);
+        return;
+      }
       if (
         prior.state === "needs_refresh" &&
         (input.cause !== "deleted" || prior.suppressed)

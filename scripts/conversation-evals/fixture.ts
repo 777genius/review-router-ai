@@ -526,6 +526,7 @@ export async function createEvaluationFixture(input: {
           if (
             ownership &&
             lineage &&
+            lineage.state !== "unselected" &&
             ownership.lineageKey === binding.lineageKey &&
             ownership.cohortId === binding.cohortId &&
             ownership.epoch === binding.epoch

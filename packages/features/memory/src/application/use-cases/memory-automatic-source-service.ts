@@ -78,7 +78,11 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
     );
     if (prior?.suppressed) return outcome("suppressed", prior.entryIds);
     // Replay restores existing durable effects and never consumes another native inference.
-    if (prior?.binding.cohortId === cohortId) {
+    if (
+      prior &&
+      prior.state !== "unselected" &&
+      prior.binding.cohortId === cohortId
+    ) {
       const operations = await this.dependencies.knowledge.automaticOperations(
         {
           actor: input.sourceActor,
@@ -133,7 +137,11 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
     if (!(await current())) return outcome("needs_refresh");
     // An old accepted source may observe a newer cursor after its earlier host check.
     // It may mutate only the cursor it observed, after proving its own revision current.
-    if (prior && prior.source.revision !== input.source.revision)
+    if (
+      prior &&
+      prior.state !== "unselected" &&
+      prior.source.revision !== input.source.revision
+    )
       await this.dependencies.sources.invalidate({
         scope: input.scope,
         sourceId: input.source.sourceId,
@@ -193,7 +201,7 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
     };
     const retirements = [];
     // Withdrawn old children use the existing CAS/retire owner. Ownership transfer wins a race.
-    if (prior)
+    if (prior && prior.state !== "unselected")
       for (const entryId of prior.entryIds) {
         const ref: MemoryEntryRef = {
           type: "entry",

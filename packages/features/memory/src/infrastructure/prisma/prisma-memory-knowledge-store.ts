@@ -256,6 +256,8 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
       await this.lockScope(tx, scope, reservation.generation);
       const source = await reserveAutomaticMemorySource(tx, reservation);
       if (source.suppressed) return { source, operations: [] };
+      if (source.state === "unselected")
+        throw new MemoryKnowledgeError("conflict");
       // Existing explicit corrections win. A skipped old retirement never bypasses new-child quota.
       for (const retirement of retirements) {
         const current = await this.entry(
