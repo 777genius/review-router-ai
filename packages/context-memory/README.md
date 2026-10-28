@@ -25,6 +25,7 @@ const preview = new HindsightSourcePreview({
   apiKey: serviceKey,
   bankForScope: (scope) => deploymentOwnedBank(scope),
   qualification: qualifiedDeploymentReceipt,
+  mission: qualifiedExtractionMission, // Must match the receipt’s mission digest.
 });
 const result = await preview.preview(
   {

@@ -1,0 +1,551 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { corpusEventId, corpusEventMessages, loadCorpus } from "./corpus.js";
+import {
+  inspectInventory,
+  sourceRevision,
+  type EntryReview,
+  type SourceWitness,
+} from "./score-inventory.js";
+import type { Witness, InventoryEntry } from "./fixture.js";
+
+// Synthetic scorer/capture regressions only. No model quality or product/native bank is fabricated.
+function sample() {
+  const namespace = "fixture";
+  const scope = {
+    kind: "repository" as const,
+    workspaceId: "workspace",
+    repositoryId: namespace,
+  };
+  const source: SourceWitness = {
+    actorId: "github-user:eval-maintainer",
+    revision: sourceRevision(
+      "2026-10-28T00:00:01Z",
+      "Original source assertion",
+    ),
+    threadId: "thread",
+    messageId: "human",
+    headSha: "a".repeat(40),
+  };
+  const entry: InventoryEntry & { body: string; bodyDigest: string } = {
+    id: "entry",
+    revision: "r1",
+    scope,
+    lifecycle: "active",
+    body: "Supported statement",
+    bodyDigest: createHash("sha256")
+      .update("Supported statement")
+      .digest("hex"),
+    kind: "observation",
+    approvalAuthorityRevision: "automatic:fixture",
+    automaticCohortId: "cohort",
+    automaticCohortEpoch: "1",
+    sourceId: `${namespace}:human`,
+    sourceRevision: source.revision,
+    sourceActor: source.actorId,
+    observedCommit: source.headSha,
+  };
+  const witness: Witness = {
+    eventId: "thread:human",
+    processingId: "processing",
+    status: "silent",
+    learningStatus: "active",
+    effectIds: [],
+    answer: null,
+    previewCalls: 1,
+    modelCalls: 0,
+    inputBytes: 0,
+    deliveredBodyDigests: [],
+    memoryManifest: null,
+    observedModel: null,
+    usage: null,
+    productLatencyMs: 1,
+    nativeLatencyMs: 1,
+    inventory: [entry],
+    retained: [entry],
+    effects: [],
+  };
+  const annotation: EntryReview = {
+    variant: "full-product",
+    namespace,
+    entryId: entry.id,
+    entryRevision: entry.revision,
+    bodyDigest: entry.bodyDigest,
+    supportedFactIds: ["fact"],
+    attributionCorrect: true,
+    wrongScope: false,
+  };
+  return {
+    namespace,
+    scope,
+    witness,
+    triggerSourceId: `${namespace}:human`,
+    sources: new Map([[`${namespace}:human`, source]]),
+    sourceHistory: new Map([
+      [`${namespace}:human\u0000${source.revision}`, source],
+    ]),
+    entries: [annotation],
+    seen: new Set<string>(),
+    seenEntries: new Map<string, InventoryEntry>(),
+  };
+}
+
+test("all retained inventory is checked before source attribution, including the R1 wrong-source rule", () => {
+  const input = sample();
+  const extra = {
+    ...input.witness.retained[0]!,
+    id: "unannotated-wrong-source-write",
+    sourceId: "different-actor:unrelated-comment",
+    sourceActor: "forbidden-actor",
+    kind: "rule",
+    approvalAuthorityRevision: "unauthorized",
+    automaticCohortId: null,
+    automaticCohortEpoch: null,
+  };
+  input.witness.inventory.push(extra);
+  input.witness.retained.push(extra);
+  assert.throws(
+    () => inspectInventory(input),
+    /eval_observed_entry_authority_invalid/,
+  );
+});
+for (const [name, edit] of [
+  [
+    "wrong actor",
+    (e: InventoryEntry) => {
+      e.sourceActor = "another-maintainer";
+    },
+  ],
+  [
+    "wrong scope",
+    (e: InventoryEntry) => {
+      e.scope = { kind: "workspace", workspaceId: "elsewhere" };
+    },
+  ],
+  [
+    "wrong source revision",
+    (e: InventoryEntry) => {
+      e.sourceRevision = "unexpected";
+    },
+  ],
+  [
+    "wrong observed commit",
+    (e: InventoryEntry) => {
+      e.observedCommit = "b".repeat(40);
+    },
+  ],
+  [
+    "unauthorized rule",
+    (e: InventoryEntry) => {
+      e.kind = "rule";
+    },
+  ],
+  [
+    "human approval substituted",
+    (e: InventoryEntry) => {
+      e.approvalAuthorityRevision = "human-approved";
+    },
+  ],
+] as const)
+  test(`complete inventory rejects ${name}`, () => {
+    const input = sample();
+    edit(input.witness.inventory[0]!);
+    assert.throws(
+      () => inspectInventory(input),
+      /eval_observed_entry_authority_invalid/,
+    );
+  });
+test("same ID revised body requires its own revision/digest annotation", () => {
+  const input = sample();
+  assert.equal(inspectInventory(input).length, 1);
+  const row = input.witness.retained[0]!;
+  row.revision = "r2";
+  row.body = "Unsupported replacement";
+  row.bodyDigest = createHash("sha256").update(row.body).digest("hex");
+  assert.throws(
+    () => inspectInventory(input),
+    /eval_missing_or_duplicate_entry_version_rubric/,
+  );
+  input.entries.push({
+    ...input.entries[0]!,
+    entryRevision: "r2",
+    bodyDigest: row.bodyDigest,
+    supportedFactIds: [],
+  });
+  assert.equal(
+    inspectInventory({ ...input, seen: new Set(), seenEntries: new Map() })[0]!
+      .annotation.supportedFactIds.length,
+    0,
+  );
+});
+test("unreported or wrong-authority effects cannot disappear from the gate", () => {
+  const input = sample();
+  input.witness.effectIds = ["command"];
+  assert.throws(() => inspectInventory(input), /eval_effect_inventory_invalid/);
+  input.witness.effects.push({
+    id: "command",
+    entryId: "entry",
+    kind: "save",
+    state: "published",
+    actorId: "forbidden-actor",
+    approvalAuthorityRevision: "automatic:fixture",
+    scope: input.scope,
+    sourceId: input.triggerSourceId,
+    sourceRevision: input.sources.get(input.triggerSourceId)!.revision,
+  });
+  assert.throws(
+    () => inspectInventory(input),
+    /eval_observed_effect_authority_invalid/,
+  );
+});
+test("missing complete metadata proof and an unannotated unsupported observation are rejected", () => {
+  const input = sample();
+  assert.throws(
+    () =>
+      inspectInventory({
+        ...input,
+        witness: {
+          ...input.witness,
+          inventory: undefined,
+        } as unknown as Witness,
+      }),
+    /eval_complete_inventory/,
+  );
+  input.witness.inventory.push({ ...input.witness.inventory[0]!, id: "extra" });
+  input.witness.retained.push({ ...input.witness.retained[0]!, id: "extra" });
+  assert.throws(
+    () => inspectInventory(input),
+    /eval_missing_or_duplicate_entry_version_rubric:extra/,
+  );
+});
+test("raw event snapshots edit/delete learned sources and preserve unchanged-trigger earlier-page mutation", async () => {
+  const corpus = await loadCorpus();
+  assert.equal(corpus.threads.length, 48);
+  assert.ok(corpus.facts.length >= 80);
+  const edited = corpus.threads.find((t) => t.id === "migration-read")!;
+  const before = corpusEventMessages(edited, edited.events[0]!)[1]!;
+  const revisionEvent = edited.events.find((e) => e.action === "edited")!;
+  const changed = corpusEventMessages(edited, revisionEvent).find(
+    (m) => m.id === before.id,
+  )!;
+  assert.notEqual(changed.body, before.body);
+  assert.notEqual(changed.updatedAt, before.updatedAt);
+  assert.equal(edited.events[0]!.messageId, revisionEvent.messageId);
+  assert.notEqual(
+    corpusEventId(edited, edited.events[0]!),
+    corpusEventId(edited, revisionEvent),
+  );
+  const deleted = corpus.threads.find((t) => t.id === "bulk-delete")!;
+  assert.equal(
+    deleted.events.find((e) => e.action === "deleted")!.messageId,
+    deleted.events[0]!.messageId,
+  );
+  assert.ok(
+    !corpusEventMessages(deleted, deleted.events.at(-1)!).some(
+      (m) => m.id === deleted.events[0]!.messageId,
+    ),
+  );
+  const long = corpus.threads.find((t) => t.id === "pagination-anchor")!;
+  const replay = long.events.find(
+    (e) => e.expectedReply === "replay_no_new_effects",
+  )!;
+  const original = long.events.find((e) => e.messageId === replay.messageId)!;
+  const a = corpusEventMessages(long, original),
+    b = corpusEventMessages(long, replay);
+  assert.ok(a.length > 100);
+  assert.equal(a.length, b.length);
+  assert.deepEqual(
+    a.find((m) => m.id === replay.messageId),
+    b.find((m) => m.id === replay.messageId),
+  );
+  assert.notEqual(a[1]!.body, b[1]!.body);
+  assert.equal(long.headSha, "a".repeat(40));
+  const conflict = corpus.threads.find((t) => t.id === "queue-priority")!;
+  assert.equal(
+    new Set(
+      conflict.messages
+        .filter((m) => m.role === "maintainer")
+        .map((m) => m.actor),
+    ).size,
+    3,
+  );
+  assert.ok(
+    corpus.threads.some((t) =>
+      t.events.some(
+        (e) =>
+          e.expectedReply === "clarify_or_abstain" &&
+          e.forbiddenEffects.includes("any_durable_effect"),
+      ),
+    ),
+  );
+});
+
+test("actual scorer CLI rejects R1 extra wrong-source write and revised-body bypass after accepting its synthetic control", async () => {
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { spawnSync } = await import("node:child_process");
+  const { resolve } = await import("node:path");
+  const corpus = await loadCorpus();
+  const annotations: EntryReview[] = [];
+  const answers: Record<string, unknown>[] = [];
+  const scenarios: Record<string, unknown>[] = [];
+  const facts = new Map(corpus.facts.map((fact) => [fact.id, fact]));
+  for (const scenario of new Set(
+    corpus.threads.filter((t) => t.split === "tuning").map((t) => t.scenario),
+  )) {
+    const namespace = `scorer-only:${scenario}`;
+    const scope = {
+      kind: "repository" as const,
+      workspaceId: "scorer-only",
+      repositoryId: namespace,
+    };
+    const inventory = new Map<string, InventoryEntry>();
+    const observations: Witness[] = [];
+    const annotatedVersions = new Set<string>();
+    for (const thread of corpus.threads.filter(
+      (t) => t.scenario === scenario,
+    )) {
+      for (const event of thread.events) {
+        const visible = corpusEventMessages(thread, event);
+        const selected = visible.find((m) => m.id === event.messageId)!;
+        const current = new Map(
+          visible.map((m) => [
+            `${namespace}:${m.id}`,
+            sourceRevision(m.updatedAt, m.body),
+          ]),
+        );
+        for (const entry of inventory.values()) {
+          const belongs = thread.messages.some(
+            (m) => `${namespace}:${m.id}` === entry.sourceId,
+          );
+          if (
+            entry.body !== null &&
+            belongs &&
+            (current.get(entry.sourceId!) !== entry.sourceRevision ||
+              (event.action === "deleted" &&
+                entry.sourceId === `${namespace}:${event.messageId}`))
+          ) {
+            entry.body = null;
+            entry.lifecycle = "retired";
+            entry.revision += "-withdrawn";
+          }
+        }
+        for (const id of event.eligibleFactIds) {
+          const fact = facts.get(id)!;
+          inventory.set(id, {
+            id,
+            revision: `revision:${event.id ?? event.messageId}`,
+            scope,
+            lifecycle: "active",
+            body: fact.text,
+            bodyDigest: createHash("sha256").update(fact.text).digest("hex"),
+            kind: "observation",
+            approvalAuthorityRevision: "automatic:scorer-only",
+            automaticCohortId: `cohort:${id}`,
+            automaticCohortEpoch: "1",
+            sourceId: `${namespace}:${event.messageId}`,
+            sourceRevision: sourceRevision(selected.updatedAt, selected.body),
+            sourceActor: `github-user:eval-${selected.actor}`,
+            observedCommit: thread.headSha,
+          });
+        }
+        const rows = structuredClone([...inventory.values()]);
+        for (const row of rows) {
+          const key = `${row.id}:${row.revision}:${row.bodyDigest}`;
+          if (annotatedVersions.has(key)) continue;
+          annotatedVersions.add(key);
+          annotations.push({
+            variant: "full-product",
+            namespace,
+            entryId: row.id,
+            entryRevision: row.revision,
+            bodyDigest: row.bodyDigest!,
+            supportedFactIds: [row.id],
+            attributionCorrect: true,
+            wrongScope: false,
+          });
+        }
+        const eventId = corpusEventId(thread, event);
+        observations.push({
+          eventId,
+          processingId: eventId,
+          status: "silent",
+          learningStatus: "active",
+          effectIds: [],
+          answer: "Synthetic scorer regression only",
+          previewCalls: event.expectedReply === "replay_no_new_effects" ? 0 : 1,
+          modelCalls: event.expectedReply === "replay_no_new_effects" ? 0 : 1,
+          inputBytes: 100,
+          deliveredBodyDigests: rows
+            .filter((r) => r.body !== null)
+            .map((r) => r.bodyDigest!),
+          memoryManifest: {},
+          observedModel: "SCORER_TEST_NO_MODEL",
+          usage: null,
+          productLatencyMs: 0,
+          nativeLatencyMs: 0,
+          inventory: rows,
+          retained: rows.filter(
+            (r): r is InventoryEntry & { body: string; bodyDigest: string } =>
+              r.body !== null && r.bodyDigest !== null,
+          ),
+          effects: [],
+        });
+        answers.push({
+          variant: "full-product",
+          eventId,
+          supported: true,
+          requiredFactsUsed: event.requiredFactIds,
+          clarificationUnnecessary: false,
+          replyUnnecessary: false,
+          effectTruthful: true,
+          forbiddenEffect: false,
+        });
+      }
+    }
+    scenarios.push({
+      scenario,
+      namespace,
+      scope,
+      coldStart: {
+        productEntries: 0,
+        processingRecords: 0,
+        nativeDocuments: 0,
+      },
+      observations,
+    });
+  }
+  const report = {
+    runId: "SYNTHETIC_SCORER_REGRESSION_ONLY",
+    corpusRevision: corpus.revision,
+    split: "tuning",
+    status: "AWAITING_HUMAN_RUBRIC",
+    variants: [
+      { variant: "full-product", status: "AWAITING_HUMAN_RUBRIC", scenarios },
+    ],
+  };
+  const rubric = {
+    runId: report.runId,
+    corpusRevision: corpus.revision,
+    reviewer: "synthetic-scorer-test",
+    reviewedAt: "2026-10-28T00:00:00Z",
+    entries: annotations,
+    answers,
+  };
+  const directory = await mkdtemp(
+    resolve("tmp/conversational-memory-implementation/scorer-risk-"),
+  );
+  try {
+    const reportPath = resolve(directory, "report.json"),
+      rubricPath = resolve(directory, "rubric.json");
+    await writeFile(rubricPath, JSON.stringify(rubric));
+    const score = async (input: unknown) => {
+      await writeFile(reportPath, JSON.stringify(input));
+      return spawnSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "scripts/conversation-evals/score.ts",
+          reportPath,
+          rubricPath,
+        ],
+        { encoding: "utf8" },
+      );
+    };
+    const positive = await score(report);
+    assert.equal(positive.status, 0, positive.stderr);
+    const negative = structuredClone(report);
+    const row = (
+      negative.variants[0]!.scenarios[0]!.observations as Witness[]
+    )[0]!;
+    const extra = {
+      ...row.retained[0]!,
+      id: "unannotated-wrong-source-write",
+      sourceId: "different-actor:unrelated-comment",
+      sourceActor: "forbidden-actor",
+      kind: "rule",
+      approvalAuthorityRevision: "unauthorized",
+      automaticCohortId: null,
+      automaticCohortEpoch: null,
+    };
+    row.inventory.push(extra);
+    row.retained.push(extra);
+    const wrongSource = await score(negative);
+    assert.notEqual(wrongSource.status, 0);
+    assert.match(wrongSource.stderr, /eval_observed_entry_authority_invalid/);
+    const revised = structuredClone(report);
+    const later = (
+      revised.variants[0]!.scenarios[0]!.observations as Witness[]
+    )[1]!;
+    const target = later.inventory[0]!;
+    target.revision = "unsupported-r2";
+    target.body = "Unsupported same-ID replacement";
+    target.bodyDigest = createHash("sha256").update(target.body).digest("hex");
+    later.retained[0] = {
+      ...target,
+      body: target.body,
+      bodyDigest: target.bodyDigest,
+    };
+    const changed = await score(revised);
+    assert.notEqual(changed.status, 0);
+    assert.match(
+      changed.stderr,
+      /eval_missing_or_duplicate_entry_version_rubric/,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("validated entries cannot disappear, while actual authorized purged tombstones remain bodyless", () => {
+  const input = sample();
+  inspectInventory(input);
+  assert.throws(
+    () =>
+      inspectInventory({
+        ...input,
+        witness: { ...input.witness, inventory: [], retained: [] },
+      }),
+    /eval_observed_inventory_disappeared/,
+  );
+  const old = input.witness.inventory[0]!;
+  const purged = {
+    ...old,
+    revision: "forget-r2",
+    lifecycle: "forgotten",
+    body: null,
+    bodyDigest: null,
+    sourceId: null,
+    sourceRevision: null,
+    approvalAuthorityRevision: null,
+  };
+  const witness = { ...input.witness, inventory: [purged], retained: [] };
+  assert.throws(
+    () => inspectInventory({ ...input, witness }),
+    /eval_observed_entry_authority_invalid/,
+  );
+  assert.equal(
+    inspectInventory({ ...input, witness, revokedEntryIds: new Set([old.id]) })
+      .length,
+    0,
+  );
+});
+
+test("revising an existing ID cannot transfer its previously validated source or cohort", () => {
+  const input = sample();
+  inspectInventory(input);
+  const original = input.sources.get(input.triggerSourceId)!;
+  input.sources.set("fixture:other", { ...original, messageId: "other" });
+  input.sourceHistory.set(`fixture:other\u0000${original.revision}`, {
+    ...original,
+    messageId: "other",
+  });
+  const revised = input.witness.inventory[0]!;
+  revised.sourceId = "fixture:other";
+  revised.revision = "transferred-r2";
+  assert.throws(
+    () => inspectInventory({ ...input, triggerSourceId: "fixture:other" }),
+    /eval_observed_entry_authority_invalid/,
+  );
+});
