@@ -40,18 +40,18 @@ and operational metadata, not raw source files by default. Provider and CI usage
 still count against your own plan or billing.
 
 ## Benchmark
+
 We use fast and powerfull OpenCodeReview's engine. [Read more](https://github.com/alibaba/open-code-review#benchmark)
 
 <img width="2560" height="1836" alt="image" src="https://github.com/user-attachments/assets/327c8f80-29e2-4cf0-9ccf-e773be5c8205" />
 
-
 ## Current status
 
-| Integration         | What to expect                                                                                                                                                             |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GitHub              | App installation, setup PRs, inline review and a shared dashboard.                                                                                                         |
-| GitLab              | In development.                                                                                  |
-| Self-hosted         | Docker Compose deployment on your infrastructure;                                                                                                |
+| Integration | What to expect                                                     |
+| ----------- | ------------------------------------------------------------------ |
+| GitHub      | App installation, setup PRs, inline review and a shared dashboard. |
+| GitLab      | In development.                                                    |
+| Self-hosted | Docker Compose deployment on your infrastructure;                  |
 
 The hosted pool holds encrypted credentials and relays model traffic through
 ReviewRouter, unlike the default repository-secret setup. Advanced investigations
