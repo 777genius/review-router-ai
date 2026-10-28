@@ -63,7 +63,10 @@ export async function startNextApp(input: {
     Object.assign(environment, {
       ...skillsReadinessFixtureEnv(),
       REVIEW_ROUTER_SKILLS_E2E: "1",
-      REVIEW_ROUTER_E2E_NEXT_PERF_LOG: join(input.workDir, "next-performance.jsonl"),
+      REVIEW_ROUTER_E2E_NEXT_PERF_LOG: join(
+        input.workDir,
+        "next-performance.jsonl",
+      ),
       REVIEW_ROUTER_GITHUB_APP_TEST_ORIGIN: input.skillsGitHub.origin,
       GITHUB_APP_ID: "990001",
       GITHUB_APP_PRIVATE_KEY: input.skillsGitHub.privateKey,
