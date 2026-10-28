@@ -519,7 +519,7 @@ Otherwise that learning's own scope-epoch change would invalidate the accepted
 input and invite an incorrect recapture/retry. Learning remains independent of
 missing/malformed product output and publication gates; selected facts help the
 next turn. Obtained normalized reply/action decisions are frozen before their
-dependent effects. See [ADR032](../decisions/032-conversational-memory-source-processing.md).
+dependent effects. See [ADR033](../decisions/033-conversational-memory-source-processing.md).
 
 Publication refinement: the existing publication endpoint accepts a one-use
 `dispatching` claim before the first App create. Frozen vector/head, source and
