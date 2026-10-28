@@ -1,8 +1,8 @@
 import {
   HindsightSourcePreview,
   type HindsightPreviewQualification,
-  type SourcePreviewPort,
 } from "context-memory";
+import type { MemorySourcePreviewPort } from "../../application/ports/memory-source-preview-port";
 import { parseMemoryProviderConfig } from "../config/memory-provider-config";
 import { hindsightMemoryBankId } from "./hindsight-scope";
 import {
@@ -13,8 +13,8 @@ import {
 /** Deployment-owned evidence, never supplied by Action requests. No default qualification. */
 export function createConfiguredMemorySourcePreview(
   env: Readonly<Record<string, string | undefined>>,
-): SourcePreviewPort {
-  const unavailable: SourcePreviewPort = {
+): MemorySourcePreviewPort {
+  const unavailable: MemorySourcePreviewPort = {
     preview: async () => ({ status: "unsupported", reason: "unqualified" }),
   };
   const config = parseMemoryProviderConfig(env);

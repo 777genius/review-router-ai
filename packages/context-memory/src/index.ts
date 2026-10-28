@@ -1,3 +1,4 @@
-export * from "./contracts";
-export * from "./capabilities";
-export * from "./hindsight/source-preview";
+export * from "./contracts.js";
+export * from "./capabilities.js";
+export * from "./hindsight/source-preview.js";
+export * from "./hindsight/memory-store.js";

@@ -1,3 +1,4 @@
+import { HindsightMemoryStore, MemoryEngineError } from "context-memory";
 import {
   createClient,
   createConfig,
@@ -29,6 +30,10 @@ import type { MemoryProviderConfig } from "../config/memory-provider-config";
 import { hindsightMemoryBankId } from "./hindsight-scope";
 
 type Config = Extract<MemoryProviderConfig, { kind: "hindsight" }>;
+type CurrentDocument = Pick<
+  DocumentResponse,
+  "id" | "bank_id" | "original_text" | "tags" | "document_metadata"
+>;
 type Delivery = Parameters<MemoryKnowledgeWriter["submit"]>[0];
 type NativeFact = {
   readonly id: string;
@@ -55,11 +60,20 @@ export class HindsightMemoryProvider
     MemoryOperationObserver
 {
   private readonly client: Client;
+  private readonly sources: HindsightMemoryStore;
 
   constructor(
     private readonly config: Config,
     options: { readonly fetch?: typeof fetch } = {},
   ) {
+    this.sources = new HindsightMemoryStore({
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      bankForScope: (key) =>
+        hindsightMemoryBankId(config, JSON.parse(key) as MemoryKnowledgeScope),
+      exactStatementStrategy: strategy,
+      ...(options.fetch ? { fetch: options.fetch } : {}),
+    });
     this.client = createClient(
       createConfig({
         baseUrl: config.baseUrl,
@@ -122,19 +136,41 @@ export class HindsightMemoryProvider
     }
   }
 
+  private async portable<T>(work: Promise<T>): Promise<T> {
+    try {
+      return await work;
+    } catch (error) {
+      if (error instanceof MemoryEngineError)
+        throw new MemoryKnowledgeError(
+          error.code === "deadline"
+            ? "deadline_exceeded"
+            : error.code === "incomplete"
+              ? "incomplete_evidence"
+              : error.code,
+          true,
+        );
+      throw new MemoryKnowledgeError("unavailable", true);
+    }
+  }
   private async document(
     ref: MemoryEntryRef,
     controls: MemoryRequestControls,
-  ): Promise<DocumentResponse | null> {
-    return this.result(
-      sdk.getDocument({
-        client: this.client,
-        path: { ...this.path(ref.scope), document_id: this.documentId(ref) },
-        signal: this.signal(controls),
-      }),
-      controls,
-      true,
+  ): Promise<CurrentDocument | null> {
+    const source = await this.portable(
+      this.sources.readSource(
+        { scope: JSON.stringify(ref.scope), id: this.documentId(ref) },
+        controls,
+      ),
     );
+    return source
+      ? {
+          id: source.ref.id,
+          bank_id: this.bank(ref.scope),
+          original_text: source.body,
+          tags: [...source.tags],
+          document_metadata: { ...source.metadata },
+        }
+      : null;
   }
 
   /** Fact enumeration is complete or rejected; a truncated prefix is never evidence. */
@@ -175,7 +211,7 @@ export class HindsightMemoryProvider
 
   private entry(
     ref: MemoryEntryRef,
-    document: DocumentResponse,
+    document: CurrentDocument,
     facts: readonly NativeFact[],
   ): MemoryProviderEntry {
     const metadata = document.document_metadata ?? {};
@@ -265,25 +301,19 @@ export class HindsightMemoryProvider
       input.limit > 100
     )
       throw new MemoryKnowledgeError("invalid_input");
-    const page = await this.result(
-      sdk.listDocuments({
-        client: this.client,
-        path: this.path(input.scope),
-        query: {
+    const page = await this.portable(
+      this.sources.listSources(
+        {
+          scope: JSON.stringify(input.scope),
           limit: input.limit,
-          offset,
-          ...(input.topicId
-            ? { tags: [`topic:${input.topicId}`], tags_match: "all" as const }
-            : {}),
+          ...(input.cursor ? { cursor: input.cursor } : {}),
+          ...(input.topicId ? { tags: [`topic:${input.topicId}`] } : {}),
         },
-        signal: this.signal(controls),
-      }),
-      controls,
-      true,
+        controls,
+      ),
     );
-    if (!page) return { entries: [], nextCursor: null };
     const entries: MemoryProviderEntry[] = [];
-    for (const document of page.items) {
+    for (const document of page.sources) {
       if (!document.id.startsWith("entry-")) continue;
       const entry = await this.read(
         { type: "entry", scope: input.scope, entryId: document.id.slice(6) },
@@ -293,10 +323,7 @@ export class HindsightMemoryProvider
     }
     return {
       entries,
-      nextCursor:
-        page.items.length === input.limit
-          ? String(offset + page.items.length)
-          : null,
+      nextCursor: page.nextCursor,
     };
   }
 
@@ -517,49 +544,40 @@ export class HindsightMemoryProvider
     if (!Number.isFinite(sourceTime))
       throw new MemoryKnowledgeError("invalid_input");
     const statementAt = new Date(sourceTime).toISOString();
-    const accepted = await this.result(
-      sdk.retainMemories({
-        client: this.client,
-        path: this.path(command.ref.scope),
-        body: {
-          async: true,
-          operation_id: command.commandId,
-          items: [
-            {
-              content: command.body,
-              document_id: this.documentId(command.ref),
-              timestamp: statementAt,
-              strategy,
-              update_mode: "replace",
-              tags: [
-                "rr:approved",
-                `kind:${command.knowledgeKind}`,
-                ...command.topicIds.map((topic) => `topic:${topic}`),
-              ],
-              observation_scopes: [[`kind:${command.knowledgeKind}`]],
-              entities: [],
-              resolve_entities: false,
-              metadata: {
-                rr_entry_id: command.ref.entryId,
-                rr_kind: command.knowledgeKind,
-                rr_content_revision: input.contentApprovalRevision,
-                rr_body_digest: createMemoryBodyHash(command.body),
-                rr_statement_at: statementAt,
-                rr_profile: this.config.profileVersion,
-                rr_scope: memoryKnowledgeDigest(
-                  memoryKnowledgeScopeKey(command.ref.scope),
-                ),
-                rr_command_id: command.commandId,
-              },
+    await this.portable(
+      this.sources.replaceSource(
+        {
+          operationId: command.commandId,
+          statementAt,
+          derivationTags: [`kind:${command.knowledgeKind}`],
+          source: {
+            ref: {
+              scope: JSON.stringify(command.ref.scope),
+              id: this.documentId(command.ref),
             },
-          ],
+            body: command.body,
+            tags: [
+              "rr:approved",
+              `kind:${command.knowledgeKind}`,
+              ...command.topicIds.map((topic) => `topic:${topic}`),
+            ],
+            metadata: {
+              rr_entry_id: command.ref.entryId,
+              rr_kind: command.knowledgeKind,
+              rr_content_revision: input.contentApprovalRevision,
+              rr_body_digest: createMemoryBodyHash(command.body),
+              rr_statement_at: statementAt,
+              rr_profile: this.config.profileVersion,
+              rr_scope: memoryKnowledgeDigest(
+                memoryKnowledgeScopeKey(command.ref.scope),
+              ),
+              rr_command_id: command.commandId,
+            },
+          },
         },
-        signal: this.signal(controls),
-      }),
-      controls,
+        controls,
+      ),
     );
-    if (!accepted?.success || accepted.operation_id !== command.commandId)
-      throw new MemoryKnowledgeError("unknown_write", true);
     return { commandId: command.commandId, state: "submitted" };
   }
 
@@ -576,20 +594,22 @@ export class HindsightMemoryProvider
     if (command.kind === "forget")
       return { commandId: command.commandId, state: "cleanup_pending" };
     if (command.kind !== "save") return this.applyCuration(input, controls);
-    const status = await this.result(
-      sdk.getOperationStatus({
-        client: this.client,
-        path: {
-          ...this.path(command.ref.scope),
-          operation_id: command.commandId,
-        },
-        query: { include_payload: false },
-        signal: this.signal(controls),
-      }),
-      controls,
-      true,
+    const operation = await this.portable(
+      this.sources.operation(
+        { scope: JSON.stringify(command.ref.scope), id: command.commandId },
+        controls,
+      ),
     );
-    if (!status || status.status === "not_found") {
+    const status = operation
+      ? {
+          status: operation.state,
+          operation_type: operation.kind,
+          child_operations: operation.children.map((child) => ({
+            status: child.state,
+          })),
+        }
+      : null;
+    if (!status) {
       // Absence after native retention is not proof of non-execution. The app owns the retry window.
       const resubmitUntil = Date.parse(input.resubmitUntil);
       if (input.allowResubmit && Date.now() < resubmitUntil)

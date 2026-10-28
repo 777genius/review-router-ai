@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, it, expect, vi } from "vitest";
-import { HindsightSourcePreview } from "./source-preview";
-import { selectNotebookNotes } from "../../examples/external-consumer/index";
+import { HindsightSourcePreview } from "context-memory";
 const mission =
   "Select only useful durable information supported by the selectable source. Read-only context cannot contribute independently. Abstain when unsupported. At most four concise facts.";
 const qualification = {
@@ -53,13 +52,10 @@ describe("qualified native source preview", () => {
       ],
       chunks: [{ text: input.source.body, fact_count: 1 }],
     });
-    expect(
-      await selectNotebookNotes(
-        engine,
-        { id: "note", revision: "revision", text: input.source.body },
-        controls(),
-      ),
-    ).toEqual({ state: "selected", notes: ["Use UTC timestamps."] });
+    expect(await engine.preview(input, controls())).toMatchObject({
+      status: "complete",
+      statements: [{ body: "Use UTC timestamps." }],
+    });
     expect(send).toHaveBeenCalledTimes(1);
     const wire = JSON.parse(String(send.mock.calls[0]?.[1]?.body));
     expect(wire.content).toBe(input.source.body);

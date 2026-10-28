@@ -6,12 +6,20 @@
   "exports": {
     ".": {
       "types": "./src/index.ts",
-      "production": "./dist/index.js",
-      "default": "./src/index.ts"
+      "development": "./src/index.ts",
+      "default": "./dist/index.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json"
-  }
+  },
+  "dependencies": {
+    "@vectorize-io/hindsight-client": "https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ]
 }

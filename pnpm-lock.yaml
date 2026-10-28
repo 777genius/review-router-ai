@@ -578,7 +578,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
 
-  packages/context-memory: {}
+  packages/context-memory:
+    dependencies:
+      '@vectorize-io/hindsight-client':
+        specifier: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz
+        version: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz
 
   packages/features/action-control-plane:
     dependencies:
@@ -807,6 +811,9 @@ importers:
       '@reviewrouter/features-outbox':
         specifier: workspace:*
         version: link:../outbox
+      '@reviewrouter/platform-config':
+        specifier: workspace:*
+        version: link:../../platform/config
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../shared

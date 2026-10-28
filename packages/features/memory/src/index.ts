@@ -18,3 +18,4 @@ export * from "./application/use-cases/prune-memory-usage-events";
 
 export * from "./application/ports/memory-automatic-source-port";
 export * from "./application/use-cases/memory-automatic-source-service";
+export * from "./application/ports/memory-source-preview-port";

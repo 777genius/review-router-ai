@@ -1,5 +1,9 @@
-import type { SourcePreviewPort } from "context-memory";
-import { createMemoryBodyHash } from "../../domain/memory-body";
+import type { MemorySourcePreviewPort } from "../ports/memory-source-preview-port";
+import { createHash } from "node:crypto";
+import {
+  normalizeMemoryBody,
+  createMemoryBodyHash,
+} from "../../domain/memory-body";
 import {
   MemoryKnowledgeError,
   memoryKnowledgeDigest,
@@ -21,7 +25,7 @@ import type { MemoryKnowledgeService } from "./memory-knowledge-service";
 export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort {
   constructor(
     private readonly dependencies: {
-      readonly preview: SourcePreviewPort;
+      readonly preview: MemorySourcePreviewPort;
       readonly current: MemoryAutomaticSourceCurrentPort;
       readonly sources: MemoryAutomaticSourceStore;
       readonly knowledge: MemoryKnowledgeService;
@@ -62,8 +66,9 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
       !input.selectableBody ||
       input.source.observedCommitSha !== input.headSha ||
       !/^[0-9a-f]{40,64}$/i.test(input.headSha) ||
-      createMemoryBodyHash(input.selectableBody) !==
-        input.source.claimedBodyDigest
+      createHash("sha256")
+        .update(input.selectableBody, "utf8")
+        .digest("hex") !== input.source.claimedBodyDigest
     )
       throw new MemoryKnowledgeError("invalid_input");
     const prior = await this.dependencies.sources.lookup(
@@ -90,6 +95,17 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
         },
         controls,
       );
+    const expectedPrior = await this.dependencies.sources.lookup(
+      input.scope,
+      input.source.sourceId,
+    );
+    if (expectedPrior?.suppressed)
+      return outcome("suppressed", expectedPrior.entryIds);
+    await this.dependencies.knowledge.authorizeAutomaticSource(
+      input.sourceActor,
+      input.scope,
+      controls,
+    );
     const current = () =>
       this.dependencies.current.current(
         {
@@ -127,7 +143,9 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
       selected.statements.length > 4 ||
       selected.statements.some(
         (s) =>
-          !s.body.trim() || s.body.length > 1000 || s.body !== s.body.trim(),
+          !s.body.trim() ||
+          s.body.length > 1000 ||
+          s.body !== normalizeMemoryBody(s.body),
       )
     )
       return outcome("needs_refresh");
@@ -139,6 +157,7 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
     const reserved = await this.dependencies.sources.reserve({
       input,
       generation: this.dependencies.generation,
+      expectedPriorEpoch: expectedPrior?.binding.epoch ?? null,
       entryIds: ids,
       bodyDigests: selected.statements.map((s) => createMemoryBodyHash(s.body)),
       now: this.now(),
@@ -150,39 +169,6 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
       authorityRevision: `automatic:${input.policyRevision}`,
     };
     const operations = [];
-    for (const [index, statement] of selected.statements.entries()) {
-      const ref: MemoryEntryRef = {
-        type: "entry",
-        scope: input.scope,
-        entryId: ids[index]!,
-      };
-      const command: Extract<MemoryKnowledgeCommand, { kind: "save" }> = {
-        kind: "save",
-        commandId: childUuid(input.processingId, index),
-        ref,
-        expectedRevision: null,
-        generation: this.dependencies.generation,
-        providerProfileVersion: this.dependencies.providerProfileVersion,
-        approval,
-        body: statement.body,
-        knowledgeKind: "observation",
-        topicIds: [],
-        source: input.source,
-        applicability: {
-          validUntil: null,
-          observedCommitSha: input.headSha,
-          exceptionRule: null,
-        },
-        temporalMode: "preserve_original",
-      };
-      operations.push(
-        await this.dependencies.knowledge.saveAutomatic(
-          command,
-          reserved.binding,
-          controls,
-        ),
-      );
-    }
     // Withdrawn old children use the existing CAS/retire owner. Ownership transfer wins a race.
     if (prior)
       for (const entryId of prior.entryIds) {
@@ -219,6 +205,39 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
             throw error;
         }
       }
+    for (const [index, statement] of selected.statements.entries()) {
+      const ref: MemoryEntryRef = {
+        type: "entry",
+        scope: input.scope,
+        entryId: ids[index]!,
+      };
+      const command: Extract<MemoryKnowledgeCommand, { kind: "save" }> = {
+        kind: "save",
+        commandId: childUuid(input.processingId, index),
+        ref,
+        expectedRevision: null,
+        generation: this.dependencies.generation,
+        providerProfileVersion: this.dependencies.providerProfileVersion,
+        approval,
+        body: statement.body,
+        knowledgeKind: "observation",
+        topicIds: [],
+        source: input.source,
+        applicability: {
+          validUntil: null,
+          observedCommitSha: input.headSha,
+          exceptionRule: null,
+        },
+        temporalMode: "preserve_original",
+      };
+      operations.push(
+        await this.dependencies.knowledge.saveAutomatic(
+          command,
+          reserved.binding,
+          controls,
+        ),
+      );
+    }
     return outcome(ids.length ? "queued" : "active", ids, operations);
   }
   async revoke(

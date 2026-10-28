@@ -54,6 +54,9 @@ export type MemoryAutomaticSourceState = {
   readonly source: MemoryKnowledgeSource;
   readonly state: "pending" | "active" | "needs_refresh";
   readonly suppressed: boolean;
+  readonly suppressionEpoch: string;
+  readonly invalidatedBy?: "changed" | "deleted" | "unavailable";
+  readonly lastCompleteCohort?: boolean;
   readonly entryIds: readonly string[];
 };
 export interface MemoryAutomaticSourceStore {
@@ -61,9 +64,14 @@ export interface MemoryAutomaticSourceStore {
     scope: MemoryKnowledgeScope,
     sourceId: string,
   ): Promise<MemoryAutomaticSourceState | null>;
+  lookupLineage(
+    scope: MemoryKnowledgeScope,
+    lineageKey: string,
+  ): Promise<MemoryAutomaticSourceState | null>;
   reserve(input: {
     readonly input: MemoryAutomaticSourceInput;
     readonly generation: string;
+    readonly expectedPriorEpoch: string | null;
     readonly entryIds: readonly string[];
     readonly bodyDigests: readonly string[];
     readonly now: Date;
@@ -72,6 +80,24 @@ export interface MemoryAutomaticSourceStore {
     readonly scope: MemoryKnowledgeScope;
     readonly sourceId: string;
     readonly cause: "deleted" | "unavailable" | "changed";
+    readonly now: Date;
+  }): Promise<void>;
+  recoverAvailability(input: {
+    readonly ref: MemoryEntryRef;
+    readonly generation: string;
+    readonly binding: MemoryAutomaticSourceBinding;
+    readonly now: Date;
+  }): Promise<boolean>;
+  clearSuppression(input: {
+    readonly scope: MemoryKnowledgeScope;
+    readonly sourceId: string;
+    readonly expectedEpoch: string;
+    readonly expectedSuppressionEpoch: string;
+    readonly entry?: {
+      readonly ref: MemoryEntryRef;
+      readonly generation: string;
+      readonly expectedRevision: string;
+    };
     readonly now: Date;
   }): Promise<void>;
   /** No native/source I/O; locks and verifies the complete activated cohort. */

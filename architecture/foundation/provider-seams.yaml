@@ -11,6 +11,8 @@ governedRoots:
   # Adopt only the new limits seam; existing account/lifecycle code stays outside this scope.
   - packages/features/provider-accounts/src/account-limits
   - packages/features/memory/src
+  - packages/context-memory/src
+  - packages/context-memory/examples
 boundaries:
   - id: account-limits.domain
     roots:
@@ -334,6 +336,8 @@ boundaries:
       - "packages/features/memory/src/application"
     entrypoints:
       - "packages/features/memory/src/application/memory-cleanup-policy.ts"
+      - "packages/features/memory/src/application/ports/memory-automatic-source-port.ts"
+      - "packages/features/memory/src/application/ports/memory-source-preview-port.ts"
       - "packages/features/memory/src/application/ports/memory-cleanup-proof-port.ts"
       - "packages/features/memory/src/application/ports/memory-knowledge-access-port.ts"
       - "packages/features/memory/src/application/ports/memory-knowledge-provider-port.ts"
@@ -342,6 +346,7 @@ boundaries:
       - "packages/features/memory/src/application/ports/memory-policy-config-port.ts"
       - "packages/features/memory/src/application/ports/memory-quota-policy-port.ts"
       - "packages/features/memory/src/application/ports/memory-usage-event-retention-port.ts"
+      - "packages/features/memory/src/application/use-cases/memory-automatic-source-service.ts"
       - "packages/features/memory/src/application/use-cases/memory-knowledge-service.ts"
       - "packages/features/memory/src/application/use-cases/prune-memory-usage-events.ts"
     allow:
@@ -372,6 +377,8 @@ boundaries:
     roots:
       - "packages/features/memory/src/infrastructure/entitlements/entitlement-memory-policy-config.ts"
       - "packages/features/memory/src/infrastructure/entitlements/entitlement-memory-quota-policy.ts"
+      - "packages/features/memory/src/infrastructure/github/github-automatic-memory-source-current.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-automatic-source-store.ts"
       - "packages/features/memory/src/infrastructure/prisma/approved-memory-source-applicable.ts"
       - "packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-access.ts"
       - "packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-store.ts"
@@ -381,6 +388,8 @@ boundaries:
     entrypoints:
       - "packages/features/memory/src/infrastructure/entitlements/entitlement-memory-policy-config.ts"
       - "packages/features/memory/src/infrastructure/entitlements/entitlement-memory-quota-policy.ts"
+      - "packages/features/memory/src/infrastructure/github/github-automatic-memory-source-current.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-automatic-source-store.ts"
       - "packages/features/memory/src/infrastructure/prisma/approved-memory-source-applicable.ts"
       - "packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-access.ts"
       - "packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-store.ts"
@@ -406,6 +415,7 @@ boundaries:
       - "packages/features/memory/src/infrastructure/hindsight/hindsight-cleanup-proof-adapter.ts"
       - "packages/features/memory/src/infrastructure/hindsight/hindsight-cleanup-receipt.ts"
       - "packages/features/memory/src/infrastructure/hindsight/hindsight-memory-provider.ts"
+      - "packages/features/memory/src/infrastructure/hindsight/hindsight-source-preview.ts"
       - "packages/features/memory/src/infrastructure/hindsight/hindsight-scope.ts"
     allow:
       boundaries:
@@ -414,14 +424,17 @@ boundaries:
         - "memory.config"
       packages:
         - "@vectorize-io/hindsight-client"
+        - "context-memory"
       builtins:
         - "node:crypto"
       runtimeReferences: []
   - id: memory.composition
     roots:
+      - "packages/features/memory/src/composition/automatic-memory-source-current.ts"
       - "packages/features/memory/src/composition/index.ts"
       - "packages/features/memory/src/composition/memory-knowledge-runtime.ts"
     entrypoints:
+      - "packages/features/memory/src/composition/automatic-memory-source-current.ts"
       - "packages/features/memory/src/composition/index.ts"
       - "packages/features/memory/src/composition/memory-knowledge-runtime.ts"
     allow:
@@ -429,6 +442,7 @@ boundaries:
         - "memory.domain"
         - "memory.application"
         - "memory.config"
+        - "memory.source-config"
         - "memory.infrastructure"
         - "memory.hindsight"
       packages:
@@ -481,6 +495,7 @@ boundaries:
         - "memory.composition"
         - "memory.public"
       packages:
+        - context-memory
         - "vitest"
         - "@prisma/client"
         - "@prisma/adapter-pg"
@@ -611,5 +626,68 @@ boundaries:
       boundaries:
         - statistics.domain
       packages: []
+      builtins: []
+      runtimeReferences: []
+
+  - id: context-memory.contracts
+    roots:
+      - packages/context-memory/src/contracts.ts
+      - packages/context-memory/src/capabilities.ts
+    entrypoints:
+      - packages/context-memory/src/contracts.ts
+      - packages/context-memory/src/capabilities.ts
+    allow:
+      boundaries: []
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: context-memory.hindsight
+    roots:
+      - packages/context-memory/src/hindsight/source-preview.ts
+      - packages/context-memory/src/hindsight/memory-store.ts
+    entrypoints:
+      - packages/context-memory/src/hindsight/source-preview.ts
+      - packages/context-memory/src/hindsight/memory-store.ts
+    allow:
+      boundaries:
+        - context-memory.contracts
+      packages:
+        - "@vectorize-io/hindsight-client"
+      builtins: []
+      runtimeReferences: []
+  - id: context-memory.public
+    roots:
+      - packages/context-memory/src/index.ts
+    entrypoints:
+      - packages/context-memory/src/index.ts
+    allow:
+      boundaries:
+        - context-memory.contracts
+        - context-memory.hindsight
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: context-memory.example
+    roots:
+      - packages/context-memory/examples
+    entrypoints:
+      - packages/context-memory/examples/external-consumer/index.ts
+    allow:
+      boundaries:
+        - context-memory.public
+      packages: []
+      builtins: []
+      runtimeReferences: []
+
+  - id: memory.source-config
+    roots:
+      - packages/features/memory/src/infrastructure/config/memory-source-processing-qualification.ts
+    entrypoints:
+      - packages/features/memory/src/infrastructure/config/memory-source-processing-qualification.ts
+    allow:
+      boundaries:
+        - memory.domain
+      packages:
+        - "@reviewrouter/platform-config"
       builtins: []
       runtimeReferences: []

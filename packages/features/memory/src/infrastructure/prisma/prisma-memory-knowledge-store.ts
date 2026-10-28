@@ -70,7 +70,13 @@ const terminal = new Set(["published", "completed", "failed"]);
 
 /** SQL is intentionally scoped to authority/delivery tables, never provider content. */
 export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly options: {
+      readonly automaticSourcesEnabled?: boolean;
+      readonly providerProfileVersion?: string;
+    } = {},
+  ) {}
 
   async maintenanceState(
     generation: string,
@@ -312,7 +318,12 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
         now: input.now,
       });
       if (command.kind === "save")
-        await this.reserveSource(tx, command, input.now);
+        await this.reserveSource(
+          tx,
+          command,
+          input.now,
+          Boolean(input.automaticSource),
+        );
       const revision = (current?.revision ?? 0) + 1;
       const isSameBody =
         command.kind === "save" &&
@@ -793,6 +804,8 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
   async scheduleDueDeliveries(
     input: Parameters<MemoryKnowledgeStore["scheduleDueDeliveries"]>[0],
   ): Promise<number> {
+    if (this.options.automaticSourcesEnabled)
+      await this.scheduleSupersededAutomaticRetirements(input);
     return this.prisma.$transaction(async (tx) => {
       if ((await readMemoryMaintenanceState(tx, input.generation)).paused)
         return 0;
@@ -823,6 +836,60 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
       });
       return result.count;
     });
+  }
+
+  /** Existing recovery sweep reserves ordinary retire commands for superseded late callbacks. */
+  private async scheduleSupersededAutomaticRetirements(
+    input: Parameters<MemoryKnowledgeStore["scheduleDueDeliveries"]>[0],
+  ): Promise<void> {
+    const rows = await this.prisma.$queryRaw<
+      {
+        metadata: MemoryKnowledgeEntryMetadata;
+        approval: MemoryKnowledgeApproval | null;
+        profile: string;
+      }[]
+    >(
+      Prisma.sql`SELECT e."metadata",COALESCE(NULLIF(e."metadata"->'approval','null'::jsonb),c."approval") AS "approval",(SELECT p."envelope"->>'providerProfileVersion' FROM "MemoryKnowledgeCommand" p WHERE p."generation"=e."generation" AND p."scopeKey"=e."scopeKey" AND p."entryId"=e."entryId" AND p."envelope" IS NOT NULL ORDER BY p."revision" DESC LIMIT 1) AS "profile" FROM "MemoryAutomaticEntry" a JOIN "MemoryKnowledgeEntry" e USING ("generation","scopeKey","entryId") JOIN "MemoryAutomaticSource" s ON s."lineageKey"=a."lineageKey" LEFT JOIN "MemoryKnowledgeCommand" c ON c."id"=e."pendingCommandId" WHERE a."generation"=${input.generation} AND a."ownership"='automatic' AND e."lifecycle"='active' AND (s."state"->'binding'->>'cohortId'<>a."cohortId" OR (s."state"->>'state'='needs_refresh' AND s."state"->>'invalidatedBy'<>'unavailable')) ORDER BY a."scopeKey",a."entryId" LIMIT ${boundedMaintenanceLimit(input.limit)}`,
+    );
+    for (const row of rows) {
+      const metadata = row.metadata,
+        binding = metadata.automaticSource;
+      const profile = row.profile ?? this.options.providerProfileVersion;
+      if (!binding || !row.approval || !profile) continue;
+      const digest = memoryKnowledgeDigest([
+        "automatic-retirement",
+        input.generation,
+        metadata.ref,
+        binding.cohortId,
+      ]);
+      const command: MemoryKnowledgeCommand = {
+        kind: "retire",
+        ref: metadata.ref,
+        commandId: `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`,
+        expectedRevision: metadata.revision,
+        generation: input.generation,
+        providerProfileVersion: profile,
+        approval: row.approval,
+      };
+      try {
+        await this.admit({
+          command,
+          internalRetirement: binding,
+          digest: memoryKnowledgeCommandDigest(command),
+          now: input.now,
+          deliveryExpiresAt: new Date(input.now.getTime() + 7 * 86400000),
+          resubmitUntil: input.now,
+          activeEntryLimit: null,
+          pendingCommandLimit: 100,
+        });
+      } catch (error) {
+        if (
+          !(error instanceof MemoryKnowledgeError) ||
+          error.code !== "conflict"
+        )
+          throw error;
+      }
+    }
   }
 
   private verifiedPublication(
@@ -909,6 +976,7 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
     tx: Database,
     command: Extract<MemoryKnowledgeCommand, { kind: "save" }>,
     now: Date,
+    checkedAutomaticSource = false,
   ): Promise<void> {
     const source = command.source;
     const key = memoryKnowledgeDigest([
@@ -925,7 +993,8 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
     if (
       cursor &&
       (cursor.sourceAt > sourceAt ||
-        (cursor.sourceAt.getTime() === sourceAt.getTime() &&
+        (!checkedAutomaticSource &&
+          cursor.sourceAt.getTime() === sourceAt.getTime() &&
           cursor.revision !== source.revision))
     )
       throw new MemoryKnowledgeError("conflict");

@@ -85,6 +85,38 @@ function fixture(
   };
 }
 describe("dashboard memory command boundary", () => {
+  it("labels policy-derived observations without claiming per-fact human approval", async () => {
+    const f = fixture();
+    f.service.list.mockResolvedValueOnce({
+      entries: [
+        {
+          metadata: {
+            ref,
+            revision: "1",
+            kind: "observation",
+            lifecycle: "active",
+            automaticSource: { lineageKey: "source" },
+            source: { type: "github_comment", url: null },
+            originalStatementAt: null,
+            lastVerifiedAt: null,
+            pendingCommandId: null,
+          },
+          body: "Historical worker behavior.",
+          topicIds: [],
+          unavailableReason: null,
+        },
+      ],
+      nextCursor: null,
+    } as never);
+    const page = await f.controller.list(selection, {
+      repositories: [],
+      workspaceVisible: true,
+      writesEnabled: true,
+    });
+    expect(page.entries[0]?.sourceLabel).toBe(
+      "Learned from maintainer discussion",
+    );
+  });
   it("builds source authority on the server, keeps approval time and exact envelope on retry", async () => {
     const f = fixture();
     const input = {

@@ -5,7 +5,9 @@ ordinary application. The library owns provider-neutral capability contracts and
 native transport mappings. It has no dependency on ReviewRouter, GitHub, Prisma,
 Account Gateway, an agent runtime, or a product model-call interface.
 
-The initial capability is **source extraction preview**. A caller supplies one
+The initial capabilities are **source extraction preview**, **current source read/list**, **exact statement replace**, **native operation observation**, and **native recall evidence**. `HindsightMemoryStore` uses the pinned native SDK for these mechanisms. Operation completion is separate from application publication: callers must verify their own current-body and revision contract. Reflect and complete physical forget remain explicitly unavailable in this library; applications retain their existing qualified cleanup owner.
+
+For source extraction preview, A caller supplies one
 selectable source revision plus read-only context. The native engine owns semantic
 selection. The library validates bounded, complete results; it does not extract,
 verify, deduplicate, or approve facts. Preview output is never publication authority.

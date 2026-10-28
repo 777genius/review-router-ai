@@ -57,7 +57,7 @@ export type MemoryKnowledgeBundleItem =
     });
 
 export type MemoryContextPolicy = {
-  readonly audience: "public" | "repository";
+  readonly audience: "internal" | "public" | "repository";
   readonly repositoryId: string;
   readonly allowedTasks: readonly (
     | "review"
@@ -165,6 +165,66 @@ export class MemoryKnowledgeService {
     controls: MemoryRequestControls,
   ): Promise<MemoryKnowledgeOperation> {
     return this.mutate(command, controls);
+  }
+
+  async authorizeAutomaticSource(
+    actor: MemoryActor,
+    scope: MemoryKnowledgeScope,
+    controls: MemoryRequestControls,
+  ): Promise<void> {
+    await this.dependencies.access.authorize(
+      { actor, scope, action: "manage" },
+      controls,
+    );
+    const policy = await this.dependencies.policy.getPolicy({
+      workspaceId: scope.workspaceId,
+      repositoryId: scope.kind === "repository" ? scope.repositoryId : null,
+    });
+    if (
+      !policy.memoryEnabled ||
+      !policy.automaticLearning ||
+      scope.kind !== "repository"
+    )
+      throw new MemoryKnowledgeError("disabled");
+  }
+  /** Explicit maintainer transition; ordinary edits/replays never clear a source suppression. */
+  async relearnAutomatic(
+    input: {
+      readonly actor: MemoryActor;
+      readonly ref: MemoryEntryRef;
+      readonly expectedRevision: string;
+    },
+    controls: MemoryRequestControls,
+  ): Promise<void> {
+    await this.authorizeAutomaticSource(input.actor, input.ref.scope, controls);
+    const metadata = await this.dependencies.store.findEntry(
+      input.ref,
+      this.dependencies.generation,
+    );
+    const automatic = this.dependencies.automaticSources;
+    if (
+      !metadata?.automaticSource ||
+      !automatic ||
+      metadata.revision !== input.expectedRevision
+    )
+      throw new MemoryKnowledgeError("conflict");
+    const state = await automatic.store.lookupLineage(
+      input.ref.scope,
+      metadata.automaticSource.lineageKey,
+    );
+    if (!state) throw new MemoryKnowledgeError("not_found");
+    await automatic.store.clearSuppression({
+      scope: input.ref.scope,
+      sourceId: state.sourceId,
+      expectedEpoch: state.binding.epoch,
+      expectedSuppressionEpoch: state.suppressionEpoch ?? "0",
+      entry: {
+        ref: input.ref,
+        generation: this.dependencies.generation,
+        expectedRevision: input.expectedRevision,
+      },
+      now: this.now(),
+    });
   }
 
   /** Trusted application seam: standing policy is not a forged per-fact human approval. */
@@ -1070,7 +1130,7 @@ export class MemoryKnowledgeService {
     item: MemoryKnowledgeBundleItem,
     policy: MemoryContextPolicy | undefined,
   ): boolean {
-    if (!policy) return true;
+    if (!policy || policy.audience === "internal") return true;
     return (
       item.type === "entry" ? [item.metadata] : item.sourceMetadata
     ).every(
@@ -1088,10 +1148,25 @@ export class MemoryKnowledgeService {
     metadata: MemoryKnowledgeEntryMetadata,
     controls: MemoryRequestControls,
   ): Promise<boolean> {
-    const binding = metadata.automaticSource;
-    const automatic = this.dependencies.automaticSources;
+    const binding = metadata.automaticSource,
+      automatic = this.dependencies.automaticSources;
     if (!binding || !automatic || !metadata.source) return false;
+    const state = await automatic.store.lookupLineage(
+      metadata.ref.scope,
+      binding.lineageKey,
+    );
     if (
+      !state ||
+      state.binding.cohortId !== binding.cohortId ||
+      state.binding.sourceRevision !== binding.sourceRevision
+    )
+      return false;
+    const recoverable =
+      state.state === "needs_refresh" &&
+      state.invalidatedBy === "unavailable" &&
+      state.lastCompleteCohort === true;
+    if (
+      !recoverable &&
       !(await automatic.store.applicable(
         metadata.ref,
         metadata.generation,
@@ -1113,6 +1188,17 @@ export class MemoryKnowledgeService {
         scope: metadata.ref.scope,
         sourceId: metadata.source.sourceId,
         cause: "unavailable",
+        now: this.now(),
+      });
+      return false;
+    }
+    if (recoverable) {
+      // Fresh checked provenance may recover the same complete cohort, never a changed/deleted source.
+      // This capture is discarded because its epoch changed; subsequent reads see the renewed receipt.
+      await automatic.store.recoverAvailability({
+        ref: metadata.ref,
+        generation: metadata.generation,
+        binding,
         now: this.now(),
       });
       return false;

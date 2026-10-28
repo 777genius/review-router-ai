@@ -3,7 +3,7 @@ import type {
   SourcePreviewPort,
   SourcePreviewResult,
   SelectedStatement,
-} from "../contracts";
+} from "../contracts.js";
 
 /** Trusted deployment evidence; supplying this object does not produce qualification. */
 export type HindsightPreviewQualification = {

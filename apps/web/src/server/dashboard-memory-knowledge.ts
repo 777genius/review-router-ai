@@ -2,7 +2,10 @@ import {
   MemoryKnowledgeError,
   type MemoryActor,
 } from "@reviewrouter/features-memory";
-import { createMemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
+import {
+  createPrismaAutomaticMemorySourceCurrent,
+  createMemoryKnowledgeRuntime,
+} from "@reviewrouter/features-memory/composition";
 import {
   PrismaMemoryKnowledgeAccess,
   PrismaMemoryPermission,
@@ -66,7 +69,18 @@ async function productionMemoryDashboard(workspaceId: string) {
   const controller = createMemoryDashboardController({
     actor,
     access,
-    service: runtime.forAccess(access),
+    service: runtime.forAccess(
+      access,
+      createPrismaAutomaticMemorySourceCurrent({
+        prisma,
+        policy: runtime.policy,
+        env: process.env,
+        createClient: async (installationId) =>
+          createGitHubAppInstallationOctokit(
+            installationId,
+          ) as unknown as import("@reviewrouter/features-memory/composition").MemorySourceGitHubClient,
+      }),
+    ),
     store: runtime.store,
     generation: runtime.generation,
     providerProfileVersion: runtime.providerProfileVersion,

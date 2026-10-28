@@ -1,4 +1,4 @@
-import type { SourcePreviewPort } from "context-memory";
+import type { MemorySourcePreviewPort } from "../application/ports/memory-source-preview-port";
 import type {
   MemoryAutomaticSourceCurrentPort,
   MemoryAutomaticSourceStore,
@@ -52,7 +52,7 @@ export type MemoryKnowledgeRuntime = {
   forAutomaticLearning(
     access: MemoryKnowledgeAccessPort,
     current: MemoryAutomaticSourceCurrentPort,
-    preview: SourcePreviewPort,
+    preview: MemorySourcePreviewPort,
   ): MemoryAutomaticSourceService;
 };
 
@@ -148,7 +148,10 @@ export async function createMemoryKnowledgeRuntime(input: {
   const runtimeFactory = implement<Capabilities>()(
     runtimeModule,
     async ({ provider }) => {
-      const store = new PrismaMemoryKnowledgeStore(input.prisma);
+      const store = new PrismaMemoryKnowledgeStore(input.prisma, {
+        automaticSourcesEnabled: true,
+        providerProfileVersion,
+      });
       const automaticSources = new PrismaMemoryAutomaticSourceStore(
         input.prisma,
       );

@@ -32,9 +32,14 @@ async function sourceLock(tx: Database, lineageKey: string) {
     Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`memory-source:${lineageKey}`},0))`,
   );
 }
-async function bump(tx: Database, scope: MemoryKnowledgeScope, now: Date) {
+async function bump(
+  tx: Database,
+  scope: MemoryKnowledgeScope,
+  now: Date,
+  generation?: string,
+) {
   await tx.$executeRaw(
-    Prisma.sql`UPDATE "MemoryKnowledgeScopeState" SET "epoch"="epoch"+1,"updatedAt"=${now} WHERE "scopeKey"=${memoryKnowledgeScopeKey(scope)}`,
+    Prisma.sql`UPDATE "MemoryKnowledgeScopeState" SET "epoch"="epoch"+1,"updatedAt"=${now} WHERE "scopeKey"=${memoryKnowledgeScopeKey(scope)} AND (${generation ?? null}::text IS NULL OR "generation"=${generation ?? null})`,
   );
 }
 async function read(
@@ -61,6 +66,16 @@ export class PrismaMemoryAutomaticSourceStore implements MemoryAutomaticSourceSt
   lookup(scope: MemoryKnowledgeScope, sourceId: string) {
     return read(this.prisma, automaticMemoryLineageKey(scope, sourceId));
   }
+  async lookupLineage(
+    scope: MemoryKnowledgeScope,
+    lineageKey: string,
+  ): Promise<MemoryAutomaticSourceState | null> {
+    const state = await read(this.prisma, lineageKey);
+    return state &&
+      memoryKnowledgeScopeKey(state.scope) === memoryKnowledgeScopeKey(scope)
+      ? state
+      : null;
+  }
   async reserve(
     input: Parameters<MemoryAutomaticSourceStore["reserve"]>[0],
   ): Promise<MemoryAutomaticSourceState> {
@@ -81,16 +96,7 @@ export class PrismaMemoryAutomaticSourceStore implements MemoryAutomaticSourceSt
       ]);
       if (prior?.suppressed || prior?.binding.cohortId === cohortId)
         return prior;
-      if (
-        prior &&
-        Date.parse(prior.sourceUpdatedAt) > Date.parse(source.updatedAt)
-      )
-        throw new MemoryKnowledgeError("conflict");
-      if (
-        prior &&
-        prior.sourceUpdatedAt === source.updatedAt &&
-        prior.source.revision !== source.revision
-      )
+      if ((prior?.binding.epoch ?? null) !== input.expectedPriorEpoch)
         throw new MemoryKnowledgeError("conflict");
       const binding: MemoryAutomaticSourceBinding = {
         lineageKey: key,
@@ -109,6 +115,7 @@ export class PrismaMemoryAutomaticSourceStore implements MemoryAutomaticSourceSt
         source,
         state: input.entryIds.length ? "pending" : "active",
         suppressed: false,
+        suppressionEpoch: prior?.suppressionEpoch ?? "0",
         entryIds: input.entryIds,
       };
       await write(tx, state, input.now);
@@ -116,7 +123,7 @@ export class PrismaMemoryAutomaticSourceStore implements MemoryAutomaticSourceSt
         await tx.$executeRaw(
           Prisma.sql`INSERT INTO "MemoryAutomaticEntry" ("generation","scopeKey","entryId","lineageKey","cohortId","epoch","bodyDigest","ownership") VALUES (${input.generation},${memoryKnowledgeScopeKey(scope)},${entryId},${key},${cohortId},${binding.epoch},${input.bodyDigests[i]!},'automatic') ON CONFLICT DO NOTHING`,
         );
-      await bump(tx, scope, input.now);
+      await bump(tx, scope, input.now, input.generation);
       return state;
     });
   }
@@ -140,11 +147,121 @@ export class PrismaMemoryAutomaticSourceStore implements MemoryAutomaticSourceSt
         {
           ...prior,
           state: "needs_refresh",
+          invalidatedBy: input.cause,
+          lastCompleteCohort:
+            prior.state === "active" || prior.lastCompleteCohort === true,
           suppressed: prior.suppressed || input.cause === "deleted",
+          suppressionEpoch:
+            input.cause === "deleted"
+              ? String(BigInt(prior.suppressionEpoch ?? "0") + 1n)
+              : prior.suppressionEpoch,
           binding: {
             ...prior.binding,
             epoch: String(BigInt(prior.binding.epoch) + 1n),
           },
+        },
+        input.now,
+      );
+      await bump(tx, input.scope, input.now);
+    });
+  }
+  async recoverAvailability(
+    input: Parameters<MemoryAutomaticSourceStore["recoverAvailability"]>[0],
+  ): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      await lockMemoryKnowledgeScopes(tx, [input.ref.scope], input.generation);
+      await sourceLock(tx, input.binding.lineageKey);
+      const state = await read(tx, input.binding.lineageKey);
+      if (
+        !state ||
+        state.state !== "needs_refresh" ||
+        state.invalidatedBy !== "unavailable" ||
+        !state.lastCompleteCohort ||
+        state.binding.cohortId !== input.binding.cohortId ||
+        state.binding.sourceRevision !== input.binding.sourceRevision
+      )
+        return false;
+      const entries = await tx.$queryRaw<
+        {
+          entryId: string;
+          metadata: MemoryKnowledgeEntryMetadata;
+          bodyDigest: string;
+        }[]
+      >(
+        Prisma.sql`SELECT e."entryId",e."metadata",a."bodyDigest" FROM "MemoryAutomaticEntry" a JOIN "MemoryKnowledgeEntry" e USING ("generation","scopeKey","entryId") WHERE a."generation"=${input.generation} AND a."lineageKey"=${input.binding.lineageKey} AND a."cohortId"=${input.binding.cohortId} AND a."ownership"='automatic'`,
+      );
+      if (
+        entries.length !== state.entryIds.length ||
+        entries.some(
+          (entry) =>
+            !state.entryIds.includes(entry.entryId) ||
+            (entry.metadata.lifecycle === "active" &&
+              (entry.metadata.pendingCommandId !== null ||
+                entry.metadata.revocationCommandId !== null ||
+                !entry.metadata.contentApprovalRevision ||
+                entry.metadata.bodyDigest !== entry.bodyDigest)),
+        )
+      )
+        return false;
+      for (const entry of entries) {
+        const metadata = {
+          ...entry.metadata,
+          automaticSource: {
+            ...entry.metadata.automaticSource!,
+            epoch: state.binding.epoch,
+          },
+        };
+        await tx.$executeRaw(
+          Prisma.sql`UPDATE "MemoryKnowledgeEntry" SET "metadata"=${JSON.stringify(metadata)}::jsonb,"updatedAt"=${input.now} WHERE "generation"=${input.generation} AND "scopeKey"=${memoryKnowledgeScopeKey(input.ref.scope)} AND "entryId"=${entry.entryId}`,
+        );
+        await tx.$executeRaw(
+          Prisma.sql`UPDATE "MemoryAutomaticEntry" SET "epoch"=${state.binding.epoch} WHERE "generation"=${input.generation} AND "scopeKey"=${memoryKnowledgeScopeKey(input.ref.scope)} AND "entryId"=${entry.entryId}`,
+        );
+      }
+      await write(tx, { ...state, state: "active" }, input.now);
+      await bump(tx, input.ref.scope, input.now, input.generation);
+      return true;
+    });
+  }
+  async clearSuppression(
+    input: Parameters<MemoryAutomaticSourceStore["clearSuppression"]>[0],
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await lockExistingSourceScopes(tx, input.scope);
+      await sourceLock(
+        tx,
+        automaticMemoryLineageKey(input.scope, input.sourceId),
+      );
+      const prior = await read(
+        tx,
+        automaticMemoryLineageKey(input.scope, input.sourceId),
+      );
+      if (
+        !prior ||
+        prior.binding.epoch !== input.expectedEpoch ||
+        (prior.suppressionEpoch ?? "0") !== input.expectedSuppressionEpoch
+      )
+        throw new MemoryKnowledgeError("conflict");
+      if (input.entry) {
+        const [entry] = await tx.$queryRaw<
+          { revision: number; metadata: MemoryKnowledgeEntryMetadata }[]
+        >(
+          Prisma.sql`SELECT "revision","metadata" FROM "MemoryKnowledgeEntry" WHERE "generation"=${input.entry.generation} AND "scopeKey"=${memoryKnowledgeScopeKey(input.entry.ref.scope)} AND "entryId"=${input.entry.ref.entryId}`,
+        );
+        if (
+          !entry ||
+          String(entry.revision) !== input.entry.expectedRevision ||
+          entry.metadata.automaticSource?.lineageKey !==
+            prior.binding.lineageKey
+        )
+          throw new MemoryKnowledgeError("conflict");
+      }
+      await write(
+        tx,
+        {
+          ...prior,
+          suppressed: false,
+          suppressionEpoch: String(BigInt(prior.suppressionEpoch ?? "0") + 1n),
         },
         input.now,
       );
@@ -172,6 +289,7 @@ export async function automaticMemoryEntryApplicable(
   generation: string,
   binding: MemoryAutomaticSourceBinding,
 ): Promise<boolean> {
+  await sourceLock(tx, binding.lineageKey);
   const source = await read(tx, binding.lineageKey);
   if (
     !source ||
@@ -240,7 +358,15 @@ export async function transitionAutomaticMemoryOwnership(
     return;
   }
   if (input.commandKind === "retire" || input.commandKind === "forget")
-    await write(tx, { ...state, suppressed: true }, input.now);
+    await write(
+      tx,
+      {
+        ...state,
+        suppressed: true,
+        suppressionEpoch: String(BigInt(state.suppressionEpoch ?? "0") + 1n),
+      },
+      input.now,
+    );
   if (input.commandKind === "save") {
     await tx.$executeRaw(
       Prisma.sql`UPDATE "MemoryAutomaticEntry" SET "ownership"='maintained' WHERE "generation"=${metadata.generation} AND "scopeKey"=${memoryKnowledgeScopeKey(metadata.ref.scope)} AND "entryId"=${metadata.ref.entryId}`,
@@ -296,7 +422,7 @@ export async function activateAutomaticMemoryCohort(
   )
     return;
   await write(tx, { ...state, state: "active" }, now);
-  await bump(tx, state.scope, now);
+  await bump(tx, state.scope, now, metadata.generation);
 }
 async function lockExistingSourceScopes(
   tx: Database,

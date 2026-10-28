@@ -15,3 +15,12 @@ export const sourcePreviewCapabilities: MemoryCapabilities = {
   reflect: false,
   physicalForget: false,
 };
+
+export const nativeStoreCapabilities: MemoryCapabilities = {
+  sourcePreview: false,
+  exactStatementStorage: true,
+  currentSourceRead: true,
+  recall: true,
+  reflect: false,
+  physicalForget: false,
+};

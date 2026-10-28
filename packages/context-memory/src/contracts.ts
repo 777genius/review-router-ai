@@ -40,3 +40,79 @@ export interface SourcePreviewPort {
     controls: RequestControls,
   ): Promise<SourcePreviewResult>;
 }
+
+/** Stable writable source handles are separate from read-only derived observations. */
+export type SourceRef = { readonly scope: MemoryScope; readonly id: string };
+export type CurrentSource = {
+  readonly ref: SourceRef;
+  readonly body: string;
+  readonly metadata: Readonly<Record<string, string>>;
+  readonly tags: readonly string[];
+};
+export type NativeOperation = {
+  readonly id: string;
+  readonly state:
+    | "pending"
+    | "processing"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "unknown";
+  readonly kind: string | null;
+  readonly children: readonly { readonly id: string; readonly state: string }[];
+};
+export interface CurrentSourceReader {
+  readSource(
+    ref: SourceRef,
+    controls: RequestControls,
+  ): Promise<CurrentSource | null>;
+  listSources(
+    input: {
+      readonly scope: MemoryScope;
+      readonly limit: number;
+      readonly cursor?: string;
+      readonly tags?: readonly string[];
+    },
+    controls: RequestControls,
+  ): Promise<{
+    readonly sources: readonly SourceRef[];
+    readonly nextCursor: string | null;
+  }>;
+}
+export interface ExactStatementWriter {
+  /** Exact chunks only; application authority/revision CAS remain with the caller. */
+  replaceSource(
+    input: {
+      readonly source: CurrentSource;
+      readonly statementAt: string;
+      readonly operationId: string;
+      readonly derivationTags: readonly string[];
+    },
+    controls: RequestControls,
+  ): Promise<{ readonly id: string; readonly state: "submitted" }>;
+}
+export interface MemoryOperationReader {
+  operation(
+    input: { readonly scope: MemoryScope; readonly id: string },
+    controls: RequestControls,
+  ): Promise<NativeOperation | null>;
+}
+export type RecalledEvidence = {
+  readonly id: string;
+  readonly body: string;
+  readonly type: "source" | "observation";
+  readonly sourceIds: readonly string[];
+  readonly sourceFactIds: readonly string[];
+  readonly evidenceComplete: boolean;
+};
+export interface MemoryRecallReader {
+  recallEvidence(
+    input: {
+      readonly scope: MemoryScope;
+      readonly query: string;
+      readonly limit: number;
+      readonly tags?: readonly string[];
+    },
+    controls: RequestControls,
+  ): Promise<readonly RecalledEvidence[]>;
+}
