@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import {
   MemoryKnowledgeError,
+  automaticMemoryCohortId,
   memoryKnowledgeDigest,
   memoryKnowledgeScopeKey,
   type MemoryAutomaticSourceBinding,
@@ -148,8 +149,13 @@ export class PrismaMemoryAutomaticSourceStore implements MemoryAutomaticSourceSt
         await bump(tx, input.scope, input.now);
         return;
       }
+      // Delivery uncertainty is a status of this still-pending cohort, not a source
+      // revision change. A stale replay must never withdraw an already active set.
+      if (input.cause === "delivery_uncertain" && prior.state !== "pending")
+        return;
       if (
         prior.state === "needs_refresh" &&
+        prior.invalidatedBy !== "delivery_uncertain" &&
         (input.cause !== "deleted" || prior.suppressed)
       )
         return;
@@ -168,7 +174,10 @@ export class PrismaMemoryAutomaticSourceStore implements MemoryAutomaticSourceSt
               : prior.suppressionEpoch,
           binding: {
             ...prior.binding,
-            epoch: String(BigInt(prior.binding.epoch) + 1n),
+            epoch:
+              input.cause === "delivery_uncertain"
+                ? prior.binding.epoch
+                : String(BigInt(prior.binding.epoch) + 1n),
           },
         },
         input.now,
@@ -309,10 +318,7 @@ export async function reserveAutomaticMemorySource(
   await lockMemoryKnowledgeScopes(tx, [scope], input.generation);
   await sourceLock(tx, key);
   const prior = await read(tx, key);
-  const cohortId = memoryKnowledgeDigest([
-    "automatic-cohort",
-    input.input.processingId,
-  ]);
+  const cohortId = automaticMemoryCohortId(input.input.processingId);
   if (prior?.suppressed || prior?.binding.cohortId === cohortId) return prior;
   if ((prior?.binding.epoch ?? null) !== input.expectedPriorEpoch)
     throw new MemoryKnowledgeError("conflict");
@@ -456,7 +462,11 @@ export async function activateAutomaticMemoryCohort(
   const state = await read(tx, binding.lineageKey);
   if (
     !state ||
-    state.state !== "pending" ||
+    (state.state !== "pending" &&
+      !(
+        state.state === "needs_refresh" &&
+        state.invalidatedBy === "delivery_uncertain"
+      )) ||
     state.suppressed ||
     state.binding.cohortId !== binding.cohortId ||
     state.binding.epoch !== binding.epoch

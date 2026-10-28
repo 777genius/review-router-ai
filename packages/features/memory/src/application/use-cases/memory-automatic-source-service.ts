@@ -7,6 +7,7 @@ import {
 import {
   MemoryKnowledgeError,
   automaticMemoryChildCommandId,
+  automaticMemoryCohortId,
   memoryKnowledgeDigest,
   memoryKnowledgeScopeKey,
   type MemoryKnowledgeCommand,
@@ -42,10 +43,7 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
     input: MemoryAutomaticSourceInput,
     controls: MemoryRequestControls,
   ): Promise<MemoryAutomaticLearningResult> {
-    const cohortId = memoryKnowledgeDigest([
-      "automatic-cohort",
-      input.processingId,
-    ]);
+    const cohortId = automaticMemoryCohortId(input.processingId);
     const outcome = (
       state: MemoryAutomaticLearningResult["state"],
       entryIds: readonly string[] = [],
@@ -83,37 +81,16 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
       prior.state !== "unselected" &&
       prior.binding.cohortId === cohortId
     ) {
-      const operations = await this.dependencies.knowledge.automaticOperations(
-        {
-          actor: input.sourceActor,
-          scope: input.scope,
-          sourceId: input.source.sourceId,
-          processingId: input.processingId,
-        },
-        controls,
-      );
-      // Legacy interrupted reservations cannot reconstruct lost bytes. Withdraw truthfully.
-      if (
-        prior.state === "pending" &&
-        operations.length !== prior.entryIds.length
-      ) {
-        await this.dependencies.sources.invalidate({
-          scope: input.scope,
-          sourceId: input.source.sourceId,
-          cause: "unavailable",
-          expectedBinding: prior.binding,
-          now: this.now(),
-        });
-        return outcome("needs_refresh", prior.entryIds, operations);
-      }
-      return outcome(
-        prior.state === "active"
-          ? "active"
-          : prior.state === "needs_refresh"
-            ? "needs_refresh"
-            : "queued",
-        prior.entryIds,
-        operations,
+      return (
+        (await this.dependencies.knowledge.automaticOperations(
+          {
+            actor: input.sourceActor,
+            scope: input.scope,
+            sourceId: input.source.sourceId,
+            processingId: input.processingId,
+          },
+          controls,
+        )) ?? outcome("needs_refresh", prior.entryIds)
       );
     }
     await this.dependencies.knowledge.authorizeAutomaticSource(

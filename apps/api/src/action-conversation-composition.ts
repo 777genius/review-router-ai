@@ -145,7 +145,7 @@ export async function reconcileConversationEffects(
     const originalIds = new Set([
       ...record.result.learning.effectIds,
       commandId(record.id),
-      ...automatic.map((operation) => operation.id),
+      ...(automatic?.operations ?? []).map((operation) => operation.id),
     ]);
     const operations = await Promise.all(
       [...originalIds].map(async (commandId) => {
@@ -165,27 +165,48 @@ export async function reconcileConversationEffects(
       }),
     );
     const recovered = new Map(
-      automatic.map((operation) => [operation.id, operation]),
+      (automatic?.operations ?? []).map((operation) => [
+        operation.id,
+        operation,
+      ]),
     );
     for (const operation of operations)
       if (operation) recovered.set(operation.id, operation);
     const effectIds = [
       ...new Set([...record.result.learning.effectIds, ...recovered.keys()]),
     ];
-    if (effectIds.length === 0) return record.result;
+    if (effectIds.length === 0)
+      return automatic
+        ? input.records.associateEffects(record.id, {
+            status: automatic.state,
+            effectIds,
+          })
+        : record.result;
     const states = effectIds.map((id) => recovered.get(id)?.state ?? "unknown");
+    if (automatic?.state === "queued") states.push("queued");
+    const automaticStatus =
+      automatic && automatic.state !== "active" && automatic.state !== "queued"
+        ? automatic.state
+        : null;
     const status =
-      [
-        "unknown",
-        "failed",
-        "cleanup_pending",
-        "processing",
-        "submitted",
-        "queued",
-      ].find((state) => states.includes(state as (typeof states)[number])) ??
-      (states.every((state) => state === "published")
-        ? "published"
-        : "completed");
+      automaticStatus ??
+      ([...recovered.values()].some(
+        (operation) => operation.safeReason === "input_required",
+      )
+        ? "input_required"
+        : ([
+            "unknown",
+            "failed",
+            "cleanup_pending",
+            "processing",
+            "submitted",
+            "queued",
+          ].find((state) =>
+            states.includes(state as (typeof states)[number]),
+          ) ??
+          (states.every((state) => state === "published")
+            ? "published"
+            : "completed")));
     return input.records.associateEffects(record.id, { status, effectIds });
   } catch {
     return {

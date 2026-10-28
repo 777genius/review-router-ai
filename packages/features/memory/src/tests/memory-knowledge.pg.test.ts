@@ -764,6 +764,7 @@ describe.skipIf(!databaseUrl)(
         readonly current?: () => Promise<boolean>;
         readonly reader?: MemoryProviderEntry;
         readonly statements?: readonly string[];
+        readonly now?: () => Date;
       } = {},
     ) {
       const sources = new PrismaMemoryAutomaticSourceStore(prisma);
@@ -792,7 +793,7 @@ describe.skipIf(!databaseUrl)(
           }),
         },
         automaticSources: { store: sources, current },
-        now: () => now,
+        now: options.now ?? (() => now),
       });
       const preview = vi.fn(
         async (input: { source: { id: string; revision: string } }) => ({
@@ -817,7 +818,7 @@ describe.skipIf(!databaseUrl)(
           knowledge,
           current,
           preview: { preview },
-          now: () => now,
+          now: options.now ?? (() => now),
         }),
       };
     }
@@ -1034,7 +1035,8 @@ describe.skipIf(!databaseUrl)(
         },
         automaticControls(),
       );
-      expect(effects).toEqual(replay.operations);
+      expect(effects?.operations).toEqual(replay.operations);
+      expect(effects?.state).toBe("queued");
       expect(JSON.stringify(effects)).not.toContain("exact selected");
       expect(
         await fixture.knowledge.automaticOperations(
@@ -1046,9 +1048,9 @@ describe.skipIf(!databaseUrl)(
           },
           automaticControls(),
         ),
-      ).toEqual([]);
+      ).toBeNull();
       await store.scheduleDueDeliveries({ generation, now, limit: 10 });
-      for (const operation of effects) {
+      for (const operation of effects!.operations) {
         const claimed = await store.claim({
           scope,
           generation,
@@ -1092,23 +1094,231 @@ describe.skipIf(!databaseUrl)(
       await prisma.$executeRaw(
         Prisma.sql`UPDATE "MemoryKnowledgeCommand" SET "envelope"=NULL`,
       );
-      expect(
-        await fixture.knowledge.automaticOperations(
-          {
-            actor: input.sourceActor,
-            scope,
-            sourceId: input.source.sourceId,
-            processingId: input.processingId,
-          },
-          automaticControls(),
-        ),
-      ).toEqual(
+      const superseded = await fixture.knowledge.automaticOperations(
+        {
+          actor: input.sourceActor,
+          scope,
+          sourceId: input.source.sourceId,
+          processingId: input.processingId,
+        },
+        automaticControls(),
+      );
+      expect(superseded?.state).toBe("needs_refresh");
+      expect(superseded?.operations).toEqual(
         replay.operations.map((operation) => ({
           ...operation,
           state: "published",
         })),
       );
     });
+
+    it.each(["current", "superseded", "unavailable", "expired"] as const)(
+      "reports uncertain original children honestly and preserves safe recovery when %s",
+      async (ending) => {
+        let clock = now;
+        const fixture = automaticFixture({ now: () => clock });
+        const controls = () => ({
+          deadlineAt: new Date(clock.getTime() + 10000),
+        });
+        const input = automaticInput(1);
+        const admitted = await fixture.automatic.learn(input, controls());
+        const originalSource = (await fixture.sources.lookup(
+          scope,
+          input.source.sourceId,
+        ))!;
+        if (originalSource.state === "unselected")
+          throw new Error("expected_selected_cohort");
+        const originalIds = admitted.operations.map(
+          (operation) => operation.id,
+        );
+        const settleChild = async (
+          index: number,
+          state: "unknown" | "published",
+        ) => {
+          const operation = admitted.operations[index]!;
+          const claimed = await store.claim({
+            scope,
+            generation,
+            commandId: operation.id,
+            now: clock,
+            claimId: randomUUID(),
+            claimUntil: new Date(clock.getTime() + 10000),
+          });
+          expect(claimed).not.toBeNull();
+          const command = claimed!.command.envelope!;
+          if (command.kind !== "save") throw new Error("expected_save");
+          await store.settle({
+            scope,
+            generation,
+            commandId: operation.id,
+            claimId: claimed!.claimId,
+            now: clock,
+            result:
+              state === "unknown"
+                ? {
+                    commandId: operation.id,
+                    state,
+                    safeReason: "unknown_write",
+                  }
+                : {
+                    commandId: operation.id,
+                    state,
+                    verifiedEntry: {
+                      ref: command.ref,
+                      body: command.body,
+                      bodyDigest: createMemoryBodyHash(command.body),
+                      contentApprovalRevision: operation.revision,
+                      kind: command.knowledgeKind,
+                      topicIds: command.topicIds,
+                      statementAt: command.source.statementAt,
+                      sourceFactIds: ["fact"],
+                    },
+                  },
+          });
+          return claimed!.mode;
+        };
+        await settleChild(0, "unknown");
+        const progress = await fixture.knowledge.automaticOperations(
+          {
+            actor: input.sourceActor,
+            scope,
+            sourceId: input.source.sourceId,
+            processingId: input.processingId,
+          },
+          controls(),
+        );
+        expect(progress?.state).toBe("needs_refresh");
+        const replay = await fixture.automatic.learn(input, controls());
+        expect(replay.state).toBe("needs_refresh");
+        expect(replay.operations.map((operation) => operation.id)).toEqual(
+          originalIds,
+        );
+        expect(replay.operations[0]).toMatchObject({
+          state: "unknown",
+          safeReason: "unknown_write",
+        });
+        expect(
+          await fixture.sources.lookup(scope, input.source.sourceId),
+        ).toMatchObject({
+          state: "needs_refresh",
+          invalidatedBy: "delivery_uncertain",
+          binding: originalSource.binding,
+        });
+        // A verified sibling remains invisible until the entire original cohort completes.
+        await settleChild(1, "published");
+        expect(
+          await fixture.sources.applicable(
+            admitted.operations[1]!.ref,
+            generation,
+            originalSource.binding,
+          ),
+        ).toBe(false);
+        await store.scheduleDueDeliveries({
+          generation,
+          now: clock,
+          limit: 10,
+        });
+        const commands = await prisma.$queryRaw<{ id: string; kind: string }[]>(
+          Prisma.sql`SELECT "id", "commandKind" AS kind FROM "MemoryKnowledgeCommand" ORDER BY "id"`,
+        );
+        expect(commands).toEqual(
+          [...originalIds].sort().map((id) => ({ id, kind: "save" })),
+        );
+        if (ending === "expired") {
+          clock = new Date(now.getTime() + 8 * 86400000);
+          expect(
+            await store.expireDeliveryEnvelopes({ now: clock, limit: 10 }),
+          ).toBe(1);
+          const expired = await fixture.automatic.learn(input, controls());
+          expect(expired.state).toBe("needs_refresh");
+          expect(expired.operations.map((operation) => operation.id)).toEqual(
+            originalIds,
+          );
+          expect(expired.operations[0]).toMatchObject({
+            state: "unknown",
+            safeReason: "input_required",
+          });
+          expect(JSON.stringify(expired.operations)).not.toContain(
+            "exact selected",
+          );
+          expect(
+            (
+              await store.findCommand({
+                scope,
+                generation,
+                commandId: originalIds[0]!,
+              })
+            )?.envelope,
+          ).toBeNull();
+          expect(
+            await store.claim({
+              scope,
+              generation,
+              commandId: originalIds[0]!,
+              now: clock,
+              claimId: randomUUID(),
+              claimUntil: new Date(clock.getTime() + 10000),
+            }),
+          ).toBeNull();
+        } else {
+          let replacement;
+          if (ending === "superseded")
+            replacement = (await autoReserve(2, 0)).state;
+          if (ending === "unavailable")
+            await fixture.sources.invalidate({
+              scope,
+              sourceId: input.source.sourceId,
+              cause: "unavailable",
+              expectedBinding: originalSource.binding,
+              now: clock,
+            });
+          // Late reconciliation observes the original command; it never submits a new child.
+          expect(await settleChild(0, "published")).toBe("observe");
+          const completed = (await fixture.sources.lookup(
+            scope,
+            input.source.sourceId,
+          ))!;
+          if (ending === "current") {
+            expect(completed).toMatchObject({
+              state: "active",
+              binding: originalSource.binding,
+            });
+            expect(
+              (await fixture.automatic.learn(input, controls())).state,
+            ).toBe("active");
+            expect(
+              await fixture.sources.applicable(
+                admitted.operations[0]!.ref,
+                generation,
+                originalSource.binding,
+              ),
+            ).toBe(true);
+          } else if (ending === "superseded")
+            expect(completed).toEqual(replacement);
+          else {
+            expect(completed).toMatchObject({
+              state: "needs_refresh",
+              invalidatedBy: "unavailable",
+            });
+            expect(completed.binding.epoch).not.toBe(
+              originalSource.binding.epoch,
+            );
+          }
+          // A delayed uncertainty observation cannot revoke an active or superseding cohort.
+          await fixture.sources.invalidate({
+            scope,
+            sourceId: input.source.sourceId,
+            cause: "delivery_uncertain",
+            expectedBinding: originalSource.binding,
+            now: clock,
+          });
+          expect(
+            await fixture.sources.lookup(scope, input.source.sourceId),
+          ).toEqual(completed);
+        }
+        expect(fixture.preview).toHaveBeenCalledTimes(1);
+      },
+    );
 
     it("terminalizes a legacy pending selection with missing child envelopes instead of replaying queued forever", async () => {
       const input = automaticInput(1);

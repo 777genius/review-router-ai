@@ -58,7 +58,11 @@ export type MemoryAutomaticSourceState = {
       readonly sourceUpdatedAt: string;
       readonly source: MemoryKnowledgeSource;
       readonly state: "pending" | "active" | "needs_refresh";
-      readonly invalidatedBy?: "changed" | "deleted" | "unavailable";
+      readonly invalidatedBy?:
+        | "changed"
+        | "deleted"
+        | "unavailable"
+        | "delivery_uncertain";
       readonly lastCompleteCohort?: boolean;
     }
   | {
@@ -98,7 +102,11 @@ export interface MemoryAutomaticSourceStore {
   invalidate(input: {
     readonly scope: MemoryKnowledgeScope;
     readonly sourceId: string;
-    readonly cause: "deleted" | "unavailable" | "changed";
+    readonly cause:
+      | "deleted"
+      | "unavailable"
+      | "changed"
+      | "delivery_uncertain";
     /** Async observations may withdraw only the exact source cursor they checked. */
     readonly expectedBinding?: MemoryAutomaticSourceBinding;
     readonly now: Date;

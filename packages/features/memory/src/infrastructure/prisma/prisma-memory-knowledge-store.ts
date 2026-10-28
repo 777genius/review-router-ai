@@ -12,6 +12,7 @@ import { memoryActorRef } from "../../domain/memory-actor";
 import {
   MemoryKnowledgeError,
   automaticMemoryChildCommandId,
+  automaticMemoryCohortId,
   memoryKnowledgeCommandDigest,
   memoryKnowledgeDigest,
   memoryKnowledgeScopeKey,
@@ -302,7 +303,7 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
       WHERE c."generation"=${input.generation} AND c."scopeKey"=${memoryKnowledgeScopeKey(input.scope)}
         AND c."commandKind"='save' AND c."id" IN (${Prisma.join(ids)})
         AND a."lineageKey"=${automaticMemoryLineageKey(input.scope, input.sourceId)}
-        AND a."cohortId"=${memoryKnowledgeDigest(["automatic-cohort", input.processingId])}
+        AND a."cohortId"=${automaticMemoryCohortId(input.processingId)}
       ORDER BY array_position(ARRAY[${Prisma.join(ids)}]::text[],c."id")`);
     return rows.map((row) => this.operation(row, input.scope));
   }
@@ -946,7 +947,7 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
         profile: string;
       }[]
     >(
-      Prisma.sql`SELECT e."metadata",COALESCE(NULLIF(e."metadata"->'approval','null'::jsonb),c."approval") AS "approval",(SELECT p."envelope"->>'providerProfileVersion' FROM "MemoryKnowledgeCommand" p WHERE p."generation"=e."generation" AND p."scopeKey"=e."scopeKey" AND p."entryId"=e."entryId" AND p."envelope" IS NOT NULL ORDER BY p."revision" DESC LIMIT 1) AS "profile" FROM "MemoryAutomaticEntry" a JOIN "MemoryKnowledgeEntry" e USING ("generation","scopeKey","entryId") JOIN "MemoryAutomaticSource" s ON s."lineageKey"=a."lineageKey" LEFT JOIN "MemoryKnowledgeCommand" c ON c."id"=e."pendingCommandId" WHERE a."generation"=${input.generation} AND a."ownership"='automatic' AND e."lifecycle"='active' AND (s."state"->'binding'->>'cohortId'<>a."cohortId" OR (s."state"->>'state'='needs_refresh' AND s."state"->>'invalidatedBy'<>'unavailable')) ORDER BY a."scopeKey",a."entryId" LIMIT ${boundedMaintenanceLimit(input.limit)}`,
+      Prisma.sql`SELECT e."metadata",COALESCE(NULLIF(e."metadata"->'approval','null'::jsonb),c."approval") AS "approval",(SELECT p."envelope"->>'providerProfileVersion' FROM "MemoryKnowledgeCommand" p WHERE p."generation"=e."generation" AND p."scopeKey"=e."scopeKey" AND p."entryId"=e."entryId" AND p."envelope" IS NOT NULL ORDER BY p."revision" DESC LIMIT 1) AS "profile" FROM "MemoryAutomaticEntry" a JOIN "MemoryKnowledgeEntry" e USING ("generation","scopeKey","entryId") JOIN "MemoryAutomaticSource" s ON s."lineageKey"=a."lineageKey" LEFT JOIN "MemoryKnowledgeCommand" c ON c."id"=e."pendingCommandId" WHERE a."generation"=${input.generation} AND a."ownership"='automatic' AND e."lifecycle"='active' AND (s."state"->'binding'->>'cohortId'<>a."cohortId" OR (s."state"->>'state'='needs_refresh' AND s."state"->>'invalidatedBy' NOT IN ('unavailable','delivery_uncertain'))) ORDER BY a."scopeKey",a."entryId" LIMIT ${boundedMaintenanceLimit(input.limit)}`,
     );
     for (const row of rows) {
       const metadata = row.metadata,

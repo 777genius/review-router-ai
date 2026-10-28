@@ -388,7 +388,12 @@ export function memoryKnowledgeCommandDigest(
   return memoryKnowledgeDigest(normalizeMemoryKnowledgeCommand(command));
 }
 
-/** Stable identity shared by automatic admission and read-only accepted-operation recovery. */
+/** One cohort identity shared by selection, admission and accepted-operation recovery. */
+export function automaticMemoryCohortId(processingId: string): string {
+  return memoryKnowledgeDigest(["automatic-cohort", processingId]);
+}
+
+/** Stable identity shared by automatic admission and accepted-operation recovery. */
 export function automaticMemoryChildCommandId(
   processingId: string,
   index: number | string,

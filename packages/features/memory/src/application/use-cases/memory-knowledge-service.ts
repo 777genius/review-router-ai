@@ -1,6 +1,7 @@
 import type {
   MemoryAutomaticSourceStore,
   MemoryAutomaticSourceCurrentPort,
+  MemoryAutomaticLearningResult,
 } from "../ports/memory-automatic-source-port";
 import { randomUUID } from "node:crypto";
 import type { MemoryActor } from "../../domain/memory-actor";
@@ -8,6 +9,7 @@ import { createMemoryBodyHash } from "../../domain/memory-body";
 import { evaluateMemorySafety } from "../../domain/memory-safety-policy";
 import {
   MemoryKnowledgeError,
+  automaticMemoryCohortId,
   memoryKnowledgeBodyMatches,
   memoryKnowledgeBodyVisible,
   memoryKnowledgeCommandDigest,
@@ -438,7 +440,7 @@ export class MemoryKnowledgeService {
     };
   }
 
-  /** Read-only association recovery for an already accepted automatic-learning operation. */
+  /** Bodyless progress for an accepted selection; reconciles lifecycle without extraction or delivery. */
   async automaticOperations(
     input: {
       readonly actor: MemoryActor;
@@ -447,18 +449,69 @@ export class MemoryKnowledgeService {
       readonly processingId: string;
     },
     controls: MemoryRequestControls,
-  ): Promise<readonly MemoryKnowledgeOperation[]> {
+  ): Promise<MemoryAutomaticLearningResult | null> {
     this.check(controls);
     await this.dependencies.access.authorize(
       { actor: input.actor, scope: input.scope, action: "read" },
       controls,
     );
-    return this.dependencies.store.findAutomaticOperations({
+    const operations = await this.dependencies.store.findAutomaticOperations({
       scope: input.scope,
       generation: this.dependencies.generation,
       sourceId: input.sourceId,
       processingId: input.processingId,
     });
+    const cohortId = automaticMemoryCohortId(input.processingId);
+    const sources = this.dependencies.automaticSources?.store;
+    let source = await sources?.lookup(input.scope, input.sourceId);
+    const uncertainDelivery = operations.some(
+      (operation) =>
+        operation.state === "unknown" ||
+        operation.state === "failed" ||
+        operation.state === "cleanup_pending" ||
+        operation.safeReason === "input_required",
+    );
+    if (
+      sources &&
+      source?.state === "pending" &&
+      source.binding.cohortId === cohortId
+    ) {
+      const missingChildren = operations.length !== source.entryIds.length;
+      if (missingChildren || uncertainDelivery) {
+        await sources.invalidate({
+          scope: input.scope,
+          sourceId: input.sourceId,
+          cause: missingChildren ? "unavailable" : "delivery_uncertain",
+          expectedBinding: source.binding,
+          now: this.now(),
+        });
+        // A concurrent verified completion or supersession wins the conditional transition.
+        source = await sources.lookup(input.scope, input.sourceId);
+      }
+    }
+    const current =
+      source &&
+      source.state !== "unselected" &&
+      source.binding.cohortId === cohortId
+        ? source
+        : null;
+    if (!current && !operations.length) return null;
+    return {
+      cohortId,
+      entryIds:
+        current?.entryIds ??
+        operations.map((operation) => operation.ref.entryId),
+      operations,
+      state: !current
+        ? "needs_refresh"
+        : current.suppressed
+          ? "suppressed"
+          : current.state === "active" || current.state === "needs_refresh"
+            ? current.state
+            : uncertainDelivery || operations.length !== current.entryIds.length
+              ? "needs_refresh"
+              : "queued",
+    };
   }
 
   async progress(

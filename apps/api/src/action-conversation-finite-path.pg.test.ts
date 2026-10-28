@@ -877,7 +877,48 @@ describe.skipIf(!databaseUrl)(
         expect(
           (await f.records.read(result.processingId))!.result.learning,
         ).toEqual(recovered.learning);
-        // Late delivery changes status on the same identities, without restoring an envelope.
+        // A supported child status can require fresh input even before its state becomes unknown.
+        const automaticCommand = (await knowledge.automaticOperations(
+          {
+            actor,
+            scope,
+            sourceId: (await f.records.read(result.processingId))!.identity
+              .sourceId,
+            processingId: result.processingId,
+          },
+          controls(),
+        ))!.operations[0]!;
+        const pending = await store.claim({
+          scope,
+          generation,
+          commandId: automaticCommand.id,
+          now: new Date(),
+          claimId: randomUUID(),
+          claimUntil: new Date(Date.now() + 10000),
+        });
+        await store.settle({
+          scope,
+          generation,
+          commandId: automaticCommand.id,
+          claimId: pending!.claimId,
+          now: new Date(),
+          result: {
+            commandId: automaticCommand.id,
+            state: "submitted",
+            safeReason: "input_required",
+          },
+        });
+        expect((await reconcile()).learning.status).toBe("needs_refresh");
+        const lineage = (await automaticSources.lookup(
+          scope,
+          (await f.records.read(result.processingId))!.identity.sourceId,
+        ))!;
+        expect(lineage).toMatchObject({
+          state: "needs_refresh",
+          invalidatedBy: "delivery_uncertain",
+        });
+        // Late verified delivery completes the still-current original cohort and overrides
+        // the prior needs_refresh projection without extraction or new commands.
         for (const command of commands) {
           const now = new Date();
           const claim = await store.claim({
@@ -918,6 +959,22 @@ describe.skipIf(!databaseUrl)(
           ).toMatchObject({ id: command.id, state: "published" });
         }
         expect((await reconcile()).learning.status).toBe("published");
+        const active = (await automaticSources.lookup(
+          scope,
+          lineage.sourceId,
+        ))!;
+        expect(active.state).toBe("active");
+        if (active.state === "unselected")
+          throw new Error("expected_selected_cohort");
+        await automaticSources.invalidate({
+          scope,
+          sourceId: active.sourceId,
+          cause: "unavailable",
+          expectedBinding: active.binding,
+          now: new Date(),
+        });
+        // Published child history cannot claim that a now-withdrawn cohort remains published.
+        expect((await reconcile()).learning.status).toBe("needs_refresh");
         expect(await prisma.memoryKnowledgeCommand.count()).toBe(3);
         expect(
           (
@@ -926,7 +983,30 @@ describe.skipIf(!databaseUrl)(
             })
           ).every((command) => command.envelope === null),
         ).toBe(true);
-        expect(await prisma.outboxEvent.count()).toBe(3);
+        expect(
+          await prisma.outboxEvent.count({
+            where: {
+              idempotencyKey: { startsWith: "memory.knowledge.command:" },
+            },
+          }),
+        ).toBe(3);
+        // Existing observation scheduling retains this original child's delivery debt.
+        expect(
+          await prisma.outboxEvent.findMany({
+            where: {
+              idempotencyKey: {
+                startsWith: "memory.knowledge.command.observe:",
+              },
+            },
+            select: { type: true, idempotencyKey: true, payload: true },
+          }),
+        ).toEqual([
+          {
+            type: "memory.knowledge.command.requested",
+            idempotencyKey: `memory.knowledge.command.observe:${automaticCommand.id}:1`,
+            payload: { commandId: automaticCommand.id, generation, scope },
+          },
+        ]);
         expect(preview).toHaveBeenCalledTimes(1);
         expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(
           1,
