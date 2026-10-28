@@ -4,11 +4,15 @@ import { createHash } from "node:crypto";
 import { corpusEventId, corpusEventMessages, loadCorpus } from "./corpus.js";
 import {
   inspectInventory,
+  inspectCommandInventory,
   sourceRevision,
   type EntryReview,
   type SourceWitness,
 } from "./score-inventory.js";
 import type { Witness, InventoryEntry } from "./fixture.js";
+import { readDurableCommands } from "./command-inventory.js";
+import { automaticMemoryChildCommandId } from "../../packages/features/memory/src/index.js";
+import type { PrismaClient } from "@prisma/client";
 
 // Synthetic scorer/capture regressions only. No model quality or product/native bank is fabricated.
 function sample() {
@@ -33,6 +37,9 @@ function sample() {
     revision: "r1",
     scope,
     lifecycle: "active",
+    unavailableReason: null,
+    activeCohortEligible: true,
+    sourceCurrent: true,
     body: "Supported statement",
     bodyDigest: createHash("sha256")
       .update("Supported statement")
@@ -52,6 +59,7 @@ function sample() {
     status: "silent",
     learningStatus: "active",
     effectIds: [],
+    commandInventoryIds: [],
     answer: null,
     previewCalls: 1,
     modelCalls: 0,
@@ -87,6 +95,7 @@ function sample() {
     ]),
     entries: [annotation],
     seen: new Set<string>(),
+    seenCommands: new Set<string>(),
     seenEntries: new Map<string, InventoryEntry>(),
   };
 }
@@ -183,6 +192,7 @@ test("unreported or wrong-authority effects cannot disappear from the gate", () 
   const input = sample();
   input.witness.effectIds = ["command"];
   assert.throws(() => inspectInventory(input), /eval_effect_inventory_invalid/);
+  input.witness.commandInventoryIds = ["command"];
   input.witness.effects.push({
     id: "command",
     entryId: "entry",
@@ -193,6 +203,7 @@ test("unreported or wrong-authority effects cannot disappear from the gate", () 
     scope: input.scope,
     sourceId: input.triggerSourceId,
     sourceRevision: input.sources.get(input.triggerSourceId)!.revision,
+    automaticRetirement: null,
   });
   assert.throws(
     () => inspectInventory(input),
@@ -281,7 +292,7 @@ test("raw event snapshots edit/delete learned sources and preserve unchanged-tri
   );
 });
 
-test("actual scorer CLI rejects R1 extra wrong-source write and revised-body bypass after accepting its synthetic control", async () => {
+test("actual scorer CLI rejects unauthorized writes, omitted commands and never-visible pending readback after accepting its synthetic control", async (t) => {
   const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
   const { spawnSync } = await import("node:child_process");
   const { resolve } = await import("node:path");
@@ -327,6 +338,9 @@ test("actual scorer CLI rejects R1 extra wrong-source write and revised-body byp
           ) {
             entry.body = null;
             entry.lifecycle = "retired";
+            entry.unavailableReason = "unsettled";
+            entry.activeCohortEligible = false;
+            entry.sourceCurrent = false;
             entry.revision += "-withdrawn";
           }
         }
@@ -337,6 +351,9 @@ test("actual scorer CLI rejects R1 extra wrong-source write and revised-body byp
             revision: `revision:${event.id ?? event.messageId}`,
             scope,
             lifecycle: "active",
+            unavailableReason: null,
+            activeCohortEligible: true,
+            sourceCurrent: true,
             body: fact.text,
             bodyDigest: createHash("sha256").update(fact.text).digest("hex"),
             kind: "observation",
@@ -372,6 +389,7 @@ test("actual scorer CLI rejects R1 extra wrong-source write and revised-body byp
           status: "silent",
           learningStatus: "active",
           effectIds: [],
+          commandInventoryIds: [],
           answer: "Synthetic scorer regression only",
           previewCalls: event.expectedReply === "replay_no_new_effects" ? 0 : 1,
           modelCalls: event.expectedReply === "replay_no_new_effects" ? 0 : 1,
@@ -411,6 +429,7 @@ test("actual scorer CLI rejects R1 extra wrong-source write and revised-body byp
         productEntries: 0,
         processingRecords: 0,
         nativeDocuments: 0,
+        durableCommands: 0,
       },
       observations,
     });
@@ -441,7 +460,7 @@ test("actual scorer CLI rejects R1 extra wrong-source write and revised-body byp
     await writeFile(rubricPath, JSON.stringify(rubric));
     const score = async (input: unknown) => {
       await writeFile(reportPath, JSON.stringify(input));
-      return spawnSync(
+      const result = spawnSync(
         process.execPath,
         [
           "--import",
@@ -452,9 +471,56 @@ test("actual scorer CLI rejects R1 extra wrong-source write and revised-body byp
         ],
         { encoding: "utf8" },
       );
+      if (result.error) throw result.error;
+      return result;
     };
     const positive = await score(report);
     assert.equal(positive.status, 0, positive.stderr);
+    const pending = structuredClone(report);
+    let nulled = 0;
+    for (const scenario of pending.variants[0]!.scenarios) {
+      if (
+        corpus.threads.some(
+          (thread) => thread.scenario === scenario.scenario && thread.linked,
+        )
+      )
+        continue;
+      for (const witness of scenario.observations as Witness[]) {
+        for (const entry of witness.inventory) {
+          if (entry.body !== null) {
+            nulled++;
+            entry.body = null;
+            entry.lifecycle = "pending";
+            entry.unavailableReason = "unsettled";
+            entry.activeCohortEligible = false;
+          }
+        }
+        witness.retained = [];
+      }
+    }
+    assert.ok(nulled > 100);
+    const noReadback = await score(pending);
+    assert.equal(noReadback.status, 1, noReadback.stderr);
+    assert.ok(noReadback.stdout, JSON.stringify(noReadback));
+    const failed = JSON.parse(noReadback.stdout).results[0];
+    assert.equal(failed.status, "FAIL");
+    assert.ok(failed.metrics.eligibleFactRecall.value < 0.8);
+    t.diagnostic(
+      JSON.stringify({
+        nulledBodies: nulled,
+        noReadback: failed.status,
+        retainedFactPrecision: failed.metrics.retainedFactPrecision,
+        eligibleFactRecall: failed.metrics.eligibleFactRecall,
+      }),
+    );
+    const omittedCommand = structuredClone(report);
+    const hidden = (
+      omittedCommand.variants[0]!.scenarios[0]!.observations as Witness[]
+    )[0]!;
+    hidden.commandInventoryIds.push("hidden-queued-forget");
+    const omitted = await score(omittedCommand);
+    assert.notEqual(omitted.status, 0);
+    assert.match(omitted.stderr, /eval_effect_inventory_invalid/);
     const negative = structuredClone(report);
     const row = (
       negative.variants[0]!.scenarios[0]!.observations as Witness[]
@@ -516,6 +582,9 @@ test("validated entries cannot disappear, while actual authorized purged tombsto
     lifecycle: "forgotten",
     body: null,
     bodyDigest: null,
+    unavailableReason: "unsettled" as const,
+    activeCohortEligible: false,
+    sourceCurrent: false,
     sourceId: null,
     sourceRevision: null,
     approvalAuthorityRevision: null,
@@ -547,5 +616,197 @@ test("revising an existing ID cannot transfer its previously validated source or
   assert.throws(
     () => inspectInventory({ ...input, triggerSourceId: "fixture:other" }),
     /eval_observed_entry_authority_invalid/,
+  );
+});
+
+for (const reason of [
+  "unsettled",
+  "provider_unavailable",
+  "incomplete_evidence",
+] as const)
+  test(`metadata with ${reason} readback receives no retention credit`, () => {
+    const input = sample();
+    const entry = input.witness.inventory[0]!;
+    entry.body = null;
+    entry.unavailableReason = reason;
+    entry.activeCohortEligible = false;
+    input.witness.retained = [];
+    const versions = inspectInventory(input);
+    assert.equal(versions.length, 1); // Its complete authority envelope is still judged.
+    assert.equal(versions[0]!.qualifiedReadback, false);
+    entry.body = "Supported statement";
+    entry.unavailableReason = null;
+    entry.activeCohortEligible = true;
+    input.witness.retained = [
+      entry as InventoryEntry & { body: string; bodyDigest: string },
+    ];
+    assert.equal(inspectInventory(input)[0]!.qualifiedReadback, true);
+  });
+
+test("body readback without active-cohort eligibility earns no retention credit", () => {
+  const input = sample();
+  input.witness.inventory[0]!.activeCohortEligible = false;
+  input.witness.retained = [];
+  assert.equal(inspectInventory(input)[0]!.qualifiedReadback, false);
+});
+
+test("a previously published version keeps its qualified witness after later authorized retirement", () => {
+  const input = sample();
+  const published = inspectInventory(input)[0]!;
+  const entry = input.witness.inventory[0]!;
+  entry.revision = "retired-r2";
+  entry.lifecycle = "retired";
+  entry.body = null;
+  entry.unavailableReason = "unsettled";
+  entry.activeCohortEligible = false;
+  input.witness.retained = [];
+  input.entries.push({ ...input.entries[0]!, entryRevision: entry.revision });
+  assert.equal(inspectInventory(input)[0]!.qualifiedReadback, false);
+  assert.equal(published.qualifiedReadback, true);
+  assert.ok(input.seen.has(published.key));
+});
+
+test("independent command inventory includes omitted queued commands and refuses missing or destructive proofs", () => {
+  const input = sample();
+  inspectInventory(input);
+  input.witness.commandInventoryIds = ["omitted-queued-forget"];
+  assert.throws(() => inspectInventory(input), /eval_effect_inventory_invalid/);
+  input.witness.effects = [
+    {
+      id: "omitted-queued-forget",
+      entryId: "entry",
+      kind: "forget",
+      state: "queued",
+      actorId: input.witness.inventory[0]!.sourceActor!,
+      approvalAuthorityRevision: "automatic:fixture",
+      scope: input.scope,
+      sourceId: input.triggerSourceId,
+      sourceRevision: input.witness.inventory[0]!.sourceRevision,
+      automaticRetirement: null,
+    },
+  ];
+  assert.throws(
+    () => inspectInventory(input),
+    /eval_observed_effect_authority_invalid/,
+  );
+});
+
+test("omitted internal replacement retirement requires actual automatic ownership and a known old source", () => {
+  const input = sample();
+  inspectInventory(input);
+  const id = automaticMemoryChildCommandId(input.witness.processingId, "entry");
+  input.witness.commandInventoryIds = [id];
+  input.witness.effects = [
+    {
+      id,
+      entryId: "entry",
+      kind: "retire",
+      state: "queued",
+      actorId: input.witness.inventory[0]!.sourceActor!,
+      approvalAuthorityRevision: "automatic:fixture",
+      scope: input.scope,
+      sourceId: input.triggerSourceId,
+      sourceRevision: input.witness.inventory[0]!.sourceRevision,
+      automaticRetirement: {
+        generation: "fixture-generation",
+        cohortId: "cohort",
+        epoch: "1",
+        ownership: "automatic",
+        currentCohortId: "replacement-cohort",
+        currentEpoch: "2",
+        currentState: "pending",
+        invalidatedBy: null,
+        suppressed: false,
+      },
+    },
+  ];
+  const initialCommands = new Set<string>();
+  const valid = inspectInventory({ ...input, seenCommands: initialCommands });
+  assert.equal(valid.length, 0);
+  input.witness.effects[0]!.automaticRetirement!.ownership = "maintained";
+  assert.throws(
+    () => inspectInventory({ ...input, seenCommands: new Set() }),
+    /eval_observed_effect_authority_invalid/,
+  );
+  input.witness.effects[0]!.automaticRetirement!.ownership = "automatic";
+  assert.throws(
+    () =>
+      inspectInventory({
+        ...input,
+        seenCommands: new Set(),
+        seenEntries: new Map(),
+      }),
+    /eval_observed_effect_authority_invalid/,
+  );
+});
+
+test("durable capture queries fresh workspace/source/entry identities independently of returned IDs and bounds the result", async () => {
+  const input = sample();
+  const rows = [
+    {
+      id: "hidden-queued-retire",
+      workspaceId: input.scope.workspaceId,
+      scopeKey: JSON.stringify([
+        input.scope.workspaceId,
+        "repository",
+        input.scope.repositoryId,
+      ]),
+      generation: "fixture-generation",
+      entryId: "entry",
+    },
+  ];
+  let query: unknown;
+  const prisma = {
+    memoryKnowledgeCommand: {
+      findMany: async (value: unknown) => {
+        query = value;
+        return rows;
+      },
+    },
+  } as unknown as Pick<PrismaClient, "memoryKnowledgeCommand">;
+  const capture = {
+    prisma,
+    namespace: input.namespace,
+    scope: input.scope,
+    generation: "fixture-generation",
+    knownEntryIds: ["entry"],
+    processingIds: ["processing"],
+    returnedIds: [],
+  };
+  const actual = await readDurableCommands(capture);
+  assert.equal(actual[0]!.id, "hidden-queued-retire");
+  const requested = query as { where: { OR: unknown[] }; take: number };
+  assert.equal(requested.take, 257);
+  assert.deepEqual(requested.where.OR[0], {
+    workspaceId: input.scope.workspaceId,
+  });
+  assert.deepEqual(requested.where.OR[1], { entryId: { in: ["entry"] } });
+  assert.deepEqual(requested.where.OR[3], {
+    envelope: { path: ["source", "sourceId"], string_starts_with: "fixture:" },
+  });
+  assert.deepEqual(requested.where.OR[4], {
+    id: {
+      in: [0, 1, 2, 3, "entry"].map((child) =>
+        automaticMemoryChildCommandId("processing", child),
+      ),
+    },
+  });
+  assert.throws(
+    () =>
+      inspectCommandInventory(
+        { commandInventoryIds: [actual[0]!.id], effectIds: [], effects: [] },
+        new Set(),
+      ),
+    /eval_effect_inventory_invalid/,
+  );
+  rows[0]!.workspaceId = "wrong-workspace";
+  await assert.rejects(
+    readDurableCommands(capture),
+    /eval_durable_command_scope_invalid/,
+  );
+  while (rows.length < 257) rows.push({ ...rows[0]!, id: String(rows.length) });
+  await assert.rejects(
+    readDurableCommands(capture),
+    /eval_command_inventory_exceeds_bounded_fixture/,
   );
 });

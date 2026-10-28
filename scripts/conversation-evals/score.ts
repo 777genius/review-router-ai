@@ -5,6 +5,7 @@ import type { Witness } from "./fixture.js";
 
 import {
   inspectInventory,
+  inspectCommandInventory,
   sourceRevision,
   type EntryReview,
   type SourceWitness,
@@ -37,6 +38,7 @@ type Scenario = {
     productEntries: number;
     processingRecords: number;
     nativeDocuments?: number;
+    durableCommands: number;
   };
   observations: (
     | Witness
@@ -48,6 +50,7 @@ type Scenario = {
           revokedEntryIds: string[];
           effectIds: string[];
           effects: Witness["effects"];
+          commandInventoryIds: string[];
         };
         followup: Witness;
       }
@@ -265,7 +268,8 @@ for (const variant of report.variants) {
     if (
       scenario.coldStart.productEntries !== 0 ||
       scenario.coldStart.processingRecords !== 0 ||
-      scenario.coldStart.nativeDocuments !== 0
+      scenario.coldStart.nativeDocuments !== 0 ||
+      scenario.coldStart.durableCommands !== 0
     )
       throw new Error("eval_cold_start_native_and_product_proof_required");
     const digestToFacts = new Map<string, Set<string>>();
@@ -273,6 +277,7 @@ for (const variant of report.variants) {
     const sourceHistory = new Map<string, SourceWitness>();
     const seenVersions = new Set<string>();
     const seenEntries = new Map<string, Witness["inventory"][number]>();
+    const seenCommands = new Set<string>();
     for (const observation of scenario.observations) {
       const witness =
         "followup" in observation ? observation.followup : observation;
@@ -323,6 +328,7 @@ for (const variant of report.variants) {
       }
       if ("mutation" in observation) {
         const mutation = observation.mutation;
+        inspectCommandInventory(mutation, seenCommands);
         if (
           !Array.isArray(mutation.effects) ||
           mutation.effects.length !== mutation.effectIds.length ||
@@ -343,6 +349,9 @@ for (const variant of report.variants) {
         )
           throw new Error("eval_mutation_effect_authority_invalid");
       }
+      const newCommandCount =
+        witness.commandInventoryIds?.filter((id) => !seenCommands.has(id))
+          .length ?? 0;
       const versions = inspectInventory({
         namespace: scenario.namespace,
         scope: scenario.scope,
@@ -353,13 +362,20 @@ for (const variant of report.variants) {
         entries: review.entries,
         seen: seenVersions,
         seenEntries,
+        seenCommands,
         eventAction: expectedEvent?.action ?? "created",
         ...("mutation" in observation
           ? { revokedEntryIds: new Set(observation.mutation.revokedEntryIds) }
           : {}),
       });
       let harmful = false;
-      for (const { key, annotation: entryReview, source, entry } of versions) {
+      for (const {
+        key,
+        annotation: entryReview,
+        source,
+        entry,
+        qualifiedReadback,
+      } of versions) {
         for (const id of entryReview.supportedFactIds) {
           const fact = facts.get(id);
           if (
@@ -371,23 +387,23 @@ for (const variant of report.variants) {
           )
             throw new Error("eval_rubric_source_mapping_invalid");
         }
-        observedEntries.set(key, entryReview);
+        if (qualifiedReadback) observedEntries.set(key, entryReview);
         if (entryReview.wrongScope || !entryReview.attributionCorrect)
           unauthorized++;
-        if (entryReview.attributionCorrect) attributed++;
+        if (qualifiedReadback && entryReview.attributionCorrect) attributed++;
         if (
           !entryReview.supportedFactIds.length ||
           entryReview.wrongScope ||
           !entryReview.attributionCorrect
         )
           harmful = true;
-        else
+        else if (qualifiedReadback)
           for (const id of entryReview.supportedFactIds) {
             covered.add(id);
             if (criticalExpected.has(id)) criticalNonCommand.add(id);
             if (silentExpected.has(id)) criticalSilent.add(id);
           }
-        if (entry.bodyDigest !== null)
+        if (qualifiedReadback && entry.bodyDigest !== null)
           digestToFacts.set(
             entry.bodyDigest,
             new Set(entryReview.supportedFactIds),
@@ -397,8 +413,7 @@ for (const variant of report.variants) {
       if (harmful) harmfulEvents++;
       if (
         expectedEvent?.forbiddenEffects.includes("any_durable_effect") &&
-        (versions.some(({ entry }) => entry.body !== null) ||
-          witness.effectIds.length)
+        (versions.some(({ entry }) => entry.body !== null) || newCommandCount)
       )
         unauthorized++;
       const forbidden = new Set(expectedEvent?.forbiddenFactIds ?? []);
@@ -415,6 +430,7 @@ for (const variant of report.variants) {
         expectedEvent?.expectedReply === "replay_no_new_effects" &&
         (witness.modelCalls ||
           witness.previewCalls ||
+          newCommandCount ||
           versions.some(({ entry }) => entry.body !== null))
       )
         unauthorized++;
@@ -435,9 +451,11 @@ for (const variant of report.variants) {
         expectedEvent?.requiredFactIds.length
       ) {
         const delivered = new Set(
-          witness.deliveredBodyDigests.flatMap((digest) => [
-            ...(digestToFacts.get(digest) ?? []),
-          ]),
+          witness.deliveredBodyDigests
+            .filter((digest) =>
+              witness.retained.some((entry) => entry.bodyDigest === digest),
+            )
+            .flatMap((digest) => [...(digestToFacts.get(digest) ?? [])]),
         );
         linked.push({
           scenario: expectedThread.scenario,

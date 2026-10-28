@@ -18,7 +18,10 @@ import type {
   MemoryKnowledgeScope,
   MemoryKnowledgeSource,
   MemoryActor,
+  MemoryKnowledgeEntryMetadata,
 } from "../../packages/features/memory/src/index.js";
+import { readDurableCommands } from "./command-inventory.js";
+import { qualifiedReadback } from "./score-inventory.js";
 import { createConfiguredMemorySourcePreview } from "../../packages/features/memory/src/composition/index.js";
 import {
   createMemoryKnowledgeRuntime,
@@ -47,6 +50,7 @@ export type Witness = {
   status: string;
   learningStatus: string;
   effectIds: readonly string[];
+  commandInventoryIds: string[];
   answer: string | null;
   previewCalls: number;
   modelCalls: number;
@@ -69,6 +73,17 @@ export type Witness = {
     scope: MemoryKnowledgeScope;
     sourceId: string | null;
     sourceRevision: string | null;
+    automaticRetirement: {
+      generation: string;
+      cohortId: string;
+      epoch: string;
+      ownership: string;
+      currentCohortId: string;
+      currentEpoch: string;
+      currentState: string;
+      invalidatedBy: string | null;
+      suppressed: boolean;
+    } | null;
   }[];
 };
 export type InventoryEntry = {
@@ -78,6 +93,13 @@ export type InventoryEntry = {
   lifecycle: string;
   body: string | null;
   bodyDigest: string | null;
+  unavailableReason:
+    | "unsettled"
+    | "provider_unavailable"
+    | "incomplete_evidence"
+    | null;
+  activeCohortEligible: boolean;
+  sourceCurrent: boolean;
   kind: string;
   approvalAuthorityRevision: string | null;
   automaticCohortId: string | null;
@@ -300,6 +322,7 @@ export async function createEvaluationFixture(input: {
       }
     },
   };
+  const metadataHistory = new Map<string, MemoryKnowledgeEntryMetadata>();
   const readInventory = async (): Promise<InventoryEntry[]> => {
     const page = await service.list(
       { actor: memoryActor, scope, limit: 100 },
@@ -307,29 +330,50 @@ export async function createEvaluationFixture(input: {
     );
     if (page.nextCursor)
       throw new Error("eval_readback_exceeds_bounded_fixture");
-    return page.entries.map((entry) => ({
-      id: entry.metadata.ref.entryId,
-      revision: entry.metadata.revision,
-      scope: entry.metadata.ref.scope,
-      lifecycle: entry.metadata.lifecycle,
-      body: entry.body,
-      bodyDigest: entry.metadata.bodyDigest,
-      kind: entry.metadata.kind,
-      approvalAuthorityRevision:
-        entry.metadata.approval?.authorityRevision ?? null,
-      automaticCohortId: entry.metadata.automaticSource?.cohortId ?? null,
-      automaticCohortEpoch: entry.metadata.automaticSource?.epoch ?? null,
-      sourceId: entry.metadata.source?.sourceId ?? null,
-      sourceRevision: entry.metadata.source?.revision ?? null,
-      sourceActor: entry.metadata.automaticSource?.sourceActorId ?? null,
-      observedCommit: entry.metadata.applicability.observedCommitSha,
-    }));
+    for (const entry of page.entries)
+      if (entry.metadata.source)
+        metadataHistory.set(entry.metadata.ref.entryId, entry.metadata);
+    return Promise.all(
+      page.entries.map(async (entry) => ({
+        id: entry.metadata.ref.entryId,
+        revision: entry.metadata.revision,
+        scope: entry.metadata.ref.scope,
+        lifecycle: entry.metadata.lifecycle,
+        body: entry.body,
+        bodyDigest: entry.metadata.bodyDigest,
+        unavailableReason: entry.unavailableReason,
+        activeCohortEligible: entry.metadata.automaticSource
+          ? await runtime.automaticSources.applicable(
+              entry.metadata.ref,
+              runtime.generation,
+              entry.metadata.automaticSource,
+            )
+          : false,
+        sourceCurrent:
+          entry.metadata.source && entry.metadata.automaticSource
+            ? await current.current(
+                {
+                  scope: entry.metadata.ref.scope,
+                  source: entry.metadata.source,
+                  binding: entry.metadata.automaticSource,
+                },
+                controls(),
+              )
+            : false,
+        kind: entry.metadata.kind,
+        approvalAuthorityRevision:
+          entry.metadata.approval?.authorityRevision ?? null,
+        automaticCohortId: entry.metadata.automaticSource?.cohortId ?? null,
+        automaticCohortEpoch: entry.metadata.automaticSource?.epoch ?? null,
+        sourceId: entry.metadata.source?.sourceId ?? null,
+        sourceRevision: entry.metadata.source?.revision ?? null,
+        sourceActor: entry.metadata.automaticSource?.sourceActorId ?? null,
+        observedCommit: entry.metadata.applicability.observedCommitSha,
+      })),
+    );
   };
   const readback = async () =>
-    (await readInventory()).filter(
-      (entry): entry is InventoryEntry & { body: string; bodyDigest: string } =>
-        entry.body !== null && entry.bodyDigest !== null,
-    );
+    (await readInventory()).filter(qualifiedReadback);
   const drain = async (operationIds: readonly string[]) => {
     for (const commandId of operationIds) {
       for (let count = 0; count < 80; count++) {
@@ -428,6 +472,105 @@ export async function createEvaluationFixture(input: {
     },
   };
   const effectHistory = new Map<string, Witness["effects"][number]>();
+  const observedCommandIds = new Set<string>();
+  const processingIds = new Set<string>();
+  const commandEvidence = async (
+    returnedIds: readonly string[],
+    commit: boolean,
+  ) => {
+    const rows = await readDurableCommands({
+      prisma: input.prisma,
+      namespace,
+      scope,
+      generation: runtime.generation,
+      knownEntryIds: [...metadataHistory.keys()],
+      returnedIds,
+      processingIds: [...processingIds],
+    });
+    const commandInventoryIds = rows.map((row) => row.id);
+    if ([...observedCommandIds].some((id) => !commandInventoryIds.includes(id)))
+      throw new Error("eval_durable_command_disappeared");
+    const effects: Witness["effects"] = [];
+    for (const durable of rows) {
+      const row = await runtime.store.findCommand({
+        commandId: durable.id,
+        scope,
+        generation: runtime.generation,
+      });
+      if (!row) throw new Error("eval_effect_readback_missing");
+      if (!effectHistory.has(durable.id)) {
+        const metadata = await runtime.store.findEntry(
+          row.operation.ref,
+          runtime.generation,
+        );
+        const known = metadata?.source
+          ? metadata
+          : metadataHistory.get(durable.entryId);
+        if (metadata?.source) metadataHistory.set(durable.entryId, metadata);
+        const binding = known?.automaticSource;
+        let automaticRetirement: Witness["effects"][number]["automaticRetirement"] =
+          null;
+        if (durable.commandKind === "retire" && binding) {
+          const [ownership, lineage] = await Promise.all([
+            input.prisma.memoryAutomaticEntry.findUnique({
+              where: {
+                generation_scopeKey_entryId: {
+                  generation: durable.generation,
+                  scopeKey: durable.scopeKey,
+                  entryId: durable.entryId,
+                },
+              },
+            }),
+            runtime.automaticSources.lookupLineage(scope, binding.lineageKey),
+          ]);
+          if (
+            ownership &&
+            lineage &&
+            ownership.lineageKey === binding.lineageKey &&
+            ownership.cohortId === binding.cohortId &&
+            ownership.epoch === binding.epoch
+          )
+            automaticRetirement = {
+              generation: durable.generation,
+              cohortId: ownership.cohortId,
+              epoch: ownership.epoch,
+              ownership: ownership.ownership,
+              currentCohortId: lineage.binding.cohortId,
+              currentEpoch: lineage.binding.epoch,
+              currentState: lineage.state,
+              invalidatedBy: lineage.invalidatedBy ?? null,
+              suppressed: lineage.suppressed,
+            };
+        }
+        const source =
+          row.envelope?.kind === "save" ? row.envelope.source : known?.source;
+        effectHistory.set(durable.id, {
+          id: durable.id,
+          entryId: durable.entryId,
+          kind: durable.commandKind,
+          state: row.operation.state,
+          actorId: row.approval.actor.id,
+          approvalAuthorityRevision: row.approval.authorityRevision,
+          scope: row.operation.ref.scope,
+          sourceId: source?.sourceId ?? null,
+          sourceRevision: source?.revision ?? null,
+          automaticRetirement,
+        });
+      }
+      if (
+        !observedCommandIds.has(durable.id) ||
+        returnedIds.includes(durable.id)
+      )
+        effects.push({
+          ...effectHistory.get(durable.id)!,
+          state: row.operation.state,
+        });
+    }
+    if (commit)
+      for (const id of commandInventoryIds) observedCommandIds.add(id);
+    return { commandInventoryIds, effects };
+  };
+
   const process = new ProcessConversation({
     sources,
     records,
@@ -545,7 +688,7 @@ export async function createEvaluationFixture(input: {
     namespace,
     scope,
     async coldStart() {
-      const [entries, count, native] = await Promise.all([
+      const [entries, count, native, commands] = await Promise.all([
         readInventory(),
         input.prisma.conversationProcessing.count({
           where: {
@@ -554,11 +697,19 @@ export async function createEvaluationFixture(input: {
           },
         }),
         inventory.listSources({ scope: namespace, limit: 100 }, controls()),
+        commandEvidence([], false),
       ]);
-      if (entries.length || count || native.sources.length || native.nextCursor)
+      if (
+        entries.length ||
+        count ||
+        native.sources.length ||
+        native.nextCursor ||
+        commands.commandInventoryIds.length
+      )
         throw new Error("eval_cold_start_failed");
       return {
         productEntries: entries.length,
+        durableCommands: commands.commandInventoryIds.length,
         nativeDocuments: native.sources.length,
         processingRecords: count,
         scopeDigest: conversationDigest(scope),
@@ -586,63 +737,22 @@ export async function createEvaluationFixture(input: {
         controls(),
       );
       const productLatencyMs = Date.now() - start;
-      for (const id of result.learning.effectIds) {
-        if (effectHistory.has(id)) continue;
-        const row = await runtime.store.findCommand({
-          commandId: id,
-          scope,
-          generation: runtime.generation,
-        });
-        if (!row?.envelope) throw new Error("eval_effect_envelope_unavailable");
-        const command = row.envelope;
-        const metadata = await runtime.store.findEntry(
-          command.ref,
-          runtime.generation,
-        );
-        effectHistory.set(id, {
-          id,
-          entryId: command.ref.entryId,
-          kind: command.kind,
-          state: row.operation.state,
-          actorId: row.approval.actor.id,
-          approvalAuthorityRevision: row.approval.authorityRevision,
-          scope: command.ref.scope,
-          sourceId:
-            command.kind === "save"
-              ? command.source.sourceId
-              : (metadata?.source?.sourceId ?? null),
-          sourceRevision:
-            command.kind === "save"
-              ? command.source.revision
-              : (metadata?.source?.revision ?? null),
-        });
-      }
+      processingIds.add(result.processingId);
+      // Capture before delivery can purge approved command/source bytes.
+      await commandEvidence(result.learning.effectIds, false);
       const drainStarted = Date.now();
       await drain(result.learning.effectIds);
       nativeLatencyMs += Date.now() - drainStarted;
       const inventory = await readInventory();
-      const retained = inventory.filter(
-        (
-          entry,
-        ): entry is InventoryEntry & { body: string; bodyDigest: string } =>
-          entry.body !== null && entry.bodyDigest !== null,
-      );
-      const effects: Witness["effects"] = [];
-      for (const id of result.learning.effectIds) {
-        const row = await runtime.store.findCommand({
-          commandId: id,
-          scope,
-          generation: runtime.generation,
-        });
-        if (!row) throw new Error("eval_effect_readback_missing");
-        effects.push({ ...effectHistory.get(id)!, state: row.operation.state });
-      }
+      const retained = inventory.filter(qualifiedReadback);
+      const commands = await commandEvidence(result.learning.effectIds, true);
       return {
         eventId: corpusEventId(thread, event),
         processingId: result.processingId,
         status: result.status,
         learningStatus: result.learning.status,
         effectIds: result.learning.effectIds,
+        ...commands,
         answer: result.reply?.body ?? null,
         previewCalls,
         modelCalls,
@@ -655,13 +765,11 @@ export async function createEvaluationFixture(input: {
         nativeLatencyMs,
         inventory,
         retained,
-        effects,
       };
     },
     async mutate(kind: "retire" | "forget") {
       const entries = await readback();
       const effects = [];
-      const effectProofs: Witness["effects"] = [];
       for (const entry of entries) {
         const ref = { type: "entry" as const, scope, entryId: entry.id };
         const metadata = await service.metadata(ref);
@@ -684,32 +792,15 @@ export async function createEvaluationFixture(input: {
             ? await service.forget({ ...command, kind: "forget" }, controls())
             : await service.retire({ ...command, kind: "retire" }, controls());
         effects.push(operation.id);
-        const row = await runtime.store.findCommand({
-          commandId: operation.id,
-          scope,
-          generation: runtime.generation,
-        });
-        if (!row || row.operation.ref.entryId !== entry.id)
-          throw new Error("eval_mutation_readback_missing");
-        effectProofs.push({
-          id: operation.id,
-          entryId: row.operation.ref.entryId,
-          kind,
-          state: row.operation.state,
-          actorId: row.approval.actor.id,
-          approvalAuthorityRevision: row.approval.authorityRevision,
-          scope: row.operation.ref.scope,
-          sourceId: metadata.source?.sourceId ?? null,
-          sourceRevision: metadata.source?.revision ?? null,
-        });
       }
+      const commands = await commandEvidence(effects, true);
       // Immediate read exclusion is the release gate; physical forget may remain pending.
       const current = await readback();
       if (current.length)
         throw new Error("eval_mutation_did_not_revoke_new_reads");
       return {
         effectIds: effects,
-        effects: effectProofs,
+        ...commands,
         kind,
         revokedEntryIds: entries.map((entry) => entry.id),
         revokedBodyDigests: entries.map((entry) => entry.bodyDigest),

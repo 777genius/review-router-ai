@@ -118,11 +118,23 @@ node --import tsx scripts/conversation-evals/score.ts \
 
 Every observed metadata version is checked before source attribution. Full
 inventory includes inactive and pending rows, with current visible bodies kept
-separately. Every new/revised statement version needs exactly one human rubric
+separately. Actual readback records the unavailable reason, checked source
+currency and the owning store's active-cohort eligibility. Only a visible active
+body with successful readback and both eligibility checks earns retention,
+precision or recall credit. A digest on pending or unavailable metadata earns no
+such credit. Earlier qualified publication remains credited after later
+retirement/forget; a never-visible pending version never does. Every new/revised statement version needs exactly one human rubric
 row; the key includes the actual entry revision and digest, and authority changes
-with the same ID/body are checked again. Actual bodyless command proofs must
-match all returned effect IDs, source actor, scope and permitted automatic
-save/withdrawal semantics. An unexpected source/actor/scope/kind/authority cannot
+with the same ID/body are checked again. A bounded independent PostgreSQL command
+inventory queries the fresh workspace, source namespace, known entry identities
+and stable processing child IDs, including commands outside the requested scope.
+It proves an empty command inventory at cold start and preserves cumulative IDs.
+Every new durable command and returned learning/mutation ID needs an actual
+bodyless command proof, including queued destructive commands with no body change.
+Unreturned internal replacement/recovery retirements require a known historical
+source, actual automatic ownership/cohort state and the owning stable command ID;
+other unreturned commands are rejected. Proofs also check actor, scope and permitted
+automatic save/withdrawal semantics. An unexpected source/actor/scope/kind/authority cannot
 be removed from precision or harmful-write denominators by source filtering.
 
 The scorer rejects an unbound rubric, a missing full-product variant, incomplete scenario/event inventory, mixed split/source mappings, a nonempty cold start,
@@ -142,5 +154,7 @@ GOMEMLIMIT=768MiB GOMAXPROCS=2 node scripts/local-checks/compiler-cli.ts \
 ```
 
 These are synthetic scorer/capture boundary regressions, including the R1
-wrong-source unauthorized-rule witness and same-ID revised-digest bypass. They
+wrong-source unauthorized-rule witness, same-ID revised-digest bypass, the R2
+current-schema CLI pending/no-readback negative, independent omitted-command
+capture and known-owner internal retirement checks. They
 never create a product bank or imply model-quality qualification.

@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
 import type { Witness } from "./fixture.js";
+import {
+  automaticMemoryChildCommandId,
+  memoryKnowledgeDigest,
+} from "../../packages/features/memory/src/index.js";
 
 export type EntryReview = {
   variant: string;
@@ -27,6 +31,50 @@ const scopeKey = (scope: Witness["inventory"][number]["scope"]) =>
     "repositoryId" in scope ? scope.repositoryId : null,
   ]);
 
+export function inspectCommandInventory(
+  witness: Pick<Witness, "commandInventoryIds" | "effectIds" | "effects">,
+  seen: Set<string>,
+) {
+  if (
+    !Array.isArray(witness.commandInventoryIds) ||
+    !Array.isArray(witness.effectIds) ||
+    !Array.isArray(witness.effects)
+  )
+    throw new Error("eval_complete_command_inventory_required");
+  const current = new Set(witness.commandInventoryIds);
+  const returned = new Set(witness.effectIds);
+  const expected = new Set(
+    [...current].filter((id) => !seen.has(id)).concat([...returned]),
+  );
+  if (
+    current.size !== witness.commandInventoryIds.length ||
+    returned.size !== witness.effectIds.length ||
+    [...seen].some((id) => !current.has(id)) ||
+    [...returned].some((id) => !current.has(id)) ||
+    witness.effects.length !== expected.size ||
+    new Set(witness.effects.map((effect) => effect.id)).size !==
+      expected.size ||
+    witness.effects.some((effect) => !expected.has(effect.id))
+  )
+    throw new Error("eval_effect_inventory_invalid");
+  const newIds = new Set([...current].filter((id) => !seen.has(id)));
+  for (const id of current) seen.add(id);
+  return newIds;
+}
+
+export const qualifiedReadback = (
+  entry: Witness["inventory"][number],
+): entry is Witness["inventory"][number] & {
+  body: string;
+  bodyDigest: string;
+} =>
+  entry.body !== null &&
+  entry.bodyDigest !== null &&
+  entry.lifecycle === "active" &&
+  entry.unavailableReason === null &&
+  entry.activeCohortEligible === true &&
+  entry.sourceCurrent === true;
+
 /** Validate the complete observed inventory before selecting event-attributed rows. */
 export function inspectInventory(input: {
   namespace: string;
@@ -39,6 +87,7 @@ export function inspectInventory(input: {
   entries: readonly EntryReview[];
   seen: Set<string>;
   seenEntries: Map<string, Witness["inventory"][number]>;
+  seenCommands: Set<string>;
   revokedEntryIds?: ReadonlySet<string>;
 }) {
   const { witness } = input;
@@ -55,29 +104,54 @@ export function inspectInventory(input: {
     )
   )
     throw new Error("eval_observed_inventory_disappeared");
-  const expectedEffects = new Set(witness.effectIds);
-  if (
-    expectedEffects.size !== witness.effectIds.length ||
-    witness.effects.length !== expectedEffects.size ||
-    new Set(witness.effects.map((effect) => effect.id)).size !==
-      expectedEffects.size
-  )
-    throw new Error("eval_effect_inventory_invalid");
+  inspectCommandInventory(witness, input.seenCommands);
   for (const effect of witness.effects) {
     const selected = input.sources.get(input.triggerSourceId);
+    const prior = input.seenEntries.get(effect.entryId);
+    const historical = input.sourceHistory.get(
+      `${effect.sourceId}\u0000${effect.sourceRevision}`,
+    );
+    const retirement = effect.automaticRetirement;
+    const digest =
+      prior &&
+      retirement &&
+      memoryKnowledgeDigest([
+        "automatic-retirement",
+        retirement?.generation,
+        { type: "entry", scope: input.scope, entryId: effect.entryId },
+        prior.automaticCohortId,
+      ]);
+    const recoveryId =
+      digest &&
+      `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+    const validRetirement =
+      effect.kind === "retire" &&
+      prior &&
+      historical &&
+      retirement &&
+      effect.sourceId === prior.sourceId &&
+      effect.sourceRevision === prior.sourceRevision &&
+      effect.actorId === historical.actorId &&
+      effect.actorId === prior.sourceActor &&
+      retirement.ownership === "automatic" &&
+      retirement.cohortId === prior.automaticCohortId &&
+      retirement.epoch === prior.automaticCohortEpoch &&
+      !retirement.suppressed &&
+      (retirement.currentCohortId !== retirement.cohortId ||
+        (retirement.currentState === "needs_refresh" &&
+          ["changed", "deleted"].includes(retirement.invalidatedBy ?? ""))) &&
+      (effect.id ===
+        automaticMemoryChildCommandId(witness.processingId, effect.entryId) ||
+        effect.id === recoveryId);
     if (
-      !expectedEffects.has(effect.id) ||
       scopeKey(effect.scope) !== scopeKey(input.scope) ||
-      !["save", "retire"].includes(effect.kind) ||
-      effect.actorId !== selected?.actorId ||
       !effect.approvalAuthorityRevision.startsWith("automatic:") ||
-      effect.sourceId !== input.triggerSourceId ||
       (effect.kind === "save"
-        ? effect.sourceRevision !== selected?.revision
-        : input.eventAction !== "edited" ||
-          !input.sourceHistory.has(
-            `${effect.sourceId}\u0000${effect.sourceRevision}`,
-          )) ||
+        ? !witness.effectIds.includes(effect.id) ||
+          effect.actorId !== selected?.actorId ||
+          effect.sourceId !== input.triggerSourceId ||
+          effect.sourceRevision !== selected?.revision
+        : !validRetirement) ||
       !witness.inventory.some((entry) => entry.id === effect.entryId)
     )
       throw new Error("eval_observed_effect_authority_invalid");
@@ -87,8 +161,21 @@ export function inspectInventory(input: {
     annotation: EntryReview;
     source: SourceWitness;
     entry: Witness["inventory"][number];
+    qualifiedReadback: boolean;
   }[] = [];
   for (const entry of witness.inventory) {
+    if (
+      ![
+        null,
+        "unsettled",
+        "provider_unavailable",
+        "incomplete_evidence",
+      ].includes(entry.unavailableReason) ||
+      typeof entry.activeCohortEligible !== "boolean" ||
+      typeof entry.sourceCurrent !== "boolean" ||
+      (entry.body !== null && entry.unavailableReason !== null)
+    )
+      throw new Error("eval_readback_qualification_required");
     const prior = input.seenEntries.get(entry.id);
     // Qualified full-forget may purge source/approval bytes; only a previously
     // validated identity with the matching actual owner mutation proof may do so.
@@ -154,7 +241,6 @@ export function inspectInventory(input: {
     const key = `${input.namespace}:${JSON.stringify(entry)}`;
     if (input.seen.has(key)) continue;
     if (
-      entry.body !== null &&
       !input.seenEntries.has(entry.id) &&
       entry.sourceId !== input.triggerSourceId
     )
@@ -179,11 +265,12 @@ export function inspectInventory(input: {
       annotation: annotation[0]!,
       source: historical,
       entry,
+      qualifiedReadback: qualifiedReadback(entry),
     });
   }
   for (const entry of witness.retained) {
     if (
-      entry.body === null ||
+      !qualifiedReadback(entry) ||
       !witness.inventory.some(
         (row) => JSON.stringify(row) === JSON.stringify(entry),
       )
@@ -191,7 +278,7 @@ export function inspectInventory(input: {
       throw new Error("eval_retained_inventory_mismatch");
   }
   if (
-    witness.inventory.filter((entry) => entry.body !== null).length !==
+    witness.inventory.filter(qualifiedReadback).length !==
     witness.retained.length
   )
     throw new Error("eval_retained_inventory_mismatch");
