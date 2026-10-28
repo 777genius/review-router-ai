@@ -1,6 +1,8 @@
 # Reviews: план реализации и границы scope
 
-Дата: 2026-10-28. Статус: принят после трёх кругов review; готов к реализации.
+Дата: 2026-10-28. Статус: принят после трёх кругов review; реализация выполнена
+и прошла локальную квалификацию. Фактические результаты и найденные при
+реализации поправки записаны в [журнале review](2026-10-28-review-history-reviews.md).
 База исследования и реализации: `418c0ff848443d7a3a0553be22eb63c45a51f53b`.
 Ветка: `feat/review-history-20261028`. Все делегированные исследователи,
 критики и исполнители используют **GPT-6.1 Sol, xhigh**.
@@ -281,6 +283,9 @@ progressCapture seam, компонуя history capture с текущим progres
 Выключение progress не должно выключать Reviews capture. Completion capture
 должен видеть meaningful create/wake/transition, а не только существующий
 success-only Statistics settlement hook. Текущую Statistics семантику сохранить.
+Подключить оба API intent store: обычную v2 composition и отдельный store hosted
+prelease gate, через который создаётся GitHub Actions manual rerun и фиксируется
+admission rejection. Оба используют один writer из общего production root.
 Meaningful fields: state, approved safe reason, admission decision,
 execution/finalized binding, publication attempt, snapshot receipt и recovery
 attempt. Claim, heartbeat, retry scheduling, retention и lastWakeup сами по себе
@@ -309,6 +314,14 @@ snapshot не пропустил конкурентный execution transition. 
 также существующий completion snapshot, если он уже есть. Для предотвращения
 пропущенного completion create и обратного lock order optional infrastructure hook
 completion owner берёт тот же execution row gate **до** create/apply mutation.
+Реальная PostgreSQL-проверка уточнила механизм: intent binding работает в
+Serializable transaction, поэтому одного `SELECT FOR UPDATE` недостаточно для
+обновления уже открытого snapshot. Completion gate делает no-op MVCC UPDATE
+существующего `historyRootRequestId`, только если durable history run существует.
+Логические execution version/state/timestamps не меняются. Устаревший binding
+получает serialization conflict; только `linkAdmission` повторяет свою локальную
+транзакцию до трёх раз. Незавершённые source/history/outbox записи откатываются
+вместе. Не менять глобальный isolation level, таймауты или publication logic.
 Общий порядок: execution → completion (если нужен) → history Run. Binding не
 захватывает completion row после Run; удерживая execution gate, читает согласованный
 snapshot. Это узкий source transaction hook, не новая система блокировок и не
@@ -460,6 +473,11 @@ shared CDN. Содержимое одного workspace никогда не сл
 сбросить раскрытия. Любой 401/403 от list/history/options закрывает весь текущий
 Reviews scope, убирает seed и cached rows и запрещает позднему ответу/старому seed
 восстановить их. Новый разрешённый SSR seed после refresh может восстановить экран.
+В QueryClient сохраняются только boolean-маркеры отказа для seed и actor/workspace.
+Отказанный seed не оживает при unmount/remount. После замеченного отказа другой
+закэшированный SSR seed тоже не считается разрешением: list и repository seed
+ожидают новый успешный API read с обычной проверкой доступа. Это не новый cache
+service, не хранение приватных данных и не протокол временных меток.
 Polling в этой версии не вводится: явный Refresh и стандартный refetch-on-focus
 без отдельного poll manager. Cached successful results допустимы при transient
 refresh failure только для точно того же scope/filter/page с явным уведомлением.

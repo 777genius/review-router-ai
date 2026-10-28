@@ -33,7 +33,8 @@
     "@reviewrouter/shared": "workspace:*",
     "@octokit/app": "^16.1.2",
     "@reviewrouter/features-sdk-growth-authority": "workspace:*",
-    "@reviewrouter/features-review-skills": "workspace:*"
+    "@reviewrouter/features-review-skills": "workspace:*",
+    "@reviewrouter/features-review-history": "workspace:*"
   },
   "scripts": {
     "dev": "tsx watch src/worker.ts",

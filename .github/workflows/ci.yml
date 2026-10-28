@@ -604,6 +604,8 @@ jobs:
         env:
           USAGE_REDRIVE_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
           STATISTICS_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          HISTORY_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          HISTORY_REQUIRE_POSTGRES: "1"
         run: pnpm test
 
       - name: Architecture boundaries

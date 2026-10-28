@@ -123,8 +123,106 @@ existing worker/outbox, одна feature и четыре UI filters. Во вре
 
 ## Финальный review реализации
 
-Статус: реализация ещё не начата.
+Статус: реализация проверена тремя независимыми критиками GPT-6.1 Sol xhigh;
+подтверждённые замечания исправлены, локальные gates пройдены. Статус required CI
+для итогового HEAD и merge фиксируется в [PR #730](https://github.com/777genius/review-router-ai/pull/730).
+
+- `final_frontend_critic`: accepted, без оставшихся material P1/P2. Проверены
+  whole-scope denial, list/repository seed trust, late response после смены scope,
+  session-only actor, safe API errors, URL/Back, paging и реальные screenshots.
+- `final_backend_critic`: accepted после исправления P1 — отдельный API intent
+  store hosted prelease gate первоначально не получал capture hooks. Теперь оба
+  API store используют один production history root. Manual rerun и admission
+  rejection проходят через тот же atomic writer.
+- `final_read_arch_critic`: accepted, без material P1/P2 в SQL authorization,
+  latest-before-filter, cursors, browser contracts, реальном CMS root, Foundation
+  boundaries и подключении обязательных PostgreSQL/architecture CI gates.
+
+Реализация и targeted проверки дали дополнительные конкретные исправления:
+
+1. PostgreSQL race test показал, что execution row lock не обновляет старый
+   Serializable snapshot admission transaction. Completion gate теперь делает
+   no-op MVCC UPDATE существующей lineage только для покрытого root; binding
+   повторяет локальную транзакцию до трёх раз. Execution version/state/timestamps
+   сохранены, новый lock manager/column/isolation policy не добавлены. Реальный
+   тест проходит оба порядка completion/binding и replay в обратном порядке.
+2. Component-local denial flag мог исчезнуть при Back/unmount/remount. Boolean
+   markers в QueryClient блокируют отказанный seed, а любой другой старый SSR seed
+   того же actor/workspace допускается только после свежего authorized API read.
+   Гейт распространяется на строки, options и выбранный repository label.
+3. Быстрое изменение другого фильтра до истечения search debounce теряло введённый
+   текст. Repository/Status/Period теперь сохраняют текущий search вместе с выбором.
+4. Repository continuation использует точный `lower(fullName)` sort key PostgreSQL,
+   а не JavaScript lowercase, который может отличаться на Unicode.
+
+Критики не предложили добавлять отдельные сервисы, таблицы или framework для этих
+исправлений. Измеренное O(tenant history) чтение repository options и некоторых
+no-match prefix queries принято как явная граница; проверка не выдаётся за
+доказательство постоянной стоимости или неограниченной нагрузки.
 
 ## Выполненная квалификация
 
-На момент создания плана тесты новой фичи ещё не исполнены.
+Локальные disposable данные, без production activation и без GitHub публикации:
+
+- Полная реальная migration chain, включая `000151_review_history`, применена
+  на PostgreSQL 17.10. Source fixtures клонируют эту полную схему.
+- Source PostgreSQL: 7 cases passed, включая rollback, duplicate/reordered facts,
+  recovery/manual rerun, winning candidate, source retention и реальные concurrent
+  transactions. Последний source run занял 4.45 s.
+- Reader PostgreSQL: 5 cases passed с volume fixture: 100 000 PR в каждом из двух
+  tenants и 100 000 runs одного PR; 12 actual reader query plans. Последний run
+  занял 17.91 s. План и измеренные ограничения описаны в
+  [runbook](../operations/review-history.md).
+- Frontend/API focused regressions: 5 cases passed, включая оба старых SSR seed
+  сценария, late response и pending search. Ранее 19 focused/dashboard navigation
+  cases прошли совместно; unit tests не добавлены на каждый UI wrapper.
+- Финальный общий targeted batch: 10 files / 65 cases passed после исправлений.
+  Включён actual app/hosted prelease wiring regression: проверяется передача
+  persisted admission outcome единственному assembled writer. Ранее отдельно
+  прошли 104 existing owner regression cases.
+- Настоящий browser E2E passed: Next 16.2.11, Chromium 153.0.8010.0, PostgreSQL
+  17.10, synthetic signed NextAuth session, временная SELECT-only роль. Проверены
+  три protected API, 25 PR, repositories 26+, history 5+2, URL filters/Back,
+  keyboard disclosure, invalid input, local retry, empty/unavailable, SELECT
+  revocation/recovery, membership denial/recovery и workspace switch. Browser
+  errors и внешних запросов нет; cleanup passed.
+- Визуально проверены light/dark screenshots на 390/900/1440 px; независимый
+  frontend critic также посмотрел desktop/mobile/expanded состояния. Нового
+  визуального дефекта, требующего изменения scope, не обнаружено.
+- Feature native typecheck, API/worker typecheck, финальный последовательный web
+  typecheck и tooling typecheck passed. Повтор web проверки был запущен отдельно
+  после resource SIGKILL одного перекрывающегося запуска; SIGKILL не засчитан как
+  успешная проверка.
+- Все звенья repository architecture gate passed. Baseline source/WEB profile,
+  Foundation source directions, DEV_ONLY и REGISTRY проверены; затем последовательно
+  выполнены 23 Memory, 6 Statistics и scoped History rejecting cases. Для этих
+  временных mutation fixtures использован отдельный checkout с теми же 100
+  изменёнными файлами: SHA-256 совпали, source mutations восстановлены. Исходное
+  рабочее дерево не содержит тестовых нарушений или архитектурных исключений.
+- `pnpm modular:qualify`: native typecheck и 6 files / 19 genuine composition
+  cases passed, включая новый production root. Changed-file format/ESLint и
+  `git diff --check` passed; lint rules не отключались.
+- Historical through-000079 fixture получил только три nullable lineage columns
+  как test-only bridge для current Prisma. Authority/attachment/old-binary SQL
+  assertions сохранены. Сам historical contract исполняется в отдельном CI catalog;
+  локальная новая source qualification использовала полную схему 151.
+- Activation command запущен дважды только на disposable browser database:
+  оба раза возвращён один timestamp, production не изменялся.
+
+Локальные receipts находятся в ignored `tmp/review-history/` и
+`tmp/statistics-e2e/run-2026-10-28T12-13-26.739Z-359663c5ebf0/`. Browser receipt
+сохраняет hashes проверенных исходников; его `sourceCommit` относится к раннему
+documentation checkpoint, потому что implementation batch проверялся до commit.
+Browser fixtures не доказывают реальный GitHub launch: source capture/projector
+подтверждены отдельно реальными PostgreSQL cases, а deployment/live review остаётся
+операцией release процесса.
+
+## Фактический объём
+
+По Git diff относительно `418c0ff848443d7a3a0553be22eb63c45a51f53b`, до финального
+обновления этого отчёта: 3 938 добавленных строк production/activation кода, 2 825
+строк targeted tests/fixtures/browser harness и 418 строк architecture qualification.
+Всего код, проверки и тестовые fixtures — 7 181 добавленная строка; это физические
+строки diff, включая комментарии и пустые строки, а не semantic SLOC. Configuration,
+lockfile, Markdown и неизменённые лицензированные Impeccable references считаются
+отдельно. Эти числа не являются требованием к объёму следующей фичи.
