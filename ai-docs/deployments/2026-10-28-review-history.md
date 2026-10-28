@@ -12,10 +12,10 @@
 
 ## Environment status
 
-| Environment | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / remaining action                                                              |
-| ----------- | --------- | ------------------------------- | ------------------- | ---------------------------------------------------------------------------------------- |
-| staging     | `pending` | Not verified                    | Not verified        | Reconcile installed state, then complete the rollout and live verification below.        |
-| production  | `pending` | Not verified                    | Not verified        | Verify release prerequisites and staging evidence, then complete the production rollout. |
+| Environment | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / remaining action                                                                          |
+| ----------- | --------- | ------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------- |
+| staging     | `pending` | Not verified                    | Not verified        | Reconcile installed state, then complete the rollout and live verification below.                    |
+| production  | `blocked` | `366fa74c` / `29135fbaa6bb`     | 2026-10-28 19:25    | Pre-deploy CI gate; explicit manual exception requested, owner response pending. No runtime changes. |
 
 No environment rollout was performed or verified when this record was created.
 `pending` means completion has no recorded evidence; do not infer existing live
@@ -46,6 +46,36 @@ See the [database release and cutover rules](../operations/07-environments-and-r
 Migration 151 is additive; that does not make the entire pending migration chain
 safe for a rolling upgrade. No separate prerequisite task records have yet been
 inventoried here; create/link them if the selected rollout needs them.
+
+## Production reconciliation: 2026-10-28
+
+The pre-deploy read-only reconciliation observed the serving application at
+`366fa74c`, image `29135fbaa6bb`. No production application, database, Gateway,
+or native runtime was changed by this attempt.
+
+The application migration ledger contains 158 entries. Compared with the
+candidate source, shared migration checksums have no drift. Three retained
+historical ledger-only names are `000116_hosted_v4_fenced_dispatch`,
+`000117_hosted_v4_one_shot_dispatch`, and
+`000118_exclusive_test_publication`; their absence from the current source is
+recorded separately from checksum drift. `000151_review_history` is pending.
+The native ledger contains 305 entries with checksum parity; nine native
+migrations remain pending, including 258.
+
+Prepared application candidate:
+[`f5b62bed64be616272d99cb95913b71e4fb9fccc`](https://github.com/777genius/review-router-ai/commit/f5b62bed64be616272d99cb95913b71e4fb9fccc),
+[PR #739](https://github.com/777genius/review-router-ai/pull/739). Its local
+qualification passed 111 focused tests, API and provider-accounts typechecks,
+and targeted lint/format/diff checks. These results establish preparation,
+not deployment or Review History activation.
+
+**Pre-deploy gate:** the required full exact-commit CI has not completed:
+the #737 runs were cancelled at the owner's request and candidate CI remains
+queued. An explicit exception for a manual deployment without full CI was
+requested in the current owner chat; the response is pending. Keep production
+`blocked` until that decision or the required exact-commit evidence is available.
+This is a pre-deploy gate, not an infrastructure outage or a failed release.
+No migration, fleet rollout, capture enablement, or activation was attempted.
 
 ## Ordered rollout
 
@@ -153,7 +183,7 @@ when this registry is read. They are not links to deployment evidence.
 
 ## Execution log
 
-| Time (UTC)   | Environment | Operator   | Actual version / image | Step and observed result                     | Evidence | Next action                                                         |
-| ------------ | ----------- | ---------- | ---------------------- | -------------------------------------------- | -------- | ------------------------------------------------------------------- |
-| Not executed | staging     | Unassigned | Not verified           | No environment work verified by this record. | None     | Reconcile state and prerequisites; select the approved release.     |
-| Not executed | production  | Unassigned | Not verified           | No environment work verified by this record. | None     | Reconcile state and prerequisites; verify staging/release evidence. |
+| Time (UTC)       | Environment | Operator           | Actual version / image      | Step and observed result                                                                                        | Evidence                                                                                                                                                                                                                                                                                                                                                                                     | Next action                                                                                                                |
+| ---------------- | ----------- | ------------------ | --------------------------- | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Not executed     | staging     | Unassigned         | Not verified                | No environment work verified by this record.                                                                    | None                                                                                                                                                                                                                                                                                                                                                                                         | Reconcile state and prerequisites; select the approved release.                                                            |
+| 2026-10-28 19:25 | production  | Codex (owner task) | `366fa74c` / `29135fbaa6bb` | Read-only fleet/schema reconciliation and candidate preparation; production unchanged. Pre-deploy gate blocked. | Reconciliation above; [candidate PR #739](https://github.com/777genius/review-router-ai/pull/739), [queued CI](https://github.com/777genius/review-router-ai/actions/runs/40753311508); cancelled #737 CI runs [40751898238](https://github.com/777genius/review-router-ai/actions/runs/40751898238), [40744072509](https://github.com/777genius/review-router-ai/actions/runs/40744072509). | Await explicit owner response on manual exception or successful required exact-commit CI; then resume the ordered rollout. |
