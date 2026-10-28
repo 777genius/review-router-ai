@@ -6,6 +6,7 @@ import {
   defaultProviderSelectionSettings,
   fitProviderSelectionSettings,
   ProviderModelFields,
+  ProviderModelPicker,
   providerSelectionSettingsNeedCorrection,
   type ProviderModelFieldsProps,
 } from "./provider-model-fields";
@@ -367,4 +368,39 @@ it("closes model suggestions with Escape without closing the surrounding dialog"
   fireEvent.keyDown(input, { key: "Escape" });
   expect(screen.queryByRole("listbox")).toBeNull();
   expect(onDialogKey).not.toHaveBeenCalled();
+});
+
+it("searchable account models skip disabled choices during keyboard selection", () => {
+  const onModelChange = vi.fn();
+  render(
+    <ProviderModelPicker
+      model=""
+      onModelChange={onModelChange}
+      modelChoice="catalog"
+      allowCustomModel={false}
+      disabled={false}
+      modelOptions={[
+        {
+          provider: "openrouter",
+          value: "unsupported/model",
+          label: "Unsupported",
+          disabled: true,
+        },
+        {
+          provider: "openrouter",
+          value: "available/model",
+          label: "Available",
+          description: "128K context",
+        },
+      ]}
+    />,
+  );
+  const input = screen.getByRole("combobox", { name: "Model" });
+  fireEvent.focus(input);
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(onModelChange).not.toHaveBeenCalled();
+  fireEvent.keyDown(input, { key: "ArrowDown" });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(onModelChange).toHaveBeenCalledExactlyOnceWith("available/model");
+  expect(screen.queryByRole("listbox")).toBeNull();
 });

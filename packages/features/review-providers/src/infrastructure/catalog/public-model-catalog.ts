@@ -262,6 +262,12 @@ function boundedNumber(value: unknown): number | null {
     ? value
     : null;
 }
+function contextTokens(value: unknown): number | null {
+  const number = boundedNumber(value);
+  return number !== null && Number.isInteger(number) && number > 0
+    ? number
+    : null;
+}
 function modality(value: unknown): boolean | null {
   return Array.isArray(value) ? value.includes("text") : null;
 }
@@ -331,7 +337,7 @@ export function normalizePublicCatalog(
         row.name.length <= 300
           ? row.name
           : row.id,
-      contextTokens: boundedNumber(
+      contextTokens: contextTokens(
         provider === "openrouter" ? row.context_length : limits?.context,
       ),
       textInput: modality(
@@ -378,6 +384,14 @@ export function normalizePublicCatalog(
               cacheRead: price(
                 costs[
                   provider === "openrouter" ? "input_cache_read" : "cache_read"
+                ],
+                provider === "openrouter" ? 1_000_000 : 1,
+              ),
+              cacheWrite: price(
+                costs[
+                  provider === "openrouter"
+                    ? "input_cache_write"
+                    : "cache_write"
                 ],
                 provider === "openrouter" ? 1_000_000 : 1,
               ),

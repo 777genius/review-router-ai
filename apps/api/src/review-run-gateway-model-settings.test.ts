@@ -24,10 +24,18 @@ import {
 function fixture(
   model = "gpt-prefix/dynamic",
   reasoningEffort?: "minimal" | "high" | "max" | "ultra",
-  options: { readonly accountModelCatalogEnabled?: boolean } = {
+  options: {
+    readonly accountModelCatalogEnabled?: boolean;
+    readonly source?: "codex" | "openrouter";
+  } = {
     accountModelCatalogEnabled: true,
   },
 ) {
+  const source = options.source ?? "codex";
+  const profileRef =
+    source === "codex"
+      ? codexOAuthModelSettingsProfile
+      : "openrouter-openai-responses-apikey-v1";
   const configuration = parseReviewConfigurationStrict({
     ...workspacePolicyFixture,
     providers: [
@@ -40,7 +48,7 @@ function fixture(
         fastMode: false,
         requiredHealthy: true,
         gatewayBindingId: "binding-1",
-        gatewayProfileRef: codexOAuthModelSettingsProfile,
+        gatewayProfileRef: profileRef,
       },
     ],
   });
@@ -77,7 +85,7 @@ function fixture(
       policySubject: "binding-1",
       policyRevision: 1,
       permittedAccountRef: "account-private",
-      profileRef: codexOAuthModelSettingsProfile,
+      profileRef,
       invocationId: "invocation-1",
       attemptId: "attempt-1",
       operationId: "operation-1",
@@ -124,7 +132,7 @@ function fixture(
       owner: { kind: "workspace", workspaceId: "workspace-1" },
       gatewayAccountRef: "account-private",
       gatewayOperationRef: null,
-      profileRef: codexOAuthModelSettingsProfile,
+      profileRef,
       displayName: "Account",
       state: "active",
       metadataRevision: 1,
@@ -133,7 +141,7 @@ function fixture(
   let account: c.Account = {
     accountRef: "account-private",
     ownerRef: `rrw_${createHash("sha256").update("rr-workspace-owner-v1\0workspace-1").digest("hex")}`,
-    profileId: codexOAuthModelSettingsProfile,
+    profileId: profileRef,
     displayName: "Account",
     state: "active",
     metadataRevision: 1,
@@ -141,19 +149,36 @@ function fixture(
   };
   let catalog: c.AccountModels = {
     status: "snapshot",
-    source: "codex",
     physicalGeneration: "generation-private",
     principalVersion: "principal-private",
     fetchedAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 300000).toISOString(),
-    models: [
-      {
-        modelId: model,
-        reasoning: { allowed: ["max", "minimal", "high"], default: "high" },
-        fast: { allowed: ["balanced"], default: "balanced" },
-        tools: { allowed: ["function"], default: "function" },
-      },
-    ],
+    ...(source === "codex"
+      ? {
+          source,
+          models: [
+            {
+              modelId: model,
+              reasoning: {
+                allowed: ["max", "minimal", "high"],
+                default: "high",
+              },
+              fast: { allowed: ["balanced"], default: "balanced" },
+              tools: { allowed: ["function"], default: "function" },
+            },
+          ],
+        }
+      : {
+          source,
+          models: [
+            {
+              modelId: model,
+              reasoning: null,
+              fast: null,
+              tools: { allowed: ["function"], default: "function" },
+            },
+          ],
+        }),
   };
   let duringRead: (() => void) | undefined;
   let duringGet: (() => void) | undefined;
@@ -180,10 +205,10 @@ function fixture(
     control: { get, readAccountModels },
     profiles: [
       {
-        profileId: codexOAuthModelSettingsProfile,
+        profileId: profileRef,
         protocol: "openai-responses",
-        modelIds: ["gpt-5.6-sol"],
-        authKinds: ["oauth"],
+        modelIds: [source === "codex" ? "gpt-5.6-sol" : "openai/gpt-5.4-mini"],
+        authKinds: [source === "codex" ? "oauth" : "api_key"],
       },
     ],
   });
@@ -336,7 +361,7 @@ it("exports only deterministic exact-model settings while preserving saved effor
     allowed: ["high", "max", "minimal"],
     default: "high",
   };
-  updated.fetchedAt = new Date(Date.now() + 1000).toISOString();
+  updated.fetchedAt = new Date().toISOString();
   f.catalog(updated);
   expect(
     (await f.issue()).runtimeConfig.runtimeEnv[
@@ -480,4 +505,157 @@ it("refuses an explicit effort removed from the current selected-model catalog",
   f.catalog(catalog);
   await expect(f.issue()).rejects.toThrow();
   expect(f.issuer).not.toHaveBeenCalled();
+});
+
+const openRouterCatalog = {
+  accountModelCatalogEnabled: true,
+  source: "openrouter",
+} as const;
+
+it("preserves the selected OpenRouter high effort and its advertised medium default without Codex aliases", async () => {
+  const model = "vendor/reasoning-model";
+  const f = fixture(model, "high", openRouterCatalog);
+  const catalog = f.snapshot();
+  catalog.models[0]!.reasoning = {
+    allowed: ["medium", "high"],
+    default: "medium",
+  };
+  f.catalog(catalog);
+
+  const result = await f.issue();
+  expect(result.runtimeConfig.runtimeEnv.CODEX_REASONING_EFFORT).toBe("high");
+  expect(
+    JSON.parse(
+      result.runtimeConfig.runtimeEnv[gatewayModelSettingsRuntimeEnvKey]!,
+    ),
+  ).toEqual({
+    model,
+    reasoning: { allowed: ["medium", "high"], default: "medium" },
+  });
+  expect(f.configuration.providers[0]!.reasoningEffort).toBe("high");
+  expect(f.issuer).toHaveBeenCalledTimes(1);
+});
+
+it("rejects the Codex ultra alias for OpenRouter before SCM access even when max is advertised", async () => {
+  const f = fixture("vendor/reasoning-model", "ultra", openRouterCatalog);
+  const catalog = f.snapshot();
+  catalog.models[0]!.reasoning = {
+    allowed: ["medium", "high", "max"],
+    default: "medium",
+  };
+  f.catalog(catalog);
+
+  await expect(f.issue()).rejects.toThrow("gateway_model_settings_unavailable");
+  expect(f.readAccountModels).toHaveBeenCalledTimes(1);
+  expect(f.issuer).not.toHaveBeenCalled();
+});
+
+it("checks out a newly discovered OpenRouter model from a full catalog without injecting reasoning or exposing other models", async () => {
+  const model = "new-vendor/new-review-model:free";
+  const f = fixture(model, undefined, openRouterCatalog);
+  const catalog = f.snapshot();
+  if (catalog.source !== "openrouter") throw new Error("fixture_source");
+  const selected = catalog.models[0]!;
+  catalog.models = [
+    ...Array.from({ length: 2047 }, (_, index) => ({
+      ...selected,
+      modelId: `vendor/model-${index}`,
+    })),
+    selected,
+  ];
+  f.catalog(catalog);
+  const result = await f.issue();
+  expect(
+    JSON.parse(
+      result.runtimeConfig.runtimeEnv[gatewayModelSettingsRuntimeEnvKey]!,
+    ),
+  ).toEqual({ model, reasoning: null });
+  expect(
+    result.runtimeConfig.runtimeEnv.CODEX_REASONING_EFFORT,
+  ).toBeUndefined();
+  expect(JSON.stringify(result)).not.toMatch(
+    /vendor\/model-0|account-private|generation-private|principal-private|connection-private/,
+  );
+  expect(f.readAccountModels).toHaveBeenCalledWith(
+    expect.objectContaining({
+      profileId: "openrouter-openai-responses-apikey-v1",
+      expectedAuthorizationEpoch: 7,
+    }),
+    expect.anything(),
+  );
+  expect(f.issuer).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  "unknown",
+  "unsupported",
+  "unavailable",
+  "removed",
+  "expired",
+  "future",
+  "wrong-source",
+] as const)(
+  "refuses OpenRouter %s metadata before minting repository access",
+  async (mode) => {
+    const f = fixture(
+      "new-vendor/new-review-model",
+      undefined,
+      openRouterCatalog,
+    );
+    if (mode === "wrong-source") {
+      f.catalog(fixture("new-vendor/new-review-model").snapshot());
+    } else if (mode === "removed" || mode === "expired" || mode === "future") {
+      const catalog = f.snapshot();
+      if (mode === "removed") catalog.models = [];
+      else if (mode === "future") {
+        catalog.fetchedAt = new Date(Date.now() + 60000).toISOString();
+        catalog.expiresAt = new Date(Date.now() + 300000).toISOString();
+      } else {
+        catalog.fetchedAt = new Date(Date.now() - 600000).toISOString();
+        catalog.expiresAt = new Date(Date.now() - 300000).toISOString();
+      }
+      f.catalog(catalog);
+    } else f.catalog({ status: mode });
+    await expect(f.issue()).rejects.toThrow();
+    expect(f.issuer).not.toHaveBeenCalled();
+  },
+);
+
+it.each([
+  "foreign",
+  "remove",
+  "changeEpoch",
+  "changeBinding",
+  "revoke",
+  "changeAuthorization",
+] as const)(
+  "rechecks OpenRouter %s after discovery before minting repository access",
+  async (change) => {
+    const f = fixture(
+      "new-vendor/new-review-model",
+      undefined,
+      openRouterCatalog,
+    );
+    f.during(f[change]);
+    await expect(f.issue()).rejects.toThrow();
+    expect(f.issuer).not.toHaveBeenCalled();
+  },
+);
+
+it("does not infer OpenRouter reasoning efforts or reuse Codex aliases", async () => {
+  const f = fixture("new-vendor/new-review-model", "high", openRouterCatalog);
+  await expect(f.issue()).rejects.toThrow();
+  expect(f.issuer).not.toHaveBeenCalled();
+  expect(
+    serializeSelectedGatewayModelSettings(
+      {
+        model: "new-vendor/new-review-model",
+        reasoning: { allowed: ["ultra"], default: "ultra" },
+      },
+      "new-vendor/new-review-model",
+      "openrouter-openai-responses-apikey-v1",
+    ),
+  ).toBe(
+    '{"model":"new-vendor/new-review-model","reasoning":{"allowed":["ultra"],"default":"ultra"}}',
+  );
 });
