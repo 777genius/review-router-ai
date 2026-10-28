@@ -19,7 +19,7 @@ RUN apt-get update \
 COPY . .
 RUN pnpm install --frozen-lockfile \
   && pnpm db:generate \
-  && pnpm build \
+  && TURBO_CONCURRENCY=2 pnpm build \
   && pnpm store prune
 
 FROM node:26.11.1-bookworm-slim@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda25cde66e2b66e95ed86c4567 AS runtime

@@ -1,3 +1,4 @@
+import type { ReviewExecutionInputAdmissionPort } from "./review-execution-input-admission-port";
 import { createHash } from "node:crypto";
 import {
   Prisma,
@@ -146,6 +147,7 @@ export class PrismaReviewExecutionStore
     private readonly prisma: PrismaClient,
     private readonly options: Readonly<{
       progressCapture?: ReviewExecutionProgressCapturePort;
+      inputAdmission?: ReviewExecutionInputAdmissionPort;
     }> = {},
   ) {}
 
@@ -625,6 +627,7 @@ export class PrismaReviewExecutionStore
       try {
         return await this.prisma.$transaction(
           async (transaction) => {
+            await this.options.inputAdmission?.lock(transaction, command);
             await lockScopes(transaction, [command.scope]);
             const executionIdentity =
               await transaction.reviewExecutionV2.findUnique({
@@ -683,7 +686,20 @@ export class PrismaReviewExecutionStore
             if (snapshot === null) {
               return { status: ReviewInvocationLeaseAcquireStatus.Missing };
             }
-            const now = await databaseNow(transaction);
+            let now = await databaseNow(transaction);
+            if (
+              this.options.inputAdmission &&
+              !(await this.options.inputAdmission.admit(transaction, {
+                command,
+                execution: snapshot.execution,
+                now,
+              }))
+            ) {
+              return { status: ReviewInvocationLeaseAcquireStatus.InputStale };
+            }
+            // Input admission may wait on current-authority locks. All deadline and
+            // lease-duration decisions use the database clock after those waits.
+            now = await databaseNow(transaction);
             let decision = await decideLeaseAcquireForSnapshot(
               transaction,
               snapshot,

@@ -257,7 +257,7 @@ describe("Codex rotating release migration workflow", () => {
     );
     expect(workflow).toContain("canonicalPrismaMigrationCatalog");
     expect(canonicalPrismaMigrationCatalog).toEqual({
-      appliedMigrationCount: 151,
+      appliedMigrationCount: 153,
       latestMigration: "000149_api_key_repository_secret_profiles",
     });
     expect(workflow).toContain(".runtimeRoleCount == 5");

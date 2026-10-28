@@ -205,7 +205,7 @@ export interface ReviewSkillsService {
   listAssignmentChoices(
     input: MemberInput &
       PageInput &
-      Readonly<{ repositoryIds: readonly string[] }>,
+      Readonly<{ repositoryIds: readonly string[]; assignedOnly?: boolean }>,
   ): Promise<ReviewSkillsPage<ReviewSkillAssignmentChoice>>;
   applyAssignments(
     input: MemberInput &

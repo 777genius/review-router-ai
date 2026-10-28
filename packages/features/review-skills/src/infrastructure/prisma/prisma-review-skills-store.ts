@@ -834,12 +834,12 @@ export class PrismaReviewSkillsStore implements ReviewSkillsStore {
       undefined,
       { ids: ownIds, metadata: true },
     );
-    const candidateLive = await available(
-      this.prisma,
-      i.workspaceId,
-      undefined,
-      { page: i, metadata: true },
-    );
+    const candidateLive = i.assignedOnly
+      ? assignedLive
+      : await available(this.prisma, i.workspaceId, undefined, {
+          page: i,
+          metadata: true,
+        });
     const liveMap = new Map(
       [...assignedLive, ...candidateLive].map((s) => [s.id, s]),
     );

@@ -141386,8 +141386,8 @@ async function ensureFullReviewRuntimeTools(input) {
   }
   await runProcess({
     command: "bash",
+    // Preserve the deliberately sanitized PATH; login Bash startup may replace it.
     args: [
-      // Login profiles can replace the explicitly sanitized PATH below.
       "-c",
       [
         "set -euo pipefail",

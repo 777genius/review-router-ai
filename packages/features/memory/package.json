@@ -14,11 +14,6 @@
       "production": "./dist/infrastructure/index.js",
       "default": "./src/infrastructure/index.ts"
     },
-    "./outbox": {
-      "types": "./src/infrastructure/outbox/memory-index-outbox-handlers.ts",
-      "production": "./dist/infrastructure/outbox/memory-index-outbox-handlers.js",
-      "default": "./src/infrastructure/outbox/memory-index-outbox-handlers.ts"
-    },
     "./composition": {
       "types": "./src/composition/index.ts",
       "production": "./dist/composition/index.js",
@@ -28,7 +23,7 @@
   "dependencies": {
     "@get-modular/core": "0.7.0",
     "@get-modular/assembly": "0.7.0",
-    "@infinity-context/sdk": "https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz",
+    "@vectorize-io/hindsight-client": "https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz",
     "@prisma/client": "^7.8.0",
     "@reviewrouter/features-entitlements": "workspace:*",
     "@reviewrouter/features-outbox": "workspace:*",
@@ -40,6 +35,9 @@
   },
   "devDependencies": {
     "vitest": "4.1.10",
-    "@reviewrouter/platform-db": "workspace:*"
+    "@reviewrouter/platform-db": "workspace:*",
+    "@prisma/adapter-pg": "7.8.0",
+    "pg": "8.23.0",
+    "@types/pg": "8.23.1"
   }
 }

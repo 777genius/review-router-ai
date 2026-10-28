@@ -1,4 +1,4 @@
-import { memoryError } from "../../domain/memory-errors";
+import { MemoryKnowledgeError } from "../../domain/memory-knowledge";
 import type {
   MemoryUsageEventRetentionPort,
   MemoryUsageEventRetentionScope,
@@ -43,18 +43,18 @@ function assertValidRetentionScope(
 ): void {
   if (scope.kind === "all_workspaces") return;
   if (scope.workspaceId.trim().length > 0) return;
-  throw memoryError("memory_input_invalid");
+  throw new MemoryKnowledgeError("invalid_input");
 }
 
 function assertValidCutoff(value: Date): void {
   if (value instanceof Date && Number.isFinite(value.getTime())) return;
-  throw memoryError("memory_input_invalid");
+  throw new MemoryKnowledgeError("invalid_input");
 }
 
 function normalizeRetentionBatchLimit(value: number | undefined): number {
   if (value === undefined) return DEFAULT_MEMORY_USAGE_RETENTION_BATCH_LIMIT;
   if (!Number.isSafeInteger(value) || value < 1) {
-    throw memoryError("memory_input_invalid");
+    throw new MemoryKnowledgeError("invalid_input");
   }
   return Math.min(value, MAX_MEMORY_USAGE_RETENTION_BATCH_LIMIT);
 }

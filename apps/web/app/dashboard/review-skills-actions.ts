@@ -10,6 +10,8 @@ import type {
 } from "../../src/features/review-skills/contracts";
 import { getDashboardSignedInActor } from "../../src/server/dashboard-mutations";
 import { productionReviewSkills } from "../../src/server/review-skills-composition";
+import { enrichReviewSkillsResponse } from "../../src/server/review-skills-response";
+import type { ReviewSkillsService } from "@reviewrouter/features-review-skills";
 
 const reads = new Set<string>([
   "loadWorkspaceCapabilities",
@@ -75,13 +77,20 @@ export async function executeReviewSkills<
     const service = await productionReviewSkills();
     const operation = service[request.method] as unknown as (
       input: object,
-    ) => Promise<ReviewSkillsValue<K>>;
+    ) => ReturnType<ReviewSkillsService[K]>;
     const value = await operation.call(service, {
       ...request.input,
       actor: { userId: actor.userId },
     });
     if (!reads.has(request.method)) revalidatePath("/dashboard");
-    return { status: "ok", value };
+    return {
+      status: "ok",
+      value: await enrichReviewSkillsResponse(
+        request.method,
+        request.input,
+        value,
+      ),
+    };
   } catch (error) {
     if (error instanceof ReviewSkillsError)
       return {

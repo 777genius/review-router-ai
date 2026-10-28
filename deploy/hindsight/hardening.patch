@@ -1,0 +1,275 @@
+--- a/hindsight-api-slim/hindsight_api/__init__.py
++++ b/hindsight-api-slim/hindsight_api/__init__.py
+@@ -31,6 +31,10 @@
+ than they used to.
+ """
+ 
++from .native_privacy import install as _install_native_privacy
++
++_install_native_privacy()
++
+ from typing import TYPE_CHECKING
+ 
+ # Cap native ML thread pools (OpenBLAS/OpenMP/MKL) before any import pulls in
+--- a/hindsight-api-slim/hindsight_api/config.py
++++ b/hindsight-api-slim/hindsight_api/config.py
+@@ -2302,28 +2302,12 @@
+         self._allowed_fields = allowed_fields
+ 
+     def format(self, record: logging.LogRecord) -> str:
+-        log_entry = {
+-            "severity": self.SEVERITY_MAP.get(record.levelno, "DEFAULT"),
+-            "message": record.getMessage(),
+-            "timestamp": datetime.now(timezone.utc).isoformat(),
+-            "logger": record.name,
+-        }
+-
+-        # Lazy import to avoid circular dependency (engine imports from config).
+-        from hindsight_api.engine.memory_engine import _current_schema
+-
+-        tenant = _current_schema.get()
+-        if tenant:
+-            log_entry["tenant"] = tenant
+-
+-        # Add exception info if present
+-        if record.exc_info:
+-            log_entry["exception"] = self.formatException(record.exc_info)
+-
+-        if self._allowed_fields is not None:
+-            log_entry = {k: v for k, v in log_entry.items() if k in self._allowed_fields}
+-
+-        return json.dumps(log_entry)
++        return json.dumps({
++            "severity": self.SEVERITY_MAP.get(record.levelno, "DEFAULT"),
++            "event": record.getMessage(),
++            "timestamp": datetime.now(timezone.utc).isoformat(),
++            "logger": record.name,
++        })
+ 
+ 
+ def _parse_str_list(value: str) -> list[str]:
+--- a/hindsight-api-slim/hindsight_api/api/http.py
++++ b/hindsight-api-slim/hindsight_api/api/http.py
+@@ -5523,6 +5523,9 @@
+ 
+     _instrument_app_for_tracing(app, config)
+ 
++    from hindsight_api.native_privacy import install_http
++
++    install_http(app)
+     return app
+ 
+ 
+--- a/hindsight-api-slim/hindsight_api/main.py
++++ b/hindsight-api-slim/hindsight_api/main.py
+@@ -100,7 +100,7 @@
+             loop.close()
+             print("\npg0 stopped.")
+         except Exception as e:
+-            print(f"\nError stopping pg0: {e}")
++            print(f"\nError stopping pg0: {type(e).__name__}")
+ 
+ 
+ def _signal_handler(signum, frame):
+--- a/hindsight-api-slim/hindsight_api/banner.py
++++ b/hindsight-api-slim/hindsight_api/banner.py
+@@ -89,7 +89,7 @@
+     if version:
+         print(f"  {dim('Version:')} {color(f'v{version}', 0.1)}")
+     print(f"  {dim('URL:')} {color(f'http://{host}:{port}', 0.2)}")
+-    print(f"  {dim('Database:')} {color(mask_network_location(database_url), 0.4)}")
++    print("  Database: configured")
+     print(f"  {dim('LLM:')} {color(f'{llm_provider} / {llm_model}', 0.6)}")
+     print(f"  {dim('Embeddings:')} {color(embeddings_provider, 0.8)}")
+     print(f"  {dim('Reranker:')} {color(reranker_provider, 1.0)}")
+--- a/hindsight-api-slim/hindsight_api/worker/main.py
++++ b/hindsight-api-slim/hindsight_api/worker/main.py
+@@ -313,7 +313,7 @@
+ 
+         await memory.initialize()
+ 
+-        print(f"Database connected: {config.database_url}")
++        print("Database connected")
+ 
+         if tenant_extension:
+             print("Tenant extension loaded - schemas will be discovered dynamically on each poll")
+@@ -451,7 +451,7 @@
+                 loop.close()
+                 print("\npg0 stopped.")
+             except Exception as e:
+-                print(f"\nError stopping pg0: {e}")
++                print(f"\nError stopping pg0: {type(e).__name__}")
+ 
+     atexit.register(cleanup)
+ 
+--- a/hindsight-api-slim/hindsight_api/worker/poller.py
++++ b/hindsight-api-slim/hindsight_api/worker/poller.py
+@@ -949,7 +949,7 @@
+         """
+         table = fq_table("async_operations", schema)
+         # Truncate error message if too long (max 5000 chars in schema)
+-        error_message = error_message[:5000] if len(error_message) > 5000 else error_message
++        error_message = "native_task_failed"
+ 
+         async with self._backend.acquire() as conn:
+             async with conn.transaction():
+@@ -1080,7 +1080,7 @@
+         after being cancelled goes back to 'pending' and gets re-claimed.
+         """
+         table = fq_table("async_operations", schema)
+-        error_message = error_message[:5000] if len(error_message) > 5000 else error_message
++        error_message = "native_task_failed"
+         async with self._backend.acquire() as conn:
+             result = await conn.execute(
+                 f"""
+--- a/hindsight-api-slim/hindsight_api/worker/exceptions.py
++++ b/hindsight-api-slim/hindsight_api/worker/exceptions.py
+@@ -10,8 +10,7 @@
+     ``Task execution failed: graph_maintenance, error: ``, which says nothing at
+     all about what went wrong (issue #3218).
+     """
+-    message = str(e)
+-    return f"{type(e).__name__}: {message}" if message else type(e).__name__
++    return type(e).__name__
+ 
+ 
+ class RetryTaskAt(Exception):
+--- a/hindsight-api-slim/hindsight_api/engine/memory_engine.py
++++ b/hindsight-api-slim/hindsight_api/engine/memory_engine.py
+@@ -5587,8 +5587,7 @@
+         try:
+             backend = await self._get_backend()
+             # Truncate error message to avoid extremely long strings
+-            full_error = f"{error_message}\n\nTraceback:\n{error_traceback}"
+-            truncated_error = full_error[:5000] if len(full_error) > 5000 else full_error
++            truncated_error = "native_task_failed"
+ 
+             async with acquire_with_retry(backend) as conn:
+                 async with conn.transaction():
+@@ -6613,7 +6612,7 @@
+             # no args, and str(e) is "" for those — the probe payload is what an
+             # operator reads first when the database looks down, so it must name
+             # the exception class even when the message is empty.
+-            return {"status": "unhealthy", "database": "error", "error": repr(e)}
++            return {"status": "unhealthy", "database": "error", "error": type(e).__name__}
+ 
+     @staticmethod
+     def _pool_health_stats(backend: Any) -> dict:
+--- a/hindsight-api-slim/hindsight_api/engine/memories/pg/links.py
++++ b/hindsight-api-slim/hindsight_api/engine/memories/pg/links.py
+@@ -574,7 +574,7 @@
+         logger.error(f"Failed to create temporal links: {str(e)}")
+         import traceback
+ 
+-        traceback.print_exc()
++        logging.getLogger(__name__).error("native_link_failed", exc_info=True)
+         raise
+ 
+ 
+@@ -939,7 +939,7 @@
+         logger.error(f"Failed to create semantic links: {str(e)}")
+         import traceback
+ 
+-        traceback.print_exc()
++        logging.getLogger(__name__).error("native_link_failed", exc_info=True)
+         raise
+ 
+ 
+@@ -1052,7 +1052,7 @@
+         logger.error(f"Failed to create causal links: {str(e)}")
+         import traceback
+ 
+-        traceback.print_exc()
++        logging.getLogger(__name__).error("native_link_failed", exc_info=True)
+         raise
+ 
+ 
+--- /dev/null
++++ b/hindsight-api-slim/hindsight_api/native_privacy.py
+@@ -0,0 +1,86 @@
++"""Bounded diagnostic-sink hardening for the pinned Hindsight deployment.
++
++No exception is wrapped or mutated: native retry classification sees the original.
++Diagnostic messages are deliberately metadata-only, rather than regex-redacted.
++"""
++
++import json
++import logging
++import sys
++import threading
++
++
++def safe_error(error: BaseException) -> str:
++    return type(error).__name__
++
++
++def install() -> None:
++    """Run before native configuration/provider imports, including spawned workers."""
++    if getattr(logging, "_router_privacy_installed", False):
++        return
++    logging._router_privacy_installed = True
++    original = logging.Logger.makeRecord
++    standard_fields = frozenset(logging.LogRecord("", 0, "", 0, "", (), None).__dict__)
++
++    def make_record(self, *args, **kwargs):
++        record = original(self, *args, **kwargs)
++        error_type = safe_error(record.exc_info[1]) if record.exc_info and record.exc_info[1] else "none"
++        for field in tuple(record.__dict__):
++            if field not in standard_fields:
++                del record.__dict__[field]
++        record.msg = "native_event=%s:%d exception_class=%s"
++        record.args = (record.module, record.lineno, error_type)
++        record.exc_info = None
++        record.exc_text = None
++        record.stack_info = None
++        return record
++
++    logging.Logger.makeRecord = make_record
++    logging.captureWarnings(True)
++
++    def uncaught(error_type, error, traceback):
++        # Do not call the original hook: exception messages and source lines can
++        # carry bodies/credentials. Exit semantics remain Python's responsibility.
++        sys.stderr.write(json.dumps({"event": "uncaught_exception", "exception_class": safe_error(error)}) + "\n")
++
++    sys.excepthook = uncaught
++    threading.excepthook = lambda args: uncaught(args.exc_type, args.exc_value, args.exc_traceback)
++
++
++def install_http(app) -> None:
++    """Preserve protocol status/retry headers while removing error-body echoes."""
++    from fastapi.exceptions import RequestValidationError
++    from fastapi.responses import JSONResponse
++    from starlette.exceptions import HTTPException
++    from hindsight_api.extensions.tenant import AuthenticationError
++    from hindsight_api.engine.memories.base import StoreWriteUnavailable
++
++    async def http_error(request, error):
++        headers = {}
++        # Native StoreWriteUnavailable uses this header for backpressure.
++        retry_after = (error.headers or {}).get("Retry-After")
++        if retry_after is not None:
++            try:
++                headers["Retry-After"] = str(max(0, min(86400, int(retry_after))))
++            except (TypeError, ValueError):
++                pass
++        return JSONResponse(status_code=error.status_code, content={"detail": "native_request_failed"}, headers=headers)
++
++    async def validation_error(request, error):
++        return JSONResponse(status_code=422, content={"detail": "native_request_invalid"})
++
++    async def unexpected_error(request, error):
++        logging.getLogger(__name__).error("native_request_failed", exc_info=error)
++        return JSONResponse(status_code=500, content={"detail": "native_request_failed"})
++
++    async def authentication_error(request, error):
++        return JSONResponse(status_code=401, content={"detail": "native_authentication_failed"})
++
++    async def store_unavailable(request, error):
++        return await http_error(request, HTTPException(status_code=503, detail="native_unavailable", headers={"Retry-After": str(getattr(error, "retry_after", 30))}))
++
++    app.add_exception_handler(HTTPException, http_error)
++    app.add_exception_handler(RequestValidationError, validation_error)
++    app.add_exception_handler(Exception, unexpected_error)
++    app.add_exception_handler(AuthenticationError, authentication_error)
++    app.add_exception_handler(StoreWriteUnavailable, store_unavailable)

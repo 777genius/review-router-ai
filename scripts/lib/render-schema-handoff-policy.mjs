@@ -279,6 +279,21 @@ export const renderReviewSkillsCheckoutExtension = Object.freeze([
   }),
 ]);
 
+// Provider-owned memory adds authority and delivery metadata only. These exact
+// files belong to the application checkout, never the managed92 repair catalog.
+export const renderMemoryKnowledgeCheckoutExtension = Object.freeze([
+  Object.freeze({
+    migrationName: "000142_memory_knowledge_authority",
+    checksum:
+      "b40e545bd31f9d4cc65146c78b05afc8b662333e4945380ea4ed5f511d7ebcf9",
+  }),
+  Object.freeze({
+    migrationName: "000143_memory_maintenance_fence",
+    checksum:
+      "1f8552ab409ece31536505c42ec62f0ef3df5b6220b7caa0cb90fcb2ee8aa83e",
+  }),
+]);
+
 export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     !Array.isArray(catalog) ||
@@ -291,6 +306,30 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  const memoryKnowledgeMigrations = catalog.filter((row) =>
+    renderMemoryKnowledgeCheckoutExtension.some(
+      (extension) => extension.migrationName === row.migrationName,
+    ),
+  );
+  if (memoryKnowledgeMigrations.length > 0) {
+    if (
+      memoryKnowledgeMigrations.length !==
+        renderMemoryKnowledgeCheckoutExtension.length ||
+      memoryKnowledgeMigrations.some(
+        (row, index) =>
+          row.migrationName !==
+            renderMemoryKnowledgeCheckoutExtension[index].migrationName ||
+          row.checksum !==
+            renderMemoryKnowledgeCheckoutExtension[index].checksum,
+      ) ||
+      manifest(catalog) !==
+        "sha256:5d42e163ba89faae7c49fa4fa9ff65bc2a8b87a6774b57a5f70c6a027e4331dd"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => !memoryKnowledgeMigrations.includes(row)),
+    );
+  }
   // Repository-secret profile identities change a checkout-only table. Admit
   // the exact SQL and checkout151 before preserving the reviewed checkout150.
   const repositorySecretProfilesMigration = catalog.find(

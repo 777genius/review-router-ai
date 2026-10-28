@@ -373,16 +373,81 @@ describe("recovery fixture bounded diagnostics", () => {
     );
   });
 
-  it("rejects a missing pinned base before building anything", () => {
+  it("reports a failed base inspection before building anything without claiming image absence", () => {
     const calls: string[][] = [];
     const run = (args: string[]) => {
       calls.push(args);
-      return { status: 1, stdout: "", stderr: "" };
+      return { status: 1, stdout: secret, stderr: secret };
     };
     expect(() => ensurePg17FixtureImage(run)).toThrow(
-      "managed_pg17_fixture_image:base_missing",
+      /^managed_pg17_fixture_image:base_inspect:status=1:code=none:signal=none$/u,
     );
     expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual(["image", "inspect", pg17BaseImage]);
+  });
+
+  it.each(["ENOENT", "EACCES", "EAGAIN"])(
+    "distinguishes base-inspect spawn failure %s without child output or cause text",
+    (code) => {
+      const run = vi.fn(() => ({
+        status: null,
+        signal: null,
+        stdout: secret,
+        stderr: secret,
+        error: Object.assign(new Error(secret), { code }),
+      }));
+      expect(() => ensurePg17FixtureImage(run)).toThrow(
+        new RegExp(
+          `^managed_pg17_fixture_image:base_inspect:status=none:code=${code}:signal=none$`,
+          "u",
+        ),
+      );
+      expect(run).toHaveBeenCalledExactlyOnceWith([
+        "image",
+        "inspect",
+        pg17BaseImage,
+      ]);
+    },
+  );
+
+  it("distinguishes a signalled base inspector without treating it as a missing image", () => {
+    const run = vi.fn(() => ({
+      status: null,
+      signal: "SIGKILL" as const,
+      stdout: secret,
+      stderr: secret,
+    }));
+    expect(() => ensurePg17FixtureImage(run)).toThrow(
+      /^managed_pg17_fixture_image:base_inspect:status=none:code=none:signal=SIGKILL$/u,
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a contradictory successful status with a spawn error", () => {
+    const run = vi.fn(() => ({
+      status: 0,
+      stdout: secret,
+      stderr: secret,
+      error: Object.assign(new Error(secret), { code: "EPERM" }),
+    }));
+    expect(() => ensurePg17FixtureImage(run)).toThrow(
+      /^managed_pg17_fixture_image:base_inspect:status=0:code=EPERM:signal=none$/u,
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds unknown process facts without echoing arbitrary codes or signals", () => {
+    const run = vi.fn(() => ({
+      status: 1000,
+      signal: secret as NodeJS.Signals,
+      stdout: secret,
+      stderr: secret,
+      error: Object.assign(new Error(secret), { code: secret }),
+    }));
+    expect(() => ensurePg17FixtureImage(run)).toThrow(
+      /^managed_pg17_fixture_image:base_inspect:status=other:code=other:signal=other$/u,
+    );
+    expect(run).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a cached fixture tag whose base label is wrong", () => {

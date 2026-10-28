@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
+import { Profiler } from "react";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -7,6 +9,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import type { ProviderAuthMode } from "@reviewrouter/features-review-providers";
 import {
   RepositorySetupDisclosureToggle,
   RepositorySetupReadyGate,
@@ -23,6 +26,154 @@ afterEach(() => {
 });
 
 describe("RepositorySetupDisclosureToggle", () => {
+  it.each([
+    ["openrouter_api_key", "setup_pr", "1/4"],
+    ["openrouter_api_key", "merge_setup_pr", "2/4"],
+    ["claude_code_oauth", "setup_pr", "1/4"],
+    ["claude_code_oauth", "merge_setup_pr", "2/4"],
+  ] as const)(
+    "keeps the pill and settings gated for %s at %s until workflow merge",
+    (authMode, step, progress) => {
+      const view = () => (
+        <>
+          <RepositorySetupDisclosureToggle
+            repositoryId="repo_1"
+            disclosureId="setup_repo_1"
+            currentStep={step}
+            expectedProviderAuthModes={[authMode]}
+          />
+          <RepositorySetupReadyGate
+            repositoryId="repo_1"
+            currentStep={step}
+            expectedProviderAuthModes={[authMode]}
+          >
+            <button type="button">Edit settings</button>
+          </RepositorySetupReadyGate>
+        </>
+      );
+      const confirmed = () =>
+        providerSetupConfirmedEvent({
+          repositoryId: "repo_1",
+          repositoryFullName: "777genius/example",
+          authMode,
+        });
+      const rendered = render(view());
+
+      fireEvent(window, confirmed());
+      expect(screen.getByText(progress)).toBeTruthy();
+      expect(
+        screen.queryByRole("button", { name: "Edit settings" }),
+      ).toBeNull();
+
+      // Refreshing with the same authoritative workflow step must stay pending.
+      rendered.rerender(view());
+      expect(screen.getByText(progress)).toBeTruthy();
+      expect(
+        screen.queryByRole("button", { name: "Edit settings" }),
+      ).toBeNull();
+
+      // Both events can arrive before React renders or the server props refresh.
+      act(() => {
+        window.dispatchEvent(
+          setupPullRequestMergedEvent({ repositoryId: "repo_1" }),
+        );
+        window.dispatchEvent(confirmed());
+      });
+      expect(screen.getByText("4/4")).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: "Edit settings" }),
+      ).toBeTruthy();
+    },
+  );
+
+  it("resets completed setup only when the expected provider set changes", () => {
+    const committedReadyStates: boolean[] = [];
+    const view = (authModes: readonly ProviderAuthMode[]) => (
+      <Profiler
+        id="repository-setup"
+        onRender={() => {
+          committedReadyStates.push(
+            screen.queryByText("4/4") !== null ||
+              screen.queryByRole("button", { name: "Edit settings" }) !== null,
+          );
+        }}
+      >
+        <RepositorySetupDisclosureToggle
+          repositoryId="repo_1"
+          disclosureId="setup_repo_1"
+          currentStep="provider"
+          expectedProviderAuthModes={authModes}
+        />
+        <RepositorySetupReadyGate
+          repositoryId="repo_1"
+          currentStep="provider"
+          expectedProviderAuthModes={authModes}
+        >
+          <button type="button">Edit settings</button>
+        </RepositorySetupReadyGate>
+      </Profiler>
+    );
+    const confirm = (authMode: ProviderAuthMode) =>
+      fireEvent(
+        window,
+        providerSetupConfirmedEvent({
+          repositoryId: "repo_1",
+          repositoryFullName: "777genius/example",
+          authMode,
+        }),
+      );
+    const expectPending = () => {
+      expect(screen.getByText("3/4")).toBeTruthy();
+      expect(
+        screen.queryByRole("button", { name: "Edit settings" }),
+      ).toBeNull();
+    };
+    const expectReady = () => {
+      expect(screen.getByText("4/4")).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: "Edit settings" }),
+      ).toBeTruthy();
+    };
+    const rendered = render(
+      view(["codex_subscription_oauth_rotating", "claude_code_oauth"]),
+    );
+
+    confirm("codex_subscription_oauth_rotating");
+    expectPending();
+    // Fresh arrays, order, and duplicate modes describe the same setup.
+    rendered.rerender(
+      view(["codex_subscription_oauth_rotating", "claude_code_oauth"]),
+    );
+    rendered.rerender(
+      view([
+        "claude_code_oauth",
+        "codex_subscription_oauth_rotating",
+        "claude_code_oauth",
+      ]),
+    );
+    confirm("claude_code_oauth");
+    expectReady();
+
+    // A changed provider set must reset even while the server step is unchanged.
+    committedReadyStates.length = 0;
+    rendered.rerender(
+      view(["codex_subscription_oauth_rotating", "openrouter_api_key"]),
+    );
+    // The first commit must be pending, before passive reset effects run.
+    expect(committedReadyStates[0]).toBe(false);
+    expectPending();
+    confirm("claude_code_oauth");
+    expectPending();
+    confirm("openrouter_api_key");
+    // The previous setup's Codex confirmation must not complete the new setup.
+    expectPending();
+    rendered.rerender(
+      view(["openrouter_api_key", "codex_subscription_oauth_rotating"]),
+    );
+    confirm("codex_subscription_oauth_rotating");
+    expectReady();
+  });
+
   it("requires current Gateway authority readiness despite a provider confirmation event", async () => {
     const view = (ready: boolean) => (
       <>
