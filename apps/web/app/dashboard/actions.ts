@@ -1508,8 +1508,8 @@ async function createSetupPullRequestMutation(
               ...(() => {
                 const gatewayInteractionRuntimeSha =
                   qualifiedGatewayInteractionRuntimeSha(process.env, {
-                    workspaceId: input.workspaceId,
-                    repositoryId: input.repositoryId,
+                    workspaceId,
+                    repositoryId,
                   });
                 return gatewayInteractionRuntimeSha
                   ? { gatewayInteractionRuntimeSha }
