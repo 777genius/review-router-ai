@@ -1,7 +1,8 @@
 # Several Gateway reviewers
 
-Status: implementation plan v1, ready for independent review round 1.
+Status: implementation plan v2, round 1 corrections incorporated; ready for round 2.
 Implementation has not started. Draft: [ReviewRouter #738](https://github.com/777genius/review-router-ai/pull/738).
+Companion draft: [public runtime #351](https://github.com/777genius/review-router/pull/351).
 
 Research baselines: ReviewRouter `b2f40048559a841f41b6756c8eac2ed90b04c2d4`
 and public runtime `056952b5a3d625fd1d19384942d452114804380f`.
@@ -84,12 +85,20 @@ changing only TypeScript cannot deliver this feature.
 The editor shows a compact ordered reviewer list, Add reviewer, and existing
 per-reviewer model/settings controls. One Save commits the complete list. The
 same editor supports workspace defaults and repository replacement/inheritance.
+The plural selection write accepts the narrow execution-settings patch edited
+here and persists both roster and patch in the same policy/digest transaction.
+Repository fields retain the existing inherit/override semantics: untouched
+inherited values remain absent, rather than copying effective values into an
+override. Reuse the existing execution fields, not the whole settings form.
 Default badges, list summaries, readiness and row-specific edit/remove actions
 must represent every selection. Removing one reviewer cannot clear the roster.
 
 The first reviewer is the captured primary for existing non-voting PR description
 and lifecycle tasks. This reuses today's ordering rule; no new primary selector,
 weights, drag-and-drop or per-reviewer billing UI is added.
+If an optional primary becomes unavailable, auxiliary work reports the existing
+unavailable/incomplete result; required review coverage may still complete.
+Do not silently promote a sibling or select a fallback model.
 
 Reuse the existing Max parallel providers and Inline agreement controls in the
 roster editing flow. Preserve saved values. Adding a reviewer does not silently
@@ -121,7 +130,11 @@ captured context facts occur once. Each captured reviewer contains:
 - The reference to its captured Gateway allowance allocation.
 
 The server derives the vote hash from the approved engine lane seed and exact
-captured reviewer identity. The workflow cannot nominate another model, account,
+captured reviewer identity. Resolve Default against the exact admitted producer
+before deriving identity, then reject duplicate normalized workspace-profile
+identity plus resolved engine profile identity/digest. An implicit Default and
+its explicit equivalent cannot become two votes; settings and row index do not
+differentiate them. The workflow cannot nominate another model, account,
 engine or vote. Duplicate hashes and reviewer IDs fail closed. Provider kind
 remains engine metadata, never a reviewer key. Preserve the configured roster
 order and bind it into the existing policy/plan digest.
@@ -146,6 +159,11 @@ not another scheduler or quota ledger. Grouping and IDs are deterministic and
 private, derived from immutable captured authority. Each reviewer still has an
 independent model, model settings, vote identity and request identity. The
 existing Gateway executes and enforces the shared request/concurrency budget.
+Grouping binds the full original preparation intent: selected account,
+binding/connection and policy revisions, subject, deadline, profile and every
+allowance. If the expected epoch is absent at capture, attachment records the
+selected epoch once; it cannot later change. All first users join one shared
+preparation promise instead of treating an in-flight preparation as a denial.
 
 Add one write-once child relation for version 4 selected Gateway executions,
 keyed by authorization ID and allocation ID. Preserve the old parent field and
@@ -161,6 +179,12 @@ allocation. Concurrent reviewers share the same preparation promise/result;
 restart restores the same operation. Unknown preparation, failed attachment and
 cleanup follow the existing no-replay/reconciliation rules. No inference is
 replayed and no fresh allowance is minted to recover an ambiguous result.
+Cleanup after restart/expiry has a narrow read-only recovery path: prove the
+original operation exists before any run-access call, restore only that exact
+captured execution (including a closed/expired result), and permit cleanup but
+never dispatch. A missing original operation cannot create a replacement.
+Unknown recovery stays unknown. Reuse Gateway's existing exact-operation and
+terminal execution readback; no new Gateway/native API is required.
 
 Relay methods resolve an explicit captured reviewer selector before choosing
 the allocation, model, settings, authorization epoch and request usage identity.
@@ -173,6 +197,16 @@ preparation/cleanup remains allocation-owned. Parent cancellation or final close
 revokes all unique allocations once. Closing a local reviewer session does not
 revoke its siblings' shared allowance. Expiry/restart cleanup discovers every
 persisted allocation and preserves unknown physical effects.
+Persist request-to-reviewer ownership through the existing usage parent scope
+or its narrow owner extension; shared execution ID alone is insufficient.
+Primary auxiliary requests consume and are attributed to that same allocation.
+
+Version 4 parent authorization validity is separate from allocation liveness.
+Admission validates the full roster; later allocation operations validate only
+their selected authority. Parent workspace/SCM/revision/producer/token failure
+remains run-wide. A revoked binding cannot prevent healthy siblings, evidence
+reporting or finalization. Preserve version 3 validity semantics. Normal resource
+cleanup must not revoke parent authority before aggregate publication finishes.
 
 ## Public runtime plan and compatibility
 
@@ -187,9 +221,11 @@ and effective parallel/agreement limits. It contains no upstream credential,
 private account ref, selected execution capability or server allowance.
 Bound the public plan to 64 KiB and validate it before any provider effect.
 
-An explicit immutable producer contract capability proves that a producer can
-consume reviewer-plan v1. It is a compatibility fact in the existing signed
-producer/agent manifest, not an environment flag or rollout toggle. Deny new
+An immutable top-level ProducerReviewerPlanProfile (version and descriptor
+digest) proves that the producer can consume reviewer-plan v1. It belongs to
+the existing orchestration manifest, attestation and immutable registry, not to
+each model-engine profile. Keep historical agent-profile exact keys/digests.
+This is a compatibility fact, not an environment flag or rollout toggle. Deny new
 multi-reviewer admission for older producers rather than letting them ignore
 the plan. Keep legacy singleton environment behavior and approved direct routes.
 The neutral workflow inputs/OIDC permissions stay unchanged.
@@ -208,10 +244,16 @@ state is isolated. Provider kind never selects a same-kind sibling's adapter.
 The application layer sees existing invocation ports, not Gateway HTTP or
 future secret materialization.
 
-Reuse stable batch×reviewer work planning. Budget the complete fanout against
-the existing maximum slot count before dispatch. Preserve complete reviewer
-groups and truthful uncovered-file coverage. Reject a plan that cannot fit
-even one complete required group. Optional description/lifecycle work uses the
+Retain engine-specific planning: Codex uses stable batch assignments per exact
+reviewer; every managed OCR reviewer gets one full canonical eligible-inventory
+FindingDiscovery slot, preserving its qualified internal grouping and preview.
+Combine these exact lane assignments into one existing canonical work plan.
+Stable lane IDs distinguish multiple OCR reviewers even though their engine
+provider name is always ocr/managed. Do not add a universal planning framework.
+Budget required OCR slots plus complete required Codex groups against the
+existing maximum slot count before dispatch and before optional companions.
+Preserve truthful uncovered-file coverage and reject a plan that cannot fit
+its minimal required group. Optional description/lifecycle work uses the
 captured primary and existing remaining-slot rules; it does not multiply.
 
 Add bounded scheduling within the existing orchestration use case. At most the
@@ -221,12 +263,24 @@ limits remain independently authoritative. Native execution may overlap; one
 coordinator owns current execution state and serializes version-sensitive
 adoption/supersession/finalization. Out-of-order replies cannot lower the known
 stream version. Restore/reconcile once all workers settle before finalization.
+Use a small serialized command function in the existing use case, not a queue
+package or command bus. Acquire and fresh attach retain their existing lease
+contracts; exact-revision reuse/adoption and other version-sensitive mutations
+refresh/serialize through this parent command boundary. A final restore alone
+cannot repair a reuse operation already sent against a stale stream version.
 
 Parent cancellation, supersession or a run-wide authority failure stops new work,
 aborts all children and drains them to settlement before release/finalization.
-Reviewer-specific denial or failure settles that reviewer without poisoning
-another reviewer's transport or globally revoking the run. Unknown/paid dispatch
-remains fenced; the existing narrowly proven unpaid-saturation behavior stays.
+Failure classification receives the exact work-slot/invocation identity and
+reads that reviewer's transport facts. The existing result gains only three
+necessary scopes: reviewer/request, captured allocation, and parent run.
+Reviewer-local failure settles that reviewer. Allocation terminal/unknown state
+(including exhausted budget, epoch revocation or ambiguous preparation) stops
+all dependent reviewers and settles their captured required coverage; another
+allocation may continue. Parent authority failure stops every child. Preserve
+unknown physical effects on the exact transport and never recover by minting
+another allowance or replaying an uncertain paid request. The existing narrowly
+proven unpaid-saturation behavior stays. No separate error framework is needed.
 
 ## Aggregation and preserved auxiliary behavior
 
@@ -245,6 +299,12 @@ resolve the exact requesting reviewer. Existing engine capability requirements
 apply to each selected reviewer; incompatible saved tool/engine combinations
 are rejected explicitly. PR description and lifecycle verification use the
 captured primary only. Do not disable or duplicate existing richer features.
+Instantiate the existing investigation composition per eligible Codex reviewer,
+with its exact model, approved profile, capability and transport, then route its
+invocation/recording port by exact work-slot vote. Kind-based selection must not
+borrow a sibling's authority. OCR keeps investigationProbePlan: null and its
+native context behavior. Apply skill eligibility separately to every captured
+engine, retaining the existing invocation-key/payload-hash receipt collector.
 
 ## Implementation ownership and dependency order
 
@@ -271,11 +331,17 @@ native/Gateway service change or new dependency is planned.
 Required behavior cases:
 
 - Two models on one binding: distinct identities/settings and actual overlapping
-  model calls with saved parallelism two; total requests consume one allowance.
+  model calls with saved parallelism two and granted Gateway concurrency two;
+  total requests consume one allowance. A concurrency-one grant keeps the saved
+  cap but completes within that grant without another allowance or paid replay.
 - Two bindings: independent credentials/capabilities; wrong reviewer/account,
   stale binding epoch, removed model and mutable post-admission policy denied.
 - Exact duplicate selections denied; 1/16 accepted and 0/17 denied; bulk draft
   resolution, full inheritance and removing one reviewer preserve the rest.
+- Default plus its explicit resolved engine is rejected as a duplicate, including
+  the supplied-diff default. Distinct actual engine profiles remain valid.
+- Save one to two reviewers and parallelism two atomically; failed save changes
+  neither; repository agreement stays inherited when only parallelism overrides.
 - Out-of-order completion, shared budget exhaustion, one required failure,
   optional failure, deadline, cancellation and supersession all settle truthfully.
 - Preparation/attachment restart, uncertain dispatch and duplicate finalize do
@@ -283,12 +349,29 @@ Required behavior cases:
 - Same model through distinct bindings and different existing engine profiles
   retain independent vote identities and appropriate per-engine capabilities.
 - Existing singleton Gateway and approved direct/Secrets flows remain valid.
+- Revocation/exhaustion of a shared allocation stops its two reviewers while a
+  third on another allocation finishes and one truthful partial result publishes.
+- Shared first-prepare races, restart around attachment, missing original cleanup
+  operation, foreign selector/request pairs and usage reconciliation after
+  revocation do not change authority or lose attribution. Old producers reject
+  plural admission before preparation.
+- Mixed reuse/fresh evidence with reversed response timing finalizes once from
+  authoritative state. Concurrent distinct failures read their own effect facts.
+- Multi-batch Codex plus OCR still runs one full-inventory slot for OCR; two OCR
+  reviewers have distinct lane identities. OCR primary plus Codex secondary and
+  different Codex investigation authorities do not leak or suppress capabilities.
 
 Use existing real PostgreSQL admission/migration and HTTP relay fixtures, the
 paired Action/SaaS harness, and the existing browser provider-settings harness.
 The execution E2E must exercise the actual composed API and compiled public
 runtime with two controlled provider responses, observable overlap and one
 aggregate publication boundary. A unit-level fake orchestrator is insufficient.
+Extend the existing paired SaaS/DB/API fixture with a subprocess launching the
+committed Action entrypoint, using the artifact E2E's synthetic approved-binary
+preload boundary. The paired source-module runner alone does not prove this.
+Record separate private homes/capabilities and actual saved model/settings at
+child processes, shared versus independent allowances, a mixed Codex/OCR case,
+one publication, drained child processes and one close per unique allocation.
 Browser E2E must save/reload/edit the actual roster and verify independent model
 settings and inheritance. Include committed-artifact smoke, targeted tests,
 format/lint/typecheck/build, architecture/protocol checks and required CI.
@@ -308,7 +391,7 @@ dispositions after each round. A review round is not complete until its
 blocking findings are addressed or the delivery scope is explicitly reduced.
 
 - [x] Research and first implementation plan.
-- [ ] Review round 1 and plan corrections.
+- [x] Review round 1 and plan corrections.
 - [ ] Review round 2 and plan corrections.
 - [ ] Review round 3 and final plan.
 - [ ] Implementation in dependency-ordered commits, pushed after each commit.
@@ -321,7 +404,7 @@ Review ledger (findings and dispositions will be appended after each round):
 
 | Round | Independent critics | Blocking findings | Disposition |
 | --- | --- | --- | --- |
-| 1 | Pending | Pending | Pending |
+| 1 | Domain/UX, control-plane, runtime (GPT-6.1 Sol xhigh) | Default/explicit duplicate votes; atomic roster/settings; allocation failure scope; parent liveness; terminal cleanup recovery; full prepare intent; OCR full-inventory contract; exact failure/investigation routing | Incorporated in v2, with focused acceptance cases. Added immutable top-level producer profile, durable request attribution, mixed reuse/fresh serialization, and actual committed-entrypoint E2E. No new generic layer or native service change. |
 | 2 | Pending | Pending | Pending |
 | 3 | Pending | Pending | Pending |
 
