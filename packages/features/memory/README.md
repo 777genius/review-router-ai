@@ -11,6 +11,26 @@ never reconstructed from Router's database.
 and the [private Hindsight runbook](../../../deploy/hindsight/README.md) define
 ownership, qualification and activation requirements.
 
+## Default enablement
+
+Web, API and worker automatically select Hindsight when its private URL or API
+key is configured and `REVIEW_ROUTER_MEMORY_PROVIDER` is unset or blank. The
+complete URL, key, namespace and exact qualified profile are still required;
+partial configuration fails validation. Empty development/build environments
+start without memory. Setting `REVIEW_ROUTER_MEMORY_PROVIDER=disabled` remains
+an explicit opt-out, including for deployments that previously set this value.
+
+The service flag and eligible workspace policy already default to enabled.
+`REVIEW_ROUTER_MEMORY_ENABLED=false` pauses new usage while retaining the
+configured provider for cleanup. Runtime retrieval failures still produce an
+empty memory bundle without blocking ordinary reviews. Use the same provider,
+namespace, generation and profile on all three hosts.
+
+The local, production/staging and self-hosted environment templates expose this
+same configuration. They do not provision Hindsight or qualify a deployment;
+native activation, inference configuration and existing-data disposition remain
+subject to the private runbook above. Explicit deployment opt-outs are preserved.
+
 ## Public boundary
 
 `@reviewrouter/features-memory` exports domain/application contracts, policy,
