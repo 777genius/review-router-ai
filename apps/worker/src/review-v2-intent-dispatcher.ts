@@ -1,5 +1,8 @@
 import { App } from "@octokit/app";
-import { reviewRouterWorkflowPath } from "@reviewrouter/shared";
+import {
+  isSafeGitHubBranchName,
+  reviewRouterWorkflowPath,
+} from "@reviewrouter/shared";
 import type {
   ReviewRequestedDispatchGatewayPort,
   ReviewRequestedIntent,
@@ -421,13 +424,26 @@ function parseInspectionResponse(
     String(data.id) !== expectedRunId ||
     String(data.run_attempt) !== expectedAttempt ||
     data.event !== "workflow_dispatch" ||
-    data.path !== workflowPath ||
+    !matchesWorkflowRunPath(data.path, workflowPath) ||
     data.display_title !== `ReviewRouter review ${intent.requestId}` ||
     typeof data.status !== "string"
   ) {
     throw new Error("review_requested_inspection_identity_invalid");
   }
   return { completed: data.status === "completed" };
+}
+
+function matchesWorkflowRunPath(value: unknown, workflowPath: string): boolean {
+  if (value === workflowPath) return true;
+  // GitHub's run response can qualify the workflow path with its control ref.
+  // Match the entire workflow portion and validate the ref, rather than
+  // discarding arbitrary bytes after an '@'.
+  const prefix = `${workflowPath}@`;
+  return (
+    typeof value === "string" &&
+    value.startsWith(prefix) &&
+    isSafeGitHubBranchName(value.slice(prefix.length))
+  );
 }
 
 function parseRevisionInspection(
