@@ -972,6 +972,13 @@ describe.skipIf(!databaseUrl)(
                 parentCommentId: "1",
               },
             };
+            await f.records.bind(record.id, "{}");
+            await f.records.markModelDispatched(record.id);
+            await f.records.freezeOutput(record.id, {
+              kind: "answer",
+              answer: "UNCLAIMED_CAP_BODY",
+              action: null,
+            });
             const allowed = await f.records.reserveReply(record.id, ready, []);
             return { id: record.id, ready, allowed };
           };
@@ -979,6 +986,12 @@ describe.skipIf(!databaseUrl)(
           for (let index = 0; index < limit; index++)
             old.push(await reserve(index));
           expect(old.every((row) => row.allowed)).toBe(true);
+          expect(
+            await f.records.claimPublication(
+              old[0]!.id,
+              old[0]!.ready.reply.bodyDigest,
+            ),
+          ).toBe(true);
           await f.records.publication({
             processingId: old[0]!.id,
             status: "unknown",
@@ -1145,7 +1158,7 @@ describe.skipIf(!databaseUrl)(
         }
       },
     );
-    it("pairs the actual Action client and App publisher through lost ACK, receipt reconciliation and reply-off learning", async () => {
+    it("pairs the actual Action client and App publisher through preclaim read failures, expiry, lost ACK, receipt reconciliation and reply-off learning", async () => {
       const actionDirectory = process.env.REVIEW_ROUTER_ACTION_SOURCE_DIR;
       if (!actionDirectory)
         throw new Error("conversation_paired_action_source_directory_required");
@@ -1160,20 +1173,21 @@ describe.skipIf(!databaseUrl)(
       const run = async (
         replyMode: "off" | "suggest",
         loseClaimAck = false,
+        preclaimRead: "none" | "retry" | "expiry" = "none",
       ) => {
         const f = await fixture();
         await f.app.listen({ host: "127.0.0.1", port: 0 });
         const address = f.app.server.address() as AddressInfo;
         const transport = globalThis.fetch.bind(globalThis);
-        let claimAckLost = false;
+        let claimAckLost = false,
+          claims = 0;
         const fetchImpl: typeof fetch = async (url, init) => {
-          const response = await transport(url, init);
-          if (
-            loseClaimAck &&
-            !claimAckLost &&
+          const isClaim =
             String(url).endsWith("/publication") &&
-            JSON.parse(String(init?.body)).status === "dispatching"
-          ) {
+            JSON.parse(String(init?.body)).status === "dispatching";
+          if (isClaim) claims++;
+          const response = await transport(url, init);
+          if (loseClaimAck && !claimAckLost && isClaim) {
             claimAckLost = true;
             await response.body?.cancel();
             throw new Error("synthetic lost publication claim acknowledgement");
@@ -1190,12 +1204,18 @@ describe.skipIf(!databaseUrl)(
           },
           fetchImpl,
         );
-        let publications = 0;
+        let publications = 0,
+          inventories = 0;
         const publisher = {
           owner: "acme",
           repo: "project",
           octokit: {
-            paginate: async () => f.comments,
+            paginate: async () => {
+              inventories++;
+              if (preclaimRead !== "none" && inventories === 1)
+                throw new Error("synthetic failed preclaim inventory");
+              return f.comments;
+            },
             rest: {
               pulls: {
                 listReviewComments: () => {},
@@ -1233,7 +1253,92 @@ describe.skipIf(!databaseUrl)(
         try {
           await handler.execute(event);
           const first = await prisma.conversationProcessing.findFirstOrThrow();
-          if (replyMode === "off") {
+          if (preclaimRead !== "none") {
+            expect(first.status).toBe("ready");
+            expect(claims).toBe(0);
+            expect(publications).toBe(0);
+            const ready = (await f.records.read(first.id))!.result;
+            expect(
+              (
+                await f.app.inject({
+                  method: "POST",
+                  url: "/api/action/v2/conversations/publication",
+                  headers: f.headers,
+                  payload: {
+                    protocolVersion: 2,
+                    processingId: first.id,
+                    status: "unknown",
+                    bodyDigest: ready.reply!.bodyDigest,
+                  },
+                })
+              ).statusCode,
+            ).toBe(409);
+            expect((await f.records.read(first.id))!.result).toEqual(ready);
+            if (preclaimRead === "expiry") {
+              const identity = await f.sources.identify(input, controls());
+              const reserve = async (index: number) => {
+                const accepted = await f.records.accept(
+                  {
+                    ...identity,
+                    sourceId: `inventory-cap-source-${index}`,
+                    sourceRevision: `inventory-cap-revision-${index}`,
+                  },
+                  controls().deadlineAt,
+                );
+                return {
+                  id: accepted.record.id,
+                  result: { ...ready, processingId: accepted.record.id },
+                };
+              };
+              for (let index = 0; index < 4; index++) {
+                const pending = await reserve(index);
+                expect(
+                  await f.records.reserveReply(pending.id, pending.result, []),
+                ).toBe(true);
+              }
+              const blocked = await reserve(4);
+              expect(
+                await f.records.reserveReply(blocked.id, blocked.result, []),
+              ).toBe(false);
+              await prisma.conversationProcessing.update({
+                where: { id: first.id },
+                data: { deadlineAt: new Date(Date.now() - 1) },
+              });
+              await handler.execute(event);
+              const expired = await f.records.read(first.id);
+              expect(expired!.result.status).toBe("stale");
+              expect(expired!.result.reply).toBeUndefined();
+              expect(
+                JSON.stringify(
+                  await prisma.conversationProcessing.findUniqueOrThrow({
+                    where: { id: first.id },
+                  }),
+                ),
+              ).not.toContain(ready.reply!.body);
+              expect(
+                await f.records.reserveReply(blocked.id, blocked.result, []),
+              ).toBe(true);
+              expect(claims).toBe(0);
+              expect(publications).toBe(0);
+            } else {
+              await handler.execute(event);
+              expect((await f.records.read(first.id))!.result.status).toBe(
+                "unknown",
+              );
+              expect(claims).toBe(1);
+              expect(publications).toBe(1);
+              await handler.execute(event);
+              expect((await f.records.read(first.id))!.result.status).toBe(
+                "published",
+              );
+              expect(claims).toBe(1);
+              expect(publications).toBe(1);
+            }
+            expect(f.counts().learned).toBe(1);
+            expect(
+              f.calls.filter((call) => call.kind === "request"),
+            ).toHaveLength(1);
+          } else if (replyMode === "off") {
             expect(first.status).toBe("silent");
             expect(publications).toBe(0);
             expect(f.counts().learned).toBe(1);
@@ -1278,6 +1383,10 @@ describe.skipIf(!databaseUrl)(
       await run("off");
       await prisma.conversationProcessing.deleteMany();
       await run("suggest", true);
+      await prisma.conversationProcessing.deleteMany();
+      await run("suggest", false, "retry");
+      await prisma.conversationProcessing.deleteMany();
+      await run("suggest", false, "expiry");
     });
     it("projects real runtime roles onto metadata without granting web learning or any conversation access", async () => {
       const roles = ["api", "web", "worker"].map((role) => ({

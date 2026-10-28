@@ -533,6 +533,10 @@ export class PrismaConversationProcessingStore implements ConversationProcessing
           receipt.bodyDigest !== previous.reply.bodyDigest)
       )
         throw new ConversationError("conflict");
+      // Only claimPublication may consume the one-create permission. A receipt
+      // cannot turn an unclaimed read failure into an uncertain external effect.
+      if (receipt.status === "unknown" && previous.status !== "unknown")
+        throw new ConversationError("conflict");
       if (
         receipt.status === "published" &&
         (!receipt.commentId ||
