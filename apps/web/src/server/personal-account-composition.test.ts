@@ -153,7 +153,7 @@ it.each(["ORIGIN", "TOKEN"] as const)(
       origin: "https://personal.example.test",
       token: "dedicated-consumer-token",
       timeoutMs: 10000,
-      responseBytes: 65536,
+      responseBytes: 2 * 1024 * 1024,
     });
     expect(h.control.profiles).not.toHaveBeenCalled();
   },
