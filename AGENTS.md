@@ -1,5 +1,7 @@
 # Agent Instructions
 
+- Implement requested functionality without feature flags. Add or enable feature flags only at the user's explicit request.
+
 - Follow the maintained [Engineering Quality Standard](https://github.com/agent-teams-ai/.github/blob/main/docs/engineering-quality-standard.md), within this repository's explicitly adopted scope and pinned toolchain.
 
 - Repository hygiene: put disposable logs, debug scripts, screenshots, and scratch outputs in `tmp/`, not loose files in the repository root. Keep local worktrees outside this checkout when possible. Preserve existing worktrees and recovery evidence during cleanup. Keep local scratch directories excluded from Git, Docker build contexts, lint, and formatting.

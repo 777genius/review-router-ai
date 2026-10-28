@@ -27,13 +27,9 @@ unsupported observations cannot become an authorized static fallback. Only an
 explicit unavailable result can retain the previously qualified anchor under
 its conservative rules.
 
-Set the server-only `REVIEW_ROUTER_ACCOUNT_MODEL_CATALOG_ENABLED=1` in API and
-web after deploying the compatible Gateway/native source revisions recorded
-in provenance. Explicit `0` disables discovery. During the coordinated rollout,
-the old `REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED` value is read only
-when the generic flag is absent; remove that alias from the provider-accounts
-composition after both deployment configurations have migrated. Installing
-this archive alone does not activate production discovery.
+Qualified account discovery is always active in API and web. Deploy the compatible
+Gateway/native source revisions recorded in provenance before ReviewRouter.
+Installing this archive alone does not establish production readiness.
 
 After enabling the compatible catalog during the coordinated upgrade, reopen
 existing OpenRouter selections only if a saved control is no longer qualified by

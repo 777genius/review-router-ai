@@ -166,13 +166,10 @@ for a fourth repository change for this contract. It does not establish a live
 provider run or production activation.
 
 The source and SDK upgrade must be deployed together with the compatible
-Gateway/native builds. The server-only
-`REVIEW_ROUTER_ACCOUNT_MODEL_CATALOG_ENABLED=1` enables discovery in API and
-web; explicit `0` disables it. The previous Codex-only flag is accepted when
-the generic flag is absent during rollout. There is one configuration reader
-for both consumers. Source changes and local qualification are not a claim
-that production discovery has already been enabled. Exact archive/source
-identity and observed checks belong in the [SDK provenance](../../vendor/account-gateway/README.md).
+Gateway/native builds. Qualified account discovery is always active in API and
+web. Source changes and local qualification are not a claim that production
+has been upgraded. Exact archive/source identity and observed checks belong in
+the [SDK provenance](../../vendor/account-gateway/README.md).
 
 As part of the coordinated upgrade, enable the compatible catalog and reopen any
 existing OpenRouter selection only if a saved control is no longer qualified by

@@ -13,13 +13,13 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
-| Task                                           | Implementation                                                    | Staging   | Production | Remaining work                                                                  |
-| ---------------------------------------------- | ----------------------------------------------------------------- | --------- | ---------- | ------------------------------------------------------------------------------- |
-| [Review History](2026-10-28-review-history.md) | [PR #730](https://github.com/777genius/review-router-ai/pull/730) | `pending` | `pending`  | Reconcile environment; migrate, deploy fleet, enable capture, activate, verify. |
+| Task                                                 | Implementation                                                    | Staging   | Production | Remaining work                                                                                   |
+| ---------------------------------------------------- | ----------------------------------------------------------------- | --------- | ---------- | ------------------------------------------------------------------------------------------------ |
+| [Review History](2026-10-28-review-history.md)       | [PR #730](https://github.com/777genius/review-router-ai/pull/730) | `pending` | `pending`  | Reconcile environment; migrate, deploy fleet, enable capture, activate, verify.                  |
+| [Account model catalog](2026-10-28-model-catalog.md) | Catalog + no-flag follow-up                                       | `pending` | `pending`  | Native migration 258, compatible Gateway/native, application rollout, live dynamic-model review. |
 
 The task file is authoritative; keep this summary in sync in the same commit.
-The initial inventory contains Review History only. Missing entries do not prove
-that older changes are deployed: inspect the installed-to-target change range and
+Missing entries do not prove that older changes are deployed: inspect the installed-to-target change range and
 the release runbook for additional required work before each rollout.
 
 ## Status contract

@@ -12,10 +12,7 @@ import {
   PrismaProviderAccountRepository,
   selectBinding,
 } from "@reviewrouter/features-provider-accounts";
-import {
-  readAccountModelCatalogEnabled,
-  readPersonalAccountSharingEnabled,
-} from "@reviewrouter/features-provider-accounts/composition";
+import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import {
   captureGatewayProbeAccessRequest,
   verifyGatewayProbeAccess,
@@ -108,11 +105,7 @@ export function createDashboardGatewayProbeAccess(input: {
           !row ||
           !profile ||
           profile.protocol !== "openai-responses" ||
-          !gatewayProfileAcceptsRequestedModel(
-            profile,
-            request.model,
-            readAccountModelCatalogEnabled(input.env),
-          )
+          !gatewayProfileAcceptsRequestedModel(profile, request.model)
         )
           throw new Error("denied");
         const account = c.account.parse(
