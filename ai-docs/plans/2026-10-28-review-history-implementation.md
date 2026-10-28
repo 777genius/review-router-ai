@@ -521,6 +521,13 @@ source writers → явное включение capture и UI. Миграция
 выключенный flag не обеспечивает совместимость нового Prisma с прежней схемой.
 Это записать в runbook, не обещать old-schema safety, которую код не обеспечивает.
 
+Новая migration должна также пройти существующий exact checkout admission в
+managed PG17 qualification. Зафиксировать SQL checksum и manifest текущего checkout
+для `000151_review_history`, затем применять прежнюю рекурсивную проверку каталога.
+History остаётся checkout-only extension: исторические restore subsets и managed92
+target не расширяются. Risk tests должны отвергать изменённый SQL, неизвестный tail
+и несовместимый набор уже проверенных migrations.
+
 Когда capture binary flag disabled, hosts не устанавливают callbacks и обычный
 review не обращается к history tables. Когда hooks enabled, но coverage row
 отсутствует, callbacks no-op. После готовности всех API/worker writers выполнить

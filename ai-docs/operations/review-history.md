@@ -40,6 +40,12 @@ for the feature's Get Modular contract. Follow the existing
    cannot read the row or its history. Follow the release process before widening
    rollout; this feature does not change review execution or publication authority.
 
+Managed PG17 qualification admits this migration through the existing
+[exact checkout policy](../../scripts/lib/render-schema-handoff-policy.mjs).
+Checkout admission preserves the historical restore subsets and managed92 target;
+it does not apply History storage to those catalogs. The full application migration
+in step 1 remains required before starting the new binaries.
+
 Before activation, the Reviews view explains that history is not available yet.
 After activation it shows the recording start date. Existing reviews and legacy,
 GitLab, or other unsupported execution paths are not backfilled. “Completed”

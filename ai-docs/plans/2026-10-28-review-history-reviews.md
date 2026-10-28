@@ -217,12 +217,63 @@ Browser fixtures не доказывают реальный GitHub launch: sourc
 подтверждены отдельно реальными PostgreSQL cases, а deployment/live review остаётся
 операцией release процесса.
 
+### Production и исторический Prisma fixture
+
+Дополнительная квалификация выполнена на отправленном `ae4c25c4` без изменения
+feature source:
+
+- Все 53 workspace/API/worker production emits прошли последовательно. Next
+  сначала не смог разрешить PostCSS из временного внешнего `.next` directory;
+  после восстановления обычного ignored output directory только Web build был
+  повторён успешно: Turbopack compile 22.7 s, Next TypeScript 79 s, 42 static pages
+  и все три History API routes. Первый failed command сохранён как environment
+  setup failure, а не обозначен successful full Turbo invocation.
+- Финальный ESM rewrite прошёл для 540 dist files. `pnpm runtime:smoke` подтвердил
+  compiled API health и worker batch; `pnpm web:smoke` — 12 pages и 2 redirects
+  из настоящей production Next сборки. Все настройки synthetic, production
+  credentials не использовались, процессы остановлены.
+- Исторический through-000079 contract дополнительно прошёл локально: 37 tests,
+  37 passed, 0 skipped. Отдельный PG17.10 cluster получил существующие 82 migrations
+  и неизменённые release/handoff guards. Проверено, что lineage columns отсутствуют
+  до test-only bridge и появляются ровно три после него. Cluster остановлен и
+  удалён; основной History fixture cluster не менялся.
+- 26 source hashes browser receipt совпали с отправленным commit. Повтор browser
+  E2E при неизменных feature sources не потребовался.
+
+Receipts: `tmp/review-history/production-qualification-receipt.json`,
+`tmp/review-history/provider79-reproduction-ojDtj8/receipt.json` и
+`tmp/review-history/browser-final-head-receipt.json`.
+
+### CI: точный допуск новой migration
+
+CI на `ae4c25c4` выявил два связанных пропуска: managed historical89 recovery
+отверг новый checkout с `checkout_extension`, а Dedicated Release Authority
+остановился на `private_pg17_rehearsal_migration_boundary_unclassified`. Оба
+произошли до проверок самой History фичи: новый SQL был сохранён, но ещё не включён
+в действующие точные границы current checkout.
+
+Исправление добавляет checksum migration 151 и полный manifest checkout155 перед
+прежней рекурсивной проверкой, классифицирует её как checkout-only для private
+pre-release и historical96 readers и обновляет current-count assertions. Старые
+fixtures исключают новый tail перед проверкой прежних identities. Managed92
+partition побайтово совпадает с прежним результатом, historical96 manifest сохранён.
+Неизвестный tail, изменённый SQL и удалённый predecessor отвергаются.
+
+Независимый Sol 6.1 xhigh critic принял поправку и отдельно сверил hashes и реальные
+reader results. 7 focused files / 349 tests passed, 0 skipped; targeted ESLint,
+Prettier и whitespace checks passed. Первый запуск этих tests получил sandbox
+`spawnSync EPERM`; успешным считается последовательный повтор с разрешёнными
+subprocesses. Локальный Docker recovery не заявляется: обязательные CI jobs должны
+пройти на новом commit. Feature source и migration SQL не менялись, повтор большого
+browser/build batch не требуется. Receipt:
+`tmp/review-history/migration151-admission-tests.log`.
+
 ## Фактический объём
 
-По Git diff относительно `418c0ff848443d7a3a0553be22eb63c45a51f53b`, до финального
-обновления этого отчёта: 3 938 добавленных строк production/activation кода, 2 825
+По Git diff относительно `418c0ff848443d7a3a0553be22eb63c45a51f53b`: 3 958
+добавленных строк production/activation/admission кода, 2 906
 строк targeted tests/fixtures/browser harness и 418 строк architecture qualification.
-Всего код, проверки и тестовые fixtures — 7 181 добавленная строка; это физические
+Всего код, проверки и тестовые fixtures — 7 282 добавленные строки; это физические
 строки diff, включая комментарии и пустые строки, а не semantic SLOC. Configuration,
 lockfile, Markdown и неизменённые лицензированные Impeccable references считаются
 отдельно. Эти числа не являются требованием к объёму следующей фичи.
