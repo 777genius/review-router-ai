@@ -1,8 +1,8 @@
 # Контекстное обучение из обсуждений и общий вызов LLM
 
 Дата: 2026-10-28. Статус: **план следующего среза, не реализованная возможность**.
-Версия после второго раунда независимой критики; реализация и production
-activation в эту работу не входят. Исторические accepted ADR и план 23.10 не переписываются.
+Три раунда независимой критики завершены; замечания закрыты на уровне плана.
+Реализация и production activation в эту работу не входят. Исторические accepted ADR и план 23.10 не переписываются.
 
 ## 1. Результат для пользователя и границы решения
 
@@ -677,8 +677,9 @@ prompt formatting и task audience policies намеренно не сливаю
 
 Первый coherent slice: полный fitting thread → eligible memory recall → native
 preview once → existing exact chunks → следующий contextual ответ выбранным
-review account. Тот же accepted record содержит silence/effect status. Затем
-source-set corrections/forget и остальные consumers. Не оставлять старый
+review account. Тот же accepted record содержит silence/effect status. Initial
+lifecycle/admission/cohort/suppression fences обязательны **до enable**; последующее
+расширение correction/forget UX и остальных consumers не даёт исключения из них. Не оставлять старый
 несовместимый conversation writer активным на той же Gateway конфигурации.
 Already admitted review runs сохраняют прежний contract; task capabilities
 активируются только для exact qualified caller/runtime. Банк/profile/generation
@@ -730,6 +731,15 @@ eligible facts. Hold-out разделяется **по thread/repository scenari
 Labels: eligible fact/text support, source actor/revision, scope/target, forbidden
 write, acceptable answer/evidence/clarification/silence, desired effect status.
 Не создавать generic eval platform: fixtures + тонкий runner + results table.
+
+Каждый `run/build + compared variant + repository scenario` получает fresh isolated
+disposable product records, native scopes/banks и source/processing IDs. Continuity
+сохраняется только внутри одного A→B→authorized mutation→B scenario. Target fact
+отсутствует перед A и не seed из oracle labels; variants и tuning/hold-out не
+наследуют retained/derived state, accepted records или prior command effects.
+Fixture namespace и cold-start precondition записываются в existing results table.
+Использовать existing disposable setup/cleanup, не production reset API; повторный
+replay старого effect не является проверкой изменённой extraction реализации.
 
 RU/EN cases: informative non-command context, transient вопрос/шум, повтор,
 negation/quoted bot evidence, «да, это исключение» с prior turn, current code vs
@@ -846,19 +856,24 @@ existing bindings; mature upstream Python engine оставляет семант
 
 ## 12. Независимая критика и source evidence
 
-Требуются три rounds по три независимых критика. Все исследователи/критики/writer —
-**gpt-6.1-sol, xhigh** по explicit owner choice. Это review плана, не acceptance
+Завершены **3 rounds × 3 независимых reviewer = 9 reviews**, все на
+**gpt-6.1-sol, xhigh**, как исследователи и writer, по explicit owner choice.
+R1/R2 запросили исправления; R3 architecture/native и lifecycle — APPROVE FOR
+PLANNING, product/eval — один narrow P2, закрытый isolated-fixture правилом §10.
+Это не утверждение, что все девять одобрили исходную revision, и не acceptance
 реализации/native image/model/deployment. Reports: `tmp/memory-conversation-plan/`.
 
-| Round / reviewed revision                       | Независимый reviewer                                     | Findings → disposition                                                                                                                                                                                               |
-| ----------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| R1 / `c5ba9f81bcde0e465e8fb2a51336534adbecb94c` | Architecture/shared inference/DRY (`r1-architecture.md`) | REVISE: actual Gateway entrypoint → выбран canonical managed interaction, server-worker alternative рассмотрена/отклонена; actual ar/Gateway reuse → §5; accepted identity → §7; audience до LLM → §7/8              |
-| R1 / тот же commit                              | Native memory/authority/portability (`r1-native.md`)     | REVISE: один preview→exact chunks; no nonexistent confidence proof; bodyless cross-generation lineage suppression; bounded 2→1→0 source set; unchanged storage profile/generation → §3/6/7                           |
-| R1 / тот же commit                              | Product/history/evals/minimalism (`r1-product-eval.md`)  | REVISE: whole-thread coherence vector; stable replay; learning отдельно от reply gates; complete/empty/unknown source sets; corpus hold-out+denominators+targets; final assembled/cumulative budgets → §4/5/7/10     |
-| R2 / `a772403e262ed1a064789dded074b37d922cc1cd` | Lifecycle/replay/authority (`r2-lifecycle.md`)           | REVISE: internal retirement vs explicit suppression; complete cohort activation/read+grant gate; explicit update detaches auto handle; early identity/unbound manifest; settled replay IDs/status после purge → §4/7 |
-| R2 / тот же commit                              | Product/evals/OCR (`r2-eval-product.md`)                 | REVISE: linked A→B memory-dependent witnesses, non-command/silent-learning critical-slice gates и after-mutation recall внутри48threads → §10; OCR scope/evidence сохранены                                          |
-| R2 / тот же commit                              | Architecture/native/DRY (`r2-architecture-native.md`)    | REVISE: native strict-preview no-split/false-empty prerequisite; one shared automatic-source applicability и live checks; across-head auto observations only historical с observed commit → §5/7                     |
-| R3                                              | Ещё не выполнен                                          | Pending                                                                                                                                                                                                              |
+| Round / reviewed revision                       | Независимый reviewer                                             | Findings → disposition                                                                                                                                                                                               |
+| ----------------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1 / `c5ba9f81bcde0e465e8fb2a51336534adbecb94c` | Architecture/shared inference/DRY (`r1-architecture.md`)         | REVISE: actual Gateway entrypoint → выбран canonical managed interaction, server-worker alternative рассмотрена/отклонена; actual ar/Gateway reuse → §5; accepted identity → §7; audience до LLM → §7/8              |
+| R1 / тот же commit                              | Native memory/authority/portability (`r1-native.md`)             | REVISE: один preview→exact chunks; no nonexistent confidence proof; bodyless cross-generation lineage suppression; bounded 2→1→0 source set; unchanged storage profile/generation → §3/6/7                           |
+| R1 / тот же commit                              | Product/history/evals/minimalism (`r1-product-eval.md`)          | REVISE: whole-thread coherence vector; stable replay; learning отдельно от reply gates; complete/empty/unknown source sets; corpus hold-out+denominators+targets; final assembled/cumulative budgets → §4/5/7/10     |
+| R2 / `a772403e262ed1a064789dded074b37d922cc1cd` | Lifecycle/replay/authority (`r2-lifecycle.md`)                   | REVISE: internal retirement vs explicit suppression; complete cohort activation/read+grant gate; explicit update detaches auto handle; early identity/unbound manifest; settled replay IDs/status после purge → §4/7 |
+| R2 / тот же commit                              | Product/evals/OCR (`r2-eval-product.md`)                         | REVISE: linked A→B memory-dependent witnesses, non-command/silent-learning critical-slice gates и after-mutation recall внутри48threads → §10; OCR scope/evidence сохранены                                          |
+| R2 / тот же commit                              | Architecture/native/DRY (`r2-architecture-native.md`)            | REVISE: native strict-preview no-split/false-empty prerequisite; one shared automatic-source applicability и live checks; across-head auto observations only historical с observed commit → §5/7                     |
+| R3 / `63c56cbd6137f19ccbd3ae0c6f847e96c7f06ea9` | Architecture/native/portable reuse (`r3-architecture-native.md`) | APPROVE FOR PLANNING, 0 new/residual material findings; existing native/privacy/App-first gates сохранены                                                                                                            |
+| R3 / тот же commit                              | Lifecycle/authority/DRY (`r3-lifecycle.md`)                      | APPROVE FOR PLANNING, 0 new material findings; brief first-slice editorial clarification: initial fences обязательны до enable → §9                                                                                  |
+| R3 / тот же commit                              | Product/eval/evidence (`r3-eval-product.md`)                     | REVISE narrow P2: fresh product/native namespaces и cold preconditions для run/build×variant×scenario; no prior-run/label/cross-split state → правило добавлено §10; scope/LOC unchanged                             |
 
 Источники проверены по exact inputs; current API existence не означает qualification:
 
