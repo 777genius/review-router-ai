@@ -210,6 +210,9 @@ importers:
       '@reviewrouter/features-conflict-review':
         specifier: workspace:*
         version: link:../../packages/features/conflict-review
+      '@reviewrouter/features-conversations':
+        specifier: workspace:*
+        version: link:../../packages/features/conversations
       '@reviewrouter/features-entitlements':
         specifier: workspace:*
         version: link:../../packages/features/entitlements
@@ -699,6 +702,12 @@ importers:
       zod:
         specifier: ^4.4.2
         version: 4.4.2
+
+  packages/features/conversations:
+    dependencies:
+      '@prisma/client':
+        specifier: ^7.8.0
+        version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
 
   packages/features/entitlements:
     dependencies:
