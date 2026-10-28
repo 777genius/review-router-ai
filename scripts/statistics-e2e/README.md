@@ -60,3 +60,34 @@ removal. It restores only its own generated Next route-type reference after the
 server stops. A cleanup failure fails the run. Synthetic credentials and session
 cookies are redacted from failure output. Commit the harness and README, not
 screenshots, logs or generated build/profile data.
+
+## Reviews scenario
+
+After applying migration `000151_review_history`, run the same harness with
+`STATISTICS_E2E_SCENARIO=history`. Authentication, loopback database restrictions,
+the SELECT-only application role, Next server, Chromium, evidence and cleanup are
+shared with Statistics; no replacement auth path or product endpoint is used.
+
+```sh
+STATISTICS_E2E_SCENARIO=history \
+STATISTICS_E2E_DATABASE_URL=postgresql://history_test@127.0.0.1:55493/reviewrouter_statistics_test \
+STATISTICS_E2E_BROWSER_EXECUTABLE=/absolute/path/to/chromium \
+node --import tsx scripts/statistics-e2e/browser-qualify.ts
+```
+
+The small `history-scenario.ts` extension seeds 35 canonical PR summaries in 30
+repositories, all eight statuses, seven runs for one PR, nullable/long/escaped
+titles, and the shared capture boundary. These are direct compact ledger fixtures,
+not evidence that GitHub dispatch or publication ran. Capture, ordering and
+projection are qualified separately by the backend PostgreSQL suite.
+
+Reviews qualification covers initial server HTML and private/no-store APIs,
+25-row page replacement, lazy five-run history and continuation, four filters,
+browser Back, repository26+ selection and its pinned SSR label, invalid shared
+URL recovery, local503/retry, empty/unavailable distinction, actual SELECT
+revocation/recovery, actual membership403 and fresh authorized seed recovery,
+and workspace data isolation. Six captures cover 1440/900/390px in both themes;
+state and expanded-history captures are additional. Source hashes include the
+changed Reviews surface and helper. Review the saved screenshots before claiming
+visual acceptance. Existing `full` and `authorization-recovery` scenarios retain
+their Statistics behavior.

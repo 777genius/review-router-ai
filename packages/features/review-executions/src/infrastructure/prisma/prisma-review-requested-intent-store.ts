@@ -63,6 +63,21 @@ import {
 type Transaction = Prisma.TransactionClient;
 type PrismaReviewRequestedIntentStoreHooks = Readonly<{
   beforeSupersedeCompareAndSet?: () => Promise<void>;
+  historyCapture?: Readonly<{
+    register(
+      transaction: Transaction,
+      intent: ReviewRequestedIntent,
+      metadata?: Readonly<{
+        repositoryFullName?: string | null;
+        pullRequestTitle?: string | null;
+      }>,
+    ): Promise<void>;
+    changed(
+      transaction: Transaction,
+      intent: ReviewRequestedIntent,
+      previous?: ReviewRequestedIntent,
+    ): Promise<void>;
+  }>;
 }>;
 
 const registrationTransactionMaxAttempts = 3;
@@ -293,6 +308,11 @@ export class PrismaReviewRequestedIntentStore
                 intent: decision.intent,
               };
             }
+            await this.hooks.historyCapture?.register(
+              transaction,
+              decision.intent,
+              command.candidate.historyMetadata,
+            );
             if (
               decision.status ===
               ReviewRequestedRegistrationDecisionStatus.RegisterAndSupersede
@@ -310,6 +330,10 @@ export class PrismaReviewRequestedIntentStore
                 throw new ConcurrentIntentMutationError();
               }
               await enqueueDispatchCleanup(
+                transaction,
+                decision.supersededIntent,
+              );
+              await this.hooks.historyCapture?.changed(
                 transaction,
                 decision.supersededIntent,
               );
@@ -409,6 +433,10 @@ export class PrismaReviewRequestedIntentStore
                 intent: decision.intent,
               };
             }
+            await this.hooks.historyCapture?.register(
+              transaction,
+              decision.intent,
+            );
             const created = await transaction.reviewRequestedIntent.create({
               data: intentCreateData(decision.intent),
             });
@@ -511,7 +539,7 @@ export class PrismaReviewRequestedIntentStore
             now,
             claimUntil,
           });
-          await updateIntent(transaction, intent, claimed);
+          await this.updateIntent(transaction, intent, claimed);
           return {
             status: ReviewRequestedClaimStatus.Claimed,
             intent: claimed,
@@ -609,7 +637,7 @@ export class PrismaReviewRequestedIntentStore
           ) {
             return { status: ReviewRequestedTransitionStatus.Conflict };
           }
-          await updateIntent(transaction, intent, decision.intent);
+          await this.updateIntent(transaction, intent, decision.intent);
           return {
             status: ReviewRequestedTransitionStatus.Applied,
             intent: decision.intent,
@@ -670,19 +698,30 @@ export class PrismaReviewRequestedIntentStore
   }
 
   async linkAdmission(command: LinkReviewRequestedAdmissionCommand) {
-    return this.transitionIntent(
-      command.requestId,
-      async (transaction, intent) =>
-        decideReviewRequestedAdmissionLink({
-          intent,
-          sourceRunId: command.sourceRunId,
-          sourceRunAttempt: command.sourceRunAttempt,
-          authorizationId: command.authorizationId,
-          executionId: command.executionId,
-          revision: command.revision,
-          now: await databaseNow(transaction),
-        }),
-    );
+    // A capture gate may invalidate this Serializable snapshot. Retrying the local
+    // transaction is safe: the losing source update and outbox writes roll back.
+    for (
+      let attempt = 0;
+      attempt < registrationTransactionMaxAttempts;
+      attempt += 1
+    ) {
+      const result = await this.transitionIntent(
+        command.requestId,
+        async (transaction, intent) =>
+          decideReviewRequestedAdmissionLink({
+            intent,
+            sourceRunId: command.sourceRunId,
+            sourceRunAttempt: command.sourceRunAttempt,
+            authorizationId: command.authorizationId,
+            executionId: command.executionId,
+            revision: command.revision,
+            now: await databaseNow(transaction),
+          }),
+      );
+      if (result.status !== ReviewRequestedTransitionStatus.StaleClaim)
+        return result;
+    }
+    return { status: ReviewRequestedTransitionStatus.StaleClaim } as const;
   }
 
   async recordAdmissionDecision(
@@ -760,7 +799,7 @@ export class PrismaReviewRequestedIntentStore
             intent,
             command.now,
           );
-          await updateIntent(transaction, intent, cancelled);
+          await this.updateIntent(transaction, intent, cancelled);
           await enqueueDispatchCleanup(transaction, cancelled);
         }
         return { cancelled: cancellable.length };
@@ -835,7 +874,7 @@ export class PrismaReviewRequestedIntentStore
             ) {
               throw new Error("review_requested_recovery_successor_missing");
             }
-            await transaction.reviewRequestedIntent.create({
+            const successor = await transaction.reviewRequestedIntent.create({
               data: intentCreateData({
                 ...decision.successor,
                 createdAt: now,
@@ -854,8 +893,12 @@ export class PrismaReviewRequestedIntentStore
                 ),
               }),
             });
+            await this.hooks.historyCapture?.changed(
+              transaction,
+              intentToDomain(successor),
+            );
           }
-          await updateIntent(transaction, intent, decision.intent);
+          await this.updateIntent(transaction, intent, decision.intent);
           if (
             decision.status ===
             ReviewRequestedDispatchRecoveryDecisionStatus.Terminalized
@@ -951,7 +994,7 @@ export class PrismaReviewRequestedIntentStore
           ) {
             return { status: ReviewRequestedTransitionStatus.Conflict };
           }
-          await updateIntent(transaction, intent, decision.intent);
+          await this.updateIntent(transaction, intent, decision.intent);
           return {
             status: ReviewRequestedTransitionStatus.Applied,
             intent: decision.intent,
@@ -965,6 +1008,15 @@ export class PrismaReviewRequestedIntentStore
       }
       throw error;
     }
+  }
+
+  private async updateIntent(
+    transaction: Transaction,
+    current: ReviewRequestedIntent,
+    next: ReviewRequestedIntent,
+  ): Promise<void> {
+    await updateIntent(transaction, current, next);
+    await this.hooks.historyCapture?.changed(transaction, next, current);
   }
 
   private async resolveRegistrationRace(
@@ -993,6 +1045,7 @@ export class PrismaReviewRequestedIntentStore
 function intentCreateData(intent: ReviewRequestedIntent) {
   return {
     requestId: intent.requestId,
+    historyRootRequestId: intent.historyRootRequestId ?? null,
     dispatchAttempt: intent.dispatchAttempt,
     version: intent.version,
     workspaceId: intent.workspaceId,

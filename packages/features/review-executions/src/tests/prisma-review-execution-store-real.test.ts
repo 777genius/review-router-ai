@@ -57,6 +57,12 @@ const historicalAuthorizationOmit = {
 if (databaseUrl) {
   beforeAll(async () => {
     prisma = createPrismaClient({ databaseUrl, poolMax: 8 });
+    // Test-only bridge: current generated Prisma reads/writes these nullable
+    // lineage columns even with history capture disabled. Keep the historical
+    // authority/attachment assertions at 000079; this does not qualify a new
+    // production binary against an unmigrated schema or activate history.
+    await prisma.$executeRaw`ALTER TABLE "ReviewRequestedIntent" ADD COLUMN IF NOT EXISTS "historyRootRequestId" TEXT`;
+    await prisma.$executeRaw`ALTER TABLE "ReviewExecutionV2" ADD COLUMN IF NOT EXISTS "historyRootRequestId" TEXT, ADD COLUMN IF NOT EXISTS "historyDispatchAttempt" INTEGER`;
     await seedSharedProfiles();
   });
 

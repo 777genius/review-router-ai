@@ -89,6 +89,24 @@ const sourceOf = (
 ) => view.sources.find((option) => option.key === key);
 
 describe("provider setup view", () => {
+  it("preserves named Gateway enrollment when no provider account has been added", () => {
+    const view = buildProviderSetupView(
+      facts({
+        profiles: [],
+        gatewaySetupProviders: ["codex", "claude-code", "openrouter"],
+      }),
+    );
+    expect(view.profiles).toEqual([]);
+    expect(view.gatewaySetupProviders).toEqual([
+      "codex",
+      "claude-code",
+      "openrouter",
+    ]);
+    expect(sourceOf(view, "gateway_binding")?.decision).toEqual({
+      allowed: true,
+    });
+  });
+
   it("lets a maintainer attach shared providers to a fixed repository, explaining refusals", () => {
     const view = buildProviderSetupView(facts());
     expect(decisionOf(view, "team")).toEqual({ allowed: true });
@@ -207,5 +225,14 @@ describe("provider setup view", () => {
     expect(
       sourceOf(view, "user_ci_secret:mimo_token_plan_api_key"),
     ).toBeDefined();
+  });
+
+  it("does not advertise rotating Codex when its repository deployment gate is off", () => {
+    const view = buildProviderSetupView(
+      facts({
+        repositories: [repository("repo_a", { rotatingAvailable: false })],
+      }),
+    );
+    expect(sourceOf(view, "repository_rotating")).toBeUndefined();
   });
 });
