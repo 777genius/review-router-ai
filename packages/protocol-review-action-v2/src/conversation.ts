@@ -16,6 +16,13 @@ export type ConversationPublicationReceipt = ConversationStatusRequest & {
   readonly commentId?: string;
   readonly bodyDigest?: string;
 };
+export type ConversationPublicationClaimRequest = ConversationStatusRequest & {
+  readonly status: "dispatching";
+  readonly bodyDigest: string;
+};
+export type ConversationPublicationClaimResult = ConversationStatusRequest & {
+  readonly allowed: boolean;
+};
 export type ConversationProcessResult = ConversationStatusRequest & {
   readonly status:
     | "processing"
