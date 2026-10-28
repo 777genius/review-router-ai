@@ -1,6 +1,6 @@
 # Several Gateway reviewers
 
-Status: implementation plan v2, round 1 corrections incorporated; ready for round 2.
+Status: implementation plan v3, rounds 1–2 corrections incorporated; ready for round 3.
 Implementation has not started. Draft: [ReviewRouter #738](https://github.com/777genius/review-router-ai/pull/738).
 Companion draft: [public runtime #351](https://github.com/777genius/review-router/pull/351).
 
@@ -90,6 +90,14 @@ here and persists both roster and patch in the same policy/digest transaction.
 Repository fields retain the existing inherit/override semantics: untouched
 inherited values remain absent, rather than copying effective values into an
 override. Reuse the existing execution fields, not the whole settings form.
+The editor submits the workspace/repository policy versions it displayed,
+including the inherited workspace version where relevant. Reuse existing CAS
+and dashboard_action_stale; do not automatically retry a stale whole-list draft
+against a newer head. Keep the draft visible for refresh/review. Existing
+singleton adapters retain their previous semantics. Workspace shrinking must
+retain descendant override validation: reject atomically if an inheriting
+repository's explicit agreement/parallel setting no longer fits; do not lower
+that repository's explicit requirement. Show an actionable override error.
 Default badges, list summaries, readiness and row-specific edit/remove actions
 must represent every selection. Removing one reviewer cannot clear the roster.
 
@@ -144,6 +152,7 @@ Snapshot parsing, identity and reviewer resolution belong to
 these primitive domain values. SDK types and Prisma remain in their adapters.
 Version 4 is bounded to 16 reviewers and a finite 128 KiB private envelope;
 maximum-shape tests must qualify the bound without widening unrelated clients.
+Version 3 retains its existing 32 KiB parser and independent SQL bounds.
 
 ## Gateway allowance and selected execution custody
 
@@ -173,6 +182,9 @@ active parent; immutable fields cannot be overwritten. Keep the existing lock
 order, and lock distinct bindings deterministically. Allocate the migration
 number against current main immediately before implementation to avoid other
 tasks' migration collisions.
+Write-once includes deletion/reinsertion while the parent is retained. Controlled
+parent retention preserves unresolved cleanup evidence; test attachment racing
+parent termination as well as concurrent insertion and exact readback.
 
 Preparation uses one new versioned operation/invocation/attempt namespace per
 allocation. Concurrent reviewers share the same preparation promise/result;
@@ -185,6 +197,9 @@ captured execution (including a closed/expired result), and permit cleanup but
 never dispatch. A missing original operation cannot create a replacement.
 Unknown recovery stays unknown. Reuse Gateway's existing exact-operation and
 terminal execution readback; no new Gateway/native API is required.
+The original-operation proof uses the already composed backend consumer-control
+operation query port. The run-control role cannot read operations; do not widen
+its role or rely on a permissive HTTP fixture.
 
 Relay methods resolve an explicit captured reviewer selector before choosing
 the allocation, model, settings, authorization epoch and request usage identity.
@@ -207,6 +222,10 @@ their selected authority. Parent workspace/SCM/revision/producer/token failure
 remains run-wide. A revoked binding cannot prevent healthy siblings, evidence
 reporting or finalization. Preserve version 3 validity semantics. Normal resource
 cleanup must not revoke parent authority before aggregate publication finishes.
+Retain snapshot integrity, context eligibility, safety, registered producer,
+SCM revision and both token/database deadlines in the shared parent checks.
+Keep exact deterministic vote-lane order for token/record comparison; unique
+engine/task pairs may still serve existing safety selection without merging votes.
 
 ## Public runtime plan and compatibility
 
@@ -217,9 +236,23 @@ or edit generated output manually. Export only after committing the source.
 
 The public plan contains reviewer ID, provider index, vote hash, selected safe
 model/settings, captured engine profile/digest, requiredness, primary reviewer
-and effective parallel/agreement limits. It contains no upstream credential,
+and effective parallel/agreement limits. Each reviewer also carries an opaque
+concurrencyGroupId; group permits are min(captured grant concurrency, number of
+dependent reviewers). These safe scheduling hints confer no execution authority.
+The plan contains no upstream credential,
 private account ref, selected execution capability or server allowance.
 Bound the public plan to 64 KiB and validate it before any provider effect.
+Qualify the entire encoded checkout/readback envelope, including environment
+JSON escaping and tokens/profiles. Keep it within the existing client limit or
+add a bounded version-specific checkout limit; do not widen unrelated clients.
+
+Each v4 reviewer has an explicit captured investigation grant projection in
+reviewer-plan v1, bound to its reviewer ID, vote, model and profile digest. Reuse
+the existing descriptor's capability vocabulary and validation for each scoped
+input, without widening or changing historical V3 descriptor bytes. Derive the
+grant from that reviewer's admitted authority; a kind-level grant must not
+implicitly authorize every same-kind reviewer. The actual server/wire parser
+must prove authorized and unauthorized same-kind lanes remain distinct.
 
 An immutable top-level ProducerReviewerPlanProfile (version and descriptor
 digest) proves that the producer can consume reviewer-plan v1. It belongs to
@@ -268,6 +301,10 @@ package or command bus. Acquire and fresh attach retain their existing lease
 contracts; exact-revision reuse/adoption and other version-sensitive mutations
 refresh/serialize through this parent command boundary. A final restore alone
 cannot repair a reuse operation already sent against a stale stream version.
+The same scheduler acquires a small per-concurrency-group permit before starting
+a reviewer, as well as the global permit. A concurrency-one shared allocation
+therefore queues siblings before any model POST, including long-running calls.
+Do not use saturation polling/retries as a substitute for local admission.
 
 Parent cancellation, supersession or a run-wide authority failure stops new work,
 aborts all children and drains them to settlement before release/finalization.
@@ -334,6 +371,8 @@ Required behavior cases:
   model calls with saved parallelism two and granted Gateway concurrency two;
   total requests consume one allowance. A concurrency-one grant keeps the saved
   cap but completes within that grant without another allowance or paid replay.
+  Controlled/virtual timing exceeds the existing 120-second saturation window;
+  the waiting sibling makes no POST until its group permit is released.
 - Two bindings: independent credentials/capabilities; wrong reviewer/account,
   stale binding epoch, removed model and mutable post-admission policy denied.
 - Exact duplicate selections denied; 1/16 accepted and 0/17 denied; bulk draft
@@ -342,6 +381,9 @@ Required behavior cases:
   the supplied-diff default. Distinct actual engine profiles remain valid.
 - Save one to two reviewers and parallelism two atomically; failed save changes
   neither; repository agreement stays inherited when only parallelism overrides.
+- Two open dialogs cannot erase each other's newer roster/settings; a stale save
+  preserves the user's draft. Shrinking a workspace roster rejects incompatible
+  explicit descendant overrides without changing either policy.
 - Out-of-order completion, shared budget exhaustion, one required failure,
   optional failure, deadline, cancellation and supersession all settle truthfully.
 - Preparation/attachment restart, uncertain dispatch and duplicate finalize do
@@ -392,7 +434,7 @@ blocking findings are addressed or the delivery scope is explicitly reduced.
 
 - [x] Research and first implementation plan.
 - [x] Review round 1 and plan corrections.
-- [ ] Review round 2 and plan corrections.
+- [x] Review round 2 and plan corrections.
 - [ ] Review round 3 and final plan.
 - [ ] Implementation in dependency-ordered commits, pushed after each commit.
 - [ ] Focused behavior, protocol/architecture and required repository checks.
@@ -405,7 +447,7 @@ Review ledger (findings and dispositions will be appended after each round):
 | Round | Independent critics | Blocking findings | Disposition |
 | --- | --- | --- | --- |
 | 1 | Domain/UX, control-plane, runtime (GPT-6.1 Sol xhigh) | Default/explicit duplicate votes; atomic roster/settings; allocation failure scope; parent liveness; terminal cleanup recovery; full prepare intent; OCR full-inventory contract; exact failure/investigation routing | Incorporated in v2, with focused acceptance cases. Added immutable top-level producer profile, durable request attribution, mixed reuse/fresh serialization, and actual committed-entrypoint E2E. No new generic layer or native service change. |
-| 2 | Pending | Pending | Pending |
+| 2 | Domain/UX, control-plane, runtime (GPT-6.1 Sol xhigh) | User-observed roster CAS; pre-POST concurrency-group permits; exact per-reviewer investigation grant wire source | Incorporated in v3. Also clarified descendant constraints, consumer-control cleanup reader, write-once deletion/retention, shared safety/integrity checks, version-specific bounds and full encoded checkout qualification. Round 1 blockers confirmed resolved. |
 | 3 | Pending | Pending | Pending |
 
 ## Evidence boundaries
