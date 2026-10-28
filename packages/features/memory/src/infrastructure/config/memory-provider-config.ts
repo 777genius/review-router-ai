@@ -16,7 +16,16 @@ export type MemoryProviderConfig =
 export function parseMemoryProviderConfig(
   env: Readonly<Record<string, string | undefined>>,
 ): MemoryProviderConfig {
-  const kind = env.REVIEW_ROUTER_MEMORY_PROVIDER?.trim() || "disabled";
+  // A configured backend is enabled by default; empty build/dev environments
+  // still start without memory. Explicit disable always wins, and partial
+  // native configuration goes through the same strict validation below.
+  const hasNativeConfig = Boolean(
+    env.REVIEW_ROUTER_MEMORY_HINDSIGHT_URL?.trim() ||
+    env.REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY?.trim(),
+  );
+  const kind =
+    env.REVIEW_ROUTER_MEMORY_PROVIDER?.trim() ||
+    (hasNativeConfig ? "hindsight" : "disabled");
   const generation = env.REVIEW_ROUTER_MEMORY_GENERATION?.trim() || "memory-v1";
   const retryInput = env.REVIEW_ROUTER_MEMORY_RESUBMIT_WINDOW_MS?.trim() || "0";
   const resubmitWindowMs = /^(0|[1-9][0-9]*)$/.test(retryInput)
