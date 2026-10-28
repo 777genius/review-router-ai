@@ -16,7 +16,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: skill-scanner-${{ github.event.pull_request.number || github.ref }}
+  # PR checks supersede; each main qualification and manual run retains independent evidence.
+  group: skill-scanner-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
