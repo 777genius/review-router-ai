@@ -37,9 +37,9 @@ permissions:
   contents: read
 
 concurrency:
-  # Keep this namespace stable; legacy always() runs retain their old group.
-  group: ci-v2-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Preserve the current namespace and isolate each manual qualification run.
+  group: ci-v2-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 env:
   NODE_VERSION: "26.11.1"
@@ -62,7 +62,7 @@ env:
   REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: ci_database_recovery_witness_not_for_production_000000000000
   REVIEW_ROUTER_DEFAULT_MODEL: gpt-5.5
   REVIEW_ROUTER_DEFAULT_EFFORT: xhigh
-  REVIEW_ROUTER_PAIRED_ACTION_REF: 801e49c724babc36f707d7dfd051f6bb5be8598a
+  REVIEW_ROUTER_PAIRED_ACTION_REF: 056952b5a3d625fd1d19384942d452114804380f
   REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG: v1.0.171
   REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA: 66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff
   REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: 2a65907ac8474f805dcb23358618c9c673e6a903bf1c3c26fcdf4cfe02debe2a
@@ -394,7 +394,7 @@ jobs:
         static-checks,
         managed-migration-pg17,
       ]
-    if: ${{ always() }}
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:
