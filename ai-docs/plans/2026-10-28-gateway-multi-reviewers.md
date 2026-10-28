@@ -1,7 +1,7 @@
 # Several Gateway reviewers
 
-Status: implementation plan v3, rounds 1–2 corrections incorporated; ready for round 3.
-Implementation has not started. Draft: [ReviewRouter #738](https://github.com/777genius/review-router-ai/pull/738).
+Status: implementation plan v4, approved after three independent review rounds.
+Implementation follows this bounded plan. Draft: [ReviewRouter #738](https://github.com/777genius/review-router-ai/pull/738).
 Companion draft: [public runtime #351](https://github.com/777genius/review-router/pull/351).
 
 Research baselines: ReviewRouter `b2f40048559a841f41b6756c8eac2ed90b04c2d4`
@@ -305,6 +305,8 @@ The same scheduler acquires a small per-concurrency-group permit before starting
 a reviewer, as well as the global permit. A concurrency-one shared allocation
 therefore queues siblings before any model POST, including long-running calls.
 Do not use saturation polling/retries as a substitute for local admission.
+Select a ready group before holding a global permit: a sibling waiting behind
+its busy group must not occupy capacity that an independent group can use.
 
 Parent cancellation, supersession or a run-wide authority failure stops new work,
 aborts all children and drains them to settlement before release/finalization.
@@ -435,7 +437,7 @@ blocking findings are addressed or the delivery scope is explicitly reduced.
 - [x] Research and first implementation plan.
 - [x] Review round 1 and plan corrections.
 - [x] Review round 2 and plan corrections.
-- [ ] Review round 3 and final plan.
+- [x] Review round 3 and final plan.
 - [ ] Implementation in dependency-ordered commits, pushed after each commit.
 - [ ] Focused behavior, protocol/architecture and required repository checks.
 - [ ] Browser and joined execution E2E on disposable resources.
@@ -448,7 +450,7 @@ Review ledger (findings and dispositions will be appended after each round):
 | --- | --- | --- | --- |
 | 1 | Domain/UX, control-plane, runtime (GPT-6.1 Sol xhigh) | Default/explicit duplicate votes; atomic roster/settings; allocation failure scope; parent liveness; terminal cleanup recovery; full prepare intent; OCR full-inventory contract; exact failure/investigation routing | Incorporated in v2, with focused acceptance cases. Added immutable top-level producer profile, durable request attribution, mixed reuse/fresh serialization, and actual committed-entrypoint E2E. No new generic layer or native service change. |
 | 2 | Domain/UX, control-plane, runtime (GPT-6.1 Sol xhigh) | User-observed roster CAS; pre-POST concurrency-group permits; exact per-reviewer investigation grant wire source | Incorporated in v3. Also clarified descendant constraints, consumer-control cleanup reader, write-once deletion/retention, shared safety/integrity checks, version-specific bounds and full encoded checkout qualification. Round 1 blockers confirmed resolved. |
-| 3 | Pending | Pending | Pending |
+| 3 | Domain/UX, control-plane, runtime (GPT-6.1 Sol xhigh) | None remaining; earlier corrections verified | Approved bounded implementation. Clarified ready-group admission to avoid head-of-line blocking. Freeze parser/env/selector/cleanup names between existing shared and runtime owners before export; this is contract coordination, not another framework. |
 
 ## Evidence boundaries
 
