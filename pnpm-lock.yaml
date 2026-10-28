@@ -468,9 +468,6 @@ importers:
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
-      yaml:
-        specifier: ^2.9.0
-        version: 2.9.0
       zod:
         specifier: ^4.4.2
         version: 4.4.2
@@ -547,6 +544,9 @@ importers:
       '@reviewrouter/features-review-run-control':
         specifier: workspace:*
         version: link:../../packages/features/review-run-control
+      '@reviewrouter/features-review-skills':
+        specifier: workspace:*
+        version: link:../../packages/features/review-skills
       '@reviewrouter/features-review-snapshots':
         specifier: workspace:*
         version: link:../../packages/features/review-snapshots
@@ -1169,6 +1169,9 @@ importers:
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../shared
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
     devDependencies:
       '@get-modular/conformance':
         specifier: 0.5.0
@@ -1179,6 +1182,12 @@ importers:
       '@prisma/adapter-pg':
         specifier: 7.8.0
         version: 7.8.0
+      '@reviewrouter/features-outbox':
+        specifier: workspace:*
+        version: link:../outbox
+      '@reviewrouter/features-rate-limits':
+        specifier: workspace:*
+        version: link:../rate-limits
       '@types/pg':
         specifier: 8.23.1
         version: 8.23.1

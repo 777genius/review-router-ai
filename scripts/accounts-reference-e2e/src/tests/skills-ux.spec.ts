@@ -195,6 +195,8 @@ async function holdAction(
   return {
     release,
     done,
+    waitForRequest: (timeout = 30_000) =>
+      expect.poll(() => captured, { timeout }).toBe(true),
     wait: (timeout = 30_000) =>
       expect.poll(() => committed, { timeout }).toBe(true),
   };
@@ -550,19 +552,54 @@ test.describe("Skills real Next UX resilience", () => {
     await expect(
       row.getByRole("textbox", { name: "Include paths", exact: true }),
     ).toHaveValue("retained-draft/**");
-    page.once("dialog", (value) => {
-      void value.accept();
-    });
-    await row
-      .getByRole("button", {
-        name: "Remove skill Fixture skill 055",
-        exact: true,
-      })
-      .click();
-    await expect(dialog.getByRole("status")).toContainText("1 removed");
-    expect(await binding("123", "rr-e2e-skill-055")).toBeUndefined();
-    await dialog.getByRole("button", { name: "Close", exact: true }).click();
-    await expect(dialog).not.toBeVisible();
+    const readback = await holdAction(
+      page,
+      "listAssignmentChoices",
+      (input) =>
+        input.includes('"assignedOnly":true') &&
+        input.includes(repositoryId("123")),
+    );
+    try {
+      page.once("dialog", (value) => {
+        void value.accept();
+      });
+      await row
+        .getByRole("button", {
+          name: "Remove skill Fixture skill 055",
+          exact: true,
+        })
+        .click();
+      await expect(dialog.getByRole("status")).toContainText("1 removed");
+      expect(await binding("123", "rr-e2e-skill-055")).toBeUndefined();
+      await readback.waitForRequest();
+      for (const name of ["Close", "Close Assigned skills"]) {
+        await expect(
+          dialog.getByRole("button", { name, exact: true }),
+        ).toBeEnabled();
+      }
+      await expect(
+        row.getByRole("button", {
+          name: "Remove skill Fixture skill 055",
+          exact: true,
+        }),
+      ).toBeDisabled();
+      await expect(
+        dialog.getByRole("button", { name: "Add skills", exact: true }),
+      ).toBeDisabled();
+      await expect(
+        dialog.getByRole("searchbox", { name: "Search skills", exact: true }),
+      ).toBeDisabled();
+      await dialog.screenshot({
+        path: test
+          .info()
+          .outputPath("skills-acknowledged-removal-refreshing-mobile.png"),
+      });
+      await dialog.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(dialog).not.toBeVisible();
+    } finally {
+      readback.release();
+    }
+    await readback.done;
   });
 
   test("Skills nested Paths and Git source saves lock the parent until persistence is acknowledged", async ({

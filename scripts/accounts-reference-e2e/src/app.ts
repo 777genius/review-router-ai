@@ -20,6 +20,9 @@ export async function startNextApp(input: {
   readonly gatewayUrl: string;
   readonly secrets: FixtureSecrets;
   readonly browserExecutable: string | null;
+  readonly skillCatalog?: {
+    readonly environment: Readonly<Record<string, string>>;
+  };
   readonly skillsGitHub?: {
     readonly origin: string;
     readonly privateKey: string;
@@ -54,16 +57,23 @@ export async function startNextApp(input: {
   });
   if (process.argv.includes("--account-models-fixture"))
     environment.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED = "1";
+  if (input.skillCatalog)
+    Object.assign(environment, input.skillCatalog.environment);
   if (input.skillsGitHub)
     Object.assign(environment, {
       ...skillsReadinessFixtureEnv(),
       REVIEW_ROUTER_SKILLS_E2E: "1",
+      REVIEW_ROUTER_E2E_NEXT_PERF_LOG: join(
+        input.workDir,
+        "next-performance.jsonl",
+      ),
       REVIEW_ROUTER_GITHUB_APP_TEST_ORIGIN: input.skillsGitHub.origin,
       GITHUB_APP_ID: "990001",
       GITHUB_APP_PRIVATE_KEY: input.skillsGitHub.privateKey,
       NODE_OPTIONS: [
         environment.NODE_OPTIONS,
         `--import=${join(input.repoRoot, "scripts/accounts-reference-e2e/src/skills-network-guard.ts")}`,
+        `--import=${join(input.repoRoot, "scripts/accounts-reference-e2e/src/next-performance-diagnostics.mjs")}`,
       ]
         .filter(Boolean)
         .join(" "),
@@ -145,7 +155,7 @@ async function waitForHealth(appUrl: string): Promise<void> {
   throw new Error(`accounts_reference_e2e_next_not_ready:${lastError}`);
 }
 
-async function stopChild(child: ChildProcess): Promise<void> {
+export async function stopChild(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
   child.kill("SIGTERM");
   const deadline = Date.now() + 10_000;
