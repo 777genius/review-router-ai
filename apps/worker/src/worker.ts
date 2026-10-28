@@ -10,6 +10,8 @@ import { App } from "@octokit/app";
 import {
   reviewRequestIngressEventType,
   reviewRequestIngressEventVersion,
+  reviewRequestedDispatchCleanupEventType,
+  reviewRequestedDispatchCleanupEventVersion,
 } from "@reviewrouter/features-review-executions";
 import { PrismaReviewExecutionStore } from "@reviewrouter/features-review-executions/composition";
 import {
@@ -303,6 +305,10 @@ async function main(): Promise<void> {
 }
 
 const knownOutboxHandlers = [
+  {
+    type: reviewRequestedDispatchCleanupEventType,
+    version: reviewRequestedDispatchCleanupEventVersion,
+  },
   reviewStatisticsHandlerDefinition,
   {
     type: githubReviewRequestIngressEventType,

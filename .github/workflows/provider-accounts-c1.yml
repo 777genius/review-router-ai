@@ -21,8 +21,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: provider-accounts-c1-${{ github.ref }}
-  cancel-in-progress: true
+  # Manual qualification must not cancel branch/PR checks or another manual mode.
+  group: provider-accounts-c1-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 jobs:
   qualify:

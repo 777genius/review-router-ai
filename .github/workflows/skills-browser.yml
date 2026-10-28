@@ -45,7 +45,7 @@ concurrency:
 jobs:
   skills-browser:
     name: Skills real Next and PostgreSQL browser acceptance
-    runs-on: macos-latest
+    runs-on: macos-15-intel
     timeout-minutes: 40
     env:
       EXPECTED_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}

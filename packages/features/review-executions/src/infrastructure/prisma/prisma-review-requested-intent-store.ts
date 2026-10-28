@@ -1,3 +1,7 @@
+import {
+  reviewRequestedDispatchCleanupEvent,
+  reviewRequestedDispatchCleanupEventType,
+} from "../../domain/review-requested-dispatch-cleanup";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import {
   ReviewRequestedClaimStatus,
@@ -302,6 +306,10 @@ export class PrismaReviewRequestedIntentStore
               if (updated.count !== 1) {
                 throw new ConcurrentIntentMutationError();
               }
+              await enqueueDispatchCleanup(
+                transaction,
+                decision.supersededIntent,
+              );
             }
             const created = await transaction.reviewRequestedIntent.create({
               data: intentCreateData(decision.intent),
@@ -729,11 +737,12 @@ export class PrismaReviewRequestedIntentStore
               intent.admission.state !== ReviewRequestAdmissionState.Admitted,
           );
         for (const intent of cancellable) {
-          await updateIntent(
-            transaction,
+          const cancelled = cancelReviewRequestedPreAdmissionIntent(
             intent,
-            cancelReviewRequestedPreAdmissionIntent(intent, command.now),
+            command.now,
           );
+          await updateIntent(transaction, intent, cancelled);
+          await enqueueDispatchCleanup(transaction, cancelled);
         }
         return { cancelled: cancellable.length };
       },
@@ -854,6 +863,12 @@ export class PrismaReviewRequestedIntentStore
           FROM "ReviewRequestedIntent" AS intent
           WHERE intent."retainUntil" < (clock_timestamp() AT TIME ZONE 'UTC')
             AND intent.state IN ('dispatched', 'terminal', 'superseded')
+            AND NOT EXISTS (
+              SELECT 1 FROM "OutboxEvent" AS cleanup
+              WHERE cleanup."type" = ${reviewRequestedDispatchCleanupEventType}
+                AND cleanup."aggregateId" = intent."requestId"
+                AND cleanup."status" <> 'processed'
+            )
             AND NOT EXISTS (
               SELECT 1
               FROM "ReviewRequestedIntent" AS dependent
@@ -1113,3 +1128,11 @@ function isConcurrencyError(error: unknown): boolean {
 }
 
 class ConcurrentIntentMutationError extends Error {}
+
+async function enqueueDispatchCleanup(
+  transaction: Transaction,
+  intent: ReviewRequestedIntent,
+): Promise<void> {
+  const event = reviewRequestedDispatchCleanupEvent(intent);
+  if (event) await transaction.outboxEvent.create({ data: event });
+}

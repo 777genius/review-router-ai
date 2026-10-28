@@ -37,9 +37,9 @@ permissions:
   contents: read
 
 concurrency:
-  # Keep this namespace stable; legacy always() runs retain their old group.
-  group: ci-v2-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Preserve the current namespace and isolate each manual qualification run.
+  group: ci-v2-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 env:
   NODE_VERSION: "26.11.1"
@@ -394,7 +394,7 @@ jobs:
         static-checks,
         managed-migration-pg17,
       ]
-    if: ${{ always() }}
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:
