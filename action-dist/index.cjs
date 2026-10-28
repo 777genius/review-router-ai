@@ -133333,6 +133333,32 @@ function isSafeGitHubBranchNameSegment(segment) {
 }
 
 // packages/shared/src/review-action-companion-contracts.ts
+var providerApiDescriptors = Object.freeze({
+  "openrouter-api": Object.freeze({
+    providerKind: "openrouter",
+    authMode: "openrouter_api_key",
+    runtimePrefix: "openrouter",
+    secretName: "OPENROUTER_API_KEY",
+    fixedResponsesUrl: "https://openrouter.ai/api/v1/responses",
+    defaultModel: "openai/gpt-5.3-codex"
+  }),
+  "mimo-token-plan-api": Object.freeze({
+    providerKind: "codex-mimo",
+    authMode: "mimo_token_plan_api_key",
+    runtimePrefix: "codex-mimo",
+    secretName: "MIMO_TOKEN_PLAN_API_KEY",
+    fixedResponsesUrl: "https://token-plan-sgp.xiaomimimo.com/v1/responses",
+    defaultModel: "mimo-v2.6-pro"
+  }),
+  "kimi-code-api": Object.freeze({
+    providerKind: "kimi",
+    authMode: "kimi_code_api_key",
+    runtimePrefix: "kimi",
+    secretName: "KIMI_CODE_API_KEY",
+    fixedResponsesUrl: "https://api.kimi.ai/coding/v1/responses",
+    defaultModel: "k3-256k"
+  })
+});
 var providerApiCheckoutCompanionContract = Object.freeze({
   path: "/api/action/v2/provider-api/checkout",
   providerApiAuthMode: "openrouter-api",
@@ -133349,6 +133375,43 @@ var prDescriptionContract = Object.freeze({
   maxOutputTokens: 1200,
   deadlineMs: 6e4,
   attemptBudget: 1
+});
+var lifecycleVerificationContract = Object.freeze({
+  extensionId: "lifecycle-verification.v1",
+  executor: "rr_bounded_lifecycle_verifier.v1",
+  version: 1,
+  taskKind: "lifecycle_revalidation",
+  modelTransport: "account_gateway",
+  capabilityRuntimeEnvKey: "REVIEW_ROUTER_LIFECYCLE_VERIFICATION_CAPABILITY_JSON",
+  unavailableReasonRuntimeEnvKey: "REVIEW_ROUTER_LIFECYCLE_VERIFICATION_UNAVAILABLE_REASON",
+  promptVersion: "lifecycle-verification-prompt.v1",
+  outputSchemaVersion: 1,
+  requestCanonicalizerVersion: "lifecycle-verification-request.v1",
+  policyVersion: "lifecycle-verification-policy.v1",
+  dispatchReadbackPath: "/api/action/v2/account-gateway/companion-dispatch",
+  maxTargetsPerPacket: 4,
+  maxPackets: 2,
+  maxFilesPerPacket: 6,
+  maxFileBytes: 24 * 1024,
+  maxSourceBytes: 64 * 1024,
+  maxPromptBytes: 96 * 1024,
+  maxClaimBytes: 4 * 1024,
+  maxResponseBytes: 32 * 1024,
+  maxLifecyclePlanBytes: 64 * 1024,
+  maxOutputTokens: 4096,
+  minOutputTokensPerTarget: 1024,
+  deadlineMs: 6e4,
+  attemptBudget: 1,
+  dispatchHeaders: Object.freeze({
+    dispatchId: "x-reviewrouter-companion-dispatch-id",
+    executionId: "x-reviewrouter-companion-execution-id",
+    workSlotId: "x-reviewrouter-companion-work-slot-id",
+    attemptOrdinal: "x-reviewrouter-companion-attempt-ordinal",
+    leaseId: "x-reviewrouter-companion-lease-id",
+    leaseCapability: "x-reviewrouter-companion-lease-capability",
+    fencingToken: "x-reviewrouter-companion-fencing-token",
+    preparedManifestKey: "x-reviewrouter-companion-prepared-manifest-key"
+  })
 });
 var contextToolsContract = Object.freeze({
   extensionId: "context-tools.v1",
@@ -141323,8 +141386,9 @@ async function ensureFullReviewRuntimeTools(input) {
   }
   await runProcess({
     command: "bash",
+    // Preserve the deliberately sanitized PATH; login Bash startup may replace it.
     args: [
-      "-lc",
+      "-c",
       [
         "set -euo pipefail",
         "if command -v claude >/dev/null 2>&1; then",

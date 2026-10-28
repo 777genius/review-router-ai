@@ -47,3 +47,55 @@ describe("qualified Gateway settings", () => {
     expect(gatewayModelSupportsReasoningEffort("gpt-5.5", "xhigh")).toBe(true);
   });
 });
+
+it("evaluates legacy Ultra as wire Max and omission as the account default only for exact Codex OAuth", () => {
+  const codex: AccountConnectionView = {
+    ...connection,
+    provider: "openai",
+    modelSettings: [
+      {
+        modelId: "dynamic-model",
+        reasoning: { allowed: ["high", "max"], default: "high" },
+        fast: { allowed: ["balanced"], default: "balanced" },
+        tools: { allowed: ["function"], default: "function" },
+      },
+    ],
+  };
+  expect(
+    gatewayModelSupportsReasoningEffort(
+      "dynamic-model",
+      "ultra",
+      codex,
+      "openai-codex-oauth-responses-v1",
+    ),
+  ).toBe(true);
+  expect(
+    gatewayModelSupportsReasoningEffort(
+      "dynamic-model",
+      undefined,
+      codex,
+      "openai-codex-oauth-responses-v1",
+    ),
+  ).toBe(true);
+  for (const profileRef of [
+    undefined,
+    "grok-subscription-responses-oauth-v1",
+  ]) {
+    expect(
+      gatewayModelSupportsReasoningEffort(
+        "dynamic-model",
+        "ultra",
+        codex,
+        profileRef,
+      ),
+    ).toBe(false);
+    expect(
+      gatewayModelSupportsReasoningEffort(
+        "dynamic-model",
+        undefined,
+        codex,
+        profileRef,
+      ),
+    ).toBe(false);
+  }
+});

@@ -16,6 +16,8 @@ import {
   SkillSearch,
   skillCellClass,
   skillFieldClass,
+  skillMobileLabelClass,
+  skillResponsiveCellClass,
 } from "./review-skills-ui";
 
 export function SkillAccessDialog({
@@ -53,9 +55,9 @@ export function SkillAccessDialog({
         skillId: skill.skillId,
         destinationWorkspaceId: destination.trim(),
       }),
-    onSuccess: () => {
+    onSuccess: async () => {
       setDestination("");
-      void client.invalidateQueries({ queryKey: key, exact: true });
+      await client.invalidateQueries({ queryKey: key, exact: true });
     },
   });
   const revoke = useMutation({
@@ -68,15 +70,16 @@ export function SkillAccessDialog({
         skillId: skill.skillId,
         ...input,
       }),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: key, exact: true });
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: key, exact: true });
     },
   });
+  const pending = grant.isPending || revoke.isPending;
   return (
     <SkillsDialog
       open
       onClose={onClose}
-      pending={grant.isPending || revoke.isPending}
+      pending={pending}
       title="Manage skill access"
       description={`Share “${skill.name}” with another workspace. Its admins accept access in their Skills library. Revoking access blocks future reviews from using this skill; reviews already in progress keep the instructions they started with.`}
     >
@@ -85,6 +88,7 @@ export function SkillAccessDialog({
         <input
           className={`${skillFieldClass} mt-2`}
           value={destination}
+          disabled={pending}
           onChange={(event) => setDestination(event.target.value)}
           placeholder="Exact workspace ID"
         />
@@ -95,12 +99,31 @@ export function SkillAccessDialog({
       </p>
       <Button
         type="button"
-        disabled={!destination.trim() || grant.isPending}
-        onClick={() => grant.mutate()}
+        disabled={!destination.trim() || pending}
+        onClick={() => {
+          revoke.reset();
+          grant.mutate();
+        }}
       >
-        Grant access
+        {grant.isPending ? "Granting access…" : "Grant access"}
       </Button>
-      <SkillsError error={grants.error ?? grant.error ?? revoke.error} />
+      <SkillsError error={grant.error ?? revoke.error ?? grants.error} />
+      {grants.isPending ? <p role="status">Loading workspace access…</p> : null}
+      {grant.isSuccess ? (
+        <p role="status" className="text-sm text-emerald-200">
+          Access granted. The destination workspace admins can accept this skill
+          in their Skills library.
+        </p>
+      ) : revoke.isSuccess ? (
+        <p role="status" className="text-sm text-emerald-200">
+          Access revoked for future reviews in that workspace.
+        </p>
+      ) : null}
+      {!grants.isPending && !grants.isError && grants.data?.length === 0 ? (
+        <p className="text-sm text-slate-400">
+          This skill has not been shared with another workspace.
+        </p>
+      ) : null}
       <div className="divide-y divide-cyan-200/15">
         {grants.data?.map((item) => (
           <div
@@ -124,17 +147,19 @@ export function SkillAccessDialog({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={revoke.isPending}
+                disabled={pending}
                 onClick={() => {
                   if (
                     window.confirm(
                       "Revoke access for future reviews in this workspace?",
                     )
-                  )
+                  ) {
+                    grant.reset();
                     revoke.mutate({
                       destinationWorkspaceId: item.destinationWorkspaceId,
                       expectedGrantVersion: item.version,
                     });
+                  }
                 }}
               >
                 Revoke access
@@ -150,12 +175,17 @@ export function AddWorkspaceSkillDialog({
   workspaceId,
   viewerId,
   onClose,
+  onAssign,
 }: {
   readonly workspaceId: string;
   readonly viewerId: string;
   readonly onClose: () => void;
+  readonly onAssign: (skill: ReviewSkillSummary) => void;
 }) {
   const [search, setSearch] = useState("");
+  const [linkedSkill, setLinkedSkill] = useState<ReviewSkillSummary | null>(
+    null,
+  );
   const client = useQueryClient();
   const choices = useInfiniteQuery({
     queryKey: [
@@ -189,7 +219,8 @@ export function AddWorkspaceSkillDialog({
             skillId: skill.skillId,
             expectedGrantVersion: skill.grantVersion!,
           }),
-    onSuccess: async () => {
+    onSuccess: async (_result, skill) => {
+      setLinkedSkill(skill);
       await client.invalidateQueries({
         queryKey: reviewSkillsKeys.workspace(viewerId, workspaceId),
       });
@@ -204,48 +235,101 @@ export function AddWorkspaceSkillDialog({
       title="Add from another workspace"
       description="Add a live link to the original. The author controls its text; future reviews receive subsequent saved updates. This does not create a copy."
     >
-      <SkillSearch value={search} onChange={setSearch} />
+      <SkillSearch
+        value={search}
+        onChange={setSearch}
+        disabled={link.isPending}
+      />
       <SkillsError error={choices.error ?? link.error} />
-      {link.isSuccess ? (
-        <p role="status" className="text-emerald-200">
-          Skill linked to this workspace.
-        </p>
+      {choices.isPending ? <p role="status">Loading shared skills…</p> : null}
+      {linkedSkill ? (
+        <div className="space-y-3 border-b border-cyan-200/15 pb-4">
+          <p role="status" className="text-sm text-emerald-200">
+            “{linkedSkill.name}” added to this library. Choose repositories to
+            use it.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              disabled={link.isPending}
+              onClick={() => onAssign(linkedSkill)}
+            >
+              Assign to repositories
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={link.isPending}
+              onClick={() => setLinkedSkill(null)}
+            >
+              Continue adding skills
+            </Button>
+          </div>
+        </div>
       ) : null}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[30rem]">
-          <thead>
-            <tr className="border-b border-cyan-200/15">
-              <th className={skillCellClass}>Name / description</th>
-              <th className={skillCellClass}>Author / source</th>
-              <th className={skillCellClass}>Access</th>
+        <table role="table" className="block w-full lg:table lg:min-w-[30rem]">
+          <caption className="sr-only">
+            Skills shared from other workspaces
+          </caption>
+          <thead role="rowgroup" className="hidden lg:table-header-group">
+            <tr role="row" className="border-b border-cyan-200/15">
+              <th role="columnheader" scope="col" className={skillCellClass}>
+                Name / description
+              </th>
+              <th role="columnheader" scope="col" className={skillCellClass}>
+                Author / source
+              </th>
+              <th role="columnheader" scope="col" className={skillCellClass}>
+                Access
+              </th>
             </tr>
           </thead>
-          <tbody>
+          <tbody role="rowgroup" className="block lg:table-row-group">
             {rows.map((skill) => (
-              <tr key={skill.skillId} className="border-b border-cyan-200/10">
-                <td className={skillCellClass}>
-                  <p className="font-semibold">{skill.name}</p>
-                  <p className="mt-1 text-slate-400">{skill.description}</p>
+              <tr
+                role="row"
+                key={skill.skillId}
+                className="grid grid-cols-2 gap-x-4 border-b border-cyan-200/15 py-3 lg:table-row lg:border-cyan-200/10 lg:py-0"
+              >
+                <td
+                  role="cell"
+                  className={`${skillResponsiveCellClass} col-span-2`}
+                >
+                  <p className="break-words font-semibold">{skill.name}</p>
+                  <p className="mt-1 break-words text-slate-400">
+                    {skill.description}
+                  </p>
                 </td>
-                <td className={skillCellClass}>
+                <td
+                  role="cell"
+                  className={`${skillResponsiveCellClass} break-words`}
+                >
+                  <span className={skillMobileLabelClass}>Author / source</span>
                   {skill.authorName}
                   <br />
                   <span className="text-slate-400">
                     {skill.sourceWorkspaceName}
                   </span>
                 </td>
-                <td className={skillCellClass}>
+                <td role="cell" className={skillResponsiveCellClass}>
+                  <span className={skillMobileLabelClass}>Access</span>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     disabled={
                       link.isPending ||
+                      linkedSkill?.skillId === skill.skillId ||
                       (!skill.canLinkAsDualAdmin && !skill.canAccept)
                     }
                     onClick={() => link.mutate(skill)}
                   >
-                    {skill.canLinkAsDualAdmin ? "Add" : "Accept"}
+                    {linkedSkill?.skillId === skill.skillId
+                      ? "Added"
+                      : skill.canLinkAsDualAdmin
+                        ? "Add"
+                        : "Accept"}
                   </Button>
                 </td>
               </tr>
@@ -253,7 +337,7 @@ export function AddWorkspaceSkillDialog({
           </tbody>
         </table>
       </div>
-      {rows.length === 0 && !choices.isPending ? (
+      {rows.length === 0 && !choices.isPending && !choices.isError ? (
         <p className="text-sm text-slate-400">
           No matching originals are available. A source owner/admin must grant
           this workspace access, or you must administer both workspaces.
@@ -263,6 +347,7 @@ export function AddWorkspaceSkillDialog({
         <Button
           type="button"
           variant="outline"
+          disabled={choices.isFetchingNextPage || link.isPending}
           onClick={() => {
             void choices.fetchNextPage();
           }}

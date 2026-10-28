@@ -471,6 +471,12 @@ export function dashboardErrorText(error: string): string {
       return "The selected Gateway model does not support this reasoning effort. Choose a supported reasoning effort in review settings and save again.";
     case "agent_profile_requires_agentic_context":
       return "OpenCodeReview needs native repository context. Enable Agentic context or choose a compatible ReviewRouter profile before saving.";
+    case "provider_api_direct_requires_single_provider":
+      return "Use one supported provider and model, then save the review settings.";
+    case "provider_api_fast_mode_unsupported":
+      return "Turn off Fast mode for MiMo and save the review settings.";
+    case "provider_api_reasoning_effort_unsupported":
+      return "Choose Low, Medium, or High review depth for MiMo, then save.";
     case "openrouter_direct_requires_single_provider":
       return "Direct OpenRouter reviews currently support one provider and one model. Select a single OpenRouter provider without multi-provider agreement before saving or installing the workflow. Your saved policy has not been replaced.";
     case "openrouter_direct_workflow_options_not_supported":

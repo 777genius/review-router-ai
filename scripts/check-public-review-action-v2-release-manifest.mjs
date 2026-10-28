@@ -97,6 +97,12 @@ export function checkReleaseManifest(input) {
     runtimeEntrypointDigest: verifiedAction.runtimeEntrypointDigest,
     contextGatewayReleaseMetadata: verifiedAction.contextGatewayReleaseMetadata,
     agentProfiles: verifiedAction.agentProfiles,
+    ...(verifiedAction.lifecycleVerificationProfile === undefined
+      ? {}
+      : {
+          lifecycleVerificationProfile:
+            verifiedAction.lifecycleVerificationProfile,
+        }),
     ...(verifiedAction.contextToolsProfile === undefined
       ? {}
       : { contextToolsProfile: verifiedAction.contextToolsProfile }),

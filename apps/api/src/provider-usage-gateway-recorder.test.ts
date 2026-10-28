@@ -38,6 +38,7 @@ vi.mock("./provider-usage-price-snapshot.js", () => ({
   providerUsagePriceSnapshots: async () => ({ read: mocks.read }),
 }));
 import { createGatewayUsageRecorder } from "./provider-usage-gateway-recorder";
+import { lifecycleVerificationContract } from "@reviewrouter/shared";
 describe("Gateway requested provider attribution", () => {
   it("uses selected OpenRouter provider while keeping Codex engine and unknown observed vendor", async () => {
     const prisma = {
@@ -80,5 +81,21 @@ describe("Gateway requested provider attribution", () => {
       }),
       expect.anything(),
     );
+    const legacyIdentity = mocks.prepare.mock.calls.at(-1)![0].identity;
+    await recorder.prepare({
+      authorization: authorization as never,
+      executionRef: "exec",
+      requestRef: "lifecycle-request",
+      occurredAt: legacyIdentity.occurredAt,
+      model: "vendor/model",
+      role: "lifecycle_verification",
+    });
+    const companionIdentity = mocks.prepare.mock.calls.at(-1)![0].identity;
+    expect(companionIdentity).toEqual({
+      ...legacyIdentity,
+      callId: expect.any(String),
+      runtimeType: lifecycleVerificationContract.executor,
+    });
+    expect(companionIdentity.callId).not.toBe(legacyIdentity.callId);
   });
 });

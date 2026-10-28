@@ -31,6 +31,8 @@ import {
   createProducerRelease,
   producerReleaseImmutableKey,
   parseProducerPrDescriptionProfile,
+  parseProducerLifecycleVerificationProfile,
+  cloneProducerRelease,
   reviewInvestigationCapabilityV1,
   type ProducerReviewInvestigationProfile,
 } from "../domain/producer-release";
@@ -419,5 +421,59 @@ describe("ScmRepositoryIdentity", () => {
         expectedVersion: "identity" in bound ? bound.identity.version : 0,
       });
     expect(unbound.status).toBe(ScmRepositoryIdentityBindingStatus.Unbound);
+  });
+});
+
+describe("immutable lifecycle verifier producer approval", () => {
+  it("keeps absence byte compatible and detaches a recognized profile", () => {
+    const legacy = createProducerRelease(releaseCandidate, new Date(0));
+    const profile = {
+      extensionId: "lifecycle-verification.v1" as const,
+      descriptorDigest: `sha256:${"a".repeat(64)}`,
+    };
+    const release = createProducerRelease(
+      { ...releaseCandidate, lifecycleVerificationProfile: profile },
+      new Date(0),
+    );
+    const approvedKey = producerReleaseImmutableKey(release);
+    profile.descriptorDigest = `sha256:${"b".repeat(64)}`;
+    expect(release.lifecycleVerificationProfile?.descriptorDigest).toBe(
+      `sha256:${"a".repeat(64)}`,
+    );
+    expect(cloneProducerRelease(release).lifecycleVerificationProfile).toEqual(
+      release.lifecycleVerificationProfile,
+    );
+    expect(
+      producerReleaseImmutableKey({
+        ...legacy,
+        lifecycleVerificationProfile: null,
+      }),
+    ).toBe(producerReleaseImmutableKey(legacy));
+    expect(approvedKey).not.toBe(producerReleaseImmutableKey(legacy));
+    expect(approvedKey).not.toBe(
+      producerReleaseImmutableKey({
+        ...release,
+        lifecycleVerificationProfile: profile,
+      }),
+    );
+    expect(Object.hasOwn(legacy, "lifecycleVerificationProfile")).toBe(false);
+  });
+  it("rejects a malformed extension identity and unapproved profile fields", () => {
+    for (const value of [
+      null,
+      {},
+      {
+        extensionId: "lifecycle-verification.v2",
+        descriptorDigest: `sha256:${"a".repeat(64)}`,
+      },
+      { extensionId: "lifecycle-verification.v1", descriptorDigest: "bad" },
+      {
+        extensionId: "lifecycle-verification.v1",
+        descriptorDigest: `sha256:${"a".repeat(64)}`,
+        model: "caller-model",
+      },
+    ]) {
+      expect(() => parseProducerLifecycleVerificationProfile(value)).toThrow();
+    }
   });
 });

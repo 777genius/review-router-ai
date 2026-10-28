@@ -57,6 +57,7 @@ describe("trusted comparison baseline projection", () => {
   it.each([
     "review-projection-policy.v5-t0",
     "review-projection-policy.v6-comparison",
+    "review-projection-policy.v7-lifecycle-verification",
   ])("preserves full typed hints from %s", (policy) => {
     expect(
       JSON.parse(buildReviewComparisonBaseline(record([hint], policy))!),
@@ -79,7 +80,10 @@ describe("trusted comparison baseline projection", () => {
       } as unknown as ReviewSnapshotV2Record),
     ).toBeNull();
   });
-  it("rejects duplicate, oversized, unknown and invalid line facts", () => {
+  it.each([
+    "review-projection-policy.v6-comparison",
+    "review-projection-policy.v7-lifecycle-verification",
+  ])("rejects invalid typed hints for %s", (policy) => {
     for (const hints of [
       [hint, hint],
       [{ ...hint, extra: "untrusted" }],
@@ -88,7 +92,7 @@ describe("trusted comparison baseline projection", () => {
       [{ ...hint, message: "x".repeat(65_001) }],
       Array.from({ length: 2001 }, () => hint),
     ]) {
-      expect(buildReviewComparisonBaseline(record(hints))).toBeNull();
+      expect(buildReviewComparisonBaseline(record(hints, policy))).toBeNull();
     }
   });
   it("rejects mismatched persisted provenance and incomplete coverage", () => {

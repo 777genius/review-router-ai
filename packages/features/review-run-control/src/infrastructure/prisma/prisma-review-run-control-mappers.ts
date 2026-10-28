@@ -17,6 +17,7 @@ import type {
 import {
   parseProducerContextToolsProfile,
   parseProducerPrDescriptionProfile,
+  parseProducerLifecycleVerificationProfile,
   reviewInvestigationCapabilityV1,
 } from "../../domain/producer-release";
 import { parseReviewAgentProfiles } from "../../domain/review-agent-profile";
@@ -75,6 +76,7 @@ export function producerReleaseToDomain(
     agentProfilesJson,
     contextToolsProfile,
     prDescriptionProfile,
+    lifecycleVerificationProfile,
     ...release
   } = row;
   return {
@@ -90,6 +92,14 @@ export function producerReleaseToDomain(
       : {
           prDescriptionProfile:
             parseProducerPrDescriptionProfile(prDescriptionProfile),
+        }),
+    ...(lifecycleVerificationProfile == null
+      ? {}
+      : {
+          lifecycleVerificationProfile:
+            parseProducerLifecycleVerificationProfile(
+              lifecycleVerificationProfile,
+            ),
         }),
     agentProfiles:
       agentProfilesJson === null

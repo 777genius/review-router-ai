@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { GET } from "./route";
 import { GET as v2GET } from "../v2.svg/route";
@@ -12,6 +15,306 @@ const update =
   "state=complete&variant=update&new=1&resolved=2&open=1&unverified=0";
 
 describe("canonical modern review banner", () => {
+  it.each([
+    [
+      "state=complete&variant=first&major=2",
+      "997835b00b58d20bd1f2cd44146c56e3a62dfe14a4a5e5596561f371941e41af",
+    ],
+    [
+      "state=complete&variant=update&new=1&resolved=2&open=1&unverified=0",
+      "ba86bb225e06e25595e6f28aa37ed35345aa89fd5389d8c5d3edcbdcc1518eb4",
+    ],
+    [
+      "state=complete&lang=en&theme=dark",
+      "871f944a7617f03bc3ff6cb91e5d14efe95bb87ca42528f12f3f2a5912b7167f",
+    ],
+  ])(
+    "preserves installed no-extension SVG bytes: %s",
+    async (query, digest) => {
+      expect(
+        createHash("sha256")
+          .update(await GET(request(query)).text())
+          .digest("hex"),
+      ).toBe(digest);
+    },
+  );
+
+  it.each(["light", "dark", "auto"])(
+    "renders review-time verification without native closure claims in %s",
+    async (theme) => {
+      for (const layout of ["wide", "compact"]) {
+        const fixes = await GET(
+          request(
+            `state=complete&variant=update&new=0&resolved=0&open=0&unverified=0&verified=4&not_verified=0&confirmed_open=0&theme=${theme}&layout=${layout}`,
+          ),
+        ).text();
+        expect(fixes).toContain("4 fixes verified");
+        expect(fixes).toContain("Thread closure counted separately");
+        expect(fixes).toContain("0 resolved");
+        expect(fixes).not.toMatch(
+          /No open issues|No issues found|4 (?:issues )?resolved/,
+        );
+        const unknown = await GET(
+          request(
+            `state=complete&variant=first&verified=0&not_verified=4&confirmed_open=0&theme=${theme}&layout=${layout}`,
+          ),
+        ).text();
+        expect(unknown).toContain("4 previous issues not verified");
+        expect(unknown).toContain("VERIFICATION INCOMPLETE");
+        expect(unknown).not.toMatch(
+          /REVIEW COMPLETE|No issues found|No open issues/,
+        );
+        const mixed = await GET(
+          request(
+            `state=complete&variant=update&new=1&resolved=0&open=2&unverified=0&minor=1&major=1&verified=2&not_verified=1&confirmed_open=1&theme=${theme}&layout=${layout}`,
+          ),
+        ).text();
+        const headlines = [
+          ...mixed.matchAll(
+            /<text[^>]*letter-spacing="-0.6"[^>]*>([^<]*)<\/text>/g,
+          ),
+        ].map((match) => match[1]);
+        expect(headlines).toEqual(["1 new issue found", "2 fixes verified"]);
+        expect(mixed).toContain("1 previous issue not verified");
+        expect(mixed).toContain("0 resolved");
+        expect(mixed).not.toMatch(
+          /No open issues|No issues found|2 (?:issues )?resolved/,
+        );
+        for (const svg of [fixes, unknown, mixed]) {
+          const metricLabels = [
+            ...svg.matchAll(
+              /<text[^>]* y="(?:255|277|325)"[^>]*>([^<]*)<\/text>/g,
+            ),
+          ].map((match) => match[1]);
+          expect(metricLabels.length).toBeLessThanOrEqual(4);
+          expect(svg).toContain(
+            layout === "wide"
+              ? 'viewBox="0 0 1200 280"'
+              : 'viewBox="0 0 480 360"',
+          );
+          if (layout === "wide") expect(svg).toContain('id="brandLogo"');
+          else expect(svg).not.toContain('id="brandLogo"');
+        }
+      }
+    },
+  );
+
+  it.each([
+    ["light", "#ad2333", "#fff2f1", "#7d4e00", "#fff8e6"],
+    ["dark", "#ff8f96", "#27191f", "#e3b341", "#292317"],
+  ])(
+    "keeps current critical priority above old verification uncertainty in %s",
+    async (theme, red, tint, amber, warningTint) => {
+      for (const layout of ["wide", "compact"])
+        for (const variant of ["first", "update"]) {
+          const updates =
+            variant === "update" ? "&new=1&resolved=0&open=1&unverified=0" : "";
+          const query = `state=complete&variant=${variant}${updates}&critical=1&verified=2&not_verified=1&confirmed_open=0&theme=${theme}&layout=${layout}`;
+          const svg = await GET(request(query)).text();
+          expect(svg).toContain(
+            `<linearGradient id="background"><stop stop-color="${tint}"`,
+          );
+          if (variant === "first")
+            expect(svg).toContain(`stroke="${red}" stroke-width="4"`);
+          else {
+            expect(
+              svg.match(/<text[^>]*fill="([^"]+)"[^>]*>1 new<\/text>/)?.[1],
+            ).toBe(red);
+            expect(svg).toContain("1 new issue found");
+          }
+          expect(svg).toContain("2 fixes verified");
+          expect(svg).toContain("1 previous issue not verified");
+          const partial = await GET(
+            request(query.replace("state=complete", "state=incomplete")),
+          ).text();
+          expect(partial).toContain(
+            `<linearGradient id="background"><stop stop-color="${warningTint}"`,
+          );
+          const unknown = await GET(
+            request(
+              `state=complete&variant=first&verified=0&not_verified=1&confirmed_open=0&theme=${theme}&layout=${layout}`,
+            ),
+          ).text();
+          expect(unknown).toContain(`stroke="${amber}" stroke-width="4"`);
+          expect(unknown).toContain(
+            `<linearGradient id="background"><stop stop-color="${warningTint}"`,
+          );
+        }
+    },
+  );
+
+  it("retains verified fixes with partial discovery and keeps receipt-backed resolved counts separate", async () => {
+    const incomplete = await GET(
+      request(
+        "state=incomplete&variant=update&new=0&resolved=0&open=0&unverified=0&verified=2&not_verified=0&confirmed_open=0",
+      ),
+    ).text();
+    expect(incomplete).toContain("2 fixes verified");
+    expect(incomplete).toContain("REVIEW INCOMPLETE");
+    expect(incomplete).not.toMatch(/No issues found|No open issues/);
+    const later = await GET(
+      request(
+        "state=complete&variant=update&new=0&resolved=2&open=0&unverified=0&verified=1&not_verified=0&confirmed_open=0",
+      ),
+    ).text();
+    expect(later).toContain("1 fix verified");
+    expect(later).toContain("2 issues resolved");
+    expect(later).not.toContain("3 issues resolved");
+  });
+
+  const pairedSource =
+    process.env.REVIEW_ROUTER_ACTION_SOURCE_DIR ??
+    process.env.REVIEW_ROUTER_PAIRED_ACTION_REPO;
+  it.skipIf(!pairedSource)(
+    "roundtrips actual paired projection facts and banner URLs through SVG rendering",
+    async () => {
+      const [{ renderReviewBanner }, { deriveReviewPresentation }] =
+        await Promise.all([
+          import(
+            pathToFileURL(
+              path.join(pairedSource!, "src/output/review-banner.ts"),
+            ).href
+          ),
+          import(
+            pathToFileURL(
+              path.join(
+                pairedSource!,
+                "src/review-projection/domain/review-presentation.ts",
+              ),
+            ).href
+          ),
+        ]);
+      const coverage = {
+        state: "complete",
+        mode: "full",
+        totalFiles: 1,
+        reviewedFiles: 1,
+        unreviewedFiles: 0,
+        limitations: [],
+      };
+      const facts = (
+        count: number,
+        state: "fix_confirmed_thread_open" | "unverified",
+        mode: "report_only" | "pending" = "report_only",
+      ) =>
+        Array.from({ length: count }, (_, index) => ({
+          targetId: `target-${index}`,
+          semanticVerdict: state === "unverified" ? "uncertain" : "resolved",
+          confirmationState: state,
+          severity: "major",
+          observationIds:
+            state === "unverified" ? [] : ["accepted-observation"],
+          providerVoteKeys: state === "unverified" ? [] : ["verifier"],
+          reasonCodes: [],
+          mutationStatus: state === "unverified" ? "not_eligible" : mode,
+        }));
+      const presentations = ["report_only", "pending"].flatMap((mode) =>
+        [true, false].map((withBaseline) =>
+          deriveReviewPresentation({
+            reviewedHeadSha: "b".repeat(40),
+            ...(withBaseline
+              ? {
+                  baseline: {
+                    sourceReviewedHeadSha: "a".repeat(40),
+                    priorLineageHints: [],
+                  },
+                }
+              : {}),
+            coverage,
+            incomplete: false,
+            occurrences: [],
+            lifecycleVerificationFacts: facts(
+              4,
+              "fix_confirmed_thread_open",
+              mode as "report_only" | "pending",
+            ),
+          }),
+        ),
+      );
+      presentations.push(
+        deriveReviewPresentation({
+          reviewedHeadSha: "b".repeat(40),
+          coverage,
+          incomplete: true,
+          occurrences: [],
+          lifecycleVerificationFacts: facts(4, "unverified"),
+        }),
+      );
+      for (const incomplete of [false, true])
+        presentations.push(
+          deriveReviewPresentation({
+            reviewedHeadSha: "b".repeat(40),
+            baseline: {
+              sourceReviewedHeadSha: "a".repeat(40),
+              priorLineageHints: [],
+            },
+            coverage,
+            incomplete,
+            occurrences: [
+              { lineageId: "new-minor", state: "new", severity: "minor" },
+            ],
+            lifecycleVerificationFacts: [
+              ...facts(2, "fix_confirmed_thread_open", "pending"),
+              { ...facts(1, "unverified")[0], targetId: "uncertain-target" },
+              {
+                targetId: "confirmed-target",
+                semanticVerdict: "still_valid",
+                confirmationState: "confirmed_open",
+                severity: "major",
+                observationIds: ["accepted-confirmation"],
+                providerVoteKeys: ["verifier"],
+                reasonCodes: [],
+                mutationStatus: "not_eligible",
+              },
+            ],
+          }),
+        );
+      for (const presentation of presentations) {
+        const html = renderReviewBanner(
+          "https://reviewrouter.test",
+          presentation,
+        );
+        const urls = [...html.matchAll(/(?:src|srcset)="([^"]+)"/g)].map(
+          (match) => new URL(String(match[1]).replaceAll("&amp;", "&")),
+        );
+        expect(urls).toHaveLength(2);
+        for (const url of urls)
+          for (const theme of ["light", "dark", "auto"]) {
+            url.searchParams.set("theme", theme);
+            const response = GET(new Request(url));
+            expect(response.status).toBe(200);
+            const svg = await response.text();
+            expect(svg).toContain(
+              presentation.verification.fixesVerified
+                ? `${presentation.verification.fixesVerified} fixes verified`
+                : "4 previous issues not verified",
+            );
+            if (presentation.changes?.new === 1) {
+              const headlines = [
+                ...svg.matchAll(
+                  /<text[^>]*letter-spacing="-0.6"[^>]*>([^<]*)<\/text>/g,
+                ),
+              ].map((match) => match[1]);
+              expect(headlines).toEqual([
+                "1 new issue found",
+                "2 fixes verified",
+              ]);
+              expect(svg).toContain("1 previous issue not verified");
+            }
+            expect(svg).not.toMatch(
+              /No issues found|No open issues|4 (?:issues )?resolved/,
+            );
+            if (presentation.changes)
+              expect(presentation.changes.resolved).toBe(0);
+            const aliasUrl = new URL(url);
+            aliasUrl.pathname = "/review-banner/v2.svg";
+            const alias = v2GET(new Request(aliasUrl));
+            expect(await alias.text()).toBe(svg);
+          }
+      }
+    },
+  );
+
   it("renders the approved English first design with a local vector logo only in wide layout", async () => {
     const response = GET(
       request(`${first}&critical=1&reviewed=12&total=12&theme=light`),
@@ -43,11 +346,11 @@ describe("canonical modern review banner", () => {
   it("renders trusted update counts with correct singular/plural and zero wording", async () => {
     const svg = await GET(request(update)).text();
     expect(svg).toContain("REVIEW UPDATED");
+    expect(svg).toContain("1 new issue found");
     expect(svg).toContain("2 issues resolved");
-    expect(svg).toContain("1 still needs a fix");
     expect(svg).toContain("1 new");
     expect(svg).toContain("2 resolved");
-    expect(svg).toContain("1 open");
+    expect(svg).toContain("1 confirmed open");
     expect(svg).not.toContain("0 unverified");
     const clean = await GET(
       request(
@@ -68,14 +371,39 @@ describe("canonical modern review banner", () => {
         "state=complete&variant=update&new=0&resolved=0&open=1&unverified=1",
       ),
     ).text();
-    expect(unverified).toContain("1 issue remains open");
-    expect(unverified).toContain("1 needs verification");
-    expect(unverified).toContain("1 not rechecked · included in open");
+    expect(unverified).toContain("No new issues found");
+    expect(unverified).toContain("1 previous issue not verified");
+    expect(
+      unverified.match(/<title id="title">([^<]*)<\/title>/)?.[1],
+    ).toContain("1 previous issue not verified");
+    expect(unverified).not.toMatch(
+      /remains open|needs verification|included in open/,
+    );
     expect(unverified).not.toContain("needs a fix");
     const auto = await GET(request(`${update}&theme=auto`)).text();
     expect(auto).toContain('fill="var(--resolved,#1a7f37)"');
     expect(auto).toContain("--resolved:#7ee787");
   });
+
+  it.each(["wide", "compact"])(
+    "prioritizes the new finding and separates unchecked prior issues in %s layout",
+    async (layout) => {
+      const svg = await GET(
+        request(
+          `state=complete&variant=update&new=1&resolved=0&open=5&unverified=4&critical=2&major=1&minor=2&layout=${layout}`,
+        ),
+      ).text();
+      expect(svg).toContain("1 new issue found");
+      expect(svg).toContain("4 previous issues not verified");
+      expect(svg.match(/<title id="title">([^<]*)<\/title>/)?.[1]).toContain(
+        "4 previous issues not verified",
+      );
+      expect(svg).toContain("1 confirmed open");
+      expect(svg).not.toMatch(
+        /5 open|5 issues remain open|need verification|included in open/,
+      );
+    },
+  );
 
   it.each(["wide", "compact"])(
     "adapts the %s auto palette to the embedding page without changing layout",
@@ -139,8 +467,9 @@ describe("canonical modern review banner", () => {
       );
       expect(svg).toContain("Coverage checked: 12 / 12 files");
       if (variant === "update") {
-        expect(svg).toContain("3 not rechecked");
-        expect(svg).toContain("3 open");
+        expect(svg).toContain("3 not verified");
+        expect(svg).toContain("3 previous issues not verified");
+        expect(svg).not.toContain("3 known issues still open");
         expect(svg).not.toContain("still need a fix");
       }
     },
@@ -180,6 +509,13 @@ describe("canonical modern review banner", () => {
   it.each([
     "state=clean&variant=first",
     "state=complete&variant=changed",
+    `${first}&verified=1`,
+    `${first}&verified=1&not_verified=0`,
+    `${first}&verified=-1&not_verified=0&confirmed_open=0`,
+    `${first}&verified=10000&not_verified=0&confirmed_open=0`,
+    `${first}&verified=0&not_verified=NaN&confirmed_open=0`,
+    `${first}&verified=0&not_verified=0&confirmed_open=1.5`,
+    `${first}&verified=0&not_verified=0&confirmed_open=0&verified=1`,
     `${first}&theme=system`,
     `${first}&layout=auto`,
     `${first}&critical=-1`,
@@ -233,7 +569,7 @@ describe("canonical modern review banner", () => {
             ? 'viewBox="0 0 1200 280"'
             : 'viewBox="0 0 480 360"',
         );
-        expect(svg).toContain("9999 not rechecked");
+        expect(svg).toContain("9999 not verified");
       }
   });
 

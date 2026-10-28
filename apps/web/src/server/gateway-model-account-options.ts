@@ -38,7 +38,8 @@ export function createGatewayModelAccountOptions(input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly operatorWorkspaceId?: string;
   readonly profiles: readonly AccountProfileView[];
-  readonly gateway: Pick<ManagementClient, "get">;
+  readonly gateway: Pick<ManagementClient, "get"> &
+    Partial<Pick<ManagementClient, "readAccountModels">>;
   readonly ownerRef: (owner: ConnectionOwner) => string;
   readonly authorizeWorkspace: () => Promise<Principal>;
 }) {
@@ -149,6 +150,8 @@ export function createGatewayModelAccountOptions(input: {
   async function detail(
     authority: Authority,
     bindingId: string,
+    readModels = false,
+    forceRefresh = false,
   ): Promise<{
     account: ModelAccount;
     profile: AccountProfileView;
@@ -191,6 +194,92 @@ export function createGatewayModelAccountOptions(input: {
         remote.authorizationEpoch !== live.expectedAuthorizationEpoch)
     )
       throw new RowDenied();
+    let scopedProfile: AccountProfileView = profile;
+    let modelCatalog: ModelAccount["modelCatalog"];
+    if (
+      readModels &&
+      input.env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED === "1" &&
+      profile.id === "openai-codex-oauth-responses-v1" &&
+      profile.authKind === "oauth"
+    ) {
+      let models: c.AccountModels;
+      try {
+        models = gateway.readAccountModels
+          ? c.accountModels.parse(
+              await checked(authority, () =>
+                gateway.readAccountModels!({
+                  ownerRef: ownerRef(row.connection.owner),
+                  accountRef: live.gatewayAccountRef,
+                  profileId: profile.id,
+                  expectedAuthorizationEpoch: remote.authorizationEpoch,
+                  ...(forceRefresh ? { forceRefresh: true } : {}),
+                }),
+              ),
+            )
+          : { status: "unsupported" };
+      } catch (error) {
+        if (error instanceof Denied || error instanceof RowDenied) throw error;
+        // A malformed/failed response is not an explicit authorized fallback.
+        models = { status: "unknown" };
+      }
+      // Re-read the exact authorized binding and remote account after discovery.
+      // The Gateway independently fences physical identity during discovery.
+      const after = await detail(authority, bindingId);
+      if (
+        JSON.stringify(after.selection) !== JSON.stringify(live) ||
+        after.authorizationEpoch !== remote.authorizationEpoch ||
+        after.account.gatewayRevision !== remote.metadataRevision ||
+        after.account.mirrorRevision !== row.connection.metadataRevision
+      )
+        throw new RowDenied();
+      if (models.status === "snapshot") {
+        const connection = profile.connection ?? {
+          provider: "openai" as const,
+          planLabel: "Codex",
+          regionLabel: "Global",
+          completionInputKind: "none" as const,
+          personalOnly: false,
+          limitsContract: "none" as const,
+          modelSettings: [],
+        };
+        scopedProfile = {
+          ...profile,
+          models: models.models.map((model) => model.modelId),
+          connection: { ...connection, modelSettings: models.models },
+        };
+        modelCatalog = {
+          status: "snapshot",
+          source: "codex",
+          fetchedAt: models.fetchedAt,
+          expiresAt: models.expiresAt,
+          models: scopedProfile.models,
+        };
+      } else {
+        // Only the Gateway's unavailable fallback admits the configured anchor.
+        // Unsupported/unknown discovery cannot authorize profile seed models.
+        const legacyModels =
+          models.status === "unavailable" ? [...profile.models] : [];
+        scopedProfile = {
+          ...profile,
+          models: legacyModels,
+          ...(profile.connection
+            ? {
+                connection: {
+                  ...profile.connection,
+                  modelSettings: profile.connection.modelSettings.filter(
+                    (setting) => legacyModels.includes(setting.modelId),
+                  ),
+                },
+              }
+            : {}),
+        };
+        modelCatalog = {
+          status: models.status,
+          source: "legacy_profile",
+          models: legacyModels,
+        };
+      }
+    }
     const own =
       row.connection.owner.kind === "user"
         ? authority.personalOwnerUserId === authority.actor.userId &&
@@ -219,7 +308,11 @@ export function createGatewayModelAccountOptions(input: {
         label: remote.displayName,
         profileId: profile.id,
         profileLabel: profile.label,
-        ...(profile.connection ? { connection: profile.connection } : {}),
+        ...(profile.provider ? { provider: profile.provider } : {}),
+        ...(scopedProfile.connection
+          ? { connection: scopedProfile.connection }
+          : {}),
+        ...(modelCatalog ? { modelCatalog } : {}),
         ...(profile.authKind ? { authKind: profile.authKind } : {}),
         state: remote.state,
         gatewayRevision: remote.metadataRevision,
@@ -231,7 +324,7 @@ export function createGatewayModelAccountOptions(input: {
           fencePending: row.binding.pendingFence !== null,
         },
       },
-      profile,
+      profile: scopedProfile,
     };
   }
   async function result<T>(work: () => Promise<T>): Promise<AccountsResult<T>> {
@@ -307,6 +400,7 @@ export function createGatewayModelAccountOptions(input: {
     },
     get(
       bindingId: string,
+      options: { readonly forceRefresh?: boolean } = {},
     ): Promise<
       AccountsResult<{ account: ModelAccount; profile: AccountProfileView }>
     > {
@@ -314,7 +408,12 @@ export function createGatewayModelAccountOptions(input: {
       return result(async () => {
         assertOpaqueReference(id);
         const authority = await authorize();
-        const { account, profile } = await detail(authority, id);
+        const { account, profile } = await detail(
+          authority,
+          id,
+          true,
+          options.forceRefresh === true,
+        );
         await checked(authority, async () => undefined);
         return { account, profile };
       });
@@ -325,9 +424,13 @@ export function createGatewayModelAccountOptions(input: {
       try {
         assertOpaqueReference(bindingId);
         const authority = await authorize();
-        const value = await detail(authority, bindingId);
+        const value = await detail(authority, bindingId, true);
         if (
           value.account.state !== "active" ||
+          (value.account.modelCatalog &&
+            !["snapshot", "unavailable"].includes(
+              value.account.modelCatalog.status,
+            )) ||
           !value.profile.models.includes(model) ||
           value.profile.protocol !== "openai-responses"
         )

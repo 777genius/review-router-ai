@@ -18,3 +18,8 @@ export * from "./application/use-cases/dispatch-due-review-requested-intents";
 export * from "./application/use-cases/recover-review-requested-dispatches";
 export * from "./application/use-cases/recover-expired-review-executions";
 export * from "./application/use-cases/ensure-review-requested-rerun-intent";
+
+export type {
+  ReviewLifecycleAssignmentPlan,
+  ReviewLifecycleTargetWitness,
+} from "./domain/review-lifecycle-assignment-plan";

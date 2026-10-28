@@ -128,6 +128,10 @@ export const githubActionsOidcClaimsSchema = z.object({
     .optional(),
   runner_environment: z.string().optional(),
   actor: z.string().min(1),
+  actor_id: z
+    .string()
+    .regex(/^[1-9]\d{0,19}$/)
+    .optional(),
   iat: z.number().optional(),
   nbf: z.number().optional(),
   exp: z.number().optional(),
@@ -166,6 +170,8 @@ export type ActionSessionClaims = {
   readonly repository: string;
   readonly identityBindingEpoch?: string;
   readonly githubActorLogin: string | null;
+  /** Signed GitHub numeric identity; absent only on legacy sessions. */
+  readonly githubActorId?: string;
   readonly githubRunId: string;
   readonly githubRunAttempt: string;
   readonly eventName: (typeof allowedActionEvents)[number];
@@ -357,7 +363,7 @@ const actionRuntimeProviderSchema = z
     authMode: providerAuthModeSchema,
     model: z.string().min(1),
     reasoningEffort: z
-      .enum(["low", "medium", "high", "xhigh", "max", "ultra"])
+      .enum(["minimal", "low", "medium", "high", "xhigh", "max", "ultra"])
       .optional(),
     agenticContext: z.boolean(),
     fastMode: z.boolean(),
@@ -365,6 +371,16 @@ const actionRuntimeProviderSchema = z
     secretBackedProviderEnabled: z.boolean(),
   })
   .superRefine((provider, context) => {
+    if (
+      provider.authMode !== "codex_account_gateway" &&
+      provider.reasoningEffort === "minimal"
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["reasoningEffort"],
+        message: "minimal reasoning requires an account-scoped Gateway catalog",
+      });
+    }
     if (
       provider.authMode !== "codex_account_gateway" &&
       provider.reasoningEffort === undefined

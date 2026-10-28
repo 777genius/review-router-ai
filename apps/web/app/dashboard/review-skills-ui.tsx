@@ -10,10 +10,14 @@ import {
   DialogRoot,
   DialogTitle,
 } from "@reviewrouter/ui";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 export const skillFieldClass =
   "w-full rounded-lg border border-cyan-200/25 bg-slate-950/70 px-3 py-2 text-sm text-cyan-50 outline-none focus:border-cyan-200 focus:ring-2 focus:ring-cyan-300/20 disabled:opacity-50";
 export const skillCellClass = "px-3 py-3 text-left align-top text-sm";
+export const skillResponsiveCellClass =
+  "block min-w-0 px-0 py-2 text-left align-top text-sm lg:table-cell lg:px-3 lg:py-3";
+export const skillMobileLabelClass =
+  "mb-1 block text-xs font-medium text-slate-400 lg:hidden";
 export function SkillsError({ error }: { readonly error: unknown }) {
   return error ? (
     <p
@@ -35,6 +39,7 @@ export function SkillsDialog({
   footer,
   feedback,
   pending = false,
+  initialFocus,
 }: {
   readonly open: boolean;
   readonly onClose: () => void;
@@ -44,6 +49,7 @@ export function SkillsDialog({
   readonly footer?: ReactNode;
   readonly feedback?: ReactNode;
   readonly pending?: boolean;
+  readonly initialFocus?: RefObject<HTMLElement | null>;
 }) {
   return (
     <DialogRoot
@@ -54,7 +60,10 @@ export function SkillsDialog({
     >
       <DialogPortal>
         <DialogBackdrop />
-        <DialogPopup className="flex max-h-[calc(100dvh-1rem)] w-[min(96vw,64rem)] flex-col overflow-hidden p-0">
+        <DialogPopup
+          initialFocus={initialFocus}
+          className="flex max-h-[calc(100dvh-1rem)] w-[min(96vw,64rem)] flex-col overflow-hidden p-0"
+        >
           <div className="shrink-0 border-b border-cyan-200/15 p-5 pr-14">
             <DialogTitle>{title}</DialogTitle>
             <DialogDescription>{description}</DialogDescription>
@@ -97,20 +106,28 @@ export function SkillSearch({
   value,
   onChange,
   label = "Search skills",
+  placeholder = "Name or description",
+  disabled = false,
+  inputRef,
 }: {
   readonly value: string;
   readonly onChange: (value: string) => void;
   readonly label?: string;
+  readonly placeholder?: string;
+  readonly disabled?: boolean;
+  readonly inputRef?: RefObject<HTMLInputElement | null>;
 }) {
   return (
     <label className="block text-sm text-slate-300">
       {label}
       <input
+        ref={inputRef}
         type="search"
         className={`${skillFieldClass} mt-2`}
         value={value}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="Name or description"
+        placeholder={placeholder}
       />
     </label>
   );

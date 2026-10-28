@@ -279,6 +279,7 @@ export function createAccountsOverview(input: {
             label: remote?.displayName ?? source.displayName,
             profileId: profile.id,
             profileLabel: profile.label,
+            ...(profile.provider ? { provider: profile.provider } : {}),
             ...(profile.connection ? { connection: profile.connection } : {}),
             ...(profile.authKind ? { authKind: profile.authKind } : {}),
             state: remote?.state ?? "quarantined",

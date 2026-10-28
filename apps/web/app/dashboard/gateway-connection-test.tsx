@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@reviewrouter/ui";
+import type { AccountView } from "../../src/server/account-gateway-accounts";
 import { Check, LoaderCircle, PlugZap } from "lucide-react";
 import { useGatewayModelAccountScope } from "./gateway-model-account-options";
 import { testGatewayConnection } from "./gateway-connection-probe-api";
@@ -34,20 +35,52 @@ const errors = {
     "The test session could not be confirmed closed. Wait for it to expire before testing again.",
 };
 
+/** Already-public account metadata is used only to discard stale UI results.
+ * It is never sent as diagnostic authority or as a Gateway request parameter. */
+type ProbeAccountMetadata = Pick<
+  AccountView,
+  | "connectionId"
+  | "gatewayRevision"
+  | "mirrorRevision"
+  | "authorizationEpoch"
+  | "binding"
+  | "state"
+  | "readiness"
+>;
+
 export function GatewayConnectionTest({
   bindingId,
   model,
   available,
+  account,
 }: {
   bindingId: string;
   model: string;
   available: boolean;
+  account?: ProbeAccountMetadata | undefined;
 }) {
   const scope = useGatewayModelAccountScope();
-  // Remount on any selection/workspace change: abort old work and discard its result.
+  // Availability and safe metadata revisions also invalidate a past result. A
+  // later response from the old request cannot restore it after this remount.
+  const identity = JSON.stringify([
+    scope,
+    bindingId,
+    model,
+    available,
+    account?.connectionId,
+    account?.gatewayRevision,
+    account?.mirrorRevision,
+    account?.authorizationEpoch,
+    account?.state,
+    account?.readiness,
+    account?.binding?.id,
+    account?.binding?.revision,
+    account?.binding?.state,
+    account?.binding?.fencePending,
+  ]);
   return (
     <ConnectionTest
-      key={`${scope}:${bindingId}:${model}`}
+      key={identity}
       scope={scope}
       bindingId={bindingId}
       model={model}
@@ -67,10 +100,11 @@ function ConnectionTest({
   available: boolean;
 }) {
   const [stage, setStage] = useState<ConnectionProbeStage | null>(null);
-  const [result, setResult] = useState<Extract<
-    ConnectionProbeEvent,
-    { type: "result" }
-  > | null>(null);
+  const [completed, setCompleted] = useState<{
+    result: Extract<ConnectionProbeEvent, { type: "result" }>;
+    at: number;
+  } | null>(null);
+  const result = completed?.result;
   const [running, setRunning] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const active = useRef<AbortController | null>(null);
@@ -97,7 +131,7 @@ function ConnectionTest({
     if (offset < 1) return;
     const controller = new AbortController();
     active.current = controller;
-    setResult(null);
+    setCompleted(null);
     setStage("authorizing");
     setElapsed(0);
     setRunning(true);
@@ -113,16 +147,19 @@ function ConnectionTest({
         (event) => {
           if (active.current !== controller) return;
           if (event.type === "progress") setStage(event.stage);
-          else setResult(event);
+          else setCompleted({ result: event, at: Date.now() });
         },
         controller.signal,
       );
     } catch {
       if (active.current === controller)
-        setResult({
-          type: "result",
-          ok: false,
-          code: controller.signal.aborted ? "cancelled" : "unavailable",
+        setCompleted({
+          result: {
+            type: "result",
+            ok: false,
+            code: controller.signal.aborted ? "cancelled" : "unavailable",
+          },
+          at: Date.now(),
         });
     } finally {
       if (active.current === controller) {
@@ -203,14 +240,26 @@ function ConnectionTest({
         </div>
       ) : null}
       {result ? (
-        <p
+        <div
           role={result.ok ? "status" : "alert"}
           className={`mt-3 text-sm ${result.ok ? "text-emerald-300" : "text-amber-200"}`}
         >
-          {result.ok
-            ? `Connection successful · ${result.model} · ${(result.elapsedMs / 1000).toFixed(1)}s. Real model response verified.`
-            : errors[result.code]}
-        </p>
+          <p>
+            {result.ok
+              ? `Model answered · ${result.model} · ${(result.elapsedMs / 1000).toFixed(1)}s.`
+              : errors[result.code]}
+          </p>
+          {result.ok && completed ? (
+            <p className="mt-1 text-xs leading-5 text-slate-400">
+              Tested at{" "}
+              <time dateTime={new Date(completed.at).toISOString()}>
+                {new Date(completed.at).toLocaleString()}
+              </time>
+              . Account access can change. This test does not check review
+              settings or tools.
+            </p>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

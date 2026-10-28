@@ -1,3 +1,8 @@
+import {
+  providerApiAuthModes,
+  providerApiDescriptors,
+  type ProviderApiAuthMode,
+} from "@reviewrouter/shared";
 import Fastify from "fastify";
 import { createHash } from "node:crypto";
 import { expect, it, vi } from "vitest";
@@ -12,15 +17,16 @@ import {
   registerReviewRunCheckoutRoute,
 } from "./review-run-gateway-checkout";
 
-function fixture() {
+function fixture(mode: ProviderApiAuthMode = "openrouter-api") {
+  const descriptor = providerApiDescriptors[mode];
   const configuration = {
     ...workspacePolicyFixture,
     providers: [
       {
-        kind: "openrouter",
-        authMode: "openrouter_api_key",
-        model: "openai/gpt-5.3-codex",
-        reasoningEffort: "high",
+        kind: descriptor.providerKind,
+        authMode: descriptor.authMode,
+        model: descriptor.defaultModel,
+        ...(mode === "kimi-code-api" ? {} : { reasoningEffort: "high" }),
         agenticContext: true,
         fastMode: false,
         requiredHealthy: true,
@@ -176,3 +182,38 @@ it("accepts only the strict finite companion request, independently of Gateway r
     await app.close();
   }
 });
+
+it.each(
+  providerApiAuthModes.flatMap((saved) =>
+    providerApiAuthModes.map((requested) => ({ saved, requested })),
+  ),
+)(
+  "checkout correlates exact captured provider $saved with requested mode $requested",
+  async ({ saved, requested }) => {
+    const f = fixture(saved);
+    const issued = f.checkout.issue(
+      "authorization-token",
+      new AbortController().signal,
+      { providerApiAuthMode: requested, workflowSchemaVersion: 2 },
+    );
+    if (saved !== requested) {
+      await expect(issued).rejects.toMatchObject({ statusCode: 401 });
+      expect(f.issuer).not.toHaveBeenCalled();
+      return;
+    }
+    const result = await issued;
+    const descriptor = providerApiDescriptors[saved];
+    expect(result.runtimeConfig.runtimeEnv).toMatchObject({
+      REVIEW_AUTH_MODE: saved,
+      REVIEW_PROVIDERS: `${descriptor.runtimePrefix}/${descriptor.defaultModel}`,
+    });
+    for (const mode of providerApiAuthModes)
+      expect(result.runtimeConfig.runtimeEnv).not.toHaveProperty(
+        providerApiDescriptors[mode].secretName,
+      );
+    if (saved === "kimi-code-api")
+      expect(result.runtimeConfig.runtimeEnv).not.toHaveProperty(
+        "CODEX_REASONING_EFFORT",
+      );
+  },
+);

@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   useInfiniteQuery,
   useMutation,
@@ -11,23 +11,40 @@ import { ActionToast } from "../action-toast";
 import type {
   ReviewSkillCapabilities,
   ReviewSkillDocument,
+  ReviewSkillLibraryEntry,
   ReviewSkillSummary,
   ReviewSkillsPage,
+  ReviewSkillRepositoryTarget,
+  RepositorySkillsReadiness,
+  ReviewSkillsInput,
 } from "../../src/features/review-skills/contracts";
-import { requestReviewSkills } from "../../src/features/review-skills/client-adapter";
+import {
+  requestReviewSkills,
+  ReviewSkillsClientError,
+} from "../../src/features/review-skills/client-adapter";
 import { reviewSkillsKeys } from "../../src/features/review-skills/query-keys";
 import { SkillEditorDialog } from "./skill-editor-dialog";
 import {
   AddWorkspaceSkillDialog,
   SkillAccessDialog,
 } from "./skill-access-dialog";
-import { RepositorySkillsOperation } from "./repository-skills-dialog";
+import {
+  SkillsReadiness,
+  skillsReadinessLabel,
+} from "./review-skills-readiness";
 import {
   SkillsDialog,
   SkillsError,
   SkillSearch,
   skillCellClass,
+  skillMobileLabelClass,
+  skillResponsiveCellClass,
+  skillFieldClass,
 } from "./review-skills-ui";
+
+type RepositorySkill = Pick<ReviewSkillSummary, "skillId" | "name"> & {
+  readonly available?: boolean;
+};
 
 export function ReviewSkillsLibrary({
   workspaceId,
@@ -39,7 +56,7 @@ export function ReviewSkillsLibrary({
   readonly workspaceId: string;
   readonly workspaceKey: string;
   readonly viewerId: string;
-  readonly initialPage: ReviewSkillsPage<ReviewSkillSummary>;
+  readonly initialPage: ReviewSkillsPage<ReviewSkillLibraryEntry>;
   readonly capabilities: ReviewSkillCapabilities;
   readonly initialSkillId: string;
 }) {
@@ -49,11 +66,13 @@ export function ReviewSkillsLibrary({
   );
   const [linking, setLinking] = useState(false);
   const [access, setAccess] = useState<ReviewSkillSummary | null>(null);
-  const [repositories, setRepositories] = useState<ReviewSkillSummary | null>(
+  const [repositories, setRepositories] = useState<RepositorySkill | null>(
     null,
   );
   const [error, setError] = useState<unknown>(null);
   const [savedRevisionId, setSavedRevisionId] = useState("");
+  const [openingSkillId, setOpeningSkillId] = useState<string | null>(null);
+  const editorRequest = useRef(0);
   const client = useQueryClient();
   const library = useInfiniteQuery({
     queryKey: reviewSkillsKeys.library(viewerId, workspaceId, search),
@@ -76,21 +95,44 @@ export function ReviewSkillsLibrary({
     client.invalidateQueries({
       queryKey: reviewSkillsKeys.workspace(viewerId, workspaceId),
     });
-  const open = async (skillId: string) => {
+  const open = useCallback(
+    async (skillId: string) => {
+      const request = ++editorRequest.current;
+      setOpeningSkillId(skillId);
+      setError(null);
+      try {
+        const document = await requestReviewSkills("loadSkill", {
+          workspaceId,
+          skillId,
+        });
+        if (request === editorRequest.current) setEditor(document);
+      } catch (cause) {
+        if (request === editorRequest.current) setError(cause);
+      } finally {
+        if (request === editorRequest.current) setOpeningSkillId(null);
+      }
+    },
+    [workspaceId],
+  );
+  const closeEditor = () => {
+    ++editorRequest.current;
+    setOpeningSkillId(null);
+    setEditor(null);
+  };
+  const createEditor = () => {
+    ++editorRequest.current;
+    setOpeningSkillId(null);
     setError(null);
-    try {
-      setEditor(
-        await requestReviewSkills("loadSkill", { workspaceId, skillId }),
-      );
-    } catch (cause) {
-      setError(cause);
-    }
+    setEditor("create");
   };
   useEffect(() => {
     if (initialSkillId) void open(initialSkillId);
-  }, [initialSkillId]);
+    return () => {
+      ++editorRequest.current;
+    };
+  }, [initialSkillId, open]);
   const remove = useMutation({
-    mutationFn: (skill: ReviewSkillSummary) =>
+    mutationFn: (skill: ReviewSkillLibraryEntry) =>
       skill.linked
         ? requestReviewSkills("unlinkSkill", {
             destinationWorkspaceId: workspaceId,
@@ -115,7 +157,7 @@ export function ReviewSkillsLibrary({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
           {capabilities.canCreate ? (
-            <Button type="button" onClick={() => setEditor("create")}>
+            <Button type="button" onClick={createEditor}>
               Create skill
             </Button>
           ) : null}
@@ -135,68 +177,143 @@ export function ReviewSkillsLibrary({
       </div>
       <SkillSearch value={search} onChange={setSearch} />
       <SkillsError error={error ?? library.error ?? remove.error} />
+      {openingSkillId ? <p role="status">Opening skill…</p> : null}
+      {library.isPending ? <p role="status">Loading skills…</p> : null}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[48rem] border-collapse">
+        <table
+          role="table"
+          className="block w-full border-collapse lg:table lg:min-w-[48rem]"
+        >
           <caption className="sr-only">Workspace review skills</caption>
-          <thead>
-            <tr className="border-b border-cyan-200/20 text-slate-400">
-              <th className={skillCellClass}>Name / description</th>
-              <th className={skillCellClass}>Author</th>
-              <th className={skillCellClass}>Source</th>
-              <th className={skillCellClass}>Used in this workspace</th>
-              <th className={skillCellClass}>Actions</th>
+          <thead role="rowgroup" className="hidden lg:table-header-group">
+            <tr
+              role="row"
+              className="border-b border-cyan-200/20 text-slate-400"
+            >
+              <th role="columnheader" scope="col" className={skillCellClass}>
+                Name / description
+              </th>
+              <th role="columnheader" scope="col" className={skillCellClass}>
+                Author
+              </th>
+              <th role="columnheader" scope="col" className={skillCellClass}>
+                Source
+              </th>
+              <th role="columnheader" scope="col" className={skillCellClass}>
+                Used in this workspace
+              </th>
+              <th role="columnheader" scope="col" className={skillCellClass}>
+                Actions
+              </th>
             </tr>
           </thead>
-          <tbody>
+          <tbody role="rowgroup" className="block lg:table-row-group">
             {rows.map((skill) => (
-              <tr key={skill.skillId} className="border-b border-cyan-200/10">
-                <td className={skillCellClass}>
-                  <button
-                    type="button"
-                    className="text-left font-semibold text-cyan-100 underline-offset-4 hover:underline"
-                    onClick={() => {
-                      void open(skill.skillId);
-                    }}
-                  >
-                    {skill.name}
-                  </button>
-                  <p className="mt-1 max-w-sm whitespace-pre-wrap text-slate-400">
-                    {skill.description}
-                  </p>
-                  <p className="mt-2 text-xs text-slate-500">
-                    Updated {new Date(skill.updatedAt).toLocaleDateString()}
-                  </p>
+              <tr
+                role="row"
+                key={skill.skillId}
+                className="grid grid-cols-2 gap-x-4 border-b border-cyan-200/15 py-3 lg:table-row lg:border-cyan-200/10 lg:py-0"
+              >
+                <td
+                  role="cell"
+                  className={`${skillResponsiveCellClass} col-span-2`}
+                >
+                  {skill.available ? (
+                    <>
+                      <button
+                        type="button"
+                        className="max-w-full break-words text-left font-semibold text-cyan-100 underline-offset-4 hover:underline"
+                        aria-busy={openingSkillId === skill.skillId}
+                        onClick={() => {
+                          void open(skill.skillId);
+                        }}
+                      >
+                        {skill.name}
+                      </button>
+                      <p className="mt-1 max-w-sm whitespace-pre-wrap break-words text-slate-400">
+                        {skill.description}
+                      </p>
+                      <p className="mt-2 text-xs text-slate-500">
+                        Updated {new Date(skill.updatedAt).toLocaleDateString()}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-semibold text-amber-100">
+                        {skill.name}
+                      </p>
+                      <p className="mt-1 max-w-sm text-slate-400">
+                        Access to the original is unavailable. Remove its
+                        repository assignments, then remove this workspace link.
+                      </p>
+                      <code className="mt-2 block break-all text-xs text-slate-500">
+                        {skill.skillId}
+                      </code>
+                    </>
+                  )}
                 </td>
-                <td className={`${skillCellClass} text-slate-300`}>
-                  {skill.authorName}
+                <td
+                  role="cell"
+                  className={`${skillResponsiveCellClass} break-words text-slate-300`}
+                >
+                  <span className={skillMobileLabelClass}>Author</span>
+                  {skill.available ? skill.authorName : "—"}
                 </td>
-                <td className={`${skillCellClass} text-slate-400`}>
-                  {skill.sourceWorkspaceName}
+                <td
+                  role="cell"
+                  className={`${skillResponsiveCellClass} break-words text-slate-400`}
+                >
+                  <span className={skillMobileLabelClass}>Source</span>
+                  {skill.available
+                    ? skill.sourceWorkspaceName
+                    : "Unavailable source"}
                   <span className="mt-1 block text-xs">
-                    {skill.linked ? "Live link" : "Original"}
+                    {skill.available
+                      ? skill.linked
+                        ? "Live link"
+                        : "Original"
+                      : "Link unavailable"}
                   </span>
                 </td>
-                <td className={`${skillCellClass} text-slate-400`}>
-                  <span>
-                    {skill.usedIn.length}{" "}
-                    {skill.usedIn.length === 1 ? "repository" : "repositories"}
+                <td
+                  role="cell"
+                  className={`${skillResponsiveCellClass} col-span-2 text-slate-400`}
+                >
+                  <span className={skillMobileLabelClass}>
+                    Used in this workspace
                   </span>
-                  {skill.usedIn.length ? (
-                    <details className="mt-1">
-                      <summary className="cursor-pointer text-xs">
-                        Show repositories
-                      </summary>
-                      <ul className="mt-2 space-y-1">
-                        {skill.usedIn.map((repo) => (
-                          <li key={repo.repositoryId}>{repo.name}</li>
-                        ))}
-                      </ul>
-                    </details>
-                  ) : null}
+                  {capabilities.canAdmin ? (
+                    <>
+                      <span>
+                        {skill.usedIn.length}{" "}
+                        {skill.usedIn.length === 1
+                          ? "repository"
+                          : "repositories"}
+                      </span>
+                      {skill.usedIn.length ? (
+                        <details className="mt-1">
+                          <summary className="cursor-pointer text-xs">
+                            Show repositories
+                          </summary>
+                          <ul className="mt-2 space-y-1">
+                            {skill.usedIn.map((repo) => (
+                              <li key={repo.repositoryId}>{repo.name}</li>
+                            ))}
+                          </ul>
+                        </details>
+                      ) : null}
+                    </>
+                  ) : (
+                    <span>Workspace admins can see repository usage.</span>
+                  )}
                 </td>
-                <td className={skillCellClass}>
+                <td
+                  role="cell"
+                  className={`${skillResponsiveCellClass} col-span-2`}
+                >
+                  <span className={skillMobileLabelClass}>Actions</span>
                   <div className="flex flex-wrap gap-2">
-                    {skill.capabilities.canEdit ? (
+                    {skill.available && skill.capabilities.canEdit ? (
                       skill.linked ? (
                         <Link
                           className="text-sm text-cyan-200 underline"
@@ -223,9 +340,13 @@ export function ReviewSkillsLibrary({
                       size="sm"
                       onClick={() => setRepositories(skill)}
                     >
-                      Repositories
+                      {skill.available
+                        ? "Assign to repositories"
+                        : "Remove assignments"}
                     </Button>
-                    {skill.capabilities.canGrant && !skill.linked ? (
+                    {skill.available &&
+                    skill.capabilities.canGrant &&
+                    !skill.linked ? (
                       <Button
                         type="button"
                         variant="ghost"
@@ -236,9 +357,11 @@ export function ReviewSkillsLibrary({
                       </Button>
                     ) : null}
                     {(
-                      skill.linked
-                        ? capabilities.canAdmin
-                        : skill.capabilities.canDelete
+                      skill.available
+                        ? skill.linked
+                          ? capabilities.canAdmin
+                          : skill.capabilities.canDelete
+                        : skill.canUnlink
                     ) ? (
                       <Button
                         type="button"
@@ -296,9 +419,9 @@ export function ReviewSkillsLibrary({
           key={editor === "create" ? "create" : editor.revisionId}
           workspaceId={workspaceId}
           {...(editor === "create" ? {} : { document: editor })}
-          onClose={() => setEditor(null)}
+          onClose={closeEditor}
           onSaved={(document) => {
-            setEditor(null);
+            closeEditor();
             if (editor === "create") setRepositories(document);
             else setSavedRevisionId(document.revisionId);
             void invalidate();
@@ -317,6 +440,10 @@ export function ReviewSkillsLibrary({
           workspaceId={workspaceId}
           viewerId={viewerId}
           onClose={() => setLinking(false)}
+          onAssign={(skill) => {
+            setLinking(false);
+            setRepositories(skill);
+          }}
         />
       ) : null}
       {access ? (
@@ -332,31 +459,43 @@ export function ReviewSkillsLibrary({
           workspaceId={workspaceId}
           viewerId={viewerId}
           skill={repositories}
-          canCreate={capabilities.canCreate}
           onClose={() => setRepositories(null)}
         />
       ) : null}
     </>
   );
 }
+type RepositoryTarget = ReviewSkillRepositoryTarget & {
+  readonly readiness: RepositorySkillsReadiness;
+};
+
 function SkillRepositoriesDialog({
   workspaceId,
   viewerId,
   skill,
-  canCreate,
   onClose,
 }: {
   readonly workspaceId: string;
   readonly viewerId: string;
-  readonly skill: ReviewSkillSummary;
-  readonly canCreate: boolean;
+  readonly skill: RepositorySkill;
   readonly onClose: () => void;
 }) {
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<ReadonlySet<string>>(
-    () => new Set(),
+  const [selected, setSelected] = useState<
+    ReadonlyMap<string, RepositoryTarget>
+  >(() => new Map());
+  const [mode, setMode] = useState<"add" | "remove">(
+    skill.available === false ? "remove" : "add",
   );
-  const [captured, setCaptured] = useState<readonly string[] | null>(null);
+  const [include, setInclude] = useState("**");
+  const [exclude, setExclude] = useState("");
+  const [success, setSuccess] = useState("");
+  const searchInput = useRef<HTMLInputElement>(null);
+  const client = useQueryClient();
+  const selectedInactive = [...selected.values()].some((repo) => !repo.active);
+  const removalOnly = skill.available === false || selectedInactive;
+  const effectiveMode = removalOnly ? "remove" : mode;
+  const overLimit = selected.size > 1000;
   const targets = useInfiniteQuery({
     queryKey: [
       ...reviewSkillsKeys.workspace(viewerId, workspaceId),
@@ -376,63 +515,231 @@ function SkillRepositoriesDialog({
     staleTime: 10_000,
     retry: false,
   });
-  if (captured)
-    return (
-      <RepositorySkillsOperation
-        workspaceId={workspaceId}
-        viewerId={viewerId}
-        repositoryIds={captured}
-        canCreate={canCreate}
-        initialSkillIds={[skill.skillId]}
-        onClose={onClose}
-      />
-    );
+  const apply = useMutation({
+    mutationFn: (command: ReviewSkillsInput<"applyAssignments">) =>
+      requestReviewSkills("applyAssignments", command),
+    onSuccess: async (result) => {
+      setSuccess(
+        `${result.added} added, ${result.removed} removed, ${result.unchanged} already in the requested state.`,
+      );
+      setSelected(new Map());
+      await client.invalidateQueries({
+        queryKey: reviewSkillsKeys.workspace(viewerId, workspaceId),
+      });
+    },
+  });
+  const completionUnknown =
+    apply.error instanceof ReviewSkillsClientError &&
+    apply.error.code === "unknown";
+  const locked = apply.isPending || completionUnknown;
+  const submit = () => {
+    setSuccess("");
+    if (completionUnknown && apply.variables) {
+      apply.mutate(apply.variables);
+      return;
+    }
+    apply.mutate({
+      workspaceId,
+      repositoryIds: [...selected.keys()],
+      skillIds: [skill.skillId],
+      mode: effectiveMode,
+      ...(effectiveMode === "add"
+        ? {
+            scope: {
+              includePaths: include
+                .split("\n")
+                .map((value) => value.trim())
+                .filter(Boolean),
+              excludePaths: exclude
+                .split("\n")
+                .map((value) => value.trim())
+                .filter(Boolean),
+            },
+          }
+        : {}),
+    });
+  };
   return (
     <SkillsDialog
       open
       onClose={onClose}
-      title="Assign skill to repositories"
-      description={`Choose repository targets for “${skill.name}”, then add or remove assignments. No existing assignments are preselected.`}
+      initialFocus={searchInput}
+      pending={apply.isPending}
+      title={
+        effectiveMode === "remove"
+          ? "Remove skill assignments"
+          : "Assign skill to repositories"
+      }
+      description={
+        skill.available === false
+          ? `Choose assigned repositories to remove unavailable skill ${skill.skillId}. The original remains unchanged.`
+          : `Choose repositories for “${skill.name}”. Adding preserves existing assignments and their file scopes. No existing assignments are preselected.`
+      }
+      feedback={
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p aria-live="polite" className="text-xs text-slate-400">
+              {selected.size} repositories checked. Search keeps checked
+              repositories.
+            </p>
+            {selected.size > 0 ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={locked}
+                onClick={() => setSelected(new Map())}
+              >
+                Clear checked repositories
+              </Button>
+            ) : null}
+          </div>
+          {overLimit ? (
+            <p role="alert" className="text-sm text-amber-100">
+              All {selected.size} checked repositories are preserved. You can
+              update up to 1000 repositories at once. Uncheck repositories
+              before applying; no changes have been submitted.
+            </p>
+          ) : null}
+          <SkillsError error={apply.error} />
+          {apply.isError ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={targets.isFetching}
+              onClick={() => {
+                void targets.refetch();
+              }}
+            >
+              Refresh repository assignments
+            </Button>
+          ) : null}
+          {success ? (
+            <p role="status" className="text-sm text-emerald-200">
+              {success}
+            </p>
+          ) : null}
+        </>
+      }
       footer={
         <Button
           type="button"
-          disabled={selected.size === 0}
-          onClick={() => setCaptured([...selected])}
+          disabled={
+            apply.isPending ||
+            (!completionUnknown &&
+              (selected.size === 0 || overLimit || targets.isError))
+          }
+          onClick={submit}
         >
-          Manage selected repositories ({selected.size})
+          {apply.isPending
+            ? "Applying…"
+            : completionUnknown
+              ? "Retry exact operation"
+              : effectiveMode === "add"
+                ? `Assign to ${selected.size} ${selected.size === 1 ? "repository" : "repositories"}`
+                : `Remove from ${selected.size} ${selected.size === 1 ? "repository" : "repositories"}`}
         </Button>
       }
     >
+      <div
+        role="group"
+        aria-label="Skill assignment operation"
+        className="flex flex-wrap gap-2"
+      >
+        {(["add", "remove"] as const).map((value) => (
+          <Button
+            key={value}
+            type="button"
+            variant={effectiveMode === value ? "solid" : "outline"}
+            disabled={locked || (removalOnly && value === "add")}
+            aria-pressed={effectiveMode === value}
+            onClick={() => {
+              setMode(value);
+              setSuccess("");
+              apply.reset();
+            }}
+          >
+            {value === "add" ? "Add" : "Remove"}
+          </Button>
+        ))}
+      </div>
       <SkillSearch
         value={search}
         onChange={setSearch}
+        disabled={locked}
+        inputRef={searchInput}
         label="Search repositories"
+        placeholder="Owner or repository name"
       />
+      {selected.size > 0 ? (
+        <SkillsReadiness
+          values={[...selected.values()].map((repo) => repo.readiness)}
+          workspaceId={workspaceId}
+        />
+      ) : (
+        <p className="text-xs text-slate-400">
+          Choose repositories to see configured runtime support.
+        </p>
+      )}
       <SkillsError error={targets.error} />
+      {selectedInactive ? (
+        <p role="status" className="text-sm text-amber-100">
+          This selection includes inactive repositories. Only removing skill
+          assignments is available.
+        </p>
+      ) : null}
+      {targets.isPending ? <p role="status">Loading repositories…</p> : null}
+      {!targets.isPending &&
+      !targets.isError &&
+      targets.data?.pages.every((page) => page.items.length === 0) ? (
+        <p className="text-sm text-slate-400">
+          {skill.available === false
+            ? "No matching assigned repositories are available. Clear the search to check the remaining assignments, or close and remove the workspace link once all assignments are cleared."
+            : "No matching repositories are available. Change the search or check your repository access."}
+        </p>
+      ) : null}
       <div className="divide-y divide-cyan-200/10">
         {targets.data?.pages
           .flatMap((page) => page.items)
           .map((repo) => (
             <label
               key={repo.repositoryId}
-              className="flex cursor-pointer items-center gap-3 py-3 text-sm"
+              className="flex cursor-pointer items-start gap-3 py-3 text-sm"
             >
               <Checkbox
                 checked={selected.has(repo.repositoryId)}
+                disabled={locked}
                 aria-label={`Select ${repo.name}`}
+                aria-description={
+                  repo.active
+                    ? undefined
+                    : "Inactive repository. Assignments can only be removed."
+                }
                 onChange={() =>
                   setSelected((prior) => {
-                    const next = new Set(prior);
+                    const next = new Map(prior);
                     if (next.has(repo.repositoryId))
                       next.delete(repo.repositoryId);
-                    else next.add(repo.repositoryId);
+                    else next.set(repo.repositoryId, repo);
                     return next;
                   })
                 }
               />
-              <span className="min-w-0 flex-1 break-all">{repo.name}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block break-words">{repo.name}</span>
+                {repo.readiness.status !== "ready" ? (
+                  <span className="mt-1 block text-xs leading-5 text-slate-400">
+                    {skillsReadinessLabel(repo.readiness)}
+                  </span>
+                ) : null}
+              </span>
               <span className="text-xs text-slate-400">
-                {repo.assigned ? "Assigned" : "Not assigned"}
+                {repo.active
+                  ? repo.assigned
+                    ? "Assigned"
+                    : "Not assigned"
+                  : "Inactive · remove assignments only"}
               </span>
             </label>
           ))}
@@ -441,12 +748,44 @@ function SkillRepositoriesDialog({
         <Button
           type="button"
           variant="outline"
+          disabled={targets.isFetchingNextPage || locked}
           onClick={() => {
             void targets.fetchNextPage();
           }}
         >
           Load more repositories
         </Button>
+      ) : null}
+      {effectiveMode === "add" ? (
+        <details className="border-t border-cyan-200/15 pt-3">
+          <summary className="cursor-pointer text-sm text-slate-300">
+            File scope for new assignments
+          </summary>
+          <p className="my-3 text-xs text-slate-400">
+            Existing scopes are preserved. One repository-relative POSIX glob
+            per line.
+          </p>
+          <label className="block text-sm">
+            Include paths
+            <textarea
+              className={`${skillFieldClass} my-2 font-mono`}
+              disabled={locked}
+              value={include}
+              onChange={(event) => setInclude(event.target.value)}
+              rows={2}
+            />
+          </label>
+          <label className="block text-sm">
+            Exclude paths
+            <textarea
+              className={`${skillFieldClass} my-2 font-mono`}
+              disabled={locked}
+              value={exclude}
+              onChange={(event) => setExclude(event.target.value)}
+              rows={2}
+            />
+          </label>
+        </details>
       ) : null}
     </SkillsDialog>
   );

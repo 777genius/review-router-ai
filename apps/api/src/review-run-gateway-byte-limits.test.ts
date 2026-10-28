@@ -9,9 +9,17 @@ import {
   ReviewRunAuthorizationState,
   ReviewRunAuthorizationTokenResolutionStatus,
   ReviewTrustDomain,
+  ReviewRunCompanionDispatchFailure,
+  type ReviewRunCompanionDispatchAdmission,
+  type ReviewRunCompanionDispatch,
   type ReviewRunAuthorization,
   type ReviewRunGatewayExecutionBinding,
 } from "@reviewrouter/features-review-run-control";
+import {
+  lifecycleVerificationContract,
+  lifecycleVerificationDescriptorDigest,
+  type ReviewCompanionDispatchContextV1,
+} from "@reviewrouter/shared";
 import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
 import { createReviewRunGatewayPreparation } from "./review-run-gateway-preparation";
@@ -23,6 +31,411 @@ import {
 } from "./review-run-gateway-relay";
 
 const MiB = 1024 * 1024;
+
+function companionReservation(
+  role: ReviewRunCompanionDispatch["role"] = "lifecycle_verification",
+) {
+  const rows = new Map<string, ReviewRunCompanionDispatch>();
+  let claims = 0;
+  const admission: ReviewRunCompanionDispatchAdmission = {
+    async claim(auth, context, providerRequestEnvelopeHash) {
+      claims++;
+      const existing = rows.get(context.dispatchId);
+      if (existing) {
+        if (
+          existing.providerRequestEnvelopeHash !== providerRequestEnvelopeHash
+        )
+          throw new ReviewRunCompanionDispatchFailure(
+            "companion_dispatch_conflict",
+          );
+        return {
+          status: "restored",
+          dispatch: existing,
+          notAfter: new Date(Date.now() + 120000),
+        };
+      }
+      if (
+        [...rows.values()].some((row) => row.workSlotId === context.workSlotId)
+      )
+        throw new ReviewRunCompanionDispatchFailure(
+          "companion_slot_already_claimed",
+        );
+      const dispatch: ReviewRunCompanionDispatch = {
+        authorizationId: auth.authorizationId,
+        dispatchId: context.dispatchId,
+        executionId: context.executionId,
+        workSlotId: context.workSlotId,
+        attemptOrdinal: context.attemptOrdinal,
+        leaseId: context.leaseId,
+        fencingToken: BigInt(context.fencingToken),
+        preparedManifestKey: context.preparedManifestKey,
+        providerRequestEnvelopeHash,
+        nativeRequestRef: "stored-companion-native-ref",
+        role,
+        state: "dispatch_may_have_started",
+      };
+      rows.set(context.dispatchId, dispatch);
+      return {
+        status: "claimed",
+        dispatch,
+        notAfter: new Date(Date.now() + 120000),
+      };
+    },
+    async read(_authorizationId, dispatchId) {
+      return rows.get(dispatchId) ?? null;
+    },
+    async settle(_authorizationId, dispatchId, state) {
+      const row = rows.get(dispatchId)!;
+      if (row.state !== "completed" && row.state !== "not_dispatched")
+        rows.set(dispatchId, { ...row, state });
+    },
+  };
+  return { admission, rows, claimCount: () => claims };
+}
+const companionContext: ReviewCompanionDispatchContextV1 = {
+  dispatchId: "companion-dispatch-1",
+  executionId: "execution-1",
+  workSlotId: "lifecycle-1",
+  attemptOrdinal: 1,
+  leaseId: "lease-1",
+  leaseCapability: "signed-lease",
+  fencingToken: "1",
+  preparedManifestKey: "a".repeat(64),
+};
+const companionEnvelope = (model = "gpt-5.6-sol") =>
+  Buffer.from(
+    JSON.stringify({
+      input: "bounded-packet",
+      model,
+      stream: true,
+      store: false,
+      service_tier: "default",
+      max_output_tokens: 4096,
+    }),
+  );
+
+it.each([
+  { profileId: "profile-1", model: "gpt-5.6-sol" },
+  {
+    profileId: "openai-codex-oauth-responses-v1",
+    model: "authorized-account-model-not-in-anchor",
+  },
+])(
+  "companion forwards exact hashed bytes with the stored native ref and settles completion for $model",
+  async (selection) => {
+    const state = companionReservation();
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
+      undefined,
+      {
+        admission: state.admission,
+      },
+      128,
+      selection,
+      true,
+    );
+    try {
+      const bytes = companionEnvelope(selection.model);
+      const response = await f.relay.responses(
+        "authorization-1",
+        bytes,
+        new AbortController(),
+        undefined,
+        companionContext,
+      );
+      expect(response.kind).toBe("stream");
+      if (response.kind !== "stream") throw new Error("stream_expected");
+      const reader = response.body.getReader();
+      while (!(await reader.read()).done) {
+        /* Consume the bounded native response. */
+      }
+      expect(f.requestBodies).toEqual([bytes.toString()]);
+      expect(f.requestModels).toEqual([selection.model]);
+      expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
+      expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+        "completed",
+      );
+      expect(
+        await f.relay.companionDispatch(
+          "authorization-1",
+          companionContext.dispatchId,
+        ),
+      ).toMatchObject({
+        state: "completed",
+        requestRef: "stored-companion-native-ref",
+        providerRequestEnvelopeHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+    } finally {
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("forwards the captured nine-request native grant unchanged through actual prepare and Responses admission", async () => {
+  const f = await fixture(32768, 0, 2, 5000, undefined, undefined, 9);
+  try {
+    const response = await f.relay.responses(
+      "authorization-1",
+      Buffer.from("{}"),
+      new AbortController(),
+    );
+    expect(f.intents).toHaveLength(1);
+    expect(f.intents[0]!.limits.requests).toBe(9);
+    expect(f.admissions).toHaveLength(1);
+    expect(f.admissions[0]!.limits.requests).toBe(9);
+    if (response.kind === "stream") await response.cancel();
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("companion chunks use local authority while phase and EOF status retain full freshness", async () => {
+  const state = companionReservation();
+  const eof = deferred();
+  const f = await fixture(
+    32768,
+    0,
+    2,
+    5000,
+    async (upstream) => {
+      upstream.write(": bounded progress\n\n");
+      await eof.promise;
+      upstream.end(": bounded tail\n\n");
+    },
+    { admission: state.admission },
+  );
+  let response: Awaited<ReturnType<typeof f.relay.responses>> | undefined;
+  try {
+    response = await f.relay.responses(
+      "authorization-1",
+      companionEnvelope(),
+      new AbortController(),
+      undefined,
+      companionContext,
+    );
+    if (response.kind !== "stream") throw new Error("stream_expected");
+    const reader = response.body.getReader();
+    const beforeChunk = f.authorityChecks.length;
+    expect((await reader.read()).done).toBe(false);
+    expect(f.authorityChecks.slice(beforeChunk)).toEqual(["local"]);
+    const fullBeforeEOF = f.authorityChecks.filter(
+      (mode) => mode === "full",
+    ).length;
+    eof.resolve();
+    while (!(await reader.read()).done) {
+      // Drain the remaining chunks before checking native EOF settlement.
+    }
+    expect(
+      f.authorityChecks.filter((mode) => mode === "full").length,
+    ).toBeGreaterThan(fullBeforeEOF);
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "completed",
+    );
+  } finally {
+    eof.resolve();
+    if (response?.kind === "stream") await response.cancel().catch(() => {});
+    await f.relay.shutdown();
+  }
+});
+
+it("companion proven pre-forward refusal records no dispatch without refunding its attempt", async () => {
+  const state = companionReservation("pr_description");
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: state.admission,
+  });
+  try {
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({
+      code: "pr_description_envelope_bounds_invalid",
+      effect: "not_dispatched",
+    });
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "not_dispatched",
+    );
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({
+      code: "companion_dispatch_already_claimed",
+      effect: "not_dispatched",
+    });
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        { ...companionContext, dispatchId: "new-id" },
+      ),
+    ).rejects.toMatchObject({ code: "companion_slot_already_claimed" });
+    expect(f.admissions).toHaveLength(0);
+    expect(f.intents).toHaveLength(0);
+  } finally {
+    await f.relay.shutdown();
+  }
+  const unknown = companionReservation();
+  const failedPrepare = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: unknown.admission,
+  });
+  try {
+    failedPrepare.setPrepareFailure();
+    await expect(
+      failedPrepare.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({ effect: "effect_unknown" });
+    expect(unknown.rows.get(companionContext.dispatchId)?.state).toBe(
+      "dispatch_may_have_started",
+    );
+    expect(failedPrepare.admissions).toHaveLength(0);
+  } finally {
+    await failedPrepare.relay.shutdown();
+  }
+});
+
+it("companion local unpaid admission consumes one reservation and one SDK request across restore", async () => {
+  const state = companionReservation();
+  const first = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: state.admission,
+    unpaid: true,
+  });
+  try {
+    await expect(
+      first.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({
+      requestRef: "stored-companion-native-ref",
+      effect: "not_dispatched",
+    });
+    expect(first.admissions).toHaveLength(1);
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "not_dispatched",
+    );
+    // A fresh relay has no process counter, yet the same reservation cannot forward.
+    const restored = await fixture(32768, 0, 2, 5000, undefined, {
+      admission: state.admission,
+      unpaid: true,
+    });
+    try {
+      await expect(
+        restored.relay.responses(
+          "authorization-1",
+          companionEnvelope(),
+          new AbortController(),
+          undefined,
+          companionContext,
+        ),
+      ).rejects.toMatchObject({
+        code: "companion_dispatch_already_claimed",
+        requestRef: "stored-companion-native-ref",
+      });
+      await expect(
+        restored.relay.responses(
+          "authorization-1",
+          companionEnvelope(),
+          new AbortController(),
+          undefined,
+          { ...companionContext, dispatchId: "another-id" },
+        ),
+      ).rejects.toMatchObject({ code: "companion_slot_already_claimed" });
+      expect(restored.admissions).toHaveLength(0);
+      expect(restored.intents).toHaveLength(0);
+    } finally {
+      await restored.relay.shutdown();
+    }
+  } finally {
+    await first.relay.shutdown();
+  }
+});
+
+it("companion rejects a silently clamped envelope before reservation or SDK dispatch", async () => {
+  const state = companionReservation();
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: state.admission,
+  });
+  try {
+    const bytes = Buffer.from(
+      companionEnvelope()
+        .toString()
+        .replace('"max_output_tokens":4096', '"max_output_tokens":8192'),
+    );
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        bytes,
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({ code: "envelope_not_normalized" });
+    expect(state.claimCount()).toBe(0);
+    expect(f.admissions).toHaveLength(0);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("companion usage failure after SDK forward stays unknown without a second SDK request", async () => {
+  const state = companionReservation();
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: state.admission,
+    failUsageOutcome: true,
+  });
+  try {
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({
+      effect: "effect_unknown",
+      requestRef: "stored-companion-native-ref",
+    });
+    expect(f.admissions).toHaveLength(1);
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "effect_unknown",
+    );
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({ code: "companion_dispatch_already_claimed" });
+    expect(f.admissions).toHaveLength(1);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
 const servers: Server[] = [];
 afterEach(async () => {
   for (const server of servers.splice(0)) {
@@ -37,10 +450,18 @@ async function fixture(
   maxSessions = 2,
   requestTimeoutMs = 5000,
   controlledStream?: (response: ServerResponse) => Promise<void>,
+  companionOptions?: {
+    admission: ReviewRunCompanionDispatchAdmission;
+    unpaid?: boolean;
+    failUsageOutcome?: boolean;
+  },
+  capturedRequests = 128,
+  selection = { profileId: "profile-1", model: "gpt-5.6-sol" },
+  accountModelCatalogEnabled = false,
 ) {
   const deadline = new Date(Date.now() + 120_000).toISOString();
   const limits = {
-    requests: 128,
+    requests: capturedRequests,
     concurrency: 1,
     requestBytes: 4096,
     outputBytes,
@@ -54,7 +475,7 @@ async function fixture(
     policySubject: "binding-1",
     policyRevision: 1,
     permittedAccountRef: "account-1",
-    profileRef: "profile-1",
+    profileRef: selection.profileId,
     invocationId: "invocation-1",
     attemptId: "attempt-1",
     operationId: "operation-1",
@@ -80,7 +501,7 @@ async function fixture(
       {
         kind: "codex",
         authMode: "codex_account_gateway",
-        model: "gpt-5.6-sol",
+        model: selection.model,
         reasoningEffort: "high",
         fastMode: false,
         agenticContext: true,
@@ -98,6 +519,25 @@ async function fixture(
   const canonical = (id: string) =>
     canonicalJson({
       snapshotVersion: 3,
+      ...(companionOptions
+        ? {
+            lifecycleVerificationCapability: {
+              extensionId: lifecycleVerificationContract.extensionId,
+              descriptorDigest: lifecycleVerificationDescriptorDigest,
+              executor: lifecycleVerificationContract.executor,
+              modelTransport: "account_gateway",
+              providerIndex: 0,
+              providerKind: "codex",
+              model: selection.model,
+              maxDispatches: 2,
+              maxPromptBytes: 4096,
+              maxResponseBytes: 32768,
+              maxOutputTokens: 4096,
+              deadlineMs: 60000,
+              attemptBudget: 1,
+            },
+          }
+        : {}),
       configurationSource: "workspace",
       configurationVersion: 1,
       workspaceConfigurationVersion: 1,
@@ -169,8 +609,12 @@ async function fixture(
   let prepareFailure = false;
   const intents: c.Prepare[] = [];
   const admissions: c.Admission[] = [];
+  const requestModels: string[] = [];
+  const requestBodies: string[] = [];
+  const requestRefs: string[] = [];
   const effects: { requestRef: string; effect: c.RequestStatus["effect"] }[] =
     [];
+  const authorityChecks: ("full" | "local")[] = [];
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(Buffer.from(chunk));
@@ -221,7 +665,22 @@ async function fixture(
       req.url ?? "",
     );
     if (execution?.[2] === "requests") {
+      requestModels.push((JSON.parse(raw) as { model: string }).model);
       admissions.push(JSON.parse(String(req.headers["x-gateway-admission"])));
+      requestBodies.push(raw);
+      requestRefs.push(String(req.headers["x-gateway-request-id"]));
+      if (companionOptions?.unpaid) {
+        res.writeHead(429, { "content-type": "application/json" }).end(
+          JSON.stringify({
+            code: "admission_limited",
+            traceRef: "fixture-trace",
+            requestRef: String(req.headers["x-gateway-request-id"]),
+            effect: "not_dispatched",
+            retry: { kind: "after", milliseconds: 1 },
+          }),
+        );
+        return;
+      }
       res.writeHead(200, {
         "content-type": "text/event-stream",
         "x-gateway-request-ref": String(req.headers["x-gateway-request-id"]),
@@ -254,6 +713,20 @@ async function fixture(
           });
       }
       if (!res.destroyed) res.end();
+      return;
+    }
+    if (
+      companionOptions &&
+      req.method === "GET" &&
+      req.url?.includes("/requests/")
+    ) {
+      res.writeHead(200, { "content-type": "application/json" }).end(
+        JSON.stringify({
+          requestRef: req.url.split("/").at(-1),
+          effect: "completed",
+          status: "completed",
+        }),
+      );
       return;
     }
     if (execution?.[2] === "close") {
@@ -295,11 +768,12 @@ async function fixture(
     bindings,
   });
   const relay = createReviewRunGatewayRelay({
+    accountModelCatalogEnabled,
     policy: {
       profiles: [
         {
           profile: {
-            profileId: "profile-1",
+            profileId: selection.profileId,
             protocol: "openai-responses",
             modelIds: ["gpt-5.6-sol"],
             authKinds: ["oauth"],
@@ -334,15 +808,23 @@ async function fixture(
       },
     },
     queries: queries as never,
-    checkAuthority: async (auth) => !revoked.has(auth.authorizationId),
+    checkAuthority: async (auth, freshness) => {
+      authorityChecks.push(freshness);
+      return !revoked.has(auth.authorizationId);
+    },
     confirmAuthority: async (_token, auth) =>
       !revoked.has(auth.authorizationId),
     snapshots,
     bindings,
+    ...(companionOptions
+      ? { companionDispatches: companionOptions.admission }
+      : {}),
     usage: {
       prepare: async () => undefined,
       outcome: async ({ requestRef, effect }) => {
         effects.push({ requestRef, effect });
+        if (companionOptions?.failUsageOutcome)
+          throw new Error("fixture_usage_write_failed");
       },
     },
   });
@@ -351,8 +833,12 @@ async function fixture(
     relay,
     intents,
     admissions,
+    requestModels,
+    requestBodies,
+    requestRefs,
     limits,
     effects,
+    authorityChecks,
     nativeExecutions,
     nativeCloses,
     authorization,
@@ -1008,3 +1494,149 @@ it("never releases buffered terminal bytes when the real SDK transport fails bef
     await http.app.close();
   }
 }, 10000);
+
+// RED if the immutable Codex anchor rejects an account-catalog model before
+// the normal owned-run preparation/native admission path.
+it.each([
+  ["openai-codex-oauth-responses-v1", true],
+  ["profile-1", false],
+  ["grok-subscription-responses-oauth-v1", false],
+] as const)(
+  "account model %s keeps the authorized Responses path (dynamic=%s)",
+  async (profileId, dynamic) => {
+    const model = "authorized-account-model-not-in-anchor";
+    const f = await fixture(
+      MiB,
+      0,
+      2,
+      5000,
+      undefined,
+      undefined,
+      128,
+      { profileId, model },
+      true,
+    );
+    try {
+      const response = f.relay.responses(
+        "local-authorization-token",
+        new TextEncoder().encode(
+          JSON.stringify({
+            model,
+            input: [],
+            stream: true,
+            max_output_tokens: 100,
+          }),
+        ),
+        new AbortController(),
+      );
+      if (!dynamic) {
+        await expect(response).rejects.toMatchObject({
+          code: "gateway_unavailable",
+          effect: "not_dispatched",
+        });
+        expect(f.intents).toHaveLength(0);
+        expect(f.admissions).toHaveLength(0);
+        return;
+      }
+      const result = await response;
+      if (result.kind !== "stream") throw new Error("expected_stream");
+      for await (const chunk of result.body) {
+        void chunk;
+        /* Drain the single real HTTP response. */
+      }
+      expect(f.intents).toHaveLength(1);
+      expect(f.intents[0]).toMatchObject({
+        accountRefs: ["account-1"],
+        profileId,
+      });
+      expect(f.requestModels).toEqual([model]);
+    } finally {
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("revocation while preparing a dynamic Codex model still prevents inference", async () => {
+  const model = "authorized-account-model-not-in-anchor";
+  const f = await fixture(
+    MiB,
+    0,
+    2,
+    5000,
+    undefined,
+    undefined,
+    128,
+    { profileId: "openai-codex-oauth-responses-v1", model },
+    true,
+  );
+  const held = f.holdPrepare();
+  try {
+    const response = f.relay.responses(
+      "local-authorization-token",
+      new TextEncoder().encode(
+        JSON.stringify({
+          model,
+          input: [],
+          stream: true,
+          max_output_tokens: 100,
+        }),
+      ),
+      new AbortController(),
+    );
+    await held.started;
+    f.revoke("authorization-1");
+    held.release();
+    await expect(response).rejects.toMatchObject({
+      code: "authorization_denied",
+    });
+    expect(f.admissions).toHaveLength(0);
+    expect(f.requestModels).toHaveLength(0);
+  } finally {
+    held.release();
+    await f.relay.shutdown();
+  }
+});
+
+it.each([
+  { model: "gpt-5.6-sol", allowed: true },
+  { model: "authorized-account-model-not-in-anchor", allowed: false },
+])(
+  "without catalog opt-in the relay admits only configured Codex models: $model",
+  async ({ model, allowed }) => {
+    const f = await fixture(MiB, 0, 2, 5000, undefined, undefined, 128, {
+      profileId: "openai-codex-oauth-responses-v1",
+      model,
+    });
+    try {
+      const response = f.relay.responses(
+        "local-authorization-token",
+        new TextEncoder().encode(
+          JSON.stringify({
+            model,
+            input: [],
+            stream: true,
+            max_output_tokens: 100,
+          }),
+        ),
+        new AbortController(),
+      );
+      if (!allowed) {
+        await expect(response).rejects.toMatchObject({
+          code: "gateway_unavailable",
+          effect: "not_dispatched",
+        });
+        expect(f.intents).toHaveLength(0);
+        expect(f.admissions).toHaveLength(0);
+        expect(f.requestModels).toHaveLength(0);
+        return;
+      }
+      const result = await response;
+      if (result.kind !== "stream") throw new Error("expected_stream");
+      for await (const chunk of result.body) void chunk;
+      expect(f.intents).toHaveLength(1);
+      expect(f.requestModels).toEqual([model]);
+    } finally {
+      await f.relay.shutdown();
+    }
+  },
+);

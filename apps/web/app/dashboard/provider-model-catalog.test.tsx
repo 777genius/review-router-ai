@@ -11,6 +11,7 @@ import type {
   ProviderModelCatalogSnapshot,
   PublicCatalogProvider,
 } from "@reviewrouter/features-review-providers";
+import { listStaticReviewModelOptions } from "@reviewrouter/features-review-providers";
 import {
   catalogStaleTime,
   ProviderModelCatalogProvider,
@@ -60,6 +61,36 @@ function Consumer({ kind }: { kind: PublicCatalogProvider }) {
 }
 afterEach(cleanup);
 describe("public model catalog query", () => {
+  it("retains static MiMo and Kimi choices beside refreshed public catalogs", () => {
+    function StaticConsumer() {
+      const catalogs = useProviderModelCatalogs(listStaticReviewModelOptions());
+      return (
+        <div data-testid="static-options">
+          {[
+            ...catalogs.optionsFor("codex-mimo", true),
+            ...catalogs.optionsFor("kimi", true),
+          ]
+            .map((option) => option.value)
+            .join(",")}
+        </div>
+      );
+    }
+    render(
+      <ProviderModelCatalogProvider
+        snapshots={[
+          snapshot("codex"),
+          snapshot("claude"),
+          snapshot("openrouter"),
+        ]}
+        api={vi.fn()}
+      >
+        <StaticConsumer />
+      </ProviderModelCatalogProvider>,
+    );
+    expect(screen.getByTestId("static-options").textContent).toBe(
+      "mimo-v2.6-pro,k3-256k",
+    );
+  });
   it("does not renew source TTL when a cooldown response reaches the client", () => {
     const fetchedAt = Date.now() - 29 * 60_000;
     expect(
@@ -101,8 +132,10 @@ describe("public model catalog query", () => {
         </ProviderModelCatalogProvider>,
       );
       expect(api).not.toHaveBeenCalled();
-      expect(screen.getByText("Account access not checked.")).toBeTruthy();
-      expect(screen.getByRole("status").textContent).toContain("fresh");
+      expect(
+        screen.getByText("Access to these models has not been checked."),
+      ).toBeTruthy();
+      expect(screen.getByRole("status").textContent).toContain("up to date");
       fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
       await waitFor(() => expect(api).toHaveBeenCalledTimes(1));
       expect(api.mock.calls[0]?.[0]).toMatchObject({
@@ -116,7 +149,7 @@ describe("public model catalog query", () => {
       ]);
       await waitFor(() =>
         expect(screen.getByRole("status").textContent).toContain(
-          "refresh cooldown",
+          "Please wait before refreshing again",
         ),
       );
     },
@@ -136,9 +169,11 @@ describe("public model catalog query", () => {
       </ProviderModelCatalogProvider>,
     );
     expect(screen.getByRole("status").textContent).toContain(
-      "source unavailable",
+      "Could not update the model list",
     );
-    expect(screen.getByRole("status").textContent).toContain("refresh failed");
+    expect(screen.getByRole("status").textContent).toContain(
+      "Showing the last available model list",
+    );
     expect(api).not.toHaveBeenCalled();
   });
   it("revalidates stale initial data using its successful fetch time", async () => {

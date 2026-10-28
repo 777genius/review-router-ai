@@ -1,3 +1,4 @@
+import { savedProviderIdentity } from "../../src/server/provider-identity";
 import { ReviewStatisticsSection } from "./review-statistics-section";
 import { ReviewSkillsSection } from "./review-skills-section";
 import { RepositorySkillsDialog } from "./repository-skills-dialog";
@@ -16,6 +17,10 @@ import {
   type GatewayAgentProfileOption,
 } from "../../src/server/gateway-agent-profile-options";
 import { AccountGatewayAccountsSection } from "./account-gateway-accounts-section";
+import { readApiKeySetupIntent } from "../../src/features/provider-setup/api-key-storage";
+import { ApiKeySetupReturn } from "./provider-setup/api-key-setup-return";
+import { apiKeyProviders } from "@reviewrouter/features-review-providers";
+import type { UserCiSecretAuthMode } from "@reviewrouter/features-review-config/workspace-provider-profile";
 import { ProviderModelCatalogProvider } from "./provider-model-catalog";
 import { GatewayModelAccountsProvider } from "./gateway-model-account-options";
 import {
@@ -23,9 +28,10 @@ import {
   loadDashboardPersonalAccounts,
 } from "../../src/server/dashboard-gateway-accounts";
 import {
-  listPersonalModelAccounts,
-  getPersonalModelAccount,
-} from "./personal-account-actions";
+  listGatewayModelAccounts,
+  getGatewayModelAccount,
+} from "./gateway-model-account-actions";
+import { productionGatewayModelAccounts } from "../../src/server/gateway-model-account-composition";
 import type {
   AccountsPage,
   AccountsResult,
@@ -166,6 +172,7 @@ import { ProviderList } from "./provider-setup/provider-list";
 import {
   ProviderSetupDialog,
   type ProviderSetupRepositoryContext,
+  type ProviderSetupDialogTarget,
 } from "./provider-setup/provider-setup-dialog";
 import { BulkProviderSetupAction } from "./provider-setup/repository-selection";
 import { RepositorySelectionProvider } from "./repository-action-selection";
@@ -190,7 +197,9 @@ import {
   WorkspaceReviewSettingsForm,
 } from "./repository-policy-editor";
 import { RepositorySetupStatusRefresher } from "./repository-setup-status-refresher";
-import { MemoryDevelopmentNotice } from "./memory-development-notice";
+import { MemoryKnowledgeWorkspace } from "../../src/features/memory/interface/components/memory-knowledge-workspace";
+import { loadDashboardMemoryKnowledge } from "../../src/server/dashboard-memory-knowledge";
+import { memoryDashboardPublicError } from "../../src/features/memory/adapters/memory-dashboard-controller";
 import { DashboardActionForm } from "./dashboard-action-form";
 import { repositorySourceUrl } from "./repository-source-url";
 import { WorkspaceSourceConnectionPanel } from "./workspace-source-connection";
@@ -1259,7 +1268,37 @@ export async function DashboardSectionContent({
       />
     );
   if (selectedSection === "memory") {
-    return <MemoryDevelopmentNotice />;
+    try {
+      const page = await loadDashboardMemoryKnowledge({
+        workspaceId: selectedWorkspace.workspace.id,
+        repositoryId:
+          typeof params.memoryRepository === "string"
+            ? params.memoryRepository
+            : null,
+        cursor:
+          typeof params.memoryCursor === "string" ? params.memoryCursor : null,
+        topicId:
+          typeof params.memoryTopic === "string" ? params.memoryTopic : null,
+      });
+      return <MemoryKnowledgeWorkspace initialData={page} />;
+    } catch (error) {
+      const safe = memoryDashboardPublicError(error);
+      return (
+        <section
+          aria-labelledby="memory-unavailable-title"
+          className="max-w-3xl py-8"
+        >
+          <h1 id="memory-unavailable-title" className="text-3xl font-semibold">
+            Memory
+          </h1>
+          <p role="status" className="mt-4 text-sm leading-6 text-slate-400">
+            {safe.status === 403
+              ? "You do not have permission to view memory in this workspace."
+              : "Memory is temporarily unavailable. Please refresh this page to try again."}
+          </p>
+        </section>
+      );
+    }
   }
   if (selectedSection === "statistics") {
     return (
@@ -1305,7 +1344,10 @@ export async function DashboardSectionContent({
       context.signedInActor,
     ),
     wantsProviderDialog ? getReviewModelOptions() : Promise.resolve([]),
-    wantsProviderDialog || selectedSection === "diagnostics"
+    wantsProviderDialog ||
+    selectedSection === "diagnostics" ||
+    (selectedSection === "setup" &&
+      readApiKeySetupIntent(params, selectedWorkspace.workspace.id) !== null)
       ? loadDashboardGatewayAccounts(selectedWorkspace.workspace.id, personal)
       : Promise.resolve(undefined),
     selectedSection === "repositories" || selectedSection === "policy"
@@ -1333,18 +1375,25 @@ export async function DashboardSectionContent({
       contextConnections={contextConnections}
     />
   );
-  const wrappedContent = personal ? (
+  const modelAccountScope =
+    personal?.scope ??
+    (wantsAccounts
+      ? await productionGatewayModelAccounts(selectedWorkspace.workspace.id)
+          .then((value) => value.scope)
+          .catch(() => null)
+      : null);
+  const wrappedContent = modelAccountScope ? (
     <GatewayModelAccountsProvider
-      scope={`${personal.scope}:workspace:${selectedWorkspace.workspace.id}`}
+      scope={`${modelAccountScope}:workspace:${selectedWorkspace.workspace.id}`}
       api={{
-        list: listPersonalModelAccounts.bind(
+        list: listGatewayModelAccounts.bind(
           null,
-          personal.scope,
+          modelAccountScope,
           selectedWorkspace.workspace.id,
         ),
-        get: getPersonalModelAccount.bind(
+        get: getGatewayModelAccount.bind(
           null,
-          personal.scope,
+          modelAccountScope,
           selectedWorkspace.workspace.id,
         ),
       }}
@@ -1675,6 +1724,44 @@ export function WorkspaceCard({
     orgRuleset,
     hostedPool,
   } = data;
+  const keySetupIntent = readApiKeySetupIntent(params, workspace.id);
+  const continuationRepositories = keySetupIntent?.repositoryIds.map((id) =>
+    repositories.find(
+      (repository) =>
+        repository.id === id &&
+        repository.provider === "github" &&
+        repository.selected &&
+        !repository.archived,
+    ),
+  );
+  const keySetupTarget: ProviderSetupDialogTarget | null =
+    !keySetupIntent || selectedSection !== "providers"
+      ? null
+      : keySetupIntent.repositoryIds.length === 0
+        ? { kind: "workspace" }
+        : continuationRepositories?.some((repository) => !repository)
+          ? null
+          : continuationRepositories?.length === 1
+            ? {
+                kind: "repository",
+                repository: repositoryProviderContext({
+                  workspace,
+                  repository: continuationRepositories[0]!,
+                  summary: repositoryProviderSummary(
+                    data,
+                    continuationRepositories[0]!.id,
+                  ),
+                  allowOrganizationSecrets: hasWorkspaceWideAccess,
+                  canManageCredentials: mutationsEnabled,
+                }),
+              }
+            : {
+                kind: "repositories",
+                repositories: continuationRepositories!.map((repository) => ({
+                  id: repository!.id,
+                  fullName: repository!.fullName,
+                })),
+              };
   // Setup intentionally does not request policy. Its absent projection says
   // nothing about saved policy and must never enter the policy creation flow.
   if (selectedSection === "setup")
@@ -1691,15 +1778,22 @@ export function WorkspaceCard({
           selectedSection={selectedSection}
         />
         <DashboardSectionHeader selectedSection="setup" />
+        {keySetupIntent ? (
+          <ApiKeySetupReturn
+            intent={keySetupIntent}
+            accounts={gatewayAccounts}
+          />
+        ) : null}
         <a
           className="inline-block text-sm text-cyan-200 underline"
-          href={dashboardSectionHref("policy", workspaceKey)}
+          href={dashboardSectionHref("providers", workspaceKey)}
         >
-          Choose accounts for AI reviews in Models
+          Choose providers and models for reviews
         </a>
         <AccountGatewayAccountsSection
           workspaceId={workspace.id}
           workspaceName={workspace.name}
+          setupIntent={keySetupIntent ?? undefined}
         />
 
         {hasWorkspaceWideAccess ? (
@@ -1746,6 +1840,25 @@ export function WorkspaceCard({
           selectedSection={selectedSection}
         />
         <DashboardSectionHeader selectedSection="providers" />
+        {keySetupIntent && keySetupTarget ? (
+          <ProviderSetupDialog
+            workspaceId={workspace.id}
+            target={keySetupTarget}
+            mode={keySetupTarget.kind === "workspace" ? "add" : "choose"}
+            mutationsEnabled={mutationsEnabled}
+            modelOptions={modelOptions}
+            gatewayAccounts={gatewayAccounts}
+            agentProfileOptions={agentProfileOptions}
+            initialIntent={keySetupIntent}
+            initiallyOpen
+            triggerLabel="Continue provider setup"
+          />
+        ) : keySetupIntent ? (
+          <p role="status" className="text-sm text-amber-100">
+            Choose your repositories again in Repositories to continue provider
+            setup.
+          </p>
+        ) : null}
         {data.providerList ? (
           <ProviderList
             view={data.providerList}
@@ -1866,7 +1979,6 @@ export function WorkspaceCard({
             mutationsEnabled &&
             selectedRepository.selected &&
             !selectedRepository.archived,
-          currentStep: "provider",
         })
       : null;
   const selectedCredentialStep = selectedProviderContext?.effective
@@ -2125,9 +2237,9 @@ export function WorkspaceCard({
                     hint={`${supportDiagnostics.actionRunCounts.criticalFindings} critical / ${supportDiagnostics.actionRunCounts.inlineComments} inline`}
                   />
                   <SupportMetric
-                    label="Memory"
-                    value={`${supportDiagnostics.memoryCounts.items.active}/${supportDiagnostics.memoryCounts.items.total} active`}
-                    hint={`${supportDiagnostics.memoryCounts.suggestions.pending} pending / ${supportDiagnostics.memoryCounts.index.pending} indexing`}
+                    label="Previous memory"
+                    value={`${supportDiagnostics.memoryCounts.items.total} retained records`}
+                    hint="Kept for migration review"
                   />
                 </div>
                 {supportDiagnostics.recentAuditActions.length > 0 ? (
@@ -2676,7 +2788,6 @@ function RepositoryTable({
                       mutationsEnabled &&
                       repository.selected &&
                       !repository.archived,
-                    currentStep: setupProgressStep,
                   });
                   const providerTarget = {
                     kind: "repository",
@@ -2996,7 +3107,6 @@ function repositoryProviderContext(input: {
   readonly summary: ProviderLineSummary;
   readonly allowOrganizationSecrets: boolean;
   readonly canManageCredentials: boolean;
-  readonly currentStep: RepositorySetupStepId;
 }): ProviderSetupRepositoryContext {
   const { repository, summary } = input;
   const installation = findInstallationForRepository(
@@ -3024,18 +3134,21 @@ function repositoryProviderContext(input: {
         }
       : null,
     secretGuidance: installation
-      ? {
-          claude_code_oauth: buildProviderSecretSetupGuidance({
-            provider: "claude_code_oauth",
-            repoFullName: repository.fullName,
-            organizationLogin,
-          }),
-          mimo_token_plan_api_key: buildProviderSecretSetupGuidance({
-            provider: "mimo_token_plan_api_key",
-            repoFullName: repository.fullName,
-            organizationLogin,
-          }),
-        }
+      ? Object.fromEntries(
+          (
+            [
+              "claude_code_oauth",
+              ...apiKeyProviders.map((provider) => provider.directAuthMode),
+            ] as UserCiSecretAuthMode[]
+          ).map((authMode) => [
+            authMode,
+            buildProviderSecretSetupGuidance({
+              provider: authMode,
+              repoFullName: repository.fullName,
+              organizationLogin,
+            }),
+          ]),
+        )
       : null,
     organizationLogin,
     organizationSecretPolicy:
@@ -3043,10 +3156,6 @@ function repositoryProviderContext(input: {
         ? installation.organizationSecretPolicy
         : null,
     rotatingEnabled,
-    // Rotating Codex seeds its credential before the first setup PR.
-    rotatingPreparationOnly:
-      summary.profile?.credentialKind === "repository_rotating" &&
-      input.currentStep === "setup_pr",
   };
 }
 
@@ -3112,6 +3221,13 @@ function providerProfileSummary(
     ? {
         label: profile.label,
         model: profile.model,
+        providerId: savedProviderIdentity({
+          authMode: profile.credential.authMode,
+          gatewayProfileRef:
+            profile.credential.kind === "gateway_binding"
+              ? profile.credential.gatewayProfileRef
+              : undefined,
+        }),
         authMode: profile.credential.authMode,
         credentialKind: profile.credential.kind,
       }

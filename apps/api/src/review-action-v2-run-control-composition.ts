@@ -1,3 +1,5 @@
+import { attestCompiledReviewActionV2ProducerContract } from "./review-action-v2-producer-contract-attestation.js";
+import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import type { RepositoryReleaseSelector } from "./review-action-v2-repository-release-selection";
 import {
   buildActionOidcReplayNonceKey,
@@ -53,7 +55,9 @@ import {
 import type { ReviewRunControlComposition } from "@reviewrouter/features-review-run-control/composition";
 import {
   reviewActionV2SchemaSlot,
-  reviewActionV2CanonicalizerForSchema,
+  reviewActionV2ContractSlot,
+  reviewActionV2InvestigationExtensionForSchema,
+  type ReviewActionV2ContractDescriptor,
   canonicalizeReviewActionV2RequestForSlot,
   reviewActionV2PublishedProtocolVersion,
   reviewActionV2PublishedSchemaDigest,
@@ -76,12 +80,13 @@ export type ReviewActionV2ResolvedRevision = {
   readonly producerReleaseId: string;
   readonly producerActionCommitSha: string;
   readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
-  readonly providerApiAuthMode?: "openrouter-api";
+  readonly providerApiAuthMode?: ProviderApiAuthMode;
   readonly contextToolGithubSecrets?: Readonly<Record<string, string>>;
   readonly providerVoteLanes: readonly ProviderVoteLane[];
 };
 
 export type ReviewActionV2ResolvedAdmission = {
+  readonly protocolContract: ReviewActionV2ContractDescriptor;
   readonly revision: ReviewActionV2ResolvedRevision;
   readonly producerRelease: ProducerRelease;
 };
@@ -126,6 +131,7 @@ export type ReviewInvestigationAuthorizationTarget = Pick<
 
 export interface ReviewInvestigationAuthorizationCapabilityPort {
   resolve(input: {
+    readonly protocolContract: ReviewActionV2ContractDescriptor;
     readonly target: ReviewInvestigationAuthorizationTarget;
     readonly producerRelease: ProducerRelease;
   }): Promise<ReviewInvestigationAuthorizationCapability | null>;
@@ -166,6 +172,7 @@ export type ServerOwnedReviewActionV2AdmissionDependencies = {
       readonly expectedProviderApiActionCommitSha?: string;
     }): Promise<{
       readonly compatible: boolean;
+      readonly providerApiAuthMode?: ProviderApiAuthMode;
       readonly mcpSecrets?: Readonly<Record<string, string>>;
     }>;
   };
@@ -343,16 +350,19 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
       const pullRequestNumberHint =
         requestedIntent?.pullRequestNumber ??
         pullRequestNumberHintFromClaims(input.claims);
-      const {
-        actionCommitSha: producerActionCommitSha,
-        modelTransport,
-        providerApiAuthMode,
-      } = producerExecutionFromClaims(input.claims);
+      const { actionCommitSha: producerActionCommitSha, modelTransport } =
+        producerExecutionFromClaims(input.claims);
+      let providerApiAuthMode: ProviderApiAuthMode | undefined;
+      const canonicalDirectCaller =
+        modelTransport === "provider_api" &&
+        input.claims.workflow_ref.startsWith(
+          `${input.claims.repository}/${reviewRouterWorkflowContract.callerPath}@`,
+        );
       let contextToolGithubSecrets:
         | Readonly<Record<string, string>>
         | undefined;
       if (
-        !providerApiAuthMode &&
+        modelTransport === "account_gateway" &&
         input.claims.workflow_ref.startsWith(
           `${input.claims.repository}/${reviewRouterWorkflowContract.callerPath}@`,
         ) &&
@@ -373,7 +383,7 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
         if (source?.compatible && source.mcpSecrets)
           contextToolGithubSecrets = { ...source.mcpSecrets };
       }
-      if (providerApiAuthMode) {
+      if (canonicalDirectCaller) {
         const source =
           input.claims.workflow_sha && isCommitSha(input.claims.workflow_sha)
             ? await dependencies.providerApiSource?.verifyManagedV2SessionBootstrapSource(
@@ -388,12 +398,13 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
                 },
               )
             : undefined;
-        if (!source?.compatible)
+        if (!source?.compatible || !source.providerApiAuthMode)
           throw routeFailure(
             403,
             ReviewActionV2ProtocolErrorCode.Forbidden,
             "provider_api_workflow_source_not_canonical",
           );
+        providerApiAuthMode = source.providerApiAuthMode;
       }
       const revision = await dependencies.revisionResolver.resolve({
         workspaceId: input.repository.workspaceId,
@@ -422,21 +433,11 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
           "review_request_revision_moved",
         );
       }
-      const canonicalizer = reviewActionV2CanonicalizerForSchema(
+      const attestation = await attestCompiledReviewActionV2ProducerContract(
+        dependencies.releaseAttestations,
+        producerActionCommitSha,
         input.protocolSchemaDigest ?? reviewActionV2PublishedSchemaDigest,
       );
-      if (!canonicalizer)
-        throw routeFailure(
-          403,
-          ReviewActionV2ProtocolErrorCode.Forbidden,
-          "producer_schema_slot_mismatch",
-        );
-      const attestation = await dependencies.releaseAttestations.attest({
-        actionCommitSha: producerActionCommitSha,
-        expectedSchemaDigest:
-          input.protocolSchemaDigest ?? reviewActionV2PublishedSchemaDigest,
-        expectedCanonicalizerDigest: canonicalizer,
-      });
       if (attestation.status !== ProducerReleaseAttestationStatus.Attested) {
         throw producerReleaseAttestationFailure(attestation.status);
       }
@@ -503,6 +504,7 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
           })),
         },
         producerRelease: attestation.release,
+        protocolContract: attestation.contract,
       };
     },
   };
@@ -584,7 +586,6 @@ function pullRequestNumberHintFromClaims(
 export function producerExecutionFromClaims(claims: GitHubActionsOidcClaims): {
   readonly actionCommitSha: string;
   readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
-  readonly providerApiAuthMode?: "openrouter-api";
 } {
   const actionCommitSha = claims.job_workflow_sha?.toLowerCase();
   const workflowRef = claims.job_workflow_ref
@@ -617,7 +618,6 @@ export function producerExecutionFromClaims(claims: GitHubActionsOidcClaims): {
       return {
         actionCommitSha,
         modelTransport: "provider_api",
-        providerApiAuthMode: "openrouter-api",
       };
     }
     if (
@@ -810,6 +810,7 @@ async function authorizeReviewRun(
   await assertRegisteredRelease(resolved.facts, dependencies);
   const resolvedReviewInvestigation =
     await dependencies.reviewInvestigationCapability?.resolve({
+      protocolContract: resolved.protocolContract,
       target: {
         workspaceId: resolved.identity.workspaceId,
         repositoryConnectionId: resolved.identity.repositoryConnectionId,
@@ -825,6 +826,7 @@ async function authorizeReviewRun(
       resolvedReviewInvestigation,
       resolved.facts.providerVoteLanes,
       request.schemaDigest,
+      resolved.protocolContract,
     );
   const [protocolOfferHash, oidcReplayKeyHash] = await Promise.all([
     dependencies.digest.digestUtf8(canonicalProtocolOffer(request)),
@@ -913,7 +915,7 @@ async function authorizeReviewRun(
         pullRequestNumber: success.authorization.pullRequestNumber,
         sourceRunId: success.authorization.sourceRunId,
         sourceRunAttempt: success.authorization.sourceRunAttempt,
-        ...(resolved.facts.providerApiAuthMode === "openrouter-api"
+        ...(resolved.facts.providerApiAuthMode !== undefined
           ? { workflowIdentityHash: success.authorization.workflowIdentityHash }
           : {}),
         baseSha: success.authorization.baseSha,
@@ -938,9 +940,17 @@ function bindInvestigationCapabilityToAuthorization(
   capability: ReviewInvestigationAuthorizationCapability | null | undefined,
   providerVoteLanes: readonly ProviderVoteLane[],
   schemaDigest: string,
+  protocolContract?: ReviewActionV2ContractDescriptor,
 ): ReviewInvestigationAuthorizationCapability | null {
-  const extension =
-    reviewActionV2SchemaSlot(schemaDigest)?.reviewInvestigationExtensionV1;
+  const extension = protocolContract
+    ? reviewActionV2ContractSlot(
+        schemaDigest,
+        protocolContract.canonicalizerDigest,
+      )?.reviewInvestigationExtensionV1
+    : reviewActionV2InvestigationExtensionForSchema(
+        schemaDigest,
+        capability?.extensionCanonicalizerDigest,
+      );
   if (capability === null || capability === undefined) return null;
   if (
     !isRecord(capability) ||
@@ -1227,6 +1237,7 @@ async function resolveVerifiedIdentity(
   readonly identity: VerifiedScmRunIdentity;
   readonly facts: ReviewActionV2ResolvedRevision;
   readonly producerRelease: ProducerRelease;
+  readonly protocolContract: ReviewActionV2ContractDescriptor;
 }> {
   const claims = await verifyOidc(oidcToken, dependencies);
   const repository =
@@ -1292,6 +1303,12 @@ async function resolveVerifiedIdentity(
     );
   }
   if (
+    admission.protocolContract.schemaDigest !==
+      admission.producerRelease.schemaDigest ||
+    reviewActionV2ContractSlot(
+      admission.protocolContract.schemaDigest,
+      admission.protocolContract.canonicalizerDigest,
+    ) === null ||
     admission.producerRelease.producerReleaseId !== facts.producerReleaseId ||
     admission.producerRelease.actionCommitSha !==
       facts.producerActionCommitSha.toLowerCase() ||
@@ -1338,6 +1355,7 @@ async function resolveVerifiedIdentity(
     claims,
     facts,
     producerRelease: admission.producerRelease,
+    protocolContract: admission.protocolContract,
     identity: {
       workspaceId: repository.workspaceId,
       repositoryConnectionId: repository.repositoryId,

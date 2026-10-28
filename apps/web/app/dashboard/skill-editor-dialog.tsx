@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@reviewrouter/ui";
 import type { ReviewSkillDocument } from "../../src/features/review-skills/contracts";
@@ -8,15 +8,26 @@ import {
   ReviewSkillsClientError,
 } from "../../src/features/review-skills/client-adapter";
 import { SkillsDialog, SkillsError, skillFieldClass } from "./review-skills-ui";
+import {
+  parseSkillImport,
+  skillContentIssues,
+  skillDownload,
+  skillImportByteLimit,
+  type SkillImport,
+} from "../../src/features/review-skills/portable-skill";
 
-function exportSkill(document: ReviewSkillDocument) {
-  const text = `---\nname: ${JSON.stringify(document.name)}\ndescription: ${JSON.stringify(document.description)}\n---\n\n${document.instructions}\n`;
+type SkillContent = Pick<
+  ReviewSkillDocument,
+  "name" | "description" | "instructions"
+>;
+
+function exportSkill(download: ReturnType<typeof skillDownload>) {
   const url = URL.createObjectURL(
-    new Blob([text], { type: "text/markdown;charset=utf-8" }),
+    new Blob([download.text], { type: "text/markdown;charset=utf-8" }),
   );
   const link = globalThis.document.createElement("a");
   link.href = url;
-  link.download = "SKILL.md";
+  link.download = download.filename;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -36,97 +47,111 @@ export function SkillEditorDialog({
   const [instructions, setInstructions] = useState(
     document?.instructions ?? "",
   );
+  const [savedContent, setSavedContent] = useState<SkillContent>(() => ({
+    name: document?.name ?? "",
+    description: document?.description ?? "",
+    instructions: document?.instructions ?? "",
+  }));
   const [revisionId, setRevisionId] = useState(document?.revisionId ?? "");
   const [importError, setImportError] = useState<unknown>(null);
+  const [importReview, setImportReview] = useState<SkillImport | null>(null);
+  const [touched, setTouched] = useState<
+    Partial<Record<keyof SkillContent, boolean>>
+  >({});
+  const fieldId = useId();
   const [comparison, setComparison] = useState<ReviewSkillDocument | null>(
     null,
   );
   const [reconciled, setReconciled] = useState(false);
+  const [createOperationId] = useState(() =>
+    document ? "" : crypto.randomUUID(),
+  );
+  const [uncertainCreate, setUncertainCreate] = useState<SkillContent | null>(
+    null,
+  );
+  const [importing, setImporting] = useState(false);
   const editable = !document || document.canEdit;
   const dirty =
-    name !== (document?.name ?? "") ||
-    description !== (document?.description ?? "") ||
-    instructions !== (document?.instructions ?? "");
+    name !== savedContent.name ||
+    description !== savedContent.description ||
+    instructions !== savedContent.instructions;
   const bytes = new TextEncoder().encode(instructions).length;
-  const valid =
-    name.trim() &&
-    instructions.trim() &&
-    Array.from(name).length <= 120 &&
-    Array.from(description).length <= 1024 &&
-    bytes <= 32768;
+  const issues = skillContentIssues({ name, description, instructions });
+  const valid = Object.keys(issues).length === 0;
+  const download = skillDownload({ name, description, instructions });
   const save = useMutation({
-    mutationFn: () =>
+    mutationFn: (content: SkillContent) =>
       document
         ? requestReviewSkills("saveSkill", {
             workspaceId: document.sourceWorkspaceId,
             skillId: document.skillId,
             expectedRevisionId: revisionId,
-            content: { name, description, instructions },
+            content,
           })
         : requestReviewSkills("createSkill", {
             workspaceId,
-            content: { name, description, instructions },
+            createOperationId,
+            content,
           }),
     onSuccess: onSaved,
+    onError: (error, submitted) => {
+      if (
+        !document &&
+        error instanceof ReviewSkillsClientError &&
+        error.code === "unknown"
+      )
+        setUncertainCreate(submitted);
+    },
   });
+  const fieldsLocked =
+    save.isPending ||
+    importing ||
+    Boolean(uncertainCreate) ||
+    Boolean(importReview);
   const close = () => {
     if (
       !save.isPending &&
+      !importing &&
       (!editable ||
-        !dirty ||
-        window.confirm("Discard your unsaved skill changes?"))
+        (!dirty && !uncertainCreate) ||
+        window.confirm(
+          uncertainCreate
+            ? "This skill may already have been created. Close and check the Skills library before creating it again?"
+            : "Discard your unsaved skill changes?",
+        ))
     )
       onClose();
   };
+  function applyImport(imported: SkillImport) {
+    setName(imported.content.name);
+    setDescription(imported.content.description);
+    setInstructions(imported.content.instructions);
+    setImportReview(null);
+    setImportError(null);
+    setTouched({});
+  }
   async function importFile(file: File | undefined) {
     if (!file) return;
+    setImporting(true);
     try {
-      if (file.size > 32768)
-        throw new Error("SKILL.md must be 32 KiB or smaller.");
-      const text = await file.text();
-      const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/.exec(
-        text,
-      );
-      if (!match)
+      // Bound parsing while leaving room for the YAML header around a valid
+      // 32 KiB body, including escaped name and description characters.
+      if (file.size > skillImportByteLimit)
         throw new Error(
-          "Use SKILL.md with YAML name and description, followed by Markdown instructions.",
+          "SKILL.md must be 64 KiB or smaller; instructions are limited to 32 KiB.",
         );
-      const { parseDocument, isAlias, isMap, isSeq } = await import("yaml");
-      const yaml = parseDocument(match[1]!, {
-        schema: "failsafe",
-        uniqueKeys: true,
-      });
-      const inspect = (node: unknown): void => {
-        if (
-          isAlias(node) ||
-          (node && typeof node === "object" && "tag" in node && node.tag)
-        )
-          throw new Error("YAML aliases and explicit tags are unsupported.");
-        if (isMap(node))
-          for (const item of node.items) {
-            inspect(item.key);
-            inspect(item.value);
-          }
-        if (isSeq(node)) for (const item of node.items) inspect(item);
-      };
-      inspect(yaml.contents);
-      if (yaml.errors.length || yaml.warnings.length)
-        throw new Error("The YAML header could not be imported safely.");
-      const fields = yaml.toJS({ maxAliasCount: 0 }) as Record<string, unknown>;
-      if (
-        !fields ||
-        typeof fields.name !== "string" ||
-        typeof fields.description !== "string"
-      )
-        throw new Error(
-          "The YAML header needs text name and description fields.",
-        );
-      setName(fields.name);
-      setDescription(fields.description);
-      setInstructions(match[2]!.trim());
+      const imported = await parseSkillImport(await file.text());
       setImportError(null);
+      if (dirty || imported.omittedFields.length) setImportReview(imported);
+      else applyImport(imported);
     } catch (error) {
-      setImportError(error);
+      setImportError(
+        new Error(
+          `Import not applied. Your current draft is unchanged. ${error instanceof Error ? error.message : "SKILL.md could not be imported."}`,
+        ),
+      );
+    } finally {
+      setImporting(false);
     }
   }
   const conflict =
@@ -136,32 +161,65 @@ export function SkillEditorDialog({
     <SkillsDialog
       open
       onClose={close}
-      pending={save.isPending}
+      pending={save.isPending || importing}
       title={
         document ? (editable ? "Edit skill" : "View skill") : "Create skill"
       }
       description="Save updates these instructions for future reviews in connected repositories. Reviews already in progress keep the instructions they started with."
       footer={
-        <>
-          {document ? (
+        importReview ? (
+          <>
             <Button
               type="button"
               variant="outline"
-              onClick={() => exportSkill(document)}
+              onClick={() => setImportReview(null)}
             >
-              Export SKILL.md
+              Cancel import
             </Button>
-          ) : null}
-          {editable ? (
-            <Button
-              type="button"
-              disabled={!valid || save.isPending || (conflict && !reconciled)}
-              onClick={() => save.mutate()}
-            >
-              {save.isPending ? "Saving…" : "Save"}
+            <Button type="button" onClick={() => applyImport(importReview)}>
+              {importReview.omittedFields.length
+                ? "Import text only"
+                : "Replace draft"}
             </Button>
-          ) : null}
-        </>
+          </>
+        ) : (
+          <>
+            {document || dirty ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="max-w-full"
+                onClick={() => exportSkill(download)}
+              >
+                {download.issue ? "Download draft" : "Export SKILL.md"}
+              </Button>
+            ) : null}
+            {editable ? (
+              <Button
+                type="button"
+                disabled={
+                  !valid ||
+                  save.isPending ||
+                  importing ||
+                  Boolean(importReview) ||
+                  (conflict && !reconciled)
+                }
+                onClick={() => {
+                  setImportError(null);
+                  save.mutate(
+                    uncertainCreate ?? { name, description, instructions },
+                  );
+                }}
+              >
+                {save.isPending
+                  ? "Saving…"
+                  : uncertainCreate
+                    ? "Retry save"
+                    : "Save"}
+              </Button>
+            ) : null}
+          </>
+        )
       }
     >
       {!document ? (
@@ -170,6 +228,7 @@ export function SkillEditorDialog({
           <input
             type="file"
             accept=".md,text/markdown,text/plain"
+            disabled={fieldsLocked}
             className="mt-2 block w-full text-sm"
             onChange={(event) => {
               void importFile(event.target.files?.[0]);
@@ -177,6 +236,38 @@ export function SkillEditorDialog({
             }}
           />
         </label>
+      ) : null}
+      {importing ? <p role="status">Importing SKILL.md…</p> : null}
+      {importReview ? (
+        <section
+          aria-label="Review import"
+          className="space-y-2 border-y border-cyan-200/20 py-3 text-sm"
+        >
+          <h3 className="font-semibold text-cyan-50">Review import</h3>
+          <p className="break-words text-slate-300">
+            Importing {importReview.content.name} as editable text instructions.
+          </p>
+          {importReview.omittedFields.length ? (
+            <p className="text-amber-100">
+              This editor does not store these fields:{" "}
+              {importReview.omittedFields.join(", ")}. Import text only keeps
+              the name, description and Markdown instructions.
+            </p>
+          ) : null}
+          {dirty ? (
+            <p className="text-amber-100">
+              Importing will replace your current unsaved draft. Cancel import
+              keeps it unchanged.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+      {uncertainCreate ? (
+        <p role="status" className="text-sm text-amber-100">
+          This skill may already have been created. Retry save recovers the
+          result using the same submitted content without creating a second
+          original.
+        </p>
       ) : null}
       {!editable ? (
         <p className="text-sm text-slate-400">
@@ -190,13 +281,28 @@ export function SkillEditorDialog({
           className={`${skillFieldClass} mt-2`}
           value={name}
           readOnly={!editable}
+          disabled={fieldsLocked}
+          aria-invalid={Boolean(touched.name && issues.name)}
+          aria-describedby={`${fieldId}-name-hint ${touched.name && issues.name ? `${fieldId}-name-error` : ""}`}
           maxLength={240}
           onChange={(event) => setName(event.target.value)}
+          onBlur={() => setTouched((current) => ({ ...current, name: true }))}
           required
         />
-        <span className="mt-1 block text-xs text-slate-500">
+        <span
+          id={`${fieldId}-name-hint`}
+          className="mt-1 block text-xs text-slate-500"
+        >
           {Array.from(name).length}/120 characters
         </span>
+        {touched.name && issues.name ? (
+          <span
+            id={`${fieldId}-name-error`}
+            className="mt-1 block text-xs text-amber-100"
+          >
+            {issues.name}
+          </span>
+        ) : null}
       </label>
       <label className="block text-sm text-slate-300">
         Description
@@ -205,11 +311,28 @@ export function SkillEditorDialog({
           rows={2}
           value={description}
           readOnly={!editable}
+          disabled={fieldsLocked}
+          aria-invalid={Boolean(touched.description && issues.description)}
+          aria-describedby={`${fieldId}-description-hint ${touched.description && issues.description ? `${fieldId}-description-error` : ""}`}
           onChange={(event) => setDescription(event.target.value)}
+          onBlur={() =>
+            setTouched((current) => ({ ...current, description: true }))
+          }
         />
-        <span className="mt-1 block text-xs text-slate-500">
+        <span
+          id={`${fieldId}-description-hint`}
+          className="mt-1 block text-xs text-slate-500"
+        >
           {Array.from(description).length}/1024 characters
         </span>
+        {touched.description && issues.description ? (
+          <span
+            id={`${fieldId}-description-error`}
+            className="mt-1 block text-xs text-amber-100"
+          >
+            {issues.description}
+          </span>
+        ) : null}
       </label>
       <label className="block text-sm text-slate-300">
         Markdown instructions
@@ -218,19 +341,55 @@ export function SkillEditorDialog({
           rows={12}
           value={instructions}
           readOnly={!editable}
+          disabled={fieldsLocked}
+          aria-invalid={Boolean(touched.instructions && issues.instructions)}
+          aria-describedby={`${fieldId}-instructions-hint ${touched.instructions && issues.instructions ? `${fieldId}-instructions-error` : ""}`}
           onChange={(event) => setInstructions(event.target.value)}
+          onBlur={() =>
+            setTouched((current) => ({ ...current, instructions: true }))
+          }
           required
         />
-        <span className="mt-1 block text-xs text-slate-500">
+        <span
+          id={`${fieldId}-instructions-hint`}
+          className="mt-1 block text-xs text-slate-500"
+        >
           {bytes}/32768 UTF-8 bytes. Instructions are text; no scripts or
           dependencies are installed.
         </span>
+        {touched.instructions && issues.instructions ? (
+          <span
+            id={`${fieldId}-instructions-error`}
+            className="mt-1 block text-xs text-amber-100"
+          >
+            {issues.instructions}
+          </span>
+        ) : null}
       </label>
+      {document || dirty ? (
+        <div className="space-y-1 break-words text-xs leading-5 text-slate-400">
+          {download.issue ? (
+            <p>Download draft preserves your text. {download.issue}</p>
+          ) : (
+            <>
+              <p>
+                Text-only export: place SKILL.md in a folder named{" "}
+                {download.portableName}. Your name in this library stays
+                unchanged.
+              </p>
+              {download.usesFallbackDescription ? (
+                <p>Export description: {download.exportDescription}</p>
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : null}
       <SkillsError error={importError ?? save.error} />
       {conflict ? (
         <Button
           type="button"
           variant="outline"
+          disabled={fieldsLocked}
           onClick={() => {
             if (document)
               void requestReviewSkills("loadSkill", {
@@ -240,6 +399,7 @@ export function SkillEditorDialog({
                 .then((current) => {
                   setComparison(current);
                   setReconciled(false);
+                  setImportError(null);
                 })
                 .catch(setImportError);
           }}
@@ -268,12 +428,15 @@ export function SkillEditorDialog({
             <Button
               type="button"
               variant="outline"
+              disabled={fieldsLocked}
               onClick={() => {
                 setName(comparison.name);
                 setDescription(comparison.description);
                 setInstructions(comparison.instructions);
                 setRevisionId(comparison.revisionId);
+                setSavedContent(comparison);
                 setReconciled(true);
+                setComparison(null);
                 save.reset();
               }}
             >
@@ -282,9 +445,12 @@ export function SkillEditorDialog({
             <Button
               type="button"
               variant="outline"
+              disabled={fieldsLocked}
               onClick={() => {
                 setRevisionId(comparison.revisionId);
+                setSavedContent(comparison);
                 setReconciled(true);
+                setComparison(null);
                 save.reset();
               }}
             >

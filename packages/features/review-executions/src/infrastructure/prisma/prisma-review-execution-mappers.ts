@@ -225,7 +225,10 @@ export function executionToDomain(
     compatibilityKey: record.compatibilityKey,
     planHash: record.planHash,
     assignmentManifestVersion:
-      record.assignmentManifestVersion === 1 ? 1 : null,
+      record.assignmentManifestVersion === 1 ||
+      record.assignmentManifestVersion === 2
+        ? record.assignmentManifestVersion
+        : null,
     assignmentManifestHash: record.assignmentManifestHash,
     assignmentManifestCanonicalJson:
       record.assignmentManifestJson === null

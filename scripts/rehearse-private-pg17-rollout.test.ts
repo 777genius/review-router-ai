@@ -1285,13 +1285,18 @@ describe("disposable dual-version rehearsal", () => {
     const currentMigrationNames = migrationNames;
     const legacyMigrationNames = currentMigrationNames.filter(
       (name) =>
+        name !== "000149_api_key_repository_secret_profiles" &&
+        name !== "000142_memory_knowledge_authority" &&
+        name !== "000143_memory_maintenance_fence" &&
+        name !== "000148_lifecycle_verification" &&
+        name !== "000147_review_skills_mutation_identity" &&
         name !== "000146_drop_review_configuration_projection" &&
         name !== "000145_workspace_provider_profiles" &&
         name !== "000144_review_statistics" &&
         name !== "000136_review_skills" &&
         name !== "000137_review_skills_capture",
     );
-    expect(currentMigrationNames).toHaveLength(148);
+    expect(currentMigrationNames).toHaveLength(153);
     expect(
       [...currentMigrationNames]
         .sort()
@@ -1328,6 +1333,11 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000144_review_statistics" &&
         name !== "000143_workspace_draft_review_setting" &&
         name !== "000145_workspace_provider_profiles" &&
+        name !== "000149_api_key_repository_secret_profiles" &&
+        name !== "000142_memory_knowledge_authority" &&
+        name !== "000143_memory_maintenance_fence" &&
+        name !== "000148_lifecycle_verification" &&
+        name !== "000147_review_skills_mutation_identity" &&
         name !== "000146_drop_review_configuration_projection" &&
         name !== "000133_allow_first_time_scm_identity_bind",
     );
@@ -1384,7 +1394,32 @@ describe("disposable dual-version rehearsal", () => {
       "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
     );
     expect(migrationManifestIdentity(currentMigrationNames)).toBe(
-      "sha256:000decc06ca41637beceb84da74858f434d2300c3c4c3af8c96dcac0aee3efba",
+      "sha256:5d42e163ba89faae7c49fa4fa9ff65bc2a8b87a6774b57a5f70c6a027e4331dd",
+    );
+    expect(
+      migrationManifestIdentity(
+        currentMigrationNames.filter(
+          (name) =>
+            name !== "000149_api_key_repository_secret_profiles" &&
+            name !== "000142_memory_knowledge_authority" &&
+            name !== "000143_memory_maintenance_fence",
+        ),
+      ),
+    ).toBe(
+      "sha256:ae1f73631c1ae9e359a22c421d7bb83751fd831f22ba77304be1d20d01878472",
+    );
+    expect(
+      migrationManifestIdentity(
+        currentMigrationNames.filter(
+          (name) =>
+            name !== "000149_api_key_repository_secret_profiles" &&
+            name !== "000142_memory_knowledge_authority" &&
+            name !== "000143_memory_maintenance_fence" &&
+            name !== "000148_lifecycle_verification",
+        ),
+      ),
+    ).toBe(
+      "sha256:597739d44aa5f10551930c1349bed5c1a634b868fd55f9738b32b33ac230e897",
     );
     expect(legacyMigrationNames).toHaveLength(143);
     expect(migrationManifestIdentity(legacyMigrationNames)).toBe(
@@ -1502,11 +1537,16 @@ describe("disposable dual-version rehearsal", () => {
       "000139_review_context_tools",
       "000140_personal_oauth_method",
       "000141_memory_search_projections",
+      "000142_memory_knowledge_authority",
       "000142_optional_gateway_reasoning",
+      "000143_memory_maintenance_fence",
       "000143_workspace_draft_review_setting",
       "000144_review_statistics",
       "000145_workspace_provider_profiles",
       "000146_drop_review_configuration_projection",
+      "000147_review_skills_mutation_identity",
+      "000148_lifecycle_verification",
+      "000149_api_key_repository_secret_profiles",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1632,9 +1672,12 @@ describe("disposable dual-version rehearsal", () => {
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
     const exactTail = "000121_review_run_gateway_execution_binding";
-    const currentTail = "000146_drop_review_configuration_projection";
+    const currentTail = "000149_api_key_repository_secret_profiles";
     for (const candidate of [
       names.filter((name) => name !== currentTail),
+      names.filter(
+        (name) => name !== "000146_drop_review_configuration_projection",
+      ),
       names.filter((name) => name !== "000145_workspace_provider_profiles"),
       names.filter((name) => name !== "000144_review_statistics"),
       names.filter((name) => name !== "000143_workspace_draft_review_setting"),
@@ -1755,11 +1798,16 @@ describe("disposable dual-version rehearsal", () => {
     "000139_review_context_tools",
     "000140_personal_oauth_method",
     "000141_memory_search_projections",
+    "000142_memory_knowledge_authority",
+    "000143_memory_maintenance_fence",
     "000142_optional_gateway_reasoning",
     "000143_workspace_draft_review_setting",
     "000144_review_statistics",
     "000145_workspace_provider_profiles",
     "000146_drop_review_configuration_projection",
+    "000147_review_skills_mutation_identity",
+    "000148_lifecycle_verification",
+    "000149_api_key_repository_secret_profiles",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1837,6 +1885,11 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000144_review_statistics" &&
                 name !== "000143_workspace_draft_review_setting" &&
                 name !== "000145_workspace_provider_profiles" &&
+                name !== "000149_api_key_repository_secret_profiles" &&
+                name !== "000142_memory_knowledge_authority" &&
+                name !== "000143_memory_maintenance_fence" &&
+                name !== "000148_lifecycle_verification" &&
+                name !== "000147_review_skills_mutation_identity" &&
                 name !== "000146_drop_review_configuration_projection" &&
                 name !== "000133_allow_first_time_scm_identity_bind",
               "000102_sdk_growth_current_authority",

@@ -679,6 +679,7 @@ const gatewayConfigInput = (provider: unknown) => ({
 });
 
 it.each([
+  { model: "codex-dynamic-fixture", reasoningEffort: "minimal" },
   { model: "mimo-v2.6-pro", reasoningEffort: "high" },
   { model: "openai/gpt-5.6-sol", reasoningEffort: "ultra" },
 ] as const)(

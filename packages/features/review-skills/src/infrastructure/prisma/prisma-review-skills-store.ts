@@ -47,6 +47,7 @@ type Grant = {
 type Binding = {
   skillId: string;
   repositoryConnectionId: string;
+  generation: string;
   version: number;
   includePaths: unknown;
   excludePaths: unknown;
@@ -143,21 +144,24 @@ async function manage(
   ids: readonly string[],
   scmIds: readonly string[],
   lock = false,
+  allowInactiveCleanup = false,
 ) {
   await active(reader, workspaceId);
   if (!ids.length || ids.length > 1000) error(Code.InvalidInput);
+  const isAdmin = admin(await role(reader, workspaceId, actor.userId, lock));
   const rows = await q<{ id: string }>(
     reader,
-    lock
-      ? Prisma.sql`SELECT id FROM public.rr_review_skills_repository_lock(${workspaceId}, ${[...ids]}::text[])`
-      : Prisma.sql`SELECT "id" FROM "RepositoryConnection" WHERE "workspaceId"=${workspaceId} AND "id" IN (${Prisma.join(ids)}) AND "selected"=true AND "archived"=false ORDER BY "id"`,
+    // Only cleanup reads/removals use this branch. The parent workspace and DB
+    // role are locked for a removal; the composite binding FK preserves local
+    // repository ownership until this serializable delta deletes the binding.
+    allowInactiveCleanup && isAdmin
+      ? Prisma.sql`SELECT "id" FROM "RepositoryConnection" WHERE "workspaceId"=${workspaceId} AND "id" IN (${Prisma.join(ids)}) ORDER BY "id"`
+      : lock
+        ? Prisma.sql`SELECT id FROM public.rr_review_skills_repository_lock(${workspaceId}, ${[...ids]}::text[])`
+        : Prisma.sql`SELECT "id" FROM "RepositoryConnection" WHERE "workspaceId"=${workspaceId} AND "id" IN (${Prisma.join(ids)}) AND "selected"=true AND "archived"=false ORDER BY "id"`,
   );
   if (rows.length !== ids.length) error(Code.Forbidden);
-  if (
-    !admin(await role(reader, workspaceId, actor.userId, lock)) &&
-    ids.some((id) => !scmIds.includes(id))
-  )
-    error(Code.Forbidden);
+  if (!isAdmin && ids.some((id) => !scmIds.includes(id))) error(Code.Forbidden);
 }
 const skillColumns = Prisma.sql`s."id", s."sourceWorkspaceId", s."authorUserId", s."deletedAt", s."headRevisionId", s."createdAt", s."updatedAt", v."revisionNumber", v."name", v."description", v."instructions", w."name" AS "sourceWorkspaceName", COALESCE(u."githubLogin",s."authorUserId") AS "authorName"`;
 const skillJoins = Prisma.sql`FROM "ReviewSkill" s JOIN "ReviewSkillRevision" v ON v."id"=s."headRevisionId" AND v."skillId"=s."id" JOIN "Workspace" w ON w."id"=s."sourceWorkspaceId" LEFT JOIN "User" u ON u."id"=s."authorUserId"`;
@@ -179,7 +183,7 @@ async function available(
     : skillColumns;
   return q<Skill>(
     reader,
-    Prisma.sql`SELECT ${columns} ${skillJoins} WHERE ${availability(workspaceId)} ${skillId ? Prisma.sql`AND s."id"=${skillId}` : Prisma.empty} ${options.ids ? Prisma.sql`AND s."id" IN (${Prisma.join(options.ids)})` : Prisma.empty} ${options.page?.cursor ? Prisma.sql`AND s."id">${options.page.cursor}` : Prisma.empty} ${options.page?.search ? Prisma.sql`AND (position(lower(${options.page.search}) in lower(v."name"))>0 OR position(lower(${options.page.search}) in lower(v."description"))>0)` : Prisma.empty} ORDER BY s."id" ${options.page ? Prisma.sql`LIMIT 51` : Prisma.empty}`,
+    Prisma.sql`SELECT ${columns} ${skillJoins} WHERE ${availability(workspaceId)} ${skillId ? Prisma.sql`AND s."id"=${skillId}` : Prisma.empty} ${options.ids ? Prisma.sql`AND s."id" IN (${Prisma.join(options.ids)})` : Prisma.empty} ${options.page?.cursor ? Prisma.sql`AND s."id">${options.page.cursor}` : Prisma.empty} ${options.page?.search ? Prisma.sql`AND (position(lower(${options.page.search}) in lower(v."name"))>0 OR position(lower(${options.page.search}) in lower(v."description"))>0 OR position(lower(${options.page.search}) in lower(s."id"))>0)` : Prisma.empty} ORDER BY s."id" ${options.page ? Prisma.sql`LIMIT 51` : Prisma.empty}`,
   );
 }
 async function bindings(
@@ -189,12 +193,13 @@ async function bindings(
 ) {
   return q<Binding>(
     reader,
-    Prisma.sql`SELECT "skillId", "repositoryConnectionId", "version", "includePaths", "excludePaths" FROM "ReviewSkillBinding" WHERE "workspaceId"=${workspaceId} ${repositoryIds ? Prisma.sql`AND "repositoryConnectionId" IN (${Prisma.join(repositoryIds)})` : Prisma.empty} ORDER BY "repositoryConnectionId", "skillId"`,
+    Prisma.sql`SELECT "skillId", "repositoryConnectionId", "generation", "version", "includePaths", "excludePaths" FROM "ReviewSkillBinding" WHERE "workspaceId"=${workspaceId} ${repositoryIds ? Prisma.sql`AND "repositoryConnectionId" IN (${Prisma.join(repositoryIds)})` : Prisma.empty} ORDER BY "repositoryConnectionId", "skillId"`,
   );
 }
 const bindingView = (b: Binding): C.ReviewSkillBindingView => ({
   skillId: b.skillId,
   repositoryId: b.repositoryConnectionId,
+  generation: b.generation,
   version: b.version,
   scope: parseReviewSkillScope({
     includePaths: b.includePaths,
@@ -273,6 +278,19 @@ export class PrismaReviewSkillsStore implements ReviewSkillsStore {
       canDelete: false,
     };
   }
+  private async localUsage(
+    reader: Reader,
+    workspaceId: string,
+    actor: C.ReviewSkillsActor,
+  ) {
+    // Membership alone never discloses other repositories' private inventory.
+    return admin(await role(reader, workspaceId, actor.userId))
+      ? q<{ skillId: string; repositoryId: string; name: string }>(
+          reader,
+          Prisma.sql`SELECT b."skillId",r."id" AS "repositoryId",r."fullName" AS "name" FROM "ReviewSkillBinding" b JOIN "RepositoryConnection" r ON r."id"=b."repositoryConnectionId" AND r."workspaceId"=b."workspaceId" WHERE b."workspaceId"=${workspaceId} ORDER BY r."id"`,
+        )
+      : [];
+  }
   private async summaries(
     reader: Reader,
     workspaceId: string,
@@ -280,13 +298,7 @@ export class PrismaReviewSkillsStore implements ReviewSkillsStore {
     rows: readonly Skill[],
   ): Promise<readonly C.ReviewSkillSummary[]> {
     const current = await role(reader, workspaceId, actor.userId);
-    // Membership alone never discloses other repositories' private inventory.
-    const usage = admin(current)
-      ? await q<{ skillId: string; repositoryId: string; name: string }>(
-          reader,
-          Prisma.sql`SELECT b."skillId",r."id" AS "repositoryId",r."fullName" AS "name" FROM "ReviewSkillBinding" b JOIN "RepositoryConnection" r ON r."id"=b."repositoryConnectionId" AND r."workspaceId"=b."workspaceId" WHERE b."workspaceId"=${workspaceId} ORDER BY r."id"`,
-        )
-      : [];
+    const usage = await this.localUsage(reader, workspaceId, actor);
     const sourceRoles = new Map<string, string | null>();
     for (const source of [...new Set(rows.map((r) => r.sourceWorkspaceId))])
       sourceRoles.set(source, await role(reader, source, actor.userId));
@@ -323,26 +335,57 @@ export class PrismaReviewSkillsStore implements ReviewSkillsStore {
     });
   }
   async listWorkspaceSkills(i: Arg<"listWorkspaceSkills">) {
-    await member(this.prisma, i.workspaceId, i.actor);
+    const current = await member(this.prisma, i.workspaceId, i.actor);
     const rows = await available(this.prisma, i.workspaceId, undefined, {
-        page: i,
-        metadata: true,
-      }),
-      page = paginate(
-        rows,
-        (s) => s.id,
-        i,
-        (s) => `${s.name} ${s.description}`,
-      );
-    return {
-      items: await this.summaries(
-        this.prisma,
-        i.workspaceId,
-        i.actor,
-        page.items,
+      page: i,
+      metadata: true,
+    });
+    // Retain cleanup access to a local link after revoke/source deletion. Read
+    // only its canonical ID; fresh source metadata belongs to available() only.
+    const unavailable = await q<{ skillId: string }>(
+      this.prisma,
+      Prisma.sql`SELECT l."skillId" FROM "ReviewSkillLink" l WHERE l."workspaceId"=${i.workspaceId} AND l."unlinkedAt" IS NULL AND NOT EXISTS(SELECT 1 ${skillJoins} WHERE s."id"=l."skillId" AND ${availability(i.workspaceId)}) ${i.cursor ? Prisma.sql`AND l."skillId">${i.cursor}` : Prisma.empty} ${i.search ? Prisma.sql`AND position(lower(${i.search}) in lower('Unavailable skill ' || l."skillId"))>0` : Prisma.empty} ORDER BY l."skillId" LIMIT 51`,
+    );
+    const summaries = await this.summaries(
+      this.prisma,
+      i.workspaceId,
+      i.actor,
+      rows,
+    );
+    const usage = unavailable.length
+      ? await this.localUsage(this.prisma, i.workspaceId, i.actor)
+      : [];
+    const entries: C.ReviewSkillLibraryEntry[] = [
+      ...summaries.map((summary) => ({ ...summary, available: true as const })),
+      ...unavailable
+        .filter(({ skillId }) => !rows.some((row) => row.id === skillId))
+        .map(({ skillId }) => ({
+          skillId,
+          available: false as const,
+          linked: true as const,
+          name: "Unavailable skill" as const,
+          unavailableReason: "unavailable" as const,
+          usedIn: usage
+            .filter((item) => item.skillId === skillId)
+            .map(({ repositoryId, name }) => ({ repositoryId, name })),
+          canUnlink: admin(current),
+        })),
+    ];
+    return paginate(
+      entries.sort((left, right) =>
+        left.skillId < right.skillId
+          ? -1
+          : left.skillId > right.skillId
+            ? 1
+            : 0,
       ),
-      nextCursor: page.nextCursor,
-    };
+      (entry) => entry.skillId,
+      i,
+      (entry) =>
+        entry.available
+          ? `${entry.name} ${entry.description} ${entry.skillId}`
+          : `${entry.name} ${entry.skillId}`,
+    );
   }
   private async document(
     reader: Reader,
@@ -370,9 +413,27 @@ export class PrismaReviewSkillsStore implements ReviewSkillsStore {
   async createSkill(i: Arg<"createSkill">) {
     return this.transaction([i.workspaceId], async (tx) => {
       await member(tx, i.workspaceId, i.actor, false, true);
+      // The immutable first revision identifies this creation intent even after
+      // subsequent edits. The workspace fence serializes concurrent exact retries.
+      const prior = (
+        await q<C.ReviewSkillContent & { id: string; deletedAt: Date | null }>(
+          tx,
+          Prisma.sql`SELECT s."id",s."deletedAt",v."name",v."description",v."instructions" FROM "ReviewSkill" s JOIN "ReviewSkillRevision" v ON v."skillId"=s."id" AND v."revisionNumber"=1 WHERE s."sourceWorkspaceId"=${i.workspaceId} AND s."authorUserId"=${i.actor.userId} AND s."createOperationId"=${i.createOperationId}`,
+        )
+      )[0];
+      if (prior) {
+        if (prior.deletedAt) error(Code.Unavailable);
+        if (
+          prior.name !== i.content.name ||
+          prior.description !== i.content.description ||
+          prior.instructions !== i.content.instructions
+        )
+          error(Code.Conflict);
+        return this.document(tx, { ...i, skillId: prior.id });
+      }
       const skillId = randomUUID(),
         revisionId = randomUUID();
-      await tx.$executeRaw`INSERT INTO "ReviewSkill" ("id","sourceWorkspaceId","authorUserId","headRevisionId") VALUES (${skillId},${i.workspaceId},${i.actor.userId},${revisionId})`;
+      await tx.$executeRaw`INSERT INTO "ReviewSkill" ("id","sourceWorkspaceId","authorUserId","headRevisionId","createOperationId") VALUES (${skillId},${i.workspaceId},${i.actor.userId},${revisionId},${i.createOperationId})`;
       await this.insertRevision(tx, skillId, revisionId, 1, i.content);
       await this.audit(tx, i.workspaceId, i.actor, "created", skillId, {
         revisionId,
@@ -669,34 +730,44 @@ export class PrismaReviewSkillsStore implements ReviewSkillsStore {
   async listRepositoryTargetIds(
     i: Arg<"listSkillRepositoryTargets">,
   ): Promise<readonly string[]> {
+    const skillAvailable = await this.authorizeTargetSkill(i);
+    const isAdmin = admin(
+      await role(this.prisma, i.workspaceId, i.actor.userId),
+    );
+    const rows = await q<{ id: string }>(
+      this.prisma,
+      Prisma.sql`SELECT r."id" FROM "RepositoryConnection" r WHERE r."workspaceId"=${i.workspaceId} AND ((r.selected=true AND r.archived=false) ${isAdmin ? Prisma.sql`OR EXISTS(SELECT 1 FROM "ReviewSkillBinding" b WHERE b."workspaceId"=${i.workspaceId} AND b."repositoryConnectionId"=r."id" AND b."skillId"=${i.skillId})` : Prisma.empty}) ${skillAvailable ? Prisma.empty : Prisma.sql`AND EXISTS(SELECT 1 FROM "ReviewSkillBinding" b WHERE b."workspaceId"=${i.workspaceId} AND b."repositoryConnectionId"=r."id" AND b."skillId"=${i.skillId})`} ${i.cursor ? Prisma.sql`AND r."id">${i.cursor}` : Prisma.empty} ${i.search ? Prisma.sql`AND position(lower(${i.search}) in lower(r."fullName"))>0` : Prisma.empty} ORDER BY r."id" LIMIT 51`,
+    );
+    return rows.map((r) => r.id);
+  }
+  private async authorizeTargetSkill(i: Arg<"listSkillRepositoryTargets">) {
     await member(this.prisma, i.workspaceId, i.actor);
     if (
-      !(
+      (
         await available(this.prisma, i.workspaceId, i.skillId, {
           metadata: true,
         })
       ).length
     )
-      error(Code.NotFound);
-    const rows = await q<{ id: string }>(
+      return true;
+    const link = await q(
       this.prisma,
-      Prisma.sql`SELECT "id" FROM "RepositoryConnection" WHERE "workspaceId"=${i.workspaceId} AND selected=true AND archived=false ${i.cursor ? Prisma.sql`AND "id">${i.cursor}` : Prisma.empty} ${i.search ? Prisma.sql`AND position(lower(${i.search}) in lower("fullName"))>0` : Prisma.empty} ORDER BY "id" LIMIT 51`,
+      Prisma.sql`SELECT 1 FROM "ReviewSkillLink" WHERE "workspaceId"=${i.workspaceId} AND "skillId"=${i.skillId} AND "unlinkedAt" IS NULL`,
     );
-    return rows.map((r) => r.id);
+    if (!link.length) error(Code.NotFound);
+    return false;
   }
   async listSkillRepositoryTargets(
     i: Arg<"listSkillRepositoryTargets">,
     scmIds: readonly string[],
   ) {
-    await member(this.prisma, i.workspaceId, i.actor);
-    if (!(await available(this.prisma, i.workspaceId, i.skillId)).length)
-      error(Code.NotFound);
+    const skillAvailable = await this.authorizeTargetSkill(i);
     const isAdmin = admin(
       await role(this.prisma, i.workspaceId, i.actor.userId),
     );
     const rows = await q<C.ReviewSkillRepositoryTarget>(
       this.prisma,
-      Prisma.sql`SELECT r."id" AS "repositoryId",r."fullName" AS name,(b."skillId" IS NOT NULL) AS assigned,b."version" AS "bindingVersion" FROM "RepositoryConnection" r LEFT JOIN "ReviewSkillBinding" b ON b."repositoryConnectionId"=r."id" AND b."skillId"=${i.skillId} WHERE r."workspaceId"=${i.workspaceId} AND r."selected"=true AND r."archived"=false ${isAdmin ? Prisma.empty : scmIds.length ? Prisma.sql`AND r."id" IN (${Prisma.join(scmIds)})` : Prisma.sql`AND false`} ${i.cursor ? Prisma.sql`AND r."id">${i.cursor}` : Prisma.empty} ${i.search ? Prisma.sql`AND position(lower(${i.search}) in lower(r."fullName"))>0` : Prisma.empty} ORDER BY r."id" LIMIT 51`,
+      Prisma.sql`SELECT r."id" AS "repositoryId",r."fullName" AS name,(r."selected" AND NOT r."archived") AS active,(b."skillId" IS NOT NULL) AS assigned,b."version" AS "bindingVersion" FROM "RepositoryConnection" r LEFT JOIN "ReviewSkillBinding" b ON b."repositoryConnectionId"=r."id" AND b."skillId"=${i.skillId} WHERE r."workspaceId"=${i.workspaceId} AND ((r."selected"=true AND r."archived"=false) ${isAdmin ? Prisma.sql`OR b."skillId" IS NOT NULL` : Prisma.empty}) ${skillAvailable ? Prisma.empty : Prisma.sql`AND b."skillId" IS NOT NULL`} ${isAdmin ? Prisma.empty : scmIds.length ? Prisma.sql`AND r."id" IN (${Prisma.join(scmIds)})` : Prisma.sql`AND false`} ${i.cursor ? Prisma.sql`AND r."id">${i.cursor}` : Prisma.empty} ${i.search ? Prisma.sql`AND position(lower(${i.search}) in lower(r."fullName"))>0` : Prisma.empty} ORDER BY r."id" LIMIT 51`,
     );
     return paginate(
       rows,
@@ -746,7 +817,15 @@ export class PrismaReviewSkillsStore implements ReviewSkillsStore {
     i: Arg<"listAssignmentChoices">,
     scmIds: readonly string[],
   ) {
-    await manage(this.prisma, i.workspaceId, i.actor, i.repositoryIds, scmIds);
+    await manage(
+      this.prisma,
+      i.workspaceId,
+      i.actor,
+      i.repositoryIds,
+      scmIds,
+      false,
+      true,
+    );
     const all = await bindings(this.prisma, i.workspaceId, i.repositoryIds);
     const ownIds = [...new Set(all.map((b) => b.skillId))];
     const assignedLive = await available(
@@ -755,12 +834,12 @@ export class PrismaReviewSkillsStore implements ReviewSkillsStore {
       undefined,
       { ids: ownIds, metadata: true },
     );
-    const candidateLive = await available(
-      this.prisma,
-      i.workspaceId,
-      undefined,
-      { page: i, metadata: true },
-    );
+    const candidateLive = i.assignedOnly
+      ? assignedLive
+      : await available(this.prisma, i.workspaceId, undefined, {
+          page: i,
+          metadata: true,
+        });
     const liveMap = new Map(
       [...assignedLive, ...candidateLive].map((s) => [s.id, s]),
     );
@@ -797,7 +876,7 @@ export class PrismaReviewSkillsStore implements ReviewSkillsStore {
       rows,
       (r) => r.skillId,
       i,
-      (r) => `${r.name} ${r.description ?? ""}`,
+      (r) => `${r.name} ${r.description ?? ""} ${r.skillId}`,
     );
   }
 
@@ -815,7 +894,15 @@ export class PrismaReviewSkillsStore implements ReviewSkillsStore {
         ...(i.mode === "remove" ? [] : sources.map((s) => s.sourceWorkspaceId)),
       ],
       async (tx) => {
-        await manage(tx, i.workspaceId, i.actor, i.repositoryIds, scmIds, true);
+        await manage(
+          tx,
+          i.workspaceId,
+          i.actor,
+          i.repositoryIds,
+          scmIds,
+          true,
+          i.mode === "remove",
+        );
         const total = i.repositoryIds.length * i.skillIds.length;
         if (i.mode === "remove") {
           const removed =
@@ -879,7 +966,7 @@ export class PrismaReviewSkillsStore implements ReviewSkillsStore {
         if (!(await available(tx, i.workspaceId, i.skillId)).length)
           error(Code.Unavailable);
         const n =
-          await tx.$executeRaw`UPDATE "ReviewSkillBinding" SET "includePaths"=${JSON.stringify(i.scope.includePaths)}::jsonb,"excludePaths"=${JSON.stringify(i.scope.excludePaths)}::jsonb,"version"="version"+1 WHERE "workspaceId"=${i.workspaceId} AND "repositoryConnectionId"=${i.repositoryId} AND "skillId"=${i.skillId} AND "version"=${i.expectedVersion}`;
+          await tx.$executeRaw`UPDATE "ReviewSkillBinding" SET "includePaths"=${JSON.stringify(i.scope.includePaths)}::jsonb,"excludePaths"=${JSON.stringify(i.scope.excludePaths)}::jsonb,"version"="version"+1 WHERE "workspaceId"=${i.workspaceId} AND "repositoryConnectionId"=${i.repositoryId} AND "skillId"=${i.skillId} AND "generation"=${i.expectedGeneration} AND "version"=${i.expectedVersion}`;
         if (!n) error(Code.Conflict);
         await this.audit(
           tx,

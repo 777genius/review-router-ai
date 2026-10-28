@@ -234,6 +234,30 @@ describe("review action v2 operator CLI", () => {
     }
   });
 
+  it("binds optional lifecycle approval without granting caller model settings", () => {
+    const profile = {
+      extensionId: "lifecycle-verification.v1",
+      descriptorDigest: `sha256:${"a".repeat(64)}`,
+    };
+    const candidate = {
+      ...releaseCandidate(),
+      lifecycleVerificationProfile: profile,
+    };
+    expect(parseReviewV2ReleaseBundleCandidate(candidate)).toEqual(candidate);
+    expect(
+      parseReviewV2ReleaseBundleCandidate({
+        ...candidate,
+        lifecycleVerificationProfile: null,
+      }).lifecycleVerificationProfile,
+    ).toBeNull();
+    expect(() =>
+      parseReviewV2ReleaseBundleCandidate({
+        ...candidate,
+        lifecycleVerificationProfile: { ...profile, model: "other" },
+      }),
+    ).toThrow();
+  });
+
   it("rejects registration without a qualified agent profile", () => {
     const candidate = releaseCandidate();
     delete candidate.agentProfiles;

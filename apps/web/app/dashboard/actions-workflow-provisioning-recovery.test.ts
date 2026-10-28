@@ -1,3 +1,7 @@
+import {
+  providerApiAuthModes,
+  providerApiDescriptors,
+} from "@reviewrouter/shared";
 import { workspacePolicyFixture } from "../../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -125,7 +129,7 @@ function workspacePolicyHeadsFixture() {
   };
 }
 
-function reusableWorkflowResponse(mimo = true) {
+function reusableWorkflowResponse(claude = true) {
   return {
     data: {
       type: "file",
@@ -136,11 +140,11 @@ function reusableWorkflowResponse(mimo = true) {
           apiUrl: "https://api.reviewrouter.test",
           runtimeConfigMode: "oidc",
           conflictReviewFallbackEnabled: true,
-          ...(mimo
+          ...(claude
             ? {
                 staticRuntimeEnv: {
-                  REVIEW_AUTH_MODE: "mimo-token-plan-api",
-                  REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+                  REVIEW_AUTH_MODE: "claude-oauth",
+                  REVIEW_PROVIDERS: "claude/sonnet",
                 },
               }
             : {}),
@@ -223,9 +227,9 @@ describe("dashboard setup PR recovery", () => {
         ...workspacePolicyFixture,
         providers: [
           {
-            kind: "codex-mimo",
-            authMode: "mimo_token_plan_api_key",
-            model: "mimo-v2.6-pro",
+            kind: "claude",
+            authMode: "claude_code_oauth",
+            model: "sonnet",
           },
         ],
       }),
@@ -385,9 +389,18 @@ describe("dashboard setup PR recovery", () => {
     },
   );
 
-  it.each(["single", "multiple", "explicit"])(
-    "selects the App-first direct OpenRouter setup before effects: %s",
-    async (scenario) => {
+  it.each(
+    providerApiAuthModes.flatMap((mode) =>
+      [
+        "single",
+        "multiple",
+        "explicit",
+        ...(mode === "mimo-token-plan-api" ? ["legacy_effort"] : []),
+      ].map((scenario) => ({ mode, scenario })),
+    ),
+  )(
+    "selects the App-first direct $mode setup before effects: $scenario",
+    async ({ mode, scenario }) => {
       mocks.getPrisma.mockReturnValue({
         repositoryConnection: {
           findUnique: vi.fn(async () => ({
@@ -404,17 +417,30 @@ describe("dashboard setup PR recovery", () => {
         },
         reviewConfiguration: workspacePolicyHeadsFixture(),
       });
+      const descriptor = providerApiDescriptors[mode];
       const provider = {
-        kind: "openrouter" as const,
-        authMode: "openrouter_api_key" as const,
-        model: "openai/gpt-5",
+        kind: descriptor.providerKind,
+        authMode: descriptor.authMode,
+        model: descriptor.defaultModel,
+        ...(mode === "kimi-code-api"
+          ? {}
+          : {
+              reasoningEffort: scenario === "legacy_effort" ? "xhigh" : "high",
+            }),
       };
       mocks.resolveReviewRuntimeEnv.mockResolvedValue({
         config: parseReviewConfiguration({
           ...workspacePolicyFixture,
           providers:
             scenario === "multiple"
-              ? [provider, { ...provider, model: "anthropic/claude-sonnet-4" }]
+              ? [
+                  provider,
+                  {
+                    kind: "claude",
+                    authMode: "claude_code_oauth",
+                    model: "sonnet",
+                  },
+                ]
               : [provider],
           execution: {
             providerLimit: scenario === "multiple" ? 2 : 1,
@@ -440,7 +466,7 @@ describe("dashboard setup PR recovery", () => {
         expect(result.params.notice).toBe("workflow_already_current");
         expect(mocks.isWorkflowSetupAlreadyCurrent).toHaveBeenCalledWith(
           expect.objectContaining({
-            providerApiAuthMode: "openrouter-api",
+            providerApiAuthMode: mode,
             actionRef: `777genius/review-router@${"c".repeat(40)}`,
             conflictReviewFallbackEnabled: false,
           }),
@@ -451,9 +477,13 @@ describe("dashboard setup PR recovery", () => {
         ).not.toHaveProperty("codexSessionMode");
       } else {
         expect(result.params.error).toBe(
-          scenario === "multiple"
-            ? "openrouter_direct_requires_single_provider"
-            : "openrouter_direct_workflow_options_not_supported",
+          scenario === "legacy_effort"
+            ? "provider_api_reasoning_effort_unsupported"
+            : scenario === "multiple"
+              ? mode === "openrouter-api"
+                ? "openrouter_direct_requires_single_provider"
+                : "provider_api_direct_requires_single_provider"
+              : "openrouter_direct_workflow_options_not_supported",
         );
         expect(mocks.createGitHubAppInstallationOctokit).not.toHaveBeenCalled();
         expect(mocks.provisionGatewayReviewV2Repository).not.toHaveBeenCalled();
@@ -574,7 +604,7 @@ describe("dashboard setup PR recovery", () => {
 
   it("loads failed provisioning deterministically and confirms a reopened merged PR", async () => {
     let provisioningStatus: "failed" | "configured" = "failed";
-    let mimoWorkflow = true;
+    let claudeWorkflow = true;
     const repositoryFindUnique = vi.fn(async () => ({
       id: "repository_1",
       workspaceId: "workspace_1",
@@ -648,7 +678,7 @@ describe("dashboard setup PR recovery", () => {
     mocks.createGitHubAppInstallationOctokit.mockResolvedValue({
       request: vi.fn(async (route: string) =>
         route.includes("/contents/")
-          ? reusableWorkflowResponse(mimoWorkflow)
+          ? reusableWorkflowResponse(claudeWorkflow)
           : {
               data: {
                 merged: true,
@@ -707,14 +737,14 @@ describe("dashboard setup PR recovery", () => {
         ...workspacePolicyFixture,
         providers: [
           {
-            kind: "codex-mimo",
-            authMode: "mimo_token_plan_api_key",
-            model: "mimo-v2.6-pro",
+            kind: "claude",
+            authMode: "claude_code_oauth",
+            model: "sonnet",
           },
         ],
       }),
     });
-    mimoWorkflow = true;
+    claudeWorkflow = true;
     await expect(
       confirmSetupPullRequestMergedClientAction(formData),
     ).resolves.toMatchObject({ params: { notice: "setup_pr_merged" } });
@@ -944,8 +974,8 @@ describe("dashboard setup PR recovery", () => {
                     runtimeConfigMode: "oidc",
                     conflictReviewFallbackEnabled: true,
                     staticRuntimeEnv: {
-                      REVIEW_AUTH_MODE: "mimo-token-plan-api",
-                      REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+                      REVIEW_AUTH_MODE: "claude-oauth",
+                      REVIEW_PROVIDERS: "claude/sonnet",
                     },
                   }),
                 ).toString("base64"),
@@ -982,7 +1012,7 @@ describe("dashboard setup PR recovery", () => {
         expect(state.current()).toEqual({
           ...historical,
           status: "configured",
-          installedWorkflowRequirement: "ci_secrets+codex-mimo",
+          installedWorkflowRequirement: "ci_secrets+claude",
           revision: historical.revision + 1,
         });
         expect(state.workflowProvisioning.updateMany).toHaveBeenCalledTimes(1);

@@ -1,3 +1,12 @@
+import {
+  providerApiAuthModes,
+  providerApiDescriptors,
+} from "@reviewrouter/shared";
+import {
+  assertProviderApiDirectConfigurationSupported,
+  inspectProviderApiDirectConfiguration,
+  providerApiConfigurationMode,
+} from "../domain/provider-api-t0-configuration";
 import { expect, it } from "vitest";
 import {
   assertOpenRouterDirectConfigurationSupported,
@@ -111,3 +120,138 @@ it("keeps managed OpenRouter and secondary OpenRouter policies on their existing
     }),
   ).toThrow("openrouter_direct_requires_single_provider");
 });
+
+it.each(providerApiAuthModes)(
+  "captures only the finite single provider policy for %s",
+  (mode) => {
+    const descriptor = providerApiDescriptors[mode];
+    const provider = {
+      kind: descriptor.providerKind,
+      authMode: descriptor.authMode,
+      model: descriptor.defaultModel,
+      ...(mode === "kimi-code-api" ? {} : { reasoningEffort: "high" }),
+      fastMode: false,
+      agenticContext: true,
+      requiredHealthy: true,
+    };
+    const policy = parseReviewConfigurationStrict({
+      ...configuration,
+      providers: [provider],
+    });
+    expect(assertProviderApiDirectConfigurationSupported(policy)).toBe(mode);
+    expect(providerApiConfigurationMode(policy)).toBe(mode);
+    const env = mapConfigToRuntimeEnv(policy);
+    expect(env.REVIEW_AUTH_MODE).toBe(mode);
+    expect(env.REVIEW_PROVIDERS).toBe(
+      `${descriptor.runtimePrefix}/${descriptor.defaultModel}`,
+    );
+    expect(env).not.toHaveProperty(descriptor.secretName);
+    if (mode === "kimi-code-api") {
+      expect(policy.providers[0]).not.toHaveProperty("reasoningEffort");
+      expect(env).not.toHaveProperty("CODEX_REASONING_EFFORT");
+    }
+    expect(() =>
+      assertProviderApiDirectConfigurationSupported({
+        ...policy,
+        providers: [...policy.providers, ...configuration.providers],
+      }),
+    ).toThrow();
+  },
+);
+it.each([
+  { reasoningEffort: "xhigh" },
+  { fastMode: true },
+  { model: "unqualified" },
+])(
+  "Kimi rejects unsupported tuning/model instead of adding defaults",
+  (override) => {
+    expect(() =>
+      parseReviewConfigurationStrict({
+        ...configuration,
+        providers: [
+          {
+            kind: "kimi",
+            authMode: "kimi_code_api_key",
+            model: "k3-256k",
+            agenticContext: true,
+            fastMode: false,
+            ...override,
+          },
+        ],
+      }),
+    ).toThrow();
+  },
+);
+
+it("keeps an old MiMo effort readable but refuses unsupported direct execution without coercion", () => {
+  const policy = parseReviewConfigurationStrict({
+    ...configuration,
+    providers: [
+      {
+        kind: "codex-mimo",
+        authMode: "mimo_token_plan_api_key",
+        model: "mimo-v2.6-pro",
+        reasoningEffort: "xhigh",
+        fastMode: false,
+        agenticContext: true,
+        requiredHealthy: true,
+      },
+    ],
+  });
+  const before = structuredClone(policy);
+  expect(() => assertProviderApiDirectConfigurationSupported(policy)).toThrow(
+    "provider_api_reasoning_effort_unsupported",
+  );
+  expect(policy).toEqual(before);
+  const provider = policy.providers[0];
+  if (provider?.authMode !== "mimo_token_plan_api_key")
+    throw new Error("fixture_mimo_provider_required");
+  for (const reasoningEffort of ["low", "medium", "high"] as const) {
+    expect(
+      assertProviderApiDirectConfigurationSupported({
+        ...policy,
+        providers: [{ ...provider, reasoningEffort }],
+      }),
+    ).toBe("mimo-token-plan-api");
+  }
+});
+
+it.each([
+  [
+    "legacy effort",
+    { reasoningEffort: "xhigh" },
+    "provider_api_reasoning_effort_unsupported",
+  ],
+  [
+    "legacy fast mode",
+    { fastMode: true },
+    "provider_api_fast_mode_unsupported",
+  ],
+] as const)(
+  "inspects %s without throwing or changing its saved bytes",
+  (_name, override, reason) => {
+    const policy = parseReviewConfigurationStrict({
+      ...configuration,
+      providers: [
+        {
+          kind: "codex-mimo",
+          authMode: "mimo_token_plan_api_key",
+          model: "mimo-v2.6-pro",
+          reasoningEffort: "high",
+          fastMode: false,
+          agenticContext: true,
+          ...override,
+        },
+      ],
+    });
+    const before = structuredClone(policy);
+    expect(inspectProviderApiDirectConfiguration(policy)).toEqual({
+      status: "unsupported",
+      reason,
+    });
+    expect(() => assertProviderApiDirectConfigurationSupported(policy)).toThrow(
+      reason,
+    );
+    expect(policy).toEqual(before);
+  },
+);

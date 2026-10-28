@@ -1,8 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import type { ProviderSecretSetupGuidance } from "@reviewrouter/features-provider-setup";
 import {
+  apiKeyProviders,
+  getApiKeyProvider,
+  type ApiKeyProviderId,
   getDefaultProviderConfigForAuthMode,
   providerKindForAuthMode,
   type ProviderAuthMode,
@@ -20,12 +31,23 @@ import {
   DialogRoot,
   DialogTitle,
   DialogTrigger,
+  LinkButton,
   RadioCard,
   RadioCardGroup,
   SelectField,
   TextField,
 } from "@reviewrouter/ui";
 import type { ProviderCredentialKind } from "@reviewrouter/features-review-config/workspace-provider-profile";
+import type { UserCiSecretAuthMode } from "@reviewrouter/features-review-config/workspace-provider-profile";
+import {
+  apiKeyProviderForGatewayProfile,
+  apiKeySetupHref,
+  consumeApiKeySetupIntent,
+  type ApiKeySetupIntent,
+  type ApiKeyStorage,
+} from "../../../src/features/provider-setup/api-key-storage";
+import { ApiKeyStorageChoice } from "./api-key-storage-choice";
+import { GatewayAccountLoadMore } from "./gateway-account-load-more";
 import {
   credentialStepLabel,
   credentialStepOf,
@@ -48,11 +70,17 @@ import { getReadyGatewayAccounts } from "../../../src/server/dashboard-provider-
 import type { GatewayAgentProfileOption } from "../../../src/server/gateway-agent-profile-options";
 import { personalAccountOriginText } from "../../../src/features/account-gateway/personal-accounts";
 import { dashboardErrorText } from "../dashboard-copy";
+import { dashboardPath, dashboardSectionHref } from "../dashboard-section";
 import { GatewayConnectionTest } from "../gateway-connection-test";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
+import { GatewayModelCatalogStatus } from "../gateway-model-catalog-status";
 import { AccountProviderLogo } from "../account-identity";
 import { ProviderAuthLogoFrame } from "../provider-auth-logo";
-import { useProviderModelCatalogs } from "../provider-model-catalog";
+import { ProviderLogo } from "../provider-logo";
+import {
+  ProviderModelCatalogStatus,
+  useProviderModelCatalogs,
+} from "../provider-model-catalog";
 import type { ProviderSetupAssignmentResult } from "../provider-setup-actions";
 import {
   CiSecretDelivery,
@@ -63,6 +91,7 @@ import {
 import {
   defaultProviderSelectionSettings,
   fitProviderSelectionSettings,
+  providerSelectionSettingsNeedCorrection,
   ProviderModelFields,
   ProviderModelPicker,
 } from "./provider-model-fields";
@@ -87,15 +116,12 @@ export type ProviderSetupRepositoryContext = Readonly<{
     authMode: ProviderAuthMode;
     credentialKind: ProviderCredentialKind;
   }> | null;
-  secretGuidance: Readonly<{
-    claude_code_oauth: ProviderSecretSetupGuidance;
-    mimo_token_plan_api_key: ProviderSecretSetupGuidance;
-  }> | null;
+  secretGuidance: Readonly<
+    Partial<Record<UserCiSecretAuthMode, ProviderSecretSetupGuidance>>
+  > | null;
   organizationLogin: string | null;
   organizationSecretPolicy: OrganizationSecretPolicy | null;
   rotatingEnabled: boolean;
-  /** Rotating Codex before the first setup PR: prepare its credential. */
-  rotatingPreparationOnly: boolean;
 }>;
 
 export type ProviderSetupDialogTarget =
@@ -133,12 +159,15 @@ export type ProviderSetupDialogProps = Readonly<{
   agentProfileOptions: readonly GatewayAgentProfileOption[];
   /** Called once the dialog closes after it saved something. */
   onSaved?: () => void;
+  /** Validated navigation hints; never an authorization source. */
+  initialIntent?: ApiKeySetupIntent | undefined;
+  initiallyOpen?: boolean;
 }>;
 
 type Choice =
   | Readonly<{ kind: "default" }>
   | Readonly<{ kind: "profile"; profileId: string }>
-  | Readonly<{ kind: "new"; source: ProviderSourceKey }>;
+  | Readonly<{ kind: "new"; source: ProviderSourceKey | null }>;
 
 type DraftProvider = Readonly<{
   model: string;
@@ -157,7 +186,10 @@ const defaultChoice = "__default__";
 export function ProviderSetupDialog(
   props: ProviderSetupDialogProps,
 ): React.ReactElement {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(props.initiallyOpen === true);
+  useEffect(() => {
+    if (props.initiallyOpen) consumeApiKeySetupIntent();
+  }, [props.initiallyOpen]);
   const [locked, setLocked] = useState(false);
   // The target the dialog opened with: a selection the page clears after a
   // save must not retarget the dialog or the results it still shows.
@@ -200,12 +232,13 @@ export function ProviderSetupDialog(
       </DialogTrigger>
       <DialogPortal>
         <DialogBackdrop />
-        <DialogPopup className="w-[min(96vw,46rem)] p-0">
+        <DialogPopup className="w-[min(96vw,46rem)] p-0 [overflow-wrap:anywhere] [&_pre]:[overflow-wrap:anywhere]">
           <DialogCloseButton label="Close provider setup" disabled={locked} />
           {open ? (
             <ProviderSetupDialogBody
               {...props}
               target={openedTarget}
+              locked={locked}
               onSaved={() => {
                 saved.current = true;
               }}
@@ -230,10 +263,13 @@ function ProviderSetupDialogBody({
   gatewayAccounts,
   agentProfileOptions,
   onSaved,
+  locked,
   onLockedChange,
   onClose,
+  initialIntent,
 }: ProviderSetupDialogProps &
   Readonly<{
+    locked: boolean;
     onLockedChange: (locked: boolean) => void;
     onClose: () => void;
   }>): React.ReactElement {
@@ -250,21 +286,37 @@ function ProviderSetupDialogBody({
   });
   const completion = useProviderSetupCompletion(workspaceId);
   const repository = target.kind === "repository" ? target.repository : null;
-  const [step, setStep] = useState<"provider" | "credentials" | "results">(
+  const [step, setStep] = useState<
+    "provider" | "credentials" | "results" | "workspace_saved"
+  >(
     initialStep === "credentials" && repository?.effective
       ? "credentials"
       : "provider",
   );
-  // A save that moves on replaces the content under the focus: take the
-  // focus to the step now shown instead of losing it to the page.
+  const [credentialBusy, setCredentialBusy] = useState(false);
+  const [savedWorkspaceDefault, setSavedWorkspaceDefault] = useState(false);
+  const handleCredentialBusy = useCallback(
+    (busy: boolean) => {
+      setCredentialBusy(busy);
+      onLockedChange(busy);
+    },
+    [onLockedChange],
+  );
+  // A save that moves on replaces the content under the focus. Move focus in
+  // the next frame, after the dialog's queued opening autofocus has run.
   const stepNav = useRef<HTMLOListElement>(null);
   const handledStep = useRef(step);
   useEffect(() => {
     if (step === handledStep.current) return;
     handledStep.current = step;
-    stepNav.current
-      ?.querySelector<HTMLButtonElement>('[aria-current="step"]')
-      ?.focus();
+    // A completed save/result focuses its own content, not a stale step button.
+    if (step === "results" || step === "workspace_saved") return;
+    const frame = requestAnimationFrame(() => {
+      stepNav.current
+        ?.querySelector<HTMLButtonElement>('[aria-current="step"]')
+        ?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
   }, [step]);
   // What the repository uses after a save, before the page refreshes.
   const [saved, setSaved] = useState<{
@@ -289,7 +341,7 @@ function ProviderSetupDialogBody({
   const description = adding
     ? "It joins this workspace's providers. Repositories use it once it is chosen for them or made the default."
     : target.kind === "workspace"
-      ? "Repositories without a provider of their own review with this one."
+      ? "Repositories without a provider of their own inherit this choice. Finish their connection and workflow setup in Repositories."
       : target.kind === "repository"
         ? step === "credentials"
           ? "Add the credential this provider needs in this repository."
@@ -312,6 +364,7 @@ function ProviderSetupDialogBody({
               <li>
                 <StepButton
                   current={step === "provider"}
+                  disabled={locked}
                   onSelect={() => setStep("provider")}
                 >
                   1. Provider
@@ -320,6 +373,7 @@ function ProviderSetupDialogBody({
               <li>
                 <StepButton
                   current={step === "credentials"}
+                  disabled={locked}
                   onSelect={() => setStep("credentials")}
                 >
                   2. {credentialStepLabel(credentialStep)}
@@ -331,13 +385,42 @@ function ProviderSetupDialogBody({
       </div>
       <div className="px-5 py-5 sm:px-6">
         {step === "credentials" && repository && credentialStep ? (
-          <CredentialStep
+          <div className="grid gap-5">
+            <CredentialStep
+              workspaceId={workspaceId}
+              repository={repository}
+              credentialStep={credentialStep}
+              authMode={effective!.authMode}
+              view={view.data}
+              onInstalled={() => void completion.complete()}
+              onBusyChange={handleCredentialBusy}
+            />
+            <div className="border-t border-cyan-200/10 pt-4">
+              {credentialBusy ? (
+                <Button type="button" variant="outline" size="sm" disabled>
+                  Back to repository setup
+                </Button>
+              ) : (
+                <LinkButton
+                  href={`${dashboardPath({
+                    section: "repositories",
+                    workspace: workspaceId,
+                    repository: repository.fullName,
+                  })}#dashboard-section-content`}
+                  variant="outline"
+                  size="sm"
+                  onClick={refreshCurrentSetupPage}
+                >
+                  Back to repository setup
+                </LinkButton>
+              )}
+            </div>
+          </div>
+        ) : step === "workspace_saved" ? (
+          <WorkspaceSaveResult
             workspaceId={workspaceId}
-            repository={repository}
-            credentialStep={credentialStep}
-            authMode={effective!.authMode}
-            view={view.data}
-            onInstalled={() => void completion.complete()}
+            madeDefault={savedWorkspaceDefault}
+            onDone={onClose}
           />
         ) : step === "results" ? (
           <AssignmentResults results={results} onDone={onClose} />
@@ -345,7 +428,7 @@ function ProviderSetupDialogBody({
           <p role="status" className="text-sm text-slate-400">
             Loading providers...
           </p>
-        ) : view.isError ? (
+        ) : view.isError && !view.data ? (
           <div role="alert" className="grid gap-3 text-sm text-red-100">
             <p>{viewErrorText(view.error)}</p>
             <Button
@@ -359,48 +442,143 @@ function ProviderSetupDialogBody({
             </Button>
           </div>
         ) : (
-          <ProviderChoiceStep
-            workspaceId={workspaceId}
-            target={target}
-            adding={adding}
-            initialProfileId={initialProfileId}
-            view={view.data}
-            mutationsEnabled={mutationsEnabled}
-            modelOptions={modelOptions}
-            gatewayAccounts={gatewayAccounts}
-            agentProfileOptions={agentProfileOptions}
-            onLockedChange={onLockedChange}
-            onSaved={async (outcome) => {
-              await completion.complete();
-              onSaved?.();
-              if (outcome.kind === "results") {
-                setResults(outcome.results);
-                setStep("results");
-                return;
-              }
-              if (outcome.kind === "repository" && outcome.provider) {
-                setSaved(outcome.provider);
-                if (credentialStepOf(outcome.provider)) {
-                  setStep("credentials");
+          <div className="grid gap-5">
+            {view.isError ? (
+              <div role="alert" className="grid gap-3 text-sm text-red-100">
+                <p>
+                  {viewErrorText(view.error)} Your choices are kept. Try again
+                  before saving.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-fit"
+                  onClick={() => void view.refetch()}
+                >
+                  Try again
+                </Button>
+              </div>
+            ) : null}
+            <ProviderChoiceStep
+              workspaceId={workspaceId}
+              target={target}
+              adding={adding}
+              initialProfileId={initialProfileId}
+              view={view.data!}
+              readUnavailable={view.isError}
+              mutationsEnabled={mutationsEnabled}
+              modelOptions={modelOptions}
+              gatewayAccounts={gatewayAccounts}
+              agentProfileOptions={agentProfileOptions}
+              onLockedChange={onLockedChange}
+              initialIntent={initialIntent}
+              onSaved={async (outcome) => {
+                await completion.complete();
+                onSaved?.();
+                if (outcome.kind === "workspace") {
+                  setSavedWorkspaceDefault(outcome.madeDefault);
+                  setStep("workspace_saved");
                   return;
                 }
-              }
-              onClose();
-            }}
-          />
+                if (outcome.kind === "results") {
+                  setResults(outcome.results);
+                  setStep("results");
+                  return;
+                }
+                if (outcome.kind === "repository" && outcome.provider) {
+                  setSaved(outcome.provider);
+                  if (credentialStepOf(outcome.provider)) {
+                    setStep("credentials");
+                    return;
+                  }
+                }
+                onClose();
+              }}
+            />
+          </div>
         )}
       </div>
     </div>
   );
 }
 
+function WorkspaceSaveResult({
+  workspaceId,
+  madeDefault,
+  onDone,
+}: {
+  readonly workspaceId: string;
+  readonly madeDefault: boolean;
+  readonly onDone: () => void;
+}): React.ReactElement {
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => heading.current?.focus(), []);
+  return (
+    <section className="grid gap-4" aria-label="Provider saved">
+      <div className="grid gap-2">
+        <h3
+          ref={heading}
+          tabIndex={-1}
+          className="text-base font-semibold text-cyan-50"
+        >
+          {madeDefault ? "Workspace default saved" : "Provider saved"}
+        </h3>
+        <p className="text-sm leading-6 text-slate-300">
+          {madeDefault
+            ? "Repositories without a provider of their own now inherit this choice."
+            : "Choose this provider from a repository's setup when you want to use it."}{" "}
+          Each repository still needs its workflow and connection ready before
+          reviews can run.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <LinkButton
+          href={dashboardSectionHref("repositories", workspaceId)}
+          size="sm"
+          onClick={refreshCurrentSetupPage}
+        >
+          Finish repository setup
+        </LinkButton>
+        <Button type="button" variant="outline" size="sm" onClick={onDone}>
+          Done
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+/** A return to the current repository must also close the modal and reread setup. */
+function refreshCurrentSetupPage(event: MouseEvent<HTMLAnchorElement>): void {
+  if (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  )
+    return;
+  const target = new URL(event.currentTarget.href);
+  if (
+    target.origin === window.location.origin &&
+    target.pathname === window.location.pathname &&
+    target.search === window.location.search
+  ) {
+    event.preventDefault();
+    window.location.reload();
+  }
+}
+
 /** One of the dialog's two steps; the current one carries `aria-current`. */
 function StepButton({
   current,
+  disabled = false,
   onSelect,
   children,
 }: {
   readonly current: boolean;
+  readonly disabled?: boolean;
   readonly onSelect: () => void;
   readonly children: ReactNode;
 }): React.ReactElement {
@@ -408,9 +586,10 @@ function StepButton({
     <button
       type="button"
       aria-current={current ? "step" : undefined}
+      disabled={disabled}
       onClick={onSelect}
       className={[
-        "rounded-lg px-3 py-1.5 text-sm font-semibold transition",
+        "rounded-lg px-3 py-1.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
         current
           ? "bg-cyan-300/[0.12] text-cyan-50"
           : "text-slate-400 hover:text-cyan-50",
@@ -429,7 +608,7 @@ type SaveOutcome =
         credentialKind: ProviderCredentialKind;
       }> | null;
     }>
-  | Readonly<{ kind: "workspace" }>
+  | Readonly<{ kind: "workspace"; madeDefault: boolean }>
   | Readonly<{
       kind: "results";
       results: readonly ProviderSetupAssignmentResult[];
@@ -441,12 +620,14 @@ function ProviderChoiceStep({
   adding,
   initialProfileId,
   view,
+  readUnavailable,
   mutationsEnabled,
   modelOptions,
   gatewayAccounts,
   agentProfileOptions,
   onLockedChange,
   onSaved,
+  initialIntent,
 }: {
   readonly workspaceId: string;
   readonly target: ProviderSetupDialogTarget;
@@ -454,12 +635,14 @@ function ProviderChoiceStep({
   readonly adding: boolean;
   readonly initialProfileId: string | undefined;
   readonly view: ProviderSetupView;
+  readonly readUnavailable: boolean;
   readonly mutationsEnabled: boolean;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts: AccountsResult<AccountsPage> | undefined;
   readonly agentProfileOptions: readonly GatewayAgentProfileOption[];
   readonly onLockedChange: (locked: boolean) => void;
   readonly onSaved: (outcome: SaveOutcome) => Promise<void>;
+  readonly initialIntent?: ApiKeySetupIntent | undefined;
 }): React.ReactElement {
   const repositoryView =
     target.kind === "repository" ? (view.repositories[0] ?? null) : null;
@@ -473,10 +656,15 @@ function ProviderChoiceStep({
   // Nothing to choose from yet: the dialog opens straight on a new provider.
   const firstProvider = !adding && view.profiles.length === 0 && !offersDefault;
   const initialChoice = useMemo<Choice | null>(() => {
-    if (adding || firstProvider) {
-      const first = firstAllowedSource(view.sources);
-      return first ? { kind: "new", source: first.key } : null;
+    if (initialIntent) {
+      const key: ProviderSourceKey =
+        initialIntent.storage === "reviewrouter"
+          ? "gateway_binding"
+          : `user_ci_secret:${getApiKeyProvider(initialIntent.provider).directAuthMode}`;
+      if (view.sources.some((source) => source.key === key))
+        return { kind: "new", source: key };
     }
+    if (adding || firstProvider) return { kind: "new", source: null };
     if (target.kind === "workspace")
       return initialProfileId &&
         view.profiles.some((candidate) => candidate.id === initialProfileId)
@@ -498,6 +686,7 @@ function ProviderChoiceStep({
     view.defaultSelection,
     view.profiles,
     view.sources,
+    initialIntent,
   ]);
   /** The draft and settings a choice starts with. */
   const startOf = (
@@ -550,12 +739,27 @@ function ProviderChoiceStep({
     };
   };
   const [choice, setChoice] = useState<Choice | null>(initialChoice);
+  const [apiKeyProvider, setApiKeyProvider] = useState<ApiKeyProviderId | null>(
+    initialIntent?.provider ??
+      (initialChoice?.kind === "new"
+        ? (apiKeyProviders.find(
+            (provider) =>
+              initialChoice.source ===
+              `user_ci_secret:${provider.directAuthMode}`,
+          )?.id ?? null)
+        : null),
+  );
+  const [keyStorage, setKeyStorage] = useState<ApiKeyStorage>(
+    initialIntent?.storage ?? "github_secrets",
+  );
   const [draft, setDraft] = useState<DraftProvider>(
     () => startOf(initialChoice).draft,
   );
-  const [settings, setSettings] = useState<ProviderSelectionSettings | null>(
-    () => startOf(initialChoice).settings,
-  );
+  const [settingsDraft, setSettings] =
+    useState<ProviderSelectionSettings | null>(
+      () => startOf(initialChoice).settings,
+    );
+  const [settingsEdited, setSettingsEdited] = useState(false);
   // Adding from the list: preselected only while there is no default.
   const [makeDefault, setMakeDefault] = useState(
     adding && view.defaultSelection === null,
@@ -589,7 +793,11 @@ function ProviderChoiceStep({
     gatewayPage?.profiles.some(
       (profile) =>
         profile.id === account.profileId &&
-        profile.protocol === "openai-responses",
+        profile.protocol === "openai-responses" &&
+        (!source ||
+          (apiKeyProvider
+            ? apiKeyProviderForGatewayProfile(profile) === apiKeyProvider
+            : !apiKeyProviderForGatewayProfile(profile))),
     ),
   );
   const catalogs = useProviderModelCatalogs(modelOptions);
@@ -600,24 +808,34 @@ function ProviderChoiceStep({
           (account) => account.binding?.id === draft.bindingId,
         )
       : undefined;
-  const gatewayProfile = gatewayAccount
-    ? gatewayPage?.profiles.find(
-        (candidate) => candidate.id === gatewayAccount.profileId,
-      )
-    : profile?.authMode === "codex_account_gateway"
-      ? gatewayPage?.profiles.find((candidate) =>
-          gatewayPage.accounts.some(
-            (account) =>
-              account.binding?.id === profile.gatewayBindingId &&
-              account.profileId === candidate.id,
-          ),
-        )
-      : undefined;
+  const resolvedGatewayAccount =
+    gatewayAccount ??
+    gatewayPage?.accounts.find(
+      (account) => account.binding?.id === profile?.gatewayBindingId,
+    );
+  const gatewayProfile = gatewayOptions.profileFor(resolvedGatewayAccount);
   const authMode = source?.authMode ?? profile?.authMode;
   const gatewayBindingId = source
     ? (gatewayAccount?.binding?.id ?? null)
     : (profile?.gatewayBindingId ?? null);
   const model = source ? draft.model : (profile?.model ?? "");
+  const hasStoredSettings =
+    choice?.kind === "default" ||
+    (choice?.kind === "profile" &&
+      (repositoryView?.selection?.profileId === choice.profileId ||
+        view.defaultSelection?.profileId === choice.profileId));
+  // Fresh usages derive defaults from the current exact model until the user
+  // tunes them. A late catalog response must not turn synthetic defaults into
+  // apparently saved, unsupported choices.
+  const settings =
+    !hasStoredSettings && !settingsEdited && authMode
+      ? defaultProviderSelectionSettings({
+          authMode,
+          model,
+          connection: gatewayProfile?.connection,
+          gatewayProfileRef: gatewayProfile?.id,
+        })
+      : settingsDraft;
   const sourceModelOptions: readonly ReviewModelOption[] = !source
     ? []
     : source.key === "gateway_binding"
@@ -630,6 +848,31 @@ function ProviderChoiceStep({
           providerKindForAuthMode(source.authMode),
           settings?.agenticContext ?? true,
         );
+  const gatewayReadFailed =
+    gatewayOptions.accounts?.status !== "ok" ||
+    ("pageError" in gatewayOptions && gatewayOptions.pageError);
+  const gatewayInventoryIncomplete =
+    gatewayOptions.canLoadMore || !!gatewayPage?.nextCursor;
+  const gatewayInventoryEmpty =
+    !!gatewayPage &&
+    !gatewayReadFailed &&
+    !gatewayOptions.loading &&
+    !gatewayInventoryIncomplete &&
+    gatewayAccountList.length === 0;
+  const credentialReady =
+    !!profile ||
+    (!!source && (source.key !== "gateway_binding" || !!gatewayAccount));
+  const modelAvailable =
+    !!model.trim() &&
+    (authMode !== "codex_account_gateway" ||
+      gatewayProfile?.models.includes(model.trim()) === true);
+  const settingsReady =
+    hasStoredSettings ||
+    (modelAvailable &&
+      (authMode !== "codex_account_gateway" ||
+        gatewayProfile?.connection?.modelSettings.some(
+          (row) => row.modelId === model.trim(),
+        ) === true));
   const sourceDecision = source
     ? source.key === "gateway_binding" && gatewayAccount?.origin === "personal"
       ? (source.personalAccountDecision ?? source.decision)
@@ -643,15 +886,87 @@ function ProviderChoiceStep({
       ? (repositoryView?.useDefault ?? { allowed: true })
       : (profile?.decision ?? sourceDecision);
 
-  function choose(next: Choice): void {
+  function choose(
+    next: Choice,
+    provider: ApiKeyProviderId | null = null,
+    storage: ApiKeyStorage = "github_secrets",
+  ): void {
     setChoice(next);
+    setSettingsEdited(false);
     setError(null);
     setNotice(null);
-    if (next.kind === "new" && !view.sources.some((s) => s.key === next.source))
-      return;
+    setApiKeyProvider(
+      provider ??
+        (next.kind === "new"
+          ? (apiKeyProviders.find(
+              (row) => next.source === `user_ci_secret:${row.directAuthMode}`,
+            )?.id ?? null)
+          : null),
+    );
+    setKeyStorage(storage);
     const start = startOf(next);
     if (next.kind === "new") setDraft(start.draft);
     setSettings(start.settings);
+  }
+
+  function chooseApiKey(
+    provider: ApiKeyProviderId,
+    storage: ApiKeyStorage,
+  ): void {
+    choose(
+      {
+        kind: "new",
+        source:
+          storage === "reviewrouter"
+            ? "gateway_binding"
+            : `user_ci_secret:${getApiKeyProvider(provider).directAuthMode}`,
+      },
+      provider,
+      storage,
+    );
+  }
+
+  function apiKeyStorageAvailability(provider: ApiKeyProviderId) {
+    const githubAllowed = view.sources.some(
+      (option) =>
+        option.key ===
+          `user_ci_secret:${getApiKeyProvider(provider).directAuthMode}` &&
+        option.decision.allowed,
+    );
+    const gatewayAllowed = view.sources.some(
+      (option) => option.key === "gateway_binding" && option.decision.allowed,
+    );
+    const gatewaySupported = view.gatewayApiKeyProviders
+      ? view.gatewayApiKeyProviders.includes(provider)
+      : gatewayPage?.profiles.some(
+          (profile) =>
+            profile.availability !== "deployment_configuration_required" &&
+            apiKeyProviderForGatewayProfile(profile) === provider,
+        );
+    return {
+      githubUnavailable: githubAllowed
+        ? undefined
+        : "You cannot use this provider in GitHub Secrets here.",
+      reviewRouterUnavailable: !gatewayAllowed
+        ? "You cannot use a connected account here."
+        : gatewaySupported
+          ? undefined
+          : "ReviewRouter storage is not available for this provider yet.",
+    };
+  }
+
+  function changeModel(next: string): void {
+    setDraft((current) => ({ ...current, model: next }));
+    if (settings && authMode)
+      setSettings(
+        fitProviderSelectionSettings({
+          authMode,
+          model: next,
+          settings,
+          connection: gatewayProfile?.connection,
+          gatewayProfileRef: gatewayProfile?.id,
+        }),
+      );
   }
 
   const unchanged =
@@ -663,15 +978,42 @@ function ProviderChoiceStep({
   const draftIncomplete =
     source !== undefined &&
     (!draft.model.trim() ||
-      (source.key === "gateway_binding" && !gatewayAccount) ||
+      (source.key === "gateway_binding" &&
+        (!gatewayAccount || !modelAvailable)) ||
       (needsKeyUpload && !draft.apiKey.trim()));
+  const storageAvailability = apiKeyProvider
+    ? apiKeyStorageAvailability(apiKeyProvider)
+    : undefined;
+  const selectedStorageUnavailable =
+    keyStorage === "github_secrets"
+      ? storageAvailability?.githubUnavailable
+      : storageAvailability?.reviewRouterUnavailable;
+  const selectedDefaultUnavailable =
+    choice?.kind === "default" && (!view.defaultSelection || !defaultProfile);
   const canSave =
     mutationsEnabled &&
+    !readUnavailable &&
     !pending &&
     choice !== null &&
     (!adding || choice.kind === "new") &&
     decision?.allowed === true &&
+    !selectedDefaultUnavailable &&
+    !selectedStorageUnavailable &&
     !draftIncomplete &&
+    (hasStoredSettings || (adding && !makeDefault) || settingsReady) &&
+    !(
+      choice.kind !== "default" &&
+      authMode &&
+      settings &&
+      !(adding && !makeDefault) &&
+      providerSelectionSettingsNeedCorrection({
+        authMode,
+        model,
+        settings,
+        connection: gatewayProfile?.connection,
+        gatewayProfileRef: gatewayProfile?.id,
+      })
+    ) &&
     (settings !== null || choice.kind === "default") &&
     !(
       target.kind === "workspace" &&
@@ -750,15 +1092,20 @@ function ProviderChoiceStep({
           setNotice("This provider is already in the list.");
           return;
         }
-        await onSaved({ kind: "workspace" });
+        await onSaved({ kind: "workspace", madeDefault: false });
         return;
       }
-      const fitted = fitProviderSelectionSettings({
-        authMode: authMode!,
-        model,
-        settings: settings!,
-        connection: gatewayProfile?.connection,
-      });
+      // Existing selections retain their explicit saved settings. Catalog outages
+      // must not turn an omitted/default effort into a new inferred value.
+      const fitted = source
+        ? fitProviderSelectionSettings({
+            authMode: authMode!,
+            model,
+            settings: settings!,
+            connection: gatewayProfile?.connection,
+            gatewayProfileRef: gatewayProfile?.id,
+          })
+        : settings!;
       const result = await saveProviderSetup({
         workspaceId,
         target:
@@ -802,7 +1149,7 @@ function ProviderChoiceStep({
         });
         return;
       }
-      await onSaved({ kind: "workspace" });
+      await onSaved({ kind: "workspace", madeDefault: true });
     } catch (caught) {
       setError(
         dashboardErrorText(
@@ -815,7 +1162,9 @@ function ProviderChoiceStep({
     }
   }
 
-  const visibleSources = view.sources;
+  const visibleSources = view.sources.filter(
+    (option) => option.credentialKind !== "managed_api_key",
+  );
   // Adding to the list only: the review settings belong to selections.
   const modelOnly = adding && !makeDefault;
   const groupValue =
@@ -886,7 +1235,7 @@ function ProviderChoiceStep({
           {deniedText(sharedDenial)}
         </p>
       ) : null}
-      {adding || firstProvider ? null : (
+      {adding || (firstProvider && choice?.kind === "new") ? null : (
         <section className="grid gap-3">
           <h3 className="text-sm font-semibold text-cyan-50">
             Choose a provider
@@ -898,12 +1247,7 @@ function ProviderChoiceStep({
             onValueChange={(value) => {
               if (value === defaultChoice) choose({ kind: "default" });
               else if (value === newProviderChoice)
-                choose({
-                  kind: "new",
-                  source:
-                    firstAllowedSource(visibleSources)?.key ??
-                    "gateway_binding",
-                });
+                choose({ kind: "new", source: null });
               else choose({ kind: "profile", profileId: value });
             }}
           >
@@ -911,7 +1255,10 @@ function ProviderChoiceStep({
               <RadioCard
                 value={defaultChoice}
                 icon={
-                  <ProviderAuthLogoFrame authMode={defaultProfile.authMode} />
+                  <ProviderAuthLogoFrame
+                    authMode={defaultProfile.authMode}
+                    providerId={defaultProfile.providerId}
+                  />
                 }
                 title={`Workspace default: ${defaultProfile.label}`}
                 description={`${sourceTitle(defaultProfile.credentialKind, defaultProfile.authMode)} · ${defaultProfile.model}. Follows the default when it changes.`}
@@ -960,22 +1307,105 @@ function ProviderChoiceStep({
           }
         >
           <SelectField
-            label="Where the credential comes from"
-            value={choice.source}
-            options={visibleSources.map((option) => ({
-              value: option.key,
-              label: sourceTitle(option.credentialKind, option.authMode),
-              description: option.decision.allowed
-                ? sourceDescription(option)
-                : deniedText(option.decision),
-              disabled: !option.decision.allowed,
-            }))}
-            disabled={pending}
-            onValueChange={(value) =>
-              choose({ kind: "new", source: value as ProviderSourceKey })
+            label="Provider"
+            value={
+              apiKeyProvider
+                ? `api_key:${apiKeyProvider}`
+                : (choice.source ?? "")
             }
+            placeholder="Choose a provider"
+            options={[
+              ...apiKeyProviders.map((provider) => {
+                const availability = apiKeyStorageAvailability(provider.id);
+                const unavailable = Boolean(
+                  availability.githubUnavailable &&
+                  availability.reviewRouterUnavailable,
+                );
+                return {
+                  value: `api_key:${provider.id}`,
+                  label: provider.label,
+                  icon: <ProviderLogo providerId={provider.id} />,
+                  disabled: unavailable,
+                  ...(unavailable
+                    ? {
+                        description: `${availability.githubUnavailable} ${availability.reviewRouterUnavailable}`,
+                      }
+                    : {}),
+                };
+              }),
+              ...visibleSources
+                .filter(
+                  (option) =>
+                    !apiKeyProviders.some(
+                      (provider) => option.authMode === provider.directAuthMode,
+                    ),
+                )
+                .map((option) => ({
+                  value: option.key,
+                  label: sourceTitle(option.credentialKind, option.authMode),
+                  icon: <ProviderAuthLogoFrame authMode={option.authMode} />,
+                  description: option.decision.allowed
+                    ? sourceDescription(option)
+                    : deniedText(option.decision),
+                  disabled: !option.decision.allowed,
+                })),
+            ]}
+            disabled={pending}
+            onValueChange={(value) => {
+              const provider = apiKeyProviders.find(
+                (row) => value === `api_key:${row.id}`,
+              );
+              if (provider) {
+                const availability = apiKeyStorageAvailability(provider.id);
+                chooseApiKey(
+                  provider.id,
+                  availability.githubUnavailable &&
+                    !availability.reviewRouterUnavailable
+                    ? "reviewrouter"
+                    : "github_secrets",
+                );
+              } else
+                choose({ kind: "new", source: value as ProviderSourceKey });
+            }}
           />
-          {source?.key === "gateway_binding" ? (
+          {apiKeyProvider ? (
+            <ApiKeyStorageChoice
+              value={keyStorage}
+              onValueChange={(storage) => chooseApiKey(apiKeyProvider, storage)}
+              disabled={pending}
+              {...storageAvailability}
+            />
+          ) : null}
+          {source &&
+          (source.authMode === "claude_code_oauth" ||
+            source.credentialKind === "repository_rotating") ? (
+            <p className="text-sm leading-6 text-slate-300">
+              {sourceDescription(source)}
+            </p>
+          ) : null}
+          {apiKeyProvider &&
+          keyStorage === "reviewrouter" &&
+          gatewayInventoryEmpty ? (
+            <div className="grid gap-2 text-sm text-slate-300">
+              <p>
+                Connect an account and give this workspace access, then return
+                here.
+              </p>
+              <a
+                className="w-fit font-semibold text-cyan-200 underline"
+                href={apiKeySetupHref("accounts", {
+                  provider: apiKeyProvider,
+                  storage: "reviewrouter",
+                  workspaceId,
+                  repositoryIds: repositoryIds(target),
+                })}
+              >
+                Connect account
+              </a>
+            </div>
+          ) : null}
+          {source?.key === "gateway_binding" &&
+          gatewayAccountList.length > 0 ? (
             <SelectField
               label="Account"
               value={gatewayAccount?.binding?.id ?? ""}
@@ -993,7 +1423,10 @@ function ProviderChoiceStep({
                   value: account.binding!.id,
                   label: account.label,
                   icon: (
-                    <AccountProviderLogo profileLabel={account.profileLabel} />
+                    <AccountProviderLogo
+                      connection={account.connection}
+                      provider={account.provider}
+                    />
                   ),
                   description: personalDenied
                     ? deniedText(source.personalAccountDecision)
@@ -1007,11 +1440,18 @@ function ProviderChoiceStep({
                 const account = gatewayAccountList.find(
                   (candidate) => candidate.binding?.id === bindingId,
                 );
-                const models =
-                  gatewayPage?.profiles.find(
-                    (candidate) => candidate.id === account?.profileId,
-                  )?.models ?? [];
+                const nextProfile = gatewayOptions.profileFor(account);
+                const models = nextProfile?.models ?? [];
                 const nextModel = models.length === 1 ? models[0]! : "";
+                setSettingsEdited(false);
+                setSettings(
+                  defaultProviderSelectionSettings({
+                    authMode: source.authMode,
+                    model: nextModel,
+                    connection: nextProfile?.connection,
+                    gatewayProfileRef: nextProfile?.id,
+                  }),
+                );
                 setDraft((current) => ({
                   ...current,
                   bindingId,
@@ -1024,6 +1464,54 @@ function ProviderChoiceStep({
                   : "Credentials stay on the ReviewRouter server."
               }
             />
+          ) : null}
+          {source?.key === "gateway_binding" ? (
+            <>
+              {gatewayOptions.loading && !gatewayAccount ? (
+                <p role="status" className="text-sm text-slate-400">
+                  Loading available accounts…
+                </p>
+              ) : gatewayReadFailed ? (
+                <div className="grid gap-2 text-sm text-slate-400">
+                  <p role="status">
+                    {gatewayOptions.accounts?.status === "denied"
+                      ? "Account access is unavailable. Check this workspace's access before continuing."
+                      : "Accounts could not be loaded. Try again before choosing a connection."}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-fit"
+                    disabled={gatewayOptions.loading}
+                    onClick={() => gatewayOptions.refresh()}
+                  >
+                    Retry accounts
+                  </Button>
+                </div>
+              ) : gatewayAccountList.length === 0 &&
+                gatewayInventoryIncomplete ? (
+                <p role="status" className="text-sm text-slate-400">
+                  No matching accounts on this page. Load more accounts to
+                  continue.
+                </p>
+              ) : gatewayInventoryEmpty && !apiKeyProvider ? (
+                <div className="grid gap-2 text-sm text-slate-400">
+                  <p>No active accounts are available for this workspace.</p>
+                  <a
+                    className="w-fit font-semibold text-cyan-200 underline"
+                    href={`/dashboard/setup?${new URLSearchParams({ workspace: workspaceId })}`}
+                  >
+                    Connect account
+                  </a>
+                </div>
+              ) : null}
+              <GatewayAccountLoadMore
+                canLoadMore={gatewayOptions.canLoadMore}
+                loading={gatewayOptions.loading}
+                onLoadMore={gatewayOptions.loadMore}
+              />
+            </>
           ) : null}
           {needsKeyUpload ? (
             <TextField
@@ -1042,7 +1530,7 @@ function ProviderChoiceStep({
               hint="Saved encrypted on the server and installed in the selected repositories. It is never shown again."
             />
           ) : null}
-          {adding ? (
+          {adding && source ? (
             <label className="flex cursor-pointer items-start gap-3 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60">
               <Checkbox
                 checked={makeDefault}
@@ -1057,7 +1545,7 @@ function ProviderChoiceStep({
                 <span className="text-xs leading-5 text-slate-400">
                   {view.defaultSelection
                     ? "Replaces the current default for repositories without a provider of their own."
-                    : "Repositories without a provider of their own start reviewing with it."}
+                    : "Repositories without a provider of their own inherit this choice. Finish their setup in Repositories."}
                 </span>
               </span>
             </label>
@@ -1065,7 +1553,7 @@ function ProviderChoiceStep({
         </section>
       ) : null}
 
-      {authMode && settings && (choice?.kind !== "new" || source) ? (
+      {authMode && settings && credentialReady ? (
         <section
           className={
             modelOnly
@@ -1075,57 +1563,84 @@ function ProviderChoiceStep({
         >
           {modelOnly ? null : (
             <h3 className="text-sm font-semibold text-cyan-50">
-              {adding
-                ? "Model and review settings of the default"
-                : "Model and review settings"}
+              Model and review settings
             </h3>
           )}
           {modelOnly ? (
             <ProviderModelPicker
               model={model}
-              onModelChange={(next) =>
-                setDraft((current) => ({ ...current, model: next }))
-              }
+              onModelChange={changeModel}
               modelOptions={sourceModelOptions}
               modelChoice={
                 source?.key === "gateway_binding" ? "list" : "catalog"
               }
               disabled={pending || !mutationsEnabled}
+              emptyListPlaceholder="No models available for this account"
             />
           ) : (
             <ProviderModelFields
               authMode={authMode}
               model={model}
-              onModelChange={
-                source
-                  ? (next) => {
-                      setDraft((current) => ({ ...current, model: next }));
-                      setSettings((current) =>
-                        current
-                          ? fitProviderSelectionSettings({
-                              authMode,
-                              model: next,
-                              settings: current,
-                              connection: gatewayProfile?.connection,
-                            })
-                          : current,
-                      );
-                    }
-                  : null
-              }
+              settingsReady={settingsReady}
+              emptyListPlaceholder="No models available for this account"
+              onModelChange={source ? changeModel : null}
               modelOptions={sourceModelOptions}
               modelChoice={
                 source?.key === "gateway_binding" ? "list" : "catalog"
               }
               settings={settings}
-              onSettingsChange={setSettings}
+              hasSavedSettings={hasStoredSettings}
+              hasEditedSettings={settingsEdited}
+              onSettingsChange={(next) => {
+                setSettingsEdited(true);
+                setSettings(next);
+              }}
               connection={gatewayProfile?.connection}
+              gatewayProfileRef={gatewayProfile?.id}
               agentProfileOptions={agentProfileOptions}
               disabled={
                 pending || !mutationsEnabled || choice?.kind === "default"
               }
             />
           )}
+          {!modelOnly &&
+          authMode === "codex_account_gateway" &&
+          model.trim() &&
+          !settingsReady ? (
+            <div className="grid gap-2 text-sm text-slate-400">
+              <p role="status">
+                {gatewayOptions.loading
+                  ? "Loading review settings for this model…"
+                  : "Review settings are unavailable for this model. Refresh accounts or choose a different provider."}
+              </p>
+              {gatewayOptions.canRefresh ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-fit"
+                  disabled={gatewayOptions.loading}
+                  onClick={() => gatewayOptions.refresh()}
+                >
+                  Refresh accounts
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          {authMode === "codex_account_gateway" && gatewayBindingId ? (
+            <GatewayModelCatalogStatus
+              account={resolvedGatewayAccount}
+              loading={gatewayOptions.loading}
+              canRefresh={gatewayOptions.canRefresh}
+              onRefresh={() => gatewayOptions.refreshModels(gatewayBindingId)}
+            />
+          ) : null}
+          {source && authMode !== "codex_account_gateway" ? (
+            <ProviderModelCatalogStatus
+              status={catalogs.status(providerKindForAuthMode(authMode))}
+              publicSelection
+            />
+          ) : null}
           {modelOnly ? (
             <p className="text-xs leading-5 text-slate-400">
               Review depth and similar settings are chosen where the provider is
@@ -1135,6 +1650,7 @@ function ProviderChoiceStep({
           {authMode === "codex_account_gateway" && gatewayBindingId ? (
             <GatewayConnectionTest
               bindingId={gatewayBindingId}
+              account={resolvedGatewayAccount}
               model={model.trim()}
               available={
                 gatewayAccountList.some(
@@ -1158,6 +1674,12 @@ function ProviderChoiceStep({
 
       {decision && !decision.allowed && !sharedDenial ? (
         <p className="text-sm text-amber-100/85">{deniedText(decision)}</p>
+      ) : null}
+      {selectedDefaultUnavailable ? (
+        <p role="status" className="text-sm text-amber-100/85">
+          The workspace default is no longer available. Choose a provider to
+          continue.
+        </p>
       ) : null}
       {error ? (
         <p role="alert" className="text-sm leading-6 text-red-100">
@@ -1213,7 +1735,12 @@ function ProfileCard({
   return (
     <RadioCard
       value={option.id}
-      icon={<ProviderAuthLogoFrame authMode={option.authMode} />}
+      icon={
+        <ProviderAuthLogoFrame
+          authMode={option.authMode}
+          providerId={option.providerId}
+        />
+      }
       title={option.label}
       description={
         bulk && option.refusedRepositoryCount > 0
@@ -1263,6 +1790,7 @@ function CredentialStep({
   authMode,
   view,
   onInstalled,
+  onBusyChange,
 }: {
   readonly workspaceId: string;
   readonly repository: ProviderSetupRepositoryContext;
@@ -1270,6 +1798,7 @@ function CredentialStep({
   readonly authMode: ProviderAuthMode;
   readonly view: ProviderSetupView | undefined;
   readonly onInstalled: () => void;
+  readonly onBusyChange: (busy: boolean) => void;
 }): React.ReactElement {
   const common = {
     workspaceId,
@@ -1278,9 +1807,7 @@ function CredentialStep({
   };
   switch (credentialStep) {
     case "ci_secret": {
-      const ciAuthMode = authMode as
-        | "claude_code_oauth"
-        | "mimo_token_plan_api_key";
+      const ciAuthMode = authMode as UserCiSecretAuthMode;
       const guidance = repository.secretGuidance?.[ciAuthMode];
       return guidance ? (
         <CiSecretDelivery
@@ -1332,7 +1859,7 @@ function CredentialStep({
           {...common}
           enabled={repository.rotatingEnabled}
           canManage={repository.canManageCredentials}
-          preparationOnly={repository.rotatingPreparationOnly}
+          onBusyChange={onBusyChange}
         />
       );
   }
@@ -1411,9 +1938,11 @@ function sourceDescription(option: ProviderSourceOption): string {
         ? "ReviewRouter installs the saved key in each repository."
         : "An owner or admin pastes the key once; ReviewRouter installs it in each repository.";
     case "user_ci_secret":
-      return "You add the credential to the repository's GitHub secrets yourself.";
+      return option.authMode === "claude_code_oauth"
+        ? "Use your Claude Code subscription. Add its token directly to GitHub Secrets during repository setup."
+        : "You add the credential to the repository's GitHub secrets yourself.";
     case "repository_rotating":
-      return "Only for this repository. You connect it once from your computer and reviews refresh it.";
+      return "For this repository only. Connect from your computer; reviews refresh the session automatically. Finish the connection in repository setup.";
     case "hosted_pool":
       return "Uses this workspace's hosted Codex sessions.";
   }
@@ -1448,7 +1977,10 @@ function credentialRequest(
 function firstAllowedSource(
   sources: readonly ProviderSourceOption[],
 ): ProviderSourceOption | undefined {
-  return sources.find((source) => source.decision.allowed);
+  return sources.find(
+    (source) =>
+      source.credentialKind !== "managed_api_key" && source.decision.allowed,
+  );
 }
 
 function repositoryIds(target: ProviderSetupDialogTarget): readonly string[] {

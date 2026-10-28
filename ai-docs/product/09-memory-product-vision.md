@@ -5,9 +5,13 @@ Recorded: 2026-10-23.
 Status: owner requirements and selected direction for the next memory phase.
 On 2026-10-23 the owner selected **self-hosted Hindsight** as the first complete
 memory backend, behind provider-neutral application contracts. This selection
-is not evidence of a production rollout or completed qualification. The current
-assignment is deep integration planning and independent criticism; runtime
-changes and migration follow the resulting reviewed plan.
+is not evidence of a production rollout or completed qualification. The initial
+planning phase led to the accepted
+[replacement plan](../plans/2026-10-23-hindsight-memory-replacement.md) and
+[ADR-031](../decisions/031-complete-memory-provider.md). The owner subsequently
+authorized implementation, end-to-end qualification and source merge, including a
+usable management UI. Production activation and legacy-data cutover retain their
+separate qualification gates.
 
 ## Intended outcome
 
@@ -72,8 +76,9 @@ behavior must be researched and challenged before implementation.
    as well as latency, operational reliability and cost, on code-review scenarios.
 8. **Simple frontend.** Show knowledge, scope, groups, sources and changes in a
    clear UI using existing shared components. Keep the workflow understandable
-   for people and visually inspect it during implementation. The current Memory
-   page remains a development notice until a separate implementation phase.
+   for people and visually inspect it during implementation. The initial request
+   for a development notice was superseded by the authorized management UI phase;
+   disabled or unavailable memory must still have a clear, honest empty state.
 9. **Future LLM access.** Keep an application boundary through which a future
    chat or LLM tools can retrieve knowledge and propose or perform authorized
    saves and updates. The future chat is not part of the current delivery.

@@ -18,6 +18,7 @@ import {
 } from "./personal-account-controls";
 import { personalAccountAccessReads } from "./personal-account-access-api";
 import { useCurrentGatewayModelAccountsCache } from "./gateway-model-account-options";
+import type { ApiKeySetupIntent } from "../../src/features/provider-setup/api-key-storage";
 
 export function PersonalAccountsPanel({
   bootstrap,
@@ -26,6 +27,7 @@ export function PersonalAccountsPanel({
   managementApi,
   workspaceId,
   accessReadContext,
+  setupIntent,
 }: {
   bootstrap: PersonalAccountsBootstrap;
   api: PersonalAccountsApi;
@@ -33,6 +35,7 @@ export function PersonalAccountsPanel({
   managementApi: AccountGatewayManagementApi;
   workspaceId?: string;
   accessReadContext?: string;
+  setupIntent?: ApiKeySetupIntent | undefined;
 }) {
   const readApi = useMemo(
     () =>
@@ -70,6 +73,8 @@ export function PersonalAccountsPanel({
         key={management.context}
         bootstrap={management}
         managementScope="personal"
+        workspaceId={workspaceId}
+        setupIntent={setupIntent}
         api={managementApi}
         queryClient={client}
         refreshRelated={refreshSharing}

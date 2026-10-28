@@ -1,3 +1,4 @@
+import type { ProviderIdentity } from "./provider-identity";
 import {
   decideProviderManagement,
   type ProviderManagementActor,
@@ -12,7 +13,13 @@ import type {
   UserCiSecretAuthMode,
 } from "@reviewrouter/features-review-config/workspace-provider-profile";
 import type { ReviewProviderSelection } from "@reviewrouter/features-review-config/review-policy-document";
-import type { ProviderAuthMode } from "@reviewrouter/features-review-providers";
+import {
+  apiKeyProviders,
+  apiKeyProviderForAuthMode,
+  getApiKeyProvider,
+  type ProviderAuthMode,
+  type ApiKeyProviderId,
+} from "@reviewrouter/features-review-providers";
 
 /**
  * View model of the provider dialog. Built on the server from verified facts
@@ -54,9 +61,11 @@ export type ProviderProfileOption = Readonly<{
   id: string;
   label: string;
   model: string;
+  providerId?: ProviderIdentity | undefined;
   authMode: ProviderAuthMode;
   credentialKind: ProviderCredentialKind;
   gatewayBindingId: string | null;
+  gatewayProfileRef?: string | null;
   isDefault: boolean;
   decision: ProviderSetupDecision;
   /** Selected repositories that refuse it; the others accept it. */
@@ -70,6 +79,8 @@ export type ProviderSourceKey =
   | "managed_api_key:openrouter_api_key"
   | "user_ci_secret:claude_code_oauth"
   | "user_ci_secret:mimo_token_plan_api_key"
+  | "user_ci_secret:openrouter_api_key"
+  | "user_ci_secret:kimi_code_api_key"
   | "repository_rotating";
 
 export type ProviderSourceOption = Readonly<{
@@ -107,6 +118,8 @@ export type ProviderSetupView = Readonly<{
   profiles: readonly ProviderProfileOption[];
   sources: readonly ProviderSourceOption[];
   viewerIsAdmin: boolean;
+  /** Enrollment capabilities, independent of whether an account exists yet. */
+  gatewayApiKeyProviders?: readonly ApiKeyProviderId[];
 }>;
 
 /** Verified facts of one dialog read. */
@@ -119,10 +132,12 @@ export type ProviderSetupFacts = Readonly<{
     id: string;
     label: string;
     model: string;
+    providerId?: ProviderIdentity | undefined;
     authMode: ProviderAuthMode;
     credentialKind: ProviderCredentialKind;
     createdByUserId: string | null;
     gatewayBindingId: string | null;
+    gatewayProfileRef?: string | null;
     personalBinding: boolean;
     rotatingRepositoryId: string | null;
   }>[];
@@ -144,13 +159,16 @@ export type ProviderSetupFacts = Readonly<{
     >
   >;
   claudeCodeEnabled: boolean;
+  gatewayApiKeyProviders?: readonly ApiKeyProviderId[];
 }>;
 
 const allowed: ProviderSetupDecision = { allowed: true };
 
 const ciSecretSources = [
   "user_ci_secret:claude_code_oauth",
-  "user_ci_secret:mimo_token_plan_api_key",
+  ...apiKeyProviders.map(
+    (provider) => `user_ci_secret:${provider.directAuthMode}` as const,
+  ),
 ] as const;
 
 export function buildProviderSetupView(
@@ -216,9 +234,11 @@ export function buildProviderSetupView(
         id: profile.id,
         label: profile.label,
         model: profile.model,
+        ...(profile.providerId ? { providerId: profile.providerId } : {}),
         authMode: profile.authMode,
         credentialKind: profile.credentialKind,
         gatewayBindingId: profile.gatewayBindingId,
+        gatewayProfileRef: profile.gatewayProfileRef ?? null,
         isDefault: facts.defaultSelection?.profileId === profile.id,
       };
       if (facts.target === "workspace")
@@ -402,6 +422,9 @@ export function buildProviderSetupView(
     profiles,
     sources,
     viewerIsAdmin: admin,
+    ...(facts.gatewayApiKeyProviders
+      ? { gatewayApiKeyProviders: facts.gatewayApiKeyProviders }
+      : {}),
   };
 }
 
@@ -509,15 +532,15 @@ export function sourceTitle(
     case "gateway_binding":
       return "Connected account";
     case "managed_api_key":
-      return authMode === "openrouter_api_key"
-        ? "OpenRouter key saved by ReviewRouter"
-        : "MiMo Token Plan key saved by ReviewRouter";
-    case "user_ci_secret":
-      return authMode === "claude_code_oauth"
-        ? "Claude Code subscription, GitHub secret of each repository"
-        : "MiMo Token Plan, GitHub secret of each repository";
+      return "GitHub Secrets · managed by ReviewRouter";
+    case "user_ci_secret": {
+      const provider = apiKeyProviderForAuthMode(authMode);
+      return provider
+        ? `${getApiKeyProvider(provider).label} · GitHub Secrets`
+        : "Claude Code · GitHub Secrets";
+    }
     case "repository_rotating":
-      return "Codex subscription for this repository";
+      return "Codex · GitHub Secrets";
     case "hosted_pool":
       return "Hosted Codex pool";
   }

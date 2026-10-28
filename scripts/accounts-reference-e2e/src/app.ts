@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { applicationEnvironment } from "./database.ts";
 import type { FixtureSecrets } from "./contracts.ts";
+import { skillsReadinessFixtureEnv } from "./skills-readiness-fixture.ts";
 
 export type AppFixture = {
   readonly url: string;
@@ -51,13 +52,21 @@ export async function startNextApp(input: {
     secrets: input.secrets,
     tmpDir: join(input.workDir, "app-tmp"),
   });
+  if (process.argv.includes("--account-models-fixture"))
+    environment.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED = "1";
   if (input.skillsGitHub)
     Object.assign(environment, {
+      ...skillsReadinessFixtureEnv(),
       REVIEW_ROUTER_SKILLS_E2E: "1",
       REVIEW_ROUTER_GITHUB_APP_TEST_ORIGIN: input.skillsGitHub.origin,
       GITHUB_APP_ID: "990001",
       GITHUB_APP_PRIVATE_KEY: input.skillsGitHub.privateKey,
-      NODE_OPTIONS: `--import=${join(input.repoRoot, "scripts/accounts-reference-e2e/src/skills-network-guard.ts")}`,
+      NODE_OPTIONS: [
+        environment.NODE_OPTIONS,
+        `--import=${join(input.repoRoot, "scripts/accounts-reference-e2e/src/skills-network-guard.ts")}`,
+      ]
+        .filter(Boolean)
+        .join(" "),
     });
   const nextBin = join(
     input.repoRoot,
@@ -70,7 +79,9 @@ export async function startNextApp(input: {
   const child: ChildProcess = spawn(
     process.execPath,
     [
-      ...(process.argv.includes("--catalog-fixture")
+      ...(process.argv.includes("--catalog-fixture") ||
+      process.argv.includes("--account-models-fixture") ||
+      process.argv.includes("--api-key-storage-fixture")
         ? [
             "--import",
             join(

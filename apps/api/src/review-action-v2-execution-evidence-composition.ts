@@ -1,4 +1,17 @@
 import {
+  persistedReviewExecutionRestore,
+  loadAcceptedReviewInvocationManifests,
+} from "./review-execution-publication-restore.js";
+import {
+  assertLifecycleVerificationWorkSlots,
+  assertLifecycleVerificationAssignmentManifest,
+  assertLifecycleVerificationManifest,
+  assertLifecycleVerificationPreparedPlan,
+  assertLifecycleVerificationObservation,
+  type assertLifecycleVerificationDispatchEvidence,
+  type assertReviewRunCompanionDispatchEvidence,
+} from "./review-lifecycle-verification.js";
+import {
   AcceptReviewObservationStatus,
   LookupReviewEvidenceStatus,
   ProviderResultCompletionStatus,
@@ -55,6 +68,7 @@ import {
   ReviewRunAuthorizationTokenResolutionStatus,
   ReviewTrustDomain,
   canonicalJson,
+  parseReviewRunRuntimeSnapshot,
   type ReviewProtocolLimitsProfileQueryPort,
   type ReviewRunAuthorization,
   type ReviewRunAuthorizationQueryPort,
@@ -95,6 +109,7 @@ import type { ReviewActionV2ContextReplayCoordinatorPort } from "./review-action
 import {
   assertNotPrDescriptionEvidence,
   assertPrDescriptionArtifact,
+  parseGeneratedPrDescription,
   assertPrDescriptionManifest,
   assertPrDescriptionWorkSlots,
 } from "./review-pr-description.js";
@@ -165,6 +180,22 @@ type CommonDependencies = Readonly<{
   now: () => Date;
   nextId: (kind: "lease" | "attempt" | "observation_ref") => string;
   timing: ReviewActionV2ExecutionTimingPolicy;
+  authorizationQueries?: Pick<
+    ReviewRunAuthorizationQueryPort,
+    "findReviewRunAuthorizationById"
+  >;
+  verifyLifecycleDispatchEvidence?: (
+    input: Omit<
+      Parameters<typeof assertLifecycleVerificationDispatchEvidence>[0],
+      "prisma"
+    >,
+  ) => Promise<void>;
+  verifyCompanionDispatchEvidence?: (
+    input: Omit<
+      Parameters<typeof assertReviewRunCompanionDispatchEvidence>[0],
+      "prisma"
+    >,
+  ) => Promise<void>;
 }>;
 
 export type ReviewActionV2ExecutionHandlerDependencies = CommonDependencies &
@@ -331,7 +362,14 @@ async function restoreExecution(
       snapshot.execution.revision.reviewRevisionHash ===
         request.reviewRevisionHash
     ) {
-      return { statusCode: 200 as const, result: restoreResult(snapshot) };
+      return {
+        statusCode: 200 as const,
+        result: await restoreResult(
+          snapshot,
+          authorization,
+          d.executionQueries,
+        ),
+      };
     }
   }
   return {
@@ -376,6 +414,17 @@ async function startExecution(
   await executionLimits(authorization, d);
   const workSlots = parseWorkSlots(request.workSlotsCanonicalJson);
   assertPrDescriptionWorkSlots(authorization, workSlots);
+  assertLifecycleVerificationWorkSlots(authorization, workSlots);
+  assertLifecycleVerificationAssignmentManifest(
+    authorization,
+    workSlots,
+    request.assignmentManifestCanonicalJson
+      ? parseCanonicalJson(
+          request.assignmentManifestCanonicalJson,
+          "assignment_manifest_invalid",
+        )
+      : null,
+  );
   const now = d.now();
   const outcome = await d.executions.startReviewExecution.execute({
     scope: toExecutionScope(authorization),
@@ -408,7 +457,13 @@ async function startExecution(
         : (200 as const),
     result: {
       status: mapStart(outcome.status),
-      ...(outcome.snapshot ? executionResult(outcome.snapshot) : {}),
+      ...(outcome.snapshot
+        ? await executionResult(
+            outcome.snapshot,
+            authorization,
+            d.executionQueries,
+          )
+        : {}),
     },
   };
 }
@@ -569,6 +624,7 @@ async function acquireLease(
     authorization,
     slot,
     d,
+    snapshot.execution.assignmentManifestCanonicalJson,
   );
   const safety = await d.leaseSafety.resolve({
     authorization,
@@ -1011,6 +1067,30 @@ async function attachObservation(
         throw attachmentPolicyStale();
       }
     }
+    const reusableSlot = snapshot.execution.workSlots.find(
+      (slot) => slot.workSlotId === request.workSlotId,
+    );
+    if (reusableSlot?.taskKind === ReviewTaskKind.LifecycleRevalidation) {
+      assertLifecycleVerificationWorkSlots(authorization, [reusableSlot]);
+      if (
+        parseReviewRunRuntimeSnapshot(
+          authorization.runtimeSnapshotCanonicalJson,
+        )?.lifecycleVerificationCapability
+      ) {
+        const reusableObservation = await d.observations.findById(
+          request.observationId,
+        );
+        if (!reusableObservation) throw attachmentPolicyStale();
+        await assertLifecycleObservationSource(
+          authorization,
+          snapshot,
+          request.workSlotId,
+          reusable.manifest,
+          reusableObservation,
+          d,
+        );
+      }
+    }
     const result = await d.executions.observationAttachments.attachReusable({
       scope: toExecutionScope(authorization),
       executionId: request.executionId,
@@ -1078,6 +1158,15 @@ async function attachObservation(
       "fresh_observation_authority_mismatch",
     );
   }
+  await assertLifecycleLeaseEvidence(
+    authorization,
+    snapshot,
+    request.workSlotId,
+    lease,
+    observation.payload,
+    observation.actualModel,
+    d,
+  );
   const result = await d.executions.observationAttachments.attachFresh({
     scope: toExecutionScope(authorization),
     executionId: request.executionId,
@@ -1156,7 +1245,13 @@ async function adoptObservation(
       "work_slot_missing",
     );
   }
-  await validatePreparedManifest(request, authorization, slot, d);
+  await validatePreparedManifest(
+    request,
+    authorization,
+    slot,
+    d,
+    snapshot.execution.assignmentManifestCanonicalJson,
+  );
 
   const sourceLease = await d.executionQueries.findLease(request.sourceLeaseId);
   if (!sourceLease) {
@@ -1183,6 +1278,14 @@ async function adoptObservation(
     d.digest,
   );
 
+  await assertLifecycleObservationSource(
+    authorization,
+    snapshot,
+    request.workSlotId,
+    parseManifest(request.manifestCanonicalJson),
+    observation,
+    d,
+  );
   const adoptionIdentityHash = await d.digest.digestUtf8(
     canonicalJson({
       authorizationId: authorization.authorizationId,
@@ -1344,6 +1447,35 @@ async function finalizeExecution(
     leases: d.executionQueries,
     projection,
   });
+  if (
+    parseReviewRunRuntimeSnapshot(authorization.runtimeSnapshotCanonicalJson)
+      ?.lifecycleVerificationCapability
+  ) {
+    const root = record(projection, "projection_envelope_invalid");
+    const publishing = record(root.publishing, "projection_publishing_invalid");
+    if (publishing.prDescription !== undefined) {
+      const provenance = parseGeneratedPrDescription(
+        publishing.prDescription,
+      ).generationProvenance;
+      const lease = await d.executionQueries.findLease(provenance.leaseId);
+      if (!lease?.preparedManifestKey || !d.verifyCompanionDispatchEvidence)
+        throw failure(
+          422,
+          ReviewActionV2ProtocolErrorCode.InvariantViolation,
+          "pr_description_dispatch_proof_unavailable",
+        );
+      await d.verifyCompanionDispatchEvidence({
+        authorization,
+        role: "pr_description",
+        executionId: snapshot.execution.executionId,
+        workSlotId: lease.workSlotId,
+        leaseId: lease.leaseId,
+        fencingToken: lease.fencingToken,
+        preparedManifestKey: lease.preparedManifestKey,
+        providerRequestEnvelopeHash: provenance.providerRequestEnvelopeHash,
+      });
+    }
+  }
   const now = d.now();
   const protocolLimits = await requireProtocolLimits(authorization, d);
   const limits = await executionLimits(authorization, d);
@@ -1476,6 +1608,14 @@ async function lookupEvidence(
     authorization.selectedProtocolVersion,
     "manifest_protocol_mismatch",
   );
+  assertLifecycleVerificationPreparedPlan(
+    authorization,
+    snapshot.execution.assignmentManifestCanonicalJson
+      ? JSON.parse(snapshot.execution.assignmentManifestCanonicalJson)
+      : null,
+    slot,
+    manifest,
+  );
   const trustDomain = evidenceTrustDomain(authorization.trustDomain);
   const result = await d.evidence.lookupReviewEvidence.execute({
     scope: toEvidenceScope(authorization, scopeHash),
@@ -1535,6 +1675,14 @@ async function lookupEvidence(
       };
     }
   }
+  await assertLifecycleObservationSource(
+    authorization,
+    snapshot,
+    request.workSlotId,
+    manifest,
+    observation,
+    d,
+  );
   let adoptionSourceLease: ReviewInvocationLease | null = null;
   if (observation.sourceExecutionId === request.executionId) {
     adoptionSourceLease = await d.executionQueries.findLease(
@@ -1673,6 +1821,20 @@ async function commitEvidence(
     await d.digest.digest(prepared.canonicalBytes),
     request.payloadHash,
     "payload_hash_mismatch",
+  );
+  const sourceSnapshot = await requireExecution(
+    authority.executionId,
+    authorization,
+    d.executionQueries,
+  );
+  await assertLifecycleLeaseEvidence(
+    authorization,
+    sourceSnapshot,
+    lease.workSlotId,
+    lease,
+    payload,
+    request.actualModel,
+    d,
   );
   const result = await d.evidence.acceptReviewObservation.execute({
     attemptId: request.attemptId,
@@ -2006,6 +2168,7 @@ async function validatePreparedManifest(
   authorization: ReviewRunAuthorization,
   slot: ReviewExecution["workSlots"][number],
   dependencies: Pick<CommonDependencies, "digest">,
+  assignmentManifestCanonicalJson?: string | null,
 ) {
   const manifest = parseManifest(request.manifestCanonicalJson);
   if (
@@ -2046,6 +2209,15 @@ async function validatePreparedManifest(
     );
   }
   assertPrDescriptionManifest(authorization, slot, manifest);
+  assertLifecycleVerificationManifest(authorization, slot, manifest);
+  assertLifecycleVerificationPreparedPlan(
+    authorization,
+    assignmentManifestCanonicalJson
+      ? JSON.parse(assignmentManifestCanonicalJson)
+      : null,
+    slot,
+    manifest,
+  );
   requireEqual(
     request.providerVoteIdentityHash,
     slot.providerVoteIdentityHash,
@@ -2103,33 +2275,189 @@ function parseCanonicalJson(value: string, issue: string): unknown {
   }
 }
 
+/** Companion evidence must originate from its completed durable native claim.
+ * Retention/pruning gaps abstain; they never manufacture replacement authority. */
+async function assertLifecycleLeaseEvidence(
+  authorization: ReviewRunAuthorization,
+  snapshot: ReviewExecutionSnapshot,
+  workSlotId: string,
+  lease: ReviewInvocationLease,
+  payload: unknown,
+  actualModel: string,
+  d: CommonDependencies,
+): Promise<void> {
+  const slot = snapshot.execution.workSlots.find(
+    (item) => item.workSlotId === workSlotId,
+  );
+  if (!slot || slot.taskKind !== ReviewTaskKind.LifecycleRevalidation) return;
+  assertLifecycleVerificationWorkSlots(authorization, [slot]);
+  const capability = parseReviewRunRuntimeSnapshot(
+    authorization.runtimeSnapshotCanonicalJson,
+  )?.lifecycleVerificationCapability;
+  if (!capability) return;
+  if (
+    !lease.preparedManifestCanonicalJson ||
+    !lease.preparedManifestKey ||
+    !d.verifyLifecycleDispatchEvidence
+  )
+    throw failure(
+      422,
+      ReviewActionV2ProtocolErrorCode.InvariantViolation,
+      "lifecycle_verification_dispatch_proof_unavailable",
+    );
+  const manifest = parseManifest(lease.preparedManifestCanonicalJson);
+  assertLifecycleVerificationPreparedPlan(
+    authorization,
+    snapshot.execution.assignmentManifestCanonicalJson
+      ? JSON.parse(snapshot.execution.assignmentManifestCanonicalJson)
+      : null,
+    slot,
+    manifest,
+  );
+  assertLifecycleVerificationObservation(
+    authorization,
+    slot,
+    manifest,
+    payload,
+  );
+  requireEqual(
+    actualModel,
+    capability.model,
+    "lifecycle_verification_actual_model_mismatch",
+  );
+  await d.verifyLifecycleDispatchEvidence({
+    authorization,
+    executionId: snapshot.execution.executionId,
+    workSlotId,
+    leaseId: lease.leaseId,
+    fencingToken: lease.fencingToken,
+    preparedManifestKey: lease.preparedManifestKey,
+    providerRequestEnvelopeHash: manifest.providerRequestEnvelopeHash,
+  });
+}
+
+async function assertLifecycleObservationSource(
+  authorization: ReviewRunAuthorization,
+  target: ReviewExecutionSnapshot,
+  workSlotId: string,
+  manifest: ProviderInvocationManifest,
+  observation: ReviewObservation,
+  d: CommonDependencies,
+): Promise<void> {
+  const slot = target.execution.workSlots.find(
+    (item) => item.workSlotId === workSlotId,
+  );
+  if (!slot || slot.taskKind !== ReviewTaskKind.LifecycleRevalidation) return;
+  assertLifecycleVerificationPreparedPlan(
+    authorization,
+    target.execution.assignmentManifestCanonicalJson
+      ? JSON.parse(target.execution.assignmentManifestCanonicalJson)
+      : null,
+    slot,
+    manifest,
+  );
+  if (
+    !parseReviewRunRuntimeSnapshot(authorization.runtimeSnapshotCanonicalJson)
+      ?.lifecycleVerificationCapability
+  )
+    return;
+  const [source, sourceLease, sourceAuthorization] = await Promise.all([
+    d.executionQueries.findExecution(observation.sourceExecutionId),
+    d.executionQueries.findLease(observation.sourceLeaseId),
+    d.authorizationQueries?.findReviewRunAuthorizationById(
+      observation.sourceAuthorizationId,
+    ),
+  ]);
+  if (
+    !source ||
+    !sourceLease ||
+    !sourceAuthorization ||
+    source.execution.authorizationId !== sourceAuthorization.authorizationId ||
+    sourceLease.executionId !== source.execution.executionId ||
+    sourceLease.workSlotId !== observation.sourceWorkSlotId ||
+    sourceLease.preparedManifestKey !== observation.manifestKey ||
+    sourceLease.fencingToken.toString(10) !== observation.sourceFencingToken ||
+    sourceLease.providerInvocationKey !== observation.providerInvocationKey ||
+    sourceAuthorization.reviewRevisionHash !==
+      authorization.reviewRevisionHash ||
+    !parseReviewRunRuntimeSnapshot(
+      sourceAuthorization.runtimeSnapshotCanonicalJson,
+    )?.lifecycleVerificationCapability
+  )
+    throw failure(
+      422,
+      ReviewActionV2ProtocolErrorCode.InvariantViolation,
+      "lifecycle_verification_original_source_unavailable",
+    );
+  await assertLifecycleLeaseEvidence(
+    sourceAuthorization,
+    source,
+    observation.sourceWorkSlotId,
+    sourceLease,
+    observation.payload,
+    observation.actualModel,
+    d,
+  );
+}
+
 function canonicalPayload(observation: ReviewObservation): string {
   return new TextDecoder().decode(
     prepareReviewObservationPayload(observation.payload).canonicalBytes,
   );
 }
-function executionResult(snapshot: ReviewExecutionSnapshot) {
+async function executionResult(
+  snapshot: ReviewExecutionSnapshot,
+  authorization: ReviewRunAuthorization,
+  queries: Pick<ReviewExecutionQueryPort, "findLease">,
+) {
   return {
     executionId: snapshot.execution.executionId,
     generation: snapshot.execution.generation.toString(10),
     streamVersion: snapshot.stream.version.toString(10),
     executionVersion: snapshot.execution.version.toString(10),
-    executionCanonicalJson: canonicalExecution(snapshot),
+    executionCanonicalJson: await canonicalExecution(
+      snapshot,
+      authorization,
+      queries,
+    ),
   };
 }
-function restoreResult(snapshot: ReviewExecutionSnapshot) {
+async function restoreResult(
+  snapshot: ReviewExecutionSnapshot,
+  authorization: ReviewRunAuthorization,
+  queries: Pick<ReviewExecutionQueryPort, "findLease">,
+) {
   return {
     status: ReviewExecutionRestoreResultStatus.Found,
     executionId: snapshot.execution.executionId,
     generation: snapshot.execution.generation.toString(10),
     streamVersion: snapshot.stream.version.toString(10),
     executionState: snapshot.execution.state,
-    executionCanonicalJson: canonicalExecution(snapshot),
+    executionCanonicalJson: await canonicalExecution(
+      snapshot,
+      authorization,
+      queries,
+    ),
   };
 }
-function canonicalExecution(snapshot: ReviewExecutionSnapshot) {
+async function canonicalExecution(
+  snapshot: ReviewExecutionSnapshot,
+  authorization: ReviewRunAuthorization,
+  queries: Pick<ReviewExecutionQueryPort, "findLease">,
+) {
   const e = snapshot.execution;
+  const persistedPlan =
+    parseReviewRunRuntimeSnapshot(authorization.runtimeSnapshotCanonicalJson)
+      ?.lifecycleVerificationCapability ||
+    (e.assignmentManifestCanonicalJson &&
+      JSON.parse(e.assignmentManifestCanonicalJson).manifestVersion === 2)
+      ? persistedReviewExecutionRestore(
+          snapshot,
+          await loadAcceptedReviewInvocationManifests(snapshot, queries),
+        )
+      : undefined;
   return canonicalJson({
+    ...(persistedPlan ? { persistedPlan } : {}),
     executionId: e.executionId,
     version: e.version.toString(10),
     generation: e.generation.toString(10),
@@ -2304,6 +2632,7 @@ function mapInvocationFlightAcquire(
       return ReviewInvocationLeaseResultStatus.Busy;
     case AcquireOrJoinInvocationFlightStatus.Missing:
       return ReviewInvocationLeaseResultStatus.Missing;
+    case AcquireOrJoinInvocationFlightStatus.InputStale:
     case AcquireOrJoinInvocationFlightStatus.AttemptBudgetExhausted:
     case AcquireOrJoinInvocationFlightStatus.NotRunnable:
     case AcquireOrJoinInvocationFlightStatus.IdempotencyConflict:
@@ -2314,6 +2643,7 @@ function mapInvocationFlightAcquireRejectionReason(
   status: AcquireOrJoinInvocationFlightStatus,
 ) {
   switch (status) {
+    case AcquireOrJoinInvocationFlightStatus.InputStale:
     case AcquireOrJoinInvocationFlightStatus.AttemptBudgetExhausted:
     case AcquireOrJoinInvocationFlightStatus.NotRunnable:
     case AcquireOrJoinInvocationFlightStatus.IdempotencyConflict:

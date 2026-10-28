@@ -3,6 +3,7 @@ import type {
   ProducerRelease,
   ProducerContextToolsProfile,
   ProducerPrDescriptionProfile,
+  ProducerLifecycleVerificationProfile,
   ProducerReviewInvestigationProfile,
 } from "../../domain/producer-release";
 import type {
@@ -20,6 +21,7 @@ export type TrustedProducerReleaseAttestation = {
   readonly runtimeEntrypointDigest: string;
   readonly contextGatewayPolicyVersion: string | null;
   readonly contextGatewayEntrypointDigest: string | null;
+  readonly lifecycleVerificationProfile?: ProducerLifecycleVerificationProfile | null;
   readonly prDescriptionProfile?: ProducerPrDescriptionProfile | null;
   readonly agentProfiles?: readonly ReviewAgentProfile[] | null;
   readonly reviewInvestigationProfile?: ProducerReviewInvestigationProfile | null;

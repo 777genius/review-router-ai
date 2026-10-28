@@ -294,7 +294,7 @@ const filePath = "src/review-file-000.ts";
           firstLineage = envelope.snapshot.lineageHints[0].lineageId;
         } else if (index === 1) {
           expect(envelope.publishing.summary.body).toContain(
-            "0 new · 0 resolved · 1 open · 1 unverified",
+            "0 new · 0 resolved · 0 confirmed open · 1 previous issue not verified",
           );
           expect(envelope.snapshot.lineageHints[0].active).toBe(true);
           expect(envelope.publishing.lifecycle).toEqual([
@@ -306,7 +306,7 @@ const filePath = "src/review-file-000.ts";
           expect(threads.isResolved).toBe(false);
         } else {
           expect(envelope.publishing.summary.body).toContain(
-            "1 new · 1 resolved · 1 open",
+            "1 new · 1 resolved · 1 confirmed open",
           );
           expect(
             envelope.snapshot.lineageHints.find(

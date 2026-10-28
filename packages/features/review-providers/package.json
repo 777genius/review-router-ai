@@ -16,6 +16,7 @@
     }
   },
   "dependencies": {
+    "@reviewrouter/shared": "workspace:*",
     "zod": "^4.4.2",
     "@get-modular/core": "0.7.0",
     "@get-modular/assembly": "0.7.0"

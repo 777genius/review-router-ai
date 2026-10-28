@@ -3,6 +3,9 @@ import {
   managedCodexWorkflowPath,
   reviewRouterWorkflowPath,
   providerApiCheckoutCompanionContract,
+  providerApiDescriptors,
+  isProviderApiAuthMode,
+  type ProviderApiAuthMode,
 } from "@reviewrouter/shared";
 export {
   parseReviewAgentProfiles,
@@ -175,9 +178,16 @@ ${inputs.map((name) => `      ${name}: \${{ inputs.${name} }}`).join("\n")}${ori
 export function renderReviewRouterProviderApiCaller(options: {
   readonly controlPlaneUrl?: string;
   readonly runtimeRef: string;
+  readonly providerApiAuthMode?: ProviderApiAuthMode;
 }): string {
   if (!/^[a-f0-9]{40}$/.test(options.runtimeRef))
     throw new Error("review_workflow_runtime_ref_invalid");
+  const mode =
+    options.providerApiAuthMode ??
+    providerApiCheckoutCompanionContract.providerApiAuthMode;
+  if (!isProviderApiAuthMode(mode))
+    throw new Error("provider_api_mode_invalid");
+  const descriptor = providerApiDescriptors[mode];
   const caller = renderReviewRouterCaller(options);
   return (
     caller.replace(
@@ -192,9 +202,9 @@ export function renderReviewRouterProviderApiCaller(options: {
       review_timeout_minutes: 240
       max_changed_lines: '0'
       workflow_schema_version: ${providerApiCheckoutCompanionContract.workflowSchemaVersion}
-      provider_api_auth_mode: ${providerApiCheckoutCompanionContract.providerApiAuthMode}
+      provider_api_auth_mode: ${mode}
     secrets:
-      OPENROUTER_API_KEY: \${{ secrets.OPENROUTER_API_KEY }}
+      ${descriptor.secretName}: \${{ secrets.${descriptor.secretName} }}
 `
   );
 }

@@ -15,6 +15,7 @@ const providerSecretKinds = [
   "mimo_token_plan_api_key",
   "claude_code_oauth",
   "openrouter_api_key",
+  "kimi_code_api_key",
 ] as const satisfies readonly ProviderSetupKind[];
 
 export const providerSecretKindSchema = z.enum(providerSecretKinds);

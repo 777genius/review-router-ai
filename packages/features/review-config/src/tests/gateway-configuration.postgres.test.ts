@@ -102,22 +102,25 @@ describe.skipIf(!enabled)(
         const names = (await readdir(migrations))
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
-        // Replay every current migration, including both additive Skills rows.
-        expect(names).toHaveLength(148);
-        expect(names.slice(-13)).toEqual([
-          "000135_review_run_checkout_repository_lock",
-          "000136_provider_usage",
+        // Replay every current migration, including API key storage profiles.
+        expect(names).toHaveLength(153);
+        expect(names.slice(-16)).toEqual([
           "000136_review_skills",
           "000137_review_skills_capture",
           "000138_pr_description",
           "000139_review_context_tools",
           "000140_personal_oauth_method",
           "000141_memory_search_projections",
+          "000142_memory_knowledge_authority",
           "000142_optional_gateway_reasoning",
+          "000143_memory_maintenance_fence",
           "000143_workspace_draft_review_setting",
           "000144_review_statistics",
           "000145_workspace_provider_profiles",
           "000146_drop_review_configuration_projection",
+          "000147_review_skills_mutation_identity",
+          "000148_lifecycle_verification",
+          "000149_api_key_repository_secret_profiles",
         ]);
         let legacyBefore: unknown;
         let legacyBefore146: unknown;

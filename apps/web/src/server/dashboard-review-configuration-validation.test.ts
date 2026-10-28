@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
 import { workspacePolicyFixture } from "../../../../packages/features/review-config/src/tests/current-policy-fixture";
 
 const mocks = vi.hoisted(() => ({
   catalogChecked: vi.fn(async () => false),
   agentProfiles: vi.fn(() => [] as unknown[]),
+  accountRead: vi.fn<(bindingId: string) => Promise<unknown>>(),
 }));
 vi.mock("./context-tools", () => ({
   assertDashboardContextSelectionAllowed: vi.fn(async () => undefined),
@@ -19,25 +20,39 @@ vi.mock("./gateway-review-config-catalog", async (importOriginal) => ({
 vi.mock("./personal-account-composition", () => ({
   productionPersonalAccounts: async () => null,
 }));
-// Sharing off and a member signed in: the Accounts bootstrap is owner/admin
-// only, so validation must read the catalog without it.
-vi.mock("./account-gateway-accounts", () => ({
-  loadAccountsBootstrap: async () => ({ page: { status: "denied" } }),
-  accountsServerAdapter: async () => ({
-    reviewCatalog: async () => [
-      {
+// A member-authorized exact binding reader works with sharing disabled too.
+vi.mock("./gateway-model-account-composition", () => ({
+  productionGatewayModelAccounts: async () => ({
+    scope: "viewer",
+    reader: { get: mocks.accountRead },
+  }),
+}));
+
+const {
+  assertDashboardGatewayProviderModelAllowed,
+  dashboardProfileModelChangeValidator,
+  dashboardSelectionValidator,
+} = await import("./dashboard-review-configuration-validation");
+
+beforeEach(() => {
+  mocks.accountRead.mockReset().mockImplementation(async (bindingId) => ({
+    status: "ok",
+    value: {
+      account: {
+        state: "active",
+        profileId: "profile-1",
+        binding: { id: bindingId },
+      },
+      profile: {
         id: "profile-1",
         label: "MiMo",
         provider: "codex",
         protocol: "openai-responses",
         models: ["mimo-v2.6-pro"],
       },
-    ],
-  }),
-}));
-
-const { dashboardProfileModelChangeValidator, dashboardSelectionValidator } =
-  await import("./dashboard-review-configuration-validation");
+    },
+  }));
+});
 
 const gatewayConfig = (agenticContext: boolean) =>
   parseReviewConfigurationStrict({
@@ -173,4 +188,49 @@ describe("dashboard provider model edit validator", () => {
       }),
     );
   });
+});
+
+// A known binding/profile mismatch is a model refusal, distinct from transport
+// failure, so callers can explain the corrective action without leaking errors.
+it.each(["profile", "binding", "state"] as const)(
+  "preserves unsupported-model errors for a known account %s mismatch",
+  async (field) => {
+    mocks.accountRead.mockResolvedValueOnce({
+      status: "ok",
+      value: {
+        account: {
+          state: field === "state" ? "disabled" : "active",
+          profileId: field === "profile" ? "foreign-profile" : "profile-1",
+          binding: {
+            id: field === "binding" ? "foreign-binding" : "binding-1",
+          },
+        },
+        profile: {
+          id: "profile-1",
+          protocol: "openai-responses",
+          models: ["mimo-v2.6-pro"],
+        },
+      },
+    });
+    await expect(
+      assertDashboardGatewayProviderModelAllowed(
+        "workspace_1",
+        { gatewayBindingId: "binding-1", gatewayProfileRef: "profile-1" },
+        "mimo-v2.6-pro",
+      ),
+    ).rejects.toThrow("gateway_review_model_unsupported");
+  },
+);
+
+it("normalizes transport failures as catalog unavailable", async () => {
+  mocks.accountRead.mockRejectedValueOnce(
+    new Error("private upstream diagnostic"),
+  );
+  await expect(
+    assertDashboardGatewayProviderModelAllowed(
+      "workspace_1",
+      { gatewayBindingId: "binding-1", gatewayProfileRef: "profile-1" },
+      "mimo-v2.6-pro",
+    ),
+  ).rejects.toThrow("gateway_review_catalog_unavailable");
 });

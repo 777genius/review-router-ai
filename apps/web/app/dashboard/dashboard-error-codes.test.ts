@@ -181,3 +181,11 @@ describe("dashboardUntrustedWorkflowPathFromError", () => {
     expect(dashboardUntrustedWorkflowPathFromError("not-an-error")).toBeNull();
   });
 });
+
+it.each([
+  "provider_api_direct_requires_single_provider",
+  "provider_api_fast_mode_unsupported",
+  "provider_api_reasoning_effort_unsupported",
+])("preserves the actionable direct-provider correction code %s", (reason) => {
+  expect(safeDashboardErrorCode(new Error(reason))).toBe(reason);
+});

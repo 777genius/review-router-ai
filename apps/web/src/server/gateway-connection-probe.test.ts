@@ -21,6 +21,10 @@ async function fixture(
     | "timeout"
     | "busy"
     | "cleanup" = "ok",
+  selection: { profileRef: string; model: string } = {
+    profileRef: "responses-profile",
+    model: "test-model",
+  },
 ) {
   const calls: { path: string; body: Record<string, unknown> }[] = [];
   const bearer = "synthetic-test-execution-bearer";
@@ -66,7 +70,7 @@ async function fixture(
       );
     } else if (req.url?.endsWith("/requests")) {
       expect(req.headers.authorization).toBe(`Bearer ${bearer}`);
-      expect(data.model).toBe("test-model");
+      expect(data.model).toBe(selection.model);
       expect(data.input).toEqual([
         {
           role: "user",
@@ -147,7 +151,7 @@ async function fixture(
     policyRevision: 3,
     connectionId: "donor-connection",
     gatewayAccountRef: "shared-test-account",
-    profileRef: "responses-profile",
+    profileRef: selection.profileRef,
     expectedAuthorizationEpoch: 7,
     authorizationEpoch: 7,
   };
@@ -217,6 +221,44 @@ it("uses the Codex native Responses shape without unsupported output-token field
   expect(body).not.toHaveProperty("max_output_tokens");
   expect(body.instructions).toBeTypeOf("string");
 });
+// The protected Gateway envelope intentionally differs from direct provider
+// wire settings. See architecture/53-account-gateway-implementation-contract.md
+// and the controlled Kimi receipt in vendor/account-gateway/provider-connections-qualification.json.
+it.each([
+  ["kimi-code-global-responses-apikey-v1", "k3-256k"],
+  ["openai-codex-oauth-responses-v1", "gpt-5.6-sol"],
+])(
+  "keeps the qualified Gateway diagnostic envelope for %s",
+  async (profileRef, model) => {
+    const f = await fixture("ok", { profileRef, model });
+    const events: ConnectionProbeEvent[] = [];
+    await createGatewayConnectionProbe({
+      resolve: async () => f.tuple,
+      admit: async () => {},
+      control: f.control,
+      executionOrigin: f.origin,
+    })(
+      { ...request(), model },
+      (event) => events.push(event),
+      new AbortController().signal,
+    );
+    expect(events.at(-1)).toMatchObject({ ok: true, model });
+    const body = f.calls.find((call) => call.path.endsWith("/requests"))!.body;
+    expect(body.service_tier).toBe("default");
+    expect(body).not.toHaveProperty("reasoning");
+    expect(body).not.toHaveProperty("fast");
+    if (profileRef === "openai-codex-oauth-responses-v1") {
+      expect(body).not.toHaveProperty("max_output_tokens");
+    } else {
+      expect(body.max_output_tokens).toBe(1024);
+    }
+    expect(
+      f.calls.filter((call) => call.path.endsWith("/requests")),
+    ).toHaveLength(1);
+    expect(f.calls.at(-1)?.path).toContain("/close");
+  },
+);
+
 it.each(["failed", "empty", "truncated", "mismatch", "cleanup"] as const)(
   "rejects %s without retrying inference and still closes",
   async (mode) => {

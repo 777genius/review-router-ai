@@ -10,6 +10,7 @@ export type ReviewModelOption = {
 };
 
 export type CodexReasoningEffort =
+  | "minimal"
   | "low"
   | "medium"
   | "high"
@@ -17,13 +18,24 @@ export type CodexReasoningEffort =
   | "max"
   | "ultra";
 
+/** The legacy selection stays stored; only this Gateway profile uses wire Max. */
+export function effectiveGatewayReasoningEffort(
+  profileRef: string | undefined,
+  effort: string | undefined,
+): string | undefined {
+  return profileRef === "openai-codex-oauth-responses-v1" && effort === "ultra"
+    ? "max"
+    : effort;
+}
+
 export function codexModelSupportsReasoningEffort(
   model: string,
   effort: CodexReasoningEffort,
 ): boolean {
   return (
-    (effort !== "max" && effort !== "ultra") ||
-    model.trim() === defaultCodexModel
+    effort !== "minimal" &&
+    ((effort !== "max" && effort !== "ultra") ||
+      model.trim() === defaultCodexModel)
   );
 }
 
@@ -107,6 +119,20 @@ export const mimoModelOptions: readonly ReviewModelOption[] = [
   },
 ];
 
+export const kimiModelOptions: readonly ReviewModelOption[] = [
+  {
+    value: "k3-256k",
+    label: "k3-256k",
+    provider: "kimi",
+    description: "Kimi Code model.",
+  },
+];
+
 export function listStaticReviewModelOptions(): readonly ReviewModelOption[] {
-  return [...codexModelOptions, ...mimoModelOptions, ...claudeModelOptions];
+  return [
+    ...codexModelOptions,
+    ...mimoModelOptions,
+    ...kimiModelOptions,
+    ...claudeModelOptions,
+  ];
 }

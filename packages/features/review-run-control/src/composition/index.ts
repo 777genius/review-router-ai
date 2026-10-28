@@ -8,3 +8,6 @@ export {
   ConfiguredProducerReleaseAttestationRegistry,
   readConfiguredProducerReleaseAttestations,
 } from "../infrastructure/configured-producer-release-attestation";
+export { producerReleaseToDomain } from "../infrastructure/prisma/prisma-review-run-control-mappers";
+
+export * from "../infrastructure/prisma/prisma-review-run-companion-dispatch-repository";

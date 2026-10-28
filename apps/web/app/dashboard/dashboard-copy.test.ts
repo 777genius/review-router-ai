@@ -64,6 +64,12 @@ it("quotes the safe code when a failure has no dedicated copy", () => {
 
 it.each([
   ["account_gateway_workflow_options_not_supported", "reusable workflow style"],
+  ["provider_api_direct_requires_single_provider", "one supported provider"],
+  ["provider_api_fast_mode_unsupported", "Turn off Fast mode"],
+  [
+    "provider_api_reasoning_effort_unsupported",
+    "Low, Medium, or High review depth",
+  ],
   [
     "gateway_review_reasoning_effort_unsupported",
     "Choose a supported reasoning effort",

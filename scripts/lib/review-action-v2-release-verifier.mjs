@@ -1,3 +1,7 @@
+import {
+  lifecycleCompanionContractFile,
+  projectLifecycleVerificationReleaseProfile,
+} from "./review-lifecycle-release-profile.ts";
 import { posix as posixPath } from "node:path";
 import {
   HANDOFF_MANIFEST_FILE,
@@ -75,14 +79,34 @@ export function verifyPublicActionReleaseCommit(input) {
     }
   }
   // This descriptor comes from committed bytes already bound by the handoff.
-  const { prDescriptionProfile, contextToolsProfile } =
-    parseProtocolGenerationManifest(
-      readCommitFile(
-        input.actionRepo,
-        input.actionCommitSha,
-        posixPath.join(targetDirectory, PROTOCOL_GENERATION_MANIFEST_FILE),
-      ).toString("utf8"),
-    );
+  const {
+    prDescriptionProfile,
+    contextToolsProfile,
+    lifecycleVerificationProfile: declaredProfile,
+  } = parseProtocolGenerationManifest(
+    readCommitFile(
+      input.actionRepo,
+      input.actionCommitSha,
+      posixPath.join(targetDirectory, PROTOCOL_GENERATION_MANIFEST_FILE),
+    ).toString("utf8"),
+  );
+  const lifecycleVerificationProfile =
+    projectLifecycleVerificationReleaseProfile({
+      generatedFileDigests: handoff.generatedFileDigests,
+      declaredProfile,
+      ...(Object.hasOwn(
+        handoff.generatedFileDigests,
+        lifecycleCompanionContractFile,
+      )
+        ? {
+            bytes: readCommitFile(
+              input.actionRepo,
+              input.actionCommitSha,
+              posixPath.join(targetDirectory, lifecycleCompanionContractFile),
+            ),
+          }
+        : {}),
+    });
   assertAncestor(
     input.actionRepo,
     handoff.expectedPublicActionBaseCommit,
@@ -137,6 +161,9 @@ export function verifyPublicActionReleaseCommit(input) {
     ),
   );
   return Object.freeze({
+    ...(lifecycleVerificationProfile === undefined
+      ? {}
+      : { lifecycleVerificationProfile }),
     ...(contextToolsProfile === undefined ? {} : { contextToolsProfile }),
     ...(prDescriptionProfile === undefined ? {} : { prDescriptionProfile }),
     agentProfiles,

@@ -19,7 +19,8 @@ export async function listReviewModelOptions(input?: {
   );
   return [
     ...listStaticReviewModelOptions().filter(
-      (option) => option.provider === "codex-mimo",
+      (option) =>
+        option.provider === "codex-mimo" || option.provider === "kimi",
     ),
     ...snapshots.flatMap((snapshot) => catalogSnapshotOptions(snapshot)),
   ];

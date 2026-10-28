@@ -34,7 +34,10 @@ import {
   dashboardRepositoryCapability,
   dashboardSelectionDependencies,
 } from "../../src/server/dashboard-provider-selections";
-import { dashboardProfileModelChangeValidator } from "../../src/server/dashboard-review-configuration-validation";
+import {
+  assertDashboardGatewayProviderModelAllowed,
+  dashboardProfileModelChangeValidator,
+} from "../../src/server/dashboard-review-configuration-validation";
 import { createDashboardRateLimitPolicy } from "../../src/server/dashboard-rate-limits";
 import {
   assertDashboardEntitlement,
@@ -405,9 +408,8 @@ export async function createProviderProfileAction(
   const prisma = getPrisma();
   try {
     const actor = await assertDashboardMutationAllowed(workspaceId);
-    assertDialogSelectableCredential(
-      parseProviderProfileDraft({ credential, model }).credential.kind,
-    );
+    const draft = parseProviderProfileDraft({ credential, model });
+    assertDialogSelectableCredential(draft.credential.kind);
     await assertDashboardEntitlement({
       prisma,
       workspaceId,
@@ -417,6 +419,22 @@ export async function createProviderProfileAction(
     await createDashboardRateLimitPolicy(prisma).assertReviewConfigSaveAllowed({
       workspaceId,
     });
+    if (draft.credential.kind === "gateway_binding") {
+      await assertDashboardGatewayProviderModelAllowed(
+        workspaceId,
+        {
+          gatewayBindingId: draft.credential.bindingId,
+          ...(draft.credential.gatewayProfileRef
+            ? { gatewayProfileRef: draft.credential.gatewayProfileRef }
+            : {}),
+        },
+        draft.model,
+      );
+      assertGatewayReviewActorUnchanged(
+        actor,
+        await assertDashboardMutationAllowed(workspaceId),
+      );
+    }
     const { created } = await createWorkspaceProviderProfile(
       {
         workspaceId,
@@ -488,6 +506,12 @@ export async function updateProviderProfileAction(
           profiles,
           validator: dashboardProfileModelChangeValidator({
             workspaceId,
+            afterGatewayCatalogCheck: async () => {
+              assertGatewayReviewActorUnchanged(
+                actor,
+                await assertDashboardSignedInMutationActor(),
+              );
+            },
             repositories: new Map(
               repositories.map((repository) => [repository.id, repository]),
             ),

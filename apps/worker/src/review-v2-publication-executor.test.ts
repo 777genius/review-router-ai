@@ -750,6 +750,90 @@ describe("protocol v2 publication executor", () => {
     expect(fixture.gateway.applyCalls).toBe(1);
   });
 
+  it("bounds denied lifecycle after a completed summary receipt without replay or a false whole-attempt no-effect outcome", async () => {
+    const summary = operationPlan(at("2026-07-23T12:00:14.000Z"));
+    const lifecycle = {
+      ...operationPlan(at("2026-07-23T12:00:12.000Z")),
+      publicationOperationId: "denied-lifecycle",
+      publicationKind: ReviewPublicationKind.ThreadLifecycle,
+      effectStrategy: ReviewPublicationEffectStrategy.ReversibleLifecycle,
+      markerHash: hash("3"),
+      bodyHash: hash("4"),
+    };
+    const fixture = await createFixture({
+      claimDurationMs: 1_000,
+      operations: [summary, lifecycle],
+    });
+    expect((await fixture.executor.execute(executionCommand())).status).toBe(
+      ReviewV2PublicationExecutionStatus.Completed,
+    );
+    fixture.gateway.pages = [{ objects: [], nextCursor: null }];
+    fixture.gateway.applyError = new ReviewV2ScmMutationError(
+      "github_mutation_http_403",
+      ReviewV2ScmMutationFailureOutcome.DefinitelyNoEffect,
+      false,
+    );
+    expect(
+      await fixture.executor.execute(
+        executionCommand(lifecycle.publicationOperationId),
+      ),
+    ).toEqual({
+      status: ReviewV2PublicationExecutionStatus.Retryable,
+      safeReason: "github_mutation_http_403",
+    });
+    const denied = await fixture.repository.findById("publication-1");
+    const proof = denied!.operationAttempts.find(
+      (attempt) =>
+        attempt.publicationOperationId === lifecycle.publicationOperationId,
+    )!;
+    expect(proof).toMatchObject({
+      state: "no_effect_proven",
+      noEffectReason: "definitely_no_effect:github_mutation_http_403",
+    });
+    expect(denied!.effects).toHaveLength(1);
+    expect(denied!.receipts).toHaveLength(1);
+    expect(denied!.attempt.terminalOutcome).toBeNull();
+    const nativeCalls = fixture.gateway.applyCalls;
+    const credentials = [...fixture.credentials.purposes];
+    fixture.clock.set(at("2026-07-23T12:00:13.000Z"));
+    expect(
+      await fixture.executor.execute(
+        executionCommand(lifecycle.publicationOperationId),
+      ),
+    ).toEqual({
+      status: ReviewV2PublicationExecutionStatus.Retryable,
+      safeReason: "publication_terminalize_too_early",
+    });
+    expect(
+      (await fixture.repository.findById("publication-1"))!.attempt
+        .terminalOutcome,
+    ).toBeNull();
+    fixture.clock.set(at("2026-07-23T12:00:15.000Z"));
+    expect(
+      await fixture.executor.execute(
+        executionCommand(lifecycle.publicationOperationId),
+      ),
+    ).toEqual({
+      status: ReviewV2PublicationExecutionStatus.TerminalUnknown,
+      safeReason: "publication_terminal_unknown_manual_review_required",
+    });
+    const terminal = (await fixture.repository.findById("publication-1"))!;
+    expect(terminal.attempt).toMatchObject({
+      state: "terminal",
+      terminalOutcome: "terminal_unknown",
+    });
+    expect(terminal.effects).toEqual(denied!.effects);
+    expect(terminal.receipts).toEqual(denied!.receipts);
+    expect(
+      terminal.operationAttempts.find(
+        (attempt) =>
+          attempt.publicationOperationId === lifecycle.publicationOperationId,
+      ),
+    ).toEqual(proof);
+    expect(fixture.gateway.applyCalls).toBe(nativeCalls);
+    expect(fixture.credentials.purposes).toEqual(credentials);
+  });
+
   it("replays a persisted no-effect proof without repeating the SCM mutation", async () => {
     const fixture = await createFixture({ claimDurationMs: 1_000 });
     fixture.gateway.applyError = new ReviewV2ScmMutationError(

@@ -6,6 +6,7 @@ import {
   canonicalReviewExecutionStartPreimage,
   reviewAssignmentManifestMaxBytes,
   ReviewExecutionState,
+  ReviewTaskKind,
   reviewExecutionIsTerminal,
   reviewRevisionsEqual,
   scopeKey,
@@ -194,7 +195,9 @@ export class StartReviewExecution {
         compatibilityKey: input.compatibilityKey,
         planHash: input.planHash,
         assignmentManifestVersion:
-          input.assignmentManifestCanonicalJson == null ? null : 1,
+          input.assignmentManifestCanonicalJson == null
+            ? null
+            : JSON.parse(input.assignmentManifestCanonicalJson).manifestVersion,
         assignmentManifestHash: input.assignmentManifestHash ?? null,
         assignmentManifestCanonicalJson:
           input.assignmentManifestCanonicalJson ?? null,
@@ -398,6 +401,32 @@ export class StartReviewExecution {
       return error instanceof Error
         ? error.message
         : "review_assignment_manifest_invalid";
+    }
+    if (manifest.manifestVersion === 2) {
+      // File-coverage validation knows IDs only. Bind lifecycle ownership to the
+      // actual admitted slot purpose and the declared participant before prepare.
+      const plan = manifest.lifecyclePlan!;
+      const participant = plan.participantRoster[0]!;
+      const assigned = new Set<string>();
+      for (const assignment of plan.assignments) {
+        const slot = input.workSlots.find(
+          (slot) => slot.workSlotId === assignment.workSlotId,
+        );
+        if (
+          slot?.taskKind !== ReviewTaskKind.LifecycleRevalidation ||
+          slot.providerVoteIdentityHash !== participant.providerVoteIdentityHash
+        )
+          return "review_lifecycle_assignment_slot_authority_invalid";
+        assigned.add(assignment.workSlotId);
+      }
+      if (
+        input.workSlots.some(
+          (slot) =>
+            slot.taskKind === ReviewTaskKind.LifecycleRevalidation &&
+            !assigned.has(slot.workSlotId),
+        )
+      )
+        return "review_lifecycle_assignment_slot_unassigned";
     }
     if (canonicalReviewAssignmentManifestJson(manifest) !== canonicalJson) {
       return "review_assignment_manifest_json_not_canonical";

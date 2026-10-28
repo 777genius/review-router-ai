@@ -1645,7 +1645,15 @@ export class ExecuteReviewV2PublicationOperation {
       case TerminalizeUnknownReviewPublicationStatus.StaleClaim:
         return retryable(`publication_terminal_outcome_${terminalized.status}`);
       case TerminalizeUnknownReviewPublicationStatus.ExternalEffectRisk:
-        return retryable(input.lastErrorCode);
+        // A rejected operation can coexist with published siblings. Preserve
+        // those effects and use their canonical deadlines for the manual handoff.
+        return this.terminalizeKnownAmbiguity({
+          command: input.command,
+          operation: input.operation,
+          claim: input.claim,
+          finalReason: "attempt_effect_risk_requires_reconciliation",
+          lastErrorCode: input.lastErrorCode,
+        });
       case TerminalizeUnknownReviewPublicationStatus.Conflict:
         return this.terminalizeKnownAmbiguity({
           command: input.command,

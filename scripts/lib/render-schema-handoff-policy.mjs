@@ -279,6 +279,21 @@ export const renderReviewSkillsCheckoutExtension = Object.freeze([
   }),
 ]);
 
+// Provider-owned memory adds authority and delivery metadata only. These exact
+// files belong to the application checkout, never the managed92 repair catalog.
+export const renderMemoryKnowledgeCheckoutExtension = Object.freeze([
+  Object.freeze({
+    migrationName: "000142_memory_knowledge_authority",
+    checksum:
+      "b40e545bd31f9d4cc65146c78b05afc8b662333e4945380ea4ed5f511d7ebcf9",
+  }),
+  Object.freeze({
+    migrationName: "000143_memory_maintenance_fence",
+    checksum:
+      "1f8552ab409ece31536505c42ec62f0ef3df5b6220b7caa0cb90fcb2ee8aa83e",
+  }),
+]);
+
 export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     !Array.isArray(catalog) ||
@@ -291,6 +306,81 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  const memoryKnowledgeMigrations = catalog.filter((row) =>
+    renderMemoryKnowledgeCheckoutExtension.some(
+      (extension) => extension.migrationName === row.migrationName,
+    ),
+  );
+  if (memoryKnowledgeMigrations.length > 0) {
+    if (
+      memoryKnowledgeMigrations.length !==
+        renderMemoryKnowledgeCheckoutExtension.length ||
+      memoryKnowledgeMigrations.some(
+        (row, index) =>
+          row.migrationName !==
+            renderMemoryKnowledgeCheckoutExtension[index].migrationName ||
+          row.checksum !==
+            renderMemoryKnowledgeCheckoutExtension[index].checksum,
+      ) ||
+      manifest(catalog) !==
+        "sha256:5d42e163ba89faae7c49fa4fa9ff65bc2a8b87a6774b57a5f70c6a027e4331dd"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => !memoryKnowledgeMigrations.includes(row)),
+    );
+  }
+  // Repository-secret profile identities change a checkout-only table. Admit
+  // the exact SQL and checkout151 before preserving the reviewed checkout150.
+  const repositorySecretProfilesMigration = catalog.find(
+    (row) => row.migrationName === "000149_api_key_repository_secret_profiles",
+  );
+  if (repositorySecretProfilesMigration) {
+    if (
+      repositorySecretProfilesMigration.checksum !==
+        "1884b772c85adb0663fa3895307799b91f88133fb1941fc88aec1c56bd6e5579" ||
+      manifest(catalog) !==
+        "sha256:bde611c1eb4753d8d21f0f5ac2b97f2c93818aaf7fb48cc9181abe28aa708035"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== repositorySecretProfilesMigration),
+    );
+  }
+  // Lifecycle verification is a checkout-only additive schema extension. Admit
+  // its exact source catalog before preserving the reviewed checkout149 gate.
+  const lifecycleVerificationMigration = catalog.find(
+    (row) => row.migrationName === "000148_lifecycle_verification",
+  );
+  if (lifecycleVerificationMigration) {
+    if (
+      lifecycleVerificationMigration.checksum !==
+        "00e6dca21ae3dcd9c61f729bb93e0319caf5b204ae67e29ba2889259e5db1b60" ||
+      manifest(catalog) !==
+        "sha256:ae1f73631c1ae9e359a22c421d7bb83751fd831f22ba77304be1d20d01878472"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== lifecycleVerificationMigration),
+    );
+  }
+  // Mutation identities change only checkout Skills tables. Admit the exact
+  // checkout149 source, then preserve the unchanged reviewed checkout148 gate.
+  const reviewSkillsMutationIdentityMigration = catalog.find(
+    (row) => row.migrationName === "000147_review_skills_mutation_identity",
+  );
+  if (reviewSkillsMutationIdentityMigration) {
+    if (
+      reviewSkillsMutationIdentityMigration.checksum !==
+        "d5f36bdcddbfa3f252e61e3b4961b7e6102d5a2a4324850089e6bfec442d2883" ||
+      manifest(catalog) !==
+        "sha256:597739d44aa5f10551930c1349bed5c1a634b868fd55f9738b32b33ac230e897"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== reviewSkillsMutationIdentityMigration),
+    );
+  }
   // Dropping the schema 1-3 review configuration projection is checkout-only:
   // its columns and table entered after the managed catalog. Admit the exact
   // SQL and checkout148 before reducing to checkout147.

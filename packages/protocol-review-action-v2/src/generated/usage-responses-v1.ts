@@ -18,6 +18,7 @@ export function createResponsesUsageObserver(
     | "codex"
     | "openai"
     | "mimo"
+    | "kimi"
     | "claude" = "openrouter",
 ) {
   const callId = delivery.scope.callIdPrefix + randomUUID(),

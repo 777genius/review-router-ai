@@ -1,3 +1,7 @@
+import {
+  lifecycleVerificationContract,
+  lifecycleVerificationDescriptorDigest,
+} from "@reviewrouter/shared";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { canonicalJson } from "../domain/review-run-control-types";
@@ -159,6 +163,107 @@ describe("private runtime snapshot v3 codec", () => {
         canonicalJson({
           ...snapshot,
           configurationCanonicalJson: '{ "schemaVersion": 3 }',
+        }),
+      ),
+    ).toThrow();
+  });
+});
+
+describe("lifecycle verifier captured authority", () => {
+  const gateway = {
+    providerIndex: 0,
+    bindingId: "binding",
+    connectionId: "connection",
+    bindingRevision: 1,
+    policySubject: "binding",
+    policyRevision: 1,
+    permittedAccountRef: "account",
+    profileRef: "profile",
+    invocationId: "invocation",
+    attemptId: "attempt",
+    operationId: "operation",
+    limits: {
+      requests: 9,
+      concurrency: 1,
+      requestBytes: 98304,
+      outputBytes: 32768,
+      tokens: 4096,
+    },
+  };
+  const capability = {
+    extensionId: "lifecycle-verification.v1",
+    descriptorDigest: lifecycleVerificationDescriptorDigest,
+    executor: "rr_bounded_lifecycle_verifier.v1",
+    modelTransport: "account_gateway",
+    providerIndex: 0,
+    providerKind: "codex",
+    model: "saved-model",
+    maxDispatches: 2,
+    maxPromptBytes: 98304,
+    maxResponseBytes: 32768,
+    maxOutputTokens: 4096,
+    deadlineMs: 60000,
+    attemptBudget: 1,
+  };
+  const current = {
+    ...snapshot,
+    gateway,
+    configurationCanonicalJson: canonicalJson({
+      schemaVersion: 3,
+      providers: [{ authMode: "codex_account_gateway", model: "saved-model" }],
+    }),
+    lifecycleVerificationCapability: capability,
+  };
+  it("binds canonical descriptor bytes, selected model and the original aggregate grant", () => {
+    expect(
+      `sha256:${createHash("sha256").update(canonicalJson(lifecycleVerificationContract)).digest("hex")}`,
+    ).toBe(lifecycleVerificationDescriptorDigest);
+    const parsed = parseReviewRunRuntimeSnapshot(canonicalJson(current));
+    expect(parsed?.lifecycleVerificationCapability).toEqual(capability);
+    expect(parsed?.gateway?.limits.requests).toBe(9);
+  });
+  it("rejects enabled capability forgery rather than dropping it", () => {
+    for (const change of [
+      { descriptorDigest: `sha256:${"a".repeat(64)}` },
+      { model: "other-model" },
+      { providerKind: "ocr" },
+      { providerIndex: 1 },
+      { maxOutputTokens: 4097 },
+      { maxPromptBytes: 98305 },
+      { attemptBudget: 2 },
+      { maxDispatches: 3 },
+      { deadlineMs: 60001 },
+      { maxOutputTokens: 1023 },
+      { tools: true },
+    ])
+      expect(() =>
+        parseReviewRunRuntimeSnapshot(
+          canonicalJson({
+            ...current,
+            lifecycleVerificationCapability: { ...capability, ...change },
+          }),
+        ),
+      ).toThrow();
+    expect(() =>
+      parseReviewRunRuntimeSnapshot(
+        canonicalJson({ ...current, gateway: null }),
+      ),
+    ).toThrow();
+  });
+  it("keeps optional configuration failure explicit without fabricating authority", () => {
+    const unavailable = {
+      ...snapshot,
+      lifecycleVerificationUnavailableReason:
+        "verification_configuration_invalid",
+    };
+    expect(parseReviewRunRuntimeSnapshot(canonicalJson(unavailable))).toEqual(
+      unavailable,
+    );
+    expect(() =>
+      parseReviewRunRuntimeSnapshot(
+        canonicalJson({
+          ...current,
+          lifecycleVerificationUnavailableReason: "verification_unavailable",
         }),
       ),
     ).toThrow();

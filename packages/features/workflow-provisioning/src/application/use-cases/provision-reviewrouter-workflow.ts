@@ -1,5 +1,6 @@
 import {
   resolveReviewConfiguration,
+  providerApiConfigurationMode,
   type ReviewConfigurationRepositoryPort,
 } from "@reviewrouter/features-review-config";
 import {
@@ -25,7 +26,7 @@ import {
 } from "../../domain/workflow-provisioning";
 import {
   renderedWorkflowRequirement,
-  requiredWorkflowTransport,
+  inspectRequiredWorkflowTransport,
   type WorkflowTransport,
 } from "../../domain/workflow-transport";
 import type { WorkflowProvisioningRepositoryPort } from "../ports/workflow-provisioning-repository-port";
@@ -57,9 +58,17 @@ export async function provisionReviewRouterWorkflow(
         { configurations: dependencies.configurations },
       )
     : undefined;
-  const transport = saved ? requiredWorkflowTransport(saved.config) : null;
+  const transport = saved
+    ? inspectRequiredWorkflowTransport(saved.config)
+    : null;
+  if (transport !== null && typeof transport !== "string")
+    throw new Error(transport.reason);
   const gatewaySelected = transport === "gateway";
   const providerApiSelected = transport === "provider_api";
+  const selectedProviderApiMode =
+    providerApiSelected && saved
+      ? providerApiConfigurationMode(saved.config)
+      : undefined;
   if (
     !gatewaySelected &&
     input.mcpSecrets &&
@@ -70,7 +79,7 @@ export async function provisionReviewRouterWorkflow(
     throw new Error("openrouter_direct_requires_single_provider");
   if (
     providerApiSelected &&
-    (input.providerApiAuthMode !== "openrouter-api" ||
+    (input.providerApiAuthMode !== selectedProviderApiMode ||
       input.codexSessionMode !== undefined ||
       input.runtimeConfigMode !== "oidc" ||
       input.staticRuntimeEnv !== undefined ||
@@ -133,6 +142,9 @@ export async function provisionReviewRouterWorkflow(
       })
     : providerApiSelected
       ? renderProviderApiWorkflow({
+          ...(selectedProviderApiMode
+            ? { providerApiAuthMode: selectedProviderApiMode }
+            : {}),
           actionRef: input.actionRef,
           apiUrl: input.apiUrl,
         })
@@ -162,6 +174,7 @@ export async function provisionReviewRouterWorkflow(
   const attemptRequirement = renderedWorkflowRequirement(
     attemptTransport,
     plan.staticRuntimeEnv,
+    selectedProviderApiMode,
   );
   const attempt = await dependencies.provisioning.beginAttempt({
     workspaceId: plan.workspaceId,

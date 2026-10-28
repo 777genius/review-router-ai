@@ -1,3 +1,4 @@
+import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import type { ReviewRunRuntimeSnapshot } from "../../domain/review-run-runtime-snapshot";
 import type { VerifiedScmRunIdentity } from "../use-cases/manage-review-run-authorizations";
 import type { ProducerRelease } from "../../domain/producer-release";
@@ -18,7 +19,7 @@ export interface ReviewRunRuntimeSnapshotPort {
     readonly deadline: Date;
     readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
     /** Derived from a verified canonical caller, never a request input. */
-    readonly providerApiAuthMode?: "openrouter-api";
+    readonly providerApiAuthMode?: ProviderApiAuthMode;
     readonly producerRelease: Pick<
       ProducerRelease,
       | "producerReleaseId"
@@ -27,6 +28,7 @@ export interface ReviewRunRuntimeSnapshotPort {
       | "agentProfiles"
       | "contextToolsProfile"
       | "prDescriptionProfile"
+      | "lifecycleVerificationProfile"
     >;
   }): Promise<ReviewRunRuntimeSnapshot | ReviewRunRuntimeCaptureDenial | null>;
   /** Recheck original binding, never today's repository configuration. */

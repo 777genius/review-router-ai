@@ -488,8 +488,8 @@ databaseTests("one-time provider profile migration", () => {
       [repo("rotating")]: "rotating+codex-mimo",
       // A retired head had no configuration to render from.
       [repo("retired")]: null,
-      // Schema 3 OpenRouter-only reviews used the provider API caller.
-      [repo("openrouter")]: "provider_api",
+      // The provider API caller records its selected secret provider.
+      [repo("openrouter")]: "provider_api+openrouter",
       [repo("rotating-inherits")]: "rotating",
     });
 

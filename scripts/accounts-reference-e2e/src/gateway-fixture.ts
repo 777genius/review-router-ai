@@ -8,10 +8,15 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { FIXTURES, type FixtureSecrets } from "./contracts.ts";
+import {
+  createAccountModelsFixture,
+  CODEX_MODEL_PROFILE,
+} from "./account-models-fixture.ts";
 import { createLimitsFixture } from "./limits-fixture.ts";
 import {
   createSubscriptionFixture,
   subscriptionProfiles,
+  apiKeyStorageProfiles,
 } from "./subscription-fixture.ts";
 
 export type WireAccount = {
@@ -102,9 +107,28 @@ export async function startGatewayFixture(input: {
         ]
       : []),
   ];
-  const subscriptions = process.argv.includes("--subscription-fixture")
-    ? createSubscriptionFixture(accounts)
+  if (process.argv.includes("--account-models-fixture")) {
+    for (const accountRef of [
+      FIXTURES.gateway.accounts.viewerPrimary,
+      FIXTURES.gateway.accounts.orgAlpha,
+    ]) {
+      const index = accounts.findIndex(
+        (account) => account.accountRef === accountRef,
+      );
+      accounts[index] = { ...accounts[index]!, profileId: CODEX_MODEL_PROFILE };
+    }
+  }
+  const accountModels = process.argv.includes("--account-models-fixture")
+    ? createAccountModelsFixture(accounts)
     : null;
+  const connectionProfiles = process.argv.includes("--api-key-storage-fixture")
+    ? apiKeyStorageProfiles
+    : subscriptionProfiles;
+  const subscriptions =
+    process.argv.includes("--subscription-fixture") ||
+    process.argv.includes("--api-key-storage-fixture")
+      ? createSubscriptionFixture(accounts, connectionProfiles)
+      : null;
   const limits = process.argv.includes("--limits-fixture")
     ? createLimitsFixture(accounts)
     : null;
@@ -207,6 +231,12 @@ export async function startGatewayFixture(input: {
         request.headers["x-reviewrouter-probe-proof"],
       );
       send(response, result.status, result.body);
+      return;
+    }
+    if (accountModels && requestUrl.pathname === "/__account-models-fixture") {
+      if (request.method === "POST")
+        accountModels.configure(await readJson(request));
+      send(response, 200, accountModels.stats());
       return;
     }
     if (subscriptions && requestUrl.pathname === "/__subscription-fixture") {
@@ -356,6 +386,15 @@ export async function startGatewayFixture(input: {
       send(response, 401, safeError("unauthenticated", "rr-e2e-gateway-auth"));
       return;
     }
+    if (
+      accountModels &&
+      requestUrl.pathname === "/v1/account-models/read" &&
+      request.method === "POST"
+    ) {
+      const result = accountModels.read(await readJson(request));
+      send(response, result.status, result.body);
+      return;
+    }
     if (subscriptions) {
       const result = await subscriptions.handle(
         request.method ?? "GET",
@@ -420,8 +459,18 @@ export async function startGatewayFixture(input: {
     if (requestUrl.pathname === "/v1/profiles" && request.method === "GET") {
       send(response, 200, {
         profiles: [
+          ...(accountModels
+            ? [
+                {
+                  profileId: CODEX_MODEL_PROFILE,
+                  protocol: "openai-responses",
+                  modelIds: ["gpt-5.6-sol"],
+                  authKinds: ["oauth"],
+                },
+              ]
+            : []),
           ...(subscriptions
-            ? subscriptionProfiles.map((profile) => ({
+            ? connectionProfiles.map((profile) => ({
                 profileId: profile.profileId,
                 protocol: "openai-responses",
                 modelIds: [profile.model],

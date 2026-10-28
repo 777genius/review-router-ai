@@ -19,6 +19,12 @@ import {
 } from "../../packages/features/review-config/src/tests/current-policy-fixture.js";
 import { renderReviewRouterProviderApiCaller } from "../../packages/protocol-review-workflow/src/index.js";
 import { registerReviewRunCheckoutRoute } from "../../apps/api/src/review-run-gateway-checkout.js";
+import { registerReviewRunSkillsRoute } from "../../apps/api/src/review-run-skills.js";
+import {
+  providerApiAuthModes,
+  providerApiDescriptors,
+} from "../../packages/shared/src/review-action-companion-contracts.js";
+import { reviewSkillsCompanionContract } from "../../packages/shared/src/review-skills-contract.js";
 import {
   createReviewActionV2E2EHarness,
   resetReviewActionV2E2EDatabase,
@@ -33,12 +39,16 @@ if (enabled && (!databaseUrl || !actionSourceDir))
 const execFileAsync = promisify(execFile);
 const hash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
+const directCases = providerApiAuthModes.map((mode) => ({
+  mode,
+  ...providerApiDescriptors[mode],
+}));
 
 // GitHub validates every reusable job's requested permissions before evaluating
 // its `if`. Validate the actual released workflow graph, including disabled jobs.
-(actionSourceDir ? it : it.skip)(
-  "starts the direct caller with read-only permissions and every required released-workflow input",
-  async () => {
+(actionSourceDir ? it : it.skip).each(directCases)(
+  "starts the $mode caller with read-only permissions and every required released-workflow input",
+  async ({ mode, secretName }) => {
     type Workflow = {
       permissions?: Record<string, string>;
       on?: {
@@ -102,6 +112,10 @@ const hash = (value: string) =>
     }
     const caller = renderReviewRouterProviderApiCaller({
       runtimeRef: "a".repeat(40),
+      providerApiAuthMode: mode,
+    });
+    expect(parseYaml(caller).jobs.review.secrets).toEqual({
+      [secretName]: `\${{ secrets.${secretName} }}`,
     });
     await verify(caller, {
       contents: "read",
@@ -113,19 +127,39 @@ const hash = (value: string) =>
 
 // Contract proof with real public preparation and private handlers. The public
 // bootstrap/credential/execution tests qualify those separate runtime boundaries.
-(enabled && databaseUrl && actionSourceDir ? it : it.skip)(
-  "admits the actual direct OpenRouter manifest against its frozen private policy with Gateway relay disabled",
-  async () => {
+(enabled && databaseUrl && actionSourceDir ? it : it.skip).each(directCases)(
+  "admits the actual $mode manifest against its frozen private policy with Gateway relay disabled",
+  async ({
+    mode,
+    providerKind,
+    authMode,
+    runtimePrefix,
+    defaultModel,
+    secretName,
+  }) => {
     const root = await mkdtemp(path.join(tmpdir(), "reviewrouter-or-paired-"));
     const originalCwd = process.cwd();
     const originalEnv = { ...process.env };
     const app = Fastify();
+    let modelTransport: { dispose(): Promise<void> } | undefined;
     await resetReviewActionV2E2EDatabase(databaseUrl!);
     const fixture = await createReviewActionV2E2EHarness(databaseUrl!, {
       // The existing helper qualifies one attempt, bounded by accepted allowance.
       protocolMaxAttemptsPerSlot: 1,
       // The workspace OpenRouter default below must not be shadowed.
       repositoryProviderSelection: "none",
+      agentProfiles: [
+        {
+          profileRef: "codex-default",
+          agentKind: "codex",
+          packageVersion: "0.147.0",
+          binarySha256: "c".repeat(64),
+          modelTransports: ["provider_api"],
+          contextGateway: true,
+          cancellation: true,
+          reviewSkillsVersion: 1,
+        },
+      ],
       environmentOverrides: {
         REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED: "0",
       },
@@ -134,6 +168,7 @@ const hash = (value: string) =>
       const source = renderReviewRouterProviderApiCaller({
         runtimeRef: "a".repeat(40),
         controlPlaneUrl: fixture.env.REVIEW_ROUTER_PUBLIC_API_URL!,
+        providerApiAuthMode: mode,
       });
       await mkdir(path.join(root, ".github/workflows"), { recursive: true });
       await writeFile(
@@ -173,30 +208,21 @@ const hash = (value: string) =>
         ...workspacePolicyFixture,
         providers: [
           {
-            kind: "openrouter",
-            authMode: "openrouter_api_key",
-            model: "openai/gpt-5.3-codex",
-            reasoningEffort: "high",
+            kind: providerKind,
+            authMode,
+            model: defaultModel,
+            ...(mode === "kimi-code-api" ? {} : { reasoningEffort: "high" }),
             agenticContext: true,
             fastMode: false,
             requiredHealthy: true,
           },
         ],
       });
-      // OpenRouter is delivered only by the workspace's managed API key.
-      await fixture.prisma.providerApiKeyConnection.create({
-        data: {
-          workspaceId: fixture.workspaceId,
-          providerType: "openrouter",
-          encryptedApiKey: "paired-e2e-ciphertext",
-          keyVersion: 1,
-          latestOperationId: `${fixture.prefix}-openrouter-key`,
-        },
-      });
       const workspaceTarget = {
         scope: "workspace" as const,
         workspaceId: fixture.workspaceId,
       };
+      const policy = systemPolicyWriteFixture(config, workspaceTarget);
       await new PrismaReviewConfigurationRepository(
         fixture.prisma,
         undefined,
@@ -205,8 +231,17 @@ const hash = (value: string) =>
       ).saveNextVersion({
         target: workspaceTarget,
         expectedVersion: 1,
-        ...systemPolicyWriteFixture(config, workspaceTarget),
+        ...policy,
+        profileDrafts: policy.profileDrafts.map((draft) => ({
+          ...draft,
+          credential: { kind: "user_ci_secret", authMode },
+        })),
       });
+      expect(
+        await fixture.prisma.providerApiKeyConnection.count({
+          where: { workspaceId: fixture.workspaceId },
+        }),
+      ).toBe(0);
       const previousFetch = fixture.fakeGitHub.fetch;
       vi.spyOn(fixture.fakeGitHub, "fetch").mockImplementation(
         async (input, init) => {
@@ -254,7 +289,7 @@ const hash = (value: string) =>
       );
       const receipt = await fixture
         .authorize({
-          providerApiAuthMode: "openrouter-api",
+          providerApiAuthMode: mode,
         })
         .catch((cause: unknown) => {
           throw new Error(
@@ -270,20 +305,36 @@ const hash = (value: string) =>
         fixture.routes.providerApiCheckout!,
       );
       await registerReviewExecutionV2Routes(app, fixture.routes.execution);
+      await registerReviewRunSkillsRoute(app, fixture.routes.reviewSkills!);
       const checkoutResponse = await app.inject({
         method: "POST",
         url: "/api/action/v2/provider-api/checkout",
         headers: { authorization: `Bearer ${receipt.authorizationToken}` },
         payload: {
-          providerApiAuthMode: "openrouter-api",
+          providerApiAuthMode: mode,
           workflowSchemaVersion: 2,
         },
       });
       expect(checkoutResponse.statusCode, checkoutResponse.body).toBe(200);
       const checkout = checkoutResponse.json();
       expect(checkout.runtimeConfig.runtimeEnv.REVIEW_PROVIDERS).toBe(
-        "openrouter/openai/gpt-5.3-codex",
+        `${runtimePrefix}/${defaultModel}`,
       );
+      if (mode === "kimi-code-api") {
+        expect(checkout.runtimeConfig.runtimeEnv).not.toHaveProperty(
+          "CODEX_REASONING_EFFORT",
+        );
+        expect(checkout.runtimeConfig.runtimeEnv.CODEX_FAST_MODE).not.toBe(
+          "true",
+        );
+      }
+      const skillsResponse = await app.inject({
+        method: "POST",
+        url: reviewSkillsCompanionContract.path,
+        headers: { authorization: `Bearer ${receipt.authorizationToken}` },
+        payload: {},
+      });
+      expect(skillsResponse.statusCode, skillsResponse.body).toBe(200);
       const load = (relative: string) =>
         import(pathToFileURL(path.join(actionSourceDir!, relative)).href);
       const [
@@ -293,6 +344,9 @@ const hash = (value: string) =>
         contextModule,
         adapterModule,
         clientModule,
+        selectionModule,
+        transportModule,
+        skillsModule,
       ] = await Promise.all([
         load(
           "src/review-orchestration/infrastructure/production-t0-review-runner.ts",
@@ -306,6 +360,11 @@ const hash = (value: string) =>
           "src/review-orchestration/infrastructure/review-action-v2-control-plane-adapter.ts",
         ),
         load("src/control-plane/review-action-v2-client.ts"),
+        load("src/codex-oauth/provider-api-selection.ts"),
+        load(
+          "src/review-orchestration/infrastructure/account-gateway-model-transport.ts",
+        ),
+        load("src/review-skills/review-skills.ts"),
       ]);
       const authorization = adapterModule.projectReviewRunAuthorization(
         receipt.result,
@@ -316,25 +375,46 @@ const hash = (value: string) =>
       );
       const admitted = configModule.ConfigLoader.loadRuntimeEnvironment(
         checkout.runtimeConfig.runtimeEnv,
+        { modelTransport: true },
       );
-      const providerName = planModule.selectDirectOpenRouterProvider(admitted);
-      process.env.CODEX_REASONING_EFFORT =
-        planModule.resolveProductionInvestigationReasoningEffort({
-          providerApi: true,
-          accountGateway: false,
-          codexModel: providerName.slice("openrouter/".length),
-          serverReasoningEffort:
-            checkout.runtimeConfig.runtimeEnv.CODEX_REASONING_EFFORT,
-        });
-      const provider = new codexModule.CodexProvider(
-        providerName.slice("openrouter/".length),
-        {
-          modelProvider: "openrouter",
-          providerNamePrefix: "openrouter",
-          disableBuiltinTools: true,
-          agenticContext: true,
-        },
-      );
+      const selection = selectionModule.selectDirectProvider(admitted, mode);
+      const providerName = selection.providerName;
+      const effort = planModule.resolveProductionInvestigationReasoningEffort({
+        providerApi: true,
+        providerApiAuthMode: mode,
+        accountGateway: false,
+        codexModel: defaultModel,
+        serverReasoningEffort:
+          checkout.runtimeConfig.runtimeEnv.CODEX_REASONING_EFFORT,
+      });
+      if (effort === null) delete process.env.CODEX_REASONING_EFFORT;
+      else process.env.CODEX_REASONING_EFFORT = effort;
+      const codexHome = path.join(root, "codex-home");
+      await mkdir(codexHome, { mode: 0o700 });
+      process.env.CODEX_HOME = codexHome;
+      const localTransport =
+        await transportModule.startDirectProviderApiModelTransport(
+          mode,
+          () => "disposable-pairing-no-provider-call",
+          { requestMs: 10_000, streamFrameBytes: 64 * 1024 },
+        );
+      // The production bootstrap attaches its fresh home to the transport.
+      // This paired proof enters at preparation after that separate boundary.
+      const transport = Object.freeze({
+        ...localTransport,
+        environment: Object.freeze({
+          ...localTransport.environment,
+          CODEX_HOME: codexHome,
+        }),
+      });
+      modelTransport = transport;
+      const provider = new codexModule.CodexProvider(defaultModel, {
+        modelProvider: selection.modelProvider,
+        providerNamePrefix: runtimePrefix,
+        providerApiTransport: transport,
+        disableBuiltinTools: true,
+        agenticContext: true,
+      });
       const neverExecute = async () => {
         throw new Error("paired_contract_must_not_execute_provider");
       };
@@ -351,13 +431,16 @@ const hash = (value: string) =>
           { capture: neverExecute },
         );
       process.env.REVIEWROUTER_CODEX_BINARY = process.execPath;
-      process.env.OPENROUTER_API_KEY = "disposable-pairing-no-provider-call";
+      process.env[secretName] = "disposable-pairing-no-provider-call";
       process.chdir(root);
       const prepared = await planModule.prepareSingleT0ReviewPlan({
         admittedAgent: JSON.parse(
           checkout.runtimeConfig.runtimeEnv.REVIEW_ROUTER_AGENT_PROFILE_JSON,
         ),
-        reviewSkills: { kind: "legacy" },
+        reviewSkills: skillsModule.createMaterializedReviewSkills(
+          skillsResponse.json(),
+          [],
+        ),
         authorization,
         config: admitted,
         provider,
@@ -367,7 +450,7 @@ const hash = (value: string) =>
         runtimeConfigVersion: String(checkout.runtimeConfig.configVersion),
         pr: {
           number: 42,
-          title: "Disposable OR contract",
+          title: `Disposable ${mode} contract`,
           body: "",
           author: "fixture",
           draft: false,
@@ -389,16 +472,26 @@ const hash = (value: string) =>
           headSha,
         },
       });
-      expect(prepared.invocation.provider).toBe(
-        "openrouter/openai/gpt-5.3-codex",
-      );
-      expect(prepared.invocation.requestedModel).toBe("openai/gpt-5.3-codex");
+      expect(prepared.invocation.provider).toBe(providerName);
+      expect(prepared.invocation.requestedModel).toBe(defaultModel);
       expect(prepared.invocation.manifestFacts.providerKind).toBe("codex");
       const request = prepared.invocation.immutableRequest.request;
-      expect(request.argsTemplate).toContain(
-        'model_providers.openrouter.base_url="https://openrouter.ai/api/v1"',
+      expect(request.argsTemplate.join(" ")).toContain(transport.baseUrl);
+      for (const descriptor of Object.values(providerApiDescriptors)) {
+        expect(request.environment).not.toHaveProperty(descriptor.secretName);
+        expect(JSON.stringify(request)).not.toContain(
+          descriptor.fixedResponsesUrl,
+        );
+      }
+      expect(JSON.stringify(request)).not.toContain(
+        "disposable-pairing-no-provider-call",
       );
-      expect(request.environment).not.toHaveProperty("OPENROUTER_API_KEY");
+      if (mode === "kimi-code-api") {
+        expect(request.argsTemplate.join(" ")).not.toContain(
+          "model_reasoning_effort=",
+        );
+        expect(request.argsTemplate).not.toContain("--output-schema");
+      }
       const client = new clientModule.ReviewActionV2Client({
         apiUrl: "https://paired.example",
         maxAttempts: 1,
@@ -455,6 +548,7 @@ const hash = (value: string) =>
       process.env = originalEnv;
       vi.restoreAllMocks();
       await app.close();
+      await modelTransport?.dispose();
       await fixture.close();
       await resetReviewActionV2E2EDatabase(databaseUrl!);
       await rm(root, { recursive: true, force: true });

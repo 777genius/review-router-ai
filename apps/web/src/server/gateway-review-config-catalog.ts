@@ -7,7 +7,7 @@ import { reviewAgentProfileAgenticContextSaveIssue } from "@reviewrouter/feature
 import type { ReviewAgentProfile } from "@reviewrouter/features-review-run-control";
 import { gatewayModelSupportsReasoningEffort } from "../features/account-gateway/review-reasoning-capabilities";
 
-type GatewaySelection = Extract<
+export type GatewaySelection = Extract<
   ReviewProviderConfiguration,
   { authMode: "codex_account_gateway" }
 >;
@@ -70,10 +70,18 @@ export function isGatewayReviewModelSupported(
  */
 export async function assertGatewayReviewConfigCatalogAllowed(
   config: Pick<ReviewConfiguration, "providers">,
-  loadProfiles: () => Promise<readonly AccountProfileView[]>,
+  loadProfiles: (
+    selection: GatewaySelection,
+  ) => Promise<readonly AccountProfileView[]>,
 ): Promise<boolean> {
-  if (!config.providers.some(isGatewaySelection)) return false;
-  assertGatewayReviewConfigSupported(config, await loadProfiles());
+  const selections = config.providers.filter(isGatewaySelection);
+  if (selections.length === 0) return false;
+  // Resolve each exact binding independently, even when profile IDs coincide.
+  for (const selection of selections)
+    assertGatewayReviewConfigSupported(
+      { providers: [selection] },
+      await loadProfiles(selection),
+    );
   return true;
 }
 
@@ -97,6 +105,7 @@ export function assertGatewayReviewConfigSupported(
           row.reasoningEffort,
           profiles.find((profile) => profile.id === row.gatewayProfileRef)
             ?.connection,
+          row.gatewayProfileRef,
         ),
     )
   )

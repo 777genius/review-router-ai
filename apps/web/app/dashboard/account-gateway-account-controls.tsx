@@ -19,6 +19,8 @@ import {
   useEffect,
   useRef,
   useState,
+  createContext,
+  useContext,
   type ReactNode,
 } from "react";
 import {
@@ -31,6 +33,14 @@ import {
   type InfiniteData,
 } from "@tanstack/react-query";
 import { Badge, Button, Dialog, SelectField } from "@reviewrouter/ui";
+import {
+  apiKeyProviderForGatewayProfile,
+  apiKeySetupHref,
+  apiKeyStorageLabel,
+  type ApiKeySetupIntent,
+  type ApiKeyStorage,
+} from "../../src/features/provider-setup/api-key-storage";
+import { ApiKeyStorageChoice } from "./provider-setup/api-key-storage-choice";
 import {
   AccountActionsMenu,
   AccountMenuItem,
@@ -180,6 +190,11 @@ function validAuthorizationURL(value: string | undefined): value is string {
   }
 }
 
+const ApiKeySetupContext = createContext<{
+  workspaceId?: string | undefined;
+  intent?: ApiKeySetupIntent | undefined;
+}>({});
+
 export function AccountGatewayControls({
   bootstrap,
   api = defaultManagementApi,
@@ -190,6 +205,7 @@ export function AccountGatewayControls({
   hideConnect = false,
   connectOnly = false,
   workspaceId,
+  setupIntent,
 }: {
   bootstrap: AccountsBootstrap;
   api?: AccountGatewayManagementApi;
@@ -199,7 +215,8 @@ export function AccountGatewayControls({
   renderAccounts?: AccountRowsRenderer;
   hideConnect?: boolean;
   connectOnly?: boolean;
-  workspaceId?: string;
+  workspaceId?: string | undefined;
+  setupIntent?: ApiKeySetupIntent | undefined;
 }) {
   const optionsCache = useCurrentGatewayModelAccountsCache();
   const [fallback] = useState(() => new QueryClient());
@@ -300,20 +317,24 @@ export function AccountGatewayControls({
             bootstrap.page.status !== "unavailable",
         }}
       >
-        <Controls
-          key={`${managementScope}:${bootstrap.context.split(".")[0]}`}
-          bootstrap={bootstrap}
-          bootstrapReadScope={bootstrapReadScope}
-          replacingBootstrap={replacingBootstrap}
-          acknowledgeBootstrap={acknowledgeBootstrap}
-          api={api}
-          managementScope={managementScope}
-          refreshRelated={refreshRelated}
-          renderAccounts={renderAccounts}
-          hideConnect={hideConnect}
-          connectOnly={connectOnly}
-          workspaceId={workspaceId}
-        />
+        <ApiKeySetupContext.Provider
+          value={{ workspaceId, intent: setupIntent }}
+        >
+          <Controls
+            key={`${managementScope}:${bootstrap.context.split(".")[0]}`}
+            bootstrap={bootstrap}
+            bootstrapReadScope={bootstrapReadScope}
+            replacingBootstrap={replacingBootstrap}
+            acknowledgeBootstrap={acknowledgeBootstrap}
+            api={api}
+            managementScope={managementScope}
+            refreshRelated={refreshRelated}
+            renderAccounts={renderAccounts}
+            hideConnect={hideConnect}
+            connectOnly={connectOnly}
+            workspaceId={workspaceId}
+          />
+        </ApiKeySetupContext.Provider>
       </AccountLimitsReadContext.Provider>
     </QueryClientProvider>
   );
@@ -1117,6 +1138,7 @@ function Controls({
                 <AccountIdentity
                   label={account.label}
                   profileLabel={account.profileLabel}
+                  provider={account.provider}
                   authKind={account.authKind}
                   connection={account.connection}
                 />
@@ -1240,7 +1262,15 @@ function ConnectionForm({
   const ordered = [...profiles].sort(
     (a, b) => Number(b.authKind === "oauth") - Number(a.authKind === "oauth"),
   );
-  const [profileId, setProfileId] = useState(ordered[0]?.id ?? "");
+  const setup = useContext(ApiKeySetupContext);
+  const [profileId, setProfileId] = useState(
+    ordered.find(
+      (profile) =>
+        apiKeyProviderForGatewayProfile(profile) === setup.intent?.provider,
+    )?.id ??
+      ordered[0]?.id ??
+      "",
+  );
   const profile = profiles.find((row) => row.id === profileId);
   return (
     <div className="space-y-4">
@@ -1248,7 +1278,10 @@ function ConnectionForm({
         name="connectionProvider"
         label={
           <span className="flex items-center gap-2">
-            <AccountProviderLogo profileLabel={profile?.label} />
+            <AccountProviderLogo
+              connection={profile?.connection}
+              provider={profile?.provider}
+            />
             Provider
           </span>
         }
@@ -1257,6 +1290,12 @@ function ConnectionForm({
         options={ordered.map((row) => ({
           value: row.id,
           label: row.label,
+          icon: (
+            <AccountProviderLogo
+              connection={row.connection}
+              provider={row.provider}
+            />
+          ),
           description:
             row.connection?.planLabel ??
             (row.authKind === "oauth" ? "Sign in" : "API key"),
@@ -1757,6 +1796,7 @@ function OperationReadback({
       ? undefined
       : {
           label: savedCompletion.providerLabel,
+          providerId: savedCompletion.providerId,
           inputKind: savedCompletion.inputKind,
           personalOnly: savedCompletion.personalOnly,
         }
@@ -1769,12 +1809,13 @@ function OperationReadback({
           <AccountIdentity
             label={data.value.account.label}
             profileLabel={data.value.account.profileLabel}
+            provider={data.value.account.provider}
             authKind={data.value.account.authKind}
             connection={data.value.account.connection}
           />
         ) : data?.status === "ok" && data.value.oauthMethod ? (
           <div className="flex items-center gap-3 font-medium text-cyan-50">
-            <AccountProviderLogo profileLabel={completion?.label} />
+            <AccountProviderLogo providerId={completion?.providerId} />
             <span>{completion?.label ?? "Provider"} sign-in</span>
           </div>
         ) : (
@@ -2233,6 +2274,18 @@ function AccountForm({
     account?.profileId ?? profiles[0]?.id ?? "",
   );
   const selected = profiles.find((p) => p.id === selectedId);
+  const setup = useContext(ApiKeySetupContext);
+  const apiKeyProvider = apiKeyProviderForGatewayProfile(selected);
+  const [keyStorage, setKeyStorage] = useState<ApiKeyStorage>("reviewrouter");
+  const githubIntent =
+    apiKeyProvider && setup.workspaceId
+      ? {
+          provider: apiKeyProvider,
+          storage: "github_secrets" as const,
+          workspaceId: setup.workspaceId,
+          repositoryIds: setup.intent?.repositoryIds ?? [],
+        }
+      : null;
   const keyURL = selected?.connection
     ? subscriptionKeyURL(selected.connection.provider)
     : undefined;
@@ -2265,6 +2318,7 @@ function AccountForm({
       onSubmit={(event) => {
         event.preventDefault();
         const form = event.currentTarget;
+        if (mode === "connect" && keyStorage === "github_secrets") return;
         const values = new FormData(form);
         const credential =
           mode === "rename"
@@ -2298,7 +2352,7 @@ function AccountForm({
         <SelectField
           name="profileId"
           label="Provider profile"
-          defaultValue={profiles[0]?.id ?? ""}
+          value={selectedId}
           onValueChange={(value) => {
             const profile = profiles.find((p) => p.id === value);
             const credential =
@@ -2307,6 +2361,7 @@ function AccountForm({
               );
             if (credential) credential.value = "";
             setSelectedId(value);
+            setKeyStorage("reviewrouter");
             setBaseURL(profile?.dedicatedBaseURL ?? "");
             setManualURL(false);
             if (automaticLabel) setLabelValue(suggestion(profile));
@@ -2323,117 +2378,171 @@ function AccountForm({
       {inline ? (
         <input type="hidden" name="profileId" value={profiles[0]?.id ?? ""} />
       ) : null}
-      {needsMimoURL ? (
+      {apiKeyProvider && mode === "connect" ? (
+        <ApiKeyStorageChoice
+          value={keyStorage}
+          disabled={disabled}
+          githubUnavailable={
+            setup.workspaceId
+              ? undefined
+              : "Choose a workspace to set up GitHub Secrets."
+          }
+          onValueChange={(next) => {
+            const credential =
+              credentialForm.current?.querySelector<HTMLInputElement>(
+                'input[name="credential"]',
+              );
+            if (credential) credential.value = "";
+            setKeyStorage(next);
+          }}
+        />
+      ) : null}
+      {apiKeyProvider && mode === "reconnect" ? (
+        <div className="grid gap-1 text-sm text-slate-300">
+          <p>Key storage: {apiKeyStorageLabel("gateway_binding")}</p>
+          <p className="text-xs text-slate-400">
+            To change key storage, add a new provider.
+          </p>
+          {githubIntent ? (
+            <a
+              className="w-fit text-cyan-200 underline"
+              href={apiKeySetupHref("providers", githubIntent)}
+              onClick={() => {
+                credentialForm.current?.reset();
+                setOpen(false);
+              }}
+            >
+              Add with different storage
+            </a>
+          ) : null}
+        </div>
+      ) : null}
+      {mode === "connect" && keyStorage === "github_secrets" && githubIntent ? (
+        <a
+          className="w-fit font-semibold text-cyan-200 underline"
+          href={apiKeySetupHref("providers", githubIntent)}
+          onClick={() => {
+            credentialForm.current?.reset();
+            setOpen(false);
+          }}
+        >
+          Continue to provider setup
+        </a>
+      ) : (
         <>
-          <SelectField
-            key={selectedId}
-            name="endpointPreset"
-            label="Dedicated Base URL"
-            defaultValue={selected.dedicatedBaseURL ?? "manual"}
-            options={[
-              ...mimoTokenPlanEndpoints.map((endpoint) => ({
-                value: endpoint.baseURL,
-                label: endpoint.label,
-                description:
-                  endpoint.baseURL === selected.dedicatedBaseURL
-                    ? endpoint.baseURL
-                    : "Not available here yet",
-                disabled: endpoint.baseURL !== selected.dedicatedBaseURL,
-              })),
-              { value: "manual", label: "Enter URL manually" },
-            ]}
-            onValueChange={(value) => {
-              setManualURL(value === "manual");
-              if (value !== "manual") setBaseURL(value);
-            }}
-          />
-          {manualURL ? (
+          {needsMimoURL ? (
+            <>
+              <SelectField
+                key={selectedId}
+                name="endpointPreset"
+                label="Dedicated Base URL"
+                defaultValue={selected.dedicatedBaseURL ?? "manual"}
+                options={[
+                  ...mimoTokenPlanEndpoints.map((endpoint) => ({
+                    value: endpoint.baseURL,
+                    label: endpoint.label,
+                    description:
+                      endpoint.baseURL === selected.dedicatedBaseURL
+                        ? endpoint.baseURL
+                        : "Not available here yet",
+                    disabled: endpoint.baseURL !== selected.dedicatedBaseURL,
+                  })),
+                  { value: "manual", label: "Enter URL manually" },
+                ]}
+                onValueChange={(value) => {
+                  setManualURL(value === "manual");
+                  if (value !== "manual") setBaseURL(value);
+                }}
+              />
+              {manualURL ? (
+                <label className="grid gap-2 text-sm">
+                  Base URL from your Token Plan
+                  <input
+                    className={inputClass}
+                    type="url"
+                    value={baseURL}
+                    onChange={(event) => setBaseURL(event.target.value)}
+                    maxLength={2048}
+                    required
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </label>
+              ) : null}
+              <p className="text-xs text-slate-400">
+                Copy your dedicated API key and OpenAI Base URL from your{" "}
+                <a
+                  className="underline"
+                  href="https://platform.xiaomimimo.com/console/plan-manage"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  MiMo Token Plan
+                </a>
+                . Token Plan and pay-as-you-go keys use different endpoints.
+                {!selected.dedicatedBaseURL
+                  ? " URL setup is not available here yet."
+                  : !endpointValid
+                    ? " Use the enabled regional URL; other regions are not available here yet."
+                    : ""}
+              </p>
+            </>
+          ) : null}
+          {mode !== "reconnect" ? (
             <label className="grid gap-2 text-sm">
-              Base URL from your Token Plan
+              Connection name{mode === "connect" ? " (optional)" : ""}
               <input
                 className={inputClass}
-                type="url"
-                value={baseURL}
-                onChange={(event) => setBaseURL(event.target.value)}
-                maxLength={2048}
+                name="label"
+                required={mode === "rename"}
+                maxLength={120}
+                value={labelValue}
+                placeholder={suggestion(selected)}
+                onChange={(event) => {
+                  setLabelValue(event.target.value);
+                  setAutomaticLabel(!event.target.value.trim());
+                }}
+              />
+            </label>
+          ) : null}
+          {mode !== "rename" ? (
+            <label className="grid gap-2 text-sm">
+              <span className="flex items-center justify-between gap-3">
+                {subscription ? "Subscription key" : "API key"}
+                {keyURL ? (
+                  <a
+                    className="text-xs text-cyan-200 underline"
+                    href={keyURL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Get key
+                  </a>
+                ) : null}
+              </span>
+              <input
+                className={inputClass}
+                name="credential"
+                type="password"
                 required
+                maxLength={16384}
                 autoComplete="off"
                 spellCheck={false}
               />
             </label>
           ) : null}
-          <p className="text-xs text-slate-400">
-            Copy your dedicated API key and OpenAI Base URL from your{" "}
-            <a
-              className="underline"
-              href="https://platform.xiaomimimo.com/console/plan-manage"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              MiMo Token Plan
-            </a>
-            . Token Plan and pay-as-you-go keys use different endpoints.
-            {!selected.dedicatedBaseURL
-              ? " URL setup is not available here yet."
-              : !endpointValid
-                ? " Use the enabled regional URL; other regions are not available here yet."
-                : ""}
-          </p>
+          {mode !== "rename" && subscription ? (
+            <p className="text-xs text-slate-400">
+              {selected?.connection?.provider === "kimi"
+                ? "Use your Kimi Code key."
+                : "Use your subscription key."}
+            </p>
+          ) : null}
+          <Button type="submit" disabled={disabled || !endpointValid}>
+            {mode === "connect" ? "Connect account" : "Confirm"}
+          </Button>
         </>
-      ) : null}
-      {mode !== "reconnect" ? (
-        <label className="grid gap-2 text-sm">
-          Connection name{mode === "connect" ? " (optional)" : ""}
-          <input
-            className={inputClass}
-            name="label"
-            required={mode === "rename"}
-            maxLength={120}
-            value={labelValue}
-            placeholder={suggestion(selected)}
-            onChange={(event) => {
-              setLabelValue(event.target.value);
-              setAutomaticLabel(!event.target.value.trim());
-            }}
-          />
-        </label>
-      ) : null}
-      {mode !== "rename" ? (
-        <label className="grid gap-2 text-sm">
-          <span className="flex items-center justify-between gap-3">
-            {subscription ? "Subscription key" : "API key"}
-            {keyURL ? (
-              <a
-                className="text-xs text-cyan-200 underline"
-                href={keyURL}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Get key
-              </a>
-            ) : null}
-          </span>
-          <input
-            className={inputClass}
-            name="credential"
-            type="password"
-            required
-            maxLength={16384}
-            autoComplete="off"
-            spellCheck={false}
-          />
-        </label>
-      ) : null}
-      {mode !== "rename" && subscription ? (
-        <p className="text-xs text-slate-400">
-          {selected?.connection?.provider === "kimi"
-            ? "Use your Kimi Code key."
-            : "Use your subscription key."}
-        </p>
-      ) : null}
-      <Button type="submit" disabled={disabled || !endpointValid}>
-        {mode === "connect" ? "Connect account" : "Confirm"}
-      </Button>
+      )}
     </form>
   );
   if (inline) return fields;
@@ -2450,11 +2559,18 @@ function AccountForm({
         }
         if (next && mode !== "connect") setLabelValue(account?.label ?? "");
         if (next && mode === "connect") {
-          setSelectedId(profiles[0]?.id ?? "");
-          setBaseURL(profiles[0]?.dedicatedBaseURL ?? "");
+          const profile =
+            profiles.find(
+              (profile) =>
+                apiKeyProviderForGatewayProfile(profile) ===
+                setup.intent?.provider,
+            ) ?? profiles[0];
+          setSelectedId(profile?.id ?? "");
+          setKeyStorage("reviewrouter");
+          setBaseURL(profile?.dedicatedBaseURL ?? "");
           setManualURL(false);
           setAutomaticLabel(true);
-          setLabelValue(suggestion(profiles[0]));
+          setLabelValue(suggestion(profile));
         }
         setOpen(next);
       }}

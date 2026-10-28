@@ -1,3 +1,4 @@
+import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import type { AuditLogRepositoryPort } from "@reviewrouter/features-audit-log";
 import type { ReviewConfigurationRepositoryPort } from "@reviewrouter/features-review-config";
 import type { ReviewRouterMcpSecrets } from "@reviewrouter/protocol-review-workflow";
@@ -28,7 +29,7 @@ export type ProvisionRepositoryReviewRouterWorkflowInput = {
   readonly runtimeConfigMode: "oidc" | "static";
   readonly codexSessionMode?: "account-gateway";
   readonly mcpSecrets?: ReviewRouterMcpSecrets;
-  readonly providerApiAuthMode?: "openrouter-api";
+  readonly providerApiAuthMode?: ProviderApiAuthMode;
   readonly staticRuntimeEnv?: Readonly<Record<string, string>>;
   readonly workflowStyle?: ReviewRouterWorkflowStyle;
   readonly discussionMode?: ReviewRouterDiscussionMode;

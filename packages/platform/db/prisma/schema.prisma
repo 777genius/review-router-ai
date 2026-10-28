@@ -367,6 +367,7 @@ model GitLabInstallation {
 }
 
 model RepositoryConnection {
+  resolutionGuards ReviewThreadResolutionGuardV1[]
   reviewSkillBindings ReviewSkillBinding[]
   reviewSkillSource ReviewSkillRepositorySource?
   id                      String                @id @default(cuid())
@@ -388,6 +389,11 @@ model RepositoryConnection {
   stargazersCount         Int                   @default(0)
   setupStatus             RepositorySetupStatus @default(not_configured)
   inventoryGeneration     BigInt                @default(0)
+  lifecycleResolutionMode String                @default("legacy_open")
+  lifecycleResolutionActivatedAt DateTime?
+  lifecycleResolutionActivationVersion Int      @default(0)
+  lifecycleResolutionWriterDigest String?
+  lifecycleResolutionBootstrapJson Json?
   lastSyncedAt            DateTime?
   createdAt               DateTime              @default(now())
   updatedAt               DateTime              @updatedAt
@@ -1133,6 +1139,7 @@ model ReviewOperationalSloProfileV2 {
 model ProducerRelease {
   contextToolsProfile                     Json?
   prDescriptionProfile                    Json?
+  lifecycleVerificationProfile            Json?
   agentProfilesJson                       String?
   producerReleaseId                      String                     @id
   distributionKind                       ProducerDistributionKindV2
@@ -3287,6 +3294,103 @@ model WorkspaceEntitlement {
   @@index([plan, status])
 }
 
+// Product authority and delivery metadata. Current content belongs to the provider.
+// No foreign-key cascade: cleanup/revocation debt must survive product deletion.
+model MemoryKnowledgeScopeState {
+  generation  String
+  scopeKey    String
+  workspaceId String
+  epoch       BigInt   @default(0)
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@id([generation, scopeKey])
+  @@index([workspaceId])
+}
+
+model MemoryKnowledgeEntry {
+  generation          String
+  scopeKey            String
+  entryId             String
+  workspaceId         String
+  revision            Int
+  lifecycle           String
+  metadata            Json
+  pendingCommandId    String?
+  revocationCommandId String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @default(now()) @updatedAt
+
+  @@id([generation, scopeKey, entryId])
+  @@index([workspaceId, lifecycle])
+  @@index([generation, scopeKey, entryId])
+}
+
+model MemoryKnowledgeCommand {
+  id                      String   @id
+  generation              String
+  scopeKey                String
+  workspaceId             String
+  entryId                 String
+  revision                Int
+  commandKind             String
+  digest                  String
+  approval                Json
+  // Immutable approved input while unresolved; never serves any content read.
+  envelope                Json?
+  state                   String
+  safeReason              String?
+  contentApprovalRevision String
+  originalStatementAt     String?
+  deliveryExpiresAt       DateTime
+  resubmitUntil           DateTime
+  claimId                 String?
+  claimUntil              DateTime?
+  firstDispatchedAt       DateTime?
+  deliveryAttempt         Int      @default(0)
+  cleanupReceiptId        String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @default(now()) @updatedAt
+
+  @@unique([generation, scopeKey, entryId, revision])
+  @@index([generation, scopeKey, entryId, state])
+  @@index([state, deliveryExpiresAt])
+}
+
+model MemoryKnowledgeBundleReceipt {
+  id               String   @id
+  authorizationId  String
+  bindingDigest    String
+  snapshotHash     String?
+  workspaceId      String
+  receipt          Json
+  policyVersion    Int
+  eligibilityEpoch String
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+
+  @@index([expiresAt])
+  @@unique([authorizationId, snapshotHash])
+}
+
+model MemoryKnowledgeMaintenanceFence {
+  generation String   @id
+  epoch      BigInt   @default(0)
+  paused     Boolean  @default(false)
+  actor      String
+  updatedAt  DateTime @default(now()) @updatedAt
+}
+
+model MemoryKnowledgeSourceCursor {
+  key         String   @id
+  generation  String
+  workspaceId String
+  revision    String
+  sourceAt    DateTime
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@index([workspaceId])
+}
+
 model MemoryItem {
   id                  String               @id @default(cuid())
   schemaVersion       Int                  @default(1)
@@ -3319,7 +3423,6 @@ model MemoryItem {
   workspace   Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   repository  RepositoryConnection? @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   user        User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  usageEvents MemoryUsageEvent[]
 
   @@index([workspaceId, scope, status, updatedAt])
   @@index([workspaceId, repositoryId, status, updatedAt])
@@ -3414,7 +3517,6 @@ model MemoryUsageEvent {
 
   workspace  Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   repository RepositoryConnection @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  memoryItem MemoryItem           @relation(fields: [memoryItemId], references: [id], onDelete: Cascade)
 
   @@unique([dedupeKey])
   @@index([workspaceId, occurredAt])
@@ -4521,6 +4623,7 @@ model ReviewSkill {
   id String @id
   sourceWorkspaceId String
   authorUserId String
+  createOperationId String?
   headRevisionId String
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @db.Timestamptz(3)
@@ -4532,6 +4635,7 @@ model ReviewSkill {
   links ReviewSkillLink[]
   bindings ReviewSkillBinding[]
   @@index([sourceWorkspaceId, id])
+  @@unique([sourceWorkspaceId, authorUserId, createOperationId])
 }
 
 model ReviewSkillRevision {
@@ -4580,6 +4684,7 @@ model ReviewSkillBinding {
   skillId String
   includePaths Json
   excludePaths Json
+  generation String @default(dbgenerated("gen_random_uuid()::text"))
   version Int @default(1)
   repository RepositoryConnection @relation(fields: [repositoryConnectionId, workspaceId], references: [id, workspaceId], onDelete: Restrict, onUpdate: Restrict)
   skill ReviewSkill @relation(fields: [skillId], references: [id], onDelete: Restrict, onUpdate: Restrict)
@@ -4770,4 +4875,49 @@ model ReviewStatisticsIssueFact {
   @@index([workspaceId, repositoryConnectionId, caughtAt, id], map: "statistics_issue_repository_time_idx")
   @@index([workspaceId, repositoryConnectionId, severity, caughtAt, id], map: "statistics_issue_repo_severity_time_idx")
   @@index([repositoryConnectionId, workspaceId], map: "statistics_issue_repository_idx")
+}
+
+// One durable claim permits at most one native companion request per slot attempt.
+model ReviewRunCompanionDispatchV1 {
+  authorizationId String
+  dispatchId String
+  role String
+  executionId String
+  workSlotId String
+  attemptOrdinal Int
+  leaseId String
+  fencingToken BigInt
+  preparedManifestKey String
+  providerRequestEnvelopeHash String
+  nativeRequestRef String
+  state String
+  usageHash String?
+  resultHash String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  claimedAt DateTime
+  completedAt DateTime?
+  retainUntil DateTime
+
+  @@id([authorizationId, dispatchId])
+  @@unique([authorizationId, workSlotId, attemptOrdinal])
+  @@index([retainUntil])
+}
+
+// Compact target history deliberately outlives detailed publication receipts.
+model ReviewThreadResolutionGuardV1 {
+  workspaceId String
+  repositoryConnectionId String
+  scmRepositoryIdentityId String
+  pullRequestNumber Int
+  threadId String
+  version Int @default(0)
+  confirmedFactJson Json?
+  pendingFactsJson Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  repositoryConnection RepositoryConnection @relation(fields: [repositoryConnectionId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, repositoryConnectionId, scmRepositoryIdentityId, pullRequestNumber, threadId])
 }

@@ -1,3 +1,4 @@
+import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import { reviewRouterApiUrlsMatch } from "@reviewrouter/shared";
 import {
   ManagedReviewV2WorkflowInventory,
@@ -603,6 +604,7 @@ export class OctokitCodexRotatingGitHubSecretGateway
     readonly expectedProviderApiActionCommitSha?: string;
   }): Promise<{
     readonly compatible: boolean;
+    readonly providerApiAuthMode?: ProviderApiAuthMode;
     readonly mcpSecrets?: Readonly<Record<string, string>>;
   }> {
     if (input.workflowPath === reviewRouterWorkflowContract.callerPath) {
@@ -629,17 +631,19 @@ export class OctokitCodexRotatingGitHubSecretGateway
         const caller = readManagedReviewRouterCallerSource(source);
         // Source proves the installation ABI, never the executed release.
         // Signed executable SHA and registry state are checked by admission.
+        const compatible =
+          (input.expectedProviderApiActionCommitSha !== undefined
+            ? caller.modelTransport === "provider_api" &&
+              caller.runtimeRef === input.expectedProviderApiActionCommitSha
+            : caller.modelTransport === "account_gateway") &&
+          reviewRouterApiUrlsMatch(caller.controlPlaneUrl, this.expectedApiUrl);
+        if (!compatible) return { compatible: false };
         return {
+          compatible: true,
           ...(caller.mcpSecrets ? { mcpSecrets: caller.mcpSecrets } : {}),
-          compatible:
-            (input.expectedProviderApiActionCommitSha !== undefined
-              ? caller.modelTransport === "provider_api" &&
-                caller.runtimeRef === input.expectedProviderApiActionCommitSha
-              : caller.modelTransport === "account_gateway") &&
-            reviewRouterApiUrlsMatch(
-              caller.controlPlaneUrl,
-              this.expectedApiUrl,
-            ),
+          ...(caller.providerApiAuthMode
+            ? { providerApiAuthMode: caller.providerApiAuthMode }
+            : {}),
         };
       } catch {
         return { compatible: false };

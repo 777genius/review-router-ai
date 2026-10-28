@@ -9,6 +9,7 @@ import {
 } from "../composition/review-skills.root.js";
 import type { ReviewSkillsStore } from "../application/ports/review-skills-store.js";
 import {
+  createReviewSkillsService,
   validateReviewSkillContent,
   exactIds,
   normalizeSkillScope,
@@ -97,6 +98,38 @@ describe("Review Skills actual Get Modular root", () => {
   });
 });
 describe("Review Skills boundary validation", () => {
+  it("validates the assigned-only read flag before invoking a store or permission check", async () => {
+    const service = createReviewSkillsService(store, access);
+    await expect(
+      service.listAssignmentChoices({
+        actor: { userId: "actor" },
+        workspaceId: "workspace",
+        repositoryIds: ["repo"],
+        assignedOnly: "true" as unknown as boolean,
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+  });
+  it("requires valid creation and assignment generation identities", async () => {
+    const service = createReviewSkillsService(store, access);
+    const common = { actor: { userId: "actor" }, workspaceId: "workspace" };
+    expect(() =>
+      service.createSkill({
+        ...common,
+        createOperationId: "invalid",
+        content: { name: "Skill", description: "", instructions: "Review." },
+      }),
+    ).toThrow("review_skills_invalid_input");
+    await expect(
+      service.updateBindingScope({
+        ...common,
+        repositoryId: "repository",
+        skillId: "skill",
+        expectedGeneration: "",
+        expectedVersion: 1,
+        scope: { includePaths: ["**"], excludePaths: [] },
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+  });
   it("rejects blank content, oversized selection and unsupported scope syntax", () => {
     expect(() =>
       validateReviewSkillContent({

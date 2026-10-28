@@ -1,3 +1,8 @@
+import { InMemoryReviewConfigurationRepository } from "../../../review-config/src/tests/in-memory-review-configuration";
+import {
+  providerProfileFixture,
+  workspacePolicyDocumentFixture,
+} from "../../../review-config/src/tests/current-policy-fixture";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
@@ -1253,3 +1258,151 @@ it("installs one exact-pinned App-first direct caller and rejects extra votes be
   expect(before.providers).toHaveLength(1);
   expect(config.providers).toHaveLength(2);
 });
+
+it.each([
+  [
+    "legacy managed key",
+    {
+      kind: "managed_api_key",
+      authMode: "mimo_token_plan_api_key",
+      apiKeyConnectionId: "mimo-key",
+    },
+  ],
+  [
+    "repository secret",
+    { kind: "user_ci_secret", authMode: "mimo_token_plan_api_key" },
+  ],
+] as const)(
+  "MiMo current preparation preserves %s custody and refuses unsupported settings before effects",
+  async (_name, credential) => {
+    for (const setting of ["supported", "fast", "xhigh"] as const) {
+      const config = parseReviewConfigurationStrict({
+        ...workspacePolicy,
+        providers: [
+          {
+            kind: "codex-mimo",
+            authMode: "mimo_token_plan_api_key",
+            model: "mimo-v2.6-pro",
+            reasoningEffort: setting === "xhigh" ? "xhigh" : "high",
+            agenticContext: true,
+            fastMode: setting === "fast",
+            requiredHealthy: true,
+          },
+        ],
+      });
+      const profile = providerProfileFixture({
+        id: `mimo-${credential.kind}`,
+        workspaceId: gatewayInput.workspaceId,
+        credential,
+        model: "mimo-v2.6-pro",
+      });
+      const configurations =
+        new InMemoryReviewConfigurationRepository().addProfile(profile);
+      const target = {
+        scope: "workspace",
+        workspaceId: gatewayInput.workspaceId,
+      } as const;
+      await configurations.saveNextVersion({
+        target,
+        policy: workspacePolicyDocumentFixture(config, [profile.id]),
+      });
+      const before = await configurations.findLatest(target);
+      expect(before?.config).toEqual(config);
+      expect(configurations.profiles.get(profile.id)?.credential).toEqual(
+        credential,
+      );
+      const { codexSessionMode, ...base } = gatewayInput;
+      expect(codexSessionMode).toBe("account-gateway");
+      const setupGateway = new CapturingSetupGateway();
+      const provisioning = new CapturingProvisioningRepository();
+      const prepared = provisionReviewRouterWorkflow(
+        { ...base, providerApiAuthMode: "mimo-token-plan-api" },
+        {
+          setupGateway,
+          provisioning,
+          configurations,
+          trustedGithubRepositoryId: "123456",
+        },
+      );
+      if (setting === "supported") {
+        await prepared;
+        expect(setupGateway.input?.setupMode).toBe("provider_api");
+        expect(provisioning.attempts).toBe(1);
+        const file = setupGateway.input?.workflowFiles.find(
+          (file) => file.path === ".github/workflows/reviewrouter-review.yml",
+        );
+        expect(file && "content" in file ? file.content : "").toContain(
+          "secrets.MIMO_TOKEN_PLAN_API_KEY",
+        );
+      } else {
+        await expect(prepared).rejects.toThrow(
+          setting === "fast"
+            ? "provider_api_fast_mode_unsupported"
+            : "provider_api_reasoning_effort_unsupported",
+        );
+        expect(provisioning.attempts).toBe(0);
+        expect(setupGateway.input).toBeNull();
+      }
+      expect(await configurations.findLatest(target)).toEqual(before);
+      expect(configurations.profiles.get(profile.id)?.credential).toEqual(
+        credential,
+      );
+    }
+  },
+);
+
+it.each([
+  {
+    kind: "codex-mimo",
+    authMode: "mimo_token_plan_api_key",
+    model: "mimo-v2.6-pro",
+    reasoningEffort: "high",
+  },
+  { kind: "kimi", authMode: "kimi_code_api_key", model: "k3-256k" },
+] as const)(
+  "refuses a saved $kind-first mixed policy before a legacy setup attempt",
+  async (provider) => {
+    const config = parseReviewConfigurationStrict({
+      ...workspacePolicy,
+      providers: [
+        {
+          ...provider,
+          agenticContext: true,
+          fastMode: false,
+          requiredHealthy: true,
+        },
+        workspacePolicy.providers[0]!,
+      ],
+      execution: {
+        providerLimit: 2,
+        providerMaxParallel: 1,
+        inlineMinAgreement: 1,
+      },
+    });
+    const configurations = savedConfigurations();
+    const originalFind = configurations.findLatest;
+    const directConfigurations: ReviewConfigurationRepositoryPort = {
+      ...configurations,
+      findLatest: async (target) => {
+        const result = await originalFind(target);
+        return result ? { ...result, ...withSelections(config) } : null;
+      },
+    };
+    const before = structuredClone(config);
+    const { codexSessionMode, ...input } = gatewayInput;
+    expect(codexSessionMode).toBe("account-gateway");
+    const setupGateway = new CapturingSetupGateway();
+    const provisioning = new CapturingProvisioningRepository();
+    await expect(
+      provisionReviewRouterWorkflow(input, {
+        setupGateway,
+        provisioning,
+        configurations: directConfigurations,
+        trustedGithubRepositoryId: "123456",
+      }),
+    ).rejects.toThrow("provider_api_direct_requires_single_provider");
+    expect(provisioning.attempts).toBe(0);
+    expect(setupGateway.input).toBeNull();
+    expect(config).toEqual(before);
+  },
+);

@@ -18,6 +18,66 @@ import {
 } from "./review-v2-publication-payloads";
 
 describe("canonical review v2 projection adapter", () => {
+  it("preserves the verification-time artifact and rejects malformed confirmation facts", async () => {
+    const base = finalizedArtifact();
+    const projection = JSON.parse(base.projectionEnvelopeJson);
+    projection.publishing.summary.body =
+      "2 fixes verified. Closure status as of projection: closure planned.";
+    projection.publishing.check.summary = projection.publishing.summary.body;
+    projection.publishing.lifecycle = ["tax-a", "tax-b"].map((targetId) => ({
+      targetId,
+      threadId: `thread-${targetId}`,
+      verdict: "resolved",
+      mutationEligible: true,
+      verification: {
+        targetId,
+        semanticVerdict: "resolved",
+        confirmationState: "fix_confirmed_thread_open",
+        severity: "major",
+        observationIds: ["observation-1"],
+        providerVoteKeys: ["verifier/account"],
+        reasonCodes: ["accepted_verification"],
+        mutationStatus: "pending",
+      },
+    }));
+    const projectionEnvelopeJson = canonicalJson(projection);
+    const artifact = Object.freeze({
+      ...base,
+      projectionPolicyVersion:
+        "review-projection-policy.v7-lifecycle-verification",
+      projectionEnvelopeJson,
+      projectionHash: hash(projectionEnvelopeJson),
+      publicationPermit: {
+        ...base.publicationPermit,
+        projectionHash: hash(projectionEnvelopeJson),
+      },
+      byteCount: Buffer.byteLength(projectionEnvelopeJson),
+    });
+    const adapter = new CanonicalReviewV2ProjectionAdapter({
+      async findArtifact() {
+        return {
+          artifact,
+          protocolLimitsProfileId: "limits-1",
+          limitsDigest: hash("8"),
+        };
+      },
+    });
+    const envelope = await adapter.publicationEnvelope(artifact);
+    expect(envelope?.renderPolicyVersion).toBe(6);
+    expect(artifact.projectionEnvelopeJson).toBe(projectionEnvelopeJson);
+    expect(
+      JSON.parse(artifact.projectionEnvelopeJson).publishing.summary
+        .occurrenceCounts.resolved,
+    ).toBe(0);
+    projection.publishing.lifecycle[0].verification.targetId = "forged";
+    await expect(
+      adapter.publicationEnvelope({
+        ...artifact,
+        projectionEnvelopeJson: canonicalJson(projection),
+      }),
+    ).rejects.toThrow("publication_verification_invalid");
+  });
+
   it("derives the same bounded payload identities used by planning and SCM", async () => {
     const artifact = finalizedArtifact();
     const adapter = new CanonicalReviewV2ProjectionAdapter({

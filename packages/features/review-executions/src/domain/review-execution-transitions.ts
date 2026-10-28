@@ -93,7 +93,7 @@ export type PrepareExecutionTransitionInput = {
   readonly admissionSafetyDecisionHash: string;
   readonly compatibilityKey: string;
   readonly planHash: string;
-  readonly assignmentManifestVersion?: 1 | null;
+  readonly assignmentManifestVersion?: 1 | 2 | null;
   readonly assignmentManifestHash?: string | null;
   readonly assignmentManifestCanonicalJson?: string | null;
   readonly workSlots: readonly ReviewWorkSlotPlan[];

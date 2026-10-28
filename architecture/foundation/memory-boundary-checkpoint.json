@@ -1,0 +1,23 @@
+{
+  "schema": "memory-boundary-checkpoint/v1",
+  "policyPath": "architecture/foundation/provider-seams.yaml",
+  "policySha256": "65912f0f170d6bd79b9c03d07e2a5f39dfc2bc40d6071269c8820848261e41cf",
+  "foundationBaseline": {
+    "outcome": "passed",
+    "diagnostics": 0
+  },
+  "actualApiWorkerAstBaseline": {
+    "diagnostics": 0
+  },
+  "hostAstRegressionTests": {
+    "passed": 4,
+    "failed": 0
+  },
+  "realWorkspaceFixtures": {
+    "defined": 23,
+    "passed": 23,
+    "failed": 0,
+    "status": "passed",
+    "evidence": "scripts/memory-foundation/qualify-boundaries.ts; exact policy hash verified after all sequential mutation cases"
+  }
+}

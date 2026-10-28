@@ -1,3 +1,15 @@
+import { createMemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
+import {
+  registerActionMemoryV2Routes,
+  type ActionMemoryV2Dependencies,
+} from "./action-memory-v2-routes.js";
+import { GitHubMemorySourceVerifier } from "./github/github-memory-source-verifier.js";
+import { registerMemoryOperatorRoutes } from "./memory-operator-routes.js";
+import { createReviewMemoryInputAdmission } from "./review-memory-admission.js";
+import {
+  ReviewMemoryRuntimeGateway,
+  registerReviewMemoryRuntimeRoutes,
+} from "./review-memory-runtime.js";
 import { createProviderUsageSessionComposition } from "./provider-usage-session-composition.js";
 import { registerProviderUsageRecovery } from "./provider-usage-artifact-recovery.js";
 import { registerProviderUsageRoutes } from "./provider-usage-routes.js";
@@ -97,19 +109,6 @@ import {
   resolveCodexOAuthDatabaseEffectAuthorityUrl,
   type PrismaClient,
 } from "@reviewrouter/platform-db";
-import {
-  CryptoMemoryIdGenerator,
-  EntitlementMemoryPolicyConfig,
-  EntitlementMemoryQuotaPolicy,
-  PrismaMemoryItemRepository,
-  PrismaMemoryPermission,
-  PrismaMemorySuggestionRepository,
-  PrismaMemoryTransaction,
-  PrismaMemoryUsageEventRepository,
-  readMemoryServiceEnabled,
-} from "@reviewrouter/features-memory/infrastructure";
-import { createMemorySearchRuntime } from "@reviewrouter/features-memory/composition";
-import { PrismaEntitlementRepository } from "@reviewrouter/features-entitlements";
 import {
   assertHostedCodexProductionReadiness,
   isConflictReviewFallbackAllowedForRepository,
@@ -225,6 +224,7 @@ export type CreateApiAppOptions = {
   readonly reviewSnapshotReadV2Dependencies?: RegisterReviewSnapshotReadV2RoutesDependencies;
   readonly reviewPublicationRequestV2Dependencies?: RegisterReviewPublicationRequestV2RoutesDependencies;
   readonly actionMemoryDependencies?: RegisterActionMemoryRoutesDependencies;
+  readonly actionMemoryV2Dependencies?: ActionMemoryV2Dependencies;
   readonly operatorReviewConfigDependencies?: OperatorReviewConfigurationDependencies;
   readonly reviewInvestigationOperatorDependencies?: RegisterReviewInvestigationOperatorRoutesDependencies;
   readonly reviewInvestigationTelemetrySamples?: ReviewInvestigationTerminalTelemetrySamplePort;
@@ -883,6 +883,21 @@ export async function createApiApp(
   ) {
     throw new Error("review_action_v2_run_control_dependencies_unavailable");
   }
+  const memoryRuntime = prisma
+    ? await createMemoryKnowledgeRuntime({
+        prisma,
+        env: {
+          ...reviewActionV2Env,
+          ...(options.memoryServiceEnabled === undefined
+            ? {}
+            : {
+                REVIEW_ROUTER_MEMORY_ENABLED: String(
+                  options.memoryServiceEnabled,
+                ),
+              }),
+        },
+      })
+    : undefined;
   const productionReviewActionV2Dependencies =
     reviewRunControlV2Enabled &&
     !options.reviewRunControlV2Dependencies &&
@@ -896,6 +911,12 @@ export async function createApiApp(
     disabledReviewActionV2RuntimeDependencies
       ? composeReviewActionV2ProductionRoutes({
           enabled: true,
+          ...(memoryRuntime
+            ? {
+                memoryInputAdmission:
+                  createReviewMemoryInputAdmission(memoryRuntime),
+              }
+            : {}),
           env: reviewActionV2Env,
           runtime: disabledReviewActionV2RuntimeDependencies,
           ...(prisma ? { prisma } : {}),
@@ -1089,52 +1110,48 @@ export async function createApiApp(
     );
   }
 
-  const actionMemoryDependencies =
-    options.actionMemoryDependencies ??
-    (actionControlPlaneDependencies && prisma
+  if (
+    prisma &&
+    memoryRuntime &&
+    productionReviewActionV2Dependencies?.contextTools
+  ) {
+    await registerReviewMemoryRuntimeRoutes(
+      app,
+      new ReviewMemoryRuntimeGateway({
+        prisma,
+        runtime: memoryRuntime,
+        access: productionReviewActionV2Dependencies.contextTools,
+      }),
+    );
+  }
+
+  await registerActionMemoryRoutes(app);
+  const actionMemoryV2 =
+    options.actionMemoryV2Dependencies ??
+    (actionControlPlaneDependencies && prisma && memoryRuntime
       ? {
+          prisma,
+          runtime: memoryRuntime,
           repositories: actionControlPlaneDependencies.repositories,
           sessions: actionControlPlaneDependencies.sessions,
-          memory: {
-            memoryItems: new PrismaMemoryItemRepository(prisma),
-            memorySuggestions: new PrismaMemorySuggestionRepository(prisma),
-            memoryPermissions: new PrismaMemoryPermission(prisma, {
-              localAdminGithubLogins: parseCommaSeparatedEnv(
-                process.env.REVIEW_ROUTER_LOCAL_ADMIN_GITHUB_LOGINS,
-              ),
-            }),
-            memoryPolicyConfig: new EntitlementMemoryPolicyConfig(
-              new PrismaEntitlementRepository(prisma),
-              {
-                serviceEnabled:
-                  options.memoryServiceEnabled ??
-                  readMemoryServiceEnabled(process.env),
-              },
-            ),
-            memoryUsageEvents: new PrismaMemoryUsageEventRepository(prisma),
-            memoryQuotaPolicy: new EntitlementMemoryQuotaPolicy(
-              new PrismaEntitlementRepository(prisma),
-            ),
-            memoryIds: new CryptoMemoryIdGenerator(),
-            memoryTransaction: new PrismaMemoryTransaction(prisma),
-            clock: actionControlPlaneDependencies.clock,
-          },
-          memorySearchIndex: (
-            await createMemorySearchRuntime({ prisma, env: process.env })
-          ).searchIndex,
           ...(actionControlPlaneDependencies.entitlements
             ? { entitlements: actionControlPlaneDependencies.entitlements }
             : {}),
           clock: actionControlPlaneDependencies.clock,
-          ...(options.actionControlPlaneEnabled === false
-            ? { controlPlaneEnabled: false }
-            : {}),
+          sourceVerifier: new GitHubMemorySourceVerifier({
+            prisma,
+            env: reviewActionV2Env,
+          }),
+          enabled: options.actionControlPlaneEnabled !== false,
         }
       : undefined);
-
-  if (actionMemoryDependencies) {
-    await registerActionMemoryRoutes(app, actionMemoryDependencies);
-  }
+  if (actionMemoryV2) await registerActionMemoryV2Routes(app, actionMemoryV2);
+  if (prisma && memoryRuntime)
+    await registerMemoryOperatorRoutes(app, {
+      prisma,
+      runtime: memoryRuntime,
+      operatorToken: reviewActionV2Env.REVIEW_ROUTER_MEMORY_OPERATOR_TOKEN,
+    });
 
   if (actionControlPlaneDependencies && prisma) {
     const ingressEnabled =

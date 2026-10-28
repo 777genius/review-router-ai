@@ -253,7 +253,6 @@ function repositoryContext(
     organizationLogin: null,
     organizationSecretPolicy: null,
     rotatingEnabled: false,
-    rotatingPreparationOnly: false,
   };
 }
 

@@ -1,3 +1,7 @@
+import {
+  bindLifecycleVerificationReleaseProfile,
+  parseLifecycleVerificationReleaseProfile,
+} from "./review-lifecycle-release-profile.ts";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { posix as posixPath } from "node:path";
@@ -282,7 +286,18 @@ export function parseProtocolGenerationManifest(raw) {
         "manifest.json.contextToolsProfile",
       )
     : undefined;
+  const lifecycleVerificationProfile = Object.hasOwn(
+    value,
+    "lifecycleVerificationProfile",
+  )
+    ? parseLifecycleVerificationReleaseProfile(
+        value.lifecycleVerificationProfile,
+      )
+    : undefined;
   return Object.freeze({
+    ...(lifecycleVerificationProfile === undefined
+      ? {}
+      : { lifecycleVerificationProfile }),
     ...(contextToolsProfile === undefined ? {} : { contextToolsProfile }),
     ...(prDescriptionProfile === undefined ? {} : { prDescriptionProfile }),
     protocolVersion: value.protocolVersion,
@@ -367,6 +382,14 @@ export function buildReleaseManifest(input) {
   );
   const contextGateway = resolveReleaseContextGateway(input);
   const base = {
+    ...(input.lifecycleVerificationProfile === undefined
+      ? {}
+      : {
+          lifecycleVerificationProfile: bindLifecycleVerificationReleaseProfile(
+            input.lifecycleVerificationProfile,
+            handoff.generatedFileDigests,
+          ),
+        }),
     ...(input.contextToolsProfile === undefined
       ? {}
       : {
@@ -468,6 +491,9 @@ export function parseReleaseManifest(raw) {
       "runtimeEntrypointPath",
       "saasSourceCommit",
       "schemaDigest",
+      ...(Object.hasOwn(value, "lifecycleVerificationProfile")
+        ? ["lifecycleVerificationProfile"]
+        : []),
       ...(Object.hasOwn(value, "contextToolsProfile")
         ? ["contextToolsProfile"]
         : []),
@@ -535,6 +561,14 @@ export function parseReleaseManifest(raw) {
     );
   }
   const base = {
+    ...(Object.hasOwn(value, "lifecycleVerificationProfile")
+      ? {
+          lifecycleVerificationProfile: bindLifecycleVerificationReleaseProfile(
+            value.lifecycleVerificationProfile,
+            handoff.generatedFileDigests,
+          ),
+        }
+      : {}),
     ...(Object.hasOwn(value, "contextToolsProfile")
       ? {
           contextToolsProfile: parseContextToolsReleaseProfile(
@@ -630,6 +664,11 @@ export function parseReleaseManifest(raw) {
 export function buildReleaseRegistrationCandidateFields(input) {
   const manifest = parseReleaseManifest(canonicalJson(input));
   return Object.freeze({
+    ...(manifest.lifecycleVerificationProfile === undefined
+      ? {}
+      : {
+          lifecycleVerificationProfile: manifest.lifecycleVerificationProfile,
+        }),
     ...(manifest.contextToolsProfile === undefined
       ? {}
       : { contextToolsProfile: manifest.contextToolsProfile }),

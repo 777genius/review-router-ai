@@ -81,7 +81,10 @@ export function useProviderModelCatalogs(
   );
   const options = context
     ? [
-        ...fallback.filter((option) => option.provider === "codex-mimo"),
+        ...fallback.filter(
+          (option) =>
+            !providers.some((provider) => provider === option.provider),
+        ),
         ...queries.flatMap((query, index) =>
           query.data
             ? catalogSnapshotOptions(query.data)
@@ -142,17 +145,23 @@ export function ProviderModelCatalogStatus({
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
       <span role="status">
-        {snapshot
-          ? `Catalog: ${snapshot.source} · ${snapshot.state} · ${snapshot.fetchedAt === null ? "no successful fetch" : `fetched ${new Date(snapshot.fetchedAt).toISOString()}`}`
-          : "Catalog unavailable"}
-        {snapshot?.refresh === "cooldown" ? " · refresh cooldown" : ""}
-        {snapshot?.error === "source_unavailable"
-          ? " · source unavailable; using displayed catalog"
-          : snapshot?.error === "invalid_section"
-            ? " · invalid source data; using displayed catalog"
-            : ""}
-        {status.failed || snapshot?.refresh === "failed"
-          ? " · refresh failed"
+        {status.loading
+          ? "Updating model list…"
+          : status.failed ||
+              snapshot?.refresh === "failed" ||
+              (snapshot?.error !== null && snapshot?.error !== undefined)
+            ? snapshot?.models.length
+              ? "Could not update the model list. Showing the last available model list."
+              : "Could not load the model list. Try refreshing."
+            : snapshot?.state === "fresh"
+              ? "Model list is up to date."
+              : snapshot?.state === "stale"
+                ? "Showing the last model list. Refresh to check for updates."
+                : snapshot?.state === "fallback"
+                  ? "Showing built-in model choices."
+                  : "Model list is unavailable. Try refreshing."}
+        {snapshot?.refresh === "cooldown"
+          ? " Please wait before refreshing again."
           : ""}
       </span>
       <Button
@@ -166,7 +175,9 @@ export function ProviderModelCatalogStatus({
       >
         {status.loading ? "Refreshing models…" : "Refresh models"}
       </Button>
-      {publicSelection ? <span>Account access not checked.</span> : null}
+      {publicSelection ? (
+        <span>Access to these models has not been checked.</span>
+      ) : null}
     </div>
   );
 }

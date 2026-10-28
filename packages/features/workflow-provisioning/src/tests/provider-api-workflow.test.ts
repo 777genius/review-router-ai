@@ -13,6 +13,7 @@ it("separates the exact-pinned direct secret caller from the unchanged Gateway A
     runtimeRef,
     controlPlaneUrl: "https://api.reviewrouter.org",
     modelTransport: "provider_api",
+    providerApiAuthMode: "openrouter-api",
   });
   expect(direct).toContain(
     "OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}",
@@ -53,3 +54,31 @@ it("does not install a floating direct runtime", () => {
     renderReviewRouterProviderApiCaller({ runtimeRef: "v1" }),
   ).toThrow();
 });
+
+it.each([
+  ["openrouter-api", "OPENROUTER_API_KEY"],
+  ["mimo-token-plan-api", "MIMO_TOKEN_PLAN_API_KEY"],
+  ["kimi-code-api", "KIMI_CODE_API_KEY"],
+] as const)(
+  "canonical direct caller binds only the selected mode and fixed secret: %s",
+  (providerApiAuthMode, secret) => {
+    const source = renderReviewRouterProviderApiCaller({
+      runtimeRef,
+      providerApiAuthMode,
+    });
+    expect(readManagedReviewRouterCallerSource(source)).toMatchObject({
+      providerApiAuthMode,
+    });
+    expect(source).toContain(`${secret}: $` + `{{ secrets.${secret} }}`);
+    for (const other of [
+      "OPENROUTER_API_KEY",
+      "MIMO_TOKEN_PLAN_API_KEY",
+      "KIMI_CODE_API_KEY",
+    ].filter((key) => key !== secret))
+      expect(source).not.toContain(other);
+    const wrong = source.replace(`secrets.${secret}`, "secrets.FOREIGN_KEY");
+    expect(() => readManagedReviewRouterCallerSource(wrong)).toThrow(
+      "review_workflow_source_not_canonical",
+    );
+  },
+);

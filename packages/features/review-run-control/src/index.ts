@@ -31,3 +31,6 @@ export type {
   ReviewRunSkillsSnapshotPort,
   ReviewRunSkillsCaptureDenial,
 } from "./application/ports/review-run-skills-snapshot-port";
+
+export * from "./application/ports/review-run-companion-dispatch-port";
+export * from "./application/use-cases/claim-review-run-companion-dispatch";

@@ -2389,54 +2389,57 @@ describe("action control plane", () => {
     },
   );
 
-  it("returns saved gateway config through an authenticated approved workflow", async () => {
-    const repositories = new InMemoryActionControlPlaneRepository();
-    repositories.runtimeConfig = parseReviewConfiguration({
-      ...workspacePolicyFixture,
-      providers: [gatewayRuntimeProvider],
-    });
-    const sessions = new JoseActionSessionTokenService(
-      "0123456789abcdef0123456789abcdef",
-    );
-    const signed = await sessions.sign({
-      claims: {
-        ...sessionClaims,
-        workflowPath: ".github/workflows/reviewrouter-review.yml",
-      },
-      expiresInSeconds: 60,
-      issuedAt: fixedNow,
-    });
-    const config = actionRuntimeConfigResponseSchema.parse(
-      await getActionRuntimeConfig(
-        { sessionToken: signed.token },
-        {
-          repositories,
-          sessions,
-          clock,
+  it.each(["high", "minimal"] as const)(
+    "returns saved gateway %s reasoning through an authenticated approved workflow",
+    async (reasoningEffort) => {
+      const repositories = new InMemoryActionControlPlaneRepository();
+      repositories.runtimeConfig = parseReviewConfiguration({
+        ...workspacePolicyFixture,
+        providers: [{ ...gatewayRuntimeProvider, reasoningEffort }],
+      });
+      const sessions = new JoseActionSessionTokenService(
+        "0123456789abcdef0123456789abcdef",
+      );
+      const signed = await sessions.sign({
+        claims: {
+          ...sessionClaims,
+          workflowPath: ".github/workflows/reviewrouter-review.yml",
         },
-      ),
-    );
-    expect(config.provider).toMatchObject({
-      authMode: "codex_account_gateway",
-      model: "mimo-v2-pro",
-      secretBackedProviderEnabled: false,
-    });
-    expect(config.configVersion).toBe(7);
-    expect(config.providers).toEqual([config.provider]);
-    expect(config.runtimeEnv).toMatchObject({
-      REVIEW_AUTH_MODE: "codex-account-gateway",
-      REVIEW_ROUTER_GATEWAY_BINDING_ID: "binding-server-saved",
-      REVIEW_ROUTER_GATEWAY_PROFILE_REF: "profile-mimo",
-      CODEX_MODEL: "mimo-v2-pro",
-      CODEX_REASONING_EFFORT: "high",
-      CODEX_FAST_MODE: "false",
-      REVIEW_PROVIDERS: "codex/mimo-v2-pro",
-      SYNTHESIS_MODEL: "codex/mimo-v2-pro",
-    });
-    expect(JSON.stringify(config)).not.toMatch(
-      /SECRET|PRIVATE_KEY|AUTH_JSON|API_KEY|ACCESS_TOKEN|REFRESH_TOKEN/,
-    );
-  });
+        expiresInSeconds: 60,
+        issuedAt: fixedNow,
+      });
+      const config = actionRuntimeConfigResponseSchema.parse(
+        await getActionRuntimeConfig(
+          { sessionToken: signed.token },
+          {
+            repositories,
+            sessions,
+            clock,
+          },
+        ),
+      );
+      expect(config.provider).toMatchObject({
+        authMode: "codex_account_gateway",
+        model: "mimo-v2-pro",
+        secretBackedProviderEnabled: false,
+      });
+      expect(config.configVersion).toBe(7);
+      expect(config.providers).toEqual([config.provider]);
+      expect(config.runtimeEnv).toMatchObject({
+        REVIEW_AUTH_MODE: "codex-account-gateway",
+        REVIEW_ROUTER_GATEWAY_BINDING_ID: "binding-server-saved",
+        REVIEW_ROUTER_GATEWAY_PROFILE_REF: "profile-mimo",
+        CODEX_MODEL: "mimo-v2-pro",
+        CODEX_REASONING_EFFORT: reasoningEffort,
+        CODEX_FAST_MODE: "false",
+        REVIEW_PROVIDERS: "codex/mimo-v2-pro",
+        SYNTHESIS_MODEL: "codex/mimo-v2-pro",
+      });
+      expect(JSON.stringify(config)).not.toMatch(
+        /SECRET|PRIVATE_KEY|AUTH_JSON|API_KEY|ACCESS_TOKEN|REFRESH_TOKEN/,
+      );
+    },
+  );
 
   it.each(["missing", "legacy", "wrong", "mixed"] as const)(
     "denies saved gateway config for %s selection",

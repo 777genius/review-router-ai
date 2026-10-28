@@ -8,6 +8,10 @@ import { PGlite } from "@electric-sql/pglite";
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import pg from "pg";
 import {
+  CODEX_MODEL_PROFILE,
+  ACCOUNT_MODEL_UI_ATTESTATIONS,
+} from "./account-models-fixture.ts";
+import {
   FIXTURES,
   TEST_DATABASE_NAME,
   type RuntimeDescriptor,
@@ -127,10 +131,7 @@ async function assertRestoredEmptyBaseline(
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort();
-  if (
-    ![133, 134].includes(names.length) ||
-    migrations.rows.length !== names.length
-  )
+  if (names.length === 0 || migrations.rows.length !== names.length)
     throw new Error("restored_baseline_requires_exact_source_roster");
   for (let i = 0; i < names.length; i++) {
     const migration = migrations.rows[i];
@@ -338,6 +339,14 @@ export function applicationEnvironment(input: {
     REVIEW_ROUTER_ACCOUNT_GATEWAY_PERSONAL_CONTROL_TOKEN:
       input.secrets.personalControlToken,
     REVIEW_ROUTER_ACCOUNT_GATEWAY_MIMO_PROFILE_ID: FIXTURES.gateway.profileId,
+    ...(process.argv.includes("--account-models-fixture")
+      ? {
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_CODEX_OAUTH_PROFILE_ID:
+            "openai-codex-oauth-responses-v1",
+          REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON:
+            ACCOUNT_MODEL_UI_ATTESTATIONS,
+        }
+      : {}),
     ...(process.argv.includes("--limits-fixture")
       ? {
           REVIEW_ROUTER_ACCOUNT_GATEWAY_CLAUDE_OAUTH_PROFILE_ID:
@@ -348,6 +357,18 @@ export function applicationEnvironment(input: {
       ? {
           REVIEW_ROUTER_ACCOUNT_GATEWAY_SUBSCRIPTION_PROFILE_IDS:
             "kimi-code-global-responses-apikey-v1,glm-coding-global-responses-apikey-v1,minimax-mplan-global-responses-apikey-v1,grok-subscription-responses-oauth-v1",
+        }
+      : {}),
+    ...(process.argv.includes("--api-key-storage-fixture")
+      ? {
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_MIMO_PROFILE_ID:
+            "openai-responses-apikey-v1",
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_MIMO_BASE_URL:
+            "https://token-plan-sgp.xiaomimimo.com/v1",
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_OPENROUTER_PROFILE_ID:
+            "openrouter-openai-responses-apikey-v1",
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_SUBSCRIPTION_PROFILE_IDS:
+            "kimi-code-global-responses-apikey-v1",
         }
       : {}),
     TMPDIR: input.tmpDir,
@@ -367,6 +388,27 @@ async function seedFixtures(
     await client.query("BEGIN");
     await client.query("SET LOCAL TIME ZONE 'UTC'");
     await client.query(SQL_SEED);
+    if (process.argv.includes("--account-models-fixture")) {
+      const { CODEX_MODEL_PROFILE, CODEX_SAVED_PROFILE, CODEX_SAVED_MODEL } =
+        await import("./account-models-fixture.ts");
+      const identity = [
+        "gateway_binding",
+        `${encodeURIComponent(FIXTURES.bindings.viewerAlpha)}/${encodeURIComponent(CODEX_MODEL_PROFILE)}`,
+        encodeURIComponent(CODEX_SAVED_MODEL),
+      ].join(":");
+      await client.query(
+        `INSERT INTO "WorkspaceProviderProfile" (id,"workspaceId","createdByUserId","credentialKind","authMode","gatewayBindingId","gatewayProfileRef",model,label,"identityKey","updatedAt") VALUES ($1,$2,$3,'gateway_binding','codex_account_gateway',$4,$5,$6,'Codex saved',$7,CURRENT_TIMESTAMP)`,
+        [
+          CODEX_SAVED_PROFILE,
+          FIXTURES.workspaces.orgAlpha,
+          FIXTURES.users.viewer,
+          FIXTURES.bindings.viewerAlpha,
+          CODEX_MODEL_PROFILE,
+          CODEX_SAVED_MODEL,
+          identity,
+        ],
+      );
+    }
     if (process.argv.includes("--limits-fixture"))
       await client.query(`
       INSERT INTO "ProviderAccountConnection" ("id", "ownerUserId", "ownerWorkspaceId", "gatewayAccountRef", "gatewayOperationRef", "profileRef", "displayName", "state", "metadataRevision", "authorizationEpochMirror", "updatedAt")
@@ -595,11 +637,11 @@ VALUES
 INSERT INTO "ProviderAccountConnection"
   ("id", "ownerUserId", "ownerWorkspaceId", "gatewayAccountRef", "gatewayOperationRef", "profileRef", "displayName", "state", "metadataRevision", "authorizationEpochMirror", "updatedAt")
 VALUES
-  ('${FIXTURES.sources.viewerPrimary}', '${FIXTURES.users.viewer}', NULL, '${FIXTURES.gateway.accounts.viewerPrimary}', NULL, '${FIXTURES.gateway.profileId}', '${FIXTURES.sourceLabels.viewerPrimary}', 'active', 1, 1, CURRENT_TIMESTAMP),
+  ('${FIXTURES.sources.viewerPrimary}', '${FIXTURES.users.viewer}', NULL, '${FIXTURES.gateway.accounts.viewerPrimary}', NULL, '${process.argv.includes("--account-models-fixture") ? CODEX_MODEL_PROFILE : FIXTURES.gateway.profileId}', '${FIXTURES.sourceLabels.viewerPrimary}', 'active', 1, 1, CURRENT_TIMESTAMP),
   ('${FIXTURES.sources.viewerLegacyDisabled}', '${FIXTURES.users.viewer}', NULL, '${FIXTURES.gateway.accounts.viewerLegacyDisabled}', NULL, '${FIXTURES.gateway.profileId}', '${FIXTURES.sourceLabels.viewerLegacyDisabled}', 'active', 1, 1, CURRENT_TIMESTAMP),
   ('${FIXTURES.sources.viewerSuspendedCapable}', '${FIXTURES.users.viewer}', NULL, '${FIXTURES.gateway.accounts.viewerSuspendedCapable}', NULL, '${FIXTURES.gateway.profileId}', '${FIXTURES.sourceLabels.viewerSuspendedCapable}', '${process.argv.includes("--lifecycle-fixture") ? "active" : "quarantined"}', 1, 1, CURRENT_TIMESTAMP),
   ('${FIXTURES.sources.otherPrimary}', '${FIXTURES.users.other}', NULL, '${FIXTURES.gateway.accounts.otherPrimary}', NULL, '${FIXTURES.gateway.profileId}', '${FIXTURES.sourceLabels.otherPrimary}', 'active', 1, 1, CURRENT_TIMESTAMP),
-  ('${FIXTURES.sources.orgAlpha}', NULL, '${FIXTURES.workspaces.orgAlpha}', '${FIXTURES.gateway.accounts.orgAlpha}', NULL, '${FIXTURES.gateway.profileId}', '${FIXTURES.sourceLabels.orgAlpha}', 'active', 1, 1, CURRENT_TIMESTAMP),
+  ('${FIXTURES.sources.orgAlpha}', NULL, '${FIXTURES.workspaces.orgAlpha}', '${FIXTURES.gateway.accounts.orgAlpha}', NULL, '${process.argv.includes("--account-models-fixture") ? CODEX_MODEL_PROFILE : FIXTURES.gateway.profileId}', '${FIXTURES.sourceLabels.orgAlpha}', 'active', 1, 1, CURRENT_TIMESTAMP),
   ('${FIXTURES.sources.foreignPrimary}', '${FIXTURES.users.foreign}', NULL, '${FIXTURES.gateway.accounts.foreignPrimary}', NULL, '${FIXTURES.gateway.profileId}', '${FIXTURES.sourceLabels.foreignPrimary}', 'active', 1, 1, CURRENT_TIMESTAMP);
 
 INSERT INTO "WorkspaceAccountBinding"

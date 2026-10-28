@@ -1,3 +1,7 @@
+import {
+  lifecycleVerificationContract,
+  lifecycleVerificationDescriptorDigest,
+} from "@reviewrouter/shared";
 import Fastify from "fastify";
 import { registerReviewExecutionV2Routes } from "@reviewrouter/features-action-control-plane/v2";
 import { createHash } from "node:crypto";
@@ -63,6 +67,7 @@ import {
 import {
   canonicalizeReviewActionV2Request,
   reviewActionV2LegacySlot,
+  prDescriptionExtensionV1,
   ReviewActionV2OperationId,
   ReviewActionV2ProtocolErrorCode,
   ReviewEvidenceLookupResultStatus,
@@ -112,6 +117,316 @@ describe("Review Action v2 execution/evidence composition", () => {
     expect(() =>
       composeReviewActionV2ExecutionRoutes({ enabled: true, runtime }),
     ).toThrow("review_action_v2_execution_dependencies_unavailable");
+  });
+
+  it("restores the persisted lifecycle plan before any replacement planning", async () => {
+    const storedPlan = canonicalJson({
+      manifestVersion: 2,
+      lifecyclePlan: { targets: [{ targetId: "A" }, { targetId: "B" }] },
+    });
+    const restored = {
+      ...snapshot,
+      execution: {
+        ...snapshot.execution,
+        assignmentManifestCanonicalJson: storedPlan,
+      },
+    };
+    const base = executionDependencies({ findExecution: async () => restored });
+    const d = {
+      ...base,
+      executionQueries: {
+        ...base.executionQueries,
+        findStream: async () => restored.stream,
+      },
+    };
+    const response = await createReviewActionV2ExecutionHandlers(
+      d,
+    ).restore.execute({
+      ...envelope("restore-plan"),
+      authorizationToken: "authorization-token",
+      authorizationId: authorization.authorizationId,
+      reviewRevisionHash: authorization.reviewRevisionHash,
+    });
+    expect(response.result).toHaveProperty("executionCanonicalJson");
+    if (!("executionCanonicalJson" in response.result))
+      throw new Error("restore missing");
+    expect(
+      JSON.parse(response.result.executionCanonicalJson).persistedPlan,
+    ).toMatchObject({
+      planHash: snapshot.execution.planHash,
+      assignmentManifestCanonicalJson: storedPlan,
+      workSlots: [
+        {
+          workSlotId: "slot-1",
+          taskKind: ReviewTaskKind.FindingDiscovery,
+          attemptBudget: 2,
+        },
+      ],
+      artifact: null,
+    });
+    expect(d.executions.startReviewExecution.execute).not.toHaveBeenCalled();
+    expect(d.executions.invocationFlights.execute).not.toHaveBeenCalled();
+  });
+
+  it("restores accepted invocation identity from a released persisted source lease", async () => {
+    const sourceLease = lease({ state: ReviewInvocationLeaseState.Released });
+    const acceptedRef = {
+      observationRefId: "accepted-ref",
+      executionId: snapshot.execution.executionId,
+      workSlotId: sourceLease.workSlotId,
+      providerInvocationKey: sourceLease.providerInvocationKey,
+      observationId: "accepted-observation",
+      providerVoteIdentityHash: sourceLease.providerVoteIdentityHash,
+      attachmentKind: ReviewObservationAttachmentKind.FreshLease,
+      eligibilityPolicyVersion: reviewReuseEligibilityPolicyVersion,
+      reuseSafetyDecisionHash: null,
+      sourceExecutionId: sourceLease.executionId,
+      sourceLeaseId: sourceLease.leaseId,
+      sourceFencingToken: sourceLease.fencingToken,
+      payloadHash: hash("a"),
+      byteCount: 100,
+      findingCount: 0,
+      attachedAt: now,
+    };
+    const restored = {
+      ...snapshot,
+      observationRefs: [acceptedRef],
+      activeLeases: [],
+      execution: {
+        ...snapshot.execution,
+        workSlots: [
+          {
+            ...snapshot.execution.workSlots[0]!,
+            state: ReviewWorkSlotState.Satisfied,
+            acceptedObservationRefId: acceptedRef.observationRefId,
+          },
+        ],
+      },
+    };
+    const base = executionDependencies({
+      findExecution: async () => restored,
+      findLease: vi.fn(async () => sourceLease),
+    });
+    const d = {
+      ...base,
+      authorizations: {
+        resolveReviewRunAuthorizationToken: async () => ({
+          status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+          authorization: lifecycleAuthorization(),
+        }),
+      },
+      executionQueries: {
+        ...base.executionQueries,
+        findStream: async () => restored.stream,
+      },
+    };
+    const response = await createReviewActionV2ExecutionHandlers(
+      d,
+    ).restore.execute({
+      ...envelope("restore-accepted"),
+      authorizationToken: "authorization-token",
+      authorizationId: authorization.authorizationId,
+      reviewRevisionHash: authorization.reviewRevisionHash,
+    });
+    if (!("executionCanonicalJson" in response.result))
+      throw new Error("restore missing");
+    expect(
+      JSON.parse(response.result.executionCanonicalJson).persistedPlan
+        .acceptedManifests,
+    ).toEqual([
+      {
+        workSlotId: sourceLease.workSlotId,
+        manifestCanonicalJson: sourceLease.preparedManifestCanonicalJson,
+        manifestKey: sourceLease.preparedManifestKey,
+        providerInvocationKey: sourceLease.providerInvocationKey,
+        providerVoteIdentityHash: sourceLease.providerVoteIdentityHash,
+      },
+    ]);
+    expect(d.executionQueries.findLease).toHaveBeenCalledWith(
+      sourceLease.leaseId,
+    );
+    expect(d.executions.invocationFlights.execute).not.toHaveBeenCalled();
+  });
+
+  it("refuses enabled verifier work without its captured assignment plan before admission", async () => {
+    const base = executionDependencies();
+    const enabled = lifecycleAuthorization();
+    const d = {
+      ...base,
+      authorizations: {
+        resolveReviewRunAuthorizationToken: async () => ({
+          status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+          authorization: enabled,
+        }),
+      },
+    };
+    const slot = {
+      ...snapshot.execution.workSlots[0]!,
+      taskKind: ReviewTaskKind.LifecycleRevalidation,
+      required: false,
+      attemptBudget: 1,
+    };
+    const {
+      state: _state,
+      activeLeaseId: _active,
+      acceptedObservationRefId: _accepted,
+      nextAttemptOrdinal: _ordinal,
+      ...planSlot
+    } = slot;
+    void [_state, _active, _accepted, _ordinal];
+    await expect(
+      createReviewActionV2ExecutionHandlers(d).start.execute(
+        await startRequest({
+          workSlotsCanonicalJson: canonicalJson([planSlot]),
+        }),
+      ),
+    ).rejects.toMatchObject({
+      issues: ["lifecycle_verification_plan_required"],
+    });
+    expect(d.executions.startReviewExecution.execute).not.toHaveBeenCalled();
+  });
+
+  it("requires durable completed dispatch proof before accepting verifier evidence from a signed lease", async () => {
+    const capabilities = capabilityAdapter();
+    const currentLease = lease();
+    const leaseCapability = await capabilities.issueLease(
+      currentLease,
+      manifest().scopeHash,
+    );
+    const prepared = prepareReviewObservationPayload(
+      reusableObservation().payload,
+    );
+    const observation = reusableObservation({
+      sourceExecutionId: currentLease.executionId,
+      sourceLeaseId: currentLease.leaseId,
+      attemptId: currentLease.attemptId!,
+      providerInvocationKey: currentLease.providerInvocationKey,
+      payloadHash: await digest.digest(prepared.canonicalBytes),
+      byteCount: prepared.byteCount,
+    });
+    const accepted = vi.fn();
+    const base = evidenceDependencies({
+      capabilities,
+      currentLease,
+      acceptObservation: accepted,
+    });
+    const enabled = lifecycleAuthorization();
+    const d = {
+      ...base,
+      authorizations: {
+        resolveReviewRunAuthorizationToken: async () => ({
+          status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+          authorization: enabled,
+        }),
+      },
+      executionQueries: {
+        ...base.executionQueries,
+        findExecution: async () => ({
+          ...snapshot,
+          execution: {
+            ...snapshot.execution,
+            workSlots: [
+              {
+                ...snapshot.execution.workSlots[0]!,
+                taskKind: ReviewTaskKind.LifecycleRevalidation,
+                required: false,
+                attemptBudget: 1,
+              },
+            ],
+          },
+        }),
+      },
+    };
+    await expect(
+      createReviewActionV2EvidenceHandlers(d).commit.execute(
+        await commitRequest(
+          leaseCapability,
+          observation,
+          stableJsonForTest(observation.payload),
+        ),
+      ),
+    ).rejects.toMatchObject({
+      issues: ["lifecycle_verification_dispatch_proof_unavailable"],
+    });
+    expect(accepted).not.toHaveBeenCalled();
+  });
+
+  it("refuses new-profile description publication without a completed scoped dispatch", async () => {
+    const fixture = await finalizationFixture(new Date(now.getTime() + 60000));
+    const enabled = lifecycleAuthorization();
+    const runtime = JSON.parse(enabled.runtimeSnapshotCanonicalJson!);
+    runtime.prDescriptionCapability = prDescriptionExtensionV1;
+    const auth = {
+      ...enabled,
+      runtimeSnapshotCanonicalJson: canonicalJson(runtime),
+    };
+    const descriptionSnapshot = {
+      ...snapshot,
+      execution: {
+        ...snapshot.execution,
+        workSlots: [
+          {
+            ...snapshot.execution.workSlots[0]!,
+            taskKind: ReviewTaskKind.PrDescription,
+            required: false,
+            attemptBudget: 1,
+          },
+        ],
+      },
+    };
+    const sourceLease = lease({
+      state: ReviewInvocationLeaseState.Released,
+      preparedManifestCanonicalJson: canonicalJson({
+        ...manifest(),
+        taskKindSet: [EvidenceTaskKind.PrDescription],
+        providerPolicyVersion: "pr-description-provider-policy.v1",
+      }),
+    });
+    const base = executionDependencies({
+      currentLease: sourceLease,
+      findExecution: async () => descriptionSnapshot,
+      finalize: fixture.finalize,
+      finalizationFacts: fixture.finalizationFacts,
+    });
+    const d = {
+      ...base,
+      authorizations: {
+        resolveReviewRunAuthorizationToken: async () => ({
+          status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+          authorization: auth,
+        }),
+      },
+    };
+    const projection = {
+      publishing: {
+        prDescription: {
+          generatedMarkdown: "Description",
+          generationProvenance: {
+            leaseId: sourceLease.leaseId,
+            providerIndex: 0,
+            requestedModel: "gpt-5-codex",
+            actualModel: "gpt-5-codex",
+            providerRequestEnvelopeHash: manifest().providerRequestEnvelopeHash,
+          },
+        },
+      },
+    };
+    const canonical = canonicalJson(projection);
+    const request = await withBodyHash(
+      ReviewActionV2OperationId.ReviewExecutionFinalize,
+      {
+        ...fixture.request,
+        projectionEnvelopeCanonicalJson: canonical,
+        projectionHash: await digest.digestUtf8(canonical),
+      },
+    );
+    await expect(
+      createReviewActionV2ExecutionHandlers(d).finalize.execute(request),
+    ).rejects.toMatchObject({
+      issues: ["pr_description_dispatch_proof_unavailable"],
+    });
+    expect(fixture.finalizationFacts).not.toHaveBeenCalled();
+    expect(fixture.finalize).not.toHaveBeenCalled();
   });
 
   it("accepts a frozen historical client request at the hashed native execution seam", async () => {
@@ -180,6 +495,56 @@ describe("Review Action v2 execution/evidence composition", () => {
     ).rejects.toMatchObject({ statusCode: 403 });
     expect(d.executions.startReviewExecution.execute).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["malformed", '{"privateManifest":"never-expose-this",'],
+    ["noncanonical", ' { "privateManifest": "never-expose-this" } '],
+  ])(
+    "rejects %s assignment JSON with a safe protocol error before admission",
+    async (_kind, assignmentManifestCanonicalJson) => {
+      const d = executionDependencies();
+      const enabled = lifecycleAuthorization();
+      d.authorizations.resolveReviewRunAuthorizationToken = vi.fn(async () => ({
+        status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+        authorization: enabled,
+      }));
+      // Start from a valid hashed envelope, then corrupt the wire field so the
+      // real protocol parser rejects it before entering the handler.
+      const request = {
+        ...(await startRequest()),
+        assignmentManifestCanonicalJson,
+        assignmentManifestHash: hash("a"),
+      };
+      const app = Fastify({ logger: false });
+      await registerReviewExecutionV2Routes(app, {
+        ...createReviewActionV2ExecutionHandlers(d),
+        readServerTime: async () => now,
+        createRequestId: () => "invalid-assignment-start",
+      });
+      try {
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/action/v2/review-executions/start",
+          payload: request,
+        });
+        expect(response.statusCode).toBe(400);
+        expect(response.json().error).toMatchObject({
+          errorCode: ReviewActionV2ProtocolErrorCode.InvalidRequest,
+          details: {
+            issues: ["field_invalid:assignmentManifestCanonicalJson"],
+          },
+        });
+        expect(response.body).not.toContain("never-expose-this");
+        expect(response.body).not.toContain("SyntaxError");
+        expect(
+          d.executions.startReviewExecution.execute,
+        ).not.toHaveBeenCalled();
+        expect(d.executions.invocationFlights.execute).not.toHaveBeenCalled();
+      } finally {
+        await app.close();
+      }
+    },
+  );
 
   it("validates and binds a canonical assignment manifest before starting", async () => {
     const d = executionDependencies();
@@ -2932,4 +3297,102 @@ function hash(character: string): string {
 }
 function gitSha(character: string): string {
   return character.repeat(40);
+}
+
+function lifecycleAuthorization(): ReviewRunAuthorization {
+  const capability = {
+    extensionId: lifecycleVerificationContract.extensionId,
+    descriptorDigest: lifecycleVerificationDescriptorDigest,
+    executor: lifecycleVerificationContract.executor,
+    modelTransport: "account_gateway",
+    providerIndex: 0,
+    providerKind: "codex",
+    model: "gpt-5-codex",
+    maxDispatches: 2,
+    maxPromptBytes: 98304,
+    maxResponseBytes: 32768,
+    maxOutputTokens: 4096,
+    deadlineMs: 60000,
+    attemptBudget: 1,
+  };
+  const configuration = {
+    schemaVersion: 3,
+    providers: [
+      {
+        kind: "codex",
+        authMode: "codex_account_gateway",
+        model: "gpt-5-codex",
+        gatewayBindingId: "binding",
+        gatewayProfileRef: "profile",
+        agenticContext: true,
+        fastMode: false,
+        requiredHealthy: false,
+      },
+    ],
+    execution: {
+      providerLimit: 1,
+      providerMaxParallel: 1,
+      inlineMinAgreement: 1,
+    },
+    blockingPolicy: { failOnSeverity: "off" },
+    limits: { inlineMaxComments: 10, targetTokensPerBatch: 8000 },
+    reviewLanguage: null,
+    investigationRollout: {
+      recordingEnabled: false,
+      shadowEnabled: false,
+      contextCriticEnabled: false,
+      verifiedCleanEnabled: false,
+      crossRevisionReplayEnabled: false,
+      productionEffectsEnabled: false,
+    },
+  };
+  return {
+    ...authorization,
+    runtimeSnapshotCanonicalJson: canonicalJson({
+      snapshotVersion: 3,
+      lifecycleVerificationCapability: capability,
+      configurationSource: "workspace",
+      configurationVersion: 1,
+      workspaceConfigurationVersion: 1,
+      repositoryConfigurationVersion: null,
+      effectivePolicyDigest: `sha256:${hash("a")}`,
+      agent: {
+        profileRef: "codex-default",
+        agentKind: "codex",
+        binarySha256: hash("a"),
+        packageVersion: "1.0.0",
+        modelTransports: ["account_gateway"],
+        cancellation: true,
+        contextGateway: true,
+      },
+      agentProfileDigest: hash("b"),
+      producer: {
+        producerReleaseId: "release-1",
+        actionCommitSha: gitSha("a"),
+        runtimeCommitSha: gitSha("b"),
+      },
+      configurationCanonicalJson: canonicalJson(configuration),
+      deadline: authorization.expiresAt.toISOString(),
+      gateway: {
+        providerIndex: 0,
+        bindingId: "binding",
+        connectionId: "connection",
+        bindingRevision: 1,
+        policySubject: "binding",
+        policyRevision: 1,
+        permittedAccountRef: "account",
+        profileRef: "profile",
+        invocationId: "invocation",
+        attemptId: "attempt",
+        operationId: "operation",
+        limits: {
+          requests: 9,
+          concurrency: 1,
+          requestBytes: 98304,
+          outputBytes: 32768,
+          tokens: 4096,
+        },
+      },
+    }),
+  };
 }

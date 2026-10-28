@@ -1,3 +1,9 @@
+import { createHash } from "node:crypto";
+import {
+  providerApiAuthModes,
+  providerApiDescriptors,
+} from "@reviewrouter/shared";
+import { lifecycleVerificationDescriptorDigest } from "@reviewrouter/shared";
 import { describe, expect, it } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import {
@@ -13,6 +19,7 @@ import { storedPolicyForConfiguration } from "../../../packages/features/review-
 import {
   readServerApprovedReviewRunGatewayPolicy,
   readServerReviewAgentProfileRef,
+  readServerReviewRunGatewayRequestCaps,
   ProductionReviewRunRuntimeSnapshot,
 } from "./review-run-runtime-snapshot";
 
@@ -51,6 +58,11 @@ const codexDefaultProfile = {
   modelTransports: ["account_gateway", "provider_api"],
   contextGateway: true as const,
   cancellation: true as const,
+};
+
+const directCodexProfile = {
+  ...codexDefaultProfile,
+  reviewSkillsVersion: 1 as const,
 };
 
 const providerApiOnlyProfile = {
@@ -279,9 +291,16 @@ describe("PR description capture availability", () => {
             authMode === "codex_account_gateway"
               ? "account_gateway"
               : "provider_api",
+          ...(authMode === "openrouter_api_key"
+            ? { providerApiAuthMode: "openrouter-api" as const }
+            : {}),
           producerRelease: {
             ...captureInput().producerRelease,
-            agentProfiles: parseReviewAgentProfiles([codexDefaultProfile]),
+            agentProfiles: parseReviewAgentProfiles([
+              authMode === "openrouter_api_key"
+                ? directCodexProfile
+                : codexDefaultProfile,
+            ]),
             ...(approved ? { prDescriptionProfile } : {}),
           },
         },
@@ -540,7 +559,7 @@ describe("direct OpenRouter admission", () => {
       producerRelease: {
         ...captureInput().producerRelease,
         agentProfiles: parseReviewAgentProfiles([
-          codexDefaultProfile,
+          directCodexProfile,
           ocrProfile,
         ]),
       },
@@ -579,3 +598,464 @@ describe("direct OpenRouter admission", () => {
     ).resolves.toBeNull();
   });
 });
+
+describe("lifecycle verification capture", () => {
+  const profile = {
+    extensionId: "lifecycle-verification.v1" as const,
+    descriptorDigest: lifecycleVerificationDescriptorDigest,
+  };
+  const qualified = [
+    {
+      profile: {
+        profileId: gatewayProfileRef,
+        protocol: "openai-responses",
+        modelIds: ["mimo-v2-pro"],
+      },
+      outputTokens: 2048,
+    },
+  ];
+  function source(qualification = qualified) {
+    return new ProductionReviewRunRuntimeSnapshot(
+      {} as PrismaClient,
+      {
+        profiles: [
+          {
+            profileRef: gatewayProfileRef,
+            limits: {
+              requests: 9,
+              concurrency: 1,
+              requestBytes: 64000,
+              outputBytes: 20000,
+              tokens: 4096,
+            },
+          },
+        ],
+      },
+      undefined,
+      false,
+      "codex-default",
+      false,
+      { profiles: qualification, ingressBytes: 32000, requestTimeoutMs: 30000 },
+    );
+  }
+  it("captures the saved model and lower qualified bounds without partitioning R", async () => {
+    const captured = await source().capture(
+      {
+        ...captureInput(),
+        producerRelease: {
+          ...captureInput().producerRelease,
+          lifecycleVerificationProfile: profile,
+        },
+      },
+      readerFor(gatewayPolicyJson({})),
+    );
+    expect(captured).toMatchObject({
+      gateway: { limits: { requests: 9 } },
+      lifecycleVerificationCapability: {
+        ...profile,
+        providerIndex: 0,
+        providerKind: "codex",
+        model: "mimo-v2-pro",
+        maxOutputTokens: 2048,
+        maxPromptBytes: 32000,
+        deadlineMs: 30000,
+        maxResponseBytes: 20000,
+        maxDispatches: 2,
+        attemptBudget: 1,
+      },
+    });
+    expect(captured).not.toHaveProperty(
+      "lifecycleVerificationUnavailableReason",
+    );
+  });
+  it("keeps direct OpenRouter unavailable even with an approved verifier producer", async () => {
+    const configuration = parseReviewConfigurationStrict(
+      JSON.parse(gatewayPolicyJson({})),
+    );
+    configuration.providers = [
+      {
+        kind: "openrouter",
+        authMode: "openrouter_api_key",
+        model: "openai/gpt-5.4",
+        reasoningEffort: "high",
+        agenticContext: true,
+        fastMode: false,
+        requiredHealthy: true,
+      },
+    ];
+    const captured = await source().capture(
+      {
+        ...captureInput(),
+        modelTransport: "provider_api",
+        providerApiAuthMode: "openrouter-api",
+        producerRelease: {
+          ...captureInput().producerRelease,
+          agentProfiles: parseReviewAgentProfiles([directCodexProfile]),
+          lifecycleVerificationProfile: profile,
+        },
+      },
+      readerFor(canonicalJson(configuration)),
+    );
+    expect(captured).not.toHaveProperty("captureDenied");
+    expect(captured).not.toHaveProperty("lifecycleVerificationCapability");
+    expect(captured).toHaveProperty(
+      "lifecycleVerificationUnavailableReason",
+      "verification_unavailable",
+    );
+  });
+  it("preserves discovery on invalid approval and unavailable model qualification", async () => {
+    for (const [approval, qualification, reason] of [
+      [
+        { ...profile, descriptorDigest: `sha256:${"f".repeat(64)}` },
+        qualified,
+        "verification_configuration_invalid",
+      ],
+      [profile, [], "verification_unavailable"],
+      [
+        profile,
+        [{ ...qualified[0]!, outputTokens: 1023 }],
+        "verification_unavailable",
+      ],
+    ] as const) {
+      const captured = await source([...qualification]).capture(
+        {
+          ...captureInput(),
+          producerRelease: {
+            ...captureInput().producerRelease,
+            lifecycleVerificationProfile: approval,
+          },
+        },
+        readerFor(gatewayPolicyJson({})),
+      );
+      expect(captured).not.toHaveProperty("captureDenied");
+      expect(captured).toHaveProperty(
+        "lifecycleVerificationUnavailableReason",
+        reason,
+      );
+      expect(captured).not.toHaveProperty("lifecycleVerificationCapability");
+    }
+    const legacy = await source().capture(
+      captureInput(),
+      readerFor(gatewayPolicyJson({})),
+    );
+    expect(legacy).not.toHaveProperty("lifecycleVerificationCapability");
+    expect(legacy).not.toHaveProperty("lifecycleVerificationUnavailableReason");
+  });
+});
+
+describe("server scoped Gateway request ceilings", () => {
+  const rule = {
+    workspaceId,
+    repositoryConnectionId,
+    scmRepositoryIdentityId: identity.scmRepositoryIdentityId,
+    pullRequestNumber: identity.pullRequestNumber,
+    profileRef: gatewayProfileRef,
+    bindingId,
+    maxRequests: 9,
+  };
+  function source(rules: readonly (typeof rule)[]) {
+    return new ProductionReviewRunRuntimeSnapshot(
+      {} as PrismaClient,
+      {
+        profiles: [
+          {
+            profileRef: gatewayProfileRef,
+            limits: {
+              requests: 640,
+              concurrency: 1,
+              requestBytes: 98304,
+              outputBytes: 196608,
+              tokens: 4096,
+            },
+          },
+        ],
+      },
+      undefined,
+      false,
+      "codex-default",
+      false,
+      {
+        profiles: [],
+        ingressBytes: 98304,
+        requestTimeoutMs: 60000,
+        requestCaps: rules,
+      },
+    );
+  }
+  async function captured(s = source([rule]), input = captureInput()) {
+    const result = await s.capture(input, readerFor(gatewayPolicyJson({})));
+    if (!result || "captureDenied" in result) throw new Error("capture failed");
+    return result;
+  }
+  it("lowers only the exact server-scoped PR grant and ignores caller cap fields", async () => {
+    expect((await captured()).gateway?.limits.requests).toBe(9);
+    for (const changed of [
+      { workspaceId: "other" },
+      { repositoryConnectionId: "other" },
+      { scmRepositoryIdentityId: "other" },
+      { pullRequestNumber: 2 },
+      { profileRef: "other" },
+      { bindingId: "other" },
+    ]) {
+      expect(
+        (await captured(source([{ ...rule, ...changed }]))).gateway?.limits
+          .requests,
+      ).toBe(640);
+    }
+    expect(
+      (await captured(source([{ ...rule, maxRequests: 1000 }]))).gateway?.limits
+        .requests,
+    ).toBe(640);
+    const forged = {
+      ...captureInput(),
+      requestCaps: [{ ...rule, maxRequests: 1000 }],
+      maxRequests: 1000,
+    };
+    expect(
+      (await captured(source([rule]), forged)).gateway?.limits.requests,
+    ).toBe(9);
+    expect(
+      (await captured(source([]), { ...captureInput(), ...{ maxRequests: 1 } }))
+        .gateway?.limits.requests,
+    ).toBe(640);
+  });
+  it("keeps captured R9 through restore and rejects only over-cap existing grants in that exact scope", async () => {
+    const bounded = await captured();
+    const old = await captured(source([]));
+    const live = (s: ReturnType<typeof source>, snapshot: typeof bounded) =>
+      s.isLive(
+        { snapshot, identity, now: new Date("2026-10-25T00:00:00.000Z") },
+        readerFor(gatewayPolicyJson({})),
+      );
+    expect(await live(source([rule]), bounded)).toBe(true);
+    expect(await live(source([]), bounded)).toBe(true);
+    expect(bounded.gateway?.limits.requests).toBe(9);
+    expect(await live(source([rule]), old)).toBe(false);
+    expect(
+      await live(
+        source([{ ...rule, repositoryConnectionId: "unrelated" }]),
+        old,
+      ),
+    ).toBe(true);
+  });
+  it("strictly validates finite operator rules and detaches them from later mutation", async () => {
+    expect(readServerReviewRunGatewayRequestCaps(undefined)).toEqual([]);
+    for (const value of [
+      [{ ...rule, callerCanRaise: true }],
+      [{ ...rule, maxRequests: 0 }],
+      [{ ...rule, maxRequests: 1.5 }],
+      [{ ...rule, pullRequestNumber: 0 }],
+      [rule, rule],
+      { rules: [rule] },
+    ])
+      expect(() =>
+        readServerReviewRunGatewayRequestCaps(JSON.stringify(value)),
+      ).toThrow("review_run_gateway_request_caps_invalid");
+    const mutable = { ...rule };
+    const instance = source([mutable]);
+    mutable.maxRequests = 640;
+    expect((await captured(instance)).gateway?.limits.requests).toBe(9);
+  });
+});
+
+it.each(
+  providerApiAuthModes.flatMap((saved) =>
+    providerApiAuthModes.map((caller) => ({ saved, caller })),
+  ),
+)(
+  "captures only canonical caller $caller correlated with saved provider $saved",
+  async ({ saved, caller }) => {
+    const base = JSON.parse(gatewayPolicyJson({}));
+    const descriptor = providerApiDescriptors[saved];
+    base.providers = [
+      {
+        kind: descriptor.providerKind,
+        authMode: descriptor.authMode,
+        model: descriptor.defaultModel,
+        ...(saved === "kimi-code-api" ? {} : { reasoningEffort: "high" }),
+        fastMode: false,
+        agenticContext: true,
+        requiredHealthy: true,
+      },
+    ];
+    const input = {
+      ...captureInput(),
+      modelTransport: "provider_api" as const,
+      providerApiAuthMode: caller,
+      producerRelease: {
+        ...captureInput().producerRelease,
+        agentProfiles: parseReviewAgentProfiles([directCodexProfile]),
+      },
+    };
+    const result = await snapshotSource().capture(
+      input,
+      readerFor(canonicalJson(parseReviewConfigurationStrict(base))),
+    );
+    if (caller !== saved) expect(result).toBeNull();
+    else
+      expect(result).toMatchObject({
+        gateway: null,
+        configurationCanonicalJson: canonicalJson(
+          parseReviewConfigurationStrict(base),
+        ),
+        agent: { agentKind: "codex" },
+      });
+  },
+);
+
+it.each(providerApiAuthModes)(
+  "legacy caller cannot bootstrap direct policy without canonical proof: %s",
+  async (mode) => {
+    const base = JSON.parse(gatewayPolicyJson({}));
+    const d = providerApiDescriptors[mode];
+    base.providers = [
+      {
+        kind: d.providerKind,
+        authMode: d.authMode,
+        model: d.defaultModel,
+        ...(mode === "kimi-code-api" ? {} : { reasoningEffort: "high" }),
+        fastMode: false,
+        agenticContext: true,
+        requiredHealthy: true,
+      },
+    ];
+    const input = {
+      ...captureInput(),
+      modelTransport: "provider_api" as const,
+      producerRelease: {
+        ...captureInput().producerRelease,
+        agentProfiles: parseReviewAgentProfiles([codexDefaultProfile]),
+      },
+    };
+    expect(
+      await snapshotSource().capture(
+        input,
+        readerFor(canonicalJson(parseReviewConfigurationStrict(base))),
+      ),
+    ).toBeNull();
+  },
+);
+
+it.each(providerApiAuthModes)(
+  "new direct %s capture requires a replayable approved agent witness",
+  async (mode) => {
+    const base = JSON.parse(gatewayPolicyJson({}));
+    const d = providerApiDescriptors[mode];
+    base.providers = [
+      {
+        kind: d.providerKind,
+        authMode: d.authMode,
+        model: d.defaultModel,
+        ...(mode === "kimi-code-api" ? {} : { reasoningEffort: "high" }),
+        fastMode: false,
+        agenticContext: true,
+        requiredHealthy: true,
+      },
+    ];
+    const result = await snapshotSource().capture(
+      {
+        ...captureInput(),
+        modelTransport: "provider_api",
+        providerApiAuthMode: mode,
+        producerRelease: {
+          ...captureInput().producerRelease,
+          agentProfiles: parseReviewAgentProfiles([codexDefaultProfile]),
+        },
+      },
+      readerFor(canonicalJson(parseReviewConfigurationStrict(base))),
+    );
+    expect(result).toEqual({ captureDenied: "agent_profile_unavailable" });
+  },
+);
+
+it.each(providerApiAuthModes)(
+  "admission replay preserves original %s proof and rejects a changed current provider",
+  async (mode) => {
+    const configuration = (selected: (typeof providerApiAuthModes)[number]) => {
+      const base = JSON.parse(gatewayPolicyJson({}));
+      const d = providerApiDescriptors[selected];
+      base.providers = [
+        {
+          kind: d.providerKind,
+          authMode: d.authMode,
+          model: d.defaultModel,
+          ...(selected === "kimi-code-api" ? {} : { reasoningEffort: "high" }),
+          fastMode: false,
+          agenticContext: true,
+          requiredHealthy: true,
+        },
+      ];
+      return canonicalJson(parseReviewConfigurationStrict(base));
+    };
+    const producerRelease = {
+      ...captureInput().producerRelease,
+      agentProfiles: parseReviewAgentProfiles([directCodexProfile]),
+    };
+    const source = snapshotSource();
+    const original = await source.capture(
+      {
+        ...captureInput(),
+        modelTransport: "provider_api",
+        providerApiAuthMode: mode,
+        producerRelease,
+      },
+      readerFor(configuration(mode)),
+    );
+    expect(original).toMatchObject({ agent: { reviewSkillsVersion: 1 } });
+    const candidate = {
+      ...identity,
+      producerReleaseId: producerRelease.producerReleaseId,
+      maxExpiresAt: captureInput().deadline,
+      runtimeSnapshotCanonicalJson: canonicalJson(original),
+    } as unknown as Parameters<
+      ProductionReviewRunRuntimeSnapshot["matchesAdmission"]
+    >[1];
+    const transaction = (policy: string) =>
+      ({
+        ...readerFor(policy),
+        producerRelease: {
+          findUnique: async () => ({
+            ...producerRelease,
+            agentProfilesJson: JSON.stringify(producerRelease.agentProfiles),
+            contextToolsProfile: null,
+            prDescriptionProfile: null,
+            lifecycleVerificationProfile: null,
+          }),
+        },
+        $queryRaw: async () => [{ id: workspaceId }],
+      }) as unknown as Parameters<
+        ProductionReviewRunRuntimeSnapshot["matchesAdmission"]
+      >[0];
+    expect(
+      await source.matchesAdmission(
+        transaction(configuration(mode)),
+        candidate,
+      ),
+    ).toBe(true);
+    const different = providerApiAuthModes.find((value) => value !== mode)!;
+    expect(
+      await source.matchesAdmission(
+        transaction(configuration(different)),
+        candidate,
+      ),
+    ).toBe(false);
+    // Legacy non-witness bytes remain parseable; they do not acquire new direct proof.
+    if (!original || "captureDenied" in original)
+      throw new Error("fixture_capture_missing");
+    const legacyAgent = { ...original.agent };
+    delete legacyAgent.reviewSkillsVersion;
+    const legacy = {
+      ...original,
+      agent: legacyAgent,
+      agentProfileDigest: createHash("sha256")
+        .update(canonicalJson(legacyAgent))
+        .digest("hex"),
+    };
+    expect(
+      await source.matchesAdmission(transaction(configuration(mode)), {
+        ...candidate,
+        runtimeSnapshotCanonicalJson: canonicalJson(legacy),
+      }),
+    ).toBe(false);
+  },
+);

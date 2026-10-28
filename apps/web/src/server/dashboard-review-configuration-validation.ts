@@ -1,5 +1,5 @@
 import {
-  isOpenRouterDirectConfiguration,
+  isProviderApiDirectConfiguration,
   ProviderProfileError,
   type EffectiveReviewConfigurationValidatorPort,
   type ProviderProfileModelChangeValidator,
@@ -7,11 +7,17 @@ import {
 } from "@reviewrouter/features-review-config";
 import { isCodexRotatingOAuthAllowedForRepository } from "@reviewrouter/platform-config";
 import { assertDashboardContextSelectionAllowed } from "./context-tools";
+import type {
+  AccountProfileView,
+  AccountsResult,
+  AccountView,
+} from "./account-gateway-accounts";
 import { loadApprovedGatewayAgentProfiles } from "./gateway-agent-profile-options";
 import {
   assertGatewayReviewAgentProfileContextAllowed,
   assertGatewayReviewConfigCatalogAllowed,
   assertGatewayReviewConfigSupported,
+  type GatewaySelection,
 } from "./gateway-review-config-catalog";
 
 export type DashboardValidatedRepository = Readonly<{
@@ -33,15 +39,15 @@ export async function validateDashboardEffectiveConfiguration(input: {
   readonly repository: DashboardValidatedRepository | null;
   readonly config: ReviewConfiguration;
   /** The Gateway catalog; a caller validating many scopes reads it once. */
-  readonly loadGatewayProfiles?: () => ReturnType<
-    typeof loadGatewayReviewProfiles
-  >;
+  readonly loadGatewayProfiles?: (
+    selection: GatewaySelection,
+  ) => ReturnType<typeof loadGatewayReviewProfiles>;
 }): Promise<Readonly<{ gatewayCatalogChecked: boolean }>> {
   await assertDashboardContextSelectionAllowed(
     input.workspaceId,
     input.config.contextTools,
   );
-  isOpenRouterDirectConfiguration(input.config);
+  isProviderApiDirectConfiguration(input.config);
   assertGatewayReviewAgentProfileContextAllowed(
     input.config,
     loadApprovedGatewayAgentProfiles,
@@ -54,7 +60,8 @@ export async function validateDashboardEffectiveConfiguration(input: {
     gatewayCatalogChecked: await assertGatewayReviewConfigCatalogAllowed(
       input.config,
       input.loadGatewayProfiles ??
-        (() => loadGatewayReviewProfiles(input.workspaceId)),
+        ((selection) =>
+          loadGatewayReviewProfiles(input.workspaceId, selection)),
     ),
   };
 }
@@ -73,10 +80,23 @@ export function dashboardSelectionValidator(input: {
     >[0]["target"],
   ) => Promise<void>;
 }): EffectiveReviewConfigurationValidatorPort {
-  // One write may validate many repositories: read the catalog once.
-  let catalog: ReturnType<typeof loadGatewayReviewProfiles> | null = null;
-  const loadGatewayProfiles = () =>
-    (catalog ??= loadGatewayReviewProfiles(input.workspaceId));
+  // Reuse only the same exact binding/profile within this authorized write.
+  const catalog = new Map<
+    string,
+    ReturnType<typeof loadGatewayReviewProfiles>
+  >();
+  const loadGatewayProfiles = (selection: GatewaySelection) => {
+    const key = JSON.stringify([
+      selection.gatewayBindingId,
+      selection.gatewayProfileRef,
+    ]);
+    let value = catalog.get(key);
+    if (!value) {
+      value = loadGatewayReviewProfiles(input.workspaceId, selection);
+      catalog.set(key, value);
+    }
+    return value;
+  };
   return {
     async validate({ target, config }) {
       const repository =
@@ -108,9 +128,11 @@ export function dashboardSelectionValidator(input: {
 export function dashboardProfileModelChangeValidator(input: {
   readonly workspaceId: string;
   readonly repositories: ReadonlyMap<string, DashboardValidatedRepository>;
+  readonly afterGatewayCatalogCheck?: () => Promise<void>;
 }): ProviderProfileModelChangeValidator {
   let catalog: Readonly<{
     profileId: string;
+    bindingId: string;
     profiles: Awaited<ReturnType<typeof loadGatewayReviewProfiles>>;
   }> | null = null;
   return {
@@ -118,7 +140,10 @@ export function dashboardProfileModelChangeValidator(input: {
       const { credential } = profile;
       if (credential.kind !== "gateway_binding") return;
       const profileRef = credential.gatewayProfileRef;
-      const profiles = await loadGatewayReviewProfiles(input.workspaceId);
+      const profiles = await loadGatewayReviewProfiles(input.workspaceId, {
+        gatewayBindingId: credential.bindingId,
+        gatewayProfileRef: profileRef,
+      });
       const offered = profiles.some(
         (candidate) =>
           candidate.id === profileRef &&
@@ -127,10 +152,15 @@ export function dashboardProfileModelChangeValidator(input: {
           candidate.models.includes(model),
       );
       if (!offered) throw new Error("gateway_review_model_unsupported");
-      catalog = { profileId: profile.id, profiles };
+      await input.afterGatewayCatalogCheck?.();
+      catalog = {
+        profileId: profile.id,
+        bindingId: credential.bindingId,
+        profiles,
+      };
     },
     scope({ target, config }) {
-      isOpenRouterDirectConfiguration(config);
+      isProviderApiDirectConfiguration(config);
       assertGatewayReviewAgentProfileContextAllowed(
         config,
         loadApprovedGatewayAgentProfiles,
@@ -144,7 +174,16 @@ export function dashboardProfileModelChangeValidator(input: {
       });
       if (!catalog) return;
       try {
-        assertGatewayReviewConfigSupported(config, catalog.profiles);
+        assertGatewayReviewConfigSupported(
+          {
+            providers: config.providers.filter(
+              (row) =>
+                row.authMode === "codex_account_gateway" &&
+                row.gatewayBindingId === catalog!.bindingId,
+            ),
+          },
+          catalog.profiles,
+        );
       } catch (error) {
         if (
           error instanceof Error &&
@@ -199,24 +238,62 @@ export function assertCodexRotatingOAuthRepositoryAllowed(input: {
   }
 }
 
-async function loadGatewayReviewProfiles(workspaceId: string) {
-  const { productionPersonalAccounts } =
-    await import("./personal-account-composition");
-  const personal = await productionPersonalAccounts();
-  if (personal) {
-    const allowed = await personal
-      .workspaceAccess(workspaceId)
-      .catch(() => null);
-    if (allowed) {
-      return personal.reviewProfiles(workspaceId);
-    }
-  }
-  // The workspace catalog needs no Accounts admin context: the caller already
-  // authorized the selection, and members may attach Gateway providers.
-  const { accountsServerAdapter } = await import("./account-gateway-accounts");
+/** Model-only profile creation uses the same exact authorized binding catalog. */
+export async function assertDashboardGatewayProviderModelAllowed(
+  workspaceId: string,
+  selection: {
+    readonly gatewayBindingId: string;
+    readonly gatewayProfileRef?: string;
+  },
+  model: string,
+): Promise<void> {
+  const profiles = await loadGatewayReviewProfiles(workspaceId, selection);
+  if (
+    !profiles.some(
+      (profile) =>
+        (selection.gatewayProfileRef === undefined ||
+          profile.id === selection.gatewayProfileRef) &&
+        profile.availability !== "deployment_configuration_required" &&
+        profile.protocol === "openai-responses" &&
+        profile.models.includes(model),
+    )
+  )
+    throw new Error("gateway_review_model_unsupported");
+}
+
+async function loadGatewayReviewProfiles(
+  workspaceId: string,
+  selection: {
+    readonly gatewayBindingId: string;
+    readonly gatewayProfileRef?: string;
+  },
+) {
+  const { productionGatewayModelAccounts } =
+    await import("./gateway-model-account-composition");
+  let result: AccountsResult<{
+    account: AccountView;
+    profile: AccountProfileView;
+  }>;
   try {
-    return await (await accountsServerAdapter()).reviewCatalog();
+    const { reader } = await productionGatewayModelAccounts(workspaceId);
+    result = await reader.get(selection.gatewayBindingId);
   } catch {
     throw new Error("gateway_review_catalog_unavailable");
   }
+  if (result.status !== "ok")
+    throw new Error("gateway_review_catalog_unavailable");
+  const { account, profile } = result.value;
+  if (
+    account.state !== "active" ||
+    (selection.gatewayProfileRef !== undefined &&
+      account.profileId !== selection.gatewayProfileRef) ||
+    account.binding?.id !== selection.gatewayBindingId
+  )
+    throw new Error("gateway_review_model_unsupported");
+  if (
+    account.modelCatalog &&
+    !["snapshot", "unavailable"].includes(account.modelCatalog.status)
+  )
+    throw new Error("gateway_review_catalog_unavailable");
+  return [profile];
 }

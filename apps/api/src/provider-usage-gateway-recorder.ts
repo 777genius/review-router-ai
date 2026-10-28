@@ -1,3 +1,7 @@
+import {
+  lifecycleVerificationContract,
+  prDescriptionContract,
+} from "@reviewrouter/shared";
 import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
 import { providerUsageConfiguredProvider } from "./provider-usage-provider.js";
 import { providerUsagePriceSnapshots } from "./provider-usage-price-snapshot.js";
@@ -96,6 +100,7 @@ export function createGatewayUsageRecorder(
       requestRef: string;
       occurredAt: string;
       model: string;
+      role?: "lifecycle_verification" | "pr_description";
     }) {
       const snapshot = parseReviewRunRuntimeSnapshot(
         input.authorization.runtimeSnapshotCanonicalJson,
@@ -157,7 +162,12 @@ export function createGatewayUsageRecorder(
           purpose: "review",
           provider: configured.provider,
           requestedModel: input.model,
-          runtimeType: snapshot.agent.agentKind,
+          runtimeType:
+            input.role === "lifecycle_verification"
+              ? lifecycleVerificationContract.executor
+              : input.role === "pr_description"
+                ? prDescriptionContract.taskKind
+                : snapshot.agent.agentKind,
           parentScope: null,
           granularity: "call",
           occurredAt: input.occurredAt,

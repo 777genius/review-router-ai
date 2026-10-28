@@ -1,6 +1,6 @@
 import type { UsageIdentity } from "@reviewrouter/features-provider-usage";
 import { gatewayUsageReceipt } from "./provider-usage-gateway-relay-receipt";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { setTimeout as delay } from "node:timers/promises";
@@ -14,6 +14,9 @@ import {
   parseReviewRunRuntimeSnapshot,
   reviewRunGatewayOwnedIdentity,
   ReviewRunAuthorizationState,
+  ReviewRunCompanionDispatchFailure,
+  type ReviewRunCompanionDispatchAdmission,
+  type ReviewRunCompanionDispatch,
   type ManageReviewRunAuthorizations,
   type ReviewRunAuthorization,
   type ReviewRunAuthorizationQueryPort,
@@ -26,6 +29,11 @@ import {
   type RunAccessConfig,
 } from "./account-gateway-run-access";
 import { createReviewRunGatewayPreparation } from "./review-run-gateway-preparation";
+import {
+  lifecycleVerificationContract,
+  prDescriptionContract,
+  type ReviewCompanionDispatchContextV1,
+} from "@reviewrouter/shared";
 
 // Selected production provider path: ReviewRouter -> Account Gateway -> Sub2API.
 // Gateway "native" response terminology is not the legacy direct native-v4
@@ -70,12 +78,27 @@ export function readReviewRunGatewayRelayPolicy(raw: string) {
     throw new Error("review_run_gateway_relay_policy_invalid");
   }
 }
+/** Account models require an explicitly enabled, compatible Gateway/native.
+ * Otherwise every profile retains its configured model allowlist. */
+export function gatewayProfileAcceptsRequestedModel(
+  profile: c.Profile,
+  model: string,
+  accountModelCatalogEnabled = false,
+): boolean {
+  return (
+    (accountModelCatalogEnabled &&
+      profile.profileId === "openai-codex-oauth-responses-v1" &&
+      profile.authKinds.includes("oauth")) ||
+    profile.modelIds.includes(model)
+  );
+}
 class RelayFailure extends Error {
   constructor(
     readonly code: string,
     readonly statusCode: number,
     readonly effect: c.RequestStatus["effect"] = "not_dispatched",
     readonly requestRef?: string,
+    readonly dispatch?: ReturnType<typeof companionReadback>,
   ) {
     super(code);
   }
@@ -107,6 +130,7 @@ type Session = {
  * authority/selected facts. Absence NEVER replays inference or auto-recovers. */
 export function createReviewRunGatewayRelay(input: {
   readonly policy: ReviewRunGatewayRelayPolicy;
+  readonly accountModelCatalogEnabled?: boolean;
   readonly runAccess: RunAccessConfig;
   readonly authorizations: Pick<
     ManageReviewRunAuthorizations,
@@ -125,6 +149,7 @@ export function createReviewRunGatewayRelay(input: {
   ) => Promise<boolean>;
   readonly snapshots: ReviewRunRuntimeSnapshotPort;
   readonly bindings: ReviewRunGatewayExecutionBindingPort;
+  readonly companionDispatches?: ReviewRunCompanionDispatchAdmission;
   /** Persist trusted correlation before dispatch; outcome reporting never replays inference. */
   readonly usage?: {
     prepare(input: {
@@ -133,6 +158,7 @@ export function createReviewRunGatewayRelay(input: {
       requestRef: string;
       occurredAt: string;
       model: string;
+      role?: ReviewRunCompanionDispatch["role"];
     }): Promise<UsageIdentity | void>;
     outcome(input: {
       authorizationId: string;
@@ -414,12 +440,202 @@ export function createReviewRunGatewayRelay(input: {
       cleanupInFlight--;
     }
   }
+  async function scopedResponse(
+    auth: ReviewRunAuthorization,
+    session: Session,
+    dispatch: ReviewRunCompanionDispatch,
+    body: Uint8Array,
+    signal: AbortSignal,
+    controller: AbortController,
+    fresh: () => Promise<void>,
+    localFresh: () => Promise<void>,
+    finish: () => void,
+    maxResponseBytes: number,
+    diagnostic?: RelayDiagnostic,
+    beforeForward?: () => Promise<void>,
+  ): Promise<
+    NativeResponse & {
+      readonly usageIdentity?: UsageIdentity;
+      readonly maxResponseBytes?: number;
+    }
+  > {
+    const requestRef = dispatch.nativeRequestRef;
+    const usageBinding = session.preparation.usageBinding();
+    const usageIdentity =
+      input.usage && usageBinding
+        ? await input.usage.prepare({
+            authorization: auth,
+            executionRef: usageBinding.executionRef,
+            requestRef,
+            role: dispatch.role,
+            occurredAt: new Date().toISOString(),
+            model: parseReviewRunRuntimeSnapshot(session.canonical)!
+              .lifecycleVerificationCapability!.model,
+          })
+        : undefined;
+    const outcome = async (effect: c.RequestStatus["effect"]) => {
+      if (input.usage && usageBinding)
+        await input.usage.outcome({
+          authorizationId: auth.authorizationId,
+          executionRef: usageBinding.executionRef,
+          requestRef,
+          effect,
+        });
+    };
+    const settle = async (effect: c.RequestStatus["effect"]) => {
+      await outcome(effect);
+      await input.companionDispatches!.settle(
+        auth.authorizationId,
+        dispatch.dispatchId,
+        effect === "completed"
+          ? "completed"
+          : effect === "not_dispatched"
+            ? "not_dispatched"
+            : "effect_unknown",
+      );
+    };
+    const unknown = async () => {
+      await input
+        .companionDispatches!.settle(
+          auth.authorizationId,
+          dispatch.dispatchId,
+          "effect_unknown",
+        )
+        .catch(() => {});
+      await outcome("effect_unknown").catch(() => {});
+    };
+    const dispose = () => {
+      session.aborts.delete(controller);
+      finish();
+    };
+    let upstream: NativeResponse | undefined;
+    try {
+      if (diagnostic) diagnostic.stage = "request";
+      // Exactly one SDK request per inserted reservation. Never enter the
+      // discovery admission_limited wait loop, including positively unpaid calls.
+      upstream = await session.preparation.request(
+        requestRef,
+        body,
+        { signal },
+        async () => {
+          await fresh();
+          await beforeForward?.();
+        },
+      );
+      await fresh();
+      if (upstream.kind === "status") {
+        await settle(upstream.status.effect);
+        dispose();
+        return upstream;
+      }
+      await outcome("dispatch_started");
+      const stream = upstream;
+      const reader = stream.body.getReader();
+      let received = 0;
+      let completed = false;
+      const abort = () => {
+        dispose();
+        void stream.cancel().catch(() => {});
+      };
+      signal.addEventListener("abort", abort, { once: true });
+      const cleanup = () => {
+        signal.removeEventListener("abort", abort);
+        dispose();
+      };
+      return {
+        ...stream,
+        ...(usageIdentity ? { usageIdentity } : {}),
+        maxResponseBytes,
+        body: new ReadableStream<Uint8Array>(
+          {
+            async pull(target) {
+              try {
+                const chunk = await reader.read();
+                await localFresh();
+                if (signal.aborted) throw new Error("companion_cancelled");
+                if (chunk.done) {
+                  // EOF alone is not native no-dispatch/completion evidence.
+                  const status = await session.preparation.status(
+                    requestRef,
+                    { signal },
+                    fresh,
+                  );
+                  await settle(status.effect);
+                  completed = true;
+                  cleanup();
+                  target.close();
+                } else {
+                  received += chunk.value.byteLength;
+                  if (received > maxResponseBytes)
+                    throw new Error("companion_response_too_large");
+                  target.enqueue(chunk.value);
+                }
+              } catch {
+                await unknown();
+                cleanup();
+                await stream.cancel().catch(() => {});
+                target.error(
+                  new GatewayError(
+                    "transport",
+                    "effect_unknown",
+                    undefined,
+                    requestRef,
+                  ),
+                );
+              }
+            },
+            async cancel() {
+              if (!completed) await unknown();
+              cleanup();
+              await stream.cancel();
+            },
+          },
+          { highWaterMark: 0 },
+        ),
+        cancel: async () => {
+          if (!completed) await unknown();
+          cleanup();
+          await stream.cancel();
+        },
+      };
+    } catch (error) {
+      if (upstream?.kind === "stream") await upstream.cancel().catch(() => {});
+      // Only a positively local native no-dispatch proof settles unpaid.
+      let failureEffect: c.RequestStatus["effect"] = "effect_unknown";
+      if (
+        !upstream &&
+        error instanceof GatewayError &&
+        error.effect === "not_dispatched" &&
+        localLimited(error.diagnostic)
+      ) {
+        try {
+          await settle("not_dispatched");
+          failureEffect = "not_dispatched";
+        } catch {
+          await unknown();
+        }
+      } else await unknown();
+      dispose();
+      throw new RelayFailure(
+        "companion_request_failed",
+        502,
+        failureEffect,
+        requestRef,
+      );
+    }
+  }
   async function responses(
     token: string,
     raw: Uint8Array,
     controller: AbortController,
     diagnostic?: RelayDiagnostic,
-  ): Promise<NativeResponse & { readonly usageIdentity?: UsageIdentity }> {
+    companion?: ReviewCompanionDispatchContextV1,
+  ): Promise<
+    NativeResponse & {
+      readonly usageIdentity?: UsageIdentity;
+      readonly maxResponseBytes?: number;
+    }
+  > {
     if (raw.byteLength > policy.ingressBytes)
       throw new RelayFailure("invalid_request", 400);
     const bytes = new Uint8Array(raw); // Capture caller-owned bytes before any await.
@@ -441,24 +657,125 @@ export function createReviewRunGatewayRelay(input: {
       if (
         qualified.length !== 1 ||
         qualified[0]!.profile.protocol !== "openai-responses" ||
-        !qualified[0]!.profile.modelIds.includes(provider.model) ||
+        !gatewayProfileAcceptsRequestedModel(
+          qualified[0]!.profile,
+          provider.model,
+          input.accountModelCatalogEnabled,
+        ) ||
         gateway.limits.tokens > qualified[0]!.outputTokens
       )
         throw new RelayFailure("gateway_unavailable", 403);
       if (gateway.limits.outputBytes > reviewRunGatewayMaxResponseBytes)
         throw new RelayFailure("gateway_unavailable", 403);
+      const capability = snapshot.lifecycleVerificationCapability;
+      if (companion && (!capability || !input.companionDispatches))
+        throw new RelayFailure("companion_unavailable", 403);
       const body = prepareReviewRunGatewayResponses(
         bytes,
         provider.model,
-        gateway.limits.tokens,
-        Math.min(policy.ingressBytes, gateway.limits.requestBytes),
+        companion
+          ? Math.min(
+              4096,
+              gateway.limits.tokens,
+              qualified[0]!.outputTokens,
+              capability!.maxOutputTokens,
+            )
+          : gateway.limits.tokens,
+        Math.min(
+          policy.ingressBytes,
+          gateway.limits.requestBytes,
+          companion ? capability!.maxPromptBytes : Infinity,
+        ),
         qualified[0]!.outputTokens,
       );
+      if (companion && !Buffer.from(body).equals(Buffer.from(bytes)))
+        throw new RelayFailure("envelope_not_normalized", 400);
+      if (companion) {
+        const envelope = JSON.parse(new TextDecoder().decode(body)) as Record<
+          string,
+          unknown
+        >;
+        if (
+          (envelope.tools !== undefined &&
+            (!Array.isArray(envelope.tools) || envelope.tools.length !== 0)) ||
+          (envelope.tool_choice !== undefined &&
+            envelope.tool_choice !== "none")
+        )
+          throw new RelayFailure("companion_tools_forbidden", 400);
+      }
+      if (companion && session.deadline - Date.now() < capability!.deadlineMs)
+        throw new RelayFailure("verification_deadline", 409);
+      const claim = companion
+        ? await input.companionDispatches!.claim(
+            auth,
+            companion,
+            createHash("sha256").update(body).digest("hex"),
+          )
+        : undefined;
+      const refuseBeforeForward = async (
+        failure: RelayFailure,
+      ): Promise<never> => {
+        if (claim?.status === "claimed") {
+          // This newly reserved native ref has not reached the SDK request
+          // call. Keep the one-attempt reservation; only record proven absence.
+          try {
+            await input.companionDispatches!.settle(
+              auth.authorizationId,
+              claim.dispatch.dispatchId,
+              "not_dispatched",
+            );
+          } catch {
+            throw new RelayFailure(
+              "companion_settlement_failed",
+              502,
+              "effect_unknown",
+              claim.dispatch.nativeRequestRef,
+            );
+          }
+          throw new RelayFailure(
+            failure.code,
+            failure.statusCode,
+            "not_dispatched",
+            claim.dispatch.nativeRequestRef,
+          );
+        }
+        throw failure;
+      };
+      if (
+        claim?.status === "claimed" &&
+        claim.dispatch.role === "pr_description"
+      ) {
+        const envelope = JSON.parse(new TextDecoder().decode(body)) as Record<
+          string,
+          unknown
+        >;
+        if (
+          body.byteLength > prDescriptionContract.maxPromptBytes ||
+          Number(envelope.max_output_tokens) >
+            prDescriptionContract.maxOutputTokens
+        )
+          return await refuseBeforeForward(
+            new RelayFailure("pr_description_envelope_bounds_invalid", 400),
+          );
+      }
+      if (claim?.status === "restored")
+        throw new RelayFailure(
+          "companion_dispatch_already_claimed",
+          409,
+          companionEffect(claim.dispatch),
+          claim.dispatch.nativeRequestRef,
+          companionReadback(claim.dispatch),
+        );
       const remaining = Math.min(
         policy.requestTimeoutMs,
         session.deadline - Date.now(),
+        companion ? capability!.deadlineMs : Infinity,
+        claim ? claim.notAfter.getTime() - Date.now() : Infinity,
       );
-      if (remaining <= 0) throw new RelayFailure("authorization_denied", 401);
+      if (remaining <= 0)
+        return await refuseBeforeForward(
+          new RelayFailure("authorization_denied", 401),
+        );
       const requestDeadline = Date.now() + remaining;
       const signal = AbortSignal.any([
         controller.signal,
@@ -469,22 +786,73 @@ export function createReviewRunGatewayRelay(input: {
       try {
         if (!session.preparation.hasSession()) {
           if (session.preparation.needsRecovery())
-            throw new RelayFailure(
-              "same_operation_recovery_required",
-              409,
-              "effect_unknown",
+            return await refuseBeforeForward(
+              new RelayFailure(
+                "same_operation_recovery_required",
+                409,
+                "effect_unknown",
+              ),
             );
           if (diagnostic) diagnostic.stage = "prepare";
           const prepared = await session.preparation.prepare();
-          await fresh();
+          try {
+            await fresh();
+          } catch (error) {
+            if (
+              error instanceof RelayFailure &&
+              error.effect === "not_dispatched"
+            )
+              return await refuseBeforeForward(error);
+            throw error;
+          }
           if (prepared.status === "denied" || prepared.status === "conflict")
-            throw new RelayFailure("preparation_denied", 409);
-          if (!session.preparation.hasSession())
-            throw new RelayFailure(
-              "same_operation_recovery_required",
-              409,
-              "effect_unknown",
+            return await refuseBeforeForward(
+              new RelayFailure("preparation_denied", 409),
             );
+          if (!session.preparation.hasSession())
+            return await refuseBeforeForward(
+              new RelayFailure(
+                "same_operation_recovery_required",
+                409,
+                "effect_unknown",
+              ),
+            );
+        }
+        if (claim) {
+          return await scopedResponse(
+            auth,
+            session,
+            claim.dispatch,
+            body,
+            signal,
+            controller,
+            fresh,
+            () => check(token, auth, session, "local"),
+            finish,
+            Math.min(gateway.limits.outputBytes, capability!.maxResponseBytes),
+            diagnostic,
+            async () => {
+              // Preparation/usage waits must not leave an expired/replaced lease
+              // in force. This is a readback of our inserted reservation, never a
+              // second owner or permission to dispatch another native ref.
+              const current = await input.companionDispatches!.claim(
+                auth,
+                companion!,
+                createHash("sha256").update(body).digest("hex"),
+              );
+              if (
+                current.dispatch.nativeRequestRef !==
+                  claim.dispatch.nativeRequestRef ||
+                current.dispatch.state !== "dispatch_may_have_started"
+              )
+                throw new RelayFailure(
+                  "companion_dispatch_no_longer_current",
+                  409,
+                  "effect_unknown",
+                  claim.dispatch.nativeRequestRef,
+                );
+            },
+          );
         }
         const waitUntil = Math.min(
           Date.now() + policy.waitBudgetMs,
@@ -720,6 +1088,43 @@ export function createReviewRunGatewayRelay(input: {
     policy,
     responses,
     closeRun,
+    companionDispatch: (token: string, dispatchId: string) =>
+      bounded(async () => {
+        const auth = await resolve(token);
+        const dispatch = await input.companionDispatches?.read(
+          auth.authorizationId,
+          dispatchId,
+        );
+        if (!dispatch)
+          throw new RelayFailure("companion_dispatch_missing", 404);
+        if (
+          dispatch.state === "dispatch_may_have_started" ||
+          dispatch.state === "effect_unknown"
+        ) {
+          const session = await sessionFor(auth);
+          // A process restart must use the existing explicit same-operation
+          // recovery endpoint first. Readback never prepares/replays inference.
+          if (session.preparation.hasSession()) {
+            const status = await session.preparation.status(
+              dispatch.nativeRequestRef,
+              { signal: AbortSignal.timeout(policy.requestTimeoutMs) },
+              () => check(token, auth, session),
+            );
+            if (
+              status.effect === "completed" ||
+              status.effect === "not_dispatched"
+            ) {
+              await input.companionDispatches!.settle(
+                auth.authorizationId,
+                dispatch.dispatchId,
+                status.effect,
+              );
+              return companionReadback({ ...dispatch, state: status.effect });
+            }
+          }
+        }
+        return companionReadback(dispatch);
+      }),
     recoverSameOperation: (token: string) =>
       bounded(async () => {
         const auth = await resolve(token);
@@ -771,6 +1176,54 @@ function localLimited(error: c.SafeError | undefined) {
     error.effect === "not_dispatched" &&
     error.retry.kind === "after"
   );
+}
+function companionEffect(
+  dispatch: ReviewRunCompanionDispatch,
+): c.RequestStatus["effect"] {
+  return dispatch.state === "completed"
+    ? "completed"
+    : dispatch.state === "not_dispatched"
+      ? "not_dispatched"
+      : "effect_unknown";
+}
+function companionReadback(dispatch: ReviewRunCompanionDispatch) {
+  return {
+    dispatchId: dispatch.dispatchId,
+    state: dispatch.state,
+    requestRef: dispatch.nativeRequestRef,
+    providerRequestEnvelopeHash: dispatch.providerRequestEnvelopeHash,
+  };
+}
+/** No header defaults or partial envelopes: engine children carry none of these
+ * parent-only facts and cannot turn ordinary traffic into companion evidence. */
+function companionContext(
+  request: FastifyRequest,
+): ReviewCompanionDispatchContextV1 | undefined {
+  const names = lifecycleVerificationContract.dispatchHeaders;
+  if (!Object.values(names).some((name) => request.headers[name] !== undefined))
+    return undefined;
+  const values = Object.fromEntries(
+    Object.entries(names).map(([key, name]) => {
+      const value = request.headers[name];
+      if (
+        typeof value !== "string" ||
+        value.length === 0 ||
+        value.length > (key === "leaseCapability" ? 16384 : 256)
+      )
+        throw new RelayFailure("companion_headers_invalid", 400);
+      return [key, value];
+    }),
+  );
+  if (
+    values.attemptOrdinal !== "1" ||
+    !/^[1-9][0-9]{0,19}$/.test(values.fencingToken!) ||
+    !/^[a-f0-9]{64}$/.test(values.preparedManifestKey!)
+  )
+    throw new RelayFailure("companion_headers_invalid", 400);
+  for (const key of ["dispatchId", "executionId", "workSlotId", "leaseId"])
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(values[key]!))
+      throw new RelayFailure("companion_headers_invalid", 400);
+  return { ...values, attemptOrdinal: 1 } as ReviewCompanionDispatchContextV1;
 }
 export type ReviewRunGatewayRelay = ReturnType<
   typeof createReviewRunGatewayRelay
@@ -869,7 +1322,10 @@ export async function registerReviewRunGatewayRelayRoutes(
         // Preserve the existing dispatch/stream timeout after body ingestion.
         const timer = setTimeout(abort, relay.policy.requestTimeoutMs);
         let upstream:
-          | (NativeResponse & { readonly usageIdentity?: UsageIdentity })
+          | (NativeResponse & {
+              readonly usageIdentity?: UsageIdentity;
+              readonly maxResponseBytes?: number;
+            })
           | undefined;
         const diagnostic: RelayDiagnostic = {
           stage: "resolve",
@@ -883,6 +1339,7 @@ export async function registerReviewRunGatewayRelayRoutes(
             request.body,
             controller,
             diagnostic,
+            companionContext(request),
           );
           if (upstream.kind === "status")
             return reply.code(202).send(upstream.status);
@@ -907,7 +1364,7 @@ export async function registerReviewRunGatewayRelayRoutes(
           });
           const reader = upstream.body.getReader();
           const terminalGate = createReviewRunGatewayTerminalGate(
-            reviewRunGatewayMaxResponseBytes,
+            upstream.maxResponseBytes ?? reviewRunGatewayMaxResponseBytes,
           );
           const source = Readable.from(
             (async function* () {
@@ -944,6 +1401,7 @@ export async function registerReviewRunGatewayRelayRoutes(
                 ...(failure.requestRef
                   ? { requestRef: failure.requestRef }
                   : {}),
+                ...(failure.dispatch ? { dispatch: failure.dispatch } : {}),
               },
             });
           }
@@ -956,6 +1414,23 @@ export async function registerReviewRunGatewayRelayRoutes(
           } finally {
             reservation.finish();
           }
+        }
+      },
+    );
+    scope.get(
+      `${base}/companion-dispatch/:dispatchId`,
+      async (request, reply) => {
+        try {
+          const { dispatchId } = request.params as { dispatchId: string };
+          return await relay.companionDispatch(
+            authorization(request),
+            c.reference.parse(dispatchId),
+          );
+        } catch (error) {
+          const failure = safeFailure(error);
+          return reply
+            .code(failure.statusCode)
+            .send({ error: { code: failure.code, effect: failure.effect } });
         }
       },
     );
@@ -1033,6 +1508,8 @@ function authorization(request: FastifyRequest) {
 }
 function safeFailure(error: unknown): RelayFailure {
   if (error instanceof RelayFailure) return error;
+  if (error instanceof ReviewRunCompanionDispatchFailure)
+    return new RelayFailure(error.code, 409);
   if (error instanceof z.ZodError || error instanceof SyntaxError)
     return new RelayFailure("invalid_request", 400);
   if (error instanceof GatewayError)

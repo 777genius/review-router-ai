@@ -20,8 +20,8 @@ export const DASHBOARD_SECTIONS = [
   "policy",
   "diagnostics",
   "usage",
-  "skills",
   "other",
+  "skills",
   "memory",
 ] as const satisfies readonly DashboardSection[];
 
@@ -38,7 +38,7 @@ export const dashboardSectionMeta: Record<
     eyebrow: "Repository setup",
     title: "Repositories",
     description:
-      "Repositories from the GitHub App or GitLab attached to this workspace. Create setup PRs and check runtime health here. Provider logins for reviews are on Accounts.",
+      "Choose a provider and follow each repository's setup steps. Finish its connection and workflow setup here.",
     navDescription: "Setup PRs and health",
   },
   skills: {
@@ -49,23 +49,24 @@ export const dashboardSectionMeta: Record<
     navDescription: "Reusable review instructions",
   },
   memory: {
-    eyebrow: "In development",
+    eyebrow: "Shared review knowledge",
     title: "Memory",
-    description: "Memory management is in development and not available yet.",
-    navDescription: "In development",
+    description:
+      "Manage approved rules and historical knowledge for future reviews.",
+    navDescription: "Approved review knowledge",
   },
   setup: {
     eyebrow: "Workspace credentials",
     title: "Accounts",
     description:
-      "Connect accounts once and choose where they are available for reviews.",
+      "Connect accounts to ReviewRouter and choose which workspaces can use them. Select them for reviews in Providers.",
     navDescription: "Workspace provider accounts",
   },
   providers: {
     eyebrow: "Workspace providers",
     title: "Providers",
     description:
-      "Each provider is a credential and a model. Choose the workspace default and keep the list tidy.",
+      "Save provider and model choices, and choose a workspace default. Finish each repository's connection and workflow setup in Repositories.",
     navDescription: "Credentials and models",
   },
   policy: {

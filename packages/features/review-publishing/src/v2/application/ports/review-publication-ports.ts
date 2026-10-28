@@ -1,4 +1,8 @@
 import type {
+  ResolutionHistory,
+  ResolutionOperationIdentity,
+} from "../../domain/review-thread-resolution-history";
+import type {
   ReviewPublicationAttempt,
   ReviewPublicationAuditTombstone,
   ReviewPublicationClaimCapabilityFacts,
@@ -680,6 +684,7 @@ export type ReviewPublicationLifecycleTargetIdentity = {
   readonly threadId: string;
   readonly mutationEligible: boolean;
   readonly observation?: ReviewPublicationLifecycleTargetObservation;
+  readonly ownResolutionOperation?: ResolutionOperationIdentity;
 };
 
 export type ReviewPublicationLifecycleTargetObservation = {
@@ -720,7 +725,7 @@ export interface ReviewPublicationLifecycleExpectationPort {
 
 export type LiveReviewPublicationLifecycleTargetIdentity = Omit<
   ReviewPublicationLifecycleTargetIdentity,
-  "mutationEligible" | "observation"
+  "mutationEligible" | "observation" | "ownResolutionOperation"
 > & {
   readonly markerFingerprint: string;
   readonly threadStateHash: string;
@@ -728,6 +733,8 @@ export type LiveReviewPublicationLifecycleTargetIdentity = Omit<
   readonly parentOwnedByIntegration: boolean;
   readonly hasRelevantInteractionAfterParent: boolean;
   readonly parentCreatedAt: Date;
+  readonly parentCommentId?: string;
+  readonly parentBodyHash?: string;
   readonly lastRelevantChangeAt: Date;
 };
 
@@ -900,4 +907,11 @@ export interface ReviewPublicationGatewayPort {
     readonly duplicateExternalObjectIds: readonly string[];
     readonly compensateCanonical: boolean;
   }): Promise<ReviewPublicationReceiptStatus>;
+}
+
+export interface ReviewPublicationResolutionHistoryPort {
+  read(
+    scope: ReviewPublicationScope,
+    threadIds: readonly string[],
+  ): Promise<readonly ResolutionHistory[]>;
 }

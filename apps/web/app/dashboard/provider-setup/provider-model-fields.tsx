@@ -23,6 +23,7 @@ type ReviewReasoningEffort = NonNullable<
 >;
 
 const reasoningEfforts = [
+  { value: "minimal", label: "Minimal", description: "Least reasoning." },
   { value: "low", label: "Low", description: "Fastest and cheapest." },
   { value: "medium", label: "Medium", description: "Balanced." },
   { value: "high", label: "High", description: "Deeper review." },
@@ -35,9 +36,12 @@ const reasoningEfforts = [
   readonly description: string;
 }[];
 
-/** Only Codex-based providers expose reasoning, fast and file-reading controls. */
+/** Reasoning and fast controls; file reading is an independent runtime feature. */
 export function providerHasReviewTuning(authMode: ProviderAuthMode): boolean {
-  return providerKindForAuthMode(authMode) === "codex";
+  return (
+    providerKindForAuthMode(authMode) === "codex" ||
+    authMode === "mimo_token_plan_api_key"
+  );
 }
 
 function reasoningSupported(
@@ -45,10 +49,20 @@ function reasoningSupported(
   model: string,
   effort: ReviewReasoningEffort | undefined,
   connection: AccountConnectionView | undefined,
+  gatewayProfileRef?: string,
 ): boolean {
+  if (authMode === "mimo_token_plan_api_key")
+    return effort === "low" || effort === "medium" || effort === "high";
   return authMode === "codex_account_gateway"
-    ? gatewayModelSupportsReasoningEffort(model, effort, connection)
-    : effort !== undefined && codexModelSupportsReasoningEffort(model, effort);
+    ? gatewayModelSupportsReasoningEffort(
+        model,
+        effort,
+        connection,
+        gatewayProfileRef,
+      )
+    : effort !== undefined &&
+        effort !== "minimal" &&
+        codexModelSupportsReasoningEffort(model, effort);
 }
 
 function fastSupported(
@@ -56,6 +70,7 @@ function fastSupported(
   model: string,
   connection: AccountConnectionView | undefined,
 ): boolean {
+  if (authMode === "mimo_token_plan_api_key") return false;
   return authMode === "codex_account_gateway"
     ? gatewayModelSupportsFastMode(model, connection)
     : codexModelSupportsFastMode(model);
@@ -70,19 +85,26 @@ export function fitProviderSelectionSettings(input: {
   readonly model: string;
   readonly settings: ProviderSelectionSettings;
   readonly connection?: AccountConnectionView | undefined;
+  readonly gatewayProfileRef?: string | undefined;
 }): ProviderSelectionSettings {
   const { authMode, model, connection, settings } = input;
+  if (authMode === "kimi_code_api_key") {
+    return { agenticContext: settings.agenticContext, fastMode: false };
+  }
   const gateway = authMode === "codex_account_gateway";
   const effort = reasoningSupported(
     authMode,
     model,
     settings.reasoningEffort,
     connection,
+    input.gatewayProfileRef,
   )
     ? settings.reasoningEffort
     : gateway
       ? gatewayModelDefaultReasoningEffort(model, connection)
-      : "xhigh";
+      : authMode === "mimo_token_plan_api_key"
+        ? "high"
+        : "xhigh";
   return {
     ...(effort === undefined ? {} : { reasoningEffort: effort }),
     agenticContext: settings.agenticContext,
@@ -102,6 +124,7 @@ export function defaultProviderSelectionSettings(input: {
   readonly authMode: ProviderAuthMode;
   readonly model: string;
   readonly connection?: AccountConnectionView | undefined;
+  readonly gatewayProfileRef?: string | undefined;
 }): ProviderSelectionSettings {
   return fitProviderSelectionSettings({
     ...input,
@@ -112,6 +135,25 @@ export function defaultProviderSelectionSettings(input: {
       agenticContext: true,
     },
   });
+}
+
+/** Confirmed incompatible settings require an explicit correction, not save-time coercion. */
+export function providerSelectionSettingsNeedCorrection(
+  input: Parameters<typeof fitProviderSelectionSettings>[0],
+): boolean {
+  const gatewayModel =
+    input.authMode === "codex_account_gateway"
+      ? input.connection?.modelSettings.find(
+          (row) => row.modelId === input.model,
+        )
+      : undefined;
+  if (input.authMode !== "mimo_token_plan_api_key" && !gatewayModel)
+    return false;
+  const fitted = fitProviderSelectionSettings(input);
+  return (
+    fitted.reasoningEffort !== input.settings.reasoningEffort ||
+    fitted.fastMode !== input.settings.fastMode
+  );
 }
 
 export type ProviderModelFieldsProps = Readonly<{
@@ -126,8 +168,14 @@ export type ProviderModelFieldsProps = Readonly<{
   settings: ProviderSelectionSettings;
   onSettingsChange: (settings: ProviderSelectionSettings) => void;
   connection?: AccountConnectionView | undefined;
+  gatewayProfileRef?: string | undefined;
   agentProfileOptions: readonly GatewayAgentProfileOption[];
   disabled: boolean;
+  /** New selections wait for a chosen model and resolved capabilities. */
+  settingsReady?: boolean;
+  hasSavedSettings?: boolean;
+  hasEditedSettings?: boolean;
+  emptyListPlaceholder?: string | undefined;
 }>;
 
 /**
@@ -144,58 +192,154 @@ export function ProviderModelFields({
   settings,
   onSettingsChange,
   connection,
+  gatewayProfileRef,
   agentProfileOptions,
   disabled,
+  settingsReady = true,
+  hasSavedSettings,
+  hasEditedSettings = false,
+  emptyListPlaceholder,
 }: ProviderModelFieldsProps): React.ReactElement {
   const tuning = providerHasReviewTuning(authMode);
   const gateway = authMode === "codex_account_gateway";
-  const reasoningOptions = reasoningEfforts.filter((option) =>
-    reasoningSupported(authMode, model, option.value, connection),
+  const qualifiedModel = connection?.modelSettings.find(
+    (row) => row.modelId === model,
+  );
+  const capabilitiesKnown = !gateway || qualifiedModel !== undefined;
+  const savedSelection = hasSavedSettings ?? onModelChange === null;
+  const explicitSelection = savedSelection || hasEditedSettings;
+  const ready = settingsReady && model.trim().length > 0;
+  // Repository context is an execution-engine choice. Upstream tool-call
+  // metadata alone does not decide whether that engine can read related files.
+  const relatedFilesSupported = gateway
+    ? capabilitiesKnown
+    : tuning ||
+      authMode === "openrouter_api_key" ||
+      authMode === "kimi_code_api_key";
+  const showRelatedFiles =
+    ready &&
+    (relatedFilesSupported ||
+      (gateway &&
+        savedSelection &&
+        (!capabilitiesKnown || settings.agenticContext)));
+  const reasoningOptions = reasoningEfforts.filter(
+    (option) =>
+      capabilitiesKnown &&
+      !(
+        gatewayProfileRef === "openai-codex-oauth-responses-v1" &&
+        option.value === "ultra" &&
+        settings.reasoningEffort !== "ultra"
+      ) &&
+      reasoningSupported(
+        authMode,
+        model,
+        option.value,
+        connection,
+        gatewayProfileRef,
+      ),
   );
   const showReasoning =
+    ready &&
     tuning &&
     (!gateway ||
-      !connection ||
-      connection.modelSettings.find((row) => row.modelId === model)
-        ?.reasoning != null);
-  const showFast = tuning && fastSupported(authMode, model, connection);
+      qualifiedModel?.reasoning != null ||
+      (explicitSelection && settings.reasoningEffort !== undefined));
+  const showFast =
+    ready &&
+    tuning &&
+    ((capabilitiesKnown && fastSupported(authMode, model, connection)) ||
+      (authMode === "mimo_token_plan_api_key" && settings.fastMode) ||
+      (gateway && explicitSelection && settings.fastMode));
+  const needsCorrection = providerSelectionSettingsNeedCorrection({
+    authMode,
+    model,
+    settings,
+    connection,
+    gatewayProfileRef,
+  });
+  const savedDepthUnsupported =
+    (authMode === "mimo_token_plan_api_key" ||
+      (gateway && capabilitiesKnown)) &&
+    settings.reasoningEffort !== undefined &&
+    !reasoningOptions.some(
+      (option) => option.value === settings.reasoningEffort,
+    );
   const savedProfileUnavailable =
     settings.agentProfileRef !== undefined &&
     !agentProfileOptions.some(
       (option) => option.profileRef === settings.agentProfileRef,
     );
+  const savedDepthUnavailable =
+    gateway && !capabilitiesKnown && settings.reasoningEffort !== undefined;
+  const accountDefaultAvailable =
+    gateway &&
+    capabilitiesKnown &&
+    (qualifiedModel?.reasoning === null ||
+      gatewayProfileRef === "openai-codex-oauth-responses-v1");
+  const showEngine =
+    ready &&
+    gateway &&
+    (capabilitiesKnown ||
+      (savedSelection && settings.agentProfileRef !== undefined)) &&
+    (agentProfileOptions.length > 0 || savedProfileUnavailable);
   const update = (next: Partial<ProviderSelectionSettings>) =>
     onSettingsChange({ ...settings, ...next });
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="grid items-start gap-4 sm:grid-cols-2">
       <ProviderModelPicker
         model={model}
         onModelChange={onModelChange}
         modelOptions={modelOptions}
         modelChoice={modelChoice}
         disabled={disabled}
+        emptyListPlaceholder={emptyListPlaceholder}
         className="sm:col-span-2"
       />
       {showReasoning ? (
         <SelectField
+          className={showEngine ? "" : "sm:col-span-2"}
           label="Review depth"
-          value={settings.reasoningEffort ?? ""}
-          placeholder="Choose a depth"
-          disabled={disabled || reasoningOptions.length === 0}
-          options={reasoningOptions}
-          onValueChange={(value) =>
-            update({ reasoningEffort: value as ReviewReasoningEffort })
+          value={
+            settings.reasoningEffort ??
+            (accountDefaultAvailable ? modelDefault : "")
           }
+          placeholder="Choose a depth"
+          disabled={
+            disabled ||
+            (reasoningOptions.length === 0 && !accountDefaultAvailable)
+          }
+          options={[
+            ...(accountDefaultAvailable
+              ? [{ value: modelDefault, label: "Account default" }]
+              : []),
+            ...(savedDepthUnsupported || savedDepthUnavailable
+              ? [
+                  {
+                    value: settings.reasoningEffort!,
+                    label: `${settings.reasoningEffort} (${savedDepthUnavailable ? "saved; refresh account to edit" : `${savedSelection ? "saved" : "selected"}, unsupported`})`,
+                    disabled: true,
+                  },
+                ]
+              : []),
+            ...reasoningOptions,
+          ]}
+          onValueChange={(value) => {
+            if (value === modelDefault) {
+              const { reasoningEffort: _previous, ...rest } = settings;
+              void _previous;
+              onSettingsChange(rest);
+            } else update({ reasoningEffort: value as ReviewReasoningEffort });
+          }}
           hint="Deeper reviews find more and take longer."
         />
       ) : null}
-      {gateway &&
-      (agentProfileOptions.length > 0 || savedProfileUnavailable) ? (
+      {showEngine ? (
         <SelectField
+          className={showReasoning ? "" : "sm:col-span-2"}
           label="Review engine"
           value={settings.agentProfileRef ?? defaultEngine}
-          disabled={disabled}
+          disabled={disabled || !capabilitiesKnown}
           options={[
             {
               value: defaultEngine,
@@ -230,31 +374,50 @@ export function ProviderModelFields({
           }}
         />
       ) : null}
-      {tuning ? (
+      {showFast || showRelatedFiles ? (
         <div className="grid gap-3 sm:col-span-2">
           {showFast ? (
             <CheckboxRow
               checked={settings.fastMode}
-              disabled={disabled}
+              disabled={disabled || !capabilitiesKnown}
               onChange={(fastMode) => update({ fastMode })}
               label="Fast mode"
-              hint="Shorter, quicker review passes."
+              hint={
+                capabilitiesKnown && !fastSupported(authMode, model, connection)
+                  ? "Turn off fast mode to save these settings."
+                  : "Shorter, quicker review passes."
+              }
             />
           ) : null}
-          <CheckboxRow
-            checked={settings.agenticContext}
-            disabled={disabled}
-            onChange={(agenticContext) => update({ agenticContext })}
-            label="Read related files"
-            hint="The reviewer may open other files of the repository, read-only, instead of looking only at the change."
-          />
+          {showRelatedFiles ? (
+            <CheckboxRow
+              checked={settings.agenticContext}
+              disabled={disabled || (gateway && !capabilitiesKnown)}
+              onChange={(agenticContext) => update({ agenticContext })}
+              label="Read related files"
+              hint="The reviewer may open other files of the repository, read-only, instead of looking only at the change."
+            />
+          ) : null}
         </div>
+      ) : null}
+      {ready && gateway && savedSelection && !capabilitiesKnown ? (
+        <p role="status" className="text-sm text-slate-400 sm:col-span-2">
+          Review settings are shown. Refresh the account to load its available
+          settings.
+        </p>
+      ) : null}
+      {ready && needsCorrection ? (
+        <p role="status" className="text-sm text-amber-100 sm:col-span-2">
+          The {savedSelection ? "saved" : "selected"} review depth or fast mode
+          is not supported. Choose an available setting before saving.
+        </p>
       ) : null}
     </div>
   );
 }
 
 const defaultEngine = "__default__";
+const modelDefault = "__model_default__";
 
 /**
  * The model of one provider alone: a list for a credential that offers fixed
@@ -278,7 +441,7 @@ export function ProviderModelPicker({
   modelChoice: "list" | "catalog";
   disabled: boolean;
   /** The list placeholder while the credential offers no model. */
-  emptyListPlaceholder?: string;
+  emptyListPlaceholder?: string | undefined;
   className?: string;
 }>): React.ReactElement {
   if (!onModelChange)
@@ -294,19 +457,28 @@ export function ProviderModelPicker({
     return (
       <SelectField
         label="Model"
-        value={
-          modelOptions.some((option) => option.value === model) ? model : ""
-        }
+        value={model}
         placeholder={
           modelOptions.length === 0 ? emptyListPlaceholder : "Choose a model"
         }
         disabled={disabled || modelOptions.length === 0}
-        options={modelOptions.map((option) => ({
-          value: option.value,
-          label: option.label,
-          ...(option.disabled ? { disabled: true } : {}),
-          ...(option.description ? { description: option.description } : {}),
-        }))}
+        options={[
+          ...(model && !modelOptions.some((option) => option.value === model)
+            ? [
+                {
+                  value: model,
+                  label: `${model} (saved, unavailable)`,
+                  disabled: true,
+                },
+              ]
+            : []),
+          ...modelOptions.map((option) => ({
+            value: option.value,
+            label: option.label,
+            ...(option.disabled ? { disabled: true } : {}),
+            ...(option.description ? { description: option.description } : {}),
+          })),
+        ]}
         onValueChange={onModelChange}
         {...(className ? { className } : {})}
       />
@@ -393,6 +565,13 @@ function ProviderModelInput({
         .filter(Boolean)
         .join(" ")}
       onBlur={closeWhenFocusLeaves}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && open) {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen(false);
+        }
+      }}
     >
       <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
         Model

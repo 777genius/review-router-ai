@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { useEffect, useState } from "react";
+import { Profiler, useEffect, useState } from "react";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -10,9 +11,11 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import type { ProviderSecretSetupGuidance } from "@reviewrouter/features-provider-setup";
+import type { ProviderAuthMode } from "@reviewrouter/features-review-providers";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ProviderSetupDialog } from "./provider-setup/provider-setup-dialog";
 import {
+  checkProviderRepositorySecretClientAction,
   confirmSetupPullRequestMergedClientAction,
   createSetupPullRequestClientAction,
 } from "./actions";
@@ -22,9 +25,9 @@ import {
   setupPullRequestMergedEvent,
 } from "./repository-setup-optimistic-events";
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: vi.fn() }),
-}));
+const router = vi.hoisted(() => ({ refresh: vi.fn() }));
+
+vi.mock("next/navigation", () => ({ useRouter: () => router }));
 
 vi.mock("sonner", () => ({
   toast: {
@@ -53,6 +56,74 @@ afterEach(() => {
 });
 
 describe("RepositorySetupProgressPanel", () => {
+  it.each([
+    ["openrouter_api_key", "setup_pr", "1 of 4 - setup PR needed"],
+    ["openrouter_api_key", "merge_setup_pr", "2 of 4 - merge setup PR"],
+    ["claude_code_oauth", "setup_pr", "1 of 4 - setup PR needed"],
+    ["claude_code_oauth", "merge_setup_pr", "2 of 4 - merge setup PR"],
+  ] as const)(
+    "preserves the workflow and its next action when %s is confirmed at %s",
+    (authMode, step, progress) => {
+      const view = () => (
+        <RepositorySetupProgressPanel
+          workspaceId="workspace_1"
+          repositoryId="repo_1"
+          repositoryFullName="777genius/example"
+          selected
+          archived={false}
+          initialSetupStatus={
+            step === "setup_pr" ? "needs_attention" : "setup_pr_open"
+          }
+          initialSetupPullRequestUrl="https://github.com/777genius/example/pull/1"
+          initialSetupIssue={step === "setup_pr" ? "setup_pr_closed" : null}
+          workflowCurrent={false}
+          mutationsEnabled
+          initialStep={step}
+          expectedProviderAuthModes={[authMode]}
+        />
+      );
+      const confirmed = () =>
+        providerSetupConfirmedEvent({
+          repositoryId: "repo_1",
+          repositoryFullName: "777genius/example",
+          authMode,
+        });
+      const expectWorkflowPending = () => {
+        expect(screen.getByText(progress)).toBeTruthy();
+        expect(screen.queryByText("4 of 4 - complete")).toBeNull();
+        if (step === "setup_pr") {
+          expect(screen.getByText("Recover setup PR")).toBeTruthy();
+          expect(
+            screen.getByText("Previous setup PR was closed. Recreate it."),
+          ).toBeTruthy();
+          expect(
+            screen.getByRole("button", { name: /Recreate setup PR/i }),
+          ).toBeTruthy();
+        } else {
+          expect(
+            screen.getByRole("link", { name: /Open setup PR/i }),
+          ).toBeTruthy();
+        }
+      };
+      const rendered = render(view());
+
+      fireEvent(window, confirmed());
+      expect(router.refresh).toHaveBeenCalledTimes(1);
+      expectWorkflowPending();
+      rendered.rerender(view());
+      expectWorkflowPending();
+
+      act(() => {
+        window.dispatchEvent(
+          setupPullRequestMergedEvent({ repositoryId: "repo_1" }),
+        );
+        window.dispatchEvent(confirmed());
+      });
+      expect(screen.getByText("4 of 4 - complete")).toBeTruthy();
+      expect(screen.queryByText("Recover setup PR")).toBeNull();
+    },
+  );
+
   it("shows actual Gateway draining state despite cached complete progress", () => {
     render(
       <RepositorySetupProgressPanel
@@ -104,23 +175,17 @@ describe("RepositorySetupProgressPanel", () => {
         mutationsEnabled
         initialStep="setup_pr"
         providerSetupBeforeWorkflow
-        enableReviewAction={
-          <button type="button">Set up versioned provider</button>
-        }
+        enableReviewAction={<button type="button">Connect Codex</button>}
       />,
     );
 
-    expect(screen.getByText("1 of 4 - prepare versioned setup")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Set up versioned provider" }),
-    ).toBeTruthy();
+    expect(screen.getByText("1 of 4 - connect Codex")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Connect Codex" })).toBeTruthy();
     expect(
       screen.getByRole("button", { name: /Create setup PR/i }),
     ).toBeTruthy();
     expect(
-      screen.getByText(
-        "Seed the versioned provider namespace, then add its workflow by PR.",
-      ),
+      screen.getByText("Connect Codex, then create and merge the setup PR."),
     ).toBeTruthy();
   });
 
@@ -248,7 +313,6 @@ describe("RepositorySetupProgressPanel", () => {
                   organizationLogin: null,
                   organizationSecretPolicy: null,
                   rotatingEnabled: false,
-                  rotatingPreparationOnly: false,
                 },
               }}
               initialStep="credentials"
@@ -272,7 +336,15 @@ describe("RepositorySetupProgressPanel", () => {
         .getAttribute("aria-current"),
     ).toBe("step");
     expect(screen.queryByText(/Connect model credentials/)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "I added the secret" }));
+    await screen.findByText(
+      "CLAUDE_CODE_OAUTH_TOKEN is not set for this repository yet.",
+    );
+    // The token has now been stored on GitHub: the successful confirmation
+    // and its subsequent metadata read must describe the same availability.
+    vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValueOnce({
+      status: "available_repository",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Check GitHub setup" }));
 
     expect(
       await screen.findByText(
@@ -283,6 +355,7 @@ describe("RepositorySetupProgressPanel", () => {
     expect(
       screen.getByRole("button", { name: "Close provider setup" }),
     ).toBeTruthy();
+    expect(checkProviderRepositorySecretClientAction).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the provider dialog mounted when provider confirmation advances progress", async () => {
@@ -339,7 +412,7 @@ describe("RepositorySetupProgressPanel", () => {
     expect(actionUnmounts).toBe(0);
   });
 
-  it("allows a rotating provider namespace to refresh its merged workflow", async () => {
+  it("allows Codex setup to refresh its merged workflow", async () => {
     vi.mocked(createSetupPullRequestClientAction).mockResolvedValueOnce({
       params: {
         notice: "setup_pr_ready",
@@ -475,6 +548,87 @@ describe("RepositorySetupProgressPanel", () => {
     await waitFor(() => {
       expect(screen.getByText("4 of 4 - complete")).toBeTruthy();
     });
+  });
+
+  it("resets completed progress only when the expected provider set changes", () => {
+    const committedReadyStates: boolean[] = [];
+    const view = (authModes: readonly ProviderAuthMode[]) => (
+      <Profiler
+        id="repository-setup-progress"
+        onRender={() => {
+          committedReadyStates.push(
+            screen.queryByText("4 of 4 - complete") !== null,
+          );
+        }}
+      >
+        <RepositorySetupProgressPanel
+          workspaceId="workspace_1"
+          repositoryId="repo_1"
+          repositoryFullName="777genius/example"
+          selected
+          archived={false}
+          initialSetupStatus="configured"
+          initialSetupPullRequestUrl={null}
+          initialSetupIssue={null}
+          workflowCurrent
+          mutationsEnabled
+          initialStep="provider"
+          expectedProviderAuthModes={authModes}
+          enableReviewAction={<button type="button">Enable review</button>}
+        />
+      </Profiler>
+    );
+    const confirm = (authMode: ProviderAuthMode) =>
+      fireEvent(
+        window,
+        providerSetupConfirmedEvent({
+          repositoryId: "repo_1",
+          repositoryFullName: "777genius/example",
+          authMode,
+        }),
+      );
+    const expectPending = () => {
+      expect(screen.getByText("3 of 4 - enable review")).toBeTruthy();
+      expect(screen.queryByText("4 of 4 - complete")).toBeNull();
+    };
+    const rendered = render(
+      view(["codex_subscription_oauth_rotating", "claude_code_oauth"]),
+    );
+
+    confirm("codex_subscription_oauth_rotating");
+    expectPending();
+    // Fresh arrays, order, and duplicates preserve partial confirmation.
+    rendered.rerender(
+      view(["codex_subscription_oauth_rotating", "claude_code_oauth"]),
+    );
+    rendered.rerender(
+      view([
+        "claude_code_oauth",
+        "codex_subscription_oauth_rotating",
+        "claude_code_oauth",
+      ]),
+    );
+    confirm("claude_code_oauth");
+    expect(screen.getByText("4 of 4 - complete")).toBeTruthy();
+
+    // All authoritative progress props stay the same when providers change.
+    committedReadyStates.length = 0;
+    rendered.rerender(
+      view(["codex_subscription_oauth_rotating", "openrouter_api_key"]),
+    );
+    // The first commit must be pending, before passive reset effects run.
+    expect(committedReadyStates[0]).toBe(false);
+    expectPending();
+    confirm("claude_code_oauth");
+    expectPending();
+    confirm("openrouter_api_key");
+    // The previous setup's Codex confirmation must not complete the new setup.
+    expectPending();
+    rendered.rerender(
+      view(["openrouter_api_key", "codex_subscription_oauth_rotating"]),
+    );
+    confirm("codex_subscription_oauth_rotating");
+    expect(screen.getByText("4 of 4 - complete")).toBeTruthy();
   });
 
   it("keeps the provider action available for rows that are already complete", () => {

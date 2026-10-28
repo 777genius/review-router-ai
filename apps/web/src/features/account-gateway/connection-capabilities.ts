@@ -28,3 +28,12 @@ export type AccountConnectionView = {
   limitsContract: "account-limits/v1" | "account-limits/v2" | "none";
   modelSettings: readonly AccountModelSettings[];
 };
+
+/** Account-scoped discovery metadata; never contains Gateway identity/fences. */
+export type AccountModelCatalogView = {
+  status: "snapshot" | "unsupported" | "unavailable" | "unknown";
+  source: "codex" | "legacy_profile";
+  fetchedAt?: string;
+  expiresAt?: string;
+  models: readonly string[];
+};

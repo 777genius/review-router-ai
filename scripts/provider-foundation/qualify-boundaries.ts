@@ -73,6 +73,12 @@ const cases = [
     rule: "forbidden-package-dependency",
   },
   {
+    name: "forbidden-domain-shared-protocol",
+    path: "packages/features/review-providers/src/domain/__foundation_qualification__.ts",
+    source: "import '@reviewrouter/shared';\n",
+    rule: "forbidden-package-dependency",
+  },
+  {
     name: "forbidden-http-adapter",
     path: "packages/features/review-providers/src/domain/__foundation_qualification__.ts",
     source: "import '../infrastructure/openrouter/openrouter-model-catalog';\n",

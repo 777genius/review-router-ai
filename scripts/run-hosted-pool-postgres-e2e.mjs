@@ -119,10 +119,11 @@ const sdkGrowthV3ToolArtifactMigration = "000114_sdk_growth_v3_tool_artifact";
 const sdkGrowthV3ApprovedManifestMigration =
   "000115_sdk_growth_v3_approved_manifest";
 // Provider profiles reference ProviderApiKeyConnection from 000110, which
-// this rehearsal stages late, so both provider registry migrations follow it.
+// this rehearsal stages late, so the provider registry migrations follow it.
 const providerRegistryMigrations = Object.freeze([
   "000145_workspace_provider_profiles",
   "000146_drop_review_configuration_projection",
+  "000149_api_key_repository_secret_profiles",
 ]);
 
 const codexOAuthV5Migrations = [

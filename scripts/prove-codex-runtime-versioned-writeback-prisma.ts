@@ -257,6 +257,7 @@ try {
   await adminPrisma.repositoryConnection.update({
     where: { id: "repo-7" },
     data: { installationId: "runtime-proof-installation" },
+    select: { id: true },
   });
   await adminPrisma.scmRepositoryIdentity.update({
     where: { scmRepositoryIdentityId: "scm-identity-proof" },

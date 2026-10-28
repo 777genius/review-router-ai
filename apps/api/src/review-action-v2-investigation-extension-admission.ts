@@ -4,7 +4,7 @@ import {
   isInvestigationRolloutCapability,
   isInvestigationRolloutCapabilitySetDependencyClosed,
 } from "@reviewrouter/features-review-investigation-operations";
-import { reviewActionV2SchemaSlot } from "@reviewrouter/protocol-review-action-v2";
+import { reviewActionV2InvestigationExtensionForSchema } from "@reviewrouter/protocol-review-action-v2";
 
 export type ReviewInvestigationAuthorizedProviderKind = "codex" | "claude_code";
 
@@ -20,10 +20,6 @@ export function hasAuthorizedReviewInvestigationExtension(
   >,
   requirement?: ReviewInvestigationExtensionRequirement,
 ): boolean {
-  const extension = reviewActionV2SchemaSlot(
-    authorization.schemaDigest,
-  )?.reviewInvestigationExtensionV1;
-  if (!extension) return false;
   const canonical =
     authorization.reviewInvestigationAuthorizationDescriptorCanonicalJson;
   if (canonical === null) return false;
@@ -48,6 +44,11 @@ export function hasAuthorizedReviewInvestigationExtension(
   ) {
     return false;
   }
+  const extension = reviewActionV2InvestigationExtensionForSchema(
+    authorization.schemaDigest,
+    value.extensionCanonicalizerDigest,
+  );
+  if (!extension) return false;
   if (
     value.authorizationDescriptorVersion === 3 &&
     value.capability === "review_investigation_v1" &&

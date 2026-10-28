@@ -229,3 +229,70 @@ test("qualified models without reasoning/fast controls save only omitted setting
     ),
   ).rejects.toThrow("gateway_review_fast_mode_unsupported");
 });
+
+// RED if two accounts sharing one profile ID can authorize each other's models.
+test("resolves catalog membership and reasoning separately for each binding", async () => {
+  const other = {
+    ...gateway,
+    gatewayBindingId: "other-binding",
+    model: "account-b-only",
+  };
+  const load = async (selection: { gatewayBindingId: string }) => [
+    {
+      ...profile,
+      models:
+        selection.gatewayBindingId === gateway.gatewayBindingId
+          ? [gateway.model]
+          : [other.model],
+    },
+  ];
+  await expect(
+    assertGatewayReviewConfigCatalogAllowed(
+      { providers: [gateway, other] },
+      load,
+    ),
+  ).resolves.toBe(true);
+  await expect(
+    assertGatewayReviewConfigCatalogAllowed(
+      { providers: [{ ...other, model: gateway.model }] },
+      load,
+    ),
+  ).rejects.toThrow("gateway_review_model_unsupported");
+});
+
+test("preserves a saved Codex Ultra selection against canonical Max capabilities", async () => {
+  const selected = {
+    ...gateway,
+    gatewayProfileRef: "openai-codex-oauth-responses-v1",
+    reasoningEffort: "ultra" as const,
+  };
+  const connection = {
+    provider: "openai" as const,
+    planLabel: "Codex",
+    regionLabel: "Global",
+    completionInputKind: "none" as const,
+    personalOnly: false,
+    limitsContract: "none" as const,
+    modelSettings: [
+      {
+        modelId: gateway.model,
+        reasoning: { allowed: ["max"], default: "max" },
+        fast: { allowed: ["balanced"], default: "balanced" },
+        tools: { allowed: ["function" as const], default: "function" as const },
+      },
+    ],
+  };
+  await expect(
+    assertGatewayReviewConfigCatalogAllowed(
+      { providers: [selected] },
+      async () => [{ ...profile, id: selected.gatewayProfileRef, connection }],
+    ),
+  ).resolves.toBe(true);
+  expect(selected.reasoningEffort).toBe("ultra");
+  await expect(
+    assertGatewayReviewConfigCatalogAllowed(
+      { providers: [{ ...selected, gatewayProfileRef: profile.id }] },
+      async () => [{ ...profile, connection }],
+    ),
+  ).rejects.toThrow("gateway_review_reasoning_effort_unsupported");
+});

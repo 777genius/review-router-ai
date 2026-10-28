@@ -113,6 +113,7 @@ describe("producer context tools extension identity", () => {
       reviewInvestigationPolicyHash: null,
       contextToolsProfile: null,
       prDescriptionProfile: null,
+      lifecycleVerificationProfile: null,
     };
     expect(producerReleaseToDomain(row)).not.toHaveProperty(
       "contextToolsProfile",
@@ -218,6 +219,55 @@ describe("producer context tools extension identity", () => {
     });
     await expect(matching.attest(attestInput)).resolves.toEqual({
       status: ProducerReleaseAttestationStatus.Revoked,
+    });
+  });
+  it("materializes lifecycle approval through trusted attestation and refuses profile drift", async () => {
+    const kit = createReviewRunControlTestKit();
+    const lifecycleVerificationProfile = {
+      extensionId: "lifecycle-verification.v1" as const,
+      descriptorDigest: `sha256:${"3".repeat(64)}`,
+    };
+    const registry = new ConfiguredProducerReleaseAttestationRegistry(
+      readConfiguredProducerReleaseAttestations({
+        [reviewRunProducerReleaseAttestationsEnv]: JSON.stringify([
+          { ...attestation(), lifecycleVerificationProfile },
+        ]),
+      }),
+      kit.store,
+    );
+    const attested = await registry.attest(attestInput);
+    expect(attested).toMatchObject({
+      status: ProducerReleaseAttestationStatus.Attested,
+      release: { lifecycleVerificationProfile },
+    });
+    if (attested.status !== ProducerReleaseAttestationStatus.Attested)
+      throw new Error("attestation failed");
+    const materializer = createTrustedProducerReleaseMaterializer({
+      digest: kit.digest,
+      producerReleases: kit.control.producerReleases,
+      releaseQueries: kit.store,
+      protocolLimitsQueries: kit.store,
+      operationalSloQueries: kit.store,
+    });
+    await materializer.ensureRegistered(attested.release);
+    expect(
+      (
+        await kit.store.findProducerReleaseById(
+          releaseCandidate.producerReleaseId,
+        )
+      )?.lifecycleVerificationProfile,
+    ).toEqual(lifecycleVerificationProfile);
+    await expect(
+      materializer.ensureRegistered({
+        ...attested.release,
+        lifecycleVerificationProfile: {
+          ...lifecycleVerificationProfile,
+          descriptorDigest: `sha256:${"4".repeat(64)}`,
+        },
+      }),
+    ).rejects.toThrow("trusted_producer_release_conflict");
+    await expect(registry.attest(attestInput)).resolves.toMatchObject({
+      status: ProducerReleaseAttestationStatus.Attested,
     });
   });
 });

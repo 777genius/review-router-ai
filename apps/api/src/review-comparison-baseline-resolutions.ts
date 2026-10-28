@@ -106,3 +106,88 @@ export function appliedComparisonResolutions(
   );
   return new Set(keys).size === keys.length ? result : [];
 }
+
+/** Positive history is independent of whole-publication success or retained snapshot state. */
+export function retainedComparisonResolutionFacts(
+  record: ReviewSnapshotV2Record,
+  view: ReviewPublicationAttemptView | null,
+): readonly import("@reviewrouter/features-review-publishing/v2").ConfirmedResolutionFact[] {
+  if (!view) return [];
+  const publishing = z
+    .object({ lifecycle: z.array(target).max(2000) })
+    .safeParse(record.payload.projectionEnvelope.publishing);
+  if (!publishing.success) return [];
+  const result: import("@reviewrouter/features-review-publishing/v2").ConfirmedResolutionFact[] =
+    [];
+  for (const entry of publishing.data.lifecycle) {
+    if (entry.verdict !== "resolved" || !entry.mutationEligible) continue;
+    const operation = view.attempt.operations.find(
+      (operation) =>
+        operation.publicationKind === "thread_lifecycle" &&
+        operation.markerHash ===
+          sha(`reviewrouter-lifecycle:${entry.targetId}:resolved`) &&
+        operation.bodyHash ===
+          sha(canonicalJson({ resolve: true, threadId: entry.threadId })) &&
+        operation.targetCommitId === record.sourceReviewedHeadSha &&
+        operation.reviewRevisionHash === record.sourceReviewRevisionHash,
+    );
+    if (!operation) continue;
+    const effect = view.effects.find(
+      (effect) =>
+        effect.publicationOperationId === operation.publicationOperationId &&
+        effect.externalObjectId === `thread:${entry.threadId}` &&
+        effect.effectKind !== "lifecycle_compensated" &&
+        Number.isFinite(effect.observedAt.getTime()),
+    );
+    if (!effect) continue;
+    result.push({
+      sourceKind: "canonical_operation",
+      operationId: operation.publicationOperationId,
+      publicationAttemptId: view.attempt.publicationAttemptId,
+      executionId: view.attempt.permit.executionId,
+      generation: view.attempt.permit.generation.toString(),
+      reviewedHeadSha: operation.targetCommitId,
+      bodyHash: operation.bodyHash,
+      effectId: effect.effectId,
+      observedAt: effect.observedAt.toISOString(),
+    });
+  }
+  return result;
+}
+
+export type ComparisonResolutionHistoryWitness = Readonly<{
+  targetId: string;
+  threadId: string;
+  parentCommentId: string;
+  parentCreatedAt: string;
+  parentBodyHash: string;
+  history: import("@reviewrouter/features-review-publishing/v2").ResolutionHistory;
+}>;
+
+/** Bind history to the exact native parent; absence before the cut remains explicitly unobserved. */
+export function bindComparisonResolutionHistory(
+  targets: readonly Omit<ComparisonResolutionHistoryWitness, "history">[],
+  histories: readonly import("@reviewrouter/features-review-publishing/v2").ResolutionHistory[],
+): readonly ComparisonResolutionHistoryWitness[] {
+  const byThread = new Map(
+    histories.map((history) => [history.threadId, history]),
+  );
+  if (byThread.size !== histories.length)
+    throw new Error("resolution_history_duplicate_thread");
+  const unique = new Set<string>();
+  return targets.map((target) => {
+    const history = byThread.get(target.threadId);
+    if (
+      !history ||
+      !target.targetId ||
+      !target.threadId ||
+      !target.parentCommentId ||
+      !Number.isFinite(Date.parse(target.parentCreatedAt)) ||
+      !/^[a-f0-9]{64}$/.test(target.parentBodyHash) ||
+      unique.has(target.targetId)
+    )
+      throw new Error("resolution_history_target_binding_invalid");
+    unique.add(target.targetId);
+    return { ...target, history };
+  });
+}

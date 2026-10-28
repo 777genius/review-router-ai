@@ -1,3 +1,4 @@
+import { effectiveGatewayReasoningEffort } from "@reviewrouter/features-review-providers";
 import type { AccountConnectionView } from "./connection-capabilities";
 // Match the qualified Action's admitted MiMo model, without changing Codex or
 // OpenRouter model policies. Callers apply this only to Gateway selections.
@@ -11,6 +12,7 @@ export function gatewayModelSupportsReasoningEffort(
   model: string,
   effort: string | undefined,
   connection?: AccountConnectionView,
+  profileRef?: string,
 ): boolean {
   if (connection) {
     const qualified = connection.modelSettings.find(
@@ -19,10 +21,18 @@ export function gatewayModelSupportsReasoningEffort(
     if (!qualified) return false;
     return qualified.reasoning === null
       ? effort === undefined
-      : effort !== undefined && qualified.reasoning.allowed.includes(effort);
+      : (profileRef === "openai-codex-oauth-responses-v1" &&
+          effort === undefined) ||
+          (effort !== undefined &&
+            qualified.reasoning.allowed.some(
+              (allowed) =>
+                effectiveGatewayReasoningEffort(profileRef, allowed) ===
+                effectiveGatewayReasoningEffort(profileRef, effort),
+            ));
   }
   return (
     effort !== undefined &&
+    effort !== "minimal" &&
     (!isGatewayMiMoModel(model) ||
       effort === "low" ||
       effort === "medium" ||
@@ -33,13 +43,30 @@ export function gatewayModelSupportsReasoningEffort(
 export function gatewayModelDefaultReasoningEffort(
   model: string,
   connection?: AccountConnectionView,
-): "low" | "medium" | "high" | "xhigh" | "max" | "ultra" | undefined {
+):
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max"
+  | "ultra"
+  | undefined {
   if (connection) {
     const value = connection.modelSettings.find((row) => row.modelId === model)
       ?.reasoning?.default;
     return value &&
-      ["low", "medium", "high", "xhigh", "max", "ultra"].includes(value)
-      ? (value as "low" | "medium" | "high" | "xhigh" | "max" | "ultra")
+      ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"].includes(
+        value,
+      )
+      ? (value as
+          | "minimal"
+          | "low"
+          | "medium"
+          | "high"
+          | "xhigh"
+          | "max"
+          | "ultra")
       : undefined;
   }
   return isGatewayMiMoModel(model) ? "high" : "xhigh";
