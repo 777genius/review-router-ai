@@ -19,7 +19,10 @@ import {
   PrismaPersonalAccountOperations,
   PrismaPersonalCanonicalOperations,
 } from "@reviewrouter/features-provider-accounts/synchronization";
-import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
+import {
+  accountModelCatalogResponseBytes,
+  readPersonalAccountSharingEnabled,
+} from "@reviewrouter/features-provider-accounts/composition";
 import {
   accountsServerAdapter,
   loadAccountsBootstrap,
@@ -76,7 +79,7 @@ export async function productionPersonalAccounts() {
     token:
       process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_PERSONAL_CONTROL_TOKEN ?? "",
     timeoutMs: 10000,
-    responseBytes: 65536,
+    responseBytes: accountModelCatalogResponseBytes,
   };
   const control = createConsumerControlClient(controlSettings);
   const lifecycleReader = createAccountLifecycleReader({

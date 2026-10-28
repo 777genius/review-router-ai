@@ -20,6 +20,7 @@ import { AccountGatewayAccountsSection } from "./account-gateway-accounts-sectio
 import {
   apiKeySetupHref,
   readApiKeySetupIntent,
+  type ApiKeySetupIntent,
 } from "../../src/features/provider-setup/api-key-storage";
 import { ApiKeySetupReturn } from "./provider-setup/api-key-setup-return";
 import { apiKeyProviders } from "@reviewrouter/features-review-providers";
@@ -1928,6 +1929,7 @@ export function WorkspaceCard({
     modelOptions,
     gatewayAccounts,
     agentProfileOptions,
+    initialIntent: keySetupIntent ?? undefined,
   } as const;
   const requestedRepositoryFullName = readParam(params.repository);
   const providerSecretCheckFailedRepositoryFullName =
@@ -2569,6 +2571,7 @@ type ProviderDialogProps = Readonly<{
   modelOptions: readonly ReviewModelOption[];
   gatewayAccounts: AccountsResult<AccountsPage> | undefined;
   agentProfileOptions: readonly GatewayAgentProfileOption[];
+  initialIntent?: ApiKeySetupIntent | undefined;
 }>;
 
 function RepositoryTable({
@@ -2729,6 +2732,17 @@ function RepositoryTable({
         data-repository-table
         className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/62 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
       >
+        {providerDialog.initialIntent?.storage === "github_secrets" ? (
+          <p
+            role="status"
+            className="border-b border-cyan-200/10 px-4 py-3 text-sm leading-6 text-slate-300"
+          >
+            Choose the repository rows, then Configure providers. Your provider
+            and GitHub Secrets choice are kept; you can paste the key once and
+            install it in the selected repositories when automatic installation
+            is available.
+          </p>
+        ) : null}
         {repositories.length === 0 ? (
           <div className="p-5">
             <Badge tone="warning">No repositories yet</Badge>

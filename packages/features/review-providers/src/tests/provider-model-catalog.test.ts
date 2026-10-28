@@ -38,6 +38,34 @@ const routerRow = (id: string, extra: Record<string, unknown> = {}) => ({
 });
 
 describe("provider model catalog", () => {
+  it("opts into catalog-admitted routing ids only for qualified transports and keeps capability failures closed", () => {
+    const routing: ProviderCatalogModel = {
+      id: "openrouter/catalog-route",
+      name: "Catalog routing model",
+      contextTokens: 128000,
+      textInput: true,
+      textOutput: true,
+      toolCalling: true,
+      pricing: null,
+    };
+    const data = snapshot([
+      routing,
+      { ...routing, id: "openrouter/unknown-tools", toolCalling: null },
+    ]);
+    expect(
+      catalogSnapshotOptions(data).find((option) => option.value === routing.id)
+        ?.disabled,
+    ).toBe(true);
+    const gateway = catalogSnapshotOptions(data, { allowRoutingModels: true });
+    expect(
+      gateway.find((option) => option.value === routing.id)?.disabled,
+    ).not.toBe(true);
+    expect(
+      gateway.find((option) => option.value === "openrouter/unknown-tools")
+        ?.disabled,
+    ).toBe(true);
+  });
+
   it("lists static Codex and Claude options", () => {
     const options = listStaticReviewModelOptions();
 

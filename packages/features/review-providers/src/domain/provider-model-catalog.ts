@@ -9,6 +9,11 @@ export type PublicCatalogProvider = Extract<
   "codex" | "claude" | "openrouter"
 >;
 export type CatalogCapability = boolean | null;
+export type CatalogSelectionOptions = Readonly<{
+  requiresTools?: boolean;
+  /** Only qualified transports may opt into catalog-admitted routing ids. */
+  allowRoutingModels?: boolean;
+}>;
 export type ProviderCatalogModel = {
   readonly id: string;
   readonly name: string;
@@ -56,10 +61,11 @@ export function isFreeCatalogModel(model: ProviderCatalogModel): boolean {
 export function catalogModelUnsupportedReason(
   providerKind: ProviderKind,
   model: ProviderCatalogModel,
-  input: { readonly requiresTools?: boolean } = {},
+  input: CatalogSelectionOptions = {},
 ): string | null {
   if (
     providerKind === "openrouter" &&
+    input.allowRoutingModels !== true &&
     model.id.startsWith("openrouter/") &&
     model.id !== "openrouter/owl-alpha"
   )
@@ -85,7 +91,7 @@ function openRouterRecommendationRank(model: ProviderCatalogModel): number {
 export function compareOpenRouterCatalogModels(
   left: ProviderCatalogModel,
   right: ProviderCatalogModel,
-  input: { readonly requiresTools?: boolean } = {},
+  input: CatalogSelectionOptions = {},
 ): number {
   const leftUnsupported = catalogModelUnsupportedReason(
     "openrouter",
@@ -118,7 +124,7 @@ export function compareOpenRouterCatalogModels(
 
 export function catalogSnapshotOptions(
   snapshot: ProviderModelCatalogSnapshot,
-  input: { readonly requiresTools?: boolean } = {},
+  input: CatalogSelectionOptions = {},
 ): readonly ReviewModelOption[] {
   const locals = listStaticReviewModelOptions().filter(
     (option) => option.provider === snapshot.providerKind,
@@ -156,11 +162,13 @@ export function catalogSnapshotOptions(
         : snapshot.state === "stale"
           ? "Cached public catalog; account access not checked."
           : "Public catalog; account access not checked.";
+    const metadataDescription = `${model.id} - ${pricing}. ${context}. ${provenance}`;
     return {
       value: model.id,
       label: model.name.replace(/\s+\(free\)$/i, ""),
       provider: snapshot.providerKind,
-      description: `${model.id} - ${pricing}. ${context}. ${provenance}${reason ? ` ${reason}` : ""}`,
+      metadataDescription,
+      description: `${metadataDescription}${reason ? ` ${reason}` : ""}`,
       ...(reason
         ? { disabled: true, badge: "Unsupported" as const }
         : snapshot.providerKind === "openrouter" &&

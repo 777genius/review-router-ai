@@ -51,9 +51,15 @@ import {
   useAccountMenuReturnFocus,
 } from "./account-actions-menu";
 import { Copy, ExternalLink, Plus, RefreshCw } from "lucide-react";
-import { useCurrentGatewayModelAccountsCache } from "./gateway-model-account-options";
+import { useRouter } from "next/navigation";
+import { hasReadySetupProvider } from "../../src/features/provider-setup/connection-setup-continuation";
+import {
+  useGatewayModelAccounts,
+  useCurrentGatewayModelAccountsCache,
+} from "./gateway-model-account-options";
 import { dashboardSectionHref } from "./dashboard-section";
 import { accountsCopy } from "./accounts-copy";
+import { useOwnAccountsView } from "./accounts-workspace-tabs";
 import { AccountIdentity, AccountProviderLogo } from "./account-identity";
 import { AccountStatusLine } from "./account-status-icon";
 import { readAccountResult } from "./account-read-result";
@@ -209,6 +215,7 @@ export function AccountGatewayControls({
   connectOnly = false,
   workspaceId,
   setupIntent,
+  initiallyOpenConnect = false,
 }: {
   bootstrap: AccountsBootstrap;
   api?: AccountGatewayManagementApi;
@@ -220,6 +227,7 @@ export function AccountGatewayControls({
   connectOnly?: boolean;
   workspaceId?: string | undefined;
   setupIntent?: ApiKeySetupIntent | undefined;
+  initiallyOpenConnect?: boolean;
 }) {
   const optionsCache = useCurrentGatewayModelAccountsCache();
   const [fallback] = useState(() => new QueryClient());
@@ -335,6 +343,7 @@ export function AccountGatewayControls({
             renderAccounts={renderAccounts}
             hideConnect={hideConnect}
             connectOnly={connectOnly}
+            initiallyOpenConnect={initiallyOpenConnect}
             workspaceId={workspaceId}
           />
         </ApiKeySetupContext.Provider>
@@ -354,6 +363,7 @@ function Controls({
   renderAccounts,
   hideConnect,
   connectOnly,
+  initiallyOpenConnect,
   workspaceId,
 }: {
   bootstrap: AccountsBootstrap;
@@ -366,8 +376,10 @@ function Controls({
   renderAccounts: AccountRowsRenderer | undefined;
   hideConnect: boolean;
   connectOnly: boolean;
+  initiallyOpenConnect: boolean;
   workspaceId: string | undefined;
 }) {
+  const setup = useContext(ApiKeySetupContext);
   const { context } = bootstrap;
   const contextScope = context.split(".")[0] ?? "";
   const personal = managementScope === "personal";
@@ -970,6 +982,7 @@ function Controls({
       <div className="flex flex-wrap gap-3">
         {!connectOnly &&
         !hideConnect &&
+        (!initiallyOpenConnect || ready) &&
         data?.status === "ok" &&
         data.value.profiles.some(
           (p) =>
@@ -977,6 +990,7 @@ function Controls({
             (personal || !p.connection?.personalOnly),
         ) ? (
           <ConnectAccountDialog
+            initiallyOpen={initiallyOpenConnect && !activeNonce}
             profiles={data.value.profiles.filter(
               (p) =>
                 (p.authKind === "api_key" || p.authKind === "oauth") &&
@@ -1068,6 +1082,37 @@ function Controls({
                 }
                 api={api}
                 managementScope={managementScope}
+                renderSetupContinuation={
+                  setup.intent?.storage === "reviewrouter" &&
+                  data?.status === "ok"
+                    ? (operationAccount) => {
+                        const account =
+                          data.value.accounts.find(
+                            (candidate) =>
+                              candidate.connectionId ===
+                              operationAccount.connectionId,
+                          ) ?? operationAccount;
+                        const profile = data.value.profiles.find(
+                          (candidate) => candidate.id === account.profileId,
+                        );
+                        return setupProviderForGatewayProfile(profile) ===
+                          setup.intent!.provider ? (
+                          <ConnectionSetupContinuation
+                            intent={setup.intent!}
+                            account={account}
+                            managementScope={managementScope}
+                            disabled={
+                              disabled ||
+                              lifecycleActivities.has(account.connectionId)
+                            }
+                            makeAvailable={(selected) =>
+                              bindingMutation.mutateAsync(selected)
+                            }
+                          />
+                        ) : null;
+                      }
+                    : undefined
+                }
               />
             ))}
         </div>
@@ -1202,16 +1247,142 @@ function Controls({
   );
 }
 
+function ConnectionSetupContinuation({
+  intent,
+  account,
+  managementScope,
+  disabled,
+  makeAvailable,
+}: {
+  intent: ApiKeySetupIntent;
+  account: AccountView;
+  managementScope: ManagementScope;
+  disabled: boolean;
+  makeAvailable(
+    account: AccountView,
+  ): Promise<AccountsResult<{ label: string }>>;
+}): React.ReactElement {
+  const router = useRouter();
+  const showOwnConnections = useOwnAccountsView();
+  const targetAccounts = useGatewayModelAccounts(undefined, []);
+  const personal = managementScope === "personal";
+  const availableForProvider = hasReadySetupProvider(
+    targetAccounts.accounts,
+    intent.provider,
+  );
+  const needsBinding =
+    !personal &&
+    (account.binding?.state !== "active" || account.binding.fencePending);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const href = apiKeySetupHref("providers", intent);
+  async function continueSetup() {
+    if (pending || disabled) return;
+    setError(null);
+    setPending(true);
+    try {
+      if (needsBinding) {
+        const result = await makeAvailable(account);
+        if (result.status !== "ok") {
+          setError(statusText(result.status));
+          return;
+        }
+      }
+      router.push(href);
+    } catch {
+      setError(
+        "The connection could not be made available. Check its status before trying again.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+  if (personal)
+    return (
+      <div className="grid gap-2">
+        <p className="text-sm text-slate-400">
+          {availableForProvider
+            ? "A connection for this provider is available to this workspace. Continue to choose which connection to use."
+            : "Continue to provider setup to choose a connection, or manage this connection's workspace access."}
+        </p>
+        <Button
+          type="button"
+          size="sm"
+          className="w-fit"
+          disabled={disabled || pending || account.state !== "active"}
+          onClick={() => void continueSetup()}
+        >
+          Continue provider setup
+        </Button>
+        {showOwnConnections ? (
+          <button
+            type="button"
+            className="w-fit font-semibold text-cyan-200 underline"
+            onClick={showOwnConnections}
+          >
+            Manage workspace access
+          </button>
+        ) : (
+          <a
+            className="w-fit font-semibold text-cyan-200 underline"
+            href={`${apiKeySetupHref("accounts", intent)}#your-accounts`}
+          >
+            Manage workspace access
+          </a>
+        )}
+      </div>
+    );
+  return (
+    <div className="grid gap-2">
+      {needsBinding ? (
+        <p className="text-sm text-slate-400">
+          Continue makes this connection available to the selected workspace,
+          then returns to the same provider and repository setup.
+        </p>
+      ) : null}
+      <Button
+        type="button"
+        size="sm"
+        className="w-fit"
+        disabled={
+          disabled ||
+          pending ||
+          account.state !== "active" ||
+          (needsBinding &&
+            (account.canManage !== true ||
+              Boolean(account.binding?.fencePending)))
+        }
+        aria-busy={pending}
+        onClick={() => void continueSetup()}
+      >
+        {pending
+          ? "Making available..."
+          : needsBinding
+            ? "Make available and continue"
+            : "Continue provider setup"}
+      </Button>
+      {error ? (
+        <p role="alert" className="text-sm text-red-100">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 /** One provider-first entry point; operation progress stays with the controller. */
 function ConnectAccountDialog({
+  initiallyOpen = false,
   profiles,
   accounts,
   disabled,
   managementScope,
   begin,
   submit,
-}: Parameters<typeof ConnectionForm>[0]): React.ReactElement {
-  const [open, setOpen] = useState(false);
+}: Parameters<typeof ConnectionForm>[0] & {
+  initiallyOpen?: boolean;
+}): React.ReactElement {
+  const [open, setOpen] = useState(initiallyOpen);
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger
@@ -1621,6 +1792,7 @@ function OperationReadback({
   consumeCompletionHandoff,
   api,
   managementScope,
+  renderSetupContinuation,
 }: {
   context: string;
   scope: string;
@@ -1638,6 +1810,7 @@ function OperationReadback({
   consumeCompletionHandoff(): void;
   api: AccountGatewayManagementApi;
   managementScope: ManagementScope;
+  renderSetupContinuation?: ((account: AccountView) => ReactNode) | undefined;
 }) {
   const client = useQueryClient();
   const [pollUntil] = useState(() => Date.now() + 15 * 60000);
@@ -1884,6 +2057,9 @@ function OperationReadback({
           </p>
         ) : null}
       </div>
+      {state === "applied" && data?.status === "ok" && data.value.account
+        ? renderSetupContinuation?.(data.value.account)
+        : null}
       {state === "pending" &&
       data?.status === "ok" &&
       data.value.oauthMethod === "device_code" ? (

@@ -89,7 +89,7 @@ export function readApiKeySetupIntent(
 }
 
 export function apiKeySetupHref(
-  destination: "accounts" | "providers",
+  destination: "accounts" | "providers" | "repositories",
   intent: ApiKeySetupIntent,
 ): string {
   const query = new URLSearchParams({
@@ -98,7 +98,7 @@ export function apiKeySetupHref(
     keyStorage: intent.storage,
     keyWorkspace: intent.workspaceId,
   });
-  if (destination === "providers") query.set("section", "providers");
+  if (destination !== "accounts") query.set("section", destination);
   for (const id of intent.repositoryIds) query.append("keyRepository", id);
   return `${destination === "accounts" ? "/dashboard/setup" : "/dashboard"}?${query}`;
 }

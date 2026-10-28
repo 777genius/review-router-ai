@@ -1,9 +1,7 @@
 "use client";
 
-import {
-  getSetupProvider,
-  setupProviderForGatewayProfile,
-} from "../../../src/features/provider-setup/setup-provider";
+import { getSetupProvider } from "../../../src/features/provider-setup/setup-provider";
+import { hasReadySetupProvider } from "../../../src/features/provider-setup/connection-setup-continuation";
 import { GatewayAccountLoadMore } from "./gateway-account-load-more";
 import { Button } from "@reviewrouter/ui";
 import { useRouter } from "next/navigation";
@@ -12,7 +10,6 @@ import type {
   AccountsPage,
   AccountsResult,
 } from "../../../src/server/account-gateway-accounts";
-import { getReadyGatewayAccounts } from "../../../src/server/dashboard-provider-setup-readiness";
 import {
   apiKeySetupHref,
   type ApiKeySetupIntent,
@@ -33,14 +30,7 @@ export function ApiKeySetupReturn({
   const cache = useCurrentGatewayModelAccountsCache();
   const router = useRouter();
   const [refreshing, startTransition] = useTransition();
-  const page =
-    options.accounts?.status === "ok" ? options.accounts.value : null;
-  const ready = getReadyGatewayAccounts(options.accounts).some(
-    (account) =>
-      setupProviderForGatewayProfile(
-        page?.profiles.find((profile) => profile.id === account.profileId),
-      ) === intent.provider,
-  );
+  const ready = hasReadySetupProvider(options.accounts, intent.provider);
   return (
     <section
       className="grid gap-2 border-b border-cyan-200/10 pb-4 text-sm text-slate-300"

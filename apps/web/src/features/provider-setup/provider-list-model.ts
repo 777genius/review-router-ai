@@ -71,7 +71,7 @@ export type ProviderListRow = Readonly<{
   actions: Readonly<{
     /** Rename and change the model. */
     edit: ProviderListDecision;
-    /** Null on the default itself. */
+    /** Choose the default, or edit the current default's review settings. */
     makeDefault: ProviderListDecision | null;
     /** Only on the default. */
     removeDefault: ProviderListDecision | null;
@@ -180,9 +180,8 @@ export function buildProviderListView(
       creator: creatorOf(facts, profile.createdByUserId),
       actions: {
         edit: decide({ kind: "edit_profile", profile: profileFacts }),
-        makeDefault: isDefault
-          ? null
-          : profile.credentialKind === "hosted_pool"
+        makeDefault:
+          profile.credentialKind === "hosted_pool"
             ? // A hosted pool comes from each repository's session source.
               { allowed: false, reason: "hosted_pool_not_default" }
             : decide({ kind: "set_default", profile: profileFacts }),

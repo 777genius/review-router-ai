@@ -27,6 +27,7 @@ export function PersonalAccountsPanel({
   workspaceId,
   accessReadContext,
   setupIntent,
+  initiallyOpenConnect = false,
 }: {
   bootstrap: PersonalAccountsBootstrap;
   api: PersonalAccountsApi;
@@ -35,6 +36,7 @@ export function PersonalAccountsPanel({
   workspaceId?: string;
   accessReadContext?: string;
   setupIntent?: ApiKeySetupIntent | undefined;
+  initiallyOpenConnect?: boolean;
 }) {
   const readApi = useMemo(
     () =>
@@ -62,6 +64,7 @@ export function PersonalAccountsPanel({
         managementScope="personal"
         workspaceId={workspaceId}
         setupIntent={setupIntent}
+        initiallyOpenConnect={initiallyOpenConnect}
         api={managementApi}
         queryClient={client}
         refreshRelated={refreshSharing}

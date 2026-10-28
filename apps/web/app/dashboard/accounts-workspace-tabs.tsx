@@ -3,19 +3,27 @@
 import { Tabs } from "@base-ui/react/tabs";
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { accountsCopy } from "./accounts-copy";
-const OwnAccountsView = createContext<(() => void) | null>(null);
-export const useOwnAccountsView = () => useContext(OwnAccountsView);
+import { GitHubAccountAvatar } from "../github-account-avatar";
+export const OwnAccountsViewContext = createContext<(() => void) | null>(null);
+export const useOwnAccountsView = () => useContext(OwnAccountsViewContext);
 
 export function AccountsWorkspaceTabs({
   available,
   own,
+  viewer,
+  initialView = "available",
 }: {
   readonly available: ReactNode;
   readonly own: ReactNode;
+  readonly viewer?: Readonly<{
+    login: string | null;
+    avatarUrl: string | null;
+  }>;
+  readonly initialView?: "available" | "own";
 }): React.ReactElement {
-  const [view, setView] = useState("available");
+  const [view, setView] = useState(initialView);
   return (
-    <OwnAccountsView.Provider value={() => setView("own")}>
+    <OwnAccountsViewContext.Provider value={() => setView("own")}>
       <Tabs.Root value={view} onValueChange={setView}>
         <Tabs.List
           aria-label="Connection scope"
@@ -25,7 +33,19 @@ export function AccountsWorkspaceTabs({
             {accountsCopy.available}
           </AccountsWorkspaceTab>
           <AccountsWorkspaceTab value="own">
-            {accountsCopy.own}
+            <span className="inline-flex items-center gap-2">
+              {viewer?.login ? (
+                <GitHubAccountAvatar
+                  login={viewer.login}
+                  avatarUrl={viewer.avatarUrl}
+                  size="sm"
+                  altText=""
+                />
+              ) : null}
+              {viewer?.login
+                ? `All ${viewer.login} connections`
+                : accountsCopy.own}
+            </span>
           </AccountsWorkspaceTab>
         </Tabs.List>
         <Tabs.Panel value="available" className="pt-5">
@@ -48,7 +68,7 @@ export function AccountsWorkspaceTabs({
           {own}
         </Tabs.Panel>
       </Tabs.Root>
-    </OwnAccountsView.Provider>
+    </OwnAccountsViewContext.Provider>
   );
 }
 

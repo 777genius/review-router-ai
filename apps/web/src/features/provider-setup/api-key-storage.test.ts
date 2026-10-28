@@ -55,7 +55,11 @@ describe("API key storage and safe continuation", () => {
         workspaceId: "workspace-one",
         repositoryIds: ["repo-a", "repo-b"],
       };
-      for (const destination of ["accounts", "providers"] as const) {
+      for (const destination of [
+        "accounts",
+        "providers",
+        "repositories",
+      ] as const) {
         const url = new URL(
           apiKeySetupHref(destination, intent),
           "https://example.test",

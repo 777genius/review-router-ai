@@ -12,7 +12,10 @@ import {
   PrismaProviderAccountRepository,
   selectBinding,
 } from "@reviewrouter/features-provider-accounts";
-import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
+import {
+  readAccountModelCatalogEnabled,
+  readPersonalAccountSharingEnabled,
+} from "@reviewrouter/features-provider-accounts/composition";
 import {
   captureGatewayProbeAccessRequest,
   verifyGatewayProbeAccess,
@@ -108,7 +111,7 @@ export function createDashboardGatewayProbeAccess(input: {
           !gatewayProfileAcceptsRequestedModel(
             profile,
             request.model,
-            input.env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED === "1",
+            readAccountModelCatalogEnabled(input.env),
           )
         )
           throw new Error("denied");

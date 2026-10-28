@@ -30,7 +30,11 @@ import {
 } from "@reviewrouter/features-review-context-tools";
 import { createContextIssueReader } from "./github/context-issue-read.js";
 import type { ContextToolsRunAccess } from "./review-context-tools.js";
-import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
+import {
+  accountModelCatalogResponseBytes,
+  readAccountModelCatalogEnabled,
+  readPersonalAccountSharingEnabled,
+} from "@reviewrouter/features-provider-accounts/composition";
 import { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
 export { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
 import {
@@ -1323,8 +1327,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
   const accountGatewayRelay = accountGatewayRelayPolicy
     ? createReviewRunGatewayRelay({
         policy: accountGatewayRelayPolicy,
-        accountModelCatalogEnabled:
-          input.env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED === "1",
+        accountModelCatalogEnabled: readAccountModelCatalogEnabled(input.env),
         companionDispatches: createReviewRunCompanionDispatchAdmission({
           prisma,
           verifyLease: (token, now) => capabilities.verifyLease(token, now),
@@ -1465,8 +1468,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
   const accountGatewayCheckout = accountGatewayRelayPolicy
     ? createReviewRunGatewayCheckout({
         readSelectedModelSettings: createReviewRunGatewayModelSettingsReader({
-          accountModelCatalogEnabled:
-            input.env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED === "1",
+          accountModelCatalogEnabled: readAccountModelCatalogEnabled(input.env),
           accounts: new PrismaProviderAccountRepository(
             prisma,
             input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
@@ -1485,7 +1487,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
               10000,
               accountGatewayRelayPolicy.requestTimeoutMs,
             ),
-            responseBytes: 262144,
+            responseBytes: accountModelCatalogResponseBytes,
           }),
           profiles: accountGatewayRelayPolicy.profiles.map(
             (entry) => entry.profile,

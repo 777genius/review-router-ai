@@ -476,6 +476,151 @@ describe("ProviderSetupDialog", () => {
     expect(createProviderProfileAction).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])(
+    "installs the GitHub key through the existing batch API before assignment (partial first attempt: %s)",
+    async (partialFirstAttempt) => {
+      const repositories = [
+        { id: "repo_1", fullName: "acme/widget" },
+        { id: "repo_2", fullName: "acme/service" },
+      ];
+      const managed = {
+        key: "managed_api_key:openrouter_api_key" as const,
+        credentialKind: "managed_api_key" as const,
+        authMode: "openrouter_api_key" as const,
+        decision: { allowed: true as const },
+        managedKey: {
+          uploaded: false,
+          installedRepositoryIds: [] as string[],
+          install: { allowed: true as const },
+        },
+      };
+      view = {
+        ...view,
+        repositories: repositories.map((repository) => ({
+          ...repository,
+          source: "none",
+          selection: null,
+          useDefault: { allowed: true },
+        })),
+        sources: [...apiSources(), managed],
+      };
+      const applyRequests: Record<string, unknown>[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init?: RequestInit) => {
+          if (url === "/api/dashboard/provider-keys/apply") {
+            applyRequests.push(
+              JSON.parse(String(init?.body)) as Record<string, unknown>,
+            );
+            const partial = partialFirstAttempt && applyRequests.length === 1;
+            managed.managedKey.uploaded = true;
+            managed.managedKey.installedRepositoryIds = partial
+              ? ["repo_1"]
+              : ["repo_1", "repo_2"];
+            return {
+              ok: true,
+              json: async () => ({
+                results: repositories.map((repository, index) => ({
+                  repositoryId: repository.id,
+                  repositoryFullName: repository.fullName,
+                  status: partial && index === 1 ? "denied" : "applied",
+                  ...(partial && index === 1
+                    ? { errorReason: "repository_access_denied" }
+                    : {}),
+                })),
+              }),
+            } as Response;
+          }
+          return { ok: true, json: async () => view } as Response;
+        }),
+      );
+      vi.mocked(saveProviderSetupAction).mockResolvedValue({
+        status: "saved",
+        results: repositories.map((repository) => ({
+          repositoryId: repository.id,
+          fullName: repository.fullName,
+          status: "applied",
+        })),
+      });
+      renderDialog(
+        { kind: "repositories", repositories },
+        {
+          initialIntent: {
+            provider: "openrouter",
+            storage: "github_secrets",
+            workspaceId: "workspace_1",
+            repositoryIds: repositories.map((repository) => repository.id),
+          },
+        },
+      );
+      const key = await screen.findByLabelText(/^OpenRouter API key/);
+      expect(
+        screen
+          .getByRole("radio", { name: "Install for me" })
+          .getAttribute("aria-checked"),
+      ).toBe("true");
+      expect(applyRequests).toHaveLength(0);
+      fireEvent.change(key, {
+        target: { value: "synthetic-single-entry-key" },
+      });
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Install key and use for 2 repositories",
+        }),
+      );
+      if (partialFirstAttempt) {
+        await screen.findByText(/Provider settings have not been changed/);
+        expect(saveProviderSetupAction).not.toHaveBeenCalled();
+        expect(
+          screen.getByText(/The key is installed in 1 of 2 repositories/),
+        ).toBeTruthy();
+        expect(
+          screen.queryByDisplayValue("synthetic-single-entry-key"),
+        ).toBeNull();
+        expect(applyRequests).toHaveLength(1);
+        fireEvent.click(
+          screen.getByRole("button", {
+            name: "Install key and use for 2 repositories",
+          }),
+        );
+      }
+      await waitFor(() =>
+        expect(saveProviderSetupAction).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({
+            target: {
+              kind: "repositories",
+              repositoryIds: ["repo_1", "repo_2"],
+            },
+            provider: expect.objectContaining({
+              credential: {
+                kind: "managed_api_key",
+                authMode: "openrouter_api_key",
+              },
+            }),
+          }),
+        ),
+      );
+      expect(applyRequests[0]).toEqual({
+        workspaceId: "workspace_1",
+        providerType: "openrouter",
+        apiKey: "synthetic-single-entry-key",
+        repositoryIds: ["repo_1", "repo_2"],
+      });
+      if (partialFirstAttempt)
+        expect(applyRequests[1]).toEqual({
+          workspaceId: "workspace_1",
+          providerType: "openrouter",
+          repositoryIds: ["repo_1", "repo_2"],
+        });
+      expect(
+        await screen.findByText("The key is installed in all 2 repositories."),
+      ).toBeTruthy();
+      expect(
+        screen.queryByDisplayValue("synthetic-single-entry-key"),
+      ).toBeNull();
+    },
+  );
+
   it("starts a new API provider with the available storage when GitHub Secrets is denied", async () => {
     view = {
       ...view,
@@ -731,6 +876,88 @@ describe("ProviderSetupDialog", () => {
     expect(
       screen.getByText("200K context Unavailable for this account."),
     ).toBeTruthy();
+  });
+
+  it("allows a catalog-admitted routing model through its exact Gateway account while keeping direct GitHub routing disabled", async () => {
+    const fixture = gatewayFixture();
+    if (fixture.status !== "ok") throw new Error("fixture unavailable");
+    const routingId = "openrouter/catalog-route";
+    const profile = fixture.value.profiles[0]!;
+    profile.models = [routingId];
+    profile.connection!.modelSettings = [
+      { ...profile.connection!.modelSettings[0]!, modelId: routingId },
+    ];
+    fixture.value.nextCursor = null;
+    const snapshots: ProviderModelCatalogSnapshot[] = (
+      ["codex", "claude", "openrouter"] as const
+    ).map((providerKind) => ({
+      providerKind,
+      models:
+        providerKind === "openrouter"
+          ? [routingId, "openrouter/not-admitted"].map((id) => ({
+              id,
+              name: id,
+              textInput: true,
+              textOutput: true,
+              toolCalling: true,
+              contextTokens: 128000,
+              pricing: null,
+            }))
+          : [],
+      source: providerKind === "openrouter" ? "openrouter" : "models.dev",
+      fetchedAt: Date.now(),
+      lastAttemptAt: Date.now(),
+      state: "fresh",
+      error: null,
+      refresh: "cached",
+    }));
+    view = {
+      ...view,
+      sources: apiSources(),
+      gatewaySetupProviders: ["openrouter"],
+    };
+    renderDialog(
+      repositoryTarget,
+      {
+        gatewayAccounts: fixture,
+        initialIntent: {
+          provider: "openrouter",
+          storage: "reviewrouter",
+          workspaceId: "workspace_1",
+          repositoryIds: ["repo_1"],
+        },
+      },
+      {
+        snapshots,
+        api: vi.fn(
+          async ({ providerKind }) =>
+            snapshots.find(
+              (snapshot) => snapshot.providerKind === providerKind,
+            )!,
+        ),
+      },
+    );
+    const model = await screen.findByRole("combobox", { name: "Model" });
+    await waitFor(() => expect(model).toHaveProperty("value", routingId));
+    expect(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    ).toHaveProperty("disabled", false);
+    fireEvent.change(model, { target: { value: "openrouter/not-admitted" } });
+    expect(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    ).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("radio", { name: "GitHub Secrets" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Model" }), {
+      target: { value: routingId },
+    });
+    expect(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    ).toHaveProperty("disabled", true);
+    expect(
+      screen.getAllByText(
+        /This OpenRouter routing model is not supported for reviews/,
+      ).length,
+    ).toBeGreaterThan(0);
   });
 
   it("rejects a known disabled direct model while retaining an unknown custom model id", async () => {
@@ -1226,7 +1453,7 @@ describe("ProviderSetupDialog", () => {
       fireEvent.click(screen.getByRole("checkbox", { name: /^Fast mode/ }));
       fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
       await screen.findByText(
-        /The selected review depth or fast mode is not supported/,
+        /ReviewRouter does not offer .*settings? for this model/,
       );
       const save = screen.getByRole("button", {
         name: "Use for this repository",
@@ -1234,7 +1461,11 @@ describe("ProviderSetupDialog", () => {
       expect(save).toHaveProperty("disabled", true);
       expect(
         screen.getByRole("combobox", { name: /^Review depth/ }).textContent,
-      ).toContain("selected, unsupported");
+      ).toContain(
+        scenario === "reasoning removed"
+          ? "selected, unavailable in ReviewRouter"
+          : "selected, unsupported",
+      );
       expect(
         screen.getByRole("checkbox", { name: /^Fast mode/ }),
       ).toHaveProperty("checked", true);

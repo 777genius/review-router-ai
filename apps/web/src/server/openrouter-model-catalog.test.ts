@@ -198,7 +198,7 @@ describe("openrouter model catalog", () => {
       disabled: true,
     });
     expect(openRouterOwned?.description).toContain(
-      "router-owned ids need action runtime support",
+      "This OpenRouter routing model is not supported for reviews.",
     );
     expect(audioOutput).toMatchObject({
       label: "Vendor Audio Output",

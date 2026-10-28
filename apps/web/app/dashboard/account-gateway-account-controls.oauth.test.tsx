@@ -40,10 +40,18 @@ import {
   mutateGatewayAccount,
 } from "./account-gateway-account-actions";
 import { AccountsAddDialog } from "./accounts-add-dialog";
+import { AccountsWorkspaceTabs } from "./accounts-workspace-tabs";
+import {
+  GatewayModelAccountsProvider,
+  type GatewayModelAccountsApi,
+} from "./gateway-model-account-options";
 import {
   AccountGatewayControls,
   type AccountGatewayManagementApi,
 } from "./account-gateway-account-controls";
+
+const navigation = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => navigation }));
 
 // Mock only the server boundary. React Query, its caches, and shared dialog/select
 // primitives are real; this suite starts no service and sends no OAuth request.
@@ -138,6 +146,458 @@ test.each(apiKeyProviders)(
     expect(beginGatewayOAuth).not.toHaveBeenCalled();
   },
 );
+
+test("an explicit ReviewRouter continuation opens the OpenRouter key form without another Add action and keeps one-off submission custody", async () => {
+  const bootstrap = {
+    context,
+    page: {
+      status: "ok" as const,
+      value: {
+        profiles: [
+          page.profiles[1]!,
+          {
+            id: "profile-openrouter",
+            label: "OpenRouter",
+            authKind: "api_key" as const,
+            provider: "openrouter" as const,
+            protocol: "openai-responses" as const,
+            models: ["openai/model"],
+          },
+        ],
+        accounts: [],
+        nextCursor: null,
+      },
+    },
+  };
+  const connected: AccountView = {
+    ...row("active"),
+    connectionId: "openrouter-connection",
+    label: "Workspace OpenRouter",
+    profileId: "profile-openrouter",
+    profileLabel: "OpenRouter",
+    provider: "openrouter",
+    authKind: "api_key",
+    canManage: true,
+    binding: null,
+  };
+  let madeAvailable = false;
+  vi.mocked(listGatewayAccounts).mockImplementation(async () => ({
+    status: "ok",
+    value: {
+      ...bootstrap.page.value,
+      accounts: [
+        {
+          ...connected,
+          binding: madeAvailable
+            ? {
+                id: "openrouter-binding",
+                revision: 1,
+                state: "active",
+                fencePending: false,
+              }
+            : null,
+        },
+      ],
+    },
+  }));
+  vi.mocked(submitGatewayApiKey).mockImplementation(
+    async (_context, request) => ({
+      status: "ok",
+      value: {
+        nonce: request.nonce,
+        state: "applied",
+        cleanup: "unresolved",
+        account: connected,
+      },
+    }),
+  );
+  vi.mocked(bindGatewayAccount).mockImplementation(async () => {
+    madeAvailable = true;
+    return { status: "ok", value: { label: connected.label } };
+  });
+  const props = {
+    bootstrap,
+    workspaceId: "workspace-selected",
+    setupIntent: {
+      provider: "openrouter" as const,
+      storage: "reviewrouter" as const,
+      workspaceId: "workspace-selected",
+      repositoryIds: ["repo-kept"],
+    },
+    initiallyOpenConnect: true,
+  };
+  const rendered = render(<AccountGatewayControls {...props} />);
+  const dialog = await screen.findByRole("dialog", {
+    name: "Connect a provider",
+  });
+  expect(
+    within(dialog).getByRole("combobox", { name: "Provider" }).textContent,
+  ).toContain("OpenRouter");
+  expect(
+    within(dialog).getByText(/This connection belongs to this workspace/),
+  ).toBeTruthy();
+  const input = within(dialog).getByLabelText("API key");
+  expect(beginGatewayOAuth).not.toHaveBeenCalled();
+  expect(submitGatewayApiKey).not.toHaveBeenCalled();
+  fireEvent.change(input, {
+    target: { value: "synthetic-inline-openrouter-key" },
+  });
+  const submit = within(dialog).getByRole("button", {
+    name: "Connect account",
+  });
+  await waitFor(() => expect(submit).toHaveProperty("disabled", false));
+  fireEvent.click(submit);
+  await waitFor(() =>
+    expect(submitGatewayApiKey).toHaveBeenCalledExactlyOnceWith(
+      context,
+      expect.objectContaining({
+        kind: "connect",
+        profileId: "profile-openrouter",
+      }),
+      "synthetic-inline-openrouter-key",
+    ),
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  const continueSetup = await screen.findByRole("button", {
+    name: "Make available and continue",
+  });
+  await waitFor(() => expect(continueSetup).toHaveProperty("disabled", false));
+  fireEvent.click(continueSetup);
+  await waitFor(() => expect(navigation.push).toHaveBeenCalledTimes(1));
+  expect(bindGatewayAccount).toHaveBeenCalledExactlyOnceWith(context, {
+    connectionId: connected.connectionId,
+    mirrorRevision: 1,
+    gatewayRevision: 1,
+    bindingRevision: 0,
+  });
+  const destination = new URL(
+    navigation.push.mock.calls[0]![0] as string,
+    "https://example.test",
+  );
+  expect(destination.searchParams.get("workspace")).toBe("workspace-selected");
+  expect(destination.searchParams.get("keyProvider")).toBe("openrouter");
+  expect(destination.searchParams.getAll("keyRepository")).toEqual([
+    "repo-kept",
+  ]);
+  rendered.rerender(<AccountGatewayControls {...props} />);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.body.innerHTML).not.toContain(
+    "synthetic-inline-openrouter-key",
+  );
+  expect(JSON.stringify(storageWrites.mock.calls)).not.toContain(
+    "synthetic-inline-openrouter-key",
+  );
+  expect([...clients].map(caches).join("\n")).not.toContain(
+    "synthetic-inline-openrouter-key",
+  );
+});
+
+test.each([false, true])(
+  "workspace setup continuation navigates only after an available binding (already bound: %s)",
+  async (alreadyBound) => {
+    const connected: AccountView = {
+      ...row("active"),
+      label: "Workspace OpenRouter",
+      profileId: "profile-openrouter",
+      profileLabel: "OpenRouter",
+      provider: "openrouter",
+      authKind: "api_key",
+      canManage: true,
+      binding: alreadyBound
+        ? {
+            id: "existing-binding",
+            revision: 1,
+            state: "active",
+            fencePending: false,
+          }
+        : null,
+    };
+    page = {
+      ...page,
+      profiles: [
+        {
+          id: connected.profileId,
+          label: "OpenRouter",
+          protocol: "openai-responses",
+          authKind: "api_key",
+          provider: "openrouter",
+          models: ["openai/model"],
+        },
+      ],
+      accounts: [connected],
+    };
+    sessionStorage.setItem(storageKey, JSON.stringify([savedNonce]));
+    vi.mocked(readGatewayOperation).mockResolvedValue({
+      status: "ok",
+      value: {
+        nonce: savedNonce,
+        state: "applied",
+        cleanup: "unresolved",
+        account: connected,
+      },
+    });
+    vi.mocked(bindGatewayAccount).mockResolvedValue({ status: "denied" });
+    render(
+      <AccountGatewayControls
+        bootstrap={{ context, page: { status: "ok", value: page } }}
+        workspaceId="workspace-selected"
+        setupIntent={{
+          provider: "openrouter",
+          storage: "reviewrouter",
+          workspaceId: "workspace-selected",
+          repositoryIds: ["repo-kept"],
+        }}
+      />,
+    );
+    const proceed = await screen.findByRole("button", {
+      name: alreadyBound
+        ? "Continue provider setup"
+        : "Make available and continue",
+    });
+    await waitFor(() => expect(proceed).toHaveProperty("disabled", false));
+    expect(navigation.push).not.toHaveBeenCalled();
+    fireEvent.click(proceed);
+    if (alreadyBound) {
+      await waitFor(() => expect(navigation.push).toHaveBeenCalledTimes(1));
+      expect(bindGatewayAccount).not.toHaveBeenCalled();
+    } else {
+      await waitFor(() => expect(bindGatewayAccount).toHaveBeenCalledTimes(1));
+      await screen.findByRole("alert");
+      expect(navigation.push).not.toHaveBeenCalled();
+      expect(
+        screen.getByRole("button", { name: "Make available and continue" }),
+      ).toBeTruthy();
+    }
+    expect(submitGatewayApiKey).not.toHaveBeenCalled();
+    expect(beginGatewayOAuth).not.toHaveBeenCalled();
+  },
+);
+
+test.each([false, true])(
+  "a completed personal connection keeps workspace access explicit before provider continuation (inside Add dialog: %s)",
+  async (insideAddDialog) => {
+    const connected: AccountView = {
+      ...row("active"),
+      profileId: "profile-openrouter",
+      profileLabel: "OpenRouter",
+      provider: "openrouter",
+      authKind: "api_key",
+      canManage: true,
+      binding: null,
+    };
+    page = {
+      ...page,
+      profiles: [
+        {
+          id: connected.profileId,
+          label: "OpenRouter",
+          protocol: "openai-responses",
+          authKind: "api_key",
+          provider: "openrouter",
+          models: ["openai/model"],
+        },
+      ],
+      accounts: [connected],
+    };
+    const api = personalApi();
+    api.readGatewayOperation.mockResolvedValue({
+      status: "ok",
+      value: {
+        nonce: savedNonce,
+        state: "applied",
+        cleanup: "unresolved",
+        account: connected,
+      },
+    });
+    sessionStorage.setItem(
+      `rr-c3-account-operations:personal:workspace-user`,
+      JSON.stringify([savedNonce]),
+    );
+    const controls = (
+      <AccountGatewayControls
+        bootstrap={{ context, page: { status: "ok", value: page } }}
+        managementScope="personal"
+        api={api}
+        workspaceId="workspace-selected"
+        setupIntent={{
+          provider: "openrouter",
+          storage: "reviewrouter",
+          workspaceId: "workspace-selected",
+          repositoryIds: ["repo-kept"],
+        }}
+        connectOnly={insideAddDialog}
+      />
+    );
+    const grant = vi.fn();
+    render(
+      insideAddDialog ? (
+        <AccountsWorkspaceTabs
+          available={
+            <AccountsAddDialog
+              workspaceName="Selected workspace"
+              initiallyOpen
+              personalConnect={controls}
+              organizationConnect={null}
+            />
+          }
+          own={<button onClick={grant}>Grant workspace access</button>}
+        />
+      ) : (
+        controls
+      ),
+    );
+    const access = await screen.findByRole(
+      insideAddDialog ? "button" : "link",
+      {
+        name: "Manage workspace access",
+      },
+    );
+    if (insideAddDialog) {
+      expect(screen.getByRole("dialog", { name: "Add account" })).toBeTruthy();
+      fireEvent.click(access);
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog")).toBeNull();
+        expect(
+          screen.getByRole("tab", { name: "All my connections" }),
+        ).toHaveProperty("ariaSelected", "true");
+      });
+      expect(
+        screen.getAllByRole("button", { name: "Grant workspace access" }),
+      ).toHaveLength(1);
+      expect(grant).not.toHaveBeenCalled();
+    } else {
+      const destination = new URL(
+        access.getAttribute("href")!,
+        "https://example.test",
+      );
+      expect(destination.hash).toBe("#your-accounts");
+      expect(destination.searchParams.getAll("keyRepository")).toEqual([
+        "repo-kept",
+      ]);
+    }
+    expect(bindGatewayAccount).not.toHaveBeenCalled();
+    expect(navigation.push).not.toHaveBeenCalled();
+  },
+);
+
+test("shared personal continuation uses provider readiness across canonical and opaque binding identities", async () => {
+  const canonical: AccountView = {
+    ...row("active"),
+    connectionId: "canonical-owned-source",
+    profileId: "profile-openrouter",
+    profileLabel: "OpenRouter",
+    provider: "openrouter",
+    authKind: "api_key",
+    canManage: true,
+    binding: null,
+  };
+  const profile: AccountsPage["profiles"][number] = {
+    id: canonical.profileId,
+    label: "OpenRouter",
+    protocol: "openai-responses",
+    authKind: "api_key",
+    provider: "openrouter",
+    models: ["openai/model"],
+  };
+  page = { ...page, profiles: [profile], accounts: [canonical] };
+  const opaque = {
+    ...canonical,
+    connectionId: "workspace-opaque-binding",
+    canManage: false,
+    binding: {
+      id: "workspace-opaque-binding",
+      revision: 1,
+      state: "active" as const,
+      fencePending: false,
+    },
+  };
+  const models: GatewayModelAccountsApi = {
+    list: vi.fn(async () => ({
+      status: "ok" as const,
+      value: { profiles: [profile], accounts: [opaque], nextCursor: null },
+    })),
+    get: vi.fn(),
+  };
+  const api = personalApi();
+  api.readGatewayOperation.mockResolvedValue({
+    status: "ok",
+    value: {
+      nonce: savedNonce,
+      state: "applied",
+      cleanup: "unresolved",
+      account: canonical,
+    },
+  });
+  sessionStorage.setItem(
+    "rr-c3-account-operations:personal:workspace-user",
+    JSON.stringify([savedNonce]),
+  );
+  render(
+    <GatewayModelAccountsProvider
+      scope="viewer:workspace:workspace-selected"
+      api={models}
+    >
+      <AccountGatewayControls
+        bootstrap={{ context, page: { status: "ok", value: page } }}
+        managementScope="personal"
+        api={api}
+        workspaceId="workspace-selected"
+        setupIntent={{
+          provider: "openrouter",
+          storage: "reviewrouter",
+          workspaceId: "workspace-selected",
+          repositoryIds: ["repo-kept"],
+        }}
+      />
+    </GatewayModelAccountsProvider>,
+  );
+  await screen.findByText(
+    "A connection for this provider is available to this workspace. Continue to choose which connection to use.",
+  );
+  expect(canonical.connectionId).not.toBe(opaque.connectionId);
+  expect(screen.queryByText(/Choose workspace access before using/)).toBeNull();
+  expect(
+    screen.getByRole("link", { name: "Manage workspace access" }),
+  ).toBeTruthy();
+  const proceed = screen.getByRole("button", {
+    name: "Continue provider setup",
+  });
+  await waitFor(() => expect(proceed).toHaveProperty("disabled", false));
+  fireEvent.click(proceed);
+  await waitFor(() => expect(navigation.push).toHaveBeenCalledTimes(1));
+  const destination = new URL(
+    navigation.push.mock.calls[0]![0] as string,
+    "https://example.test",
+  );
+  expect(destination.searchParams.get("keyProvider")).toBe("openrouter");
+  expect(destination.searchParams.getAll("keyRepository")).toEqual([
+    "repo-kept",
+  ]);
+  expect(bindGatewayAccount).not.toHaveBeenCalled();
+  expect(api.submitGatewayApiKey).not.toHaveBeenCalled();
+});
+
+test("a restored pending operation suppresses automatic enrollment for a connection continuation", async () => {
+  sessionStorage.setItem(storageKey, JSON.stringify([savedNonce]));
+  render(
+    <AccountGatewayControls
+      bootstrap={{ context, page: { status: "ok", value: page } }}
+      workspaceId="workspace-selected"
+      setupIntent={{
+        provider: "codex",
+        storage: "reviewrouter",
+        workspaceId: "workspace-selected",
+        repositoryIds: [],
+      }}
+      initiallyOpenConnect
+    />,
+  );
+  await screen.findByText("Waiting for completion");
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(readGatewayOperation).toHaveBeenCalledWith(context, savedNonce);
+  expect(beginGatewayOAuth).not.toHaveBeenCalled();
+  expect(submitGatewayApiKey).not.toHaveBeenCalled();
+});
 
 test("the provider-first connect dialog changes forms without enrollment and clears one-off keys on switch and cancel", async () => {
   await mount();

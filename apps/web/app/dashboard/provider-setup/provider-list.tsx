@@ -306,7 +306,7 @@ function ProviderListItem({
               {...dialog}
               target={{ kind: "workspace" }}
               initialProfileId={row.id}
-              triggerLabel="Make default"
+              triggerLabel={row.isDefault ? "Review settings" : "Make default"}
               triggerVariant="outline"
               triggerSize="sm"
               triggerClassName="min-h-9 rounded-lg px-3"
@@ -524,10 +524,15 @@ function ProviderProfileEditForm({
     ? getSetupProvider(replacementProvider).publicCatalogProvider
     : providerKindForAuthMode(row.authMode);
   const publicModelOptions = catalogProvider
-    ? catalogs.optionsFor(catalogProvider, true)
+    ? catalogs.optionsFor(catalogProvider, true, {
+        allowRoutingModels: gateway,
+      })
     : [];
   const modelOptions: readonly ReviewModelOption[] = gateway
-    ? gatewayProviderModelOptions(publicModelOptions, gatewayProfile)
+    ? gatewayProviderModelOptions(publicModelOptions, gatewayProfile, {
+        catalog: gatewayAccount?.modelCatalog,
+        requiresTools: true,
+      })
     : publicModelOptions;
   const trimmedLabel = label.trim();
   const trimmedModel = model.trim();

@@ -15,6 +15,8 @@ import { PersonalAccountsPanel } from "./personal-accounts-panel";
 import { WorkspaceAccountsPanel } from "./workspace-accounts-panel";
 import type { ApiKeySetupIntent } from "../../src/features/provider-setup/api-key-storage";
 import { accountsCopy } from "./accounts-copy";
+import { connectionSetupContinuation } from "../../src/features/provider-setup/connection-setup-continuation";
+import { getDashboardMutationStatus } from "../../src/server/dashboard-mutations";
 
 export async function AccountGatewayAccountsSection({
   workspaceId,
@@ -29,6 +31,7 @@ export async function AccountGatewayAccountsSection({
   personalAccountsApi?: PersonalAccountsApi;
   setupIntent?: ApiKeySetupIntent | undefined;
 }) {
+  const viewer = await getDashboardMutationStatus();
   let personalService: Awaited<ReturnType<typeof productionPersonalAccounts>> =
     null;
   try {
@@ -100,6 +103,11 @@ export async function AccountGatewayAccountsSection({
         ),
       }
     : null;
+  const ownContinuation = connectionSetupContinuation({
+    intent: setupIntent,
+    workspace: personalScope ? undefined : bootstrap?.page,
+    personal: management?.page,
+  });
   const ownPanel =
     management && ownBootstrap && ownApi ? (
       <PersonalAccountsPanel
@@ -109,6 +117,7 @@ export async function AccountGatewayAccountsSection({
         workspaceId={workspaceId}
         setupIntent={setupIntent}
         management={management}
+        initiallyOpenConnect={personalScope && ownContinuation.autoOpen}
         managementApi={{
           listGatewayAccounts: personalActions.listPersonalGatewayAccounts,
           mutateGatewayAccount: personalActions.mutatePersonalGatewayAccount,
@@ -162,6 +171,12 @@ export async function AccountGatewayAccountsSection({
           .then((reader) => reader.list({ limit: 25 }))
           .catch(() => ({ status: "unavailable" as const }))
       : undefined;
+  const continuation = connectionSetupContinuation({
+    intent: setupIntent,
+    workspace: bootstrap?.page,
+    personal: management?.page,
+    available: inventoryPage,
+  });
   const personalConnect = management ? (
     <AccountGatewayControls
       bootstrap={management}
@@ -185,6 +200,8 @@ export async function AccountGatewayAccountsSection({
       <div className="space-y-4">
         {recipient.canDetach ? (
           <AccountsAddDialog
+            initiallyOpen={continuation.autoOpen}
+            initialOwnership={continuation.ownership}
             personalConnect={personalConnect}
             organizationConnect={
               bootstrap ? (
@@ -226,6 +243,7 @@ export async function AccountGatewayAccountsSection({
         bootstrap={bootstrap}
         workspaceId={workspaceId}
         setupIntent={setupIntent}
+        initiallyOpenConnect={continuation.autoOpen}
       />
     ) : (
       <p className="text-sm text-slate-400">
@@ -247,6 +265,11 @@ export async function AccountGatewayAccountsSection({
       </div>
       <AccountsWorkspaceTabs
         key={workspaceId}
+        viewer={{
+          login: viewer.sourceLogin,
+          avatarUrl: viewer.sourceAvatarUrl,
+        }}
+        initialView={continuation.view}
         available={available}
         own={ownPanel}
       />

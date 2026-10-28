@@ -279,6 +279,22 @@ export function ProviderModelFields({
     capabilitiesKnown &&
     (qualifiedModel?.reasoning === null ||
       gatewayProfileRef === "openai-codex-oauth-responses-v1");
+  const missingReasoningControl =
+    gateway && qualifiedModel?.reasoning === null && savedDepthUnsupported;
+  const missingFastControl =
+    gateway && qualifiedModel?.fast === null && settings.fastMode;
+  const correctionActions = [
+    ...(savedDepthUnsupported
+      ? [
+          accountDefaultAvailable
+            ? "choose Account default for review depth"
+            : "choose an available review depth",
+        ]
+      : []),
+    ...(settings.fastMode && !fastSupported(authMode, model, connection)
+      ? ["turn off fast mode"]
+      : []),
+  ];
   const showEngine =
     ready &&
     gateway &&
@@ -321,7 +337,7 @@ export function ProviderModelFields({
               ? [
                   {
                     value: settings.reasoningEffort!,
-                    label: `${settings.reasoningEffort} (${savedDepthUnavailable ? "saved; refresh account to edit" : `${savedSelection ? "saved" : "selected"}, unsupported`})`,
+                    label: `${settings.reasoningEffort} (${savedDepthUnavailable ? "saved; refresh account to edit" : `${savedSelection ? "saved" : "selected"}, ${missingReasoningControl ? "unavailable in ReviewRouter" : "unsupported"}`})`,
                     disabled: true,
                   },
                 ]
@@ -388,7 +404,9 @@ export function ProviderModelFields({
               label="Fast mode"
               hint={
                 capabilitiesKnown && !fastSupported(authMode, model, connection)
-                  ? "Turn off fast mode to save these settings."
+                  ? missingFastControl
+                    ? "ReviewRouter does not offer this setting. Turn off fast mode to save these settings."
+                    : "Turn off fast mode to save these settings."
                   : "Shorter, quicker review passes."
               }
             />
@@ -412,8 +430,23 @@ export function ProviderModelFields({
       ) : null}
       {ready && needsCorrection ? (
         <p role="status" className="text-sm text-amber-100 sm:col-span-2">
-          The {savedSelection ? "saved" : "selected"} review depth or fast mode
-          is not supported. Choose an available setting before saving.
+          {missingReasoningControl || missingFastControl ? (
+            <>
+              ReviewRouter does not offer{" "}
+              {missingReasoningControl && missingFastControl
+                ? "review depth or fast mode settings"
+                : missingReasoningControl
+                  ? "a review depth setting"
+                  : "a fast mode setting"}{" "}
+              for this model. Before running reviews,{" "}
+              {correctionActions.join(" and ")}.
+            </>
+          ) : (
+            <>
+              The {savedSelection ? "saved" : "selected"} review depth or fast
+              mode is not supported. Choose an available setting before saving.
+            </>
+          )}
         </p>
       ) : null}
     </div>
