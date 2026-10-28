@@ -1,3 +1,4 @@
+import type { HistoryCapture } from "@reviewrouter/features-review-history/composition";
 import { attestCompiledReviewActionV2ProducerContract } from "./review-action-v2-producer-contract-attestation.js";
 import {
   validateReviewPublicationLifecycleVerification,
@@ -506,6 +507,7 @@ export function composeReviewActionV2ProductionRunControl(input: {
 }
 
 export function composeReviewActionV2ProductionRoutes(input: {
+  readonly historyWriter?: HistoryCapture;
   readonly memoryInputAdmission?: ReviewExecutionInputAdmissionPort;
   readonly enabled: boolean;
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -629,8 +631,24 @@ export function composeReviewActionV2ProductionRoutes(input: {
     ),
   );
 
+  const historyWriter =
+    input.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
+      ? input.historyWriter
+      : undefined;
+  if (input.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1" && !historyWriter)
+    throw new Error("review_history_capture_binding_required");
   const requestedIntentStore = new PrismaReviewRequestedIntentStore(
     input.prisma,
+    historyWriter
+      ? {
+          historyCapture: {
+            register: (tx, intent, metadata) =>
+              historyWriter.register(tx, intent, metadata),
+            changed: (tx, intent, previous) =>
+              historyWriter.captureIntent(tx, intent, previous),
+          },
+        }
+      : {},
   );
   const admissionFacts = createServerOwnedReviewActionV2AdmissionFacts({
     providerApiSource: workflowInventory,
@@ -696,6 +714,12 @@ export function composeReviewActionV2ProductionRoutes(input: {
   } as const;
 
   const executionStore = new PrismaReviewExecutionStore(input.prisma, {
+    ...(historyWriter
+      ? {
+          historyCapture: (tx, execution) =>
+            historyWriter.captureExecution(tx, execution),
+        }
+      : {}),
     ...(input.memoryInputAdmission
       ? { inputAdmission: input.memoryInputAdmission }
       : {}),

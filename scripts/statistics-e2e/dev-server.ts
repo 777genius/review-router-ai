@@ -71,7 +71,8 @@ await app.prepare();
 const server = createServer((request, response) => {
   if (
     request.url?.startsWith("/dashboard") ||
-    request.url?.startsWith("/api/dashboard/review-statistics")
+    request.url?.startsWith("/api/dashboard/review-statistics") ||
+    request.url?.startsWith("/api/dashboard/review-history")
   ) {
     response.once("finish", () => {
       global.gc?.();

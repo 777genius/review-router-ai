@@ -1,3 +1,8 @@
+import { createReviewHistoryFeature } from "@reviewrouter/features-review-history/composition";
+import {
+  createReviewHistoryChangedHandler,
+  reviewHistoryHandlerDefinition,
+} from "./review-history-worker-runtime";
 import { createReviewStatisticsFeature } from "@reviewrouter/features-review-statistics/composition";
 import { createReviewStatisticsSettlementCapture } from "./review-statistics-settlement-capture";
 import {
@@ -166,6 +171,7 @@ async function main(): Promise<void> {
         });
       },
     });
+    const history = await createReviewHistoryFeature({ prisma });
     const statistics = await createReviewStatisticsFeature({ prisma });
     const settlementHook = createReviewStatisticsSettlementCapture(
       statistics.outboxWriter,
@@ -185,6 +191,9 @@ async function main(): Promise<void> {
           githubAppId,
           githubPrivateKey,
           settlementHook,
+          ...(process.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
+            ? { historyWriter: history.writer }
+            : {}),
         });
       },
     });
@@ -202,6 +211,7 @@ async function main(): Promise<void> {
     const handlers = [
       ...memoryWorker.handlers,
       createReviewStatisticsSettledHandler(statistics.projector),
+      createReviewHistoryChangedHandler(history.projector),
       ...createOutboxHandlers(prisma, clock),
       ...reviewV2Worker.handlers,
       ...sdkGrowthPublication.handlers,
@@ -222,7 +232,7 @@ async function main(): Promise<void> {
     const pruneReviewExecutionCheckpoints =
       createReviewExecutionCheckpointMaintenance(prisma, clock);
     const reviewInvestigationMaintenance =
-      createReviewInvestigationMaintenanceRunner(prisma, clock);
+      createReviewInvestigationMaintenanceRunner(prisma, clock, history.writer);
     const pruneMemoryUsageTelemetry =
       createMemoryUsageTelemetryMaintenanceRunner(prisma, clock);
     const limit = readPositiveIntegerEnv("REVIEW_ROUTER_OUTBOX_BATCH_SIZE", 25);
@@ -305,6 +315,7 @@ async function main(): Promise<void> {
 }
 
 const knownOutboxHandlers = [
+  reviewHistoryHandlerDefinition,
   {
     type: reviewRequestedDispatchCleanupEventType,
     version: reviewRequestedDispatchCleanupEventVersion,
@@ -570,6 +581,7 @@ function createReviewExecutionCheckpointMaintenance(
 function createReviewInvestigationMaintenanceRunner(
   prisma: ReturnType<typeof createPrismaClient>,
   clock: SystemClock,
+  historyWriter: import("@reviewrouter/features-review-history/composition").HistoryCapture,
 ) {
   return createReviewInvestigationMaintenanceFeature({
     env: process.env,
@@ -578,7 +590,15 @@ function createReviewInvestigationMaintenanceRunner(
       const expiredTurns = new ReconcileExpiredActiveTurn(
         investigations,
         new WorkerInvestigationExecutionAuthority(
-          new PrismaReviewExecutionStore(prisma),
+          new PrismaReviewExecutionStore(
+            prisma,
+            process.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
+              ? {
+                  historyCapture: (tx, execution) =>
+                    historyWriter.captureExecution(tx, execution),
+                }
+              : {},
+          ),
           new PrismaReviewRunAuthorizationRepository(prisma),
         ),
         new NodeSha256InvestigationDigest(),

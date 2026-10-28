@@ -306,6 +306,23 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Review history is checkout-only. Pin its SQL and the complete checkout155
+  // before reducing to the previously reviewed Skills-catalog154 inventory.
+  const reviewHistoryMigration = catalog.find(
+    (row) => row.migrationName === "000151_review_history",
+  );
+  if (reviewHistoryMigration) {
+    if (
+      reviewHistoryMigration.checksum !==
+        "276fc355d90fd41ba95797eeb21a73aa78755c0709a82426f33552ecb2c05274" ||
+      manifest(catalog) !==
+        "sha256:3d7b45be5b1654757f1bf72626e6f3f7c9b1351bb82ce93819bca2e4a38b7dbf"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== reviewHistoryMigration),
+    );
+  }
   // Checked Skills storage is checkout-only. Remove its exact, immutable SQL
   // identity first; the recursive checks still pin the full memory153 (or
   // prior repository151) source manifest and never expand managed92 SQL.

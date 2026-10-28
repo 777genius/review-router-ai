@@ -9,6 +9,7 @@ import {
   BookOpen,
   Cpu,
   GitPullRequest,
+  History,
   Layers,
   Settings2,
   type LucideIcon,
@@ -18,6 +19,7 @@ import { dashboardClientNavigationHref } from "./dashboard-section";
 
 const dashboardSectionIcons: Record<string, LucideIcon> = {
   repositories: GitPullRequest,
+  reviews: History,
   skills: BookOpen,
   memory: Brain,
   setup: Settings2,
