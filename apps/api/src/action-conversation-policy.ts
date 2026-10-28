@@ -40,6 +40,7 @@ export function createConversationPublicationAuthority(input: {
   readonly identityBindingEpoch: string;
 }) {
   const personalAccountsEnabled = readPersonalAccountSharingEnabled(input.env);
+  const repositories = new PrismaActionControlPlaneRepository(input.prisma);
   const accounts = new PrismaProviderAccountRepository(
     input.prisma,
     input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
@@ -110,6 +111,25 @@ export function createConversationPublicationAuthority(input: {
         [captured.bindingId],
         personalAccountsEnabled,
       );
+      const current = await repositories.findRuntimeReviewConfiguration(
+        scope,
+        transaction,
+      );
+      if (
+        !current ||
+        conversationDigest(current) !== captured.configurationDigest
+      )
+        return false;
+      const configuration = parseReviewConfigurationStrict(current.config);
+      const provider = configuration.providers[0];
+      if (
+        configuration.providers.length !== 1 ||
+        provider?.authMode !== "codex_account_gateway" ||
+        provider.gatewayBindingId !== captured.bindingId ||
+        provider.gatewayProfileRef !== captured.profileRef ||
+        provider.model !== captured.model
+      )
+        return false;
       const binding = selectBinding(
         scope.workspaceId,
         captured.bindingId,

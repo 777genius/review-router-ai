@@ -104,6 +104,96 @@ function commandId(processingId: string) {
   ]);
   return `${value.slice(0, 8)}-${value.slice(8, 12)}-5${value.slice(13, 16)}-a${value.slice(17, 20)}-${value.slice(20, 32)}`;
 }
+/** Recover only original command identities through the bodyless memory owner. */
+export async function reconcileConversationEffects(
+  input: {
+    readonly records: import("@reviewrouter/features-conversations").ConversationProcessingStore;
+    readonly service: import("@reviewrouter/features-memory").MemoryKnowledgeService;
+    readonly generation: string;
+    readonly actor: MemoryActor;
+    readonly scope: Extract<MemoryKnowledgeScope, { kind: "repository" }>;
+  },
+  result: import("@reviewrouter/features-conversations").ConversationProcessResult,
+) {
+  const record = await input.records.read(result.processingId);
+  if (!record?.boundManifest) return result;
+  if (
+    (
+      JSON.parse(record.boundManifest) as {
+        memory?: { memoryGeneration?: string };
+      }
+    ).memory?.memoryGeneration !== input.generation
+  )
+    return {
+      ...record.result,
+      learning: { ...record.result.learning, status: "unknown" },
+    };
+  const controls = {
+    deadlineAt: new Date(Date.now() + 2000),
+    signal: AbortSignal.timeout(2000),
+  };
+  try {
+    const automatic = await input.service.automaticOperations(
+      {
+        actor: input.actor,
+        scope: input.scope,
+        sourceId: record.identity.sourceId,
+        processingId: record.id,
+      },
+      controls,
+    );
+    const originalIds = new Set([
+      ...record.result.learning.effectIds,
+      commandId(record.id),
+      ...automatic.map((operation) => operation.id),
+    ]);
+    const operations = await Promise.all(
+      [...originalIds].map(async (commandId) => {
+        try {
+          return await input.service.progress(
+            { actor: input.actor, scope: input.scope, commandId },
+            controls,
+          );
+        } catch (error) {
+          if (
+            error instanceof MemoryKnowledgeError &&
+            error.code === "not_found"
+          )
+            return null;
+          throw error;
+        }
+      }),
+    );
+    const recovered = new Map(
+      automatic.map((operation) => [operation.id, operation]),
+    );
+    for (const operation of operations)
+      if (operation) recovered.set(operation.id, operation);
+    const effectIds = [
+      ...new Set([...record.result.learning.effectIds, ...recovered.keys()]),
+    ];
+    if (effectIds.length === 0) return record.result;
+    const states = effectIds.map((id) => recovered.get(id)?.state ?? "unknown");
+    const status =
+      [
+        "unknown",
+        "failed",
+        "cleanup_pending",
+        "processing",
+        "submitted",
+        "queued",
+      ].find((state) => states.includes(state as (typeof states)[number])) ??
+      (states.every((state) => state === "published")
+        ? "published"
+        : "completed");
+    return input.records.associateEffects(record.id, { status, effectIds });
+  } catch {
+    return {
+      ...record.result,
+      learning: { ...record.result.learning, status: "unknown" },
+    };
+  }
+}
 /** One checked continuation of the already completed immutable model operation. */
 export async function claimCheckedConversationPublication(
   input: {
@@ -615,20 +705,6 @@ export function createActionConversationComposition(input: {
       return {
         records,
         async reconcile(result) {
-          if (result.learning.effectIds.length === 0) return result;
-          const record = await records.read(result.processingId);
-          if (
-            !record?.boundManifest ||
-            (
-              JSON.parse(record.boundManifest) as {
-                memory?: { memoryGeneration?: string };
-              }
-            ).memory?.memoryGeneration !== input.runtime.generation
-          )
-            return {
-              ...result,
-              learning: { ...result.learning, status: "unknown" },
-            };
           const currentActor: MemoryActor = {
             kind: "github_user",
             id: `github-user:${claims.githubActorId}`,
@@ -643,48 +719,16 @@ export function createActionConversationComposition(input: {
                 input.action.sourceVerifier.repositoryMaintainers(),
             }),
           });
-          try {
-            const budget = {
-              deadlineAt: new Date(Date.now() + 2000),
-              signal: AbortSignal.timeout(2000),
-            };
-            await access.authorize(
-              { actor: currentActor, scope, action: "read" },
-              budget,
-            );
-            const operations = await Promise.all(
-              result.learning.effectIds.map((commandId) =>
-                input.runtime.store.findCommand({
-                  commandId,
-                  scope,
-                  generation: input.runtime.generation,
-                }),
-              ),
-            );
-            const states = operations.map(
-              (operation) => operation?.operation.state ?? "unknown",
-            );
-            const status =
-              [
-                "unknown",
-                "failed",
-                "cleanup_pending",
-                "processing",
-                "submitted",
-                "queued",
-              ].find((state) =>
-                states.includes(state as (typeof states)[number]),
-              ) ??
-              (states.every((state) => state === "published")
-                ? "published"
-                : "completed");
-            return { ...result, learning: { ...result.learning, status } };
-          } catch {
-            return {
-              ...result,
-              learning: { ...result.learning, status: "unknown" },
-            };
-          }
+          return reconcileConversationEffects(
+            {
+              records,
+              service: input.runtime.forAccess(access, sources),
+              generation: input.runtime.generation,
+              actor: currentActor,
+              scope,
+            },
+            result,
+          );
         },
         claimPublication: (processingId, bodyDigest) =>
           claimCheckedConversationPublication(

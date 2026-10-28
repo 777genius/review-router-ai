@@ -47,6 +47,14 @@ function record(row: ConversationProcessing): ConversationRecord {
     result,
   };
 }
+function mergeEffects(
+  current: ConversationProcessResult["learning"],
+  next: ConversationProcessResult["learning"],
+): ConversationProcessResult["learning"] {
+  const effectIds = [...new Set([...current.effectIds, ...next.effectIds])];
+  if (effectIds.length > 16) throw new ConversationError("conflict");
+  return { status: next.status, effectIds };
+}
 /** Scope is captured from a verified Action session; IDs alone never grant row access. */
 export class PrismaConversationProcessingStore implements ConversationProcessingStore {
   private readonly scope: {
@@ -134,44 +142,47 @@ export class PrismaConversationProcessingStore implements ConversationProcessing
   private async settleExpired(
     row: ConversationProcessing,
   ): Promise<ConversationRecord> {
-    const current = this.owned(row);
+    this.owned(row);
     if (
-      !["processing", "ready"].includes(current.result.status) ||
+      !["processing", "ready"].includes(row.status) ||
       row.deadlineAt.getTime() > Date.now()
     )
-      return current;
-    // Crash recovery terminates the accepted identity and purges its normalized
-    // pending output. It cannot replay inference or manufacture effect success.
-    const { reply: _reply, ...metadata } = current.result;
-    void _reply;
-    const result: ConversationProcessResult = {
-      ...metadata,
-      status:
-        current.result.status === "ready"
-          ? "stale"
-          : current.modelDispatched
-            ? "output_unavailable"
-            : "unavailable",
-    };
-    const settled = await this.prisma.conversationProcessing.updateMany({
-      where: {
-        id: row.id,
-        ...this.scope,
-        status: current.result.status,
-        deadlineAt: { lte: new Date() },
-      },
-      data: {
-        status: result.status,
-        result: result as unknown as Prisma.InputJsonValue,
-      },
+      return record(row);
+    return this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`SELECT "id" FROM "ConversationProcessing" WHERE "id"=${row.id} AND "workspaceId"=${this.scope.workspaceId} AND "repositoryId"=${this.scope.repositoryId} FOR UPDATE`;
+      const fresh = await transaction.conversationProcessing.findFirst({
+        where: { id: row.id, ...this.scope },
+      });
+      if (!fresh) throw new ConversationError("forbidden");
+      const current = this.owned(fresh);
+      if (
+        !["processing", "ready"].includes(fresh.status) ||
+        fresh.deadlineAt.getTime() > Date.now()
+      )
+        return current;
+      // Expiration purges bounded output but keeps every association learned before this lock.
+      const { reply: _reply, ...metadata } = current.result;
+      void _reply;
+      const result: ConversationProcessResult = {
+        ...metadata,
+        status:
+          fresh.status === "ready"
+            ? "stale"
+            : fresh.modelDispatched
+              ? "output_unavailable"
+              : "unavailable",
+      };
+      await transaction.conversationProcessing.update({
+        where: { id: row.id },
+        data: {
+          status: result.status,
+          result: result as unknown as Prisma.InputJsonValue,
+        },
+      });
+      return { ...current, result };
     });
-    if (settled.count === 1) return { ...current, result };
-    const after = await this.prisma.conversationProcessing.findFirst({
-      where: { id: row.id, ...this.scope },
-    });
-    if (!after) throw new ConversationError("forbidden");
-    return this.owned(after);
   }
+
   async read(id: string) {
     const row = await this.prisma.conversationProcessing.findFirst({
       where: { id, ...this.scope },
@@ -257,32 +268,57 @@ export class PrismaConversationProcessingStore implements ConversationProcessing
           Buffer.byteLength(result.reply.body) > 16_384))
     )
       throw new ConversationError("conflict");
-    if (result.status === "processing") {
-      const current = await this.prisma.conversationProcessing.findFirst({
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`SELECT "id" FROM "ConversationProcessing" WHERE "id"=${id} AND "workspaceId"=${this.scope.workspaceId} AND "repositoryId"=${this.scope.repositoryId} FOR UPDATE`;
+      const current = await transaction.conversationProcessing.findFirst({
         where: { id, ...this.scope, status: "processing" },
       });
+      if (!current) return;
       const pending = (
-        current?.result as unknown as {
+        current.result as unknown as {
           readonly pendingOutput?: unknown;
         } | null
       )?.pendingOutput;
-      await this.prisma.conversationProcessing.updateMany({
-        where: { id, ...this.scope, status: "processing" },
-        data: {
-          result: {
-            ...result,
-            ...(pending ? { pendingOutput: pending } : {}),
-          } as unknown as Prisma.InputJsonValue,
-        },
-      });
-    } else
-      await this.prisma.conversationProcessing.updateMany({
+      await transaction.conversationProcessing.updateMany({
         where: { id, ...this.scope, status: "processing" },
         data: {
           status: result.status,
+          result: {
+            ...result,
+            learning: mergeEffects(
+              record(current).result.learning,
+              result.learning,
+            ),
+            ...(result.status === "processing" && pending
+              ? { pendingOutput: pending }
+              : {}),
+          } as unknown as Prisma.InputJsonValue,
+        },
+      });
+    });
+  }
+  async associateEffects(
+    id: string,
+    learning: ConversationProcessResult["learning"],
+  ) {
+    return this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`SELECT "id" FROM "ConversationProcessing" WHERE "id"=${id} AND "workspaceId"=${this.scope.workspaceId} AND "repositoryId"=${this.scope.repositoryId} FOR UPDATE`;
+      const current = await transaction.conversationProcessing.findFirst({
+        where: { id, ...this.scope },
+      });
+      if (!current) throw new ConversationError("forbidden");
+      const result = {
+        ...(current.result as unknown as ConversationProcessResult),
+        learning: mergeEffects(record(current).result.learning, learning),
+      };
+      await transaction.conversationProcessing.update({
+        where: { id },
+        data: {
           result: result as unknown as Prisma.InputJsonValue,
         },
       });
+      return { ...record(current).result, learning: result.learning };
+    });
   }
   async reserveReply(
     id: string,
@@ -304,6 +340,31 @@ export class PrismaConversationProcessingStore implements ConversationProcessing
       if (!current || current.status !== "processing") return false;
       // PR lock also serializes its thread reservations. No GitHub/native I/O occurs here.
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`conversation-replies:${current.repositoryStableId}:${current.pullRequestNumber}`}, 0))::text`;
+      // An unclaimed expired envelope cannot create a comment. Release it while
+      // holding the same reservation lock; genuinely uncertain claims still count.
+      await tx.$queryRaw`SELECT "id" FROM "ConversationProcessing" WHERE "workspaceId"=${this.scope.workspaceId} AND "repositoryId"=${this.scope.repositoryId} AND "pullRequestNumber"=${current.pullRequestNumber} AND "status"='ready' AND "deadlineAt" <= ${new Date()} FOR UPDATE`;
+      const expired = await tx.conversationProcessing.findMany({
+        where: {
+          ...this.scope,
+          pullRequestNumber: current.pullRequestNumber,
+          status: "ready",
+          deadlineAt: { lte: new Date() },
+        },
+      });
+      for (const row of expired) {
+        const { reply: _reply, ...metadata } = record(row).result;
+        void _reply;
+        await tx.conversationProcessing.updateMany({
+          where: { id: row.id, ...this.scope, status: "ready" },
+          data: {
+            status: "stale",
+            result: {
+              ...metadata,
+              status: "stale",
+            } as unknown as Prisma.InputJsonValue,
+          },
+        });
+      }
       const rows = await tx.conversationProcessing.findMany({
         where: {
           ...this.scope,
@@ -330,13 +391,29 @@ export class PrismaConversationProcessingStore implements ConversationProcessing
           .length >= 5
       )
         return false;
+      await tx.$queryRaw`SELECT "id" FROM "ConversationProcessing" WHERE "id"=${id} AND "workspaceId"=${this.scope.workspaceId} AND "repositoryId"=${this.scope.repositoryId} FOR UPDATE`;
+      const latest = await tx.conversationProcessing.findFirst({
+        where: { id, ...this.scope },
+      });
+      if (!latest || latest.status !== "processing") return false;
       return (
         (
           await tx.conversationProcessing.updateMany({
-            where: { id, ...this.scope, status: "processing" },
+            where: {
+              id,
+              ...this.scope,
+              status: "processing",
+              deadlineAt: { gt: new Date() },
+            },
             data: {
               status: "ready",
-              result: result as unknown as Prisma.InputJsonValue,
+              result: {
+                ...result,
+                learning: mergeEffects(
+                  record(latest).result.learning,
+                  result.learning,
+                ),
+              } as unknown as Prisma.InputJsonValue,
             },
           })
         ).count === 1
@@ -344,17 +421,24 @@ export class PrismaConversationProcessingStore implements ConversationProcessing
     });
   }
   async withdrawPublication(id: string) {
-    const current = await this.read(id);
-    if (!current || current.result.status !== "ready") return;
-    const { reply: _reply, ...metadata } = current.result;
-    void _reply;
-    const result: ConversationProcessResult = { ...metadata, status: "stale" };
-    await this.prisma.conversationProcessing.updateMany({
-      where: { id, ...this.scope, status: "ready" },
-      data: {
-        status: "stale",
-        result: result as unknown as Prisma.InputJsonValue,
-      },
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`SELECT "id" FROM "ConversationProcessing" WHERE "id"=${id} AND "workspaceId"=${this.scope.workspaceId} AND "repositoryId"=${this.scope.repositoryId} FOR UPDATE`;
+      const current = await transaction.conversationProcessing.findFirst({
+        where: { id, ...this.scope, status: "ready" },
+      });
+      if (!current) return;
+      const { reply: _reply, ...metadata } = record(current).result;
+      void _reply;
+      await transaction.conversationProcessing.update({
+        where: { id },
+        data: {
+          status: "stale",
+          result: {
+            ...metadata,
+            status: "stale",
+          } as unknown as Prisma.InputJsonValue,
+        },
+      });
     });
   }
   async claimPublication(id: string, bodyDigest: string) {
@@ -377,7 +461,12 @@ export class PrismaConversationProcessingStore implements ConversationProcessing
       const current = record(saved);
       if (current.result.reply?.bodyDigest !== bodyDigest) return false;
       if (!(await this.options.authorizePublication!(transaction, current))) {
-        const { reply: _reply, ...metadata } = current.result;
+        await transaction.$queryRaw`SELECT "id" FROM "ConversationProcessing" WHERE "id"=${id} AND "workspaceId"=${this.scope.workspaceId} AND "repositoryId"=${this.scope.repositoryId} FOR UPDATE`;
+        const rejected = await transaction.conversationProcessing.findFirst({
+          where: { id, ...this.scope, status: "ready" },
+        });
+        if (!rejected) return false;
+        const { reply: _reply, ...metadata } = record(rejected).result;
         void _reply;
         const result: ConversationProcessResult = {
           ...metadata,

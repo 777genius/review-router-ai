@@ -8,7 +8,15 @@ import Fastify from "fastify";
 import pg from "pg";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import {
   JoseActionSessionTokenService,
   type ActionSessionClaims,
@@ -28,7 +36,20 @@ import {
 import { createConversationGatewayInference } from "./action-conversation-inference.js";
 import { registerActionConversationRoutes } from "./action-conversation-routes.js";
 import { admitConversationDispatch } from "./action-conversation-policy.js";
-import { claimCheckedConversationPublication } from "./action-conversation-composition.js";
+import {
+  claimCheckedConversationPublication,
+  createConversationMemoryPort,
+  reconcileConversationEffects,
+} from "./action-conversation-composition.js";
+import {
+  MemoryKnowledgeService,
+  createMemoryBodyHash,
+  createMemoryPolicyConfig,
+} from "@reviewrouter/features-memory";
+import {
+  PrismaMemoryAutomaticSourceStore,
+  PrismaMemoryKnowledgeStore,
+} from "@reviewrouter/features-memory/infrastructure";
 import { runtimeGrantStatements } from "../../../scripts/run-codex-rotating-release-migration.mjs";
 
 const databaseUrl = process.env.REVIEW_ROUTER_CONVERSATION_TEST_DATABASE_URL;
@@ -87,6 +108,26 @@ describe.skipIf(!databaseUrl)(
         options: `-c search_path=${schema}`,
       });
       try {
+        await fixture.query(`
+          CREATE TYPE "OutboxEventStatus" AS ENUM ('pending','processing','retry_wait','processed','dead_letter');
+          CREATE TABLE "MemoryUsageEvent" ("id" TEXT PRIMARY KEY, "memoryItemId" TEXT);
+          CREATE TABLE "AuditEvent" ("id" TEXT PRIMARY KEY,"workspaceId" TEXT NOT NULL,"actor" TEXT NOT NULL,"action" TEXT NOT NULL,"targetType" TEXT NOT NULL,"targetId" TEXT NOT NULL,"metadata" JSONB NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP);
+          CREATE TABLE "OutboxEvent" ("id" TEXT PRIMARY KEY,"type" TEXT NOT NULL,"version" INT NOT NULL,"idempotencyKey" TEXT NOT NULL UNIQUE,"workspaceId" TEXT,"repositoryId" TEXT,"aggregateId" TEXT,"payload" JSONB NOT NULL,"status" "OutboxEventStatus" NOT NULL DEFAULT 'pending',"attempts" INT NOT NULL DEFAULT 0,"maxAttempts" INT NOT NULL DEFAULT 5,"nextAttemptAt" TIMESTAMP(3),"claimId" TEXT,"claimVersion" BIGINT,"claimOwnerHash" TEXT,"claimUntil" TIMESTAMP(3),"processedAt" TIMESTAMP(3),"deadLetteredAt" TIMESTAMP(3),"lastErrorCode" TEXT,"safeLastErrorSummary" TEXT,"occurredAt" TIMESTAMP(3) NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP);
+        `);
+        for (const migration of [
+          "000142_memory_knowledge_authority",
+          "000143_memory_maintenance_fence",
+          "202610280002_memory_automatic_source",
+        ])
+          await fixture.query(
+            await readFile(
+              new URL(
+                `../../../packages/platform/db/prisma/migrations/${migration}/migration.sql`,
+                import.meta.url,
+              ),
+              "utf8",
+            ),
+          );
         await fixture.query(
           await readFile(
             new URL(
@@ -115,6 +156,9 @@ describe.skipIf(!databaseUrl)(
     });
     beforeEach(async () => {
       await prisma.conversationProcessing.deleteMany();
+      await prisma.$executeRawUnsafe(
+        'TRUNCATE "MemoryAutomaticSource","MemoryAutomaticEntry","MemoryKnowledgeCommand","MemoryKnowledgeEntry","MemoryKnowledgeScopeState","MemoryKnowledgeSourceCursor","MemoryKnowledgeBundleReceipt","MemoryKnowledgeMaintenanceFence","OutboxEvent","AuditEvent"',
+      );
       await prisma.$executeRaw`INSERT INTO "ConversationAdmissionFence" ("kind","active","revision") VALUES ('account',true,2),('memory',true,2),('policy',true,2) ON CONFLICT ("kind") DO UPDATE SET "active"=true,"revision"=2`;
     });
     afterAll(async () => {
@@ -135,6 +179,7 @@ describe.skipIf(!databaseUrl)(
         driftAfterLearning?: boolean;
         modelAction?: unknown;
         revokeBeforeDispatch?: "account" | "memory";
+        driftDuringPrepare?: "edit" | "delete";
       } = {},
     ) {
       const comments = Array.from({ length: 105 }, (_, index) => ({
@@ -237,6 +282,9 @@ describe.skipIf(!databaseUrl)(
         if (request.url === "/internal/v1/run-access") {
           const intent = body!;
           calls.push({ kind: "prepare", body: intent });
+          if (options.driftDuringPrepare === "edit")
+            comments[1]!.body += " changed during Prepare";
+          if (options.driftDuringPrepare === "delete") comments.splice(1, 1);
           return json({
             operation: {
               operationRef: intent.operationId,
@@ -487,6 +535,7 @@ describe.skipIf(!databaseUrl)(
         records,
         processor,
         policies,
+        memory,
         counts: () => ({ learned, actionCalls, policyCalls }),
       };
     }
@@ -629,6 +678,339 @@ describe.skipIf(!databaseUrl)(
         await drift.app.close();
       }
     });
+    it.each(["edit", "delete"] as const)(
+      "rejects %s of older context during SDK Prepare before any native paid request",
+      async (drift) => {
+        const f = await fixture({ driftDuringPrepare: drift });
+        try {
+          const result = await f.processor.execute(input, controls());
+          expect(result.status).toBe("stale");
+          expect(
+            f.calls.filter((call) => call.kind === "prepare"),
+          ).toHaveLength(1);
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(0);
+          expect(
+            (
+              await prisma.conversationProcessing.findUniqueOrThrow({
+                where: { id: result.processingId },
+              })
+            ).requestEffect,
+          ).toBeNull();
+          expect(await f.processor.execute(input, controls())).toEqual(result);
+          expect(
+            f.calls.filter((call) => call.kind === "prepare"),
+          ).toHaveLength(1);
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
+    it("recovers committed automatic and explicit command associations after lost ACK and expiry without repeating effects", async () => {
+      const f = await fixture({
+        modelAction: {
+          kind: "create",
+          knowledgeKind: "rule",
+          body: "EXPLICIT_SELECTED_BODY",
+        },
+      });
+      const generation = "conversation_association_test",
+        profile = "test_profile";
+      const scope = {
+        kind: "repository" as const,
+        workspaceId: claims.workspaceId,
+        repositoryId: claims.repositoryId,
+      };
+      const actor = {
+        kind: "github_user" as const,
+        id: "github-user:11",
+        githubUserId: "11",
+        login: "maintainer",
+      };
+      const access = {
+        authorize: vi.fn(async () => {}),
+        verifySource: async (value: {
+          source: import("@reviewrouter/features-memory").MemoryKnowledgeSource;
+        }) => value.source,
+        sourceApplicable: async () => true,
+      };
+      const store = new PrismaMemoryKnowledgeStore(prisma, {
+        automaticSourcesEnabled: true,
+        providerProfileVersion: profile,
+      });
+      const automaticSources = new PrismaMemoryAutomaticSourceStore(prisma);
+      const current = { current: async () => true };
+      const policy = { getPolicy: async () => createMemoryPolicyConfig() };
+      const knowledge = new MemoryKnowledgeService({
+        generation,
+        providerProfileVersion: profile,
+        store,
+        access,
+        policy,
+        reader: {
+          read: async () => null,
+          recall: async () => [],
+          list: async () => ({ entries: [], nextCursor: null }),
+        },
+        writer: {} as never,
+        observer: {} as never,
+        quota: {
+          getWorkspaceQuota: async () => ({
+            activeItems: { limit: 100 },
+            pendingSuggestions: { limit: 100 },
+          }),
+        },
+        automaticSources: { store: automaticSources, current },
+      });
+      const preview = vi.fn(
+        async (request: { source: { id: string; revision: string } }) => ({
+          status: "complete" as const,
+          source: request.source,
+          statements: [
+            { body: "AUTO_SELECTED_FIRST" },
+            { body: "AUTO_SELECTED_SECOND" },
+          ],
+        }),
+      );
+      const { MemoryAutomaticSourceService } =
+        await import("@reviewrouter/features-memory");
+      const runtime = {
+        generation,
+        providerProfileVersion: profile,
+        store,
+        policy,
+        forAccess: () => knowledge,
+        forAutomaticLearning: () =>
+          new MemoryAutomaticSourceService({
+            generation,
+            providerProfileVersion: profile,
+            knowledge,
+            sources: automaticSources,
+            current,
+            preview: { preview },
+          }),
+      } as unknown as import("@reviewrouter/features-memory/composition").MemoryKnowledgeRuntime;
+      const productMemory = createConversationMemoryPort({
+        runtime,
+        scope,
+        sources: Object.assign(f.sources, current),
+        preview: { preview },
+        managed: (snapshot) => ({
+          service: knowledge,
+          access,
+          source: {
+            type: "github_comment",
+            sourceId: snapshot.sourceId,
+            revision: snapshot.sourceRevision,
+            updatedAt: snapshot.sourceUpdatedAt,
+            statementAt: snapshot.sourceUpdatedAt,
+            repositoryId: snapshot.repositoryId,
+            pullRequestNumber: snapshot.pullRequestNumber,
+            url: null,
+            visibility: snapshot.visibility,
+            claimedBodyDigest: snapshot.messages.find(
+              (message) => message.id === snapshot.sourceId,
+            )!.bodyDigest,
+            observedCommitSha: null,
+          },
+        }),
+        clock: { now: () => new Date() },
+        contextAccess: () => access,
+      });
+      f.memory.context = async () => ({
+        text: "",
+        manifest: { memoryGeneration: generation },
+        admit: async () => true,
+      });
+      f.memory.learn = productMemory.learn;
+      f.memory.action = productMemory.action;
+      const originalBatch = store.admitAutomaticSelection.bind(store);
+      const batchFault = vi
+        .spyOn(store, "admitAutomaticSelection")
+        .mockImplementationOnce(async (admission) => {
+          await originalBatch(admission);
+          throw new Error("lost_automatic_commit_ack");
+        });
+      const originalSave = knowledge.save.bind(knowledge);
+      const explicitFault = vi
+        .spyOn(knowledge, "save")
+        .mockImplementationOnce(async (command, budget) => {
+          await originalSave(command, budget);
+          throw new Error("lost_explicit_commit_ack");
+        });
+      try {
+        const result = await f.processor.execute(input, controls());
+        expect(result.status).toBe("output_unavailable");
+        expect(result.learning.effectIds).toEqual([]);
+        const commands = await prisma.memoryKnowledgeCommand.findMany({
+          select: { id: true },
+        });
+        expect(commands).toHaveLength(3);
+        expect(await prisma.outboxEvent.count()).toBe(3);
+        await prisma.conversationProcessing.update({
+          where: { id: result.processingId },
+          data: { deadlineAt: new Date(Date.now() - 1) },
+        });
+        const replay = await f.processor.execute(input, controls());
+        const reconcile = () =>
+          reconcileConversationEffects(
+            {
+              records: f.records,
+              service: knowledge,
+              generation,
+              actor,
+              scope,
+            },
+            replay,
+          );
+        const recovered = await reconcile();
+        expect([...recovered.learning.effectIds].sort()).toEqual(
+          commands.map((command) => command.id).sort(),
+        );
+        expect(recovered.learning.status).toBe("queued");
+        expect(recovered.status).toBe("output_unavailable");
+        expect(recovered.reply).toBeUndefined();
+        expect(JSON.stringify(recovered)).not.toMatch(
+          /SELECTED_BODY|AUTO_SELECTED|pendingOutput/,
+        );
+        expect(
+          (await f.records.read(result.processingId))!.result.learning,
+        ).toEqual(recovered.learning);
+        // Late delivery changes status on the same identities, without restoring an envelope.
+        for (const command of commands) {
+          const now = new Date();
+          const claim = await store.claim({
+            commandId: command.id,
+            scope,
+            generation,
+            now,
+            claimId: randomUUID(),
+            claimUntil: new Date(now.getTime() + 10_000),
+          });
+          expect(claim).not.toBeNull();
+          const envelope = claim!.command.envelope;
+          if (envelope?.kind !== "save")
+            throw new Error("expected_original_save_envelope");
+          expect(
+            await store.settle({
+              commandId: command.id,
+              scope,
+              generation,
+              claimId: claim!.claimId,
+              now,
+              result: {
+                commandId: command.id,
+                state: "published",
+                verifiedEntry: {
+                  ref: envelope.ref,
+                  body: envelope.body,
+                  bodyDigest: createMemoryBodyHash(envelope.body),
+                  contentApprovalRevision:
+                    claim!.command.contentApprovalRevision,
+                  kind: envelope.knowledgeKind,
+                  topicIds: envelope.topicIds,
+                  statementAt: claim!.command.originalStatementAt!,
+                  sourceFactIds: [`fact-${command.id}`],
+                },
+              },
+            }),
+          ).toMatchObject({ id: command.id, state: "published" });
+        }
+        expect((await reconcile()).learning.status).toBe("published");
+        expect(await prisma.memoryKnowledgeCommand.count()).toBe(3);
+        expect(
+          (
+            await prisma.memoryKnowledgeCommand.findMany({
+              select: { envelope: true },
+            })
+          ).every((command) => command.envelope === null),
+        ).toBe(true);
+        expect(await prisma.outboxEvent.count()).toBe(3);
+        expect(preview).toHaveBeenCalledTimes(1);
+        expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(
+          1,
+        );
+        expect(batchFault).toHaveBeenCalledTimes(1);
+        expect(explicitFault).toHaveBeenCalledTimes(1);
+        expect(access.authorize).toHaveBeenCalled();
+      } finally {
+        batchFault.mockRestore();
+        explicitFault.mockRestore();
+        await f.app.close();
+      }
+    });
+    it.each([5, 20])(
+      "releases %i expired unclaimed reservations while retaining claimed unknown effects in the cap",
+      async (limit) => {
+        const f = await fixture();
+        try {
+          const original = await f.sources.identify(input, controls());
+          const reserve = async (index: number) => {
+            const { record } = await f.records.accept(
+              {
+                ...original,
+                sourceId: `cap-source-${index}`,
+                sourceRevision: `cap-revision-${index}`,
+                threadId:
+                  limit === 5
+                    ? original.threadId
+                    : `cap-thread-${Math.floor(index / 5)}`,
+              },
+              controls().deadlineAt,
+            );
+            const marker = `<!-- reviewrouter-conversation:v1 processing_id=${record.id} -->`,
+              body = `UNCLAIMED_CAP_BODY\n\n${marker}`;
+            const ready = {
+              processingId: record.id,
+              status: "ready" as const,
+              learning: { status: "disabled", effectIds: [] },
+              reply: {
+                body,
+                bodyDigest: conversationDigest(body),
+                marker,
+                parentCommentId: "1",
+              },
+            };
+            const allowed = await f.records.reserveReply(record.id, ready, []);
+            return { id: record.id, ready, allowed };
+          };
+          const old = [];
+          for (let index = 0; index < limit; index++)
+            old.push(await reserve(index));
+          expect(old.every((row) => row.allowed)).toBe(true);
+          await f.records.publication({
+            processingId: old[0]!.id,
+            status: "unknown",
+            bodyDigest: old[0]!.ready.reply.bodyDigest,
+          });
+          await prisma.conversationProcessing.updateMany({
+            where: { id: { in: old.map((row) => row.id) } },
+            data: { deadlineAt: new Date(Date.now() - 1) },
+          });
+          expect((await reserve(limit)).allowed).toBe(true);
+          const expired = await prisma.conversationProcessing.findMany({
+            where: { id: { in: old.slice(1).map((row) => row.id) } },
+          });
+          expect(
+            expired.every(
+              (row) =>
+                row.status === "stale" &&
+                !JSON.stringify(row.result).includes("UNCLAIMED_CAP_BODY"),
+            ),
+          ).toBe(true);
+          expect((await f.records.read(old[0]!.id))!.result).toMatchObject({
+            status: "unknown",
+            reply: old[0]!.ready.reply,
+          });
+          for (let index = limit + 1; index < limit * 2 - 1; index++)
+            expect((await reserve(index)).allowed).toBe(true);
+          expect((await reserve(limit * 2 - 1)).allowed).toBe(false);
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
     it("serializes reply reservations across processes and enforces 5/thread and 20/PR", async () => {
       const f = await fixture();
       try {
@@ -908,7 +1290,7 @@ describe.skipIf(!databaseUrl)(
       )!;
       expect(projections).toHaveLength(3);
       await admin.query(
-        `CREATE TABLE "${schema}"."MemoryAutomaticSource" (id TEXT); CREATE TABLE "${schema}"."MemoryAutomaticEntry" (id TEXT)`,
+        `CREATE TABLE IF NOT EXISTS "${schema}"."MemoryAutomaticSource" (id TEXT); CREATE TABLE IF NOT EXISTS "${schema}"."MemoryAutomaticEntry" (id TEXT)`,
       );
       try {
         for (const [index, role] of roles.entries()) {

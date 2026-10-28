@@ -299,6 +299,8 @@ export class ProcessConversation {
             outputSchema: conversationOutputSchema,
           },
           budget,
+          (controls) =>
+            this.dependencies.sources.isCurrent(snapshot!, controls),
         );
         const output = decision(generated.text);
         if (!(await this.dependencies.records.freezeOutput(id, output)))

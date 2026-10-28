@@ -44,6 +44,10 @@ export interface ConversationProcessingStore {
   markModelDispatched(id: string): Promise<boolean>;
   freezeOutput(id: string, output: ConversationDecision): Promise<boolean>;
   finish(id: string, result: ConversationProcessResult): Promise<void>;
+  associateEffects(
+    id: string,
+    learning: ConversationProcessResult["learning"],
+  ): Promise<ConversationProcessResult>;
   reserveReply(
     id: string,
     result: ConversationProcessResult,

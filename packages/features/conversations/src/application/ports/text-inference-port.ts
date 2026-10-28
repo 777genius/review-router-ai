@@ -15,6 +15,8 @@ export interface TextInferencePort {
       };
     },
     controls: RequestControls,
+    /** Check the already frozen source immediately before the external request. */
+    beforeDispatch?: (controls: RequestControls) => Promise<boolean>,
   ): Promise<{
     readonly text: string;
     readonly actualModel: string;

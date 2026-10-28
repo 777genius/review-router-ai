@@ -257,6 +257,7 @@ export function createConversationGatewayInference(input: {
     async generate(
       request: Parameters<TextInferencePort["generate"]>[0],
       outerControls: RequestControls,
+      beforeDispatch?: Parameters<TextInferencePort["generate"]>[2],
     ) {
       if (attempted) throw new ConversationError("conflict");
       const deadlineAt = new Date(
@@ -327,6 +328,10 @@ export function createConversationGatewayInference(input: {
           throw new ConversationError("forbidden");
         if (!(await input.checkAuthority(controls)))
           throw new ConversationError("forbidden");
+        // Prepare may await external work. Recheck the original complete source
+        // after it returns, outside SQL, before the paid dispatch admission.
+        if (beforeDispatch && !(await beforeDispatch(controls)))
+          throw new ConversationError("stale");
         if (input.admitDispatch && !(await input.admitDispatch(controls)))
           throw new ConversationError("forbidden");
         const response = await prepared.client.request(
