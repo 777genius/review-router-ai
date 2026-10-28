@@ -4,6 +4,12 @@ This file is the source of truth for ReviewRouter git flow, deploy sequencing,
 and release tags. Keep `README.md` and `AGENTS.md` as links to this
 file instead of duplicating the process there.
 
+Task-specific rollout instructions and environment status are tracked in the
+[deployment task registry](../deployments/README.md). Before a deploy or release,
+inspect that registry for applicable unfinished work and include its ordered
+steps in the rollout. Record the actual outcome afterward. This file remains the
+source of truth for release gates, migration sequencing, approvals, and tags.
+
 ## Repositories
 
 ReviewRouter has two release-coupled repositories:
