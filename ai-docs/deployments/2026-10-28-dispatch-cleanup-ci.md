@@ -57,7 +57,9 @@ Use the release guide rollback preflight and the History task for any remaining 
 - [PR #732](https://github.com/777genius/review-router-ai/pull/732) owns final source qualification and the final current-head CI links.
 - Earlier TEST [40702714962](https://github.com/777genius/TEST-ci-cancellation-20261026/actions/runs/40702714962) and [40733262696](https://github.com/777genius/TEST-ci-cancellation-20261026/actions/runs/40733262696) are retained historical source-bound evidence. Neither is a claim about the later integrated History runtime.
 - Earlier Scanner PR [40739792466](https://github.com/777genius/review-router-ai/actions/runs/40739792466) qualified `76e4225`; it is not deployment evidence.
-- Current History-enabled source proof, final main/release and actual rollout evidence: pending. Add durable secret-free records before marking this environment deployed; ignored `tmp/` receipts alone are insufficient.
+- Current History-enabled source `2b54edf2bfabac25f5343d65bd66e100e57d88b7` passed one isolated native TEST [40758960764](https://github.com/777genius/TEST-ci-cancellation-20261026/actions/runs/40758960764): one dispatch, one discovery, one cancellation, four History facts and one cleanup event durably acknowledged; replay zero. The job was cancelled before runner allocation, so running-job shutdown is not claimed. Durable source-bound evidence is linked below.
+- Durable native evidence: [scope and result](evidence/2026-10-28-dispatch-cleanup-history-native.md), [source-bound counts and artifact hashes](evidence/2026-10-28-dispatch-cleanup-history-native.json).
+- Final exact-head CI, normal main/release and actual rollout evidence remain pending. Ignored `tmp/` receipts alone are insufficient to mark either environment deployed.
 
 ## Execution log
 

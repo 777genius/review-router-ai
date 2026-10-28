@@ -1,0 +1,358 @@
+{
+  "schemaVersion": 1,
+  "outcome": "passed_isolated_TEST_history_enabled_cleanup_seam",
+  "productionDeployed": false,
+  "source": {
+    "commit": "2b54edf2bfabac25f5343d65bd66e100e57d88b7",
+    "actualMainBaseline": "f2f7ae327b764cb1a484e4ef804e2014f2f44d47",
+    "qualifiedAt": "2026-10-28T19:57:33.733Z"
+  },
+  "native": {
+    "repository": "777genius/TEST-ci-cancellation-20261026",
+    "pullRequest": 1,
+    "workflow": ".github/workflows/reviewrouter-cleanup-test.yml",
+    "workflowSource": "61f6bdfa6f49dd981b9172a8272789f73606a32e",
+    "runId": "40758960764",
+    "runUrl": "https://github.com/777genius/TEST-ci-cancellation-20261026/actions/runs/40758960764",
+    "requestId": "TEST-sticky-history-1c7a80af-1ee6-4395-9482-d8ee74b59f79",
+    "dispatches": 1,
+    "actualCancels": 1,
+    "workerDiscoveries": 1
+  },
+  "manifest": {
+    "sha256": "512ee870c8370490e339da9d3154413f21a59f9bd5b013f488df6d13870a3192",
+    "inputs": 219,
+    "trackedInputs": 81,
+    "outputs": [
+      {
+        "path": "tmp/TEST-sticky-history-20261028/compiled-native/native-run.mjs.map",
+        "bytes": 4264,
+        "sha256": "bf3f042601d9dc6b0e01b9da1104894e5a3a7162d1b8fc5e47fb2047d8aad8b5",
+        "imports": []
+      },
+      {
+        "path": "tmp/TEST-sticky-history-20261028/compiled-native/native-run.mjs",
+        "bytes": 2635,
+        "sha256": "4cb7908f0a599b54a5e21112db694fa58e291d4b75d07bb82d85e5ac19f9e4fd",
+        "imports": [
+          {
+            "path": "node:assert/strict",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "node:crypto",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "node:fs",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "node:path",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "tmp/TEST-sticky-history-20261028/compiled-native/native-runtime-OTDN3XZA.mjs",
+            "kind": "dynamic-import"
+          }
+        ]
+      },
+      {
+        "path": "tmp/TEST-sticky-history-20261028/compiled-native/native-runtime-OTDN3XZA.mjs.map",
+        "bytes": 1823235,
+        "sha256": "cea64bdef1ebd725fe54effb2c7107d9b0da833157f6ae716e1eb106ca63a008",
+        "imports": []
+      },
+      {
+        "path": "tmp/TEST-sticky-history-20261028/compiled-native/native-runtime-OTDN3XZA.mjs",
+        "bytes": 941598,
+        "sha256": "a1ba9752f529f0846f6b719d2b926279c355df49b821dad4a738fc0837d534e0",
+        "imports": [
+          {
+            "path": "node:assert/strict",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "node:crypto",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "node:fs",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "node:path",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "node:timers/promises",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "@prisma/client",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "@prisma/adapter-pg",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "@prisma/client",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "@prisma/client",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "@prisma/client",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "@prisma/client",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "@prisma/client",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "@octokit/app",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "@prisma/client",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "@prisma/client",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "node:crypto",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "@prisma/client",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "@prisma/client",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "node:crypto",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "node:crypto",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "node:assert/strict",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "node:child_process",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "node:fs",
+            "kind": "import-statement",
+            "external": true
+          }
+        ]
+      }
+    ],
+    "outputBytes": 2771732,
+    "lockSha256": "1dd1574d7fad217ea292cd996e830c8b443df67ede85c45b7947294f578bbe0d",
+    "generatedSchemaSha256": "47a88c0405759554430ae601fe5f7bfb22e508c50d3eeeae9eed0c0a8fc52b28",
+    "generatedClientEntrySha256": "773f2836a698a5fe850cf320d1f849ca04e620e9b47f05816683260cba2b8b1c",
+    "externalPackageProvenance": "resolved entries/schema and lock only; not complete package-byte provenance"
+  },
+  "database": {
+    "profile": "owned loopback PostgreSQL17.11;155 migrations/latest000151_review_history",
+    "originalProofDatabasesPreserved": true,
+    "normalMigrationPreflightFailure": "10s timeout before Prisma;154/latest150/0unfinished and original process terminal verified before one approved normal retry",
+    "retry": "normal migration succeeded;155 readback retained",
+    "stoppedWithZeroOtherClients": true
+  },
+  "composition": {
+    "history": "public createReviewHistoryFeature,activateCapture,writer.register/captureIntent callbacks matching production",
+    "queue": "actual PrismaOutboxEventRepository/processOutboxBatch with registered source cleanup and history-projector handlers",
+    "fullWorkerBootstrap": false
+  },
+  "controlledSeams": [
+    "real accepted GitHub submit response intentionally lost",
+    "recovery lookup intentionally Inconclusive at actual database deadline",
+    "first cleanup cancellation throws before HTTP"
+  ],
+  "result": {
+    "firstBatch": {
+      "recoveredStale": 0,
+      "claimed": 5,
+      "processed": 4,
+      "retried": 1,
+      "deadLettered": 0,
+      "staleClaims": 0
+    },
+    "reopenedBatches": [
+      {
+        "recoveredStale": 0,
+        "claimed": 1,
+        "processed": 0,
+        "retried": 1,
+        "deadLettered": 0,
+        "staleClaims": 0
+      },
+      {
+        "recoveredStale": 0,
+        "claimed": 1,
+        "processed": 1,
+        "retried": 0,
+        "deadLettered": 0,
+        "staleClaims": 0
+      }
+    ],
+    "total": {
+      "claimed": 7,
+      "processed": 5,
+      "retried": 2,
+      "deadLettered": 0,
+      "staleClaims": 0
+    },
+    "replayClaims": 0,
+    "terminalVersion": "4",
+    "boundVersion": "5",
+    "immutableOriginalPayload": {
+      "sourceRunId": null,
+      "sourceRunAttempt": null
+    },
+    "cleanup": {
+      "status": "processed",
+      "attempts": 3,
+      "claimVersion": "11",
+      "processedAt": "2026-10-28T19:58:05.821Z",
+      "claimCleared": true
+    },
+    "historyEvents": 4,
+    "historyStatus": "unconfirmed",
+    "historyCursorVersion": "4",
+    "bindingPreservedPublicFacts": true,
+    "ownUnprocessedEvents": 0,
+    "beforeCounts": {
+      "intents": 2,
+      "outbox": 2,
+      "ownIntents": 0,
+      "ownEvents": 0
+    },
+    "afterCounts": {
+      "ownIntents": 1,
+      "ownEvents": 5
+    }
+  },
+  "physical": {
+    "class": "queued run cancellation only",
+    "jobs": [
+      {
+        "id": 123065383100,
+        "name": "mock-review",
+        "status": "completed",
+        "conclusion": "cancelled",
+        "runnerId": 0,
+        "runnerName": "",
+        "steps": 0
+      }
+    ],
+    "runningJobShutdownQualified": false
+  },
+  "budget": {
+    "availableBefore": 3308498944,
+    "estimatedAdditionalWriteBudget": 72652328,
+    "basis": "existing migrated DB, one small fixture, bounded logs/receipts, no clone/install; conservative64MiB PG/WAL allowance plus2x actual compiled artifact bytes"
+  },
+  "focusedLocalChecks": {
+    "activeHistoryAtomicRollbackAndBinding": 1,
+    "current151ClosestPrisma": 4,
+    "workerCleanupAndDispatcher": 46,
+    "workerNativeTypecheck": "passed",
+    "featureTypecheck": "passed",
+    "harnessStrictNativeTypecheck": "passed",
+    "historyPostgresTest": "explicit local opt-in; not claimed as mandatory official CI coverage"
+  },
+  "rawArtifacts": [
+    {
+      "path": "tmp/TEST-sticky-history-20261028/native-sticky-history-result.json",
+      "sha256": "f385e18578933af4a1c42b461119a9076819c6d0a0647fa7348dfda7fe8cd1fe"
+    },
+    {
+      "path": "tmp/TEST-sticky-history-20261028/native-compiled-inputs.json",
+      "sha256": "512ee870c8370490e339da9d3154413f21a59f9bd5b013f488df6d13870a3192"
+    },
+    {
+      "path": "tmp/TEST-sticky-history-20261028/native-final-jobs.json",
+      "sha256": "985d580f061fa8c2acad83cfcdd3e520232babdbdeb1517ffd59ee9535281d5a"
+    },
+    {
+      "path": "tmp/TEST-sticky-history-20261028/native-fresh-sql-readback.jsonl",
+      "sha256": "fb374ee97422c9ce82c92455bea1d6f099a0301d0ed560b58f9cc5f465cd7d3d"
+    },
+    {
+      "path": "tmp/TEST-sticky-history-20261028/native-execution.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tmp/TEST-sticky-history-20261028/native-current151-preflight-failed.log",
+      "sha256": "58d7a138227bbb65f144ed2ad79800f4848557339249de1b4bbd2e498c136c25"
+    },
+    {
+      "path": "tmp/TEST-sticky-history-20261028/native-current151-migrate-retry.log",
+      "sha256": "1eaba7ea0c73b1d8dc6b5c0957ff7b725be600107dfb9ed6556863904017d3de"
+    },
+    {
+      "path": "tmp/TEST-sticky-history-20261028/native-current151-readback.txt",
+      "sha256": "e8021a5d6f25d52e0a1cfcde58a420b9d36deae3f4af65823725c1728174bb05"
+    },
+    {
+      "path": "tmp/TEST-sticky-history-20261028/harness-reviewed-typecheck.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tmp/TEST-sticky-history-20261028/pg17-native-stop-confirmed.log",
+      "sha256": "ca19178a35ab4153b75b494963b66ce8243e1b94c173107c87b44d09db23652d"
+    }
+  ],
+  "excluded": [
+    "production database/deployment/runtime ACL or live handler-map introspection",
+    "GitHub App/OIDC authentication; normal gh session supplied through guarded transport",
+    "provider execution/admission/publication",
+    "running-job shutdown; existing historical generic proof not replayed",
+    "final PR/main CI or rollout completion"
+  ]
+}
