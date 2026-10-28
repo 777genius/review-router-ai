@@ -11,6 +11,7 @@ import {
   GitPullRequest,
   History,
   Layers,
+  Plug,
   Settings2,
   type LucideIcon,
 } from "lucide-react";
@@ -21,6 +22,7 @@ const dashboardSectionIcons: Record<string, LucideIcon> = {
   repositories: GitPullRequest,
   reviews: History,
   skills: BookOpen,
+  "context-tools": Plug,
   memory: Brain,
   setup: Settings2,
   providers: Layers,
