@@ -17,6 +17,7 @@ export type EntryReview = {
 };
 export type SourceWitness = {
   actorId: string;
+  automaticLearningEligible: boolean;
   revision: string;
   threadId: string;
   messageId: string;
@@ -128,6 +129,7 @@ export function inspectInventory(input: {
       effect.kind === "retire" &&
       prior &&
       historical &&
+      historical.automaticLearningEligible === true &&
       retirement &&
       effect.sourceId === prior.sourceId &&
       effect.sourceRevision === prior.sourceRevision &&
@@ -147,7 +149,8 @@ export function inspectInventory(input: {
       scopeKey(effect.scope) !== scopeKey(input.scope) ||
       !effect.approvalAuthorityRevision.startsWith("automatic:") ||
       (effect.kind === "save"
-        ? !witness.effectIds.includes(effect.id) ||
+        ? selected?.automaticLearningEligible !== true ||
+          !witness.effectIds.includes(effect.id) ||
           effect.actorId !== selected?.actorId ||
           effect.sourceId !== input.triggerSourceId ||
           effect.sourceRevision !== selected?.revision
@@ -215,6 +218,8 @@ export function inspectInventory(input: {
       !entry.revision ||
       scopeKey(entry.scope) !== scopeKey(input.scope) ||
       !historical ||
+      (entry.approvalAuthorityRevision?.startsWith("automatic:") &&
+        historical?.automaticLearningEligible !== true) ||
       entry.sourceActor !== historical.actorId ||
       entry.observedCommit !== historical.headSha ||
       entry.kind !== "observation" ||

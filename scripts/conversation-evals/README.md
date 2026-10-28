@@ -118,7 +118,12 @@ node --import tsx scripts/conversation-evals/score.ts \
 
 Every observed metadata version is checked before source attribution. Full
 inventory includes inactive and pending rows, with current visible bodies kept
-separately. Actual readback records the unavailable reason, checked source
+separately. Concrete human maintainer authority and the actual standing learning
+policy determine automatic source eligibility per source revision. Both automatic
+command proofs and observed automatic entries require that eligibility; semantic
+support and human forbidden-effect labels cannot grant it. Explicit owner
+retirement/forget retains its separate authority checks.
+Actual readback records the unavailable reason, checked source
 currency and the owning store's active-cohort eligibility. Only a visible active
 body with successful readback and both eligibility checks earns retention,
 precision or recall credit. A digest on pending or unavailable metadata earns no

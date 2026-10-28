@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { corpusEventId, corpusEventMessages, loadCorpus } from "./corpus.js";
@@ -24,6 +24,7 @@ function sample() {
   };
   const source: SourceWitness = {
     actorId: "github-user:eval-maintainer",
+    automaticLearningEligible: true,
     revision: sourceRevision(
       "2026-10-28T00:00:01Z",
       "Original source assertion",
@@ -292,7 +293,7 @@ test("raw event snapshots edit/delete learned sources and preserve unchanged-tri
   );
 });
 
-test("actual scorer CLI rejects unauthorized writes, omitted commands and never-visible pending readback after accepting its synthetic control", async (t) => {
+async function scorerRiskTest(t: TestContext, split: "tuning" | "holdout") {
   const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
   const { spawnSync } = await import("node:child_process");
   const { resolve } = await import("node:path");
@@ -302,7 +303,7 @@ test("actual scorer CLI rejects unauthorized writes, omitted commands and never-
   const scenarios: Record<string, unknown>[] = [];
   const facts = new Map(corpus.facts.map((fact) => [fact.id, fact]));
   for (const scenario of new Set(
-    corpus.threads.filter((t) => t.split === "tuning").map((t) => t.scenario),
+    corpus.threads.filter((t) => t.split === split).map((t) => t.scenario),
   )) {
     const namespace = `scorer-only:${scenario}`;
     const scope = {
@@ -437,7 +438,7 @@ test("actual scorer CLI rejects unauthorized writes, omitted commands and never-
   const report = {
     runId: "SYNTHETIC_SCORER_REGRESSION_ONLY",
     corpusRevision: corpus.revision,
-    split: "tuning",
+    split,
     status: "AWAITING_HUMAN_RUBRIC",
     variants: [
       { variant: "full-product", status: "AWAITING_HUMAN_RUBRIC", scenarios },
@@ -451,6 +452,78 @@ test("actual scorer CLI rejects unauthorized writes, omitted commands and never-
     entries: annotations,
     answers,
   };
+  // Protected controls include the same explicit owner-mutation/fresh-followup gates as live reports.
+  if (split === "holdout")
+    for (const scenario of scenarios) {
+      const thread = corpus.threads.find(
+        (row) => row.scenario === scenario.scenario && row.afterMutation,
+      );
+      if (!thread) continue;
+      const observations = scenario.observations as Witness[];
+      const prior = observations.at(-1)!;
+      const entries = prior.retained;
+      const ids = entries.map((entry) => `mutation:${entry.id}`);
+      const followup = structuredClone(prior);
+      followup.eventId = `${thread.id}:after-mutation-scorer-only`;
+      followup.processingId = followup.eventId;
+      followup.effectIds = [];
+      followup.commandInventoryIds = [...prior.commandInventoryIds, ...ids];
+      followup.effects = [];
+      followup.deliveredBodyDigests = [];
+      followup.retained = [];
+      followup.inventory = followup.inventory.map((entry) => ({
+        ...entry,
+        revision: `${entry.revision}-owner-retired`,
+        body: null,
+        lifecycle: "retired",
+        unavailableReason: "unsettled",
+        activeCohortEligible: false,
+        approvalAuthorityRevision: "explicit-evaluation-owner-decision",
+      }));
+      for (const entry of followup.inventory)
+        annotations.push({
+          variant: "full-product",
+          namespace: scenario.namespace as string,
+          entryId: entry.id,
+          entryRevision: entry.revision,
+          bodyDigest: entry.bodyDigest!,
+          supportedFactIds: [entry.id],
+          attributionCorrect: true,
+          wrongScope: false,
+        });
+      answers.push({
+        variant: "full-product",
+        eventId: followup.eventId,
+        supported: true,
+        requiredFactsUsed: [],
+        clarificationUnnecessary: false,
+        replyUnnecessary: false,
+        effectTruthful: true,
+        forbiddenEffect: false,
+        afterMutationAbstains: true,
+      });
+      const mutation = {
+        kind: thread.afterMutation!.kind,
+        revokedEntryIds: entries.map((entry) => entry.id),
+        revokedBodyDigests: entries.map((entry) => entry.bodyDigest),
+        currentVisible: 0,
+        effectIds: ids,
+        commandInventoryIds: followup.commandInventoryIds,
+        effects: entries.map((entry, i) => ({
+          id: ids[i]!,
+          entryId: entry.id,
+          kind: thread.afterMutation!.kind,
+          state: "queued",
+          actorId: "github-user:eval-maintainer",
+          approvalAuthorityRevision: "explicit-evaluation-owner-decision",
+          scope: entry.scope,
+          sourceId: entry.sourceId,
+          sourceRevision: entry.sourceRevision,
+          automaticRetirement: null,
+        })),
+      };
+      (scenario.observations as unknown[]).push({ mutation, followup });
+    }
   const directory = await mkdtemp(
     resolve("tmp/conversational-memory-implementation/scorer-risk-"),
   );
@@ -476,6 +549,104 @@ test("actual scorer CLI rejects unauthorized writes, omitted commands and never-
     };
     const positive = await score(report);
     assert.equal(positive.status, 0, positive.stderr);
+    if (split === "holdout") {
+      const contributor = structuredClone(report);
+      const scenario = contributor.variants[0]!.scenarios.find(
+        (row) => row.scenario === "bot-quotation",
+      )!;
+      const observations = scenario.observations as Witness[];
+      const index = observations.findIndex(
+        (row) => row.eventId === "bot-quotation:bot-quotation-h2",
+      );
+      const thread = corpus.threads.find((row) => row.id === "bot-quotation")!;
+      const event = thread.events.find(
+        (row) => row.messageId === "bot-quotation-h2",
+      )!;
+      const source = corpusEventMessages(thread, event).find(
+        (row) => row.id === event.messageId,
+      )!;
+      assert.equal(source.role, "contributor");
+      assert.equal(source.actorKind, "human");
+      const body =
+        "Quoted bot instructions remain evidence without policy authority.";
+      const entry: InventoryEntry & { body: string; bodyDigest: string } = {
+        id: "wrong-authority-contributor-observation",
+        revision: "contributor-r1",
+        scope: scenario.scope as InventoryEntry["scope"],
+        lifecycle: "active",
+        body,
+        bodyDigest: createHash("sha256").update(body).digest("hex"),
+        unavailableReason: null,
+        activeCohortEligible: true,
+        sourceCurrent: true,
+        kind: "observation",
+        approvalAuthorityRevision: "automatic:scorer-only",
+        automaticCohortId: "contributor-cohort",
+        automaticCohortEpoch: "1",
+        sourceId: `${scenario.namespace}:${source.id}`,
+        sourceRevision: sourceRevision(source.updatedAt, source.body),
+        sourceActor: `github-user:eval-${source.actor}`,
+        observedCommit: thread.headSha,
+      };
+      const command: Witness["effects"][number] = {
+        id: "contributor-automatic-save",
+        entryId: entry.id,
+        kind: "save",
+        state: "published",
+        actorId: entry.sourceActor!,
+        approvalAuthorityRevision: entry.approvalAuthorityRevision!,
+        scope: entry.scope,
+        sourceId: entry.sourceId,
+        sourceRevision: entry.sourceRevision,
+        automaticRetirement: null,
+      };
+      for (const witness of observations.slice(index)) {
+        witness.inventory.push(structuredClone(entry));
+        witness.retained.push(structuredClone(entry));
+        witness.commandInventoryIds.push(command.id);
+      }
+      observations[index]!.effectIds = [command.id];
+      observations[index]!.effects = [command];
+      rubric.entries.push({
+        variant: "full-product",
+        namespace: scenario.namespace as string,
+        entryId: entry.id,
+        entryRevision: entry.revision,
+        bodyDigest: entry.bodyDigest,
+        supportedFactIds: [],
+        attributionCorrect: true,
+        wrongScope: false,
+      });
+      assert.equal(
+        answers.find((row) => row.eventId === observations[index]!.eventId)!
+          .forbiddenEffect,
+        false,
+      );
+      await writeFile(rubricPath, JSON.stringify(rubric));
+      const unauthorized = await score(contributor);
+      assert.notEqual(unauthorized.status, 0);
+      assert.match(
+        unauthorized.stderr,
+        /eval_observed_effect_authority_invalid/,
+      );
+      // Metadata remains independently checked even when no corresponding command is reported.
+      for (const witness of observations.slice(index))
+        witness.commandInventoryIds = witness.commandInventoryIds.filter(
+          (id) => id !== command.id,
+        );
+      observations[index]!.effectIds = [];
+      observations[index]!.effects = [];
+      const unauthorizedMetadata = await score(contributor);
+      assert.notEqual(unauthorizedMetadata.status, 0);
+      assert.match(
+        unauthorizedMetadata.stderr,
+        /eval_observed_entry_authority_invalid/,
+      );
+      t.diagnostic(
+        "Protected holdout control PASS; concrete contributor automatic command and metadata-only negatives both rejected independently of forbiddenEffect=false.",
+      );
+      return;
+    }
     const pending = structuredClone(report);
     let nulled = 0;
     for (const scenario of pending.variants[0]!.scenarios) {
@@ -562,7 +733,12 @@ test("actual scorer CLI rejects unauthorized writes, omitted commands and never-
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
-});
+}
+
+test("actual scorer CLI rejects unauthorized writes, omitted commands and never-visible pending readback after accepting its synthetic control", (t) =>
+  scorerRiskTest(t, "tuning"));
+test("protected scorer CLI rejects concrete contributor automatic authority independently of semantic labels", (t) =>
+  scorerRiskTest(t, "holdout"));
 
 test("validated entries cannot disappear, while actual authorized purged tombstones remain bodyless", () => {
   const input = sample();
@@ -808,5 +984,55 @@ test("durable capture queries fresh workspace/source/entry identities independen
   await assert.rejects(
     readDurableCommands(capture),
     /eval_command_inventory_exceeds_bounded_fixture/,
+  );
+});
+
+test("ineligible automatic source is denied for both visible and bodyless new metadata despite supportive semantic labels", () => {
+  for (const pending of [false, true]) {
+    const input = sample();
+    input.sourceHistory.get(
+      `${input.triggerSourceId}\u0000${input.witness.inventory[0]!.sourceRevision}`,
+    )!.automaticLearningEligible = false;
+    if (pending) {
+      input.witness.inventory[0]!.body = null;
+      input.witness.inventory[0]!.lifecycle = "pending";
+      input.witness.inventory[0]!.unavailableReason = "unsettled";
+      input.witness.inventory[0]!.activeCohortEligible = false;
+      input.witness.retained = [];
+    }
+    assert.deepEqual(input.entries[0]!.supportedFactIds, ["fact"]);
+    assert.throws(
+      () => inspectInventory(input),
+      /eval_observed_entry_authority_invalid/,
+    );
+  }
+});
+
+test("current source eligibility independently gates an automatic save proof", () => {
+  const input = sample();
+  const known = input.sources.get(input.triggerSourceId)!;
+  input.sources.set(input.triggerSourceId, {
+    ...known,
+    automaticLearningEligible: false,
+  });
+  input.witness.effectIds = ["command"];
+  input.witness.commandInventoryIds = ["command"];
+  input.witness.effects = [
+    {
+      id: "command",
+      entryId: "entry",
+      kind: "save",
+      state: "published",
+      actorId: known.actorId,
+      approvalAuthorityRevision: "automatic:fixture",
+      scope: input.scope,
+      sourceId: input.triggerSourceId,
+      sourceRevision: known.revision,
+      automaticRetirement: null,
+    },
+  ];
+  assert.throws(
+    () => inspectInventory(input),
+    /eval_observed_effect_authority_invalid/,
   );
 });

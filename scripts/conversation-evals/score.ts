@@ -314,6 +314,9 @@ for (const variant of report.variants) {
         )) {
           const value = {
             actorId: `github-user:eval-${message.actor}`,
+            automaticLearningEligible:
+              message.role === "maintainer" &&
+              expectedThread.policy.automaticLearning,
             revision: sourceRevision(message.updatedAt, message.body),
             threadId: expectedThread.id,
             messageId: message.id,
