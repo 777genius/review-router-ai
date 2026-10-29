@@ -125,7 +125,8 @@ the remote verification and draft creation.
 
 ## Реализация, проверки и final critics
 
-Статус: реализация начата. Root owns Usage policy, documentation and integration;
+Статус: source implementation published in `7ae564e8d317c589cfd739eade499799f9c51f45`;
+qualification and final findings are in progress. Root owns Usage policy, documentation and integration;
 the three existing GPT-6.1 Sol xhigh agents own frontend, History/Statistics
 backend, and the existing browser qualification extension. Final code review,
 required CI, merge and deployment are not yet claimed.
@@ -232,3 +233,25 @@ component-only unseen-seed cases, and confirmed member isolation from the
 component first-render guard. A cancelled held request proves cancellation, not
 execution of a late-completion guard. Receipts record delivered versus cancelled
 outcomes. The browser workflow and twelve viewport/theme captures remain pending.
+
+### First pushed-source review and hosted gate
+
+- Backend and E2E critics accepted exact pushed source
+  `7ae564e8d317c589cfd739eade499799f9c51f45`; the harness/workflow hashes match
+  their previously inspected bounded-wait implementation. These are source
+  acceptances, not browser or CI passes.
+- The final frontend critic found one P2: initial SSR-error recovery merged each
+  filter change with the old server prop, so a fast period change followed by a
+  severity change could discard the period. The fix retains the latest pending
+  filter intent, rebases on accepted SSR filters and browser navigation, and
+  adds two interaction regressions. The three related suites passed **23/23**;
+  changed-file lint, formatting and whitespace checks passed. The independent
+  frontend critic re-read the actual fix and tests and closed P2 with source
+  ACCEPT; no remaining material frontend source finding.
+- [Browser run40962904242](https://github.com/777genius/review-router-ai/actions/runs/40962904242)
+  passed toolchain/dependency preparation, strict offline Prisma generation,
+  migrations and Next route type generation, then stopped at the full web
+  typecheck. The only diagnostic is a new URL test passing the string literal
+  `critical` where the public contract requires `StatisticsSeverity.Critical`.
+  The test now uses that enum; the domain contract is unchanged. The browser
+  did not run, so there is no screenshot or runtime receipt for this attempt.

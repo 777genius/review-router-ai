@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { StatisticsSeverity } from "@reviewrouter/features-review-statistics";
 import {
   defaultStatisticsFilter,
   statisticsFilterFromUrl,
@@ -49,7 +50,12 @@ describe("Statistics shared URL", () => {
     expect(statisticsFilterUrl(href, defaultStatisticsFilter)).toBe(
       "/dashboard?section=statistics&workspace=team&keep=a&keep=b#issues",
     );
-    expect(statisticsFilterUrl(href, { days: 90, severity: "critical" })).toBe(
+    expect(
+      statisticsFilterUrl(href, {
+        days: 90,
+        severity: StatisticsSeverity.Critical,
+      }),
+    ).toBe(
       "/dashboard?section=statistics&workspace=team&keep=a&keep=b&statisticsDays=90&statisticsSeverity=critical#issues",
     );
   });

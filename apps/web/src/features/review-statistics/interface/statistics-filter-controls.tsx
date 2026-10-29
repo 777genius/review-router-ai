@@ -1,4 +1,5 @@
 "use client";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, SelectField } from "@reviewrouter/ui";
 import type { StatisticsFilter } from "@reviewrouter/features-review-statistics";
@@ -8,6 +9,7 @@ import {
 } from "../application/statistics-presentation";
 import {
   defaultStatisticsFilter,
+  statisticsFilterFromUrl,
   statisticsFilterUrl,
 } from "../application/statistics-url";
 import styles from "./statistics.module.css";
@@ -64,19 +66,43 @@ export function StatisticsFilterRecovery({
 }: {
   filter: StatisticsFilter;
 }) {
+  return (
+    <StatisticsFilterRecoveryState
+      key={JSON.stringify([filter.days, filter.severity])}
+      filter={filter}
+    />
+  );
+}
+function StatisticsFilterRecoveryState({
+  filter,
+}: {
+  filter: StatisticsFilter;
+}) {
   const router = useRouter();
+  const [current, setCurrent] = useState(filter);
+  const latest = useRef(filter);
+  useEffect(() => {
+    const pop = () => {
+      const restored = statisticsFilterFromUrl(
+        new URLSearchParams(window.location.search),
+      );
+      if (!restored) return;
+      latest.current = restored;
+      setCurrent(restored);
+    };
+    window.addEventListener("popstate", pop);
+    return () => window.removeEventListener("popstate", pop);
+  }, []);
   return (
     <div className={styles.controls}>
       <StatisticsFilterControls
-        filter={filter}
-        onChange={(changes) =>
-          router.replace(
-            statisticsFilterUrl(window.location.href, {
-              ...filter,
-              ...changes,
-            }),
-          )
-        }
+        filter={current}
+        onChange={(changes) => {
+          const next = { ...latest.current, ...changes };
+          latest.current = next;
+          setCurrent(next);
+          router.replace(statisticsFilterUrl(window.location.href, next));
+        }}
       />
     </div>
   );
