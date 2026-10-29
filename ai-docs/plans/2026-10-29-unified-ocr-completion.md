@@ -1,8 +1,9 @@
 # Unified OCR: bounded completion plan
 
-Status: proposed completion plan, awaiting independent critic rounds. No product
-implementation is approved by this document until the blocking plan findings
-are closed. The existing [product plan](2026-10-26-unified-ocr-review.md) remains
+Status: ready for implementation after three completed independent cross-critic
+rounds. Both final-round critics returned GO with no blocking findings. This
+records plan approval, not implementation or acceptance completion. The existing
+[product plan](2026-10-26-unified-ocr-review.md) remains
 the scope and behavior contract; this document closes the current integration
 and acceptance gaps. Root owns GitHub publication and the existing draft PRs
 [SaaS #718](https://github.com/777genius/review-router-ai/pull/718) and
@@ -39,7 +40,14 @@ and acceptance gaps. Root owns GitHub publication and the existing draft PRs
   restoration cleanup, and actual activation; reuse that existing approach.
 - New Action main `8a6bb7395556ddabbda4b8275bc9e2de6fea4f8e` includes memory
   #350. Recheck both PR heads before merge. The production runner must retain
-  both `scopedModelInvocations` and `memoryAdmission`.
+  both `scopedModelInvocations` and main's composite
+  `reviewMemoryAdmissionForSessions(reviewMemory, descriptionMemory)`.
+- Main's `ocr-managed-v4` catalog entry is already bound to `1.13.1-rr.5` and
+  binary `9c666b25f7b189d5af8e59beb877e0a449869166116975fbd8e634bd1b370969`.
+  The feature fixture still hardcodes `rr.5` and the different binary
+  `a7bed0cea8ab05503c7de53f8c3825a75c285eb8364c832accc42dbebb0d42db`.
+  Build/hash the combined artifact before freezing SaaS **S** and update the
+  fixture's exact identity first; preserve main's immutable catalog entry.
 
 These are source observations and reported failures, not newly passed checks.
 Live provider qualification still needs the owner's designated credentials.
@@ -97,21 +105,31 @@ paired test with PostgreSQL.
 
 Merge the freshly recorded Action main into #346 and resolve the shared runner
 by retaining both the feature's durable `scopedModelInvocations` wrapper and
-main's admitted `memoryAdmission`. Preserve existing Skills and memory
-interfaces. Do not copy the review scenario into provider entrypoints.
+main's composite `reviewMemoryAdmissionForSessions(reviewMemory,
+descriptionMemory)`. Preserve the captured snapshots for both review and
+description tasks, investigation memory, and admitted memory behavior in both
+runner branches. Keep existing Skills interfaces. Do not copy the review
+scenario into provider entrypoints.
 
 Combine the feature's native Anthropic OCR patch with main's opaque-template
 patch in the existing ordered patch/build system. Inspect the combined patch
 application and regenerate its real reproducibility receipt. Use one unique,
 unpublished managed artifact/version identity after checking the existing
 catalog; never overwrite released `1.13.1-rr.5`, an old manifest, or immutable
-binary bytes. Keep the pinned upstream source/toolchain explicit. Rebuild and
-verify the actual OCR binary and qualify native wire behavior with that exact
-combined artifact.
+binary bytes. Keep main's `ocr-managed-v4` / `1.13.1-rr.5` / `9c666b25...`
+catalog binding unchanged and append a fresh immutable agent catalog entry for
+the union artifact; retain the main opaque-template artifact and manifest.
+Keep the pinned upstream source/toolchain explicit. Build and verify the real
+union binary, record its exact new version/hash/manifest, and qualify native
+wire behavior before freezing SaaS **S**. Update the production paired fixture's
+old version/hash at both profile construction sites and its executable hash
+check to this new identity before **S** is committed.
 
 Touch the conflicting runner, existing OCR patch/version/manifest definitions,
-their existing qualification tests, canonical exported contract/wrapper inputs,
-and generated `dist/*` only where the established scripts produce changes.
+`src/control-plane/review-agent-profiles.json`, existing qualification tests,
+the SaaS paired fixture's exact artifact/profile identity, canonical exported
+contract/wrapper inputs, and generated `dist/*` only where the established
+scripts produce changes.
 Do not hand-edit exported source, protocol digests, or bundled output. Rebuild
 and commit the generated Action bundles. Keep the external `modelTransport`
 union at its existing public values; finite internal route descriptors must
@@ -124,16 +142,21 @@ Extend its full real production-runner path to each remaining finite route,
 without multiplying all 18 scenarios by all routes. Reuse shared assertions
 and the existing PostgreSQL, real Git revisions, ordinary authenticated
 admission/checkout/renewal, pinned OCR executable, verifier and App worker.
+The integrated route proof must enter real SaaS admission and the existing
+native prepared-route adapters, then run real OCR, the verifier, and App worker
+against synthetic external boundaries. Reuse the public runtime bootstrap if
+it already provides this path; inspect it before extending the existing harness.
+Do not build a new bootstrap framework or duplicate production orchestration.
 
-| Prepared route | Full runner proof |
-| --- | --- |
-| Account Gateway | Retain and rerun the existing full-runner proof, including a qualified dynamic saved-model selection. |
-| OpenRouter API key | Add the same real two-head runner scenario through the existing controlled direct route. |
-| MiMo Token Plan API key | Add the same scenario with its existing endpoint/model/settings constraints. |
-| Kimi Code API key | Add the same scenario with its existing endpoint/model/settings constraints. |
-| Repository Codex subscription | Use the existing official auth-only refresh and encrypted writeback preparation, then the same runner. |
-| Hosted Codex Pool | Preserve the original bound grant/lease/account/model and exercise the same V2 runner and publication. |
-| Claude Code subscription | Exercise the native Anthropic route with the combined real OCR artifact and existing opaque token lifetime rules. |
+| Prepared route                | Full runner proof                                                                                                                                                                     |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Account Gateway               | Retain and rerun the existing full-runner proof, including a qualified dynamic saved-model selection.                                                                                 |
+| OpenRouter API key            | Add the same real two-head runner scenario through the existing controlled direct route.                                                                                              |
+| MiMo Token Plan API key       | Add the same scenario with its existing endpoint/model/settings constraints.                                                                                                          |
+| Kimi Code API key             | Add the same scenario with its existing endpoint/model/settings constraints.                                                                                                          |
+| Repository Codex subscription | Exercise the native prepared subscription adapter in the same admitted runner; qualify official auth-only CLI refresh and sealed writeback separately with the existing helper tests. |
+| Hosted Codex Pool             | Preserve the original bound grant/lease/account/model and exercise the same V2 runner and publication.                                                                                |
+| Claude Code subscription      | Exercise the native Anthropic route with the combined real OCR artifact and existing opaque token lifetime rules.                                                                     |
 
 For each route, head A publishes new findings; head B proves a fix, retains an
 active finding, leaves an unprovable finding unverified, discovers a new issue,
@@ -144,6 +167,13 @@ new paid or GitHub effects. Managed API-key provisioning is a focused existing
 provisioning test, not another identical transport row. The explicit supported
 supplied-diff Codex alternative gets a focused regression, not an invented OCR
 supplied-diff mode.
+
+Report the integrated route results separately from focused official CLI
+auth-only refresh and sealed-writeback helper qualification. Passing those
+helpers alone does not prove a complete subscription runner path. These seven
+route proofs use synthetic upstream/GitHub/OIDC boundaries; they are not seven
+live-provider or full remote GitHub workflow E2Es. Retain any existing real
+public-bootstrap coverage without claiming fixture boundaries were live.
 
 Reuse existing adapter fault suites for the concrete protocol/auth differences:
 official rotation and writeback uncertainty, Hosted custody, Anthropic terminal
@@ -163,24 +193,31 @@ rendered GitHub summary/banner mixed results. No new results page is required.
 
 Use one directional source handoff to avoid export/pin hash ping-pong:
 
-1. Finish source and fixture changes; run focused SaaS checks, actual API/worker
-   builds, generated-contract checks, and required architecture/lint/format
+1. Integrate Action source and build/qualify the union OCR binary first. Record
+   the exact unique version, binary hash and manifest; append its catalog entry
+   and update SaaS's paired fixture identity. Do not freeze **S** while it still
+   names the old feature `rr.5` / `a7bed0...` binary.
+2. Finish SaaS source and fixture changes; run focused checks, actual API/worker
+   builds, generated-contract checks and required architecture/lint/format
    gates. Build canonical SaaS artifacts and commit the frozen source as **S**.
-2. Finish Action main integration. Export contracts and sync the curated public
-   wrapper from exact committed **S** with existing scripts. Build/qualify the
-   combined immutable OCR artifact, run Action typecheck/lint/tests/artifact
-   checks, rebuild committed bundles, and commit the Action as **A**.
-3. Run complete paired acceptance against exact **S/A**, including common 18,
-   all finite full-runner routes, comparison publication, adapter faults, and
-   actual Next screenshots. Fix concrete failures and deliberately recreate
-   the source handoff if executable source changes; do not fake provenance.
+3. Export contracts and sync the curated public wrapper from exact committed
+   **S** with existing scripts. Run Action typecheck/lint/tests/artifact checks,
+   rebuild committed bundles, and commit the final Action as **A**. Run focused
+   **S/A** stabilization checks as necessary; a broad preliminary run is optional
+   only to resolve a concrete risk, not an additional mandatory duplicate run.
+   If executable source changes, deliberately recreate the source handoff;
+   do not fake provenance.
 4. Set the canonical SaaS CI Action pin to **A** in a metadata-only descendant
    **P** of **S**. Record that generated inputs/wrapper still come from **S**.
    Do not re-export only because the pin/documentation commit changed the SHA.
-5. Run the final required SaaS CI and paired gates on **P/A**, verify exported
-   content/provenance and committed bundle parity, and record exact SHAs,
-   commands, run links, pass/skip counts and inspected screenshots. A skip is
-   not a pass. Keep fresh remote-head checks before each push.
+5. Run the full final required SaaS CI and paired acceptance on **P/A**:
+   common 18, all finite admitted runner routes, comparison publication,
+   existing relevant adapter fault suites and actual Next screenshots. Verify
+   exported content/provenance and committed bundle parity; record exact SHAs,
+   commands, run links, pass/skip counts and inspected screenshots. This final
+   exact-pair gate is mandatory. A skip is not a pass. Keep fresh remote-head
+   checks before each push. Repeat checks only for changes, failures or a
+   concrete unresolved risk.
 6. Reconcile the checkpoint, acceptance evidence and existing deployment
    task/index. Distinguish implemented, synthetic E2E verified, real executable
    qualified, browser inspected, live verified, and deployed. Root commits and
@@ -192,17 +229,65 @@ as complete live acceptance or deployment.
 
 ## 7. Critic rounds and implementation gate
 
-Two independent cross-critic rounds are required before product edits. Use a
-third round only for a substantial unresolved correction; close every blocking
-finding and record its recheck before implementation. Reviewers assess both
-the smallest safe scope and whether the final evidence proves the stated
-behavior. A pending review is not approval.
+All three bounded independent cross-critic rounds are required before product
+edits. Close every blocking finding and record its recheck before implementation.
+Reviewers assess both the smallest safe scope and whether the final evidence
+proves the stated behavior. A pending review is not approval.
 
-| Round | Focus | Reviewer verdicts and finding disposition |
-| --- | --- | --- |
-| 1 | SaaS/Gateway policy, Action merge/artifact identity, finite acceptance coverage and final-pair provenance. | Pending independent Action and acceptance critics. |
-| 2 | Recheck round-1 corrections; auth/budget/publication fences; no-users scope; reproducible final validation order. | Pending. |
-| 3, if needed | Recheck only material unresolved findings introduced by the prior correction. | Not started; use only if needed. |
+| Round | Focus                                                                                                             | Reviewer verdicts and finding disposition                                                                                                                                                      |
+| ----- | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | SaaS/Gateway policy, Action merge/artifact identity, finite acceptance coverage and final-pair provenance.        | Action: **NO-GO**, two P1 findings. Acceptance: **conditional GO**, one P2 finding. Corrections in v2 are recorded below and verified in round 2.                                              |
+| 2     | Recheck round-1 corrections; auth/budget/publication fences; no-users scope; reproducible final validation order. | Action: **GO**, both P1 corrections verified. Acceptance: **GO**, preparation boundary, all three rounds, finite coverage and final exact-pair gate verified. No blocking findings.            |
+| 3     | Final bounded pass over corrected scope, memory/artifact preservation and exact-pair evidence requirements.       | Action: **GO**, corrected round-1 history, artifact order, immutable catalog and composite memory verified. Acceptance: **GO**, all four recheck-packet points verified. No blocking findings. |
+
+### Round 1 finding record
+
+| Reviewer / severity | Finding                                                                                                                                                                  | v2 disposition and recheck                                                                                                                                                                                                                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Action / P1 #1      | Building the union OCR artifact after SaaS freeze leaves the paired fixture on the old `rr.5` / `a7bed0...` identity.                                                    | Build/hash/qualify the union before **S** and update both SaaS fixture profile sites and the executable check before freezing **S**. Action critic verified the correction in round 2: GO.                                                                                                                  |
+| Action / P1 #2      | The plan omitted a fresh immutable agent catalog entry for the combined OCR artifact.                                                                                    | Append a distinct entry for the exact union artifact; preserve main's `ocr-managed-v4` / `rr.5` / `9c666b25...` binding and immutable artifact/manifest. Action critic verified the correction in round 2: GO.                                                                                              |
+| Acceptance / P2     | Integrated route evidence and standalone auth-helper qualification are conflated, risking claims of seven full live/workflow E2Es or an unnecessary bootstrap framework. | Require real SaaS admission/native prepared adapters plus real OCR/verifier/App against synthetic boundaries; reuse existing public bootstrap where present. Report CLI/sealed-writeback helper qualification separately; no live/workflow claim. Acceptance critic verified the correction in round 2: GO. |
+
+Composite memory preservation was an Action review clarification, not a third
+blocking finding: retain `reviewMemoryAdmissionForSessions(reviewMemory,
+descriptionMemory)`, both task snapshots, investigation and admitted memory,
+together with `scopedModelInvocations`. This clarification remains explicit in
+section 4 and was accepted in round 2.
+
+The owner also corrected the review/validation process: all three bounded plan
+rounds are mandatory; use **S/A** only for needed stabilization and run the full
+required acceptance once on final **P/A**. These process corrections were
+verified by the Acceptance critic in round 2.
+
+### Round 3 recheck packet
+
+Review this corrected plan as the final bounded pass before product edits:
+
+1. Verify the artifact dependency order: build/hash/qualify the unique union,
+   append its immutable catalog entry and replace the SaaS fixture identity
+   before freezing **S**; preserve main's existing OCR artifact and memory
+   composition while retaining durable model-invocation scope.
+2. Verify the acceptance boundary: the common 18-case matrix runs once, each
+   finite route enters real admission/native preparation and the common real
+   runner against synthetic external boundaries, and focused auth-helper
+   qualification is reported separately. No Cartesian matrix, new bootstrap
+   framework, public transport-union expansion, or unsupported live claim.
+3. Verify the handoff and final gate: exact committed **S** exports to rebuilt
+   **A**, then metadata-only **P** pins **A**; final **P/A** runs the complete
+   mandatory acceptance and verifies provenance/bundle parity. Repeat only
+   checks justified by changes, failures or a concrete remaining risk.
+4. Verify no-users scope and safeguards: no new migration/backfill/upgrade
+   coordinator; preserve credentials, original in-flight identities, shared
+   allowance, unknown-effect fences, current authority and App publication.
+   Fix the comparison fixture through signed witness/actual activation and
+   inspect actual Next at two widths in both themes.
+
+Round 3 is complete. The Action critic returned GO after verifying the corrected
+round-1 finding history, artifact dependency order, fresh immutable catalog
+entry and composite memory preservation. The Acceptance critic returned GO
+after verifying all four packet points. Neither reported a blocking finding.
+All three required plan rounds are complete; root publishes the final reviewed
+plan before source implementation begins.
 
 Implementation review follows the tested final changes, with exact file/line
 findings and meaningful rechecks. Do not carry historical plan GO verdicts
