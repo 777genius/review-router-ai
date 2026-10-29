@@ -4,6 +4,41 @@ Implementation of [the reviewed plan](./2026-10-28-conversational-memory-and-sha
 
 **Current state:** the implementation is committed in control-plane PR #734 and paired Action PR #350. The 2026-10-29 closure below supersedes historical remote-pending descriptions. All three original implementation review rounds remain closed. Full CI, browser, memory and native mechanism checks passed on the exact pre-integration candidate. This integration preserves current main runner policy and resolves one equivalent account-test conflict. Actual selected-model quality, deployment privacy/configuration and installed App-first qualification remain separate activation gates; no release or activation is claimed.
 
+## 2026-10-29 final lifecycle-fixture repair and merge handoff
+
+The previous final-head CI [40868138527](https://github.com/777genius/review-router-ai/actions/runs/40868138527)
+exposed seven paired lifecycle failures before the subsequent memory wire
+step could run. The paired Action correctly rejects unknown edit metadata;
+the synthetic GitHub parents lacked `publishedAt` and `lastEditedAt`.
+This follow-up adds those fields only to the fixture and asserts trusted,
+unedited, unambiguous targets before planning. No production guard, packet
+assertion, publication policy, timeout or required CI gate is weakened.
+
+[Bounded qualification](https://github.com/777genius/review-router-ai/actions/runs/40877611193) starts from exact control-plane
+`08e39a3928e6bf7752512099575a9d87602e8811` and paired Action
+`99cbd748aa025e27d5d9f689c3173c33b2d6b418`. It reproduces the original
+empty-packet failure, then passes all 24 paired investigation/lifecycle,
+description, banner and memory HTTP/PostgreSQL tests; 17 finite-conversation
+PostgreSQL tests; and 94 Action inventory/adapter/revalidation guard tests.
+The successful suites have zero skipped/todo tests. The intentionally
+filtered before-fix reproduction is negative evidence, not a passing suite.
+Exact reports and the tested patch are retained in that run's artifact.
+
+Action #349 and #350 are merged as `7713c978f852f16b359ab816135a0b45de0c2ad1`
+and `8a6bb7395556ddabbda4b8275bc9e2de6fea4f8e`. Control-plane #734 remains
+for the next agent to merge after the final feature-head required checks
+pass. Verify the actual latest SHA and conclusions; this focused run does
+not replace full CI, the protected main release checks or approval.
+Do not merge the disposable diagnostic workflow into the feature branch.
+
+The [deployment task](../deployments/2026-10-29-conversational-memory.md)
+and its index remain the rollout authority: staging and production are
+separately pending. Live selected-model evaluation, native privacy and
+installed GitHub App publication remain activation requirements, not
+unimplemented source features or claims established by deterministic tests.
+No production deployment, release registration, activation or new
+independent-model review is claimed by this fixture repair.
+
 ## 2026-10-29 final paired runtime integration
 
 Current Action prerequisite #349 is `9dee78ac755412d587d5f80ac76864ec621d8781`; child #350 is `99cbd748aa025e27d5d9f689c3173c33b2d6b418`. Both incorporate main `2b9b7f8c438b076b6e06c6e14f9ac8e87f1a25b6` without rebasing, dropping source or changing the stack base.
@@ -42,7 +77,7 @@ This closure adds no new independent-model review claim. The original three impl
 | Control plane | [PR #734](https://github.com/777genius/review-router-ai/pull/734), `feat/conversational-memory-e2e`, base `main`                                                             | `b4b3d86cb4431442437468e22fcce2d4ba7e6fa6` |
 | Action        | [PR #350](https://github.com/777genius/review-router/pull/350), `feat/conversational-memory-runtime`, stacked on [#349](https://github.com/777genius/review-router/pull/349) | `99cbd748aa025e27d5d9f689c3173c33b2d6b418` |
 
-The paired runtime code checkpoint is Action `18f0998`; follow-up `88daa5d2280d30140d2eac1115fd6c24557ad5f3` changes only the CI qualification-manifest selector. Code, bundles and qualification manifests are byte-identical. Both control-plane paired CI references select exact Action `99cbd748aa025e27d5d9f689c3173c33b2d6b418`. The stack integration below preserves current main lifecycle fixes, rebuilds the official bundles and verifies a new exact candidate. Historical checks remain attached to their original SHAs. Control-plane `b4b3d86c` remains the immutable production implementation checkpoint; its follow-up includes documentation, the two paired CI references, a bounded readiness repair in the existing Skills browser fixture and the existing portable package's build step before CI imports it. Historically, the web-only correction `3fd4508c` replaced two nonexistent setup-input references with the already authorized local scope; its core/API/worker/protocol inputs remained byte-identical to reviewed `34a9fdcd`, and documentation checkpoint `637051b3` preserved those source bytes. The subsequent `b4b3d86c` merge changes the combined API/worker composition, SDK pin and migration admission; those older whole-source identity claims do not describe the integrated tree. Neither draft PR is merged; no release registration, deployment, registry publication or contextual-profile activation has been performed.
+The paired runtime code checkpoint is Action `18f0998`; follow-up `88daa5d2280d30140d2eac1115fd6c24557ad5f3` changes only the CI qualification-manifest selector. Code, bundles and qualification manifests are byte-identical. Both control-plane paired CI references select exact Action `99cbd748aa025e27d5d9f689c3173c33b2d6b418`. The stack integration below preserves current main lifecycle fixes, rebuilds the official bundles and verifies a new exact candidate. Historical checks remain attached to their original SHAs. Control-plane `b4b3d86c` remains the immutable production implementation checkpoint; its follow-up includes documentation, the two paired CI references, a bounded readiness repair in the existing Skills browser fixture and the existing portable package's build step before CI imports it. Historically, the web-only correction `3fd4508c` replaced two nonexistent setup-input references with the already authorized local scope; its core/API/worker/protocol inputs remained byte-identical to reviewed `34a9fdcd`, and documentation checkpoint `637051b3` preserved those source bytes. The subsequent `b4b3d86c` merge changes the combined API/worker composition, SDK pin and migration admission; those older whole-source identity claims do not describe the integrated tree. At that historical checkpoint neither draft PR was merged. The final handoff above records the subsequent Action merges; no release registration, deployment, registry publication or contextual-profile activation has been performed.
 
 The configured-provider default from #729 is included: a configured backend enables the existing memory policy by default, and an explicit disable wins. The new transient conversational capability additionally requires actual native/model/App qualification for its scope. Supplying a proof-shaped environment value is not qualification evidence.
 

@@ -136,6 +136,16 @@ banks to conceal unresolved writes. Preserve in-flight evidence, retained approv
 producers and cleanup ownership. Record residual schema and native data even when
 new contextual processing has been disabled.
 
+## Source merge handoff
+
+The [implementation record](../plans/2026-10-28-conversational-memory-implementation.md#2026-10-29-final-lifecycle-fixture-repair-and-merge-handoff)
+records the final fixture repair, exact pair and [observed qualification](https://github.com/777genius/review-router-ai/actions/runs/40877611193).
+Another agent owns the control-plane merge after final-head required checks;
+Action #349/#350 are already merged. Read the current PR head and checks,
+then protected main checks before following the ordered rollout above.
+Neither this source follow-up nor its disposable workflow changes the
+staging/production status or supplies live activation evidence.
+
 ## Related evidence
 
 - [Approved plan](../plans/2026-10-28-conversational-memory-and-shared-llm.md),

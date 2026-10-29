@@ -533,6 +533,15 @@ lifecycleCase.each([
         native.facts.headSha,
       );
       expect(prompt.revalidationTargets).toHaveLength(4);
+      // Published and never edited: missing GitHub edit metadata must not
+      // accidentally turn this positive-path fixture into manual-only work.
+      for (const target of prompt.revalidationTargets) {
+        expect(target).toMatchObject({
+          trusted: true,
+          parentEdited: false,
+          markerAmbiguous: false,
+        });
+      }
       // Seed the canonical App comment format, then verify the actual public
       // native inventory recovered the known severities and unchanged claim IDs.
       expect(
@@ -1735,6 +1744,8 @@ function nativeThreads(github: FakeGitHubTransport, scenario: Scenario) {
             body: `_🟡 Major_\n\n**${hint.title}**\n\n${hint.message}\n\n<!-- reviewrouter:finding:v2:${hint.lineageId} -->`,
             createdAt: parentCreatedAt,
             updatedAt: parentCreatedAt,
+            publishedAt: parentCreatedAt,
+            lastEditedAt: null,
             path: filePath,
             line: Number(hint.line ?? 1),
             originalLine: Number(hint.line ?? 1),
