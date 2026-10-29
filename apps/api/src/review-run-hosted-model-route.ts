@@ -307,14 +307,12 @@ export async function registerReviewRunHostedModelRoute(
         onRequest: async (request, reply) => {
           reply.header("cache-control", "no-store");
           if (active.size >= 4)
-            return reply
-              .code(503)
-              .send({
-                error: {
-                  code: "hosted_model_saturated",
-                  effect: "not_dispatched",
-                },
-              });
+            return reply.code(503).send({
+              error: {
+                code: "hosted_model_saturated",
+                effect: "not_dispatched",
+              },
+            });
           const controller = new AbortController();
           active.add(controller);
           const timer = setTimeout(() => {

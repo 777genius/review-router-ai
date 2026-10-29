@@ -15,10 +15,10 @@ Coordinate actual fleet changes and retirement evidence with the separate
 
 ## Environment status
 
-| Environment | Status | Verified deployed version | Remaining work |
-| --- | --- | --- | --- |
-| Staging | `pending` | Not recorded | Finish implementation gates; reconcile actual fleet and schema; authorize and execute rollout; live acceptance. |
-| Production | `pending` | Not recorded | All applicable implementation, release, migration, fleet, caller-upgrade, history and live verification gates. |
+| Environment | Status    | Verified deployed version | Remaining work                                                                                                  |
+| ----------- | --------- | ------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Staging     | `pending` | Not recorded              | Finish implementation gates; reconcile actual fleet and schema; authorize and execute rollout; live acceptance. |
+| Production  | `pending` | Not recorded              | All applicable implementation, release, migration, fleet, caller-upgrade, history and live verification gates.  |
 
 No rollout was executed by this task. `pending` does not prove that an environment
 lacks a particular step: reconcile its actual state before acting. Do not copy a

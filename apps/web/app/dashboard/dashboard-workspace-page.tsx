@@ -452,7 +452,7 @@ export async function loadDashboardSectionData(
   const needsConfig = needsReadiness || section === "policy";
   const runtimeReleasesPromise = needsReadiness
     ? readDashboardRuntimeReleases({
-      inspectRuntimeMigrationTarget: inspectConfiguredRuntimeMigrationTarget,
+        inspectRuntimeMigrationTarget: inspectConfiguredRuntimeMigrationTarget,
         env: process.env,
         releases:
           createPrismaReviewRunControlRepositories(prisma).producerReleases,
