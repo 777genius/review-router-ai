@@ -459,3 +459,136 @@ The final documentation critic found P2 wording: ten generated runtime files
 were incorrectly described as ten committed `dist` files. The record now
 distinguishes all ten generated files from the seven tracked artifacts. The final critic recheck returned **GO**, with both P2 wording findings closed
 and no remaining findings. This adds no new test or CI result.
+
+## 12. New Action main join: preserve Gateway reviewers and Unified OCR
+
+Status: **all three SaaS/Acceptance critic rounds GO, no blockers**. Source
+implementation has not started and remains held until root publishes these
+reviewed plan/status bytes. Published SaaS
+**D** `072ad865bd78ab66050fa6bac4fbaa31300c81ec` / Action **A2**
+`cfe2b78fba925e3e7741d8c7f479324aa785d12b` passed their required hosted
+checks. [SaaS full CI 40882645913](https://github.com/777genius/review-router-ai/actions/runs/40882645913)
+passed all 13 executed jobs; one existing conditional full private rehearsal was
+skipped. Source and Certification's existing five-file paired gate passed
+**40/40 tests, zero skips**, including lifecycle 24 and comparison 1. The other
+SaaS workflows, Unified OCR UI and
+[Action CI 40878588227](https://github.com/777genius/review-router/actions/runs/40878588227)
+also passed. These results remain evidence for **D/A2**, not for the new join.
+
+While those checks ran, Action main advanced from
+`8a6bb7395556ddabbda4b8275bc9e2de6fea4f8e` to exact merge target
+`fea226e5ee98aae2e3475c3e8ef26ea5da5e5d52`, merging
+[#351](https://github.com/777genius/review-router/pull/351) Gateway reviewers.
+Draft #346 is now conflicted. SaaS main remains
+`8ea78b9df1398e64fce917eecdc18d95e52d9e9f`.
+
+### Resolve the difficult composition points first
+
+Read-only three-way comparison against common base `8a6bb739...` confirms
+four true nonartifact conflict files:
+
+| Action path                                                                    | Conflict blocks | Minimal resolution                                                                                                                |
+| ------------------------------------------------------------------------------ | --------------: | --------------------------------------------------------------------------------------------------------------------------------- |
+| `src/review-orchestration/infrastructure/production-t0-review-runner.ts`       |               8 | Keep main's `prepareLane` and single parent orchestrator; port Unified OCR route/scoped-dispatch behavior into those lane bodies. |
+| `src/review-orchestration/infrastructure/account-gateway-model-transport.ts`   |               3 | Keep reviewer identity and native request/response behavior through callers, headers and auxiliary clones.                        |
+| `src/review-orchestration/infrastructure/ocr-review-invocation-adapter.ts`     |               1 | Keep `attemptBudget?: 1`, `reviewerId` and `reviewerRequired`.                                                                    |
+| `__tests__/unit/review-orchestration/lifecycle-verification-transport.test.ts` |               1 | Keep reviewer parameterization/header assertion and `maxOutputTokens: 4096`.                                                      |
+
+Four other overlapping source/test/docs paths merge textually. The handoff has
+three generated metadata conflicts. Three overlapping bundles (`dist/index.js`,
+`dist/index.js.map`, `dist/single-t0-plan.js`) require regeneration from resolved
+source, not selection of either parent's built bytes.
+
+1. Main's `prepareLane(input, reviewer, ...)` shadows the parent input. Resolve
+   `preparedRoute` and `modelDispatchCapability` from that **lane input** so a
+   secondary reviewer cannot borrow the primary transport, capability, model or
+   settings. Preserve the absent-reviewer-plan path, existing native/direct
+   routes, `scopedModelInvocations`, original deadlines, shared finite allowance,
+   unknown-effect fences and effect-free completed replay. Main's reviewer
+   cancellation, concurrency groups and required votes remain in the existing
+   orchestrator and publisher; add no duplicate coordinator.
+2. Constructor argument eight is `reviewerId?: string`; argument nine is the
+   native Codex route. Update the native startup caller and every affected
+   auxiliary description/lifecycle clone consistently. Keep native-body callbacks
+   and native/hosted credential headers alongside the reviewer selector.
+3. Keep primary-only PR-description/lifecycle verifier custody, reviewer-scoped
+   investigation dispatch/recording, composite
+   `reviewMemoryAdmissionForSessions(reviewMemory, descriptionMemory)`, both task
+   snapshots and main's unavailable-lane behavior. Strengthen only the existing
+   two-OCR composition case: give the children distinct bridge base URLs and
+   capability authorizations, then assert each constructed OCR adapter receives
+   its reviewer's exact pair. The shared transport fixture currently cannot
+   detect a stale outer route.
+
+### Canonical union before the next export
+
+Main's reviewer-plan contract comes from canonical SaaS
+`1a21c33f39ff42fa8c640d9cfd4980f8ff88f8e7`, generated SHA-256
+`bbef9f5bd70778cf7b0858a84e1d866b5d2e8f97c2738c0210ff45705c7cf4c5`,
+descriptor
+`sha256:f6a45d7039129a813690f5f769052d3ba078418eb123b0c0c710ef790d2919d6`.
+Import only this ten-path canonical/tooling closure from its owner:
+
+- `packages/shared/src/review-reviewer-plan.ts` and `packages/shared/src/index.ts`;
+- `scripts/generate-review-action-v2-protocol.mjs`;
+- normal generated `packages/protocol-review-action-v2/src/index.ts`,
+  `packages/protocol-review-action-v2/src/generated/manifest.json` and
+  `packages/protocol-review-action-v2/src/generated/review-reviewer-plan.ts`;
+- `scripts/lib/review-reviewer-plan-release-profile.ts`;
+- `scripts/lib/review-action-v2-release-manifests.mjs`;
+- `scripts/lib/review-action-v2-release-verifier.mjs`;
+- `scripts/generate-public-review-action-v2-release-manifest.mjs`.
+
+The existing release parser would silently drop optional `reviewerPlanProfile`;
+preserve its parse/bind/build/read/registration projection and verifier handling
+through the maintained tools. Retain current manifest fields, current agent
+profile and the three Unified OCR modules, plus conversation SHA-256
+`d31309c5667a8aa37d9ef8e59b055d3ffdfeb59ba6bb7723fad09fb137d1493b`.
+The normal union handoff should have **64 generated-file entries**. Core schema,
+negotiation, canonicalizer and golden identities remain unchanged. Do not edit
+generated files or digests by hand.
+
+Use the owner's existing shared reviewer-plan test and bounded release-manifest
+case, plus an assertion in the existing generated/export test for exact module
+bytes and descriptor. Run normal protocol generation/determinism and affected
+package/tooling checks. Import no #738 server implementation, API/V4 activation,
+UI, migration, backfill or feature flag. Its runtime/rollout remains separately
+owned; section 8's optional #734 memory/conversation boundary remains unchanged.
+There are no users requiring a migration or upgrade coordinator in this work.
+
+### Freeze, build and qualify the new exact pair
+
+After three brief plan rounds return GO, implement only this closure. Preserve
+both merge parents **A2** / `fea226e5...` and main's updated `AGENTS.md`.
+Freeze/publish canonical SaaS **S2** before sanctioned export to the resolved
+Action, with exact source/branch/base checks. Verify the union and curated
+wrapper bytes through existing export/sync checks. Rebuild JavaScript
+reproducibly: all ten generated runtime files, including seven tracked artifacts.
+Retain A2's post-install tracked-`dist` restore and Git-HEAD-blob guard so tests
+execute committed bytes. Publish coherent two-parent Action **A3**, then the
+SaaS metadata pin to A3; record exact identities. Do not relabel D/A2 evidence or
+export again solely for that metadata descendant.
+
+Native OCR remains `1.13.1-rr.6` / `ocr-managed-v5`, v3 qualification manifest,
+binary SHA-256
+`9dd5f115747d24100f0767133a3288d268f3bc399675f5b826e7a867d101ee5c`.
+Native patches, dependencies, toolchain and workflow definitions need no change.
+Use existing checkouts/dependencies; no new clone/install, large helper
+extraction or native rebuild. The retained OCR binary supports bounded checks;
+mandatory CI reinstalls the exact official auth helper normally.
+
+Run affected main reviewer/session/orchestration and Unified OCR transport,
+lane, protocol and actual-dist regressions. Then require existing full Action
+CI (real Docker, native and official-helper gates), full SaaS CI including the
+**40-case five-file Source and Certification gate**, and the existing Unified OCR
+UI workflow on the new pinned pair. Keep required skips explicit and overlapping
+scopes separate. No Cartesian matrix, new server fixture/framework or weakened
+gate. Fix concrete failures and review the resolved implementation before
+qualifying the new pair. These checks claim no new live credentials, paid
+provider effect, registration, deployment or rollout.
+
+| Addendum review round | SaaS canonical/tooling critic | Acceptance critic             | Disposition                                                                               |
+| --------------------- | ----------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------- |
+| 1                     | **GO**, no P1/P2 findings.    | **GO**, no blocking findings. | Exact draft reviewed; source implementation remains held.                                 |
+| 2                     | **GO**, no findings.          | **GO**, no findings.          | Canonical/profile/export and route/budget/evidence invariants rechecked; no scope change. |
+| 3                     | **GO**, no blockers/findings. | **GO**, no blockers/findings. | Final scope, identities and gates accepted; implementation held for root publication.     |

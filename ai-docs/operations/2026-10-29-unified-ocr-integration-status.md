@@ -1,6 +1,38 @@
 # Unified OCR integration checkpoint — 2026-10-29
 
-## Current checkpoint: integrated pair published; final CI pending
+## Current checkpoint: prior pair green; new Action main join planned
+
+Published SaaS **D** `072ad865bd78ab66050fa6bac4fbaa31300c81ec` / Action
+**A2** `cfe2b78fba925e3e7741d8c7f479324aa785d12b` passed required hosted
+checks. [SaaS full CI 40882645913](https://github.com/777genius/review-router-ai/actions/runs/40882645913)
+passed all 13 executed jobs, with one existing conditional full private rehearsal
+skipped; the five-file Source and Certification paired gate passed **40/40**,
+zero skips. Other SaaS workflows, Unified OCR UI and
+[Action CI 40878588227](https://github.com/777genius/review-router/actions/runs/40878588227)
+also passed. These results retain their **D/A2** scope and do not qualify the
+next merge.
+
+Action main advanced to `fea226e5ee98aae2e3475c3e8ef26ea5da5e5d52` through
+Gateway-reviewer PR #351, making draft #346 conflicted. SaaS main remains
+`8ea78b9df1398e64fce917eecdc18d95e52d9e9f`. The bounded
+[completion-plan section 12](../plans/2026-10-29-unified-ocr-completion.md#12-new-action-main-join-preserve-gateway-reviewers-and-unified-ocr)
+records four source/test conflicts, lane-local route/capability selection,
+reviewer-ID/native-route constructor composition and one strengthened existing
+two-OCR assertion. All three brief SaaS/Acceptance critic rounds returned GO,
+with no blockers; implementation remains held until root publishes the reviewed
+plan/status bytes. Ten canonical/tooling paths preserve the 64-entry union handoff and
+optional reviewer-plan profile without importing #738 server/UI/migrations/flags;
+the optional #734 boundary remains intact.
+
+Next is frozen canonical **S2 → rebuilt Action A3 → SaaS pin**, followed by
+existing required full Action/SaaS, 40-case paired and Unified OCR UI gates.
+Preserve both parents, the no-plan path, one orchestrator/publisher and original
+authority/budget fences. Native `rr.6` / `v5` / v3 `9dd5f115...`, dependencies,
+toolchain and workflow definitions remain unchanged. Only the resolved
+JavaScript runtime needs rebuilding. No implementation, new-pair qualification,
+live effect, registration or deployment is claimed by this planning checkpoint.
+
+## Prior published-pair checkpoint (superseded by the new main join)
 
 Both main integrations, canonical contract/wrapper handoff and committed Action
 bundles are complete in the existing draft PRs. This replaces the earlier
@@ -236,9 +268,10 @@ Action cleanup commits: `b6fe7703eeee5b41c34923657049668a05207a00`,
 
 ## Current remaining gates
 
-The remaining qualification gate is final **M/A** GitHub CI. Source implementation
-reviews and the final documentation recheck returned GO; both P2 wording findings
-are closed. After that, designated
-real credentials and separately authorized release/rollout evidence remain.
+Prior **D/A2** hosted gates are green. Current work is the reviewed section-12
+main join, canonical **S2 → A3 → pin** handoff and existing required new-pair
+gates above. Earlier review GO scopes and receipts remain prior-pair evidence.
+Designated real credentials and separately authorized release/rollout evidence
+remain separate afterward.
 Follow the existing [deployment task](../deployments/2026-10-29-unified-ocr.md)
 and release process; this checkpoint adds no new rollout playbook.
