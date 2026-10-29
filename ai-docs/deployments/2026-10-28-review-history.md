@@ -12,10 +12,10 @@
 
 ## Environment status
 
-| Environment | Status        | Actual deployed version / image      | Last verified (UTC) | Evidence / remaining action                                                                                            |
-| ----------- | ------------- | ------------------------------------ | ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| staging     | `pending`     | Not verified                         | Not verified        | Reconcile installed state, then complete the rollout and live verification below.                                      |
-| production  | `in_progress` | `b8eac8ec` / image prefix `fd52caab` | 2026-10-29 00:41    | Fleet/canary and signed-in readiness passed. Public Action lifecycle fix #352 in CI; final review/publication pending. |
+| Environment | Status     | Actual deployed version / image      | Last verified (UTC) | Evidence / remaining action                                                                                                    |
+| ----------- | ---------- | ------------------------------------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| staging     | `pending`  | Not verified                         | Not verified        | Reconcile installed state, then complete the rollout and live verification below.                                              |
+| production  | `deployed` | `b8eac8ec` / image prefix `fd52caab` | 2026-10-29 01:27    | Capture/activation, real reviews, repeat runs, UI and two foreign-workspace isolation checks passed; see final evidence below. |
 
 No environment rollout was performed or verified when this record was created.
 `pending` means completion has no recorded evidence; do not infer existing live
@@ -303,3 +303,29 @@ with receipt in `model-history-adoption-b8eac8ec-20261029/fresh-action219-runtim
 API/demo/OpenAPI/docs checks also passed after the overlay. Official workflow
 channel promotion40799311636 is running; final modern review and lifecycle rerun
 remain before completion.
+
+### Review History production verification complete: 2026-10-29 01:27 UTC
+
+A fresh disposable [PR20](https://github.com/777genius/rr-selfhost-direct-v2-e2e-20260730t120036z/pull/20)
+was created in the existing E2E repository; no new repository was created. Both
+actual reviews used approved public Action219 through GitHub App dispatch and
+published complete results. First workflow40799468766 correctly failed its merge
+gate for one major finding after full2/2-file publication; this was not an
+execution/publication failure. Fixed-head workflow40800168729 passed in2m5s,
+with publication completed and Gateway close applied. First Gateway execution
+also closed, with24 completed requests and zero occupied transports.
+
+Owner authenticated History reads returned exactly one PR row
+`d6c2e7c6-b86b-403c-8205-c19349b3966b` with correct title/link and latest status
+`completed`; its expanded runs show two `completed` reviews and the initial
+superseded draft request as `stopped` (sequence3). The same runs read from each
+of the other two real workspaces returned200 with empty items. Actual dashboard
+search `reviewSearch=20`, history expansion and Refresh were exercised; the UI
+showed Completed. Coverage remains available since20:22:19.946Z, not backdated.
+All36 repository History change events since01:16 were processed, with zero
+recorded errors. Avatars decoded successfully in the signed-in UI.
+
+A separate public Action timestamp-classification bug leaves the prior finding
+unverified despite the second full review succeeding. It does not block History
+capture, status projection, repeat-run grouping or isolation. Overall release E2E
+continues under the catalog task until that genuine finding lifecycle check passes.

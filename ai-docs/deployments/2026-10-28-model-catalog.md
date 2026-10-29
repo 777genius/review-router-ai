@@ -273,3 +273,22 @@ with receipt in `model-history-adoption-b8eac8ec-20261029/fresh-action219-runtim
 API/demo/OpenAPI/docs checks also passed after the overlay. Official workflow
 channel promotion40799311636 is running; final modern review and lifecycle rerun
 remain before completion.
+
+### Modern review passed; lifecycle timestamp blocker: 2026-10-29 01:27 UTC
+
+Official channel promotion40799311636 passed19s and readback resolvedworkflow-v1
+exactly to298e7fca. New PR20 in the existing E2E repository produced a genuine
+major finding and complete2/2-file App publication; its initial red workflow was
+the expected `review_merge_gate_failed`. After the one-line fix, all4 fixture
+tests and workflow40800168729 passed, with full publication and Gateway close.
+History is verified deployed with both completed runs in one row and no foreign
+workspace leak; see the History task for exact receipts and outbox evidence.
+
+Do not claim verified finding closure yet: the new prior finding remained
+`not verified`. Read-only GraphQL showed created01:21:24Z, published01:21:36Z,
+updated01:21:37Z and authoritative `lastEditedAt=null`. Public inventory treated
+any updatedAt/createdAt difference as a human edit, producing manual1/eligible0
+and reasonparent_changed. The private API already handles normal GitHub
+pending-to-submitted timestamp propagation with validated publishedAt/lastEditedAt
+semantics. A minimal public successor is being prepared with real-edit and
+unknown/order guards retained. No finding status was fabricated or manually closed.
