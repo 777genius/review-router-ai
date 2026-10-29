@@ -94,10 +94,12 @@ test("dynamic Codex account models work in provider edit and add with exact bind
   await row.getByRole("button", { name: "Edit", exact: true }).click();
   const dialog = page.getByRole("dialog");
   const model = dialog.getByRole("combobox", { name: "Model", exact: true });
+  // Account and public provider catalogs expose independent status regions.
+  const accountCatalogStatus = dialog
+    .getByRole("status")
+    .filter({ hasText: /^Account model catalog\./u });
   await expect(model).toHaveValue(savedModel);
-  await expect(dialog.getByRole("status")).toContainText(
-    "Account model catalog.",
-  );
+  await expect(accountCatalogStatus).toBeVisible();
   await expect(model).toHaveValue(savedModel);
   await choose(page, "Model", CODEX_A_MODEL);
   // The same model is now offered only by account B; A must reject the stale
@@ -112,12 +114,11 @@ test("dynamic Codex account models work in provider edit and add with exact bind
       ?.model,
   ).toBe(savedModel);
   const before = await fixture("initial");
-  await dialog
+  await accountCatalogStatus
+    .locator("..")
     .getByRole("button", { name: "Refresh models", exact: true })
     .click();
-  await expect(dialog.getByRole("status")).toContainText(
-    "Account model catalog.",
-  );
+  await expect(accountCatalogStatus).toBeVisible();
   await expect(model).toHaveValue(CODEX_A_MODEL);
   await choose(page, "Model", CODEX_A_REFRESHED);
   const after = await fixture();
@@ -158,9 +159,7 @@ test("dynamic Codex account models work in provider edit and add with exact bind
   });
   if (await useDefault.isChecked()) await useDefault.uncheck();
   await choose(page, "Model", CODEX_B_MODEL);
-  await expect(dialog.getByRole("status")).toContainText(
-    "Account model catalog.",
-  );
+  await expect(accountCatalogStatus).toBeVisible();
   await dialog
     .getByRole("button", { name: "Add provider", exact: true })
     .click();
