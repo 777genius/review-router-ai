@@ -74,9 +74,7 @@ export type ConversationSourceScope = {
     cause: "deleted" | "unavailable" | "changed",
     controls: RequestControls,
   ) => Promise<void>;
-  readonly knownSource?: (
-    commentId: string,
-  ) => Promise<{
+  readonly knownSource?: (commentId: string) => Promise<{
     readonly sourceId: string;
     readonly actorId: string;
     readonly pullRequestNumber: number;
