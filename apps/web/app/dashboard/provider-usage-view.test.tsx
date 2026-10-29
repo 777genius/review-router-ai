@@ -9,6 +9,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import { StrictMode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ProviderUsageView } from "./provider-usage-view";
 import { ModelUsageTable, RunUsageTable } from "./provider-usage-tables";
@@ -916,6 +917,90 @@ describe("provider usage interactive report", () => {
 });
 
 describe("Usage authenticated cache lifecycle", () => {
+  it.each([
+    ["role", { effectiveAccess: "member" as const }],
+    ["actor", { actorId: "actor-b" }],
+    ["workspace", { workspaceId: "workspace-b" }],
+  ])(
+    "validates an old seed before showing fresh cached totals after a successful %s change",
+    async (_change, nextScope) => {
+      const view = render(<Harness />);
+      const limited = {
+        ...report,
+        totals: { ...totals, tokens: { ...totals.tokens, total: 7 } },
+      };
+      vi.mocked(fetchProviderUsage).mockResolvedValue(limited);
+      view.rerender(
+        <Harness {...nextScope} seedId="new-authorized-seed" seed={limited} />,
+      );
+      expect(fetchProviderUsage).not.toHaveBeenCalled();
+      change("Route", "gateway");
+      await waitFor(() => expect(fetchProviderUsage).toHaveBeenCalledTimes(1));
+      const call = vi.mocked(fetchProviderUsage).mock.calls[0]!;
+      const expectedScope = {
+        ...usageScope,
+        ...nextScope,
+        seedId: "new-authorized-seed",
+      };
+      expect(call[3]).toEqual(expectedScope);
+      await waitFor(() =>
+        expect(
+          client.getQueryData(providerUsageKey(expectedScope, call[1])),
+        ).toEqual(limited),
+      );
+      let resolve!: (value: ProviderUsageReport) => void;
+      vi.mocked(fetchProviderUsage).mockClear();
+      vi.mocked(fetchProviderUsage).mockImplementation(
+        () =>
+          new Promise((done) => {
+            resolve = done;
+          }),
+      );
+      client.setQueryData(providerUsageKey(usageScope, initialFilters), report);
+      view.rerender(<Harness />);
+      expect(screen.queryByLabelText("Period usage summary")).toBeNull();
+      await waitFor(() => expect(resolve).toBeTypeOf("function"));
+      expect(fetchProviderUsage).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(fetchProviderUsage).mock.calls[0]![3]).toEqual(
+        usageScope,
+      );
+      await act(async () => resolve(limited));
+      expect(
+        within(await screen.findByLabelText("Period usage summary")).getByRole(
+          "definition",
+          { name: "7" },
+        ),
+      ).toBeTruthy();
+      expect(router.refresh).not.toHaveBeenCalled();
+    },
+  );
+  it("keeps fresh SSR usable through Strict Mode replay and validates a same-tick remount", async () => {
+    const view = render(
+      <StrictMode>
+        <Harness />
+      </StrictMode>,
+    );
+    expect(screen.getByLabelText("Period usage summary")).toBeTruthy();
+    expect(fetchProviderUsage).not.toHaveBeenCalled();
+    let resolve!: (value: ProviderUsageReport) => void;
+    vi.mocked(fetchProviderUsage).mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    // Both commits occur before the deferred old-seed cleanup can run.
+    view.rerender(<StrictMode>Another section</StrictMode>);
+    view.rerender(
+      <StrictMode>
+        <Harness />
+      </StrictMode>,
+    );
+    expect(screen.queryByLabelText("Period usage summary")).toBeNull();
+    await waitFor(() => expect(resolve).toBeTypeOf("function"));
+    await act(async () => resolve(report));
+    expect(await screen.findByLabelText("Period usage summary")).toBeTruthy();
+  });
   it("renders a same-workspace limited SSR seed without the old administrator totals", () => {
     const view = render(<Harness />);
     const limited = {

@@ -91,6 +91,19 @@ server-derived scope. Boolean had-denial не удаляется при ново
 Отказ в workspace A не блокирует авторизованный B. Запоздавший ответ A не может
 попасть в B или снять denial.
 
+Уточнение после воспроизведённого implementation review: успешная смена роли,
+actor или workspace может обойтись без401/403. Поэтому уже показанный SSR seed
+не становится новой авторизацией при возврате через Back. В первый committed
+layout effect записать отдельный boolean consumed-seed marker полного scope;
+текущий mount сохраняет свой первый SSR paint, а каждый последующий mount этого
+seed скрывает SSR/cache до matching authenticated API read. Это не порядок UUID
+и не постоянный запрет: успешная проверка открывает данные текущему mount.
+Marker сохраняется на QueryClient lifetime. StrictMode replay не лишает первый
+mount доверия; abandoned render ничего не записывает. Deferred cleanup старого
+mount отменяет/удаляет только inactive queries, чтобы быстрый remount того же
+seed не потерял уже начатую новую проверку. Namespace, denial и recovery budget
+остаются прежними; отдельный общий cache manager не нужен.
+
 ### 3.2 Изменяемые seams
 
 - Statistics: `interface/statistics-view.tsx`, `adapters/statistics-api.ts` и
@@ -135,6 +148,10 @@ server-derived scope. Boolean had-denial не удаляется при ново
 seed, actor switch внутри того же workspace, admin→member, workspace switch,
 late success/late403, lazy issue403 и Usage polling после отказа. Assertions
 проверяют видимые секретные fixture labels и реальные query identities.
+Дополнительно: успешный admin→member/actor/workspace transition без access error,
+затем старый cached seed; Statistics old-seed return; StrictMode и настоящий
+same-tick remount с завершением matching validation. Проверять первый видимый
+кадр и заранее заполненный свежий query cache, а не только финальный API result.
 
 ## 4. Управление фильтрами, ошибками и URL
 
@@ -364,6 +381,11 @@ GitHub, OAuth provider login, Gateway или external runtime qualification.
 Cached Back/remount и настоящий DB admin→member проверяются при **сохранённом
 QueryClient** между переходами. page.reload сам по себе не воспроизводит этот
 cache lifecycle; fresh reload используется только как отдельный recovery case.
+После успешного downgrade проверить также Back к прежней Usage странице:
+задержанный настоящий member response не должен позволять старой admin метке
+появиться до проверки; затем обычное scope recovery возвращает member report.
+Точный повторный seed отдельно доказывается компонентной регрессией, поскольку
+browser navigation может получить новый RSC payload вместо сохранённого.
 
 Визуально проверить actual captures1440/900/390px в обеих темах, keyboard/focus,
 200%text zoom для controls/issue actions, long/escaped labels, loading/error/
@@ -371,6 +393,12 @@ denied/empty и отсутствие horizontal overflow. Следовать
 [frontend workflow](../design/frontend-workflow.md) и прочитанному vendored
 Operate reference. Сохранить существующие shared primitives; без nested cards,
 новых панелей или декоративного редизайна.
+Если фактический200%text capture выявляет тесные колонки Usage, использовать
+width-aware wrapping существующих controls; небольшой wrap общей навигации
+допустим для устранения наблюдаемого наложения. Даты показывать существующим
+читаемым UTC formatter, без raw ISO interval notation в обычном UX. Дождаться
+ограниченного завершения ResizeObserver/layout перед geometry assertion, не
+ослабляя само требование отсутствия overflow.
 
 ## 9. Пять кругов плана, реализация, CI и release
 

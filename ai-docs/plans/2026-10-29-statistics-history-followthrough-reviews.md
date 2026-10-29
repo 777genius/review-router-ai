@@ -8,6 +8,10 @@
 исправленный actual plan → следующий круг. До завершения всех пяти кругов и
 plan-only push код не реализуется. Автор не объявляет review успешным заранее.
 Final code/frontend review и реальные проверки записываются отдельно.
+Записи ниже хронологические: результат каждой попытки относится к указанному
+source commit. Итоговые receipts последней head, фактические CI checks и merge
+публикуются в [PR #743](https://github.com/777genius/review-router-ai/pull/743),
+чтобы обновление статуса в Markdown само не запускало повторную полную CI.
 
 ## Revision ledger
 
@@ -24,8 +28,10 @@ Frozen v2 SHA256: `17a81bc4de8abbbdaba12ff033fbf0d85c35e119e1abe1bb64d8ce5155b15
 Frozen v3 SHA256: `8cadfcedddc95b29fe97dcf2cdeab1abb254b7e0195bc2d8f018446245920cb1`.
 Frozen v4 SHA256: `fdd9f1a79403bd48787c57a259e7fdd0d5370983ea394f2e27aa21f27e043403`.
 Frozen v5 для final review SHA256: `84c3c23bcc619fc23e5fcf37b331c2b878286fae6dfa46920f2d87a1ae27d73f`.
-После final acceptance изменён только status header плана, принятые контракты
-не менялись. Это не новый substantive revision.
+Сразу после final acceptance изменён только status header плана, принятые
+контракты не менялись. Последующие bounded implementation clarifications и
+доказанные исправления перечислены ниже; они не являются дополнительными
+фиктивными кругами исходного плана.
 
 ## Круг 1 — контракты, авторизация и достижимость
 
@@ -329,3 +335,68 @@ timeout is weakened, and the complete remaining browser journeys still need a
 successful run.
 The E2E critic accepted the fixed-budget diff; scoped lint/format/syntax checks
 and all five scenario-budget source checks passed. No local heavy run was added.
+
+### Final browser and successful-scope-return findings
+
+[Run40967137132](https://github.com/777genius/review-router-ai/actions/runs/40967137132)
+on `fc51c2fb34a024078646b0f199c10e900a609eab` passed the complete native web
+typecheck and reached15 recorded journey checks and18 actual captures. All12
+Statistics/issues viewport/theme images were produced. Error recovery, issue →
+the correct repository/PR, frozen History pagination, real membership denial,
+cached Back/remount, and actual admin→member isolation completed. The app stayed
+healthy; no browser runtime error or external request was recorded, and owned
+cleanup passed. This is still a **failed complete run**: Usage200%text geometry
+exposed horizontal overflow and visibly compressed filter headings. Its final
+empty/partial states were not reached. Root inspected the actual Usage, History,
+denial and issue images; the remaining full run is required.
+
+A separate final source review found P1 in successful role changes: admin seed A
+→ matching authenticated member seed B → cached admin seed A could show the old
+admin total without any intervening401/403/409. The pinned Vitest4 probe reproduced
+it. Five permanent regressions then failed against the original helper: Usage
+role/actor/workspace return, StrictMode with a genuine same-tick remount, and
+Statistics older-seed return with a prepopulated fresh cache.
+
+The bounded fix records only a boolean consumed-seed marker at the first
+committed layout effect. Current first-use SSR remains immediate; a later mount
+of the same seed hides both SSR and cached payloads until matching authenticated
+API validation. The existing staleTime0 path forces that read. A successful
+validation does not erase the marker. Deferred cleanup cancels and removes only
+inactive queries, so an old same-seed instance cannot purge a new mounted
+consumer. Permanent denial markers, automatic recovery budget and late-request
+lifetime guards remain unchanged.
+
+The two complete affected component suites passed **48/48** after the fix;
+scoped lint, formatting and whitespace checks passed. The independent
+`final_scope_critic` inspected the actual diff, all five pre-fix failures and the
+post-fix receipt, and returned source ACCEPT with no material finding. This
+closes the component/source finding; the new actual browser Back journey and
+complete visual qualification remain separate required evidence.
+
+The independent visual critic inspected all12 actual Statistics/issues images,
+History, denial, report error and Usage admin/member. No additional material
+issue appeared in normal layouts. At200%text it confirmed the Usage collisions
+and global navigation overlap, and found that the Statistics chart metric was
+squeezed to an unreadable abbreviated value. The bounded correction uses the
+existing controls: auto-fit Usage filter columns, wrapping navigation/chart
+header, and a nonshrinking chart selector clamped to its container. The custom
+date caption reuses the existing readable UTC formatter instead of raw ISO
+interval notation. No feature, dependency or visual redesign is introduced.
+
+The harness waits at most5s for two layout frames before measuring text-size
+geometry; the no-overflow assertion remains unchanged and failure diagnostics
+now include measured widths. The navigation source is added to the same source
+receipt and path-scoped workflow. The visual critic independently accepted the
+actual source diff; fixed captures still require the next complete hosted run.
+
+The new browser Back case holds a real member200 while returning through the
+earlier Usage navigation and observes private labels through release/recovery.
+It asserts no new dashboard RSC request before release and retains the same
+runtime/QueryClient. Exact seed identity remains the component test's proof.
+Review caught a potential vacuous setup: restoring membership after the earlier
+Statistics-only denial inserted a member role, which could already have rejected
+cached admin Usage. The fixture now restores its prior admin role before that
+navigation. Preproof observations verify both scoped200 responses and absence
+of transient Usage denial UI. The independent cache author reviewed the separate
+harness change read-only and accepted its actual source and required receipt
+assertions. Actual hosted execution remains required.

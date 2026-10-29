@@ -570,6 +570,57 @@ describe("Statistics", () => {
 });
 
 describe("Statistics URL, recovery and scope lifecycle", () => {
+  it("validates a revisited SSR seed before showing cached Statistics after a newer report succeeds", async () => {
+    const view = setup();
+    const fresh = {
+      ...statisticsFixture(),
+      totals: { ...statisticsFixture().totals, reviews: 7 },
+    };
+    view.rerenderProps({ seedId: "new-authorized-seed", initialReport: fresh });
+    expect(fetchStatisticsReport).not.toHaveBeenCalled();
+    vi.mocked(fetchStatisticsReport).mockResolvedValue(fresh);
+    await refresh();
+    expect(fetchStatisticsReport).toHaveBeenCalledTimes(1);
+    expect(
+      within(screen.getByLabelText("All-severity review summary")).getByText(
+        "7",
+      ),
+    ).toBeTruthy();
+    let resolve!: (value: ReturnType<typeof statisticsFixture>) => void;
+    vi.mocked(fetchStatisticsReport).mockClear();
+    vi.mocked(fetchStatisticsReport).mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    view.client.setQueryData(
+      statisticsReportKey(
+        view.props.actorId,
+        view.props.workspaceId,
+        view.props.seedId,
+        view.props.initialReport.filter,
+      ),
+      view.props.initialReport,
+    );
+    view.rerenderProps(view.props);
+    expect(screen.queryByLabelText("All-severity review summary")).toBeNull();
+    await waitFor(() => expect(resolve).toBeTypeOf("function"));
+    expect(fetchStatisticsReport).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetchStatisticsReport).mock.calls[0]).toEqual([
+      view.props.workspaceId,
+      view.props.initialReport.filter,
+      expect.any(AbortSignal),
+      view.props.actorId,
+    ]);
+    await act(async () => resolve(fresh));
+    expect(
+      within(
+        await screen.findByLabelText("All-severity review summary"),
+      ).getByText("7"),
+    ).toBeTruthy();
+    expect(router.refresh).not.toHaveBeenCalled();
+  });
   it("retains the issue repository on failed Refresh and resets it after an accepted successful Refresh", async () => {
     vi.mocked(fetchStatisticsIssues).mockImplementation(
       async (_workspace, filter) => ({

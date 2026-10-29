@@ -19,6 +19,7 @@ on:
       - "apps/web/src/private-query-scope.ts"
       - "apps/web/app/query-provider.tsx"
       - "apps/web/app/layout.tsx"
+      - "apps/web/app/primary-nav.tsx"
       - "scripts/prepare-pinned-subscription-runtime.ts"
       - "packages/features/review-history/**"
       - "packages/features/review-statistics/**"
@@ -118,6 +119,12 @@ jobs:
             }
           assert.deepEqual(result.followthroughEvidence.heldResponses.map(item=>item.status),[200,403]);
           assert(result.followthroughEvidence.heldResponses.every(item=>['delivered','cancelled'].includes(item.outcome)));
+          assert.equal(result.followthroughEvidence.retiredUsageRemount.responseStatus,200);
+          assert.equal(result.followthroughEvidence.retiredUsageRemount.effectiveAccess,'member');
+          assert.equal(result.followthroughEvidence.retiredUsageRemount.dashboardRscRequestsBeforeValidationRelease,0);
+          assert(result.followthroughEvidence.retiredUsageRemount.priorBrowserScopeChecks.every(item=>item.status===200&&item.scopeMatches));
+          assert.deepEqual(result.followthroughEvidence.retiredUsageRemount.priorBrowserDenialMessages,[]);
+          assert(['delivered','cancelled'].includes(result.followthroughEvidence.retiredUsageRemount.outcome));
           assert.deepEqual(result.browserErrors,[]);
           assert.deepEqual(result.externalRequests,[]);
           NODE

@@ -34,7 +34,7 @@ export function PrimaryNav({
     <PrimaryNavLinks
       signedIn={signedIn}
       ariaLabel="Primary navigation"
-      className="hidden w-full min-w-0 gap-2 font-mono text-xs uppercase tracking-[0.16em] lg:flex lg:w-auto lg:justify-center"
+      className="hidden w-full min-w-0 flex-wrap gap-2 font-mono text-xs uppercase tracking-[0.16em] lg:flex lg:w-auto lg:justify-center"
     />
   );
 }

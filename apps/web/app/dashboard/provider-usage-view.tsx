@@ -174,7 +174,7 @@ function ProviderUsageContext({
             Provider activity and token usage.
           </p>
         </div>
-        <div className="grid w-full min-w-0 basis-full grid-cols-2 items-end gap-2 sm:grid-cols-3 xl:w-auto xl:max-w-4xl xl:flex-1 xl:basis-auto xl:grid-cols-[1.2fr_1fr_1.2fr_1fr_auto]">
+        <div className="grid w-full min-w-0 basis-full grid-cols-[repeat(auto-fit,minmax(min(100%,10rem),1fr))] items-end gap-3">
           <SelectField
             name="usage-period"
             label="Period"
@@ -370,7 +370,7 @@ function ProviderUsageContext({
           >
             {"error" in custom
               ? custom.error
-              : `Preview UTC [${custom.from}, ${custom.to})`}
+              : `Selected dates: ${intervalLabel(custom.from, custom.to)}. End date is included.`}
           </p>
         </div>
       ) : null}

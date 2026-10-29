@@ -21,6 +21,8 @@ export const privateSeedKey = (scope: Identity) =>
   [...privateScopeKey(scope), scope.seedId] as const;
 const deniedKey = (scope: Identity) =>
   ["private-query-denied-seed", ...privateSeedKey(scope)] as const;
+const consumedKey = (scope: Identity) =>
+  ["private-query-consumed-seed", ...privateSeedKey(scope)] as const;
 const hadDenialKey = (scope: Identity) =>
   [
     "private-query-had-denial",
@@ -50,26 +52,30 @@ export function usePrivateQueryScope(
     () => client.getQueryData(deniedKey(identity)) === true,
   );
   const [seedTrusted, setSeedTrusted] = useState(
-    () => client.getQueryData(hadDenialKey(identity)) !== true,
+    () =>
+      client.getQueryData(hadDenialKey(identity)) !== true &&
+      client.getQueryData(consumedKey(identity)) !== true,
   );
   const active = useRef(true);
   const rejected = useRef(denied);
   const isActive = useCallback(() => active.current && !rejected.current, []);
   useLayoutEffect(() => {
     active.current = true;
+    const scope = { namespace, actorId, workspaceId, seedId, effectiveAccess };
+    // SSR authorizes the first committed lifetime. Revisiting this seed must
+    // validate again, even when the intervening scope change never failed.
+    // Commit before deferred cleanup; Strict Mode replay keeps local trust.
+    const key = consumedKey(scope);
+    client.setQueryDefaults(key, { gcTime: Infinity });
+    client.setQueryData(key, true);
     return () => {
       active.current = false;
       queueMicrotask(() => {
         if (active.current) return; // React Strict Mode effect replay.
-        const queryKey = privateSeedKey({
-          namespace,
-          actorId,
-          workspaceId,
-          seedId,
-          effectiveAccess,
-        });
-        void client.cancelQueries({ queryKey });
-        client.removeQueries({ queryKey });
+        const queryKey = privateSeedKey(scope);
+        // A same-tick remount may already observe this exact seed again.
+        void client.cancelQueries({ queryKey, type: "inactive" });
+        client.removeQueries({ queryKey, type: "inactive" });
       });
     };
   }, [namespace, actorId, workspaceId, seedId, effectiveAccess, client]);

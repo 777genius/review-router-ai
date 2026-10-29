@@ -1,7 +1,14 @@
 /** Bounded extension of the existing authenticated PostgreSQL/Next browser runner. */
 import assert from "node:assert/strict";
 import pg from "pg";
-import type { APIResponse, BrowserContext, Page, Route } from "playwright-core";
+import type {
+  APIResponse,
+  BrowserContext,
+  Page,
+  Request,
+  Response,
+  Route,
+} from "playwright-core";
 import {
   selectProjection,
   type UsageFact,
@@ -41,6 +48,40 @@ async function bounded<T>(
   } finally {
     clearTimeout(timer);
   }
+}
+async function setTextSize(page: Page, fontSize: string) {
+  await bounded(
+    page.evaluate(async (value) => {
+      document.documentElement.style.fontSize = value;
+      // ResponsiveContainer observes the rem-sized layout asynchronously.
+      // Measure after its ResizeObserver and React update have painted.
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+    }, fontSize),
+    5_000,
+    "text-size layout settlement",
+  );
+}
+async function assertSelectedLabelsFit(page: Page, region: string) {
+  const labels = await page
+    .getByRole("region", { name: region, exact: true })
+    .getByRole("combobox")
+    .evaluateAll((controls) =>
+      controls.map((control) => {
+        const selected = control.querySelector(".truncate");
+        return {
+          text: selected?.textContent,
+          width: selected?.clientWidth ?? 0,
+          scroll: selected?.scrollWidth ?? 0,
+        };
+      }),
+    );
+  assert(labels.length > 0, `${region} must expose actual filter controls`);
+  assert(
+    labels.every((label) => label.width > 0 && label.scroll <= label.width + 1),
+    `${region} selected filter labels fit at200% text size: ${JSON.stringify(labels)}`,
+  );
 }
 function cancelledInterception(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -333,6 +374,21 @@ export async function qualifyFollowthrough(input: Scenario) {
     status: number;
     outcome: "delivered" | "cancelled";
   }[] = [];
+  let retiredUsageRemount:
+    | {
+        responseStatus: 200;
+        effectiveAccess: "member";
+        outcome: "delivered" | "cancelled";
+        dashboardRscRequestsBeforeValidationRelease: number;
+        priorBrowserScopeChecks: {
+          status: number;
+          expectedAccess: "admin" | "member" | undefined;
+          actualAccess: string | null;
+          scopeMatches: boolean;
+        }[];
+        priorBrowserDenialMessages: string[];
+      }
+    | undefined;
   const statistics = () =>
     page.getByRole("region", { name: "Review statistics", exact: true });
   const issues = () =>
@@ -533,20 +589,19 @@ export async function qualifyFollowthrough(input: Scenario) {
     }
   await page.setViewportSize({ width: 1440, height: 1000 });
   await selectTheme(page, "dark");
-  await page.evaluate(() => {
-    document.documentElement.style.fontSize = "200%";
-  });
+  await setTextSize(page, "200%");
   assert(
     await statistics()
       .getByRole("combobox", { name: /Severity/ })
       .isEnabled(),
   );
+  await choose(page, "Chart metric", "Total reviews", true);
+  await choose(page, "Chart metric", "PRs reviewed", true);
+  await assertSelectedLabelsFit(page, "Review statistics");
   await snapshot(page, "followthrough-statistics-text-zoom.png");
-  await page.evaluate(() => {
-    document.documentElement.style.fontSize = "";
-  });
+  await setTextSize(page, "");
   checks.push(
-    "followthrough: issue actions/escaped and long labels captured in all six viewport/theme cases, Statistics controls usable at200% text size",
+    "followthrough: issue actions/escaped and long labels captured in all six viewport/theme cases, Statistics filter labels fit and chart metric remains keyboard-usable at200% text size",
   );
   let failPage = true;
   const attemptedIssuePages: string[] = [];
@@ -741,6 +796,73 @@ export async function qualifyFollowthrough(input: Scenario) {
 
   await navigate("statistics");
   await page.getByLabel("All-severity review summary").waitFor();
+  let expectedUsageAccess: "admin" | "member" = "admin";
+  const expectedUsageRequests = new WeakMap<Request, "admin" | "member">();
+  const priorBrowserUsageReads: Promise<{
+    status: number;
+    expectedAccess: "admin" | "member" | undefined;
+    actualAccess: string | null;
+    scopeMatches: boolean;
+  }>[] = [];
+  const observeUsageRequest = (request: Request) => {
+    if (new URL(request.url()).pathname === "/api/dashboard/provider-usage")
+      expectedUsageRequests.set(request, expectedUsageAccess);
+  };
+  const observeUsageResponse = (response: Response) => {
+    if (new URL(response.url()).pathname !== "/api/dashboard/provider-usage")
+      return;
+    const expectedAccess = expectedUsageRequests.get(response.request());
+    priorBrowserUsageReads.push(
+      bounded(response.json(), 5_000, "prior Usage envelope observation").then(
+        (
+          envelope: {
+            scope?: {
+              actorId?: string;
+              workspaceId?: string;
+              effectiveAccess?: string;
+            };
+          } | null,
+        ) => ({
+          status: response.status(),
+          expectedAccess,
+          actualAccess: envelope?.scope?.effectiveAccess ?? null,
+          scopeMatches:
+            expectedAccess !== undefined &&
+            envelope?.scope?.actorId === actorId &&
+            envelope.scope?.workspaceId === main.id &&
+            envelope.scope?.effectiveAccess === expectedAccess,
+        }),
+        () => ({
+          status: response.status(),
+          expectedAccess,
+          actualAccess: null,
+          scopeMatches: false,
+        }),
+      ),
+    );
+  };
+  page.on("request", observeUsageRequest);
+  page.on("response", observeUsageResponse);
+  await page.evaluate(() => {
+    const state = window as Window & {
+      followthroughPriorUsageDenials?: string[];
+      followthroughPriorUsageObserver?: MutationObserver;
+    };
+    state.followthroughPriorUsageDenials = [];
+    state.followthroughPriorUsageObserver = new MutationObserver(() => {
+      if (
+        document
+          .querySelector('section[aria-label="Provider usage"]')
+          ?.textContent?.includes("Usage access is no longer available")
+      )
+        state.followthroughPriorUsageDenials!.push("Usage access denied");
+    });
+    state.followthroughPriorUsageObserver.observe(document.body, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    });
+  });
   await navigate("usage");
   await usage().waitFor();
   await page.goBack();
@@ -754,6 +876,11 @@ export async function qualifyFollowthrough(input: Scenario) {
   await page.getByText(/Statistics access is no longer available/).waitFor();
   await snapshot(page, "followthrough-statistics-denied.png");
   await input.addMember(main.id);
+  // Keep this Statistics-only denial journey from also changing Usage access.
+  await admin.query(
+    'UPDATE "WorkspaceMember" SET role=\'admin\' WHERE "workspaceId"=$1 AND "userId"=$2',
+    [main.id, actorId],
+  );
   await navigate("usage");
   await usage().waitFor();
   await page.goBack();
@@ -847,6 +974,7 @@ export async function qualifyFollowthrough(input: Scenario) {
       'UPDATE "WorkspaceMember" SET role=\'member\' WHERE "workspaceId"=$1 AND "userId"=$2',
       [main.id, actorId],
     );
+    expectedUsageAccess = "member";
     await navigate("usage");
     await usage().waitFor();
     await page.waitForFunction(
@@ -930,6 +1058,154 @@ export async function qualifyFollowthrough(input: Scenario) {
   } finally {
     await heldAdmin.close();
   }
+  page.off("request", observeUsageRequest);
+  page.off("response", observeUsageResponse);
+  const priorBrowserScopeChecks = await Promise.all(priorBrowserUsageReads);
+  const priorBrowserDenialMessages = await page.evaluate(() => {
+    const state = window as Window & {
+      followthroughPriorUsageDenials?: string[];
+      followthroughPriorUsageObserver?: MutationObserver;
+    };
+    state.followthroughPriorUsageObserver?.disconnect();
+    return state.followthroughPriorUsageDenials ?? [];
+  });
+  assert.deepEqual(
+    priorBrowserDenialMessages,
+    [],
+    "No Usage denial or client scope-mismatch recovery may precede the retired-seed return",
+  );
+  assert(
+    priorBrowserScopeChecks.some((read) => read.actualAccess === "admin") &&
+      priorBrowserScopeChecks.some((read) => read.actualAccess === "member"),
+    "Both actual browser Usage scopes must be observed before the retired-seed return",
+  );
+  assert(
+    priorBrowserScopeChecks.every(
+      (read) => read.status === 200 && read.scopeMatches,
+    ),
+    "The admin-to-member transition must retire the old seed without an earlier Usage access failure or mismatching envelope",
+  );
+  const heldRetiredValidation = await holdUsageResponse(
+    page,
+    usagePattern,
+    200,
+    async (response) => {
+      const envelope = (await response.json()) as {
+        scope: { effectiveAccess: string };
+        report: { rows: { requestedModel: string }[] };
+      };
+      assert.equal(envelope.scope.effectiveAccess, "member");
+      assert.deepEqual(
+        envelope.report.rows.map((row) => row.requestedModel),
+        [ownModel],
+      );
+    },
+  );
+  const dashboardRscRequests: string[] = [];
+  const observeBackRequest = (request: Request) => {
+    const url = new URL(request.url());
+    if (
+      url.origin === appUrl &&
+      url.pathname === "/dashboard" &&
+      request.headers()["rsc"] === "1"
+    )
+      dashboardRscRequests.push(url.pathname);
+  };
+  page.on("request", observeBackRequest);
+  try {
+    await page.evaluate((secret) => {
+      const state = window as Window & {
+        followthroughLeaks?: string[];
+        followthroughObserver?: MutationObserver;
+      };
+      state.followthroughLeaks = [];
+      state.followthroughObserver = new MutationObserver(() => {
+        if (
+          document
+            .querySelector('section[aria-label="Provider usage"]')
+            ?.textContent?.includes(secret)
+        )
+          state.followthroughLeaks!.push(secret);
+      });
+      state.followthroughObserver.observe(document.body, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+      });
+    }, adminModel);
+    await page.goBack();
+    await page.waitForURL(
+      (url) => url.searchParams.get("section") === "statistics",
+    );
+    await statistics().waitFor();
+    await assertRuntime();
+    await page.goBack();
+    await page.waitForURL((url) => url.searchParams.get("section") === "usage");
+    await usage().waitFor();
+    await heldRetiredValidation.capture();
+    await assertRuntime();
+    assert(
+      !(await usage().textContent())?.includes(adminModel),
+      "Returning to the earlier admin navigation cannot reveal its retired seed while API validation is held",
+    );
+    assert.equal(
+      dashboardRscRequests.length,
+      0,
+      "The Back journey must use the earlier cached server component, not a new server render",
+    );
+    page.off("request", observeBackRequest);
+    heldRetiredValidation.release();
+    const outcome = await heldRetiredValidation.delivery();
+    await page.waitForFunction(
+      ({ own, other }) => {
+        const text =
+          document.querySelector('section[aria-label="Provider usage"]')
+            ?.textContent ?? "";
+        return text.includes(own) && !text.includes(other);
+      },
+      { own: ownModel, other: adminModel },
+    );
+    const confirmed = await api(`/api/dashboard/provider-usage?${interval}`);
+    assert.equal(confirmed.status(), 200);
+    const confirmedEnvelope = (await confirmed.json()) as {
+      scope: { effectiveAccess: string };
+      report: { rows: { requestedModel: string }[] };
+    };
+    assert.equal(confirmedEnvelope.scope.effectiveAccess, "member");
+    assert.deepEqual(
+      confirmedEnvelope.report.rows.map((row) => row.requestedModel),
+      [ownModel],
+    );
+    const leaks = await page.evaluate(() => {
+      const state = window as Window & { followthroughLeaks?: string[] };
+      return state.followthroughLeaks ?? [];
+    });
+    assert.deepEqual(leaks, [], "A retired admin seed never flashes on Back");
+    retiredUsageRemount = {
+      responseStatus: 200,
+      effectiveAccess: "member",
+      outcome,
+      dashboardRscRequestsBeforeValidationRelease: 0,
+      priorBrowserScopeChecks,
+      priorBrowserDenialMessages,
+    };
+    checks.push(
+      "followthrough: with no prior Usage access failure, Back to the cached admin server component preserves QueryClient and hides its retired seed while real member200 validation is held; matching member scope recovers without any admin-label flash",
+    );
+    await assertRuntime();
+    await custom();
+  } finally {
+    page.off("request", observeBackRequest);
+    try {
+      await heldRetiredValidation.close();
+    } finally {
+      await page.evaluate(() => {
+        (
+          window as Window & { followthroughObserver?: MutationObserver }
+        ).followthroughObserver?.disconnect();
+      });
+    }
+  }
   const heldDenial = await holdUsageResponse(page, usagePattern, 403);
   try {
     await admin.query(
@@ -974,23 +1250,60 @@ export async function qualifyFollowthrough(input: Scenario) {
       await input.addMember(main.id);
     }
   }
-  await page.evaluate(() => {
-    document.documentElement.style.fontSize = "200%";
-  });
+  await setTextSize(page, "200%");
   const zoomDimensions = await page.evaluate(() => ({
     width: document.documentElement.clientWidth,
     scroll: document.documentElement.scrollWidth,
+    overflowing: [...document.body.querySelectorAll("*")]
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        return (
+          rect.width > 0 &&
+          rect.right > document.documentElement.clientWidth + 1
+        );
+      })
+      .slice(0, 12)
+      .map((element) => ({
+        tag: element.tagName,
+        id: element.id,
+        role: element.getAttribute("role"),
+        right: Math.round(element.getBoundingClientRect().right),
+      })),
   }));
   assert(
     zoomDimensions.scroll <= zoomDimensions.width + 1,
-    "Usage controls do not create page overflow at200% text size",
+    `Usage controls do not create page overflow at200% text size: ${JSON.stringify(zoomDimensions)}`,
+  );
+  await assertSelectedLabelsFit(page, "Provider usage");
+  const primary = page.getByRole("navigation", {
+    name: "Primary navigation",
+    exact: true,
+  });
+  await primary.getByRole("link", { name: "Dashboard", exact: true }).focus();
+  await page.keyboard.press("Tab");
+  assert(
+    await primary
+      .getByRole("link", { name: "Guide", exact: true })
+      .evaluate((element) => element === document.activeElement),
+    "Wrapped primary navigation preserves keyboard order at200% text size",
+  );
+  assert(
+    await primary.getByRole("link").evaluateAll((links) =>
+      links.every((link) => {
+        const rect = link.getBoundingClientRect();
+        const target = document.elementFromPoint(
+          rect.x + rect.width / 2,
+          rect.y + rect.height / 2,
+        );
+        return target !== null && link.contains(target);
+      }),
+    ),
+    "Wrapped primary navigation links have unobscured targets at200% text size",
   );
   await snapshot(page, "followthrough-usage-text-zoom.png");
-  await page.evaluate(() => {
-    document.documentElement.style.fontSize = "";
-  });
+  await setTextSize(page, "");
   checks.push(
-    "followthrough: actual Usage controls/model labels remain usable without page overflow at200% text size",
+    "followthrough: actual Usage selected filter labels fit without page overflow at200% text size; wrapped global navigation retains unobscured targets and keyboard order",
   );
   await input.openWorkspace(page, input.empty.slug);
   await page
@@ -1025,6 +1338,7 @@ export async function qualifyFollowthrough(input: Scenario) {
   );
   return {
     heldResponses,
+    retiredUsageRemount,
     sameQueryClientProof:
       "real Next Link/Back navigation retains the root layout runtime; source closure records QueryProvider useState ownership",
     usageModels: { member: ownModel, adminOnly: adminModel },

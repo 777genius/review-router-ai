@@ -105,6 +105,7 @@
 .chartHeader {
   min-height: 6.3rem;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
@@ -118,6 +119,8 @@
 }
 .chartSelector {
   width: 10rem;
+  max-width: 100%;
+  flex-shrink: 0;
   min-width: 0;
 }
 .chartBody {

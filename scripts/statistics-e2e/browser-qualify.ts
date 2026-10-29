@@ -247,6 +247,7 @@ if (scenario === "followthrough")
     "apps/web/src/private-query-scope.ts",
     "apps/web/app/query-provider.tsx",
     "apps/web/app/layout.tsx",
+    "apps/web/app/primary-nav.tsx",
     "packages/features/review-history/src/adapters/outbound/history-lookup-failure.ts",
     "packages/features/review-history/src/adapters/outbound/history-pull-request-lookup.ts",
     "packages/features/review-history/src/domain/history.ts",

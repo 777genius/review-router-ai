@@ -7,9 +7,10 @@
 - Affected services/targets: Web and the compiled History/Statistics/Usage
   feature consumers included in the selected release.
 - Implementation PR: [#743](https://github.com/777genius/review-router-ai/pull/743).
-- Implementation reference: implementation in progress; the accepted plan was
-  published first as `625855482368ac187c213e84883824f64a61a3cb`. Record the final
-  implementation and selected release hashes before rollout.
+- Implementation reference: the coherent source change and its final head/merge
+  reference are tracked in PR #743. The accepted plan was published first as
+  `625855482368ac187c213e84883824f64a61a3cb`. Use the PR's exact final source and
+  qualification receipts; record the selected release hash before rollout.
 - Dependencies: existing Statistics schema/capture and
   [Review History](2026-10-28-review-history.md) for optional history links.
   Missing History capture remains a supported absent-history state.
@@ -56,6 +57,8 @@ not serve an old client build as the new server build's static assets.
 - A revoked account cannot recover cached private labels through navigation.
   Restored access requires a fresh authorized scope. Usage role downgrade shows
   only the member's allowed report after refresh, without a stale admin frame.
+  Back to an earlier admin page also requires fresh API validation, even when
+  the successful downgrade produced no access error.
 - A recorded issue opens the correct repository/PR in Reviews with all relevant
   runs. Absent or temporarily unavailable History keeps the external PR action
   and distinguishes those states without disclosing internal errors.
