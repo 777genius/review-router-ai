@@ -150,7 +150,7 @@ jobs:
           npm --prefix .paired/review-router-action test -- --runInBand --runTestsByPath \
             __tests__/unit/github/review-thread-inventory.test.ts \
             __tests__/unit/review-orchestration/github-review-state-adapter.test.ts \
-            __tests__/unit/finding-revalidation/plan-revalidation.test.ts \
+            __tests__/unit/finding-revalidation/revalidation.test.ts \
             --json --outputFile="$GITHUB_WORKSPACE/tmp/memory-final-handoff/action-guards.json"
       - name: Require complete qualification without skipped tests
         run: |
@@ -169,15 +169,91 @@ jobs:
             console.log(file, report.numPassedTests, 'passed; no skipped tests');
           }
           NODE
+      - name: Record exact scope and next-agent handoff
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os, json
+          run = f"https://github.com/777genius/review-router-ai/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+          report = json.loads(Path('tmp/memory-final-handoff/action-guards.json').read_text())
+          section = f'''## 2026-10-29 final lifecycle-fixture repair and merge handoff
+
+          The previous final-head CI [40868138527](https://github.com/777genius/review-router-ai/actions/runs/40868138527)
+          exposed seven paired lifecycle failures before the subsequent memory wire
+          step could run. The paired Action correctly rejects unknown edit metadata;
+          the synthetic GitHub parents lacked `publishedAt` and `lastEditedAt`.
+          This follow-up adds those fields only to the fixture and asserts trusted,
+          unedited, unambiguous targets before planning. No production guard, packet
+          assertion, publication policy, timeout or required CI gate is weakened.
+
+          [Bounded qualification]({run}) starts from exact control-plane
+          `08e39a3928e6bf7752512099575a9d87602e8811` and paired Action
+          `99cbd748aa025e27d5d9f689c3173c33b2d6b418`. It reproduces the original
+          empty-packet failure, then passes all 24 paired investigation/lifecycle,
+          description, banner and memory HTTP/PostgreSQL tests; 17 finite-conversation
+          PostgreSQL tests; and {report['numPassedTests']} Action inventory/adapter/revalidation guard tests.
+          The successful suites have zero skipped/todo tests. The intentionally
+          filtered before-fix reproduction is negative evidence, not a passing suite.
+          Exact reports and the tested patch are retained in that run's artifact.
+
+          Action #349 and #350 are merged as `7713c978f852f16b359ab816135a0b45de0c2ad1`
+          and `8a6bb7395556ddabbda4b8275bc9e2de6fea4f8e`. Control-plane #734 remains
+          for the next agent to merge after the final feature-head required checks
+          pass. Verify the actual latest SHA and conclusions; this focused run does
+          not replace full CI, the protected main release checks or approval.
+          Do not merge the disposable diagnostic workflow into the feature branch.
+
+          The [deployment task](../deployments/2026-10-29-conversational-memory.md)
+          and its index remain the rollout authority: staging and production are
+          separately pending. Live selected-model evaluation, native privacy and
+          installed GitHub App publication remain activation requirements, not
+          unimplemented source features or claims established by deterministic tests.
+          No production deployment, release registration, activation or new
+          independent-model review is claimed by this fixture repair.
+
+          '''
+          section = '\n'.join(line[10:] if line.startswith('          ') else line for line in section.split('\n'))
+          p = Path('ai-docs/plans/2026-10-28-conversational-memory-implementation.md')
+          text = p.read_text()
+          anchor = '## 2026-10-29 final paired runtime integration'
+          assert text.count(anchor) == 1
+          text = text.replace(anchor, section + anchor)
+          old = 'Neither draft PR is merged; no release registration, deployment, registry publication or contextual-profile activation has been performed.'
+          assert text.count(old) == 1
+          text = text.replace(old, 'At that historical checkpoint neither draft PR was merged. The final handoff above records the subsequent Action merges; no release registration, deployment, registry publication or contextual-profile activation has been performed.')
+          p.write_text(text)
+          p = Path('ai-docs/deployments/2026-10-29-conversational-memory.md')
+          text = p.read_text()
+          anchor = '## Related evidence'
+          assert text.count(anchor) == 1
+          text = text.replace(anchor, f'''## Source merge handoff
+
+          The [implementation record](../plans/2026-10-28-conversational-memory-implementation.md#2026-10-29-final-lifecycle-fixture-repair-and-merge-handoff)
+          records the final fixture repair, exact pair and [observed qualification]({run}).
+          Another agent owns the control-plane merge after final-head required checks;
+          Action #349/#350 are already merged. Read the current PR head and checks,
+          then protected main checks before following the ordered rollout above.
+          Neither this source follow-up nor its disposable workflow changes the
+          staging/production status or supplies live activation evidence.
+
+          '''.replace('\n          ', '\n') + anchor)
+          p.write_text(text)
+          PY
+          pnpm exec prettier --write ai-docs/plans/2026-10-28-conversational-memory-implementation.md ai-docs/deployments/2026-10-29-conversational-memory.md
+          pnpm exec prettier --check scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts ai-docs/plans/2026-10-28-conversational-memory-implementation.md ai-docs/deployments/2026-10-29-conversational-memory.md
       - name: Publish bounded tested candidate without touching feature or main
         run: |
           set -euo pipefail
           git diff --check
-          test "$(git diff --name-only)" = scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts
+          python3 - <<'PY'
+          import subprocess
+          expected = {'scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts','ai-docs/plans/2026-10-28-conversational-memory-implementation.md','ai-docs/deployments/2026-10-29-conversational-memory.md'}
+          assert set(subprocess.check_output(['git','diff','--name-only'], text=True).splitlines()) == expected
+          PY
           git config user.name 777genius
           git config user.email iliyazelenkog@gmail.com
-          git add scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts
-          git commit -m 'test(memory): align paired lifecycle fixture with published-comment metadata'
+          git add scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts ai-docs/plans/2026-10-28-conversational-memory-implementation.md ai-docs/deployments/2026-10-29-conversational-memory.md
+          git commit -m 'test(memory): close paired lifecycle regression and document merge handoff'
           git show --stat --oneline HEAD
           git rev-parse HEAD >tmp/memory-final-handoff/qualified-sha.txt
           git diff HEAD^ HEAD --binary >tmp/memory-final-handoff/qualified.patch
