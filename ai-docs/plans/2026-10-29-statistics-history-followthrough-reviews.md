@@ -447,3 +447,26 @@ critic reviewed the actual images, log order and source diff and accepted the
 bounded correction; scoped lint, formatting, syntax and whitespace checks passed.
 Usage200%, retired-seed Back and final empty/partial states still require the
 next complete run. No new product change was needed for this fixture correction.
+
+[Run40971399703](https://github.com/777genius/review-router-ai/actions/runs/40971399703)
+on `1de82c483facc4d0974acf15b0a21fc4e0de4584` completed **successfully**: full
+native web typecheck,18 acceptance checks and21 actual captures, including all12
+mandatory matrix images and both200% states. All49 recorded source hashes match
+the checkout. The retired-admin Back case delivered a real member200 with no RSC
+request before release, matching prior admin/admin/member envelopes and no prior
+Usage denial. Both separately held old200/403 were also delivered. Browser errors
+and external requests are empty; app exit0, owned cleanup and runtime-directory
+removal passed. The independent final critic inspected the actual receipt and
+remaining images and returned ACCEPT with no material scoped finding. Specific
+late-completion guard execution remains proven by the deferred component tests;
+the browser proves continued isolation after held response release.
+
+The general CI then found one existing assertion that still expected the old
+Statistics element props. [CI40971399697](https://github.com/777genius/review-router-ai/actions/runs/40971399697)
+reported12,852 unit tests passed,627 skipped and one failed: the loading-boundary
+test omitted the newly forwarded URL params. It now supplies duplicate raw period
+values and severity and asserts exact forwarding, preserving every unrelated-IO
+check. The focused existing case passed1/1 (36 unselected cases); file lint,
+formatting and whitespace checks passed. Root reviewed the exact test-only diff.
+Product and browser source are unchanged. Required CI must pass on the corrected
+head; the skipped tests do not qualify their optional behavior.
