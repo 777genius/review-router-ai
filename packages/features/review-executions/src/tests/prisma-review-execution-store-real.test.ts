@@ -1890,6 +1890,7 @@ async function createHarness(
       prDescriptionProfile: true,
       contextToolsProfile: true,
       lifecycleVerificationProfile: true,
+      modelDispatchProfile: true,
     },
     data: {
       producerReleaseId,
