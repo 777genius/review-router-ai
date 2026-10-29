@@ -1,0 +1,142 @@
+name: Memory CI repair qualification (temporary)
+
+on:
+  push:
+    branches: [feat/conversational-memory-e2e]
+    paths: [.github/workflows/memory-ci-repair-once.yml]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: memory-ci-repair-once
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    if: github.repository == '777genius/review-router-ai'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.11.1
+      - name: Install pinned dependencies
+        run: |
+          mkdir -p tmp/memory-ci-repair
+          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+          node scripts/install-private-dependencies.mjs --frozen-lockfile
+      - name: Generate offline Prisma client
+        env:
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
+        run: node scripts/generate-prisma-offline.mjs
+      - name: Apply exact reviewed replacements
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          def replace(path, old, new, count=1):
+              p = Path(path)
+              text = p.read_text()
+              actual = text.count(old)
+              if actual != count:
+                  raise SystemExit(f'{path}: expected {count} exact matches, got {actual}')
+              p.write_text(text.replace(old, new))
+
+          replace('apps/api/src/review-memory-runtime.ts',
+              '    // The qualified profile exports approved statements only. A customer-supplied\n    // query could contain raw source even after secret/code pattern filtering.\n    const query =\n      "Approved repository review conventions and maintained project knowledge";\n', '')
+          replace('packages/features/memory/src/application/use-cases/memory-knowledge-service.ts',
+              '    let current = false;\n    try {\n      current = await automatic.current.current(',
+              '    let current: boolean;\n    try {\n      current = await automatic.current.current(')
+          replace('packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-store.ts',
+              '      const { automaticSource: _automaticSource, ...maintained } = metadata;',
+              '      const maintained = { ...metadata };\n      delete maintained.automaticSource;')
+          replace('packages/features/memory/src/tests/context-memory-preview.test.ts',
+              '  const send = vi.fn(\n    async (_url: RequestInfo | URL, _init?: RequestInit) =>\n      new Response(JSON.stringify(result), {\n        status,\n        headers: strict ? { "X-Hindsight-Strict-Preview": "v1" } : {},\n      }),\n  );',
+              '  const send = vi.fn<typeof fetch>(async () =>\n    new Response(JSON.stringify(result), {\n      status,\n      headers: strict ? { "X-Hindsight-Strict-Preview": "v1" } : {},\n    }),\n  );')
+          replace('scripts/conversation-evals/corpus.ts',
+              '  const factsById = new Map(corpus.facts.map((fact) => [fact.id, fact]));\n', '')
+          replace('scripts/conversation-evals/score.ts',
+              '        expectedThread?.policy.discussionReplies !== false &&\n        expectedThread?.policy.existingThreadReplies! < 5',
+              '        expectedThread !== undefined &&\n        expectedThread.policy.discussionReplies !== false &&\n        expectedThread.policy.existingThreadReplies < 5')
+          replace('scripts/memory-e2e/context-memory-consumer.mjs',
+              'new Response(JSON.stringify(body)', 'new globalThis.Response(JSON.stringify(body)')
+          replace('scripts/memory-e2e/context-memory-consumer.mjs',
+              'request instanceof Request', 'request instanceof globalThis.Request', 2)
+          replace('apps/web/src/server/personal-account-composition.test.ts',
+              'import { ProviderAccountError } from "@reviewrouter/features-provider-accounts";',
+              'import { ProviderAccountError } from "@reviewrouter/features-provider-accounts";\nimport { accountModelCatalogResponseBytes } from "@reviewrouter/features-provider-accounts/composition";')
+          replace('apps/web/src/server/personal-account-composition.test.ts',
+              '      responseBytes: 65536,', '      responseBytes: accountModelCatalogResponseBytes,')
+          replace('vitest.config.ts',
+              '      "scripts/hindsight-e2e/**/*.test.ts",',
+              '      "scripts/hindsight-e2e/**/*.test.ts",\n      // Executed by node:test after Vitest in the root test command.\n      "scripts/conversation-evals/eval-risk.test.ts",')
+          replace('package.json',
+              '"test": "vitest run",',
+              '"test": "vitest run && node --import tsx --test scripts/conversation-evals/eval-risk.test.ts",')
+          replace('scripts/conversation-evals/eval-risk.test.ts',
+              'const { mkdtemp, writeFile, rm } = await import("node:fs/promises");',
+              'const { mkdir, mkdtemp, writeFile, rm } = await import("node:fs/promises");')
+          replace('scripts/conversation-evals/eval-risk.test.ts',
+              '  const directory = await mkdtemp(\n    resolve("tmp/conversational-memory-implementation/scorer-risk-"),\n  );',
+              '  await mkdir(resolve("tmp/conversational-memory-implementation"), {\n    recursive: true,\n  });\n  const directory = await mkdtemp(\n    resolve("tmp/conversational-memory-implementation/scorer-risk-"),\n  );')
+          PY
+      - name: Format only changed source files and rebuild the owned bundle
+        run: |
+          git diff --name-only -z | xargs -0 pnpm exec prettier --write
+          node scripts/build-conflict-runtime.ts
+          node scripts/build-conflict-runtime.ts --check
+          git diff --check
+          git diff --binary > tmp/memory-ci-repair/fixes.patch
+      - name: Full lint
+        run: pnpm lint 2>&1 | tee tmp/memory-ci-repair/lint.log
+      - name: Memory and account regression tests
+        run: |
+          pnpm exec vitest run packages/features/memory/src/tests apps/web/src/server/personal-account-composition.test.ts --reporter=default --reporter=json --outputFile=tmp/memory-ci-repair/vitest.json 2>&1 | tee tmp/memory-ci-repair/vitest.log
+      - name: Actual node test scorer regressions
+        run: |
+          node --import tsx --test scripts/conversation-evals/eval-risk.test.ts 2>&1 | tee tmp/memory-ci-repair/scorer.log
+      - name: Publish only qualified fixes without overwriting concurrent work
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 <<'PY'
+          import subprocess
+          allowed = {
+              'apps/api/src/review-memory-runtime.ts',
+              'packages/features/memory/src/application/use-cases/memory-knowledge-service.ts',
+              'packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-store.ts',
+              'packages/features/memory/src/tests/context-memory-preview.test.ts',
+              'scripts/conversation-evals/corpus.ts',
+              'scripts/conversation-evals/score.ts',
+              'scripts/memory-e2e/context-memory-consumer.mjs',
+              'apps/web/src/server/personal-account-composition.test.ts',
+              'vitest.config.ts',
+              'package.json',
+              'scripts/conversation-evals/eval-risk.test.ts',
+              'action-dist/conflict-runtime.cjs',
+          }
+          changed = set(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines())
+          if changed != allowed:
+              raise SystemExit(f'Unexpected diff: missing={allowed-changed}, extra={changed-allowed}')
+          subprocess.run(['git', 'add', '--', *sorted(allowed)], check=True)
+          PY
+          git diff --cached --check
+          remote_head="$(git ls-remote origin refs/heads/feat/conversational-memory-e2e | cut -f1)"
+          test "$remote_head" = "$GITHUB_SHA"
+          git -c user.name=777genius -c user.email=iliyazelenkog@gmail.com commit -m "fix(memory): repair lint, preserve scorer coverage and rebuild conflict runtime"
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/feat/conversational-memory-e2e
+          git rev-parse HEAD > tmp/memory-ci-repair/published-sha.txt
+          printf 'Qualified repair commit: `%s`\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve repair evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: memory-ci-repair-${{ github.sha }}
+          path: tmp/memory-ci-repair/
+          if-no-files-found: warn
+          retention-days: 3
