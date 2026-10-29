@@ -1,10 +1,14 @@
 # Unified OCR: bounded completion plan
 
-Status: the reviewed current-main joins and canonical source/wrapper handoff are
-published as SaaS **S2** `8080881802d87f3bf700b15faa7cebb02f54ee9b` and Action **A3**
-`fb132c4ed337141339d487e7c388518178c24b10`. The SaaS metadata descendant pins A3 while
-preserving S2's exported bytes. Three changed-fact plan rounds, source peer
-reviews and artifact/provenance reviews returned GO. See the
+Status: the canonical source/wrapper handoff remains SaaS **S2**
+`8080881802d87f3bf700b15faa7cebb02f54ee9b`. Published Action successor **A4**
+`925df40c6c5806fe2b6673c5f807fdc6abf2fe40` implements the three reviewed corrections.
+SaaS **M** `e85ea2eed6c154384ed46174f258e06673fc801a` includes the reviewed
+current-main join; this narrow **N** descendant pins A4. Section 16 records the
+pending exact N/A4 qualification. M/A3 receipts retain their original scope, and
+A3 remains immutable historical evidence. S2's exported bytes remain frozen.
+The earlier changed-fact plan rounds, source peer reviews and artifact/provenance
+reviews returned GO. See the
 [current checkpoint](../operations/2026-10-29-unified-ocr-integration-status.md)
 and [SaaS](https://github.com/777genius/review-router-ai/pull/718/checks) /
 [Action](https://github.com/777genius/review-router/pull/346/checks) PR checks for
@@ -925,3 +929,61 @@ remain separate.
 | 1                         | **GO**, no findings. | **GO**, no findings. | Exact inherited scope and one table conflict verified; no repository edits.                                  |
 | 2                         | **GO**, no findings. | **GO**, no findings. | Bounded inheritance, exact main blobs and unchanged pair rechecked.                                          |
 | 3                         | **GO**, no findings. | **GO**, no findings. | Final scope, parity and hosted-only regression clarification verified; frozen before the one-conflict merge. |
+
+## 16. Action review corrections and exact successor qualification
+
+Status: **three review findings implemented; new-head CI qualification pending**.
+Root published Action **A4** `925df40c6c5806fe2b6673c5f807fdc6abf2fe40` at
+**21:55:23 UTC on 2026-10-29**, with tree
+`046f1a76fdf5b23e8b88237ad646c2bb8d834b17` and parent A3. This prospective SaaS
+**N** descendant changes the existing paired Action pin to that exact commit plus
+this plan note; N's own source SHA awaits root's commit. No new-head check is
+claimed passed. A3 `fb132c4ed337141339d487e7c388518178c24b10` remains immutable.
+
+Three actual review findings on A3 are implemented in two Action source files
+with regressions in three existing test files. T0 alone installs cancellation
+listeners before workspace creation, with creation, the post-create abort check
+and owned cleanup inside the existing protected lifetime. Empty Claude token
+aliases no longer shadow a valid canonical token; every alias is removed and
+invalid or conflicting nonempty values remain denied. Native Anthropic startup
+receives the captured `CODEX_REASONING_EFFORT ?? null`, preserving strict
+settings equality when the admitted configuration contains effort. The approved
+Action plan is `ai-docs/plans/2026-10-29-unified-ocr-review-fixes.md` in
+[Action #346](https://github.com/777genius/review-router/pull/346); its final
+reviewed draft SHA-256 is
+`370a834824a2566cdda79c4e0c6a2cdc799ed6216ec21ec1c7af261bb6b47ca9`.
+Both independent critics completed three bounded rounds before edits; the first-round
+fixture-premise finding was corrected, and the final plan received both GOs.
+
+The implemented high-effort regression enters the real Claude bootstrap and native wire
+adapter through the existing controlled component fixture with explicitly
+synthetic admitted configuration. It proves discovery/verifier effort handoff,
+not a new offered SaaS setting or high-effort production-route E2E. The current
+SaaS mapper emits reasoning effort only for Codex-backed providers. The existing
+seven-route acceptance matrix keeps ordinary Claude settings unchanged. Add no mapper,
+checkout override, fixture seam, test matrix or SaaS production change.
+
+Both source critics returned GO on the corrected five-file source/test diff, and
+the official Action bundle build passed. Local Jest/typecheck were blocked by
+known resource failures; focused regressions must pass new-head hosted CI before
+merge. Root publishes N immediately after A4 so their CI runs can proceed in
+parallel. N changes only `.github/workflows/ci.yml`'s existing Action pin and this
+completion-plan note. Both merges require all applicable new-head
+checks and settled actual review findings. The new SaaS tree must otherwise match
+M, including S2's 64 generated files/root index, the curated eight files, prior
+protected packet, web, schema/157 SQL migrations, dependency locks and workflows
+apart from that one pin. No canonical export, native rebuild or release/channel
+promotion is needed. New committed Action bundles come only from its official
+build; A3 remains immutable historical evidence.
+
+M/A3's [Unified acceptance run 40956722063](https://github.com/777genius/review-router-ai/actions/runs/40956722063)
+passed actual Next **2/2** and lifecycle **24/24**, with zero failed/skipped and
+**157 migrations applied**. Its controlled seven-route proof and unchanged UI
+scope remain attributed to M. M's [Quality job 123738609667](https://github.com/777genius/review-router-ai/actions/runs/40956721850/job/123738609667)
+passed **13,021 tests / 652 skipped**, with **915 passed / 65 skipped files**;
+the two inherited dispatcher/review-executions suites passed there. These results
+are historical evidence for M, not successor N/A4 qualification. N/A4 still needs
+its own required hosted full CI, paired/native/actual-dist acceptance and applicable
+UI workflows. Record exact heads and actual outcomes when available; no pending
+successor result is a pass. Live credentials, provider/OAuth/OIDC/App acceptance,
+producer registration, deployment, tagging and release remain separate.
