@@ -214,6 +214,19 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      account-models-postgres:
+        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+        env:
+          POSTGRES_USER: fixture_owner
+          POSTGRES_DB: review_router_accounts_reference_e2e_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+          TZ: UTC
+        ports: ["127.0.0.1:5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U fixture_owner -d review_router_accounts_reference_e2e_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       EXPECTED_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
       ACCOUNTS_REFERENCE_E2E_GREP: Catalog real checked import
@@ -308,6 +321,90 @@ jobs:
           assert.deepEqual([...new Set(scanner.profiles.profiles.map(profile => profile.mode))].sort(), ['ai', 'static']);
           NODE
 
+      - name: Preserve and restore only Next-generated source
+        run: |
+          cat > tmp/accounts-reference-e2e/verify-generated-next-env.mjs <<'NODE'
+          import assert from 'node:assert/strict';
+          import { execFileSync } from 'node:child_process';
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const path = 'apps/web/next-env.d.ts';
+          const original = execFileSync('git', ['show', `HEAD:${path}`], { encoding: 'utf8' });
+          const generated = original.replace('import "./.next/types/routes.d.ts";', 'import "./.next/dev/types/routes.d.ts";');
+          assert.notEqual(generated, original);
+          writeFileSync(`${process.argv[2]}/next-env-generated.diff.log`, execFileSync('git', ['diff', '--binary', 'HEAD', '--', path]));
+          const changed = execFileSync('git', ['diff', '--name-only', '-z', 'HEAD'], { encoding: 'utf8' }).split('\0').filter(Boolean);
+          assert.deepEqual(changed.filter(file => file !== path), [], 'Unexpected tracked source changes');
+          const current = readFileSync(path, 'utf8');
+          assert.ok(current === original || current === generated, 'Unexpected next-env.d.ts changes');
+          writeFileSync(path, original);
+          execFileSync('git', ['diff', '--exit-code', 'HEAD'], { stdio: 'inherit' });
+          NODE
+          node tmp/accounts-reference-e2e/verify-generated-next-env.mjs \
+            tmp/accounts-reference-e2e/runs/catalog-ci
+
+      - name: Run account-scoped Codex model browser scenario
+        id: account_models
+        env:
+          ACCOUNTS_REFERENCE_E2E_GREP: dynamic Codex account models
+          DATABASE_URL: postgresql://fixture_owner@127.0.0.1:5433/review_router_accounts_reference_e2e_test?schema=public
+          TMPDIR: ${{ github.workspace }}/tmp/accounts-reference-e2e/tmp
+        run: |
+          mkdir -p "$TMPDIR"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_REVISION"
+          git diff --exit-code HEAD
+          node --import ./scripts/accounts-reference-e2e/node_modules/tsx/dist/loader.mjs \
+            scripts/accounts-reference-e2e/src/run.ts \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --database-url "$DATABASE_URL" \
+            --work-dir "$GITHUB_WORKSPACE/tmp/accounts-reference-e2e/runs/account-models-ci" \
+            --expected-revision "$EXPECTED_REVISION" \
+            --account-models-fixture
+
+      - name: Verify account-scoped model acceptance receipt
+        if: ${{ always() && steps.account_models.outcome != 'skipped' }}
+        run: |
+          node tmp/accounts-reference-e2e/verify-generated-next-env.mjs \
+            tmp/accounts-reference-e2e/runs/account-models-ci
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { readFileSync } from 'node:fs';
+          import { ACCOUNT_MODELS_FIXTURE_BOUNDARY } from './scripts/accounts-reference-e2e/src/contracts.ts';
+          const directory = 'tmp/accounts-reference-e2e/runs/account-models-ci';
+          const result = JSON.parse(readFileSync(`${directory}/result.json`, 'utf8'));
+          const runtime = JSON.parse(readFileSync(`${directory}/runtime.json`, 'utf8'));
+          assert.equal(result.actualRevision, process.env.EXPECTED_REVISION);
+          assert.equal(runtime.revision, process.env.EXPECTED_REVISION);
+          assert.equal(runtime.baselineExpected, process.env.EXPECTED_REVISION);
+          assert.equal(result.sourceDeltaSha256, createHash('sha256').update('').digest('hex'));
+          assert.equal(result.outcome, 'done');
+          assert.equal(result.boot.ok, true);
+          assert.equal(result.databaseMode, 'explicit-test-url');
+          assert.equal(result.databaseBaseline, 'fresh migrated');
+          assert.equal(runtime.databaseName, 'review_router_accounts_reference_e2e_test');
+          assert.equal(result.externalNetworkAllowed, false);
+          assert.equal(runtime.externalNetworkAllowed, false);
+          assert.equal(result.fixtureBoundary, ACCOUNT_MODELS_FIXTURE_BOUNDARY);
+          assert.equal(runtime.fixtureBoundary, ACCOUNT_MODELS_FIXTURE_BOUNDARY);
+          assert.equal(result.tests.passed, 1);
+          assert.equal(result.tests.failed, 0);
+          assert.equal(result.tests.skipped, 0);
+          assert.deepEqual(result.tests.failures, []);
+          const report = JSON.parse(readFileSync(`${directory}/playwright-result.json`, 'utf8'));
+          const specs = [];
+          const collect = suites => {
+            for (const suite of suites ?? []) {
+              specs.push(...(suite.specs ?? []));
+              collect(suite.suites);
+            }
+          };
+          collect(report.suites);
+          assert.deepEqual(specs.map(spec => spec.title), ['dynamic Codex account models work in provider edit and add with exact binding refresh and save validation']);
+          assert.equal(specs[0].tests.length, 1);
+          assert.equal(specs[0].tests[0].results.length, 1);
+          assert.equal(specs[0].tests[0].results[0].status, 'passed');
+          NODE
+
       - name: Upload catalog browser evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -318,5 +415,19 @@ jobs:
             tmp/accounts-reference-e2e/runs/catalog-ci/*.jsonl
             tmp/accounts-reference-e2e/runs/catalog-ci/*.log
             tmp/accounts-reference-e2e/runs/catalog-ci/browser-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload account model browser evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: account-models-browser-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            tmp/accounts-reference-e2e/runs/account-models-ci/*.json
+            tmp/accounts-reference-e2e/runs/account-models-ci/*.jsonl
+            tmp/accounts-reference-e2e/runs/account-models-ci/*.log
+            tmp/accounts-reference-e2e/runs/account-models-ci/boot-viewer.html
+            tmp/accounts-reference-e2e/runs/account-models-ci/browser-artifacts/
           if-no-files-found: warn
           retention-days: 14

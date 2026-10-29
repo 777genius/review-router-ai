@@ -394,6 +394,16 @@ model. This is an HTTP dependency fixture, not a live Codex/native proof.
 Use the existing explicit `--database-url` and `--browser-executable` options
 where PostgreSQL or a preinstalled Chromium is required.
 
+The Linux `catalog-browser` CI job runs this single scenario after its unchanged
+12-case Skills catalog acceptance and eight-static/one-AI receipt checks. The
+account-model run uses a second fresh service with the same pinned PostgreSQL 17
+image on loopback port 5433 and its own work directory. CI preserves and validates
+only Next's generated `next-env.d.ts` import change between runs, rejects other
+tracked changes, and requires an exact-head, empty-source-delta receipt with fresh
+migrations, successful boot, one pass, zero failures/skips, and no external network.
+Its separate `account-models-browser-<run-id>-<attempt>` artifact is retained even
+on failure; the fixture remains UI/read evidence, not live provider qualification.
+
 ## Provider settings UX integration
 
 The provider setup scenarios use the real Providers add/edit/default controls,
