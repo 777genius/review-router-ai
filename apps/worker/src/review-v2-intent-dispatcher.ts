@@ -124,10 +124,13 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
     if (reviewRequestedDispatchCleanupEvent(input.intent) !== null) {
       return { status: ReviewRequestedDispatchRunStatus.TerminalStaleRevision };
     }
-    if (
-      run.conclusion === null ||
-      !retryableRunConclusions.has(run.conclusion)
-    ) {
+    // A completed run without a conclusion is not classifiable yet. Keep
+    // waiting: the authorization deadline still bounds the request, and a
+    // genuine failure must not be stopped as if an operator cancelled it.
+    if (run.conclusion === null) {
+      return { status: ReviewRequestedDispatchRunStatus.Pending };
+    }
+    if (!retryableRunConclusions.has(run.conclusion)) {
       return { status: ReviewRequestedDispatchRunStatus.TerminalNotRetryable };
     }
     const pullRequest = await octokit.request(
@@ -412,8 +415,9 @@ function parseWorkflowRunsPage(
 
 /**
  * Conclusions of a run that ended before authorization where a fresh dispatch
- * may succeed. Anything else (cancelled by an operator, skipped, awaiting
- * approval, unknown) stops the request instead of redispatching it.
+ * may succeed. Any other reported conclusion (cancelled by an operator,
+ * skipped, awaiting approval, unrecognized) stops the request instead of
+ * redispatching it.
  */
 const retryableRunConclusions: ReadonlySet<string> = new Set([
   "failure",

@@ -2786,9 +2786,101 @@ describe("durable ReviewRequested ingress", () => {
     expect(reviewRequestedRetryDelayMs(1, policy)).toBe(30_000);
     expect(reviewRequestedRetryDelayMs(2, policy)).toBe(60_000);
     expect(reviewRequestedRetryDelayMs(3, policy)).toBe(120_000);
-    expect(reviewRequestedRetryDelayMs(10, policy)).toBe(
+    // The largest failed attempt that still gets a successor (limit is 10).
+    expect(reviewRequestedRetryDelayMs(9, policy)).toBe(
       maxReviewRequestedRetryDelayMs,
     );
+    // A base delay above the cap is kept as is rather than shortened.
+    expect(reviewRequestedRetryDelayMs(3, { retryDelayMs: 7_200_000 })).toBe(
+      7_200_000,
+    );
+  });
+
+  it("schedules each recovered successor with the backoff of its failed attempt", async () => {
+    const store = new InMemoryReviewRequestedIntentStore();
+    await store.registerIntent({
+      candidate: intentCandidate("request-a1", "93", scope, revision),
+    });
+    let now = plus(10_000);
+    const requestIds = ["request-a2", "request-a3"];
+    const recovery = new RecoverReviewRequestedDispatches(
+      store,
+      store,
+      {
+        async prepare() {
+          throw new Error("must_not_dispatch");
+        },
+        async findByRequestIdentity() {
+          return {
+            status: ReviewRequestedDispatchLookupStatus.Absent as const,
+          };
+        },
+        async inspectKnownRun() {
+          return {
+            status: ReviewRequestedDispatchRunStatus.TerminalCurrentRevision,
+          };
+        },
+        async cancelKnownRun() {},
+      },
+      { now: () => now },
+      {
+        ids: { nextRequestId: () => requestIds.shift()! },
+        digest: {
+          digestUtf8: async (value) =>
+            createHash("sha256").update(value).digest("hex"),
+        },
+      },
+      testDispatchPolicy(),
+    );
+    const dispatchAndFail = async (
+      requestId: string,
+      sourceRunId: string,
+      at: Date,
+    ) => {
+      const claimed = await store.claimIntent({
+        requestId,
+        claimId: `claim-${requestId}`,
+        ownerIdHash: `owner-${requestId}`,
+        now: at,
+        claimUntil: new Date(at.getTime() + 30_000),
+      });
+      await beginClaimedSubmission(
+        store,
+        claimed.intent!,
+        new Date(at.getTime() + 500),
+      );
+      await store.recordDispatch({
+        requestId,
+        claimId: `claim-${requestId}`,
+        ownerIdHash: `owner-${requestId}`,
+        fencingToken: claimed.intent!.claim!.fencingToken,
+        sourceRunId,
+        sourceRunAttempt: "1",
+        now: new Date(at.getTime() + 1_000),
+        ...resolutionWindow(new Date(at.getTime() + 1_000)),
+      });
+    };
+
+    await dispatchAndFail("request-a1", "9101", baseTime);
+    expect(await recovery.execute({ limit: 10 })).toMatchObject({
+      recovered: 1,
+      failed: 0,
+    });
+    expect(await store.findByRequestId("request-a2")).toMatchObject({
+      dispatchAttempt: 2,
+      notBefore: plus(10_000 + 2_000),
+    });
+
+    await dispatchAndFail("request-a2", "9102", plus(20_000));
+    now = plus(30_000);
+    expect(await recovery.execute({ limit: 10 })).toMatchObject({
+      recovered: 1,
+      failed: 0,
+    });
+    expect(await store.findByRequestId("request-a3")).toMatchObject({
+      dispatchAttempt: 3,
+      notBefore: plus(30_000 + 4_000),
+    });
   });
 
   it("orders and bounds due intents", async () => {

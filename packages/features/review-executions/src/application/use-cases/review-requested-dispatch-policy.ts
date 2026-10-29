@@ -120,7 +120,8 @@ export async function buildReviewRequestedRetryCandidate(input: {
 /**
  * Exponential backoff for the successor of a failed attempt: the first retry
  * waits `retryDelayMs`, every further retry doubles it, bounded by
- * `maxReviewRequestedRetryDelayMs`.
+ * `maxReviewRequestedRetryDelayMs`. A configured `retryDelayMs` above that
+ * bound is never shortened; it is used as a constant delay instead.
  */
 export function reviewRequestedRetryDelayMs(
   failedDispatchAttempt: number,
