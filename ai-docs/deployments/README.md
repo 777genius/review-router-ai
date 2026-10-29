@@ -13,10 +13,11 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
-| Task                                                                 | Implementation                                                    | Staging   | Production | Remaining work                                                                                     |
-| -------------------------------------------------------------------- | ----------------------------------------------------------------- | --------- | ---------- | -------------------------------------------------------------------------------------------------- |
-| [Review History](2026-10-28-review-history.md)                       | [PR #730](https://github.com/777genius/review-router-ai/pull/730) | `pending` | `pending`  | Reconcile environment; migrate, deploy fleet, enable capture, activate, verify.                    |
-| [Dispatch cleanup and Scanner CI](2026-10-28-dispatch-cleanup-ci.md) | [PR #732](https://github.com/777genius/review-router-ai/pull/732) | `pending` | `pending`  | Final source/main release gates; schema/fleet reconciliation, coherent consumers and verification. |
+| Task | Implementation | Staging | Production | Remaining work |
+| --- | --- | --- | --- | --- |
+| [Review History](2026-10-28-review-history.md) | [PR #730](https://github.com/777genius/review-router-ai/pull/730) | `pending` | `pending` | Reconcile environment; migrate, deploy fleet, enable capture, activate, verify. |
+| [Dispatch cleanup and Scanner CI](2026-10-28-dispatch-cleanup-ci.md) | [PR #732](https://github.com/777genius/review-router-ai/pull/732) | `pending` | `pending` | Final source/main release gates; schema/fleet reconciliation, coherent consumers and verification. |
+| [Conversational memory and shared inference](2026-10-29-conversational-memory.md) | [PR #734](https://github.com/777genius/review-router-ai/pull/734) | `pending` | `pending` | Coherent schema/fleet rollout, live model/privacy and installed App-first qualification. |
 
 The task file is authoritative; keep this summary in sync in the same commit.
 This inventory includes the tasks listed above. Missing entries do not prove
@@ -29,13 +30,13 @@ Track status separately for each environment; add a named deployment/cohort when
 an environment has multiple independently managed targets. Staging completion
 never changes production status automatically.
 
-| Status        | Meaning                                                                                                                                             |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pending`     | No verified completion is recorded for this environment. Reconcile actual state before executing; this does not prove the code or a step is absent. |
-| `in_progress` | Rollout has started. Record completed steps, evidence, and the next step.                                                                           |
-| `blocked`     | An applicable required step cannot proceed. Record the exact blocker and what would unblock it.                                                     |
-| `deployed`    | All required deployment, migration, configuration, activation, and verification steps passed in this environment, with evidence.                    |
-| `rolled_back` | The rollout was reverted or the feature disabled. Record remaining schema, flags, data, and any recovery work before another attempt.               |
+| Status | Meaning |
+| --- | --- |
+| `pending` | No verified completion is recorded for this environment. Reconcile actual state before executing; this does not prove the code or a step is absent. |
+| `in_progress` | Rollout has started. Record completed steps, evidence, and the next step. |
+| `blocked` | An applicable required step cannot proceed. Record the exact blocker and what would unblock it. |
+| `deployed` | All required deployment, migration, configuration, activation, and verification steps passed in this environment, with evidence. |
+| `rolled_back` | The rollout was reverted or the feature disabled. Record remaining schema, flags, data, and any recovery work before another attempt. |
 
 An unrelated or future task stays pending when it is outside the selected
 release. Record that exclusion in the deployment summary; do not mark it deployed
