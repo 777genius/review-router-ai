@@ -43,7 +43,6 @@ import { createContextIssueReader } from "./github/context-issue-read.js";
 import type { ContextToolsRunAccess } from "./review-context-tools.js";
 import {
   accountModelCatalogResponseBytes,
-  readAccountModelCatalogEnabled,
   readPersonalAccountSharingEnabled,
 } from "@reviewrouter/features-provider-accounts/composition";
 import { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
@@ -1418,7 +1417,6 @@ export function composeReviewActionV2ProductionRoutes(input: {
   const accountGatewayRelay = accountGatewayRelayPolicy
     ? createReviewRunGatewayRelay({
         policy: accountGatewayRelayPolicy,
-        accountModelCatalogEnabled: readAccountModelCatalogEnabled(input.env),
         companionDispatches: modelDispatchAdmission,
         usage: createGatewayUsageRecorder(prisma, async (auth) => {
           const target = await resolveCheckoutRepository(auth);
@@ -1560,7 +1558,6 @@ export function composeReviewActionV2ProductionRoutes(input: {
     ? createReviewRunGatewayCheckout({
         ...checkoutDependencies,
         readSelectedModelSettings: createReviewRunGatewayModelSettingsReader({
-          accountModelCatalogEnabled: readAccountModelCatalogEnabled(input.env),
           accounts: new PrismaProviderAccountRepository(
             prisma,
             input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,

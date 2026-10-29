@@ -83,7 +83,6 @@ export function serializeSelectedGatewayModelSettings(
 
 /** Read-only private adapter. Enrollment anchors and saved policy stay immutable. */
 export function createReviewRunGatewayModelSettingsReader(input: {
-  readonly accountModelCatalogEnabled?: boolean;
   readonly accounts: Pick<PrismaProviderAccountRepository, "findBinding">;
   readonly control: Pick<ConsumerControlClient, "get" | "readAccountModels">;
   readonly profiles: readonly c.Profile[];
@@ -194,14 +193,6 @@ export function createReviewRunGatewayModelSettingsReader(input: {
       };
     }
     const before = await selected();
-    if (input.accountModelCatalogEnabled !== true) {
-      if (!profile.modelIds.includes(provider.model))
-        throw new Error("gateway_model_settings_unavailable");
-      return {
-        authorizationEpoch: before.authorizationEpoch,
-        settings: undefined,
-      };
-    }
     const models = c.accountModels.parse(
       await control.readAccountModels(
         {

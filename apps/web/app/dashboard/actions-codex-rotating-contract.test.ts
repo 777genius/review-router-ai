@@ -49,8 +49,20 @@ describe("dashboard rotating namespace activation contract", () => {
     expect(helper).toContain(
       'input.inspection.source === "confirmed_setup_candidate"',
     );
-    expect(helper).toContain(
-      "return resolveReviewRouterCodexRotatingActionRef()",
+    const candidate = sliceBetween(
+      helper,
+      'if (input.inspection.source === "confirmed_setup_candidate")',
+      "// An active namespace",
+    );
+    expect(candidate).toContain("readCodexRuntimeMigrationCandidateActionRef");
+    expect(candidate).toContain(
+      "namespaceId: input.inspection.namespace.namespaceId",
+    );
+    expect(candidate).toContain(
+      "trustedActionRefs: resolveReviewRouterCodexRotatingTrustedActionRefs()",
+    );
+    expect(candidate).toContain(
+      "?? resolveReviewRouterCodexRotatingActionRef()",
     );
     expect(helper).toContain("assertTrustedCanonicalVersionedWorkflow");
     expect(helper).toContain(

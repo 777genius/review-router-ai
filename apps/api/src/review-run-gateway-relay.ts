@@ -1,3 +1,4 @@
+import { gatewayProfileAcceptsRequestedModel } from "./review-run-gateway-model-qualification";
 import type { UsageIdentity } from "@reviewrouter/features-provider-usage";
 import { gatewayUsageReceipt } from "./provider-usage-gateway-relay-receipt";
 import { createHash, randomUUID } from "node:crypto";
@@ -80,26 +81,7 @@ export function readReviewRunGatewayRelayPolicy(raw: string) {
     throw new Error("review_run_gateway_relay_policy_invalid");
   }
 }
-/** Account models require an explicitly enabled, compatible Gateway/native.
- * Otherwise every profile retains its configured model allowlist. */
-export function gatewayProfileAcceptsRequestedModel(
-  profile: c.Profile,
-  model: string,
-  accountModelCatalogEnabled = false,
-): boolean {
-  return (
-    (accountModelCatalogEnabled &&
-      profile.authKinds.some(
-        (authKind) =>
-          c.accountModelDiscoverySource({
-            profileId: profile.profileId,
-            protocol: profile.protocol,
-            authKind,
-          }) !== undefined,
-      )) ||
-    profile.modelIds.includes(model)
-  );
-}
+export { gatewayProfileAcceptsRequestedModel } from "./review-run-gateway-model-qualification";
 class RelayFailure extends Error {
   constructor(
     readonly code: string,
@@ -138,7 +120,6 @@ type Session = {
  * authority/selected facts. Absence NEVER replays inference or auto-recovers. */
 export function createReviewRunGatewayRelay(input: {
   readonly policy: ReviewRunGatewayRelayPolicy;
-  readonly accountModelCatalogEnabled?: boolean;
   readonly runAccess: RunAccessConfig;
   readonly authorizations: Pick<
     ManageReviewRunAuthorizations,
@@ -672,7 +653,6 @@ export function createReviewRunGatewayRelay(input: {
         !gatewayProfileAcceptsRequestedModel(
           qualified[0]!.profile,
           provider.model,
-          input.accountModelCatalogEnabled,
         ) ||
         gateway.limits.tokens > qualified[0]!.outputTokens
       )

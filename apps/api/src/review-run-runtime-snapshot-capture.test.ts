@@ -342,6 +342,167 @@ describe("one prepared route for discovery and verification", () => {
       },
     },
   ];
+  describe.each([1, 2] as const)("Gateway dynamic verifier v%i", (version) => {
+    async function captureDynamic(
+      options: {
+        qualifiedProfileId?: string;
+        protocol?: string;
+        authKinds?: readonly string[];
+        outputTokens?: number;
+        qualificationCount?: number;
+      } = {},
+    ) {
+      const dynamicProfileRef = "openrouter-openai-responses-apikey-v1";
+      const configuration = parseReviewConfigurationStrict(
+        JSON.parse(gatewayPolicyJson({ agentProfileRef: "ocr-unified" })),
+      );
+      const provider = configuration.providers[0]!;
+      if (provider.authMode !== "codex_account_gateway")
+        throw new Error("gateway_fixture_required");
+      provider.gatewayProfileRef = dynamicProfileRef;
+      provider.model = "openai/gpt-4.1";
+      provider.reasoningEffort = undefined;
+      const baseReader = readerFor(canonicalJson(configuration));
+      const reader = {
+        ...baseReader,
+        workspaceAccountBinding: {
+          async findUnique() {
+            const binding = await baseReader.workspaceAccountBinding.findUnique(
+              {
+                where: { id: bindingId },
+              },
+            );
+            if (!binding) throw new Error("gateway_binding_fixture_required");
+            return {
+              ...binding,
+              connection: {
+                ...(binding as unknown as { connection: object }).connection,
+                profileRef: dynamicProfileRef,
+              },
+            };
+          },
+        },
+      } as unknown as typeof baseReader;
+      const source = new ProductionReviewRunRuntimeSnapshot(
+        {} as PrismaClient,
+        {
+          profiles: [
+            {
+              profileRef: dynamicProfileRef,
+              limits: {
+                requests: 9,
+                concurrency: 1,
+                requestBytes: 64000,
+                outputBytes: 20000,
+                tokens: 4096,
+              },
+            },
+          ],
+        },
+        undefined,
+        false,
+        "codex-default",
+        false,
+        {
+          profiles: Array.from(
+            { length: options.qualificationCount ?? 1 },
+            () => ({
+              profile: {
+                profileId: options.qualifiedProfileId ?? dynamicProfileRef,
+                protocol: options.protocol ?? "openai-responses",
+                authKinds: options.authKinds ?? ["api_key"],
+                modelIds: ["openai/gpt-5.4-nano"],
+              },
+              outputTokens: options.outputTokens ?? 2048,
+            }),
+          ),
+          ingressBytes: 32000,
+          requestTimeoutMs: 30000,
+        },
+      );
+      return source.capture(
+        {
+          ...captureInput(),
+          producerRelease: {
+            ...captureInput().producerRelease,
+            agentProfiles: profiles,
+            lifecycleVerificationProfile: {
+              extensionId: "lifecycle-verification.v1",
+              descriptorDigest: lifecycleVerificationDescriptorDigest,
+            },
+            ...(version === 2 ? { modelDispatchProfile: profile } : {}),
+          },
+        },
+        reader,
+      );
+    }
+
+    it("captures the saved model beyond the enrollment anchor with the same bounded route", async () => {
+      const captured = await captureDynamic();
+      expect(captured).toMatchObject({
+        gateway: {
+          profileRef: "openrouter-openai-responses-apikey-v1",
+          bindingId,
+          limits: { requests: 9 },
+        },
+        lifecycleVerificationCapability: {
+          extensionId: `lifecycle-verification.v${version}`,
+          providerIndex: 0,
+          providerKind: "ocr",
+          model: "openai/gpt-4.1",
+          maxOutputTokens: 2048,
+          maxPromptBytes: 32000,
+          maxResponseBytes: 20000,
+          deadlineMs: 30000,
+          attemptBudget: 1,
+        },
+      });
+      expect(captured).not.toHaveProperty(
+        "lifecycleVerificationUnavailableReason",
+      );
+      if (!captured || "captureDenied" in captured)
+        throw new Error("capture_missing");
+      if (version === 2)
+        expect(captured.lifecycleVerificationCapability).toMatchObject({
+          modelTransport: captured.modelDispatchCapability!.transport,
+          routeIdentityHash:
+            captured.modelDispatchCapability!.routeIdentityHash,
+        });
+    });
+
+    it.each([
+      ["wrong profile", { qualifiedProfileId: "foreign-profile" }],
+      ["wrong protocol", { protocol: "chat-completions" }],
+      ["wrong authentication kind", { authKinds: ["oauth"] }],
+      ["missing authentication declaration", { authKinds: [] }],
+      ["missing qualification", { qualificationCount: 0 }],
+      ["insufficient output bound", { outputTokens: 1023 }],
+    ] as const)(
+      "keeps discovery but no verifier for %s",
+      async (_name, options) => {
+        const captured = await captureDynamic(options);
+        expect(captured).not.toHaveProperty("captureDenied");
+        expect(captured).toHaveProperty(
+          "lifecycleVerificationUnavailableReason",
+          "verification_unavailable",
+        );
+        expect(captured).not.toHaveProperty("lifecycleVerificationCapability");
+      },
+    );
+
+    it("does not choose between duplicate qualifications", async () => {
+      const captured = await captureDynamic({ qualificationCount: 2 });
+      expect(captured).not.toHaveProperty("captureDenied");
+      expect(captured).toHaveProperty(
+        "lifecycleVerificationUnavailableReason",
+        version === 1
+          ? "verification_configuration_invalid"
+          : "verification_unavailable",
+      );
+      expect(captured).not.toHaveProperty("lifecycleVerificationCapability");
+    });
+  });
+
   it.each(providerRows)(
     "captures OCR and the same verifier route for $provider.authMode",
     async ({ mode, provider }) => {

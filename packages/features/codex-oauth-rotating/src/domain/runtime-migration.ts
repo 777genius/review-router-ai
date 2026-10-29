@@ -91,7 +91,7 @@ export const codexRuntimeMigrationBindingSchema = z
       ids.has(binding.bootstrap.workflowId) ||
       !paths.has(binding.source.workflowPath) ||
       binding.source.actionRef === binding.targetActionRef ||
-      /[\s~^:?*\[\\]|\.\.|@\{|\/\/|^\/|\/$/u.test(binding.defaultBranch)
+      /[\s~^:?*[\\]|\.\.|@\{|\/\/|^\/|\/$/u.test(binding.defaultBranch)
     ) {
       context.addIssue({
         code: "custom",
