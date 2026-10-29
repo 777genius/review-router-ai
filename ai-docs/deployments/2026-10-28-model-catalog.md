@@ -117,3 +117,27 @@ Record partial failures as `blocked`. A catalog environment toggle is no longer 
 | Not executed     | staging     | Unassigned         | Not verified                                       | No rollout verified by this record.                                                                                                                                                                | None                                                                                                                                                                                                                                                                                                                                                                                         | Reconcile and deploy dependencies.                                                                                         |
 | 2026-10-28 19:25 | production  | Codex (owner task) | `366fa74c` / `29135fbaa6bb`                        | Read-only fleet/schema reconciliation and candidate preparation; production unchanged. Pre-deploy gate blocked.                                                                                    | Reconciliation above; [candidate PR #739](https://github.com/777genius/review-router-ai/pull/739), [queued CI](https://github.com/777genius/review-router-ai/actions/runs/40753311508); cancelled #737 CI runs [40751898238](https://github.com/777genius/review-router-ai/actions/runs/40751898238), [40744072509](https://github.com/777genius/review-router-ai/actions/runs/40744072509). | Await explicit owner response on manual exception or successful required exact-commit CI; then resume the ordered rollout. |
 | 2026-10-28 23:52 | production  | Codex (owner task) | Serving `1e3a5379` / `ffae730f`; target `4dd75ecf` | Explicit manual exception received. Backup and targeted preparation passed; native migration and application image transfer in progress. Final image, fleet rollout, and activation not confirmed. | Production progress above; [selected runtime source](https://github.com/777genius/review-router-ai/commit/4dd75ecfe3d22701ba741f451b046f0b5e440231).                                                                                                                                                                                                                                         | Native READY_FENCED → final image → Prisma151/ACL → fleet → capture/activation → live review/rerun/isolation.              |
+
+### Live review attempt 2: partial result
+
+Workflow40092003089 attempt2 terminated with `required_work_exhausted`. Runtime
+authorization proves model `openai/gpt-4.1` with `codex_account_gateway`; native
+receipts show five completed requests followed by one `effect_unknown`, all with
+transport occupancy cleared. Do not interpret retry failures as multiple upstream
+dispatches. The Gateway close operation applied. GitHub App
+`review-router-ai[bot]` published
+[the incomplete result](https://github.com/777genius/rr-selfhost-direct-v2-e2e-20260730t120036z/pull/18#issuecomment-6483846451).
+This is not a successful review. Transport diagnosis is ongoing before any new
+review request.
+
+History projected `running` → `incomplete`; all six History-change outbox events
+for this attempt are processed with no error. The owner workspace runs endpoint
+returns the run; two other real workspaces return empty lists for the same row
+ID. The owner list endpoint also resolves PR18 and its correct GitHub URL.
+
+Public API/demo verification passed against `https://api.reviewrouter.org`,
+including database readiness, OpenAPI, browser docs and Markdown demo. The first
+checker attempt rejected the deliberate liveness-only `/health` response. The
+checker was corrected to require `status=ok` plus the database dependency from
+`/ready`, matching the deployed source contract; it then passed completely. This
+script correction requires no runtime rollout.

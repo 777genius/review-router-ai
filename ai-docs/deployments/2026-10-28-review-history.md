@@ -229,3 +229,9 @@ the authenticated runs endpoint returns that same run. Two History outbox events
 are processed without errors. Completion, second rerun, workspace isolation and
 final outbox checks are still required. See the coordinated catalog task for
 native update evidence and the selected test model.
+
+Attempt2 finished as `incomplete`, matching the failed required coverage.
+GitHub App publication and the History status transition are confirmed. Six
+History-change outbox events are processed without error. The owner can read the
+run, while two different real workspaces receive no run for its row ID. Successful
+review and the second History run remain unverified; status stays `in_progress`.
