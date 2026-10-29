@@ -5,14 +5,14 @@
 - Affected services: sub2api native, Account Gateway, ReviewRouter Web/API/worker.
 - Implementation: [ReviewRouter catalog](https://github.com/777genius/review-router-ai/commit/b2f40048559a841f41b6756c8eac2ed90b04c2d4) plus the no-flag follow-up containing this record.
 - Dependencies: native [b3f012af5a54f1ffcccc1d34987a48120d1c39aa](https://github.com/agent-teams-ai/sub2api/commit/b3f012af5a54f1ffcccc1d34987a48120d1c39aa), Gateway [e754d67656a2ac7812024d121d1a73ce3e587e6b](https://github.com/agent-teams-ai/account-gateway/commit/e754d67656a2ac7812024d121d1a73ce3e587e6b), and their qualified catalog contract.
-- Last updated: 2026-10-28.
+- Last updated: 2026-10-29.
 
 ## Environment status
 
-| Environment | Status        | Actual deployed version / image      | Last verified (UTC) | Evidence / next step                                                                             |
-| ----------- | ------------- | ------------------------------------ | ------------------- | ------------------------------------------------------------------------------------------------ |
-| staging     | `pending`     | Not verified                         | Not verified        | Reconcile native/Gateway and application versions; follow the ordered rollout.                   |
-| production  | `in_progress` | `4dd75ecf` / image prefix `3d2fd2df` | 2026-10-28 23:52    | Fleet/native/catalog active; real review running. Await publication, rerun and isolation checks. |
+| Environment | Status        | Actual deployed version / image      | Last verified (UTC) | Evidence / next step                                                                                                   |
+| ----------- | ------------- | ------------------------------------ | ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| staging     | `pending`     | Not verified                         | Not verified        | Reconcile native/Gateway and application versions; follow the ordered rollout.                                         |
+| production  | `in_progress` | `b8eac8ec` / image prefix `fd52caab` | 2026-10-29 00:41    | Fleet/canary and signed-in readiness passed. Public Action lifecycle fix #352 in CI; final review/publication pending. |
 
 `pending` records missing deployment evidence, not observed absence. Implementation checks do not prove production readiness.
 
@@ -20,7 +20,7 @@
 
 The owner explicitly approved a manual deployment with targeted checks without
 waiting for full CI/rehearsal. This resolves the earlier pre-deploy gate; it
-does not establish completed deployment. The selected runtime source remains
+does not establish completed deployment. The first selected runtime source was
 [`4dd75ecfe3d22701ba741f451b046f0b5e440231`](https://github.com/777genius/review-router-ai/commit/4dd75ecfe3d22701ba741f451b046f0b5e440231).
 Subsequent documentation-only commits do not change that selected source.
 The integration preserves the current production Skills/Context tools repair
@@ -205,3 +205,35 @@ A single API+Web overlay build is running against the already installed
 required. Wait for the exact final image, four-role adoption and fresh canary;
 then repeat signed-in readiness and genuine review/lifecycle/publication checks
 before completing either task.
+
+### Current fleet and final E2E blocker: 2026-10-29
+
+The four application roles adopted source
+`b8eac8ec11ec9fe0db5c3a8da2974a30a269a8cc` at 00:32:50 UTC, image
+`sha256:fd52caab0a1a55d92711010e36b98c77f939b60eb1f62d9db7548b532d693cc8`.
+Opaque container configuration was preserved and prior containers retained stopped.
+Capture remains enabled on all writers; no migrations or History activation were
+repeated. Fresh runtime canary returned 200 with all three role proofs and a
+successful write/read. Protected receipts are in
+`/srv/platform/projects/review-router/releases/model-history-adoption-b8eac8ec-20261029/`.
+Signed-in repository readiness now shows 4/4 with `openai/gpt-4.1` read back;
+public API/demo/OpenAPI checks passed. Cross-workspace History reads returned no
+foreign runs, and the foreign repository setup read returned 404 without leaking
+repository data.
+
+Attempt4 was correctly rejected by `skills_engine_unsupported` while a separate
+temporary Skills assignment existed; its owner later removed it. Attempt5 then
+captured lifecycle capability for the dynamic model, but exposed public Action
+`review_action_v2_assignment_missing` before model calls: restored plan slots were
+new objects while assignments retained old object references. No Gateway execution
+was created for that attempt. Do not fabricate closure or completion records.
+
+The minimal public Action fix is
+[PR #352](https://github.com/777genius/review-router/pull/352), reviewed head
+`ceda367f79ef24c225a8da45b7a5dcfea562714e`, version 1.0.219. It rebinds assignments
+to validated final plan slots, preserving the strict adapter identity guard and
+all authorization/protocol contracts. Focused203 tests and release/artifact27
+checks passed locally; the required public CI build is still running. Publication,
+normal release/registration, a fresh disposable modern review and lifecycle rerun
+remain before declaring complete. Old PR18's five legacy manual findings are
+preserved; they are ineligible for automatic lifecycle verification.

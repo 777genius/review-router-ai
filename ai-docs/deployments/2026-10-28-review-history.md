@@ -8,14 +8,14 @@
 - Implementation: [PR #730](https://github.com/777genius/review-router-ai/pull/730).
 - Reviewed source reference: `7de48814092dff0f49bf5978459d278b23c7d35b`.
   Select and verify the actual merged release separately; this SHA is provenance.
-- Last updated: 2026-10-28.
+- Last updated: 2026-10-29.
 
 ## Environment status
 
-| Environment | Status        | Actual deployed version / image      | Last verified (UTC) | Evidence / remaining action                                                                               |
-| ----------- | ------------- | ------------------------------------ | ------------------- | --------------------------------------------------------------------------------------------------------- |
-| staging     | `pending`     | Not verified                         | Not verified        | Reconcile installed state, then complete the rollout and live verification below.                         |
-| production  | `in_progress` | `4dd75ecf` / image prefix `3d2fd2df` | 2026-10-28 23:52    | Prisma151/ACL, fleet/capture and explicit activation passed. Live review running; rerun/isolation remain. |
+| Environment | Status        | Actual deployed version / image      | Last verified (UTC) | Evidence / remaining action                                                                                            |
+| ----------- | ------------- | ------------------------------------ | ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| staging     | `pending`     | Not verified                         | Not verified        | Reconcile installed state, then complete the rollout and live verification below.                                      |
+| production  | `in_progress` | `b8eac8ec` / image prefix `fd52caab` | 2026-10-29 00:41    | Fleet/canary and signed-in readiness passed. Public Action lifecycle fix #352 in CI; final review/publication pending. |
 
 No environment rollout was performed or verified when this record was created.
 `pending` means completion has no recorded evidence; do not infer existing live
@@ -51,7 +51,7 @@ inventoried here; create/link them if the selected rollout needs them.
 
 The owner explicitly approved a manual deployment with targeted checks without
 waiting for full CI/rehearsal. This resolves the earlier pre-deploy gate; it
-does not establish completed deployment. The selected runtime source remains
+does not establish completed deployment. The first selected runtime source was
 [`4dd75ecfe3d22701ba741f451b046f0b5e440231`](https://github.com/777genius/review-router-ai/commit/4dd75ecfe3d22701ba741f451b046f0b5e440231).
 Subsequent documentation-only commits do not change that selected source.
 The integration preserves the current production Skills/Context tools repair
@@ -235,3 +235,35 @@ GitHub App publication and the History status transition are confirmed. Six
 History-change outbox events are processed without error. The owner can read the
 run, while two different real workspaces receive no run for its row ID. Successful
 review and the second History run remain unverified; status stays `in_progress`.
+
+### Current fleet and final E2E blocker: 2026-10-29
+
+The four application roles adopted source
+`b8eac8ec11ec9fe0db5c3a8da2974a30a269a8cc` at 00:32:50 UTC, image
+`sha256:fd52caab0a1a55d92711010e36b98c77f939b60eb1f62d9db7548b532d693cc8`.
+Opaque container configuration was preserved and prior containers retained stopped.
+Capture remains enabled on all writers; no migrations or History activation were
+repeated. Fresh runtime canary returned 200 with all three role proofs and a
+successful write/read. Protected receipts are in
+`/srv/platform/projects/review-router/releases/model-history-adoption-b8eac8ec-20261029/`.
+Signed-in repository readiness now shows 4/4 with `openai/gpt-4.1` read back;
+public API/demo/OpenAPI checks passed. Cross-workspace History reads returned no
+foreign runs, and the foreign repository setup read returned 404 without leaking
+repository data.
+
+Attempt4 was correctly rejected by `skills_engine_unsupported` while a separate
+temporary Skills assignment existed; its owner later removed it. Attempt5 then
+captured lifecycle capability for the dynamic model, but exposed public Action
+`review_action_v2_assignment_missing` before model calls: restored plan slots were
+new objects while assignments retained old object references. No Gateway execution
+was created for that attempt. Do not fabricate closure or completion records.
+
+The minimal public Action fix is
+[PR #352](https://github.com/777genius/review-router/pull/352), reviewed head
+`ceda367f79ef24c225a8da45b7a5dcfea562714e`, version 1.0.219. It rebinds assignments
+to validated final plan slots, preserving the strict adapter identity guard and
+all authorization/protocol contracts. Focused203 tests and release/artifact27
+checks passed locally; the required public CI build is still running. Publication,
+normal release/registration, a fresh disposable modern review and lifecycle rerun
+remain before declaring complete. Old PR18's five legacy manual findings are
+preserved; they are ineligible for automatic lifecycle verification.
