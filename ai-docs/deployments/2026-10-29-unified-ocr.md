@@ -5,11 +5,12 @@
 Deliver one review scenario for the currently supported connection routes:
 prepared credentials/transport, OCR discovery, the shared previous-finding
 verifier, durable shared request allowance, and existing GitHub App publication.
-This record is not deployment authorization. Main integration, canonical source
-handoff and local controlled qualification are complete in draft PRs; final-pair
-GitHub CI on **M/A** remains pending. Source implementation reviews and the final
-documentation recheck returned GO; both P2 wording findings are closed. This task has not deployed
-an environment.
+This record is not deployment authorization. Both current-main integrations and
+the exact **S2/A3** canonical source/wrapper handoff are published in the draft
+PRs. Source and artifact reviewers returned GO. The linked current PR checks
+are authoritative for the required exact-pair results; historical D/A2 green
+proof and local controlled qualification retain their original scope. This task
+has not deployed an environment.
 
 Affected surfaces: API, worker, web, database, approved public Action runtime,
 managed OCR artifact, producer/profile registration, and installed callers.
@@ -18,10 +19,10 @@ Coordinate actual fleet changes and retirement evidence with the separate
 
 ## Environment status
 
-| Environment | Status    | Verified deployed version | Remaining work                                                                                         |
-| ----------- | --------- | ------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Staging     | `pending` | Not recorded              | Final M/A CI; reconcile actual environment; authorized release/rollout and designated live acceptance. |
-| Production  | `pending` | Not recorded              | Final M/A CI; qualified immutable release/defaults; actual environment/history and live verification.  |
+| Environment | Status    | Verified deployed version | Remaining work                                                                                                       |
+| ----------- | --------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Staging     | `pending` | Not recorded              | Verify current S2/A3 checks; reconcile actual environment; authorized rollout and designated live acceptance.        |
+| Production  | `pending` | Not recorded              | Verify current S2/A3 checks; qualified immutable release/defaults; actual environment/history and live verification. |
 
 No rollout was executed by this task. `pending` does not prove that an environment
 lacks a particular step: reconcile its actual state before acting. Do not copy a
@@ -40,23 +41,27 @@ staging status to production or treat CI as deployment evidence.
 - [Review History deployment task](2026-10-28-review-history.md)
 - [Existing dispatch migration](../../packages/platform/db/prisma/migrations/000154_unified_model_dispatch/migration.sql)
 
-Main integration and this registry entry are already committed. Canonical
-source **S** is `dccf5b628680bd7f3f8c9501e3108e432053495b`. The published
-Action **A** is `cfe2b78fba925e3e7741d8c7f479324aa785d12b`; SaaS pin **P** is
-`ff033fd0056e84f522c2b62799a48c56e5613cbd`. Published merge **M** is
-`841f44f0900409692559286cdbb00ac319a40664`. Their validation state is recorded in the
-[current checkpoint](../operations/2026-10-29-unified-ocr-integration-status.md);
-final-pair CI on the current-main test/docs merge descendant is still pending.
-The join preserves **S/A**, all protected inputs and the Action pin; its bounded
-three-case source/comparison checks do not replace full CI. Local 25-case qualification, the isolated cleanup
-rerun, actual Next/visual review and executable proofs retain their separate
-scopes in the [acceptance record](../operations/2026-10-27-unified-ocr-acceptance.md).
+Canonical source **S2** is `8080881802d87f3bf700b15faa7cebb02f54ee9b`; its published
+public Action **A3** is `fb132c4ed337141339d487e7c388518178c24b10`. The SaaS metadata descendant
+pins A3 without a second canonical export. S2 includes main
+`78434bee6344ff497e0791140887ea9522d94ef6`; A3 includes main
+`46e3cfd484e2d1a7e0a1cd8b257206b12c179ce5`. Exact trees/parents and the
+bounded source checks are in the
+[current checkpoint](../operations/2026-10-29-unified-ocr-integration-status.md).
+Use the [SaaS PR checks](https://github.com/777genius/review-router-ai/pull/718/checks)
+and [Action PR checks](https://github.com/777genius/review-router/pull/346/checks)
+for current run conclusions and artifacts. Prior D/A2 passed hosted CI; its
+156-entry fresh replay and 40-case paired receipt are historical, rather than
+qualification of this new pair.
 
-The owner confirms there are no users. Completion added no schema migration,
-backfill, customer upgrade framework or rollout coordinator. The existing
-156-entry migration inventory includes `000154_unified_model_dispatch`; reconcile
-actual environment state through the release process rather than inventing or
-reapplying a migration from a candidate count.
+The owner confirms there are no users. This join authors no new migration,
+backfill, customer upgrade framework or rollout coordinator. The actual merged
+source inventory has **157 entries**, preserving inherited migration
+`000152_review_run_gateway_allocations` and existing
+`000154_unified_model_dispatch` unchanged. Reconcile real environment state
+through the release process; source counts do not establish installed schema.
+The inherited [Gateway-reviewer deployment task](2026-10-29-gateway-multi-reviewers.md)
+continues to own its applicable environment prerequisites.
 
 ## Prerequisites
 
@@ -64,7 +69,7 @@ The exact SaaS/Action pair must pass its complete CI, generated-contract and
 reproducible-bundle checks, adapter tests, disposable PostgreSQL acceptance,
 actual Next desktop/mobile checks, and managed OCR qualification. The current
 candidate is committed; old temporary-tree and old-pair receipts
-remain historical. Final **P/A** CI is not replaced by those or by local counts.
+remain historical. Current **S2/A3** CI is not replaced by those or by local counts.
 Do not derive production pins from a branch name or a test fixture.
 
 The owner will supply designated test credentials for final live acceptance.
@@ -88,11 +93,14 @@ do not invent environment-specific commands from this task file.
    Never move an old immutable pin to new bytes.
 2. **Database before dependent code.** Reconcile the existing authorized
    migration sequence and apply only actually missing entries, including
-   `000154_unified_model_dispatch` where applicable. Its SQL SHA-256 is
-   `0ecebe5d1437544b0be81e946731a8bde39d1d3eb51a3516b465014323c70884`.
-   Verify the environment's complete actual migration inventory. The integration
-   candidate has 156 entries; historical managed92/historical96 catalogs must
-   remain byte-identical. A candidate count is not proof of installed schema.
+   `000152_review_run_gateway_allocations` and `000154_unified_model_dispatch`
+   where applicable. Their unchanged SQL SHA-256 values are respectively
+   `013e9b1917940ed3a796f8df6fa85a0c9c0cc5a4e76a7b19841911f3ea24bd6d`
+   and `0ecebe5d1437544b0be81e946731a8bde39d1d3eb51a3516b465014323c70884`.
+   Verify the environment's complete actual inventory against the 157-entry
+   source union and the current fresh-replay receipt; historical managed92 and
+   historical96 catalogs remain unchanged. A source count is not installed-schema
+   proof.
 3. **Fleet overlap.** Roll out the approved API/worker/web pair with old/new
    contract compatibility. Preserve already admitted authorizations, original
    deadlines, credential custody, paid-effect fences and exact publication
@@ -177,8 +185,13 @@ Actual Next passed 2/2 with Sol visual GO; actual bundle tests passed 3/3 and th
 separate official auth-only helper passed 1/1. These scopes are documented in
 the acceptance record and are not summed into a unique-test count.
 
-Final M/A GitHub CI remains pending. Source implementation reviews and the final
-documentation recheck returned GO; both P2 wording findings are closed. Both staging
-and production remain pending. No deployment, release/tag promotion, live
-provider request, production history activation or external workflow update
-was performed by this task.
+2026-10-29 current-main completion: S2 `8080881802d87f3bf700b15faa7cebb02f54ee9b` and A3
+`fb132c4ed337141339d487e7c388518178c24b10` publish the reviewed join, deterministic 64-file
+contract union and normal wrappers. Scoped source checks qualified 202 distinct
+tests after the one stale inventory-assertion correction; full current-pair
+results remain on the linked PR checks. The wrapper's curated Codex **0.135.0**
+archive is unchanged; the separate **0.147.0** auth-only helper has a different
+qualification scope. Prior D/A2 hosted gates passed and remain historical green
+proof. Both staging and production remain pending. No deployment, release/tag
+promotion, live provider request, producer registration, production history
+activation or installed customer workflow update was performed by this task.

@@ -1,17 +1,18 @@
 # Unified OCR: bounded completion plan
 
-Status: three plan rounds with two critic roles are complete; implementation,
-main integration and canonical source handoff are committed in **S**
-`dccf5b628680bd7f3f8c9501e3108e432053495b`. Local controlled qualification is
-recorded in the [acceptance record](../operations/2026-10-27-unified-ocr-acceptance.md).
-Published current-main merge **M** is `841f44f0900409692559286cdbb00ac319a40664`.
-Final M/A CI remains pending. Source implementation review rounds and the final
-documentation critic recheck returned GO; both P2 wording findings are closed. The existing
-[product plan](2026-10-26-unified-ocr-review.md) remains
-the scope and behavior contract; this document closes the current integration
-and acceptance gaps. Root owns GitHub publication and the existing draft PRs
-[SaaS #718](https://github.com/777genius/review-router-ai/pull/718) and
-[Action #346](https://github.com/777genius/review-router/pull/346).
+Status: the reviewed current-main joins and canonical source/wrapper handoff are
+published as SaaS **S2** `8080881802d87f3bf700b15faa7cebb02f54ee9b` and Action **A3**
+`fb132c4ed337141339d487e7c388518178c24b10`. The SaaS metadata descendant pins A3 while
+preserving S2's exported bytes. Three changed-fact plan rounds, source peer
+reviews and artifact/provenance reviews returned GO. See the
+[current checkpoint](../operations/2026-10-29-unified-ocr-integration-status.md)
+and [SaaS](https://github.com/777genius/review-router-ai/pull/718/checks) /
+[Action](https://github.com/777genius/review-router/pull/346/checks) PR checks for
+required exact-pair results. Prior **D/A2** hosted gates passed; earlier pending
+entries below record their status at that historical checkpoint. Live effects,
+registration and rollout remain separately authorized. The existing
+[product plan](2026-10-26-unified-ocr-review.md) remains the behavior contract;
+this document records its bounded completion. Root owns Git publication.
 
 ## 1. Initial observations and limits (historical planning input)
 
@@ -366,13 +367,13 @@ for Responses, native Codex and native Anthropic; the integrated route proofs
 also passed in the 25-case source qualification. Root authorized this necessary
 E2E correction; it remains in the final implementation review scope.
 
-## 10. Implementation review and qualification checkpoint
+## 10. Historical D/A2 implementation review and qualification checkpoint
 
-| Round | Review scope                                              | Recorded disposition                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| ----- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | Action/SaaS cross-review and acceptance fidelity          | Core source/transport/receipt boundaries accepted. P2: comparison witness opened before harness setup cleanup ownership; corrected in **S**, then comparison 1/1 passed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| 2     | Default profile/readiness and committed artifact delivery | Acceptance **GO**: exact v5 defaults, finite routes, immutable pins versus Gateway channel and no new migration/framework. Action delivery P2: CI `npm ci` prepare rebuilt `dist` before the actual-artifact tests. Correction locally verified: restore tracked `dist` after install and assert entrypoint bytes against the Git HEAD blob; existing three cases passed again on committed runtime bytes, all ten runtime hashes unchanged. Corrected Action `cfe2b78...` / SaaS pin `ff033fd...` published; final CI pending. Source implementation reviews returned GO; documentation recheck returned GO, both P2 wording findings closed. |
-| 3     | Final pair after CI                                       | Source implementation and final documentation recheck GO; both P2 wording findings closed. Full published **M/A** CI remains pending.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Round | Review scope                                              | Recorded disposition                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1     | Action/SaaS cross-review and acceptance fidelity          | Core source/transport/receipt boundaries accepted. P2: comparison witness opened before harness setup cleanup ownership; corrected in **S**, then comparison 1/1 passed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| 2     | Default profile/readiness and committed artifact delivery | Acceptance **GO**: exact v5 defaults, finite routes, immutable pins versus Gateway channel and no new migration/framework. Action delivery P2: CI `npm ci` prepare rebuilt `dist` before the actual-artifact tests. Correction locally verified: restore tracked `dist` after install and assert entrypoint bytes against the Git HEAD blob; existing three cases passed again on committed runtime bytes, all ten runtime hashes unchanged. Corrected Action `cfe2b78...` / SaaS pin `ff033fd...` published; CI was pending at this review and later passed on D/A2. Source implementation reviews returned GO; documentation recheck returned GO, both P2 wording findings closed. |
+| 3     | Final pair after CI                                       | Source implementation and final documentation recheck GO; both P2 wording findings closed. Full published **M/A** CI was pending at this review; required hosted gates later passed on D/A2.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 The plan's three rounds used two critic roles; implementation reviews above
 reuse the relevant roles and do not imply additional independent reviewers.
@@ -385,9 +386,11 @@ the acceptance record. Failed ENOSPC evidence was preserved separately.
 Main integration, registry integration, source export and bundle regeneration
 are complete. The published pair is SaaS **M**
 `841f44f0900409692559286cdbb00ac319a40664` and Action **A**
-`cfe2b78fba925e3e7741d8c7f479324aa785d12b`; canonical source **S** is unchanged. The pending final CI/review gate is followed only by designated
-live credentials and separately authorized release/registration/environment
-verification. Optional memory/conversation still depends on #734 as described
+`cfe2b78fba925e3e7741d8c7f479324aa785d12b`; canonical source **S** was unchanged.
+The later D/A2 hosted gates passed, as linked in section 12. Current S2/A3
+qualification uses the linked PR checks; designated live credentials and
+separately authorized release/registration/environment verification remain
+separate. Optional memory/conversation still depends on #734 as described
 in section 8. No new migration or customer rollout framework was added.
 
 ## 11. Current main join: test-only History source coverage
@@ -462,9 +465,10 @@ and no remaining findings. This adds no new test or CI result.
 
 ## 12. New Action main join: preserve Gateway reviewers and Unified OCR
 
-Status: **all three SaaS/Acceptance critic rounds GO, no blockers**. Source
-implementation has not started and remains held until root publishes these
-reviewed plan/status bytes. Published SaaS
+Status: **all three original and correction plan rounds GO; reviewed source
+implementation and S2/A3 publication are complete**. Current exact-pair checks
+are linked in the header; the following planning inputs and prior receipts keep
+their historical scope. Published SaaS
 **D** `072ad865bd78ab66050fa6bac4fbaa31300c81ec` / Action **A2**
 `cfe2b78fba925e3e7741d8c7f479324aa785d12b` passed their required hosted
 checks. [SaaS full CI 40882645913](https://github.com/777genius/review-router-ai/actions/runs/40882645913)
@@ -595,8 +599,12 @@ provider effect, registration, deployment or rollout.
 
 ### Current-main correction: inherit merged #738 before S2
 
-Status: **all three correction rounds returned GO; amended SaaS implementation
-is held for root publication of this correction**.
+Status: **all three correction rounds returned GO; correction plan published
+before implementation, now delivered in S2/A3**. S2 contains the actual
+157-entry source migration union with both original SQL files unchanged. The
+current six-file paired/fresh-replay results must come from the linked CI;
+prior D/A2's 156-entry/40-case receipts are historical. The resolution and
+bounded check summary are in the current integration checkpoint.
 
 This correction supersedes only the import-only assumptions and old merge targets
 above. SaaS main is now `78434bee6344ff497e0791140887ea9522d94ef6`, the merge
