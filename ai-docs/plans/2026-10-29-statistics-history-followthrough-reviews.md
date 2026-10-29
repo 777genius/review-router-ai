@@ -421,3 +421,29 @@ The visual critic accepted the actual one-line CSS correction and independently
 inspected all12 images from this failed attempt, finding no further material
 normal-viewport issue. Formatting and whitespace checks passed; fixed200% and
 remaining journey acceptance still depend on the next full run.
+
+[Run40970423355](https://github.com/777genius/review-router-ai/actions/runs/40970423355)
+on `9f0bb0ffaad03143321245b71c839600786d012a` passed the full web typecheck,
+all12 matrix captures, and the actual200% Statistics selected-label/keyboard
+checks. The independent visual critic viewed the fixed capture: the metric is
+fully readable in one wide chart column. That visual finding is closed.
+
+This complete run still failed later at the second cached Statistics denial
+wait. The first403 and actual denied screenshot succeeded. The log then shows
+an additional Statistics RSC200 before restored Usage navigation; the final
+page has an empty fallback report rather than the earlier denied seed. Source
+and artifact review support a fixture sequencing race: Back now validates the
+consumed seed, so the queued exact-name `Refresh` click can wait through
+`Refreshing…`, then invoke the newly denied button's server-refresh handler.
+The transient first denial is captured before that RSC replaces the cached
+entry. This is a causal inference, not a recorded click trace. No browser error,
+external request or cleanup failure was recorded.
+
+The12-line harness-only correction waits for an accepted summary and enabled
+ordinary Refresh before deleting membership, and for the accepted custom Usage
+report and enabled Refresh before the later held403 case. All denial, cached
+Back, real response and recovery assertions remain. The independent scope
+critic reviewed the actual images, log order and source diff and accepted the
+bounded correction; scoped lint, formatting, syntax and whitespace checks passed.
+Usage200%, retired-seed Back and final empty/partial states still require the
+next complete run. No new product change was needed for this fixture correction.

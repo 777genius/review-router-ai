@@ -868,6 +868,9 @@ export async function qualifyFollowthrough(input: Scenario) {
   await page.goBack();
   await statistics().waitFor();
   await assertRuntime();
+  // Finish Back's seed validation before revoking access and clicking Refresh.
+  await page.getByLabel("All-severity review summary").waitFor();
+  await refresh().and(page.locator(":enabled")).waitFor();
   await admin.query(
     'DELETE FROM "WorkspaceMember" WHERE "workspaceId"=$1 AND "userId"=$2',
     [main.id, actorId],
@@ -1206,6 +1209,15 @@ export async function qualifyFollowthrough(input: Scenario) {
       });
     }
   }
+  // Apply dates starts a read; the next denial must target its own Refresh.
+  await page.waitForFunction(
+    (label) =>
+      document
+        .querySelector('section[aria-label="Provider usage"]')
+        ?.textContent?.includes(label),
+    ownModel,
+  );
+  await refresh().and(page.locator(":enabled")).waitFor();
   const heldDenial = await holdUsageResponse(page, usagePattern, 403);
   try {
     await admin.query(
