@@ -181,6 +181,7 @@ describe("producer context tools extension identity", () => {
       reviewerPlanProfile: null,
       prDescriptionProfile: null,
       lifecycleVerificationProfile: null,
+      modelDispatchProfile: null,
     };
     expect(producerReleaseToDomain(row)).not.toHaveProperty(
       "contextToolsProfile",

@@ -13,6 +13,7 @@ import {
   readMcpSecretsExpression,
   type ReviewRouterMcpSecrets,
   renderReviewRouterProviderApiCaller,
+  renderReviewRouterClaudeSubscriptionCaller,
   reviewRouterWorkflowContract,
 } from "@reviewrouter/protocol-review-workflow";
 import {
@@ -39,6 +40,7 @@ import {
 export {
   areManagedWorkflowDocumentsAttested,
   areWorkflowDocumentsSemanticallyEqual,
+  readCanonicalWorkflowDocument,
   renderCodexRotatingAdvisoryWorkflow,
   scanCodexRotatingAdvisoryWorkflow,
 };
@@ -180,12 +182,13 @@ export function readReviewRouterCallerSource(source: string): {
   };
 }
 
-/** Both canonical managed callers, retaining the source-selected transport. */
+/** Canonical managed callers, retaining their exact credential and transport binding. */
 export function readManagedReviewRouterCallerSource(source: string): {
   readonly runtimeRef: string;
   readonly controlPlaneUrl: string;
   readonly modelTransport: "account_gateway" | "provider_api";
   readonly providerApiAuthMode?: ProviderApiAuthMode;
+  readonly subscriptionAuthMode?: "claude-oauth";
   readonly mcpSecrets?: ReviewRouterMcpSecrets;
 } {
   try {
@@ -212,20 +215,34 @@ export function readManagedReviewRouterCallerSource(source: string): {
   if (!runtimeRef || typeof controlPlaneUrl !== "string")
     throw new Error("review_workflow_source_not_canonical");
   const providerApiAuthMode = job?.with?.provider_api_auth_mode;
-  if (!isProviderApiAuthMode(providerApiAuthMode))
+  const subscriptionAuthMode = job?.with?.subscription_auth_mode;
+  const claudeSubscription = subscriptionAuthMode === "claude-oauth";
+  if (
+    claudeSubscription
+      ? providerApiAuthMode !== undefined
+      : subscriptionAuthMode !== undefined ||
+        !isProviderApiAuthMode(providerApiAuthMode)
+  )
     throw new Error("review_workflow_source_not_canonical");
-  const expected = renderReviewRouterProviderApiCaller({
-    providerApiAuthMode,
-    runtimeRef,
-    controlPlaneUrl,
-  });
+  const expected = claudeSubscription
+    ? renderReviewRouterClaudeSubscriptionCaller({
+        runtimeRef,
+        controlPlaneUrl,
+      })
+    : renderReviewRouterProviderApiCaller({
+        providerApiAuthMode: providerApiAuthMode as ProviderApiAuthMode,
+        runtimeRef,
+        controlPlaneUrl,
+      });
   if (!areWorkflowDocumentsSemanticallyEqual(source, expected))
     throw new Error("review_workflow_source_not_canonical");
   return {
     runtimeRef,
     controlPlaneUrl: new URL(controlPlaneUrl).origin,
     modelTransport: "provider_api",
-    providerApiAuthMode,
+    ...(claudeSubscription
+      ? { subscriptionAuthMode: "claude-oauth" as const }
+      : { providerApiAuthMode: providerApiAuthMode as ProviderApiAuthMode }),
   };
 }
 
@@ -242,6 +259,23 @@ export function renderProviderApiWorkflow(options: {
       ...(options.providerApiAuthMode
         ? { providerApiAuthMode: options.providerApiAuthMode }
         : {}),
+      runtimeRef,
+      controlPlaneUrl: options.apiUrl,
+    }),
+  };
+}
+
+export function renderClaudeSubscriptionWorkflow(options: {
+  readonly actionRef: string;
+  readonly apiUrl: string;
+}): ReviewRouterWorkflowUpsertFile {
+  const runtimeRef = /^777genius\/review-router@([a-f0-9]{40})$/.exec(
+    options.actionRef,
+  )?.[1];
+  if (!runtimeRef) throw new Error("review_workflow_runtime_ref_invalid");
+  return {
+    path: reviewRouterWorkflowContract.callerPath,
+    content: renderReviewRouterClaudeSubscriptionCaller({
       runtimeRef,
       controlPlaneUrl: options.apiUrl,
     }),

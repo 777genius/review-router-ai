@@ -306,6 +306,27 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Unified dispatch extends checkout-only review admission and receipt state.
+  // Bind its exact SQL to combined checkout157, prior checkout156 or historical
+  // checkout152. The immutable managed92 transaction keeps its reviewed boundary.
+  const unifiedModelDispatchMigration = catalog.find(
+    (row) => row.migrationName === "000154_unified_model_dispatch",
+  );
+  if (unifiedModelDispatchMigration) {
+    if (
+      unifiedModelDispatchMigration.checksum !==
+        "0ecebe5d1437544b0be81e946731a8bde39d1d3eb51a3516b465014323c70884" ||
+      ![
+        "sha256:b632de30125258ef10541fa8c71301a6b5d1c9504bcca155c171374808ed01ba",
+        "sha256:67de1583cf2ae194e7b6dd5cef021d08b60eb64988d516cb2adcbc2d01bbbda3",
+        "sha256:f8bc4e6289b679d7f4142426e67e77ab347be8f8bed5937072ebc1ca54218fcc",
+      ].includes(manifest(catalog))
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== unifiedModelDispatchMigration),
+    );
+  }
   // Per-run Gateway allocations are checkout-only. Admit the exact SQL and
   // complete checkout156 before preserving the reviewed checkout155 boundary.
   const gatewayAllocationsMigration = catalog.find(

@@ -22,4 +22,5 @@ export * from "./application/use-cases/terminalize-unknown-review-publication";
 export * from "./domain/review-pr-description";
 export * from "./domain/review-thread-resolution-history";
 export * from "./application/use-cases/activate-review-resolution-history";
+export * from "./domain/resolution-writer-witness";
 export * from "./application/use-cases/bind-own-publication-resolution-operations";

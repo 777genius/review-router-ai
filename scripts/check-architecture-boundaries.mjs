@@ -316,14 +316,29 @@ async function checkReviewActionV2ProtocolBoundaries(violations) {
   const packageJson = JSON.parse(
     readFileSync(join(actionControlPlaneRoot, "package.json"), "utf8"),
   );
+  const oidcExport = packageJson.exports?.["./oidc"];
+  if (
+    !oidcExport ||
+    Object.keys(oidcExport).sort().join(",") !== "default,production,types" ||
+    oidcExport.types !== "./src/oidc.ts" ||
+    oidcExport.default !== "./src/oidc.ts" ||
+    oidcExport.production !== "./dist/oidc.js"
+  ) {
+    violations.push({
+      file: join(actionControlPlaneRoot, "package.json"),
+      imported: "./oidc",
+      reason:
+        "the OIDC subpath must target the isolated reviewed verifier adapter",
+    });
+  }
   const publicExports = Object.keys(packageJson.exports ?? {}).sort();
-  const expectedExports = [".", "./v2", "./v2/contract-source"];
+  const expectedExports = [".", "./oidc", "./v2", "./v2/contract-source"];
   if (JSON.stringify(publicExports) !== JSON.stringify(expectedExports)) {
     violations.push({
       file: join(actionControlPlaneRoot, "package.json"),
       imported: publicExports.join(","),
       reason:
-        "action-control-plane exports must keep the v1 root plus only the deliberate v2 interface and contract-source subpaths",
+        "action-control-plane exports must keep only the v1 root and reviewed oidc, v2 interface and contract-source subpaths",
     });
   }
 }

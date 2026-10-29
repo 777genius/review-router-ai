@@ -25,11 +25,8 @@ function fixture(
   model = "gpt-prefix/dynamic",
   reasoningEffort?: "minimal" | "high" | "max" | "ultra",
   options: {
-    readonly accountModelCatalogEnabled?: boolean;
     readonly source?: "codex" | "openrouter";
-  } = {
-    accountModelCatalogEnabled: true,
-  },
+  } = {},
 ) {
   const source = options.source ?? "codex";
   const profileRef =
@@ -301,24 +298,14 @@ function fixture(
   };
 }
 
-it("without catalog opt-in preserves only authorized anchors and all live account fences without discovery", async () => {
-  const anchor = fixture("gpt-5.6-sol", "ultra", {});
+it("fails closed when catalog transport is missing and preserves live account fences", async () => {
+  const anchor = fixture("gpt-5.6-sol", "ultra");
   anchor.readAccountModels.mockRejectedValue(
-    new Error("preserved_gateway_has_no_catalog_endpoint"),
+    new Error("gateway_has_no_catalog_endpoint"),
   );
-  const result = await anchor.issue();
-  expect(result.runtimeConfig.runtimeEnv.CODEX_REASONING_EFFORT).toBe("ultra");
-  expect(result.runtimeConfig.runtimeEnv).not.toHaveProperty(
-    gatewayModelSettingsRuntimeEnvKey,
-  );
-  expect(anchor.get).toHaveBeenCalledTimes(1);
-  expect(anchor.readAccountModels).not.toHaveBeenCalled();
-  expect(anchor.issuer).toHaveBeenCalledTimes(1);
-
-  const unseen = fixture("gpt-prefix/dynamic", undefined, {});
-  await expect(unseen.issue()).rejects.toThrow();
-  expect(unseen.readAccountModels).not.toHaveBeenCalled();
-  expect(unseen.issuer).not.toHaveBeenCalled();
+  await expect(anchor.issue()).rejects.toThrow();
+  expect(anchor.readAccountModels).toHaveBeenCalledTimes(1);
+  expect(anchor.issuer).not.toHaveBeenCalled();
 
   for (const change of [
     "foreign",
@@ -330,7 +317,6 @@ it("without catalog opt-in preserves only authorized anchors and all live accoun
     const stale = fixture("gpt-5.6-sol", "ultra", {});
     stale.duringGet(stale[change]);
     await expect(stale.issue()).rejects.toThrow();
-    expect(stale.readAccountModels).not.toHaveBeenCalled();
     expect(stale.issuer).not.toHaveBeenCalled();
   }
   const attached = fixture("gpt-5.6-sol", "ultra", {});
@@ -508,7 +494,6 @@ it("refuses an explicit effort removed from the current selected-model catalog",
 });
 
 const openRouterCatalog = {
-  accountModelCatalogEnabled: true,
   source: "openrouter",
 } as const;
 

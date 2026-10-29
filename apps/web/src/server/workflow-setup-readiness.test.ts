@@ -19,6 +19,7 @@ import {
   renderCodexRotatingAdvisoryWorkflow,
   renderAccountGatewayWorkflow,
   renderProviderApiWorkflow,
+  renderClaudeSubscriptionWorkflow,
 } from "@reviewrouter/features-workflow-provisioning";
 import { isWorkflowSetupAlreadyCurrent } from "./workflow-setup-readiness";
 
@@ -1101,6 +1102,70 @@ it.each(["current", "other-secret", "other-runtime", "old-wrapper"])(
             request: async (_route, parameters) => {
               if (
                 parameters?.path !== ".github/workflows/reviewrouter-review.yml"
+              )
+                throw Object.assign(new Error("missing"), { status: 404 });
+              return {
+                data: {
+                  type: "file",
+                  encoding: "base64",
+                  content: Buffer.from(source).toString("base64"),
+                },
+              };
+            },
+          }),
+        }),
+      },
+    );
+    expect(current).toBe(scenario === "current");
+  },
+);
+
+it.each([
+  "current",
+  "other-secret",
+  "mixed-auth",
+  "other-pin",
+  "competing-caller",
+])(
+  "attests native Claude source and refuses competing credentials or callers: %s",
+  async (scenario) => {
+    let source = renderClaudeSubscriptionWorkflow({
+      actionRef: versionedActionRef,
+      apiUrl: "https://app.reviewrouter.dev",
+    }).content;
+    if (scenario === "other-secret")
+      source = source.replace(
+        "secrets.CLAUDE_CODE_OAUTH_TOKEN",
+        "secrets.OTHER_TOKEN",
+      );
+    if (scenario === "mixed-auth")
+      source = source.replace(
+        "subscription_auth_mode: claude-oauth",
+        "subscription_auth_mode: claude-oauth\n      provider_api_auth_mode: openrouter-api",
+      );
+    if (scenario === "other-pin")
+      source = source.replace(
+        "runtime_ref: 0123456789abcdef0123456789abcdef01234567",
+        `runtime_ref: ${"b".repeat(40)}`,
+      );
+    const current = await isWorkflowSetupAlreadyCurrent(
+      {
+        ...readinessInput,
+        actionRef: versionedActionRef,
+        subscriptionAuthMode: "claude-oauth",
+      },
+      {
+        resolvePublicApiUrl: () => "https://app.reviewrouter.dev",
+        workflowProbe: new OctokitRepositoryWorkflowProbe({
+          createRequester: async () => ({
+            request: async (_route, parameters) => {
+              if (
+                parameters?.path !==
+                  ".github/workflows/reviewrouter-review.yml" &&
+                !(
+                  scenario === "competing-caller" &&
+                  parameters?.path === defaultWorkflowPath
+                )
               )
                 throw Object.assign(new Error("missing"), { status: 404 });
               return {

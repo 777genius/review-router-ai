@@ -72,6 +72,8 @@ import {
   HmacReviewCommandLedgerVerifier,
   OctokitGitHubInstallationGraphqlClientFactory,
   PrismaReviewPublicationRepository,
+  PrismaReviewThreadResolutionHistory,
+  createPrismaResolutionWriterQualification,
   createReviewPublicationV2Application,
   resolveReviewCommandLedgerHmacSecret,
   trustedReviewCommandLedgerAuthorsFromEnv,
@@ -238,7 +240,18 @@ export function createProductionReviewV2WorkerRuntime(input: {
   );
   const observations = new PrismaReviewObservationStore(input.prisma);
   const investigations = new PrismaInvestigationStore(input.prisma);
-  const attempts = new PrismaReviewPublicationRepository(input.prisma);
+  const resolutionWriters = createPrismaResolutionWriterQualification({
+    prisma: input.prisma,
+    env: input.env,
+    now: () => input.clock.now(),
+  });
+  const resolutionHistory = new PrismaReviewThreadResolutionHistory(
+    input.prisma,
+  );
+  const attempts = new PrismaReviewPublicationRepository(
+    input.prisma,
+    resolutionWriters,
+  );
   const releases = new PrismaProducerReleaseRepository(input.prisma);
   const authorizations = new PrismaReviewRunAuthorizationRepository(
     input.prisma,
@@ -587,6 +600,8 @@ export function createProductionReviewV2WorkerRuntime(input: {
           (await capabilityKeyRing.activeSigningKey()).keyId,
       },
       effectGate: createProductionReviewInvestigationPublicationEffectGate({
+        resolutionWriters,
+        resolutionHistory,
         executions,
         observations,
         investigations,

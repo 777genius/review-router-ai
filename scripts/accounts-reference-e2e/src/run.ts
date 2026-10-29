@@ -1,4 +1,5 @@
 import { seedSkillsFixtures } from "./skills-fixtures.ts";
+import { seedReviewRuntimeFixtures } from "./review-runtime-fixture.ts";
 import { startSkillCatalogFixture } from "./skill-catalog-fixture.ts";
 import { seedSkillsReadinessFixtures } from "./skills-readiness-fixture.ts";
 import {
@@ -15,6 +16,7 @@ import { promisify } from "node:util";
 import { parseCliOptions } from "./cli.ts";
 import {
   BASELINE_REVISION,
+  REVIEW_RUNTIME_FIXTURE_BOUNDARY,
   SKILLS_FIXTURE_BOUNDARY,
   SKILL_CATALOG_FIXTURE_BOUNDARY,
   PROBE_FIXTURE_BOUNDARY,
@@ -42,21 +44,23 @@ type TestSummary = {
 };
 
 async function main(): Promise<void> {
-  const fixtureBoundary = process.argv.includes("--skill-catalog-fixture")
-    ? SKILL_CATALOG_FIXTURE_BOUNDARY
-    : process.argv.includes("--api-key-storage-fixture")
-      ? API_KEY_STORAGE_FIXTURE_BOUNDARY
-      : process.argv.includes("--skills-fixture")
-        ? SKILLS_FIXTURE_BOUNDARY
-        : process.argv.includes("--account-models-fixture")
-          ? ACCOUNT_MODELS_FIXTURE_BOUNDARY
-          : process.argv.includes("--subscription-fixture")
-            ? SUBSCRIPTION_FIXTURE_BOUNDARY
-            : process.argv.includes("--limits-fixture")
-              ? LIMITS_FIXTURE_BOUNDARY
-              : process.argv.includes("--probe-fixture")
-                ? PROBE_FIXTURE_BOUNDARY
-                : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
+  const fixtureBoundary = process.argv.includes("--review-runtime-fixture")
+    ? REVIEW_RUNTIME_FIXTURE_BOUNDARY
+    : process.argv.includes("--skill-catalog-fixture")
+      ? SKILL_CATALOG_FIXTURE_BOUNDARY
+      : process.argv.includes("--api-key-storage-fixture")
+        ? API_KEY_STORAGE_FIXTURE_BOUNDARY
+        : process.argv.includes("--skills-fixture")
+          ? SKILLS_FIXTURE_BOUNDARY
+          : process.argv.includes("--account-models-fixture")
+            ? ACCOUNT_MODELS_FIXTURE_BOUNDARY
+            : process.argv.includes("--subscription-fixture")
+              ? SUBSCRIPTION_FIXTURE_BOUNDARY
+              : process.argv.includes("--limits-fixture")
+                ? LIMITS_FIXTURE_BOUNDARY
+                : process.argv.includes("--probe-fixture")
+                  ? PROBE_FIXTURE_BOUNDARY
+                  : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
   const options = parseCliOptions(process.argv);
   await ensureWorkDir(options.workDir);
   const revision = await readRevision(options.repoRoot);
@@ -114,6 +118,11 @@ async function main(): Promise<void> {
       databaseUrl: options.databaseUrl,
       isolatedPglite: options.isolatedPglite,
     });
+    if (
+      process.argv.includes("--review-runtime-fixture") &&
+      !process.argv.includes("--resume-own-fixtures")
+    )
+      await seedReviewRuntimeFixtures(database.databaseUrl);
     if (process.argv.includes("--skills-fixture")) {
       if (!process.argv.includes("--resume-own-fixtures")) {
         await seedSkillsFixtures(database.databaseUrl);
@@ -309,6 +318,24 @@ async function verifyBoot(
   )
     throw new Error("accounts_reference_e2e_generated_session_not_authorized");
   checks.push("generated-session-ok");
+  if (process.argv.includes("--review-runtime-fixture")) {
+    const repositories = await fetch(
+      `${appUrl}/dashboard?section=repositories&workspace=${FIXTURES.workspaces.personalViewer}`,
+      {
+        headers: { cookie: viewerCookie },
+        redirect: "manual",
+        signal: AbortSignal.timeout(120_000),
+      },
+    );
+    const html = await repositories.text();
+    if (
+      repositories.status !== 200 ||
+      html.includes("NEXT_REDIRECT") ||
+      !html.includes('data-repository-row-id="rr-e2e-runtime-current"')
+    )
+      throw new Error("accounts_reference_e2e_runtime_readiness_warmup_failed");
+    checks.push("runtime-readiness-authenticated-render-warmed");
+  }
   if (process.argv.includes("--skills-fixture")) {
     // Compile the authenticated Skills route during bounded fixture setup;
     // browser navigation and acceptance assertions retain their own timeouts.
@@ -356,6 +383,11 @@ async function runPlaywright(input: {
           ...process.env,
           ACCOUNTS_REFERENCE_E2E_BASE_URL: input.appUrl,
           ACCOUNTS_REFERENCE_E2E_GATEWAY_URL: input.gatewayUrl,
+          ACCOUNTS_REFERENCE_E2E_REVIEW_RUNTIME: process.argv.includes(
+            "--review-runtime-fixture",
+          )
+            ? "1"
+            : "0",
           ACCOUNTS_REFERENCE_E2E_API_KEY_STORAGE: process.argv.includes(
             "--api-key-storage-fixture",
           )

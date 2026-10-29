@@ -18,7 +18,13 @@ import {
   InvestigationRolloutProvider,
   type ResolveInvestigationRollout,
 } from "@reviewrouter/features-review-investigation-operations";
-import type { ReviewPublicationPermitIdentity } from "@reviewrouter/features-review-publishing/v2";
+import {
+  ReviewPublicationKind,
+  resolutionWriterProofMatchesCut,
+  type ReviewPublicationPermitIdentity,
+  type ResolutionHistoryActivationStatePort,
+  type ResolutionWriterDrainQualificationPort,
+} from "@reviewrouter/features-review-publishing/v2";
 import type { ReviewRunAuthorizationQueryPort } from "@reviewrouter/features-review-run-control";
 import {
   ReviewV2PublicationEffectGateDecision,
@@ -35,6 +41,11 @@ export type ProductionReviewInvestigationPublicationEffectGateDependencies =
       "findReviewRunAuthorizationById"
     >;
     rollout: Pick<ResolveInvestigationRollout, "execute">;
+    resolutionWriters?: ResolutionWriterDrainQualificationPort;
+    resolutionHistory?: Pick<
+      ResolutionHistoryActivationStatePort,
+      "readActivation"
+    >;
   }>;
 
 export function createProductionReviewInvestigationPublicationEffectGate(
@@ -52,6 +63,24 @@ class ProductionReviewInvestigationPublicationEffectGate implements ReviewV2Publ
     input: Parameters<ReviewV2PublicationEffectGatePort["authorize"]>[0],
   ): Promise<ReviewV2PublicationEffectGateDecision> {
     try {
+      if (
+        input.operation.publicationKind ===
+          ReviewPublicationKind.ThreadLifecycle &&
+        this.dependencies.resolutionWriters
+      ) {
+        const cut = await this.dependencies.resolutionHistory?.readActivation(
+          input.permit,
+        );
+        const current = await this.dependencies.resolutionWriters.qualify(
+          input.permit,
+        );
+        if (
+          !cut ||
+          current.status !== "qualified" ||
+          !resolutionWriterProofMatchesCut(current.proof, cut)
+        )
+          return ReviewV2PublicationEffectGateDecision.Unavailable;
+      }
       const snapshot = await this.dependencies.executions.findExecution(
         input.permit.executionId,
       );

@@ -6,6 +6,8 @@ import {
   assertCodexRotatingWorkflowReplacementTransition,
   assertProviderSecretTransitionAuthorized,
   fingerprintDatabaseRecoveryWitness,
+  assertCodexRuntimeMigrationSourceProof,
+  codexRuntimeMigrationDispatchKey,
   codexRotatingSetupIdentityBearingClaimStatuses,
   codexRotatingSetupManifestSchema,
   codexRotatingSetupPayloadClaimsMatch,
@@ -43,6 +45,7 @@ import {
 } from "./codex-rotating-provider-mutation-fence";
 import { assertCurrentSetupManifestRepositoryIdentity } from "./codex-rotating-setup-manifest";
 import { retirePriorNamespaceGeneration } from "./prisma-codex-rotating-setup-recovery";
+import { assertOriginalCodexRuntimeMigrationSource } from "./codex-runtime-migration-source";
 
 type VersionedSecretWorkflowSourceAttestation = ReturnType<
   typeof createVersionedSecretWorkflowSourceAttestation
@@ -262,6 +265,31 @@ export class PrismaCodexRotatingSetupPayloadClaim
           throw new Error("codex_rotating_setup_recovery_required");
         }
         const now = await this.clock.now(tx);
+        if (manifest.runtimeMigration) {
+          if (
+            new Date(manifest.expiresAt) <= now ||
+            input.operationId !== manifest.runtimeMigration.migrationId
+          ) {
+            throw new Error("codex_runtime_migration_source_mismatch");
+          }
+          assertCodexRuntimeMigrationSourceProof({
+            binding: manifest.runtimeMigration,
+            sourceProof: input.runtimeMigrationSource,
+            generationHash: input.generationHash,
+            accountIdentityHash: input.accountIdentityHash,
+            generationHashSalt: manifest.generationHashSalt,
+            accountFingerprintSalt: manifest.accountFingerprintSalt,
+          });
+          await assertOriginalCodexRuntimeMigrationSource({
+            tx,
+            providerInstanceRowId: manifestRow.providerInstanceRowId,
+            binding: manifest.runtimeMigration,
+            githubRepositoryId: manifest.repositoryId,
+            stage: "setup",
+          });
+        } else if (input.runtimeMigrationSource) {
+          throw new Error("codex_runtime_migration_source_mismatch");
+        }
         const digest = createHash("sha256")
           .update(JSON.stringify(manifest), "utf8")
           .digest("hex");
@@ -510,7 +538,16 @@ export class PrismaCodexRotatingSetupPayloadClaim
         const claim = await findClaimForUpdate(tx, input.claimId);
         assertClaimNotRetired(claim.status);
         const now = await this.clock.now(tx);
-        await assertClaimOwnsSetupFence(tx, claim, now);
+        const manifest = await assertClaimOwnsSetupFence(tx, claim, now);
+        if (
+          manifest.runtimeMigration &&
+          input.idempotencyKey !==
+            codexRuntimeMigrationDispatchKey(
+              manifest.runtimeMigration.migrationId,
+            )
+        ) {
+          throw new Error("codex_runtime_migration_recovery_required");
+        }
         let allocationKey = input.idempotencyKey;
         let requiredOrdinal: number | null = null;
         const replay = await findAttemptByKey(
@@ -533,7 +570,10 @@ export class PrismaCodexRotatingSetupPayloadClaim
             return expiredDispatchRetired;
           }
           const replayState = classifyAttemptNamespaceState(replay);
-          if (replayState === "retired_predispatch") {
+          if (
+            replayState === "retired_predispatch" &&
+            !manifest.runtimeMigration
+          ) {
             const chain = await findDispatchAttemptChain(
               tx,
               input.claimId,
@@ -1627,6 +1667,11 @@ function toDomainClaim(
     authByteSize: row.authByteSize,
     installerVersion: row.installerVersion,
     installerDigest: row.installerDigest,
+    // The immutable manifest/source check ran under the same provider lock
+    // before this projection; no new mutable proof column is needed.
+    ...(input.runtimeMigrationSource
+      ? { runtimeMigrationSource: input.runtimeMigrationSource }
+      : {}),
   };
 }
 

@@ -35,6 +35,7 @@ export class ClaimReviewRunCompanionDispatch implements ReviewRunCompanionDispat
     authorization: ReviewRunAuthorization,
     context: Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1],
     providerRequestEnvelopeHash: string,
+    forwardExisting = false,
   ) {
     let authority: CompanionLeaseAuthority;
     try {
@@ -68,6 +69,15 @@ export class ClaimReviewRunCompanionDispatch implements ReviewRunCompanionDispat
       fencingToken: BigInt(context.fencingToken),
       preparedManifestKey: context.preparedManifestKey,
       providerRequestEnvelopeHash,
+      ...(context.dispatchVersion === 2
+        ? {
+            dispatchVersion: 2 as const,
+            requestOrdinal: context.requestOrdinal,
+            routeIdentityHash: context.routeIdentityHash,
+            requestBytes: context.requestBytes,
+            maxOutputTokens: context.maxOutputTokens,
+          }
+        : {}),
       leaseCapabilityId: authority.capabilityId,
       ownerIdHash: authority.ownerIdHash,
       providerInvocationKey: authority.providerInvocationKey,
@@ -75,6 +85,7 @@ export class ClaimReviewRunCompanionDispatch implements ReviewRunCompanionDispat
       capabilityMutationEpoch: authority.mutationEpoch,
       capabilityReviewRevisionHash: authority.reviewRevisionHash,
       capabilityScopeHash: authority.scopeHash,
+      ...(forwardExisting ? { forwardExisting: true as const } : {}),
     });
   }
 
@@ -82,4 +93,15 @@ export class ClaimReviewRunCompanionDispatch implements ReviewRunCompanionDispat
     this.repository.read(authorizationId, dispatchId);
   settle: ReviewRunCompanionDispatchRepository["settle"] = (...args) =>
     this.repository.settle(...args);
+  forward: ReviewRunCompanionDispatchAdmission["claim"] = (
+    authorization,
+    context,
+    hash,
+  ) => this.claim(authorization, context, hash, true);
+  readReceipt: ReviewRunCompanionDispatchRepository["readReceipt"] = (
+    ...args
+  ) => this.repository.readReceipt(...args);
+  settleReceipt: ReviewRunCompanionDispatchRepository["settleReceipt"] = (
+    ...args
+  ) => this.repository.settleReceipt(...args);
 }

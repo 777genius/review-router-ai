@@ -356,7 +356,10 @@ function grantResponse(input: {
     relayUrl: input.relayUrl,
     invocationLeaseId: input.grantId,
     runtimeConfigVersion: input.admission.runtimeConfigVersion,
-    runtimeEnv: input.admission.runtimeEnv,
+    runtimeEnv: {
+      ...input.admission.runtimeEnv,
+      REVIEW_REQUEST_ID: input.admission.reviewRequestId,
+    },
     repository: input.admission.repository,
     commentToken: input.commentToken.token,
     commentTokenRefreshCapability: input.refreshCapability,

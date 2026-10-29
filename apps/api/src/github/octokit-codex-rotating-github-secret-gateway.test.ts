@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import {
   renderReviewRouterCaller,
   renderReviewRouterProviderApiCaller,
+  renderReviewRouterClaudeSubscriptionCaller,
   reviewRouterWorkflowContract,
 } from "@reviewrouter/protocol-review-workflow";
 import {
@@ -182,7 +183,16 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
       );
     },
   );
-  it.each(["canonical", "wrong-pin", "wrong-secret", "gateway-source"])(
+  it.each([
+    "canonical",
+    "wrong-pin",
+    "wrong-secret",
+    "gateway-source",
+    "claude",
+    "claude-other-secret",
+    "claude-mixed",
+    "claude-other-pin",
+  ])(
     "checks direct source transport and executed pin: %s",
     async (scenario) => {
       const expectedSha = "a".repeat(40);
@@ -200,6 +210,22 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
         );
       if (scenario === "gateway-source")
         source = renderReviewRouterCaller({ runtimeRef: expectedSha });
+      if (scenario.startsWith("claude")) {
+        source = renderReviewRouterClaudeSubscriptionCaller({
+          runtimeRef:
+            scenario === "claude-other-pin" ? "c".repeat(40) : expectedSha,
+        });
+        if (scenario === "claude-other-secret")
+          source = source.replace(
+            "secrets.CLAUDE_CODE_OAUTH_TOKEN",
+            "secrets.OTHER_TOKEN",
+          );
+        if (scenario === "claude-mixed")
+          source = source.replace(
+            "subscription_auth_mode: claude-oauth",
+            "subscription_auth_mode: claude-oauth\n      provider_api_auth_mode: openrouter-api",
+          );
+      }
       mocks.auth.mockResolvedValueOnce({
         token: "fixture-read",
         expiresAt: "2026-10-14T20:00:00.000Z",
@@ -222,9 +248,12 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
           expectedProviderApiActionCommitSha: expectedSha,
         }),
       ).resolves.toEqual({
-        compatible: scenario === "canonical",
+        compatible: scenario === "canonical" || scenario === "claude",
         ...(scenario === "canonical"
           ? { providerApiAuthMode: "openrouter-api" }
+          : {}),
+        ...(scenario === "claude"
+          ? { subscriptionAuthMode: "claude-oauth" }
           : {}),
       });
       expect(mocks.request).toHaveBeenCalledWith(
