@@ -42,3 +42,5 @@ export {
   PrismaReviewPolicyHeadReader,
   type ReviewPolicyReader,
 } from "./infrastructure/prisma/prisma-review-policy-head-reader";
+
+export * from "./application/use-cases/manage-provider-rosters";

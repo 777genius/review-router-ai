@@ -16,13 +16,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: skill-scanner-${{ github.event.pull_request.number || github.ref }}
+  # PR checks supersede; each main qualification and manual run retains independent evidence.
+  group: skill-scanner-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   scanner-runtime:
     name: Real SkillSpector and Docker isolation
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 25
     env:
       EXPECTED_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}

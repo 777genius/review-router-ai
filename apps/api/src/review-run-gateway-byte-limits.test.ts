@@ -2,7 +2,7 @@ import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { setImmediate } from "node:timers/promises";
 import Fastify from "fastify";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import type * as c from "@agent-teams/account-gateway/contracts";
 import {
   canonicalJson,
@@ -462,11 +462,16 @@ async function fixture(
     authKind?: "oauth" | "api_key";
   } = { profileId: "profile-1", model: "gpt-5.6-sol" },
   accountModelCatalogEnabled = false,
+  multi?: {
+    models: readonly string[];
+    independentAllocations?: boolean;
+    grantConcurrency?: number;
+  },
 ) {
   const deadline = new Date(Date.now() + 120_000).toISOString();
   const limits = {
     requests: capturedRequests,
-    concurrency: 1,
+    concurrency: multi?.grantConcurrency ?? 1,
     requestBytes: 4096,
     outputBytes,
     tokens: 32768,
@@ -501,76 +506,124 @@ async function fixture(
   };
   const config = parseReviewConfigurationStrict({
     ...workspacePolicyFixture,
-    providers: [
-      {
-        kind: "codex",
-        authMode: "codex_account_gateway",
-        model: selection.model,
-        reasoningEffort: "high",
-        fastMode: false,
-        agenticContext: true,
-        requiredHealthy: true,
-        gatewayBindingId: gateway.bindingId,
-        gatewayProfileRef: gateway.profileRef,
-      },
-    ],
+    providers: (multi?.models ?? [selection.model]).map((model, index) => ({
+      kind: "codex",
+      authMode: "codex_account_gateway",
+      model,
+      reasoningEffort: "high",
+      fastMode: false,
+      agenticContext: true,
+      requiredHealthy: true,
+      gatewayBindingId: multi?.independentAllocations
+        ? `binding-${index + 1}`
+        : gateway.bindingId,
+      gatewayProfileRef: gateway.profileRef,
+    })),
     execution: {
-      providerLimit: 1,
-      providerMaxParallel: 1,
+      providerLimit: multi?.models.length ?? 1,
+      providerMaxParallel: multi?.models.length ?? 1,
       inlineMinAgreement: 1,
     },
   });
-  const canonical = (id: string) =>
-    canonicalJson({
-      snapshotVersion: 3,
-      ...(companionOptions
-        ? {
-            lifecycleVerificationCapability: {
-              extensionId: lifecycleVerificationContract.extensionId,
-              descriptorDigest: lifecycleVerificationDescriptorDigest,
-              executor: lifecycleVerificationContract.executor,
-              modelTransport: "account_gateway",
-              providerIndex: 0,
-              providerKind: "codex",
-              model: selection.model,
-              maxDispatches: 2,
-              maxPromptBytes: 4096,
-              maxResponseBytes: 32768,
-              maxOutputTokens: 4096,
-              deadlineMs: 60000,
-              attemptBudget: 1,
-            },
-          }
-        : {}),
-      configurationSource: "workspace",
-      configurationVersion: 1,
-      workspaceConfigurationVersion: 1,
-      repositoryConfigurationVersion: null,
-      effectivePolicyDigest: `sha256:${"a".repeat(64)}`,
-      agent: {
-        profileRef: "codex-default",
-        agentKind: "codex",
-        binarySha256: "a".repeat(64),
-        packageVersion: "0.147.0",
-        modelTransports: ["account_gateway"],
-        contextGateway: true,
-        cancellation: true,
+  const legacySnapshot = (id: string) => ({
+    snapshotVersion: 3,
+    ...(companionOptions
+      ? {
+          lifecycleVerificationCapability: {
+            extensionId: lifecycleVerificationContract.extensionId,
+            descriptorDigest: lifecycleVerificationDescriptorDigest,
+            executor: lifecycleVerificationContract.executor,
+            modelTransport: "account_gateway",
+            providerIndex: 0,
+            providerKind: "codex",
+            model: selection.model,
+            maxDispatches: 2,
+            maxPromptBytes: 4096,
+            maxResponseBytes: 32768,
+            maxOutputTokens: 4096,
+            deadlineMs: 60000,
+            attemptBudget: 1,
+          },
+        }
+      : {}),
+    configurationSource: "workspace",
+    configurationVersion: 1,
+    workspaceConfigurationVersion: 1,
+    repositoryConfigurationVersion: null,
+    effectivePolicyDigest: `sha256:${"a".repeat(64)}`,
+    agent: {
+      profileRef: "codex-default",
+      agentKind: "codex",
+      binarySha256: "a".repeat(64),
+      packageVersion: "0.147.0",
+      modelTransports: ["account_gateway"],
+      contextGateway: true,
+      cancellation: true,
+    },
+    agentProfileDigest: "b".repeat(64),
+    producer: {
+      producerReleaseId: "release-1",
+      actionCommitSha: "c".repeat(40),
+      runtimeCommitSha: "d".repeat(40),
+    },
+    configurationCanonicalJson: canonicalJson(config),
+    deadline,
+    gateway: {
+      ...gateway,
+      invocationId: `invocation-${id}`,
+      attemptId: `attempt-${id}`,
+      operationId: `operation-${id}`,
+    },
+  });
+  const canonical = (id: string) => {
+    const legacy = legacySnapshot(id);
+    if (!multi) return canonicalJson(legacy);
+    const { agent, agentProfileDigest, gateway: original, ...common } = legacy;
+    const reviewers = multi.models.map((model, index) => ({
+      reviewerId: `reviewer-${index}`,
+      providerIndex: index,
+      providerVoteIdentityHash: index.toString(16).padStart(64, "0"),
+      required: true,
+      transport: {
+        kind: "account_gateway",
+        allocationId: `allocation-${multi.independentAllocations ? index : 0}`,
       },
-      agentProfileDigest: "b".repeat(64),
-      producer: {
-        producerReleaseId: "release-1",
-        actionCommitSha: "c".repeat(40),
-        runtimeCommitSha: "d".repeat(40),
-      },
-      configurationCanonicalJson: canonicalJson(config),
-      deadline,
-      gateway: {
-        ...gateway,
-        invocationId: `invocation-${id}`,
-        attemptId: `attempt-${id}`,
-        operationId: `operation-${id}`,
-      },
+      requestedModel: model,
+      reasoningEffort: "high",
+      agenticContext: true,
+      fastMode: false,
+      agentProfile: agent,
+      agentProfileDigest,
+      concurrencyGroupId: `allocation-${multi.independentAllocations ? index : 0}`,
+      investigationGrant: null,
+    }));
+    const { providerIndex: _providerIndex, ...allocation } = original;
+    void _providerIndex;
+    return canonicalJson({
+      ...common,
+      snapshotVersion: 4,
+      primaryReviewerId: "reviewer-0",
+      maxParallelReviewers: multi.models.length,
+      inlineMinAgreement: 1,
+      reviewers,
+      allocations: (multi.independentAllocations
+        ? multi.models
+        : [multi.models[0]]
+      ).map((_, index) => ({
+        ...allocation,
+        bindingId: multi.independentAllocations
+          ? `binding-${index + 1}`
+          : allocation.bindingId,
+        policySubject: multi.independentAllocations
+          ? `binding-${index + 1}`
+          : allocation.policySubject,
+        allocationId: `allocation-${index}`,
+        operationId: `${allocation.operationId}-${index}`,
+        invocationId: `${allocation.invocationId}-${index}`,
+        attemptId: `${allocation.attemptId}-${index}`,
+      })),
     });
+  };
   const revoked = new Set<string>();
   const overrides = new Map<string, Partial<ReviewRunAuthorization>>();
   const lookupFailures = new Set<string>();
@@ -589,20 +642,40 @@ async function fixture(
       ...overrides.get(id),
     }) as ReviewRunAuthorization;
   const savedBindings = new Map<string, ReviewRunGatewayExecutionBinding>();
+  const revokedAllocations = new Set<string>();
+  const ownerKey = (owner: {
+    authorizationId: string;
+    allocationId?: string;
+  }) =>
+    owner.allocationId === undefined
+      ? owner.authorizationId
+      : `${owner.authorizationId}\0${owner.allocationId}`;
   const bindings = {
-    read: async (owner: { authorizationId: string }) => ({
-      status: "live" as const,
-      binding: savedBindings.get(owner.authorizationId) ?? null,
-    }),
+    read: async (owner: { authorizationId: string; allocationId?: string }) =>
+      revokedAllocations.has(owner.allocationId ?? "")
+        ? { status: "denied" as const }
+        : {
+            status: "live" as const,
+            binding: savedBindings.get(ownerKey(owner)) ?? null,
+          },
+    readForCleanup: async (owner: {
+      authorizationId: string;
+      allocationId?: string;
+    }) => savedBindings.get(ownerKey(owner)) ?? null,
     attach: async (
-      owner: { authorizationId: string },
+      owner: { authorizationId: string; allocationId?: string },
       value: ReviewRunGatewayExecutionBinding,
     ) => {
-      savedBindings.set(owner.authorizationId, value);
+      savedBindings.set(ownerKey(owner), value);
       return { status: "attached" as const, binding: value };
     },
   };
-  const snapshots = { capture: async () => null, isLive: async () => true };
+  const snapshots = {
+    capture: async () => null,
+    isLive: async () => true,
+    isAllocationLive: async ({ allocationId }: { allocationId: string }) =>
+      !revokedAllocations.has(allocationId),
+  };
   const nativeExecutions = new Map<string, "active" | "closed">();
   const nativeCloses: string[] = [];
   let closeState: "applied" | "unknown" = "applied";
@@ -611,6 +684,8 @@ async function fixture(
   let prepareGate: Promise<void> | undefined;
   let prepareStarted: (() => void) | undefined;
   let prepareFailure = false;
+  const operations = new Map<string, c.Operation>();
+  const operationReads: string[] = [];
   const intents: c.Prepare[] = [];
   const admissions: c.Admission[] = [];
   const requestModels: string[] = [];
@@ -618,6 +693,7 @@ async function fixture(
   const requestRefs: string[] = [];
   const effects: { requestRef: string; effect: c.RequestStatus["effect"] }[] =
     [];
+  const requestOwners = new Map<string, string | undefined>();
   const authorityChecks: ("full" | "local")[] = [];
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
@@ -628,6 +704,18 @@ async function fixture(
       intents.push(intent);
       const executionRef = `execution-${intent.operationId}`;
       nativeExecutions.set(executionRef, "active");
+      operations.set(intent.operationId, {
+        operationRef: intent.operationId,
+        state: "applied",
+        result: {
+          kind: "execution",
+          executionRef,
+          accountRef: "account-1",
+          authorizationEpoch: 1,
+          deadline,
+          state: "active",
+        },
+      });
       prepareStarted?.();
       await prepareGate;
       if (prepareFailure) {
@@ -720,9 +808,10 @@ async function fixture(
       return;
     }
     if (
-      companionOptions &&
+      (companionOptions || multi) &&
       req.method === "GET" &&
-      req.url?.includes("/requests/")
+      req.url?.includes("/requests/") &&
+      requestRefs.includes(req.url.split("/").at(-1)!)
     ) {
       res.writeHead(200, { "content-type": "application/json" }).end(
         JSON.stringify({
@@ -771,7 +860,7 @@ async function fixture(
     snapshots,
     bindings,
   });
-  const relay = createReviewRunGatewayRelay({
+  const relayInput: Parameters<typeof createReviewRunGatewayRelay>[0] = {
     accountModelCatalogEnabled,
     policy: {
       profiles: [
@@ -779,7 +868,7 @@ async function fixture(
           profile: {
             profileId: selection.profileId,
             protocol: "openai-responses",
-            modelIds: ["gpt-5.6-sol"],
+            modelIds: multi?.models ? [...multi.models] : ["gpt-5.6-sol"],
             authKinds: [selection.authKind ?? "oauth"],
           },
           outputTokens: 32768,
@@ -793,6 +882,10 @@ async function fixture(
       maxInFlight: 2,
     },
     runAccess,
+    readPreparationOperation: async (operationId) => {
+      operationReads.push(operationId);
+      return operations.get(operationId);
+    },
     authorizations: {
       resolveReviewRunAuthorizationToken: async ({ token }) => ({
         status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
@@ -824,17 +917,42 @@ async function fixture(
       ? { companionDispatches: companionOptions.admission }
       : {}),
     usage: {
-      prepare: async () => undefined,
+      prepare: async ({
+        executionRef,
+        requestRef,
+        reviewerId,
+      }: {
+        executionRef: string;
+        requestRef: string;
+        reviewerId?: string;
+      }) => {
+        requestOwners.set(`${executionRef}\0${requestRef}`, reviewerId);
+      },
+      ownsRequest: async ({
+        executionRef,
+        requestRef,
+        reviewerId,
+      }: {
+        executionRef: string;
+        requestRef: string;
+        reviewerId: string;
+      }) => requestOwners.get(`${executionRef}\0${requestRef}`) === reviewerId,
       outcome: async ({ requestRef, effect }) => {
         effects.push({ requestRef, effect });
         if (companionOptions?.failUsageOutcome)
           throw new Error("fixture_usage_write_failed");
       },
     },
-  });
+  };
+  const relay = createReviewRunGatewayRelay(relayInput);
   return {
     preparation,
     relay,
+    restartRelay: (maxSessions = relayInput.policy.maxSessions) =>
+      createReviewRunGatewayRelay({
+        ...relayInput,
+        policy: { ...relayInput.policy, maxSessions },
+      }),
     intents,
     admissions,
     requestModels,
@@ -845,6 +963,9 @@ async function fixture(
     authorityChecks,
     nativeExecutions,
     nativeCloses,
+    operations,
+    operationReads,
+    revokedAllocations,
     authorization,
     overrides,
     lookupFailures,
@@ -855,8 +976,8 @@ async function fixture(
     setCloseState(state: typeof closeState) {
       closeState = state;
     },
-    setPrepareFailure() {
-      prepareFailure = true;
+    setPrepareFailure(value = true) {
+      prepareFailure = value;
     },
     holdPrepare() {
       let release!: () => void;
@@ -1359,6 +1480,465 @@ function deferred<T = void>() {
   });
   return { promise, resolve };
 }
+
+it("v4 joins shared first preparation and overlaps exact models within one captured allowance", async () => {
+  const finishStreams = deferred();
+  const f = await fixture(
+    32768,
+    0,
+    4,
+    5000,
+    async (response) => {
+      response.write(": bounded progress\n\n");
+      await finishStreams.promise;
+      response.end(": bounded completed\n\n");
+    },
+    undefined,
+    9,
+    undefined,
+    false,
+    { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
+  );
+  const held = f.holdPrepare();
+  try {
+    const both = Promise.all(
+      [0, 1].map((index) =>
+        f.relay.responses(
+          "authorization-1",
+          Buffer.from("{}"),
+          new AbortController(),
+          undefined,
+          undefined,
+          `reviewer-${index}`,
+        ),
+      ),
+    );
+    await held.started;
+    expect(f.intents).toHaveLength(1);
+    held.release();
+    const responses = await both;
+    // Both HTTP responses are live before either controlled provider finishes.
+    expect(f.requestModels.sort()).toEqual(["gpt-5.5", "gpt-5.6-sol"]);
+    expect(f.intents).toHaveLength(1);
+    expect(f.intents[0]!.limits).toMatchObject({ requests: 9, concurrency: 2 });
+    expect(
+      new Set(f.admissions.map((admission) => admission.invocationRef)).size,
+    ).toBe(1);
+    expect(new Set(f.requestRefs).size).toBe(2);
+    expect(
+      f.requestRefs.every((ref) => /^rr-request-[a-f0-9]{24}-/.test(ref)),
+    ).toBe(true);
+    finishStreams.resolve();
+    for (const response of responses)
+      if (response.kind === "stream") {
+        const reader = response.body.getReader();
+        while (!(await reader.read()).done) {
+          /* Drain exact paid calls. */
+        }
+      }
+    await f.relay.close("authorization-1", "completed");
+    expect(f.nativeCloses).toHaveLength(1);
+    expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+  } finally {
+    held.release();
+    finishStreams.resolve();
+    await f.relay.shutdown();
+  }
+});
+
+it("v4 rejects missing and foreign reviewers before preparation and keeps a shared sibling alive after local close", async () => {
+  const f = await fixture(
+    32768,
+    0,
+    4,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    false,
+    { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
+  );
+  try {
+    for (const selector of [undefined, "foreign"])
+      await expect(
+        f.relay.responses(
+          "authorization-1",
+          Buffer.from("{}"),
+          new AbortController(),
+          undefined,
+          undefined,
+          selector,
+        ),
+      ).rejects.toMatchObject({ effect: "not_dispatched" });
+    expect(f.intents).toHaveLength(0);
+    await f.relay.close("authorization-1", "completed", "reviewer-0");
+    expect(f.nativeCloses).toHaveLength(0);
+    const response = await f.relay.responses(
+      "authorization-1",
+      Buffer.from("{}"),
+      new AbortController(),
+      undefined,
+      undefined,
+      "reviewer-1",
+    );
+    if (response.kind === "stream") await response.cancel();
+    expect(f.requestModels).toEqual(["gpt-5.5"]);
+    await expect(
+      f.relay.status("authorization-1", f.requestRefs[0]!, "reviewer-0"),
+    ).rejects.toMatchObject({ effect: "not_dispatched" });
+    expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("v4 reads only the selected reviewer's durable request in a shared execution", async () => {
+  const f = await fixture(
+    32768,
+    0,
+    4,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    false,
+    { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
+  );
+  try {
+    const response = await f.relay.responses(
+      "authorization-1",
+      Buffer.from("{}"),
+      new AbortController(),
+      undefined,
+      undefined,
+      "reviewer-0",
+    );
+    if (response.kind !== "stream") throw new Error("stream_expected");
+    const reader = response.body.getReader();
+    while (!(await reader.read()).done) {
+      /* Complete the request before reading its exact persisted status. */
+    }
+    expect(
+      await f.relay.status("authorization-1", f.requestRefs[0]!, "reviewer-0"),
+    ).toMatchObject({ effect: "completed" });
+    await expect(
+      f.relay.status("authorization-1", f.requestRefs[0]!, "reviewer-1"),
+    ).rejects.toMatchObject({ code: "request_reviewer_mismatch" });
+    expect(f.admissions).toHaveLength(1);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("v4 closing an active reviewer aborts only its stream while a shared sibling completes", async () => {
+  const finishStreams = deferred();
+  const f = await fixture(
+    32768,
+    0,
+    4,
+    5000,
+    async (response) => {
+      response.write(": bounded progress\n\n");
+      await finishStreams.promise;
+      response.end(": bounded completed\n\n");
+    },
+    undefined,
+    9,
+    undefined,
+    false,
+    { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
+  );
+  const controllers = [new AbortController(), new AbortController()];
+  try {
+    const responses = await Promise.all(
+      controllers.map((controller, index) =>
+        f.relay.responses(
+          "authorization-1",
+          Buffer.from("{}"),
+          controller,
+          undefined,
+          undefined,
+          `reviewer-${index}`,
+        ),
+      ),
+    );
+    await f.relay.close("authorization-1", "completed", "reviewer-0");
+    expect(controllers.map((controller) => controller.signal.aborted)).toEqual([
+      true,
+      false,
+    ]);
+    expect(f.nativeCloses).toHaveLength(0);
+    finishStreams.resolve();
+    const healthy = responses[1]!;
+    if (healthy.kind !== "stream") throw new Error("stream_expected");
+    const reader = healthy.body.getReader();
+    while (!(await reader.read()).done) {
+      /* The sibling retains its own stream and shared native allowance. */
+    }
+    expect(f.effects.at(-1)?.effect).toBe("completed");
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        Buffer.from("{}"),
+        new AbortController(),
+        undefined,
+        undefined,
+        "reviewer-0",
+      ),
+    ).rejects.toMatchObject({ code: "reviewer_closed" });
+    expect(f.admissions).toHaveLength(2);
+  } finally {
+    finishStreams.resolve();
+    await f.relay.shutdown();
+  }
+});
+
+it("v4 denies one revoked allocation without poisoning a healthy independent reviewer", async () => {
+  const f = await fixture(
+    32768,
+    0,
+    4,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    false,
+    { models: ["gpt-5.6-sol", "gpt-5.5"], independentAllocations: true },
+  );
+  try {
+    f.revokedAllocations.add("allocation-0");
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        Buffer.from("{}"),
+        new AbortController(),
+        undefined,
+        undefined,
+        "reviewer-0",
+      ),
+    ).rejects.toMatchObject({
+      failureScope: "allocation",
+      concurrencyGroupId: "allocation-0",
+      effect: "not_dispatched",
+    });
+    const response = await f.relay.responses(
+      "authorization-1",
+      Buffer.from("{}"),
+      new AbortController(),
+      undefined,
+      undefined,
+      "reviewer-1",
+    );
+    if (response.kind === "stream") await response.cancel();
+    expect(f.requestModels).toEqual(["gpt-5.5"]);
+    expect(f.intents).toHaveLength(1);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("v4 keeps companion dispatch and readback on the captured primary", async () => {
+  const state = companionReservation();
+  const f = await fixture(
+    32768,
+    0,
+    4,
+    5000,
+    undefined,
+    { admission: state.admission },
+    9,
+    undefined,
+    false,
+    { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
+  );
+  try {
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+        "reviewer-1",
+      ),
+    ).rejects.toMatchObject({ code: "companion_reviewer_invalid" });
+    await expect(
+      f.relay.companionDispatch(
+        "authorization-1",
+        companionContext.dispatchId,
+        "reviewer-1",
+      ),
+    ).rejects.toMatchObject({ code: "companion_reviewer_invalid" });
+    expect(state.claimCount()).toBe(0);
+    expect(f.intents).toHaveLength(0);
+    const response = await f.relay.responses(
+      "authorization-1",
+      companionEnvelope(),
+      new AbortController(),
+      undefined,
+      companionContext,
+      "reviewer-0",
+    );
+    if (response.kind !== "stream") throw new Error("stream_expected");
+    const reader = response.body.getReader();
+    while (!(await reader.read()).done) {
+      /* Drain the primary companion before exact readback. */
+    }
+    expect(
+      await f.relay.companionDispatch(
+        "authorization-1",
+        companionContext.dispatchId,
+        "reviewer-0",
+      ),
+    ).toMatchObject({ state: "completed" });
+    expect(state.rows.size).toBe(1);
+    expect(f.admissions).toHaveLength(1);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it.each([false, true])(
+  "v4 restart cleanup closes every allocation through one session slot with retained session %s",
+  async (retainSession) => {
+    const f = await fixture(
+      32768,
+      0,
+      4,
+      5000,
+      undefined,
+      undefined,
+      9,
+      undefined,
+      false,
+      { models: ["gpt-5.6-sol", "gpt-5.5"], independentAllocations: true },
+    );
+    let restarted: ReturnType<typeof f.restartRelay> | undefined;
+    try {
+      for (const reviewerId of ["reviewer-0", "reviewer-1"]) {
+        const response = await f.relay.responses(
+          "authorization-1",
+          Buffer.from("{}"),
+          new AbortController(),
+          undefined,
+          undefined,
+          reviewerId,
+        );
+        if (response.kind !== "stream") throw new Error("stream_expected");
+        const reader = response.body.getReader();
+        while (!(await reader.read()).done) {
+          /* Complete both captured allocations before process restart. */
+        }
+      }
+      expect(f.intents).toHaveLength(2);
+      restarted = f.restartRelay(1);
+      if (retainSession)
+        await restarted.recoverSameOperation("authorization-1", "reviewer-1");
+      expect(
+        await restarted.closeRun("authorization-1", "cancelled"),
+      ).toMatchObject({ state: "applied" });
+      expect(new Set(f.nativeCloses).size).toBe(2);
+      expect(f.nativeCloses).toHaveLength(2);
+      expect(f.operationReads).toHaveLength(retainSession ? 1 : 2);
+      expect(f.requestModels).toHaveLength(2);
+    } finally {
+      await restarted?.shutdown();
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("v4 restart cleanup proves the original operation and restores only its exact capability without inference replay", async () => {
+  const f = await fixture(
+    32768,
+    0,
+    4,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    false,
+    { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
+  );
+  let restarted: ReturnType<typeof f.restartRelay> | undefined;
+  try {
+    f.setPrepareFailure();
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        Buffer.from("{}"),
+        new AbortController(),
+        undefined,
+        undefined,
+        "reviewer-0",
+      ),
+    ).rejects.toMatchObject({
+      effect: "effect_unknown",
+      failureScope: "allocation",
+    });
+    expect(f.intents).toHaveLength(1);
+    expect(f.requestModels).toHaveLength(0);
+    f.setPrepareFailure(false);
+    restarted = f.restartRelay();
+    expect(
+      await restarted.closeRun("authorization-1", "cancelled"),
+    ).toMatchObject({ state: "applied" });
+    expect(f.operationReads).toEqual([f.intents[0]!.operationId]);
+    expect(f.intents).toHaveLength(2);
+    expect(new Set(f.intents.map((intent) => intent.operationId)).size).toBe(1);
+    expect(f.requestModels).toHaveLength(0);
+    expect(f.nativeCloses).toHaveLength(1);
+  } finally {
+    await restarted?.shutdown();
+    await f.relay.shutdown();
+  }
+});
+
+it("v4 missing original cleanup operation stays unknown and cannot mint a replacement", async () => {
+  const f = await fixture(
+    32768,
+    0,
+    4,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    false,
+    { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
+  );
+  let restarted: ReturnType<typeof f.restartRelay> | undefined;
+  try {
+    f.setPrepareFailure();
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        Buffer.from("{}"),
+        new AbortController(),
+        undefined,
+        undefined,
+        "reviewer-0",
+      ),
+    ).rejects.toMatchObject({ effect: "effect_unknown" });
+    f.operations.clear();
+    f.setPrepareFailure(false);
+    restarted = f.restartRelay();
+    expect(await restarted.closeRun("authorization-1", "cancelled")).toEqual({
+      state: "unknown",
+    });
+    expect(f.operationReads).toHaveLength(1);
+    expect(f.intents).toHaveLength(1);
+    expect(f.requestModels).toHaveLength(0);
+    expect(f.nativeCloses).toHaveLength(0);
+  } finally {
+    await restarted?.shutdown();
+    await f.relay.shutdown();
+  }
+});
 async function readExactFrame(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   expected: string,
@@ -1397,6 +1977,39 @@ async function serveRelay(
     });
   return { app, request };
 }
+
+it("keeps clean HTTP EOF free of unknown relay diagnostics", async () => {
+  const f = await fixture(MiB, 0, 2, 5000, async (response) => {
+    response.write(progressFrame);
+    response.end(completedFrame);
+  });
+  const http = await serveRelay(f.relay);
+  const closed = deferred<boolean>();
+  http.app.server.once("request", (_request, response) => {
+    response.once("close", () => closed.resolve(response.writableFinished));
+  });
+  const diagnostics = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const response = await http.request();
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(progressFrame + completedFrame);
+    expect(await closed.promise).toBe(true);
+    await setImmediate();
+    expect(f.effects.map((row) => row.effect)).toEqual([
+      "dispatch_started",
+      "completed",
+    ]);
+    expect(
+      diagnostics.mock.calls.filter(
+        ([diagnostic]) =>
+          diagnostic?.event === "review_run_gateway_relay_unknown",
+      ),
+    ).toEqual([]);
+  } finally {
+    await http.app.close();
+    diagnostics.mockRestore();
+  }
+});
 
 it("allows a real client to disconnect on released terminal bytes after SDK completion and start the next tool turn", async () => {
   const allowEOF = deferred();

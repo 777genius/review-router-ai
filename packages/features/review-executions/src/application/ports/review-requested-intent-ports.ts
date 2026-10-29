@@ -146,6 +146,18 @@ export type ReviewRequestedSourceRunIdentity = ReviewExecutionScope & {
   readonly sourceRunAttempt: string;
 };
 
+export interface ReviewRequestedDispatchCleanupTargetPort {
+  bindCleanupRunTarget(command: {
+    readonly requestId: string;
+    readonly expectedVersion: bigint;
+    readonly sourceRunId: string;
+    readonly sourceRunAttempt: string;
+  }): Promise<{
+    readonly status: ReviewRequestedTransitionStatus;
+    readonly intent?: ReviewRequestedIntent | undefined;
+  }>;
+}
+
 export interface ReviewRequestedIntentQueryPort {
   findByRequestId(requestId: string): Promise<ReviewRequestedIntent | null>;
   findByDeliveryIdentity(

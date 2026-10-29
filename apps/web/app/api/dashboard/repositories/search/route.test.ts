@@ -72,6 +72,11 @@ vi.mock(
 vi.mock("../../../../../src/server/dashboard-gateway-accounts", () => ({
   loadDashboardPersonalAccounts: async () => null,
   loadDashboardGatewayAccounts: mocks.loadDashboardGatewayAccounts,
+  hydrateDashboardGatewayAccounts: async (
+    _workspace: unknown,
+    _personal: unknown,
+    accounts: unknown,
+  ) => accounts,
 }));
 
 vi.mock(

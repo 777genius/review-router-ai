@@ -69,6 +69,7 @@ import {
   ReviewTrustDomain,
   canonicalJson,
   parseReviewRunRuntimeSnapshot,
+  reviewAgentExecutionProviderKind,
   type ReviewProtocolLimitsProfileQueryPort,
   type ReviewRunAuthorization,
   type ReviewRunAuthorizationQueryPort,
@@ -1596,6 +1597,7 @@ async function lookupEvidence(
   );
   authorizedVote(authorization, request.providerVoteIdentityHash);
   const manifest = parseManifest(request.manifestCanonicalJson);
+  assertCapturedReviewerManifest(authorization, slot, manifest);
   const scopeHash = await authorizationScopeHash(authorization, d.digest);
   requireEqual(manifest.scopeHash, scopeHash, "manifest_scope_mismatch");
   requireEqual(
@@ -2171,6 +2173,7 @@ async function validatePreparedManifest(
   assignmentManifestCanonicalJson?: string | null,
 ) {
   const manifest = parseManifest(request.manifestCanonicalJson);
+  assertCapturedReviewerManifest(authorization, slot, manifest);
   if (
     serializeProviderInvocationManifestCanonicalWireJson(manifest) !==
     request.manifestCanonicalJson
@@ -3165,4 +3168,29 @@ function failure(
   issue: string,
 ) {
   return new ReviewActionV2RouteFailure(statusCode, errorCode, [issue]);
+}
+
+function assertCapturedReviewerManifest(
+  authorization: ReviewRunAuthorization,
+  slot: Pick<ReviewWorkSlotPlan, "providerVoteIdentityHash" | "providerKind">,
+  manifest: ProviderInvocationManifest,
+): void {
+  const snapshot = parseReviewRunRuntimeSnapshot(
+    authorization.runtimeSnapshotCanonicalJson,
+  );
+  if (snapshot?.snapshotVersion !== 4) return;
+  const reviewer = snapshot.reviewers.find(
+    (row) => row.providerVoteIdentityHash === slot.providerVoteIdentityHash,
+  );
+  if (
+    !reviewer ||
+    String(reviewAgentExecutionProviderKind(reviewer.agentProfile)) !==
+      String(slot.providerKind) ||
+    reviewer.requestedModel !== manifest.requestedModel
+  )
+    throw failure(
+      403,
+      ReviewActionV2ProtocolErrorCode.Forbidden,
+      "manifest_reviewer_mismatch",
+    );
 }

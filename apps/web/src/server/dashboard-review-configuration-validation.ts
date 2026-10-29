@@ -1,3 +1,4 @@
+import { requiredWorkflowTransport } from "@reviewrouter/features-workflow-provisioning";
 import {
   isProviderApiDirectConfiguration,
   ProviderProfileError,
@@ -48,6 +49,12 @@ export async function validateDashboardEffectiveConfiguration(input: {
     input.config.contextTools,
   );
   isProviderApiDirectConfiguration(input.config);
+  if (
+    input.config.providers.some(
+      (provider) => provider.authMode === "codex_account_gateway",
+    )
+  )
+    requiredWorkflowTransport(input.config);
   assertGatewayReviewAgentProfileContextAllowed(
     input.config,
     loadApprovedGatewayAgentProfiles,

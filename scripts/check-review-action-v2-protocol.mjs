@@ -64,6 +64,8 @@ if (!snapshotsEqual(before, first)) {
 console.log("Review Action v2 protocol is deterministic and current.");
 
 async function bootstrapContractSource() {
+  // The safe reviewer plan is part of the canonical generated Action contract.
+  run("pnpm", ["--filter", "@reviewrouter/shared", "build"]);
   for (const packageName of contractSourceProducers) {
     const packageDirectory = packageName.replace(
       "@reviewrouter/features-",

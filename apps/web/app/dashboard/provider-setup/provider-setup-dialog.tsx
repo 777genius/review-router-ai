@@ -45,6 +45,7 @@ import {
   type ApiKeySetupIntent,
   type ApiKeyStorage,
 } from "../../../src/features/provider-setup/api-key-storage";
+import { GatewayReviewerRoster } from "./gateway-reviewer-roster";
 import { ApiKeyStorageChoice } from "./api-key-storage-choice";
 import {
   setupProviders,
@@ -74,7 +75,7 @@ import type {
   AccountsPage,
   AccountsResult,
 } from "../../../src/server/account-gateway-accounts";
-import { getReadyGatewayAccounts } from "../../../src/server/dashboard-provider-setup-readiness";
+import { getGatewaySetupAccounts } from "../../../src/server/dashboard-provider-setup-readiness";
 import type { GatewayAgentProfileOption } from "../../../src/server/gateway-agent-profile-options";
 import { personalAccountOriginText } from "../../../src/features/account-gateway/personal-accounts";
 import { dashboardErrorText } from "../dashboard-copy";
@@ -105,9 +106,8 @@ import {
 } from "./provider-model-fields";
 import {
   createProviderProfile,
-  inheritWorkspaceDefaultProvider,
   installManagedProviderKey,
-  saveProviderSetup,
+  saveProviderRoster,
   useProviderSetupCompletion,
   useProviderSetupView,
 } from "./provider-setup-api";
@@ -302,6 +302,10 @@ function ProviderSetupDialogBody({
       : "provider",
   );
   const [credentialBusy, setCredentialBusy] = useState(false);
+  const [chooseOther, setChooseOther] = useState(false);
+  const [chooseRoster, setChooseRoster] = useState(false);
+  const [choiceVersion, setChoiceVersion] = useState(0);
+  const openedRoster = useRef<boolean | null>(null);
   const [savedWorkspaceDefault, setSavedWorkspaceDefault] = useState(false);
   const handleCredentialBusy = useCallback(
     (busy: boolean) => {
@@ -341,6 +345,31 @@ function ProviderSetupDialogBody({
   const credentialStep =
     repository && effective ? credentialStepOf(effective) : null;
 
+  if (openedRoster.current === null && view.data) {
+    const current =
+      target.kind === "repository"
+        ? view.data.repositories.find((row) => row.id === target.repository.id)
+        : null;
+    const own =
+      current?.selections ?? (current?.selection ? [current.selection] : []);
+    const selections = own.length
+      ? own
+      : (view.data.defaultSelections ??
+        (view.data.defaultSelection ? [view.data.defaultSelection] : []));
+    openedRoster.current =
+      (selections.length > 0 &&
+        selections.every(
+          (selection) =>
+            view.data!.profiles.find(
+              (profile) => profile.id === selection.profileId,
+            )?.authMode === "codex_account_gateway",
+        )) ||
+      view.data.profiles.some(
+        (profile) =>
+          profile.id === initialProfileId &&
+          profile.authMode === "codex_account_gateway",
+      );
+  }
   const adding = mode === "add" && target.kind === "workspace";
   const title = adding
     ? "Add a provider"
@@ -475,43 +504,96 @@ function ProviderSetupDialogBody({
                 </Button>
               </div>
             ) : null}
-            <ProviderChoiceStep
-              workspaceId={workspaceId}
-              target={target}
-              adding={adding}
-              initialProfileId={initialProfileId}
-              view={view.data!}
-              readUnavailable={view.isError}
-              mutationsEnabled={mutationsEnabled}
-              modelOptions={modelOptions}
-              gatewayAccounts={gatewayAccounts}
-              agentProfileOptions={agentProfileOptions}
-              onLockedChange={onLockedChange}
-              initialIntent={initialIntent}
-              onSaved={async (outcome) => {
-                await completion.complete();
-                onSaved?.();
-                if (outcome.kind === "workspace") {
-                  setSavedWorkspaceDefault(outcome.madeDefault);
-                  setStep("workspace_saved");
-                  return;
-                }
-                if (outcome.kind === "results") {
-                  setResults(outcome.results);
-                  setDeliveryResults(outcome.deliveryResults ?? []);
-                  setStep("results");
-                  return;
-                }
-                if (outcome.kind === "repository" && outcome.provider) {
-                  setSaved(outcome.provider);
-                  if (credentialStepOf(outcome.provider)) {
-                    setStep("credentials");
-                    return;
-                  }
-                }
-                onClose();
-              }}
-            />
+            {!adding &&
+            !chooseOther &&
+            (chooseRoster || openedRoster.current) ? (
+              <GatewayReviewerRoster
+                workspaceId={workspaceId}
+                target={target}
+                view={view.data!}
+                initialProfileId={initialProfileId}
+                gatewayAccounts={gatewayAccounts}
+                modelOptions={modelOptions}
+                agentProfileOptions={agentProfileOptions}
+                mutationsEnabled={mutationsEnabled}
+                readUnavailable={view.isError}
+                onLockedChange={onLockedChange}
+                onRefresh={async () => (await view.refetch()).data}
+                onChooseOther={() => setChooseOther(true)}
+                onSaved={async (assignments) => {
+                  await completion.complete();
+                  onSaved?.();
+                  if (target.kind === "repositories") {
+                    setResults(assignments);
+                    setStep("results");
+                  } else onClose();
+                }}
+              />
+            ) : (
+              <>
+                {!adding &&
+                view.data!.sources.some(
+                  (source) => source.key === "gateway_binding",
+                ) ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-fit"
+                    disabled={locked}
+                    onClick={() => {
+                      setChooseOther(false);
+                      setChooseRoster(true);
+                    }}
+                  >
+                    Configure connected-account reviewers
+                  </Button>
+                ) : null}
+                <ProviderChoiceStep
+                  key={choiceVersion}
+                  onReload={async () => {
+                    const latest = await view.refetch();
+                    if (latest.isSuccess)
+                      setChoiceVersion((value) => value + 1);
+                  }}
+                  workspaceId={workspaceId}
+                  target={target}
+                  adding={adding}
+                  initialProfileId={initialProfileId}
+                  view={view.data!}
+                  readUnavailable={view.isError}
+                  mutationsEnabled={mutationsEnabled}
+                  modelOptions={modelOptions}
+                  gatewayAccounts={gatewayAccounts}
+                  agentProfileOptions={agentProfileOptions}
+                  onLockedChange={onLockedChange}
+                  initialIntent={initialIntent}
+                  onSaved={async (outcome) => {
+                    await completion.complete();
+                    onSaved?.();
+                    if (outcome.kind === "workspace") {
+                      setSavedWorkspaceDefault(outcome.madeDefault);
+                      setStep("workspace_saved");
+                      return;
+                    }
+                    if (outcome.kind === "results") {
+                      setResults(outcome.results);
+                      setDeliveryResults(outcome.deliveryResults ?? []);
+                      setStep("results");
+                      return;
+                    }
+                    if (outcome.kind === "repository" && outcome.provider) {
+                      setSaved(outcome.provider);
+                      if (credentialStepOf(outcome.provider)) {
+                        setStep("credentials");
+                        return;
+                      }
+                    }
+                    onClose();
+                  }}
+                />
+              </>
+            )}
           </div>
         )}
       </div>
@@ -529,7 +611,11 @@ function WorkspaceSaveResult({
   readonly onDone: () => void;
 }): React.ReactElement {
   const heading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => heading.current?.focus(), []);
+  useEffect(() => {
+    // Let the dialog's queued opening autofocus run before focusing the result.
+    const frame = requestAnimationFrame(() => heading.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, []);
   return (
     <section className="grid gap-4" aria-label="Provider saved">
       <div className="grid gap-2">
@@ -633,6 +719,7 @@ type SaveOutcome =
 
 function ProviderChoiceStep({
   workspaceId,
+  onReload,
   target,
   adding,
   initialProfileId,
@@ -647,6 +734,7 @@ function ProviderChoiceStep({
   initialIntent,
 }: {
   readonly workspaceId: string;
+  readonly onReload: () => Promise<void>;
   readonly target: ProviderSetupDialogTarget;
   /** Adding a provider to the workspace list (workspace target). */
   readonly adding: boolean;
@@ -661,6 +749,13 @@ function ProviderChoiceStep({
   readonly onSaved: (outcome: SaveOutcome) => Promise<void>;
   readonly initialIntent?: ApiKeySetupIntent | undefined;
 }): React.ReactElement {
+  const [observedHeads] = useState(() => ({
+    workspaceVersion: view.workspaceVersion ?? null,
+    repositories: view.repositories.map((row) => ({
+      repositoryId: row.id,
+      expectedVersion: row.version ?? null,
+    })),
+  }));
   const repositoryView =
     target.kind === "repository" ? (view.repositories[0] ?? null) : null;
   const defaultProfile = view.defaultSelection
@@ -783,6 +878,7 @@ function ProviderChoiceStep({
   const credentialCompletion = useProviderSetupCompletion(workspaceId);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const source =
@@ -804,7 +900,7 @@ function ProviderChoiceStep({
     gatewayOptions.accounts?.status === "ok"
       ? gatewayOptions.accounts.value
       : null;
-  const gatewayAccountList = getReadyGatewayAccounts(
+  const gatewayAccountList = getGatewaySetupAccounts(
     gatewayOptions.accounts,
   ).filter((account) =>
     gatewayPage?.profiles.some(
@@ -1124,7 +1220,7 @@ function ProviderChoiceStep({
     );
 
   async function save(): Promise<void> {
-    if (!choice || !canSave) return;
+    if (!choice || !canSave || stale) return;
     setPending(true);
     onLockedChange(true);
     setError(null);
@@ -1133,12 +1229,24 @@ function ProviderChoiceStep({
       if (choice.kind === "default") {
         if (target.kind !== "repository") return;
         if (repositoryView?.source === "repository") {
-          const result = await inheritWorkspaceDefaultProvider({
+          const result = await saveProviderRoster({
             workspaceId,
-            repositoryId: target.repository.id,
+            expectedWorkspaceVersion: observedHeads.workspaceVersion,
+            target: {
+              kind: "repositories",
+              repositories: observedHeads.repositories,
+            },
+            reviewers: null,
           });
           if (result.status === "error") {
+            setStale(result.error === "dashboard_action_stale");
             setError(actionErrorText(result));
+            return;
+          }
+          const failed = result.results.find((row) => row.status !== "applied");
+          if (failed) {
+            setStale(failed.status === "conflict");
+            setError(assignmentText(failed));
             return;
           }
         }
@@ -1227,28 +1335,53 @@ function ProviderChoiceStep({
             gatewayProfileRef: gatewayProfile?.id,
           })
         : settings!;
-      const result = await saveProviderSetup({
+      const storedSelection =
+        choice.kind === "profile"
+          ? repositoryView?.selection?.profileId === choice.profileId
+            ? repositoryView.selection
+            : view.defaultSelection?.profileId === choice.profileId
+              ? view.defaultSelection
+              : null
+          : null;
+      const result = await saveProviderRoster({
         workspaceId,
+        expectedWorkspaceVersion: observedHeads.workspaceVersion,
         target:
           target.kind === "workspace"
             ? { kind: "workspace" }
-            : { kind: "repositories", repositoryIds },
-        provider:
-          choice.kind === "profile"
-            ? { kind: "profile", profileId: choice.profileId }
             : {
-                kind: "new",
-                credential: credentialRequest(source!, {
-                  bindingId: gatewayAccount?.binding?.id ?? "",
-                  gatewayProfileRef: gatewayAccount?.profileId ?? "",
-                  repositoryId: repositoryIds[0] ?? "",
-                }),
-                model: model.trim(),
+                kind: "repositories",
+                repositories: observedHeads.repositories,
               },
-        settings: fitted,
+        reviewers: [
+          {
+            provider:
+              choice.kind === "profile"
+                ? { kind: "profile", profileId: choice.profileId }
+                : {
+                    kind: "new",
+                    credential: credentialRequest(source!, {
+                      bindingId: gatewayAccount?.binding?.id ?? "",
+                      gatewayProfileRef: gatewayAccount?.profileId ?? "",
+                      repositoryId: repositoryIds[0] ?? "",
+                    }),
+                    model: model.trim(),
+                  },
+            settings: {
+              ...fitted,
+              requiredHealthy: storedSelection?.requiredHealthy ?? true,
+            },
+          },
+        ],
       });
       if (result.status === "error") {
+        setStale(result.error === "dashboard_action_stale");
         setError(actionErrorText(result));
+        return;
+      }
+      if (result.results.some((row) => row.status === "conflict")) {
+        setStale(true);
+        setError(dashboardErrorText("dashboard_action_stale"));
         return;
       }
       if (target.kind === "repositories") {
@@ -1885,6 +2018,24 @@ function ProviderChoiceStep({
           {error}
         </p>
       ) : null}
+      {stale ? (
+        <div className="grid gap-2">
+          <p className="text-sm text-slate-300">
+            Your draft is kept. Reload the saved choices to review the changes
+            before saving.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-fit"
+            disabled={pending}
+            onClick={() => void onReload()}
+          >
+            Reload saved choices
+          </Button>
+        </div>
+      ) : null}
       {notice ? (
         <p role="status" className="text-sm leading-6 text-slate-200">
           {notice}
@@ -1895,7 +2046,7 @@ function ProviderChoiceStep({
         <Button
           type="button"
           size="sm"
-          disabled={!canSave || unchanged}
+          disabled={!canSave || unchanged || stale}
           aria-busy={pending}
           onClick={() => void save()}
         >
