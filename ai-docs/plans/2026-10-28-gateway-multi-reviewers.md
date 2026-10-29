@@ -445,9 +445,11 @@ blocking findings are addressed or the delivery scope is explicitly reduced.
 - [x] Focused behavior, protocol, architecture, production build and runtime checks.
 - [x] Browser and joined execution E2E on disposable resources.
 - [x] Independent code reviews and concrete corrections.
-- [ ] Push final commits and complete required hosted CI; local GitHub CLI is not authenticated.
-- [ ] Complete the five Docker-dependent tests on a runner with the required Docker fixture.
-- [ ] Merge through the maintained owner PR guard after the required checks pass.
+- [x] Publish exact reviewed source trees through the owner's connected GitHub plugin.
+
+Hosted integration is tracked by the checks and merge state on the linked SaaS
+and Action PRs. Required CI must include the five Docker-dependent cases, and
+merge requires the maintained owner identity/head checks after those gates pass.
 
 Review ledger (findings and dispositions will be appended after each round):
 
@@ -465,7 +467,7 @@ activation are separate claims. Do not describe a fixture or unavailable gate
 as a live end-to-end pass. Preserve existing credentials, user work and other
 tasks' deployment changes.
 
-## Implementation and local qualification, 2026-10-29
+## Initial implementation and local qualification, 2026-10-29
 
 Both repositories use `feat/gateway-multi-reviewers`. The SaaS code candidate is
 `baf8ec5911c35298c0a24789cced079165e5ede7`; the following documentation commit records
@@ -561,14 +563,66 @@ only the healthy sibling and reported partial coverage rather than success.
 Every request was checked against its exact captured reviewer/allocation, and
 native closes matched the distinct prepared allocations without duplication.
 
+### GitHub integration after current main changes
+
+The user selected the connected GitHub plugin after the CLI credential path
+was unavailable. The plugin authenticated the owner `777genius`. New source
+commits were independently checked for that linked user, accepted owner name
+and exact canonical author and committer email before branch publication.
+Updates use the observed branch head as a lease and do not force-push.
+
+The SaaS source commit is `c4e0834d30eb8f076c6996a3b6093cef06af7843`; its complete
+Git tree is identical to local integration `66d944a9aa6813b572011b4938daccd89f3f7741`.
+It includes main `89ce21cccbd5e979baf46450ecb8bb5b1b599e90`, preserving durable
+cleanup targets and provider-dialog autofocus. Integration verification passed
+121 focused tests, three affected typechecks, targeted lint and formatting,
+and the native PostgreSQL cleanup/history test with all 156 migrations and
+latest migration 152. The only merge conflict was the deployment index; all
+three existing task records were retained. The incoming PostgreSQL test's
+strict migration count/latest expectation was updated for the feature migration.
+
+The Action candidate is `7679a6069e8b37d18b2b555172eea5fcb59d2511`, version 1.0.220.
+Its complete Git tree matches local `dbd50f4b90852d0a2cbc288075a075fee26637dc` and
+includes current main `2b9b7f8c438b076b6e06c6e14f9ac8e87f1a25b6`. That integration
+passed 334 focused tests and 13 committed-artifact tests, types, full lint and
+formatting, domain checks and a reproducible canonical rebuild. Only the
+generated source map needed merge resolution, through that build.
+
+The maintained exporter then regenerated the Action handoff from the remotely
+available SaaS source and Action main base. Of 61 generated files, only the
+handoff's two provenance fields changed. Protocol and runtime bytes did not.
+Handoff and protocol metadata tests passed 12/12, and the maintained release
+generator and source verifier accepted the exact published Action commit.
+Its runtime SHA-256 is
+`d763d505805c098cc561dfc38e80a4540c4da575928288a5429120cd2d74f6ae`;
+the handoff SHA-256 is
+`1f2f11c10efac7f894268a60ea63d6d17fe2afa706cf980d3a4341d98aaa8fdd`.
+The reviewer-plan descriptor is unchanged. The final SaaS integration selects
+that exact Action commit in paired CI. Local qualification history is preserved
+on backup branches; publication did not rewrite existing remote history.
+
+The first paired rerun against the published Action passed 20/27 and exposed
+seven lifecycle fixture failures: synthetic GraphQL comments omitted the newly
+required `publishedAt` and `lastEditedAt` fields. The production inventory
+correctly treated their edit state as unknown and excluded them from automatic
+revalidation. One shared fixture now supplies a complete unedited publication
+observation at both test boundaries. The strict packet and receipt assertions
+remain unchanged, with an added assertion that all four intended targets are
+explicitly unedited. The focused lifecycle rerun passed 7/7.
+The complete paired Action/API/PostgreSQL rerun then passed all 27 tests across
+six files in 220.66 seconds on the published Action candidate, including the
+four compiled multi-reviewer cases. Action hosted CI run
+[40847630411](https://github.com/777genius/review-router/actions/runs/40847630411)
+passed all 17 steps, including the full managed OCR suite, native MCP, build and
+committed artifact parity; Kimi native qualification also passed.
+
 ### Integration and evidence limits
 
-The final source commits are local. Both a normal noninteractive Git push probe
-and the gh credential path failed because this environment has no GitHub
-credentials; `gh auth status` reports no authenticated account. Final pushes,
-PR updates, hosted Actions retry and guarded merge remain pending a legitimate
-GitHub CLI login. The existing draft PRs do not yet contain these final local
-commits. No alternate credential, gate bypass or protected-branch write was used.
+Required hosted CI and the maintained owner merge checks apply to the final
+published heads; the linked PRs record their live result and merge state.
+Current main's 14-job CI passed, proving runner and Docker availability; it is
+not qualification of this feature head. No credential substitution,
+required-check bypass or protected-branch write was used.
 
 The browser uses the real app/server actions and disposable SQL with a controlled
 Gateway model-catalog peer. The paired runtime uses the compiled Action,

@@ -27,15 +27,21 @@ account-catalog deployment is not included in this task.
 
 ## Qualified source candidate
 
-The locally qualified SaaS code candidate is
-`baf8ec5911c35298c0a24789cced079165e5ede7`. A following documentation-only commit
-records the qualification. The local Action candidate is
-`0da0202f8f36b9ceb055ec33f6e0b97b62a59025` (version 1.0.219), including
-current main's lifecycle/restored-slot rebinding correction. The SaaS paired
-CI pin selects that commit. The canonical release generator and verifier
-accepted the candidate with:
+The published canonical SaaS source is
+`c4e0834d30eb8f076c6996a3b6093cef06af7843`. Its Git tree exactly matches the
+qualified local integration `66d944a9aa6813b572011b4938daccd89f3f7741`, including
+main `89ce21cccbd5e979baf46450ecb8bb5b1b599e90` and its durable cleanup correction.
+The final SaaS integration also updates the paired CI pin, shared publication
+timestamp fixtures and this evidence.
+The published Action candidate is
+`7679a6069e8b37d18b2b555172eea5fcb59d2511` (version 1.0.220), including main
+`2b9b7f8c438b076b6e06c6e14f9ac8e87f1a25b6` and its lifecycle publication fixes.
+Its Git tree exactly matches qualified local commit
+`dbd50f4b90852d0a2cbc288075a075fee26637dc`. The SaaS paired CI pin selects this
+published candidate. The canonical release generator and verifier accepted it with:
 
-- Runtime entrypoint SHA-256: `d31351ded62a44d5cee30effdd36ee31fba88ae4ca2824b1218c7d0898efde6f`.
+- Runtime entrypoint SHA-256: `d763d505805c098cc561dfc38e80a4540c4da575928288a5429120cd2d74f6ae`.
+- Canonical handoff SHA-256: `1f2f11c10efac7f894268a60ea63d6d17fe2afa706cf980d3a4341d98aaa8fdd`.
 - Reviewer-plan version 1 descriptor: `sha256:f6a45d7039129a813690f5f769052d3ba078418eb123b0c0c710ef790d2919d6`.
 - Migration 152 SQL SHA-256: `013e9b1917940ed3a796f8df6fa85a0c9c0cc5a4e76a7b19841911f3ea24bd6d`.
 - Complete checkout156 migration manifest: `sha256:ef2c303008c8edac0df3372f725f374ba417042a6707daf25b69c87897bd1e38`.
@@ -46,12 +52,19 @@ catalog failure/retry and fail-closed Save. Production builds, compiled startup,
 protocol and unchanged architecture gates passed. The implementation plan has
 the detailed review and validation ledger.
 
-Source integration remains pending: this local environment lacks GitHub CLI
-authentication, so the final commits have not been pushed or merged. The broad
-unit run also requires a CI runner with Docker to complete five existing
-certified-fork PostgreSQL cases; all four source failures found in that run were
-repaired and passed their combined targeted rerun. These are source-integration
-gates, not completed deployment evidence. Resolve them before selecting a release.
+The source is published through the owner's connected GitHub plugin. Source trees
+and canonical author/committer identities were checked before leased, non-force
+branch updates. The handoff was regenerated with the maintained exporter from
+the remotely available source and Action base; no generated fields were edited
+by hand. Required CI and guarded merge are source-integration gates; their
+current result and merge state are recorded on the linked PRs.
+
+The broad unit run still requires a CI runner with Docker to complete five
+existing certified-fork PostgreSQL cases; all four source failures found in that
+run were repaired and passed their combined targeted rerun. Current main's
+14-job CI passed on the configured runners, but it does not qualify this feature
+head. These are source-integration gates, not deployment evidence. Resolve them
+before selecting a release.
 
 After merge, reconcile the actual merged source revisions and regenerate/verify
 the release manifest for the exact candidate chosen by the release procedure.
