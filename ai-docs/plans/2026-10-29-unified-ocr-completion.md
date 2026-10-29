@@ -693,3 +693,90 @@ mode/flag or deployment activation; section 8's separate #734 boundary remains.
 | 1                       | **GO**, no P1/P2 findings.       | **GO**, no blocking findings.    | Exact changed-facts draft reviewed; SaaS merged implementation remains held.                          |
 | 2                       | **GO**, no findings.             | **GO**, no findings.             | Inherited-main authority/default, SQL, six-file gate and exact provenance rechecked; no scope change. |
 | 3                       | **GO**, no blockers or findings. | **GO**, no blockers or findings. | All three correction rounds complete; freeze for root publication before amended SaaS implementation. |
+
+## 13. Gateway multi-reviewer paired fixture correction
+
+Status: **all three brief Action/Acceptance plan rounds GO; frozen for root publication before fixture edits**.
+
+### Observed failure and scope
+
+Final P3 `7e8924765be586e1c1e82e21603748dccc1bddd6` / A3
+`fb132c4ed337141339d487e7c388518178c24b10` Source/Certification
+[attempt 2, job 123602099175](https://github.com/777genius/review-router-ai/actions/runs/40909630937/job/123602099175)
+passed protocol, handoff, wrapper parity, hosted proofs and exact OCR identity,
+then its six-file paired gate reported **40 passed / 4 failed / 0 skipped**.
+All four failures are the existing `gateway-multi-reviewers-paired.e2e.test.ts`
+scenarios: shared, independent, unavailable-primary and mixed-engines. Other
+five files, including comparison and the seven-route lifecycle proof, passed.
+The earlier official PostgreSQL-key network timeout was cleared on unchanged
+P3; it is separate from this fixture failure and remains preserved evidence.
+
+The fixture's `nativeGateway()` omits `/v1/account-models/read`. Its observed
+requests therefore receive the fixture's final 404. Production checkout fails
+closed with captured `model_settings_unavailable`; Action rejects that captured
+unavailable reason before starting an engine. The generic engine warning and
+later empty child log/partial execution are consequences, not proof of a binary
+or production-bootstrap defect. Root and both independent critics identified
+this boundary read-only. No production correction is justified by that trace.
+
+A second, prospective coverage gap is distinct: the fixture does not approve a
+model-dispatch default, and its mixed OCR row explicitly selects old v2. The
+other three cases intentionally exercise supported supplied-diff Codex with
+`agenticContext=false`; preserve that intent. Do not force Codex onto the mixed
+row or replace those alternative cases with an expanded OCR matrix.
+
+### Minimal owned changes
+
+Edit **only** `apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts` after this
+plan is reviewed and published:
+
+1. Add the missing account-model read branch to its existing synthetic Gateway,
+   using the maintained paired fixture's current contract envelope. Validate the
+   control bearer and requested account/owner/profile/epoch, and return the two
+   fixture models with their supported high/medium reasoning settings and
+   existing tool/fast-mode semantics. Keep missing/disabled account behavior
+   fail-closed; change no production metadata reader, admission or fallback.
+2. In the existing **mixed-engines** case only, use the bundled
+   `ocr-managed-v5` / rr.6 identity as the local synthetic OCR approval and the
+   existing `ReviewModelDispatchProfileV2` harness option with
+   `account_gateway` default ref v5. Row 0 remains explicit supported
+   supplied-diff Codex with no repository tools. Row 1 keeps
+   `agenticContext=true`, omits an explicit profile and must capture the qualified
+   OCR default. Its existing synthetic binary/version/hash mapping follows that
+   selected profile. Assert row-0 Codex / row-1 v5 and absence of a borrowed V2
+   dispatch capability on V4. Preserve both per-reviewer and allocation authority.
+3. Keep all four cases and their existing assertions for exact model/settings,
+   shared versus independent allowance/concurrency, unavailable-primary partial
+   output, accepted observations, child homes/capabilities, request/admission
+   identity, single App publication, close/readback and no unexpected errors.
+   Add no case matrix, helper framework, bypass or permissive expected result.
+
+This remains the original compiled-Action + real API/PostgreSQL + synthetic
+Gateway/engine fixture. Its engine substitution is not real OCR qualification;
+the unchanged seven-route lifecycle proof uses the actual native OCR binary.
+Do not modify the Action catalog, binary, release profile, compiled bytes or
+production code to make a synthetic fixture pass. Ordinary single-route V2 and
+Gateway V4 remain separate; do not add a V2 capability to the reviewer plan.
+
+### Finite verification and publication
+
+Run scoped format/lint and the existing **four-case file** against exact A3 and
+a matching disposable 157-entry database when the prepared local environment
+can support it; no installs, new database framework or broad local rerun.
+If a new failure remains, diagnose it before changing scope or assertions.
+Verify all protected S2 runtime/canonical/wrapper/schema/SQL bytes remain exact.
+After peer review, root commits/pushes the fixture correction immediately and
+the unchanged existing full CI/Unified gates qualify that final descendant,
+including the six-file paired gate's actual observed count. Preserve both
+failed P3 receipts; do not relabel them as a green run or invent a live result.
+
+Canonical/export source stays S2 `8080881802d87f3bf700b15faa7cebb02f54ee9b`;
+Action stays A3 and the canonical pin stays unchanged. A plan/fixture-only
+SaaS descendant requires no re-export, wrapper rebuild or hash loop. This adds
+no migration, version, flag, runtime contract, release registration or rollout.
+
+| Fixture-plan round | Action critic                    | Acceptance critic                | Disposition                                                                                                                                                      |
+| ------------------ | -------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1                  | **GO**, no P1/P2 findings.       | **GO**, no findings.             | Both critics confirmed the metadata404/pre-child cause, mixed-only qualified default and preserved four-scenario intent; no fixture edits.                       |
+| 2                  | **GO**, no findings.             | **GO**, no findings.             | Mixed-only v5 default, explicit Codex alternative, V4 authority/no borrowed V2 capability and synthetic proof boundary rechecked unchanged.                      |
+| 3                  | **GO**, no blockers or findings. | **GO**, no blockers or findings. | Final one-file scope, finite verification, unchanged S2/A3 and protected bytes, preserved failures and required CI rechecked; publish plan before fixture edits. |
