@@ -8,6 +8,125 @@ import {
 import type { AccountsPage, AccountsResult } from "./account-gateway-accounts";
 
 describe("dashboard Gateway provider evidence", () => {
+  it("requires a fresh catalog on the selected dynamic binding and keeps fallback explicit", () => {
+    const profileId = "openrouter-openai-responses-apikey-v1";
+    const model = "openai/gpt-4.1";
+    const anchor = "openai/gpt-5.4-nano";
+    const config = (selected = model) =>
+      parseReviewConfiguration({
+        ...workspacePolicyFixture,
+        providers: [
+          {
+            kind: "codex",
+            authMode: "codex_account_gateway",
+            gatewayBindingId: "binding_1",
+            gatewayProfileRef: profileId,
+            model: selected,
+            reasoningEffort: "medium",
+            agenticContext: true,
+            fastMode: false,
+          },
+        ],
+      });
+    const now = Date.now();
+    const catalog = {
+      status: "snapshot" as const,
+      source: "openrouter" as const,
+      models: [model],
+      fetchedAt: new Date(now - 1_000).toISOString(),
+      expiresAt: new Date(now + 60_000).toISOString(),
+    };
+    const accounts: AccountsResult<AccountsPage> = {
+      status: "ok",
+      value: {
+        accounts: [
+          {
+            connectionId: "connection_1",
+            label: "OpenRouter",
+            profileId,
+            profileLabel: "OpenRouter",
+            state: "active",
+            gatewayRevision: 2,
+            mirrorRevision: 2,
+            binding: {
+              id: "binding_1",
+              revision: 1,
+              state: "active",
+              fencePending: false,
+            },
+            modelCatalog: catalog,
+          },
+        ],
+        profiles: [
+          {
+            id: profileId,
+            label: "OpenRouter",
+            protocol: "openai-responses",
+            authKind: "api_key",
+            models: [anchor],
+          },
+        ],
+        nextCursor: null,
+      },
+    };
+    expect(isGatewayProviderSetupReady(config(), accounts)).toBe(true);
+    for (const invalid of [
+      { ...catalog, expiresAt: new Date(now - 1).toISOString() },
+      { ...catalog, fetchedAt: new Date(now + 60_000).toISOString() },
+      { ...catalog, fetchedAt: "invalid" },
+      { ...catalog, source: "codex" as const },
+      { ...catalog, models: [anchor] },
+      {
+        status: "unknown" as const,
+        source: "legacy_profile" as const,
+        models: [model],
+      },
+      {
+        status: "unsupported" as const,
+        source: "legacy_profile" as const,
+        models: [model],
+      },
+    ]) {
+      const page: AccountsResult<AccountsPage> = {
+        status: "ok",
+        value: {
+          ...accounts.value,
+          accounts: [{ ...accounts.value.accounts[0]!, modelCatalog: invalid }],
+        },
+      };
+      expect(isGatewayProviderSetupReady(config(), page)).toBe(false);
+    }
+    const unavailable: AccountsResult<AccountsPage> = {
+      status: "ok",
+      value: {
+        ...accounts.value,
+        accounts: [
+          {
+            ...accounts.value.accounts[0]!,
+            modelCatalog: {
+              status: "unavailable",
+              source: "legacy_profile",
+              models: [anchor, model],
+            },
+          },
+        ],
+      },
+    };
+    expect(isGatewayProviderSetupReady(config(anchor), unavailable)).toBe(true);
+    expect(isGatewayProviderSetupReady(config(), unavailable)).toBe(false);
+    const withoutCatalog = { ...accounts.value.accounts[0]! };
+    delete withoutCatalog.modelCatalog;
+    expect(
+      isGatewayProviderSetupReady(config(anchor), {
+        status: "ok",
+        value: {
+          ...accounts.value,
+          accounts: [withoutCatalog],
+        },
+      }),
+    ).toBe(false);
+  });
+
   it("requires the selected live Gateway binding and catalog model", () => {
     const config = parseReviewConfiguration({
       ...workspacePolicyFixture,

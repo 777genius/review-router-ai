@@ -227,7 +227,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // Listing accounts calls the Gateway, so only Gateway policies pay for it.
       gatewayRepositoryIds.length > 0
         ? loadDashboardPersonalAccounts(workspace.id).then((personal) =>
-            loadDashboardGatewayAccounts(workspace.id, personal),
+            loadDashboardGatewayAccounts(
+              workspace.id,
+              personal,
+              [...configs.effectiveConfigs.values()].flatMap((config) =>
+                config ? [config] : [],
+              ),
+            ),
           )
         : undefined,
       readGatewayReviewV2RepositoryReadiness({

@@ -1355,6 +1355,13 @@ export async function DashboardSectionContent({
   const personal = wantsAccounts
     ? await loadDashboardPersonalAccounts(selectedWorkspace.workspace.id)
     : null;
+  const dataPromise = loadDashboardSectionData(
+    selectedWorkspace,
+    selectedSection,
+    repositoryAccess,
+    supportAudit,
+    context.signedInActor,
+  );
   const [
     data,
     modelOptions,
@@ -1362,19 +1369,23 @@ export async function DashboardSectionContent({
     contextConnections,
     modelCatalogSnapshots,
   ] = await Promise.all([
-    loadDashboardSectionData(
-      selectedWorkspace,
-      selectedSection,
-      repositoryAccess,
-      supportAudit,
-      context.signedInActor,
-    ),
+    dataPromise,
     wantsProviderDialog ? getReviewModelOptions() : Promise.resolve([]),
     wantsProviderDialog ||
     selectedSection === "diagnostics" ||
     (selectedSection === "setup" &&
       readApiKeySetupIntent(params, selectedWorkspace.workspace.id) !== null)
-      ? loadDashboardGatewayAccounts(selectedWorkspace.workspace.id, personal)
+      ? selectedSection === "repositories"
+        ? dataPromise.then((loaded) =>
+            loadDashboardGatewayAccounts(
+              selectedWorkspace.workspace.id,
+              personal,
+              loaded.repositoryConfigs.flatMap(({ effective }) =>
+                effective ? [effective] : [],
+              ),
+            ),
+          )
+        : loadDashboardGatewayAccounts(selectedWorkspace.workspace.id, personal)
       : Promise.resolve(undefined),
     selectedSection === "repositories" || selectedSection === "policy"
       ? listDashboardContextConnections(selectedWorkspace.workspace.id).catch(

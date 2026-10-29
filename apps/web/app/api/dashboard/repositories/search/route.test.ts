@@ -668,6 +668,13 @@ describe("dashboard repository search route", () => {
       };
       for (const id of body.repositoryIds) routeReadiness.set(id, readiness);
     }
+    expect(mocks.loadDashboardGatewayAccounts).toHaveBeenCalledWith(
+      "workspace_1",
+      null,
+      expect.arrayContaining([
+        expect.objectContaining({ providers: [gatewayProvider] }),
+      ]),
+    );
     // Composed as the dashboard page composes it for its table and summary.
     const pageReadiness = resolveDashboardRepositoryReadiness({
       effectiveConfigs: new Map(
