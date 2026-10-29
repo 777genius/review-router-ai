@@ -1,4 +1,4 @@
-import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
   mkdirSync,
@@ -7,7 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import https from "node:https";
 import { syncBuiltinESMExports } from "node:module";
 import type { AddressInfo } from "node:net";
@@ -51,19 +51,25 @@ import {
 import { PrismaReviewThreadResolutionHistory } from "../../packages/features/review-publishing/src/v2/infrastructure/prisma/prisma-review-thread-resolution-history.js";
 import { activateReviewResolutionHistory } from "../../packages/features/review-publishing/src/v2/application/use-cases/activate-review-resolution-history.js";
 import { createPrismaResolutionWriterQualification } from "../../packages/features/review-publishing/src/v2/infrastructure/prisma/prisma-resolution-writer-qualification.js";
-import { Ed25519ReleaseWitnessSignerAdapter } from "../../apps/api/src/release-witness-adapters.js";
-import { AttestResolutionWriterQualification } from "../../apps/api/src/release-witness-resolution-writers.js";
 import { CanonicalReviewV2ProjectionAdapter } from "../../apps/worker/src/review-v2-publication-payloads.js";
 import { PrismaReviewExecutionStore } from "../../packages/features/review-executions/src/composition/index.js";
 import { registerReviewRunGatewayRelayRoutes } from "../../apps/api/src/review-run-gateway-relay.js";
 import { registerReviewModelDispatchRoutes } from "../../apps/api/src/review-model-dispatch.js";
-import { registerReviewRunGatewayCheckoutRoute } from "../../apps/api/src/review-run-gateway-checkout.js";
+import { registerReviewRunCheckoutRoute } from "../../apps/api/src/review-run-gateway-checkout.js";
 import { registerReviewRunSkillsRoute } from "../../apps/api/src/review-run-skills.js";
 import {
   createReviewActionV2E2EHarness,
   resetReviewActionV2E2EDatabase,
   type ReviewActionV2E2EHarness,
 } from "../review-action-v2-production-e2e/support/review-action-v2-e2e-harness.js";
+import {
+  productionModelRoute,
+  productionRouteNames,
+  selectProductionModelRoute,
+  type ProductionRouteName,
+} from "./support/production-model-routes.js";
+import { prepareHostedProductionRoute } from "./support/hosted-production-route.js";
+import { createPairedResolutionWriterFixture } from "./support/resolution-writer-fixture.js";
 import type { FakeGitHubTransport } from "../review-action-v2-production-e2e/support/fake-github.js";
 
 const enabled =
@@ -173,11 +179,31 @@ lifecycleCase.each([
       "production_runner",
     ] as const
   ).map((scenario) => ({ version: 2 as const, scenario })),
+  ...productionRouteNames.map((route) => ({
+    version: 2 as const,
+    scenario: "production_runner" as const,
+    route,
+  })),
 ])(
-  "pairs bounded lifecycle verification with immutable publication and honest native receipts ($version / $scenario)",
-  async ({ version, scenario }: { version: 1 | 2; scenario: Scenario }) => {
+  "pairs bounded lifecycle verification with immutable publication and honest native receipts ($version / $scenario / $route)",
+  async ({
+    version,
+    scenario,
+    route: routeName,
+  }: {
+    version: 1 | 2;
+    scenario: Scenario;
+    route?: ProductionRouteName;
+  }) => {
     const unified = version === 2;
     const production = scenario === "production_runner";
+    const route = productionModelRoute(routeName);
+    const model = production ? route.model : "gpt-5-codex";
+    const gateway = !production || !routeName;
+    const gatewayProfileRef =
+      production && gateway
+        ? "openrouter-openai-responses-apikey-v1"
+        : "paired-responses-v1";
     const ocrBinary = production ? requiredPairedOcrBinary() : undefined;
     let realCheckout:
       | ReturnType<typeof createRealLifecycleCheckout>
@@ -187,7 +213,7 @@ lifecycleCase.each([
     const networkFetch = globalThis.fetch;
     let apiFetch = networkFetch;
     const tls = unified ? loopbackTls() : undefined;
-    const upstream = await controlledGateway(scenario);
+    const upstream = await controlledGateway(scenario, route);
     let fixture: ReviewActionV2E2EHarness | undefined;
     let apiOrigin: string | undefined;
     const apiRejections: Array<{ status: number; code?: string }> = [];
@@ -195,7 +221,10 @@ lifecycleCase.each([
     try {
       if (production) realCheckout = createRealLifecycleCheckout();
       fixture = await createReviewActionV2E2EHarness(databaseUrl!, {
-        modelTransport: "account_gateway",
+        modelTransport: gateway ? "account_gateway" : "provider_api",
+        ...(routeName === "claude-subscription"
+          ? { subscriptionAuthMode: "claude-oauth" as const }
+          : {}),
         repositoryProviderSelection: "none",
         lifecycleVerificationProfile: true,
         ...(unified
@@ -209,16 +238,38 @@ lifecycleCase.each([
                         maxRequests: 2,
                       },
                     }
-                  : modelDispatchProfile,
+                  : production && !gateway
+                    ? {
+                        ...modelDispatchProfile,
+                        transports: [route.transport],
+                        wireProtocols: [route.protocol],
+                        defaultAgentProfileRefs: {
+                          [route.transport]: "ocr-paired-v2",
+                        },
+                        ...(routeName === "claude-subscription"
+                          ? {
+                              anthropicModelAliases: {
+                                sonnet: model,
+                                opus: "claude-opus-4-6",
+                                haiku: "claude-haiku-4-5",
+                              },
+                            }
+                          : {}),
+                      }
+                    : modelDispatchProfile,
               agentProfiles: [
                 {
                   profileRef: "ocr-paired-v2",
                   agentKind: "ocr" as const,
-                  packageVersion: production ? "1.13.1-rr.5" : "1.0.0",
+                  packageVersion: production ? "1.13.1-rr.6" : "1.0.0",
                   binarySha256: production
                     ? pairedOcrBinarySha256
                     : hash("paired-controlled-ocr-driver"),
-                  modelTransports: ["account_gateway" as const],
+                  modelTransports: [
+                    gateway
+                      ? ("account_gateway" as const)
+                      : ("provider_api" as const),
+                  ],
                   contextGateway: false,
                   cancellation: true,
                   reviewSkillsVersion: 1 as const,
@@ -241,7 +292,7 @@ lifecycleCase.each([
             : {}),
           REVIEW_ROUTER_REVIEW_V2_PROJECTION_POLICY_VERSION:
             "review-projection-policy.v7-lifecycle-verification",
-          REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED: "1",
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED: gateway ? "1" : "0",
           REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN: upstream.origin,
           REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN: upstream.origin,
           REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER:
@@ -249,7 +300,7 @@ lifecycleCase.each([
           REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: JSON.stringify({
             profiles: [
               {
-                profileRef: "paired-responses-v1",
+                profileRef: gatewayProfileRef,
                 limits: {
                   requests: 9,
                   concurrency: 1,
@@ -264,9 +315,12 @@ lifecycleCase.each([
             profiles: [
               {
                 profile: {
-                  profileId: "paired-responses-v1",
+                  profileId: gatewayProfileRef,
                   protocol: "openai-responses",
-                  modelIds: [model],
+                  modelIds:
+                    production && gateway
+                      ? ["enrollment-anchor-only"]
+                      : [model],
                   authKinds: ["api_key"],
                 },
                 outputTokens: 4096,
@@ -283,7 +337,11 @@ lifecycleCase.each([
       });
       const owned = fixture;
       await upstream.bindResolutionWriterDatabase(owned.prisma);
-      await selectSavedGateway(owned, production);
+      let callerFetch: typeof owned.fakeGitHub.fetch | undefined;
+      if (gateway)
+        await selectSavedGateway(owned, production, gatewayProfileRef);
+      else callerFetch = await selectProductionModelRoute(owned, route);
+      upstream.setGatewayOwner(owned);
       if (realCheckout) owned.setRevision(realCheckout.revision());
       const githubFetch = globalThis.fetch;
       globalThis.fetch = (input, init) => {
@@ -292,11 +350,19 @@ lifecycleCase.each([
         ).origin;
         return origin === apiOrigin
           ? apiFetch(input, init)
-          : origin === upstream.origin
+          : origin === upstream.origin ||
+              origin ===
+                upstream.writerEnvironment
+                  .REVIEW_ROUTER_RESOLUTION_WRITER_WITNESS_URL
             ? networkFetch(input, init)
             : githubFetch(input, init);
       };
-      const threads = nativeThreads(owned.fakeGitHub, scenario, realCheckout);
+      const threads = nativeThreads(
+        owned.fakeGitHub,
+        scenario,
+        realCheckout,
+        callerFetch,
+      );
       vi.stubEnv(
         "REVIEW_THREAD_LIFECYCLE_TRUSTED_AUTHORS",
         "reviewrouter-e2e[bot]",
@@ -381,24 +447,36 @@ lifecycleCase.each([
         app,
         owned.routes.publication,
       );
-      if (!owned.routes.accountGatewayRelay)
-        throw new Error("paired_lifecycle_real_relay_required");
-      await registerReviewRunGatewayRelayRoutes(
-        app,
-        owned.routes.accountGatewayRelay,
-      );
+      if (gateway) {
+        if (!owned.routes.accountGatewayRelay)
+          throw new Error("paired_lifecycle_real_relay_required");
+        await registerReviewRunGatewayRelayRoutes(
+          app,
+          owned.routes.accountGatewayRelay,
+        );
+      }
       if (production) {
-        if (!owned.routes.accountGatewayCheckout || !owned.routes.reviewSkills)
+        const checkoutRoutes = gateway
+          ? owned.routes.accountGatewayCheckout
+          : owned.routes.modelRouteCheckout;
+        if (!checkoutRoutes || !owned.routes.reviewSkills)
           throw new Error(
             "paired_production_checkout_and_skills_routes_required",
           );
-        await registerReviewRunGatewayCheckoutRoute(
-          app,
-          owned.routes.accountGatewayCheckout,
-        );
+        await registerReviewRunCheckoutRoute(app, checkoutRoutes);
         await registerReviewRunSkillsRoute(app, owned.routes.reviewSkills);
         await registerReviewRunControlV2Routes(app, owned.routes.runControl);
       }
+      const hosted =
+        routeName === "hosted-pool"
+          ? await prepareHostedProductionRoute(
+              owned,
+              app,
+              networkFetch,
+              upstream.origin,
+              route.provider,
+            )
+          : undefined;
       if (unified) {
         if (!owned.routes.modelDispatch)
           throw new Error("paired_lifecycle_model_dispatch_route_required");
@@ -417,15 +495,23 @@ lifecycleCase.each([
           url: URL | string,
           options: https.RequestOptions,
           callback: any,
-        ) =>
-          nativeRequest(
+        ) => {
+          const target = new URL(url);
+          const upstreamEndpoint =
+            route.descriptor?.fixedResponsesUrl ??
+            "https://chatgpt.com/backend-api/codex/responses";
+          if (!gateway && target.href === upstreamEndpoint) {
+            return httpRequest(`${upstream.origin}/native`, options, callback);
+          }
+          return nativeRequest(
             url,
             {
               ...options,
-              ...(new URL(url).origin === apiOrigin ? { ca: tls!.cert } : {}),
+              ...(target.origin === apiOrigin ? { ca: tls!.cert } : {}),
             },
             callback,
-          )) as typeof https.request);
+          );
+        }) as typeof https.request);
         syncBuiltinESMExports();
       }
       const load = (relative: string) =>
@@ -1373,19 +1459,53 @@ lifecycleCase.each([
               report: (event: { type: string }) => progress.push(event.type),
             },
           });
-          const plane = control(authorization.result);
+          const plane = new adapterModule.ReviewActionV2ControlPlaneAdapter(
+            client,
+          );
+          await plane.authorize({
+            oidcToken: (await owned.createRenewRequest(authorization))
+              .oidcToken,
+          });
           const native = plane.currentAuthorization();
           const controller = new AbortController();
-          const transport =
-            new modelTransportModule.AccountGatewayModelTransport(
-              apiOrigin,
-              () => plane.currentAuthorization().authorizationToken,
-            );
+          const transport = gateway
+            ? new modelTransportModule.AccountGatewayModelTransport(
+                apiOrigin,
+                () => plane.currentAuthorization().authorizationToken,
+              )
+            : undefined;
+          const checkoutValue = gateway
+            ? await transport!.checkoutCapability(
+                { providerInstanceId, workflowSchemaVersion },
+                controller.signal,
+              )
+            : await (async () => {
+                const response = await apiFetch(
+                  new URL("/api/action/v2/model-route/checkout", apiOrigin),
+                  {
+                    method: "POST",
+                    headers: {
+                      authorization: `Bearer ${native.authorizationToken}`,
+                      "content-type": "application/json",
+                    },
+                    body: JSON.stringify({
+                      transport: route.transport,
+                      providerIndex: 0,
+                      workflowSchemaVersion: 2,
+                    }),
+                  },
+                );
+                return {
+                  httpStatus: response.status,
+                  value: await response.json(),
+                };
+              })();
+          expect(
+            checkoutValue.httpStatus,
+            JSON.stringify(checkoutValue.value),
+          ).toBe(200);
           const capability = gatewayRuntime.validateAccountGatewayCheckout(
-            await transport.checkoutCapability(
-              { providerInstanceId, workflowSchemaVersion },
-              controller.signal,
-            ),
+            checkoutValue,
             repository,
             native.facts.headSha,
           );
@@ -1394,23 +1514,98 @@ lifecycleCase.each([
             runtimeEnv[reviewModelDispatchContract.capabilityRuntimeEnvKey],
           );
           expect(dispatchCapability).toMatchObject({
-            transport: "account_gateway",
+            transport: route.transport,
             model,
-            // Admission intersects the producer ceiling32 with native quota9.
-            maxRequests: 9,
+            maxRequests: gateway ? 9 : 32,
+            wireProtocol: route.protocol,
           });
-          transport.setModelDispatch(
-            new modelDispatchModule.PreparedModelDispatch({
-              apiUrl: apiOrigin,
-              capability: dispatchCapability,
-              authorization: () => plane.currentAuthorization(),
-              fetchImpl: apiFetch,
-            }),
-          );
-          const bridge =
-            await modelTransportModule.startLocalGatewayModelTransport(
-              transport,
+          const dispatch = new modelDispatchModule.PreparedModelDispatch({
+            apiUrl: apiOrigin,
+            capability: dispatchCapability,
+            authorization: () => plane.currentAuthorization(),
+            fetchImpl: apiFetch,
+          });
+          let bridge: any;
+          if (gateway) {
+            transport!.setModelDispatch(dispatch);
+            bridge = await modelTransportModule.startLocalGatewayModelTransport(
+              transport!,
             );
+          } else if (route.mode) {
+            bridge =
+              await modelTransportModule.startDirectProviderApiModelTransport(
+                route.mode,
+                () => "paired-native-credential",
+                {
+                  requestMs: 60_000,
+                  streamFrameBytes: 64 * 1024,
+                  modelDispatch: dispatch,
+                },
+              );
+          } else if (routeName === "codex-subscription") {
+            bridge =
+              await modelTransportModule.startRunnerLocalCodexSubscriptionModelTransport(
+                {
+                  credential: {
+                    accessToken: "paired-native-credential",
+                    accountId: "paired-original-account",
+                    credentialValidUntil:
+                      Date.parse(dispatchCapability.deadline) + 60_000,
+                  },
+                  modelDispatch: dispatch,
+                  reasoningEffort: runtimeEnv.CODEX_REASONING_EFFORT ?? null,
+                  signal: controller.signal,
+                },
+              );
+          } else if (routeName === "claude-subscription") {
+            const claude = await load(
+              "src/codex-oauth/claude-subscription-bootstrap.ts",
+            );
+            const credential = claude.prepareClaudeSubscriptionCredential({
+              env: {
+                CLAUDE_CODE_OAUTH_TOKEN: `sk-ant-oat01-${"a".repeat(80)}`,
+              },
+              signal: controller.signal,
+            });
+            bridge = await claude.prepareClaudeSubscriptionModelRoute({
+              runtimeConfig: capability.runtimeConfig,
+              modelDispatch: dispatch,
+              credential,
+              signal: controller.signal,
+              fetchImpl: async (
+                input: RequestInfo | URL,
+                init?: RequestInit,
+              ) => {
+                expect(String(input)).toBe(
+                  "https://api.anthropic.com/v1/messages",
+                );
+                expect(new Headers(init?.headers).get("authorization")).toBe(
+                  `Bearer sk-ant-oat01-${"a".repeat(80)}`,
+                );
+                return networkFetch(`${upstream.origin}/native`, {
+                  ...init,
+                  headers: {
+                    ...Object.fromEntries(new Headers(init?.headers)),
+                    authorization: "Bearer paired-native-credential",
+                  },
+                });
+              },
+            });
+          } else if (hosted) {
+            const grant = await hosted.prepareHead(
+              authorization.sourceRunAttempt ?? "1",
+            );
+            bridge =
+              await modelTransportModule.startHostedPoolCodexModelTransport({
+                apiUrl: apiOrigin,
+                authorization: () =>
+                  plane.currentAuthorization().authorizationToken,
+                readGrant: () => grant.opaque,
+                modelDispatch: dispatch,
+                reasoningEffort: runtimeEnv.CODEX_REASONING_EFFORT ?? null,
+                signal: controller.signal,
+              });
+          } else throw new Error("paired_hosted_route_preparation_required");
           let ocrRun: any;
           let pending: Promise<void> | undefined;
           try {
@@ -1420,7 +1615,7 @@ lifecycleCase.each([
             );
             expect(approvedAgent).toMatchObject({
               agentKind: "ocr",
-              packageVersion: "1.13.1-rr.5",
+              packageVersion: "1.13.1-rr.6",
               binarySha256: pairedOcrBinarySha256,
             });
             ocrRun = await ocrBootstrap.prepareOcrManagedRun({
@@ -1430,6 +1625,10 @@ lifecycleCase.each([
                 modelTransportModule.LOCAL_MODEL_CAPABILITY_ENV
               ].slice("Bearer ".length),
               model,
+              protocol:
+                route.protocol === "anthropic-messages"
+                  ? "anthropic-messages"
+                  : "openai-responses",
               requestTimeoutSec: 60,
               modelReasoningEffort: runtimeEnv.CODEX_REASONING_EFFORT ?? null,
               admittedRuntimeConfig: capability.runtimeConfig,
@@ -1456,12 +1655,23 @@ lifecycleCase.each([
                   token: capability.token,
                   expiresAt: capability.expiresAt,
                 }),
-                accountGateway: {
-                  runtimeConfig: capability.runtimeConfig,
-                  signal: controller.signal,
-                  controlPlane: plane,
-                  modelTransport: bridge,
-                },
+                ...(gateway
+                  ? {
+                      accountGateway: {
+                        runtimeConfig: capability.runtimeConfig,
+                        signal: controller.signal,
+                        controlPlane: plane,
+                        modelTransport: bridge,
+                      },
+                    }
+                  : {
+                      preparedRoute: {
+                        runtimeConfig: capability.runtimeConfig,
+                        signal: controller.signal,
+                        controlPlane: plane,
+                        modelTransport: bridge,
+                      },
+                    }),
                 ocr: { run: ocrRun, effectFacts: bridge.failureFact },
               })
               .then(
@@ -1494,6 +1704,9 @@ lifecycleCase.each([
                 progress,
                 apiRejections,
                 kinds: upstream.nativeKinds(),
+                transportFailure: bridge.failureFact?.(),
+                hostedDiagnostics: hosted?.diagnostics,
+                hostedSessions: hosted?.sessions,
               }),
             ).toMatchObject({ outcome: "completed" });
             expect(result.publicationReceipt).toBeDefined();
@@ -1520,6 +1733,33 @@ lifecycleCase.each([
             expect(dispatches.length).toBeLessThanOrEqual(
               dispatchCapability.maxRequests,
             );
+            if (hosted) {
+              const grant = await hosted.inspect(
+                authorization.sourceRunAttempt ?? "1",
+              );
+              expect(grant).toMatchObject({
+                activeAccountId: "paired-original-account",
+                failoverCount: 0,
+                requestCount: dispatches.length,
+                inFlight: 0,
+              });
+              expect(grant.relayRequests).toHaveLength(dispatches.length);
+              expect(
+                grant.relayRequests.every(
+                  (request) =>
+                    request.status === "succeeded" &&
+                    request.upstreamAttempts.length === 1 &&
+                    request.upstreamAttempts[0]?.state === "succeeded" &&
+                    request.upstreamAttempts[0]?.accountId ===
+                      grant.activeAccountId,
+                ),
+              ).toBe(true);
+              expect(
+                hosted.sessions.every(
+                  (account) => account === grant.activeAccountId,
+                ),
+              ).toBe(true);
+            }
             return {
               result,
               execution,
@@ -1536,15 +1776,30 @@ lifecycleCase.each([
           }
         };
 
+        const authorize = (attempt: string) =>
+          owned
+            .authorize({
+              sourceRunAttempt: attempt,
+              ...(route.mode ? { providerApiAuthMode: route.mode } : {}),
+            })
+            .catch((cause: unknown) => {
+              const issues =
+                cause && typeof cause === "object" && "issues" in cause
+                  ? cause.issues
+                  : undefined;
+              throw new Error(
+                `paired_production_admission:${route.name}:${JSON.stringify(issues)}`,
+                { cause },
+              );
+            });
         upstream.setDiscovery(
           oldClaims.map((claim, index) =>
             legacyFinding(claim[0], claim[1], claim[2], String(index + 1)),
           ),
           checkout.currentSource(),
         );
-        const firstAuthorization = await owned.authorize({
-          sourceRunAttempt: "1",
-        });
+        await hosted?.prepareHead("1");
+        const firstAuthorization = await authorize("1");
         const first = await run(firstAuthorization);
         expect(first.envelope.coverage.state).toBe("complete");
         expect(first.envelope.snapshot.lineageHints).toHaveLength(4);
@@ -1581,9 +1836,8 @@ lifecycleCase.each([
           ],
           checkout.currentSource(),
         );
-        const secondAuthorization = await owned.authorize({
-          sourceRunAttempt: "2",
-        });
+        await hosted?.prepareHead("2");
+        const secondAuthorization = await authorize("2");
         const second = await run(secondAuthorization);
         expect(second.envelope.coverage.state).toBe("complete");
         expect(second.envelope.publishing.summary.body).toContain(
@@ -1669,7 +1923,9 @@ lifecycleCase.each([
         const callsBeforeRetry = upstream.requests();
         const reviewsBeforeRetry = threads.publishedComments().length;
         const resolveBeforeRetry = threads.resolveCalls();
-        const repeated = await run(secondAuthorization);
+        // Ordinary renewable routes restore the same admitted run with its
+        // current bearer; the original token may have been renewed during A/B.
+        const repeated = await run(await authorize("2"));
         expect(repeated.result.publicationReceipt).toEqual(
           second.result.publicationReceipt,
         );
@@ -1685,6 +1941,7 @@ lifecycleCase.each([
         expect(threads.resolveCalls()).toBe(resolveBeforeRetry);
         expect(apiRejections).toEqual([]);
         console.info("paired_production_runner_acceptance", {
+          route: route.name,
           binarySha256: pairedOcrBinarySha256,
           firstHead: {
             findings: first.envelope.snapshot.lineageHints.length,
@@ -2167,7 +2424,7 @@ lifecycleCase.each([
 );
 
 const pairedOcrBinarySha256 =
-  "a7bed0cea8ab05503c7de53f8c3825a75c285eb8364c832accc42dbebb0d42db";
+  "9dd5f115747d24100f0767133a3288d268f3bc399675f5b826e7a867d101ee5c";
 
 function requiredPairedOcrBinary(): string {
   const binary = process.env.REVIEW_ROUTER_PAIRED_OCR_BINARY;
@@ -2418,12 +2675,13 @@ function loopbackApiFetch(
 async function selectSavedGateway(
   fixture: ReviewActionV2E2EHarness,
   production = false,
+  profileRef = "paired-responses-v1",
 ) {
   const connection = await fixture.prisma.providerAccountConnection.create({
     data: {
       ownerWorkspaceId: fixture.workspaceId,
       gatewayAccountRef: `${fixture.prefix}-account`,
-      profileRef: "paired-responses-v1",
+      profileRef,
       displayName: "Disposable lifecycle paired",
       state: "active",
     },
@@ -2484,7 +2742,16 @@ type Packet = {
   }>;
   sources: Array<{ path: string; blobOid: string; content: string }>;
 };
-async function controlledGateway(scenario: Scenario) {
+async function controlledGateway(
+  scenario: Scenario,
+  route = productionModelRoute(),
+) {
+  const model = route.model;
+  let gatewayOwner: { accountRef: string; ownerRef: string } | undefined;
+  const gatewayProfile =
+    scenario === "production_runner"
+      ? "openrouter-openai-responses-apikey-v1"
+      : "paired-responses-v1";
   let packet: Packet | undefined;
   let discoveryFindings: readonly unknown[] = [];
   let discoverySource = source;
@@ -2494,16 +2761,7 @@ async function controlledGateway(scenario: Scenario) {
   let last = Buffer.alloc(0);
   const admissions = new Map<string, Record<string, unknown>>();
   const uncertainRequests = new Set<string>();
-  const writerKeys = generateKeyPairSync("ed25519");
-  const writerKeyId = "paired-writer-witness";
-  const writerBinding = {
-    environmentId: "paired-lifecycle-disposable",
-    deploymentRevision: "a".repeat(40),
-    artifactDigest: `sha256:${hash("paired-test-executor")}`,
-    fleetDigest: hash("paired-owned-handler-settled"),
-  };
-  let writerAttestation: AttestResolutionWriterQualification | undefined;
-  let restoreDatabaseComment: (() => Promise<void>) | undefined;
+  const writer = await createPairedResolutionWriterFixture();
   const server = createServer((request, response) => {
     void (async () => {
       const chunks: Buffer[] = [];
@@ -2514,12 +2772,50 @@ async function controlledGateway(scenario: Scenario) {
         response
           .writeHead(status, { "content-type": "application/json" })
           .end(JSON.stringify(value));
-      if (request.url === "/v1/resolution-writer-qualification") {
+      if (request.url?.startsWith("/v1/accounts/")) {
         expect(request.headers.authorization).toBe(
           `Bearer ${lifecycleGatewayFixtureControlBearer}`,
         );
-        if (!writerAttestation) throw new Error("paired_writer_not_bound");
-        json(200, await writerAttestation.execute());
+        if (
+          !gatewayOwner ||
+          request.url !== `/v1/accounts/${gatewayOwner.accountRef}`
+        )
+          throw new Error("paired_gateway_account_scope_mismatch");
+        json(200, {
+          ...gatewayOwner,
+          profileId: gatewayProfile,
+          displayName: "Synthetic original account",
+          state: "active",
+          metadataRevision: 1,
+          authorizationEpoch: 1,
+        });
+        return;
+      }
+      if (request.url === "/v1/account-models/read") {
+        expect(request.headers.authorization).toBe(
+          `Bearer ${lifecycleGatewayFixtureControlBearer}`,
+        );
+        expect(body).toMatchObject({
+          ...gatewayOwner,
+          profileId: gatewayProfile,
+          expectedAuthorizationEpoch: 1,
+        });
+        json(200, {
+          status: "snapshot",
+          physicalGeneration: "paired-generation",
+          principalVersion: "paired-principal",
+          source: "openrouter",
+          fetchedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 300_000).toISOString(),
+          models: [
+            {
+              modelId: model,
+              reasoning: { allowed: ["high"], default: "high" },
+              fast: null,
+              tools: { allowed: ["function"], default: "function" },
+            },
+          ],
+        });
         return;
       }
       if (request.url === "/internal/v1/run-access") {
@@ -2573,15 +2869,63 @@ async function controlledGateway(scenario: Scenario) {
         json(200, { operationRef: body.operationId, state: "applied" });
         return;
       }
-      if (request.method === "POST" && request.url?.endsWith("/requests")) {
-        expect(request.headers.authorization).toBe("Bearer paired-execution");
-        const supplied = JSON.parse(
-          String(request.headers["x-gateway-admission"]),
-        );
-        expect([...admissions.values()]).toContainEqual(supplied);
+      if (
+        request.method === "POST" &&
+        (request.url?.endsWith("/requests") || request.url === "/native")
+      ) {
+        if (request.url !== "/native") {
+          expect(request.headers.authorization).toBe("Bearer paired-execution");
+          const supplied = JSON.parse(
+            String(request.headers["x-gateway-admission"]),
+          );
+          expect([...admissions.values()]).toContainEqual(supplied);
+        } else {
+          expect(request.headers.authorization).toBe(
+            "Bearer paired-native-credential",
+          );
+          if (route.protocol === "codex-responses") {
+            expect(request.headers["chatgpt-account-id"]).toBe(
+              "paired-original-account",
+            );
+            expect(body).not.toHaveProperty("max_output_tokens");
+          }
+        }
         calls++;
         last = bytes;
-        const respondNative = (output: readonly unknown[]) =>
+        const respondNative = (output: readonly unknown[]) => {
+          if (route.protocol === "anthropic-messages") {
+            const content = output.map((entry: any) =>
+              entry.type === "function_call"
+                ? {
+                    type: "tool_use",
+                    id: entry.call_id,
+                    name: entry.name,
+                    input: JSON.parse(entry.arguments),
+                  }
+                : {
+                    type: "text",
+                    text: entry.content
+                      .map((block: any) => block.text ?? "")
+                      .join("\n"),
+                  },
+            );
+            response.writeHead(200, { "content-type": "application/json" }).end(
+              JSON.stringify({
+                id: `paired-message-${calls}`,
+                type: "message",
+                role: "assistant",
+                model,
+                content,
+                stop_reason: content.some(
+                  (entry: any) => entry.type === "tool_use",
+                )
+                  ? "tool_use"
+                  : "end_turn",
+                usage: { input_tokens: 100, output_tokens: 100 },
+              }),
+            );
+            return;
+          }
           response
             .writeHead(200, {
               "content-type": "text/event-stream",
@@ -2606,6 +2950,7 @@ async function controlledGateway(scenario: Scenario) {
                 },
               })}\n\n`,
             );
+        };
         const respondCompleted = (answer: unknown) =>
           respondNative([
             {
@@ -2615,12 +2960,18 @@ async function controlledGateway(scenario: Scenario) {
             },
           ]);
         expect(body.model).toBe(model);
-        expect(body.max_output_tokens).toBeLessThanOrEqual(4096);
+        if (route.protocol !== "codex-responses")
+          expect(body.max_output_tokens ?? body.max_tokens).toBeLessThanOrEqual(
+            4096,
+          );
         let sentPacket: Packet & { fixture?: string };
         if (scenario === "production_runner") {
           let candidate: Partial<Packet> | undefined;
           try {
-            candidate = JSON.parse(body.input?.[0]?.content?.[0]?.text);
+            candidate = JSON.parse(
+              body.input?.[0]?.content?.[0]?.text ??
+                body.messages?.[0]?.content?.[0]?.text,
+            );
           } catch {
             /* Native OCR prompts are text. */
           }
@@ -2792,83 +3143,14 @@ async function controlledGateway(scenario: Scenario) {
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return {
     origin,
-    writerEnvironment: {
-      REVIEW_ROUTER_RESOLUTION_WRITER_WITNESS_URL: origin,
-      REVIEW_ROUTER_RESOLUTION_WRITER_WITNESS_KEY_ID: writerKeyId,
-      REVIEW_ROUTER_RESOLUTION_WRITER_WITNESS_PUBLIC_KEY_PEM:
-        writerKeys.publicKey.export({ type: "spki", format: "pem" }).toString(),
-      REVIEW_ROUTER_RESOLUTION_WRITER_WITNESS_TOKEN:
-        lifecycleGatewayFixtureControlBearer,
-      REVIEW_ROUTER_RESOLUTION_WRITER_ENVIRONMENT_ID:
-        writerBinding.environmentId,
-      REVIEW_ROUTER_RESOLUTION_WRITER_DEPLOYMENT_REVISION:
-        writerBinding.deploymentRevision,
-      REVIEW_ROUTER_RESOLUTION_WRITER_ARTIFACT_DIGEST:
-        writerBinding.artifactDigest,
-      REVIEW_ROUTER_RESOLUTION_WRITER_FLEET_DIGEST: writerBinding.fleetDigest,
-    },
-    async bindResolutionWriterDatabase(
-      prisma: ReviewActionV2E2EHarness["prisma"],
-    ) {
-      const rows = await prisma.$queryRaw<
-        {
-          serverIdentity: string;
-          databaseIdentity: string;
-          databaseName: string;
-          databaseComment: string | null;
-        }[]
-      >`SELECT (SELECT system_identifier::text FROM pg_catalog.pg_control_system()) AS "serverIdentity", oid::text AS "databaseIdentity", datname AS "databaseName", pg_catalog.shobj_description(oid, 'pg_database') AS "databaseComment" FROM pg_catalog.pg_database WHERE datname = current_database()`;
-      const row = rows[0];
-      if (rows.length !== 1 || !row || !/(?:test|ci)/.test(row.databaseName))
-        throw new Error("paired_writer_disposable_database_required");
-      const recoveryWitnessSha256 = hash(
-        `paired-generation:${row.databaseIdentity}`,
-      );
-      const identifier = `"${row.databaseName.replaceAll('"', '""')}"`;
-      const setComment = (comment: string | null) =>
-        prisma.$executeRawUnsafe(
-          `COMMENT ON DATABASE ${identifier} IS ${comment === null ? "NULL" : `'${comment.replaceAll("'", "''")}'`}`,
-        );
-      restoreDatabaseComment = async () => {
-        await setComment(row.databaseComment);
+    setGatewayOwner(fixture: ReviewActionV2E2EHarness) {
+      gatewayOwner = {
+        accountRef: `${fixture.prefix}-account`,
+        ownerRef: `rrw_${hash(`rr-workspace-owner-v1\0${fixture.workspaceId}`)}`,
       };
-      await setComment(JSON.stringify({ recoveryWitnessSha256 }));
-      writerAttestation = new AttestResolutionWriterQualification(
-        {
-          async observe() {
-            return {
-              ...writerBinding,
-              database: {
-                serverIdentity: row.serverIdentity,
-                databaseIdentity: row.databaseIdentity,
-                databaseName: row.databaseName,
-                recoveryWitnessSha256,
-              },
-              proof: {
-                writerDigest: writerBinding.fleetDigest,
-                qualificationSource: "managed_executor_handler_settlement.v1",
-                executors: [
-                  {
-                    executorId: "paired-owned-app-adapter",
-                    binaryDigest: hash("paired-test-executor"),
-                    acceptsNewRequests: false,
-                    handlerSettlement: "terminal_or_exact_durable_pending",
-                  },
-                ],
-              },
-              observedAt: new Date().toISOString(),
-            };
-          },
-        },
-        new Ed25519ReleaseWitnessSignerAdapter(
-          writerKeyId,
-          writerKeys.privateKey
-            .export({ type: "pkcs8", format: "pem" })
-            .toString(),
-        ),
-        { assertOrdinary: async () => {}, assertForceNew: async () => {} },
-      );
     },
+    writerEnvironment: writer.environment,
+    bindResolutionWriterDatabase: writer.bind,
     setPacket(value: Packet) {
       packet = value;
     },
@@ -2881,7 +3163,7 @@ async function controlledGateway(scenario: Scenario) {
     requests: () => calls,
     lastRequest: () => last,
     close: async () => {
-      await restoreDatabaseComment?.();
+      await writer.close();
       return new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
         server.closeAllConnections();
@@ -2894,6 +3176,7 @@ function nativeThreads(
   github: FakeGitHubTransport,
   scenario: Scenario,
   checkout?: ReturnType<typeof createRealLifecycleCheckout>,
+  fallbackFetch?: typeof github.fetch,
 ) {
   type Thread = {
     id: string;
@@ -2914,7 +3197,7 @@ function nativeThreads(
   let calls = 0;
   const requestThreads: string[] = [];
   let unknownEffect = false;
-  const original = github.fetch;
+  const original = fallbackFetch ?? github.fetch;
   vi.spyOn(github, "fetch").mockImplementation(async (input, init) => {
     const request =
       input instanceof Request ? input : new Request(String(input), init);
@@ -3051,6 +3334,8 @@ function nativeThreads(
                 body: comment.body,
                 createdAt,
                 updatedAt: createdAt,
+                publishedAt: createdAt,
+                lastEditedAt: null,
                 path: comment.path,
                 line: comment.line,
                 originalLine: comment.line,
@@ -3170,6 +3455,8 @@ function nativeThreads(
             body: `_🟡 Major_\n\n**${hint.title}**\n\n${hint.message}\n\n<!-- reviewrouter:finding:v2:${hint.lineageId} -->`,
             createdAt: parentCreatedAt,
             updatedAt: parentCreatedAt,
+            publishedAt: parentCreatedAt,
+            lastEditedAt: null,
             path: filePath,
             line: Number(hint.line ?? 1),
             originalLine: Number(hint.line ?? 1),

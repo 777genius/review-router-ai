@@ -184,6 +184,8 @@ export type ReviewActionV2E2EHarnessOptions = Readonly<{
   agentProfiles?: readonly ReviewAgentProfile[];
   /** Signed workflow identity; independent of the configured policy. */
   modelTransport?: "account_gateway" | "provider_api";
+  /** Use the actual canonical native Claude caller identity and source proof. */
+  subscriptionAuthMode?: "claude-oauth";
   /** Shorten only the synthetic mint, without changing server run authority. */
   oidcLifetimeSeconds?: number;
   investigationProfile?: ReviewActionV2E2EInvestigationProfile;
@@ -224,6 +226,7 @@ export class ReviewActionV2E2EHarness {
   private oidcOrdinal = 0;
   private readonly oidcLifetimeSeconds: number;
   private readonly modelTransport: "account_gateway" | "provider_api";
+  private readonly subscriptionAuthMode: "claude-oauth" | undefined;
 
   private constructor(input: {
     readonly prisma: PrismaClient;
@@ -242,6 +245,7 @@ export class ReviewActionV2E2EHarness {
     readonly originalFetch: typeof globalThis.fetch;
     readonly oidcLifetimeSeconds: number;
     readonly modelTransport: "account_gateway" | "provider_api";
+    readonly subscriptionAuthMode?: "claude-oauth";
   }) {
     this.prisma = input.prisma;
     this.fakeGitHub = input.fakeGitHub;
@@ -263,6 +267,7 @@ export class ReviewActionV2E2EHarness {
     this.originalFetch = input.originalFetch;
     this.oidcLifetimeSeconds = input.oidcLifetimeSeconds;
     this.modelTransport = input.modelTransport;
+    this.subscriptionAuthMode = input.subscriptionAuthMode;
   }
 
   static async create(
@@ -441,6 +446,9 @@ export class ReviewActionV2E2EHarness {
         originalFetch,
         oidcLifetimeSeconds,
         modelTransport: options.modelTransport ?? "provider_api",
+        ...(options.subscriptionAuthMode
+          ? { subscriptionAuthMode: options.subscriptionAuthMode }
+          : {}),
       });
     } catch (error) {
       globalThis.fetch = originalFetch;
@@ -1548,7 +1556,7 @@ export class ReviewActionV2E2EHarness {
       ref: "refs/heads/main",
       run_id: sourceRunId,
       run_attempt: runAttempt,
-      workflow_ref: `${owner}/${repo}/.github/workflows/${this.modelTransport === "account_gateway" || providerApiAuthMode ? "reviewrouter-review.yml" : "reviewrouter-codex.yml"}@refs/heads/main`,
+      workflow_ref: `${owner}/${repo}/.github/workflows/${this.modelTransport === "account_gateway" || providerApiAuthMode || this.subscriptionAuthMode ? "reviewrouter-review.yml" : "reviewrouter-codex.yml"}@refs/heads/main`,
       workflow_sha: this.fakeGitHub.revision.headSha,
       job_workflow_ref:
         this.modelTransport === "account_gateway"
