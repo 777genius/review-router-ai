@@ -44,6 +44,8 @@ async function choose(page: Page, label: string, value: string) {
     name: label === "Account" ? /^Account\b/ : label,
     exact: true,
   });
+  // An unavailable saved value filters this editable model input's suggestions.
+  if (label === "Model") await control.fill("");
   await expect(async () => {
     if (!(await page.getByRole("listbox").count())) await control.click();
     await expect(
@@ -51,6 +53,7 @@ async function choose(page: Page, label: string, value: string) {
     ).toBeVisible({ timeout: 1000 });
   }).toPass({ timeout: 20000 });
   await page.getByRole("option").filter({ hasText: value }).click();
+  if (label === "Model") await expect(control).toHaveValue(value);
 }
 async function profiles() {
   return withDatabase(
@@ -91,11 +94,11 @@ test("dynamic Codex account models work in provider edit and add with exact bind
   await row.getByRole("button", { name: "Edit", exact: true }).click();
   const dialog = page.getByRole("dialog");
   const model = dialog.getByRole("combobox", { name: "Model", exact: true });
-  await expect(model).toContainText(savedModel);
+  await expect(model).toHaveValue(savedModel);
   await expect(dialog.getByRole("status")).toContainText(
     "Account model catalog.",
   );
-  await expect(model).toContainText(savedModel);
+  await expect(model).toHaveValue(savedModel);
   await choose(page, "Model", CODEX_A_MODEL);
   // The same model is now offered only by account B; A must reject the stale
   // selection at the real server action before changing the profile row.
@@ -115,7 +118,7 @@ test("dynamic Codex account models work in provider edit and add with exact bind
   await expect(dialog.getByRole("status")).toContainText(
     "Account model catalog.",
   );
-  await expect(model).toContainText(CODEX_A_MODEL);
+  await expect(model).toHaveValue(CODEX_A_MODEL);
   await choose(page, "Model", CODEX_A_REFRESHED);
   const after = await fixture();
   const forceReads = after.reads
