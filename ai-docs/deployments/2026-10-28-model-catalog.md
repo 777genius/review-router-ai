@@ -141,3 +141,38 @@ checker attempt rejected the deliberate liveness-only `/health` response. The
 checker was corrected to require `status=ok` plus the database dependency from
 `/ready`, matching the deployed source contract; it then passed completely. This
 script correction requires no runtime rollout.
+
+### Paired diagnostic update: 2026-10-29 00:12 UTC
+
+The failed sixth native request was reconciled as closed, sealed, acknowledged,
+`entered=false`, with no transport occupancy. Five preceding requests completed.
+This narrows the failure to native admission before upstream entry; it is not
+evidence of quota exhaustion. A diagnostic-only native update
+[`3f163627`](https://github.com/agent-teams-ai/sub2api/pull/75) and paired Gateway
+[`3a838c8`](https://github.com/agent-teams-ai/account-gateway/pull/85) were deployed
+at 00:12 UTC. Only fifteen fixed phase names can leave the native sanitizer, with
+no request/account/provider content; authorization, TTL, payload guards and effect
+semantics are unchanged. Native tests: 511 passing test/subtest events, 78 top-level
+cases. Gateway: 16 tests each on Node24.21.0 and26.11.1; service and typed-test
+typechecks passed. Gateway archive source parity covered all149 tracked files.
+
+Current native ELF SHA-256:
+`1fa1bd15c97624a008a7fcce370edca87af9177faac6ae6b6aae4df02ce83b58`.
+Native archive SHA-256:
+`6e6104ee3aa25e59152206ca5263e0269e2537dab75be021609a31f57b6bb7f2`.
+Gateway archive SHA-256:
+`660ca43fd3109aa18c4a998311ab3990ed3b3d0a88a73a9944294912bc49f5f5`.
+
+The paired update retained the 314 migration ledger, kernel histories, accounts
+and bootstrap. Both live catalogs return438 models; native admission was restored
+and verified on both hostnames. Protected production custody:
+`/srv/platform/projects/review-router/releases/admission-diagnostics-3f163627-3a838c8-20261029/`,
+with `ready-fenced.passed.json` and `unfence.passed.json`. An initial native archive
+transfer sent zero bytes because its worker file was root-private; the closed
+empty partial was verified and retained as `.partial.failed-empty`, then the
+correct root-readable transfer passed its exact size/hash. No service effect
+occurred during that failed transfer.
+
+A new canonical semantic rerun, workflow40092003089 attempt3, was requested after
+reconciliation and this diagnostic update. Do not claim successful completion
+until its actual result is verified.

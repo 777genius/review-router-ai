@@ -15,8 +15,8 @@ They do not grant deployment permission or replace existing operational runbooks
 
 | Task                                                 | Implementation                                                    | Staging   | Production    | Remaining work                                                                                             |
 | ---------------------------------------------------- | ----------------------------------------------------------------- | --------- | ------------- | ---------------------------------------------------------------------------------------------------------- |
-| [Review History](2026-10-28-review-history.md)       | [PR #730](https://github.com/777genius/review-router-ai/pull/730) | `pending` | `in_progress` | Prisma151/ACL, fleet/capture and activation passed; live review running; rerun/isolation remain.           |
-| [Account model catalog](2026-10-28-model-catalog.md) | [PR #739](https://github.com/777genius/review-router-ai/pull/739) | `pending` | `in_progress` | Fleet/native/catalog active; test model answered; verify real review publication and History checks.       |
+| [Review History](2026-10-28-review-history.md)       | [PR #730](https://github.com/777genius/review-router-ai/pull/730) | `pending` | `in_progress` | Prisma151/ACL and activation passed; isolation passed; verify successful review after transport diagnosis. |
+| [Account model catalog](2026-10-28-model-catalog.md) | [PR #739](https://github.com/777genius/review-router-ai/pull/739) | `pending` | `in_progress` | Fleet/catalog active; diagnostic native/Gateway update deployed; genuine review attempt3 underway.         |
 | [Skills catalog](2026-10-28-skills-catalog.md)       | [PR #735](https://github.com/777genius/review-router-ai/pull/735) | `pending` | `deployed`    | Bounded Skills repair deployed; subsequent application rollout preserves it. PR CI/merge remains separate. |
 
 The task file is authoritative; keep this summary in sync in the same commit.
