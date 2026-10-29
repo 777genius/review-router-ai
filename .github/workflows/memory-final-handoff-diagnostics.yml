@@ -4,45 +4,189 @@ on:
     branches: [agent/memory-final-handoff-diagnostics]
     paths: [.github/workflows/memory-final-handoff-diagnostics.yml]
 permissions:
-  contents: read
-  actions: read
+  contents: write
 concurrency:
   group: memory-final-handoff-diagnostics
   cancel-in-progress: true
 jobs:
-  collect:
+  qualify:
     runs-on: ${{ vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 5
-    steps:
-      - name: Collect existing failure without rerunning tests
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.5-bookworm@sha256:fbcea1bd13b6a882cd6caa6b58db3ae5c102efe50ec625b3e2a5cbc50db5bfe4
         env:
-          GH_TOKEN: ${{ github.token }}
+          POSTGRES_PASSWORD: postgres
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/review_router_ci?schema=public
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/review_router_ci_test?schema=public
+      REVIEW_ROUTER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/review_router_ci_test?schema=public
+      REVIEW_ROUTER_CONVERSATION_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewrouter_conversation_test
+      AUTH_SECRET: ci-auth-secret-not-used-for-production
+      AUTH_TRUST_HOST: 'true'
+      GITHUB_WEBHOOK_SECRET: ci-webhook-secret-not-used-for-production
+      REVIEW_ROUTER_WEB_URL: http://localhost:3000
+      REVIEW_ROUTER_PUBLIC_WEB_URL: https://web.reviewrouter.test
+      REVIEW_ROUTER_API_URL: http://localhost:4000
+      REVIEW_ROUTER_PUBLIC_API_URL: https://api.reviewrouter.test
+      REVIEW_ROUTER_ACTION_REF: 777genius/review-router@main
+      REVIEW_ROUTER_ACTION_VERSION: main
+      REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: 777genius/review-router@66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff
+      REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: ci_database_recovery_witness_not_for_production_000000000000
+      REVIEW_ROUTER_DEFAULT_MODEL: gpt-5.5
+      REVIEW_ROUTER_DEFAULT_EFFORT: xhigh
+      REVIEW_ROUTER_ENABLE_DASHBOARD_MUTATIONS: '0'
+      REVIEW_ROUTER_ENABLE_WORKFLOW_PROVISIONING: '0'
+      REVIEW_ROUTER_ACTION_SOURCE_DIR: ${{ github.workspace }}/.paired/review-router-action
+      REVIEW_ROUTER_REVIEW_INVESTIGATION_PAIRED_E2E: '1'
+      REVIEW_ROUTER_MEMORY_PAIRED_E2E: '1'
+      REVIEW_ROUTER_PG_DUMP: /usr/lib/postgresql/17/bin/pg_dump
+      REVIEW_ROUTER_PG_RESTORE: /usr/lib/postgresql/17/bin/pg_restore
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: 08e39a3928e6bf7752512099575a9d87602e8811
+          fetch-depth: 1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: 777genius/review-router
+          ref: 99cbd748aa025e27d5d9f689c3173c33b2d6b418
+          path: .paired/review-router-action
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 26.11.1
+      - name: Prepare exact toolchain and sources
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 08e39a3928e6bf7752512099575a9d87602e8811
+          test "$(git -C .paired/review-router-action rev-parse HEAD)" = 99cbd748aa025e27d5d9f689c3173c33b2d6b418
+          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+          node scripts/install-private-dependencies.mjs --frozen-lockfile
+          npm ci --ignore-scripts --prefix .paired/review-router-action
+          pnpm --dir packages/context-memory build
+          mkdir -p tmp/memory-final-handoff
+      - name: Install PostgreSQL client
+        uses: ./.github/actions/setup-postgresql-client
+      - name: Prepare disposable databases
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const client = new pg.Client({ connectionString: 'postgresql://postgres:postgres@127.0.0.1:5432/postgres' });
+          await client.connect();
+          try {
+            for (const name of ['review_router_ci', 'review_router_ci_test', 'reviewrouter_conversation_test']) await client.query(`CREATE DATABASE ${pg.escapeIdentifier(name)}`);
+          } finally { await client.end(); }
+          NODE
+          DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy
+      - name: Reproduce original lifecycle fixture failure
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p evidence
-          curl --fail --silent --show-error --location \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H 'Accept: application/vnd.github+json' \
-            https://api.github.com/repos/777genius/review-router-ai/actions/jobs/123428350197/logs \
-            -o evidence/source-certification.log
+          set +e
+          pnpm exec vitest run scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts --testNamePattern '\(success\)' --reporter=json --outputFile=tmp/memory-final-handoff/before.json >tmp/memory-final-handoff/before.log 2>&1
+          status=$?
+          set -e
+          test "$status" -ne 0
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const report = JSON.parse(readFileSync('tmp/memory-final-handoff/before.json', 'utf8'));
+          assert.equal(report.numFailedTests, 1);
+          const failed = report.testResults.flatMap(suite => suite.assertionResults).filter(test => test.status === 'failed');
+          assert.equal(failed.length, 1);
+          assert.match(failed[0].failureMessages.join('\n'), /expected \[\] to have a length of 1/);
+          console.log('Reproduced exact empty lifecycle packet failure on original immutable input.');
+          NODE
+      - name: Repair synthetic published-comment metadata and assert eligibility
+        run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
-          p = Path('evidence/source-certification.log')
-          lines = p.read_text().splitlines()
-          selected = set(range(max(0, len(lines)-180), len(lines)))
-          for i, line in enumerate(lines):
-              if re.search(r'FAIL|AssertionError|Error:|ERR_|not ok|expected.*received|Tests.*failed', line, re.I):
-                  selected.update(range(max(0, i-3), min(len(lines), i+14)))
-          text = '\n'.join(f'{i+1}: {lines[i]}' for i in sorted(selected))
-          Path('evidence/failure-excerpt.txt').write_text(text)
-          print(text[-24000:])
+          p = Path('scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts')
+          s = p.read_text()
+          old = '            createdAt: parentCreatedAt,\n            updatedAt: parentCreatedAt,\n'
+          new = old + '            publishedAt: parentCreatedAt,\n            lastEditedAt: null,\n'
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          old = '      expect(prompt.revalidationTargets).toHaveLength(4);\n'
+          new = old + '''      // Published and never edited: missing GitHub edit metadata must not
+                // accidentally turn this positive-path fixture into manual-only work.
+                for (const target of prompt.revalidationTargets) {
+                  expect(target).toMatchObject({
+                    trusted: true,
+                    parentEdited: false,
+                    markerAmbiguous: false,
+                  });
+                }
+          '''
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          p.write_text(s)
           PY
-      - name: Preserve exact diagnostic input
+          pnpm exec prettier --write scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts
+          pnpm exec eslint scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts
+      - name: Qualify full paired suite and memory wire path
+        run: |
+          pnpm exec vitest run --no-file-parallelism \
+            scripts/review-investigation-paired-e2e/review-investigation-paired.e2e.test.ts \
+            scripts/review-investigation-paired-e2e/openrouter-direct-paired.e2e.test.ts \
+            scripts/review-investigation-paired-e2e/pr-description-paired.e2e.test.ts \
+            scripts/review-investigation-paired-e2e/review-banner-comparison-paired.e2e.test.ts \
+            scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts \
+            scripts/memory-e2e/paired-action-memory.pg.test.ts \
+            --reporter=default --reporter=json --outputFile=tmp/memory-final-handoff/paired.json
+      - name: Qualify finite conversation PostgreSQL path
+        run: |
+          pnpm exec vitest run apps/api/src/action-conversation-finite-path.pg.test.ts \
+            --reporter=default --reporter=json --outputFile=tmp/memory-final-handoff/conversation.json
+      - name: Preserve real missing-metadata safety regressions
+        run: |
+          npm --prefix .paired/review-router-action test -- --runInBand --runTestsByPath \
+            __tests__/unit/github/review-thread-inventory.test.ts \
+            __tests__/unit/review-orchestration/github-review-state-adapter.test.ts \
+            __tests__/unit/finding-revalidation/plan-revalidation.test.ts \
+            --json --outputFile="$GITHUB_WORKSPACE/tmp/memory-final-handoff/action-guards.json"
+      - name: Require complete qualification without skipped tests
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          for (const [file, count] of [['paired.json',24], ['conversation.json',17], ['action-guards.json',null]]) {
+            const report = JSON.parse(readFileSync(`tmp/memory-final-handoff/${file}`, 'utf8'));
+            assert.equal(report.success, true, file);
+            if (count !== null) assert.equal(report.numTotalTests, count, file);
+            assert(report.numPassedTests > 0, file);
+            assert.equal(report.numPassedTests, report.numTotalTests, file);
+            assert.equal(report.numPendingTests, 0, file);
+            assert.equal(report.numFailedTests, 0, file);
+            assert.equal(report.numTodoTests ?? 0, 0, file);
+            console.log(file, report.numPassedTests, 'passed; no skipped tests');
+          }
+          NODE
+      - name: Publish bounded tested candidate without touching feature or main
+        run: |
+          set -euo pipefail
+          git diff --check
+          test "$(git diff --name-only)" = scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts
+          git config user.name 777genius
+          git config user.email iliyazelenkog@gmail.com
+          git add scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts
+          git commit -m 'test(memory): align paired lifecycle fixture with published-comment metadata'
+          git show --stat --oneline HEAD
+          git rev-parse HEAD >tmp/memory-final-handoff/qualified-sha.txt
+          git diff HEAD^ HEAD --binary >tmp/memory-final-handoff/qualified.patch
+          git push origin HEAD:refs/heads/agent/memory-final-handoff-verified
+      - name: Preserve bounded qualification evidence
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: memory-source-certification-failure
-          path: evidence/
+          name: memory-final-handoff-qualification
+          path: tmp/memory-final-handoff/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
