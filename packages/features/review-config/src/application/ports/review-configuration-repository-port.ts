@@ -207,6 +207,8 @@ export interface ReviewConfigurationRepositoryPort {
   saveNextVersions(input: {
     readonly workspaceId: string;
     readonly writes: readonly ReviewPolicyWrite[];
+    /** Observed inherited workspace head, checked under the same scope locks. */
+    readonly expectedWorkspaceVersion?: number | null;
     readonly selectionAuthority?: ProviderSelectionAuthority;
     readonly profileDrafts?: readonly ProviderProfileDraft[];
     /**

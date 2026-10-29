@@ -7,12 +7,20 @@ import {
   assertProviderProfileManagementGate,
   assertProviderSelectionAccessRights,
   assignProviderProfileToRepositories,
+  assignProviderSelectionsToRepositories,
+  clearRepositoryProviderSelections,
+  clearWorkspaceDefaultProviders,
+  setWorkspaceDefaultProviders,
+  reviewerExecutionPatchSchema,
+  repositoryReviewerExecutionPatchSchema,
   changeWorkspaceProviderProfileModel,
   clearRepositoryProviderSelection,
   createWorkspaceProviderProfile,
   parseProviderProfileDraft,
   parseProviderProfileLabel,
   ProviderManagementDeniedError,
+  PrismaReviewPolicyHeadReader,
+  parseStoredReviewPolicy,
   ProviderProfileError,
   renameWorkspaceProviderProfile,
   reviewProviderSelectionSchema,
@@ -300,6 +308,216 @@ export async function saveProviderSetupAction(
   }
 }
 
+const rosterProviderSchema = saveRequestSchema.shape.provider;
+const rosterRowSchema = z
+  .object({
+    provider: rosterProviderSchema,
+    settings: reviewProviderSelectionSchema.omit({ profileId: true }).strict(),
+  })
+  .strict();
+const rosterSaveSchema = z
+  .object({
+    workspaceId: z.string().trim().min(1),
+    expectedWorkspaceVersion: z.number().int().min(1).nullable(),
+    target: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("workspace") }).strict(),
+      z
+        .object({
+          kind: z.literal("repositories"),
+          repositories: z
+            .array(
+              z
+                .object({
+                  repositoryId: z.string().min(1),
+                  expectedVersion: z.number().int().min(1).nullable(),
+                })
+                .strict(),
+            )
+            .min(1)
+            .max(PROVIDER_SETUP_MAX_REPOSITORIES),
+        })
+        .strict(),
+    ]),
+    reviewers: z.array(rosterRowSchema).min(1).max(16).nullable(),
+    executionPatch: repositoryReviewerExecutionPatchSchema.optional(),
+  })
+  .strict();
+export type ProviderRosterSaveRequest = z.input<typeof rosterSaveSchema>;
+
+/** Commit the complete reviewer roster and its execution controls against the displayed policy heads. */
+export async function saveProviderRosterAction(
+  request: ProviderRosterSaveRequest,
+): Promise<ProviderSetupActionResult> {
+  const parsed = rosterSaveSchema.safeParse(request);
+  if (!parsed.success) return { status: "error", error: "invalid_form" };
+  const input = parsed.data;
+  const { workspaceId, target } = input;
+  const prisma = getPrisma();
+  try {
+    const actor =
+      target.kind === "workspace"
+        ? await assertDashboardMutationAllowed(workspaceId)
+        : await assertDashboardSignedInMutationActor();
+    await assertProviderSelectionAccessRights(
+      { workspaceId, actor: dashboardProviderActor(actor) },
+      { profiles: dashboardProviderProfiles(prisma) },
+    );
+    if (target.kind === "workspace" && input.reviewers === null)
+      return { status: "error", error: "invalid_form" };
+    const resolved = await Promise.all(
+      (input.reviewers ?? []).map((row) =>
+        dashboardProviderSelection({
+          prisma,
+          workspaceId,
+          provider:
+            row.provider.kind === "profile"
+              ? row.provider
+              : {
+                  ...row.provider,
+                  credential: row.provider.credential as never,
+                },
+          settings: row.settings,
+        }),
+      ),
+    );
+    const selections = resolved.map((row) => row.selection);
+    const drafts = resolved.flatMap((row) => (row.draft ? [row.draft] : []));
+    if (target.kind === "workspace") {
+      await assertDashboardEntitlement({
+        prisma,
+        workspaceId,
+        actor: actor.actor,
+        feature: "action_control_plane",
+      });
+      await createDashboardRateLimitPolicy(
+        prisma,
+      ).assertReviewConfigSaveAllowed({ workspaceId });
+      await setWorkspaceDefaultProviders(
+        {
+          workspaceId,
+          actor: dashboardProviderActor(actor),
+          selections,
+          drafts,
+          expectedVersion: input.expectedWorkspaceVersion,
+          executionPatch: reviewerExecutionPatchSchema.parse(
+            input.executionPatch ?? {},
+          ),
+        },
+        selectionDependencies({
+          workspaceId,
+          actor,
+          repositories: new Map(),
+          recheck: async () =>
+            assertGatewayReviewActorUnchanged(
+              actor,
+              await assertDashboardMutationAllowed(workspaceId),
+            ),
+        }),
+      );
+      revalidateDashboard();
+      return { status: "saved", results: [] };
+    }
+    const authorized = await authorizeRepositories(
+      workspaceId,
+      target.repositories.map((row) => row.repositoryId),
+    );
+    const first = authorized.allowed[0];
+    if (!first) return { status: "saved", results: authorized.refused };
+    const byId = new Map(
+      authorized.allowed.map((item) => [item.repository.id, item] as const),
+    );
+    const dependencies = selectionDependencies({
+      workspaceId,
+      actor: first.actor,
+      repositories: new Map(
+        authorized.allowed.map((item) => [item.repository.id, item.repository]),
+      ),
+      recheck: async (repositoryId) => {
+        const item = repositoryId ? byId.get(repositoryId) : undefined;
+        if (!item || !repositoryId) throw new Error("repository_not_found");
+        const current = await loadDashboardRepository({
+          prisma,
+          workspaceId,
+          repositoryId,
+        });
+        assertRepositoryConfigMutable(current);
+        assertGatewayReviewActorUnchanged(
+          item.actor,
+          await assertDashboardRepositoryConfigMutationAllowed(
+            workspaceId,
+            current,
+          ),
+        );
+      },
+    });
+    const repositories = authorized.allowed.map((item) => ({
+      repositoryId: item.repository.id,
+      capability: dashboardRepositoryCapability(item.actor),
+      expectedVersion: target.repositories.find(
+        (row) => row.repositoryId === item.repository.id,
+      )!.expectedVersion,
+    }));
+    let results: ProviderSetupAssignmentResult[];
+    if (input.reviewers === null) {
+      results = [];
+      for (const repository of repositories) {
+        try {
+          await clearRepositoryProviderSelections(
+            {
+              workspaceId,
+              actor: dashboardProviderActor(first.actor),
+              repository,
+              expectedWorkspaceVersion: input.expectedWorkspaceVersion,
+            },
+            dependencies,
+          );
+          results.push({
+            repositoryId: repository.repositoryId,
+            fullName: byId.get(repository.repositoryId)!.repository.fullName,
+            status: "applied",
+          });
+        } catch (error) {
+          const code = safeDashboardErrorCode(error);
+          results.push({
+            repositoryId: repository.repositoryId,
+            fullName: byId.get(repository.repositoryId)!.repository.fullName,
+            status: code === "dashboard_action_stale" ? "conflict" : "failed",
+            error: code,
+          });
+        }
+      }
+    } else {
+      const assignments = await assignProviderSelectionsToRepositories(
+        {
+          workspaceId,
+          actor: dashboardProviderActor(first.actor),
+          selections,
+          drafts,
+          expectedWorkspaceVersion: input.expectedWorkspaceVersion,
+          repositories,
+          ...(input.executionPatch
+            ? { executionPatch: input.executionPatch }
+            : {}),
+        },
+        dependencies,
+      );
+      results = assignments.map((result) => ({
+        repositoryId: result.repositoryId,
+        fullName: byId.get(result.repositoryId)!.repository.fullName,
+        status: result.status,
+        ...(result.status === "denied" ? { reason: result.reason } : {}),
+        ...(result.status === "failed"
+          ? { error: safeDashboardErrorCode(new Error(result.code)) }
+          : {}),
+      }));
+    }
+    revalidateDashboard();
+    return { status: "saved", results: [...results, ...authorized.refused] };
+  } catch (error) {
+    return actionError(error);
+  }
+}
+
 /**
  * Removes the repository's own provider so it uses the workspace default.
  * Its other repository settings stay.
@@ -579,6 +797,7 @@ export async function archiveProviderProfileAction(
  */
 export async function clearWorkspaceDefaultProviderAction(input: {
   readonly workspaceId: string;
+  readonly profileId?: string;
 }): Promise<ProviderProfileActionResult> {
   const workspaceId =
     typeof input?.workspaceId === "string" ? input.workspaceId.trim() : "";
@@ -595,6 +814,49 @@ export async function clearWorkspaceDefaultProviderAction(input: {
     await createDashboardRateLimitPolicy(prisma).assertReviewConfigSaveAllowed({
       workspaceId,
     });
+    if (input.profileId) {
+      const heads = await new PrismaReviewPolicyHeadReader(
+        prisma,
+      ).readPolicyHeads({ scope: "workspace", workspaceId });
+      const current = heads.workspace
+        ? parseStoredReviewPolicy("workspace", heads.workspace)
+        : null;
+      const remaining =
+        current?.providers?.filter(
+          (row) => row.profileId !== input.profileId,
+        ) ?? [];
+      const dependencies = selectionDependencies({
+        workspaceId,
+        actor,
+        repositories: new Map(),
+        recheck: async () =>
+          assertGatewayReviewActorUnchanged(
+            actor,
+            await assertDashboardMutationAllowed(workspaceId),
+          ),
+      });
+      if (remaining.length)
+        await setWorkspaceDefaultProviders(
+          {
+            workspaceId,
+            actor: dashboardProviderActor(actor),
+            selections: remaining,
+            expectedVersion: heads.workspace?.version ?? null,
+          },
+          dependencies,
+        );
+      else
+        await clearWorkspaceDefaultProviders(
+          {
+            workspaceId,
+            actor: dashboardProviderActor(actor),
+            expectedVersion: heads.workspace?.version ?? null,
+          },
+          dependencies,
+        );
+      revalidateDashboard();
+      return { status: "saved" };
+    }
     await setWorkspaceDefaultProvider(
       { workspaceId, actor: dashboardProviderActor(actor), selection: null },
       selectionDependencies({

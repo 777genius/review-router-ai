@@ -102,9 +102,9 @@ describe.skipIf(!enabled)(
         const names = (await readdir(migrations))
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
-        // Replay every current migration, including durable review history.
-        expect(names).toHaveLength(155);
-        expect(names.slice(-18)).toEqual([
+        // Replay every current migration, including Gateway reviewer allocations.
+        expect(names).toHaveLength(156);
+        expect(names.slice(-19)).toEqual([
           "000136_review_skills",
           "000137_review_skills_capture",
           "000138_pr_description",
@@ -123,6 +123,7 @@ describe.skipIf(!enabled)(
           "000149_api_key_repository_secret_profiles",
           "000150_skills_catalog_security",
           "000151_review_history",
+          "000152_review_run_gateway_allocations",
         ]);
         let legacyBefore: unknown;
         let legacyBefore146: unknown;

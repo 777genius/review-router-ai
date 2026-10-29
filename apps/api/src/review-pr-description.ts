@@ -19,6 +19,7 @@ import {
 } from "@reviewrouter/features-review-executions";
 import {
   parseReviewRunRuntimeSnapshot,
+  getPrimaryReviewRunReviewer,
   reviewAgentExecutionProviderKind,
   type ReviewRunAuthorization,
 } from "@reviewrouter/features-review-run-control";
@@ -49,6 +50,7 @@ type DescriptionAuthorization = Pick<
 function primary(authorization: DescriptionAuthorization): {
   provider: ReviewProviderConfiguration;
   providerKind: string;
+  providerVoteIdentityHash?: string;
 } {
   const snapshot = parseReviewRunRuntimeSnapshot(
     authorization.runtimeSnapshotCanonicalJson,
@@ -64,10 +66,14 @@ function primary(authorization: DescriptionAuthorization): {
   const config = parseReviewConfigurationStrict(
     JSON.parse(snapshot.configurationCanonicalJson),
   );
-  const provider = config.providers[0];
+  const reviewer =
+    snapshot.snapshotVersion === 4
+      ? getPrimaryReviewRunReviewer(snapshot)
+      : null;
+  const provider = config.providers[reviewer?.providerIndex ?? 0];
   requireFact(
     config.updatePrDescription !== false &&
-      config.providers.length === 1 &&
+      (snapshot.snapshotVersion === 4 || config.providers.length === 1) &&
       provider &&
       (provider.authMode === "codex_account_gateway" ||
         provider.authMode === "openrouter_api_key"),
@@ -75,7 +81,12 @@ function primary(authorization: DescriptionAuthorization): {
   );
   return {
     provider,
-    providerKind: reviewAgentExecutionProviderKind(snapshot.agent),
+    providerKind: reviewAgentExecutionProviderKind(
+      snapshot.snapshotVersion === 3 ? snapshot.agent : reviewer!.agentProfile,
+    ),
+    ...(reviewer
+      ? { providerVoteIdentityHash: reviewer.providerVoteIdentityHash }
+      : {}),
   };
 }
 
@@ -95,6 +106,8 @@ export function assertPrDescriptionWorkSlots(
     !slot.required &&
       slot.attemptBudget === prDescriptionContract.attemptBudget &&
       slot.providerKind === selected.providerKind &&
+      (selected.providerVoteIdentityHash === undefined ||
+        slot.providerVoteIdentityHash === selected.providerVoteIdentityHash) &&
       authorization.providerVoteLanes.some(
         (lane) =>
           lane.providerKind === selected.providerKind &&

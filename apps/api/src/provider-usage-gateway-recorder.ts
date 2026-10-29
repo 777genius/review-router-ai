@@ -16,6 +16,8 @@ import {
 } from "@reviewrouter/features-provider-usage/composition";
 import {
   parseReviewRunRuntimeSnapshot,
+  getReviewRunReviewer,
+  getReviewRunGatewayAllocation,
   type ReviewRunAuthorization,
 } from "@reviewrouter/features-review-run-control";
 import { gatewayUsageCallId } from "./provider-usage-gateway-source";
@@ -100,16 +102,43 @@ export function createGatewayUsageRecorder(
       requestRef: string;
       occurredAt: string;
       model: string;
+      reviewerId?: string;
       role?: "lifecycle_verification" | "pr_description";
     }) {
       const snapshot = parseReviewRunRuntimeSnapshot(
         input.authorization.runtimeSnapshotCanonicalJson,
       );
-      if (!snapshot?.gateway) throw new Error("usage_gateway_snapshot_missing");
+      if (!snapshot) throw new Error("usage_gateway_snapshot_missing");
+      const reviewer =
+        snapshot.snapshotVersion === 4 && input.reviewerId !== undefined
+          ? getReviewRunReviewer(snapshot, input.reviewerId)
+          : undefined;
+      const gateway =
+        snapshot.snapshotVersion === 4
+          ? reviewer
+            ? getReviewRunGatewayAllocation(
+                snapshot,
+                reviewer.transport.allocationId,
+              )
+            : null
+          : snapshot.gateway;
+      if (
+        !gateway ||
+        (snapshot.snapshotVersion === 3 && input.reviewerId !== undefined)
+      )
+        throw new Error("usage_gateway_snapshot_missing");
+      if (reviewer && input.model !== reviewer.requestedModel)
+        throw new Error("usage_gateway_reviewer_mismatch");
       const config = parseReviewConfigurationStrict(
         JSON.parse(snapshot.configurationCanonicalJson),
       );
-      const lane = config.providers[snapshot.gateway.providerIndex];
+      const lane =
+        config.providers[
+          reviewer?.providerIndex ??
+            (snapshot.snapshotVersion === 3
+              ? snapshot.gateway!.providerIndex
+              : -1)
+        ];
       if (!lane) throw new Error("usage_gateway_provider_missing");
       const configured = providerUsageConfiguredProvider(lane);
       const repo = await prisma.scmRepositoryIdentity.findUnique({
@@ -154,9 +183,9 @@ export function createGatewayUsageRecorder(
             null,
           runId: input.authorization.sourceRunId,
           runAttempt: Number(input.authorization.sourceRunAttempt),
-          invocationId: snapshot.gateway.invocationId,
-          attemptId: snapshot.gateway.attemptId,
-          bindingId: snapshot.gateway.bindingId,
+          invocationId: gateway.invocationId,
+          attemptId: gateway.attemptId,
+          bindingId: gateway.bindingId,
           authorizationId: input.authorization.authorizationId,
           route: "gateway",
           purpose: "review",
@@ -167,8 +196,11 @@ export function createGatewayUsageRecorder(
               ? lifecycleVerificationContract.executor
               : input.role === "pr_description"
                 ? prDescriptionContract.taskKind
-                : snapshot.agent.agentKind,
-          parentScope: null,
+                : (reviewer?.agentProfile.agentKind ??
+                  (snapshot.snapshotVersion === 3
+                    ? snapshot.agent.agentKind
+                    : "unknown")),
+          parentScope: reviewer?.reviewerId ?? null,
           granularity: "call",
           occurredAt: input.occurredAt,
         },
@@ -191,6 +223,26 @@ export function createGatewayUsageRecorder(
         now: new Date(),
         replayUntil: input.authorization.maxExpiresAt,
       });
+    },
+    async ownsRequest(input: {
+      authorizationId: string;
+      executionRef: string;
+      requestRef: string;
+      reviewerId: string;
+    }) {
+      const auth = await prisma.reviewRunAuthorization.findUnique({
+        where: { authorizationId: input.authorizationId },
+        select: { workspaceId: true },
+      });
+      if (!auth) return false;
+      const identity = await attribution.findIdentity({
+        workspaceId: auth.workspaceId,
+        callId: gatewayUsageCallId(input.executionRef, input.requestRef),
+      });
+      return (
+        identity?.authorizationId === input.authorizationId &&
+        identity.parentScope === input.reviewerId
+      );
     },
     async outcome(input: {
       authorizationId: string;

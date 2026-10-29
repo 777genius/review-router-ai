@@ -37,6 +37,7 @@ import {
   type ReviewActionV2E2EHarness,
 } from "../review-action-v2-production-e2e/support/review-action-v2-e2e-harness.js";
 import type { FakeGitHubTransport } from "../review-action-v2-production-e2e/support/fake-github.js";
+import { publishedReviewCommentTimestamps } from "./support/review-comment-fixture.js";
 
 const enabled =
   process.env.REVIEW_ROUTER_REVIEW_INVESTIGATION_PAIRED_E2E === "1";
@@ -533,6 +534,11 @@ lifecycleCase.each([
         native.facts.headSha,
       );
       expect(prompt.revalidationTargets).toHaveLength(4);
+      expect(
+        prompt.revalidationTargets.map(
+          (target: { parentEdited: boolean }) => target.parentEdited,
+        ),
+      ).toEqual([false, false, false, false]);
       // Seed the canonical App comment format, then verify the actual public
       // native inventory recovered the known severities and unchanged claim IDs.
       expect(
@@ -1733,8 +1739,7 @@ function nativeThreads(github: FakeGitHubTransport, scenario: Scenario) {
             // Synthesis emits this compact severity header; canonical App
             // publishing preserves it and appends the hidden finding marker.
             body: `_🟡 Major_\n\n**${hint.title}**\n\n${hint.message}\n\n<!-- reviewrouter:finding:v2:${hint.lineageId} -->`,
-            createdAt: parentCreatedAt,
-            updatedAt: parentCreatedAt,
+            ...publishedReviewCommentTimestamps(parentCreatedAt),
             path: filePath,
             line: Number(hint.line ?? 1),
             originalLine: Number(hint.line ?? 1),

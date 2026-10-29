@@ -82,6 +82,7 @@ export function verifyPublicActionReleaseCommit(input) {
   const {
     prDescriptionProfile,
     contextToolsProfile,
+    reviewerPlanProfile,
     lifecycleVerificationProfile: declaredProfile,
   } = parseProtocolGenerationManifest(
     readCommitFile(
@@ -165,6 +166,7 @@ export function verifyPublicActionReleaseCommit(input) {
       ? {}
       : { lifecycleVerificationProfile }),
     ...(contextToolsProfile === undefined ? {} : { contextToolsProfile }),
+    ...(reviewerPlanProfile === undefined ? {} : { reviewerPlanProfile }),
     ...(prDescriptionProfile === undefined ? {} : { prDescriptionProfile }),
     agentProfiles,
     handoff,

@@ -118314,6 +118314,18 @@ function canonicalJson(value) {
   return JSON.stringify(value);
 }
 
+// packages/protocol-review-action-v2/src/generated/review-reviewer-plan.ts
+var reviewerPlanContract = Object.freeze({
+  planVersion: 1,
+  maxReviewers: 16,
+  maxPlanBytes: 65536,
+  runtimeEnvKey: "REVIEW_ROUTER_REVIEWER_PLAN_JSON",
+  reviewerIdHeader: "x-reviewrouter-reviewer-id",
+  transport: "account_gateway",
+  investigationDescriptorVersion: 3,
+  reviewerAvailability: 1
+});
+
 // packages/features/codex-oauth-rotating/src/action/provider-usage-delivery.ts
 var digest = (value) => (0, import_crypto.createHash)("sha256").update(canonicalJson(value)).digest("hex");
 var UsageDelivery = class _UsageDelivery {
@@ -133458,6 +133470,18 @@ var contextToolsContract = Object.freeze({
     responseBytes: 1048576,
     maxCalls: 128
   }
+});
+
+// packages/shared/src/review-reviewer-plan.ts
+var reviewerPlanContract2 = Object.freeze({
+  planVersion: 1,
+  maxReviewers: 16,
+  maxPlanBytes: 65536,
+  runtimeEnvKey: "REVIEW_ROUTER_REVIEWER_PLAN_JSON",
+  reviewerIdHeader: "x-reviewrouter-reviewer-id",
+  transport: "account_gateway",
+  investigationDescriptorVersion: 3,
+  reviewerAvailability: 1
 });
 
 var import_meta = {};

@@ -17,7 +17,7 @@ import {
 import type { ProviderSetupView } from "../../../src/features/provider-setup/provider-setup-model";
 import {
   clearWorkspaceDefaultProviderAction,
-  saveProviderSetupAction,
+  saveProviderRosterAction,
   updateProviderProfileAction,
 } from "../provider-setup-actions";
 import {
@@ -39,6 +39,7 @@ vi.mock("../provider-setup-actions", () => ({
   createProviderProfileAction: vi.fn(),
   inheritWorkspaceDefaultProviderAction: vi.fn(),
   saveProviderSetupAction: vi.fn(),
+  saveProviderRosterAction: vi.fn(),
   updateProviderProfileAction: vi.fn(),
 }));
 const facts = (
@@ -219,7 +220,7 @@ describe("Providers list", () => {
         "fetch",
         vi.fn(async () => ({ ok: true, json: async () => setupView })),
       );
-      vi.mocked(saveProviderSetupAction).mockResolvedValue({
+      vi.mocked(saveProviderRosterAction).mockResolvedValue({
         status: "saved",
         results: [],
       });
@@ -319,10 +320,10 @@ describe("Providers list", () => {
         within(dialog).getByRole("checkbox", { name: /^Fast mode/ }),
       ).toHaveProperty("checked", true);
       const save = within(dialog).getByRole("button", {
-        name: "Set as default",
+        name: "Save reviewers",
       });
       expect(save).toHaveProperty("disabled", true);
-      expect(saveProviderSetupAction).not.toHaveBeenCalled();
+      expect(saveProviderRosterAction).not.toHaveBeenCalled();
       fireEvent.click(depth);
       const accountDefault = await screen.findByRole("option", {
         name: "Account default",
@@ -336,19 +337,26 @@ describe("Providers list", () => {
       await waitFor(() => expect(save).toHaveProperty("disabled", false));
       fireEvent.click(save);
       await waitFor(() =>
-        expect(saveProviderSetupAction).toHaveBeenCalledExactlyOnceWith({
+        expect(saveProviderRosterAction).toHaveBeenCalledExactlyOnceWith({
           workspaceId: "workspace_1",
           target: { kind: "workspace" },
-          provider: { kind: "profile", profileId },
-          settings: { agenticContext: true, fastMode: false },
+          expectedWorkspaceVersion: null,
+          reviewers: [
+            {
+              provider: { kind: "profile", profileId },
+              settings: {
+                agenticContext: true,
+                fastMode: false,
+                requiredHealthy: true,
+              },
+            },
+          ],
         }),
       );
       expect(clearWorkspaceDefaultProviderAction).not.toHaveBeenCalled();
       expect(updateProviderProfileAction).not.toHaveBeenCalled();
       expect(savedSelection).toMatchObject({ reasoningEffort, fastMode: true });
-      await within(dialog).findByRole("heading", {
-        name: "Workspace default saved",
-      });
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     },
   );
 

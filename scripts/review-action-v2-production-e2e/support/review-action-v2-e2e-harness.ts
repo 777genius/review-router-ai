@@ -197,6 +197,9 @@ export type ReviewActionV2E2EHarnessOptions = Readonly<{
   fixtureScope?: Readonly<{ prefix: string; workspaceId: string }>;
   /** Registered test producer definitions, shared by DB row and attestation. */
   agentProfiles?: readonly ReviewAgentProfile[];
+  reviewerPlanProfile?: Readonly<{ planVersion: 1; descriptorDigest: string }>;
+  /** The controlled local Gateway remains real HTTP while GitHub stays synthetic. */
+  gatewayFixtureOrigin?: string;
   /** Signed workflow identity; independent of the configured policy. */
   modelTransport?: "account_gateway" | "provider_api";
   /** Shorten only the synthetic mint, without changing server run authority. */
@@ -365,9 +368,19 @@ export class ReviewActionV2E2EHarness {
     if (options.historyProfile)
       fakeGitHub.workflowPath = ".github/workflows/reviewrouter-codex.yml";
     const originalFetch = globalThis.fetch;
+    if (options.gatewayFixtureOrigin) {
+      const gatewayUrl = new URL(options.gatewayFixtureOrigin);
+      if (
+        gatewayUrl.protocol !== "http:" ||
+        gatewayUrl.hostname !== "127.0.0.1"
+      )
+        throw new Error("review_v2_e2e_gateway_must_be_loopback");
+    }
     const fixtureFetch: typeof globalThis.fetch = async (input, init) => {
       const request =
         input instanceof Request ? input : new Request(input.toString(), init);
+      if (options.gatewayFixtureOrigin === new URL(request.url).origin)
+        return originalFetch(input, init);
       if (request.method === "GET")
         await options.beforeFakeGitHubRead?.(request);
       return fakeGitHub.fetch(input, init);
@@ -375,6 +388,9 @@ export class ReviewActionV2E2EHarness {
     globalThis.fetch = fixtureFetch;
     const env: Readonly<Record<string, string>> = Object.freeze({
       ...productionEnv({
+        ...(options.reviewerPlanProfile
+          ? { reviewerPlanProfile: options.reviewerPlanProfile }
+          : {}),
         ...(options.agentProfiles
           ? { agentProfiles: options.agentProfiles }
           : {}),
@@ -513,6 +529,9 @@ export class ReviewActionV2E2EHarness {
         };
       }
       await seedProductionControlPlane(prisma, {
+        ...(options.reviewerPlanProfile
+          ? { reviewerPlanProfile: options.reviewerPlanProfile }
+          : {}),
         ...(options.agentProfiles
           ? { agentProfiles: options.agentProfiles }
           : {}),
@@ -1910,6 +1929,14 @@ export class ReviewActionV2E2EHarness {
     return this.oidcOrdinal;
   }
 
+  /** A real signed fixture token for the compiled Action's normal authorize call. */
+  async createOidcToken(): Promise<string> {
+    return this.signOidcToken(
+      this.fakeGitHub.sourceRunAttempt,
+      Math.floor(Date.now() / 1000) + this.oidcLifetimeSeconds,
+    );
+  }
+
   private async signOidcToken(
     runAttempt: string,
     expiresAt: number,
@@ -2246,6 +2273,10 @@ async function seedProductionControlPlane(
     investigationProfile?: ReviewActionV2E2EInvestigationProfile;
     protocolMaxAttemptsPerSlot?: number;
     agentProfiles?: readonly ReviewAgentProfile[];
+    reviewerPlanProfile?: Readonly<{
+      planVersion: 1;
+      descriptorDigest: string;
+    }>;
     prDescriptionProfile?: boolean;
     lifecycleVerificationProfile?: boolean;
     repositoryProviderSelection: "rotating" | "none";
@@ -2314,6 +2345,9 @@ async function seedProductionControlPlane(
       agentProfilesJson: JSON.stringify(
         ids.agentProfiles ?? approvedAgentProfilesFixture,
       ),
+      ...(ids.reviewerPlanProfile
+        ? { reviewerPlanProfile: { ...ids.reviewerPlanProfile } }
+        : {}),
       ...(ids.prDescriptionProfile
         ? { prDescriptionProfile: { ...prDescriptionExtensionV1 } }
         : {}),
@@ -2488,6 +2522,10 @@ async function seedProductionControlPlane(
 
 function productionEnv(input: {
   readonly agentProfiles?: readonly ReviewAgentProfile[];
+  readonly reviewerPlanProfile?: Readonly<{
+    planVersion: 1;
+    descriptorDigest: string;
+  }>;
   readonly appPrivateKey: string;
   readonly producerReleaseId: string;
   readonly protocolLimitsProfileId: string;
@@ -2524,6 +2562,9 @@ function productionEnv(input: {
         wrapperEntrypointDigest: null,
         runtimeEntrypointDigest: sha256("runtime-entrypoint"),
         agentProfiles: input.agentProfiles ?? approvedAgentProfilesFixture,
+        ...(input.reviewerPlanProfile
+          ? { reviewerPlanProfile: input.reviewerPlanProfile }
+          : {}),
         ...(input.prDescriptionProfile
           ? { prDescriptionProfile: prDescriptionExtensionV1 }
           : {}),

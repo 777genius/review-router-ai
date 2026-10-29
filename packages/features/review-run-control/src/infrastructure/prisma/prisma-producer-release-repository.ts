@@ -211,6 +211,7 @@ export class PrismaProducerReleaseRepository
         reviewInvestigationProfile,
         agentProfiles,
         contextToolsProfile,
+        reviewerPlanProfile,
         prDescriptionProfile,
         lifecycleVerificationProfile,
         ...releaseRecord
@@ -219,6 +220,7 @@ export class PrismaProducerReleaseRepository
         data: {
           ...releaseRecord,
           contextToolsProfile: contextToolsProfile ?? Prisma.DbNull,
+          reviewerPlanProfile: reviewerPlanProfile ?? Prisma.DbNull,
           lifecycleVerificationProfile:
             lifecycleVerificationProfile == null
               ? Prisma.DbNull
@@ -311,6 +313,9 @@ function producerReleaseTupleWhere(release: ProducerRelease) {
   return {
     contextToolsProfile: {
       equals: release.contextToolsProfile ?? Prisma.DbNull,
+    },
+    reviewerPlanProfile: {
+      equals: release.reviewerPlanProfile ?? Prisma.DbNull,
     },
     lifecycleVerificationProfile: {
       equals:

@@ -10,6 +10,7 @@ import {
   type ReviewRunGatewayExecutionBindingPort,
   type ReviewRunGatewayExecutionOwner,
   type ReviewRunGatewayExecutionRead,
+  type ReviewRunRuntimeSnapshot,
 } from "@reviewrouter/features-review-run-control";
 import type { ProductionReviewRunRuntimeSnapshot } from "./review-run-runtime-snapshot";
 
@@ -44,14 +45,18 @@ export class PrismaReviewRunGatewayExecutionBinding implements ReviewRunGatewayE
     const snapshot = parseReviewRunRuntimeSnapshot(
       owner.runtimeSnapshotCanonicalJson,
     );
-    const original = snapshot?.gateway;
+    const original = snapshot ? selectedAllocation(snapshot, owner) : null;
     if (
       !snapshot ||
       !original?.limits ||
       binding.operationId !== original.operationId ||
       binding.accountRef !== original.permittedAccountRef ||
       binding.deadline !== snapshot?.deadline ||
-      !reviewRunGatewayEpochMatches(snapshot, binding.authorizationEpoch)
+      !reviewRunGatewayEpochMatches(
+        snapshot,
+        binding.authorizationEpoch,
+        owner.allocationId,
+      )
     )
       return { status: "denied" };
     return this.prisma.$transaction(
@@ -62,6 +67,23 @@ export class PrismaReviewRunGatewayExecutionBinding implements ReviewRunGatewayE
           return canonicalJson(current.binding) === canonical
             ? { status: "restored", binding: current.binding }
             : { status: "conflict" };
+        }
+        if (snapshot.snapshotVersion === 4) {
+          const attached = await tx.$queryRaw<
+            readonly { gatewayExecutionCanonicalJson: string }[]
+          >`
+            INSERT INTO "ReviewRunGatewayAllocationExecution" ("authorizationId", "allocationId", "gatewayExecutionCanonicalJson")
+            VALUES (${owner.authorizationId}, ${owner.allocationId!}, ${canonical})
+            ON CONFLICT ("authorizationId", "allocationId") DO NOTHING
+            RETURNING "gatewayExecutionCanonicalJson"`;
+          if (attached.length !== 1 || !attached[0])
+            return { status: "conflict" };
+          const saved = parseReviewRunGatewayExecutionBinding(
+            attached[0].gatewayExecutionCanonicalJson,
+          );
+          if (canonicalJson(saved) !== canonical)
+            throw new Error("review_run_gateway_attachment_corrupt");
+          return { status: "attached", binding: saved };
         }
         // The lock and predicates preserve identity/state/snapshot. SQL121 adds
         // independent write-once, original-intent and current-deadline guards.
@@ -88,6 +110,70 @@ export class PrismaReviewRunGatewayExecutionBinding implements ReviewRunGatewayE
     );
   }
 
+  async readForCleanup(
+    raw: ReviewRunGatewayExecutionOwner,
+  ): Promise<ReviewRunGatewayExecutionBinding | null> {
+    const owner = copyOwner(raw);
+    const snapshot = parseReviewRunRuntimeSnapshot(
+      owner.runtimeSnapshotCanonicalJson,
+    );
+    const original = snapshot ? selectedAllocation(snapshot, owner) : null;
+    if (!snapshot || !original) return null;
+    const row = await this.prisma.reviewRunAuthorization.findUnique({
+      where: { authorizationId: owner.authorizationId },
+    });
+    if (
+      !row ||
+      row.runtimeSnapshotCanonicalJson !== owner.runtimeSnapshotCanonicalJson ||
+      !Object.entries(owner.identity).every(
+        ([key, value]) => Reflect.get(row, key) === value,
+      )
+    )
+      return null;
+    const children =
+      snapshot.snapshotVersion === 4
+        ? await this.prisma.$queryRaw<
+            readonly { gatewayExecutionCanonicalJson: string }[]
+          >`
+      SELECT "gatewayExecutionCanonicalJson" FROM "ReviewRunGatewayAllocationExecution"
+      WHERE "authorizationId" = ${owner.authorizationId} AND "allocationId" = ${owner.allocationId!}`
+        : [];
+    const canonical =
+      snapshot.snapshotVersion === 4
+        ? children[0]?.gatewayExecutionCanonicalJson
+        : row.gatewayExecutionCanonicalJson;
+    if (!canonical) return null;
+    const binding = parseReviewRunGatewayExecutionBinding(canonical);
+    return binding.operationId === original.operationId &&
+      binding.accountRef === original.permittedAccountRef &&
+      binding.deadline === snapshot.deadline &&
+      reviewRunGatewayEpochMatches(
+        snapshot,
+        binding.authorizationEpoch,
+        owner.allocationId,
+      )
+      ? binding
+      : null;
+  }
+
+  async completeCleanup(
+    raw: ReviewRunGatewayExecutionOwner,
+    selected: ReviewRunGatewayExecutionBinding,
+  ): Promise<void> {
+    const owner = copyOwner(raw);
+    const saved = await this.readForCleanup(owner);
+    if (
+      !owner.allocationId ||
+      !saved ||
+      canonicalJson(saved) !== canonicalJson(selected)
+    )
+      return;
+    await this.prisma.$executeRaw`
+      UPDATE "ReviewRunGatewayAllocationExecution" SET "cleanupCompletedAt" = (clock_timestamp() AT TIME ZONE 'UTC')
+      WHERE "authorizationId" = ${owner.authorizationId} AND "allocationId" = ${owner.allocationId}
+        AND "gatewayExecutionCanonicalJson" = ${canonicalJson(saved)} AND "cleanupCompletedAt" IS NULL`;
+  }
+
   private async lockLive(
     tx: Prisma.TransactionClient,
     owner: ReviewRunGatewayExecutionOwner,
@@ -95,13 +181,14 @@ export class PrismaReviewRunGatewayExecutionBinding implements ReviewRunGatewayE
     const snapshot = parseReviewRunRuntimeSnapshot(
       owner.runtimeSnapshotCanonicalJson,
     );
-    const original = snapshot?.gateway;
+    const original = snapshot ? selectedAllocation(snapshot, owner) : null;
     if (!snapshot || !original?.limits) return null;
     // Live donor authority precedes source/binding locks, as at admission/save.
     await this.snapshots.lockGatewaySelection(
       tx,
       owner.identity.workspaceId,
       snapshot,
+      owner.allocationId,
     );
     const privateRows = await tx.$queryRaw<
       readonly { gatewayExecutionCanonicalJson: string | null }[]
@@ -129,7 +216,31 @@ export class PrismaReviewRunGatewayExecutionBinding implements ReviewRunGatewayE
       ))
     )
       return null;
-    const rawBinding = privateRows[0].gatewayExecutionCanonicalJson;
+    if (
+      snapshot.snapshotVersion === 4 &&
+      !(await this.snapshots.isAllocationLive(
+        {
+          snapshot,
+          allocationId: owner.allocationId!,
+          identity: owner.identity,
+          now: new Date(),
+        },
+        tx,
+      ))
+    )
+      return null;
+    const children =
+      snapshot.snapshotVersion === 4
+        ? await tx.$queryRaw<
+            readonly { gatewayExecutionCanonicalJson: string }[]
+          >`
+          SELECT "gatewayExecutionCanonicalJson" FROM "ReviewRunGatewayAllocationExecution"
+          WHERE "authorizationId" = ${owner.authorizationId} AND "allocationId" = ${owner.allocationId!}`
+        : [];
+    const rawBinding =
+      snapshot.snapshotVersion === 4
+        ? (children[0]?.gatewayExecutionCanonicalJson ?? null)
+        : privateRows[0].gatewayExecutionCanonicalJson;
     const binding =
       rawBinding === null
         ? null
@@ -139,7 +250,11 @@ export class PrismaReviewRunGatewayExecutionBinding implements ReviewRunGatewayE
       (binding.operationId !== original.operationId ||
         binding.accountRef !== original.permittedAccountRef ||
         binding.deadline !== snapshot.deadline ||
-        !reviewRunGatewayEpochMatches(snapshot, binding.authorizationEpoch))
+        !reviewRunGatewayEpochMatches(
+          snapshot,
+          binding.authorizationEpoch,
+          owner.allocationId,
+        ))
     )
       return null;
     // Use fresh DB wall time after every awaited read, rather than transaction-start time.
@@ -157,7 +272,25 @@ function copyOwner(
 ): ReviewRunGatewayExecutionOwner {
   return {
     authorizationId: owner.authorizationId,
+    ...(owner.allocationId === undefined
+      ? {}
+      : { allocationId: owner.allocationId }),
     runtimeSnapshotCanonicalJson: owner.runtimeSnapshotCanonicalJson,
     identity: reviewRunGatewayOwnedIdentity(owner.identity),
   };
+}
+
+function selectedAllocation(
+  snapshot: ReviewRunRuntimeSnapshot,
+  owner: ReviewRunGatewayExecutionOwner,
+) {
+  return snapshot.snapshotVersion === 4
+    ? owner.allocationId === undefined
+      ? null
+      : (snapshot.allocations.find(
+          (row) => row.allocationId === owner.allocationId,
+        ) ?? null)
+    : owner.allocationId === undefined
+      ? snapshot.gateway
+      : null;
 }

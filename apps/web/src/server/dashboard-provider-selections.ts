@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 import { canAdminWorkspace } from "@reviewrouter/features-auth";
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
@@ -146,6 +147,7 @@ export async function dashboardProviderSelection(input: {
   readonly workspaceId: string;
   readonly provider: DashboardProviderRequest;
   readonly settings: ProviderSelectionSettings;
+  readonly draftId?: string;
 }): Promise<
   Readonly<{
     selection: ReviewProviderSelection;
@@ -204,7 +206,7 @@ export async function dashboardProviderSelection(input: {
       }),
       credentialKind: credential.kind,
     };
-  const draftId = "draft-provider";
+  const draftId = input.draftId ?? `draft-${randomUUID()}`;
   return {
     credentialKind: credential.kind,
     selection: reviewProviderSelectionSchema.parse({

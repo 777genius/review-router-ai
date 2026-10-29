@@ -2911,5 +2911,9 @@
   "contextToolsProfile": {
     "extensionId": "context-tools.v1",
     "descriptorDigest": "sha256:c188ad0a29581317f23b6aec3f103a7419f67576bea6fb3dc9910cf9ca3a3f7a"
+  },
+  "reviewerPlanProfile": {
+    "planVersion": 1,
+    "descriptorDigest": "sha256:f6a45d7039129a813690f5f769052d3ba078418eb123b0c0c710ef790d2919d6"
   }
 }

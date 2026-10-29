@@ -16,6 +16,7 @@ import {
   ClaimReviewRunCompanionDispatch,
   ReviewRunCompanionDispatchFailure,
   parseReviewRunRuntimeSnapshot,
+  getPrimaryReviewRunReviewer,
   reviewAgentExecutionProviderKind,
   type CompanionLeaseAuthority,
   type ReviewRunAuthorization,
@@ -63,12 +64,22 @@ function primary(authorization: Authorization) {
     JSON.parse(snapshot.configurationCanonicalJson),
   );
   const provider = configuration.providers[capability.providerIndex];
+  const reviewer =
+    snapshot.snapshotVersion === 4
+      ? getPrimaryReviewRunReviewer(snapshot)
+      : null;
   requireFact(
-    snapshot.gateway?.providerIndex === capability.providerIndex &&
+    (snapshot.snapshotVersion === 3
+      ? snapshot.gateway?.providerIndex
+      : reviewer!.providerIndex) === capability.providerIndex &&
       provider?.authMode === "codex_account_gateway" &&
       provider.model === capability.model &&
       capability.providerKind ===
-        reviewAgentExecutionProviderKind(snapshot.agent) &&
+        reviewAgentExecutionProviderKind(
+          snapshot.snapshotVersion === 3
+            ? snapshot.agent
+            : reviewer!.agentProfile,
+        ) &&
       capability.extensionId === lifecycleVerificationContract.extensionId &&
       capability.descriptorDigest === lifecycleVerificationDescriptorDigest &&
       capability.executor === lifecycleVerificationContract.executor &&
@@ -77,7 +88,7 @@ function primary(authorization: Authorization) {
       capability.attemptBudget === 1,
     "lifecycle_verification_capability_invalid",
   );
-  return { snapshot, capability };
+  return { snapshot, capability, reviewer };
 }
 
 export function lifecycleVerificationCapabilityHash(
@@ -113,7 +124,7 @@ export function assertLifecycleVerificationWorkSlots(
     (slot) => slot.taskKind === ReviewTaskKind.LifecycleRevalidation,
   );
   if (!verification.length || !enabled(authorization)) return;
-  const { capability } = primary(authorization);
+  const { capability, reviewer } = primary(authorization);
   requireFact(
     verification.length <= capability.maxDispatches,
     "lifecycle_verification_slot_count_invalid",
@@ -123,6 +134,9 @@ export function assertLifecycleVerificationWorkSlots(
       !slot.required &&
         slot.attemptBudget === 1 &&
         slot.providerKind === capability.providerKind &&
+        (!reviewer ||
+          slot.providerVoteIdentityHash ===
+            reviewer.providerVoteIdentityHash) &&
         authorization.providerVoteLanes.some(
           (lane) =>
             String(lane.providerKind) === slot.providerKind &&
