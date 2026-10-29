@@ -9,10 +9,10 @@
 
 ## Environment status
 
-| Environment | Status        | Actual deployed version / image      | Last verified (UTC) | Evidence / next step                                                                                                   |
-| ----------- | ------------- | ------------------------------------ | ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| staging     | `pending`     | Not verified                         | Not verified        | Reconcile native/Gateway and application versions; follow the ordered rollout.                                         |
-| production  | `in_progress` | `b8eac8ec` / image prefix `fd52caab` | 2026-10-29 00:41    | Fleet/canary and signed-in readiness passed. Public Action lifecycle fix #352 in CI; final review/publication pending. |
+| Environment | Status        | Actual deployed version / image      | Last verified (UTC) | Evidence / next step                                                                                                                   |
+| ----------- | ------------- | ------------------------------------ | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| staging     | `pending`     | Not verified                         | Not verified        | Reconcile native/Gateway and application versions; follow the ordered rollout.                                                         |
+| production  | `in_progress` | `b8eac8ec` / image prefix `fd52caab` | 2026-10-29 00:41    | Fleet/canary and signed-in readiness passed. Integrated application/Action adoption and final native lifecycle closure remain pending. |
 
 `pending` records missing deployment evidence, not observed absence. Implementation checks do not prove production readiness.
 
@@ -318,3 +318,90 @@ retry is running. Do not merge/release/register/promote until the required CI pa
 Old PR18 attempt5 remains an unfinished control-plane audit record with execution
 deadline2026-10-29T06:41:46.801Z. Its Gateway binding was never created; it has no
 active model transport. No successful artifact or terminal state was fabricated.
+
+## Completion pass: 2026-10-29
+
+The owner authorized completing PR #740, end-to-end verification, critical review
+and merge. Main `8ea78b9df1398e64fce917eecdc18d95e52d9e9f` is integrated, preserving
+PR #741's joined History source-to-browser qualification and the independent
+production History receipts in this branch.
+
+The remaining dashboard edge is addressed in this candidate: a saved binding
+outside the first 25 visible accounts is read through the existing authorized
+account-detail adapter. Reads are deduplicated by binding through the existing concurrency helper,
+with at most5 reads active; selected account catalogs stay separate and the configured profile seeds and
+page cursor are preserved. The old canary-test unused binding is repaired without
+changing the public response assertion. These follow-up source changes require
+qualification and application rollout; they are not part of the previously
+recorded b8/fd52 production image.
+
+Public [Action #353](https://github.com/777genius/review-router/pull/353) is merged
+as `2b9b7f8c438b076b6e06c6e14f9ac8e87f1a25b6`, and official
+[v1.0.220](https://github.com/777genius/review-router/releases/tag/v1.0.220) is
+published. The original completion checkpoint qualified that exact public commit.
+At resumption, `workflow-v1` still resolved to Action219 `298e7fca`; the latest
+[PR20 review](https://github.com/777genius/rr-selfhost-direct-v2-e2e-20260730t120036z/actions/runs/40800168729)
+used that same219 source and left the prior finding unverified. Release publication
+alone does not establish production adoption or verified finding closure.
+
+### Concurrent main integration and qualification
+
+While this completion pass was running, main advanced to
+`78434bee6344ff497e0791140887ea9522d94ef6` through multi-reviewer PR #738. The
+integrated candidate preserves that implementation and its paired Action source
+`99776cd79a9d783cd3d3ab2ea349dd61096a992e`, instead of downgrading the CI pin to220.
+The public source includes the same corrected timestamp inventory. Its candidate
+package version is not proof that it is the official published220 artifact:
+Action #351 is merged as `fea226e5ee98aae2e3475c3e8ef26ea5da5e5d52`, while the latest
+observed published release remains220 at `2b9b7f8c`.
+
+The pre-integration checkpoint passed104 focused API tests,47 focused Web tests,
+and all7 paired lifecycle scenarios against exact official220 source. The paired
+fixture now includes normal pending-review publication with a later updatedAt and
+publishedAt but authoritative lastEditedAt=null; every prior target remains
+unedited. Denial, unknown effect, missing verdict, invalid quote, wrong packet and
+forged claim assertions remain intact. This uses real SaaS authorization, database,
+worker and Action modules with synthetic producer/GitHub/provider boundaries; it
+is not a live production receipt.
+
+The integrated candidate then passed170 API tests across4 suites,93 Web tests
+across6 suites, the real Prisma/PostgreSQL VOID canary regression, and all7
+lifecycle scenarios against exact paired Action99776cd after the maintained
+migration runner applied152 to the disposable database. The API cases include
+V4 dynamic models beyond enrollment anchors and exact companion dispatch bytes.
+The Web cases cover every reviewer, off-page binding hydration and one complete
+workspace/repository hydration pass. Independent review found an outdated page
+mock after integration; it was corrected and the full41-case loading-boundary
+suite passed. No production authorization or test safety assertion was weakened.
+
+Required full CI still applies to the published final head, including the complete
+paired compiled runtime lane. Local paired evidence covers controlled adapters;
+local qualification and a merge are not production adoption.
+
+### Remaining sequence and completion evidence
+
+1. Complete focused source checks, exact-head required CI and independent review.
+2. Reconcile installed production source, existing producer registrations and the
+   retained Action219 operator receipts. Qualify a complete application/Action
+   release for the integrated source, including the applicable migration152 and
+   [multi-reviewer rollout](2026-10-29-gateway-multi-reviewers.md). The compatible
+   Action-only220 hotfix procedure for the old installed image does not qualify
+   this newer application rollout. Preserve old producers and admitted runs;
+   perform no repeated historical migration or History activation.
+3. After the selected exact pair is released, registered and adopted, verify
+   producer/ref readback and health, then promote `workflow-v1` through the
+   existing workflow ABI and previous-SHA comparison.
+4. Make a fresh semantic review request on fixed disposable PR20. Confirm the
+   selected qualified executable, verifier use of the saved dynamic account/model, accepted
+   verification evidence, App-authored publication and the exact thread's native
+   closure receipt/readback. The immutable summary can precede native closure;
+   its resolved count alone is not the closure oracle.
+5. Verify the new History run, processed outbox events and closed Gateway
+   execution, then record actual source/image, producer, channel, run and receipts
+   in this task and the index. Reconcile the old PR18 attempt5 from its actual
+   control-plane state; do not fabricate completion or replay uncertain work.
+
+The serving image and internal producer state have not been re-observed during
+this source completion pass. Until the ordered live checks have durable receipts,
+production remains `in_progress`; the earlier b8/fd52 record is the last verified
+application deployment, not a claim that this candidate is already deployed.

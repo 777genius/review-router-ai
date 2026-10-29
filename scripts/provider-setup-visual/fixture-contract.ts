@@ -128,7 +128,7 @@ export const VISUAL_WORKSPACES: Readonly<
 
 /** The Account Gateway profile the fixture's connected accounts use. */
 export const VISUAL_GATEWAY_PROFILE = {
-  profileId: "rr-visual-profile-codex",
+  profileId: "openrouter-openai-responses-apikey-v1",
   protocol: "openai-responses",
   modelIds: ["gpt-5.5"],
   authKinds: ["api_key"],

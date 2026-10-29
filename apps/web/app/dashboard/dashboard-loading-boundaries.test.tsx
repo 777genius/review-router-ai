@@ -12,6 +12,10 @@ import {
 } from "./dashboard-workspace-page";
 import type { DashboardWorkspaceSummary } from "./dashboard-workspace-navigation";
 import type { EffectiveReviewConfiguration } from "@reviewrouter/features-review-config";
+import type {
+  AccountsPage,
+  AccountsResult,
+} from "../../src/server/account-gateway-accounts";
 
 vi.mock("next/navigation", async (importOriginal) => {
   const original = await importOriginal<typeof import("next/navigation")>();
@@ -135,6 +139,16 @@ const fixtures = vi.hoisted(() => {
     skillsDashboard: vi.fn(async () => ({ status: "signed_out" as const })),
     providerList: vi.fn(async () => ({ rows: [] }) as never),
     gatewayAccounts: vi.fn(async () => ({ status: "unavailable" as const })),
+    gatewayHydration: vi.fn(
+      async (
+        ...args: [
+          string,
+          unknown,
+          AccountsResult<AccountsPage> | undefined,
+          readonly string[],
+        ]
+      ) => args[2],
+    ),
   };
   return { spies, EmptyStore: class {} };
 });
@@ -143,6 +157,7 @@ const { spies } = fixtures;
 vi.mock("../../src/server/dashboard-gateway-accounts", () => ({
   loadDashboardPersonalAccounts: async () => null,
   loadDashboardGatewayAccounts: fixtures.spies.gatewayAccounts,
+  hydrateDashboardGatewayAccounts: fixtures.spies.gatewayHydration,
 }));
 vi.mock(
   "../../src/server/prisma-gateway-review-v2-provisioning",
@@ -334,17 +349,19 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => vi.restoreAllMocks());
 
 describe("dashboard server loading boundaries", () => {
-  it("passes effective repository policies to the bounded account catalog loader", async () => {
+  it("hydrates the complete saved workspace and repository reviewer roster once after loading account metadata", async () => {
+    const provider = (gatewayBindingId: string) => ({
+      kind: "codex",
+      authMode: "codex_account_gateway",
+      gatewayBindingId,
+      gatewayProfileRef: "openrouter-openai-responses-apikey-v1",
+      model: "openai/gpt-4.1",
+    });
     const config = {
-      providers: [
-        {
-          kind: "codex",
-          authMode: "codex_account_gateway",
-          gatewayBindingId: "binding_1",
-          gatewayProfileRef: "openrouter-openai-responses-apikey-v1",
-          model: "openai/gpt-4.1",
-        },
-      ],
+      providers: [provider("binding_1"), provider("binding_2")],
+    };
+    const workspaceConfig = {
+      providers: [provider("binding_workspace")],
     };
     const ready = {
       status: "ready",
@@ -358,10 +375,14 @@ describe("dashboard server loading boundaries", () => {
     } as unknown as Extract<EffectiveReviewConfiguration, { status: "ready" }>;
     spies.policies.mockResolvedValueOnce({
       workspace: {
-        status: "provider_selection_required",
-        workspaceVersion: null,
+        ...ready,
+        config: workspaceConfig,
+        source: "workspace",
         repositoryVersion: null,
-      },
+      } as unknown as Extract<
+        EffectiveReviewConfiguration,
+        { status: "ready" }
+      >,
       repositories: new Map([["repo-a", ready]]),
       workspacePolicy: null,
       repositoryPolicies: new Map(),
@@ -393,7 +414,12 @@ describe("dashboard server loading boundaries", () => {
     expect(spies.gatewayAccounts).toHaveBeenCalledExactlyOnceWith(
       "workspace-a",
       null,
-      [config],
+    );
+    expect(spies.gatewayHydration).toHaveBeenCalledExactlyOnceWith(
+      "workspace-a",
+      null,
+      { status: "unavailable" },
+      ["binding_workspace", "binding_1", "binding_2"],
     );
   });
   it.each([

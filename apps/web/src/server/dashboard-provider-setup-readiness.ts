@@ -17,8 +17,8 @@ export function gatewayReadinessDiscoverySource(profile: AccountProfileView) {
     : undefined;
 }
 
-/** Display readiness only; server mutations recheck binding authority. */
-export function getReadyGatewayAccounts(
+/** Keep active bindings available for setup and catalog recovery, even without models. */
+export function getGatewaySetupAccounts(
   accounts: AccountsResult<AccountsPage> | undefined,
 ): AccountView[] {
   if (accounts?.status !== "ok") return [];
@@ -31,57 +31,71 @@ export function getReadyGatewayAccounts(
       page.profiles.some(
         (profile) =>
           profile.id === account.profileId &&
-          profile.availability !== "deployment_configuration_required" &&
-          profile.models.length > 0,
+          profile.protocol === "openai-responses" &&
+          profile.availability !== "deployment_configuration_required",
       ),
   );
+}
+
+/** Display readiness only; server mutations recheck binding and model authority. */
+export function getReadyGatewayAccounts(
+  accounts: AccountsResult<AccountsPage> | undefined,
+): AccountView[] {
+  if (accounts?.status !== "ok") return [];
+  return getGatewaySetupAccounts(accounts).filter((account) => {
+    const profile = accounts.value.profiles.find(
+      (candidate) => candidate.id === account.profileId,
+    );
+    return (account.modelCatalog?.models ?? profile?.models ?? []).length > 0;
+  });
 }
 
 export function isGatewayProviderSetupReady(
   config: ReviewConfiguration,
   accounts: AccountsResult<AccountsPage> | undefined,
 ): boolean {
-  const provider = config.providers[0];
-  if (
-    config.providers.length !== 1 ||
-    provider?.authMode !== "codex_account_gateway" ||
-    accounts?.status !== "ok"
-  ) {
-    return false;
-  }
-  return getReadyGatewayAccounts(accounts).some((account) => {
-    if (
-      account.binding?.id !== provider.gatewayBindingId ||
-      account.profileId !== provider.gatewayProfileRef
-    )
-      return false;
-    const profile = accounts.value.profiles.find(
-      (candidate) => candidate.id === account.profileId,
-    );
-    if (!profile) return false;
-    const model = provider.model.trim();
-    const source = gatewayReadinessDiscoverySource(profile);
-    if (!source) return profile.models.includes(model);
-    const catalog = account.modelCatalog;
-    if (!catalog) return false;
-    // Only the Gateway's explicit unavailable result permits a configured anchor.
-    if (catalog.status === "unavailable")
-      return (
-        catalog.source === "legacy_profile" &&
-        catalog.models.includes(model) &&
-        profile.models.includes(model)
-      );
-    const now = Date.now();
-    const fetchedAt = Date.parse(catalog.fetchedAt ?? "");
-    return (
-      catalog.status === "snapshot" &&
-      catalog.source === source &&
-      Number.isFinite(fetchedAt) &&
-      fetchedAt <= now &&
-      Date.parse(catalog.expiresAt ?? "") > now &&
-      catalog.models.includes(model)
-    );
-  });
+  if (config.providers.length === 0 || accounts?.status !== "ok") return false;
+  const readyAccounts = getReadyGatewayAccounts(accounts);
+  return config.providers.every(
+    (provider) =>
+      provider.authMode === "codex_account_gateway" &&
+      readyAccounts.some((account) => {
+        if (
+          account.binding?.id !== provider.gatewayBindingId ||
+          account.profileId !== provider.gatewayProfileRef
+        )
+          return false;
+        const profile = accounts.value.profiles.find(
+          (candidate) => candidate.id === account.profileId,
+        );
+        if (!profile) return false;
+        const model = provider.model.trim();
+        const catalog = account.modelCatalog;
+        const source = gatewayReadinessDiscoverySource(profile);
+        // Only the Gateway's explicit unavailable result permits a configured anchor.
+        if (catalog?.status === "unavailable")
+          return (
+            catalog.source === "legacy_profile" &&
+            catalog.models.includes(model) &&
+            profile.models.includes(model)
+          );
+        if (!source)
+          return catalog
+            ? catalog.status === "snapshot" && catalog.models.includes(model)
+            : profile.models.includes(model);
+        if (!catalog) return false;
+        const now = Date.now();
+        const fetchedAt = Date.parse(catalog.fetchedAt ?? "");
+        return (
+          catalog.status === "snapshot" &&
+          catalog.source === source &&
+          Number.isFinite(fetchedAt) &&
+          fetchedAt <= now &&
+          Date.parse(catalog.expiresAt ?? "") > now &&
+          catalog.models.includes(model)
+        );
+      }),
+  );
 }
 
 export type DashboardProviderSetupReadinessRecord = {

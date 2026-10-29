@@ -132,9 +132,10 @@ describe.skipIf(!databaseUrl)(
         expect(response.json()).toMatchObject({
           nonce: body.nonce,
           serviceFacts: body.serviceFacts,
-          runtimeWitnessProofs: proofs.map(
-            ({ rolloutId: _rolloutId, ...proof }) => proof,
-          ),
+          runtimeWitnessProofs: proofs.map(({ rolloutId, ...proof }) => {
+            void rolloutId;
+            return proof;
+          }),
           writeReadRoundTrip: true,
         });
         expect(

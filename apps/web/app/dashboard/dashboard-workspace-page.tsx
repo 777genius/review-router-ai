@@ -30,6 +30,7 @@ import { ProviderModelCatalogProvider } from "./provider-model-catalog";
 import { GatewayModelAccountsProvider } from "./gateway-model-account-options";
 import {
   loadDashboardGatewayAccounts,
+  hydrateDashboardGatewayAccounts,
   loadDashboardPersonalAccounts,
 } from "../../src/server/dashboard-gateway-accounts";
 import {
@@ -1365,7 +1366,7 @@ export async function DashboardSectionContent({
   const [
     data,
     modelOptions,
-    gatewayAccounts,
+    initialGatewayAccounts,
     contextConnections,
     modelCatalogSnapshots,
   ] = await Promise.all([
@@ -1375,17 +1376,7 @@ export async function DashboardSectionContent({
     selectedSection === "diagnostics" ||
     (selectedSection === "setup" &&
       readApiKeySetupIntent(params, selectedWorkspace.workspace.id) !== null)
-      ? selectedSection === "repositories"
-        ? dataPromise.then((loaded) =>
-            loadDashboardGatewayAccounts(
-              selectedWorkspace.workspace.id,
-              personal,
-              loaded.repositoryConfigs.flatMap(({ effective }) =>
-                effective ? [effective] : [],
-              ),
-            ),
-          )
-        : loadDashboardGatewayAccounts(selectedWorkspace.workspace.id, personal)
+      ? loadDashboardGatewayAccounts(selectedWorkspace.workspace.id, personal)
       : Promise.resolve(undefined),
     selectedSection === "repositories" || selectedSection === "policy"
       ? listDashboardContextConnections(selectedWorkspace.workspace.id).catch(
@@ -1394,6 +1385,22 @@ export async function DashboardSectionContent({
       : Promise.resolve([]),
     wantsProviderDialog ? getProviderModelCatalogs() : Promise.resolve([]),
   ]);
+  const gatewayAccounts = await hydrateDashboardGatewayAccounts(
+    selectedWorkspace.workspace.id,
+    personal,
+    initialGatewayAccounts,
+    [
+      data.reviewConfig?.config,
+      ...data.repositoryConfigs.map((row) => row.effective),
+    ].flatMap(
+      (config) =>
+        config?.providers.flatMap((provider) =>
+          provider.authMode === "codex_account_gateway"
+            ? [provider.gatewayBindingId]
+            : [],
+        ) ?? [],
+    ),
+  );
   // Approved engine profiles for the Account Gateway provider row; derived
   // from the producer-release approved profile authority, never user input.
   const agentProfileOptions = loadGatewayAgentProfileOptions();
@@ -2182,11 +2189,13 @@ export function WorkspaceCard({
                   className="text-sm text-slate-300"
                   aria-label="Default review provider"
                 >
-                  {defaultSummary.profile
-                    ? `Default provider: ${providerLabelWithModel(defaultSummary.profile)}`
-                    : defaultSummary.source === "unreadable"
-                      ? "Default provider unavailable: saved settings use a retired format."
-                      : "No default provider selected."}
+                  {(defaultSummary.profiles?.length ?? 0) > 1
+                    ? `Default reviewers: ${defaultSummary.profiles!.map((profile) => (profile ? providerLabelWithModel(profile) : "Unavailable reviewer")).join("; ")}`
+                    : defaultSummary.profile
+                      ? `Default provider: ${providerLabelWithModel(defaultSummary.profile)}`
+                      : defaultSummary.source === "unreadable"
+                        ? "Default provider unavailable: saved settings use a retired format."
+                        : "No default provider selected."}
                 </p>
                 <a
                   className="inline-block text-sm text-cyan-200 underline"
@@ -2448,9 +2457,11 @@ function DashboardSectionHeader(
       : selectedSection === "repositories"
         ? `${props.repositoryCount} synced repositories`
         : selectedSection === "policy"
-          ? props.defaultProvider.profile
-            ? `Default: ${providerLabelWithModel(props.defaultProvider.profile)}`
-            : "No default provider"
+          ? (props.defaultProvider.profiles?.length ?? 0) > 1
+            ? `${props.defaultProvider.profiles!.length} default reviewers`
+            : props.defaultProvider.profile
+              ? `Default: ${providerLabelWithModel(props.defaultProvider.profile)}`
+              : "No default provider"
           : selectedSection === "memory"
             ? "In development"
             : "Metadata only";
@@ -3235,6 +3246,9 @@ function workspaceProviderSummary(
     ? {
         source: "workspace",
         profile: providerProfileSummary(data.providerProfiles, selection),
+        profiles: (data.workspacePolicy?.providers ?? []).map((row) =>
+          providerProfileSummary(data.providerProfiles, row),
+        ),
       }
     : { source: "none", profile: null };
 }
@@ -3267,6 +3281,9 @@ function repositoryProviderSummary(
     return {
       source: "repository",
       profile: providerProfileSummary(data.providerProfiles, own),
+      profiles: (config?.policy?.providers ?? []).map((row) =>
+        providerProfileSummary(data.providerProfiles, row),
+      ),
     };
   const inherited = workspaceProviderSummary(data);
   return inherited.source === "workspace"

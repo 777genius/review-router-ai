@@ -143,9 +143,11 @@ export function buildProviderListView(
       repositoryId: profile.rotatingRepositoryId,
     };
     const stored = usageById.get(profile.id);
-    const isDefault = facts.defaultProfileId === profile.id;
+    const isDefault =
+      facts.defaultProfileId === profile.id ||
+      stored?.workspaceDefault === true;
     const usage: ProviderListUsage = {
-      workspaceDefault: isDefault || stored?.workspaceDefault === true,
+      workspaceDefault: isDefault,
       repositories: (stored?.repositoryIds ?? []).map((id) => ({
         id,
         fullName: facts.repositoryNames.get(id) ?? id,
@@ -212,7 +214,9 @@ export function buildProviderListView(
     workspaceId: facts.workspaceId,
     viewerIsAdmin: admin,
     accessRightsAdminOnly: facts.workspace.providerManagementAdminOnly,
-    hasDefault: facts.defaultProfileId !== null,
+    hasDefault:
+      facts.defaultProfileId !== null ||
+      facts.usage.some((item) => item.workspaceDefault),
     add:
       !add.allowed && add.reason === "workspace_admin_required"
         ? { allowed: false, reason: "list_add_admin_required" }

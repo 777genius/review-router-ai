@@ -213,6 +213,12 @@ export async function loadProviderSetupView(input: {
           : null,
     })),
     defaultSelection: workspacePolicy?.providers?.[0] ?? null,
+    defaultSelections: workspacePolicy?.providers ?? [],
+    workspaceVersion: heads.workspace?.version ?? null,
+    execution: workspacePolicy?.execution ?? {
+      providerMaxParallel: 1,
+      inlineMinAgreement: 1,
+    },
     repositories: orderedRepositories.map((repository) => {
       const head = heads.repositories.get(repository.id);
       const policy = head ? parseStoredReviewPolicy("repository", head) : null;
@@ -221,6 +227,9 @@ export async function loadProviderSetupView(input: {
         fullName: repository.fullName,
         capability: capabilities.get(repository.id) ?? null,
         ownSelection: policy?.providers?.[0] ?? null,
+        ownSelections: policy?.providers ?? [],
+        version: head?.version ?? null,
+        execution: policy?.execution ?? {},
         rotatingAvailable:
           repository.provider === "github" &&
           isCodexRotatingOAuthAllowedForRepository(repository.fullName),

@@ -1,7 +1,5 @@
 # Agent Instructions
 
-- Implement requested functionality without feature flags. Add or enable feature flags only at the user's explicit request.
-
 - Follow the maintained [Engineering Quality Standard](https://github.com/agent-teams-ai/.github/blob/main/docs/engineering-quality-standard.md), within this repository's explicitly adopted scope and pinned toolchain.
 
 - Repository hygiene: put disposable logs, debug scripts, screenshots, and scratch outputs in `tmp/`, not loose files in the repository root. Keep local worktrees outside this checkout when possible. Preserve existing worktrees and recovery evidence during cleanup. Keep local scratch directories excluded from Git, Docker build contexts, lint, and formatting.
@@ -10,6 +8,7 @@
 - Deployment task registry: for each implementation task awaiting rollout, create or update one Markdown file in [`ai-docs/deployments/`](./ai-docs/deployments/README.md) using its template, and update the index. Include ordinary code rollout as well as migrations, configuration, activation, verification, rollback, and related links when applicable.
 - Before every authorized deploy or release, read the deployment registry and inspect unfinished tasks for the target environment and exact shipping version. Execute applicable remaining steps in dependency order as part of that rollout, following the release source of truth. Reconcile partial or previously completed work before retrying. After each attempt, update per-environment status, actual version, evidence, and remaining steps or blockers in the task file and index; a merge or green CI alone is not `deployed`. The registry does not authorize an otherwise unrequested deployment.
 - Do not deploy on every small change. Build, test, and inspect locally first.
+- Feature flags: implement features without new flags. Introduce or enable a feature flag only when the user explicitly requests it; immutable protocol capability/version checks remain part of compatibility validation.
 - Deploy only at the end of a coherent batch or when the user explicitly asks for a deploy.
 - Before any deploy, verify the local commit with the relevant checks and summarize what changed.
 - If hosted deployment is blocked by provider quota or infrastructure state, stop deploying and report the blocker instead of retrying repeatedly.

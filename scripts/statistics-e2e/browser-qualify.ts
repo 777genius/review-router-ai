@@ -34,11 +34,19 @@ import {
   warmHistoryApis,
   qualifyHistory,
 } from "./history-scenario.js";
+import {
+  createHistorySource,
+  qualifyHistorySource,
+  warmHistorySourceApis,
+  type HistorySourceFixture,
+} from "./history-source.js";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const scenario = process.env.STATISTICS_E2E_SCENARIO ?? "full";
 assert(
-  ["full", "authorization-recovery", "history"].includes(scenario),
+  ["full", "authorization-recovery", "history", "history-source"].includes(
+    scenario,
+  ),
   "Unknown statistics qualification scenario",
 );
 const databaseUrl = process.env.STATISTICS_E2E_DATABASE_URL ?? "";
@@ -108,6 +116,11 @@ const empty = {
   slug: `${prefix}-empty`,
   name: "Empty statistics workspace",
 };
+const foreign = {
+  id: `${prefix}-foreign`,
+  slug: `${prefix}-foreign`,
+  name: "Unauthorized source history workspace",
+};
 const dayMs = 86_400_000;
 const fixtureUtcDay = new Date();
 fixtureUtcDay.setUTCHours(0, 0, 0, 0);
@@ -139,6 +152,7 @@ let coverageChanged = false;
 let originalCoverage: string | null = null;
 let originalHistoryCoverage: string | null = null;
 let historyCoverageChanged = false;
+let historySource: HistorySourceFixture | undefined;
 let failure: unknown;
 let appStopRequested = false;
 let appExit: {
@@ -177,7 +191,8 @@ const sourceFiles = [
   "scripts/statistics-e2e/browser-qualify.ts",
   "scripts/statistics-e2e/dev-server.ts",
 ];
-if (scenario === "history")
+const isHistory = scenario === "history" || scenario === "history-source";
+if (isHistory)
   sourceFiles.push(
     "apps/web/app/dashboard/review-history-section.tsx",
     "apps/web/src/server/review-history.ts",
@@ -192,6 +207,21 @@ if (scenario === "history")
     "packages/features/review-history/src/adapters/outbound/prisma-history-reader.ts",
     "packages/platform/db/prisma/migrations/000151_review_history/migration.sql",
     "scripts/statistics-e2e/history-scenario.ts",
+  );
+if (scenario === "history-source")
+  sourceFiles.push(
+    "scripts/statistics-e2e/history-source.ts",
+    "scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness.ts",
+    "scripts/review-action-v2-production-e2e/support/fake-github.ts",
+    "apps/api/src/review-v2-request-ingress-outbox.ts",
+    "apps/api/src/review-action-v2-production-composition.ts",
+    "apps/worker/src/review-v2-production-runtime.ts",
+    "apps/worker/src/review-v2-worker-runtime.ts",
+    "apps/worker/src/review-history-worker-runtime.ts",
+    "packages/features/review-history/src/adapters/outbound/history-source-snapshots.ts",
+    "packages/features/review-history/src/adapters/outbound/prisma-history-writer.ts",
+    "packages/features/review-history/src/adapters/outbound/prisma-history-projector.ts",
+    "packages/features/review-history/src/domain/status-policy.ts",
   );
 const migrations = (
   await readdir(join(root, "packages/platform/db/prisma/migrations"))
@@ -225,7 +255,24 @@ try {
   serverVersion = (
     await admin.query<{ server_version: string }>("SHOW server_version")
   ).rows[0]!.server_version;
-  await seed();
+  if (scenario === "history-source") {
+    await seedSourceIdentity();
+    historySource = await createHistorySource(databaseUrl, {
+      prefix: `${prefix}-source`,
+      workspaceId: main.id,
+    });
+    // Keep synthetic installation avatars on an existing local asset so the
+    // dashboard's GitHub avatar fallback cannot introduce external requests.
+    const avatar = await admin.query(
+      'UPDATE "GitHubInstallation" SET "accountAvatarUrl"=\'/service-icons/github.svg\' WHERE "id"=$1 AND "workspaceId"=$2',
+      [`${historySource.harness.prefix}-installation`, main.id],
+    );
+    assert.equal(
+      avatar.rowCount,
+      1,
+      "Only the owned source installation avatar changes",
+    );
+  } else await seed();
   if (scenario === "history") {
     originalHistoryCoverage = await seedHistoryFixtures(
       admin,
@@ -335,21 +382,27 @@ try {
     },
   });
   const warm = await fetch(
-    `${appUrl}/dashboard?section=${scenario === "history" ? "reviews" : "statistics"}&workspace=${main.slug}`,
+    `${appUrl}/dashboard?section=${isHistory ? "reviews" : "statistics"}&workspace=${main.slug}`,
     {
       headers: { cookie: `next-auth.session-token=${sessionToken}` },
       signal: AbortSignal.timeout(180_000),
     },
   );
   assert.equal(warm.status, 200, "Warm real SSR request");
+  const warmHtml = await warm.text();
   assert(
-    (await warm.text()).includes(
-      scenario === "history"
-        ? "Reviewed pull requests"
-        : "All-severity review summary",
+    warmHtml.includes(
+      isHistory ? "Reviewed pull requests" : "All-severity review summary",
     ),
     "Initial HTML must contain the server-rendered report",
   );
+  if (historySource)
+    assert(
+      warmHtml.includes(historySource.first.repositoryFullName) &&
+        warmHtml.includes(historySource.first.pullRequestTitle ?? "") &&
+        warmHtml.includes("Queued"),
+      "Initial SSR must contain the source-produced queued review",
+    );
   checks.push("authorized initial SSR HTML contains the real report");
   console.log("statistics-e2e: authorized SSR compiled before browser launch");
   await writeFile(
@@ -358,16 +411,24 @@ try {
       status: warm.status,
       containsReport: true,
       expectedFixtureTotals:
-        scenario === "history"
-          ? { firstPage: 25, pullRequests: 35 }
-          : [12, 90, 180],
+        scenario === "history-source"
+          ? { pullRequests: 1, runs: 1, status: "queued" }
+          : scenario === "history"
+            ? { firstPage: 25, pullRequests: 35 }
+            : [12, 90, 180],
       sourceCommit,
       sourceSha256,
       node: process.version,
       postgres: serverVersion,
     }) + "\n",
   );
-  if (scenario === "history") {
+  if (scenario === "history-source") {
+    assert(historySource);
+    await warmHistorySourceApis(warmApi, historySource, admin);
+    checks.push(
+      "source-produced queued PR is present in real SSR and all three private/no-store History GET warmups",
+    );
+  } else if (scenario === "history") {
     await warmHistoryApis(warmApi, main.id);
     checks.push(
       "all three actual protected history API warmups return200/private-no-store,25 PRs,25 repositories and5 runs",
@@ -430,7 +491,23 @@ try {
   const page = await context.newPage();
   page.setDefaultTimeout(30_000);
   observe(page);
-  if (scenario === "history") {
+  if (scenario === "history-source") {
+    assert(historySource);
+    await qualifyHistorySource({
+      page,
+      context,
+      admin,
+      appUrl,
+      main,
+      empty,
+      foreign,
+      source: historySource,
+      checks,
+      requests,
+      snapshot,
+      selectTheme,
+    });
+  } else if (scenario === "history") {
     await qualifyHistory({
       page,
       context,
@@ -541,6 +618,12 @@ try {
         await restoreHistoryCoverage(admin, originalHistoryCoverage);
     },
     async () => {
+      await historySource?.harness.cleanupHistoryFixtures();
+    },
+    async () => {
+      await historySource?.harness.close();
+    },
+    async () => {
       if (!adminConnected || !coverageChanged) return;
       if (originalCoverage)
         await admin.query(
@@ -571,7 +654,9 @@ try {
         [identities],
       );
       await admin.query('DELETE FROM "Workspace" WHERE "id"=ANY($1::text[])', [
-        [main.id, empty.id],
+        scenario === "history-source"
+          ? [main.id, empty.id, foreign.id]
+          : [main.id, empty.id],
       ]);
       await admin.query(
         'DELETE FROM "ReviewMutationAuthority" WHERE "scmRepositoryIdentityId"=ANY($1::text[])',
@@ -617,7 +702,11 @@ const result = {
   serverVersion,
   authentication:
     "synthetic signed NextAuth JWT with real user, identity and membership DB reads",
-  data: "real migrated PostgreSQL; direct compact-fact fixtures; capture/projector qualification is separate",
+  data:
+    scenario === "history-source"
+      ? "real production ingress, intent dispatcher, Action v2/execution, publication/completion capture and registered History outbox handler on one PostgreSQL database; external GitHub/OIDC/provider adapters are synthetic"
+      : "real migrated PostgreSQL; direct compact-fact fixtures; capture/projector qualification is separate",
+  sourceHistoryEvidence: historySource?.evidence,
   appRole: "temporary SELECT-only role; writes never granted",
   checks,
   screenshots,
@@ -1162,6 +1251,39 @@ async function selectTheme(page: Page, theme: "dark" | "light") {
     await page.evaluate(() => document.documentElement.dataset.theme),
     theme,
   );
+}
+async function seedSourceIdentity() {
+  // Source runs use the production harness's control-plane fixtures. Seed the
+  // browser identity, memberships and empty workspace's connection here.
+  await admin.query("BEGIN");
+  try {
+    await admin.query(
+      'INSERT INTO "User" ("id","githubUserId","githubLogin","primaryEmail","updatedAt") VALUES ($1,$2,$3,$4,NOW())',
+      [actor.id, actor.externalId, actor.login, `${actor.login}@invalid.test`],
+    );
+    await admin.query(
+      'INSERT INTO "UserExternalIdentity" ("id","userId","provider","externalUserId","login","updatedAt") VALUES ($1,$2,\'github\',$3,$4,NOW())',
+      [actor.identity, actor.id, actor.externalId, actor.login],
+    );
+    for (const workspace of [main, empty, foreign]) {
+      await admin.query(
+        'INSERT INTO "Workspace" ("id","slug","name","createdAt","updatedAt") VALUES ($1,$2,$3,$4,NOW())',
+        [workspace.id, workspace.slug, workspace.name, epoch],
+      );
+      if (workspace !== foreign) await addMember(workspace.id);
+    }
+    // Dashboard navigation includes actionable workspaces. A connected source
+    // with no repositories keeps the authorized empty workspace selectable.
+    await admin.query(
+      'INSERT INTO "GitHubInstallation" ("id","workspaceId","githubInstallationId","accountLogin","accountType","accountAvatarUrl","repositorySelection","updatedAt") VALUES ($1,$2,$3,$4,\'Organization\',\'/service-icons/github.svg\',\'selected\',NOW())',
+      [`${prefix}-empty-installation`, empty.id, actor.externalId, empty.slug],
+    );
+    await admin.query("COMMIT");
+    seeded = true;
+  } catch (error) {
+    await admin.query("ROLLBACK");
+    throw error;
+  }
 }
 async function seed() {
   await admin.query("BEGIN");

@@ -31,3 +31,5 @@ export {
   parseReviewAgentProfiles,
   type ReviewAgentProfile,
 } from "./review-agent-profile";
+
+export * from "./review-reviewer-plan";

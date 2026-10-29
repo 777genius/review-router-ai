@@ -9,6 +9,8 @@ import {
 } from "@reviewrouter/features-provider-accounts";
 import {
   canonicalJson,
+  getReviewRunGatewayAllocation,
+  getReviewRunReviewer,
   parseReviewRunRuntimeSnapshot,
   type ReviewRunAuthorization,
 } from "@reviewrouter/features-review-run-control";
@@ -38,6 +40,7 @@ export type ReadSelectedGatewayModelSettings = (request: {
   readonly authorization: ReviewRunAuthorization;
   readonly signal: AbortSignal;
   readonly executionAuthorizationEpoch?: number;
+  readonly reviewerId?: string;
 }) => Promise<{
   readonly authorizationEpoch: number;
   readonly settings: SelectedGatewayModelSettings | undefined;
@@ -94,22 +97,43 @@ export function createReviewRunGatewayModelSettingsReader(input: {
       c.profile.parse(profile),
     ]),
   );
-  return async ({ authorization, signal, executionAuthorizationEpoch }) => {
+  return async ({
+    authorization,
+    signal,
+    executionAuthorizationEpoch,
+    reviewerId,
+  }) => {
     const workspaceId = authorization.workspaceId;
     const snapshot = parseReviewRunRuntimeSnapshot(
       authorization.runtimeSnapshotCanonicalJson,
     );
-    const gateway = snapshot?.gateway;
+    const reviewer =
+      snapshot?.snapshotVersion === 4 && reviewerId !== undefined
+        ? getReviewRunReviewer(snapshot, reviewerId)
+        : null;
+    const gateway =
+      snapshot?.snapshotVersion === 4
+        ? reviewer &&
+          getReviewRunGatewayAllocation(
+            snapshot,
+            reviewer.transport.allocationId,
+          )
+        : snapshot?.gateway;
     if (
       !snapshot ||
       !gateway ||
+      (snapshot.snapshotVersion === 3 && reviewerId !== undefined) ||
       snapshot.deadline !== authorization.maxExpiresAt.toISOString()
     )
       throw new Error("gateway_model_settings_unavailable");
     const config = parseReviewConfigurationStrict(
       JSON.parse(snapshot.configurationCanonicalJson),
     );
-    const provider = config.providers[gateway.providerIndex];
+    const providerIndex =
+      snapshot.snapshotVersion === 4
+        ? reviewer!.providerIndex
+        : snapshot.gateway!.providerIndex;
+    const provider = config.providers[providerIndex];
     const profile = profiles.get(gateway.profileRef);
     const discoverySource = profile?.authKinds
       .map((authKind) =>

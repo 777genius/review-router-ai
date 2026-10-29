@@ -45,6 +45,7 @@ const extensions = [
   "000126_review_configuration_mimo_auth_kind",
   "000150_skills_catalog_security",
   "000151_review_history",
+  "000152_review_run_gateway_allocations",
 ];
 function body(name: string) {
   const match = source.match(
