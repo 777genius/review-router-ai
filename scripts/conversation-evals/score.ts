@@ -442,8 +442,9 @@ for (const variant of report.variants) {
       if (annotated.replyUnnecessary) unnecessaryReplies++;
       if (
         expectedEvent?.expectedReply === "answer" &&
-        expectedThread?.policy.discussionReplies !== false &&
-        expectedThread?.policy.existingThreadReplies! < 5
+        expectedThread !== undefined &&
+        expectedThread.policy.discussionReplies !== false &&
+        expectedThread.policy.existingThreadReplies < 5
       ) {
         answerCount++;
         if (annotated.supported && annotated.effectTruthful) supportedAnswers++;

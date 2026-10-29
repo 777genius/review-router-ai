@@ -21,8 +21,8 @@ const input = {
 };
 const controls = () => ({ deadlineAt: new Date(Date.now() + 5000) });
 function fixture(result: unknown, status = 200, strict = true) {
-  const send = vi.fn(
-    async (_url: RequestInfo | URL, _init?: RequestInit) =>
+  const send = vi.fn<typeof fetch>(
+    async () =>
       new Response(JSON.stringify(result), {
         status,
         headers: strict ? { "X-Hindsight-Strict-Preview": "v1" } : {},

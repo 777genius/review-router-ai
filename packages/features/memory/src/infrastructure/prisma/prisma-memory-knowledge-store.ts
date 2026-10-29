@@ -470,7 +470,8 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
       updatedAt: timestamp,
     };
     if (command.kind === "save" && !input.automaticSource) {
-      const { automaticSource: _automaticSource, ...maintained } = metadata;
+      const maintained = { ...metadata };
+      delete maintained.automaticSource;
       metadata = maintained;
     }
     metadata = {

@@ -11,7 +11,7 @@ const source = {
 const operationId = "11111111-1111-4111-8111-111111111111";
 const seen = [];
 const json = (body) =>
-  new Response(JSON.stringify(body), {
+  new globalThis.Response(JSON.stringify(body), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
@@ -28,12 +28,15 @@ const memory = new HindsightMemoryStore({
           ? request.href
           : request.url;
     const method =
-      init?.method ?? (request instanceof Request ? request.method : "GET");
+      init?.method ??
+      (request instanceof globalThis.Request ? request.method : "GET");
     if (method === "POST") {
       const body = JSON.parse(
         String(
           init?.body ??
-            (request instanceof Request ? await request.text() : "{}"),
+            (request instanceof globalThis.Request
+              ? await request.text()
+              : "{}"),
         ),
       );
       seen.push(body);

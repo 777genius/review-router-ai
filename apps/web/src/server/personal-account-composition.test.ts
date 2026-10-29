@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ProviderAccountError } from "@reviewrouter/features-provider-accounts";
+import { accountModelCatalogResponseBytes } from "@reviewrouter/features-provider-accounts/composition";
 import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
 import { createPersonalCanonicalAccounts } from "./personal-canonical-accounts";
 import * as composition from "./personal-account-composition";
@@ -153,7 +154,7 @@ it.each(["ORIGIN", "TOKEN"] as const)(
       origin: "https://personal.example.test",
       token: "dedicated-consumer-token",
       timeoutMs: 10000,
-      responseBytes: 65536,
+      responseBytes: accountModelCatalogResponseBytes,
     });
     expect(h.control.profiles).not.toHaveBeenCalled();
   },

@@ -130,7 +130,6 @@ export async function loadCorpus(): Promise<Corpus> {
     factIds.size > 120
   )
     throw new Error("corpus_fact_inventory_invalid");
-  const factsById = new Map(corpus.facts.map((fact) => [fact.id, fact]));
   const scenarios = new Map<string, CorpusThread[]>();
   for (const thread of corpus.threads) {
     scenarios.set(thread.scenario, [

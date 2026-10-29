@@ -1303,7 +1303,7 @@ export class MemoryKnowledgeService {
       ))
     )
       return false;
-    let current = false;
+    let current: boolean;
     try {
       current = await automatic.current.current(
         { scope: metadata.ref.scope, source: metadata.source, binding },

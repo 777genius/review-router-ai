@@ -166,10 +166,6 @@ export class ReviewMemoryRuntimeGateway {
       ? reviewMemoryRuntimeScopes(authorization, policy)
       : [];
     const { actor, service } = this.service(authorization, scopes);
-    // The qualified profile exports approved statements only. A customer-supplied
-    // query could contain raw source even after secret/code pattern filtering.
-    const query =
-      "Approved repository review conventions and maintained project knowledge";
     checkDeadline(controls);
     const repository =
       await this.dependencies.prisma.repositoryConnection.findFirst({

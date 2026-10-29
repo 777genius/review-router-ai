@@ -294,7 +294,7 @@ test("raw event snapshots edit/delete learned sources and preserve unchanged-tri
 });
 
 async function scorerRiskTest(t: TestContext, split: "tuning" | "holdout") {
-  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { mkdir, mkdtemp, writeFile, rm } = await import("node:fs/promises");
   const { spawnSync } = await import("node:child_process");
   const { resolve } = await import("node:path");
   const corpus = await loadCorpus();
@@ -524,6 +524,9 @@ async function scorerRiskTest(t: TestContext, split: "tuning" | "holdout") {
       };
       (scenario.observations as unknown[]).push({ mutation, followup });
     }
+  await mkdir(resolve("tmp/conversational-memory-implementation"), {
+    recursive: true,
+  });
   const directory = await mkdtemp(
     resolve("tmp/conversational-memory-implementation/scorer-risk-"),
   );
