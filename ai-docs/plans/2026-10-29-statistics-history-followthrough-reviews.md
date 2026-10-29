@@ -117,12 +117,51 @@ prelease follow-up исключён. Это пятый фактический pl
 
 ## Plan-only publication
 
-Статус: **pending — accepted plan awaiting plan-only publication**. Commit/PR,
-push receipt и head SHA заполняет основной агент после фактической публикации.
-Пять actual rounds завершены; реализация начнётся только после этого push.
+Статус: **published before implementation**. Plan-only commit:
+`625855482368ac187c213e84883824f64a61a3cb`; origin branch verified by
+`git ls-remote`. [Draft PR #743](https://github.com/777genius/review-router-ai/pull/743)
+opened with that exact plan-only head. The first source edit happened after
+the remote verification and draft creation.
 
 ## Реализация, проверки и final critics
 
-Статус: не начата. Никакие тесты, browser scenarios, CI, merge или deployment
-этим документом пока не объявлены прошедшими. Implementation receipts,
-ограничения среды и последующие material findings записываются по факту.
+Статус: реализация начата. Root owns Usage policy, documentation and integration;
+the three existing GPT-6.1 Sol xhigh agents own frontend, History/Statistics
+backend, and the existing browser qualification extension. Final code review,
+required CI, merge and deployment are not yet claimed.
+
+### Usage policy measurement
+
+The bounded opt-in script compares the previous scan policy with the indexed
+selector on 10,000 calls / 1,000 summaries, including complete, missing,
+wrong-invocation, partial and unbounded families. Node24.22.1; one warmup and
+three serial measured samples. All outputs were deeply equal: 7,500 selected,
+2,800 partial children, 100 unbounded summaries.
+
+- Previous scan: 302.934 / 312.903 / 257.796 ms.
+- Indexed lookup: 10.314 / 8.784 / 8.050 ms.
+- Production source SHA256:
+  `9eb51d7121ecea2c3b0a8afafced76da354d9e050595ce973c3711ed5e22873c`.
+
+This measures the pure selector only, not SQL, full-period materialization,
+aggregation, concurrent users or total request latency. No timing threshold is
+added to CI. The reproducible script is
+`scripts/provider-usage-e2e/benchmark-selection.ts`.
+
+The final selector keeps a direct return for reports without summaries, avoiding
+an unused call index on that common path. Focused policy, whole-period accounting
+and composition suites passed **27/27** tests (Vitest4.1.10, 0.853s); the prior
+bounded typecheck/build and ESLint pass also completed. Final repository gates
+and independent code critique remain pending.
+
+### Local qualification resources
+
+The first fresh PG17 initdb under owned `/tmp` failed with ENOSPC: unprivileged
+PostgreSQL cannot use filesystem blocks reserved for root. Its failure log was
+retained. A separate small owned tmpfs PG17.10 cluster then initialized and
+started successfully on loopback; all existing migrations through000152 applied.
+The empty fully migrated browser database is also the template for isolated
+History reader tests; those suites and the browser must run serially.
+No shared database or unknown worktree was changed or deleted. A narrow hosted
+browser qualification remains available if local compiler/browser capacity is
+insufficient. A failed or unexecuted check is not counted as a pass.

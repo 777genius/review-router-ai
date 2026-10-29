@@ -1,5 +1,25 @@
 # Joined provider usage verification
 
+## Bounded policy-selection measurement
+
+Run the opt-in pure-policy comparison independently of the database/browser
+suite:
+
+```sh
+node --import tsx scripts/provider-usage-e2e/benchmark-selection.ts
+```
+
+One process compares the previous scan policy with the indexed selector on
+10,000 calls and 1,000 summaries. The fixture includes complete, missing,
+wrong-invocation, partial and unbounded families, with call order different from
+manifest order. It asserts equal results, warms both implementations once, then
+reports three serial timings, result counts, Node version and source hash. No
+wall-clock threshold gates CI. This measures selection only: reading the entire
+period (up to 366 days), JSON materialization and aggregation remain separate
+scaling work; output pagination does not bound those costs.
+
+## Joined transport and storage
+
 Run from the RR repository root with a dedicated disposable PostgreSQL **17** cluster and the exact Action source checkout. Include the safe capture path for all three tests (without it, native replay is explicitly skipped):
 
 ```sh
