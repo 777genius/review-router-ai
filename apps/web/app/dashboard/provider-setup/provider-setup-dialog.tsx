@@ -529,7 +529,11 @@ function WorkspaceSaveResult({
   readonly onDone: () => void;
 }): React.ReactElement {
   const heading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => heading.current?.focus(), []);
+  useEffect(() => {
+    // Let the dialog's queued opening autofocus run before focusing the result.
+    const frame = requestAnimationFrame(() => heading.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, []);
   return (
     <section className="grid gap-4" aria-label="Provider saved">
       <div className="grid gap-2">

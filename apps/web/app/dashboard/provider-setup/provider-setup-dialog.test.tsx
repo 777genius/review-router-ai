@@ -1717,6 +1717,35 @@ describe("ProviderSetupDialog", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
+  it("keeps focus on the workspace save result when opening autofocus is still queued", async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let frameId = 0;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      const id = ++frameId;
+      frames.set(id, callback);
+      return id;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+
+    view = { ...view, target: "workspace", repositories: [] };
+    renderDialog({ kind: "workspace" });
+    await choose("Second Claude");
+    // A fast save can finish before the opening dialog focuses its first control.
+    expect(frames.size).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Set as default" }));
+    const heading = await screen.findByRole("heading", {
+      name: "Workspace default saved",
+    });
+
+    await act(async () => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(performance.now());
+    });
+
+    expect(document.activeElement).toBe(heading);
+  });
+
   it("keeps repository step navigation locked until a provider save finishes", async () => {
     let finishSave!: (
       result: Awaited<ReturnType<typeof saveProviderSetupAction>>,

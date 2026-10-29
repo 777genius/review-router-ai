@@ -1,11 +1,13 @@
 import {
   ReviewRequestedDispatchLookupStatus,
   ReviewRequestedDispatchRunStatus,
+  ReviewRequestedTransitionStatus,
   reviewRequestedDispatchCleanupEvent,
   reviewRequestedDispatchCleanupEventType,
   reviewRequestedDispatchCleanupEventVersion,
   type ReviewRequestedDispatchGatewayPort,
   type ReviewRequestedIntentQueryPort,
+  type ReviewRequestedDispatchCleanupTargetPort,
 } from "@reviewrouter/features-review-executions";
 import {
   OutboxHandlerError,
@@ -13,7 +15,8 @@ import {
 } from "@reviewrouter/features-outbox";
 
 export function createReviewRequestedDispatchCleanupHandler(dependencies: {
-  readonly intents: Pick<ReviewRequestedIntentQueryPort, "findByRequestId">;
+  readonly intents: Pick<ReviewRequestedIntentQueryPort, "findByRequestId"> &
+    ReviewRequestedDispatchCleanupTargetPort;
   readonly gateway: ReviewRequestedDispatchGatewayPort;
 }): OutboxHandler {
   return {
@@ -31,8 +34,8 @@ export function createReviewRequestedDispatchCleanupHandler(dependencies: {
         });
       if (!intent) throw failure("dispatch_cleanup_intent_missing");
       const expected = reviewRequestedDispatchCleanupEvent(intent);
-      // Supersession and admission compete on the persisted version. Once
-      // superseded, admission cannot succeed; do not cancel an admitted drain.
+      // Only eligible closed pre-admission work can be cleaned up. The original
+      // NULL/NULL event target remains immutable when late discovery binds it.
       if (
         !expected ||
         event.type !== expected.type ||
@@ -41,14 +44,19 @@ export function createReviewRequestedDispatchCleanupHandler(dependencies: {
         event.workspaceId !== expected.workspaceId ||
         event.repositoryId !== expected.repositoryId ||
         event.aggregateId !== expected.aggregateId ||
-        !Object.entries(expected.payload).every(
-          ([key, value]) => payload[key] === value,
+        !sameCoreIdentity(payload, expected.payload) ||
+        !(
+          (payload.sourceRunId === null && payload.sourceRunAttempt === null) ||
+          (payload.sourceRunId === expected.payload.sourceRunId &&
+            payload.sourceRunAttempt === expected.payload.sourceRunAttempt)
         )
       )
         throw failure("dispatch_cleanup_identity_conflict", false);
 
       let target = intent;
-      if (target.sourceRunId === null || target.sourceRunAttempt === null) {
+      if ((target.sourceRunId === null) !== (target.sourceRunAttempt === null))
+        throw failure("dispatch_cleanup_target_partial", false);
+      if (target.sourceRunId === null) {
         // A dispatch POST may still be in flight. Even an absent lookup after
         // its original deadline is NOT proof of no effect; retry or retain DLQ.
         const found = await dependencies.gateway
@@ -62,11 +70,43 @@ export function createReviewRequestedDispatchCleanupHandler(dependencies: {
         if (found.sourceRunAttempt !== "1") {
           throw failure("dispatch_cleanup_attempt_changed", false);
         }
-        target = {
-          ...intent,
-          sourceRunId: found.sourceRunId,
-          sourceRunAttempt: found.sourceRunAttempt,
-        };
+        const observedVersion = intent.version;
+        const observedState = intent.state;
+        const observedReason = intent.terminalReason;
+        const observedAdmission = intent.admission.state;
+        const bound = await dependencies.intents
+          .bindCleanupRunTarget({
+            requestId: intent.requestId,
+            expectedVersion: observedVersion,
+            sourceRunId: found.sourceRunId,
+            sourceRunAttempt: found.sourceRunAttempt,
+          })
+          .catch(() => {
+            throw failure("dispatch_cleanup_target_binding_unavailable");
+          });
+        const persisted = bound.intent;
+        const persistedEvent =
+          persisted && reviewRequestedDispatchCleanupEvent(persisted);
+        if (
+          !persisted ||
+          !persistedEvent ||
+          (bound.status !== ReviewRequestedTransitionStatus.Applied &&
+            bound.status !== ReviewRequestedTransitionStatus.Restored) ||
+          persisted.version <= observedVersion ||
+          (bound.status === ReviewRequestedTransitionStatus.Applied &&
+            persisted.version !== observedVersion + 1n) ||
+          persisted.state !== observedState ||
+          persisted.terminalReason !== observedReason ||
+          persisted.admission.state !== observedAdmission ||
+          persisted.sourceRunId !== found.sourceRunId ||
+          persisted.sourceRunAttempt !== "1" ||
+          persistedEvent.workspaceId !== expected.workspaceId ||
+          persistedEvent.repositoryId !== expected.repositoryId ||
+          persistedEvent.aggregateId !== expected.aggregateId ||
+          !sameCoreIdentity(persistedEvent.payload, expected.payload)
+        )
+          throw failure("dispatch_cleanup_target_binding_conflict");
+        target = persisted;
       }
       try {
         if (
@@ -95,6 +135,18 @@ export function createReviewRequestedDispatchCleanupHandler(dependencies: {
 
 function failure(code: string, retryable = true) {
   return new OutboxHandlerError(code, code, retryable);
+}
+
+function sameCoreIdentity(
+  left: Readonly<Record<string, unknown>>,
+  right: Readonly<Record<string, unknown>>,
+) {
+  return Object.entries(right).every(
+    ([key, value]) =>
+      key === "sourceRunId" ||
+      key === "sourceRunAttempt" ||
+      left[key] === value,
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
