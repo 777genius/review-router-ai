@@ -36,6 +36,19 @@ jobs:
           test "$(git merge-base HEAD 5551a572fce38aaa3453bbef1ff9af79d3c293de)" = d3595c2e3e0b21ab539dea0fb7a06d35a4613faf
           git merge --no-commit --no-ff 5551a572fce38aaa3453bbef1ff9af79d3c293de || test -n "$(git ls-files -u)"
           python3 .github/ocr-recovery/merge-control.py
+          python3 - <<'PY'
+          from pathlib import Path
+          file = Path('scripts/rehearse-private-pg17-rollout.test.ts')
+          text = file.read_text()
+          anchor = 'repositorySecretProfilesMigrationNames.filter('
+          assert anchor in text and 'const repositorySecretProfilesMigrationNames' not in text
+          file.write_text(text.replace(anchor, 'currentMigrationNames.filter('))
+          file = Path('scripts/lib/render-schema-handoff-policy.test.ts')
+          text = file.read_text()
+          anchor = '.filter((name) => name !== "000136_provider_usage"))'
+          assert anchor in text
+          file.write_text(text.replace(anchor, '.filter((name) => name !== "000136_provider_usage" && name !== unifiedModelDispatchMigrationName))'))
+          PY
           test -z "$(git ls-files -u)"
           mkdir -p "$RUNNER_TEMP/ocr-integration"
       - name: Install the existing locked dependency graph
@@ -66,8 +79,7 @@ jobs:
       - id: build
         name: Rebuild existing runtime bundles
         run: pnpm action:build
-      - id: types
-        name: Check integration types
+      - name: Check integration types
         run: |
           pnpm --filter @reviewrouter/features-review-run-control typecheck
           pnpm --filter @reviewrouter/features-action-control-plane typecheck
@@ -92,6 +104,8 @@ jobs:
             scripts/rehearse-private-pg17-rollout.test.ts \
             --maxWorkers=2 --no-file-parallelism --reporter=default --reporter=json \
             --outputFile.json="$RUNNER_TEMP/ocr-integration/results.json"
+      - name: Verify deterministic checked-in protocol
+        run: pnpm protocol:check
       - name: Upload the tested merge objects without changing any ref
         env:
           GH_TOKEN: ${{ github.token }}
