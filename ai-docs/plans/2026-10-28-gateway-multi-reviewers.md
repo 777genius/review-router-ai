@@ -662,7 +662,46 @@ PostgreSQL jobs and complete paired Action/API suite remain required checks of
 the final published pair; their exact-head results are recorded on PRs #738
 and #351. No new migration, product flag or production activation was added.
 
-The final paired CI candidate is Action `de11bc35438ef3b49d6d9228aab507f47156565f`.
-Its runtime entrypoint SHA-256 is
+The cancellation correction was first published as Action
+`de11bc35438ef3b49d6d9228aab507f47156565f`, with runtime entrypoint SHA-256
 `28cf7069d613b31d15a626e0c937e0e0c77dbe5e971c1d1d346e78566f8207d3`.
-The generated canonical handoff remains unchanged at the published source above.
+At that source boundary the generated canonical handoff was unchanged.
+
+### Current-main integration and final paired candidate (2026-10-29)
+
+Current main advanced while the cancellation corrections were under review.
+The SaaS integration preserves main
+`8ea78b9df1398e64fce917eecdc18d95e52d9e9f` and the source-to-browser history
+harness from PR #741. The single harness overlap now keeps scoped fetch/cleanup,
+history adapters, reviewer-plan attestation, signed fixture OIDC and loopback
+Gateway forwarding. Seven other main changes are retained byte-for-byte.
+
+The canonical source is
+`1a21c33f39ff42fa8c640d9cfd4980f8ff88f8e7`. The immutable conversation wire
+contract and canonical export from
+`157eed60e97ecfc31d9ceaea8c8c989eb9e9e3be` were included because Action main
+already consumes that contract. This four-file compatibility change adds no
+conversation runtime, route, dependency, feature flag or deployment. The
+standard canonical bootstrap passed, and two generator runs produced the same
+conversation artifact while preserving every prior V4, manifest and pinned171
+byte. Handoff/export tests passed 23/23; tooling and protocol typechecks,
+focused lint/format and independent reviews passed.
+
+The Action integration preserves main
+`8a6bb7395556ddabbda4b8275bc9e2de6fea4f8e`, including managed conversations and
+shared frozen memory. The reviewed runner merge captures each parent snapshot
+once, keeps review and PR-description audiences separate, retains memory for
+investigations, and preserves admission when the primary reviewer cannot
+prepare. The eight affected suites passed 402/402, including the 122
+orchestration cases and the new composition regressions. Types, lint, formatting
+and independent semantic review passed.
+
+The maintained exporter generated the complete Action handoff from the actual
+published canonical SaaS commit. Committed runtime bundles were rebuilt from
+the combined source. The final paired CI candidate is Action
+`99776cd79a9d783cd3d3ab2ea349dd61096a992e`, with runtime entrypoint SHA-256
+`429f473766dabd5870c9b52933b2a4905648aaf2f5fd8bea3f8b9230a978669a` and handoff SHA-256
+`ef4f97bc59138460fab379e4fee4900d56bc3cf69f70b0b01a78f50468eb9500`.
+The final SaaS pin selects that exact Action commit. The linked PRs record
+fresh hosted PostgreSQL, full paired E2E and merge results for the final heads.
+All branch updates retain both histories and use observed-head leases.

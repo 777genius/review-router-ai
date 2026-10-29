@@ -27,50 +27,59 @@ account-catalog deployment is not included in this task.
 
 ## Qualified source candidate
 
-The published canonical SaaS source is
-`c4e0834d30eb8f076c6996a3b6093cef06af7843`. Its Git tree exactly matches the
-qualified local integration `66d944a9aa6813b572011b4938daccd89f3f7741`, including
-main `89ce21cccbd5e979baf46450ecb8bb5b1b599e90` and its durable cleanup correction.
-The final SaaS integration also updates the paired CI pin, shared publication
-timestamp fixtures and this evidence.
-The final published Action candidate is
-`de11bc35438ef3b49d6d9228aab507f47156565f` (version 1.0.220). It retains main
-`2b9b7f8c438b076b6e06c6e14f9ac8e87f1a25b6` and adds the reviewed cancellation
-correction. The SaaS paired CI pin selects this exact published candidate.
-The canonical handoff is unchanged; candidate identities are:
+The canonical SaaS source is
+`1a21c33f39ff42fa8c640d9cfd4980f8ff88f8e7`. It preserves the multi-reviewer
+implementation, the reviewed cancellation corrections and current main
+`8ea78b9df1398e64fce917eecdc18d95e52d9e9f`, including source-to-browser history
+qualification. The final SaaS integration advances the paired CI pin and this
+evidence without changing the canonical wire source.
 
-- Runtime entrypoint SHA-256: `28cf7069d613b31d15a626e0c937e0e0c77dbe5e971c1d1d346e78566f8207d3`.
-- Canonical handoff SHA-256: `1f2f11c10efac7f894268a60ea63d6d17fe2afa706cf980d3a4341d98aaa8fdd`.
+The final published Action candidate is
+`99776cd79a9d783cd3d3ab2ea349dd61096a992e` (version 1.0.220). It includes current main
+`8a6bb7395556ddabbda4b8275bc9e2de6fea4f8e`, retaining managed conversations and
+shared frozen memory alongside independent Gateway reviewers. The SaaS paired
+CI pin selects this exact published candidate. Candidate identities are:
+
+- Runtime entrypoint SHA-256: `429f473766dabd5870c9b52933b2a4905648aaf2f5fd8bea3f8b9230a978669a`.
+- Canonical handoff SHA-256: `ef4f97bc59138460fab379e4fee4900d56bc3cf69f70b0b01a78f50468eb9500`.
 - Reviewer-plan version 1 descriptor: `sha256:f6a45d7039129a813690f5f769052d3ba078418eb123b0c0c710ef790d2919d6`.
 - Migration 152 SQL SHA-256: `013e9b1917940ed3a796f8df6fa85a0c9c0cc5a4e76a7b19841911f3ea24bd6d`.
 - Complete checkout156 migration manifest: `sha256:ef2c303008c8edac0df3372f725f374ba417042a6707daf25b69c87897bd1e38`.
 
 The preceding published pair passed 27/27 scenarios, including all four compiled
-multi-reviewer cases. The final cancellation correction passed 122/122 Action
-orchestration tests and 63/63 Gateway relay tests, with both runtime typechecks
-passing. The exact final pair must pass the maintained hosted CI gates. Browser qualification passed 13 checks, including
-catalog failure/retry and fail-closed Save. Production builds, compiled startup,
-protocol and unchanged architecture gates passed. The implementation plan has
-the detailed review and validation ledger.
+multi-reviewer cases. Cancellation review passed 122/122 Action orchestration
+tests and 63/63 Gateway relay tests. After integrating current main, the eight
+affected Action suites passed 402/402, including regressions for task-specific
+memory and surviving reviewer lanes. Canonical handoff tests passed 23/23, and
+double generation changed only the expected conversation wire artifact.
+Typechecks, focused lint/format and independent conflict reviews passed.
+The exact final pair must pass the maintained hosted CI gates; their current
+results and merge state are recorded on the linked PRs.
 
-The source is published through the owner's connected GitHub plugin. Source trees
-and canonical author/committer identities were checked before leased, non-force
-branch updates. The handoff was regenerated with the maintained exporter from
-the remotely available source and Action base; no generated fields were edited
-by hand. Required CI and guarded merge are source-integration gates; their
-current result and merge state are recorded on the linked PRs.
+The existing browser qualification passed 13 checks, including catalog
+failure/retry and fail-closed Save. Production builds, compiled startup,
+protocol and unchanged architecture gates passed. The implementation plan
+retains the detailed qualification ledger and its source boundaries.
+
+The source is published through the owner's connected GitHub plugin. Complete
+source trees and accepted author/committer identities are checked before leased,
+non-force branch updates. The handoff is regenerated through the maintained
+exporter from the actual published canonical commit and Action base. It retains
+the V4 artifacts and adds the immutable conversation wire file already used by
+Action main. Only that wire source and its canonical export were carried from
+SaaS `157eed60e97ecfc31d9ceaea8c8c989eb9e9e3be`; no conversation runtime or
+activation is included in this task.
 
 Hosted CI includes the five Docker-backed certified-fork PostgreSQL cases.
 The historical SQL079 producer fixture omits the later reviewer-plan field,
 and the current configuration fixture verifies all 156 migrations through152.
-The plan records the completed cancellation reviews and local regression proof;
-the linked PRs record fresh PostgreSQL and compiled paired-E2E qualification.
-These remain required source-integration checks before selecting a release.
+Fresh PostgreSQL and compiled paired-E2E qualification remain required
+source-integration checks before selecting a release.
 
 After merge, reconcile the actual merged source revisions and regenerate/verify
 the release manifest for the exact candidate chosen by the release procedure.
-A local source candidate does not itself register a producer or change an
-installed workflow channel.
+A source candidate does not itself register a producer or change an installed
+workflow channel.
 
 ## Applicability and prerequisites
 
