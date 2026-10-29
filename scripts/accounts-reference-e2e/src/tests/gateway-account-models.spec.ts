@@ -152,7 +152,10 @@ test("dynamic Codex account models work in provider edit and add with exact bind
 
   await page.getByRole("button", { name: "Add provider", exact: true }).click();
   await expect(dialog).toBeVisible();
-  await choose(page, "Provider", "Connected account");
+  await choose(page, "Provider", "Codex");
+  await expect(
+    dialog.getByRole("radio", { name: /^ReviewRouter\b/u }),
+  ).toBeChecked();
   await choose(page, "Account", FIXTURES.sourceLabels.orgAlpha);
   const useDefault = dialog.getByRole("checkbox", {
     name: /Use as workspace default/,
@@ -204,7 +207,10 @@ test("provider settings geometry stays aligned on desktop, mobile and narrow lay
       path: info.outputPath(`provider-empty-${theme}.png`),
       fullPage: true,
     });
-    await choose(page, "Provider", "Connected account");
+    await choose(page, "Provider", "Codex");
+    await expect(
+      dialog.getByRole("radio", { name: /^ReviewRouter\b/u }),
+    ).toBeChecked();
     await expect(
       dialog.getByRole("combobox", { name: "Model", exact: true }),
     ).toHaveCount(0);
