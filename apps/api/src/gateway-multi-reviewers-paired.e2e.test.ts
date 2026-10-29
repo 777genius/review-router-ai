@@ -80,6 +80,11 @@ const profileId = "openrouter-openai-responses-apikey-v1";
     let workerRunning = false;
     let workerError: unknown;
     try {
+      // Synthetic executables remain CommonJS even inside an ESM checkout.
+      await writeFile(
+        path.join(root, "package.json"),
+        JSON.stringify({ private: true, type: "commonjs" }),
+      );
       await resetReviewActionV2E2EDatabase(databaseUrl!);
       const repository = await makeRepository(root);
       const artifact = path.join(actionSourceDir!, "dist/index.js");
@@ -505,6 +510,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
             GITHUB_WORKSPACE: repository.directory,
             GITHUB_OUTPUT: path.join(root, "output"),
             RUNNER_TEMP: runnerTemp,
+            TMPDIR: runnerTemp,
             REVIEWROUTER_ACTION_V2_MODE: "t0",
             REVIEWROUTER_ACTION_VERSION: "a".repeat(40),
             REVIEW_ROUTER_MODE: "account-gateway",
@@ -612,6 +618,13 @@ const profileId = "openrouter-openai-responses-apikey-v1";
             ? []
             : [{ model, effort: index === 0 ? "high" : "medium" }],
         ),
+      );
+      expect(native.modelReads.map((read) => read.accountRef).sort()).toEqual(
+        failed
+          ? ["multi-account-1"]
+          : sharedAllocation
+            ? ["multi-account-0", "multi-account-0"]
+            : ["multi-account-0", "multi-account-1"],
       );
       expect(native.preparations).toHaveLength(
         scenario === "independent" ? 2 : 1,
@@ -766,6 +779,7 @@ async function nativeGateway() {
     closes: string[] = [],
     calls: string[] = [];
   const requestSettings: { model: string; effort: string | undefined }[] = [];
+  const modelReads: gateway.AccountModelsRequest[] = [];
   let active = 0,
     maxActive = 0;
   const server = createServer(async (request, response) => {
@@ -792,6 +806,46 @@ async function nativeGateway() {
       if (account) {
         if (!control) return deny(401, "unauthenticated");
         json(200, accounts.get(decodeURIComponent(account[1]!)));
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        request.url === "/v1/account-models/read"
+      ) {
+        if (!control) return deny(401, "unauthenticated");
+        const parsed = gateway.accountModelsRequest.safeParse(body);
+        if (!parsed.success) return deny(400, "invalid_request");
+        const selection = parsed.data;
+        const selected = accounts.get(selection.accountRef);
+        if (
+          !selected ||
+          selected.state !== "active" ||
+          selected.accountRef !== selection.accountRef ||
+          selected.ownerRef !== selection.ownerRef ||
+          selected.profileId !== profileId ||
+          selection.profileId !== profileId ||
+          selected.authorizationEpoch !== selection.expectedAuthorizationEpoch
+        )
+          return deny(403, "forbidden");
+        modelReads.push(selection);
+        const fetchedAt = Date.now();
+        json(
+          200,
+          gateway.accountModels.parse({
+            status: "snapshot",
+            source: "openrouter",
+            physicalGeneration: `multi-generation-${selected.accountRef}`,
+            principalVersion: `multi-principal-${selected.accountRef}`,
+            fetchedAt: new Date(fetchedAt).toISOString(),
+            expiresAt: new Date(fetchedAt + 300000).toISOString(),
+            models: models.map((modelId) => ({
+              modelId,
+              reasoning: { allowed: ["medium", "high"], default: "medium" },
+              fast: null,
+              tools: { allowed: ["function"], default: "function" },
+            })),
+          }),
+        );
         return;
       }
       const operation = /^\/v1\/operations\/([^/]+)$/.exec(request.url ?? "");
@@ -968,6 +1022,7 @@ async function nativeGateway() {
     preparations,
     requestModels,
     requestSettings,
+    modelReads,
     closes,
     calls,
     get maxActive() {
