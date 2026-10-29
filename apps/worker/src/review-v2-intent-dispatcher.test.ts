@@ -163,6 +163,7 @@ describe("GitHubActionsReviewRequestedDispatchGateway", () => {
               event: "workflow_dispatch",
               display_title: "ReviewRouter review request-1",
               status: "completed",
+              conclusion: "failure",
               path,
             },
           };
@@ -189,6 +190,44 @@ describe("GitHubActionsReviewRequestedDispatchGateway", () => {
       ).resolves.toEqual({
         status: ReviewRequestedDispatchRunStatus.TerminalCurrentRevision,
       });
+    },
+  );
+
+  // Regression: operator-cancelled runs were classified as retryable and the
+  // recovery loop redispatched the same PR revision with a fresh request id.
+  it.each(["cancelled", "skipped", "action_required", "success", null])(
+    "does not offer a redispatch for a run concluded as %s",
+    async (conclusion) => {
+      const request = vi.fn(async (route: string) => {
+        if (!route.includes("/actions/runs/"))
+          throw new Error("pull_request_lookup_not_expected");
+        return {
+          data: {
+            id: 701,
+            run_attempt: 1,
+            event: "workflow_dispatch",
+            display_title: "ReviewRouter review request-1",
+            status: "completed",
+            conclusion,
+            path: ".github/workflows/reviewrouter-review.yml",
+          },
+        };
+      });
+
+      await expect(
+        gatewayWith(request).inspectKnownRun({
+          intent: {
+            ...intentFixture(),
+            state: ReviewRequestedIntentState.AwaitingAuthorization,
+            claim: null,
+            sourceRunId: "701",
+            sourceRunAttempt: "1",
+          },
+        }),
+      ).resolves.toEqual({
+        status: ReviewRequestedDispatchRunStatus.TerminalNotRetryable,
+      });
+      expect(request).toHaveBeenCalledTimes(1);
     },
   );
 

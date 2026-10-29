@@ -17,6 +17,9 @@ export type ReviewRequestedRetryDependencies = Readonly<{
   digest: { digestUtf8(value: string): Promise<string> };
 }>;
 
+/** Upper bound for the exponential delay between redispatch attempts. */
+export const maxReviewRequestedRetryDelayMs = 3_600_000;
+
 export const defaultReviewRequestedDispatchPolicy: ReviewRequestedDispatchPolicy =
   Object.freeze({
     claimDurationMs: 60_000,
@@ -105,10 +108,29 @@ export async function buildReviewRequestedRetryCandidate(input: {
     triggerKind: input.intent.triggerKind,
     deliveryIdentityHash,
     canonicalRequestHash,
-    notBefore: new Date(input.now.getTime() + input.policy.retryDelayMs),
+    notBefore: new Date(
+      input.now.getTime() +
+        reviewRequestedRetryDelayMs(input.intent.dispatchAttempt, input.policy),
+    ),
     createdAt: new Date(input.now),
     retainUntil: new Date(input.now.getTime() + input.policy.retentionMs),
   };
+}
+
+/**
+ * Exponential backoff for the successor of a failed attempt: the first retry
+ * waits `retryDelayMs`, every further retry doubles it, bounded by
+ * `maxReviewRequestedRetryDelayMs`.
+ */
+export function reviewRequestedRetryDelayMs(
+  failedDispatchAttempt: number,
+  policy: Pick<ReviewRequestedDispatchPolicy, "retryDelayMs">,
+): number {
+  const exponent = Math.max(0, failedDispatchAttempt - 1);
+  return Math.min(
+    policy.retryDelayMs * 2 ** exponent,
+    Math.max(policy.retryDelayMs, maxReviewRequestedRetryDelayMs),
+  );
 }
 
 function assertDuration(value: number, error: string): void {

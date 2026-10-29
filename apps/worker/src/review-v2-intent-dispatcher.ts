@@ -124,6 +124,12 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
     if (reviewRequestedDispatchCleanupEvent(input.intent) !== null) {
       return { status: ReviewRequestedDispatchRunStatus.TerminalStaleRevision };
     }
+    if (
+      run.conclusion === null ||
+      !retryableRunConclusions.has(run.conclusion)
+    ) {
+      return { status: ReviewRequestedDispatchRunStatus.TerminalNotRetryable };
+    }
     const pullRequest = await octokit.request(
       "GET /repos/{owner}/{repo}/pulls/{pull_number}",
       {
@@ -404,11 +410,22 @@ function parseWorkflowRunsPage(
   return { matches, hasNextPage: data.workflow_runs.length === 100 };
 }
 
+/**
+ * Conclusions of a run that ended before authorization where a fresh dispatch
+ * may succeed. Anything else (cancelled by an operator, skipped, awaiting
+ * approval, unknown) stops the request instead of redispatching it.
+ */
+const retryableRunConclusions: ReadonlySet<string> = new Set([
+  "failure",
+  "timed_out",
+  "startup_failure",
+]);
+
 function parseInspectionResponse(
   data: unknown,
   intent: ReviewRequestedIntent,
   workflowPath: string,
-): { readonly completed: boolean } {
+): { readonly completed: boolean; readonly conclusion: string | null } {
   if (!isRecord(data)) {
     throw new Error("review_requested_inspection_response_invalid");
   }
@@ -430,7 +447,10 @@ function parseInspectionResponse(
   ) {
     throw new Error("review_requested_inspection_identity_invalid");
   }
-  return { completed: data.status === "completed" };
+  return {
+    completed: data.status === "completed",
+    conclusion: typeof data.conclusion === "string" ? data.conclusion : null,
+  };
 }
 
 function matchesWorkflowRunPath(value: unknown, workflowPath: string): boolean {
