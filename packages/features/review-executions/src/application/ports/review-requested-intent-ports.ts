@@ -42,8 +42,14 @@ export enum ReviewRequestedTransitionStatus {
 
 export enum ReviewRequestedDispatchRunStatus {
   Pending = "pending",
+  /** Completed with a retryable conclusion while the PR revision is unchanged. */
   TerminalCurrentRevision = "terminal_current_revision",
   TerminalStaleRevision = "terminal_stale_revision",
+  /**
+   * Completed in a way that a fresh dispatch cannot fix, e.g. the run was
+   * cancelled by an operator or skipped. The request stops without a successor.
+   */
+  TerminalNotRetryable = "terminal_not_retryable",
 }
 
 export enum ReviewRequestedDispatchSubmissionStatus {
