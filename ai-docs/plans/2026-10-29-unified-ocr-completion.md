@@ -866,3 +866,62 @@ failures. Live/provider/deployment and separate #734 boundaries do not change.
 | 1                      | **GO**, no findings.             | **GO**, no findings.             | Both critics verified the actual production owner mismatch, authentic selection and unchanged authority/delivery guards; no implementation edits. |
 | 2                      | **GO**, no findings.             | **GO**, no findings.             | Real-PG empty/nonempty regression, three-file scope, existing reader route and explicit artifact boundary rechecked; no new delivery seam found.  |
 | 3                      | **GO**, no blockers or findings. | **GO**, no blockers or findings. | Final authentic capture/authority guards, three-file regressions and conditional artifact boundary rechecked; publish plan before implementation. |
+
+## 15. Inherit the merged dispatch retry correction
+
+Status: **all three brief Action/Acceptance review rounds GO; root approved
+the bounded join before implementation**. Publish this reviewed addendum in
+the same coherent merge commit.
+
+SaaS main advanced from `78434bee6344ff497e0791140887ea9522d94ef6` to
+`a678f21ee5ed640be26b653018c9242c42513063` through merged
+[#742](https://github.com/777genius/review-router-ai/pull/742). The delta contains
+four production paths, their two existing test files and three deployment/release
+documents. F2 `5ad1615a27cabb9fea933698eabca71534e063ca` and the new main overlap
+only in `ai-docs/deployments/README.md`; the actual merge-tree has that one
+Markdown-table conflict and no source conflict. #742 is now inherited main
+behavior, rather than a separate PR to import.
+
+Merge that exact main into F2. Resolve only the deployment-index table by retaining
+the Unified OCR row and #742 retry-storm row, all existing task rows and their
+`pending` environment statuses. Inherit the eight other changed paths exactly
+from main: the worker dispatcher, review-executions dispatch port/recovery/policy,
+their existing regressions, #742 deployment task and release-guide correction.
+No hand-written product resolution is needed. Include this reviewed addendum in
+the same coherent merge commit; root owns commit identity and immediate push.
+
+Preserve #742's pre-admission boundary: retry recovery excludes intents already
+bound to an authorization or execution. On an unchanged revision, only completed
+`failure`, `timed_out` or `startup_failure` runs may produce a bounded successor;
+other conclusions stop without a successor, and a missing conclusion waits under
+the original deadline. Preserve exponential delay, attempt limits, current-head
+checks, unknown-dispatch reconciliation and cancellation. Existing admitted OCR
+lifecycle, durable allowance, paid-effect replay and App-publication fences stay
+with their existing owners.
+
+The read-only candidate merge tree is
+`dce35313b4fca4fadd887c42747a5285f9c0638c` before resolving the index. Its canonical
+64 files/root index, curated eight files, protocol/tooling, web and Prisma
+schema/157-migration inventory exactly match F2; the canonical/curated files also
+match S2. The Action pin is unchanged. Recheck these identities on the resolved
+tree. Keep canonical source S2 `8080881802d87f3bf700b15faa7cebb02f54ee9b` and Action
+A3 `fb132c4ed337141339d487e7c388518178c24b10`; no export, Action rebuild or repin
+is warranted. Add no migration, backfill, UI, framework, flag or rollout, and
+import no separate #734 runtime work.
+
+Verify the two existing dispatch regression suites
+(`apps/worker/src/review-v2-intent-dispatcher.test.ts` and
+`packages/features/review-executions/src/tests/review-executions.test.ts`) within
+the unchanged required hosted CI on the resulting exact SaaS head with A3. Check
+scoped Markdown formatting and `git diff --check` locally; resource pressure means
+no duplicate local test run is a prerequisite. F2's successful checks remain
+evidence for F2/A3, not a substitute for this new head. Reuse unchanged
+native/browser and artifact receipts within their stated scope; add no broad
+local build or new test matrix. Live-provider, deployment and release evidence
+remain separate.
+
+| Changed-fact review round | Action critic        | Acceptance critic    | Disposition                                                                                                  |
+| ------------------------- | -------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 1                         | **GO**, no findings. | **GO**, no findings. | Exact inherited scope and one table conflict verified; no repository edits.                                  |
+| 2                         | **GO**, no findings. | **GO**, no findings. | Bounded inheritance, exact main blobs and unchanged pair rechecked.                                          |
+| 3                         | **GO**, no findings. | **GO**, no findings. | Final scope, parity and hosted-only regression clarification verified; frozen before the one-conflict merge. |
