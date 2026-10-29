@@ -59,6 +59,7 @@ assert(
   ].includes(scenario),
   "Unknown statistics qualification scenario",
 );
+const nextOldSpaceLimitMiB = scenario === "followthrough" ? 2048 : 1024;
 const databaseUrl = process.env.STATISTICS_E2E_DATABASE_URL ?? "";
 const database = new URL(databaseUrl);
 assert(
@@ -370,7 +371,7 @@ try {
         ...cleanEnvironment(),
         TMPDIR: runtimeTmp,
         NODE_ENV: "development",
-        NODE_OPTIONS: "--max-old-space-size=1024",
+        NODE_OPTIONS: `--max-old-space-size=${nextOldSpaceLimitMiB}`,
         NEXT_TELEMETRY_DISABLED: "1",
         NEXT_PRIVATE_TEST_MODE: "1",
         DATABASE_URL: appDatabaseUrl,
@@ -857,6 +858,7 @@ const result = {
   outcome: failure || cleanupErrors.length ? "failed" : "passed",
   checkedAt: new Date().toISOString(),
   nextMode: "development-webpack-cache-disabled-test-server",
+  nextOldSpaceLimitMiB,
   scenario,
   sourceCommit,
   sourceSha256,

@@ -310,3 +310,22 @@ errors cannot replace the original failure or bypass cleanup; cookie, storage an
 script data are excluded. The E2E critic accepted this focused diagnostics diff,
 and its scoped lint/format/syntax checks passed. Later journeys remain unqualified
 by this failed run.
+
+[Run40966179635](https://github.com/777genius/review-router-ai/actions/runs/40966179635)
+on `42faa4e26c7198e33acdb0a8410506548a7e5a71` passed the duplicate-URL Reset
+journey. Root and the independent frontend critic inspected the new dark/light
+390px captures: both selected values are fully readable and Refresh wraps without
+overlap. The ordinary report-error capture retains clear controls and safe retry
+copy. These two product findings are closed by actual browser/visual evidence.
+
+The same run later lost its Next development child with SIGABRT. The app log
+explicitly records V8 heap exhaustion near980MiB against the harness's hardcoded
+1024MiB old-space limit; the later summary timeout is not a newly established
+product defect. Failure diagnostics and owned cleanup succeeded. Give only the
+expanded `followthrough` development child a fixed2048MiB old-space budget and
+record it in the receipt; all four earlier scenarios keep1024MiB. This is neither
+a product memory setting nor a total-RSS guarantee. No assertion, fixture or
+timeout is weakened, and the complete remaining browser journeys still need a
+successful run.
+The E2E critic accepted the fixed-budget diff; scoped lint/format/syntax checks
+and all five scenario-budget source checks passed. No local heavy run was added.

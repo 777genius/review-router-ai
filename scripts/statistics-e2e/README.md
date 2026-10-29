@@ -42,6 +42,10 @@ The disposable programmatic Next dev server delegates to the installed config
 loader and changes only compiler settings: run-local output, no persistent
 webpack cache or debugger source-map plugin, existing webpack memory
 optimization, a bounded Node heap, and post-response GC through `--expose-gc`.
+The Next child's V8 old-space limit is fixed at 2 GiB for the expanded
+`followthrough` scenario and 1 GiB for every other scenario. The receipt records
+the chosen budget as `nextOldSpaceLimitMiB`; this qualification setting does not
+change product runtime configuration or bound total process RSS.
 Next 16's custom-server path ignores `options.conf`, so the helper wraps the
 loader only inside the child process before Next captures its export. Product
 configuration, routes, authorization and readers remain unchanged. Authorized
