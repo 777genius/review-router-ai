@@ -122,7 +122,9 @@ jobs:
           def api(path, body=None):
               args = ['gh', 'api', f'repos/{repo}/{path}']
               if body is not None: args += ['--method', 'POST', '--input', '-']
-              completed = subprocess.run(args, input=None if body is None else json.dumps(body).encode(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+              completed = subprocess.run(args, input=None if body is None else json.dumps(body).encode(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+              if completed.returncode:
+                  raise RuntimeError(f'GitHub object upload failed: {path}: {completed.stderr.decode()[:1000]}')
               return json.loads(completed.stdout)
           assert git('rev-parse', 'HEAD').decode().strip() == expected
           assert git('rev-parse', 'MERGE_HEAD').decode().strip() == main
@@ -130,9 +132,12 @@ jobs:
           shutil.rmtree('.github/ocr-recovery')
           pathlib.Path('.github/workflows/unified-ocr-recovery-snapshot.yml').unlink()
           subprocess.run(['git', 'add', '--all'], check=True)
-          subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
+          # Imported vendor patch bytes are unchanged. Check this feature's diff,
+          # not whitespace already committed in the main parent.
+          subprocess.run(['git', 'diff', '--cached', '--check', main], check=True)
           assert not git('ls-files', '-u')
           tree = git('write-tree').decode().strip()
+          print('TESTED_TREE=' + tree, flush=True)
           def entries(ref):
               result = {}
               for entry in git('ls-tree', '-rz', ref).split(b'\0'):
