@@ -111,7 +111,10 @@ export function codexRuntimeMigrationFixture(
     event: "workflow_dispatch",
     display_title: codexRuntimeMigrationRunName(migrationId),
   });
-  const runs = new Map<number, ReturnType<typeof oldRun>[]>([
+  const runs = new Map<
+    number,
+    (ReturnType<typeof oldRun> | ReturnType<typeof bootstrapRun>)[]
+  >([
     [100, [oldRun(1)]],
     [200, []],
   ]);
