@@ -214,12 +214,17 @@ export class PrismaProducerReleaseRepository
         reviewerPlanProfile,
         prDescriptionProfile,
         lifecycleVerificationProfile,
+        modelDispatchProfile,
         ...releaseRecord
       } = release;
       const created = await transaction.producerRelease.create({
         data: {
           ...releaseRecord,
           contextToolsProfile: contextToolsProfile ?? Prisma.DbNull,
+          modelDispatchProfile:
+            modelDispatchProfile == null
+              ? Prisma.DbNull
+              : JSON.parse(canonicalJson(modelDispatchProfile)),
           reviewerPlanProfile: reviewerPlanProfile ?? Prisma.DbNull,
           lifecycleVerificationProfile:
             lifecycleVerificationProfile == null
@@ -311,6 +316,12 @@ function sloComparable(profile: ReviewOperationalSloProfileV2): string {
 
 function producerReleaseTupleWhere(release: ProducerRelease) {
   return {
+    modelDispatchProfile: {
+      equals:
+        release.modelDispatchProfile == null
+          ? Prisma.DbNull
+          : JSON.parse(canonicalJson(release.modelDispatchProfile)),
+    },
     contextToolsProfile: {
       equals: release.contextToolsProfile ?? Prisma.DbNull,
     },

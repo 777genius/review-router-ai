@@ -21,6 +21,10 @@ import {
 } from "./actions";
 import { RepositorySetupProgressPanel } from "./repository-setup-progress-panel";
 import {
+  RepositorySetupActionButton,
+  RepositorySetupMergedButton,
+} from "./repository-setup-action-button";
+import {
   providerSetupConfirmedEvent,
   setupPullRequestMergedEvent,
 } from "./repository-setup-optimistic-events";
@@ -56,6 +60,151 @@ afterEach(() => {
 });
 
 describe("RepositorySetupProgressPanel", () => {
+  it("explains both credential-preserving update PRs without requesting a new login", async () => {
+    vi.mocked(createSetupPullRequestClientAction).mockResolvedValueOnce({
+      params: { notice: "runtime_migration_running" },
+    });
+    render(
+      <RepositorySetupProgressPanel
+        workspaceId="workspace_1"
+        repositoryId="repo_1"
+        repositoryFullName="acme/repo"
+        selected
+        archived={false}
+        initialSetupStatus="configured"
+        initialSetupPullRequestUrl={null}
+        workflowCurrent={false}
+        runtimeCompatibility="update_required"
+        mutationsEnabled
+        initialStep="setup_pr"
+        expectedProviderAuthModes={["codex_subscription_oauth_rotating"]}
+        providerSetupBeforeWorkflow
+        enableReviewAction={
+          <button type="button">Reconnect credentials</button>
+        }
+      />,
+    );
+    expect(screen.getByText(/This update uses two setup PRs/)).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Reconnect credentials" }),
+    ).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    screen
+      .getByRole("button", { name: "Update setup PR" })
+      .closest("form")!
+      .requestSubmit();
+    await waitFor(() =>
+      expect(createSetupPullRequestClientAction).toHaveBeenCalledOnce(),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Update setup PR" }),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByText("4 of 4 - complete")).toBeNull();
+    expect(screen.getByText("1 of 4 - setup PR needed")).toBeTruthy();
+  });
+  it.each(["create", "verify"] as const)(
+    "keeps the %s action disabled while its server request is pending",
+    async (operation) => {
+      let finish!: (value: { params: Record<string, string> }) => void;
+      const pending = new Promise<{ params: Record<string, string> }>(
+        (resolve) => {
+          finish = resolve;
+        },
+      );
+      const action =
+        operation === "create"
+          ? createSetupPullRequestClientAction
+          : confirmSetupPullRequestMergedClientAction;
+      vi.mocked(action).mockReturnValueOnce(pending);
+      const common = {
+        workspaceId: "workspace_1",
+        repositoryId: "repo_1",
+        selected: true,
+        archived: false,
+        mutationsEnabled: true,
+        onComplete: vi.fn(),
+      };
+      render(
+        operation === "create" ? (
+          <RepositorySetupActionButton
+            {...common}
+            setupStatus="configured"
+            workflowCurrent={false}
+            workflowRefresh
+          />
+        ) : (
+          <RepositorySetupMergedButton {...common} label="Verify setup" />
+        ),
+      );
+      const label = operation === "create" ? "Update setup PR" : "Verify setup";
+      const button = screen.getByRole("button", {
+        name: label,
+      }) as HTMLButtonElement;
+      await act(async () => {
+        button.closest("form")!.requestSubmit();
+      });
+      await waitFor(() => expect(action).toHaveBeenCalledOnce());
+      expect(button.disabled).toBe(true);
+      expect(button.getAttribute("aria-busy")).toBe("true");
+      expect(button.textContent).toContain(
+        operation === "create" ? "Updating setup PR..." : "Checking...",
+      );
+      await act(async () => {
+        finish({ params: { notice: "runtime_migration_running" } });
+      });
+      await waitFor(() => expect(button.disabled).toBe(false));
+      expect(button.getAttribute("aria-busy")).toBe("false");
+      expect(screen.getByRole("button", { name: label })).toBeTruthy();
+    },
+  );
+  it.each([
+    ["unknown", "Verify setup"],
+    ["update_required", "Update setup PR"],
+  ] as const)(
+    "uses the existing %s setup action without allowing an optimistic Ready state",
+    (runtimeCompatibility, label) => {
+      render(
+        <RepositorySetupProgressPanel
+          workspaceId="workspace_1"
+          repositoryId="repo_1"
+          repositoryFullName="acme/repo"
+          selected
+          archived={false}
+          initialSetupStatus="configured"
+          initialSetupPullRequestUrl={null}
+          workflowCurrent={false}
+          runtimeCompatibility={runtimeCompatibility}
+          mutationsEnabled
+          initialStep="setup_pr"
+          expectedProviderAuthModes={["openrouter_api_key"]}
+        />,
+      );
+      expect(screen.getByRole("button", { name: label })).toBeTruthy();
+      if (runtimeCompatibility === "unknown") {
+        expect(screen.getByText("1 of 4 - verification needed")).toBeTruthy();
+        expect(
+          screen.getByText("Check the installed workflow and runtime."),
+        ).toBeTruthy();
+        expect(screen.queryByText("Create setup PR")).toBeNull();
+      }
+      fireEvent(
+        window,
+        setupPullRequestMergedEvent({ repositoryId: "repo_1" }),
+      );
+      fireEvent(
+        window,
+        providerSetupConfirmedEvent({
+          repositoryId: "repo_1",
+          repositoryFullName: "acme/repo",
+          authMode: "openrouter_api_key",
+        }),
+      );
+      expect(screen.queryByText("4 of 4 - complete")).toBeNull();
+      expect(screen.getByRole("button", { name: label })).toBeTruthy();
+    },
+  );
   it.each([
     ["openrouter_api_key", "setup_pr", "1 of 4 - setup PR needed"],
     ["openrouter_api_key", "merge_setup_pr", "2 of 4 - merge setup PR"],

@@ -470,3 +470,22 @@ check. The focused existing case passed1/1 (36 unselected cases); file lint,
 formatting and whitespace checks passed. Root reviewed the exact test-only diff.
 Product and browser source are unchanged. Required CI must pass on the corrected
 head; the skipped tests do not qualify their optional behavior.
+
+Before merging, remote `main` advanced to
+`2c9310337a0f4820f6f5b2d74911e19bc06ff83d` through PR #718. The PR API still
+reported the older base while Git advertised the new tip; the actual merge
+preview found two conflicts, explaining the missing automatic PR workflows on
+`c5f63ab`. Integration preserves both deployment index entries and combines the
+shared dashboard imports. Against the new main, the shared host retains only
+our intended Statistics params forwarding and Usage actor/access/seed envelope
+composition; main's OCR/Gateway readiness behavior stays intact. The plan scope
+is unchanged. A fresh automatic qualification is required for this combined
+source; the earlier successful browser receipt is not relabeled as an exact
+integrated-head pass. Final results are recorded in PR #743.
+
+The independent GPT-6.1 Sol xhigh integration critic accepted the actual resolved
+source against both parents: runtime readiness remains limited to repositories
+and diagnostics, Statistics still returns before unrelated IO, and query-provider
+and navigation topology are unchanged. The existing isolated Statistics case
+passed1/1 with36 unselected; changed-host lint, formatting and whitespace passed.
+No material integration finding remains; the combined browser/CI gates are pending.

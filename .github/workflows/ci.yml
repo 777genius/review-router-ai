@@ -62,7 +62,7 @@ env:
   REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: ci_database_recovery_witness_not_for_production_000000000000
   REVIEW_ROUTER_DEFAULT_MODEL: gpt-5.5
   REVIEW_ROUTER_DEFAULT_EFFORT: xhigh
-  REVIEW_ROUTER_PAIRED_ACTION_REF: 99776cd79a9d783cd3d3ab2ea349dd61096a992e
+  REVIEW_ROUTER_PAIRED_ACTION_REF: 925df40c6c5806fe2b6673c5f807fdc6abf2fe40
   REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG: v1.0.171
   REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA: 66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff
   REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: 2a65907ac8474f805dcb23358618c9c673e6a903bf1c3c26fcdf4cfe02debe2a
@@ -1170,6 +1170,21 @@ jobs:
       - name: Install paired Review Action dependencies
         run: npm ci --ignore-scripts --prefix .paired/review-router-action
 
+      - name: Set up pinned Go for the paired OCR executable
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: "1.26.10"
+          cache: false
+
+      - name: Build and verify the exact paired OCR executable
+        working-directory: .paired/review-router-action
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          test "$(go env GOOS)/$(go env GOARCH)" = linux/amd64
+          tools/ocr/build.sh --out "$RUNNER_TEMP/reviewrouter-paired-ocr"
+          diff -u tools/ocr/qualifications/unified-model-routes-v3.manifest "$RUNNER_TEMP/reviewrouter-paired-ocr/MANIFEST"
+
       - name: Paired Review Action lifecycle producer and fixture tests
         run: |
           npm --prefix .paired/review-router-action test -- \
@@ -1193,6 +1208,7 @@ jobs:
       - name: Paired Review Action to control plane investigation E2E
         env:
           REVIEW_ROUTER_ACTION_SOURCE_DIR: ${{ github.workspace }}/.paired/review-router-action
+          REVIEW_ROUTER_PAIRED_OCR_BINARY: ${{ runner.temp }}/reviewrouter-paired-ocr/opencodereview
         run: pnpm review-investigation:paired-e2e
 
       - name: Captured Skills control plane to paired runtime HTTP proof

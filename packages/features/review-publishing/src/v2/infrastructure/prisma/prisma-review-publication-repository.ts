@@ -106,6 +106,7 @@ import {
 } from "./review-publication-prisma-mappers";
 
 type Transaction = Prisma.TransactionClient;
+import type { ResolutionWriterDrainQualificationPort } from "../../application/use-cases/activate-review-resolution-history";
 
 export class PrismaReviewPublicationRepository
   implements
@@ -121,7 +122,10 @@ export class PrismaReviewPublicationRepository
     TerminalizeUnknownReviewPublicationCommandPort,
     AdjudicateReviewPublicationOutcomeCommandPort
 {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly resolutionWriters?: ResolutionWriterDrainQualificationPort,
+  ) {}
 
   async findById(
     publicationAttemptId: string,
@@ -700,9 +704,14 @@ export class PrismaReviewPublicationRepository
             transaction,
             { ...guardedAttempt.permit, threadId: resolutionTarget.threadId },
             canonicalResolutionFact(guardedAttempt, guardedOperation, now),
-            resolutionTarget.parentCreatedAt
-              ? { parentCreatedAt: resolutionTarget.parentCreatedAt }
-              : {},
+            {
+              ...(resolutionTarget.parentCreatedAt
+                ? { parentCreatedAt: resolutionTarget.parentCreatedAt }
+                : {}),
+              ...(this.resolutionWriters
+                ? { writers: this.resolutionWriters }
+                : {}),
+            },
           );
         }
       } catch (error) {
@@ -710,6 +719,7 @@ export class PrismaReviewPublicationRepository
         if (
           [
             "resolution_writers_draining",
+            "resolution_writer_qualification_unavailable",
             "guarded_publication_required",
             "previously_resolved_thread_reopened",
             "resolution_effect_unknown",

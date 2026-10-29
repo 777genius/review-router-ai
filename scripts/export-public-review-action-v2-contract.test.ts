@@ -53,52 +53,14 @@ afterEach(() => {
 });
 
 describe("public Review Action v2 contract handoff", () => {
-  it("hands off the finite conversation wire contract as a managed digest-bound artifact", async () => {
-    const fixture = createRepositories();
-    const bytes = readFileSync(
-      join(
-        process.cwd(),
-        "packages/protocol-review-action-v2/src/conversation.ts",
-      ),
-      "utf8",
-    );
-    write(join(fixture.saasRepo, sourceDirectory, "conversation.ts"), bytes);
-    git(fixture.saasRepo, ["add", sourceDirectory]);
-    git(fixture.saasRepo, [
-      "commit",
-      "-m",
-      "test: add finite conversation contract",
-    ]);
-    const saasHead = git(fixture.saasRepo, ["rev-parse", "HEAD"]);
-    const actionHead = git(fixture.actionRepo, ["rev-parse", "HEAD"]);
-    await exportPublicContract({
-      saasRepo: fixture.saasRepo,
-      actionRepo: fixture.actionRepo,
-      sourceDirectory,
-      targetBranch,
-      expectedHead: actionHead,
-      expectedSaasHead: saasHead,
-      write: true,
-    });
-    const generatedRoot = join(fixture.actionRepo, PUBLIC_GENERATED_DIRECTORY);
-    expect(readFileSync(join(generatedRoot, "conversation.ts"), "utf8")).toBe(
-      bytes,
-    );
-    const manifest = parseHandoffManifest(
-      readFileSync(join(generatedRoot, HANDOFF_MANIFEST_FILE), "utf8"),
-    );
-    expect(manifest.generatedFileDigests["conversation.ts"]).toBe(
-      sha256Digest(Buffer.from(bytes)),
-    );
-  });
-
-  it("hands off the canonical usage v1 validator and dependency as managed digest-bound artifacts", async () => {
+  it("hands off canonical usage and conversation companions as managed digest-bound artifacts", async () => {
     const fixture = createRepositories();
     for (const file of [
       "usage-v1.ts",
       "usage-price-v1.ts",
       "usage-producer-v1.ts",
       "usage-responses-v1.ts",
+      "conversation.ts",
     ]) {
       write(
         join(fixture.saasRepo, sourceDirectory, file),
@@ -125,6 +87,7 @@ describe("public Review Action v2 contract handoff", () => {
       "usage-price-v1.ts",
       "usage-producer-v1.ts",
       "usage-responses-v1.ts",
+      "conversation.ts",
     ]) {
       const contents = readFileSync(
         join(fixture.actionRepo, PUBLIC_GENERATED_DIRECTORY, file),

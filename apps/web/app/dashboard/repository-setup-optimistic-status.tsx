@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { RepositorySetupStepId } from "@reviewrouter/features-provider-setup";
+import type {
+  RepositorySetupStepId,
+  ReviewRuntimeCompatibility,
+} from "@reviewrouter/features-provider-setup";
 import type { ProviderAuthMode } from "@reviewrouter/features-review-providers";
 import {
   providerSetupConfirmedEventName,
@@ -19,6 +22,22 @@ export const setupStepNumber: Readonly<Record<SetupStep, 1 | 2 | 3 | 4>> = {
   provider: 3,
   ready: 4,
 };
+
+/** A provider/merge event cannot attest which execution runtime is installed. */
+export function runtimeQualifiedSetupStep(
+  step: SetupStep,
+  currentStep: SetupStep,
+  runtimeCompatibility: ReviewRuntimeCompatibility,
+): SetupStep {
+  if (
+    runtimeCompatibility !== "compatible" &&
+    setupStepNumber[step] >= setupStepNumber.provider
+  )
+    return setupStepNumber[currentStep] < setupStepNumber.provider
+      ? currentStep
+      : "setup_pr";
+  return step;
+}
 
 /** A credential confirmation cannot complete an unfinished workflow setup. */
 export function hasCompletedWorkflowSetup(step: SetupStep): boolean {
@@ -73,18 +92,21 @@ export function RepositorySetupDisclosureToggle({
   currentStep,
   expectedProviderAuthModes = [],
   gatewayReviewV2Ready = false,
+  runtimeCompatibility = "compatible",
 }: {
   readonly repositoryId: string;
   readonly disclosureId: string;
   readonly currentStep: SetupStep;
   readonly expectedProviderAuthModes?: readonly ProviderAuthMode[];
   readonly gatewayReviewV2Ready?: boolean;
+  readonly runtimeCompatibility?: ReviewRuntimeCompatibility;
 }): React.ReactElement {
   const optimisticStep = useOptimisticSetupStep({
     repositoryId,
     currentStep,
     expectedProviderAuthModes,
     gatewayReviewV2Ready,
+    runtimeCompatibility,
   });
 
   const isComplete = optimisticStep === "ready";
@@ -104,12 +126,14 @@ export function RepositorySetupReadyGate({
   currentStep,
   expectedProviderAuthModes = [],
   gatewayReviewV2Ready = false,
+  runtimeCompatibility = "compatible",
   children,
 }: {
   readonly repositoryId: string;
   readonly currentStep: SetupStep;
   readonly expectedProviderAuthModes?: readonly ProviderAuthMode[];
   readonly gatewayReviewV2Ready?: boolean;
+  readonly runtimeCompatibility?: ReviewRuntimeCompatibility;
   readonly children: ReactNode;
 }): React.ReactElement | null {
   const optimisticStep = useOptimisticSetupStep({
@@ -117,6 +141,7 @@ export function RepositorySetupReadyGate({
     currentStep,
     expectedProviderAuthModes,
     gatewayReviewV2Ready,
+    runtimeCompatibility,
   });
 
   return optimisticStep === "ready" ? <>{children}</> : null;
@@ -127,11 +152,13 @@ function useOptimisticSetupStep({
   currentStep,
   expectedProviderAuthModes,
   gatewayReviewV2Ready,
+  runtimeCompatibility,
 }: {
   readonly repositoryId: string;
   readonly currentStep: SetupStep;
   readonly expectedProviderAuthModes: readonly ProviderAuthMode[];
   readonly gatewayReviewV2Ready: boolean;
+  readonly runtimeCompatibility: ReviewRuntimeCompatibility;
 }): SetupStep {
   const scopeKey = repositorySetupScopeKey(
     repositoryId,
@@ -213,11 +240,13 @@ function useOptimisticSetupStep({
   // Do not render the old scope's progress while its reset effect is pending.
   const scopedStep =
     optimisticScopeKey === scopeKey ? optimisticStep : currentStep;
-  return scopedStep === "ready" &&
+  const step =
+    scopedStep === "ready" &&
     expectedProviderAuthModes.includes("codex_account_gateway") &&
     !gatewayReviewV2Ready
-    ? "provider"
-    : scopedStep;
+      ? "provider"
+      : scopedStep;
+  return runtimeQualifiedSetupStep(step, currentStep, runtimeCompatibility);
 }
 
 function providerSetupConfirmationMatchesAnyExpectedAuthMode(

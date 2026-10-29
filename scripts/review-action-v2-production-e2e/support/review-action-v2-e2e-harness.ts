@@ -72,6 +72,7 @@ import {
   lifecycleVerificationContract,
   lifecycleVerificationDescriptorDigest,
   type ProviderApiAuthMode,
+  type ReviewModelDispatchProfileV2,
 } from "../../../packages/shared/src/index.js";
 import {
   ReviewActionV2OperationId,
@@ -202,6 +203,8 @@ export type ReviewActionV2E2EHarnessOptions = Readonly<{
   gatewayFixtureOrigin?: string;
   /** Signed workflow identity; independent of the configured policy. */
   modelTransport?: "account_gateway" | "provider_api";
+  /** Use the actual canonical native Claude caller identity and source proof. */
+  subscriptionAuthMode?: "claude-oauth";
   /** Shorten only the synthetic mint, without changing server run authority. */
   oidcLifetimeSeconds?: number;
   investigationProfile?: ReviewActionV2E2EInvestigationProfile;
@@ -212,6 +215,8 @@ export type ReviewActionV2E2EHarnessOptions = Readonly<{
   protocolMaxAttemptsPerSlot?: number;
   prDescriptionProfile?: boolean;
   lifecycleVerificationProfile?: boolean;
+  /** Explicit producer approval for the all-role durable model dispatch path. */
+  modelDispatchProfile?: ReviewModelDispatchProfileV2;
   /**
    * The repository's stored provider selection. The workspace has no default
    * provider, so "rotating" (the default) stores a repository selection of
@@ -259,6 +264,7 @@ export class ReviewActionV2E2EHarness {
   private oidcOrdinal = 0;
   private readonly oidcLifetimeSeconds: number;
   private readonly modelTransport: "account_gateway" | "provider_api";
+  private readonly subscriptionAuthMode: "claude-oauth" | undefined;
   readonly history: ReviewHistoryFeature | undefined;
   private readonly fixtureFetch: typeof globalThis.fetch;
   private readonly originalHistoryCoverage: Date | null;
@@ -283,6 +289,7 @@ export class ReviewActionV2E2EHarness {
     readonly originalFetch: typeof globalThis.fetch;
     readonly oidcLifetimeSeconds: number;
     readonly modelTransport: "account_gateway" | "provider_api";
+    readonly subscriptionAuthMode?: "claude-oauth";
     readonly history?: ReviewHistoryFeature;
     readonly fixtureFetch: typeof globalThis.fetch;
     readonly originalHistoryCoverage: Date | null;
@@ -313,6 +320,7 @@ export class ReviewActionV2E2EHarness {
     this.originalFetch = input.originalFetch;
     this.oidcLifetimeSeconds = input.oidcLifetimeSeconds;
     this.modelTransport = input.modelTransport;
+    this.subscriptionAuthMode = input.subscriptionAuthMode;
     this.history = input.history;
     this.fixtureFetch = input.fixtureFetch;
     this.originalHistoryCoverage = input.originalHistoryCoverage;
@@ -403,6 +411,9 @@ export class ReviewActionV2E2EHarness {
         ...(options.prDescriptionProfile ? { prDescriptionProfile: true } : {}),
         ...(options.lifecycleVerificationProfile
           ? { lifecycleVerificationProfile: true }
+          : {}),
+        ...(options.modelDispatchProfile
+          ? { modelDispatchProfile: options.modelDispatchProfile }
           : {}),
         ...(options.investigationProfile
           ? { investigationProfile: options.investigationProfile }
@@ -549,6 +560,9 @@ export class ReviewActionV2E2EHarness {
         ...(options.lifecycleVerificationProfile
           ? { lifecycleVerificationProfile: true }
           : {}),
+        ...(options.modelDispatchProfile
+          ? { modelDispatchProfile: options.modelDispatchProfile }
+          : {}),
         ...(options.investigationProfile
           ? { investigationProfile: options.investigationProfile }
           : {}),
@@ -612,6 +626,9 @@ export class ReviewActionV2E2EHarness {
         originalEmergencyControl,
         oidcLifetimeSeconds,
         modelTransport: options.modelTransport ?? "provider_api",
+        ...(options.subscriptionAuthMode
+          ? { subscriptionAuthMode: options.subscriptionAuthMode }
+          : {}),
       });
       if (history) globalThis.fetch = originalFetch;
       return harness;
@@ -1954,7 +1971,7 @@ export class ReviewActionV2E2EHarness {
       ref: "refs/heads/main",
       run_id: this.fakeGitHub.sourceRunId,
       run_attempt: runAttempt,
-      workflow_ref: `${owner}/${repo}/.github/workflows/${this.modelTransport === "account_gateway" || providerApiAuthMode ? "reviewrouter-review.yml" : "reviewrouter-codex.yml"}@refs/heads/main`,
+      workflow_ref: `${owner}/${repo}/.github/workflows/${this.modelTransport === "account_gateway" || providerApiAuthMode || this.subscriptionAuthMode ? "reviewrouter-review.yml" : "reviewrouter-codex.yml"}@refs/heads/main`,
       workflow_sha: this.fakeGitHub.revision.headSha,
       job_workflow_ref:
         this.modelTransport === "account_gateway"
@@ -2279,6 +2296,7 @@ async function seedProductionControlPlane(
     }>;
     prDescriptionProfile?: boolean;
     lifecycleVerificationProfile?: boolean;
+    modelDispatchProfile?: ReviewModelDispatchProfileV2;
     repositoryProviderSelection: "rotating" | "none";
   }>,
 ): Promise<void> {
@@ -2357,6 +2375,9 @@ async function seedProductionControlPlane(
               ...lifecycleVerificationExtensionV1,
             },
           }
+        : {}),
+      ...(ids.modelDispatchProfile
+        ? { modelDispatchProfile: { ...ids.modelDispatchProfile } }
         : {}),
       contextGatewayPolicyVersion:
         ids.investigationProfile?.gatewayPolicyVersion ??
@@ -2533,6 +2554,7 @@ function productionEnv(input: {
   readonly investigationProfile?: ReviewActionV2E2EInvestigationProfile;
   readonly prDescriptionProfile?: boolean;
   readonly lifecycleVerificationProfile?: boolean;
+  readonly modelDispatchProfile?: ReviewModelDispatchProfileV2;
 }): Readonly<Record<string, string>> {
   const contextReplayKeyId = "review-v2-e2e-context-key";
   const signingKeys = JSON.stringify([
@@ -2570,6 +2592,9 @@ function productionEnv(input: {
           : {}),
         ...(input.lifecycleVerificationProfile
           ? { lifecycleVerificationProfile: lifecycleVerificationExtensionV1 }
+          : {}),
+        ...(input.modelDispatchProfile
+          ? { modelDispatchProfile: input.modelDispatchProfile }
           : {}),
         reviewInvestigationCapability: input.investigationProfile
           ? reviewInvestigationCapabilityV1

@@ -27,6 +27,7 @@ import {
   type ReviewActionV2E2EHarness,
   type ReviewActionV2E2EAuthorization,
 } from "../review-action-v2-production-e2e/support/review-action-v2-e2e-harness.js";
+import { createPairedResolutionWriterFixture } from "./support/resolution-writer-fixture.js";
 import { installComparisonThreadBoundary } from "./support/review-banner-comparison-fixture.js";
 
 const enabled =
@@ -47,15 +48,28 @@ const filePath = "src/review-file-000.ts";
   "publishes first, pending, then receipt-confirmed updated reviews across three heads",
   async () => {
     await resetReviewActionV2E2EDatabase(databaseUrl!);
-    const fixture = await createReviewActionV2E2EHarness(databaseUrl!, {
-      environmentOverrides: {
-        REVIEW_ROUTER_REVIEW_V2_PROJECTION_POLICY_VERSION:
-          "review-projection-policy.v6-comparison",
-      },
-    });
+    const networkFetch = globalThis.fetch;
+    const writer = await createPairedResolutionWriterFixture();
     const app = Fastify();
-    const threads = installComparisonThreadBoundary(fixture.fakeGitHub);
+    let ownedFixture: ReviewActionV2E2EHarness | undefined;
     try {
+      const fixture = await createReviewActionV2E2EHarness(databaseUrl!, {
+        environmentOverrides: {
+          ...writer.environment,
+          REVIEW_ROUTER_REVIEW_V2_PROJECTION_POLICY_VERSION:
+            "review-projection-policy.v6-comparison",
+        },
+      });
+      ownedFixture = fixture;
+      const githubFetch = globalThis.fetch;
+      globalThis.fetch = (input, init) =>
+        new URL(input instanceof Request ? input.url : String(input)).origin ===
+        writer.environment.REVIEW_ROUTER_RESOLUTION_WRITER_WITNESS_URL
+          ? networkFetch(input, init)
+          : githubFetch(input, init);
+      const threads = installComparisonThreadBoundary(fixture.fakeGitHub);
+      await writer.bind(fixture.prisma);
+      expect(await writer.activate(fixture)).toEqual({ status: "guarded" });
       vi.stubEnv("REVIEW_ROUTER_REVIEW_BANNER", "1");
       vi.stubEnv(
         "REVIEW_THREAD_LIFECYCLE_TRUSTED_AUTHORS",
@@ -383,7 +397,8 @@ const filePath = "src/review-file-000.ts";
       vi.restoreAllMocks();
       vi.unstubAllEnvs();
       await app.close();
-      await fixture.close();
+      await writer.close();
+      await ownedFixture?.close();
       await resetReviewActionV2E2EDatabase(databaseUrl!);
     }
   },

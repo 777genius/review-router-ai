@@ -3,21 +3,35 @@ import {
   providerApiAuthModes,
   providerApiDescriptors,
   reviewerPlanDescriptorDigest,
+  reviewModelDispatchContract,
+  reviewModelDispatchDescriptorDigest,
+  reviewModelTransportForAuthMode,
+  lifecycleVerificationDescriptorDigestV2,
+  type ReviewModelDispatchProfileV2,
 } from "@reviewrouter/shared";
+import {
+  canonicalReviewSkillsJson,
+  createCapturedReviewSkills,
+} from "@reviewrouter/shared/review-skills-contract";
 import { lifecycleVerificationDescriptorDigest } from "@reviewrouter/shared";
 import { contextToolsDescriptorDigest } from "@reviewrouter/features-review-context-tools";
 import { describe, expect, it } from "vitest";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   canonicalJson,
   parseReviewConfigurationStrict,
 } from "@reviewrouter/features-review-config";
 import {
   parseReviewAgentProfiles,
-  ReviewTrustDomain,
+  parseReviewRunRuntimeSnapshot,
+  ManageReviewRunAuthorizations,
   ReviewProviderKind,
+  ReviewRunAuthorizationUseCaseStatus,
+  ReviewTrustDomain,
   type VerifiedScmRunIdentity,
 } from "@reviewrouter/features-review-run-control";
+import { createReviewRunControlTestKit } from "../../../packages/features/review-run-control/src/testing/review-run-control-test-kit";
+import { provisionV2AuthorizationContext } from "../../../packages/features/review-run-control/src/tests/fixtures";
 import { storedPolicyForConfiguration } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import {
   readServerApprovedReviewRunGatewayPolicy,
@@ -245,10 +259,16 @@ function captureInput(options?: {
 }
 
 /** The stored documents and profiles that materialize this configuration. */
-function readerFor(policyJson: string) {
+function readerFor(
+  policyJson: string,
+  scope = { workspaceId, repositoryConnectionId },
+) {
   const stored = storedPolicyForConfiguration(
     parseReviewConfigurationStrict(JSON.parse(policyJson)),
-    { workspaceId, repositoryId: repositoryConnectionId },
+    {
+      workspaceId: scope.workspaceId,
+      repositoryId: scope.repositoryConnectionId,
+    },
   );
   return fakeRuntimeReader({
     workspace: stored.workspaceHead,
@@ -256,6 +276,32 @@ function readerFor(policyJson: string) {
     profileRows: stored.profileRows,
   });
 }
+
+const unifiedDispatchProfile: ReviewModelDispatchProfileV2 = {
+  extensionId: reviewModelDispatchContract.extensionId,
+  descriptorDigest: reviewModelDispatchDescriptorDigest,
+  policyVersion: reviewModelDispatchContract.policyVersion,
+  transports: [
+    "account_gateway",
+    "runner_local_responses",
+    "runner_local_anthropic",
+    "hosted_pool",
+  ],
+  wireProtocols: ["openai-responses", "codex-responses", "anthropic-messages"],
+  defaultAgentProfileRefs: {
+    account_gateway: "ocr-unified",
+    runner_local_responses: "ocr-unified",
+    runner_local_anthropic: "ocr-unified",
+    hosted_pool: "ocr-unified",
+  },
+  limits: {
+    maxRequests: 32,
+    maxConcurrentRequests: 1,
+    maxRequestBytes: 16777216,
+    maxResponseBytes: 8388608,
+    maxOutputTokens: 32768,
+  },
+};
 
 describe("multi-reviewer immutable capture", () => {
   function multiConfiguration(count = 2) {
@@ -320,6 +366,66 @@ describe("multi-reviewer immutable capture", () => {
     expect(result.allocations).toHaveLength(1);
     expect(result.allocations[0]!.limits.requests).toBe(2);
     expect(result.reviewers.every((row) => row.required)).toBe(true);
+
+    const qualified = multiInput();
+    const selectedRows = parseReviewConfigurationStrict({
+      ...config,
+      providers: [
+        {
+          ...config.providers[0],
+          agentProfileRef: "codex-default",
+          agenticContext: false,
+        },
+        config.providers[1],
+      ],
+    });
+    const selected = await snapshotSource().capture(
+      {
+        ...qualified,
+        providerVoteLanes: [
+          ...qualified.providerVoteLanes,
+          {
+            providerKind: ReviewProviderKind.Ocr,
+            providerVoteIdentityHash: "b".repeat(64),
+          },
+        ],
+        producerRelease: {
+          ...qualified.producerRelease,
+          modelDispatchProfile: unifiedDispatchProfile,
+          agentProfiles: parseReviewAgentProfiles([
+            codexDefaultProfile,
+            ocrProfile,
+            {
+              ...ocrProfile,
+              profileRef: "ocr-unified",
+              reviewSkillsVersion: 1,
+            },
+          ]),
+        },
+      },
+      readerFor(canonicalJson(selectedRows)),
+    );
+    expect(selected).toMatchObject({
+      snapshotVersion: 4,
+      reviewers: [
+        {
+          providerIndex: 0,
+          agenticContext: false,
+          agentProfile: { agentKind: "codex", profileRef: "codex-default" },
+          requestedModel: "mimo-model-0",
+        },
+        {
+          providerIndex: 1,
+          agenticContext: true,
+          agentProfile: { agentKind: "ocr", profileRef: "ocr-unified" },
+          requestedModel: "mimo-model-1",
+          reasoningEffort: "low",
+          fastMode: true,
+        },
+      ],
+      allocations: [{ limits: { requests: 2 } }],
+    });
+    expect(selected).not.toHaveProperty("modelDispatchCapability");
     expect(
       await snapshotSource().capture(
         { ...multiInput(), producerRelease: captureInput().producerRelease },
@@ -420,6 +526,550 @@ describe("multi-reviewer immutable capture", () => {
         readerFor(canonicalJson(onlyCodex)),
       ),
     ).toEqual({ captureDenied: "agent_profile_incompatible" });
+  });
+});
+
+describe("one prepared route for discovery and verification", () => {
+  const profile = unifiedDispatchProfile;
+  const profiles = parseReviewAgentProfiles([
+    directCodexProfile,
+    ocrProfile,
+    {
+      ...ocrProfile,
+      profileRef: "ocr-unified",
+      modelTransports: ["account_gateway", "provider_api"],
+      reviewSkillsVersion: 1,
+    },
+    {
+      ...ocrProfile,
+      profileRef: "retained-ocr-skills",
+      reviewSkillsVersion: 1,
+    },
+  ]);
+  const providerRows = [
+    ...providerApiAuthModes.map((mode) => ({
+      mode,
+      provider: {
+        kind: providerApiDescriptors[mode].providerKind,
+        authMode: providerApiDescriptors[mode].authMode,
+        model: providerApiDescriptors[mode].defaultModel,
+        ...(mode === "kimi-code-api" ? {} : { reasoningEffort: "high" }),
+        agenticContext: true,
+        fastMode: false,
+        requiredHealthy: true,
+      },
+    })),
+    ...["codex_subscription_oauth_rotating"].map((authMode) => ({
+      mode: undefined,
+      provider: {
+        kind: "codex",
+        authMode,
+        model: "gpt-5.4",
+        reasoningEffort: "high",
+        agenticContext: true,
+        fastMode: false,
+        requiredHealthy: true,
+      },
+    })),
+    {
+      mode: undefined,
+      provider: {
+        kind: "claude",
+        authMode: "claude_code_oauth",
+        model: "claude-sonnet-4-6",
+        reasoningEffort: "high",
+        agenticContext: true,
+        fastMode: false,
+        requiredHealthy: true,
+      },
+    },
+  ];
+  describe.each([1, 2] as const)("Gateway dynamic verifier v%i", (version) => {
+    async function captureDynamic(
+      options: {
+        qualifiedProfileId?: string;
+        protocol?: string;
+        authKinds?: readonly string[];
+        outputTokens?: number;
+        qualificationCount?: number;
+      } = {},
+    ) {
+      const dynamicProfileRef = "openrouter-openai-responses-apikey-v1";
+      const configuration = parseReviewConfigurationStrict(
+        JSON.parse(gatewayPolicyJson({ agentProfileRef: "ocr-unified" })),
+      );
+      const provider = configuration.providers[0]!;
+      if (provider.authMode !== "codex_account_gateway")
+        throw new Error("gateway_fixture_required");
+      provider.gatewayProfileRef = dynamicProfileRef;
+      provider.model = "openai/gpt-4.1";
+      provider.reasoningEffort = undefined;
+      const baseReader = readerFor(canonicalJson(configuration));
+      const reader = {
+        ...baseReader,
+        workspaceAccountBinding: {
+          async findUnique() {
+            const binding = await baseReader.workspaceAccountBinding.findUnique(
+              {
+                where: { id: bindingId },
+              },
+            );
+            if (!binding) throw new Error("gateway_binding_fixture_required");
+            return {
+              ...binding,
+              connection: {
+                ...(binding as unknown as { connection: object }).connection,
+                profileRef: dynamicProfileRef,
+              },
+            };
+          },
+        },
+      } as unknown as typeof baseReader;
+      const source = new ProductionReviewRunRuntimeSnapshot(
+        {} as PrismaClient,
+        {
+          profiles: [
+            {
+              profileRef: dynamicProfileRef,
+              limits: {
+                requests: 9,
+                concurrency: 1,
+                requestBytes: 64000,
+                outputBytes: 20000,
+                tokens: 4096,
+              },
+            },
+          ],
+        },
+        undefined,
+        false,
+        "codex-default",
+        false,
+        {
+          profiles: Array.from(
+            { length: options.qualificationCount ?? 1 },
+            () => ({
+              profile: {
+                profileId: options.qualifiedProfileId ?? dynamicProfileRef,
+                protocol: options.protocol ?? "openai-responses",
+                authKinds: options.authKinds ?? ["api_key"],
+                modelIds: ["openai/gpt-5.4-nano"],
+              },
+              outputTokens: options.outputTokens ?? 2048,
+            }),
+          ),
+          ingressBytes: 32000,
+          requestTimeoutMs: 30000,
+        },
+      );
+      return source.capture(
+        {
+          ...captureInput(),
+          producerRelease: {
+            ...captureInput().producerRelease,
+            agentProfiles: profiles,
+            lifecycleVerificationProfile: {
+              extensionId: "lifecycle-verification.v1",
+              descriptorDigest: lifecycleVerificationDescriptorDigest,
+            },
+            ...(version === 2 ? { modelDispatchProfile: profile } : {}),
+          },
+        },
+        reader,
+      );
+    }
+
+    it("captures the saved model beyond the enrollment anchor with the same bounded route", async () => {
+      const captured = await captureDynamic();
+      expect(captured).toMatchObject({
+        gateway: {
+          profileRef: "openrouter-openai-responses-apikey-v1",
+          bindingId,
+          limits: { requests: 9 },
+        },
+        lifecycleVerificationCapability: {
+          extensionId: `lifecycle-verification.v${version}`,
+          providerIndex: 0,
+          providerKind: "ocr",
+          model: "openai/gpt-4.1",
+          maxOutputTokens: 2048,
+          maxPromptBytes: 32000,
+          maxResponseBytes: 20000,
+          deadlineMs: 30000,
+          attemptBudget: 1,
+        },
+      });
+      expect(captured).not.toHaveProperty(
+        "lifecycleVerificationUnavailableReason",
+      );
+      if (!captured || "captureDenied" in captured)
+        throw new Error("capture_missing");
+      if (version === 2)
+        expect(captured.lifecycleVerificationCapability).toMatchObject({
+          modelTransport: captured.modelDispatchCapability!.transport,
+          routeIdentityHash:
+            captured.modelDispatchCapability!.routeIdentityHash,
+        });
+    });
+
+    it.each([
+      ["wrong profile", { qualifiedProfileId: "foreign-profile" }],
+      ["wrong protocol", { protocol: "chat-completions" }],
+      ["wrong authentication kind", { authKinds: ["oauth"] }],
+      ["missing authentication declaration", { authKinds: [] }],
+      ["missing qualification", { qualificationCount: 0 }],
+      ["insufficient output bound", { outputTokens: 1023 }],
+    ] as const)(
+      "keeps discovery but no verifier for %s",
+      async (_name, options) => {
+        const captured = await captureDynamic(options);
+        expect(captured).not.toHaveProperty("captureDenied");
+        expect(captured).toHaveProperty(
+          "lifecycleVerificationUnavailableReason",
+          "verification_unavailable",
+        );
+        expect(captured).not.toHaveProperty("lifecycleVerificationCapability");
+      },
+    );
+
+    it("does not choose between duplicate qualifications", async () => {
+      const captured = await captureDynamic({ qualificationCount: 2 });
+      expect(captured).not.toHaveProperty("captureDenied");
+      expect(captured).toHaveProperty(
+        "lifecycleVerificationUnavailableReason",
+        version === 1
+          ? "verification_configuration_invalid"
+          : "verification_unavailable",
+      );
+      expect(captured).not.toHaveProperty("lifecycleVerificationCapability");
+    });
+  });
+
+  it.each(providerRows)(
+    "captures OCR and the same verifier route for $provider.authMode",
+    async ({ mode, provider }) => {
+      const configuration = parseReviewConfigurationStrict({
+        ...JSON.parse(gatewayPolicyJson({})),
+        providers: [provider],
+      });
+      const captured = await snapshotSource().capture(
+        {
+          ...captureInput(),
+          modelTransport: "provider_api",
+          ...(mode ? { providerApiAuthMode: mode } : {}),
+          ...(provider.authMode === "claude_code_oauth"
+            ? { subscriptionAuthMode: "claude-oauth" as const }
+            : {}),
+          producerRelease: {
+            ...captureInput().producerRelease,
+            agentProfiles: profiles,
+            modelDispatchProfile: profile,
+          },
+        },
+        readerFor(canonicalJson(configuration)),
+      );
+      expect(captured).toMatchObject({
+        agent: { agentKind: "ocr", profileRef: "ocr-unified" },
+        gateway: null,
+        modelDispatchCapability: {
+          transport: reviewModelTransportForAuthMode(provider.authMode),
+          wireProtocol:
+            provider.authMode === "codex_subscription_oauth_rotating"
+              ? "codex-responses"
+              : provider.authMode === "claude_code_oauth"
+                ? "anthropic-messages"
+                : "openai-responses",
+          outputTokenLimit:
+            provider.authMode === "codex_subscription_oauth_rotating"
+              ? "terminal_acceptance"
+              : "upstream_request",
+          model: provider.model,
+          maxRequests: 32,
+        },
+        lifecycleVerificationCapability: {
+          extensionId: "lifecycle-verification.v2",
+          descriptorDigest: lifecycleVerificationDescriptorDigestV2,
+          providerKind: "ocr",
+          model: provider.model,
+          attemptBudget: 1,
+        },
+      });
+      if (!captured || "captureDenied" in captured)
+        throw new Error("capture_missing");
+      expect(captured.lifecycleVerificationCapability).toMatchObject({
+        routeIdentityHash: captured.modelDispatchCapability!.routeIdentityHash,
+      });
+      expect(captured.configurationCanonicalJson).toBe(
+        canonicalJson(configuration),
+      );
+    },
+  );
+
+  it.each(
+    providerRows.filter(({ provider }) =>
+      [
+        "openrouter_api_key",
+        "codex_subscription_oauth_rotating",
+        "claude_code_oauth",
+      ].includes(provider.authMode),
+    ),
+  )(
+    "preserves exact millisecond deadlines through admission recapture for $provider.authMode",
+    async ({ mode, provider }) => {
+      const kit = createReviewRunControlTestKit({
+        now: new Date("2026-10-29T12:00:00.123Z"),
+      });
+      const fixture = await provisionV2AuthorizationContext(kit);
+      const configuration = parseReviewConfigurationStrict({
+        ...JSON.parse(gatewayPolicyJson({})),
+        providers: [provider],
+      });
+      const reader = readerFor(
+        canonicalJson(configuration),
+        fixture.verifiedIdentity,
+      );
+      const source = snapshotSource();
+      const approvedProducer = {
+        ...captureInput().producerRelease,
+        agentProfiles: profiles,
+        modelDispatchProfile: profile,
+      };
+      let captureCount = 0;
+      const useCase = new ManageReviewRunAuthorizations({
+        skillsSnapshots: {
+          capture: async ({ identity }) => ({
+            canonicalJson: canonicalReviewSkillsJson(
+              createCapturedReviewSkills({
+                baseSha: identity.baseSha,
+                webSkills: [],
+                gitSources: [],
+              }),
+            ),
+          }),
+        },
+        runtimeSnapshots: {
+          capture: (input) => {
+            captureCount += 1;
+            return source.capture(
+              { ...input, producerRelease: approvedProducer },
+              reader,
+            );
+          },
+          isLive: (input) => source.isLive(input, reader),
+        },
+        clock: kit.clock,
+        identifiers: kit.identifiers,
+        digest: kit.digest,
+        identities: kit.store,
+        authorities: kit.store,
+        releases: kit.store,
+        limits: kit.store,
+        slos: kit.store,
+        safetyDecisions: kit.control.safetyResolver,
+        authorizationQueries: kit.store,
+        authorizationCommands: kit.store,
+        tokens: kit.tokens,
+      });
+      const input: Parameters<
+        ManageReviewRunAuthorizations["authorizeReviewRun"]
+      >[0] = {
+        ...fixture.authorizeInput,
+        modelTransport: "provider_api",
+        ...(mode ? { providerApiAuthMode: mode } : {}),
+        ...(provider.authMode === "claude_code_oauth"
+          ? { subscriptionAuthMode: "claude-oauth" as const }
+          : {}),
+        providerVoteLanes: [
+          {
+            providerKind: ReviewProviderKind.Ocr,
+            providerVoteIdentityHash: "e".repeat(64),
+          },
+        ],
+      };
+      const result = await useCase.authorizeReviewRun(input);
+      expect(result.status).toBe(
+        ReviewRunAuthorizationUseCaseStatus.Authorized,
+      );
+      if (!("authorization" in result))
+        throw new Error("authorization_missing");
+      const authorization = result.authorization;
+      const captured = parseReviewRunRuntimeSnapshot(
+        authorization.runtimeSnapshotCanonicalJson,
+      );
+      expect(authorization.maxExpiresAt.getUTCMilliseconds()).toBe(123);
+      expect(captured).toMatchObject({
+        deadline: authorization.maxExpiresAt.toISOString(),
+        modelDispatchCapability: {
+          deadline: authorization.maxExpiresAt.toISOString(),
+        },
+      });
+      const transaction = {
+        ...reader,
+        $queryRaw: async () => [{ id: authorization.workspaceId }],
+        producerRelease: {
+          findUnique: async () => ({
+            ...approvedProducer,
+            agentProfilesJson: JSON.stringify(profiles),
+          }),
+        },
+      } as unknown as Prisma.TransactionClient;
+      await expect(
+        source.matchesAdmission(transaction, authorization),
+      ).resolves.toBe(true);
+      const restored = await useCase.authorizeReviewRun(input);
+      expect(restored.status).toBe(
+        ReviewRunAuthorizationUseCaseStatus.Restored,
+      );
+      if (!("authorization" in restored))
+        throw new Error("authorization_missing");
+      expect(restored.authorization.authorizationId).toBe(
+        authorization.authorizationId,
+      );
+      expect(restored.authorization.maxExpiresAt).toEqual(
+        authorization.maxExpiresAt,
+      );
+      expect(restored.authorization.runtimeSnapshotCanonicalJson).toBe(
+        authorization.runtimeSnapshotCanonicalJson,
+      );
+      expect(captureCount).toBe(1);
+    },
+  );
+
+  it("does not infer Hosted authority from a saved connection without its original grant", async () => {
+    const configuration = parseReviewConfigurationStrict({
+      ...JSON.parse(gatewayPolicyJson({})),
+      providers: [
+        {
+          kind: "codex",
+          authMode: "codex_subscription_oauth_hosted_pool",
+          model: "gpt-5.4",
+          reasoningEffort: "high",
+          agenticContext: true,
+          fastMode: false,
+          requiredHealthy: true,
+        },
+      ],
+    });
+    expect(
+      await snapshotSource().capture(
+        {
+          ...captureInput(),
+          modelTransport: "provider_api",
+          producerRelease: {
+            ...captureInput().producerRelease,
+            agentProfiles: profiles,
+            modelDispatchProfile: profile,
+          },
+        },
+        readerFor(canonicalJson(configuration)),
+      ),
+    ).toEqual({ captureDenied: "agent_profile_unavailable" });
+  });
+
+  it("resolves a CLI alias only from the exact producer's frozen native model qualification", async () => {
+    const provider = { ...providerRows.at(-1)!.provider, model: "sonnet" };
+    const configuration = parseReviewConfigurationStrict({
+      ...JSON.parse(gatewayPolicyJson({})),
+      providers: [provider],
+    });
+    const input = {
+      ...captureInput(),
+      modelTransport: "provider_api" as const,
+      subscriptionAuthMode: "claude-oauth" as const,
+      producerRelease: {
+        ...captureInput().producerRelease,
+        agentProfiles: profiles,
+        modelDispatchProfile: profile,
+      },
+    };
+    expect(
+      await snapshotSource().capture(
+        input,
+        readerFor(canonicalJson(configuration)),
+      ),
+    ).toEqual({ captureDenied: "agent_profile_unavailable" });
+    const captured = await snapshotSource().capture(
+      {
+        ...input,
+        producerRelease: {
+          ...input.producerRelease,
+          modelDispatchProfile: {
+            ...profile,
+            anthropicModelAliases: { sonnet: "claude-sonnet-4-6" },
+          },
+        },
+      },
+      readerFor(canonicalJson(configuration)),
+    );
+    expect(captured).toMatchObject({
+      modelDispatchCapability: {
+        model: "claude-sonnet-4-6",
+        configuredModel: "sonnet",
+        wireProtocol: "anthropic-messages",
+      },
+      lifecycleVerificationCapability: {
+        model: "claude-sonnet-4-6",
+        protocol: "anthropic-messages",
+      },
+      configurationCanonicalJson: canonicalJson(configuration),
+    });
+  });
+
+  it("rejects an internal Claude supplied-diff preference without silently enabling context or choosing Codex", async () => {
+    const configuration = parseReviewConfigurationStrict({
+      ...JSON.parse(gatewayPolicyJson({})),
+      providers: [{ ...providerRows.at(-1)!.provider, agenticContext: false }],
+    });
+    expect(
+      await snapshotSource().capture(
+        {
+          ...captureInput(),
+          modelTransport: "provider_api",
+          subscriptionAuthMode: "claude-oauth",
+          producerRelease: {
+            ...captureInput().producerRelease,
+            agentProfiles: profiles,
+            modelDispatchProfile: profile,
+          },
+        },
+        readerFor(canonicalJson(configuration)),
+      ),
+    ).toEqual({
+      captureDenied: "agent_profile_incompatible",
+    });
+  });
+
+  it("preserves supplied-diff policy and never lets retained OCR profiles choose a default", async () => {
+    const provider = { ...providerRows[0]!.provider, agenticContext: false };
+    const configuration = parseReviewConfigurationStrict({
+      ...JSON.parse(gatewayPolicyJson({})),
+      providers: [provider],
+    });
+    const captured = await snapshotSource().capture(
+      {
+        ...captureInput(),
+        modelTransport: "provider_api",
+        providerApiAuthMode: providerRows[0]!.mode!,
+        producerRelease: {
+          ...captureInput().producerRelease,
+          agentProfiles: profiles,
+          modelDispatchProfile: profile,
+        },
+      },
+      readerFor(canonicalJson(configuration)),
+    );
+    expect(captured).toMatchObject({
+      agent: { agentKind: "codex" },
+      lifecycleVerificationCapability: {
+        extensionId: "lifecycle-verification.v2",
+        providerKind: "codex",
+      },
+    });
+    expect(
+      captured &&
+        !("captureDenied" in captured) &&
+        captured.configurationCanonicalJson,
+    ).toBe(canonicalJson(configuration));
   });
 });
 

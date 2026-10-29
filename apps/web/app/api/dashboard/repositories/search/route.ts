@@ -1,4 +1,7 @@
+import { inspectConfiguredRuntimeMigrationTarget } from "../../../../../src/server/workflow-provisioning/approved-codex-runtime-migration-ref";
 import { NextResponse, type NextRequest } from "next/server";
+import { createPrismaReviewRunControlRepositories } from "@reviewrouter/features-review-run-control/composition";
+import { readDashboardRuntimeReleases } from "../../../../../src/server/review-runtime-readiness";
 import {
   evaluateFeatureEntitlement,
   freeBetaEntitlement,
@@ -143,6 +146,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         take: 1,
         select: {
           status: true,
+          actionVersion: true,
           errorMessage: true,
           installedWorkflowRequirement: true,
         },
@@ -265,12 +269,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ),
       installedWorkflowRequirement:
         repository.provisioning[0]?.installedWorkflowRequirement ?? null,
+      workflowProvisioning: repository.provisioning[0] ?? null,
     })),
     health,
     providerSetup,
     hostedRepositories: hostedPool.repositories,
     gatewayAccounts,
     gatewayReadiness,
+    runtimeReleases: await readDashboardRuntimeReleases({
+      inspectRuntimeMigrationTarget: inspectConfiguredRuntimeMigrationTarget,
+      env: process.env,
+      releases:
+        createPrismaReviewRunControlRepositories(prisma).producerReleases,
+    }),
     providerSecretCheckFailedRepositoryFullName: null,
   });
   const repositoryHealthById = new Map(

@@ -21,6 +21,8 @@ export interface ReviewRunRuntimeSnapshotPort {
     readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
     /** Derived from a verified canonical caller, never a request input. */
     readonly providerApiAuthMode?: ProviderApiAuthMode;
+    /** Native subscription credential route bound by the canonical caller. */
+    readonly subscriptionAuthMode?: "claude-oauth";
     readonly providerVoteLanes?: readonly ProviderVoteLane[];
     readonly reviewInvestigationAuthorizationDescriptorCanonicalJson?:
       | string
@@ -34,6 +36,7 @@ export interface ReviewRunRuntimeSnapshotPort {
       | "contextToolsProfile"
       | "prDescriptionProfile"
       | "lifecycleVerificationProfile"
+      | "modelDispatchProfile"
       | "reviewerPlanProfile"
     >;
   }): Promise<ReviewRunRuntimeSnapshot | ReviewRunRuntimeCaptureDenial | null>;

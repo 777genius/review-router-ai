@@ -25,6 +25,7 @@ import {
   type ReviewRouterMcpSecrets,
   renderAccountGatewayWorkflow,
   renderProviderApiWorkflow,
+  renderClaudeSubscriptionWorkflow,
   renderReviewRouterSecretsCaller,
   readManagedReviewRouterCallerSource,
   readReviewRouterCallerSource,
@@ -44,6 +45,7 @@ export type WorkflowSetupReadinessInput = {
   readonly codexSessionMode?: "account-gateway";
   readonly mcpSecrets?: ReviewRouterMcpSecrets;
   readonly providerApiAuthMode?: ProviderApiAuthMode;
+  readonly subscriptionAuthMode?: "claude-oauth";
   readonly providerKind?: ProviderKind;
   readonly discussionMode?: ReviewRouterDiscussionMode;
   readonly conflictReviewFallbackEnabled?: boolean;
@@ -77,6 +79,7 @@ export async function isWorkflowSetupAlreadyCurrent(
     input.secretsRuntimeActionRef &&
     !input.codexSessionMode &&
     !input.providerApiAuthMode &&
+    !input.subscriptionAuthMode &&
     !input.codexRotatingProviderInstanceId &&
     !input.conflictReviewFallbackEnabled &&
     !input.forkAgenticSandboxEnabled
@@ -108,9 +111,19 @@ export async function isWorkflowSetupAlreadyCurrent(
 
   if (
     input.codexSessionMode === "account-gateway" ||
-    input.providerApiAuthMode !== undefined
+    input.providerApiAuthMode !== undefined ||
+    input.subscriptionAuthMode !== undefined
   ) {
-    if (input.codexSessionMode && input.providerApiAuthMode) return false;
+    if (
+      [
+        input.codexSessionMode,
+        input.providerApiAuthMode,
+        input.subscriptionAuthMode,
+      ].filter((mode) => mode !== undefined).length !== 1 ||
+      (input.subscriptionAuthMode !== undefined &&
+        input.subscriptionAuthMode !== "claude-oauth")
+    )
+      return false;
     if (
       input.codexRotatingProviderInstanceId ||
       input.codexRotatingWorkflowSecretNamespace ||
@@ -134,16 +147,23 @@ export async function isWorkflowSetupAlreadyCurrent(
                 dependencies.resolvePublicApiUrl?.() ??
                 resolveWorkflowPublicApiUrl(),
             })
-          : renderAccountGatewayWorkflow({
-              actionRef: input.actionRef,
-              apiUrl:
-                dependencies.resolvePublicApiUrl?.() ??
-                resolveWorkflowPublicApiUrl(),
-              githubRepositoryId: input.githubRepositoryId,
-              ...(input.mcpSecrets !== undefined
-                ? { mcpSecrets: input.mcpSecrets }
-                : {}),
-            });
+          : input.subscriptionAuthMode === "claude-oauth"
+            ? renderClaudeSubscriptionWorkflow({
+                actionRef: input.actionRef,
+                apiUrl:
+                  dependencies.resolvePublicApiUrl?.() ??
+                  resolveWorkflowPublicApiUrl(),
+              })
+            : renderAccountGatewayWorkflow({
+                actionRef: input.actionRef,
+                apiUrl:
+                  dependencies.resolvePublicApiUrl?.() ??
+                  resolveWorkflowPublicApiUrl(),
+                githubRepositoryId: input.githubRepositoryId,
+                ...(input.mcpSecrets !== undefined
+                  ? { mcpSecrets: input.mcpSecrets }
+                  : {}),
+              });
     } catch {
       return false;
     }
@@ -154,7 +174,8 @@ export async function isWorkflowSetupAlreadyCurrent(
       defaultBranch: input.defaultBranch,
       workflowPath: expected.path,
       expectedActionRef:
-        input.providerApiAuthMode !== undefined
+        input.providerApiAuthMode !== undefined ||
+        input.subscriptionAuthMode !== undefined
           ? `${reviewRouterWorkflowContract.runtimeRepository}/.github/workflows/reviewrouter-execution-reusable.yml@${readManagedReviewRouterCallerSource(expected.content).runtimeRef}`
           : `${reviewRouterWorkflowContract.runtimeRepository}/${reviewRouterWorkflowContract.runtimePath}@${readReviewRouterCallerSource(expected.content).runtimeRef}`,
       expectedContentValidator: (workflow) =>

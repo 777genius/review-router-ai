@@ -1,4 +1,8 @@
 import {
+  parseReviewModelDispatchProfileV2,
+  type ReviewModelDispatchProfileV2,
+} from "@reviewrouter/shared";
+import {
   ProducerDistributionKind,
   ProducerReleaseState,
   ReviewCapabilityProfile,
@@ -211,6 +215,7 @@ export type ProducerRelease = {
   readonly agentProfiles: readonly ReviewAgentProfile[] | null;
   readonly prDescriptionProfile?: ProducerPrDescriptionProfile | null;
   readonly lifecycleVerificationProfile?: ProducerLifecycleVerificationProfile | null;
+  readonly modelDispatchProfile?: ReviewModelDispatchProfileV2 | null;
   readonly schemaDigest: string;
   readonly capabilityProfile: ReviewCapabilityProfile;
   readonly protocolLimitsProfileId: string;
@@ -408,6 +413,13 @@ export function createProducerRelease(
     invalid("hosted_composite_wrapper_digest_required");
   }
   return {
+    ...(candidate.modelDispatchProfile == null
+      ? {}
+      : {
+          modelDispatchProfile: parseReviewModelDispatchProfileV2(
+            candidate.modelDispatchProfile,
+          ),
+        }),
     ...(candidate.prDescriptionProfile == null
       ? {}
       : {
@@ -483,6 +495,13 @@ export function producerReleaseImmutableKey(
   release: ProducerRelease | ProducerReleaseCandidate,
 ): string {
   return canonicalJson({
+    ...(release.modelDispatchProfile == null
+      ? {}
+      : {
+          modelDispatchProfile: parseReviewModelDispatchProfileV2(
+            release.modelDispatchProfile,
+          ),
+        }),
     ...(release.prDescriptionProfile == null
       ? {}
       : {
@@ -553,6 +572,13 @@ export function cloneProducerRelease(
           ),
         }
       : {}),
+    ...(release.modelDispatchProfile == null
+      ? {}
+      : {
+          modelDispatchProfile: parseReviewModelDispatchProfileV2(
+            release.modelDispatchProfile,
+          ),
+        }),
     ...(release.prDescriptionProfile == null
       ? {}
       : {

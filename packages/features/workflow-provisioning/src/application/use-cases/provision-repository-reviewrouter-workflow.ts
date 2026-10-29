@@ -30,6 +30,7 @@ export type ProvisionRepositoryReviewRouterWorkflowInput = {
   readonly codexSessionMode?: "account-gateway";
   readonly mcpSecrets?: ReviewRouterMcpSecrets;
   readonly providerApiAuthMode?: ProviderApiAuthMode;
+  readonly subscriptionAuthMode?: "claude-oauth";
   readonly staticRuntimeEnv?: Readonly<Record<string, string>>;
   readonly workflowStyle?: ReviewRouterWorkflowStyle;
   readonly discussionMode?: ReviewRouterDiscussionMode;
@@ -46,6 +47,7 @@ export async function provisionRepositoryReviewRouterWorkflow(
   input: ProvisionRepositoryReviewRouterWorkflowInput,
   dependencies: {
     readonly secretsRuntimeActionRef?: string;
+    readonly claudeSubscriptionActionRef?: string;
     readonly targets: WorkflowProvisioningTargetPort;
     readonly setupGateway: WorkflowSetupGatewayPort;
     readonly provisioning: WorkflowProvisioningRepositoryPort;
@@ -102,6 +104,9 @@ export async function provisionRepositoryReviewRouterWorkflow(
       runtimeConfigMode: input.runtimeConfigMode,
       ...(input.providerApiAuthMode
         ? { providerApiAuthMode: input.providerApiAuthMode }
+        : {}),
+      ...(input.subscriptionAuthMode
+        ? { subscriptionAuthMode: input.subscriptionAuthMode }
         : {}),
       ...(input.codexSessionMode
         ? { codexSessionMode: input.codexSessionMode }
@@ -161,6 +166,12 @@ export async function provisionRepositoryReviewRouterWorkflow(
     {
       ...(dependencies.secretsRuntimeActionRef
         ? { secretsRuntimeActionRef: dependencies.secretsRuntimeActionRef }
+        : {}),
+      ...(dependencies.claudeSubscriptionActionRef
+        ? {
+            claudeSubscriptionActionRef:
+              dependencies.claudeSubscriptionActionRef,
+          }
         : {}),
       setupGateway: dependencies.setupGateway,
       provisioning: dependencies.provisioning,

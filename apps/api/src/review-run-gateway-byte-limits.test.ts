@@ -1,4 +1,5 @@
 import { createServer, type Server, type ServerResponse } from "node:http";
+import { createHash } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { setImmediate } from "node:timers/promises";
 import Fastify from "fastify";
@@ -11,6 +12,7 @@ import {
   ReviewTrustDomain,
   ReviewRunCompanionDispatchFailure,
   type ReviewRunCompanionDispatchAdmission,
+  type ReviewRunModelDispatchAdmission,
   type ReviewRunCompanionDispatch,
   type ReviewRunAuthorization,
   type ReviewRunGatewayExecutionBinding,
@@ -18,6 +20,7 @@ import {
 import {
   lifecycleVerificationContract,
   lifecycleVerificationDescriptorDigest,
+  lifecycleVerificationDescriptorDigestV2,
   type ReviewCompanionDispatchContextV1,
 } from "@reviewrouter/shared";
 import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
@@ -114,6 +117,106 @@ const companionEnvelope = (model = "gpt-5.6-sol") =>
     }),
   );
 
+it("requires the durable V2 forward for discovery while preserving native tools and its output cap", async () => {
+  const state = companionReservation("finding_discovery");
+  let forwarded = false;
+  const admission = {
+    ...state.admission,
+    async forward(
+      ...args: Parameters<ReviewRunModelDispatchAdmission["forward"]>
+    ) {
+      if (forwarded)
+        throw new ReviewRunCompanionDispatchFailure(
+          "model_dispatch_already_forwarded",
+        );
+      const result = await state.admission.claim(...args);
+      if (result.status !== "restored") throw new Error("reservation_required");
+      forwarded = true;
+      return { ...result, status: "claimed" as const };
+    },
+  };
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission,
+    modelDispatchV2: true,
+  });
+  const context = {
+    ...companionContext,
+    workSlotId: "discovery",
+    dispatchVersion: 2 as const,
+    requestOrdinal: 1,
+    routeIdentityHash: "e".repeat(64),
+  };
+  const bytes = Buffer.from(
+    JSON.stringify({
+      ...JSON.parse(companionEnvelope().toString()),
+      max_output_tokens: 8192,
+      tools: [
+        {
+          type: "function",
+          name: "read_file",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
+      tool_choice: "auto",
+    }),
+  );
+  const wireHash = createHash("sha256").update(bytes).digest("hex");
+  const reserved = await state.admission.claim(
+    f.authorization(),
+    context,
+    wireHash,
+  );
+  state.rows.set(context.dispatchId, {
+    ...reserved.dispatch,
+    dispatchVersion: 2,
+    requestOrdinal: 1,
+    routeIdentityHash: context.routeIdentityHash,
+    requestBytes: bytes.byteLength,
+    maxOutputTokens: 8192,
+  });
+  try {
+    await expect(
+      f.relay.responses("authorization-1", bytes, new AbortController()),
+    ).rejects.toMatchObject({ code: "model_dispatch_claim_required" });
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        bytes,
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({ code: "model_dispatch_claim_required" });
+    expect(f.admissions).toHaveLength(0);
+    const response = await f.relay.responses(
+      "authorization-1",
+      bytes,
+      new AbortController(),
+      undefined,
+      context,
+    );
+    if (response.kind !== "stream") throw new Error("stream_expected");
+    const reader = response.body.getReader();
+    while (!(await reader.read()).done) {
+      /* Fully consume native terminal response. */
+    }
+    expect(f.requestBodies).toEqual([bytes.toString()]);
+    expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        bytes,
+        new AbortController(),
+        undefined,
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "model_dispatch_already_forwarded" });
+    expect(f.admissions).toHaveLength(1);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
 it.each([
   { profileId: "profile-1", model: "gpt-5.6-sol" },
   {
@@ -135,7 +238,6 @@ it.each([
       },
       128,
       selection,
-      true,
     );
     try {
       const bytes = companionEnvelope(selection.model);
@@ -451,9 +553,11 @@ async function fixture(
   requestTimeoutMs = 5000,
   controlledStream?: (response: ServerResponse) => Promise<void>,
   companionOptions?: {
-    admission: ReviewRunCompanionDispatchAdmission;
+    admission: ReviewRunCompanionDispatchAdmission &
+      Partial<Pick<ReviewRunModelDispatchAdmission, "forward">>;
     unpaid?: boolean;
     failUsageOutcome?: boolean;
+    modelDispatchV2?: boolean;
   },
   capturedRequests = 128,
   selection: {
@@ -461,7 +565,6 @@ async function fixture(
     model: string;
     authKind?: "oauth" | "api_key";
   } = { profileId: "profile-1", model: "gpt-5.6-sol" },
-  accountModelCatalogEnabled = false,
   multi?: {
     models: readonly string[];
     independentAllocations?: boolean;
@@ -527,6 +630,26 @@ async function fixture(
   });
   const legacySnapshot = (id: string) => ({
     snapshotVersion: 3,
+    ...(companionOptions?.modelDispatchV2
+      ? {
+          modelDispatchCapability: {
+            extensionId: "review-model-dispatch.v2",
+            version: 2,
+            transport: "account_gateway",
+            wireProtocol: "openai-responses",
+            outputTokenLimit: "terminal_acceptance",
+            routeIdentityHash: "e".repeat(64),
+            providerIndex: 0,
+            model: selection.model,
+            deadline,
+            maxRequests: Math.min(32, capturedRequests),
+            maxConcurrentRequests: 1,
+            maxRequestBytes: 4096,
+            maxResponseBytes: outputBytes,
+            maxOutputTokens: 32768,
+          },
+        }
+      : {}),
     ...(companionOptions
       ? {
           lifecycleVerificationCapability: {
@@ -543,6 +666,15 @@ async function fixture(
             maxOutputTokens: 4096,
             deadlineMs: 60000,
             attemptBudget: 1,
+            ...(companionOptions.modelDispatchV2
+              ? {
+                  extensionId: "lifecycle-verification.v2",
+                  version: 2,
+                  descriptorDigest: lifecycleVerificationDescriptorDigestV2,
+                  routeIdentityHash: "e".repeat(64),
+                  protocol: "openai-responses",
+                }
+              : {}),
           },
         }
       : {}),
@@ -863,7 +995,6 @@ async function fixture(
     bindings,
   });
   const relayInput: Parameters<typeof createReviewRunGatewayRelay>[0] = {
-    accountModelCatalogEnabled,
     policy: {
       profiles: [
         {
@@ -1436,7 +1567,6 @@ it.each([
       undefined,
       9,
       undefined,
-      false,
       independentAllocations
         ? { models: ["gpt-5.6-sol", "gpt-5.5"], independentAllocations: true }
         : undefined,
@@ -1648,7 +1778,6 @@ it("v4 joins shared first preparation and overlaps exact models within one captu
     undefined,
     9,
     undefined,
-    false,
     { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
   );
   const held = f.holdPrepare();
@@ -1713,7 +1842,6 @@ it.each([
       undefined,
       9,
       undefined,
-      false,
       { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
     );
     const gate = f.holdClose();
@@ -1777,7 +1905,6 @@ it("v4 retains failed parent cancellation after native completion until a cleanu
     undefined,
     9,
     undefined,
-    false,
     { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
   );
   const gate = f.holdClose();
@@ -1830,7 +1957,6 @@ it("v4 rejects missing and foreign reviewers before preparation and keeps a shar
     undefined,
     9,
     undefined,
-    false,
     { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
   );
   try {
@@ -1877,7 +2003,6 @@ it("v4 reads only the selected reviewer's durable request in a shared execution"
     undefined,
     9,
     undefined,
-    false,
     { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
   );
   try {
@@ -1921,7 +2046,6 @@ it("v4 closing an active reviewer aborts only its stream while a shared sibling 
     undefined,
     9,
     undefined,
-    false,
     { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
   );
   const controllers = [new AbortController(), new AbortController()];
@@ -1979,7 +2103,6 @@ it("v4 denies one revoked allocation without poisoning a healthy independent rev
     undefined,
     9,
     undefined,
-    false,
     { models: ["gpt-5.6-sol", "gpt-5.5"], independentAllocations: true },
   );
   try {
@@ -2025,7 +2148,6 @@ it("v4 keeps companion dispatch and readback on the captured primary", async () 
     { admission: state.admission },
     9,
     undefined,
-    false,
     { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
   );
   try {
@@ -2087,7 +2209,6 @@ it.each([false, true])(
       undefined,
       9,
       undefined,
-      false,
       { models: ["gpt-5.6-sol", "gpt-5.5"], independentAllocations: true },
     );
     let restarted: ReturnType<typeof f.restartRelay> | undefined;
@@ -2135,7 +2256,6 @@ it("v4 restart cleanup proves the original operation and restores only its exact
     undefined,
     9,
     undefined,
-    false,
     { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
   );
   let restarted: ReturnType<typeof f.restartRelay> | undefined;
@@ -2182,7 +2302,6 @@ it("v4 missing original cleanup operation stays unknown and cannot mint a replac
     undefined,
     9,
     undefined,
-    false,
     { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
   );
   let restarted: ReturnType<typeof f.restartRelay> | undefined;
@@ -2398,17 +2517,11 @@ it.each([
   "account model %s with %s keeps the authorized Responses path (dynamic=%s)",
   async (profileId, authKind, dynamic) => {
     const model = "authorized-account-model-not-in-anchor";
-    const f = await fixture(
-      MiB,
-      0,
-      2,
-      5000,
-      undefined,
-      undefined,
-      128,
-      { profileId, model, authKind },
-      true,
-    );
+    const f = await fixture(MiB, 0, 2, 5000, undefined, undefined, 128, {
+      profileId,
+      model,
+      authKind,
+    });
     try {
       const response = f.relay.responses(
         "local-authorization-token",
@@ -2451,17 +2564,10 @@ it.each([
 
 it("revocation while preparing a dynamic Codex model still prevents inference", async () => {
   const model = "authorized-account-model-not-in-anchor";
-  const f = await fixture(
-    MiB,
-    0,
-    2,
-    5000,
-    undefined,
-    undefined,
-    128,
-    { profileId: "openai-codex-oauth-responses-v1", model },
-    true,
-  );
+  const f = await fixture(MiB, 0, 2, 5000, undefined, undefined, 128, {
+    profileId: "openai-codex-oauth-responses-v1",
+    model,
+  });
   const held = f.holdPrepare();
   try {
     const response = f.relay.responses(
@@ -2490,12 +2596,9 @@ it("revocation while preparing a dynamic Codex model still prevents inference", 
   }
 });
 
-it.each([
-  { model: "gpt-5.6-sol", allowed: true },
-  { model: "authorized-account-model-not-in-anchor", allowed: false },
-])(
-  "without catalog opt-in the relay admits only configured Codex models: $model",
-  async ({ model, allowed }) => {
+it.each(["gpt-5.6-sol", "authorized-account-model-not-in-anchor"])(
+  "the relay admits anchor and dynamic Codex models without opt-in: %s",
+  async (model) => {
     const f = await fixture(MiB, 0, 2, 5000, undefined, undefined, 128, {
       profileId: "openai-codex-oauth-responses-v1",
       model,
@@ -2513,16 +2616,6 @@ it.each([
         ),
         new AbortController(),
       );
-      if (!allowed) {
-        await expect(response).rejects.toMatchObject({
-          code: "gateway_unavailable",
-          effect: "not_dispatched",
-        });
-        expect(f.intents).toHaveLength(0);
-        expect(f.admissions).toHaveLength(0);
-        expect(f.requestModels).toHaveLength(0);
-        return;
-      }
       const result = await response;
       if (result.kind !== "stream") throw new Error("expected_stream");
       for await (const chunk of result.body) void chunk;
