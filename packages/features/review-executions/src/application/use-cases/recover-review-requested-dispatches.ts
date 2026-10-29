@@ -178,7 +178,12 @@ export class RecoverReviewRequestedDispatches {
       });
       return transitionApplied(recovered.status) ? "recovered" : "failed";
     }
-    if (runStatus === ReviewRequestedDispatchRunStatus.TerminalStaleRevision) {
+    if (
+      runStatus === ReviewRequestedDispatchRunStatus.TerminalStaleRevision ||
+      runStatus === ReviewRequestedDispatchRunStatus.TerminalNotRetryable
+    ) {
+      // Stop this request without a successor. A newer revision arrives through
+      // ingress; an operator cancellation must not be undone by a redispatch.
       const recovered = await this.commands.recoverDispatch({
         requestId: intent.requestId,
         expectedVersion: intent.version,

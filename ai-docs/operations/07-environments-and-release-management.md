@@ -807,7 +807,14 @@ Dispatch recovery is deliberately asymmetric:
 - A returned run ID binds the intent directly; a lost/unknown response is resolved
   only by bounded workflow-run lookup and never by repeating that POST.
 - Retry with a new request identity only after a definite no-effect result and
-  within `REVIEW_ROUTER_REVIEW_V2_INTENT_MAX_DISPATCH_ATTEMPTS`.
+  within `REVIEW_ROUTER_REVIEW_V2_INTENT_MAX_DISPATCH_ATTEMPTS`. A completed run
+  that never authorized counts as no-effect only when it concluded `failure`,
+  `timed_out` or `startup_failure` on the unchanged revision. Any other
+  conclusion (for example cancelled by an operator) supersedes the request
+  without a successor; a completed run without a conclusion keeps waiting until
+  its deadline. Each successor waits `REVIEW_ROUTER_REVIEW_V2_INTENT_RETRY_MS`,
+  doubled per earlier failed attempt and capped at one hour (a base delay above
+  one hour stays constant).
 - Terminalize an unresolved dispatch or missing OIDC authorization at its
   persisted deadline, then release the PR lane. `DispatchOutcomeUnknown` and
   `AuthorizationDeadlineExceeded` also persist a cleanup event in that same
