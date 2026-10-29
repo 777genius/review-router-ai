@@ -56,7 +56,11 @@ child exit status and cleanup result. Inspect screenshots separately. Failures
 remain failures; independent scoped passes may qualify remaining behavior with
 an explicit source boundary. The script always attempts browser/app shutdown,
 owned build/profile cleanup, capture restoration, fixture deletion and role
-removal. It restores only its own generated Next route-type reference after the
+removal. Runtime files use a unique short `/tmp/rr-stat-*` directory on Unix so
+Chromium's socket path fits the OS limit; Windows uses its OS temporary directory.
+The receipt records that owned directory and its removal, while build output,
+logs and screenshots stay under the run artifact directory. It restores only
+its own generated Next route-type reference after the
 server stops. A cleanup failure fails the run. Synthetic credentials and session
 cookies are redacted from failure output. Commit the harness and README, not
 screenshots, logs or generated build/profile data.

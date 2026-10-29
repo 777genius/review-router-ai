@@ -166,6 +166,10 @@ History reader tests; those suites and the browser must run serially.
 No shared database or unknown worktree was changed or deleted. A narrow hosted
 browser qualification remains available if local compiler/browser capacity is
 insufficient. A failed or unexecuted check is not counted as a pass.
+After the local database suites finished, the owned PG17 process was stopped and
+only its fresh tmpfs data directory was removed. Its final server log and cleanup
+receipt are retained in the ignored task evidence directory. Hosted browser runs
+use their own isolated PostgreSQL service.
 
 ### Backend implementation and regression evidence
 
@@ -255,3 +259,21 @@ outcomes. The browser workflow and twelve viewport/theme captures remain pending
   `critical` where the public contract requires `StatisticsSeverity.Critical`.
   The test now uses that enum; the domain contract is unchanged. The browser
   did not run, so there is no screenshot or runtime receipt for this attempt.
+- [Browser run40963783692](https://github.com/777genius/review-router-ai/actions/runs/40963783692)
+  on `979f7762401949455a3a73b5542f982f9d101c0b` passed the complete native web
+  typecheck. The real authenticated SSR, Statistics APIs, Usage and three History
+  API warmups passed. Chromium then failed before opening a page because its
+  Unix singleton socket path under the nested artifact directory was too long.
+  The downloaded failure receipt confirms owned cleanup passed; no browser
+  journey or visual acceptance is claimed. Shorten only the owned temporary
+  runtime path and retain the existing receipts and cleanup contract.
+- The focused harness fix creates a unique short private runtime directory
+  inside the existing guarded lifecycle, removes it independently of build
+  cleanup, restores the previous TMPDIR, and records its removal. The E2E
+  critic independently accepted the exact diff. Logs, source receipts and
+  screenshots keep their existing artifact location; product code and acceptance
+  assertions are unchanged. A new actual browser run remains required.
+  Focused lint/format/syntax checks passed. The bounded filesystem probe verified
+  distinct mode0700 directories, a 64-byte representative socket path, removal
+  and TMPDIR restoration on success and injected error. The local sandbox denied
+  a direct Unix socket bind; no local browser or socket execution pass is claimed.

@@ -5,6 +5,7 @@ import { createHash, randomBytes } from "node:crypto";
 import {
   access,
   mkdir,
+  mkdtemp,
   open,
   readFile,
   readdir,
@@ -13,6 +14,7 @@ import {
 } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -97,10 +99,9 @@ const outputDir = join(
   `run-${new Date().toISOString().replaceAll(":", "-")}-${runId}`,
 );
 await mkdir(outputDir, { recursive: true, mode: 0o700 });
-const runtimeTmp = join(outputDir, "runtime-tmp");
-await mkdir(runtimeTmp);
 const previousTmpdir = process.env.TMPDIR;
-process.env.TMPDIR = runtimeTmp;
+let runtimeTmp: string | undefined;
+let runtimeTmpRemoved = false;
 const nextEnvPath = join(root, "apps/web/next-env.d.ts");
 const originalNextEnv = await readFile(nextEnvPath, "utf8");
 const role = `statistics_browser_${runId}`;
@@ -292,6 +293,12 @@ if (process.env.EXPECTED_REVISION)
 const logPath = join(outputDir, "next-app.log");
 
 try {
+  // Chromium's SingletonSocket must fit the Unix socket path limit, including
+  // its own nested directory. Keep runtime files outside the long artifact path.
+  runtimeTmp = await mkdtemp(
+    join(process.platform === "win32" ? tmpdir() : "/tmp", "rr-stat-"),
+  );
+  process.env.TMPDIR = runtimeTmp;
   await admin.connect();
   adminConnected = true;
   serverVersion = (
@@ -714,7 +721,12 @@ try {
     },
     async () => {
       await rm(join(outputDir, "next-build"), { recursive: true, force: true });
-      await rm(runtimeTmp, { recursive: true, force: true });
+    },
+    async () => {
+      if (runtimeTmp) {
+        await rm(runtimeTmp, { recursive: true, force: true });
+        runtimeTmpRemoved = true;
+      }
     },
     async () => {
       if (adminConnected && historyCoverageChanged)
@@ -816,6 +828,10 @@ const result = {
   sourceHistoryEvidence: historySource?.evidence,
   followthroughEvidence,
   appRole: "temporary SELECT-only role; writes never granted",
+  runtimeTemporaryDirectory: {
+    path: runtimeTmp ?? null,
+    removed: runtimeTmpRemoved,
+  },
   checks,
   screenshots,
   requests,
