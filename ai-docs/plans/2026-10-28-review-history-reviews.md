@@ -397,3 +397,16 @@ Receipts: `tmp/review-history-resume/history-source-backend-receipt.json`,
 `6332ceb1b7bc08c958747747c3bbe4c423115ab505c13918b13aecfa79695375`.
 GitHub/OIDC minting, provider evidence и login synthetic; это local integration
 proof, без live GitHub/provider review, production activation или deployment claims.
+
+### PR review follow-up
+
+Исходное локально проверенное дерево выше опубликовано в commit
+`408a1a78a65cb9f16a5e44d529a968d4a8ad2bd7`, [PR #741](https://github.com/777genius/review-router-ai/pull/741).
+CodeRabbit затем выявил риск нестабильности zero-session assertion: PostgreSQL
+может кратко показывать закрывающиеся соединения и фоновые workers. Проверка теперь
+считает только client backends той же БД, исключает свой PID и делает максимум
+20 запросов с 19 паузами по 100 ms; устойчивый ненулевой count по-прежнему fail.
+Независимый повторный review принял эту ограниченную правку, syntax/whitespace checks
+прошли. Shared production harness, browser и product sources не менялись.
+Прежний local 16-case receipt относится к указанному первому commit; окончательная
+проверка изменённого assertion выполняется существующим CI на новом head PR #741.

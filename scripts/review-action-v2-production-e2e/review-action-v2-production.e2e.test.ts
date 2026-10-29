@@ -645,10 +645,17 @@ describeWithDatabase.sequential(
             where: { id: "capture_v1" },
           }),
         ).toEqual(before.statistics);
-        const sessions = await setup.$queryRaw<
-          Array<{ count: bigint }>
-        >`SELECT COUNT(*)::bigint AS count FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()`;
-        expect(sessions[0]!.count).toBe(0n);
+        let remainingClients = 1n;
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          const sessions = await setup.$queryRaw<
+            Array<{ count: bigint }>
+          >`SELECT COUNT(*)::bigint AS count FROM pg_stat_activity WHERE datname = current_database() AND backend_type = 'client backend' AND pid <> pg_backend_pid()`;
+          remainingClients = sessions[0]!.count;
+          if (remainingClients === 0n) break;
+          if (attempt < 19)
+            await new Promise<void>((resolve) => setTimeout(resolve, 100));
+        }
+        expect(remainingClients).toBe(0n);
       } finally {
         if (!previousHistory)
           await setup.reviewHistoryCoverage.deleteMany({
