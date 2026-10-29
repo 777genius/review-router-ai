@@ -400,3 +400,24 @@ navigation. Preproof observations verify both scoped200 responses and absence
 of transient Usage denial UI. The independent cache author reviewed the separate
 harness change read-only and accepted its actual source and required receipt
 assertions. Actual hosted execution remains required.
+
+[Run40969625230](https://github.com/777genius/review-router-ai/actions/runs/40969625230)
+on `7b91720eed2c73ac1143f0b070593013d44b83e2` passed the complete native web
+typecheck and produced all12 mandatory Statistics/issues captures. It stopped
+at the stricter200% selected-label assertion: Period174/174px and Severity169/
+169px fit, but Chart metric had169px available for178px of text. The actual
+image confirms the abbreviated label; navigation now wraps clearly. No runtime
+error or external request was recorded, and cleanup passed. This attempt did
+not reach the new Back proof, Usage200% or final empty/partial states.
+
+The selector already wraps within its header; the remaining constraint is the
+viewport-only two-column chart grid. Keep the existing1100px breakpoint, and
+make those columns auto-fit with a bounded22rem minimum clamped to100% of the
+container. This preserves the existing narrower layout while letting charts
+stack at enlarged text size. The exact selected-label and overflow assertions
+are retained. Independent source/visual review and another complete actual run
+are required before accepting the correction.
+The visual critic accepted the actual one-line CSS correction and independently
+inspected all12 images from this failed attempt, finding no further material
+normal-viewport issue. Formatting and whitespace checks passed; fixed200% and
+remaining journey acceptance still depend on the next full run.
