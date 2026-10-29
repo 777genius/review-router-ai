@@ -1,7 +1,7 @@
 # Several Gateway reviewers
 
-Status: implementation plan v4, approved after three independent review rounds.
-Implementation follows this bounded plan. Draft: [ReviewRouter #738](https://github.com/777genius/review-router-ai/pull/738).
+Status: bounded implementation complete; final local qualification recorded below.
+The plan was approved after three independent review rounds. Draft: [ReviewRouter #738](https://github.com/777genius/review-router-ai/pull/738).
 Companion draft: [public runtime #351](https://github.com/777genius/review-router/pull/351).
 
 Research baselines: ReviewRouter `b2f40048559a841f41b6756c8eac2ed90b04c2d4`
@@ -57,15 +57,15 @@ Out of scope:
 Three GPT-6.1 Sol/xhigh researchers independently inspected domain/frontend,
 control-plane authority and public runtime. Their findings agree on these owners:
 
-| Responsibility | Existing owner | Change |
-| --- | --- | --- |
-| Stored selection and inheritance | `features/review-config`, stored schema 4 and runtime schema 3 | Plural use cases and complete view models; keep the schemas |
-| Credential/profile identity | `WorkspaceProviderProfile` and profile repository | Reuse binding/profile/model identity and atomic draft resolution |
-| Admission and private execution authority | `features/review-run-control`, API capture and Gateway adapters | Versioned reviewer capture and bounded Gateway allocations |
-| Durable slot/lease/evidence state | `features/review-executions` | Reuse exact vote-hash work slots and required coverage |
-| Native inference | Existing Gateway service and native authority | No changes to their protocol or custody; reuse finite execution allowances |
-| Runtime planning and scheduling | Public runtime `review-orchestration` | Reviewer-aware adapters and bounded parallel inference |
-| Consensus and publication | Existing projection/consensus and SaaS publication ledger | Count distinct vote identities; one finalizer/publisher |
+| Responsibility                            | Existing owner                                                  | Change                                                                     |
+| ----------------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Stored selection and inheritance          | `features/review-config`, stored schema 4 and runtime schema 3  | Plural use cases and complete view models; keep the schemas                |
+| Credential/profile identity               | `WorkspaceProviderProfile` and profile repository               | Reuse binding/profile/model identity and atomic draft resolution           |
+| Admission and private execution authority | `features/review-run-control`, API capture and Gateway adapters | Versioned reviewer capture and bounded Gateway allocations                 |
+| Durable slot/lease/evidence state         | `features/review-executions`                                    | Reuse exact vote-hash work slots and required coverage                     |
+| Native inference                          | Existing Gateway service and native authority                   | No changes to their protocol or custody; reuse finite execution allowances |
+| Runtime planning and scheduling           | Public runtime `review-orchestration`                           | Reviewer-aware adapters and bounded parallel inference                     |
+| Consensus and publication                 | Existing projection/consensus and SaaS publication ledger       | Count distinct vote identities; one finalizer/publisher                    |
 
 Stored policy already supports 1–16 selections. A reviewer is an existing
 profile plus selected engine: exact duplicate profile/engine rows are invalid;
@@ -112,8 +112,11 @@ Reuse the existing Max parallel providers and Inline agreement controls in the
 roster editing flow. Preserve saved values. Adding a reviewer does not silently
 raise parallelism; shrinking the roster uses the existing fit-to-count policy.
 The concurrency acceptance scenario explicitly saves two reviewers and a limit
-of two. All reviewers remain required by default; preserve existing requiredness
-when editing a saved selection.
+of two. Every configured phase-one review contributes required coverage, matching
+the existing runtime. Preserve `requiredHealthy` when editing a selection: it
+controls the existing health preflight and does not make that review's coverage
+optional. The runtime retains its existing explicit optional-slot contract for
+authorized work; this editor adds no optional-reviewer switch.
 
 All-Gateway rosters are executable in this phase. Existing singleton direct,
 GitHub Secrets and Hosted Pool routes remain on their current contracts. The
@@ -438,19 +441,21 @@ blocking findings are addressed or the delivery scope is explicitly reduced.
 - [x] Review round 1 and plan corrections.
 - [x] Review round 2 and plan corrections.
 - [x] Review round 3 and final plan.
-- [ ] Implementation in dependency-ordered commits, pushed after each commit.
-- [ ] Focused behavior, protocol/architecture and required repository checks.
-- [ ] Browser and joined execution E2E on disposable resources.
-- [ ] Independent code review, fixes and exact-head verification.
-- [ ] Merge through the maintained owner PR guard.
+- [x] Implementation in dependency-ordered local commits.
+- [x] Focused behavior, protocol, architecture, production build and runtime checks.
+- [x] Browser and joined execution E2E on disposable resources.
+- [x] Independent code reviews and concrete corrections.
+- [ ] Push final commits and complete required hosted CI; local GitHub CLI is not authenticated.
+- [ ] Complete the five Docker-dependent tests on a runner with the required Docker fixture.
+- [ ] Merge through the maintained owner PR guard after the required checks pass.
 
 Review ledger (findings and dispositions will be appended after each round):
 
-| Round | Independent critics | Blocking findings | Disposition |
-| --- | --- | --- | --- |
-| 1 | Domain/UX, control-plane, runtime (GPT-6.1 Sol xhigh) | Default/explicit duplicate votes; atomic roster/settings; allocation failure scope; parent liveness; terminal cleanup recovery; full prepare intent; OCR full-inventory contract; exact failure/investigation routing | Incorporated in v2, with focused acceptance cases. Added immutable top-level producer profile, durable request attribution, mixed reuse/fresh serialization, and actual committed-entrypoint E2E. No new generic layer or native service change. |
-| 2 | Domain/UX, control-plane, runtime (GPT-6.1 Sol xhigh) | User-observed roster CAS; pre-POST concurrency-group permits; exact per-reviewer investigation grant wire source | Incorporated in v3. Also clarified descendant constraints, consumer-control cleanup reader, write-once deletion/retention, shared safety/integrity checks, version-specific bounds and full encoded checkout qualification. Round 1 blockers confirmed resolved. |
-| 3 | Domain/UX, control-plane, runtime (GPT-6.1 Sol xhigh) | None remaining; earlier corrections verified | Approved bounded implementation. Clarified ready-group admission to avoid head-of-line blocking. Freeze parser/env/selector/cleanup names between existing shared and runtime owners before export; this is contract coordination, not another framework. |
+| Round | Independent critics                                   | Blocking findings                                                                                                                                                                                                     | Disposition                                                                                                                                                                                                                                                      |
+| ----- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Domain/UX, control-plane, runtime (GPT-6.1 Sol xhigh) | Default/explicit duplicate votes; atomic roster/settings; allocation failure scope; parent liveness; terminal cleanup recovery; full prepare intent; OCR full-inventory contract; exact failure/investigation routing | Incorporated in v2, with focused acceptance cases. Added immutable top-level producer profile, durable request attribution, mixed reuse/fresh serialization, and actual committed-entrypoint E2E. No new generic layer or native service change.                 |
+| 2     | Domain/UX, control-plane, runtime (GPT-6.1 Sol xhigh) | User-observed roster CAS; pre-POST concurrency-group permits; exact per-reviewer investigation grant wire source                                                                                                      | Incorporated in v3. Also clarified descendant constraints, consumer-control cleanup reader, write-once deletion/retention, shared safety/integrity checks, version-specific bounds and full encoded checkout qualification. Round 1 blockers confirmed resolved. |
+| 3     | Domain/UX, control-plane, runtime (GPT-6.1 Sol xhigh) | None remaining; earlier corrections verified                                                                                                                                                                          | Approved bounded implementation. Clarified ready-group admission to avoid head-of-line blocking. Freeze parser/env/selector/cleanup names between existing shared and runtime owners before export; this is contract coordination, not another framework.        |
 
 ## Evidence boundaries
 
@@ -459,3 +464,115 @@ HTTP, actual PostgreSQL, browser behavior, live provider execution and productio
 activation are separate claims. Do not describe a fixture or unavailable gate
 as a live end-to-end pass. Preserve existing credentials, user work and other
 tasks' deployment changes.
+
+## Implementation and local qualification, 2026-10-29
+
+Both repositories use `feat/gateway-multi-reviewers`. The SaaS code candidate is
+`baf8ec5911c35298c0a24789cced079165e5ede7`; the following documentation commit records
+its qualification without changing product code. The final Action candidate
+is `0da0202f8f36b9ceb055ec33f6e0b97b62a59025`, including current Action main
+`298e7fca999edaee09b59d438a5694ed8961d394` and its lifecycle/restored-slot
+rebinding correction. Version `1.0.219` is retained. The SaaS paired CI reference
+selects this exact candidate. No production workflow channel or release tag
+was changed.
+
+The verified Action entrypoint SHA-256 is
+`d31351ded62a44d5cee30effdd36ee31fba88ae4ca2824b1218c7d0898efde6f`.
+The canonical reviewer-plan descriptor is
+`sha256:f6a45d7039129a813690f5f769052d3ba078418eb123b0c0c710ef790d2919d6`.
+The maintained generator and verifier accepted the exact committed Action,
+canonical source handoff, profile descriptors and generated artifact.
+
+### Delivered behavior and boundaries
+
+The existing provider flow now edits an ordered roster with independent models
+and settings. One write commits the full roster and execution settings against
+the displayed versions. Repository inheritance carries the whole roster;
+stale editors keep their draft. The editor reuses the existing model, account
+and catalog status controls. Catalog failures retain active account metadata
+and a same-account refresh action while model admission and Save remain closed.
+Unknown model availability is reported as unknown; only an authoritative catalog
+missing the model produces the unavailable-model warning.
+
+V4 capture binds every reviewer, vote, selected model/settings and exact
+allocation. Reviewers with identical captured account authority share one
+finite allowance; distinct allocations may overlap within the configured
+parallel limit. Request usage and local sessions remain reviewer-specific.
+Preparation and cleanup remain allocation-specific, and existing aggregation
+and App publication remain run-specific. The primary alone owns existing
+non-voting auxiliary work. Existing V3 and singleton direct/Secrets behavior is
+preserved. Mixed Gateway plus direct/Secrets execution remains a later phase
+behind the explicit transport boundary.
+
+### Independent implementation review findings
+
+| Finding                                                                     | Correction and verification                                                                                                                                    |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A shared OCR context-tools plan reached a Codex child                       | Project capabilities into the eligible reviewer only; composed-runtime regressions and mixed-engine compiled E2E pass.                                         |
+| Normal HTTP completion could be logged as unknown cancellation              | Abort the relay close listener only before `writableFinished`; real HTTP regression plus premature-disconnect coverage, 56 tests pass.                         |
+| The joined E2E counted model calls without proving their allocation         | Enforce exact execution bearer, admission and request ownership in the controlled Gateway; assert reviewer/model to captured allocation to prepared execution. |
+| Fake GitHub assigned bot authorship without validating mutation credentials | Preserve bridge headers and require an observed fixture App installation token for mutations; checkout read token is excluded.                                 |
+| A failed catalog refresh removed metadata needed to retry                   | Separate active setup metadata from executable-model readiness; reuse the status/refresh control per reviewer and keep Save closed until recovery.             |
+| Migration 152 was absent from maintained historical fixture catalogs        | Register only its exact SQL and complete checkout156 manifest; preserve all older reviewed SQL and managed92/historical96 boundaries.                          |
+| Legacy committed bundles omitted new generated contract constants           | Regenerate both existing SaaS artifacts through their official helpers; hoisted/linked-store reproducibility and maintained artifact integrity pass.           |
+
+### Qualification record
+
+| Check                                  | Observed result                                                                                                                                                                                                    |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Public Action feature suite            | 901 tests across 41 suites passed; after incoming main integration, 151 affected lifecycle/session tests and 21 artifact/metadata tests passed.                                                                    |
+| Final paired Action/API/PostgreSQL E2E | 27/27 passed across six files on Action `0da0202f8f36b9ceb055ec33f6e0b97b62a59025`, in 200.82 seconds.                                                                                                             |
+| Browser roster and catalog recovery    | 13 checks passed: save/reload, independent settings, complete inheritance, stale draft preservation, both themes at three widths, 200% text, authenticated HTTP 503 and retry with correct Save admission.         |
+| PostgreSQL feature qualification       | Provider lifecycle 11/11 and allocation ownership/retention 3/3 passed on disposable PostgreSQL 17.10.                                                                                                             |
+| Full default SaaS suite                | 12,594 passed, 765 existing opt-in skips, nine initial failures; see the complete disposition below.                                                                                                               |
+| Full-suite source corrections          | All four non-Docker failures were repaired; combined three-file rerun passed 24/24. Affected frontend suites passed 109/109.                                                                                       |
+| Types and protocol                     | All 54 package typecheck tasks and generated-web/spikes/one-shot/tooling checks passed; changed API/web native checks passed. Protocol regeneration passed under pinned pnpm 11.28.7 with clean generated sources. |
+| Architecture                           | All stages passed unchanged: 593 domain/application files, Foundation full baseline and dependency policies, 23 memory cases, six statistics cases, and history boundary qualification.                            |
+| Production and startup                 | API/worker dependency graph 48/48 passed; maintained web build generated 42 pages; production ESM rewrite processed 543 files; compiled API health and worker ONCE smoke passed.                                   |
+| Source/artifact hygiene                | Full lint and formatting passed, affected files were rechecked, canonical release manifest verified, and both legacy generated artifact parity checks passed.                                                      |
+
+The broad default run took 711.05 seconds and reported 871 passing files, seven
+failing files and 86 existing opt-in skipped files. Its four source failures
+were one checkout155/156 expectation, two catalog retry assertions and one
+committed-bundle mismatch. Their focused repairs and combined rerun are recorded
+above; the broad run itself remains an exit 1 result, not a reclassified pass.
+
+The remaining five failures are in the four existing certified-fork PostgreSQL
+suites (effect schema, archive repository, proof facts, history loader). Each
+failed to start its required Docker fixture with
+`managed_pg17_fixture_image:base_inspect:status=none:code=ENOENT:signal=none`.
+No checks were skipped or weakened to hide that missing prerequisite. Required
+hosted CI still needs to supply the pinned Docker fixture and pass those gates.
+
+Architecture initially encountered generated negative fixtures reappearing
+after successful deletion in the synchronized workspace. Read-only tracing
+found no restoring path in the checker. The exact committed source and locked
+dependencies passed the complete unchanged command from an isolated temporary
+worktree; real source hashes, clean Git status and absence of leftover fixtures
+were verified. Owned qualification worktrees were removed after recording the
+results. No checker or architecture policy was relaxed.
+
+The final paired scenarios each produced one parent execution and one aggregate
+App publication. Shared-account reviewers used one preparation and observed
+maximum concurrency 1; independent accounts used two preparations and observed
+concurrency 2; mixed Codex/OCR used one captured allocation and concurrency 2.
+The unavailable-primary case retained two required reviewer slots, accepted
+only the healthy sibling and reported partial coverage rather than success.
+Every request was checked against its exact captured reviewer/allocation, and
+native closes matched the distinct prepared allocations without duplication.
+
+### Integration and evidence limits
+
+The final source commits are local. Both a normal noninteractive Git push probe
+and the gh credential path failed because this environment has no GitHub
+credentials; `gh auth status` reports no authenticated account. Final pushes,
+PR updates, hosted Actions retry and guarded merge remain pending a legitimate
+GitHub CLI login. The existing draft PRs do not yet contain these final local
+commits. No alternate credential, gate bypass or protected-branch write was used.
+
+The browser uses the real app/server actions and disposable SQL with a controlled
+Gateway model-catalog peer. The paired runtime uses the compiled Action,
+production API handlers, actual PostgreSQL and signed fixture OIDC against
+controlled GitHub/Gateway/provider peers. These establish source behavior;
+live inference, a live GitHub installation and deployed-environment canaries
+remain separate release evidence. Follow the deployment task before activation.
