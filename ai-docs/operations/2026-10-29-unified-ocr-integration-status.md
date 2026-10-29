@@ -1,36 +1,42 @@
 # Unified OCR integration checkpoint — 2026-10-29
 
-## Current checkpoint: prior pair green; new Action main join planned
+## Current checkpoint: prior pair green; both current-main joins planned
 
 Published SaaS **D** `072ad865bd78ab66050fa6bac4fbaa31300c81ec` / Action
 **A2** `cfe2b78fba925e3e7741d8c7f479324aa785d12b` passed required hosted
-checks. [SaaS full CI 40882645913](https://github.com/777genius/review-router-ai/actions/runs/40882645913)
-passed all 13 executed jobs, with one existing conditional full private rehearsal
-skipped; the five-file Source and Certification paired gate passed **40/40**,
-zero skips. Other SaaS workflows, Unified OCR UI and
-[Action CI 40878588227](https://github.com/777genius/review-router/actions/runs/40878588227)
-also passed. These results retain their **D/A2** scope and do not qualify the
-next merge.
+checks. SaaS CI 40882645913 passed 13 executed jobs, with one existing conditional
+private rehearsal skipped; its five-file paired gate passed **40/40**, zero skips.
+Action CI/native/Kimi and Unified OCR UI also passed. These remain D/A2 evidence.
 
-Action main advanced to `fea226e5ee98aae2e3475c3e8ef26ea5da5e5d52` through
-Gateway-reviewer PR #351, making draft #346 conflicted. SaaS main remains
-`8ea78b9df1398e64fce917eecdc18d95e52d9e9f`. The bounded
-[completion-plan section 12](../plans/2026-10-29-unified-ocr-completion.md#12-new-action-main-join-preserve-gateway-reviewers-and-unified-ocr)
-records four source/test conflicts, lane-local route/capability selection,
-reviewer-ID/native-route constructor composition and one strengthened existing
-two-OCR assertion. All three brief SaaS/Acceptance critic rounds returned GO,
-with no blockers; implementation remains held until root publishes the reviewed
-plan/status bytes. Ten canonical/tooling paths preserve the 64-entry union handoff and
-optional reviewer-plan profile without importing #738 server/UI/migrations/flags;
-the optional #734 boundary remains intact.
+SaaS main has now merged #738 at
+`78434bee6344ff497e0791140887ea9522d94ef6`; Action main is
+`46e3cfd484e2d1a7e0a1cd8b257206b12c179ce5` (wrapper sync from that SaaS main,
+parent `fea226e5...`). Both draft PRs require bounded current-main joins.
+[Completion-plan section 12](../plans/2026-10-29-unified-ocr-completion.md#12-new-action-main-join-preserve-gateway-reviewers-and-unified-ocr)
+records the short correction: inherit merged #738 rather than copy only ten
+contract/tooling paths, preserve the started patch, and resolve 28 true SaaS
+conflicts through the existing capture/checkout/relay/primary-verifier owners.
+All three brief correction rounds returned GO; amended SaaS work remains held
+until root publishes this correction.
 
-Next is frozen canonical **S2 → rebuilt Action A3 → SaaS pin**, followed by
-existing required full Action/SaaS, 40-case paired and Unified OCR UI gates.
-Preserve both parents, the no-plan path, one orchestrator/publisher and original
-authority/budget fences. Native `rr.6` / `v5` / v3 `9dd5f115...`, dependencies,
-toolchain and workflow definitions remain unchanged. Only the resolved
-JavaScript runtime needs rebuilding. No implementation, new-pair qualification,
-live effect, registration or deployment is claimed by this planning checkpoint.
+Preserve inherited migration 152 and feature migration 154 unchanged; there is no
+152 name collision. Record the combined inventory from the fresh-database gate;
+the prior count 156 is historical. Preserve main's existing six-file paired
+command, including `gateway-multi-reviewers-paired.e2e.test.ts`, and report the
+new observed totals. Use a matching isolated Prisma client without modifying the
+original dependency install.
+
+Next is frozen canonical/wrapper **S2** with both SaaS histories, sanctioned export
+and rebuilt Action **A3** with parents A2/46e3cfd, then the SaaS pin and existing
+required exact-pair gates. Keep ordinary single-route V2 dispatch and Gateway-only multi-reviewer V4
+allocation/invocation authority separate; do not give a child the primary-only
+V2 capability or add unsupported auth × multi-reviewer combinations. Preserve
+each selected child's approved OCR default/explicit profile and settings, primary
+auxiliary custody, one orchestrator/publisher, all finite native routes and the
+64-entry generated union. Native rr.6/v5/v3, helper, dependencies
+and toolchain stay unchanged. No new migration, auth mode, flag, deployment or
+rollout is introduced; the separate #734 memory/conversation boundary remains.
+No new-pair qualification or live effect is claimed.
 
 ## Prior published-pair checkpoint (superseded by the new main join)
 

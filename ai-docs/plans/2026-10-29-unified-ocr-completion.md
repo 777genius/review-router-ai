@@ -592,3 +592,96 @@ provider effect, registration, deployment or rollout.
 | 1                     | **GO**, no P1/P2 findings.    | **GO**, no blocking findings. | Exact draft reviewed; source implementation remains held.                                 |
 | 2                     | **GO**, no findings.          | **GO**, no findings.          | Canonical/profile/export and route/budget/evidence invariants rechecked; no scope change. |
 | 3                     | **GO**, no blockers/findings. | **GO**, no blockers/findings. | Final scope, identities and gates accepted; implementation held for root publication.     |
+
+### Current-main correction: inherit merged #738 before S2
+
+Status: **all three correction rounds returned GO; amended SaaS implementation
+is held for root publication of this correction**.
+
+This correction supersedes only the import-only assumptions and old merge targets
+above. SaaS main is now `78434bee6344ff497e0791140887ea9522d94ef6`, the merge
+of #738 with parents `8ea78b9...` / `cb6068d...`. Action's exact target is
+`46e3cfd484e2d1a7e0a1cd8b257206b12c179ce5`, whose parent is `fea226e5...`.
+The latter changes only three curated wrapper/test paths; the four reviewed
+Action source/test resolutions and lane-local strategy above remain unchanged.
+The previous three review rounds remain historical. Three brief correction
+rounds below cover these newly observed main/schema/CI/provenance facts only.
+
+The stopped preparatory canonical patch is preserved in the approved SaaS
+checkout; no generator/build/test ran before the stop. Inherit current main's
+canonical contract and release tooling once, rather than reimplementing the
+ten-path subset. Keep the independent exact generated-byte assertion and all
+Unified OCR exports. Merge the current-main sources with the reviewed plan
+descendant, preserving both SaaS histories and the inherited deployment registry
+entry. Update the existing Unified OCR deployment record/index at final evidence;
+this does not authorize deployment.
+
+Read-only merge-tree comparison of `19a92b0...` and `78434bee...` found
+**28 true conflict paths** among **49 overlapping paths**:
+
+| Resolution group                     | Existing owners and required join                                                                                                                                                                                                                                                             |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime capture and checkout         | `review-run-runtime-snapshot.ts`, `review-run-gateway-checkout.ts`, `review-run-gateway-relay.ts`, their capture/byte-limit tests, and the runtime-snapshot port: retain V4 reviewer/allocation capture alongside all existing V3/native/direct routes and the no-new-flag Gateway qualifier. |
+| Admission and primary auxiliary work | `review-action-v2-production-composition.ts` and `review-lifecycle-verification.ts`: retain shared V2 dispatch admission, exact V4 allocation liveness/lock ownership, and the primary reviewer's verifier/description identity and allowance.                                                |
+| Immutable producer metadata          | Configured attestation, Prisma producer repository and shared exports: preserve both `modelDispatchProfile` and `reviewerPlanProfile`, existing lifecycle projection, current agent profile, conversation and the 64-entry canonical union.                                                   |
+| Migration/history tooling and tests  | Preserve both sides of existing transition, historical96, schema-handoff, checkout-admission and migration-rehearsal cases; derive the combined inventory from real files instead of choosing either branch's old count or checksum.                                                          |
+| Delivery and fixtures                | Preserve both deployment index entries, inherited six-file paired command, native-route lifecycle fixture and exact Action-pin policy. Regenerate both wrapper bundles; do not merge built bytes manually.                                                                                    |
+
+Textually merged code still needs semantic review. Keep supported Gateway-only
+multi-reviewer **V4** on main's exact reviewer/allocation/request/invocation
+fences; no primary-only V2 capability may be inherited by a child, and no new
+V2 field is added to the immutable reviewer-plan wire contract. Ordinary
+single-route API/native/Gateway **V2 dispatch** retains its existing V3 snapshot
+path and shared dispatch allowance. Do not invent direct/native auth ×
+multi-reviewer combinations or route/authority fallback.
+
+In recursive `captureMultiple` calls, use the child-selected provider row and
+its qualified `defaultAgentProfileRef` / explicit supported agent profile:
+retain Unified OCR's approved default, not main's legacy `ocr-managed-v2`
+fallback, and read that child's `agenticContext`/settings rather than
+`configuration.providers[0]`. The single-route preparation guard must not
+disable V4 capture. Checkout/Action child configuration selects the exact
+reviewer model/profile; primary-only description/verifier uses the selected
+primary and its allocation. Preserve shared finite allowance, V4 allocation
+cleanup, cancellation, required votes, current-revision authority,
+unknown-effect fences and effect-free replay through the existing owners.
+Use existing multi-reviewer and seven-route cases to expose wrong-child/default
+or primary-capability borrowing; add no universal executor or new coordinator.
+
+Main contributes the already-merged
+`000152_review_run_gateway_allocations/migration.sql` and its Prisma model;
+the feature retains `000154_unified_model_dispatch/migration.sql`. There is no
+152 name collision and these SQL files change different columns/constraints.
+Preserve both byte-for-byte; author no new migration and do not renumber history.
+The stopped feature inventory has 156 entries, so the union is expected to add
+one; the fresh-database gate must record the **observed** count, ordered identities
+and checksums rather than carry forward 156 as current evidence.
+
+The inherited schema requires a matching Prisma client. Use the existing pinned
+generator with output isolated to this new checkout if the linked client is old;
+do not regenerate or modify the original checkout's dependency/client install.
+Then run normal protocol generation/determinism, affected typechecks and existing
+capture, checkout, relay, lifecycle and allocation/dispatch regressions.
+
+Keep main's existing
+`apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts` in
+`review-investigation:paired-e2e` and qualify it on the new exact pair. The
+inherited command has six files; report its observed totals. Prior D/A2's
+156-migration, 40-case and UI receipts remain historical. Existing full CI,
+paired/native/official-helper and Unified OCR UI gates remain required.
+
+Freeze canonical/wrapper **S2** with the reviewed plan descendant and
+`78434bee...` as SaaS parents before Action export. Preserve the pending Action
+merge; the sanctioned S2 sync covers all three `46e3cfd...` curated paths.
+Root publishes the final Action with parents **A2** / `46e3cfd...` after ancestry
+and tree-completeness checks, then updates only the SaaS canonical pin.
+Hold canonical/runtime source during export; report any unavoidable follow-up
+instead of silently moving S2. Keep rr.6/v5/native/helper/toolchain identities
+unchanged. Inherited #738 behavior is preserved, with no new feature/API/auth
+mode/flag or deployment activation; section 8's separate #734 boundary remains.
+
+| Correction review round | Action critic                    | Acceptance critic                | Disposition                                                                                           |
+| ----------------------- | -------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| 1                       | **GO**, no P1/P2 findings.       | **GO**, no blocking findings.    | Exact changed-facts draft reviewed; SaaS merged implementation remains held.                          |
+| 2                       | **GO**, no findings.             | **GO**, no findings.             | Inherited-main authority/default, SQL, six-file gate and exact provenance rechecked; no scope change. |
+| 3                       | **GO**, no blockers or findings. | **GO**, no blockers or findings. | All three correction rounds complete; freeze for root publication before amended SaaS implementation. |
