@@ -154,6 +154,15 @@ const admin = new pg.Client({
 });
 let child: ChildProcess | undefined;
 let browser: Browser | undefined;
+let failurePage: Page | undefined;
+let failureEvidence:
+  | {
+      url: string;
+      bodyText: string | null;
+      screenshot: string | null;
+      errors: string[];
+    }
+  | undefined;
 let adminConnected = false;
 let seeded = false;
 let roleCreated = false;
@@ -579,6 +588,7 @@ try {
   browserVersion = browser.version();
   const context = await contextFor({ width: 1440, height: 1000 });
   const page = await context.newPage();
+  failurePage = page;
   page.setDefaultTimeout(30_000);
   observe(page);
   if (scenario === "history-source") {
@@ -690,6 +700,43 @@ try {
   );
 } catch (error) {
   failure = error;
+  if (failurePage && !failurePage.isClosed()) {
+    const page = failurePage;
+    const evidence = (failureEvidence = {
+      url: redactFailure(page.url()),
+      bodyText: null as string | null,
+      screenshot: null as string | null,
+      errors: [] as string[],
+    });
+    // Read only the synthetic visible page, never cookies, storage or scripts.
+    // Independent bounded captures must not hide the original failure or cleanup.
+    for (const capture of [
+      async () => {
+        const text = await page.locator("body").innerText({ timeout: 5_000 });
+        await writeFile(
+          join(outputDir, "failure-body.txt"),
+          redactFailure(text).slice(0, 20_000),
+          { mode: 0o600 },
+        );
+        evidence.bodyText = "failure-body.txt";
+      },
+      async () => {
+        await page.screenshot({
+          path: join(outputDir, "failure-page.png"),
+          fullPage: true,
+          timeout: 5_000,
+          animations: "disabled",
+        });
+        evidence.screenshot = "failure-page.png";
+      },
+    ]) {
+      try {
+        await capture();
+      } catch (captureError) {
+        evidence.errors.push(redactFailure(captureError));
+      }
+    }
+  }
 } finally {
   for (const action of [
     async () => {
@@ -839,6 +886,7 @@ const result = {
   externalRequests,
   cleanup: cleanupErrors.length ? cleanupErrors : "passed",
   failure: failure ? redactFailure(failure) : null,
+  failureEvidence,
 };
 await writeFile(
   join(outputDir, "result.json"),

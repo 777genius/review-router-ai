@@ -52,7 +52,11 @@ build, live OAuth-provider login or external runtime test.
 
 Evidence goes under `tmp/statistics-e2e/run-*`: private app log, snapshots and
 `result.json` with actual versions, executed checks, HTTP statuses, source hashes,
-child exit status and cleanup result. Inspect screenshots separately. Failures
+child exit status and cleanup result. A browser failure also attempts a bounded
+capture of the current URL, capped/redacted visible body text and screenshot;
+`failureEvidence` records the artifact names or capture errors without replacing
+the original failure. Cookies, storage and script contents are not collected.
+Inspect screenshots separately. Failures
 remain failures; independent scoped passes may qualify remaining behavior with
 an explicit source boundary. The script always attempts browser/app shutdown,
 owned build/profile cleanup, capture restoration, fixture deletion and role

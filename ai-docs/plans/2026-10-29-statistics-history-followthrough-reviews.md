@@ -277,3 +277,36 @@ outcomes. The browser workflow and twelve viewport/theme captures remain pending
   distinct mode0700 directories, a 64-byte representative socket path, removal
   and TMPDIR restoration on success and injected error. The local sandbox denied
   a direct Unix socket bind; no local browser or socket execution pass is claimed.
+
+### Actual browser recovery and visual findings
+
+[Run40964793267](https://github.com/777genius/review-router-ai/actions/runs/40964793267)
+on `a46ead7509e19f4cedbaedad47844695d01ab834` launched Chromium successfully.
+Its receipt records all six initial Statistics viewport/theme captures and the
+keyboard filter, URL, Back/Forward, shared SSR and reload checks. Root inspected
+the six actual images. No browser runtime error or external request was recorded;
+owned cleanup and short runtime-directory removal passed.
+
+The run then failed after Reset on the duplicate-filter SSR URL: the click
+returned, no normalized dashboard/API request followed, and the summary wait
+timed out. Source inspection found that this JavaScript-only recovery button was
+enabled in server HTML before its handler could attach. The focused fix disables
+only Reset until hydration; a real shared-Button SSR-to-hydration regression
+checks that it then performs the canonical reset. No browser delay, selector or
+assertion is relaxed. A complete new browser run must verify the recovery.
+The regression failed before the fix and passed afterward; the focused recovery
+and SSR-section suites passed **9/9**. Changed-file lint/formatting passed. The
+independent frontend critic accepted the actual source and test evidence.
+
+The 390px images also exposed truncated selected filter labels. A narrow mobile
+flex-basis change lets Refresh wrap and preserves readable values; the new actual
+matrix and 200% text checks must verify it. No decorative redesign is included.
+The frontend critic independently viewed all six actual captures and found no
+additional material populated-screen issue; this does not qualify later states.
+
+For actionable failure evidence, the existing runner now makes bounded attempts
+to save the failed page URL, capped/redacted visible text and screenshot. Capture
+errors cannot replace the original failure or bypass cleanup; cookie, storage and
+script data are excluded. The E2E critic accepted this focused diagnostics diff,
+and its scoped lint/format/syntax checks passed. Later journeys remain unqualified
+by this failed run.

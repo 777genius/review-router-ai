@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { Button, SelectField } from "@reviewrouter/ui";
 import type { StatisticsFilter } from "@reviewrouter/features-review-statistics";
@@ -107,14 +107,24 @@ function StatisticsFilterRecoveryState({
     </div>
   );
 }
+const subscribe = () => () => {};
+const clientSnapshot = () => true;
+const serverSnapshot = () => false;
 export function StatisticsInvalidFilters() {
   const router = useRouter();
+  // SSR cannot accept a click until hydration attaches this recovery handler.
+  const hydrated = useSyncExternalStore(
+    subscribe,
+    clientSnapshot,
+    serverSnapshot,
+  );
   return (
     <div role="alert" className={styles.status}>
       Choose a valid statistics period and severity, or reset the filters.
       <Button
         variant="outline"
         size="sm"
+        disabled={!hydrated}
         onClick={() =>
           router.replace(
             statisticsFilterUrl(window.location.href, defaultStatisticsFilter),

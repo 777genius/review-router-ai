@@ -412,7 +412,7 @@
     width: 100%;
   }
   .periodControl {
-    flex: 1;
+    flex: 1 1 10rem;
   }
   .chartHeader {
     gap: 0.7rem;

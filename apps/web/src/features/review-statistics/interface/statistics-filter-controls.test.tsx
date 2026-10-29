@@ -1,14 +1,28 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StatisticsSeverity } from "@reviewrouter/features-review-statistics";
-import { StatisticsFilterRecovery } from "./statistics-filter-controls";
+import {
+  StatisticsFilterRecovery,
+  StatisticsInvalidFilters,
+} from "./statistics-filter-controls";
 
 const router = vi.hoisted(() => ({ replace: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
 // The recovery race concerns pending navigation, independently of popup geometry.
-vi.mock("@reviewrouter/ui", () => ({
-  Button: () => null,
+vi.mock("@reviewrouter/ui", async () => ({
+  ...(await vi.importActual<typeof import("@reviewrouter/ui")>(
+    "@reviewrouter/ui",
+  )),
   SelectField: ({
     label,
     value,
@@ -48,6 +62,34 @@ const choose = (label: string, value: string) =>
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
 
 describe("Statistics initial-read filter recovery", () => {
+  it("does not accept a pre-hydration Reset click and navigates once the real shared button hydrates", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/dashboard?section=statistics&workspace=team&statisticsDays=7&statisticsDays=30&statisticsSeverity=major&keep=a#scope",
+    );
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(<StatisticsInvalidFilters />);
+    document.body.append(container);
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    try {
+      const button = container.querySelector("button")!;
+      expect(button.disabled).toBe(true);
+      button.click();
+      expect(router.replace).not.toHaveBeenCalled();
+      await act(async () => {
+        root = hydrateRoot(container, <StatisticsInvalidFilters />);
+      });
+      await waitFor(() => expect(button.disabled).toBe(false));
+      fireEvent.click(button);
+      expect(router.replace).toHaveBeenCalledExactlyOnceWith(
+        "/dashboard?section=statistics&workspace=team&keep=a#scope",
+      );
+    } finally {
+      if (root) await act(async () => root?.unmount());
+      container.remove();
+    }
+  });
   it("combines consecutive changes before new server props arrive", () => {
     render(<StatisticsFilterRecovery filter={{ days: 30, severity: "all" }} />);
     choose("Period", "7");
