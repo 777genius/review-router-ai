@@ -1,0 +1,59 @@
+# Temporary artifact preparation; removed with the fixture correction commit.
+name: Unified OCR fixture preparation
+on:
+  push:
+    branches: [feat/unified-ocr-review-20261026]
+    paths: [.github/workflows/unified-ocr-fixture-repair.yml]
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Preserve exactly the two reviewed test corrections
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, json, os, pathlib, subprocess
+          assert os.environ['GITHUB_REPOSITORY']=='777genius/review-router-ai'
+          assert os.environ['GITHUB_REF']=='refs/heads/feat/unified-ocr-review-20261026'
+          corrections=[
+            ('packages/features/review-config/src/tests/gateway-configuration.postgres.test.ts','41a1b3136213e7caebb8b751c55c50ef84b20b68','6c220cf133d4e9d47eac18a97b517994917bf196',[
+              ('// Replay every current migration, including durable review history.','// Replay every current migration, including durable review history and model dispatch.'),
+              ('expect(names).toHaveLength(155);','expect(names).toHaveLength(156);'),
+              ('expect(names.slice(-18)).toEqual([','expect(names.slice(-19)).toEqual(['),
+              ('          "000151_review_history",\n        ]);','          "000151_review_history",\n          "000154_unified_model_dispatch",\n        ]);')]),
+            ('packages/features/review-executions/src/tests/prisma-review-execution-store-real.test.ts','10f97b4f4d5a4cfbb662285ef022463075b66255','ab8709ee5ae0e17a4497eb559b8f3a54f967f917',[
+              ('      lifecycleVerificationProfile: true,\n    },\n    data: {\n      producerReleaseId,','      lifecycleVerificationProfile: true,\n      modelDispatchProfile: true,\n    },\n    data: {\n      producerReleaseId,')])]
+          def blob(raw):return hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()
+          entries=[]
+          for name,before,after,replacements in corrections:
+              p=pathlib.Path(name);raw=p.read_bytes();assert blob(raw)==before,name
+              text=raw.decode()
+              for old,new in replacements:
+                  assert text.count(old)==1,(name,old)
+                  text=text.replace(old,new)
+              raw=text.encode();assert blob(raw)==after,name;p.write_bytes(raw)
+              result=subprocess.run(['gh','api','repos/777genius/review-router-ai/git/blobs','--method','POST','--input','-'],input=json.dumps({'encoding':'base64','content':base64.b64encode(raw).decode()}).encode(),stdout=subprocess.PIPE,check=True)
+              assert json.loads(result.stdout)['sha']==after
+              entries.append({'path':name,'mode':'100644','type':'blob','sha':after})
+          subprocess.run(['git','diff','--check'],check=True)
+          out=pathlib.Path(os.environ['RUNNER_TEMP'],'fixture-repair');out.mkdir()
+          (out/'candidate.json').write_text(json.dumps({'head':os.environ['GITHUB_SHA'],'entries':entries},indent=2))
+          (out/'source.patch').write_bytes(subprocess.check_output(['git','diff','--binary']))
+          print(json.dumps(entries,indent=2))
+          print('Only blob objects preserved. No commits, refs, tags, credentials or production state changed.')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: unified-ocr-fixture-repair-${{ github.sha }}
+          path: ${{ runner.temp }}/fixture-repair/
+          retention-days: 1
+          if-no-files-found: error
