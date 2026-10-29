@@ -1,0 +1,45 @@
+name: Memory final handoff diagnostics
+on:
+  push:
+    branches: [agent/memory-final-handoff-diagnostics]
+    paths: [.github/workflows/memory-final-handoff-diagnostics.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Collect existing failure without rerunning tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            https://api.github.com/repos/777genius/review-router-ai/actions/jobs/123428350197/logs \
+            -o evidence/source-certification.log
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('evidence/source-certification.log')
+          lines = p.read_text().splitlines()
+          selected = set(range(max(0, len(lines)-180), len(lines)))
+          for i, line in enumerate(lines):
+              if re.search(r'FAIL|AssertionError|Error:|ERR_|not ok|expected.*received|Tests.*failed', line, re.I):
+                  selected.update(range(max(0, i-3), min(len(lines), i+14)))
+          text = '\n'.join(f'{i+1}: {lines[i]}' for i in sorted(selected))
+          Path('evidence/failure-excerpt.txt').write_text(text)
+          print(text[-24000:])
+          PY
+      - name: Preserve exact diagnostic input
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: memory-source-certification-failure
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 7
