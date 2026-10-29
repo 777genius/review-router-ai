@@ -85,3 +85,12 @@ outputs, lock and schema remain unchanged. The original execution source stays
 The inherited change routes compatible CI to the configured pool and corrects an
 existing web-test expectation. It does not qualify the new runner environment by
 itself: final source CI and its actual Scanner receipt must still pass there.
+
+A required-CI baseline repair also preserves workspace-save completion focus
+after the dialog's queued opening autofocus. It touches only the web dialog and
+its regression test, outside this cleanup runtime closure. The controlled-frame
+regression fails on the old code; all 50 nearest dialog tests pass after the
+cancellable next-frame repair, retaining the original heading-focus assertion.
+The local web typecheck remains unqualified because pinned subscription-runtime
+declarations are missing outside the changed files; the official current-source
+type gate remains required. This native cleanup run does not qualify web UI.

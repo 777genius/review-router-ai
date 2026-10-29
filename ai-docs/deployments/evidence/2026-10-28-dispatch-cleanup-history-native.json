@@ -364,5 +364,24 @@
     "qualifiedExecutionSourceRemains": "2b54edf2bfabac25f5343d65bd66e100e57d88b7",
     "nativeDispatchRepeated": false,
     "scope": "Protected main runner routing, documentation and one existing web test expectation; final source CI on inherited runners remains mandatory."
+  },
+  "requiredCiBaselineFocusRepair": {
+    "scope": "WorkspaceSaveResult and its dialog regression test only; no cleanup runtime input changed",
+    "nativeInputIntersection": 0,
+    "regression": "Controlled opening autofocus overwrites completion heading on old code; cancellable next-frame focus preserves heading",
+    "oldRegression": "failed: Close-provider-setup button retained focus",
+    "nearestDialogSuite": "50/50 passed, including original bulk-change heading assertion",
+    "lintAndFormatting": "passed",
+    "localWebTypecheck": "not qualified: existing missing pinned subscription-runtime declarations outside changed files; full current-source CI type gate remains required",
+    "artifacts": [
+      {
+        "path": "tmp/TEST-sticky-history-20261028/provider-focus-old-red.log",
+        "sha256": "b4b7bf6f6747ccf020bf07ec2c23202cde59802090bede2cf5e52a9d52d9415e"
+      },
+      {
+        "path": "tmp/TEST-sticky-history-20261028/provider-focus-new-green.log",
+        "sha256": "000f1b25c9d668d851875dde774983c7471a5794c4d11b102a7bc485cbb8518d"
+      }
+    ]
   }
 }

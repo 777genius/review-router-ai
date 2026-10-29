@@ -2,11 +2,11 @@
 
 - Task ID: `2026-10-28-dispatch-cleanup-ci`.
 - Goal: retain durable cancellation for unresolved pre-admission dispatches, keep the first discovered run immutable across retries, and isolate Scanner main/manual qualification without losing same-PR replacement.
-- Targets: API, every review-v2 outbox worker, application PostgreSQL compatibility, and GitHub Scanner workflows.
+- Targets: API, every review-v2 outbox worker, web completion focus, application PostgreSQL compatibility, and GitHub Scanner workflows.
 - Implementation: [PR #732](https://github.com/777genius/review-router-ai/pull/732); related [#716](https://github.com/777genius/review-router-ai/pull/716) and [#719](https://github.com/777genius/review-router-ai/pull/719).
 - Runtime integration checkpoint: `eb624bfca3bbc2a06d8e0e77e71e11c801b48292`, integrating protected main `b2f40048559a841f41b6756c8eac2ed90b04c2d4`. Final source, normal merge and shipping version must be recorded separately.
 - Dependencies: [Review History](2026-10-28-review-history.md), the normal [release process](../operations/07-environments-and-release-management.md), and its current migration/cutover prerequisites.
-- Last updated: 2026-10-28.
+- Last updated: 2026-10-29.
 
 ## Environment status
 
@@ -29,7 +29,7 @@ Earlier source `418c0ff` and image `sha256:64b092d075237e3981ad8c77610664a71242a
 
 1. Reconcile the installed-to-selected change range and all prerequisite tasks. Use the existing backup/fence/migration procedure; preserve source data and incomplete obligations. Record the exact target, source-qualified release evidence and rollback constraints.
 2. Before any new sticky binding, stop/drain or coherently replace **all old cleanup consumers**, following the release guide. One new worker alongside old workers is unsafe: an old consumer can reject an original null-target event after the new worker binds its intent. Do not force-cancel admitted providers or unrelated workloads to expedite this phase.
-3. Complete the applicable application migration chain and deploy the selected coherent API/worker fleet. Follow the History task for any selected History rollout. Keep its separate activation boundary and preserve a compatible history consumer for accepted events.
+3. Complete the applicable application migration chain and deploy the selected coherent API/worker fleet and matching web version. Follow the History task for any selected History rollout. Keep its separate activation boundary and preserve a compatible history consumer for accepted events.
 4. Verify fleet convergence before allowing normal processing. Retain the existing authorized review-v2/fenced-takeover configuration; no new cleanup activation command or historical cleanup backfill is introduced by this patch.
 5. Let ordinary worker processing resume. Reconcile existing claims through the supported fenced lifecycle, not manual row edits or deletion. Check health, restart counts and cleanup retry/dead-letter signals.
 6. Confirm the normal Scanner run at the actual merged source checks out that source and emits its native qualification receipt. Main/manual run identities remain independent and cancellation remains PR-only; do not manufacture production races or replay successful qualification.
@@ -40,6 +40,7 @@ Earlier source `418c0ff` and image `sha256:64b092d075237e3981ad8c77610664a71242a
 Implementation evidence and deployed behavior must remain distinct:
 
 - Current-source disposable PG/GitHub qualification must include the activated real History writer/projector, atomic terminal/history/cleanup persistence and rollback, first-target binding before known-run HTTP, reopened retries using the same run, terminal readback and durable ACK. Earlier source `538cf73` qualification is historical after the History integration; it is not a claim about the changed runtime.
+- Verify web source/health with the selected cohort. The completion-focus repair has a committed controlled-frame regression (old RED, nearest dialog suite 50/50 GREEN); it is separate from the cleanup native proof.
 - The Scanner qualification must bind the actual source, pinned scanner build, container restrictions and cleanup assertions. PR qualification does not substitute for the ordinary main/release evidence required by the release guide.
 - In the selected environment, verify exact compatible fleet/source and schema, successful ordinary worker cycles and absence of unsupported-event or new cleanup processing errors. If a natural cleanup obligation exists, retain its immutable target and terminal/ACK result. If no such event occurs, record that invocation was not observed; do not fabricate production requests or call that a production invocation test.
 - Mark `deployed` only after the applicable rollout and verification steps are evidenced. Keep unobserved behavior and unrelated pending tasks explicit. No paid-provider or provider-admission canary is established by the isolated cleanup tests.
