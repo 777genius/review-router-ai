@@ -64,6 +64,38 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("persistent dashboard shell", () => {
+  it("keeps Context tools selected and scoped when opening a direct link or switching workspaces", () => {
+    route.pathname = "/dashboard/context-tools";
+    route.search = "workspaceId=two";
+    render(
+      <DashboardShell {...shellProps}>
+        <div>Context tools content</div>
+      </DashboardShell>,
+    );
+    expect(
+      screen
+        .getByRole("tab", {
+          name: /Context tools\s*MCP connections for reviews/,
+        })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+    expect(
+      screen
+        .getByRole("tab", { name: /two\s*3 repos/ })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+    expect(
+      screen.getByRole("tab", { name: /one\s*3 repos/ }).getAttribute("href"),
+    ).toBe("/dashboard/context-tools?workspaceId=one&workspace=one");
+    expect(
+      screen
+        .getByRole("tab", {
+          name: /Context tools\s*MCP connections for reviews/,
+        })
+        .getAttribute("href"),
+    ).toBe("/dashboard/context-tools?workspaceId=two&workspace=two");
+  });
+
   it("keeps the workspace switcher and sidebar mounted while only content loads", () => {
     const view = render(
       <DashboardShell {...shellProps}>

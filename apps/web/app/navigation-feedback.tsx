@@ -221,5 +221,9 @@ function navigationKey(pathname: string, search: string): string {
 }
 
 function isDashboardPath(pathname: string): boolean {
-  return pathname === "/dashboard" || pathname === "/dashboard/setup";
+  return [
+    "/dashboard",
+    "/dashboard/setup",
+    "/dashboard/context-tools",
+  ].includes(pathname);
 }
