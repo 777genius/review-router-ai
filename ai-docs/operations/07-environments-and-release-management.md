@@ -809,8 +809,9 @@ Dispatch recovery is deliberately asymmetric:
 - Retry with a new request identity only after a definite no-effect result and
   within `REVIEW_ROUTER_REVIEW_V2_INTENT_MAX_DISPATCH_ATTEMPTS`.
 - Terminalize an unresolved dispatch or missing OIDC authorization at its
-  persisted deadline, then release the PR lane. Best-effort cancellation targets
-  only the exact known workflow run.
+  persisted deadline, then release the PR lane. `DispatchOutcomeUnknown` and
+  `AuthorizationDeadlineExceeded` also persist a cleanup event in that same
+  transaction. An immediate cancellation failure cannot remove that obligation.
 - Keep the dispatch resolution window shorter than the authorization window. The
   production defaults are 5 minutes and 30 minutes respectively, allowing normal
   hosted-runner queue delay without treating it as an unknown POST outcome.
@@ -819,22 +820,42 @@ Dispatch recovery is deliberately asymmetric:
 
 Superseding a submitted, unadmitted request also writes
 `review.requested_dispatch_cleanup@v1` in the same database transaction. The
-worker resolves the original request identity, validates the current Actions
-attempt and workflow path, requests cancellation, and marks the event processed
+worker resolves the original request identity and durably binds the first discovered
+run ID/attempt before inspection or cancellation. Binding is version-fenced and
+cannot replace an already known target. Retries use that persisted target and
+do not repeat discovery. The original null-target outbox payload remains immutable
+and replay-valid after binding. The worker validates the current Actions attempt
+and workflow path, requests cancellation, and marks the event processed
 only after terminal readback. Admitted providers keep their existing drain
 contract. Dispatch deadlines retain their original meaning; an absent lookup
 never proves that an in-flight dispatch POST had no effect.
 
+The same obligation covers submitted, unadmitted terminal requests with
+`DispatchOutcomeUnknown` or `AuthorizationDeadlineExceeded`. It excludes proven
+no-effect recovery, completed-run retries, and requests already linked to an
+authorization or execution. Completed cleanup readback does not require the PR
+to remain accessible. Replaying a terminal transition produced by this version
+does not create a second event.
+
 This change needs no schema or public Action upgrade. Deploy the API and worker
-as one coherent batch, with an enabled new worker available to consume cleanup.
-Old workers do not own the new event type and leave it pending. New workers
-register the event as known even when review processing is disabled. Retry failures use the existing
+as one coherent batch, with a compatible worker available to consume cleanup.
+Workers predating cleanup do not own the event type and leave it pending. The
+previous supersession-only consumer knows the type but rejects terminal payloads:
+stop or coherently replace ALL previous cleanup consumers before ANY new sticky
+binding, including bindings for existing superseded events. Merely upgrading the
+terminal-event producer after one new worker is insufficient: an old consumer
+would reject an immutable null-target payload after another worker binds its
+intent. Keep compatible consumers when rolling back until ALL newly bound,
+unprocessed cleanup events and new terminal events are processed or explicitly
+reconciled; do not roll back onto these pending obligations.
+New workers register the event as known even when review processing is disabled.
+Retry failures use the existing
 bounded outbox backoff (20 attempts); exhaustion retains a dead letter and the
 request for operator reconciliation. After confirming the exact request/run,
 retry that dead letter through the existing outbox recovery flow. Never treat
 an unresolved dead letter as successful cancellation or replay the dispatch POST.
-Previously superseded requests have no new event retroactively; reconcile those
-separately using their retained request/run identities.
+Previously superseded or terminal requests have no new event retroactively;
+reconcile those separately using their retained request/run identities.
 
 Rollback before step 8 disables ingress first and drains persisted intents through
 the still-enabled worker. After intent-required admission or v2 mutation authority
