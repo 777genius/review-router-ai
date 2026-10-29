@@ -275,6 +275,17 @@ export async function generateReviewActionV2Protocol(input = {}) {
         { parser: "typescript" },
       ),
     ],
+    [
+      "generated/conversation.ts",
+      "// Generated from protocol-review-action-v2/src/conversation.ts. Do not edit.\n" +
+        (await readFile(
+          join(
+            repositoryRoot,
+            "packages/protocol-review-action-v2/src/conversation.ts",
+          ),
+          "utf8",
+        )),
+    ],
     ["index.ts", generatedIndex],
     ["generated/review-action-v2-negotiation.ts", generatedContract],
     ["generated/review-action-v2-negotiation.schema.json", generatedSchema],

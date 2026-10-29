@@ -326,3 +326,87 @@ Receipts: `tmp/review-history/ci-quality-web-profile-tests.log` и
 строки diff, включая комментарии и пустые строки, а не semantic SLOC. Configuration,
 lockfile, Markdown и неизменённые лицензированные Impeccable references считаются
 отдельно. Эти числа не являются требованием к объёму следующей фичи.
+
+## Read-only reconciliation: 2026-10-29
+
+Protected main `89ce21cccbd5e979baf46450ecb8bb5b1b599e90` прошёл
+[trusted push CI 40800988408](https://github.com/777genius/review-router-ai/actions/runs/40800988408),
+attempt 1, включая оба обязательных PostgreSQL release jobs. ZIP bytes artifacts
+`12866922946`, `12866966379` и `12867515185` совпали с GitHub SHA-256; манифесты
+связаны с exact source/run/attempt/jobs и paired Action `056952b5…` (`v1.0.218`).
+Полные identities сохранены в deployment record; это не environment rollout.
+
+Ранее выполненный [native TEST 40758960764](https://github.com/777genius/TEST-ci-cancellation-20261026/actions/runs/40758960764)
+на `2b54edf2bfabac25f5343d65bd66e100e57d88b7` использовал активные History
+writer/projector: четыре History ACK и один cleanup ACK, один реальный dispatch
+и cancel. Это отмена queued job до выделения runner через `gh` transport;
+App/OIDC, provider/admission/publication и joined UI им не доказаны. Точные counts,
+hashes и scope: [durable evidence](../deployments/evidence/2026-10-28-dispatch-cleanup-history-native.md).
+
+Local proof ниже не меняет staging/production `pending`: actual schema/fleet/flags/coverage ещё
+не установлены, существующий release/catalog HOLD требует reconciliation.
+Публичные health/readiness/Web HTTP 200 не заменяют этот inventory. Уже существующий
+[live run 40845515696](https://github.com/777genius/review-router-ai/actions/runs/40845515696)
+получил `review_run_authorize` HTTP 500 / `ambiguous_outcome`; причина не установлена,
+это не вывод о History defect. Staging/production deployment или activation и
+новый внешний review не выполнялись; remaining access, release и live verification описаны в
+[History deployment record](../deployments/2026-10-28-review-history.md).
+
+## Joined source-to-browser qualification: 2026-10-29
+
+На local follow-up от base `89ce21cccbd5e979baf46450ecb8bb5b1b599e90` прошёл
+связанный source → outbox → SSR/API → Chromium scenario `history-source`.
+Receipt `sourceCommit` обозначает base; 38 per-file SHA-256 связывают фактические
+local sources и независимо совпали с финальными файлами. Production code,
+миграции, defaults и release authority не менялись; History profile и browser
+scenario включаются явно, а новые backend cases входят в существующий E2E suite.
+
+Два genuine manual requests на одном PR/SHA прошли реальные ingress/dispatcher,
+signed OIDC validation, execution/evidence/finalize и publication/completion owners.
+History создавался capture callbacks и зарегистрированным outbox handler через
+`processOutboxBatch`, без direct ledger/projection fixtures. SQL source receipts,
+protected GETs и Refresh UI совпали для queued/running/publishing/completed;
+`Completed` появился только с publication и snapshot receipts. Duplicate ingress
+и immutable fact replay сохранили один root; explicit rerun дал второй root,
+одну PR row и два ordered runs с правильными UTC timestamps. Initial/completed
+SSR использовал те же факты. Все три foreign-workspace GETs вернули
+403/private-no-store; другой разрешённый workspace не прочитал runs и остался пустым.
+
+Независимый reviewer нашёл и после исправления закрыл P2 construction cleanup.
+Shared child-first helper очищает также partial factory failure; snapshots и
+ownership checks предшествуют writes, fetch/disconnect восстанавливаются в finally,
+а AggregateError сохраняет исходную причину. Настоящий invalid completion-claim
+case после seed подтвердил ноль owned rows и лишних DB sessions, сохранение
+borrowed workspace/member, foreign workspace и прежних coverage/emergency records.
+Финальный полный backend gate: 2 files / 16 passed, 0 failed, 0 skipped, 28.17 s;
+tooling typecheck, targeted ESLint/Prettier и whitespace checks passed. Пять source
+hashes совпали до и после финальных gates; промежуточная cause-metadata оговорка закрыта.
+
+Final browser run `run-2026-10-29T09-33-35.632Z-9d9240f8f254` прошёл на PG17.10,
+Next 16.2.11 и Chromium 156.0.8078.4 с SELECT-only web role. Три desktop/dark
+captures 1440×1000 просмотрены; overflow, browser errors и внешние requests отсутствуют.
+Owned shutdown/cleanup прошёл; отдельный SQL readback подтвердил ноль workspace,
+identity, installation, source/history/outbox rows и временных roles. Existing
+viewport/filter/recovery qualification остаётся отдельной проверкой, не повторённой здесь.
+
+Receipts: `tmp/review-history-resume/history-source-backend-receipt.json`,
+`tmp/review-history-resume/history-source-backend-final-exact.log`,
+`tmp/review-history-resume/history-source-tooling-final-exact.log`,
+`tmp/statistics-e2e/run-2026-10-29T09-33-35.632Z-9d9240f8f254/result.json`
+и соседний `cleanup-verification.json`. Browser result SHA-256:
+`6332ceb1b7bc08c958747747c3bbe4c423115ab505c13918b13aecfa79695375`.
+GitHub/OIDC minting, provider evidence и login synthetic; это local integration
+proof, без live GitHub/provider review, production activation или deployment claims.
+
+### PR review follow-up
+
+Исходное локально проверенное дерево выше опубликовано в commit
+`408a1a78a65cb9f16a5e44d529a968d4a8ad2bd7`, [PR #741](https://github.com/777genius/review-router-ai/pull/741).
+CodeRabbit затем выявил риск нестабильности zero-session assertion: PostgreSQL
+может кратко показывать закрывающиеся соединения и фоновые workers. Проверка теперь
+считает только client backends той же БД, исключает свой PID и делает максимум
+20 запросов с 19 паузами по 100 ms; устойчивый ненулевой count по-прежнему fail.
+Независимый повторный review принял эту ограниченную правку, syntax/whitespace checks
+прошли. Shared production harness, browser и product sources не менялись.
+Прежний local 16-case receipt относится к указанному первому commit; окончательная
+проверка изменённого assertion выполняется существующим CI на новом head PR #741.
