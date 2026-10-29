@@ -158,9 +158,12 @@ private principal identity to the runner. OpenRouter routing IDs can be used
 through Gateway when admitted by the live source; the direct GitHub Secrets
 transport retains its separately qualified routing policy.
 
-The current `workflow-v1` runtime at
-[`056952b5a3d625fd1d19384942d452114804380f`](https://github.com/777genius/review-router/tree/056952b5a3d625fd1d19384942d452114804380f)
-already consumes the selected model ID and nullable confirmed reasoning settings
+The last recorded `workflow-v1` observation at 2026-10-29 01:27 UTC resolved to
+Action 1.0.219
+[`298e7fca999edaee09b59d438a5694ed8961d394`](https://github.com/777genius/review-router/tree/298e7fca999edaee09b59d438a5694ed8961d394),
+as recorded in the
+[catalog deployment record](../deployments/2026-10-28-model-catalog.md#modern-review-passed-lifecycle-timestamp-blocker-2026-10-29-0127-utc).
+That runtime already consumes the selected model ID and nullable confirmed reasoning settings
 through its existing managed model descriptor. Source inspection found no need
 for a fourth repository change for this contract. It does not establish a live
 provider run or production activation.
