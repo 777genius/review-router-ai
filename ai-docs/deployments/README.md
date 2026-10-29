@@ -13,11 +13,12 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
-| Task                                                 | Implementation                                                    | Staging   | Production    | Remaining work                                                                                             |
-| ---------------------------------------------------- | ----------------------------------------------------------------- | --------- | ------------- | ---------------------------------------------------------------------------------------------------------- |
-| [Review History](2026-10-28-review-history.md)       | [PR #730](https://github.com/777genius/review-router-ai/pull/730) | `pending` | `in_progress` | Prisma151/ACL and activation passed; isolation passed; verify successful review after transport diagnosis. |
-| [Account model catalog](2026-10-28-model-catalog.md) | [PR #739](https://github.com/777genius/review-router-ai/pull/739) | `pending` | `in_progress` | Fleet/catalog active; diagnostic native/Gateway update deployed; genuine review attempt3 underway.         |
-| [Skills catalog](2026-10-28-skills-catalog.md)       | [PR #735](https://github.com/777genius/review-router-ai/pull/735) | `pending` | `deployed`    | Bounded Skills repair deployed; subsequent application rollout preserves it. PR CI/merge remains separate. |
+| Task                                                                 | Implementation                                                    | Staging   | Production    | Remaining work                                                                                             |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------- | --------- | ------------- | ---------------------------------------------------------------------------------------------------------- |
+| [Review History](2026-10-28-review-history.md)                       | [PR #730](https://github.com/777genius/review-router-ai/pull/730) | `pending` | `deployed`    | Production capture/activation, live repeat runs, UI and workspace isolation verified.                      |
+| [Account model catalog](2026-10-28-model-catalog.md)                 | [PR #739](https://github.com/777genius/review-router-ai/pull/739) | `pending` | `in_progress` | Dynamic-model runtime active; finish public Action lifecycle timestamp fix and final E2E.                  |
+| [Skills catalog](2026-10-28-skills-catalog.md)                       | [PR #735](https://github.com/777genius/review-router-ai/pull/735) | `pending` | `deployed`    | Bounded Skills repair deployed; subsequent application rollout preserves it. PR CI/merge remains separate. |
+| [Dispatch cleanup and Scanner CI](2026-10-28-dispatch-cleanup-ci.md) | [PR #732](https://github.com/777genius/review-router-ai/pull/732) | `pending` | `pending`     | Reconcile fleet/schema, replace old cleanup consumers coherently and verify cleanup/Scanner evidence.      |
 
 The task file is authoritative; keep this summary in sync in the same commit.
 Missing entries do not prove that older changes are deployed: inspect the installed-to-target change range and
