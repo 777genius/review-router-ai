@@ -15,10 +15,19 @@ anything. It never provisions or changes banks. Native configuration transport
 failure is `unavailable`; an unchecked strategy name is never proof of exact
 persistence. Preview qualification remains a separate prerequisite.
 
-For source extraction preview, a caller supplies one
-selectable source revision plus read-only context. The native engine owns semantic
-selection. The library validates bounded, complete results; it does not extract,
-verify, deduplicate, or approve facts. Preview output is never publication authority.
+For source extraction preview, a caller supplies **one selectable source revision**.
+The preview contract has no mixed-author context field. The adapter does not forward
+unknown context fields from JavaScript callers: changing a conversation, code anchor
+or recalled memory cannot change the privileged extraction request. The complete
+conversation may still inform the application's separate answer path.
+
+The native engine owns semantic selection. The library validates bounded, complete
+results; it does not extract, semantically verify, deduplicate, or approve facts.
+Source-only input removes cross-author context contamination; it does not prove
+that a model never hallucinates or misreads a quotation in the source itself.
+Preview output is never publication authority. Live source fidelity still requires
+qualification, and context-dependent references must abstain rather than borrow
+another participant's text.
 
 `HindsightSourcePreview` calls the native dry-run API. It is unavailable unless the
 caller supplies a qualification binding for the exact strict-preview image,
@@ -43,7 +52,6 @@ const result = await preview.preview(
       revision: "revision-1",
       body: "A supported observation.",
     },
-    readOnlyContext: "Earlier discussion, explicitly nonselectable.",
     maxStatements: 4,
   },
   { deadlineAt: new Date(Date.now() + 25_000) },

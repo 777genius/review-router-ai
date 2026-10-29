@@ -145,7 +145,6 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
           revision: input.source.revision,
           body: input.selectableBody,
         },
-        readOnlyContext: input.readOnlyContext,
         maxStatements: 4,
       },
       controls,

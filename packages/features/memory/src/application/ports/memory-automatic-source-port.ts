@@ -19,7 +19,6 @@ export type MemoryAutomaticSourceInput = {
   readonly threadDigest: string;
   readonly headSha: string;
   readonly selectableBody: string;
-  readonly readOnlyContext: string;
 };
 export type MemoryAutomaticLearningResult = {
   readonly state:

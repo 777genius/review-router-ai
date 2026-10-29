@@ -9,7 +9,6 @@ export interface MemorySourcePreviewPort {
         readonly revision: string;
         readonly body: string;
       };
-      readonly readOnlyContext: string;
       readonly maxStatements: number;
     },
     controls: MemoryRequestControls,

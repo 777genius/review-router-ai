@@ -163,3 +163,20 @@ wrong-source unauthorized-rule witness, same-ID revised-digest bypass, the R2
 current-schema CLI pending/no-readback negative, independent omitted-command
 capture and known-owner internal retirement checks. They
 never create a product bank or imply model-quality qualification.
+
+## Source-authority security refinement
+
+The current preview path receives only the selectable source. Full-thread replies
+still use the checked complete snapshot. Explicit model-proposed mutations require
+a standalone source-authored confirmation binding every action field; an arbitrary
+natural-language proposal is not automatically an approved write. Qualify both the
+proposal/no-effect turn and a separate author confirmation in a disposable installed
+conversation, including stale revision, mixed authors and replies-off behavior.
+
+The 48-thread corpus and protected labels have **not** been rewritten to make this
+restriction pass. Source-only extraction can reduce recall for context-dependent
+statements, and explicit mutation cases without a confirmation may correctly stop
+at clarification. Report those observations honestly against the existing labels;
+do not remove a hold-out witness, auto-confirm a proposal in the fixture, or claim
+that corpus structure validation is measured semantic quality. Any successor corpus
+must be separately versioned and reviewed before a new protected checkpoint.

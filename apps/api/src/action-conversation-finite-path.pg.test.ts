@@ -178,6 +178,7 @@ describe.skipIf(!databaseUrl)(
         loseOutput?: boolean;
         driftAfterLearning?: boolean;
         modelAction?: unknown;
+        sourceBody?: string;
         revokeBeforeDispatch?: "account" | "memory";
         driftDuringPrepare?: "edit" | "delete";
       } = {},
@@ -192,7 +193,8 @@ describe.skipIf(!databaseUrl)(
             : index === 1
               ? "TRANSCRIPT_CANARY_OLD_TURN: opaque identifiers must preserve leading zeroes."
               : index === 104
-                ? "Why do we preserve these identifiers?"
+                ? (options.sourceBody ??
+                  "Why do we preserve these identifiers?")
                 : `History turn ${index + 1}`,
         created_at: new Date(
           Date.parse(time) - (105 - index) * 1000,
@@ -707,8 +709,56 @@ describe.skipIf(!databaseUrl)(
         }
       },
     );
+    it.each([
+      { kind: "create", knowledgeKind: "rule", body: "INJECTED_RULE_CANARY" },
+      {
+        kind: "create",
+        knowledgeKind: "observation",
+        body: "INJECTED_OBSERVATION_CANARY",
+      },
+      {
+        kind: "create",
+        knowledgeKind: "exception",
+        exceptionRuleId: "mem_target",
+        body: "INJECTED_EXCEPTION_CANARY",
+      },
+      {
+        kind: "update",
+        entryId: "mem_target",
+        expectedRevision: "1",
+        body: "INJECTED_UPDATE_CANARY",
+      },
+      { kind: "retire", entryId: "mem_target", expectedRevision: "1" },
+      { kind: "forget", entryId: "mem_target", expectedRevision: "1" },
+      { kind: "relearn", entryId: "auto_target", expectedRevision: "1" },
+    ])(
+      "requires the maintainer's own exact decision before $kind despite valid model JSON",
+      async (modelAction) => {
+        const f = await fixture({
+          modelAction,
+          sourceBody: "Thanks for explaining that.",
+        });
+        try {
+          const result = await f.processor.execute(input, controls());
+          expect(result.status).toBe("ready");
+          expect(result.reply?.body).toContain(
+            "I have not applied this memory change.",
+          );
+          expect(f.counts().actionCalls).toBe(0);
+          expect(f.counts().learned).toBe(1);
+          expect(await f.processor.execute(input, controls())).toEqual(result);
+          expect(f.counts().actionCalls).toBe(0);
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(1);
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
     it("recovers committed automatic and explicit command associations after lost ACK and expiry without repeating effects", async () => {
       const f = await fixture({
+        sourceBody: "Remember rule: EXPLICIT_SELECTED_BODY",
         modelAction: {
           kind: "create",
           knowledgeKind: "rule",
@@ -823,6 +873,24 @@ describe.skipIf(!databaseUrl)(
         manifest: { memoryGeneration: generation },
         admit: async () => true,
       });
+      // The real mutation adapter rejects an unrequested body even when a caller
+      // bypasses ProcessConversation and supplies a verified maintainer snapshot.
+      const identity = await f.sources.identify(input, controls());
+      const checked = await f.sources.read(identity, controls());
+      await expect(
+        productMemory.action(
+          checked,
+          "untrusted-proposal",
+          {
+            kind: "create",
+            knowledgeKind: "rule",
+            body: "NOT_THE_AUTHORED_BODY",
+          },
+          controls(),
+        ),
+      ).rejects.toThrow("conversation_forbidden");
+      expect(await prisma.memoryKnowledgeCommand.count()).toBe(0);
+      expect(await prisma.outboxEvent.count()).toBe(0);
       f.memory.learn = productMemory.learn;
       f.memory.action = productMemory.action;
       const originalBatch = store.admitAutomaticSelection.bind(store);

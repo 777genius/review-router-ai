@@ -34,7 +34,6 @@ export interface SourcePreviewPort {
     input: {
       readonly scope: MemoryScope;
       readonly source: SourceRevision;
-      readonly readOnlyContext: string;
       readonly maxStatements: number;
     },
     controls: RequestControls,

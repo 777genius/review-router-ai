@@ -9,7 +9,6 @@ export async function selectNotebookNotes(
     {
       scope: "notebook-notes",
       source: { id: note.id, revision: note.revision, body: note.text },
-      readOnlyContext: "Notebook context. Select only the supplied new note.",
       maxStatements: 4,
     },
     controls,

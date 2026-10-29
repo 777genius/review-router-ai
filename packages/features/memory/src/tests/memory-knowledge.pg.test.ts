@@ -253,7 +253,6 @@ describe.skipIf(!databaseUrl)(
         threadDigest: "d".repeat(64),
         headSha: "a".repeat(40),
         selectableBody: "Synthetic raw source never retained",
-        readOnlyContext: "Synthetic raw thread never retained",
         sourceActor: {
           kind: "github_user",
           id: "actor",
@@ -391,7 +390,9 @@ describe.skipIf(!databaseUrl)(
         Prisma.sql`SELECT "state" FROM "MemoryAutomaticSource"`,
       );
       expect(JSON.stringify(rows)).not.toContain(first.input.selectableBody);
-      expect(JSON.stringify(rows)).not.toContain(first.input.readOnlyContext);
+      expect(JSON.stringify(rows)).not.toContain(
+        "Synthetic raw thread never retained",
+      );
     });
     it("preserves bodyless lineage suppression across source edits and generation changes while keeping unrequested siblings eligible", async () => {
       const first = await autoReserve(1, 2);

@@ -167,3 +167,9 @@ staging/production status or supplies live activation evidence.
 | ------------ | ----------- | ---------- | ---------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------- |
 | Not executed | staging     | Unassigned | Not verified           | Source integration only; no deployment receipt.                 | Reconcile and execute the ordered rollout.                           |
 | Not executed | production  | Unassigned | Not verified           | No live model, privacy or installed-App qualification recorded. | Retain activation hold until independent production evidence exists. |
+
+## Source-authority rollout refinement
+
+The [security refinement](../plans/2026-10-29-memory-source-authority.md) is part of the same source delivery. It adds no migration or service. Deploy API/worker/web and the portable package coherently; native selection now sees only the eligible source revision, while replies retain the complete thread. Model-proposed create/update/retire/forget/relearn actions require the exact standalone human maintainer confirmation, binding text, kind, target and revision. Test both the no-effect proposal and actual authored confirmation through the installed App before activation.
+
+Use actual selected models to evaluate source-only quotation/negation fidelity and contextual abstention. Existing full-thread semantic scores are not evidence for this input contract. Keep the existing protected corpus and thresholds unchanged and report any recall or clarification differences rather than fabricating a pass. Physical Forget remains subject to the existing operator cleanup procedure. Staging and production remain pending; this source repair does not provide deployment or live-model evidence.

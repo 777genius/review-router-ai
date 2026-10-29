@@ -124,3 +124,28 @@ worker and obsolete UI have been removed. Historical migrations and old data and
 receipt tables remain for explicit migration, remote cleanup and audit review.
 They are not a runtime content source. A new provider generation does not prove
 old remote data was physically deleted.
+
+## Conversation source authority (2026-10-29 refinement)
+
+Automatic observations still require no per-fact Save: a qualified native engine
+selects useful information from a verified human maintainer's new source revision.
+The selection port no longer accepts the mixed-author thread, recalled bodies or
+code as an auxiliary prompt. Full chronology remains available for replies through
+the existing selected-account inference, not as additional write authority.
+
+Natural-language rule/exception/update/retire/forget/relearn output is a **proposal**.
+The conversation owner renders the complete action as a standalone confirmation
+and compares it with the verified latest maintainer source. The exact kind, body,
+target and target revision must match. The real mutation adapter repeats that same
+shared owner check before reaching permission/CAS/command persistence. A valid
+existing confirmation executes without an extra confirmation turn. Otherwise the
+response explicitly says that the proposed change was not applied. This is not a
+second classifier, another model call, a semantic-overlap check or a new ledger.
+
+English and Russian confirmations are supported, for example `Remember rule: Use
+pnpm.`, `Запомни правило: Use pnpm.`, `Update mem_example@2: Use Vitest.` and
+`Забудь mem_example@2`. Automatic learning remains separate from this explicit
+mutation confirmation. Existing slash commands and dashboard commands retain their
+own established authority paths. See the [security refinement](../../../ai-docs/plans/2026-10-29-memory-source-authority.md)
+for limits and the [deployment task](../../../ai-docs/deployments/2026-10-29-conversational-memory.md)
+for live qualification; passing fixture tests does not activate the feature.

@@ -13,11 +13,11 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
-| Task                                                                              | Implementation                                                    | Staging   | Production | Remaining work                                                                                     |
-| --------------------------------------------------------------------------------- | ----------------------------------------------------------------- | --------- | ---------- | -------------------------------------------------------------------------------------------------- |
-| [Review History](2026-10-28-review-history.md)                                    | [PR #730](https://github.com/777genius/review-router-ai/pull/730) | `pending` | `pending`  | Reconcile environment; migrate, deploy fleet, enable capture, activate, verify.                    |
-| [Dispatch cleanup and Scanner CI](2026-10-28-dispatch-cleanup-ci.md)              | [PR #732](https://github.com/777genius/review-router-ai/pull/732) | `pending` | `pending`  | Final source/main release gates; schema/fleet reconciliation, coherent consumers and verification. |
-| [Conversational memory and shared inference](2026-10-29-conversational-memory.md) | [PR #734](https://github.com/777genius/review-router-ai/pull/734) | `pending` | `pending`  | Coherent schema/fleet rollout, live model/privacy and installed App-first qualification.           |
+| Task                                                                              | Implementation                                                    | Staging   | Production | Remaining work                                                                                       |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------------------- | --------- | ---------- | ---------------------------------------------------------------------------------------------------- |
+| [Review History](2026-10-28-review-history.md)                                    | [PR #730](https://github.com/777genius/review-router-ai/pull/730) | `pending` | `pending`  | Reconcile environment; migrate, deploy fleet, enable capture, activate, verify.                      |
+| [Dispatch cleanup and Scanner CI](2026-10-28-dispatch-cleanup-ci.md)              | [PR #732](https://github.com/777genius/review-router-ai/pull/732) | `pending` | `pending`  | Final source/main release gates; schema/fleet reconciliation, coherent consumers and verification.   |
+| [Conversational memory and shared inference](2026-10-29-conversational-memory.md) | [PR #734](https://github.com/777genius/review-router-ai/pull/734) | `pending` | `pending`  | Coherent rollout; source-only model/privacy, authored confirmations and installed App qualification. |
 
 The task file is authoritative; keep this summary in sync in the same commit.
 This inventory includes the tasks listed above. Missing entries do not prove

@@ -30,6 +30,17 @@ bounded exact reply may remain only as an unresolved publication envelope. A
 verified App publication or terminal publication resolution purges its body;
 settled replay returns IDs, hashes and status, without historical output bytes.
 
+## Security refinement, 2026-10-29
+
+The [source-authority refinement](../plans/2026-10-29-memory-source-authority.md)
+supersedes this unactivated profile's mixed-author preview context and free-form
+model mutation admission below. Selection receives only the verified eligible
+source; replies retain the complete thread. Exact source-authored confirmation
+binds every explicit mutation field through one shared guard. This introduces no
+second semantic engine or paid call and does not claim deterministic model truth.
+Unresolved references may abstain and free-form mutations may need one confirmation
+turn. Existing live qualification, scopes, privacy and lifecycle owners remain.
+
 ## Source authority and learning
 
 The server reads every inline-comment page, preserves stable actor identity,

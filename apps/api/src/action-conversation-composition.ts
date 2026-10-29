@@ -4,7 +4,7 @@ import {
   ProcessConversation,
   PrismaConversationProcessingStore,
   conversationDigest,
-  renderConversation,
+  sourceAuthorizesConversationAction,
   type ConversationMemoryPort,
   type ConversationSnapshot,
 } from "@reviewrouter/features-conversations";
@@ -369,7 +369,6 @@ export function createConversationMemoryPort(input: {
           threadDigest: snapshot.threadDigest,
           headSha: snapshot.headSha,
           selectableBody: selected.body,
-          readOnlyContext: renderConversation(snapshot),
         },
         controls,
       );
@@ -383,7 +382,7 @@ export function createConversationMemoryPort(input: {
     },
     async action(snapshot, processingId, intent, controls) {
       if (
-        !snapshot.sourceMaintainer ||
+        !sourceAuthorizesConversationAction(snapshot, intent) ||
         !(await sources.isCurrent(snapshot, controls))
       )
         throw new ConversationError("forbidden");
