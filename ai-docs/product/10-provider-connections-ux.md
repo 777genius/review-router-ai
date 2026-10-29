@@ -217,9 +217,11 @@ serves workspace defaults and repository replacement; removing a repository
 override restores the complete workspace roster. Existing `providerMaxParallel`
 and `inlineMinAgreement` settings control concurrency and agreement.
 
-Reviewers that use the same authorized account share its captured finite
-allowance. Different account allocations retain independent limits. Required
-reviewer failures remain in coverage, and the run produces one aggregate
+Reviewers with the same captured Gateway authority, including the account,
+exact binding, Gateway profile, authorization epoch and limits, share one finite
+allowance. Different bindings or profiles retain independent limits, even when
+they use the same account. Required reviewer failures remain in coverage, and
+the run produces one aggregate
 GitHub App publication. The first captured reviewer supplies the existing
 PR-description and lifecycle verification tasks, using its saved model without
 promoting a sibling or choosing a fallback model.
