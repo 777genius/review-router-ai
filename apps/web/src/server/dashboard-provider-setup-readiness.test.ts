@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseReviewConfiguration } from "@reviewrouter/features-review-config";
 import { workspacePolicyFixture } from "../../../../packages/features/review-config/src/tests/current-policy-fixture";
 import {
+  getGatewaySetupAccounts,
   getReadyGatewayAccounts,
   isGatewayProviderSetupReady,
 } from "./dashboard-provider-setup-readiness";
@@ -87,5 +88,100 @@ describe("dashboard Gateway provider evidence", () => {
     for (const page of blockedPages) {
       expect(isGatewayProviderSetupReady(config, page)).toBe(false);
     }
+  });
+  it("requires every reviewer and uses exact account catalogs rather than a shared profile seed", () => {
+    const provider = {
+      kind: "codex",
+      authMode: "codex_account_gateway",
+      gatewayBindingId: "binding-1",
+      gatewayProfileRef: "profile",
+      model: "model-one",
+      reasoningEffort: "high",
+      agenticContext: true,
+      fastMode: false,
+    } as const;
+    const config = parseReviewConfiguration({
+      ...workspacePolicyFixture,
+      providers: [
+        provider,
+        { ...provider, gatewayBindingId: "binding-2", model: "model-two" },
+      ],
+      execution: {
+        providerLimit: 2,
+        providerMaxParallel: 2,
+        inlineMinAgreement: 1,
+      },
+    });
+    const row = (id: string, model: string) => ({
+      connectionId: `connection-${id}`,
+      label: id,
+      profileId: "profile",
+      profileLabel: "Model profile",
+      state: "active" as const,
+      gatewayRevision: 1,
+      mirrorRevision: 1,
+      binding: {
+        id,
+        revision: 1,
+        state: "active" as const,
+        fencePending: false,
+      },
+      modelCatalog: {
+        status: "snapshot" as const,
+        source: "codex" as const,
+        models: [model],
+      },
+    });
+    const page = {
+      accounts: [row("binding-1", "model-one"), row("binding-2", "model-two")],
+      profiles: [
+        {
+          id: "profile",
+          label: "Models",
+          protocol: "openai-responses" as const,
+          models: ["seed-only"],
+        },
+      ],
+      nextCursor: null,
+    };
+    expect(
+      isGatewayProviderSetupReady(config, { status: "ok", value: page }),
+    ).toBe(true);
+    for (const status of ["unknown", "snapshot"] as const) {
+      const recovering: AccountsResult<AccountsPage> = {
+        status: "ok",
+        value: {
+          ...page,
+          profiles: [
+            { ...page.profiles[0]!, models: ["model-one", "model-two"] },
+          ],
+          accounts: [
+            page.accounts[0]!,
+            {
+              ...page.accounts[1]!,
+              modelCatalog: { status, source: "codex", models: [] },
+            },
+          ],
+        },
+      };
+      expect(getGatewaySetupAccounts(recovering)).toHaveLength(2);
+      expect(getReadyGatewayAccounts(recovering)).toHaveLength(1);
+      expect(isGatewayProviderSetupReady(config, recovering)).toBe(false);
+    }
+    expect(
+      isGatewayProviderSetupReady(config, {
+        status: "ok",
+        value: { ...page, accounts: [page.accounts[0]!] },
+      }),
+    ).toBe(false);
+    expect(
+      isGatewayProviderSetupReady(config, {
+        status: "ok",
+        value: {
+          ...page,
+          accounts: [page.accounts[0]!, row("binding-2", "wrong-model")],
+        },
+      }),
+    ).toBe(false);
   });
 });

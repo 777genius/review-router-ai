@@ -292,6 +292,9 @@ export class ManageReviewRunAuthorizations {
           ? { providerApiAuthMode: input.providerApiAuthMode }
           : {}),
         producerRelease: base.release,
+        providerVoteLanes: input.providerVoteLanes,
+        reviewInvestigationAuthorizationDescriptorCanonicalJson:
+          input.reviewInvestigationAuthorizationDescriptorCanonicalJson ?? null,
         deadline:
           gatewayMaxExpiresAt > now ? gatewayMaxExpiresAt : maxExpiresAt,
       });
@@ -308,36 +311,47 @@ export class ManageReviewRunAuthorizations {
       // The engine comes ONLY from the captured snapshot. The backend provider
       // row kind never selects it, and a passed Codex safety check never
       // authorizes another engine.
-      const executionKind = reviewAgentExecutionProviderKind(snapshot.agent);
-      const matched = input.providerVoteLanes.filter(
-        (lane) => lane.providerKind === executionKind,
-      );
-      // The server-owned lanes are an allowlist of identities: exactly one lane
-      // of the captured execution kind. Missing/duplicate lanes fail before any
-      // inference; never authorize Codex and OCR from one snapshot.
-      if (matched.length !== 1)
-        return denied(
-          ReviewRunAuthorizationDenialReason.ProviderVoteLaneUnavailable,
+      if (snapshot.snapshotVersion === 4) {
+        providerVoteLanes = snapshot.reviewers.map((reviewer) => ({
+          providerKind: reviewAgentExecutionProviderKind(reviewer.agentProfile),
+          providerVoteIdentityHash: reviewer.providerVoteIdentityHash,
+        }));
+        // Exact reviewer grants already bind the admitted engine/model/profile.
+        // The legacy kind descriptor is retained for historical wire clients only.
+        reviewInvestigationDescriptorCanonicalJson = null;
+      } else {
+        const executionKind = reviewAgentExecutionProviderKind(snapshot.agent);
+        const matched = input.providerVoteLanes.filter(
+          (lane) => lane.providerKind === executionKind,
         );
-      providerVoteLanes = matched;
-      // §4.1.1 step 5: bind the optional RR investigation descriptor to the
-      // SELECTED lane only. The precomputed capability is participation
-      // eligibility: for the OCR lane it is ABSENT (stored null) — the leftover
-      // Codex capability is dropped, never rejected. Only a descriptor that is
-      // not recognizable optional participation eligibility (a mandatory
-      // investigation policy demand) is rejected per §4.2 instead of being
-      // weakened into a silent success.
-      const investigation =
-        bindReviewInvestigationAuthorizationDescriptorToVoteLanes(
-          input.reviewInvestigationAuthorizationDescriptorCanonicalJson,
-          providerVoteLanes,
-        );
-      if (!investigation.bound)
-        return denied(
-          ReviewRunAuthorizationDenialReason.ReviewInvestigationIncompatible,
-        );
-      reviewInvestigationDescriptorCanonicalJson = investigation.canonicalJson;
-      if (snapshot.gateway?.limits) {
+        // The server-owned lanes are an allowlist of identities: exactly one lane
+        // of the captured execution kind. Missing/duplicate lanes fail before any
+        // inference; never authorize Codex and OCR from one snapshot.
+        if (matched.length !== 1)
+          return denied(
+            ReviewRunAuthorizationDenialReason.ProviderVoteLaneUnavailable,
+          );
+        providerVoteLanes = matched;
+        // §4.1.1 step 5: bind the optional RR investigation descriptor to the
+        // SELECTED lane only. The precomputed capability is participation
+        // eligibility: for the OCR lane it is ABSENT (stored null) — the leftover
+        // Codex capability is dropped, never rejected. Only a descriptor that is
+        // not recognizable optional participation eligibility (a mandatory
+        // investigation policy demand) is rejected per §4.2 instead of being
+        // weakened into a silent success.
+        const investigation =
+          bindReviewInvestigationAuthorizationDescriptorToVoteLanes(
+            input.reviewInvestigationAuthorizationDescriptorCanonicalJson,
+            providerVoteLanes,
+          );
+        if (!investigation.bound)
+          return denied(
+            ReviewRunAuthorizationDenialReason.ReviewInvestigationIncompatible,
+          );
+        reviewInvestigationDescriptorCanonicalJson =
+          investigation.canonicalJson;
+      }
+      if (snapshot.snapshotVersion === 4 || snapshot.gateway?.limits) {
         if (gatewayMaxExpiresAt <= now)
           return denied(
             ReviewRunAuthorizationDenialReason.AdmissionFactsChanged,
@@ -378,7 +392,15 @@ export class ManageReviewRunAuthorizations {
       );
       const captured = await this.dependencies.skillsSnapshots.capture({
         identity: verifiedIdentity,
-        agent: selectedRuntime?.agent ?? null,
+        agent:
+          selectedRuntime?.snapshotVersion === 3 ? selectedRuntime.agent : null,
+        ...(selectedRuntime?.snapshotVersion === 4
+          ? {
+              agents: selectedRuntime.reviewers.map(
+                (reviewer) => reviewer.agentProfile,
+              ),
+            }
+          : {}),
       });
       if ("captureDenied" in captured) {
         // A concurrent winner may have committed after our original lookup.
@@ -481,10 +503,17 @@ export class ManageReviewRunAuthorizations {
               workspaceId: verifiedIdentity.workspaceId,
               repositoryConnectionId: verifiedIdentity.repositoryConnectionId,
               scmRepositoryIdentityId: verifiedIdentity.scmRepositoryIdentityId,
-              providerTasks: providerVoteLanes.map((lane) => ({
-                providerKind: lane.providerKind,
-                taskKind: ReviewTaskKind.CodeReview,
-              })),
+              providerTasks: providerVoteLanes
+                .filter(
+                  (lane, index, lanes) =>
+                    lanes.findIndex(
+                      (other) => other.providerKind === lane.providerKind,
+                    ) === index,
+                )
+                .map((lane) => ({
+                  providerKind: lane.providerKind,
+                  taskKind: ReviewTaskKind.CodeReview,
+                })),
             },
           },
         },
@@ -774,7 +803,7 @@ export class ManageReviewRunAuthorizations {
     );
     if (!snapshot) return true;
     if (now >= new Date(snapshot.deadline)) return false;
-    if (!snapshot.gateway) return true;
+    if (snapshot.snapshotVersion === 3 && !snapshot.gateway) return true;
     const live =
       (await this.dependencies.runtimeSnapshots?.isLive({
         snapshot,
@@ -875,10 +904,17 @@ export class ManageReviewRunAuthorizations {
         workspaceId: identity.workspaceId,
         repositoryConnectionId: identity.repositoryConnectionId,
         scmRepositoryIdentityId: identity.scmRepositoryIdentityId,
-        providerTasks: providerVoteLanes.map((lane) => ({
-          providerKind: lane.providerKind,
-          taskKind: ReviewTaskKind.CodeReview,
-        })),
+        providerTasks: providerVoteLanes
+          .filter(
+            (lane, index, lanes) =>
+              lanes.findIndex(
+                (other) => other.providerKind === lane.providerKind,
+              ) === index,
+          )
+          .map((lane) => ({
+            providerKind: lane.providerKind,
+            taskKind: ReviewTaskKind.CodeReview,
+          })),
       },
     });
   }

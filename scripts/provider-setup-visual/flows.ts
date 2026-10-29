@@ -16,6 +16,7 @@ import type {
 } from "playwright-core";
 import {
   assignProviderProfileToRepositories,
+  setWorkspaceDefaultProviders,
   parseStoredReviewPolicy,
   PrismaReviewConfigurationRepository,
   PrismaReviewPolicyHeadReader,
@@ -249,6 +250,373 @@ export async function runFlows(
 }
 
 const VISUAL_FLOWS: readonly VisualFlow[] = [
+  {
+    id: "flow-gateway-reviewer-roster",
+    title:
+      "Save, reload, edit and inherit several Gateway reviewers, including stale concurrent editors",
+    requires: { personalSharing: false },
+    run: async (flow) => {
+      const workspaceId = VISUAL_WORKSPACES.main.id;
+      const reader = new PrismaReviewPolicyHeadReader(flow.prisma);
+      const heads = await reader.readPolicyHeads({
+        scope: "workspace",
+        workspaceId,
+      });
+      const settings = {
+        reasoningEffort: "high" as const,
+        agenticContext: true,
+        fastMode: false,
+        requiredHealthy: true,
+      };
+      await setWorkspaceDefaultProviders(
+        {
+          workspaceId,
+          actor: { userId: VISUAL_USERS.admin.id, auditActor: "visual:admin" },
+          selections: [
+            {
+              ...settings,
+              profileId: requiredProfile(flow.seed, "gatewayOrg"),
+            },
+          ],
+          expectedVersion: heads.workspace?.version ?? null,
+        },
+        {
+          policyHeads: reader,
+          configurations: new PrismaReviewConfigurationRepository(
+            flow.prisma,
+            undefined,
+            false,
+            VISUAL_USERS.admin.id,
+          ),
+          validator: { validate: async () => {} },
+        },
+      );
+      const page = await flow.open(
+        "admin",
+        workspaceRoute("main", "providers"),
+      );
+      let dialog = await openDialog(
+        page,
+        providerListRow(page, VISUAL_PROFILES.gatewayOrg.label).getByRole(
+          "button",
+          { name: "Review settings", exact: true },
+        ),
+      );
+      await dialog
+        .getByRole("button", { name: "Add reviewer", exact: true })
+        .click();
+      await dialog
+        .getByRole("combobox", { name: "Account for reviewer 2", exact: true })
+        .click();
+      await page.getByRole("option", { name: /Visual Org Codex/ }).click();
+      await dialog
+        .getByRole("combobox", { name: "Model", exact: true })
+        .click();
+      await page.getByRole("option", { name: /^gpt-5\.4(?:\s|$)/i }).click();
+      await dialog.getByRole("combobox", { name: /^Review depth/ }).click();
+      await page.getByRole("option", { name: /^Medium/ }).click();
+      await dialog
+        .getByRole("combobox", { name: "Max parallel providers", exact: true })
+        .click();
+      await page.getByRole("option", { name: "2", exact: true }).click();
+      const saveReply = page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.request().postData()?.includes("reviewers") === true,
+        { timeout: 30000 },
+      );
+      await dialog
+        .getByRole("button", { name: "Save reviewers", exact: true })
+        .click();
+      await flow.check(
+        "roster save returns an acknowledged server action",
+        async () => {
+          const response = await saveReply;
+          const body = await response.text();
+          const code = body.match(/"error":"([a-z_]{3,64})"/)?.[1];
+          if (code) throw new Error(`roster_save_refused:${code}`);
+          expectEqual(response.status(), 200, "server action HTTP status");
+          expectEqual(
+            body.includes('"status":"saved"'),
+            true,
+            "server action acknowledged save",
+          );
+        },
+      );
+      await dialog.waitFor({ state: "hidden", timeout: 30000 });
+      await flow.check(
+        "saved two distinct models/settings and parallelism together",
+        async () => {
+          const saved = await reader.readPolicyHeads({
+            scope: "workspace",
+            workspaceId,
+          });
+          const policy = saved.workspace
+            ? parseStoredReviewPolicy("workspace", saved.workspace)
+            : null;
+          expectEqual(policy?.providers?.length, 2, "reviewer count");
+          expectEqual(
+            policy?.execution.providerMaxParallel,
+            2,
+            "parallel reviewers",
+          );
+          expectEqual(
+            policy?.providers?.[1]?.reasoningEffort,
+            "medium",
+            "second reviewer effort",
+          );
+          const profiles = await reader.readProviderProfiles({
+            workspaceId,
+            profileIds: policy?.providers?.map((row) => row.profileId) ?? [],
+          });
+          expectEqual(
+            policy?.providers
+              ?.map((row) => profiles.get(row.profileId)?.model)
+              .join(","),
+            "gpt-5.5,gpt-5.4",
+            "models",
+          );
+        },
+      );
+      await page.reload();
+      dialog = await openDialog(
+        page,
+        providerListRow(page, VISUAL_PROFILES.gatewayOrg.label).getByRole(
+          "button",
+          { name: "Review settings", exact: true },
+        ),
+      );
+      await flow.check("reload shows every reviewer", async () => {
+        await visible(dialog.getByText(/1\. gpt-5.5/));
+        await visible(dialog.getByText(/2\. gpt-5.4/));
+      });
+      await flow.check(
+        "model refresh failure keeps the draft and retry while saving fails closed until recovery",
+        async () => {
+          await dialog
+            .getByRole("button", { name: "Refresh models", exact: true })
+            .click();
+          await visible(
+            dialog.getByText(
+              "Could not load account models. Try refreshing the model list. Your saved selection is unchanged.",
+              { exact: true },
+            ),
+          );
+          await visible(dialog.getByText(/1\. gpt-5.5/));
+          await visible(dialog.getByText(/2\. gpt-5.4/));
+          await visible(
+            dialog
+              .getByText(
+                "Model availability could not be checked. Edit this reviewer to refresh account models. Your saved selection is unchanged.",
+                { exact: true },
+              )
+              .first(),
+          );
+          expectEqual(
+            await dialog
+              .getByText("This model is unavailable for this account.", {
+                exact: false,
+              })
+              .count(),
+            0,
+            "a failed catalog is not authoritative model unavailability",
+          );
+          const save = dialog.getByRole("button", {
+            name: "Save reviewers",
+            exact: true,
+          });
+          expectEqual(await save.isDisabled(), true, "catalog admission");
+          const retry = dialog.getByRole("button", {
+            name: "Refresh models",
+            exact: true,
+          });
+          expectEqual(await retry.isEnabled(), true, "model refresh retry");
+          await save.scrollIntoViewIfNeeded();
+          await flow.shot(page, "model-refresh-failure-retains-draft");
+          await retry.click();
+          await visible(dialog.getByText(/^Account model catalog/));
+          expectEqual(
+            await save.isEnabled(),
+            true,
+            "recovered catalog admission",
+          );
+        },
+      );
+      await flow.shot(page, "two-reviewers-reloaded");
+      await dialog.getByRole("button", { name: "Done", exact: true }).click();
+      for (const width of [1440, 900, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        for (const theme of ["dark", "light"] as const) {
+          await page.emulateMedia({ colorScheme: theme });
+          await page.evaluate((theme) => {
+            localStorage.setItem("reviewrouter-theme", theme);
+            document.documentElement.dataset.theme = theme;
+            document.documentElement.dataset.themePreference = theme;
+          }, theme);
+          await flow.check(
+            `roster fits ${width}px in ${theme} theme`,
+            async () => {
+              expectEqual(
+                await page.evaluate(
+                  () =>
+                    document.documentElement.scrollWidth <= window.innerWidth,
+                ),
+                true,
+                "viewport overflow",
+              );
+              await dialog
+                .getByRole("button", { name: "Save reviewers", exact: true })
+                .scrollIntoViewIfNeeded();
+              await page.keyboard.press("Tab");
+              expectEqual(
+                await dialog.evaluate((node) =>
+                  node.contains(document.activeElement),
+                ),
+                true,
+                "keyboard focus remains in dialog",
+              );
+            },
+          );
+          await flow.shot(page, `roster-${width}-${theme}`);
+        }
+      }
+      await page.evaluate(() => {
+        document.documentElement.style.fontSize = "200%";
+      });
+      await flow.check(
+        "roster supports 200 percent text size on narrow mobile",
+        async () => {
+          const geometry = await dialog.evaluate((node) => ({
+            width: node.clientWidth,
+            scrollWidth: node.scrollWidth,
+            left: node.getBoundingClientRect().left,
+            right: node.getBoundingClientRect().right,
+            viewport: window.innerWidth,
+          }));
+          expectEqual(
+            geometry.scrollWidth <= geometry.width + 1 &&
+              geometry.left >= 0 &&
+              geometry.right <= geometry.viewport,
+            true,
+            `dialog text zoom overflow: ${JSON.stringify(geometry)}`,
+          );
+        },
+      );
+      await dialog
+        .getByRole("button", { name: "Save reviewers", exact: true })
+        .scrollIntoViewIfNeeded();
+      await flow.shot(page, "roster-390-light-text-200");
+      await page.evaluate(() => {
+        document.documentElement.style.fontSize = "";
+        document.documentElement.dataset.theme = "dark";
+      });
+      await page.setViewportSize({ width: 1440, height: 900 });
+
+      const second = await flow.open(
+        "admin",
+        workspaceRoute("main", "providers"),
+      );
+      const secondDialog = await openDialog(
+        second,
+        providerListRow(second, VISUAL_PROFILES.gatewayOrg.label).getByRole(
+          "button",
+          { name: "Review settings", exact: true },
+        ),
+      );
+      await dialog
+        .getByRole("button", { name: "Edit", exact: true })
+        .last()
+        .click();
+      await dialog.getByRole("combobox", { name: /^Review depth/ }).click();
+      await page.getByRole("option", { name: /^High/ }).click();
+      await dialog
+        .getByRole("button", { name: "Save reviewers", exact: true })
+        .click();
+      await dialog.waitFor({ state: "hidden" });
+      await secondDialog
+        .getByRole("button", { name: "Remove", exact: true })
+        .nth(1)
+        .click();
+      await secondDialog
+        .getByRole("button", { name: "Save reviewers", exact: true })
+        .click();
+      await flow.check(
+        "stale editor retains its draft and does not overwrite the newer roster",
+        async () => {
+          await visible(secondDialog.getByRole("alert"));
+          await visible(
+            secondDialog.getByRole("button", { name: "Reload saved roster" }),
+          );
+          const saved = await reader.readPolicyHeads({
+            scope: "workspace",
+            workspaceId,
+          });
+          const policy = saved.workspace
+            ? parseStoredReviewPolicy("workspace", saved.workspace)
+            : null;
+          expectEqual(policy?.providers?.length, 2, "newer roster count");
+          expectEqual(
+            policy?.providers?.[1]?.reasoningEffort,
+            "high",
+            "newer second reviewer effort",
+          );
+          await visible(secondDialog.getByText(/1\. gpt-5.5/));
+        },
+      );
+      await flow.shot(second, "stale-draft-preserved");
+      const repository = VISUAL_REPOSITORIES.mainOwnGateway;
+      const repositoryPage = await flow.open(
+        "admin",
+        repositoryRoute("mainOwnGateway"),
+      );
+      const repositoryDialog = await openDialog(
+        repositoryPage,
+        repositorySetupPanel(repositoryPage, "mainOwnGateway").getByRole(
+          "button",
+          { name: "Change", exact: true },
+        ),
+      );
+      await repositoryDialog
+        .getByRole("button", { name: "Use workspace reviewers", exact: true })
+        .click();
+      await repositoryDialog.waitFor({ state: "hidden" });
+      await flow.check(
+        "repository inherits the complete workspace roster",
+        async () => {
+          const stored = await reader.readPolicyHeads({
+            scope: "repository",
+            workspaceId,
+            repositoryId: repository.id,
+          });
+          const policy = stored.repository
+            ? parseStoredReviewPolicy("repository", stored.repository)
+            : null;
+          expectEqual(
+            policy?.providers,
+            undefined,
+            "repository roster override removed",
+          );
+          const effective = await new PrismaReviewConfigurationRepository(
+            flow.prisma,
+            undefined,
+            false,
+            VISUAL_USERS.admin.id,
+          ).findLatest({
+            scope: "repository",
+            workspaceId,
+            repositoryId: repository.id,
+          });
+          expectEqual(
+            effective?.selections.length,
+            2,
+            "inherited reviewer count",
+          );
+        },
+      );
+      await flow.shot(repositoryPage, "repository-inherits-roster");
+    },
+  },
+
   {
     id: "flow-step3-create-attach",
     title:

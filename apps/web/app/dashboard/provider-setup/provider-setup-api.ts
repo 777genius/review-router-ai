@@ -221,6 +221,7 @@ export {
   createProviderProfileAction as createProviderProfile,
   inheritWorkspaceDefaultProviderAction as inheritWorkspaceDefaultProvider,
   saveProviderSetupAction as saveProviderSetup,
+  saveProviderRosterAction as saveProviderRoster,
   updateProviderProfileAction as updateProviderProfile,
 } from "../provider-setup-actions";
 

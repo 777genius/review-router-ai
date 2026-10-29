@@ -45,7 +45,7 @@ import type {
   AccountsPage,
   AccountsResult,
 } from "../../../src/server/account-gateway-accounts";
-import { getReadyGatewayAccounts } from "../../../src/server/dashboard-provider-setup-readiness";
+import { getGatewaySetupAccounts } from "../../../src/server/dashboard-provider-setup-readiness";
 import type { GatewayAgentProfileOption } from "../../../src/server/gateway-agent-profile-options";
 import { dashboardErrorText } from "../dashboard-copy";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
@@ -318,12 +318,13 @@ function ProviderListItem({
               triggerLabel="Remove as default"
               decision={actions.removeDefault}
               title={`Stop using ${row.label} as the default?`}
-              body="Repositories without a provider of their own stop reviewing until you choose a new default. The provider stays in this list."
+              body="This provider leaves the default roster. Any other default reviewers stay selected. The provider stays in this list."
               confirmLabel="Remove as default"
               workspaceId={dialog.workspaceId}
               run={() =>
                 clearWorkspaceDefaultProvider({
                   workspaceId: dialog.workspaceId,
+                  profileId: row.id,
                 })
               }
             />
@@ -504,7 +505,7 @@ function ProviderProfileEditForm({
     gateway && row.gatewayBindingId ? [row.gatewayBindingId] : [],
   );
   const catalogs = useProviderModelCatalogs(dialog.modelOptions);
-  const gatewayAccount = getReadyGatewayAccounts(gatewayOptions.accounts).find(
+  const gatewayAccount = getGatewaySetupAccounts(gatewayOptions.accounts).find(
     (account) => account.binding?.id === row.gatewayBindingId,
   );
   const gatewayProfile =

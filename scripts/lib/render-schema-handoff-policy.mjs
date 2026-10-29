@@ -306,6 +306,23 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Per-run Gateway allocations are checkout-only. Admit the exact SQL and
+  // complete checkout156 before preserving the reviewed checkout155 boundary.
+  const gatewayAllocationsMigration = catalog.find(
+    (row) => row.migrationName === "000152_review_run_gateway_allocations",
+  );
+  if (gatewayAllocationsMigration) {
+    if (
+      gatewayAllocationsMigration.checksum !==
+        "013e9b1917940ed3a796f8df6fa85a0c9c0cc5a4e76a7b19841911f3ea24bd6d" ||
+      manifest(catalog) !==
+        "sha256:ef2c303008c8edac0df3372f725f374ba417042a6707daf25b69c87897bd1e38"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== gatewayAllocationsMigration),
+    );
+  }
   // Review history is checkout-only. Pin its SQL and the complete checkout155
   // before reducing to the previously reviewed Skills-catalog154 inventory.
   const reviewHistoryMigration = catalog.find(

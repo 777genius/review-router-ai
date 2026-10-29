@@ -41,7 +41,7 @@ describe.skipIf(!databaseUrl)(
       SELECT count(*) AS count,max(migration_name) AS latest FROM "_prisma_migrations"
       WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`;
       expect(migrations).toEqual([
-        { count: 155n, latest: "000151_review_history" },
+        { count: 156n, latest: "000152_review_run_gateway_allocations" },
       ]);
       history = await createReviewHistoryFeature({ prisma });
       await history.activateCapture();

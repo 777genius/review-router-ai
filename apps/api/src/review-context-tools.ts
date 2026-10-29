@@ -1,12 +1,17 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { contextToolsContract } from "@reviewrouter/shared";
+import {
+  contextToolsContract,
+  parseReviewReviewerId,
+  reviewerPlanContract,
+} from "@reviewrouter/shared";
 import {
   parseContextToolsPlan,
   type ContextToolsPlan,
 } from "@reviewrouter/features-review-context-tools";
 import {
   parseReviewRunRuntimeSnapshot,
+  getReviewRunReviewer,
   type ReviewRunAuthorization,
 } from "@reviewrouter/features-review-run-control";
 
@@ -20,7 +25,10 @@ export class ContextToolsAccessFailure extends Error {
 }
 export type ContextToolsRunAccess = Readonly<{
   /** Normal token resolution + current admission/SCM/producer/epoch guards. */
-  authorize(token: string): Promise<ReviewRunAuthorization | null>;
+  authorize(
+    token: string,
+    reviewerId?: string,
+  ): Promise<ReviewRunAuthorization | null>;
   deliver(
     workspaceId: string,
     plan: ContextToolsPlan,
@@ -52,8 +60,9 @@ async function capture(
   token: string,
   request: z.infer<typeof requestSchema>,
   access: ContextToolsRunAccess,
+  reviewerId?: string,
 ) {
-  const authorization = await access.authorize(token);
+  const authorization = await access.authorize(token, reviewerId);
   if (
     !authorization ||
     authorization.authorizationId !== request.authorizationId
@@ -62,10 +71,15 @@ async function capture(
   const snapshot = parseReviewRunRuntimeSnapshot(
     authorization.runtimeSnapshotCanonicalJson,
   );
-  if (
-    !snapshot?.contextToolsPlanCanonicalJson ||
-    snapshot.agent.agentKind !== "ocr"
-  )
+  const agent =
+    snapshot?.snapshotVersion === 4
+      ? reviewerId === undefined
+        ? null
+        : getReviewRunReviewer(snapshot, reviewerId)?.agentProfile
+      : reviewerId === undefined
+        ? snapshot?.agent
+        : null;
+  if (!snapshot?.contextToolsPlanCanonicalJson || agent?.agentKind !== "ocr")
     throw new ContextToolsAccessFailure("context_plan_unavailable");
   const plan = parseContextToolsPlan(
     JSON.parse(snapshot.contextToolsPlanCanonicalJson),
@@ -93,10 +107,22 @@ export async function registerContextToolsRoutes(
           if (!input.success)
             throw new ContextToolsAccessFailure("context_request_invalid", 400);
           const token = bearer(request.headers.authorization);
+          const selector =
+            request.headers[reviewerPlanContract.reviewerIdHeader];
+          let reviewerId: string | undefined;
+          try {
+            reviewerId =
+              selector === undefined
+                ? undefined
+                : parseReviewReviewerId(selector);
+          } catch {
+            throw new ContextToolsAccessFailure("context_request_invalid", 400);
+          }
           const { authorization, plan } = await capture(
             token,
             input.data,
             access,
+            reviewerId,
           );
           let result: unknown;
           if (kind === "credentials") {
@@ -115,7 +141,7 @@ export async function registerContextToolsRoutes(
               issueSchema.parse(input.data).issueNumber,
             );
           }
-          const fresh = await capture(token, input.data, access);
+          const fresh = await capture(token, input.data, access, reviewerId);
           if (
             fresh.authorization.runtimeSnapshotCanonicalJson !==
             authorization.runtimeSnapshotCanonicalJson

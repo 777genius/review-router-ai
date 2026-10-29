@@ -44,6 +44,7 @@ const full = currentFull
       row.migrationName !== "000144_review_statistics" &&
       row.migrationName !== "000143_workspace_draft_review_setting" &&
       row.migrationName !== "000145_workspace_provider_profiles" &&
+      row.migrationName !== "000152_review_run_gateway_allocations" &&
       row.migrationName !== "000151_review_history" &&
       row.migrationName !== "000150_skills_catalog_security" &&
       row.migrationName !== "000149_api_key_repository_secret_profiles" &&
@@ -176,7 +177,7 @@ describe("trusted historical96 checkout reader", () => {
     expect(reader).toHaveBeenCalledWith();
     reader.mockReturnValue([
       ...currentFull,
-      { migrationName: "000151_unknown", checksum: "0".repeat(64) },
+      { migrationName: "000153_unknown", checksum: "0".repeat(64) },
     ]);
     expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
       "render_historical96_checkout_rejected:count",
@@ -202,6 +203,7 @@ describe("trusted historical96 checkout reader", () => {
           row.migrationName !== "000144_review_statistics" &&
           row.migrationName !== "000143_workspace_draft_review_setting" &&
           row.migrationName !== "000145_workspace_provider_profiles" &&
+          row.migrationName !== "000152_review_run_gateway_allocations" &&
           row.migrationName !== "000151_review_history" &&
           row.migrationName !== "000150_skills_catalog_security" &&
           row.migrationName !== "000149_api_key_repository_secret_profiles" &&
@@ -233,6 +235,7 @@ describe("trusted historical96 checkout reader", () => {
           row.migrationName !== "000144_review_statistics" &&
           row.migrationName !== "000143_workspace_draft_review_setting" &&
           row.migrationName !== "000145_workspace_provider_profiles" &&
+          row.migrationName !== "000152_review_run_gateway_allocations" &&
           row.migrationName !== "000151_review_history" &&
           row.migrationName !== "000150_skills_catalog_security" &&
           row.migrationName !== "000149_api_key_repository_secret_profiles" &&
