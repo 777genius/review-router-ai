@@ -237,3 +237,39 @@ checks passed locally; the required public CI build is still running. Publicatio
 normal release/registration, a fresh disposable modern review and lifecycle rerun
 remain before declaring complete. Old PR18's five legacy manual findings are
 preserved; they are ineligible for automatic lifecycle verification.
+
+### Action219 adoption: 2026-10-29 01:15 UTC
+
+Public [PR352](https://github.com/777genius/review-router/pull/352) passed required
+CI40796820936 (8m21s), merged normally through the owner identity guard to
+`298e7fca999edaee09b59d438a5694ed8961d394`, and the official
+[Release40797791976](https://github.com/777genius/review-router/actions/runs/40797791976)
+passed (8m46s), publishing `v1.0.219` and stable `v1`. Canonical manifest generation
+and checker passed against the installed compatible backend contract.
+
+The compatible Action-only overlay preserved application source/image b8/fd52,
+all opaque container configuration, current API implicit Skills preference,
+47 prior configured attestations,45 existing producer DB rows, two historically
+absent producer IDs, and the exact limits/SLO profiles. All four roles now carry
+48 attestations, primary Action219 and its exact installer tuple. Old primary and
+overlap order remain available for admitted runs; prior containers remain stopped.
+No private version tag, native/Gateway binary or database schema was changed.
+
+Registration first stopped before materialization on two module hash pins:
+preparation had resolved TypeScript source exports without production conditions.
+Read-only evidence showed source/dist bytes unchanged in both retained and serving
+containers. A separately reviewed, once-issued resume corrected only those two
+pins to production `dist`; the original failure was preserved. Registration then
+succeeded through the normal configured-attestation trusted materializer at
+`2026-10-29T01:15:19.945Z` with immutable readback and unchanged previous records.
+No direct SQL writes or default profile fabrication were used.
+
+Protected custody:
+`/srv/platform/projects/review-router/releases/action219-adoption-298e7fca-20261029/`,
+including `apply-receipt.json`, original `registration.result.json`, and
+`registration.resume1.accepted.json`. Inputs and proof are retained in sibling
+`action219-inputs-298e7fca-20261029/`. Fresh runtime canary passed200/all3proofs,
+with receipt in `model-history-adoption-b8eac8ec-20261029/fresh-action219-runtime-canary.passed.json`.
+API/demo/OpenAPI/docs checks also passed after the overlay. Official workflow
+channel promotion40799311636 is running; final modern review and lifecycle rerun
+remain before completion.
