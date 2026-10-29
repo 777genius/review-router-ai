@@ -342,10 +342,10 @@ jobs:
           node tmp/accounts-reference-e2e/verify-generated-next-env.mjs \
             tmp/accounts-reference-e2e/runs/catalog-ci
 
-      - name: Run account-scoped Codex model browser scenario
+      - name: Run account and public model browser scenarios
         id: account_models
         env:
-          ACCOUNTS_REFERENCE_E2E_GREP: dynamic Codex account models
+          ACCOUNTS_REFERENCE_E2E_GREP: dynamic Codex account models|public catalogs refresh
           DATABASE_URL: postgresql://fixture_owner@127.0.0.1:5433/review_router_accounts_reference_e2e_test?schema=public
           TMPDIR: ${{ github.workspace }}/tmp/accounts-reference-e2e/tmp
         run: |
@@ -358,9 +358,9 @@ jobs:
             --database-url "$DATABASE_URL" \
             --work-dir "$GITHUB_WORKSPACE/tmp/accounts-reference-e2e/runs/account-models-ci" \
             --expected-revision "$EXPECTED_REVISION" \
-            --account-models-fixture
+            --account-models-fixture --catalog-fixture
 
-      - name: Verify account-scoped model acceptance receipt
+      - name: Verify account and public model acceptance receipt
         if: ${{ always() && steps.account_models.outcome != 'skipped' }}
         run: |
           node tmp/accounts-reference-e2e/verify-generated-next-env.mjs \
@@ -386,7 +386,7 @@ jobs:
           assert.equal(runtime.externalNetworkAllowed, false);
           assert.equal(result.fixtureBoundary, ACCOUNT_MODELS_FIXTURE_BOUNDARY);
           assert.equal(runtime.fixtureBoundary, ACCOUNT_MODELS_FIXTURE_BOUNDARY);
-          assert.equal(result.tests.passed, 1);
+          assert.equal(result.tests.passed, 2);
           assert.equal(result.tests.failed, 0);
           assert.equal(result.tests.skipped, 0);
           assert.deepEqual(result.tests.failures, []);
@@ -399,10 +399,15 @@ jobs:
             }
           };
           collect(report.suites);
-          assert.deepEqual(specs.map(spec => spec.title), ['dynamic Codex account models work in provider edit and add with exact binding refresh and save validation']);
-          assert.equal(specs[0].tests.length, 1);
-          assert.equal(specs[0].tests[0].results.length, 1);
-          assert.equal(specs[0].tests[0].results[0].status, 'passed');
+          assert.deepEqual(specs.map(spec => spec.title).sort(), [
+            'dynamic Codex account models work in provider edit and add with exact binding refresh and save validation',
+            'public catalogs refresh direct providers, preserve the selected ID, and never test a connection automatically',
+          ].sort());
+          for (const spec of specs) {
+            assert.equal(spec.tests.length, 1);
+            assert.equal(spec.tests[0].results.length, 1);
+            assert.equal(spec.tests[0].results[0].status, 'passed');
+          }
           NODE
 
       - name: Upload catalog browser evidence

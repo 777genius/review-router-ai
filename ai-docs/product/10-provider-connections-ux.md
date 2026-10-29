@@ -209,45 +209,31 @@ owner for each rule and reuse of the richer existing components; it does not
 mean merging distinct ownership and authorization responsibilities or adding a
 universal wizard or new backend aggregate.
 
-## Several simultaneous review providers: estimate only
+## Several simultaneous Gateway reviewers
 
-This delivery does not remove the single-provider execution guards or expose a
-multiselect that the runtime cannot fulfill. The stored policy already supports
-up to 16 provider selections, `providerMaxParallel`, and `inlineMinAgreement`.
-Those facts belong to
-`packages/features/review-config/src/domain/review-policy-document.ts`; they do
-not by themselves establish multi-provider execution.
+The integrated implementation supports up to 16 Gateway reviewers, each with
+its own account, model, review settings and vote identity. The same roster editor
+serves workspace defaults and repository replacement; removing a repository
+override restores the complete workspace roster. Existing `providerMaxParallel`
+and `inlineMinAgreement` settings control concurrency and agreement.
 
-`apps/web/src/server/provider-setup-view.ts` currently projects the first
-selection. `apps/api/src/review-run-runtime-snapshot.ts` rejects more than one
-Gateway selection and mixed Gateway/direct transports. The direct API T0
-configuration also requires one provider, parallelism one, and agreement one
-in `provider-api-t0-configuration.ts`. Existing vote lanes and per-provider
-task identities can be reused, but snapshot, checkout, budget, cancellation,
-usage correlation, and publication need coordinated qualification.
+Reviewers that use the same authorized account share its captured finite
+allowance. Different account allocations retain independent limits. Required
+reviewer failures remain in coverage, and the run produces one aggregate
+GitHub App publication. The first captured reviewer supplies the existing
+PR-description and lifecycle verification tasks, using its saved model without
+promoting a sibling or choosing a fallback model.
 
-Planning ranges for changed or added lines, including integration code:
+The accepted [Gateway reviewers plan](../plans/2026-10-28-gateway-multi-reviewers.md)
+records the implementation, boundaries and qualification. The
+[deployment record](../deployments/2026-10-29-gateway-multi-reviewers.md) owns
+paired application/Action adoption and live verification; source support alone
+does not establish availability in an environment.
 
-| Deliverable                                       | Production/integration LOC | Tests/fixtures LOC | Scope                                                                                                                            |
-| ------------------------------------------------- | -------------------------: | -----------------: | -------------------------------------------------------------------------------------------------------------------------------- |
-| Several ReviewRouter/Gateway reviewers            |                2,000–3,500 |        2,000–3,500 | Selection/settings UI, plural runtime capture and grants, bounded parallel execution, partial outcomes and aggregate publication |
-| ReviewRouter plus GitHub Secrets/direct reviewers |                4,000–6,000 |        4,000–6,000 | The complete feature above plus deliberate evolution of the direct T0 and workflow contracts                                     |
-
-These are alternative total scopes, not additive estimates or measured diff
-sizes. Confidence is medium until the remaining runtime cardinality seams are
-checked. Release, deployment, compatibility rehearsal, and live qualification
-effort are outside LOC counts.
-
-The agreed behavior must cover a failed or timed-out required reviewer, whole
-run cancellation, independent account budgets, duplicate findings and agreement,
-and one idempotent App-authored publication. A missing reviewer must not silently
-reduce the agreement denominator or become a successful review. Two bindings
-using the same model still represent distinct reviewers.
-
-Cheap preparation in this delivery is limited to reusable per-provider catalog,
-storage, identity, and continuation functions. They are keyed by provider,
-account, and model; no global selected-model state or speculative orchestration
-framework is introduced.
+Mixed Gateway and GitHub Secrets/direct reviewers in one run remain a later
+stage. Existing singleton direct, GitHub Secrets and Hosted Pool routes retain
+their qualified contracts. The current transport eligibility checks reject
+unsupported mixed execution.
 
 ## Acceptance boundaries
 
