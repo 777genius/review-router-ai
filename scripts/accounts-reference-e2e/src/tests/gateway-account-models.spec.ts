@@ -166,6 +166,14 @@ test("dynamic Codex account models work in provider edit and add with exact bind
   await dialog
     .getByRole("button", { name: "Add provider", exact: true })
     .click();
+  const savedResult = dialog.getByRole("region", {
+    name: "Provider saved",
+    exact: true,
+  });
+  await expect(
+    savedResult.getByRole("heading", { name: "Provider saved", exact: true }),
+  ).toBeVisible();
+  await savedResult.getByRole("button", { name: "Done", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   expect(await profiles()).toEqual(
     expect.arrayContaining([
