@@ -1,15 +1,19 @@
 # Unified OCR: bounded completion plan
 
-Status: ready for implementation after three completed independent cross-critic
-rounds. Both final-round critics returned GO with no blocking findings. This
-records plan approval, not implementation or acceptance completion. The existing
+Status: three plan rounds with two critic roles are complete; implementation,
+main integration and canonical source handoff are committed in **S**
+`dccf5b628680bd7f3f8c9501e3108e432053495b`. Local controlled qualification is
+recorded in the [acceptance record](../operations/2026-10-27-unified-ocr-acceptance.md).
+Published current-main merge **M** is `841f44f0900409692559286cdbb00ac319a40664`.
+Final M/A CI remains pending. Source implementation review rounds and the final
+documentation critic recheck returned GO; both P2 wording findings are closed. The existing
 [product plan](2026-10-26-unified-ocr-review.md) remains
 the scope and behavior contract; this document closes the current integration
 and acceptance gaps. Root owns GitHub publication and the existing draft PRs
 [SaaS #718](https://github.com/777genius/review-router-ai/pull/718) and
 [Action #346](https://github.com/777genius/review-router/pull/346).
 
-## 1. Current observations and limits
+## 1. Initial observations and limits (historical planning input)
 
 - Inspected SaaS #718 at `5ef7c8d299e13a5f5c7cce339b0a696d24f52472`,
   against local main `89ce21c`. Main integration `bcebb274` is already in the
@@ -49,8 +53,10 @@ and acceptance gaps. Root owns GitHub publication and the existing draft PRs
   Build/hash the combined artifact before freezing SaaS **S** and update the
   fixture's exact identity first; preserve main's immutable catalog entry.
 
-These are source observations and reported failures, not newly passed checks.
-Live provider qualification still needs the owner's designated credentials.
+These were the inputs to the approved completion plan. Their integration and
+fixture repairs are now committed; current results and remaining gates are in
+the checkpoint and acceptance record. Live qualification still needs the owner's
+designated credentials.
 
 ## 2. Scope and invariants
 
@@ -286,8 +292,8 @@ Round 3 is complete. The Action critic returned GO after verifying the corrected
 round-1 finding history, artifact dependency order, fresh immutable catalog
 entry and composite memory preservation. The Acceptance critic returned GO
 after verifying all four packet points. Neither reported a blocking finding.
-All three required plan rounds are complete; root publishes the final reviewed
-plan before source implementation begins.
+All three required plan rounds are complete. Root published the approved plan
+in `e499e5ed7824afb687d43cc2d027512a7efa4264` before source implementation.
 
 Implementation review follows the tested final changes, with exact file/line
 findings and meaningful rechecks. Do not carry historical plan GO verdicts
@@ -295,7 +301,8 @@ forward as approval of this completion plan or its implementation.
 
 ## 8. Bounded delivery prerequisite: preserve the conversation contract
 
-Status: Action critic GO received; bounded canonical edits are approved.
+Status: Action critic GO preceded the bounded canonical edits, now included
+in committed **S**.
 This preserves a contract already imported by Action main; it does not import
 the separate memory/conversation product feature from draft SaaS
 [#734](https://github.com/777genius/review-router-ai/pull/734).
@@ -349,11 +356,106 @@ original millisecond maximum. Nested V2 model-dispatch deadlines retained the
 rounded value. The exact production fence recaptured against the persisted
 millisecond maximum and correctly rejected the different snapshot.
 
-Select the original transport-appropriate deadline before the first capture:
-Gateway keeps its existing whole-second bound; direct/native routes retain
-their existing millisecond maximum for both outer and nested capabilities.
-Do not weaken exact snapshot comparison, extend any deadline or allowance, or
-change restore identities. Add a nonzero-millisecond regression exercising
-actual production capture and admission recapture for Responses, native Codex
-and native Anthropic, then rerun the integrated route proofs. Root authorized
-this necessary E2E correction; include it in final implementation review.
+The correction in `b0239454bf5cad4ef61419d425f302efb231e244` selects the
+transport-appropriate deadline before the first capture: Gateway keeps its
+existing whole-second bound; direct/native routes retain their existing
+millisecond maximum for both outer and nested capabilities. Exact snapshot
+comparison, original deadlines/allowances and restore identities remain intact.
+A nonzero-millisecond regression exercises actual production capture/recapture
+for Responses, native Codex and native Anthropic; the integrated route proofs
+also passed in the 25-case source qualification. Root authorized this necessary
+E2E correction; it remains in the final implementation review scope.
+
+## 10. Implementation review and qualification checkpoint
+
+| Round | Review scope                                              | Recorded disposition                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Action/SaaS cross-review and acceptance fidelity          | Core source/transport/receipt boundaries accepted. P2: comparison witness opened before harness setup cleanup ownership; corrected in **S**, then comparison 1/1 passed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 2     | Default profile/readiness and committed artifact delivery | Acceptance **GO**: exact v5 defaults, finite routes, immutable pins versus Gateway channel and no new migration/framework. Action delivery P2: CI `npm ci` prepare rebuilt `dist` before the actual-artifact tests. Correction locally verified: restore tracked `dist` after install and assert entrypoint bytes against the Git HEAD blob; existing three cases passed again on committed runtime bytes, all ten runtime hashes unchanged. Corrected Action `cfe2b78...` / SaaS pin `ff033fd...` published; final CI pending. Source implementation reviews returned GO; documentation recheck returned GO, both P2 wording findings closed. |
+| 3     | Final pair after CI                                       | Source implementation and final documentation recheck GO; both P2 wording findings closed. Full published **M/A** CI remains pending.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+
+The plan's three rounds used two critic roles; implementation reviews above
+reuse the relevant roles and do not imply additional independent reviewers.
+Local qualification passed **25/25** (17 shared lifecycle cases, seven actual
+route runners and comparison), followed by the overlapping isolated cleanup
+rerun **1/1**. Actual Next **2/2** plus Sol visual GO, actual bundle **3/3** and
+separate official helper **1/1** retain their exact source/effect boundaries in
+the acceptance record. Failed ENOSPC evidence was preserved separately.
+
+Main integration, registry integration, source export and bundle regeneration
+are complete. The published pair is SaaS **M**
+`841f44f0900409692559286cdbb00ac319a40664` and Action **A**
+`cfe2b78fba925e3e7741d8c7f479324aa785d12b`; canonical source **S** is unchanged. The pending final CI/review gate is followed only by designated
+live credentials and separately authorized release/registration/environment
+verification. Optional memory/conversation still depends on #734 as described
+in section 8. No new migration or customer rollout framework was added.
+
+## 11. Current main join: test-only History source coverage
+
+Status: SaaS critic returned **GO** before the merge and **GO**, no findings,
+on the resolved shared harness. The earlier
+implementation/review GO scopes and 25-case qualification precede this join;
+the final critic must recheck the shared fixture after final CI.
+
+Current main is `8ea78b9df1398e64fce917eecdc18d95e52d9e9f` (PR #741,
+`408a1a7` and `8f9c7fd`), newer than the previously recorded main `89ce21c`.
+Its exact eight-file delta is:
+
+- `ai-docs/deployments/2026-10-28-review-history.md`
+- `ai-docs/plans/2026-10-28-review-history-reviews.md`
+- `scripts/review-action-v2-production-e2e/review-action-v2-production.e2e.test.ts`
+- `scripts/review-action-v2-production-e2e/support/fake-github.ts`
+- `scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness.ts`
+- `scripts/statistics-e2e/README.md`
+- `scripts/statistics-e2e/browser-qualify.ts`
+- `scripts/statistics-e2e/history-source.ts`
+
+The approved recipe merged current main into
+`ff033fd0056e84f522c2b62799a48c56e5613cbd` with
+`git merge --no-commit origin/main`, preserving the five dirty documentation
+records in place. Resolve only the shared harness conflict: retain the native
+Claude `subscriptionAuthMode` option/property/constructor forwarding and caller
+predicate together with main's opt-in `historyProfile` / `fixtureScope`, scoped
+fetch/cleanup ownership and dynamic source-run identity. Preserve both genuine
+History source-to-browser coverage and all seven OCR routes; no new framework,
+production behavior, migration or base/source rewrite is included.
+
+Before/after checks must preserve the five documentation contents, compare the
+existing protected runtime/canonical/wrapper hashes, and retain the exact Action
+pin `cfe2b78fba925e3e7741d8c7f479324aa785d12b`. Canonical export source **S**
+remains `dccf5b628680bd7f3f8c9501e3108e432053495b`: these eight test/docs files
+require neither a new export nor an Action rebuild.
+
+Run focused TypeScript/lint/format checks over the joined support and tests.
+If disk permits, run the existing paired comparison and the existing production
+harness cases for borrowed construction cleanup and two manual source runs.
+Do not rerun the full 25 cases under ENOSPC or claim this focused check reruns
+the browser matrix. Preserve earlier receipts and any new failures separately;
+existing final-pair CI must qualify the merged join. Root published the merge
+with parents `ff033fd...` and `8ea78b9...`; the implementation agent made no
+commit or push.
+
+### Observed join checks
+
+Published merge **M** `841f44f0900409692559286cdbb00ac319a40664` has parents
+`ff033fd...` / `8ea78b9...`.
+Only three append conflicts in the shared harness required resolution; both
+sides were retained. The merge contains exactly the eight main paths, no
+unmerged paths remain, the five dirty records were hash-identical through the
+merge, all 77
+protected files match and the A2 pin is unchanged. The SaaS critic independently
+rechecked the resolved diff, protected hashes, pin and exact staged scope: **GO**.
+
+Focused strict TypeScript, lint, formatting and staged/working whitespace checks
+passed. The selected existing PG cases passed **3/3** with **11 intentionally
+filtered cases**: comparison publication, failed borrowed History construction
+cleanup, and two genuine manual source runs through publication and reads.
+Receipt: `tmp/ocr-completion-checks/main741-focused-result.json`; 32.24 seconds.
+This is neither a new full 25-case run nor a browser rerun. Earlier review/25/UI
+receipts retain their pre-join scope. Final CI must qualify this merge descendant
+of **P** with the same **A/S**; no canonical export or Action rebuild is needed.
+
+The final documentation critic found P2 wording: ten generated runtime files
+were incorrectly described as ten committed `dist` files. The record now
+distinguishes all ten generated files from the seven tracked artifacts. The final critic recheck returned **GO**, with both P2 wording findings closed
+and no remaining findings. This adds no new test or CI result.

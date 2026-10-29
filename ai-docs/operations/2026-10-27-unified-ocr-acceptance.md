@@ -1,17 +1,101 @@
 # Unified OCR review: implementation and acceptance
 
-Status: implementation in paired draft PRs; synthetic external-boundary and real
-executable checks passed as described below. Live provider/GitHub qualification,
-release publication and production rollout are separate gates. The actual Next
-dashboard browser gate passed in CI for desktop and mobile. Its fresh PostgreSQL,
-full-page screenshots and browser results are recorded separately from the
-component checks and from the earlier unsuccessful local compilation attempts.
+Status updated 2026-10-29: both main integrations and the source/contract/bundle
+handoff are committed in the existing draft PRs. Local controlled qualification
+is green in the distinct scopes below. Full GitHub CI on published **M/A** remains **pending**. Source implementation
+reviews and the final documentation critic recheck returned GO; both P2 wording
+findings are closed. Live provider/GitHub
+qualification, release publication and deployment remain separate gates.
 
 - Control plane: <https://github.com/777genius/review-router-ai/pull/718>
 - Public Action: <https://github.com/777genius/review-router/pull/346>
-- [Implementation plan](../plans/2026-10-26-unified-ocr-review.md)
-- [Three rounds of plan criticism](../plans/2026-10-26-unified-ocr-review-reviews.md)
-- [Installed-runtime transition](../plans/2026-10-26-installed-runtime-transition.md)
+- [Current integration identities/status](2026-10-29-unified-ocr-integration-status.md)
+- [Completion plan and review record](../plans/2026-10-29-unified-ocr-completion.md)
+- [Original implementation plan](../plans/2026-10-26-unified-ocr-review.md)
+
+## Current candidate and qualification scopes
+
+Canonical export/wrapper source **S** is
+`dccf5b628680bd7f3f8c9501e3108e432053495b`; public Action **A** is
+`cfe2b78fba925e3e7741d8c7f479324aa785d12b`; SaaS Action-pin ancestor **P**
+is `ff033fd0056e84f522c2b62799a48c56e5613cbd`. Format-only descendant **F**
+`eb937dcc2c087f5115894b6279b9f2ab38049e83` preserved 77 protected runtime
+files byte-for-byte. **A** retains canonical provenance from **S**; neither
+**F** nor **P** is represented as a new export source.
+
+Published SaaS merge **M** `841f44f0900409692559286cdbb00ac319a40664` joins current main
+`8ea78b9...` through exactly eight test/docs paths. The shared harness retains both History source coverage and native OCR
+admission; resolved-diff review returned GO and all 77 protected files/Action pin
+remain unchanged. Focused types/lint/format and three selected existing PG cases
+passed, with 11 cases intentionally filtered. Earlier 25/UI results retain their
+pre-join scope; this is not another full matrix or browser pass. Final CI must
+qualify the merge descendant of **P** with unchanged **A/S**.
+
+| Check                                         | Observed result                          | Exact scope and limitation                                                                                                                                                                                                                                                                                                                                     |
+| --------------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Shared lifecycle and all finite runner routes | **24/24** in one serial run              | Original 18 cases retained: 17 shared protocol/fault cases plus the actual Gateway runner. Six additional actual runner cases cover OpenRouter, MiMo, Kimi, repository Codex, Hosted Codex and Claude.                                                                                                                                                         |
+| Three-head comparison publication             | **1/1** in that same run                 | Production signed writer witness, actual PostgreSQL history activation, App worker, receipts and one eligible resolution; no publication gate bypass. Together with the preceding row, this is **25/25**, 0 failures/skips, 246.97 seconds.                                                                                                                    |
+| Isolated reviewer P2 setup cleanup            | **1/1** subsequent comparison rerun      | Harness creation moved under cleanup ownership so setup failure closes the witness. This overlaps the comparison case; it is not a 26th unique test.                                                                                                                                                                                                           |
+| Actual Next and visual inspection             | **2/2**, six captures, **Sol visual GO** | Exact UI source `b0239454bf5cad4ef61419d425f302efb231e244`, desktop/mobile, both themes. Database was a schema-only restored checked source roster, not fresh-migration evidence. These UI files remain in **S**.                                                                                                                                              |
+| Actual production bundle                      | **3/3**                                  | Latest rerun executes committed `f0067f4...` `dist/index.js` bytes with a Git-HEAD-blob identity check: long/short/expired rotated auth, decrypted synthetic sealed writeback, no checkout/runner/model entry for insufficient lifetime. CI-only delivery correction leaves all ten runtime hashes unchanged. This overlaps the earlier pre-commit 3-case run. |
+| Official auth helper                          | **1/1**, separate earlier run            | Pinned official Codex 0.147.0 under the existing isolated loopback OAuth fixture; helper/bootstrap unchanged by final handoff. No model thread/turn, real subscription or full remote workflow proof.                                                                                                                                                          |
+| Final **M/A** GitHub CI                       | **Pending**                              | Local source, UI and executable receipts do not replace final-pair CI. Record the actual result before closing implementation acceptance.                                                                                                                                                                                                                      |
+
+Each of the seven real runner cases publishes findings on head A. Head B
+verifies two fixes, retains the active finding and unprovable finding, publishes
+a new issue and resolves only the eligible fixes. Discovery and the common
+verifier share the original route/model and durable allowance; completed replay
+restores the same authorization/execution/artifact without new provider or
+GitHub effects. Hosted checks its real native grant/request/effect ledgers,
+original account and zero failover. Gateway verifies a saved model outside the
+enrollment anchor. Provider, credential-session, GitHub and OIDC observations
+are controlled synthetic boundaries; the OCR executable, Git revisions,
+admission, database, verifier, worker and receipts are real implementations.
+
+The new routes exposed and qualified a production admission correction: ordinary
+native/direct deadlines retain their original millisecond maximum through the
+first capture and exact admission recapture; Gateway retains its existing
+whole-second bound. No deadline, allowance or identity was extended, and the
+snapshot equality fence remains strict.
+
+The first complete local attempt hit PostgreSQL ENOSPC during reset; its failed
+log/JSON were retained separately. After reproducible cache cleanup, the serial
+25-case retry above passed. Local receipt labels are
+`paired-completion-source-retry1-result.json` (SHA-256
+`d4e945adc190ec02c01b6d76dc626152a7cb64c6f172ce71ccebe8534a331a55`)
+and `paired-comparison-cleanup-result.json`. They are source qualification
+receipts, not hosted CI artifacts or deployment evidence.
+
+### Immutable combined OCR candidate
+
+- Profile/version: **`ocr-managed-v5` / `1.13.1-rr.6`**.
+- Binary SHA-256: `9dd5f115747d24100f0767133a3288d268f3bc399675f5b826e7a867d101ee5c`.
+- Pinned upstream: `8eb83340a487b1150af00701b94f01af97e4b4d6`; Go `1.26.10`;
+  12 patches combining native Anthropic and main's opaque-template substitution.
+- Patch-set SHA-256: `1580f482c7dba27c3a107d0e5d69bdd681cccc2b67d1e8ccd4af45d40b383d5b`.
+- Receipt: Action `tools/ocr/qualifications/unified-model-routes-v3.manifest`.
+- All ten generated runtime files matched across two builds, including the
+  seven tracked `dist` artifacts. `dist/index.js` SHA-256 is `7939391ea97c7d97dddc232c76e8c892e67937cb3b3bf144ce5db8f4ec375d21`.
+
+Earlier OCR profiles/manifests remain immutable. In particular, main's
+`ocr-managed-v4` / `rr.5` uses `9c666b25...`; the feature's earlier `rr.5` /
+`a7bed0...` candidate below is superseded, not a renamed release. Catalog
+append alone does not activate a producer: the qualified registered release's
+explicit route defaults select v5. Admission and readiness share that selector;
+older v3/v4 entries cannot qualify native `provider_api` routes.
+
+Three plan rounds with two critic roles are complete. Implementation round 1
+cross-review and acceptance-fidelity review closed the P2 setup-cleanup finding.
+Round 2 has acceptance default-profile/readiness GO. Action delivery review
+found and locally closed P2: CI install/prepare rebuilt `dist` before artifact
+smoke tests. Restore tracked `dist` after install and compare entrypoint bytes
+to Git HEAD before execution; the existing three cases passed again. Corrected **A** and published merge **M** retain unchanged runtime bytes.
+Source implementation review rounds and the final documentation recheck returned
+GO; both P2 wording findings are closed. Final M/A CI remains pending. Reviewer roles repeat across rounds.
+
+The remainder preserves earlier architectural explanations and historical
+receipts. Historical 18-case, old-pair CI and screenshot results do not prove
+final **M/A** acceptance.
 
 ## Result and architectural boundary
 
@@ -92,11 +176,11 @@ The first bootstrap PR does not falsely mark the new runtime installed. Final
 enablement requires confirmed native activation and removal of the bootstrap.
 No automatic PR merge or remote user migration was performed in this task.
 
-## Observed verification
+## Historical verification before the final integration
 
 Counts below describe distinct focused runs, not a sum of unique tests. Some
 regression suites overlap. Provider replies and GitHub operations are synthetic
-unless explicitly stated otherwise. The final paired run passed all 18 cases
+unless explicitly stated otherwise. The earlier paired run passed all 18 cases
 (17 protocol/integration cases plus one actual production-runner case), exit 0,
 no skips or failures, in 122.16 seconds; its 768 MiB worker did not increase the
 shared environment's OOM counters.
@@ -202,7 +286,7 @@ production runner): 2/2 passed. The fixture's synthetic source identity uses one
 run ID with attempts 1 and 2 and separate authorization/revision hashes; actual
 GitHub workflow triggering on the next push remains part of live qualification.
 
-### Reproducible OCR candidate
+### Historical OCR candidate (superseded by rr.6 above)
 
 - Version: `1.13.1-rr.5`
 - Upstream commit: `8eb83340a487b1150af00701b94f01af97e4b4d6`
@@ -216,7 +300,7 @@ historical callers are preserved. The separate official Codex auth-only executab
 qualification is recorded in the implementation plan; it did not start a model
 thread or turn.
 
-## Visual changes verified
+## Historical visual checks before the final integration
 
 Desktop 1440x1000 and mobile 390x844 were exercised in both themes, including
 current/update/unknown/pending/failed/migration and recovery states. The inspection
@@ -274,18 +358,28 @@ keep unification compatible with the separate `rr: deploy` workflow.
 
 ## Remaining final stage
 
-The exact-head full Next dashboard and paired repository CI gates are required;
-the draft PR checks record their latest results. Component checks and synthetic
-acceptance do not substitute for that integration verification.
+1. Complete and record existing GitHub CI on exact **M/A**. Source implementation
+   reviews and the final documentation recheck returned GO; both P2 wording
+   findings are closed. Neither source qualification
+   nor the pre-publication UI/bundle receipts replace this gate.
+2. With the owner's designated test credentials and disposable repository,
+   qualify live provider/subscription access, actual refresh/writeback, selected
+   models and protocol behavior, GitHub OIDC and App-authored publication /
+   follow-up resolution, including required interruption/recovery checks.
+3. Use the existing release/deployment process for immutable artifact publication,
+   registered producer/default profiles, actual schema reconciliation, compatible
+   API/worker/web delivery and real writer qualification/history activation.
+   There are no users; this completion added no migration or customer upgrade
+   framework. Any existing caller checks use the current normal setup/channel
+   contracts and do not authorize remote workflow changes.
 
-With user-provided designated test credentials and a disposable repository,
-qualify actual subscription access, token refresh/writeback, native headers and
-selected models for each offered connection. Exercise actual GitHub OIDC,
-App-authored comments, follow-up fixes, thread resolution, interruption/recovery
-and the two-PR credential-preserving installed-caller migration. Confirm the
-real deployment's signed writer-retirement evidence with `rr: deploy`, publish
-the reproducible runtime through the existing release process and update exact
-configured pins without retiring admitted overlap callers prematurely.
+Optional contextual memory and managed conversation require separately reviewed
+SaaS [#734](https://github.com/777genius/review-router-ai/pull/734) server/runtime
+and rollout. The preserved type-only companion does not qualify that feature;
+ordinary OCR does not depend on its interaction route. Keep strict parsing and
+unavailable-memory behavior until the actual pair is qualified.
 
-Draft implementation and synthetic acceptance do not imply a merge, release,
-production deployment, customer workflow mutation or completed live qualification.
+Staging and production remain pending in the
+[deployment record](../deployments/2026-10-29-unified-ocr.md). No live provider
+call, release/tag promotion, deployment, production history activation or
+customer workflow mutation is claimed.

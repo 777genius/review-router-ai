@@ -5,8 +5,11 @@
 Deliver one review scenario for the currently supported connection routes:
 prepared credentials/transport, OCR discovery, the shared previous-finding
 verifier, durable shared request allowance, and existing GitHub App publication.
-This record is not deployment authorization. The implementation remains in draft
-and has unresolved integration/acceptance gates.
+This record is not deployment authorization. Main integration, canonical source
+handoff and local controlled qualification are complete in draft PRs; final-pair
+GitHub CI on **M/A** remains pending. Source implementation reviews and the final
+documentation recheck returned GO; both P2 wording findings are closed. This task has not deployed
+an environment.
 
 Affected surfaces: API, worker, web, database, approved public Action runtime,
 managed OCR artifact, producer/profile registration, and installed callers.
@@ -15,10 +18,10 @@ Coordinate actual fleet changes and retirement evidence with the separate
 
 ## Environment status
 
-| Environment | Status    | Verified deployed version | Remaining work                                                                                                  |
-| ----------- | --------- | ------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Staging     | `pending` | Not recorded              | Finish implementation gates; reconcile actual fleet and schema; authorize and execute rollout; live acceptance. |
-| Production  | `pending` | Not recorded              | All applicable implementation, release, migration, fleet, caller-upgrade, history and live verification gates.  |
+| Environment | Status    | Verified deployed version | Remaining work                                                                                         |
+| ----------- | --------- | ------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Staging     | `pending` | Not recorded              | Final M/A CI; reconcile actual environment; authorized release/rollout and designated live acceptance. |
+| Production  | `pending` | Not recorded              | Final M/A CI; qualified immutable release/defaults; actual environment/history and live verification.  |
 
 No rollout was executed by this task. `pending` does not prove that an environment
 lacks a particular step: reconcile its actual state before acting. Do not copy a
@@ -35,19 +38,34 @@ staging status to production or treat CI as deployment evidence.
 - [Authoritative release process](../operations/07-environments-and-release-management.md)
 - [Review History activation](../operations/review-history.md)
 - [Review History deployment task](2026-10-28-review-history.md)
-- [New dispatch migration](../../packages/platform/db/prisma/migrations/000154_unified_model_dispatch/migration.sql)
+- [Existing dispatch migration](../../packages/platform/db/prisma/migrations/000154_unified_model_dispatch/migration.sql)
 
-Main's deployment registry is not yet integrated into this feature branch. Add
-this task to `ai-docs/deployments/README.md` when that integration is committed;
-preserve the existing Review History entry and its per-environment status.
+Main integration and this registry entry are already committed. Canonical
+source **S** is `dccf5b628680bd7f3f8c9501e3108e432053495b`. The published
+Action **A** is `cfe2b78fba925e3e7741d8c7f479324aa785d12b`; SaaS pin **P** is
+`ff033fd0056e84f522c2b62799a48c56e5613cbd`. Published merge **M** is
+`841f44f0900409692559286cdbb00ac319a40664`. Their validation state is recorded in the
+[current checkpoint](../operations/2026-10-29-unified-ocr-integration-status.md);
+final-pair CI on the current-main test/docs merge descendant is still pending.
+The join preserves **S/A**, all protected inputs and the Action pin; its bounded
+three-case source/comparison checks do not replace full CI. Local 25-case qualification, the isolated cleanup
+rerun, actual Next/visual review and executable proofs retain their separate
+scopes in the [acceptance record](../operations/2026-10-27-unified-ocr-acceptance.md).
+
+The owner confirms there are no users. Completion added no schema migration,
+backfill, customer upgrade framework or rollout coordinator. The existing
+156-entry migration inventory includes `000154_unified_model_dispatch`; reconcile
+actual environment state through the release process rather than inventing or
+reapplying a migration from a candidate count.
 
 ## Prerequisites
 
 The exact SaaS/Action pair must pass its complete CI, generated-contract and
 reproducible-bundle checks, adapter tests, disposable PostgreSQL acceptance,
-actual Next desktop/mobile checks, and managed OCR qualification. The temporary
-merged tree described in the checkpoint is not a release artifact. Do not derive
-production pins from an uncommitted candidate, a branch name, or a test fixture.
+actual Next desktop/mobile checks, and managed OCR qualification. The current
+candidate is committed; old temporary-tree and old-pair receipts
+remain historical. Final **P/A** CI is not replaced by those or by local counts.
+Do not derive production pins from a branch name or a test fixture.
 
 The owner will supply designated test credentials for final live acceptance.
 Real subscription OAuth refresh/writeback, provider behavior and billing, GitHub
@@ -68,8 +86,9 @@ do not invent environment-specific commands from this task file.
    Keep previous releases unchanged. Register the new qualified producer,
    transport capabilities, explicit default profiles and exact contract hashes.
    Never move an old immutable pin to new bytes.
-2. **Database before dependent code.** Apply the authorized compatible migration
-   sequence, including `000154_unified_model_dispatch`. Its SQL SHA-256 is
+2. **Database before dependent code.** Reconcile the existing authorized
+   migration sequence and apply only actually missing entries, including
+   `000154_unified_model_dispatch` where applicable. Its SQL SHA-256 is
    `0ecebe5d1437544b0be81e946731a8bde39d1d3eb51a3516b465014323c70884`.
    Verify the environment's complete actual migration inventory. The integration
    candidate has 156 entries; historical managed92/historical96 catalogs must
@@ -87,7 +106,7 @@ do not invent environment-specific commands from this task file.
    ABI and expected-current-SHA gates. Use the normal setup/update PR and exact
    merged-source verification for Secrets and Hosted callers. Preserve the
    credential namespace/generation and original Hosted binding. Backend rollout
-   alone does not update immutable customer Action pins. No automatic account,
+   alone does not change an immutable installed Action pin. No automatic account,
    model, engine or transport fallback is allowed.
 6. **New admissions.** Activate only the qualified route/profile combinations.
    Verify readiness from the confirmed installed runtime, not an unmerged setup
@@ -139,9 +158,27 @@ operation and verified readback, not a new identity. Reconcile recorded effects
 before retrying. Keep schema changes and interrupted-task evidence visible after
 rollback and update both this record and the deployment index.
 
+## Optional memory/conversation dependency
+
+The final export preserves Action main's canonical type-only conversation
+companion. Contextual memory and managed conversation require the separately
+reviewed server implementation and rollout from SaaS
+[#734](https://github.com/777genius/review-router-ai/pull/734). No such runtime,
+UI or migration is imported by this completion. Ordinary OCR can continue with
+memory unavailable; do not weaken strict parsing or claim a complete live
+memory/conversation pair from the type export or OCR qualification.
+
 ## Evidence log
 
-2026-10-29: task created; staging and production remain pending. No deployment,
-release promotion, live provider request, production history activation or
-customer workflow update was performed. Implementation checkpoint records the
-remaining Git integration and exact-pair acceptance work.
+2026-10-29: committed main integrations and source **S** replace the earlier
+pending integration checkpoint. Local controlled qualification passed 25/25;
+subsequent isolated setup-cleanup verification passed 1/1 overlapping comparison.
+Actual Next passed 2/2 with Sol visual GO; actual bundle tests passed 3/3 and the
+separate official auth-only helper passed 1/1. These scopes are documented in
+the acceptance record and are not summed into a unique-test count.
+
+Final M/A GitHub CI remains pending. Source implementation reviews and the final
+documentation recheck returned GO; both P2 wording findings are closed. Both staging
+and production remain pending. No deployment, release/tag promotion, live
+provider request, production history activation or external workflow update
+was performed by this task.
