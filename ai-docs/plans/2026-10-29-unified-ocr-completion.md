@@ -780,3 +780,89 @@ no migration, version, flag, runtime contract, release registration or rollout.
 | 1                  | **GO**, no P1/P2 findings.       | **GO**, no findings.             | Both critics confirmed the metadata404/pre-child cause, mixed-only qualified default and preserved four-scenario intent; no fixture edits.                       |
 | 2                  | **GO**, no findings.             | **GO**, no findings.             | Mixed-only v5 default, explicit Codex alternative, V4 authority/no borrowed V2 capability and synthetic proof boundary rechecked unchanged.                      |
 | 3                  | **GO**, no blockers or findings. | **GO**, no blockers or findings. | Final one-file scope, finite verification, unchanged S2/A3 and protected bytes, preserved failures and required CI rechecked; publish plan before fixture edits. |
+
+## 14. Mixed empty Skills capture alignment
+
+Status: **all three brief Action/Acceptance plan rounds GO; frozen for root publication before implementation**.
+
+F1 `fb2975ca53cef3df9ad36d949ad4586b5dd96026`
+[Source/Certification job 123620188505](https://github.com/777genius/review-router-ai/actions/runs/40922780536/job/123620188505)
+reported **43 passed / 1 failed / 0 skipped** in the six-file gate. The three
+original supplied-diff Gateway scenarios now pass. Only the strengthened
+mixed-engine case fails, at authorization before checkout/model work:
+`review_skills_capture_required`. Preserve that failed receipt; section 13's
+metadata repair and current qualified v5/default assertions remain intact.
+
+### Proven owner mismatch and delivery boundary
+
+The harness uses the actual `composeReviewActionV2ProductionRoutes`, which
+already instantiates `ProductionReviewSkillsSnapshot`, supplies the capture port,
+and installs its prelock/current-selection admission fence. This is not an
+omitted harness port. The production adapter calls the real Skills admission
+capture first, then returns `null` for an empty selection whenever any reviewer
+lacks Skills1. The authorization domain requires a non-null frozen capture
+whenever any V4 reviewer has Skills1. Legacy supplied-diff Codex plus qualified
+v5 therefore contradict those two predicates despite an authentic empty
+selection.
+
+Delivery is already child-scoped: `createReviewRunSkillsReader` requires the
+exact V4 reviewer selector, checks that selected profile's Skills1 capability,
+and returns only its authorization's base-bound frozen document. Action A3
+fetches for the first Skills-capable reviewer and permits a legacy child only
+when the shared capture is empty; it rejects nonempty delivery to that child.
+Keep those guards, the domain requirement, real capture, base SHA, locking,
+current authority and restore semantics unchanged. No fake empty document or
+capability downgrade is allowed.
+
+### Minimal implementation and regression scope
+
+Only three implementation/test files are owned after publication:
+
+1. `apps/api/src/review-run-skills-snapshot.ts`: align the existing capture
+   decision after real `admission.capture`. At least one Skills1 reviewer plus an
+   authentic **empty** selection uses the existing canonical capture builder.
+   A **nonempty** selection with any unsupported reviewer retains the existing
+   `skills_engine_unsupported` denial. No Skills1 reviewer plus empty selection
+   retains `null`; all-supporting behavior is unchanged. Change no port, stored
+   document format, domain invariant, reader, fence or policy authority.
+2. `apps/api/src/review-run-skills.postgres.test.ts`: extend the existing real-PG
+   owner case that captures Git roots and rejects unsupported producers. Keep
+   its current positive/negative checks; add mixed nonempty denial, then remove
+   the selected roots through the existing service and verify real mixed empty
+   capture is canonical/base-bound while legacy-only empty stays null. Use
+   existing helpers and the real capture owner; no mocked selection or new test
+   platform. The existing compiled mixed case verifies full authorization and
+   execution on the qualified v5 path.
+3. `apps/api/src/gateway-multi-reviewers-paired.e2e.test.ts`: register the existing
+   `registerReviewRunSkillsRoute(app, fixture.routes.reviewSkills!)`, exactly as
+   the passing lifecycle fixture does. This wires the real frozen reader for
+   the predictable post-checkout Skills request; it adds no fake capture, custom
+   port or new endpoint implementation. Preserve v5/default/no-V2-cap and every
+   existing model, allocation, allowance, child-isolation and App assertion.
+
+These are an intentional API adapter correction and its existing owner/paired
+regressions. Do not claim every production byte is unchanged. Before freezing,
+verify this owner is outside both the canonical generator/export source surface
+and the curated wrapper dependency surface; independently rehash the unchanged
+canonical64/root index, exact curated8, schema/SQL and previous protected packet.
+If that boundary does not hold, report it before any artifact/source movement.
+When it does hold, canonical export remains S2 and Action/pin remain A3; no
+re-export, wrapper rebuild or hash loop is needed. No Action source, profile
+version/capability, transport/auth union, migration, flag or rollout is added.
+
+### Finite verification and reviews
+
+Run scoped lint/format and meaningful existing owner/mixed regressions when the
+prepared environment is safe. The known local PG is unavailable and memory/disk
+pressure forbids starting a replacement stack; state any unrun local PG result
+explicitly and use the unchanged required hosted Skills-PG and six-file gates.
+Do not weaken or skip those gates. Root publishes the reviewed plan before code,
+then promptly commits/pushes the peer-reviewed coherent fix. Current CI/PR
+results qualify the final descendant; earlier 40/4 and 43/1 results remain
+failures. Live/provider/deployment and separate #734 boundaries do not change.
+
+| Skills-alignment round | Action critic                    | Acceptance critic                | Disposition                                                                                                                                       |
+| ---------------------- | -------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1                      | **GO**, no findings.             | **GO**, no findings.             | Both critics verified the actual production owner mismatch, authentic selection and unchanged authority/delivery guards; no implementation edits. |
+| 2                      | **GO**, no findings.             | **GO**, no findings.             | Real-PG empty/nonempty regression, three-file scope, existing reader route and explicit artifact boundary rechecked; no new delivery seam found.  |
+| 3                      | **GO**, no blockers or findings. | **GO**, no blockers or findings. | Final authentic capture/authority guards, three-file regressions and conditional artifact boundary rechecked; publish plan before implementation. |
