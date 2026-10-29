@@ -1,58 +1,105 @@
-# Temporary read-only recovery aid; remove before this draft is ready to merge.
-name: Unified OCR recovery snapshots
-
+# Temporary integration check; removed before completion of this draft.
+name: Unified OCR integration recovery
 on:
   push:
     branches: [feat/unified-ocr-review-20261026]
-    paths: [.github/workflows/unified-ocr-recovery-snapshot.yml]
-
+    paths:
+      - .github/workflows/unified-ocr-recovery-snapshot.yml
+      - .github/ocr-recovery/**
 permissions:
   contents: read
-
+concurrency:
+  group: unified-ocr-integration-recovery
+  cancel-in-progress: true
 jobs:
-  dependencies:
+  qualify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: postgresql://fixture_owner:synthetic-fixture-password@127.0.0.1:5432/review_router_test
+      NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          ref: 5551a572fce38aaa3453bbef1ff9af79d3c293de
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24.21.0
-      - name: Prepare locked dependency builds without credentials
+      - name: Integrate exact main with reviewed resolutions
         shell: bash
-        env:
-          DATABASE_URL: postgresql://fixture_owner:synthetic-fixture-password@127.0.0.1:5432/review_router_test
         run: |
           set -euo pipefail
+          git config user.name 777genius
+          git config user.email iliyazelenkog@gmail.com
+          test "$(git merge-base HEAD 5551a572fce38aaa3453bbef1ff9af79d3c293de)" = d3595c2e3e0b21ab539dea0fb7a06d35a4613faf
+          git merge --no-commit --no-ff 5551a572fce38aaa3453bbef1ff9af79d3c293de || test -n "$(git ls-files -u)"
+          python3 .github/ocr-recovery/merge-control.py
+          test -z "$(git ls-files -u)"
+      - name: Install the existing locked dependency graph
+        run: |
           npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
           node scripts/install-private-dependencies.mjs --frozen-lockfile
           pnpm compiler:prepare
           pnpm --filter @reviewrouter/platform-db db:generate
-          pnpm --dir scripts/accounts-reference-e2e install --frozen-lockfile
-      - name: Archive only dependency trees and the pinned Node toolchain
+      - name: Format only integration resolutions
+        shell: bash
+        run: |
+          pnpm exec prettier --write \
+            apps/api/src/review-action-v2-production-composition.ts \
+            apps/api/src/review-run-runtime-snapshot.ts \
+            apps/web/app/dashboard/repository-setup-optimistic-status.tsx \
+            apps/web/app/dashboard/repository-setup-progress-panel.tsx \
+            packages/features/review-run-control/src/domain/review-run-runtime-snapshot.ts \
+            packages/features/review-run-control/src/tests/review-agent-profile.test.ts \
+            packages/features/release-rollout/src/domain/release-migration-transition.test.ts \
+            scripts/check-architecture-boundaries.mjs scripts/check-architecture-boundaries.test.ts \
+            scripts/accounts-reference-e2e/src/contracts.ts scripts/accounts-reference-e2e/src/run.ts \
+            scripts/lib/render-schema-handoff-policy.mjs scripts/lib/render-schema-handoff-policy.test.ts \
+            scripts/lib/render-schema-handoff-transaction.test.ts scripts/lib/render-historical96-checkout.mjs \
+            scripts/lib/render-historical96-checkout.test.ts scripts/lib/provider-key-checkout-admission.test.ts \
+            scripts/codex-rotating-release-migration-workflow.test.ts \
+            scripts/rehearse-private-pg17-rollout.mjs scripts/rehearse-private-pg17-rollout.test.ts
+      - name: Preserve architecture and migration boundaries
+        run: pnpm architecture:check
+      - name: Rebuild existing runtime bundles
+        run: pnpm action:build
+      - name: Check integration types
+        run: |
+          pnpm --filter @reviewrouter/features-review-run-control typecheck
+          pnpm --filter @reviewrouter/features-action-control-plane typecheck
+          pnpm --filter @reviewrouter/api typecheck
+          pnpm --filter @reviewrouter/web typecheck
+      - name: Verify critical integration regressions
+        shell: bash
+        run: |
+          pnpm exec vitest run \
+            scripts/check-architecture-boundaries.test.ts \
+            packages/features/review-run-control/src/tests \
+            apps/api/src/review-run-runtime-snapshot.test.ts \
+            apps/web/app/dashboard/repository-setup-optimistic-status.test.tsx \
+            apps/web/app/dashboard/repository-setup-progress-panel.test.tsx \
+            packages/features/release-rollout/src/domain/release-migration-transition.test.ts \
+            scripts/codex-rotating-release-migration-workflow.test.ts \
+            scripts/lib/provider-key-checkout-admission.test.ts \
+            scripts/lib/render-historical96-checkout.test.ts \
+            scripts/lib/render-schema-handoff-policy.test.ts \
+            scripts/lib/render-schema-handoff-transaction.test.ts \
+            scripts/rehearse-private-pg17-rollout.test.ts \
+            --maxWorkers=2 --no-file-parallelism
+      - name: Record verified candidate source and tree
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/ocr-dependencies" "$RUNNER_TEMP/ocr-toolchain"
-          find . -type d -name node_modules -prune -print0 > "$RUNNER_TEMP/dependency-dirs"
-          tar --null -czf "$RUNNER_TEMP/ocr-dependencies/dependencies.tar.gz" -T "$RUNNER_TEMP/dependency-dirs"
-          cp pnpm-lock.yaml "$RUNNER_TEMP/ocr-dependencies/"
-          git rev-parse HEAD > "$RUNNER_TEMP/ocr-dependencies/revision.txt"
-          node_root=$(dirname "$(dirname "$(command -v node)")")
-          tar -czf "$RUNNER_TEMP/ocr-toolchain/node-toolchain.tar.gz" -C "$node_root" bin lib include share
-          node --version > "$RUNNER_TEMP/ocr-toolchain/version.txt"
+          git add --all
+          git diff --cached --check
+          mkdir -p "$RUNNER_TEMP/ocr-integration"
+          git write-tree > "$RUNNER_TEMP/ocr-integration/tree.txt"
+          git diff --cached --stat HEAD > "$RUNNER_TEMP/ocr-integration/changes.txt"
+          git diff --cached --binary HEAD > "$RUNNER_TEMP/ocr-integration/integration.patch"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: unified-ocr-offline-dependencies-${{ github.sha }}
-          path: ${{ runner.temp }}/ocr-dependencies/
-          retention-days: 1
-          if-no-files-found: error
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: unified-ocr-offline-toolchain-${{ github.sha }}
-          path: ${{ runner.temp }}/ocr-toolchain/
-          retention-days: 1
+          name: unified-ocr-integration-${{ github.sha }}
+          path: ${{ runner.temp }}/ocr-integration/
+          retention-days: 3
           if-no-files-found: error
