@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   providerApiAuthModes,
   providerApiDescriptors,
+  reviewerPlanDescriptorDigest,
   reviewModelDispatchContract,
   reviewModelDispatchDescriptorDigest,
   reviewModelTransportForAuthMode,
@@ -13,6 +14,7 @@ import {
   createCapturedReviewSkills,
 } from "@reviewrouter/shared/review-skills-contract";
 import { lifecycleVerificationDescriptorDigest } from "@reviewrouter/shared";
+import { contextToolsDescriptorDigest } from "@reviewrouter/features-review-context-tools";
 import { describe, expect, it } from "vitest";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import {
@@ -275,36 +277,260 @@ function readerFor(
   });
 }
 
+const unifiedDispatchProfile: ReviewModelDispatchProfileV2 = {
+  extensionId: reviewModelDispatchContract.extensionId,
+  descriptorDigest: reviewModelDispatchDescriptorDigest,
+  policyVersion: reviewModelDispatchContract.policyVersion,
+  transports: [
+    "account_gateway",
+    "runner_local_responses",
+    "runner_local_anthropic",
+    "hosted_pool",
+  ],
+  wireProtocols: ["openai-responses", "codex-responses", "anthropic-messages"],
+  defaultAgentProfileRefs: {
+    account_gateway: "ocr-unified",
+    runner_local_responses: "ocr-unified",
+    runner_local_anthropic: "ocr-unified",
+    hosted_pool: "ocr-unified",
+  },
+  limits: {
+    maxRequests: 32,
+    maxConcurrentRequests: 1,
+    maxRequestBytes: 16777216,
+    maxResponseBytes: 8388608,
+    maxOutputTokens: 32768,
+  },
+};
+
+describe("multi-reviewer immutable capture", () => {
+  function multiConfiguration(count = 2) {
+    const original = parseReviewConfigurationStrict(
+      JSON.parse(gatewayPolicyJson({})),
+    );
+    return parseReviewConfigurationStrict({
+      ...original,
+      providers: Array.from({ length: count }, (_, index) => ({
+        ...original.providers[0],
+        model: `mimo-model-${index}`,
+        reasoningEffort: index % 2 ? "low" : "high",
+        fastMode: index % 2 === 1,
+      })),
+      execution: {
+        ...original.execution,
+        providerLimit: count,
+        providerMaxParallel: Math.min(2, count),
+      },
+    });
+  }
+  function multiInput() {
+    const original = captureInput();
+    return {
+      ...original,
+      providerVoteLanes: [
+        {
+          providerKind: ReviewProviderKind.Codex,
+          providerVoteIdentityHash: "a".repeat(64),
+        },
+      ],
+      producerRelease: {
+        ...original.producerRelease,
+        reviewerPlanProfile: {
+          planVersion: 1 as const,
+          descriptorDigest: reviewerPlanDescriptorDigest,
+        },
+      },
+    };
+  }
+  it("captures two exact models/settings under one shared finite allocation", async () => {
+    const config = multiConfiguration();
+    const result = await snapshotSource().capture(
+      multiInput(),
+      readerFor(canonicalJson(config)),
+    );
+    if (!result || "captureDenied" in result || result.snapshotVersion !== 4)
+      throw new Error("v4_capture_required");
+    expect(result.reviewers.map((row) => row.requestedModel)).toEqual([
+      "mimo-model-0",
+      "mimo-model-1",
+    ]);
+    expect(result.reviewers.map((row) => row.reasoningEffort)).toEqual([
+      "high",
+      "low",
+    ]);
+    expect(result.reviewers.map((row) => row.fastMode)).toEqual([false, true]);
+    expect(new Set(result.reviewers.map((row) => row.reviewerId)).size).toBe(2);
+    expect(
+      new Set(result.reviewers.map((row) => row.providerVoteIdentityHash)).size,
+    ).toBe(2);
+    expect(result.allocations).toHaveLength(1);
+    expect(result.allocations[0]!.limits.requests).toBe(2);
+    expect(result.reviewers.every((row) => row.required)).toBe(true);
+
+    const qualified = multiInput();
+    const selectedRows = parseReviewConfigurationStrict({
+      ...config,
+      providers: [
+        {
+          ...config.providers[0],
+          agentProfileRef: "codex-default",
+          agenticContext: false,
+        },
+        config.providers[1],
+      ],
+    });
+    const selected = await snapshotSource().capture(
+      {
+        ...qualified,
+        providerVoteLanes: [
+          ...qualified.providerVoteLanes,
+          {
+            providerKind: ReviewProviderKind.Ocr,
+            providerVoteIdentityHash: "b".repeat(64),
+          },
+        ],
+        producerRelease: {
+          ...qualified.producerRelease,
+          modelDispatchProfile: unifiedDispatchProfile,
+          agentProfiles: parseReviewAgentProfiles([
+            codexDefaultProfile,
+            ocrProfile,
+            {
+              ...ocrProfile,
+              profileRef: "ocr-unified",
+              reviewSkillsVersion: 1,
+            },
+          ]),
+        },
+      },
+      readerFor(canonicalJson(selectedRows)),
+    );
+    expect(selected).toMatchObject({
+      snapshotVersion: 4,
+      reviewers: [
+        {
+          providerIndex: 0,
+          agenticContext: false,
+          agentProfile: { agentKind: "codex", profileRef: "codex-default" },
+          requestedModel: "mimo-model-0",
+        },
+        {
+          providerIndex: 1,
+          agenticContext: true,
+          agentProfile: { agentKind: "ocr", profileRef: "ocr-unified" },
+          requestedModel: "mimo-model-1",
+          reasoningEffort: "low",
+          fastMode: true,
+        },
+      ],
+      allocations: [{ limits: { requests: 2 } }],
+    });
+    expect(selected).not.toHaveProperty("modelDispatchCapability");
+    expect(
+      await snapshotSource().capture(
+        { ...multiInput(), producerRelease: captureInput().producerRelease },
+        readerFor(canonicalJson(config)),
+      ),
+    ).toBeNull();
+  });
+  it("accepts sixteen while rejecting a Default and explicit equivalent engine identity", async () => {
+    const maximum = await snapshotSource().capture(
+      multiInput(),
+      readerFor(canonicalJson(multiConfiguration(16))),
+    );
+    expect(
+      maximum &&
+        !("captureDenied" in maximum) &&
+        maximum.snapshotVersion === 4 &&
+        maximum.reviewers.length,
+    ).toBe(16);
+    const original = parseReviewConfigurationStrict(
+      JSON.parse(gatewayPolicyJson({})),
+    );
+    const duplicate = {
+      ...original,
+      providers: [
+        original.providers[0],
+        { ...original.providers[0], agentProfileRef: "codex-default" },
+      ],
+      execution: {
+        ...original.execution,
+        providerLimit: 2,
+        providerMaxParallel: 2,
+      },
+    };
+    expect(
+      await snapshotSource().capture(
+        multiInput(),
+        readerFor(canonicalJson(duplicate)),
+      ),
+    ).toBeNull();
+  });
+  it("captures shared tools for an eligible OCR beside Codex while preserving singleton incompatibility", async () => {
+    const config = multiConfiguration();
+    const withTools = parseReviewConfigurationStrict({
+      ...config,
+      providers: [
+        { ...config.providers[0], agentProfileRef: "approved-ocr" },
+        config.providers[1],
+      ],
+      contextTools: {
+        version: 1,
+        builtinTools: ["github.issue.read"],
+        mcp: [],
+      },
+    });
+    const original = multiInput();
+    const input = {
+      ...original,
+      identity: { ...original.identity, contextToolGithubSecrets: {} },
+      providerVoteLanes: [
+        ...original.providerVoteLanes,
+        {
+          providerKind: ReviewProviderKind.Ocr,
+          providerVoteIdentityHash: "b".repeat(64),
+        },
+      ],
+      producerRelease: {
+        ...original.producerRelease,
+        contextToolsProfile: {
+          extensionId: "context-tools.v1" as const,
+          descriptorDigest: contextToolsDescriptorDigest,
+        },
+      },
+    };
+    const result = await snapshotSource().capture(
+      input,
+      readerFor(canonicalJson(withTools)),
+    );
+    expect(result).toMatchObject({
+      snapshotVersion: 4,
+      contextToolsPlanCanonicalJson: expect.any(String),
+      reviewers: [
+        { agentProfile: { agentKind: "ocr" } },
+        { agentProfile: { agentKind: "codex" } },
+      ],
+    });
+    const onlyCodex = {
+      ...withTools,
+      providers: [{ ...config.providers[0] }],
+      execution: {
+        providerLimit: 1,
+        providerMaxParallel: 1,
+        inlineMinAgreement: 1,
+      },
+    };
+    expect(
+      await snapshotSource().capture(
+        input,
+        readerFor(canonicalJson(onlyCodex)),
+      ),
+    ).toEqual({ captureDenied: "agent_profile_incompatible" });
+  });
+});
+
 describe("one prepared route for discovery and verification", () => {
-  const profile: ReviewModelDispatchProfileV2 = {
-    extensionId: reviewModelDispatchContract.extensionId,
-    descriptorDigest: reviewModelDispatchDescriptorDigest,
-    policyVersion: reviewModelDispatchContract.policyVersion,
-    transports: [
-      "account_gateway",
-      "runner_local_responses",
-      "runner_local_anthropic",
-      "hosted_pool",
-    ],
-    wireProtocols: [
-      "openai-responses",
-      "codex-responses",
-      "anthropic-messages",
-    ],
-    defaultAgentProfileRefs: {
-      account_gateway: "ocr-unified",
-      runner_local_responses: "ocr-unified",
-      runner_local_anthropic: "ocr-unified",
-      hosted_pool: "ocr-unified",
-    },
-    limits: {
-      maxRequests: 32,
-      maxConcurrentRequests: 1,
-      maxRequestBytes: 16777216,
-      maxResponseBytes: 8388608,
-      maxOutputTokens: 32768,
-    },
-  };
+  const profile = unifiedDispatchProfile;
   const profiles = parseReviewAgentProfiles([
     directCodexProfile,
     ocrProfile,
@@ -1377,7 +1603,8 @@ describe("server scoped Gateway request ceilings", () => {
   }
   async function captured(s = source([rule]), input = captureInput()) {
     const result = await s.capture(input, readerFor(gatewayPolicyJson({})));
-    if (!result || "captureDenied" in result) throw new Error("capture failed");
+    if (!result || "captureDenied" in result || result.snapshotVersion !== 3)
+      throw new Error("capture failed");
     return result;
   }
   it("lowers only the exact server-scoped PR grant and ignores caller cap fields", async () => {
@@ -1633,7 +1860,11 @@ it.each(providerApiAuthModes)(
       ),
     ).toBe(false);
     // Legacy non-witness bytes remain parseable; they do not acquire new direct proof.
-    if (!original || "captureDenied" in original)
+    if (
+      !original ||
+      "captureDenied" in original ||
+      original.snapshotVersion !== 3
+    )
       throw new Error("fixture_capture_missing");
     const legacyAgent = { ...original.agent };
     delete legacyAgent.reviewSkillsVersion;

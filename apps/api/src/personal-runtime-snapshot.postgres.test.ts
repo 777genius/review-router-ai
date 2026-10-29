@@ -230,6 +230,8 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
             throw new Error(
               `personal_capture_denied:${captured.captureDenied}`,
             );
+          if (captured && captured.snapshotVersion !== 3)
+            throw new Error("legacy_fixture_snapshot_expected");
           return captured;
         };
         const live = (snapshot: ReviewRunRuntimeSnapshot) =>

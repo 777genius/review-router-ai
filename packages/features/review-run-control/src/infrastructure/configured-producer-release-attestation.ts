@@ -17,6 +17,7 @@ import {
 } from "../domain/review-run-control-types";
 import {
   createProducerRelease,
+  parseProducerReviewerPlanProfile,
   parseProducerPrDescriptionProfile,
   parseProducerLifecycleVerificationProfile,
   producerReleaseImmutableKey,
@@ -51,6 +52,13 @@ export class ConfiguredProducerReleaseAttestationRegistry implements ProducerRel
         actionCommitSha,
         Object.freeze({
           ...attestation,
+          ...(attestation.reviewerPlanProfile !== undefined
+            ? {
+                reviewerPlanProfile: parseProducerReviewerPlanProfile(
+                  attestation.reviewerPlanProfile,
+                ),
+              }
+            : {}),
           ...(attestation.contextToolsProfile !== undefined
             ? {
                 contextToolsProfile: parseProducerContextToolsProfile(
@@ -121,6 +129,9 @@ export class ConfiguredProducerReleaseAttestationRegistry implements ProducerRel
             reviewInvestigationProfile:
               configured.reviewInvestigationProfile ?? null,
             agentProfiles: configured.agentProfiles ?? null,
+            ...(configured.reviewerPlanProfile !== undefined
+              ? { reviewerPlanProfile: configured.reviewerPlanProfile }
+              : {}),
             ...(configured.contextToolsProfile !== undefined
               ? { contextToolsProfile: configured.contextToolsProfile }
               : {}),
@@ -208,6 +219,7 @@ function parseAttestation(value: unknown): TrustedProducerReleaseAttestation {
   ].sort();
   const actualKeys = Object.keys(value)
     .filter((key) => key !== "contextToolsProfile")
+    .filter((key) => key !== "reviewerPlanProfile")
     .filter((key) => key !== "prDescriptionProfile")
     .filter((key) => key !== "lifecycleVerificationProfile")
     .filter((key) => key !== "modelDispatchProfile")
@@ -263,6 +275,13 @@ function parseAttestation(value: unknown): TrustedProducerReleaseAttestation {
             ),
         }),
     producerReleaseId: requiredString(value.producerReleaseId),
+    ...("reviewerPlanProfile" in value
+      ? {
+          reviewerPlanProfile: parseProducerReviewerPlanProfile(
+            value.reviewerPlanProfile,
+          ),
+        }
+      : {}),
     ...("contextToolsProfile" in value
       ? {
           contextToolsProfile: parseProducerContextToolsProfile(
@@ -314,6 +333,8 @@ function parseAttestation(value: unknown): TrustedProducerReleaseAttestation {
 function assertAttestation(value: TrustedProducerReleaseAttestation): void {
   if (value.modelDispatchProfile != null)
     parseReviewModelDispatchProfileV2(value.modelDispatchProfile);
+  if (value.reviewerPlanProfile !== undefined)
+    parseProducerReviewerPlanProfile(value.reviewerPlanProfile);
   if (value.contextToolsProfile !== undefined)
     parseProducerContextToolsProfile(value.contextToolsProfile);
   if (value.lifecycleVerificationProfile != null)
@@ -375,6 +396,13 @@ function configuredReleaseKey(
   configured: TrustedProducerReleaseAttestation,
 ): string {
   return canonicalJson({
+    ...(configured.reviewerPlanProfile !== undefined
+      ? {
+          reviewerPlanProfile: parseProducerReviewerPlanProfile(
+            configured.reviewerPlanProfile,
+          ),
+        }
+      : {}),
     ...(configured.contextToolsProfile !== undefined
       ? {
           contextToolsProfile: parseProducerContextToolsProfile(

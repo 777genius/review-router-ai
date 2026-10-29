@@ -38,6 +38,8 @@ const requireSnapshot = (
 ) => {
   if (captured && "captureDenied" in captured)
     throw new Error(`snapshot_capture_denied:${captured.captureDenied}`);
+  if (captured && captured.snapshotVersion !== 3)
+    throw new Error("legacy_fixture_snapshot_expected");
   return captured;
 };
 

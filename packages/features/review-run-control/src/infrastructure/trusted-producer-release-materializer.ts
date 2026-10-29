@@ -113,6 +113,9 @@ export function createTrustedProducerReleaseMaterializer(input: {
             operationalSloProfileId: release.operationalSloProfileId,
             reviewInvestigationProfile: release.reviewInvestigationProfile,
             agentProfiles: release.agentProfiles ?? null,
+            ...(release.reviewerPlanProfile !== undefined
+              ? { reviewerPlanProfile: release.reviewerPlanProfile }
+              : {}),
             ...(release.contextToolsProfile !== undefined
               ? { contextToolsProfile: release.contextToolsProfile }
               : {}),

@@ -107,6 +107,7 @@ import {
   ReviewRunAuthorizationState,
   ReviewRunAuthorizationTokenResolutionStatus,
   canonicalJson,
+  parseReviewRunRuntimeSnapshot,
   type ReviewRunAuthorization,
   type ReviewRunAuthorizationQueryPort,
   type ReviewRunAuthorizationTokenResolution,
@@ -669,6 +670,7 @@ async function open(
       authorization,
       slot.providerKind,
       InvestigationRolloutCapability.Recording,
+      slot.providerVoteIdentityHash,
     );
   }
   await d.rollout.assertAllowed({
@@ -1246,6 +1248,7 @@ async function acquireInvestigationLease(
     authorization,
     providerKind,
     requiredCapability,
+    aggregate.providerVoteLaneId,
   );
   const turnAuthority = await verifyTurnCapability(request.turnCapability, d);
   requireTurnAuthority(turnAuthority, request, aggregate, authorization);
@@ -2049,6 +2052,7 @@ async function replay(
       authorization,
       targetSlot.providerKind,
       InvestigationRolloutCapability.CrossRevisionReplay,
+      targetSlot.providerVoteIdentityHash,
     );
   }
   await d.rollout.assertAllowed({
@@ -2198,6 +2202,7 @@ function assertInvestigationExtensionAuthorized(
   authorization: ReviewRunAuthorization,
   provider?: ReviewExecutionProviderKind,
   capability?: InvestigationRolloutCapability,
+  providerVoteIdentityHash?: string,
 ): void {
   if (
     provider === undefined &&
@@ -2213,6 +2218,9 @@ function assertInvestigationExtensionAuthorized(
       hasAuthorizedReviewInvestigationExtension(authorization, {
         providerKind: authorizedProvider,
         capability,
+        ...(providerVoteIdentityHash === undefined
+          ? {}
+          : { providerVoteIdentityHash }),
       })
     ) {
       return;
@@ -2246,6 +2254,16 @@ async function assertAggregateRollout(
       "work_slot_missing",
     );
   }
+  if (
+    parseReviewRunRuntimeSnapshot(authorization.runtimeSnapshotCanonicalJson)
+      ?.snapshotVersion === 4
+  )
+    assertInvestigationExtensionAuthorized(
+      authorization,
+      slot.providerKind,
+      capability,
+      slot.providerVoteIdentityHash,
+    );
   await d.rollout.assertAllowed({
     capability,
     target: rolloutTarget(authorization, slot.providerKind),

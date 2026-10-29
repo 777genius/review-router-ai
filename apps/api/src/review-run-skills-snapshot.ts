@@ -27,7 +27,11 @@ export class ProductionReviewSkillsSnapshot implements ReviewRunSkillsSnapshotPo
         repositoryConnectionId: input.identity.repositoryConnectionId,
         baseSha: input.identity.baseSha,
       });
-      if (input.agent?.reviewSkillsVersion !== 1) {
+      const agents = input.agents ?? (input.agent ? [input.agent] : []);
+      if (
+        !agents.length ||
+        agents.some((agent) => agent.reviewSkillsVersion !== 1)
+      ) {
         return selected.webSkills.length || selected.gitSources.length
           ? { captureDenied: "skills_engine_unsupported" }
           : { canonicalJson: null };

@@ -53,10 +53,11 @@ export function inspectRequiredWorkflowTransport(
   ) {
     const parsed = parseReviewConfigurationStrict(config);
     if (
-      parsed.providers.length !== 1 ||
-      parsed.providers[0]?.authMode !== "codex_account_gateway"
+      !parsed.providers.every(
+        (provider) => provider.authMode === "codex_account_gateway",
+      )
     ) {
-      throw new Error("account_gateway_single_provider_required");
+      throw new Error("account_gateway_mixed_transport_unsupported");
     }
     return "gateway";
   }

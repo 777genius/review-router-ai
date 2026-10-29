@@ -109,6 +109,9 @@ export function generateReleaseManifest(input) {
       : {
           lifecycleVerificationProfile: verified.lifecycleVerificationProfile,
         }),
+    ...(verified.reviewerPlanProfile === undefined
+      ? {}
+      : { reviewerPlanProfile: verified.reviewerPlanProfile }),
     ...(verified.contextToolsProfile === undefined
       ? {}
       : { contextToolsProfile: verified.contextToolsProfile }),

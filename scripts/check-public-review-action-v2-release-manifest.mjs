@@ -103,6 +103,9 @@ export function checkReleaseManifest(input) {
           lifecycleVerificationProfile:
             verifiedAction.lifecycleVerificationProfile,
         }),
+    ...(verifiedAction.reviewerPlanProfile === undefined
+      ? {}
+      : { reviewerPlanProfile: verifiedAction.reviewerPlanProfile }),
     ...(verifiedAction.contextToolsProfile === undefined
       ? {}
       : { contextToolsProfile: verifiedAction.contextToolsProfile }),

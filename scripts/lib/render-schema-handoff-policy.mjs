@@ -307,8 +307,8 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
   )
     fail("checkout_catalog");
   // Unified dispatch extends checkout-only review admission and receipt state.
-  // Bind both its exact SQL and complete checkout156 or historical checkout152; the immutable managed92
-  // transaction continues through the unchanged reviewed checkout151 boundary.
+  // Bind its exact SQL to combined checkout157, prior checkout156 or historical
+  // checkout152. The immutable managed92 transaction keeps its reviewed boundary.
   const unifiedModelDispatchMigration = catalog.find(
     (row) => row.migrationName === "000154_unified_model_dispatch",
   );
@@ -317,6 +317,7 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
       unifiedModelDispatchMigration.checksum !==
         "0ecebe5d1437544b0be81e946731a8bde39d1d3eb51a3516b465014323c70884" ||
       ![
+        "sha256:b632de30125258ef10541fa8c71301a6b5d1c9504bcca155c171374808ed01ba",
         "sha256:67de1583cf2ae194e7b6dd5cef021d08b60eb64988d516cb2adcbc2d01bbbda3",
         "sha256:f8bc4e6289b679d7f4142426e67e77ab347be8f8bed5937072ebc1ca54218fcc",
       ].includes(manifest(catalog))
@@ -324,6 +325,23 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
       fail("checkout_extension");
     return partitionRenderSchemaHandoffCheckout(
       catalog.filter((row) => row !== unifiedModelDispatchMigration),
+    );
+  }
+  // Per-run Gateway allocations are checkout-only. Admit the exact SQL and
+  // complete checkout156 before preserving the reviewed checkout155 boundary.
+  const gatewayAllocationsMigration = catalog.find(
+    (row) => row.migrationName === "000152_review_run_gateway_allocations",
+  );
+  if (gatewayAllocationsMigration) {
+    if (
+      gatewayAllocationsMigration.checksum !==
+        "013e9b1917940ed3a796f8df6fa85a0c9c0cc5a4e76a7b19841911f3ea24bd6d" ||
+      manifest(catalog) !==
+        "sha256:ef2c303008c8edac0df3372f725f374ba417042a6707daf25b69c87897bd1e38"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== gatewayAllocationsMigration),
     );
   }
   // Review history is checkout-only. Pin its SQL and the complete checkout155

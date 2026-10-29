@@ -101,8 +101,11 @@ describe("private runtime snapshot v3 codec", () => {
       },
     };
     expect(
-      parseReviewRunRuntimeSnapshot(canonicalJson({ ...snapshot, gateway }))
-        ?.gateway?.limits,
+      (
+        parseReviewRunRuntimeSnapshot(
+          canonicalJson({ ...snapshot, gateway }),
+        ) as import("../domain/review-run-runtime-snapshot").ReviewRunRuntimeSnapshotV3
+      )?.gateway?.limits,
     ).toEqual(gateway.limits);
     const { limits, ...withoutLimits } = gateway;
     expect(() =>
@@ -299,7 +302,9 @@ describe("lifecycle verifier captured authority", () => {
     ).toBe(lifecycleVerificationDescriptorDigest);
     const parsed = parseReviewRunRuntimeSnapshot(canonicalJson(current));
     expect(parsed?.lifecycleVerificationCapability).toEqual(capability);
-    expect(parsed?.gateway?.limits.requests).toBe(9);
+    expect(
+      parsed?.snapshotVersion === 3 && parsed.gateway?.limits.requests,
+    ).toBe(9);
   });
   it("rejects enabled capability forgery rather than dropping it", () => {
     for (const change of [

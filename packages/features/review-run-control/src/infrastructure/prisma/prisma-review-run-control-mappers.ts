@@ -17,6 +17,7 @@ import type {
 } from "../../domain/producer-release";
 import {
   parseProducerContextToolsProfile,
+  parseProducerReviewerPlanProfile,
   parseProducerPrDescriptionProfile,
   parseProducerLifecycleVerificationProfile,
   reviewInvestigationCapabilityV1,
@@ -76,6 +77,7 @@ export function producerReleaseToDomain(
     reviewInvestigationPolicyHash,
     agentProfilesJson,
     contextToolsProfile,
+    reviewerPlanProfile,
     prDescriptionProfile,
     lifecycleVerificationProfile,
     modelDispatchProfile,
@@ -83,6 +85,12 @@ export function producerReleaseToDomain(
   } = row;
   return {
     ...release,
+    ...(reviewerPlanProfile == null
+      ? {}
+      : {
+          reviewerPlanProfile:
+            parseProducerReviewerPlanProfile(reviewerPlanProfile),
+        }),
     ...(contextToolsProfile == null
       ? {}
       : {

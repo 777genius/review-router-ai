@@ -2592,6 +2592,7 @@ async function assertInvestigationShadowGatewayAllowed(input: {
     !hasAuthorizedReviewInvestigationExtension(authorization, {
       providerKind,
       capability,
+      providerVoteIdentityHash: slot.providerVoteIdentityHash,
     })
   ) {
     throw failure(

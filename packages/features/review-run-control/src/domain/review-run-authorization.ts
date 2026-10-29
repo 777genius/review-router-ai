@@ -17,6 +17,7 @@ import {
 } from "./review-run-control-types";
 import type { ReviewRunAuthorizationTokenAudience } from "./review-run-control-types";
 
+import { reviewAgentExecutionProviderKind } from "./review-agent-profile";
 import { parseReviewRunRuntimeSnapshot } from "./review-run-runtime-snapshot";
 import {
   canonicalReviewSkillsJson,
@@ -301,7 +302,13 @@ function assertAuthorizationCandidate(
     invalid("runtime_snapshot_deadline_mismatch");
   }
   const skillsJson = candidate.skillsSnapshotCanonicalJson ?? null;
-  if (runtime?.agent.reviewSkillsVersion === 1) {
+  const requiresSkills =
+    runtime?.snapshotVersion === 4
+      ? runtime.reviewers.some(
+          (reviewer) => reviewer.agentProfile.reviewSkillsVersion === 1,
+        )
+      : runtime?.agent.reviewSkillsVersion === 1;
+  if (requiresSkills) {
     if (skillsJson === null) invalid("review_skills_capture_required");
   } else if (skillsJson !== null) invalid("review_skills_capability_required");
   if (skillsJson !== null) {
@@ -314,7 +321,24 @@ function assertAuthorizationCandidate(
     )
       invalid("review_skills_capture_mismatch");
   }
-  normalizeProviderVoteLanes(candidate.providerVoteLanes);
+  const normalizedLanes = normalizeProviderVoteLanes(
+    candidate.providerVoteLanes,
+  );
+  if (runtime?.snapshotVersion === 4) {
+    const expected = normalizeProviderVoteLanes(
+      runtime.reviewers.map((reviewer) => ({
+        providerKind: reviewAgentExecutionProviderKind(reviewer.agentProfile),
+        providerVoteIdentityHash: reviewer.providerVoteIdentityHash,
+      })),
+    );
+    if (canonicalJson(normalizedLanes) !== canonicalJson(expected))
+      invalid("runtime_snapshot_vote_lanes_mismatch");
+  } else if (
+    new Set(normalizedLanes.map((lane) => lane.providerKind)).size !==
+    normalizedLanes.length
+  ) {
+    invalid("duplicate_provider_vote_lane");
+  }
   normalizeReviewInvestigationAuthorizationDescriptor(
     candidate.reviewInvestigationAuthorizationDescriptorCanonicalJson,
   );
@@ -474,11 +498,17 @@ function normalizeProviderVoteLanes(
         lane.providerVoteIdentityHash,
         "provider_vote_identity_hash",
       );
-      if (seenProviders.has(lane.providerKind)) {
+      if (seenProviders.has(lane.providerVoteIdentityHash)) {
         invalid("duplicate_provider_vote_lane");
       }
-      seenProviders.add(lane.providerKind);
+      seenProviders.add(lane.providerVoteIdentityHash);
       return { ...lane };
     })
-    .sort((left, right) => left.providerKind.localeCompare(right.providerKind));
+    .sort(
+      (left, right) =>
+        left.providerKind.localeCompare(right.providerKind) ||
+        left.providerVoteIdentityHash.localeCompare(
+          right.providerVoteIdentityHash,
+        ),
+    );
 }

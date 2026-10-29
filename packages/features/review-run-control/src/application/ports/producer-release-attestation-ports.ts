@@ -2,6 +2,7 @@ import type { ReviewModelDispatchProfileV2 } from "@reviewrouter/shared";
 import type { ReviewAgentProfile } from "../../domain/review-agent-profile";
 import type {
   ProducerRelease,
+  ProducerReviewerPlanProfile,
   ProducerContextToolsProfile,
   ProducerPrDescriptionProfile,
   ProducerLifecycleVerificationProfile,
@@ -13,6 +14,7 @@ import type {
 } from "../../domain/review-run-control-types";
 
 export type TrustedProducerReleaseAttestation = {
+  readonly reviewerPlanProfile?: ProducerReviewerPlanProfile;
   readonly contextToolsProfile?: ProducerContextToolsProfile;
   readonly producerReleaseId: string;
   readonly distributionKind: ProducerDistributionKind;

@@ -21,6 +21,8 @@ export type ProviderLineSummary = Readonly<{
   source: "repository" | "workspace" | "none" | "unreadable";
   /** `unreadable` only: whose document is in the retired format. */
   retiredScope?: "workspace" | "repository";
+  /** Complete ordered roster; profile retains the existing singleton adapter. */
+  profiles?: readonly ProviderLineSummary["profile"][];
   profile: Readonly<{
     label: string;
     model: string;
@@ -129,6 +131,29 @@ export function providerLineCopy(
   summary: ProviderLineSummary,
   target: ProviderSetupDialogProps["target"]["kind"],
 ): LineCopy {
+  const profiles =
+    summary.profiles ?? (summary.profile ? [summary.profile] : []);
+  if (profiles.length > 1) {
+    const names = profiles
+      .map((profile) =>
+        profile
+          ? `${profile.label} · ${profile.model}`
+          : "Reviewer unavailable",
+      )
+      .join("; ");
+    return {
+      title:
+        target === "workspace"
+          ? `Default reviewers (${profiles.length})`
+          : summary.source === "workspace"
+            ? `Using workspace reviewers (${profiles.length})`
+            : `Reviewers (${profiles.length})`,
+      short: `${profiles.length} reviewers`,
+      detail: names,
+      action: "Edit reviewers",
+      attention: profiles.some((profile) => profile === null),
+    };
+  }
   const { profile } = summary;
   const detail = profile
     ? `${sourceTitle(profile.credentialKind, profile.authMode)} · ${profile.model}`

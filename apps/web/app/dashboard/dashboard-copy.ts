@@ -475,6 +475,10 @@ export function dashboardErrorText(error: string): string {
       return "The new model does not support the reasoning or fast settings some repositories use with this provider.";
     case "review_provider_settings_incompatible":
       return "The reasoning or fast settings do not fit this provider's model. Choose the provider again and check its settings.";
+    case "review_inherited_execution_limits_incompatible":
+      return "A repository that inherits this roster requires more parallel reviewers or agreeing votes than the new roster provides. Lower that repository’s explicit limits, or keep more reviewers in the workspace roster.";
+    case "account_gateway_mixed_transport_unsupported":
+      return "Connected-account reviewers must use connected accounts throughout this roster. Choose a connected account for every reviewer.";
     case "review_execution_limits_incompatible":
       return "The saved parallel review or agreement limits name more providers than are selected. Choose the provider again in its provider dialog: that fits the limits to it.";
     case "provider_management_forbidden":

@@ -6,6 +6,7 @@ export * from "./domain/review-mutation-authority";
 export * from "./domain/review-mutation-authority-proof";
 export * from "./domain/review-run-authorization";
 export * from "./domain/review-run-runtime-snapshot";
+export * from "./domain/review-run-reviewer-identity";
 export * from "./application/ports/review-run-runtime-snapshot-port";
 export * from "./application/ports/review-run-gateway-execution-binding-port";
 export * from "./domain/review-safety-policy";

@@ -5,8 +5,8 @@ import type {
   AccountView,
 } from "./account-gateway-accounts";
 
-/** Display readiness only; server mutations recheck binding authority. */
-export function getReadyGatewayAccounts(
+/** Keep active bindings available for setup and catalog recovery, even without models. */
+export function getGatewaySetupAccounts(
   accounts: AccountsResult<AccountsPage> | undefined,
 ): AccountView[] {
   if (accounts?.status !== "ok") return [];
@@ -19,33 +19,49 @@ export function getReadyGatewayAccounts(
       page.profiles.some(
         (profile) =>
           profile.id === account.profileId &&
-          profile.availability !== "deployment_configuration_required" &&
-          profile.models.length > 0,
+          profile.protocol === "openai-responses" &&
+          profile.availability !== "deployment_configuration_required",
       ),
   );
+}
+
+/** Display readiness only; server mutations recheck binding and model authority. */
+export function getReadyGatewayAccounts(
+  accounts: AccountsResult<AccountsPage> | undefined,
+): AccountView[] {
+  if (accounts?.status !== "ok") return [];
+  return getGatewaySetupAccounts(accounts).filter((account) => {
+    const profile = accounts.value.profiles.find(
+      (candidate) => candidate.id === account.profileId,
+    );
+    return (account.modelCatalog?.models ?? profile?.models ?? []).length > 0;
+  });
 }
 
 export function isGatewayProviderSetupReady(
   config: ReviewConfiguration,
   accounts: AccountsResult<AccountsPage> | undefined,
 ): boolean {
-  const provider = config.providers[0];
-  if (
-    config.providers.length !== 1 ||
-    provider?.authMode !== "codex_account_gateway" ||
-    accounts?.status !== "ok"
-  ) {
-    return false;
-  }
-  return getReadyGatewayAccounts(accounts).some(
-    (account) =>
-      account.binding?.id === provider.gatewayBindingId &&
-      account.profileId === provider.gatewayProfileRef &&
-      accounts.value.profiles.some(
-        (profile) =>
-          profile.id === account.profileId &&
-          profile.models.includes(provider.model.trim()),
-      ),
+  if (config.providers.length === 0 || accounts?.status !== "ok") return false;
+  return config.providers.every(
+    (provider) =>
+      provider.authMode === "codex_account_gateway" &&
+      accounts.value.accounts.some((account) => {
+        const profile = accounts.value.profiles.find(
+          (row) => row.id === account.profileId,
+        );
+        const models = account.modelCatalog?.models ?? profile?.models ?? [];
+        return (
+          account.state === "active" &&
+          account.binding?.state === "active" &&
+          !account.binding.fencePending &&
+          account.binding.id === provider.gatewayBindingId &&
+          account.profileId === provider.gatewayProfileRef &&
+          profile?.protocol === "openai-responses" &&
+          profile.availability !== "deployment_configuration_required" &&
+          models.includes(provider.model.trim())
+        );
+      }),
   );
 }
 
