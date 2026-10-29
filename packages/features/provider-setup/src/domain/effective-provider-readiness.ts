@@ -27,6 +27,12 @@ export type ProviderSetupEvidence = Readonly<{
   updatedAt: Date;
 }>;
 
+/** Installed execution support, independent of credentials and stale health reports. */
+export type ReviewRuntimeCompatibility =
+  | "compatible"
+  | "update_required"
+  | "unknown";
+
 /**
  * Plain facts about one repository. Callers compose them from their own reads;
  * nothing here knows how a configuration, workflow or account is stored.
@@ -45,6 +51,7 @@ export type EffectiveProviderReadinessFacts = Readonly<{
    */
   requiredWorkflowRequirement: string | null;
   installedWorkflowRequirement: string | null;
+  runtimeCompatibility: ReviewRuntimeCompatibility;
   setupStatus: string;
   setupNeedsAttention: boolean;
   healthStatus: ProviderReadinessHealthStatus | undefined;
@@ -61,6 +68,7 @@ export type EffectiveProviderReadiness = Readonly<{
   healthStatus: ProviderReadinessHealthStatus | undefined;
   workflowCurrent: boolean;
   workflowUpdateRequired: boolean;
+  runtimeCompatibility: ReviewRuntimeCompatibility;
   step: RepositorySetupStepId;
 }>;
 
@@ -78,9 +86,10 @@ export function resolveEffectiveProviderReadiness(
   facts: EffectiveProviderReadinessFacts,
 ): EffectiveProviderReadiness {
   const workflowUpdateRequired =
-    facts.requiredWorkflowRequirement !== null &&
-    facts.installedWorkflowRequirement !== null &&
-    facts.requiredWorkflowRequirement !== facts.installedWorkflowRequirement;
+    facts.runtimeCompatibility === "update_required" ||
+    (facts.requiredWorkflowRequirement !== null &&
+      facts.installedWorkflowRequirement !== null &&
+      facts.requiredWorkflowRequirement !== facts.installedWorkflowRequirement);
   const gatewayProvider =
     facts.providers?.some(
       (provider) => provider.authMode === "codex_account_gateway",
@@ -96,7 +105,9 @@ export function resolveEffectiveProviderReadiness(
     providerSetupConfirmed: providerSetupConfirmedAt !== null,
   });
   const workflowCurrent =
-    !workflowUpdateRequired && workflowCurrentHealthStatuses.has(healthStatus);
+    facts.runtimeCompatibility === "compatible" &&
+    !workflowUpdateRequired &&
+    workflowCurrentHealthStatuses.has(healthStatus);
   const providerReady = gatewayProvider
     ? facts.gatewayAccountReady
     : facts.hostedSessionReady ||
@@ -109,12 +120,14 @@ export function resolveEffectiveProviderReadiness(
     healthStatus,
     workflowCurrent,
     workflowUpdateRequired,
+    runtimeCompatibility: facts.runtimeCompatibility,
     step: setupStep({
       setupStatus: facts.setupStatus,
       setupNeedsAttention: facts.setupNeedsAttention,
       healthStatus,
       workflowCurrent,
       workflowUpdateRequired,
+      runtimeCompatible: facts.runtimeCompatibility === "compatible",
       providerReady,
       gatewayAuthorizationPending:
         gatewayProvider && !facts.gatewayAuthorizationReady,
@@ -183,12 +196,14 @@ function setupStep(input: {
   readonly healthStatus: ProviderReadinessHealthStatus | undefined;
   readonly workflowCurrent: boolean;
   readonly workflowUpdateRequired: boolean;
+  readonly runtimeCompatible: boolean;
   readonly providerReady: boolean;
   readonly gatewayAuthorizationPending: boolean;
 }): RepositorySetupStepId {
   if (input.setupNeedsAttention) return "setup_pr";
   // A report from the previous workflow says nothing about the required one.
   if (
+    input.runtimeCompatible &&
     !input.workflowUpdateRequired &&
     (input.healthStatus === "healthy" ||
       (input.workflowCurrent && input.providerReady))

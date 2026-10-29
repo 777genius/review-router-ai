@@ -32,9 +32,12 @@ export class ProductionReviewSkillsSnapshot implements ReviewRunSkillsSnapshotPo
         !agents.length ||
         agents.some((agent) => agent.reviewSkillsVersion !== 1)
       ) {
-        return selected.webSkills.length || selected.gitSources.length
-          ? { captureDenied: "skills_engine_unsupported" }
-          : { canonicalJson: null };
+        if (selected.webSkills.length || selected.gitSources.length)
+          return { captureDenied: "skills_engine_unsupported" };
+        // A capable reviewer still requires the authentic empty capture. Legacy
+        // siblings cannot receive Skills, and nonempty mixed delivery stays denied.
+        if (!agents.some((agent) => agent.reviewSkillsVersion === 1))
+          return { canonicalJson: null };
       }
       return {
         canonicalJson: canonicalReviewSkillsJson(

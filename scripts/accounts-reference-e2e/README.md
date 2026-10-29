@@ -458,3 +458,32 @@ reported as an actual browser zoom test.
 
 These are controlled dependency and real application checks. They do not spend
 live provider quota or claim live provider availability or full review execution.
+
+## Installed review runtime readiness
+
+The runtime lane uses the same real Next app, generated session and disposable
+PostgreSQL fixture. It registers a synthetic producer with the current model
+dispatch contract, so the actual configured-release and database readers run:
+
+```bash
+ACCOUNTS_REFERENCE_E2E_GREP='review runtime readiness' \
+  node --import ./scripts/accounts-reference-e2e/node_modules/tsx/dist/loader.mjs \
+  scripts/accounts-reference-e2e/src/run.ts \
+  --repo-root "$PWD" --database-url "$ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL" \
+  --work-dir "$PWD/tmp/accounts-reference-e2e/runs/review-runtime" \
+  --review-runtime-fixture --catalog-fixture
+```
+
+It checks confirmed current, old immutable pin on the same transport, unknown
+pin, pending merge and failed setup states. Dashboard and the authenticated
+search route must agree on which repository is Ready; optimistic merge/provider
+events cannot promote unknown or stale runtime evidence. Existing Update setup
+and Verify setup controls remain distinct. The browser checks 1440px desktop and
+390px mobile, dark/light themes, no horizontal overflow, and the empty search
+state, saving screenshots under the run's `browser-artifacts/` directory.
+
+The catalog flag replaces only public catalog HTTP dependencies. No page or
+readiness API response is mocked, no real credentials are required, and no setup
+PR or external model request is sent. These checks do not attest an actual
+published caller, live provider/OAuth behavior, GitHub bot publication, or
+deployment fleet retirement; those remain separate final live gates.

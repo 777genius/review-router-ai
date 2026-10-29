@@ -215,6 +215,7 @@ export class ManageReviewRunAuthorizations {
     readonly verifiedIdentity: VerifiedScmRunIdentity;
     readonly modelTransport?: ReviewAgentProfile["modelTransports"][number];
     readonly providerApiAuthMode?: ProviderApiAuthMode;
+    readonly subscriptionAuthMode?: "claude-oauth";
     readonly producerReleaseId: string;
     readonly expectedBaseProducerRelease?: ProducerRelease;
     readonly protocolOfferHash: string;
@@ -280,8 +281,9 @@ export class ManageReviewRunAuthorizations {
       // snapshot AND lanes; current settings never re-select the engine.
       providerVoteLanes = original.providerVoteLanes;
     } else if (this.dependencies.runtimeSnapshots) {
-      // Signed capabilities encode whole seconds. Select the bounded deadline
-      // before capture so the frozen intent never promises a later instant.
+      // Gateway capabilities encode whole seconds; ordinary direct routes keep
+      // their millisecond maximum. Capture every nested capability with the
+      // same original deadline that the admission fence will recapture.
       const gatewayMaxExpiresAt = new Date(
         Math.floor(maxExpiresAt.getTime() / 1000) * 1000,
       );
@@ -291,12 +293,18 @@ export class ManageReviewRunAuthorizations {
         ...(input.providerApiAuthMode
           ? { providerApiAuthMode: input.providerApiAuthMode }
           : {}),
+        ...(input.subscriptionAuthMode
+          ? { subscriptionAuthMode: input.subscriptionAuthMode }
+          : {}),
         producerRelease: base.release,
         providerVoteLanes: input.providerVoteLanes,
         reviewInvestigationAuthorizationDescriptorCanonicalJson:
           input.reviewInvestigationAuthorizationDescriptorCanonicalJson ?? null,
         deadline:
-          gatewayMaxExpiresAt > now ? gatewayMaxExpiresAt : maxExpiresAt,
+          input.modelTransport === "account_gateway" &&
+          gatewayMaxExpiresAt > now
+            ? gatewayMaxExpiresAt
+            : maxExpiresAt,
       });
       if (captured === null)
         return denied(ReviewRunAuthorizationDenialReason.AdmissionFactsChanged);

@@ -70,6 +70,7 @@ export type ProvisionWorkflowInput = {
   readonly codexSessionMode?: "account-gateway";
   readonly mcpSecrets?: ReviewRouterMcpSecrets;
   readonly providerApiAuthMode?: ProviderApiAuthMode;
+  readonly subscriptionAuthMode?: "claude-oauth";
   readonly staticRuntimeEnv?: Readonly<Record<string, string>>;
   readonly workflowStyle?: ReviewRouterWorkflowStyle;
   readonly discussionMode?: ReviewRouterDiscussionMode;

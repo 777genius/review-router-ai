@@ -28,7 +28,10 @@ import {
 import { parseReviewRunRuntimeSnapshot } from "@reviewrouter/features-review-run-control";
 import {
   reviewerPlanDescriptorDigest,
+  reviewModelDispatchContract,
+  reviewModelDispatchDescriptorDigest,
   type ReviewAgentProfile,
+  type ReviewModelDispatchProfileV2,
 } from "@reviewrouter/shared";
 import {
   systemPolicyWriteFixture,
@@ -36,6 +39,7 @@ import {
 } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { registerReviewRunGatewayCheckoutRoute } from "./review-run-gateway-checkout";
 import { registerReviewRunGatewayRelayRoutes } from "./review-run-gateway-relay";
+import { registerReviewRunSkillsRoute } from "./review-run-skills";
 import { reviewActionV2ProviderVoteLanesEnv } from "./review-action-v2-production-composition";
 import {
   createReviewActionV2E2EHarness,
@@ -102,7 +106,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
         (profile) => profile.profileRef === "codex-default",
       )!;
       const approvedOcr = profiles.find(
-        (profile) => profile.profileRef === "ocr-managed-v2",
+        (profile) => profile.profileRef === "ocr-managed-v5",
       )!;
       const bin = path.join(root, "bin");
       await mkdir(bin);
@@ -134,6 +138,21 @@ const profileId = "openrouter-openai-responses-apikey-v1";
         outputBytes: 1048576,
         tokens: 16384,
       };
+      const modelDispatchProfile: ReviewModelDispatchProfileV2 = {
+        extensionId: reviewModelDispatchContract.extensionId,
+        descriptorDigest: reviewModelDispatchDescriptorDigest,
+        policyVersion: reviewModelDispatchContract.policyVersion,
+        transports: ["account_gateway"],
+        wireProtocols: ["openai-responses"],
+        defaultAgentProfileRefs: { account_gateway: approvedOcr.profileRef },
+        limits: {
+          maxRequests: limits.requests,
+          maxConcurrentRequests: 1,
+          maxRequestBytes: limits.requestBytes,
+          maxResponseBytes: limits.outputBytes,
+          maxOutputTokens: limits.tokens,
+        },
+      };
       fixture = await createReviewActionV2E2EHarness(databaseUrl!, {
         modelTransport: "account_gateway",
         repositoryProviderSelection: "none",
@@ -145,6 +164,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
           planVersion: 1,
           descriptorDigest: reviewerPlanDescriptorDigest,
         },
+        ...(mixed ? { modelDispatchProfile } : {}),
         gatewayFixtureOrigin: native.origin,
         environmentOverrides: {
           [reviewActionV2ProviderVoteLanesEnv]: JSON.stringify([
@@ -234,8 +254,8 @@ const profileId = "openrouter-openai-responses-apikey-v1";
           agenticContext: mixed && index === 1,
           fastMode: false,
           requiredHealthy: true,
-          ...(mixed && index === 1
-            ? { agentProfileRef: approvedOcr.profileRef }
+          ...(mixed && index === 0
+            ? { agentProfileRef: approved.profileRef }
             : {}),
           gatewayBindingId: bindings[sharedAllocation ? 0 : index]!.id,
           gatewayProfileRef: profileId,
@@ -387,6 +407,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
           },
         },
       });
+      await registerReviewRunSkillsRoute(app, fixture.routes.reviewSkills!);
       await registerReviewExecutionV2Routes(app, fixture.routes.execution);
       await registerReviewEvidenceV2Routes(app, fixture.routes.evidence);
       await registerReviewSnapshotReadV2Routes(app, fixture.routes.snapshot);
@@ -581,6 +602,26 @@ const profileId = "openrouter-openai-responses-apikey-v1";
       expect(snapshot?.snapshotVersion).toBe(4);
       if (snapshot?.snapshotVersion !== 4)
         throw new Error("captured_reviewer_snapshot_required");
+      expect(snapshot).not.toHaveProperty("modelDispatchCapability");
+      if (mixed)
+        expect(snapshot.reviewers).toMatchObject([
+          {
+            providerIndex: 0,
+            agenticContext: false,
+            agentProfile: {
+              agentKind: "codex",
+              profileRef: approved.profileRef,
+            },
+          },
+          {
+            providerIndex: 1,
+            agenticContext: true,
+            agentProfile: {
+              agentKind: "ocr",
+              profileRef: approvedOcr.profileRef,
+            },
+          },
+        ]);
       const executions = await prisma.reviewExecutionV2.findMany({
         where: { workspaceId },
       });

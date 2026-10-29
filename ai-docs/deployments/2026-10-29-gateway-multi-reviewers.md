@@ -25,7 +25,7 @@ This task records source implementation and local qualification. It does not
 claim a deployment or authorize workflow channel promotion. The separate
 account-catalog deployment is not included in this task.
 
-## Qualified source candidate
+## Original qualified source candidate
 
 The canonical SaaS source is
 `1a21c33f39ff42fa8c640d9cfd4980f8ff88f8e7`. It preserves the multi-reviewer
@@ -72,7 +72,7 @@ activation is included in this task.
 
 Hosted CI includes the five Docker-backed certified-fork PostgreSQL cases.
 The historical SQL079 producer fixture omits the later reviewer-plan field,
-and the current configuration fixture verifies all 156 migrations through152.
+and its original configuration fixture verified the then-current 156 migrations through152.
 Fresh PostgreSQL and compiled paired-E2E qualification remain required
 source-integration checks before selecting a release.
 
@@ -80,6 +80,25 @@ After merge, reconcile the actual merged source revisions and regenerate/verify
 the release manifest for the exact candidate chosen by the release procedure.
 A source candidate does not itself register a producer or change an installed
 workflow channel.
+
+## Current unified OCR integration
+
+Main `2c9310337a0f4820f6f5b2d74911e19bc06ff83d` adds the existing unified OCR
+implementation and migration154 to the preserved V4/migration152 source.
+The combined inventory has 157 migrations. Its exact paired Action is now
+`925df40c6c5806fe2b6673c5f807fdc6abf2fe40` (A4), selected by the maintained CI.
+The original candidate and counts above remain historical qualification for
+their own inputs. Qualify each selected integrated SaaS head with A4 and the
+manifest-verified managed OCR through the maintained paired/browser gates.
+
+Coordinate the [Unified OCR deployment task](2026-10-29-unified-ocr.md) and the
+[account-model completion](2026-10-28-model-catalog.md). Apply every missing
+required migration, including152/154, before starting dependent writers, while
+preserving installed history and original admitted-run authority. V4 reviewers
+retain their individual allocation and engine/model settings; they do not borrow
+a singleton V2 model-dispatch capability. Codex and OCR may be combined within
+a Gateway-only roster. Mixed Gateway/direct transport remains unsupported.
+No staging or production adoption is established by this source integration.
 
 ## Applicability and prerequisites
 
@@ -102,9 +121,9 @@ producer without the reviewer plan capability must never receive a V4 plan.
 ## Ordered rollout
 
 1. Take the usual verified database backup and complete the release migration
-   preflight. Apply the checked-in migration with the maintained release
-   migration path before starting code that writes child allocation rows. The
-   migration is additive; do not edit historical migration checksums.
+   preflight. Apply the missing checked-in migrations with the maintained release
+   migration path before starting dependent writers or child allocation rows. Preserve
+   historical migration checksums.
 2. Deploy the matching API and worker code. Verify V3 recovery and the new
    allocation attachment, epoch fencing and terminal cleanup read paths. Verify
    the existing consumer-control credential can read a preparation operation;
@@ -129,8 +148,10 @@ of scope. Do not enable it through an environment override or a legacy workflow.
   conflict that preserves the unsaved draft.
 - Verify one parent authorization, checkout, execution and aggregate GitHub App
   publication. Each model must retain its own reviewer/vote identity and settings.
-- Two models sharing an account must share the captured finite allowance. Two
-  independent account allocations may overlap within the configured global cap.
+- Reviewers with the same captured Gateway authority share its finite allowance,
+  including the account, exact binding, profile, authorization epoch and limits.
+  Different captured authorities retain separate allocations; their work may
+  overlap within the configured global cap.
 - Revoke or disable one connection after admission: its reviewer remains in
   coverage as unavailable while a healthy independent reviewer completes. The
   aggregate must remain incomplete when a required review failed.
@@ -151,8 +172,8 @@ fleet versions and any retained allocation cleanup rows. Retry the same
 captured preparation/cleanup identity using the maintained operation readback.
 Do not reset or reinsert immutable allocation rows to obtain fresh allowance.
 
-Follow the existing release rollback procedure. Preserve migration 152 and its
-retained cleanup evidence. Do not roll back to an API that cannot read active V4
+Follow the existing release rollback procedure. Preserve migrations152/154 and
+their retained allocation, model-dispatch and cleanup evidence. Do not roll back to an API that cannot read active V4
 snapshots: drain/complete those runs with the compatible API first, or roll
 forward to a corrected compatible build. An older Action does not support
 saved multi-reviewer execution; coordinate any producer rollback with explicit

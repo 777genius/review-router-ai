@@ -8,7 +8,13 @@ import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import {
   lifecycleVerificationContract,
   lifecycleVerificationDescriptorDigest,
-  type LifecycleVerificationCapabilityV1,
+  lifecycleVerificationContractV2,
+  lifecycleVerificationDescriptorDigestV2,
+  parseReviewModelDispatchProfileV2,
+  selectReviewModelRoutePolicy,
+  reviewModelDispatchContract,
+  type LifecycleVerificationCapability,
+  type ReviewModelDispatchCapabilityV2,
 } from "@reviewrouter/shared";
 import {
   captureContextToolsPlan,
@@ -51,6 +57,7 @@ import {
   reviewAgentExecutionProviderKind,
   parseReviewAgentProfiles,
   parseProducerContextToolsProfile,
+  selectModelDispatchReviewAgentProfile,
   selectReviewRunAgentProfile,
   readImplicitReviewAgentSelection,
   type ReviewRunAuthorizationCandidate,
@@ -64,12 +71,18 @@ import {
 } from "@reviewrouter/features-review-run-control";
 
 import { reviewRunGatewayMaxResponseBytes } from "./account-gateway-run-access";
+import {
+  captureOriginalHostedReviewBinding,
+  confirmOriginalHostedReviewBindingForCompletion,
+  type HostedReviewBindingReader,
+} from "./review-run-hosted-binding";
 
 type RuntimeReader = Pick<
   PrismaClient,
   "reviewConfiguration" | "workspaceProviderProfile" | "workspaceAccountBinding"
 > &
-  Partial<Pick<PrismaClient, "reviewContextConnection" | "producerRelease">>;
+  Partial<Pick<PrismaClient, "reviewContextConnection" | "producerRelease">> &
+  Partial<HostedReviewBindingReader>;
 
 // Exact profile identity is resolved against the admitted producer, never guessed.
 const defaultReviewAgentProfileRef = "ocr-managed-v2";
@@ -246,6 +259,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       readonly deadline: Date;
       readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
       readonly providerApiAuthMode?: ProviderApiAuthMode;
+      readonly subscriptionAuthMode?: "claude-oauth";
       readonly providerVoteLanes?: readonly ProviderVoteLane[];
       readonly reviewInvestigationAuthorizationDescriptorCanonicalJson?:
         | string
@@ -270,6 +284,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     };
     const modelTransport = input.modelTransport;
     const providerApiAuthMode = input.providerApiAuthMode;
+    const subscriptionAuthMode = input.subscriptionAuthMode;
     const deadline = new Date(input.deadline).toISOString();
     const producer = {
       producerReleaseId: input.producerRelease.producerReleaseId,
@@ -329,6 +344,15 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         return null;
       }
     }
+    if (
+      subscriptionAuthMode !== undefined &&
+      (subscriptionAuthMode !== "claude-oauth" ||
+        providerApiAuthMode !== undefined ||
+        modelTransport !== "provider_api" ||
+        configuration.providers.length !== 1 ||
+        configuration.providers[0]?.authMode !== "claude_code_oauth")
+    )
+      return null;
     const selectedProviders = configuration.providers
       .map((provider, providerIndex) => ({ provider, providerIndex }))
       .filter(({ provider }) => provider.authMode === "codex_account_gateway");
@@ -357,6 +381,28 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         ? selectedProviders[0]
         : selectedProviders.find((row) => row.providerIndex === reviewerIndex);
     if (reviewerIndex !== undefined && !selected) return null;
+    const modelDispatchProfile =
+      input.producerRelease.modelDispatchProfile == null
+        ? undefined
+        : parseReviewModelDispatchProfileV2(
+            input.producerRelease.modelDispatchProfile,
+          );
+    const preparedRoute = modelDispatchProfile
+      ? selectReviewModelRoutePolicy(
+          modelDispatchProfile,
+          reviewerIndex === undefined
+            ? configuration.providers
+            : [selected!.provider],
+        )
+      : undefined;
+    if (modelDispatchProfile && !preparedRoute)
+      return { captureDenied: "agent_profile_unavailable" };
+    if (
+      (subscriptionAuthMode !== undefined && !modelDispatchProfile) ||
+      (preparedRoute?.transport === "runner_local_anthropic" &&
+        subscriptionAuthMode !== "claude-oauth")
+    )
+      return { captureDenied: "agent_profile_unavailable" };
     // An explicit agentProfileRef is saved policy for Account Gateway rows only
     // and resolves ONLY against the exact producer's approved profiles. An
     // invalid/disabled/incompatible explicit ref is a configuration error with
@@ -377,31 +423,58 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       return null;
     let agent: ReviewAgentProfile;
     try {
-      agent = selectReviewRunAgentProfile({
-        profiles: agentProfiles,
-        modelTransport,
-        ...(explicitAgentProfileRef !== undefined
-          ? { explicitProfileRef: explicitAgentProfileRef }
-          : {}),
-        suppliedDiffOnly: selected?.provider.agenticContext === false,
-        defaultProfileRef: this.agentProfileRef,
-        preferSkillsProfile: this.preferSkillsProfile,
-        reviewSkillsDelivery: providerApiAuthMode !== undefined,
-      });
-    } catch {
-      return explicitAgentProfileRef !== undefined ||
+      agent = preparedRoute
+        ? selectModelDispatchReviewAgentProfile({
+            agentProfiles,
+            modelTransport,
+            preparedRouteDefaultRef: preparedRoute.defaultAgentProfileRef,
+            ...(explicitAgentProfileRef === undefined
+              ? {}
+              : { explicitAgentProfileRef }),
+            agenticContext: (selected?.provider ?? configuration.providers[0])!
+              .agenticContext,
+            reviewSkillsDelivery: reviewerIndex === undefined,
+          })
+        : selectReviewRunAgentProfile({
+            profiles: agentProfiles,
+            modelTransport,
+            ...(explicitAgentProfileRef !== undefined
+              ? { explicitProfileRef: explicitAgentProfileRef }
+              : {}),
+            suppliedDiffOnly: selected?.provider.agenticContext === false,
+            defaultProfileRef: this.agentProfileRef,
+            preferSkillsProfile: this.preferSkillsProfile,
+            reviewSkillsDelivery: providerApiAuthMode !== undefined,
+          });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "review_agent_profile_incompatible"
+      )
+        return { captureDenied: "agent_profile_incompatible" };
+      return preparedRoute !== undefined ||
+        explicitAgentProfileRef !== undefined ||
         modelTransport === "account_gateway"
         ? { captureDenied: "agent_profile_unavailable" }
         : null;
     }
     if (providerApiAuthMode !== undefined && agent.reviewSkillsVersion !== 1)
       return { captureDenied: "agent_profile_unavailable" };
+    // Native Messages is qualified only for OCR. Preserve an old/internal
+    // supplied-diff preference by rejecting the incompatible route, never by
+    // silently enabling context or running Codex with a different transport.
+    if (
+      preparedRoute?.transport === "runner_local_anthropic" &&
+      agent.agentKind !== "ocr"
+    )
+      return { captureDenied: "agent_profile_incompatible" };
     // The first OCR profile requires agenticContext=true (native context
     // tools); explicit OCR with agenticContext=false is an actionable
     // configuration error before any inference.
     if (
       agent.agentKind === "ocr" &&
-      selected?.provider.agenticContext === false
+      (selected?.provider ?? configuration.providers[0])?.agenticContext ===
+        false
     )
       return { captureDenied: "agent_profile_incompatible" };
     let contextToolsPlan: ContextToolsPlan | undefined;
@@ -482,11 +555,85 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         },
       };
     }
+    const hosted =
+      preparedRoute?.transport === "hosted_pool"
+        ? await captureOriginalHostedReviewBinding({
+            reader: reader as HostedReviewBindingReader,
+            identity,
+            configuration,
+            configurationVersion: current.version,
+            now: new Date(),
+          })
+        : undefined;
+    if (preparedRoute?.transport === "hosted_pool" && !hosted)
+      return { captureDenied: "agent_profile_unavailable" };
+    let modelDispatchCapability: ReviewModelDispatchCapabilityV2 | undefined;
+    if (modelDispatchProfile && preparedRoute && reviewerIndex === undefined) {
+      // The admission owns one exact model route, shared by all paid roles.
+      // Credential bytes remain with their existing adapter and never enter it.
+      modelDispatchCapability = {
+        ...modelDispatchProfile.limits,
+        maxRequests: Math.min(
+          modelDispatchProfile.limits.maxRequests,
+          gateway?.limits.requests ?? Infinity,
+        ),
+        maxRequestBytes: Math.min(
+          modelDispatchProfile.limits.maxRequestBytes,
+          gateway?.limits.requestBytes ?? Infinity,
+        ),
+        maxResponseBytes: Math.min(
+          modelDispatchProfile.limits.maxResponseBytes,
+          gateway?.limits.outputBytes ?? Infinity,
+        ),
+        maxOutputTokens: Math.min(
+          modelDispatchProfile.limits.maxOutputTokens,
+          gateway?.limits.tokens ?? Infinity,
+        ),
+        extensionId: reviewModelDispatchContract.extensionId,
+        version: 2,
+        routeIdentityHash: createHash("sha256")
+          .update(
+            canonicalJson({
+              version: 2,
+              producer,
+              effectivePolicyDigest: current.effectivePolicyDigest,
+              agentProfileDigest,
+              transport: preparedRoute.transport,
+              wireProtocol: preparedRoute.wireProtocol,
+              outputTokenLimit: preparedRoute.outputTokenLimit,
+              providerIndex: preparedRoute.providerIndex,
+              model: preparedRoute.model,
+              ...(preparedRoute.configuredModel
+                ? { configuredModel: preparedRoute.configuredModel }
+                : {}),
+              gateway,
+              ...(hosted ? { hosted } : {}),
+            }),
+          )
+          .digest("hex"),
+        transport: preparedRoute.transport,
+        wireProtocol: preparedRoute.wireProtocol,
+        outputTokenLimit: preparedRoute.outputTokenLimit,
+        providerIndex: preparedRoute.providerIndex,
+        model: preparedRoute.model,
+        ...(preparedRoute.configuredModel
+          ? { configuredModel: preparedRoute.configuredModel }
+          : {}),
+        deadline: hosted
+          ? new Date(
+              Math.min(
+                Date.parse(deadline),
+                Date.parse(hosted.expiresAt) - 60_000,
+              ),
+            ).toISOString()
+          : deadline,
+      };
+    }
     let lifecycleVerificationUnavailableReason: ReviewRunRuntimeSnapshot["lifecycleVerificationUnavailableReason"];
     if (input.producerRelease.lifecycleVerificationProfile != null)
       lifecycleVerificationUnavailableReason = "verification_unavailable";
     let lifecycleVerificationCapability:
-      | LifecycleVerificationCapabilityV1
+      | LifecycleVerificationCapability
       | undefined;
     if (
       input.producerRelease.lifecycleVerificationProfile != null &&
@@ -561,6 +708,69 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
           "verification_configuration_invalid";
       }
     }
+    if (modelDispatchCapability) {
+      const cap = modelDispatchCapability;
+      const qualified =
+        cap.transport === "account_gateway"
+          ? (this.qualifiedRelayPolicy?.profiles ?? []).filter(
+              (entry) =>
+                entry.profile.profileId === gateway!.profileRef &&
+                entry.profile.protocol === "openai-responses" &&
+                gatewayProfileAcceptsRequestedModel(entry.profile, cap.model),
+            )
+          : undefined;
+      // A new producer must qualify the selected native route. No verifier
+      // silently chooses another account, model or fallback protocol.
+      if (qualified && qualified.length !== 1) {
+        lifecycleVerificationCapability = undefined;
+        lifecycleVerificationUnavailableReason = "verification_unavailable";
+      } else {
+        const maxOutputTokens = Math.min(
+          lifecycleVerificationContract.maxOutputTokens,
+          cap.maxOutputTokens,
+          qualified?.[0]?.outputTokens ?? Infinity,
+        );
+        if (
+          maxOutputTokens <
+          lifecycleVerificationContract.minOutputTokensPerTarget
+        ) {
+          lifecycleVerificationCapability = undefined;
+          lifecycleVerificationUnavailableReason = "verification_unavailable";
+        } else {
+          lifecycleVerificationCapability = {
+            extensionId: lifecycleVerificationContractV2.extensionId,
+            descriptorDigest: lifecycleVerificationDescriptorDigestV2,
+            executor: lifecycleVerificationContract.executor,
+            version: 2,
+            modelTransport: cap.transport,
+            routeIdentityHash: cap.routeIdentityHash,
+            protocol: cap.wireProtocol,
+            providerIndex: cap.providerIndex,
+            providerKind: reviewAgentExecutionProviderKind(agent),
+            model: cap.model,
+            maxDispatches: lifecycleVerificationContract.maxPackets,
+            maxPromptBytes: Math.min(
+              lifecycleVerificationContract.maxPromptBytes,
+              cap.maxRequestBytes,
+              qualified ? this.qualifiedRelayPolicy!.ingressBytes : Infinity,
+            ),
+            maxResponseBytes: Math.min(
+              lifecycleVerificationContract.maxResponseBytes,
+              cap.maxResponseBytes,
+            ),
+            maxOutputTokens,
+            deadlineMs: Math.min(
+              lifecycleVerificationContract.deadlineMs,
+              qualified
+                ? this.qualifiedRelayPolicy!.requestTimeoutMs
+                : Infinity,
+            ),
+            attemptBudget: 1,
+          };
+          lifecycleVerificationUnavailableReason = undefined;
+        }
+      }
+    }
     try {
       return parseReviewRunRuntimeSnapshot(
         canonicalJson({
@@ -578,6 +788,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
           ...(lifecycleVerificationCapability
             ? { lifecycleVerificationCapability }
             : {}),
+          ...(modelDispatchCapability ? { modelDispatchCapability } : {}),
           ...(lifecycleVerificationUnavailableReason
             ? { lifecycleVerificationUnavailableReason }
             : {}),
@@ -596,6 +807,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
             : {}),
           deadline,
           gateway,
+          ...(hosted ? { hosted } : {}),
         }),
       );
     } catch {
@@ -894,6 +1106,18 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       );
     }
     if (gatewayProviders.length > 1) return false;
+    if (
+      snapshot.hosted &&
+      !(await confirmOriginalHostedReviewBindingForCompletion({
+        reader: reader as HostedReviewBindingReader,
+        identity,
+        configuration,
+        configurationVersion: snapshot.configurationVersion,
+        original: snapshot.hosted,
+        now: input.now,
+      }))
+    )
+      return false;
     const original = snapshot.gateway;
     if (!original) return gatewayProviders.length === 0;
     // A new lower ceiling revokes an over-budget old grant in exactly this scope.
@@ -1073,7 +1297,12 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     if (
       original.snapshotVersion === 3 &&
       !original.gateway &&
-      original.agent.reviewSkillsVersion === 1
+      original.agent.reviewSkillsVersion === 1 &&
+      (!original.modelDispatchCapability ||
+        providerApiModeForAuthMode(
+          JSON.parse(original.configurationCanonicalJson).providers[0]
+            ?.authMode ?? "",
+        ) !== undefined)
     ) {
       try {
         providerApiAuthMode = assertProviderApiDirectConfigurationSupported(
@@ -1095,6 +1324,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         contextToolsProfile: true,
         prDescriptionProfile: true,
         lifecycleVerificationProfile: true,
+        modelDispatchProfile: true,
         reviewerPlanProfile: true,
       },
     });
@@ -1169,11 +1399,22 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
           identity: candidate,
           modelTransport: original.gateway ? "account_gateway" : "provider_api",
           ...(providerApiAuthMode ? { providerApiAuthMode } : {}),
+          ...(original.modelDispatchCapability?.transport ===
+          "runner_local_anthropic"
+            ? { subscriptionAuthMode: "claude-oauth" as const }
+            : {}),
           deadline: candidate.maxExpiresAt,
           producerRelease: {
             producerReleaseId: producer.producerReleaseId,
             actionCommitSha: producer.actionCommitSha,
             runtimeCommitSha: producer.runtimeCommitSha,
+            ...(producer.modelDispatchProfile == null
+              ? {}
+              : {
+                  modelDispatchProfile: parseReviewModelDispatchProfileV2(
+                    producer.modelDispatchProfile,
+                  ),
+                }),
             ...(producer.contextToolsProfile == null
               ? {}
               : {

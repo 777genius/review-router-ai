@@ -378,13 +378,48 @@ Required full CI still applies to the published final head, including the comple
 paired compiled runtime lane. Local paired evidence covers controlled adapters;
 local qualification and a merge are not production adoption.
 
+### Unified OCR main integration: 2026-10-29
+
+Protected main advanced to `2c9310337a0f4820f6f5b2d74911e19bc06ff83d` through
+[PR #718](https://github.com/777genius/review-router-ai/pull/718). This integration
+retains its exact paired Action `925df40c6c5806fe2b6673c5f807fdc6abf2fe40` (A4)
+and manifest-verified managed OCR `ocr-managed-v5` / `1.13.1-rr.6`. The earlier
+Action99776cd and ADA browser receipts retain their original source scope.
+The canonical public handoff remains bound to S2
+`8080881802d87f3bf700b15faa7cebb02f54ee9b`; integrating this successor does not
+create a second canonical export or establish release/producer authority.
+
+The shared SDK predicate remains in both legacy and V2 prepared-route lifecycle
+qualification. Exact account/model authorization remains at dispatch. V4 reviewer
+children keep their captured allocation and invocation authority without borrowing
+a singleton V2 model-dispatch capability. Qualified Codex and OCR reviewers can
+share a Gateway-only roster; mixed Gateway/direct transport remains unsupported.
+
+The integrated source contains 157 existing migrations, including unchanged
+`000152_review_run_gateway_allocations` and `000154_unified_model_dispatch`.
+Reconcile the actual installed schema and apply missing required migrations
+before dependent writers, coordinating the
+[Unified OCR rollout](2026-10-29-unified-ocr.md). No new migration or backfill is
+introduced by this integration.
+
+Focused checks on the merged source passed 212 API tests across five suites,
+58 Web tests across six suites and the browser harness typecheck. Independent
+cross-reviews preserved the resolved API and Web boundaries and all old browser
+assertions. Fresh integrated-source qualification still requires the complete CI,
+all six maintained paired suites against A4 and the pinned OCR executable,
+and 40 browser cases: the existing 38 plus two actual Next runtime-readiness
+cases. The Skills workflow verifies exact candidate HEAD; Unified OCR verifies
+the actual GitHub PR merge SHA/tree. Record those identities separately.
+These source checks do not change any environment's deployment status.
+
 ### Remaining sequence and completion evidence
 
 1. Complete focused source checks, exact-head required CI and independent review.
 2. Reconcile installed production source, existing producer registrations and the
    retained Action219 operator receipts. Qualify a complete application/Action
-   release for the integrated source, including the applicable migration152 and
-   [multi-reviewer rollout](2026-10-29-gateway-multi-reviewers.md). The compatible
+   release for the integrated source, including the applicable migrations152/154,
+   [multi-reviewer rollout](2026-10-29-gateway-multi-reviewers.md) and
+   [Unified OCR rollout](2026-10-29-unified-ocr.md). The compatible
    Action-only220 hotfix procedure for the old installed image does not qualify
    this newer application rollout. Preserve old producers and admitted runs;
    perform no repeated historical migration or History activation.

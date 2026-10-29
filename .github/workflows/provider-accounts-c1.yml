@@ -7,6 +7,8 @@ on:
       - packages/features/auth/**
       - packages/platform/db/**
       - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - scripts/install-private-dependencies.mjs
       - .github/workflows/provider-accounts-c1.yml
   push:
     branches: [main]
@@ -15,6 +17,8 @@ on:
       - packages/features/auth/**
       - packages/platform/db/**
       - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - scripts/install-private-dependencies.mjs
       - .github/workflows/provider-accounts-c1.yml
 
 permissions:
@@ -57,7 +61,7 @@ jobs:
       - name: Install pinned dependencies
         run: |
           npm install --global pnpm@11.28.7
-          pnpm install --frozen-lockfile --ignore-scripts
+          node scripts/install-private-dependencies.mjs --frozen-lockfile
       - name: Prepare pinned native TypeScript compiler
         run: pnpm compiler:prepare
       - name: Generate and validate actual Prisma schema
