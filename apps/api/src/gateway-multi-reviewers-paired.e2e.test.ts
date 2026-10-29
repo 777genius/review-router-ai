@@ -39,6 +39,7 @@ import {
 } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { registerReviewRunGatewayCheckoutRoute } from "./review-run-gateway-checkout";
 import { registerReviewRunGatewayRelayRoutes } from "./review-run-gateway-relay";
+import { registerReviewRunSkillsRoute } from "./review-run-skills";
 import { reviewActionV2ProviderVoteLanesEnv } from "./review-action-v2-production-composition";
 import {
   createReviewActionV2E2EHarness,
@@ -401,6 +402,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
           },
         },
       });
+      await registerReviewRunSkillsRoute(app, fixture.routes.reviewSkills!);
       await registerReviewExecutionV2Routes(app, fixture.routes.execution);
       await registerReviewEvidenceV2Routes(app, fixture.routes.evidence);
       await registerReviewSnapshotReadV2Routes(app, fixture.routes.snapshot);
