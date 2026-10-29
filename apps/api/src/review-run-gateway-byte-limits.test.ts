@@ -678,6 +678,7 @@ async function fixture(
   };
   const nativeExecutions = new Map<string, "active" | "closed">();
   const nativeCloses: string[] = [];
+  const nativeCloseReasons: c.Close["reason"][] = [];
   let closeState: "applied" | "unknown" = "applied";
   let closeGate: Promise<void> | undefined;
   let closeStarted: (() => void) | undefined;
@@ -824,6 +825,7 @@ async function fixture(
     }
     if (execution?.[2] === "close") {
       nativeCloses.push(execution[1]!);
+      nativeCloseReasons.push(JSON.parse(raw).reason);
       closeStarted?.();
       await closeGate;
       if (closeState === "applied")
@@ -901,6 +903,10 @@ async function fixture(
         if (current !== ReviewRunAuthorizationState.Active && current !== state)
           throw Error("authorization_terminal_state_conflict");
         revoked.add(authorizationId);
+        overrides.set(authorizationId, {
+          ...overrides.get(authorizationId),
+          state,
+        });
         return {} as never;
       },
     },
@@ -948,6 +954,7 @@ async function fixture(
   return {
     preparation,
     relay,
+    authorizations: relayInput.authorizations,
     restartRelay: (maxSessions = relayInput.policy.maxSessions) =>
       createReviewRunGatewayRelay({
         ...relayInput,
@@ -963,6 +970,7 @@ async function fixture(
     authorityChecks,
     nativeExecutions,
     nativeCloses,
+    nativeCloseReasons,
     operations,
     operationReads,
     revokedAllocations,
@@ -1116,7 +1124,11 @@ it("admits a new run after four streamed runs are externally revoked and nativel
   }
 });
 
-async function streamRun(f: Awaited<ReturnType<typeof fixture>>, id: string) {
+async function streamRun(
+  f: Awaited<ReturnType<typeof fixture>>,
+  id: string,
+  reviewerId?: string,
+) {
   const body = new TextEncoder().encode(
     JSON.stringify({
       model: "gpt-5.6-sol",
@@ -1125,7 +1137,14 @@ async function streamRun(f: Awaited<ReturnType<typeof fixture>>, id: string) {
       max_output_tokens: 32768,
     }),
   );
-  const response = await f.relay.responses(id, body, new AbortController());
+  const response = await f.relay.responses(
+    id,
+    body,
+    new AbortController(),
+    undefined,
+    undefined,
+    reviewerId,
+  );
   if (response.kind !== "stream") throw Error("expected_stream");
   for await (const _chunk of response.body) {
     expect(_chunk.byteLength).toBeGreaterThan(0);
@@ -1376,6 +1395,139 @@ it("does not wait for an already pending explicit close under capacity pressure"
   }
 });
 
+it("legacy completed close revokes the parent and denies further requests", async () => {
+  const f = await fixture(MiB);
+  try {
+    await streamRun(f, "authorization-1");
+    await expect(
+      f.relay.closeRun("authorization-1", "completed"),
+    ).resolves.toMatchObject({ state: "applied" });
+    expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Revoked);
+    await expect(streamRun(f, "authorization-1")).rejects.toMatchObject({
+      code: "authorization_denied",
+      statusCode: 401,
+    });
+    expect(f.nativeCloses).toHaveLength(1);
+    expect(f.nativeCloseReasons).toEqual(["completed"]);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it.each([
+  { writeFails: false, independentAllocations: false },
+  { writeFails: true, independentAllocations: false },
+  { writeFails: true, independentAllocations: true },
+])(
+  "aborts local work before authority settles: failure=$writeFails, independent=$independentAllocations",
+  async ({ writeFails, independentAllocations }) => {
+    const finishStream = deferred();
+    const persist = deferred();
+    const f = await fixture(
+      MiB,
+      0,
+      2,
+      5000,
+      async (upstream) => {
+        upstream.write(": bounded progress\n\n");
+        await finishStream.promise;
+        upstream.end();
+      },
+      undefined,
+      9,
+      undefined,
+      false,
+      independentAllocations
+        ? { models: ["gpt-5.6-sol", "gpt-5.5"], independentAllocations: true }
+        : undefined,
+    );
+    const reviewerId = independentAllocations ? "reviewer-0" : undefined;
+    const originalRevoke =
+      f.authorizations.expireOrRevokeReviewRunAuthorization;
+    const revoke = vi
+      .spyOn(f.authorizations, "expireOrRevokeReviewRunAuthorization")
+      .mockImplementationOnce(async (input) => {
+        await persist.promise;
+        if (writeFails) throw new Error("authority_write_failed");
+        return originalRevoke(input);
+      });
+    const controller = new AbortController();
+    let response: Awaited<ReturnType<typeof f.relay.responses>> | undefined;
+    let closing: ReturnType<typeof f.relay.closeRun> | undefined;
+    try {
+      response = await f.relay.responses(
+        "authorization-1",
+        Buffer.from("{}"),
+        controller,
+        undefined,
+        undefined,
+        reviewerId,
+      );
+      expect(response.kind).toBe("stream");
+      closing = f.relay.closeRun("authorization-1", "cancelled");
+      void closing.catch(() => undefined);
+      expect(controller.signal.aborted).toBe(true);
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+      await expect(
+        streamRun(f, "authorization-1", reviewerId),
+      ).rejects.toMatchObject({
+        code: "authorization_denied",
+        statusCode: 401,
+      });
+      expect(f.admissions).toHaveLength(1);
+      expect(f.nativeCloses).toHaveLength(0);
+      persist.resolve();
+      if (writeFails) {
+        await expect(closing).rejects.toThrow("authority_write_failed");
+        expect(f.authorization().state).toBe(
+          ReviewRunAuthorizationState.Active,
+        );
+        for (const deniedReviewer of independentAllocations
+          ? ["reviewer-0", "reviewer-1"]
+          : [undefined])
+          await expect(
+            streamRun(f, "authorization-1", deniedReviewer),
+          ).rejects.toMatchObject({
+            code: "authorization_denied",
+            statusCode: 401,
+          });
+        expect(f.intents).toHaveLength(1);
+        expect(f.admissions).toHaveLength(1);
+        expect(f.nativeCloses).toHaveLength(0);
+        if (independentAllocations) {
+          // A normal cleanup retry cannot downgrade the failed cancellation.
+          await f.relay.closeRun("authorization-1", "completed");
+          expect(f.authorization().state).toBe(
+            ReviewRunAuthorizationState.Revoked,
+          );
+          expect(f.nativeCloses).toHaveLength(1);
+          expect(f.nativeCloseReasons).toEqual(["cancelled"]);
+          expect(f.intents).toHaveLength(1);
+          await expect(
+            streamRun(f, "authorization-1", "reviewer-1"),
+          ).rejects.toMatchObject({
+            code: "authorization_denied",
+            statusCode: 401,
+          });
+        }
+      } else {
+        await expect(closing).resolves.toMatchObject({ state: "applied" });
+        expect(f.authorization().state).toBe(
+          ReviewRunAuthorizationState.Revoked,
+        );
+        expect(f.nativeCloses).toHaveLength(1);
+      }
+    } finally {
+      persist.resolve();
+      await closing?.catch(() => undefined);
+      revoke.mockRestore();
+      finishStream.resolve();
+      if (response?.kind === "stream") await response.cancel().catch(() => {});
+      await f.relay.shutdown();
+    }
+  },
+);
+
 it("normalizes Codex null reasoning without dropping configured reasoning", () => {
   const prepare = (raw: string) =>
     JSON.parse(
@@ -1542,6 +1694,128 @@ it("v4 joins shared first preparation and overlaps exact models within one captu
   } finally {
     held.release();
     finishStreams.resolve();
+    await f.relay.shutdown();
+  }
+});
+
+it.each([
+  { reason: "cancelled", state: ReviewRunAuthorizationState.Revoked },
+  { reason: "deadline", state: ReviewRunAuthorizationState.Expired },
+] as const)(
+  "v4 $reason terminates authority while joining normal cleanup without a second native close",
+  async ({ reason, state }) => {
+    const f = await fixture(
+      32768,
+      0,
+      4,
+      5000,
+      undefined,
+      undefined,
+      9,
+      undefined,
+      false,
+      { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
+    );
+    const gate = f.holdClose();
+    const revoke = vi.spyOn(
+      f.authorizations,
+      "expireOrRevokeReviewRunAuthorization",
+    );
+    let completed: ReturnType<typeof f.relay.closeRun> | undefined;
+    let terminated: ReturnType<typeof f.relay.closeRun> | undefined;
+    try {
+      const response = await f.relay.responses(
+        "authorization-1",
+        Buffer.from("{}"),
+        new AbortController(),
+        undefined,
+        undefined,
+        "reviewer-0",
+      );
+      if (response.kind !== "stream") throw new Error("stream_expected");
+      const reader = response.body.getReader();
+      while (!(await reader.read()).done) {
+        /* Settle the request before holding the allocation close. */
+      }
+      completed = f.relay.closeRun("authorization-1", "completed");
+      await gate.started;
+      expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+      expect(revoke).not.toHaveBeenCalled();
+      terminated = f.relay.closeRun("authorization-1", reason);
+      await vi.waitFor(() => {
+        expect(f.authorization().state).toBe(state);
+      });
+      expect(revoke).toHaveBeenCalledExactlyOnceWith({
+        authorizationId: "authorization-1",
+        state,
+      });
+      expect(f.nativeCloses).toHaveLength(1);
+      expect(f.nativeCloseReasons).toEqual(["completed"]);
+      gate.release();
+      await expect(Promise.all([completed, terminated])).resolves.toEqual([
+        expect.objectContaining({ state: "applied" }),
+        expect.objectContaining({ state: "applied" }),
+      ]);
+      expect(f.nativeCloses).toHaveLength(1);
+      expect(f.nativeCloseReasons).toEqual(["completed"]);
+    } finally {
+      gate.release();
+      await Promise.allSettled([completed, terminated]);
+      revoke.mockRestore();
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("v4 retains failed parent cancellation after native completion until a cleanup retry revokes it", async () => {
+  const f = await fixture(
+    32768,
+    0,
+    2,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    false,
+    { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
+  );
+  const gate = f.holdClose();
+  const revoke = vi.spyOn(
+    f.authorizations,
+    "expireOrRevokeReviewRunAuthorization",
+  );
+  let completed: ReturnType<typeof f.relay.closeRun> | undefined;
+  try {
+    await streamRun(f, "authorization-1", "reviewer-0");
+    completed = f.relay.closeRun("authorization-1", "completed");
+    void completed.catch(() => undefined);
+    await gate.started;
+    revoke.mockRejectedValueOnce(new Error("authority_write_failed"));
+    await expect(
+      f.relay.closeRun("authorization-1", "cancelled"),
+    ).rejects.toThrow("authority_write_failed");
+    gate.release();
+    await expect(completed).rejects.toThrow("authority_write_failed");
+    expect(f.nativeCloses).toHaveLength(1);
+    expect(f.nativeCloseReasons).toEqual(["completed"]);
+    expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Active);
+    await expect(
+      streamRun(f, "authorization-1", "reviewer-1"),
+    ).rejects.toMatchObject({ code: "authorization_denied", statusCode: 401 });
+    await expect(
+      f.relay.closeRun("authorization-1", "completed"),
+    ).resolves.toMatchObject({ state: "applied" });
+    expect(f.authorization().state).toBe(ReviewRunAuthorizationState.Revoked);
+    expect(f.intents).toHaveLength(1);
+    expect(f.admissions).toHaveLength(1);
+    expect(f.nativeCloses).toHaveLength(2);
+    expect(new Set(f.nativeCloses).size).toBe(1);
+    expect(f.nativeCloseReasons).toEqual(["completed", "completed"]);
+  } finally {
+    gate.release();
+    await completed?.catch(() => undefined);
+    revoke.mockRestore();
     await f.relay.shutdown();
   }
 });

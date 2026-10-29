@@ -630,3 +630,39 @@ production API handlers, actual PostgreSQL and signed fixture OIDC against
 controlled GitHub/Gateway/provider peers. These establish source behavior;
 live inference, a live GitHub installation and deployed-environment canaries
 remain separate release evidence. Follow the deployment task before activation.
+
+### Final cancellation review (2026-10-29)
+
+The final source review found and corrected three related runtime boundaries:
+
+- Stopped Action reviewer lanes no longer wait for a retry or acquire another
+  invocation lease. Queued admission checks the lane again, while an admission
+  already in flight still releases its acquired lease. Independent allocations
+  remain eligible to complete.
+- Legacy V3 completed closes revoke their parent authorization. V4 normal
+  cleanup preserves publication authority; cancellation and deadline termination
+  still revoke or expire it when joining an existing normal cleanup.
+- Local requests stop before an awaited authority write. A failed parent write
+  retains bounded session evidence, denies unstarted sibling allocations, and
+  cannot be forgotten by a later normal cleanup retry. Native close identity and
+  its first reason remain stable.
+
+The Action orchestration suite passed 122/122, including five new regressions
+that fail against the preceding source. The Gateway relay suite passed 63/63,
+including seven cancellation, revocation-failure and retry regressions. Both
+changed runtimes passed typechecking; focused lint and formatting passed.
+Independent review of the final failure and cleanup paths found no remaining
+blocking issue.
+
+Two PostgreSQL fixtures were also corrected without relaxing their contracts:
+the historical SQL079 producer fixture omits the later reviewer-plan field,
+and the current Gateway configuration fixture asserts all 156 migrations,
+including the exact 19-entry tail through migration 152. The official hosted
+PostgreSQL jobs and complete paired Action/API suite remain required checks of
+the final published pair; their exact-head results are recorded on PRs #738
+and #351. No new migration, product flag or production activation was added.
+
+The final paired CI candidate is Action `de11bc35438ef3b49d6d9228aab507f47156565f`.
+Its runtime entrypoint SHA-256 is
+`28cf7069d613b31d15a626e0c937e0e0c77dbe5e971c1d1d346e78566f8207d3`.
+The generated canonical handoff remains unchanged at the published source above.

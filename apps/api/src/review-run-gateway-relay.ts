@@ -140,6 +140,7 @@ type Session = {
   readonly timer: ReturnType<typeof setTimeout>;
   closed: boolean;
   closeReason?: c.Close["reason"];
+  parentTerminationReason?: c.Close["reason"];
 };
 
 /** Backend process memory contains capabilities only. SQL remains the sole run
@@ -214,7 +215,14 @@ export function createReviewRunGatewayRelay(input: {
   let closeAuthorityInFlight = 0;
   const closing = new Map<
     string,
-    Promise<c.Operation | { state: "unknown" } | { state: "applied" }>
+    {
+      operation: Promise<
+        c.Operation | { state: "unknown" } | { state: "applied" }
+      >;
+      terminate(
+        reason: c.Close["reason"],
+      ): Promise<ReviewRunAuthorization | null>;
+    }
   >();
   let stopping = false;
   let capacityCleanup: Promise<void> | undefined;
@@ -484,6 +492,16 @@ export function createReviewRunGatewayRelay(input: {
         : `${auth.authorizationId}\0${selectedId}`;
     const identity = canonicalJson(reviewRunGatewayOwnedIdentity(auth));
     const existing = () => {
+      if (
+        !cleanupOnly &&
+        (closing.has(auth.authorizationId) ||
+          [...sessions.values()].some(
+            (retained) =>
+              retained.authorizationId === auth.authorizationId &&
+              retained.closed,
+          ))
+      )
+        throw new RelayFailure("authorization_denied", 401);
       const session = sessions.get(key);
       if (
         session &&
@@ -547,34 +565,72 @@ export function createReviewRunGatewayRelay(input: {
     reason: c.Close["reason"],
     deadline?: number,
   ): Promise<c.Operation | { state: "unknown" } | { state: "applied" }> {
+    const owned = [...sessions.values()].filter(
+      (session) => session.authorizationId === authorizationId,
+    );
+    let parentReason =
+      reason === "completed"
+        ? owned.find((session) => session.parentTerminationReason !== undefined)
+            ?.parentTerminationReason
+        : reason;
+    // Local cancellation cannot wait for a slow or failed authority write.
+    // Retain denied sessions until their exact native cleanup is confirmed.
+    for (const session of owned) {
+      session.closed = true;
+      session.closeReason ??= reason;
+      if (parentReason !== undefined)
+        session.parentTerminationReason ??= parentReason;
+      clearTimeout(session.timer);
+      for (const controller of session.aborts.keys()) controller.abort();
+    }
     const pending = closing.get(authorizationId);
-    if (pending) return pending;
-    const work = (async () => {
-      // Normal resource release preserves parent publication authority.
-      if (reason !== "completed")
+    if (pending) {
+      if (parentReason === undefined) return pending.operation;
+      // Cancellation may join normal v4 cleanup, but must still terminate its
+      // publication authority. Native cleanup keeps its original operation.
+      return Promise.all([
+        pending.operation,
+        pending.terminate(parentReason),
+      ]).then(([operation]) => operation);
+    }
+    let termination: Promise<ReviewRunAuthorization | null> | undefined;
+    const terminate = (terminalReason: c.Close["reason"]) => {
+      parentReason ??= terminalReason;
+      // A failed write must not let a later completed retry forget cancellation.
+      // Native closeReason remains separate because its operation is immutable.
+      for (const session of sessions.values())
+        if (session.authorizationId === authorizationId)
+          session.parentTerminationReason ??= parentReason;
+      termination ??= (async () => {
         await input.authorizations.expireOrRevokeReviewRunAuthorization({
           authorizationId,
           state:
-            reason === "deadline"
+            parentReason === "deadline"
               ? ReviewRunAuthorizationState.Expired
               : ReviewRunAuthorizationState.Revoked,
         });
-      const auth =
-        await input.queries.findReviewRunAuthorizationById(authorizationId);
-      if (reason !== "completed" && auth?.state === "active")
-        throw new RelayFailure("close_pending", 409, "effect_unknown");
+        const auth =
+          await input.queries.findReviewRunAuthorizationById(authorizationId);
+        if (auth?.state === "active")
+          throw new RelayFailure("close_pending", 409, "effect_unknown");
+        return auth;
+      })();
+      return termination;
+    };
+    const work = (async () => {
+      const revokeFirst =
+        parentReason !== undefined ||
+        owned.some((session) => session.allocationId === undefined);
+      let auth = revokeFirst
+        ? await terminate(parentReason ?? reason)
+        : await input.queries.findReviewRunAuthorizationById(authorizationId);
       const snapshot = parseReviewRunRuntimeSnapshot(
         auth?.runtimeSnapshotCanonicalJson,
       );
-      const owned = [...sessions.values()].filter(
-        (session) => session.authorizationId === authorizationId,
-      );
-      for (const session of owned) {
-        session.closed = true;
-        session.closeReason ??= reason;
-        clearTimeout(session.timer);
-        for (const controller of session.aborts.keys()) controller.abort();
-      }
+      // Only v4 separates resource release from parent publication authority.
+      // Legacy completed closes retain their durable revocation semantics.
+      if (reason === "completed" && snapshot?.snapshotVersion !== 4)
+        auth = await terminate(reason);
       const allocations =
         auth && snapshot?.snapshotVersion === 4
           ? snapshot.allocations
@@ -596,12 +652,15 @@ export function createReviewRunGatewayRelay(input: {
             auth && snapshot?.snapshotVersion === 4
               ? await sessionFor(auth, undefined, true, allocationId)
               : owned[0]!;
+          if (parentReason !== undefined)
+            session.parentTerminationReason ??= parentReason;
           operations.push(
             await cleanup(
               authorizationId,
-              session.closeReason ?? reason,
+              session.closeReason ?? parentReason ?? reason,
               session,
               deadline,
+              () => termination,
             ),
           );
         } catch (error) {
@@ -613,15 +672,23 @@ export function createReviewRunGatewayRelay(input: {
       return operations.every((operation) => operation.state === "applied")
         ? { state: "applied" as const }
         : { state: "unknown" as const };
-    })().finally(() => closing.delete(authorizationId));
-    closing.set(authorizationId, work);
+    })().finally(async () => {
+      try {
+        // Keep the shared close registered until a joined cancellation settles.
+        if (termination) await termination;
+      } finally {
+        closing.delete(authorizationId);
+      }
+    });
+    closing.set(authorizationId, { operation: work, terminate });
     return work;
   }
   async function cleanup(
     _authorizationId: string,
     reason: c.Close["reason"],
     session: Session,
-    deadline?: number,
+    deadline: number | undefined,
+    parentTermination: () => Promise<ReviewRunAuthorization | null> | undefined,
   ) {
     if (cleanupInFlight >= policy.maxInFlight)
       throw new RelayFailure("close_pending", 409, "effect_unknown");
@@ -639,8 +706,13 @@ export function createReviewRunGatewayRelay(input: {
       if (
         operation.state === "applied" ||
         session.preparation.canReleaseWithoutRemoteClose()
-      )
+      ) {
+        // Native release must not discard the only retained cancellation intent
+        // while its joined parent write is still pending or has failed.
+        const pendingTermination = parentTermination();
+        if (pendingTermination) await pendingTermination;
         sessions.delete(session.key);
+      }
       return operation;
     } finally {
       cleanupInFlight--;
