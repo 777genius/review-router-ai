@@ -21,10 +21,10 @@
 
 ## Environment status
 
-| Environment | Status | Actual version / image | Last verified (UTC) | Remaining work |
-| --- | --- | --- | --- | --- |
-| staging | `pending` | Not verified | Not verified | Reconcile, migrate, deploy disabled, qualify live, verify App publication. |
-| production | `pending` | Not verified | Not verified | Complete the independent production release and activation gates. |
+| Environment | Status    | Actual version / image | Last verified (UTC) | Remaining work                                                             |
+| ----------- | --------- | ---------------------- | ------------------- | -------------------------------------------------------------------------- |
+| staging     | `pending` | Not verified           | Not verified        | Reconcile, migrate, deploy disabled, qualify live, verify App publication. |
+| production  | `pending` | Not verified           | Not verified        | Complete the independent production release and activation gates.          |
 
 No environment rollout was executed in this source-integration step. `pending`
 means completion has not been verified, not that deployment was observed absent.
@@ -153,7 +153,7 @@ new contextual processing has been disabled.
 
 ## Execution log
 
-| Time (UTC) | Environment | Operator | Actual version / image | Observed result | Next action |
-| --- | --- | --- | --- | --- | --- |
-| Not executed | staging | Unassigned | Not verified | Source integration only; no deployment receipt. | Reconcile and execute the ordered rollout. |
-| Not executed | production | Unassigned | Not verified | No live model, privacy or installed-App qualification recorded. | Retain activation hold until independent production evidence exists. |
+| Time (UTC)   | Environment | Operator   | Actual version / image | Observed result                                                 | Next action                                                          |
+| ------------ | ----------- | ---------- | ---------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Not executed | staging     | Unassigned | Not verified           | Source integration only; no deployment receipt.                 | Reconcile and execute the ordered rollout.                           |
+| Not executed | production  | Unassigned | Not verified           | No live model, privacy or installed-App qualification recorded. | Retain activation hold until independent production evidence exists. |
