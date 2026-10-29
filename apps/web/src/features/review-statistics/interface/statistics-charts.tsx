@@ -157,13 +157,11 @@ export function StatisticsCharts({
   report,
   metric,
   onMetricChange,
-  onSeverityChange,
   onViewIssues,
 }: {
   report: StatisticsReport;
   metric: ReviewMetric;
   onMetricChange: (metric: ReviewMetric) => void;
-  onSeverityChange: (severity: StatisticsFilter["severity"]) => void;
   onViewIssues: (
     repository?: StatisticsReport["topRepositoriesByIssues"][number],
   ) => void;
@@ -197,22 +195,6 @@ export function StatisticsCharts({
       <section className={styles.chartSection} aria-label="Issues caught">
         <div className={styles.chartHeader}>
           <h2 className={styles.chartTitle}>Issues caught</h2>
-          <SelectField
-            name="statistics-severity"
-            label="Severity"
-            value={report.filter.severity}
-            options={[
-              { value: "all", label: "All severities" },
-              ...severities.map((value) => ({
-                value,
-                label: severityLabels[value],
-              })),
-            ]}
-            onValueChange={(value) =>
-              onSeverityChange(value as StatisticsFilter["severity"])
-            }
-            className={styles.chartSelector ?? ""}
-          />
         </div>
         <div className={styles.chartBody}>
           <DailyChart report={report} />

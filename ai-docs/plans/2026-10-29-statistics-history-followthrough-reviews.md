@@ -165,3 +165,70 @@ History reader tests; those suites and the browser must run serially.
 No shared database or unknown worktree was changed or deleted. A narrow hosted
 browser qualification remains available if local compiler/browser capacity is
 insufficient. A failed or unexecuted check is not counted as a pass.
+
+### Backend implementation and regression evidence
+
+- Public History lookup, stored Statistics SCM identity, server scope envelopes,
+  canonical links, absence/unavailability distinction and History403 mapping
+  are implemented through existing public feature ports/composition.
+- Final backend reader/lookup/server/API batch: **35 passed**, one unrelated
+  optional volume case skipped, across five files. Statistics PostgreSQL and
+  History capture/composition batch: **20 passed**, one optional volume case
+  skipped, across three files. These skips do not qualify volume behavior.
+- A real owned PG17.10 projection lock plus a 500ms reader-session timeout
+  produced Prisma7's actual `P2010` structured adapter cause with PostgreSQL
+  `57014`. The test verifies authorization, `ROLLBACK`, and successful reuse of
+  the same max-one-connection pool. Unknown errors and auth-read failures still
+  propagate; no diagnostic message matching is used.
+- History and Statistics native typechecks, focused lint and the existing
+  History architecture gate passed. The new lookup moved into a small outbound
+  adapter to preserve the existing 300-line reader limit; no gate was relaxed.
+- Root's integrated import-boundary check passed for 593 domain/application
+  files; the existing web-host CMS source profile also passed.
+
+### Frontend regression evidence and implementation hardening
+
+- The nine-file focused frontend/API batch passed **91/91** tests. After forcing
+  validation of already-cached unseen seeds, the two affected component suites
+  passed **39/39**. History's final 400/500 pagination recovery suite passed 5/5.
+- Scoped frontend lint and formatting passed. Native web typecheck was killed
+  by the environment (`SIGKILL`, no type diagnostics); it is **not** counted as
+  a pass. The narrow hosted browser workflow includes the existing pinned
+  compiler setup, Next route type generation and full web typecheck.
+- Code inspection found two bounded recovery details within the accepted
+  guarantees: missing/null authenticated envelopes must close the old scope,
+  and repeated malformed responses across fresh seeds must not create an
+  automatic refresh loop. The helper adds only a boolean recovery budget;
+  manual Refresh and permanent had-denial/rejected-seed markers remain.
+- A fresh cache entry for an unseen seed after denial must not suppress the
+  matching API validation. Untrusted report queries therefore use staleTime0
+  while remaining hidden. The regression prepopulates that fresh cache.
+- The old-request lifetime guard uses layout-phase cleanup, closing the gap
+  between a new committed scope and passive-effect cleanup. Its final targeted
+  Statistics/Usage suites passed **41/41** with changed-file lint/format passing;
+  no broader local compiler retry occurs.
+- Initial ordinary SSR failures retain the parsed Statistics filters through
+  the same feature-owned controls; authorization denial remains separate.
+- Final §4.1 alignment: accepted Refresh clears issue repository selection;
+  ordinary failure preserves it. The completion checks the layout-phase active
+  scope and the captured interaction revision, so it cannot clear a newer
+  filter, browser-navigation or repository intent. The final Statistics suite
+  passed **22/22**, including success/failure and late-new-selection regressions;
+  changed-file lint, formatting and whitespace checks passed.
+
+### Independent code critiques before hosted qualification
+
+All critics use GPT-6.1 Sol xhigh and inspected source independently of its author.
+These preliminary results do not approve a missing browser run or required CI.
+
+| Critic                     | Inspected scope                                                            | Result / disposition                                                                                                                                                                      |
+| -------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| statistics_backend_critic  | History/Statistics backend, server/API, Usage selection and benchmark      | No material findings; final source and CI evidence still pending.                                                                                                                         |
+| statistics_frontend_critic | Scoped cache lifecycle, web DTO validation, URL/error recovery and UX copy | No material findings in inspected source; final layout-guard revision and visual evidence still pending.                                                                                  |
+| statistics_e2e_critic      | Real fixture/schema/UI contracts, browser journeys, cleanup and workflow   | P2 closed after independent re-review: held responses now use bounded lifecycle waits, explicit handler-error propagation and normal owned cleanup. No remaining material source finding. |
+
+The browser proof deliberately separates same cached-seed remount from the
+component-only unseen-seed cases, and confirmed member isolation from the
+component first-render guard. A cancelled held request proves cancellation, not
+execution of a late-completion guard. Receipts record delivered versus cancelled
+outcomes. The browser workflow and twelve viewport/theme captures remain pending.

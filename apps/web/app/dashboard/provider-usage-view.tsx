@@ -1,15 +1,22 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import { usePrivateQueryScope } from "../../src/private-query-scope";
 import { Button, SelectField } from "@reviewrouter/ui";
 import { RefreshCw } from "lucide-react";
 import {
   fetchProviderUsage,
   normalizeUsageFilters,
-  ProviderUsageError,
+  isProviderUsageAccessFailure,
+  isProviderUsageScopeMismatch,
   providerUsageKey,
 } from "./provider-usage-api";
-import type { ProviderUsageReport, UsageFilters } from "./provider-usage-model";
+import type {
+  ProviderUsageReport,
+  ProviderUsageSeedScope,
+  UsageFilters,
+} from "./provider-usage-model";
 import { UsageCharts } from "./provider-usage-charts";
 import { ModelUsageTable, RunUsageTable } from "./provider-usage-tables";
 import { UsageDetails } from "./provider-usage-details";
@@ -35,16 +42,28 @@ function hasUnknownUsage(report: ProviderUsageReport): boolean {
   );
 }
 
-type Props = {
-  workspaceId: string;
+type Props = ProviderUsageSeedScope & {
   initialReport: ProviderUsageReport;
   initialFilters: UsageFilters;
 };
 export function ProviderUsageView(props: Props) {
-  return <ProviderUsageContext key={props.workspaceId} {...props} />;
+  return (
+    <ProviderUsageContext
+      key={JSON.stringify([
+        props.actorId,
+        props.workspaceId,
+        props.effectiveAccess,
+        props.seedId,
+      ])}
+      {...props}
+    />
+  );
 }
 function ProviderUsageContext({
+  actorId,
   workspaceId,
+  effectiveAccess,
+  seedId,
   initialReport,
   initialFilters,
 }: Props) {
@@ -61,53 +80,47 @@ function ProviderUsageContext({
   const [costSelection, setCostSelection] = useState("");
   const [currencySelection, setCurrencySelection] = useState("");
   const [detailsOpen, setDetailsOpen] = useState(false);
-  // A rejected SSR seed must remain unusable across every filter and page key.
-  const [deniedSeed, setDeniedSeed] = useState<ProviderUsageReport | null>(
-    null,
+  const router = useRouter();
+  const scope = usePrivateQueryScope(
+    {
+      namespace: "provider-usage",
+      actorId,
+      workspaceId,
+      effectiveAccess,
+      seedId,
+    },
+    isProviderUsageAccessFailure,
+    isProviderUsageScopeMismatch,
   );
-  const denied = deniedSeed === initialReport;
-  const client = useQueryClient();
-  useEffect(() => {
-    client.removeQueries({
-      predicate: (query) =>
-        query.queryKey[0] === "provider-usage" &&
-        query.queryKey[1] !== workspaceId,
-    });
-  }, [workspaceId, client]);
+  const identity = { actorId, workspaceId, effectiveAccess, seedId };
   const matchesInitial =
     JSON.stringify(normalizeUsageFilters(filters)) ===
     JSON.stringify(normalizeUsageFilters(initialFilters));
   const query = useQuery({
-    queryKey: denied
-      ? ["provider-usage-denied", workspaceId]
-      : providerUsageKey(workspaceId, filters),
-    queryFn: ({ signal }) => fetchProviderUsage(workspaceId, filters, signal),
-    initialData: !denied && matchesInitial ? initialReport : undefined,
-    enabled: !denied,
-    staleTime: 30_000,
+    queryKey: providerUsageKey(identity, filters),
+    queryFn: ({ signal }) =>
+      scope.request(
+        () => fetchProviderUsage(workspaceId, filters, signal, identity),
+        (error) => {
+          if (isProviderUsageScopeMismatch(error)) router.refresh();
+        },
+      ),
+    initialData:
+      !scope.denied && scope.seedTrusted && matchesInitial
+        ? initialReport
+        : undefined,
+    enabled: !scope.denied,
+    staleTime: scope.seedTrusted ? 30_000 : 0,
     retry: (failureCount, error) =>
-      !(
-        error instanceof ProviderUsageError && [401, 403].includes(error.status)
-      ) && failureCount < 2,
+      !isProviderUsageAccessFailure(error) && failureCount < 2,
     refetchInterval: (query) => {
       const data = query.state.data;
-      return data && hasUnknownUsage(data) ? 30_000 : false;
+      return !scope.denied && data && hasUnknownUsage(data) ? 30_000 : false;
     },
     refetchIntervalInBackground: false,
   });
-  const accessFailure =
-    query.error instanceof ProviderUsageError &&
-    [401, 403].includes(query.error.status);
-  useEffect(() => {
-    if (!accessFailure) return;
-    setDeniedSeed(initialReport);
-    void client
-      .cancelQueries({ queryKey: ["provider-usage", workspaceId] })
-      .then(() =>
-        client.removeQueries({ queryKey: ["provider-usage", workspaceId] }),
-      );
-  }, [accessFailure, client, workspaceId, initialReport]);
-  const data = denied || accessFailure ? undefined : query.data;
+  const unavailable = scope.denied || isProviderUsageAccessFailure(query.error);
+  const data = unavailable || !scope.seedTrusted ? undefined : query.data;
   const currencies = [
     ...new Set(data?.totals.costs.map((cost) => cost.currency) ?? []),
   ].sort();
@@ -141,27 +154,14 @@ function ProviderUsageContext({
       }),
     );
   const refresh = () => {
+    if (unavailable) {
+      router.refresh();
+      return;
+    }
     if (period === "custom") void query.refetch();
     else applyFilters(rollingInterval(Number(period) as 7 | 30 | 90));
   };
   const custom = customInterval(draftFrom, draftTo);
-  const initialIdentity = useRef(initialReport);
-  useEffect(() => {
-    if (initialIdentity.current === initialReport) return;
-    initialIdentity.current = initialReport;
-    setFilters(normalizeUsageFilters(initialFilters));
-    setPeriod("30");
-    setDraftFrom(initialReport.from.slice(0, 10));
-    setDraftTo(
-      new Date(Date.parse(initialReport.to) - 1).toISOString().slice(0, 10),
-    );
-    setTab("models");
-    setMetric("tokens");
-    setCostSelection("");
-    setCurrencySelection("");
-    setDetailsOpen(false);
-  }, [initialReport, initialFilters]);
-  const unavailable = denied || accessFailure;
   const hasUnknown = data && hasUnknownUsage(data);
   return (
     <section aria-label="Provider usage" className="min-w-0 space-y-6">
@@ -260,7 +260,7 @@ function ProviderUsageContext({
             variant="outline"
             size="sm"
             className="rounded-xl"
-            disabled={unavailable || query.isFetching}
+            disabled={!unavailable && query.isFetching}
             aria-busy={query.isFetching}
             onClick={refresh}
           >
@@ -383,8 +383,8 @@ function ProviderUsageContext({
       ) : null}
       {unavailable ? (
         <p role="alert" className="py-10 text-sm text-amber-200">
-          Usage access is no longer available. Open a newly authorized workspace
-          report to continue.
+          Usage access is no longer available. Use Refresh to open an authorized
+          workspace report again.
         </p>
       ) : !data ? (
         <p

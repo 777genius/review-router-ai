@@ -142,18 +142,39 @@ const initialFilters: UsageFilters = {
   to: report.to,
   purpose: "review",
 };
+const router = vi.hoisted(() => ({ refresh: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => router }));
+const usageScope = {
+  actorId: "actor-a",
+  workspaceId: "workspace",
+  effectiveAccess: "admin" as const,
+  seedId: "seed-a",
+};
+const seedIds = new WeakMap<object, string>();
+let seedSequence = 0;
 let client: QueryClient;
 function Harness({
   workspaceId = "workspace",
   seed = report,
+  actorId = "actor-a",
+  effectiveAccess = "admin",
+  seedId,
 }: {
   workspaceId?: string;
   seed?: ProviderUsageReport;
+  actorId?: string;
+  effectiveAccess?: "admin" | "member";
+  seedId?: string;
 }) {
+  if (!seedIds.has(seed))
+    seedIds.set(seed, seed === report ? "seed-a" : `seed-${++seedSequence}`);
   return (
     <QueryClientProvider client={client}>
       <ProviderUsageView
         workspaceId={workspaceId}
+        actorId={actorId}
+        effectiveAccess={effectiveAccess}
+        seedId={seedId ?? seedIds.get(seed)!}
         initialReport={seed}
         initialFilters={{ ...initialFilters, from: seed.from, to: seed.to }}
       />
@@ -164,6 +185,7 @@ const change = (label: string, value: string) =>
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
 beforeEach(() => {
   vi.clearAllMocks();
+  router.refresh.mockClear();
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
@@ -199,7 +221,7 @@ describe("provider usage interactive report", () => {
     render(<Harness />);
     expect(fetchProviderUsage).not.toHaveBeenCalled();
     expect(
-      client.getQueryData(providerUsageKey("workspace", initialFilters)),
+      client.getQueryData(providerUsageKey(usageScope, initialFilters)),
     ).toEqual(report);
     expect(screen.getByRole("definition", { name: "1,000" })).toBeTruthy();
     expect(
@@ -289,7 +311,7 @@ describe("provider usage interactive report", () => {
     "purges every workspace cache variant on %s and never reuses the rejected SSR seed",
     async (status) => {
       client.setQueryData(
-        providerUsageKey("workspace", { ...initialFilters, provider: "mimo" }),
+        providerUsageKey(usageScope, { ...initialFilters, provider: "mimo" }),
         report,
       );
       render(<Harness />);
@@ -314,8 +336,9 @@ describe("provider usage interactive report", () => {
         expect(
           client
             .getQueryCache()
-            .findAll({ queryKey: ["provider-usage", "workspace"] }),
-        ).toHaveLength(0),
+            .findAll({ queryKey: ["provider-usage", "actor-a", "workspace"] })
+            .every((entry) => entry.state.data === undefined),
+        ).toBe(true),
       );
       const countBefore = vi.mocked(fetchProviderUsage).mock.calls.length;
       change("Route", "");
@@ -383,11 +406,13 @@ describe("provider usage interactive report", () => {
       "",
     );
     expect(screen.getByRole("definition", { name: "7" })).toBeTruthy();
-    expect(
-      client
-        .getQueryCache()
-        .findAll({ queryKey: ["provider-usage", "workspace"] }),
-    ).toHaveLength(0);
+    await waitFor(() =>
+      expect(
+        client
+          .getQueryCache()
+          .findAll({ queryKey: ["provider-usage", "actor-a", "workspace"] }),
+      ).toHaveLength(0),
+    );
   });
   it("resets period and custom date drafts when a new authorized SSR report arrives in the same workspace", () => {
     const view = render(<Harness />);
@@ -521,6 +546,11 @@ describe("provider usage interactive report", () => {
         "workspace",
         expect.objectContaining({ after: "observation-page" }),
         expect.any(AbortSignal),
+        expect.objectContaining({
+          actorId: "actor-a",
+          workspaceId: "workspace",
+          effectiveAccess: "admin",
+        }),
       ),
     );
     expect(screen.queryByText(/before-pagination/)).toBeNull();
@@ -802,6 +832,9 @@ describe("provider usage interactive report", () => {
       <QueryClientProvider client={client}>
         <ProviderUsageView
           workspaceId="workspace"
+          actorId="actor-a"
+          effectiveAccess="admin"
+          seedId="seed-a"
           initialReport={report}
           initialFilters={selectedFilters}
         />
@@ -880,4 +913,135 @@ describe("provider usage interactive report", () => {
       expect(fetchProviderUsage).toHaveBeenCalledTimes(1);
     },
   );
+});
+
+describe("Usage authenticated cache lifecycle", () => {
+  it("renders a same-workspace limited SSR seed without the old administrator totals", () => {
+    const view = render(<Harness />);
+    const limited = {
+      ...report,
+      totals: { ...totals, tokens: { ...totals.tokens, total: 7 } },
+    };
+    view.rerender(
+      <Harness effectiveAccess="member" seedId="member-seed" seed={limited} />,
+    );
+    expect(
+      within(screen.getByLabelText("Period usage summary")).getByRole(
+        "definition",
+        { name: "7" },
+      ),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByLabelText("Period usage summary")).queryByRole(
+        "definition",
+        { name: "1,000" },
+      ),
+    ).toBeNull();
+    expect(
+      client.getQueryData(
+        providerUsageKey(
+          { ...usageScope, effectiveAccess: "member", seedId: "member-seed" },
+          initialFilters,
+        ),
+      ),
+    ).toEqual(limited);
+  });
+  it("ignores a late old-admin denial after accepting a member seed", async () => {
+    let reject!: (error: unknown) => void;
+    vi.mocked(fetchProviderUsage).mockImplementation(
+      () =>
+        new Promise((_resolve, no) => {
+          reject = no;
+        }),
+    );
+    const view = render(<Harness />);
+    change("Route", "gateway");
+    await waitFor(() => expect(reject).toBeTypeOf("function"));
+    const limited = {
+      ...report,
+      totals: { ...totals, tokens: { ...totals.tokens, total: 7 } },
+    };
+    view.rerender(
+      <Harness
+        effectiveAccess="member"
+        seedId="member-after-admin"
+        seed={limited}
+      />,
+    );
+    await act(async () => reject(new ProviderUsageError(403)));
+    expect(
+      within(screen.getByLabelText("Period usage summary")).getByRole(
+        "definition",
+        { name: "7" },
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(/Usage access is no longer available/),
+    ).toBeNull();
+    expect(
+      client.getQueryData(
+        providerUsageKey(
+          {
+            ...usageScope,
+            effectiveAccess: "member",
+            seedId: "member-after-admin",
+          },
+          initialFilters,
+        ),
+      ),
+    ).toEqual(limited);
+  });
+  it("retains rejection across remounts, distrusts unseen cached seeds and preserves other features", async () => {
+    client.setQueryDefaults(["review-statistics", "actor-a", "workspace"], {
+      gcTime: Infinity,
+    });
+    client.setQueryData(["review-statistics", "actor-a", "workspace"], {
+      private: "stats",
+    });
+    vi.mocked(fetchProviderUsage).mockRejectedValue(
+      new ProviderUsageError(403),
+    );
+    const view = render(<Harness />);
+    change("Route", "gateway");
+    await screen.findByText(/Usage access is no longer available/);
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <div>Another section</div>
+      </QueryClientProvider>,
+    );
+    view.rerender(<Harness />);
+    expect(screen.queryByLabelText("Period usage summary")).toBeNull();
+    expect(
+      client.getQueryData(["review-statistics", "actor-a", "workspace"]),
+    ).toEqual({ private: "stats" });
+    let resolve!: (value: ProviderUsageReport) => void;
+    vi.mocked(fetchProviderUsage).mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    client.setQueryData(
+      providerUsageKey(
+        { ...usageScope, seedId: "unseen-old-seed" },
+        initialFilters,
+      ),
+      report,
+    );
+    view.rerender(<Harness seedId="unseen-old-seed" />);
+    expect(screen.queryByLabelText("Period usage summary")).toBeNull();
+    await waitFor(() => expect(resolve).toBeTypeOf("function"));
+    await act(async () => resolve(report));
+    expect(await screen.findByLabelText("Period usage summary")).toBeTruthy();
+  });
+  it("closes and requests fresh SSR on an authenticated scope mismatch", async () => {
+    vi.mocked(fetchProviderUsage).mockRejectedValue(
+      new ProviderUsageError(409),
+    );
+    render(<Harness />);
+    change("Route", "gateway");
+    await screen.findByText(/Usage access is no longer available/);
+    expect(router.refresh).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText("Period usage summary")).toBeNull();
+  });
 });

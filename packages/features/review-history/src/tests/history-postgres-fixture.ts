@@ -11,7 +11,11 @@ export async function createHistoryDatabase(
   options: {
     onQuery?: (event: { query: string; params: string }) => void;
   } = {},
-): Promise<{ prisma: PrismaClient; cleanup: () => Promise<void> }> {
+): Promise<{
+  prisma: PrismaClient;
+  connectionString: string;
+  cleanup: () => Promise<void>;
+}> {
   const url = new URL(adminUrl);
   if (
     !["postgres:", "postgresql:"].includes(url.protocol) ||
@@ -50,7 +54,7 @@ export async function createHistoryDatabase(
       });
     }
     await prisma.$queryRaw`SELECT "coverageSince" FROM "ReviewHistoryCoverage" LIMIT 1`;
-    return { prisma, cleanup };
+    return { prisma, connectionString: url.toString(), cleanup };
   } catch (error) {
     await cleanup();
     throw error;

@@ -25,9 +25,11 @@
 }
 .controls {
   display: flex;
+  flex-wrap: wrap;
   align-items: end;
   gap: 0.6rem;
   min-width: 0;
+  max-width: 100%;
 }
 .periodControl {
   width: 10rem;

@@ -152,7 +152,12 @@ describe("tenant usage API and SQL scope", () => {
     const response = await get("&provider=A&model=X&runAfter=run-a");
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
-    const report = await response.json();
+    const { scope, report } = await response.json();
+    expect(scope).toEqual({
+      actorId: "member",
+      workspaceId: "w",
+      effectiveAccess: "member",
+    });
     expect(report.totals.tokens.total).toBe(260);
     expect(report.attempts).toBe(2);
     expect(report.logicalRuns).toBe(2);
@@ -181,7 +186,12 @@ describe("tenant usage API and SQL scope", () => {
   });
   it("retains admin scope and filters direct reader model by requested rather than actual model", async () => {
     actor("admin");
-    const report = await (await get()).json();
+    const { report, scope } = await (await get()).json();
+    expect(scope).toEqual({
+      actorId: "admin",
+      workspaceId: "w",
+      effectiveAccess: "admin",
+    });
     expect(report.overview.facets.providers).toEqual(["A", "B", "C"]);
     expect(report.attempts).toBe(4);
     const reader = new PrismaUsageReportReader(prisma);
@@ -238,7 +248,9 @@ describe("tenant usage API and SQL scope", () => {
       "runAfter=bad%00cursor",
     ])
       expect((await request(params)).status).toBe(400);
-    const unknown = await (await get("&model=unknown-valid-id")).json();
+    const { report: unknown } = await (
+      await get("&model=unknown-valid-id")
+    ).json();
     expect(unknown.rows).toEqual([]);
     expect(unknown.totals.tokens.total).toBeNull();
   });

@@ -116,6 +116,12 @@ server-derived scope. Boolean had-denial не удаляется при ново
   нельзя было незаметно принять в старую broad-access query.
 - При несовпадении response scope с ожидаемым скрыть/удалить прежний scope,
   не принимать payload в его key, запросить свежий authorized server seed.
+  Автоматическое восстановление ограничено одной попыткой на feature/actor/
+  workspace до успешного matching API read; иначе постоянно неверный envelope
+  вызовет цикл SSR refresh. Manual Refresh остаётся доступен. Отдельный boolean
+  recovery marker не заменяет и не удаляет had-denial/rejected-seed markers.
+  Пока seed не подтверждён, fresh cache не должен подавлять API validation:
+  report query считается stale, а payload скрыт до принятого ответа.
   Новые props с другим actor/access/seed перемонтируют consumer синхронно:
   предыдущий admin report не должен попасть даже в один render нового member.
 - Любой async completion проверяет captured actor/workspace/access/seed против
@@ -411,9 +417,16 @@ Operate reference. Сохранить существующие shared primitives
 
 ## 10. Оценка и готовность
 
-Ориентир, не gate: production code350–650 строк; tests/fixtures450–900; docs и
-review receipts250–450. Prelease follow-up не включён в эти оценки. Пересмотреть оценку при
-первом review, не добавлять абстракции ради попадания в число строк.
+Первоначальный ориентир, не gate: production code350–650 строк;
+tests/fixtures450–900; docs и review receipts250–450. Первый code review уточнил
+объём: около900–1000 добавленных production строк с заменой/удалением220–260
+старых; около2300–2600 добавленных строк проверок, включая существующий browser
+runner extension, реальные SQL fixtures и opt-in benchmark. Главный недоучтённый
+объём — сквозные проверки cache lifecycle и фактическая browser qualification.
+Детальный план, пять review rounds и rollout/evidence notes дают около800 строк
+документации; узкий hosted workflow — около130. Финальный отчёт использует actual
+diff после исправлений, отдельно от этой оценки. Prelease follow-up не включён;
+новые продуктовые функции ради оценки или сокращения проверок не добавляются.
 
 Готово, когда пять plan rounds записаны, actual plan pushed до кода, описанные
 journeys и policy semantics проверены, normal required checks зелёные на final

@@ -75,6 +75,7 @@ describe("History real production composition", () => {
       ).toBe(true);
       const feature = await createReviewHistoryFeature({ prisma });
       expect(Object.hasOwn(feature.reader, "listPullRequests")).toBe(true);
+      expect(Object.hasOwn(feature.reader, "resolvePullRequests")).toBe(true);
       expect(Object.hasOwn(feature.writer, "captureIntent")).toBe(true);
       expect(transaction).not.toHaveBeenCalled();
       expect(disconnect).not.toHaveBeenCalled();

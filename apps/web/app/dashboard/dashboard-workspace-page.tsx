@@ -1,4 +1,5 @@
 import { savedProviderIdentity } from "../../src/server/provider-identity";
+import { randomUUID } from "node:crypto";
 import { ReviewStatisticsSection } from "./review-statistics-section";
 import { ReviewHistorySection } from "./review-history-section";
 import { ReviewSkillsSection } from "./review-skills-section";
@@ -1317,7 +1318,10 @@ export async function DashboardSectionContent({
   }
   if (selectedSection === "statistics") {
     return (
-      <ReviewStatisticsSection workspaceId={selectedWorkspace.workspace.id} />
+      <ReviewStatisticsSection
+        workspaceId={selectedWorkspace.workspace.id}
+        params={params}
+      />
     );
   }
   const { workspaceScope, mutationStatus, repositoryAccess } = context;
@@ -3794,7 +3798,10 @@ async function ProviderUsageSection({ workspaceId }: { workspaceId: string }) {
     <ProviderUsageView
       key={workspaceId}
       workspaceId={workspaceId}
-      initialReport={report}
+      actorId={report.scope.actorId}
+      effectiveAccess={report.scope.effectiveAccess}
+      seedId={randomUUID()}
+      initialReport={report.report}
       initialFilters={initialFilters}
     />
   );

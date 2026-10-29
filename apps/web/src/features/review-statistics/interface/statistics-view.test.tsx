@@ -24,6 +24,8 @@ import {
   statisticsScopeKey,
 } from "../adapters/statistics-api";
 import { issueFixture, statisticsFixture } from "../statistics.test-fixtures";
+const router = vi.hoisted(() => ({ refresh: vi.fn(), replace: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => router }));
 vi.mock("../adapters/statistics-api", async () => ({
   ...(await vi.importActual<typeof import("../adapters/statistics-api")>(
     "../adapters/statistics-api",
@@ -117,6 +119,13 @@ async function refresh() {
   );
 }
 beforeEach(() => {
+  router.refresh.mockClear();
+  router.replace.mockClear();
+  window.history.replaceState(
+    null,
+    "",
+    "/dashboard?section=statistics&workspace=workspace-a",
+  );
   vi.mocked(fetchStatisticsReport).mockReset();
   vi.mocked(fetchStatisticsIssues).mockReset();
 });
@@ -182,6 +191,7 @@ describe("Statistics", () => {
         repositoryId: "repo-a",
       }),
       expect.any(AbortSignal),
+      "actor-a",
     );
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(await screen.findByText("Issue page-two")).toBeTruthy();
@@ -195,6 +205,7 @@ describe("Statistics", () => {
       "workspace-a",
       { from: original.period.from, to: original.period.to, severity: "major" },
       expect.any(AbortSignal),
+      "actor-a",
     );
     expect(screen.getByText("Page 1")).toBeTruthy();
     expect(
@@ -330,7 +341,9 @@ describe("Statistics", () => {
       expect(screen.queryByLabelText("All-severity review summary")).toBeNull();
       vi.mocked(fetchStatisticsReport).mockResolvedValue(statisticsFixture());
       rerenderProps({ seedId: "new-authorized-seed" });
-      expect(screen.getByLabelText("All-severity review summary")).toBeTruthy();
+      expect(
+        await screen.findByLabelText("All-severity review summary"),
+      ).toBeTruthy();
     },
   );
   it("an old cancellation promise cannot purge a freshly authorized seed", async () => {
@@ -351,7 +364,9 @@ describe("Statistics", () => {
     const { rerenderProps } = setup({ client });
     await refresh();
     await screen.findByText(/access is no longer available/);
+    vi.mocked(fetchStatisticsReport).mockResolvedValue(statisticsFixture());
     rerenderProps({ seedId: "fresh-authorized-race-seed" });
+    await screen.findByLabelText("All-severity review summary");
     await act(async () => {
       finishCancellation();
       await Promise.resolve();
@@ -366,7 +381,9 @@ describe("Statistics", () => {
         ),
       ),
     ).toMatchObject({ totals: { reviews: 3 } });
-    expect(screen.getByLabelText("All-severity review summary")).toBeTruthy();
+    expect(
+      await screen.findByLabelText("All-severity review summary"),
+    ).toBeTruthy();
   });
   it.each([401, 403])(
     "an issues %s hides the cards and charts too",
@@ -519,6 +536,7 @@ describe("Statistics", () => {
       "workspace-a",
       { from: refreshed.period.from, to: refreshed.period.to, severity: "all" },
       expect.any(AbortSignal),
+      "actor-a",
     );
     expect(screen.queryByText("Issue old-page-two")).toBeNull();
   });
@@ -546,6 +564,276 @@ describe("Statistics", () => {
         severity: "all",
       },
       expect.any(AbortSignal),
+      "actor-a",
     );
+  });
+});
+
+describe("Statistics URL, recovery and scope lifecycle", () => {
+  it("retains the issue repository on failed Refresh and resets it after an accepted successful Refresh", async () => {
+    vi.mocked(fetchStatisticsIssues).mockImplementation(
+      async (_workspace, filter) => ({
+        items: [issueFixture(filter.repositoryId ?? "all-repositories")],
+        nextCursor: null,
+      }),
+    );
+    vi.mocked(fetchStatisticsReport).mockRejectedValue(
+      new StatisticsRequestError(500),
+    );
+    setup();
+    fireEvent.click(
+      screen.getByRole("button", { name: "View issues in acme/project" }),
+    );
+    await screen.findByText("Issue repo-a");
+    await refresh();
+    await screen.findByText(
+      /Refresh failed. Showing the last available report/,
+    );
+    expect(
+      screen.getByRole("button", { name: "All repositories" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Issue repo-a")).toBeTruthy();
+    vi.mocked(fetchStatisticsReport).mockResolvedValue(statisticsFixture());
+    await refresh();
+    await screen.findByText("Issue all-repositories");
+    expect(
+      screen.queryByRole("button", { name: "All repositories" }),
+    ).toBeNull();
+    expect(
+      vi.mocked(fetchStatisticsIssues).mock.calls.at(-1)?.[1].repositoryId,
+    ).toBeUndefined();
+  });
+  it("does not clear a newer repository intent when an earlier Refresh completes", async () => {
+    let resolve!: (report: ReturnType<typeof statisticsFixture>) => void;
+    vi.mocked(fetchStatisticsReport).mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    vi.mocked(fetchStatisticsIssues).mockImplementation(
+      async (_workspace, filter) => ({
+        items: [issueFixture(filter.repositoryId ?? "all-repositories")],
+        nextCursor: null,
+      }),
+    );
+    setup();
+    fireEvent.click(
+      screen.getByRole("button", { name: "View issues in acme/project" }),
+    );
+    await screen.findByText("Issue repo-a");
+    await refresh();
+    await waitFor(() => expect(resolve).toBeTypeOf("function"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "View issues caught →" }),
+    );
+    await screen.findByText("Issue all-repositories");
+    fireEvent.click(
+      screen.getByRole("button", { name: "View issues in acme/project" }),
+    );
+    await screen.findByText("Issue repo-a");
+    await act(async () => resolve(statisticsFixture()));
+    expect(
+      await screen.findByRole("button", { name: "All repositories" }),
+    ).toBeTruthy();
+    expect(
+      vi.mocked(fetchStatisticsIssues).mock.calls.at(-1)?.[1].repositoryId,
+    ).toBe("repo-a");
+  });
+  it.each([403, 409])(
+    "ignores a late %s from an old seed after a new same-workspace seed is committed",
+    async (status) => {
+      let reject!: (error: unknown) => void;
+      vi.mocked(fetchStatisticsReport).mockImplementation(
+        () =>
+          new Promise((_resolve, no) => {
+            reject = no;
+          }),
+      );
+      const view = setup();
+      await refresh();
+      await waitFor(() => expect(reject).toBeTypeOf("function"));
+      const fresh = {
+        ...statisticsFixture(),
+        totals: { ...statisticsFixture().totals, reviews: 7 },
+      };
+      view.rerenderProps({
+        seedId: "new-same-workspace-seed",
+        initialReport: fresh,
+      });
+      await act(async () => reject(new StatisticsRequestError(status)));
+      expect(
+        within(screen.getByLabelText("All-severity review summary")).getByText(
+          "7",
+        ),
+      ).toBeTruthy();
+      expect(
+        view.client.getQueryData(
+          statisticsReportKey(
+            "actor-a",
+            "workspace-a",
+            "new-same-workspace-seed",
+            fresh.filter,
+          ),
+        ),
+      ).toEqual(fresh);
+      expect(router.refresh).not.toHaveBeenCalled();
+    },
+  );
+  it("keeps Severity available after a failed selection and restores a previous URL filter without another seeded read", async () => {
+    vi.mocked(fetchStatisticsReport).mockRejectedValue(
+      new StatisticsRequestError(500),
+    );
+    setup();
+    fireEvent.change(screen.getByLabelText("Severity"), {
+      target: { value: "major" },
+    });
+    await screen.findByText(
+      "Statistics could not be loaded. Use Refresh to try again.",
+    );
+    expect(
+      new URLSearchParams(window.location.search).get("statisticsSeverity"),
+    ).toBe("major");
+    expect(screen.getByLabelText("Severity")).toHaveProperty("disabled", false);
+    fireEvent.change(screen.getByLabelText("Severity"), {
+      target: { value: "all" },
+    });
+    expect(
+      await screen.findByLabelText("All-severity review summary"),
+    ).toBeTruthy();
+    const count = vi.mocked(fetchStatisticsReport).mock.calls.length;
+    window.history.pushState(
+      null,
+      "",
+      "/dashboard?section=statistics&workspace=workspace-a&statisticsDays=7&statisticsDays=90#scope",
+    );
+    fireEvent.popState(window);
+    expect(
+      await screen.findByRole("button", { name: "Reset statistics filters" }),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText("All-severity review summary")).toBeNull();
+    expect(fetchStatisticsReport).toHaveBeenCalledTimes(count);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Reset statistics filters" }),
+    );
+    expect(router.replace).toHaveBeenCalledWith(
+      "/dashboard?section=statistics&workspace=workspace-a#scope",
+    );
+    window.history.replaceState(
+      null,
+      "",
+      "/dashboard?section=statistics&workspace=workspace-a",
+    );
+    fireEvent.popState(window);
+    expect(
+      await screen.findByLabelText("All-severity review summary"),
+    ).toBeTruthy();
+  });
+  it("keeps Previous after a failed issue page and uses matching History actions only", async () => {
+    const linked = {
+      ...issueFixture(),
+      history: {
+        status: "linked" as const,
+        href: "/dashboard?section=reviews&workspace=workspace-a&reviewRepository=scm-a&reviewSearch=17",
+      },
+    };
+    vi.mocked(fetchStatisticsIssues).mockImplementation(
+      async (_workspace, filter) => {
+        if (filter.cursor) throw new StatisticsRequestError(500);
+        return { items: [linked], nextCursor: "page-two" };
+      },
+    );
+    setup();
+    fireEvent.click(
+      screen.getByRole("button", { name: "View issues caught →" }),
+    );
+    const link = await screen.findByRole("link", { name: "Review history" });
+    expect(link.getAttribute("href")).toBe(linked.history.href);
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByRole("button", { name: "Retry issues" });
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+    expect(await screen.findByText("Issue issue-a")).toBeTruthy();
+    expect(screen.getByText("Page 1")).toBeTruthy();
+  });
+  it("does not resurrect the same or an unseen cached seed after denial, and validates before recovery", async () => {
+    vi.mocked(fetchStatisticsReport).mockRejectedValue(
+      new StatisticsRequestError(403),
+    );
+    const view = setup();
+    await refresh();
+    await screen.findByText(/access is no longer available/);
+    view.rerender(
+      <QueryClientProvider client={view.client}>
+        <div>Another section</div>
+      </QueryClientProvider>,
+    );
+    view.rerender(
+      <QueryClientProvider client={view.client}>
+        <StatisticsView {...view.props} />
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByLabelText("All-severity review summary")).toBeNull();
+    let resolve!: (value: ReturnType<typeof statisticsFixture>) => void;
+    vi.mocked(fetchStatisticsReport).mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    view.client.setQueryData(
+      statisticsReportKey(
+        "actor-a",
+        "workspace-a",
+        "previously-unseen-cached-seed",
+        statisticsFixture().filter,
+      ),
+      statisticsFixture(),
+    );
+    view.rerenderProps({ seedId: "previously-unseen-cached-seed" });
+    expect(screen.queryByLabelText("All-severity review summary")).toBeNull();
+    await waitFor(() => expect(resolve).toBeTypeOf("function"));
+    await act(async () => resolve(statisticsFixture()));
+    expect(
+      await screen.findByLabelText("All-severity review summary"),
+    ).toBeTruthy();
+  });
+  it("asks for a fresh server scope after a mismatched200 and keeps denied data hidden", async () => {
+    vi.mocked(fetchStatisticsReport).mockRejectedValue(
+      new StatisticsRequestError(409),
+    );
+    const view = setup();
+    await refresh();
+    await screen.findByText(/access is no longer available/);
+    expect(router.refresh).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText("All-severity review summary")).toBeNull();
+    view.rerenderProps({ seedId: "still-mismatched-server-seed" });
+    await waitFor(() => expect(fetchStatisticsReport).toHaveBeenCalledTimes(2));
+    await screen.findByText(/access is no longer available/);
+    expect(router.refresh).toHaveBeenCalledTimes(1);
+    vi.mocked(fetchStatisticsReport).mockResolvedValue(statisticsFixture());
+    view.rerenderProps({ seedId: "validated-recovery-seed" });
+    await screen.findByLabelText("All-severity review summary");
+    vi.mocked(fetchStatisticsReport).mockRejectedValue(
+      new StatisticsRequestError(409),
+    );
+    await refresh();
+    await screen.findByText(/access is no longer available/);
+    expect(router.refresh).toHaveBeenCalledTimes(2);
+  });
+  it("distinguishes temporary History unavailability from missing history and retains the external PR", async () => {
+    vi.mocked(fetchStatisticsIssues).mockResolvedValue({
+      items: [
+        { ...issueFixture(), history: { status: "temporarily_unavailable" } },
+      ],
+      nextCursor: null,
+    });
+    setup();
+    fireEvent.click(
+      screen.getByRole("button", { name: "View issues caught →" }),
+    );
+    await screen.findByRole("button", { name: "Retry history links" });
+    expect(screen.getByRole("link", { name: "PR #17 ↗" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Review history" })).toBeNull();
+    expect(screen.queryByText("Review history not recorded yet")).toBeNull();
   });
 });

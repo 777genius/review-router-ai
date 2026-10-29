@@ -152,6 +152,7 @@ describe.skipIf(!adminUrl)("review statistics real PostgreSQL", () => {
       severity: "all",
     });
     expect(issues.items[0]).toMatchObject({
+      scmRepositoryIdentityId: "scm",
       title: "Earlier title",
       severity: "minor",
       caughtAt: "2026-10-22T11:00:00.000Z",
@@ -364,6 +365,17 @@ describe.skipIf(!adminUrl)("review statistics real PostgreSQL", () => {
       "https://github.com/org/renamed",
     );
     expect(report.coverage.currentComplete).toBe(false);
+    const issues = await reader.readIssues({
+      actorId: "member",
+      workspaceId: "work",
+      from: report.period.from,
+      to: report.period.to,
+      severity: "all",
+    });
+    expect(issues.items[0]).toMatchObject({
+      repositoryId: "repo",
+      scmRepositoryIdentityId: "scm",
+    });
     // An unbound connection changed to another immutable SCM tuple is unsafe.
     await prisma.$executeRaw`UPDATE "RepositoryConnection" SET "externalRepositoryId"='other-external' WHERE "id"='repo'`;
     await expect(
