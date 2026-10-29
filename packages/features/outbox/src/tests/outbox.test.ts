@@ -21,6 +21,53 @@ const handler = {
 };
 
 describe("outbox", () => {
+  it("keeps a short worker lease from recovering another lane's legacy events", async () => {
+    const outbox = new InMemoryOutboxEventRepository();
+    const scanner = { ...handler, type: "review-skills.scan" };
+    for (const [key, type] of [
+      ["scan-legacy", scanner.type],
+      ["ordinary-legacy", handler.type],
+    ]) {
+      await seed(outbox, key!, type!, 1);
+      const row = outbox.events.get(key!)!;
+      outbox.events.set(key!, {
+        ...row,
+        status: "processing",
+        updatedAt: new Date(now.getTime() - 5 * 60_000),
+      });
+    }
+    const input = {
+      limit: 10,
+      handlers: [scanner],
+      processingLeaseMs: 240_000,
+      takeoverEnabled: true,
+      ...worker,
+    };
+    expect(
+      await processOutboxBatch(
+        { ...input, recoveryEventTypes: [] },
+        { outbox, clock },
+      ),
+    ).toMatchObject({ recoveredStale: 0, claimed: 0 });
+    expect(
+      await processOutboxBatch(
+        { ...input, recoveryEventTypes: [scanner.type] },
+        { outbox, clock },
+      ),
+    ).toMatchObject({ recoveredStale: 1, processed: 1 });
+    expect(outbox.events.get("ordinary-legacy")).toMatchObject({
+      status: "processing",
+      claimId: null,
+    });
+    // The ordinary lane retains its existing fifteen-minute legacy policy.
+    expect(
+      await processOutboxBatch(
+        { limit: 10, handlers: [handler], takeoverEnabled: true, ...worker },
+        { outbox, clock },
+      ),
+    ).toMatchObject({ recoveredStale: 0, claimed: 0 });
+  });
+
   it("enqueues events idempotently", async () => {
     const outbox = new InMemoryOutboxEventRepository();
     const event = {

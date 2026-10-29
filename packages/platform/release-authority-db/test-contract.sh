@@ -1352,10 +1352,11 @@ if DATABASE_URL=$(cat "$lease_url_file") LEASE_JSON=$(cat "$lease_file") node -e
 fi
 # Expiry is checked against the database clock even when the signed receipt
 # still claims its original later instant.
+# Use one SQL instant so clock drift cannot exceed the ten-minute lease CHECK.
 expiry_binding=$(docker exec "$name" psql -v ON_ERROR_STOP=1 -U postgres -d rr_authority_gate -qAtc \
   "UPDATE reviewrouter_migration_credential.lease
-   SET issued_at=clock_timestamp()-interval '11 minutes',
-       expires_at=clock_timestamp()-interval '1 minute'
+   SET issued_at=statement_timestamp()-interval '11 minutes',
+       expires_at=statement_timestamp()-interval '1 minute'
    WHERE workflow_run_id='91001';
    UPDATE reviewrouter_migration_credential.lease lease
    SET receipt_sha256=reviewrouter_migration_credential.canonical_receipt(lease)

@@ -19,6 +19,7 @@ import {
   ProviderSetupDialog,
   type ProviderSetupDialogProps,
 } from "./provider-setup-dialog";
+import { providerSetupQueryKeys } from "./provider-setup-api";
 import {
   apiKeyProviders,
   type ProviderModelCatalogSnapshot,
@@ -159,6 +160,7 @@ function renderDialog(
     >;
   },
   gateway?: { api: GatewayModelAccountsApi },
+  client: QueryClient = new QueryClient(),
 ) {
   const content = (
     <ProviderSetupDialog
@@ -186,7 +188,7 @@ function renderDialog(
     content
   );
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={client}>
       {catalog ? (
         <ProviderModelCatalogProvider
           snapshots={catalog.snapshots}
@@ -200,6 +202,7 @@ function renderDialog(
     </QueryClientProvider>,
   );
   fireEvent.click(screen.getByRole("button", { name: "Change provider" }));
+  return client;
 }
 
 /** Selects the provider option whose row shows the text. */
@@ -292,6 +295,7 @@ describe("ProviderSetupDialog", () => {
     view = { ...view, target: "workspace", sources: apiSources() };
     renderDialog({ kind: "workspace" }, { mode: "add" });
     await chooseSelect("Provider", "OpenRouter");
+    fireEvent.click(screen.getByRole("radio", { name: "GitHub Secrets" }));
     fireEvent.click(screen.getByRole("button", { name: "Add provider" }));
     const heading = await screen.findByRole("heading", {
       name: "Provider saved",
@@ -313,11 +317,315 @@ describe("ProviderSetupDialog", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
+  it.each([
+    {
+      id: "codex" as const,
+      label: "Codex",
+      source: "repository_rotating" as const,
+      authMode: "codex_subscription_oauth_rotating" as const,
+      copy: /Codex session \(auth.json\)/,
+    },
+    {
+      id: "claude-code" as const,
+      label: "Claude Code",
+      source: "user_ci_secret:claude_code_oauth" as const,
+      authMode: "claude_code_oauth" as const,
+      copy: /Claude Code subscription token/,
+    },
+  ])(
+    "offers $label by name with separate subscription storage and preserves its exact GitHub contract",
+    async ({ id, label, source, authMode, copy }) => {
+      view = {
+        ...view,
+        sources: [
+          ...apiSources(),
+          {
+            key: source,
+            credentialKind:
+              id === "codex" ? "repository_rotating" : "user_ci_secret",
+            authMode,
+            decision: { allowed: true },
+          },
+        ],
+        gatewaySetupProviders: ["codex", "claude-code"],
+      };
+      renderDialog(repositoryTarget);
+      await choose("Add a new provider");
+      await chooseSelect("Provider", label);
+      expect(
+        screen.getByRole("radiogroup", { name: "Credential storage" }),
+      ).toBeTruthy();
+      const storage = screen.getAllByRole("radio", {
+        name: /^(ReviewRouter|GitHub Secrets)$/,
+      });
+      expect(storage[0]).toBe(
+        screen.getByRole("radio", { name: "ReviewRouter" }),
+      );
+      expect(storage[1]).toBe(
+        screen.getByRole("radio", { name: "GitHub Secrets" }),
+      );
+      expect(storage[0]?.getAttribute("aria-checked")).toBe("true");
+      expect(screen.queryByLabelText("API key")).toBeNull();
+      expect(screen.getAllByText(copy).length).toBeGreaterThan(0);
+      const continuation = new URL(
+        screen
+          .getByRole("link", { name: "Connect account" })
+          .getAttribute("href")!,
+        "https://example.test",
+      );
+      expect(continuation.searchParams.get("keyProvider")).toBe(id);
+      expect(continuation.searchParams.getAll("keyRepository")).toEqual([
+        "repo_1",
+      ]);
+      fireEvent.click(storage[1]!);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Use for this repository" }),
+      );
+      await waitFor(() =>
+        expect(saveProviderSetupAction).toHaveBeenCalledWith(
+          expect.objectContaining({
+            provider: expect.objectContaining({
+              kind: "new",
+              credential:
+                id === "codex"
+                  ? { kind: "repository_rotating", repositoryId: "repo_1" }
+                  : { kind: "user_ci_secret", authMode: "claude_code_oauth" },
+            }),
+          }),
+        ),
+      );
+    },
+  );
+
+  it("reuses the ready Claude subscription with its exact profile instead of offering it as a generic account", async () => {
+    const fixture = gatewayFixture();
+    if (fixture.status !== "ok") throw new Error("fixture unavailable");
+    const profile = fixture.value.profiles[0]!;
+    profile.id = "anthropic-claude-oauth-messages-v1";
+    profile.authKind = "oauth";
+    profile.provider = "claude";
+    profile.label = "Claude Code";
+    profile.connection = {
+      ...profile.connection!,
+      provider: "anthropic",
+      modelSettings: [
+        {
+          modelId: profile.models[0]!,
+          reasoning: null,
+          fast: null,
+          tools: { allowed: ["function"], default: "function" },
+        },
+      ],
+    };
+    fixture.value.accounts[0]!.profileId = profile.id;
+    fixture.value.nextCursor = null;
+    view = {
+      ...view,
+      sources: apiSources(),
+      gatewaySetupProviders: ["claude-code"],
+    };
+    renderDialog(repositoryTarget, { gatewayAccounts: fixture });
+    await choose("Add a new provider");
+    await chooseSelect("Provider", "Claude Code");
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: /^Account\b/ }).textContent,
+      ).toContain("Selected account"),
+    );
+    expect(screen.queryByRole("link", { name: "Connect account" })).toBeNull();
+    expect(screen.queryByLabelText("API key")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    );
+    await waitFor(() =>
+      expect(saveProviderSetupAction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: expect.objectContaining({
+            credential: {
+              kind: "gateway_binding",
+              bindingId: "binding-1",
+              gatewayProfileRef: profile.id,
+            },
+          }),
+        }),
+      ),
+    );
+  });
+
+  it("keeps ReviewRouter as the chosen default when enrollment is unavailable instead of switching custody", async () => {
+    view = {
+      ...view,
+      target: "workspace",
+      sources: apiSources(),
+      gatewaySetupProviders: [],
+    };
+    renderDialog({ kind: "workspace" }, { mode: "add" });
+    await chooseSelect("Provider", "OpenRouter");
+    const reviewrouter = screen.getByRole("radio", { name: "ReviewRouter" });
+    expect(reviewrouter.getAttribute("aria-checked")).toBe("true");
+    expect(reviewrouter.getAttribute("aria-disabled")).toBe("true");
+    expect(
+      screen
+        .getByRole("radio", { name: "GitHub Secrets" })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
+    expect(screen.getByRole("button", { name: "Add provider" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(createProviderProfileAction).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "installs the GitHub key through the existing batch API before assignment (partial first attempt: %s)",
+    async (partialFirstAttempt) => {
+      const repositories = [
+        { id: "repo_1", fullName: "acme/widget" },
+        { id: "repo_2", fullName: "acme/service" },
+      ];
+      const managed = {
+        key: "managed_api_key:openrouter_api_key" as const,
+        credentialKind: "managed_api_key" as const,
+        authMode: "openrouter_api_key" as const,
+        decision: { allowed: true as const },
+        managedKey: {
+          uploaded: false,
+          installedRepositoryIds: [] as string[],
+          install: { allowed: true as const },
+        },
+      };
+      view = {
+        ...view,
+        repositories: repositories.map((repository) => ({
+          ...repository,
+          source: "none",
+          selection: null,
+          useDefault: { allowed: true },
+        })),
+        sources: [...apiSources(), managed],
+      };
+      const applyRequests: Record<string, unknown>[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init?: RequestInit) => {
+          if (url === "/api/dashboard/provider-keys/apply") {
+            applyRequests.push(
+              JSON.parse(String(init?.body)) as Record<string, unknown>,
+            );
+            const partial = partialFirstAttempt && applyRequests.length === 1;
+            managed.managedKey.uploaded = true;
+            managed.managedKey.installedRepositoryIds = partial
+              ? ["repo_1"]
+              : ["repo_1", "repo_2"];
+            return {
+              ok: true,
+              json: async () => ({
+                results: repositories.map((repository, index) => ({
+                  repositoryId: repository.id,
+                  repositoryFullName: repository.fullName,
+                  status: partial && index === 1 ? "denied" : "applied",
+                  ...(partial && index === 1
+                    ? { errorReason: "repository_access_denied" }
+                    : {}),
+                })),
+              }),
+            } as Response;
+          }
+          return { ok: true, json: async () => view } as Response;
+        }),
+      );
+      vi.mocked(saveProviderSetupAction).mockResolvedValue({
+        status: "saved",
+        results: repositories.map((repository) => ({
+          repositoryId: repository.id,
+          fullName: repository.fullName,
+          status: "applied",
+        })),
+      });
+      renderDialog(
+        { kind: "repositories", repositories },
+        {
+          initialIntent: {
+            provider: "openrouter",
+            storage: "github_secrets",
+            workspaceId: "workspace_1",
+            repositoryIds: repositories.map((repository) => repository.id),
+          },
+        },
+      );
+      const key = await screen.findByLabelText(/^OpenRouter API key/);
+      expect(
+        screen
+          .getByRole("radio", { name: "Install for me" })
+          .getAttribute("aria-checked"),
+      ).toBe("true");
+      expect(applyRequests).toHaveLength(0);
+      fireEvent.change(key, {
+        target: { value: "synthetic-single-entry-key" },
+      });
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Install key and use for 2 repositories",
+        }),
+      );
+      if (partialFirstAttempt) {
+        await screen.findByText(/Provider settings have not been changed/);
+        expect(saveProviderSetupAction).not.toHaveBeenCalled();
+        expect(
+          screen.getByText(/The key is installed in 1 of 2 repositories/),
+        ).toBeTruthy();
+        expect(
+          screen.queryByDisplayValue("synthetic-single-entry-key"),
+        ).toBeNull();
+        expect(applyRequests).toHaveLength(1);
+        fireEvent.click(
+          screen.getByRole("button", {
+            name: "Install key and use for 2 repositories",
+          }),
+        );
+      }
+      await waitFor(() =>
+        expect(saveProviderSetupAction).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({
+            target: {
+              kind: "repositories",
+              repositoryIds: ["repo_1", "repo_2"],
+            },
+            provider: expect.objectContaining({
+              credential: {
+                kind: "managed_api_key",
+                authMode: "openrouter_api_key",
+              },
+            }),
+          }),
+        ),
+      );
+      expect(applyRequests[0]).toEqual({
+        workspaceId: "workspace_1",
+        providerType: "openrouter",
+        apiKey: "synthetic-single-entry-key",
+        repositoryIds: ["repo_1", "repo_2"],
+      });
+      if (partialFirstAttempt)
+        expect(applyRequests[1]).toEqual({
+          workspaceId: "workspace_1",
+          providerType: "openrouter",
+          repositoryIds: ["repo_1", "repo_2"],
+        });
+      expect(
+        await screen.findByText("The key is installed in all 2 repositories."),
+      ).toBeTruthy();
+      expect(
+        screen.queryByDisplayValue("synthetic-single-entry-key"),
+      ).toBeNull();
+    },
+  );
+
   it("starts a new API provider with the available storage when GitHub Secrets is denied", async () => {
     view = {
       ...view,
       target: "workspace",
-      gatewayApiKeyProviders: ["openrouter"],
+      gatewaySetupProviders: ["openrouter"],
       sources: apiSources().map((source) =>
         source.key === "user_ci_secret:openrouter_api_key"
           ? {
@@ -348,7 +656,7 @@ describe("ProviderSetupDialog", () => {
       view = {
         ...view,
         target: "workspace",
-        gatewayApiKeyProviders: alternativeAvailable ? ["openrouter"] : [],
+        gatewaySetupProviders: alternativeAvailable ? ["openrouter"] : [],
         sources: apiSources().map((source) =>
           source.key === "user_ci_secret:openrouter_api_key"
             ? {
@@ -400,11 +708,19 @@ describe("ProviderSetupDialog", () => {
       screen.queryByRole("checkbox", { name: /Read related files/ }),
     ).toBeNull();
     await chooseSelect("Provider", "OpenRouter");
-    expect(
-      screen
-        .getByRole("radio", { name: "GitHub Secrets" })
-        .getAttribute("aria-checked"),
-    ).toBe("true");
+    const storage = screen.getAllByRole("radio", {
+      name: /^(ReviewRouter|GitHub Secrets)$/,
+    });
+    expect(storage[0]).toBe(
+      screen.getByRole("radio", { name: "ReviewRouter" }),
+    );
+    expect(storage[1]).toBe(
+      screen.getByRole("radio", { name: "GitHub Secrets" }),
+    );
+    expect(storage[0]?.getAttribute("aria-checked")).toBe("true");
+    expect(storage[0]?.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.queryByLabelText("Model", { exact: true })).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "GitHub Secrets" }));
     expect(screen.getByLabelText("Model", { exact: true })).toBeTruthy();
     expect(screen.queryByRole("combobox", { name: /^Account\b/ })).toBeNull();
     expect(
@@ -431,7 +747,7 @@ describe("ProviderSetupDialog", () => {
       view = {
         ...view,
         sources: apiSources(),
-        gatewayApiKeyProviders: ["openrouter"],
+        gatewaySetupProviders: ["openrouter"],
       };
       renderDialog(repositoryTarget, {
         gatewayAccounts: { status },
@@ -456,7 +772,7 @@ describe("ProviderSetupDialog", () => {
     view = {
       ...view,
       sources: apiSources(),
-      gatewayApiKeyProviders: ["openrouter"],
+      gatewaySetupProviders: ["openrouter"],
     };
     renderDialog(repositoryTarget, {
       gatewayAccounts: {
@@ -478,11 +794,11 @@ describe("ProviderSetupDialog", () => {
     expect(screen.queryByText("Model and review settings")).toBeNull();
   });
 
-  it("waits for explicit account choice then uses its model capabilities without exhausting other pages", async () => {
+  it("requires an explicit account choice while more inventory remains and does not exhaust other pages", async () => {
     view = {
       ...view,
       sources: apiSources(),
-      gatewayApiKeyProviders: ["openrouter"],
+      gatewaySetupProviders: ["openrouter"],
     };
     renderDialog(repositoryTarget, {
       gatewayAccounts: gatewayFixture(),
@@ -493,7 +809,9 @@ describe("ProviderSetupDialog", () => {
         repositoryIds: ["repo_1"],
       },
     });
-    await screen.findByRole("combobox", { name: /^Account\b/ });
+    expect(
+      (await screen.findByRole("combobox", { name: /^Account\b/ })).textContent,
+    ).toContain("Choose an account");
     expect(screen.queryByText("Model and review settings")).toBeNull();
     await chooseSelect("Account", /^Selected account/);
     expect(await screen.findByRole("combobox", { name: "Model" })).toBeTruthy();
@@ -505,10 +823,315 @@ describe("ProviderSetupDialog", () => {
       screen.getByRole("checkbox", { name: /^Read related files/ }),
     ).toBeTruthy();
     await chooseSelect("Provider", "MiMo Token Plan");
+    fireEvent.click(screen.getByRole("radio", { name: "GitHub Secrets" }));
     expect(screen.queryByRole("combobox", { name: /^Account\b/ })).toBeNull();
     expect(
       screen.getByRole("combobox", { name: /^Review depth/ }).textContent,
     ).toContain("High");
+  });
+
+  it("shows public model names, recommendations and pricing for ReviewRouter storage while rejecting unavailable account choices", async () => {
+    view = {
+      ...view,
+      sources: apiSources(),
+      gatewaySetupProviders: ["openrouter"],
+    };
+    const fixture = gatewayFixture();
+    if (fixture.status !== "ok") throw new Error("fixture unavailable");
+    fixture.value.nextCursor = null;
+    renderDialog(repositoryTarget, {
+      gatewayAccounts: fixture,
+      modelOptions: [
+        {
+          provider: "openrouter",
+          value: "openai/account-model",
+          label: "Public account model",
+          badge: "FREE RECOMMENDED" as const,
+          description: "128K context · $0 / $0 per 1M tokens",
+        },
+        {
+          provider: "openrouter",
+          value: "other/unavailable",
+          label: "Another public model",
+          description: "200K context",
+        },
+      ],
+      initialIntent: {
+        provider: "openrouter",
+        storage: "reviewrouter",
+        workspaceId: "workspace_1",
+        repositoryIds: ["repo_1"],
+      },
+    });
+    fireEvent.click(await screen.findByRole("combobox", { name: "Model" }));
+    expect(
+      await screen.findByText("128K context · $0 / $0 per 1M tokens"),
+    ).toBeTruthy();
+    expect(screen.getAllByText("FREE RECOMMENDED").length).toBeGreaterThan(0);
+    expect(
+      screen
+        .getByRole("option", { name: /Another public model/ })
+        .getAttribute("aria-disabled"),
+    ).toBe("true");
+    expect(
+      screen.getByText("200K context Unavailable for this account."),
+    ).toBeTruthy();
+  });
+
+  it("allows a catalog-admitted routing model through its exact Gateway account while keeping direct GitHub routing disabled", async () => {
+    const fixture = gatewayFixture();
+    if (fixture.status !== "ok") throw new Error("fixture unavailable");
+    const routingId = "openrouter/catalog-route";
+    const profile = fixture.value.profiles[0]!;
+    profile.models = [routingId];
+    profile.connection!.modelSettings = [
+      { ...profile.connection!.modelSettings[0]!, modelId: routingId },
+    ];
+    fixture.value.nextCursor = null;
+    const snapshots: ProviderModelCatalogSnapshot[] = (
+      ["codex", "claude", "openrouter"] as const
+    ).map((providerKind) => ({
+      providerKind,
+      models:
+        providerKind === "openrouter"
+          ? [routingId, "openrouter/not-admitted"].map((id) => ({
+              id,
+              name: id,
+              textInput: true,
+              textOutput: true,
+              toolCalling: true,
+              contextTokens: 128000,
+              pricing: null,
+            }))
+          : [],
+      source: providerKind === "openrouter" ? "openrouter" : "models.dev",
+      fetchedAt: Date.now(),
+      lastAttemptAt: Date.now(),
+      state: "fresh",
+      error: null,
+      refresh: "cached",
+    }));
+    view = {
+      ...view,
+      sources: apiSources(),
+      gatewaySetupProviders: ["openrouter"],
+    };
+    renderDialog(
+      repositoryTarget,
+      {
+        gatewayAccounts: fixture,
+        initialIntent: {
+          provider: "openrouter",
+          storage: "reviewrouter",
+          workspaceId: "workspace_1",
+          repositoryIds: ["repo_1"],
+        },
+      },
+      {
+        snapshots,
+        api: vi.fn(
+          async ({ providerKind }) =>
+            snapshots.find(
+              (snapshot) => snapshot.providerKind === providerKind,
+            )!,
+        ),
+      },
+    );
+    const model = await screen.findByRole("combobox", { name: "Model" });
+    await waitFor(() => expect(model).toHaveProperty("value", routingId));
+    expect(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    ).toHaveProperty("disabled", false);
+    fireEvent.change(model, { target: { value: "openrouter/not-admitted" } });
+    expect(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    ).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("radio", { name: "GitHub Secrets" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Model" }), {
+      target: { value: routingId },
+    });
+    expect(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    ).toHaveProperty("disabled", true);
+    expect(
+      screen.getAllByText(
+        /This OpenRouter routing model is not supported for reviews/,
+      ).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("rejects a known disabled direct model while retaining an unknown custom model id", async () => {
+    view = { ...view, sources: apiSources() };
+    renderDialog(repositoryTarget, {
+      modelOptions: [
+        {
+          provider: "openrouter",
+          value: "disabled/model",
+          label: "Disabled public model",
+          disabled: true,
+        },
+      ],
+      initialIntent: {
+        provider: "openrouter",
+        storage: "github_secrets",
+        workspaceId: "workspace_1",
+        repositoryIds: ["repo_1"],
+      },
+    });
+    const input = await screen.findByRole("combobox", { name: "Model" });
+    fireEvent.change(input, { target: { value: "disabled/model" } });
+    expect(
+      screen.getByText(/This model is unavailable for review/),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    ).toHaveProperty("disabled", true);
+    expect(saveProviderSetupAction).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "custom/unknown-model" } });
+    expect(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    ).toHaveProperty("disabled", false);
+  });
+
+  it.each(["unknown/model", "disabled/model"])(
+    "does not admit a typed %s through the searchable account catalog",
+    async (typedModel) => {
+      const fixture = gatewayFixture();
+      if (fixture.status !== "ok") throw new Error("fixture unavailable");
+      fixture.value.nextCursor = null;
+      const profile = fixture.value.profiles[0]!;
+      profile.models.push("disabled/model");
+      profile.connection!.modelSettings = [
+        ...profile.connection!.modelSettings,
+        { ...profile.connection!.modelSettings[0]!, modelId: "disabled/model" },
+      ];
+      view = {
+        ...view,
+        sources: apiSources(),
+        gatewaySetupProviders: ["openrouter"],
+      };
+      renderDialog(repositoryTarget, {
+        gatewayAccounts: fixture,
+        modelOptions: [
+          {
+            provider: "openrouter",
+            value: "disabled/model",
+            label: "Disabled public model",
+            disabled: true,
+            description: "Tool calling support not confirmed.",
+          },
+        ],
+        initialIntent: {
+          provider: "openrouter",
+          storage: "reviewrouter",
+          workspaceId: "workspace_1",
+          repositoryIds: ["repo_1"],
+        },
+      });
+      const input = await screen.findByRole("combobox", { name: "Model" });
+      fireEvent.change(input, { target: { value: typedModel } });
+      expect(
+        screen.getByRole("button", { name: "Use for this repository" }),
+      ).toHaveProperty("disabled", true);
+      expect(screen.getByText(/Choose an available model from/)).toBeTruthy();
+      expect(saveProviderSetupAction).not.toHaveBeenCalled();
+      fireEvent.change(input, { target: { value: "openai/account-model" } });
+      expect(
+        screen.getByRole("button", { name: "Use for this repository" }),
+      ).toHaveProperty("disabled", false);
+    },
+  );
+
+  it.each([
+    {
+      id: "glm" as const,
+      label: "GLM Coding Plan",
+      profileId: "glm-coding-global-responses-apikey-v1",
+      authKind: "api_key" as const,
+    },
+    {
+      id: "grok" as const,
+      label: "Grok",
+      profileId: "grok-subscription-responses-oauth-v1",
+      authKind: "oauth" as const,
+    },
+  ])(
+    "preserves the existing $label account path as ReviewRouter-only",
+    async ({ id, label, profileId, authKind }) => {
+      const fixture = gatewayFixture();
+      if (fixture.status !== "ok") throw new Error("fixture unavailable");
+      const profile = fixture.value.profiles[0]!;
+      profile.id = profileId;
+      profile.authKind = authKind;
+      profile.provider = "codex";
+      profile.label = label;
+      profile.connection = { ...profile.connection!, provider: id };
+      fixture.value.accounts[0]!.profileId = profileId;
+      fixture.value.nextCursor = null;
+      view = { ...view, sources: apiSources(), gatewaySetupProviders: [id] };
+      renderDialog(repositoryTarget, { gatewayAccounts: fixture });
+      await choose("Add a new provider");
+      await chooseSelect("Provider", label);
+      await screen.findByRole("combobox", { name: "Model" });
+      expect(
+        screen
+          .getByRole("radio", { name: "ReviewRouter" })
+          .getAttribute("aria-checked"),
+      ).toBe("true");
+      expect(
+        screen
+          .getByRole("radio", { name: "GitHub Secrets" })
+          .getAttribute("aria-disabled"),
+      ).toBe("true");
+      fireEvent.click(
+        screen.getByRole("button", { name: "Use for this repository" }),
+      );
+      await waitFor(() =>
+        expect(saveProviderSetupAction).toHaveBeenCalledWith(
+          expect.objectContaining({
+            provider: expect.objectContaining({
+              credential: {
+                kind: "gateway_binding",
+                bindingId: "binding-1",
+                gatewayProfileRef: profileId,
+              },
+            }),
+          }),
+        ),
+      );
+    },
+  );
+
+  it("requires an explicit account choice when several matching connections are available", async () => {
+    const fixture = gatewayFixture();
+    if (fixture.status !== "ok") throw new Error("fixture unavailable");
+    fixture.value.accounts.push({
+      ...fixture.value.accounts[0]!,
+      connectionId: "second-connection",
+      label: "Other account",
+      binding: { ...fixture.value.accounts[0]!.binding!, id: "second-binding" },
+    });
+    view = {
+      ...view,
+      sources: apiSources(),
+      gatewaySetupProviders: ["openrouter"],
+    };
+    renderDialog(repositoryTarget, {
+      gatewayAccounts: fixture,
+      initialIntent: {
+        provider: "openrouter",
+        storage: "reviewrouter",
+        workspaceId: "workspace_1",
+        repositoryIds: ["repo_1"],
+      },
+    });
+    expect(
+      (await screen.findByRole("combobox", { name: /^Account\b/ })).textContent,
+    ).toContain("Choose an account");
+    expect(screen.queryByText("Model and review settings")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    ).toHaveProperty("disabled", true);
   });
 
   it("mounts the public catalog refresh for editable model creation and preserves the typed model", async () => {
@@ -531,6 +1154,7 @@ describe("ProviderSetupDialog", () => {
     );
     renderDialog({ kind: "workspace" }, { mode: "add" }, { snapshots, api });
     await chooseSelect("Provider", "OpenRouter");
+    fireEvent.click(screen.getByRole("radio", { name: "GitHub Secrets" }));
     const model = screen.getByLabelText("Model", { exact: true });
     fireEvent.change(model, { target: { value: "custom/preserved-model" } });
     fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
@@ -714,7 +1338,7 @@ describe("ProviderSetupDialog", () => {
       ...view,
       target: "workspace",
       sources: apiSources(),
-      gatewayApiKeyProviders: ["openrouter"],
+      gatewaySetupProviders: ["openrouter"],
     };
     renderDialog(
       { kind: "workspace" },
@@ -764,6 +1388,8 @@ describe("ProviderSetupDialog", () => {
       if (fixture.status !== "ok") throw new Error("fixture unavailable");
       const profile = fixture.value.profiles[0]!;
       profile.id = "openai-codex-oauth-responses-v1";
+      profile.authKind = "oauth";
+      profile.provider = "codex";
       profile.connection = {
         ...profile.connection!,
         provider: "openai",
@@ -820,14 +1446,14 @@ describe("ProviderSetupDialog", () => {
         api,
       });
       await choose("Add a new provider");
-      await chooseSelect("Provider", /^Connected account/);
+      await chooseSelect("Provider", "Codex");
       await chooseSelect("Account", /^Selected account/);
       await chooseSelect("Review depth", /^Medium/);
       await chooseSelect("Review depth", /^High/);
       fireEvent.click(screen.getByRole("checkbox", { name: /^Fast mode/ }));
       fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
       await screen.findByText(
-        /The selected review depth or fast mode is not supported/,
+        /ReviewRouter does not offer .*settings? for this model/,
       );
       const save = screen.getByRole("button", {
         name: "Use for this repository",
@@ -835,7 +1461,11 @@ describe("ProviderSetupDialog", () => {
       expect(save).toHaveProperty("disabled", true);
       expect(
         screen.getByRole("combobox", { name: /^Review depth/ }).textContent,
-      ).toContain("selected, unsupported");
+      ).toContain(
+        scenario === "reasoning removed"
+          ? "selected, unavailable in ReviewRouter"
+          : "selected, unsupported",
+      );
       expect(
         screen.getByRole("checkbox", { name: /^Fast mode/ }),
       ).toHaveProperty("checked", true);
@@ -933,7 +1563,7 @@ describe("ProviderSetupDialog", () => {
     async (provider) => {
       view = {
         ...view,
-        gatewayApiKeyProviders: apiKeyProviders.map((row) => row.id),
+        gatewaySetupProviders: apiKeyProviders.map((row) => row.id),
         sources: [
           {
             key: "gateway_binding",
@@ -1008,6 +1638,12 @@ describe("ProviderSetupDialog", () => {
 
   it("attaches an existing provider by its ID, never by its credential and model", async () => {
     renderDialog(repositoryTarget);
+    // Wait for opening autofocus before interacting with the modal.
+    await waitFor(() =>
+      expect(screen.getByRole("dialog").contains(document.activeElement)).toBe(
+        true,
+      ),
+    );
     await choose("Second Claude");
     fireEvent.click(
       screen.getByRole("button", { name: "Use for this repository" }),
@@ -1039,6 +1675,136 @@ describe("ProviderSetupDialog", () => {
     expect(url.searchParams.get("section")).toBe("repositories");
   });
 
+  it("keeps focus on the credential step when opening autofocus is still queued", async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let frameId = 0;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      const id = ++frameId;
+      frames.set(id, callback);
+      return id;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+    const flushFrame = async () => {
+      await act(async () => {
+        const pending = [...frames.values()];
+        frames.clear();
+        for (const callback of pending) callback(performance.now());
+      });
+    };
+
+    renderDialog(repositoryTarget);
+    const trigger = screen.getByText("Change provider");
+    await choose("Second Claude");
+    // The opening dialog's autofocus has not run yet. A fast save can move to
+    // credentials before that pending frame focuses the first dialog control.
+    expect(frames.size).toBeGreaterThan(0);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    );
+    const secretStep = await screen.findByRole("button", {
+      name: "2. Add secret",
+    });
+    await waitFor(() =>
+      expect(secretStep.getAttribute("aria-current")).toBe("step"),
+    );
+    await flushFrame();
+    expect(document.activeElement).toBe(secretStep);
+    await act(async () => {
+      fireEvent.keyDown(secretStep, { key: "Escape" });
+    });
+    await flushFrame();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("keeps focus on the workspace save result when opening autofocus is still queued", async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let frameId = 0;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      const id = ++frameId;
+      frames.set(id, callback);
+      return id;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+
+    view = { ...view, target: "workspace", repositories: [] };
+    renderDialog({ kind: "workspace" });
+    await choose("Second Claude");
+    // A fast save can finish before the opening dialog focuses its first control.
+    expect(frames.size).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Set as default" }));
+    const heading = await screen.findByRole("heading", {
+      name: "Workspace default saved",
+    });
+
+    await act(async () => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(performance.now());
+    });
+
+    expect(document.activeElement).toBe(heading);
+  });
+
+  it("keeps repository step navigation locked until a provider save finishes", async () => {
+    let finishSave!: (
+      result: Awaited<ReturnType<typeof saveProviderSetupAction>>,
+    ) => void;
+    vi.mocked(saveProviderSetupAction).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSave = resolve;
+        }),
+    );
+    renderDialog(repositoryTarget);
+    await choose("Second Claude");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    );
+    await waitFor(() => expect(saveProviderSetupAction).toHaveBeenCalledOnce());
+
+    const providerStep = screen.getByRole("button", { name: "1. Provider" });
+    const secretStep = screen.getByRole("button", { name: "2. Add secret" });
+    // Leaving and reentering the choice step must not create a fresh form
+    // that can submit a second mutation while the first save is unresolved.
+    fireEvent.click(secretStep);
+    fireEvent.click(providerStep);
+    await choose("Second Claude");
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /^(Saving\.\.\.|Use for this repository)$/,
+      }),
+    );
+
+    expect(saveProviderSetupAction).toHaveBeenCalledOnce();
+    expect(providerStep).toHaveProperty("disabled", true);
+    expect(secretStep).toHaveProperty("disabled", true);
+    expect(providerStep.getAttribute("aria-current")).toBe("step");
+
+    await act(async () => {
+      finishSave({
+        status: "saved",
+        results: [
+          {
+            repositoryId: "repo_1",
+            fullName: "acme/widget",
+            status: "applied",
+          },
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      expect(providerStep).toHaveProperty("disabled", false);
+      expect(secretStep).toHaveProperty("disabled", false);
+      expect(secretStep.getAttribute("aria-current")).toBe("step");
+    });
+    fireEvent.click(providerStep);
+    expect(providerStep.getAttribute("aria-current")).toBe("step");
+    expect(screen.getByText("Second Claude")).toBeTruthy();
+    expect(saveProviderSetupAction).toHaveBeenCalledOnce();
+  });
+
   it("returns a repository with its own provider to the workspace default", async () => {
     view = {
       ...view,
@@ -1062,6 +1828,181 @@ describe("ProviderSetupDialog", () => {
       }),
     );
     expect(saveProviderSetupAction).not.toHaveBeenCalled();
+  });
+
+  it("does not inherit a workspace default that disappeared after it was chosen", async () => {
+    view = {
+      ...view,
+      repositories: [
+        {
+          ...view.repositories[0]!,
+          source: "repository",
+          selection: selection("profile_other"),
+        },
+      ],
+    };
+    const client = renderDialog(repositoryTarget);
+    await choose("Workspace default: Team Claude");
+    expect(
+      screen.getByRole("button", { name: "Use the workspace default" }),
+    ).toHaveProperty("disabled", false);
+
+    // Another administrator removed the default, but this repository still
+    // has its own provider. A stale choice must not clear that selection.
+    view = {
+      ...view,
+      defaultSelection: null,
+      profiles: view.profiles.map((profile) => ({
+        ...profile,
+        isDefault: false,
+      })),
+    };
+    await act(async () => {
+      await client.refetchQueries({
+        queryKey: providerSetupQueryKeys.view("workspace_1", ["repo_1"]),
+        exact: true,
+      });
+    });
+    await waitFor(() =>
+      expect(screen.queryByText("Workspace default: Team Claude")).toBeNull(),
+    );
+
+    const inherit = screen.getByRole("button", {
+      name: "Use the workspace default",
+    });
+    expect(inherit).toHaveProperty("disabled", true);
+    fireEvent.click(inherit);
+    expect(inheritWorkspaceDefaultProviderAction).not.toHaveBeenCalled();
+    expect(saveProviderSetupAction).not.toHaveBeenCalled();
+
+    // Choosing an available provider is still possible after the refresh.
+    await choose("Team Claude");
+    expect(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    ).toHaveProperty("disabled", false);
+  });
+
+  it.each(["default", "profile"] as const)(
+    "allows choosing a new provider when the last %s choice disappears",
+    async (choiceKind) => {
+      view = { ...view, sources: apiSources() };
+      const client = renderDialog(repositoryTarget);
+      await choose(
+        choiceKind === "default"
+          ? "Workspace default: Team Claude"
+          : "Second Claude",
+      );
+
+      view = {
+        ...view,
+        defaultSelection: null,
+        profiles: [],
+        repositories: view.repositories.map((repository) => ({
+          ...repository,
+          source: "none" as const,
+          selection: null,
+        })),
+      };
+      await act(async () => {
+        await client.refetchQueries({
+          queryKey: providerSetupQueryKeys.view("workspace_1", ["repo_1"]),
+          exact: true,
+        });
+      });
+      await screen.findByRole("heading", { name: "Add the first provider" });
+
+      const add = (await screen.findByText("Add a new provider"))
+        .closest("label")!
+        .querySelector('[role="radio"]')!;
+      // Recover explicitly; a refresh must not silently replace the choice.
+      expect(add.getAttribute("aria-checked")).toBe("false");
+      expect(
+        screen.queryByRole("combobox", { name: /^Provider\b/ }),
+      ).toBeNull();
+      expect(saveProviderSetupAction).not.toHaveBeenCalled();
+      expect(inheritWorkspaceDefaultProviderAction).not.toHaveBeenCalled();
+
+      fireEvent.click(add);
+      await chooseSelect("Provider", "OpenRouter");
+      fireEvent.click(screen.getByRole("radio", { name: "GitHub Secrets" }));
+      const save = screen.getByRole("button", {
+        name: "Use for this repository",
+      });
+      expect(save).toHaveProperty("disabled", false);
+      fireEvent.click(save);
+      await waitFor(() =>
+        expect(saveProviderSetupAction).toHaveBeenCalledOnce(),
+      );
+      expect(
+        vi.mocked(saveProviderSetupAction).mock.calls[0]![0],
+      ).toMatchObject({
+        target: { kind: "repositories", repositoryIds: ["repo_1"] },
+        provider: {
+          kind: "new",
+          credential: {
+            kind: "user_ci_secret",
+            authMode: "openrouter_api_key",
+          },
+        },
+      });
+      expect(inheritWorkspaceDefaultProviderAction).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves an unsaved provider choice through a failed refresh and blocks saving until retry succeeds", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    renderDialog(repositoryTarget, {}, undefined, undefined, client);
+    await choose("Second Claude");
+    const expectSecondClaudeChosen = () => {
+      const option = screen.getByText("Second Claude").closest("label")!;
+      expect(
+        option.querySelector('[role="radio"]')!.getAttribute("aria-checked"),
+      ).toBe("true");
+    };
+    expectSecondClaudeChosen();
+    expect(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    ).toHaveProperty("disabled", false);
+    vi.mocked(fetch).mockRejectedValueOnce(
+      new Error("provider_setup_unavailable"),
+    );
+    const queryKey = providerSetupQueryKeys.view("workspace_1", ["repo_1"]);
+
+    await act(async () => {
+      await client.refetchQueries({ queryKey, exact: true });
+    });
+
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    expect(client.getQueryState(queryKey)?.status).toBe("error");
+    expect(client.getQueryData(queryKey)).toBeDefined();
+    const save = screen.getByRole("button", {
+      name: "Use for this repository",
+    });
+    expect(save).toHaveProperty("disabled", true);
+    fireEvent.click(save);
+    expect(saveProviderSetupAction).not.toHaveBeenCalled();
+    expectSecondClaudeChosen();
+    expect(
+      screen.queryByText("Changes are turned off for this dashboard."),
+    ).toBeNull();
+
+    fireEvent.click(retry);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Use for this repository" }),
+      ).toHaveProperty("disabled", false),
+    );
+    expectSecondClaudeChosen();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    );
+    await waitFor(() => expect(saveProviderSetupAction).toHaveBeenCalledOnce());
+    expect(vi.mocked(saveProviderSetupAction).mock.calls[0]![0]).toMatchObject({
+      provider: { kind: "profile", profileId: "profile_other" },
+    });
+    expect(inheritWorkspaceDefaultProviderAction).not.toHaveBeenCalled();
   });
 
   it("lets a repository request inheritance without editing legacy MiMo default settings", async () => {

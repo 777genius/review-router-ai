@@ -37,8 +37,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Preserve the current namespace and isolate each manual qualification run.
+  group: ci-v2-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 env:
   NODE_VERSION: "26.11.1"
@@ -74,10 +75,11 @@ jobs:
   release-authority-pg17-contract:
     name: Dedicated Release Authority PG17 contract
     if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.release_authority_pg17_contract) }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
       REVIEW_ROUTER_PG17_ADVERSARIAL_IMAGE: postgres:17.5-bookworm@sha256:fbcea1bd13b6a882cd6caa6b58db3ae5c102efe50ec625b3e2a5cbc50db5bfe4
+      REVIEW_ROUTER_PSQL_BINARY: /usr/lib/postgresql/17/bin/psql
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -110,6 +112,15 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - name: Install pnpm
         run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Install PostgreSQL client
+        uses: ./.github/actions/setup-postgresql-client
+      - name: Verify dedicated PostgreSQL 17 client
+        shell: bash
+        run: |
+          psql_binary=/usr/lib/postgresql/17/bin/psql
+          test -x "$psql_binary"
+          "$psql_binary" --version | grep -Eq '^psql \(PostgreSQL\) 17([. ]|$)'
+          echo "REVIEW_ROUTER_PSQL_BINARY=$psql_binary" >> "$GITHUB_ENV"
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - name: Generate Prisma client
@@ -141,7 +152,7 @@ jobs:
   private-pg16-to-pg17-rehearsal:
     name: Full private PG16 to PG17 rehearsal
     if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.private_pg16_to_pg17_rehearsal) || (github.event_name == 'workflow_dispatch' && inputs.activation_catalog_policy_capture) }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -221,7 +232,7 @@ jobs:
 
   codex-rotating-installer-portability:
     name: Rotating installer lock (${{ matrix.os }})
-    runs-on: ${{ matrix.os == 'ubuntu-latest' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_RUNNER || matrix.os }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && matrix.os || startsWith(matrix.os, 'ubuntu-') && (vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || matrix.os) || matrix.os }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -263,7 +274,7 @@ jobs:
 
   self-hosted-e2e:
     name: Self-hosted E2E
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
 
     steps:
@@ -285,7 +296,7 @@ jobs:
 
   hosted-runtime-image:
     name: Hosted runtime OCI build
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_BUILD_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 25
 
     steps:
@@ -308,7 +319,7 @@ jobs:
 
   managed-migration-pg17:
     name: Managed migration PG17 (${{ matrix.lane }})
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -353,8 +364,15 @@ jobs:
       - name: Review Action v2 protocol drift check
         run: pnpm protocol:check
 
-      - name: Pull pinned offline fixture image
-        run: docker pull postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+      - name: Pull and verify pinned offline fixture image
+        run: |
+          # Match the fixture's trusted tool path and canonical local Docker socket.
+          env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 \
+            docker --host unix:///var/run/docker.sock pull \
+            postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+          env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 \
+            docker --host unix:///var/run/docker.sock image inspect --format '{{.Id}}' \
+            postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
 
       - name: Managed migration PG17 prerequisites (no skips)
         if: ${{ matrix.lane == 'prerequisites' }}
@@ -376,8 +394,8 @@ jobs:
         static-checks,
         managed-migration-pg17,
       ]
-    if: ${{ always() }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    if: ${{ always() && !cancelled() }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-slim' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-slim' }}
     timeout-minutes: 5
     steps:
       - name: Enforce every quality and PG17 lane
@@ -398,7 +416,7 @@ jobs:
 
   static-checks:
     name: Static Checks
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -433,11 +451,13 @@ jobs:
         run: pnpm format:check
 
       - name: Typecheck
+        env:
+          TURBO_CONCURRENCY: "1"
         run: pnpm typecheck
 
   quality:
     name: Quality Checks
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_BUILD_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
@@ -495,6 +515,16 @@ jobs:
       - name: Install PostgreSQL client
         uses: ./.github/actions/setup-postgresql-client
 
+      - name: Install subprocess test prerequisites
+        run: |
+          timeout --signal=TERM --kill-after=15s 5m sudo apt-get \
+            -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
+            -o Acquire::Retries=2 -o DPkg::Lock::Timeout=30 \
+            install -y --no-install-recommends openssh-client procps
+          command -v ssh-keygen
+          test -x /bin/ps
+          /bin/ps -p "$$" -o pid= >/dev/null
+
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
 
@@ -506,8 +536,15 @@ jobs:
       - name: Bootstrap contract sources for unit tests
         run: node scripts/check-review-action-v2-protocol.mjs --bootstrap-only
 
-      - name: Pull pinned offline fixture image
-        run: docker pull postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+      - name: Pull and verify pinned offline fixture image
+        run: |
+          # Match the fixture's trusted tool path and canonical local Docker socket.
+          env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 \
+            docker --host unix:///var/run/docker.sock pull \
+            postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+          env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 \
+            docker --host unix:///var/run/docker.sock image inspect --format '{{.Id}}' \
+            postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
 
       - name: Create CI databases
         env:
@@ -528,6 +565,15 @@ jobs:
           DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy
           test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='codex_oauth_provider_identity_guard' AND pg_catalog.pg_get_userbyid(p.proowner)='postgres'")" = 1
           test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_release_migration'")" = 0
+
+      # Keep one idle snapshot before application suites open concurrent sessions.
+      # Replaying 000079 after later migrations create global roles is unsafe.
+      - name: Prepare isolated History template
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -X -h 127.0.0.1 -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_history_template TEMPLATE review_router_ci_test'
+          psql -X -h 127.0.0.1 -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'ALTER DATABASE review_router_history_template ALLOW_CONNECTIONS false'
 
       - name: Apply dev database migrations
         run: pnpm db:migrate:deploy
@@ -567,6 +613,9 @@ jobs:
         env:
           USAGE_REDRIVE_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
           STATISTICS_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          HISTORY_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5433/postgres
+          HISTORY_TEST_POSTGRES_TEMPLATE_DATABASE: review_router_history_template
+          HISTORY_REQUIRE_POSTGRES: "1"
         run: pnpm test
 
       - name: Architecture boundaries
@@ -582,6 +631,8 @@ jobs:
         run: pnpm spike:test
 
       - name: Build
+        env:
+          TURBO_CONCURRENCY: "2"
         run: pnpm build
 
       - name: Codex secret-write boundary
@@ -616,7 +667,7 @@ jobs:
 
   quality-db-contracts:
     name: DB Contract and Migration Checks
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
@@ -672,8 +723,15 @@ jobs:
         run: node scripts/generate-prisma-offline.mjs
 
       # Later offline role/schema fixtures also require this image on this runner.
-      - name: Pull pinned offline fixture image
-        run: docker pull postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+      - name: Pull and verify pinned offline fixture image
+        run: |
+          # Match the fixture's trusted tool path and canonical local Docker socket.
+          env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 \
+            docker --host unix:///var/run/docker.sock pull \
+            postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+          env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 \
+            docker --host unix:///var/run/docker.sock image inspect --format '{{.Id}}' \
+            postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
 
       - name: Disposable release-role catalog PG17 fixture (no skips)
         env:
@@ -908,7 +966,7 @@ jobs:
 
   quality-source-certification:
     name: Source and Certification Checks
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
@@ -1160,6 +1218,44 @@ jobs:
           REVIEW_SKILLS_REQUIRE_PAIRED: "1"
           REVIEW_ROUTER_ACTION_SOURCE_DIR: ${{ github.workspace }}/.paired/review-router-action
         run: pnpm exec vitest run apps/api/src/review-run-skills.postgres.test.ts --testNamePattern "delivers a signed captured snapshot"
+
+      - name: Paired Review Action memory HTTP and PostgreSQL proof
+        env:
+          REVIEW_ROUTER_MEMORY_PAIRED_E2E: "1"
+          REVIEW_ROUTER_ACTION_SOURCE_DIR: ${{ github.workspace }}/.paired/review-router-action
+        run: |
+          mkdir -p tmp/memory-authority
+          pnpm exec vitest run --no-file-parallelism \
+            scripts/memory-e2e/paired-action-memory.pg.test.ts \
+            --reporter=default --reporter=json \
+            --outputFile=tmp/memory-authority/paired-action-memory.json
+          node --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          import { readFileSync } from "node:fs";
+          import path from "node:path";
+          const report = JSON.parse(readFileSync("tmp/memory-authority/paired-action-memory.json", "utf8"));
+          assert.equal(report.success, true);
+          assert.equal(report.numTotalTests, 1);
+          assert.equal(report.numPassedTests, 1);
+          assert.equal(report.numFailedTests, 0);
+          assert.equal(report.numPendingTests, 0);
+          assert.equal(report.numTodoTests, 0);
+          assert.equal(report.testResults.length, 1);
+          const [suite] = report.testResults;
+          assert.equal(path.resolve(suite.name), path.resolve("scripts/memory-e2e/paired-action-memory.pg.test.ts"));
+          assert.equal(suite.status, "passed");
+          assert.equal(suite.assertionResults.length, 1);
+          assert.equal(suite.assertionResults[0].status, "passed");
+          NODE
+
+      - name: Preserve paired Action memory proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: paired-action-memory-${{ github.sha }}
+          path: tmp/memory-authority/paired-action-memory.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Record paired Action release gate
         shell: bash

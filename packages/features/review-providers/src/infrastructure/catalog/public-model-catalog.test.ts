@@ -20,6 +20,144 @@ const both = () => ({
 });
 
 describe("public provider catalog safety and refresh", () => {
+  it("loads OpenRouter publicly, replaces live IDs, and reports failures without inventing a refresh", async () => {
+    let now = 10;
+    const row = (id: string) => ({
+      id,
+      name: id,
+      context_length: 128_000,
+      supported_parameters: ["tools"],
+      architecture: { input_modalities: ["text"], output_modalities: ["text"] },
+      pricing: { prompt: "0", completion: "0" },
+    });
+    const fetchImpl = vi.fn(async () =>
+      Response.json({ data: [row("vendor/initial:free")] }),
+    );
+    const catalog = new PublicProviderModelCatalogAdapter({
+      fetchImpl,
+      now: () => now,
+    });
+    const initial = await catalog.listModels({ providerKind: "openrouter" });
+    expect(initial).toMatchObject({
+      source: "openrouter",
+      state: "fresh",
+      refresh: "updated",
+      fetchedAt: 10,
+    });
+    expect(initial.models).toMatchObject([
+      {
+        id: "vendor/initial:free",
+        contextTokens: 128_000,
+        pricing: { input: 0, output: 0 },
+      },
+    ]);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://openrouter.ai/api/v1/models",
+      expect.objectContaining({
+        credentials: "omit",
+        headers: {
+          accept: "application/json",
+          "user-agent": "ReviewRouter public-model-catalog/1.0",
+        },
+      }),
+    );
+    fetchImpl.mockRejectedValue(new Error("offline"));
+    now += 10;
+    const failedRefresh = await catalog.listModels({
+      providerKind: "openrouter",
+      forceRefresh: true,
+    });
+    expect(failedRefresh).toMatchObject({
+      source: "openrouter",
+      state: "fresh",
+      refresh: "failed",
+      fetchedAt: 10,
+      lastAttemptAt: 20,
+      error: "source_unavailable",
+    });
+    expect(failedRefresh.models).toEqual(initial.models);
+    expect(
+      await catalog.listModels({
+        providerKind: "openrouter",
+        forceRefresh: true,
+      }),
+    ).toMatchObject({ refresh: "cooldown", fetchedAt: 10 });
+    now = 10 + publicCatalogPolicy.ttlMs;
+    expect(
+      await catalog.listModels({ providerKind: "openrouter" }),
+    ).toMatchObject({
+      source: "openrouter",
+      state: "stale",
+      fetchedAt: 10,
+      error: "source_unavailable",
+    });
+    now = 11 + publicCatalogPolicy.staleMs;
+    const expired = await catalog.listModels({ providerKind: "openrouter" });
+    expect(expired).toMatchObject({
+      source: "local",
+      state: "fallback",
+      refresh: "failed",
+      fetchedAt: 10,
+    });
+    expect(expired.models.some(({ id }) => id === "vendor/initial:free")).toBe(
+      false,
+    );
+    expect(
+      catalogSnapshotOptions(expired).every(({ description }) =>
+        description?.includes("Built-in fallback"),
+      ),
+    ).toBe(true);
+    fetchImpl.mockResolvedValue(
+      Response.json({ data: [row("vendor/new:free")] }),
+    );
+    now += publicCatalogPolicy.cooldownMs;
+    const recovered = await catalog.listModels({ providerKind: "openrouter" });
+    expect(recovered).toMatchObject({
+      source: "openrouter",
+      state: "fresh",
+      refresh: "updated",
+      fetchedAt: now,
+      error: null,
+    });
+    expect(recovered.models.map(({ id }) => id)).toEqual(["vendor/new:free"]);
+  });
+
+  it("keeps invalid context and unsupported price structures unknown", () => {
+    const rows = normalizePublicCatalog(
+      {
+        data: [
+          {
+            id: "vendor/fraction",
+            context_length: 1.5,
+            pricing: { prompt: "-1", completion: "NaN" },
+          },
+          { id: "vendor/zero", context_length: 0 },
+          {
+            id: "vendor/cache",
+            context_length: 128_000,
+            pricing: {
+              prompt: "0",
+              completion: "0",
+              input_cache_write: "0.000001",
+            },
+          },
+        ],
+      },
+      "openrouter",
+    );
+    expect(rows.find(({ id }) => id === "vendor/fraction")).toMatchObject({
+      contextTokens: null,
+      pricing: { input: null, output: null },
+    });
+    expect(
+      rows.find(({ id }) => id === "vendor/zero")?.contextTokens,
+    ).toBeNull();
+    expect(rows.find(({ id }) => id === "vendor/cache")).toMatchObject({
+      contextTokens: 128_000,
+      pricing: { cacheWrite: 1 },
+    });
+  });
+
   it("keeps native namespaces and units, rejects conflicting IDs, and disables unknown tools", () => {
     const openai = normalizePublicCatalog(both(), "codex");
     const anthropic = normalizePublicCatalog(both(), "claude");

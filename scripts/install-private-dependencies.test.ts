@@ -9,11 +9,51 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { constants, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const temporaryDirectories: string[] = [];
+
+function generateFixtureKey(keyPath: string): void {
+  const result = spawnSync(
+    "ssh-keygen",
+    ["-q", "-t", "ed25519", "-N", "", "-f", keyPath],
+    { encoding: "utf8" },
+  );
+  const code = (result.error as NodeJS.ErrnoException | undefined)?.code;
+  const knownCodes = new Set([
+    "ENOENT",
+    "EACCES",
+    "EPERM",
+    "EAGAIN",
+    "ENOMEM",
+    "EMFILE",
+    "ENFILE",
+    "ENOBUFS",
+    "E2BIG",
+    "EINTR",
+    "ETIMEDOUT",
+  ]);
+  // Report only bounded process facts, never key material, output, paths or env.
+  expect(
+    {
+      status: result.status,
+      signal:
+        result.signal === null
+          ? null
+          : Object.hasOwn(constants.signals, result.signal)
+            ? result.signal
+            : "unknown",
+      errorCode: result.error
+        ? code && knownCodes.has(code)
+          ? code
+          : "unknown"
+        : null,
+    },
+    "ssh-keygen test fixture precondition",
+  ).toEqual({ status: 0, signal: null, errorCode: null });
+}
 
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
@@ -175,12 +215,7 @@ describe("private dependency installer", () => {
   it("uses a required key without forwarding the control flag or secret", () => {
     const { capturePath, directory } = createFakePnpm();
     const keyPath = join(directory, "test-key");
-    const generatedKey = spawnSync(
-      "ssh-keygen",
-      ["-q", "-t", "ed25519", "-N", "", "-f", keyPath],
-      { encoding: "utf8" },
-    );
-    expect(generatedKey.status).toBe(0);
+    generateFixtureKey(keyPath);
 
     const result = runInstaller(
       directory,
@@ -238,10 +273,7 @@ describe("private dependency installer", () => {
     );
     expect(spawnSync("git", ["add", "."], { cwd: repository }).status).toBe(0);
     const keyPath = join(directory, "test-key");
-    expect(
-      spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", keyPath])
-        .status,
-    ).toBe(0);
+    generateFixtureKey(keyPath);
     const result = runInstaller(
       directory,
       ["--require-deploy-key"],
@@ -293,10 +325,7 @@ describe("private dependency installer", () => {
     );
     expect(spawnSync("git", ["add", "."], { cwd: repository }).status).toBe(0);
     const keyPath = join(directory, "test-key");
-    expect(
-      spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", keyPath])
-        .status,
-    ).toBe(0);
+    generateFixtureKey(keyPath);
     const result = runInstaller(
       directory,
       ["--require-deploy-key"],

@@ -1,3 +1,4 @@
+import type { HistoryCapture } from "@reviewrouter/features-review-history/composition";
 import { attestCompiledReviewActionV2ProducerContract } from "./review-action-v2-producer-contract-attestation.js";
 import {
   validateReviewPublicationLifecycleVerification,
@@ -40,7 +41,11 @@ import {
 } from "@reviewrouter/features-review-context-tools";
 import { createContextIssueReader } from "./github/context-issue-read.js";
 import type { ContextToolsRunAccess } from "./review-context-tools.js";
-import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
+import {
+  accountModelCatalogResponseBytes,
+  readAccountModelCatalogEnabled,
+  readPersonalAccountSharingEnabled,
+} from "@reviewrouter/features-provider-accounts/composition";
 import { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
 export { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
 import {
@@ -53,7 +58,6 @@ import {
 import {
   ProductionReviewRunRuntimeSnapshot,
   readServerApprovedReviewRunGatewayPolicy,
-  readServerReviewAgentProfileRef,
   readServerReviewRunGatewayRequestCaps,
 } from "./review-run-runtime-snapshot";
 import { PrismaReviewRunGatewayExecutionBinding } from "./prisma-review-run-gateway-execution-binding";
@@ -155,6 +159,7 @@ import {
 } from "@reviewrouter/features-review-executions";
 import {
   PrismaReviewExecutionStore,
+  type ReviewExecutionInputAdmissionPort,
   PrismaReviewRequestedIntentStore,
   createReviewExecutionsUseCases,
 } from "@reviewrouter/features-review-executions/composition";
@@ -183,6 +188,7 @@ import {
   parseReviewRunRuntimeSnapshot,
   reviewRunGatewayOwnedIdentity,
   reviewInvestigationCapabilityV1,
+  readImplicitReviewAgentSelection,
   type CanonicalReviewRevisionResolverPort,
   type ReviewProtocolLimitsProfileQueryPort,
   type ProducerReleaseQueryPort,
@@ -386,6 +392,9 @@ export function composeReviewActionV2ProductionRunControl(input: {
   }
   const clock = new SystemClock();
   const digest = new ProductionReviewActionV2Digest();
+  const implicitAgent = readImplicitReviewAgentSelection(
+    input.env.REVIEW_ROUTER_AGENT_PROFILE,
+  );
   const gatewayRequestCaps = readServerReviewRunGatewayRequestCaps(
     input.env.REVIEW_ROUTER_GATEWAY_REQUEST_CAPS_JSON,
   );
@@ -402,8 +411,8 @@ export function composeReviewActionV2ProductionRunControl(input: {
     ),
     input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
     readPersonalAccountSharingEnabled(input.env),
-    readServerReviewAgentProfileRef(input.env.REVIEW_ROUTER_AGENT_PROFILE),
-    input.env.REVIEW_ROUTER_AGENT_PROFILE === undefined,
+    implicitAgent.profileRef,
+    implicitAgent.preferSkillsProfile,
     accountGatewayRelayPolicy
       ? {
           ...accountGatewayRelayPolicy,
@@ -516,6 +525,8 @@ export function composeReviewActionV2ProductionRunControl(input: {
 }
 
 export function composeReviewActionV2ProductionRoutes(input: {
+  readonly historyWriter?: HistoryCapture;
+  readonly memoryInputAdmission?: ReviewExecutionInputAdmissionPort;
   readonly enabled: boolean;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly runtime: ReviewActionV2RouteRuntime;
@@ -639,8 +650,24 @@ export function composeReviewActionV2ProductionRoutes(input: {
     ),
   );
 
+  const historyWriter =
+    input.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
+      ? input.historyWriter
+      : undefined;
+  if (input.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1" && !historyWriter)
+    throw new Error("review_history_capture_binding_required");
   const requestedIntentStore = new PrismaReviewRequestedIntentStore(
     input.prisma,
+    historyWriter
+      ? {
+          historyCapture: {
+            register: (tx, intent, metadata) =>
+              historyWriter.register(tx, intent, metadata),
+            changed: (tx, intent, previous) =>
+              historyWriter.captureIntent(tx, intent, previous),
+          },
+        }
+      : {},
   );
   const admissionFacts = createServerOwnedReviewActionV2AdmissionFacts({
     providerApiSource: workflowInventory,
@@ -705,17 +732,25 @@ export function composeReviewActionV2ProductionRoutes(input: {
       ),
   } as const;
 
-  const executionStore = new PrismaReviewExecutionStore(
-    input.prisma,
-    input.env.REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE === "1"
+  const executionStore = new PrismaReviewExecutionStore(input.prisma, {
+    ...(historyWriter
+      ? {
+          historyCapture: (tx, execution) =>
+            historyWriter.captureExecution(tx, execution),
+        }
+      : {}),
+    ...(input.memoryInputAdmission
+      ? { inputAdmission: input.memoryInputAdmission }
+      : {}),
+    ...(input.env.REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE === "1"
       ? {
           progressCapture: createPrismaReviewProgressCapture({
             fileCoverageEnabled:
               input.env.REVIEW_ROUTER_PROGRESS_FILE_COVERAGE === "1",
           }),
         }
-      : {},
-  );
+      : {}),
+  });
   const currentRevision = new ProductionCurrentReviewRevisionAdapter({
     prisma: input.prisma,
     identities: repositories.repositoryIdentities,
@@ -1383,8 +1418,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
   const accountGatewayRelay = accountGatewayRelayPolicy
     ? createReviewRunGatewayRelay({
         policy: accountGatewayRelayPolicy,
-        accountModelCatalogEnabled:
-          input.env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED === "1",
+        accountModelCatalogEnabled: readAccountModelCatalogEnabled(input.env),
         companionDispatches: modelDispatchAdmission,
         usage: createGatewayUsageRecorder(prisma, async (auth) => {
           const target = await resolveCheckoutRepository(auth);
@@ -1526,8 +1560,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
     ? createReviewRunGatewayCheckout({
         ...checkoutDependencies,
         readSelectedModelSettings: createReviewRunGatewayModelSettingsReader({
-          accountModelCatalogEnabled:
-            input.env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED === "1",
+          accountModelCatalogEnabled: readAccountModelCatalogEnabled(input.env),
           accounts: new PrismaProviderAccountRepository(
             prisma,
             input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
@@ -1546,7 +1579,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
               10000,
               accountGatewayRelayPolicy.requestTimeoutMs,
             ),
-            responseBytes: 262144,
+            responseBytes: accountModelCatalogResponseBytes,
           }),
           profiles: accountGatewayRelayPolicy.profiles.map(
             (entry) => entry.profile,

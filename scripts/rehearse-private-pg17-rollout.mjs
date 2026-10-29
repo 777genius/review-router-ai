@@ -350,7 +350,9 @@ const preReleaseMigrationBoundary = Object.freeze({
     "000139_review_context_tools",
     "000140_personal_oauth_method",
     "000141_memory_search_projections",
+    "000142_memory_knowledge_authority",
     "000142_optional_gateway_reasoning",
+    "000143_memory_maintenance_fence",
     "000143_workspace_draft_review_setting",
     "000144_review_statistics",
     "000145_workspace_provider_profiles",
@@ -359,6 +361,8 @@ const preReleaseMigrationBoundary = Object.freeze({
     "000148_lifecycle_verification",
     "000149_api_key_repository_secret_profiles",
     "000154_unified_model_dispatch",
+    "000150_skills_catalog_security",
+    "000151_review_history",
   ]),
   retained: Object.freeze([
     "000067_review_live_progress",

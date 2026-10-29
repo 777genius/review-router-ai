@@ -33,6 +33,7 @@ export type ReviewRequestEligibility =
       readonly headSha: string;
       readonly headRepositoryFullName: string;
       readonly authorType: string;
+      readonly pullRequestTitle?: string | null;
     }
   | {
       readonly status:
@@ -155,6 +156,10 @@ export class ReviewRequestIngressApplicationService {
         scmRepositoryIdentityId: payload.scmRepositoryIdentityId,
         pullRequestNumber: payload.pullRequestNumber,
         requestId: payload.requestId,
+        historyMetadata: {
+          repositoryFullName: payload.repositoryFullName,
+          pullRequestTitle: current.pullRequestTitle ?? null,
+        },
         revision: normalizedRevision,
         triggerKind: payload.triggerKind,
         deliveryIdentityHash: payload.deliveryIdentityHash,

@@ -279,6 +279,21 @@ export const renderReviewSkillsCheckoutExtension = Object.freeze([
   }),
 ]);
 
+// Provider-owned memory adds authority and delivery metadata only. These exact
+// files belong to the application checkout, never the managed92 repair catalog.
+export const renderMemoryKnowledgeCheckoutExtension = Object.freeze([
+  Object.freeze({
+    migrationName: "000142_memory_knowledge_authority",
+    checksum:
+      "b40e545bd31f9d4cc65146c78b05afc8b662333e4945380ea4ed5f511d7ebcf9",
+  }),
+  Object.freeze({
+    migrationName: "000143_memory_maintenance_fence",
+    checksum:
+      "1f8552ab409ece31536505c42ec62f0ef3df5b6220b7caa0cb90fcb2ee8aa83e",
+  }),
+]);
+
 export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     !Array.isArray(catalog) ||
@@ -292,7 +307,7 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
   )
     fail("checkout_catalog");
   // Unified dispatch extends checkout-only review admission and receipt state.
-  // Bind both its exact SQL and complete checkout152; the immutable managed92
+  // Bind both its exact SQL and complete checkout156 or historical checkout152; the immutable managed92
   // transaction continues through the unchanged reviewed checkout151 boundary.
   const unifiedModelDispatchMigration = catalog.find(
     (row) => row.migrationName === "000154_unified_model_dispatch",
@@ -301,12 +316,71 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     if (
       unifiedModelDispatchMigration.checksum !==
         "0ecebe5d1437544b0be81e946731a8bde39d1d3eb51a3516b465014323c70884" ||
-      manifest(catalog) !==
-        "sha256:f8bc4e6289b679d7f4142426e67e77ab347be8f8bed5937072ebc1ca54218fcc"
+      ![
+        "sha256:67de1583cf2ae194e7b6dd5cef021d08b60eb64988d516cb2adcbc2d01bbbda3",
+        "sha256:f8bc4e6289b679d7f4142426e67e77ab347be8f8bed5937072ebc1ca54218fcc",
+      ].includes(manifest(catalog))
     )
       fail("checkout_extension");
     return partitionRenderSchemaHandoffCheckout(
       catalog.filter((row) => row !== unifiedModelDispatchMigration),
+    );
+  }
+  // Review history is checkout-only. Pin its SQL and the complete checkout155
+  // before reducing to the previously reviewed Skills-catalog154 inventory.
+  const reviewHistoryMigration = catalog.find(
+    (row) => row.migrationName === "000151_review_history",
+  );
+  if (reviewHistoryMigration) {
+    if (
+      reviewHistoryMigration.checksum !==
+        "276fc355d90fd41ba95797eeb21a73aa78755c0709a82426f33552ecb2c05274" ||
+      manifest(catalog) !==
+        "sha256:3d7b45be5b1654757f1bf72626e6f3f7c9b1351bb82ce93819bca2e4a38b7dbf"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== reviewHistoryMigration),
+    );
+  }
+  // Checked Skills storage is checkout-only. Remove its exact, immutable SQL
+  // identity first; the recursive checks still pin the full memory153 (or
+  // prior repository151) source manifest and never expand managed92 SQL.
+  const skillsCatalogMigration = catalog.find(
+    (row) => row.migrationName === "000150_skills_catalog_security",
+  );
+  if (skillsCatalogMigration) {
+    if (
+      skillsCatalogMigration.checksum !==
+      "4a5ecd80f83b0631982519fc747c411d0ed5d9b04624ee8e3d176a82ae96e4b8"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== skillsCatalogMigration),
+    );
+  }
+  const memoryKnowledgeMigrations = catalog.filter((row) =>
+    renderMemoryKnowledgeCheckoutExtension.some(
+      (extension) => extension.migrationName === row.migrationName,
+    ),
+  );
+  if (memoryKnowledgeMigrations.length > 0) {
+    if (
+      memoryKnowledgeMigrations.length !==
+        renderMemoryKnowledgeCheckoutExtension.length ||
+      memoryKnowledgeMigrations.some(
+        (row, index) =>
+          row.migrationName !==
+            renderMemoryKnowledgeCheckoutExtension[index].migrationName ||
+          row.checksum !==
+            renderMemoryKnowledgeCheckoutExtension[index].checksum,
+      ) ||
+      manifest(catalog) !==
+        "sha256:5d42e163ba89faae7c49fa4fa9ff65bc2a8b87a6774b57a5f70c6a027e4331dd"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => !memoryKnowledgeMigrations.includes(row)),
     );
   }
   // Repository-secret profile identities change a checkout-only table. Admit

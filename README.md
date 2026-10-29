@@ -39,14 +39,19 @@ mode, provider secrets stay in GitHub Actions; ReviewRouter stores review result
 and operational metadata, not raw source files by default. Provider and CI usage
 still count against your own plan or billing.
 
+## Benchmark
+
+We use fast and powerfull OpenCodeReview's engine. [Read more](https://github.com/alibaba/open-code-review#benchmark)
+
+<img width="2560" height="1836" alt="image" src="https://github.com/user-attachments/assets/327c8f80-29e2-4cf0-9ccf-e773be5c8205" />
+
 ## Current status
 
-| Integration         | What to expect                                                                                                                                                             |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GitHub              | App installation, setup PRs, inline review and a shared dashboard.                                                                                                         |
-| GitLab              | Setup wizard and CI-based merge request review. Setup uses a request-scoped access token.                                                                                  |
-| Self-hosted         | Docker Compose deployment on your infrastructure; operator setup required.                                                                                                 |
-| Hosted account pool | Gated, opt-in account management for a workspace. Entitled workspace admins enroll an eligible provider account from the dashboard (device sign-in or `auth.json` upload). |
+| Integration | What to expect                                                     |
+| ----------- | ------------------------------------------------------------------ |
+| GitHub      | App installation, setup PRs, inline review and a shared dashboard. |
+| GitLab      | In development.                                                    |
+| Self-hosted | Docker Compose deployment on your infrastructure;                  |
 
 The hosted pool holds encrypted credentials and relays model traffic through
 ReviewRouter, unlike the default repository-secret setup. Advanced investigations

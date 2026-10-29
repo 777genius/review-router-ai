@@ -1,6 +1,6 @@
 import type { MemoryBundlePolicy } from "../../domain/memory-bundle-policy";
 import { defaultMemoryBundlePolicy } from "../../domain/memory-bundle-policy";
-import { memoryError } from "../../domain/memory-errors";
+import { MemoryKnowledgeError } from "../../domain/memory-knowledge";
 import type { MemoryScope } from "../../domain/memory-scope-policy";
 
 export type MemoryAllowedScopePolicy = Record<MemoryScope, boolean>;
@@ -140,7 +140,7 @@ export class StaticMemoryPolicyConfig implements MemoryPolicyConfigPort {
     readonly repositoryId?: string | null;
   }): Promise<MemoryPolicyConfig> {
     if (!input.workspaceId.trim()) {
-      throw memoryError("memory_input_invalid");
+      throw new MemoryKnowledgeError("invalid_input");
     }
     return this.policy;
   }
@@ -159,14 +159,14 @@ function assertValidMemoryPolicyConfig(config: MemoryPolicyConfig): void {
   assertPositiveInteger(config.export.defaultMaxBytes);
   assertPositiveInteger(config.export.maxBytes);
   if (config.export.defaultItemLimit > config.export.maxItemLimit) {
-    throw memoryError("memory_input_invalid");
+    throw new MemoryKnowledgeError("invalid_input");
   }
   if (config.export.defaultMaxBytes > config.export.maxBytes) {
-    throw memoryError("memory_input_invalid");
+    throw new MemoryKnowledgeError("invalid_input");
   }
 }
 
 function assertPositiveInteger(value: number): void {
   if (Number.isSafeInteger(value) && value > 0) return;
-  throw memoryError("memory_input_invalid");
+  throw new MemoryKnowledgeError("invalid_input");
 }

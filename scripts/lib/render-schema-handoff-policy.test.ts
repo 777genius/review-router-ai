@@ -23,6 +23,7 @@ import {
   readRenderSchemaHandoffCatalog,
   renderSchemaHandoffCheckoutExtension,
   renderReviewSkillsCheckoutExtension,
+  renderMemoryKnowledgeCheckoutExtension,
   renderSchemaHandoffMigrationContract as contract,
 } from "./render-schema-handoff-policy.mjs";
 
@@ -38,9 +39,32 @@ const lifecycleVerificationMigrationName = "000148_lifecycle_verification";
 const repositorySecretProfilesMigrationName =
   "000149_api_key_repository_secret_profiles";
 const unifiedModelDispatchMigrationName = "000154_unified_model_dispatch";
+const withoutUnifiedDispatch = <T extends { migrationName: string }>(
+  rows: readonly T[],
+) =>
+  rows.filter((row) => row.migrationName !== unifiedModelDispatchMigrationName);
+const readPriorCheckoutInventory = () =>
+  withoutUnifiedDispatch(readRenderManagedCheckoutInventory());
+const skillsCatalogMigrationName = "000150_skills_catalog_security";
+const reviewHistoryMigrationName = "000151_review_history";
+const withoutReviewHistory = <T extends { migrationName: string }>(
+  rows: readonly T[],
+) => rows.filter((row) => row.migrationName !== reviewHistoryMigrationName);
+const withoutSkillsCatalog = <T extends { migrationName: string }>(
+  rows: readonly T[],
+) => rows.filter((row) => row.migrationName !== skillsCatalogMigrationName);
+const withoutMemoryKnowledge = <T extends { migrationName: string }>(
+  rows: readonly T[],
+) =>
+  rows.filter(
+    (row) =>
+      !renderMemoryKnowledgeCheckoutExtension.some(
+        (extension) => extension.migrationName === row.migrationName,
+      ),
+  );
 const readRepositorySecretProfilesCheckoutInventory = () =>
-  readRenderManagedCheckoutInventory().filter(
-    (row) => row.migrationName !== unifiedModelDispatchMigrationName,
+  withoutMemoryKnowledge(
+    withoutSkillsCatalog(withoutReviewHistory(readPriorCheckoutInventory())),
   );
 const readLifecycleVerificationCheckoutInventory = () =>
   readRepositorySecretProfilesCheckoutInventory().filter(
@@ -149,10 +173,14 @@ const historicalMigration119Sql = correctedMigration119Sql.replaceAll(
 const canonicalPrismaMigrationNames =
   currentCanonicalPrismaMigrationNames.filter(
     (name) =>
+      name !== reviewHistoryMigrationName &&
+      name !== skillsCatalogMigrationName &&
+      !renderMemoryKnowledgeCheckoutExtension.some(
+        (row) => row.migrationName === name,
+      ) &&
       !renderReviewSkillsCheckoutExtension.some(
         (row) => row.migrationName === name,
       ) &&
-      name !== unifiedModelDispatchMigrationName &&
       name !== repositorySecretProfilesMigrationName &&
       name !== lifecycleVerificationMigrationName &&
       name !== reviewSkillsMutationIdentityMigrationName &&
@@ -526,27 +554,38 @@ const canonicalPrefix = (count: number) =>
   canonicalPrismaMigrationNames.slice(0, count);
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
-  it("admits only exact unified-model-dispatch152 and preserves reviewed151 and managed92", () => {
+  it("admits exact unified checkout156 and historical152 without expanding managed92", () => {
     const full = readRenderManagedCheckoutInventory();
-    expect(full).toHaveLength(152);
+    expect(full).toHaveLength(156);
     expect(full.at(-1)).toEqual({
       migrationName: unifiedModelDispatchMigrationName,
       checksum:
         "0ecebe5d1437544b0be81e946731a8bde39d1d3eb51a3516b465014323c70884",
     });
-    expect(
-      createHash("sha256")
+    const digest = (rows: typeof full) =>
+      `sha256:${createHash("sha256")
         .update(
-          full.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
+          rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
         )
-        .digest("hex"),
-    ).toBe("f8bc4e6289b679d7f4142426e67e77ab347be8f8bed5937072ebc1ca54218fcc");
+        .digest("hex")}`;
+    expect(digest(full)).toBe(
+      "sha256:67de1583cf2ae194e7b6dd5cef021d08b60eb64988d516cb2adcbc2d01bbbda3",
+    );
     expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
     expect(
-      partitionRenderSchemaHandoffCheckout(
-        readRepositorySecretProfilesCheckoutInventory(),
-      ),
+      partitionRenderSchemaHandoffCheckout(readPriorCheckoutInventory()),
     ).toEqual(catalog);
+    const historical152 = [
+      ...readRepositorySecretProfilesCheckoutInventory(),
+      full.at(-1)!,
+    ];
+    expect(historical152).toHaveLength(152);
+    expect(digest(historical152)).toBe(
+      "sha256:f8bc4e6289b679d7f4142426e67e77ab347be8f8bed5937072ebc1ca54218fcc",
+    );
+    expect(partitionRenderSchemaHandoffCheckout(historical152)).toEqual(
+      catalog,
+    );
     for (const changed of [
       full.map((row) =>
         row.migrationName === unifiedModelDispatchMigrationName
@@ -558,14 +597,8 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
           ? { ...row, migrationName: "000154_relabelled" }
           : row,
       ),
-      full.map((row) =>
-        row.migrationName === repositorySecretProfilesMigrationName
-          ? { ...row, checksum: "0".repeat(64) }
-          : row,
-      ),
-      full.filter(
-        (row) => row.migrationName !== repositorySecretProfilesMigrationName,
-      ),
+      full.filter((row) => row.migrationName !== reviewHistoryMigrationName),
+      full.filter((row) => row.migrationName !== skillsCatalogMigrationName),
       [...full, { migrationName: "000155_unknown", checksum: "0".repeat(64) }],
       [...full, full.at(-1)!],
       [...full].reverse(),
@@ -573,6 +606,130 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       expect(() => partitionRenderSchemaHandoffCheckout(changed)).toThrow();
   });
 
+  it("admits only the exact review-history155 checkout without expanding managed92", () => {
+    const full = readPriorCheckoutInventory();
+    expect(full).toHaveLength(155);
+    const history = {
+      migrationName: reviewHistoryMigrationName,
+      checksum:
+        "276fc355d90fd41ba95797eeb21a73aa78755c0709a82426f33552ecb2c05274",
+    };
+    expect(full.at(-1)).toEqual(history);
+    expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
+    expect(catalog).not.toContainEqual(history);
+    expect(
+      partitionRenderSchemaHandoffCheckout(withoutReviewHistory(full)),
+    ).toEqual(catalog);
+    for (const changed of [
+      full.map((row) =>
+        row.migrationName === reviewHistoryMigrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
+      full.filter((row) => row.migrationName !== skillsCatalogMigrationName),
+      [...full, { migrationName: "000152_unknown", checksum: "0".repeat(64) }],
+    ])
+      expect(() => partitionRenderSchemaHandoffCheckout(changed)).toThrow(
+        "render_schema_handoff_rejected:checkout_extension",
+      );
+  });
+
+  it("admits the exact Skills-catalog154 checkout without expanding managed92", () => {
+    const full = withoutReviewHistory(readPriorCheckoutInventory());
+    expect(full).toHaveLength(154);
+    expect(full.at(-1)).toEqual({
+      migrationName: skillsCatalogMigrationName,
+      checksum:
+        "4a5ecd80f83b0631982519fc747c411d0ed5d9b04624ee8e3d176a82ae96e4b8",
+    });
+    const withoutSkills = withoutSkillsCatalog(full);
+    expect(withoutSkills).toHaveLength(153);
+    const withoutMemory = withoutMemoryKnowledge(full);
+    expect(withoutMemory).toHaveLength(152);
+    const manifestRows: string[] = [];
+    for (const row of withoutMemory) {
+      manifestRows.push(`${row.migrationName}:${row.checksum}`);
+    }
+    const digest = createHash("sha256");
+    digest.update(manifestRows.join(","));
+    const expectedDigest =
+      "91bb5e51bf53be19ac6244185b4423df2bd26e7e257dfa632293c4094032fa38";
+    expect(digest.digest("hex")).toBe(expectedDigest);
+    expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
+    expect(partitionRenderSchemaHandoffCheckout(withoutSkills)).toEqual(
+      catalog,
+    );
+    expect(partitionRenderSchemaHandoffCheckout(withoutMemory)).toEqual(
+      catalog,
+    );
+    expect(
+      partitionRenderSchemaHandoffCheckout(
+        readRepositorySecretProfilesCheckoutInventory(),
+      ),
+    ).toEqual(catalog);
+    for (const changed of [
+      full.map((row) =>
+        row.migrationName === skillsCatalogMigrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
+      full.map((row) =>
+        row.migrationName === skillsCatalogMigrationName
+          ? { ...row, migrationName: "000150_relabelled" }
+          : row,
+      ),
+      full.filter(
+        (row) => row.migrationName !== repositorySecretProfilesMigrationName,
+      ),
+      [...full, { migrationName: "000151_unknown", checksum: "0".repeat(64) }],
+      [...full, full.at(-1)!],
+      [...full].reverse(),
+    ])
+      expect(() => partitionRenderSchemaHandoffCheckout(changed)).toThrow();
+  });
+
+  it("admits the exact memory authority pair without expanding managed SQL", () => {
+    const full = withoutSkillsCatalog(
+      withoutReviewHistory(readPriorCheckoutInventory()),
+    );
+    expect(full).toHaveLength(153);
+    expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
+    const prior = withoutMemoryKnowledge(full);
+    expect(prior).toHaveLength(151);
+    expect(partitionRenderSchemaHandoffCheckout(prior)).toEqual(catalog);
+    for (const extension of renderMemoryKnowledgeCheckoutExtension) {
+      expect(catalog).not.toContainEqual(extension);
+      for (const changed of [
+        full.filter((row) => row.migrationName !== extension.migrationName),
+        full.map((row) =>
+          row.migrationName === extension.migrationName
+            ? { ...row, checksum: "0".repeat(64) }
+            : row,
+        ),
+        full.map((row) =>
+          row.migrationName === extension.migrationName
+            ? { ...row, migrationName: `${row.migrationName}_relabeled` }
+            : row,
+        ),
+      ])
+        expect(() => partitionRenderSchemaHandoffCheckout(changed)).toThrow();
+    }
+    expect(() =>
+      partitionRenderSchemaHandoffCheckout([
+        ...full,
+        { migrationName: "000150_unknown", checksum: "0".repeat(64) },
+      ]),
+    ).toThrow();
+    expect(() =>
+      partitionRenderSchemaHandoffCheckout(
+        full.map((row) =>
+          row.migrationName === repositorySecretProfilesMigrationName
+            ? { ...row, checksum: "0".repeat(64) }
+            : row,
+        ),
+      ),
+    ).toThrow();
+  });
   it("admits only the exact repository-secret-profiles151 checkout and preserves managed92", () => {
     const full = readRepositorySecretProfilesCheckoutInventory();
     expect(full).toHaveLength(151);
@@ -2526,6 +2683,14 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(join(migrations, unifiedModelDispatchMigrationName), {
         recursive: true,
       });
+      rmSync(join(migrations, reviewHistoryMigrationName), {
+        recursive: true,
+      });
+      rmSync(join(migrations, skillsCatalogMigrationName), {
+        recursive: true,
+      });
+      for (const row of renderMemoryKnowledgeCheckoutExtension)
+        rmSync(join(migrations, row.migrationName), { recursive: true });
       rmSync(join(migrations, repositorySecretProfilesMigrationName), {
         recursive: true,
       });
@@ -2586,7 +2751,11 @@ describe("complete filesystem checkout inventory", () => {
       });
       for (const name of canonicalPrismaMigrationNames
         .slice(count)
-        .filter((name) => name !== "000136_provider_usage"))
+        .filter(
+          (name) =>
+            name !== "000136_provider_usage" &&
+            name !== unifiedModelDispatchMigrationName,
+        ))
         rmSync(join(migrations, name), { recursive: true });
       if (canonicalPrefix(count).includes(migration119.migrationName))
         writeFileSync(
@@ -2607,15 +2776,29 @@ describe("complete filesystem checkout inventory", () => {
     };
   }
 
-  it("reads current checkout152 through checkout151, checkout150, statistics146, main145, old125, historical124 and key-free123 as identical frozen92 rows", async () => {
+  it("reads current checkout156 through checkout155, checkout154, checkout153, checkout151, checkout150, statistics146, main145, old125, historical124 and key-free123 as identical frozen92 rows", async () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(152);
+    expect(inventory).toHaveLength(156);
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, unifiedModelDispatchMigrationName), {
       recursive: true,
     });
+    expect(readdirSync(fixture.migrations)).toHaveLength(155);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, reviewHistoryMigrationName), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(154);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, skillsCatalogMigrationName), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(153);
+    expect(fixture.read()).toEqual(catalog);
+    for (const row of renderMemoryKnowledgeCheckoutExtension)
+      rmSync(join(fixture.migrations, row.migrationName), { recursive: true });
     expect(readdirSync(fixture.migrations)).toHaveLength(151);
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, repositorySecretProfilesMigrationName), {
@@ -3012,7 +3195,8 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      // Only removing the current tail restores an independently admitted catalog.
+      // Only the newest approved tail may be removed from checkout156; all
+      // predecessor identities remain pinned by its complete manifest.
       if (name === unifiedModelDispatchMigrationName)
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();

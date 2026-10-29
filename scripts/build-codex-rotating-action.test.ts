@@ -6,10 +6,11 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("Codex rotating Action bundle reproducibility", () => {
@@ -83,7 +84,7 @@ describe("Codex rotating Action bundle reproducibility", () => {
           ],
           { cwd: checkout.root, stdio: "pipe" },
         );
-        copyInstalledSubscriptionRuntime(sourceRoot, checkout.root);
+        copyInstalledSubscriptionRuntime(sourceRoot, checkout.root, tempRoot);
         execFileSync(
           process.execPath,
           ["scripts/build-codex-rotating-action.mjs"],
@@ -166,6 +167,7 @@ function copyBuildInputs(sourceRoot: string, checkoutRoot: string) {
 function copyInstalledSubscriptionRuntime(
   sourceRoot: string,
   checkoutRoot: string,
+  reproductionRoot: string,
 ) {
   const source = join(
     sourceRoot,
@@ -175,6 +177,25 @@ function copyInstalledSubscriptionRuntime(
     checkoutRoot,
     "node_modules/@777genius/subscription-runtime",
   );
+  // A disposable checkout may not have this scoped directory yet.
+  // Create it before validating its resolved position inside the fixture root.
   mkdirSync(dirname(target), { recursive: true });
+  const targetParent = relative(
+    realpathSync(reproductionRoot),
+    realpathSync(dirname(target)),
+  );
+  if (
+    targetParent === "" ||
+    targetParent === ".." ||
+    targetParent.startsWith(`..${sep}`) ||
+    isAbsolute(targetParent)
+  ) {
+    throw new Error(
+      "Action runtime target escaped the disposable reproduction root",
+    );
+  }
+  // A cached install may hardlink these files to the source package. Replace
+  // only this disposable entry, never its resolved symlink target or the store.
+  rmSync(target, { recursive: true, force: true });
   cpSync(source, target, { dereference: true, recursive: true });
 }

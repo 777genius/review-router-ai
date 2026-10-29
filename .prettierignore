@@ -25,3 +25,7 @@ goal-*.js
 tmp
 playwright-report
 test-results
+# Preserve the exact licensed upstream design reference bytes.
+ai-docs/design/impeccable/reference
+ai-docs/design/impeccable/LICENSE
+ai-docs/design/impeccable/NOTICE.md

@@ -1,6 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { test, expect, type BrowserContext, type Page } from "@playwright/test";
+import {
+  test,
+  expect as baseExpect,
+  type BrowserContext,
+  type Page,
+} from "@playwright/test";
 import pg from "pg";
 import { FIXTURES } from "../contracts.ts";
 import { SKILLS_SHARED_ID } from "../skills-fixtures.ts";
@@ -11,6 +16,11 @@ import {
   expectNetworkViolations,
   activeElementInside,
 } from "./support.ts";
+
+// Skills reads and writes share Next's serialized Server Action queue.
+// Give genuine responses the same budget as navigation.
+const expect = baseExpect.configure({ timeout: 30_000 });
+test.use({ actionTimeout: 30_000 });
 
 test.describe("Skills real Next and PostgreSQL", () => {
   test.skip(
@@ -303,7 +313,9 @@ test.describe("Skills real Next and PostgreSQL", () => {
       name: "Create skill",
       exact: true,
     });
-    const name = `Portable browser skill ${Date.now()}`;
+    const stamp = Date.now();
+    const name = `Portable browser skill ${stamp}`;
+    const portableName = `portable-browser-skill-${stamp}`;
     const description = '"\t🙂'.repeat(341) + '"';
     const prefix =
       "    Keep this Markdown code block indented.\n\nCheck ownership boundaries.\n![untrusted](https://example.invalid/never-fetch.png)\n<script>throw new Error('never execute')</script>\n";
@@ -322,7 +334,7 @@ test.describe("Skills real Next and PostgreSQL", () => {
     });
     await expect(
       editor.getByText(
-        "SKILL.md must be 64 KiB or smaller; instructions are limited to 32 KiB.",
+        "Import not applied. Your current draft is unchanged. SKILL.md must be 64 KiB or smaller; instructions are limited to 32 KiB.",
         { exact: true },
       ),
     ).toBeVisible();
@@ -356,7 +368,9 @@ test.describe("Skills real Next and PostgreSQL", () => {
     const path = await download.path();
     expect(path).toBeTruthy();
     const exported = await readFile(path!, "utf8");
-    expect(exported).toBe(portable);
+    expect(exported).toBe(
+      `---\nname: ${JSON.stringify(portableName)}\ndescription: ${JSON.stringify(description)}\n---\n${instructions}`,
+    );
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Close", exact: true })
@@ -367,7 +381,9 @@ test.describe("Skills real Next and PostgreSQL", () => {
     await editor
       .getByLabel("Import SKILL.md", { exact: false })
       .setInputFiles(path!);
-    await expect(editor.getByLabel("Name", { exact: false })).toHaveValue(name);
+    await expect(editor.getByLabel("Name", { exact: false })).toHaveValue(
+      portableName,
+    );
     await expect(
       editor.getByLabel("Description", { exact: false }),
     ).toHaveValue(description);
@@ -383,6 +399,9 @@ test.describe("Skills real Next and PostgreSQL", () => {
     await editor
       .getByLabel("Import SKILL.md", { exact: false })
       .setInputFiles(path!);
+    await editor
+      .getByRole("button", { name: "Replace draft", exact: true })
+      .click();
     const copyName = `Imported copy ${Date.now()}`;
     await editor.getByLabel("Name", { exact: false }).fill(copyName);
     await editor.getByRole("button", { name: "Save", exact: true }).click();
@@ -616,12 +635,31 @@ test.describe("Skills real Next and PostgreSQL", () => {
     await dialog
       .getByRole("searchbox", { name: "Search skills" })
       .fill("no matching skill");
-    await expect(
-      dialog.getByText(
-        "2 skills checked for this add operation. Changing search keeps checked skills.",
-        { exact: true },
-      ),
-    ).toBeVisible();
+    const emptySearch = dialog.getByText(
+      "No matching skills. Create one to add it to this repository selection.",
+      { exact: true },
+    );
+    const addSelected = dialog.getByRole("button", {
+      name: "Add selected skills",
+      exact: true,
+    });
+    await expect(emptySearch).toBeInViewport({ ratio: 1 });
+    await expect(dialog.locator("tbody").getByRole("row")).toHaveCount(0);
+    await expect(checkedSummary).toBeInViewport({ ratio: 1 });
+    await expect(addSelected).toBeInViewport({ ratio: 1 });
+    await expect(addSelected).toBeEnabled();
+    await dialog.screenshot({
+      path: test.info().outputPath("skills-bulk-empty-desktop.png"),
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(emptySearch).toBeInViewport({ ratio: 1 });
+    await expect(checkedSummary).toBeInViewport({ ratio: 1 });
+    await expect(addSelected).toBeInViewport({ ratio: 1 });
+    await expect(addSelected).toBeEnabled();
+    await dialog.screenshot({
+      path: test.info().outputPath("skills-bulk-empty-mobile.png"),
+    });
+    await page.setViewportSize({ width: 1280, height: 900 });
     await dialog.getByRole("searchbox", { name: "Search skills" }).fill("");
     await expect(row).toBeVisible();
     await dialog
@@ -629,7 +667,13 @@ test.describe("Skills real Next and PostgreSQL", () => {
       .click();
     await expect(dialog.getByRole("status")).toContainText("249 added");
     await expect(dialog.getByRole("status")).toBeInViewport({ ratio: 1 });
-    await dialog.screenshot({
+    await expect(dialog).toHaveAccessibleName("Add skills to repositories");
+    for (const name of ["Close Add skills to repositories", "Close"]) {
+      const close = dialog.getByRole("button", { name, exact: true });
+      await expect(close).toBeVisible();
+      await expect(close).toBeInViewport({ ratio: 1 });
+    }
+    await page.screenshot({
       path: test.info().outputPath("skills-bulk-result-desktop.png"),
     });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -701,7 +745,7 @@ test.describe("Skills real Next and PostgreSQL", () => {
           [repositoryId],
         )
       )[0]?.roots ?? [];
-    async function openSingleRepository(target: Page) {
+    async function openSingleRepository(target: Page, add = false) {
       await openRepoPage(target);
       await target
         .getByRole("searchbox", { name: "Find repository", exact: true })
@@ -716,6 +760,11 @@ test.describe("Skills real Next and PostgreSQL", () => {
         .getByRole("button", { name: "Manage skills (1)", exact: true })
         .click();
       const operation = target.getByRole("dialog");
+      await expect(operation).toHaveAccessibleName("Assigned skills");
+      if (add)
+        await operation
+          .getByRole("button", { name: "Add skills", exact: true })
+          .click();
       await operation
         .getByRole("searchbox", { name: "Search skills" })
         .fill("Fixture skill 010");
@@ -725,13 +774,16 @@ test.describe("Skills real Next and PostgreSQL", () => {
       await expect(row).toBeVisible();
       return { operation, row };
     }
-    const { operation, row } = await openSingleRepository(page);
+    const { operation, row } = await openSingleRepository(page, true);
     await row.getByRole("checkbox").check();
     await operation
-      .getByRole("button", { name: "Add selected skills", exact: true })
+      .getByRole("button", { name: "Add 1 skill", exact: true })
       .click();
-    await expect(operation.getByRole("status")).toContainText("1 added");
-    await row.getByText("Paths", { exact: true }).click();
+    await expect(operation).toHaveAccessibleName("Assigned skills");
+    await expect(
+      operation.getByRole("status").filter({ hasText: "1 added" }),
+    ).toBeVisible();
+    await row.getByText("File scope", { exact: true }).click();
     const initial = await binding();
     expect(initial).toMatchObject({ includePaths: ["**"], excludePaths: [] });
     await row
@@ -757,6 +809,12 @@ test.describe("Skills real Next and PostgreSQL", () => {
     ).toHaveValue("packages/**\nsrc/**");
     // The same Add command must preserve an existing assignment's paths.
     await operation
+      .getByRole("button", { name: "Add skills", exact: true })
+      .click();
+    await operation
+      .getByRole("searchbox", { name: "Search skills" })
+      .fill("Fixture skill 010");
+    await operation
       .getByText("Advanced: paths for new assignments", { exact: true })
       .click();
     const advanced = operation.locator("details").filter({
@@ -767,17 +825,18 @@ test.describe("Skills real Next and PostgreSQL", () => {
       .fill("other/**");
     await row.getByRole("checkbox").check();
     await operation
-      .getByRole("button", { name: "Add selected skills", exact: true })
+      .getByRole("button", { name: "Add 1 skill", exact: true })
       .click();
-    await expect(operation.getByRole("status")).toContainText("1 already");
+    await expect(operation).toHaveAccessibleName("Assigned skills");
+    await expect(
+      operation.getByRole("status").filter({ hasText: "1 already" }),
+    ).toBeVisible();
     expect(await binding()).toEqual({
       includePaths: ["packages/**", "src/**"],
       excludePaths: ["**/*.test.ts"],
       version: initial!.version + 1,
     });
-    await operation
-      .getByText("Advanced: paths for new assignments", { exact: true })
-      .click();
+    await row.getByText("File scope", { exact: true }).click();
     await row
       .getByRole("textbox", { name: "Include paths", exact: true })
       .fill("client/**");
@@ -787,7 +846,7 @@ test.describe("Skills real Next and PostgreSQL", () => {
     const second = await context.newPage();
     await installLoopbackOnlyNetworkGuard(second, violations);
     const concurrent = await openSingleRepository(second);
-    await concurrent.row.getByText("Paths", { exact: true }).click();
+    await concurrent.row.getByText("File scope", { exact: true }).click();
     await concurrent.row
       .getByRole("textbox", { name: "Include paths", exact: true })
       .fill("server/**");
@@ -875,7 +934,7 @@ test.describe("Skills real Next and PostgreSQL", () => {
     ).toHaveValue("client/generated/**");
     await second.close();
     await operation
-      .getByText("Repository paths and Git skills", { exact: true })
+      .getByText("Skills from this repository", { exact: true })
       .click();
     await expect(
       operation.getByText("Git sources: disabled", { exact: true }),
@@ -914,7 +973,7 @@ test.describe("Skills real Next and PostgreSQL", () => {
     });
     await operation.getByRole("button", { name: "Close", exact: true }).click();
     const reopened = await openSingleRepository(page);
-    await reopened.row.getByText("Paths", { exact: true }).click();
+    await reopened.row.getByText("File scope", { exact: true }).click();
     await expect(
       reopened.row.getByRole("textbox", { name: "Include paths", exact: true }),
     ).toHaveValue("client/**");
@@ -922,7 +981,7 @@ test.describe("Skills real Next and PostgreSQL", () => {
       reopened.row.getByRole("textbox", { name: "Exclude paths", exact: true }),
     ).toHaveValue("client/generated/**");
     await reopened.operation
-      .getByText("Repository paths and Git skills", { exact: true })
+      .getByText("Skills from this repository", { exact: true })
       .click();
     await expect(
       reopened.operation.getByRole("checkbox", {
@@ -1026,6 +1085,10 @@ test.describe("Skills real Next and PostgreSQL", () => {
       .getByRole("button", { name: "Manage skills (1)", exact: true })
       .click();
     const dialog = page.getByRole("dialog");
+    await expect(dialog).toHaveAccessibleName("Assigned skills");
+    await dialog
+      .getByRole("button", { name: "Add skills", exact: true })
+      .click();
     await dialog
       .getByRole("searchbox", { name: "Search skills" })
       .fill("Fixture skill 003");
@@ -1051,7 +1114,7 @@ test.describe("Skills real Next and PostgreSQL", () => {
       } else await route.fallback();
     });
     await dialog
-      .getByRole("button", { name: "Add selected skills", exact: true })
+      .getByRole("button", { name: "Add 1 skill", exact: true })
       .click();
     await expect(dialog.getByRole("alert")).toContainText(
       "result could not be confirmed",
@@ -1090,7 +1153,13 @@ test.describe("Skills real Next and PostgreSQL", () => {
       }),
     ).toBeDisabled();
     await expect(
-      dialog.getByRole("button", { name: "Remove", exact: true }),
+      dialog.getByRole("button", {
+        name: "Back to assigned skills",
+        exact: true,
+      }),
+    ).toBeDisabled();
+    await expect(
+      dialog.getByRole("searchbox", { name: "Search skills" }),
     ).toBeDisabled();
     await dialog
       .getByRole("button", { name: "Retry exact operation", exact: true })
@@ -1129,7 +1198,7 @@ test.describe("Skills real Next and PostgreSQL", () => {
       .fill("Canonical shared skill");
     await dialog.getByRole("button", { name: "Add", exact: true }).click();
     await expect(dialog.getByRole("status")).toHaveText(
-      "Skill linked to this workspace.",
+      "“Canonical shared skill” added to this library. Choose repositories to use it.",
     );
     await dialog.getByRole("button", { name: "Close", exact: true }).click();
     const row = page
@@ -1261,7 +1330,9 @@ test.describe("Skills real Next and PostgreSQL", () => {
       .getByRole("searchbox", { name: "Search skills" })
       .fill("Fixture skill 002");
     await accept.getByRole("button", { name: "Accept", exact: true }).click();
-    await expect(accept.getByRole("status")).toContainText("Skill linked");
+    await expect(accept.getByRole("status")).toContainText(
+      "added to this library. Choose repositories to use it.",
+    );
     await accept.getByRole("button", { name: "Close", exact: true }).click();
     const linked = receiver
       .getByRole("row")
@@ -1334,6 +1405,10 @@ test.describe("Skills real Next and PostgreSQL", () => {
       .getByRole("button", { name: "Manage skills (1)", exact: true })
       .click();
     let dialog = page.getByRole("dialog");
+    await expect(dialog).toHaveAccessibleName("Assigned skills");
+    await dialog
+      .getByRole("button", { name: "Add skills", exact: true })
+      .click();
     const row = dialog
       .getByRole("row")
       .filter({ hasText: "Canonical shared skill" });
@@ -1346,9 +1421,10 @@ test.describe("Skills real Next and PostgreSQL", () => {
     ).toHaveCount(0);
     await row.getByRole("checkbox").check();
     await dialog
-      .getByRole("button", { name: "Add selected skills", exact: true })
+      .getByRole("button", { name: "Add 1 skill", exact: true })
       .click();
     await expect(dialog.getByRole("status")).toContainText("1 added");
+    await expect(dialog).toHaveAccessibleName("Assigned skills");
     // Revoke source grant and create a new immutable source head afterwards.
     await sql(
       `UPDATE "ReviewSkillGrant" SET "revokedAt"=CURRENT_TIMESTAMP,version=version+1 WHERE "skillId"=$1 AND "destinationWorkspaceId"=$2`,
@@ -1372,19 +1448,34 @@ test.describe("Skills real Next and PostgreSQL", () => {
     await dialog
       .getByRole("searchbox", { name: "Search skills" })
       .fill(SKILLS_SHARED_ID);
-    await dialog.getByRole("button", { name: "Remove", exact: true }).click();
     await expect(
       dialog.getByText("PRIVATE RENAMED AFTER REVOKE", { exact: true }),
     ).toHaveCount(0);
     const unavailable = dialog
       .getByRole("row")
       .filter({ hasText: "Unavailable" });
-    await expect(unavailable).toContainText("1/1");
-    await unavailable.getByRole("checkbox").check();
-    await dialog
-      .getByRole("button", { name: "Remove selected skills", exact: true })
+    await expect(unavailable).toContainText(SKILLS_SHARED_ID);
+    await expect(unavailable.getByRole("checkbox")).toHaveCount(0);
+    expect(
+      await sql<{ count: string }>(
+        `SELECT count(*)::text FROM "ReviewSkillBinding" WHERE "skillId"=$1 AND "repositoryConnectionId"='rr-e2e-repo-rr-e2e-org-alpha-001'`,
+        [SKILLS_SHARED_ID],
+      ),
+    ).toEqual([{ count: "1" }]);
+    await unavailable
+      .getByRole("button", {
+        name: `Remove skill Unavailable skill ${SKILLS_SHARED_ID}`,
+        exact: true,
+      })
       .click();
     await expect(dialog.getByRole("status")).toContainText("1 removed");
+    await expect(unavailable).toHaveCount(0);
+    expect(
+      await sql<{ count: string }>(
+        `SELECT count(*)::text FROM "ReviewSkillBinding" WHERE "skillId"=$1 AND "repositoryConnectionId"='rr-e2e-repo-rr-e2e-org-alpha-001'`,
+        [SKILLS_SHARED_ID],
+      ),
+    ).toEqual([{ count: "0" }]);
     expect(
       (
         await sql<{ count: string }>(
@@ -1521,21 +1612,14 @@ test.describe("Skills real Next and PostgreSQL", () => {
             exact: true,
           })
           .check();
-        await targets
-          .getByRole("button", {
-            name: "Manage selected repositories (1)",
-            exact: true,
-          })
-          .click();
-        const operation = page.getByRole("dialog", {
-          name: "Remove skills from repositories",
-          exact: true,
-        });
+        // The known skill applies directly from this repository picker.
+        const operation = targets;
+        await expect(page.getByRole("dialog")).toHaveCount(1);
         await expect(
           operation.getByRole("button", { name: "Add", exact: true }),
         ).toBeDisabled();
         await expect(
-          operation.getByText("Repository paths and Git skills", {
+          operation.getByText("Skills from this repository", {
             exact: true,
           }),
         ).toHaveCount(0);
@@ -1544,14 +1628,17 @@ test.describe("Skills real Next and PostgreSQL", () => {
         ).toHaveCount(0);
         await expect(
           operation.getByRole("checkbox", {
-            name: `Select skill Unavailable skill ${SKILLS_SHARED_ID}`,
+            name: "Select rr-e2e-org-alpha/skills-project-002",
             exact: true,
           }),
         ).toBeChecked();
+        await expect(
+          operation.getByRole("checkbox", { name: /^Select skill / }),
+        ).toHaveCount(0);
         await page.setViewportSize({ width: 390, height: 844 });
         await expect(
           operation.getByRole("button", {
-            name: "Remove selected skills",
+            name: "Remove from 1 repository",
             exact: true,
           }),
         ).toBeInViewport({ ratio: 1 });
@@ -1559,7 +1646,10 @@ test.describe("Skills real Next and PostgreSQL", () => {
           path: test.info().outputPath("skills-inactive-remove-mobile.png"),
         });
         await operation
-          .getByRole("button", { name: "Remove selected skills", exact: true })
+          .getByRole("button", {
+            name: "Remove from 1 repository",
+            exact: true,
+          })
           .click();
         await expect(
           operation.getByRole("status").filter({ hasText: "1 removed" }),

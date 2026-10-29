@@ -5,6 +5,7 @@ import {
   ReviewRequestedDispatchRunStatus,
   ReviewRequestedDispatchSubmissionStatus,
   ReviewRequestedIntentState,
+  ReviewRequestedIntentTerminalReason,
   ReviewRequestedTriggerKind,
   type ReviewRequestedIntent,
 } from "@reviewrouter/features-review-executions";
@@ -145,43 +146,88 @@ describe("GitHubActionsReviewRequestedDispatchGateway", () => {
     expect(request).toHaveBeenCalledTimes(1);
   });
 
-  it("inspects the exact recorded attempt and validates its correlation", async () => {
-    const request = vi.fn(async (route: string, parameters?: object) => {
-      if (route.includes("/attempts/")) {
-        expect(parameters).toMatchObject({ run_id: "701", attempt_number: 2 });
+  it.each([
+    ".github/workflows/reviewrouter-review.yml",
+    ".github/workflows/reviewrouter-review.yml@main",
+    ".github/workflows/reviewrouter-review.yml@release/control-v2",
+  ])(
+    "inspects the exact recorded attempt with workflow path %s",
+    async (path) => {
+      const request = vi.fn(async (route: string, parameters?: object) => {
+        if (route.includes("/actions/runs/")) {
+          expect(parameters).toMatchObject({ run_id: "701" });
+          return {
+            data: {
+              id: 701,
+              run_attempt: 2,
+              event: "workflow_dispatch",
+              display_title: "ReviewRouter review request-1",
+              status: "completed",
+              path,
+            },
+          };
+        }
+        return {
+          data: {
+            head: { sha: "c".repeat(40) },
+            base: { sha: "a".repeat(40) },
+          },
+        };
+      });
+      const gateway = gatewayWith(request);
+
+      await expect(
+        gateway.inspectKnownRun({
+          intent: {
+            ...intentFixture(),
+            state: ReviewRequestedIntentState.AwaitingAuthorization,
+            claim: null,
+            sourceRunId: "701",
+            sourceRunAttempt: "2",
+          },
+        }),
+      ).resolves.toEqual({
+        status: ReviewRequestedDispatchRunStatus.TerminalCurrentRevision,
+      });
+    },
+  );
+
+  it.each([
+    ReviewRequestedIntentTerminalReason.AuthorizationDeadlineExceeded,
+    ReviewRequestedIntentTerminalReason.DispatchOutcomeUnknown,
+  ])(
+    "acknowledges owned terminal cleanup without a live PR lookup (%s)",
+    async (terminalReason) => {
+      const request = vi.fn(async (route: string) => {
+        if (!route.includes("/actions/runs/"))
+          throw new Error("pull_request_unavailable");
         return {
           data: {
             id: 701,
-            run_attempt: 2,
+            run_attempt: 1,
             event: "workflow_dispatch",
             display_title: "ReviewRouter review request-1",
             status: "completed",
+            path: ".github/workflows/reviewrouter-review.yml",
           },
         };
-      }
-      return {
-        data: {
-          head: { sha: "c".repeat(40) },
-          base: { sha: "a".repeat(40) },
-        },
-      };
-    });
-    const gateway = gatewayWith(request);
-
-    await expect(
-      gateway.inspectKnownRun({
-        intent: {
-          ...intentFixture(),
-          state: ReviewRequestedIntentState.AwaitingAuthorization,
-          claim: null,
-          sourceRunId: "701",
-          sourceRunAttempt: "2",
-        },
-      }),
-    ).resolves.toEqual({
-      status: ReviewRequestedDispatchRunStatus.TerminalCurrentRevision,
-    });
-  });
+      });
+      await expect(
+        gatewayWith(request).inspectKnownRun({
+          intent: {
+            ...intentFixture(),
+            state: ReviewRequestedIntentState.Terminal,
+            terminalReason,
+            sourceRunId: "701",
+            sourceRunAttempt: "1",
+          },
+        }),
+      ).resolves.toEqual({
+        status: ReviewRequestedDispatchRunStatus.TerminalStaleRevision,
+      });
+      expect(request).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("classifies a validation rejection as definitely no external effect", async () => {
     const request = vi.fn(async (route: string) => {
@@ -248,25 +294,79 @@ describe("GitHubActionsReviewRequestedDispatchGateway", () => {
     });
   });
 
-  it("cancels only the exact persisted run identity", async () => {
-    const request = vi.fn(async (route: string, parameters?: object) => {
-      expect(route).toContain("/actions/runs/{run_id}/cancel");
-      expect(parameters).toMatchObject({ run_id: "701" });
-      return { data: {} };
-    });
-    const gateway = gatewayWith(request);
+  it.each([
+    ".github/workflows/reviewrouter-review.yml",
+    ".github/workflows/reviewrouter-review.yml@main",
+  ])(
+    "cancels only the exact persisted run identity with path %s",
+    async (path) => {
+      const request = vi.fn(async (route: string, parameters?: object) => {
+        expect(parameters).toMatchObject({ run_id: "701" });
+        if (route.startsWith("GET"))
+          return {
+            data: {
+              id: 701,
+              run_attempt: 2,
+              event: "workflow_dispatch",
+              display_title: "ReviewRouter review request-1",
+              status: "queued",
+              path,
+            },
+          };
+        expect(route).toContain("/actions/runs/{run_id}/cancel");
+        return { data: {} };
+      });
+      const gateway = gatewayWith(request);
 
+      await expect(
+        gateway.cancelKnownRun({
+          intent: {
+            ...intentFixture(),
+            state: ReviewRequestedIntentState.AwaitingAuthorization,
+            claim: null,
+            sourceRunId: "701",
+            sourceRunAttempt: "2",
+          },
+        }),
+      ).resolves.toBeUndefined();
+    },
+  );
+  it.each([
+    { id: 702 },
+    { event: "push" },
+    { run_attempt: 3 },
+    { display_title: "ReviewRouter review another-request" },
+    { path: ".github/workflows/another-workflow.yml" },
+    { path: ".github/workflows/another-workflow.yml@main" },
+    { path: ".github/workflows/reviewrouter-review.yml@" },
+    { path: ".github/workflows/reviewrouter-review.yml@../main" },
+    { path: ".github/workflows/reviewrouter-review.yml@main\n" },
+    { path: ".github/workflows/reviewrouter-review.yml@main.lock" },
+    { path: ".github/workflows/reviewrouter-review.yml@refs/heads/main" },
+    { path: null },
+    { path: 1 },
+  ])("refuses cancellation after run identity changes: %o", async (changed) => {
+    const request = vi.fn(async () => ({
+      data: {
+        id: 701,
+        run_attempt: 2,
+        event: "workflow_dispatch",
+        display_title: "ReviewRouter review request-1",
+        status: "queued",
+        path: ".github/workflows/reviewrouter-review.yml",
+        ...changed,
+      },
+    }));
     await expect(
-      gateway.cancelKnownRun({
+      gatewayWith(request).cancelKnownRun({
         intent: {
           ...intentFixture(),
-          state: ReviewRequestedIntentState.AwaitingAuthorization,
-          claim: null,
           sourceRunId: "701",
           sourceRunAttempt: "2",
         },
       }),
-    ).resolves.toBeUndefined();
+    ).rejects.toThrow();
+    expect(request).toHaveBeenCalledTimes(1);
   });
 });
 

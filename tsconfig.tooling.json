@@ -5,6 +5,8 @@
     "allowImportingTsExtensions": true
   },
   "include": [
+    "scripts/review-history-tooling/**/*.ts",
+    "scripts/activate-review-history.ts",
     "scripts/context-tools-e2e/**/*.ts",
     "scripts/update-mcp-catalog.ts",
     "scripts/lib/server-rendered-heading.ts",
@@ -14,6 +16,7 @@
     "scripts/local-checks/lint-format-*.ts",
     "scripts/local-checks/lint-format-*.mts",
     "scripts/memory-foundation/**/*.ts",
+    "scripts/memory-ui-e2e/**/*.ts",
     "scripts/memory-e2e/**/*.ts",
     "scripts/statistics-foundation/**/*.ts",
     "scripts/statistics-e2e/**/*.ts",

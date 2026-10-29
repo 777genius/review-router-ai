@@ -4,6 +4,8 @@ This folder is the canonical planning and architecture knowledge base for Review
 
 Current provider delivery scope: [Sub2API production and legacy direct transport](./operations/provider-transport-scope.md).
 
+Current provider navigation and connection UX: [Providers and connections](./product/10-provider-connections-ux.md).
+
 ## Reading Order
 
 1. [Agent Start Here](./AGENT_START_HERE.md)
@@ -38,6 +40,7 @@ Current provider delivery scope: [Sub2API production and legacy direct transport
 30. [ADR-029: Opt-in Hosted Workspace Account Pool](./decisions/029-opt-in-hosted-workspace-account-pool.md)
 31. [Hosted Workspace Account Pool Plan](./architecture/49-hosted-workspace-account-pool-plan.md)
 32. [Memory Product Vision](./product/09-memory-product-vision.md) - owner requirements and self-hosted Hindsight selection; [replacement plan](./plans/2026-10-23-hindsight-memory-replacement.md) reviewed through three critique/fix rounds; runtime qualification remains.
+33. [Deployment Tasks](./deployments/README.md) - per-task rollout instructions, pending environment work, and verified deployment status.
 
 ## Folder Map
 
@@ -47,6 +50,7 @@ Current provider delivery scope: [Sub2API production and legacy direct transport
 - `iterations/` - execution plan split into sequential implementation iterations.
 - `risks/` - product, security, technical, and operational risks.
 - `operations/` - deployment, observability, runbooks, support model, incident response, supply chain security, telemetry privacy, quotas, privacy/legal launch checklist.
+- `deployments/` - one deployment record per task, with instructions, related links, per-environment status, and execution evidence.
 - `appendices/` - glossary, open questions, existing action context, quality bar.
 - `spikes/` - reality checks against external systems before full implementation.
 

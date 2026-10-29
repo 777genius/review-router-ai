@@ -24,6 +24,7 @@ import {
 } from "./repository-setup-optimistic-events";
 import {
   hasCompletedWorkflowSetup,
+  repositorySetupScopeKey,
   setupStepNumber,
   runtimeQualifiedSetupStep,
   type SetupStep,
@@ -85,6 +86,11 @@ export function RepositorySetupProgressPanel({
     | undefined;
 }): React.ReactElement {
   const router = useRouter();
+  const scopeKey = repositorySetupScopeKey(
+    repositoryId,
+    expectedProviderAuthModes,
+  );
+  const [optimisticScopeKey, setOptimisticScopeKey] = useState(scopeKey);
   const [setupStatus, setSetupStatus] = useState(initialSetupStatus);
   const [setupPullRequestUrl, setSetupPullRequestUrl] = useState(
     initialSetupPullRequestUrl,
@@ -104,14 +110,18 @@ export function RepositorySetupProgressPanel({
   const gatewayBlocked =
     expectedProviderAuthModes.includes("codex_account_gateway") &&
     gatewayReviewV2Readiness?.status !== "ready";
+  // Never render the previous scope's optimistic progress before its effect resets.
+  const scopedStep =
+    optimisticScopeKey === scopeKey ? currentStep : initialStep;
   const displayStep = runtimeQualifiedSetupStep(
-    gatewayBlocked && currentStep === "ready" ? "provider" : currentStep,
+    gatewayBlocked && scopedStep === "ready" ? "provider" : scopedStep,
     initialStep,
     runtimeCompatibility,
   );
 
   useEffect(() => {
     optimisticProviderAuthModesRef.current = new Set();
+    setOptimisticScopeKey(scopeKey);
     setSetupStatus(initialSetupStatus);
     setSetupPullRequestUrl(initialSetupPullRequestUrl);
     setSetupIssue(normalizeSetupIssue(initialSetupIssue));
@@ -126,6 +136,7 @@ export function RepositorySetupProgressPanel({
     initialSetupPullRequestUrl,
     initialSetupStatus,
     initialStep,
+    scopeKey,
   ]);
 
   useEffect(() => {

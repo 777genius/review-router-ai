@@ -1,5 +1,7 @@
 import { seedSkillsFixtures } from "./skills-fixtures.ts";
 import { seedReviewRuntimeFixtures } from "./review-runtime-fixture.ts";
+import { startSkillCatalogFixture } from "./skill-catalog-fixture.ts";
+import { seedSkillsReadinessFixtures } from "./skills-readiness-fixture.ts";
 import {
   startSkillsGitHubFixture,
   SKILLS_MANAGER_EXTERNAL_ID,
@@ -16,6 +18,7 @@ import {
   BASELINE_REVISION,
   REVIEW_RUNTIME_FIXTURE_BOUNDARY,
   SKILLS_FIXTURE_BOUNDARY,
+  SKILL_CATALOG_FIXTURE_BOUNDARY,
   PROBE_FIXTURE_BOUNDARY,
   ACCOUNT_MODELS_FIXTURE_BOUNDARY,
   LIMITS_FIXTURE_BOUNDARY,
@@ -43,19 +46,21 @@ type TestSummary = {
 async function main(): Promise<void> {
   const fixtureBoundary = process.argv.includes("--review-runtime-fixture")
     ? REVIEW_RUNTIME_FIXTURE_BOUNDARY
-    : process.argv.includes("--api-key-storage-fixture")
-      ? API_KEY_STORAGE_FIXTURE_BOUNDARY
-      : process.argv.includes("--skills-fixture")
-        ? SKILLS_FIXTURE_BOUNDARY
-        : process.argv.includes("--account-models-fixture")
-          ? ACCOUNT_MODELS_FIXTURE_BOUNDARY
-          : process.argv.includes("--subscription-fixture")
-            ? SUBSCRIPTION_FIXTURE_BOUNDARY
-            : process.argv.includes("--limits-fixture")
-              ? LIMITS_FIXTURE_BOUNDARY
-              : process.argv.includes("--probe-fixture")
-                ? PROBE_FIXTURE_BOUNDARY
-                : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
+    : process.argv.includes("--skill-catalog-fixture")
+      ? SKILL_CATALOG_FIXTURE_BOUNDARY
+      : process.argv.includes("--api-key-storage-fixture")
+        ? API_KEY_STORAGE_FIXTURE_BOUNDARY
+        : process.argv.includes("--skills-fixture")
+          ? SKILLS_FIXTURE_BOUNDARY
+          : process.argv.includes("--account-models-fixture")
+            ? ACCOUNT_MODELS_FIXTURE_BOUNDARY
+            : process.argv.includes("--subscription-fixture")
+              ? SUBSCRIPTION_FIXTURE_BOUNDARY
+              : process.argv.includes("--limits-fixture")
+                ? LIMITS_FIXTURE_BOUNDARY
+                : process.argv.includes("--probe-fixture")
+                  ? PROBE_FIXTURE_BOUNDARY
+                  : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
   const options = parseCliOptions(process.argv);
   await ensureWorkDir(options.workDir);
   const revision = await readRevision(options.repoRoot);
@@ -72,6 +77,15 @@ async function main(): Promise<void> {
       "packages/features/provider-accounts",
       "packages/platform/db",
       "scripts/accounts-reference-e2e/src",
+      ...(process.argv.includes("--skill-catalog-fixture")
+        ? [
+            "packages/features/review-skills",
+            "packages/features/rate-limits",
+            "packages/features/outbox",
+            "apps/worker",
+            "services/skill-scanner",
+          ]
+        : []),
     ],
     { maxBuffer: 256 * 1024 * 1024, encoding: "buffer" },
   )
@@ -92,6 +106,9 @@ async function main(): Promise<void> {
   let database: Awaited<ReturnType<typeof createDatabaseFixture>> | null = null;
   let gateway: Awaited<ReturnType<typeof startGatewayFixture>> | null = null;
   let app: Awaited<ReturnType<typeof startNextApp>> | null = null;
+  let skillCatalog: Awaited<
+    ReturnType<typeof startSkillCatalogFixture>
+  > | null = null;
   let summary: TestSummary = { passed: 0, failed: 0, skipped: 0, failures: [] };
   let failure: string | null = null;
   try {
@@ -107,8 +124,10 @@ async function main(): Promise<void> {
     )
       await seedReviewRuntimeFixtures(database.databaseUrl);
     if (process.argv.includes("--skills-fixture")) {
-      if (!process.argv.includes("--resume-own-fixtures"))
+      if (!process.argv.includes("--resume-own-fixtures")) {
         await seedSkillsFixtures(database.databaseUrl);
+        await seedSkillsReadinessFixtures(database.databaseUrl);
+      }
       skillsGitHub = await startSkillsGitHubFixture();
     }
     gateway = await startGatewayFixture({
@@ -117,6 +136,13 @@ async function main(): Promise<void> {
       workDir: options.workDir,
       secrets,
     });
+    if (process.argv.includes("--skill-catalog-fixture")) {
+      skillCatalog = await startSkillCatalogFixture({
+        repoRoot: options.repoRoot,
+        workDir: options.workDir,
+        databaseUrl: database.databaseUrl,
+      });
+    }
     app = await startNextApp({
       repoRoot: options.repoRoot,
       workDir: options.workDir,
@@ -125,6 +151,7 @@ async function main(): Promise<void> {
       secrets,
       browserExecutable: options.browserExecutable,
       ...(skillsGitHub ? { skillsGitHub } : {}),
+      ...(skillCatalog ? { skillCatalog } : {}),
     });
     const viewer = await createSessionCookie(
       viewerIdentity(),
@@ -171,12 +198,27 @@ async function main(): Promise<void> {
         otherCookie: other.header,
         managerCookie: manager?.header ?? "",
         browserExecutable: options.browserExecutable,
+        ...(skillCatalog
+          ? {
+              skillCatalog: {
+                origin: skillCatalog.origin,
+                controlToken: skillCatalog.controlToken,
+              },
+            }
+          : {}),
       });
     }
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);
   } finally {
     await app?.stop().catch(() => undefined);
+    if (skillCatalog) {
+      await writeJson(
+        join(options.workDir, "skill-catalog-receipts.json"),
+        skillCatalog.snapshot(),
+      );
+      await skillCatalog.stop().catch(() => undefined);
+    }
     if (skillsGitHub)
       await writeJson(
         join(options.workDir, "skills-github-requests.json"),
@@ -328,6 +370,7 @@ async function runPlaywright(input: {
   otherCookie: string;
   managerCookie: string;
   browserExecutable: string | null;
+  skillCatalog?: { readonly origin: string; readonly controlToken: string };
 }): Promise<TestSummary> {
   const playwrightBin = join(harnessRoot, "node_modules", ".bin", "playwright");
   await new Promise<void>((resolveRun, rejectRun) => {
@@ -383,6 +426,15 @@ async function runPlaywright(input: {
           )
             ? "1"
             : "0",
+          ACCOUNTS_REFERENCE_E2E_SKILL_CATALOG: input.skillCatalog ? "1" : "0",
+          ...(input.skillCatalog
+            ? {
+                ACCOUNTS_REFERENCE_E2E_SKILL_CATALOG_URL:
+                  input.skillCatalog.origin,
+                ACCOUNTS_REFERENCE_E2E_SKILL_CATALOG_CONTROL:
+                  input.skillCatalog.controlToken,
+              }
+            : {}),
           ...(input.browserExecutable
             ? {
                 ACCOUNTS_REFERENCE_E2E_BROWSER_EXECUTABLE:

@@ -271,6 +271,20 @@ keys, request bodies, and database credentials are not printed by the harness.
 Use `--resume-own-fixtures` only for bounded follow-up against this exact synthetic
 fixture family; the final full lane should use fresh checked-in migrations.
 
+The `Skills browser acceptance` GitHub workflow runs this same lane on a dedicated
+hosted macOS ARM64 runner with a fresh owned native PostgreSQL 17 cluster and the
+harness's locked Chromium. Prisma generation runs inside a real macOS network
+sandbox after a reachable loopback probe verifies that both a direct client and
+its descendant are denied. An unavailable sandbox or failed probe fails the job;
+there is no unisolated generation fallback. The workflow records the actual PG17
+version and stops only its owned cluster. It checks out the PR head explicitly, requires an unchanged
+source tree, and verifies an exact-head receipt with all 24 scenarios passing
+(the ten integration cases above plus fourteen UX resilience cases), zero
+failures, and zero skips. The workflow retains logs, receipts, screenshots, and
+failure traces as `skills-browser-<run-id>-<attempt>` artifacts for desktop/mobile
+visual review. It uses only generated fixture authority and does not call live
+SCM or model providers. The same workflow can be started with `workflow_dispatch`.
+
 If the pinned Playwright browser download is unavailable, the existing
 `--browser-executable /absolute/path/to/chromium` option now reaches the actual
 Playwright launch configuration. Record the executable version and package pin
@@ -279,6 +293,56 @@ Chromium 153.0.8010.0 from the exact `@sparticuz/chromium@153.0.0` npm archive b
 the default Playwright 1.64.1 Chromium archive returned a zero-length invalid ZIP.
 That temporary browser package is stored under `tmp/` and is not a production or
 workspace dependency.
+
+## Checked Skills catalog import
+
+The opt-in `--skills-fixture --skill-catalog-fixture` lane uses the real Next
+application, generated sessions, fresh PostgreSQL migrations, shared quotas,
+outbox, dedicated scan worker, and the pinned native SkillSpector service. UAP
+discovery/resolution and the AI model endpoint are loopback fixtures. Native
+static and AI analysis execute the installed upstream package; the model fixture
+returns structured responses and receives only a synthetic credential. This
+browser lane does not prove live catalog/provider availability or production
+container isolation; those boundaries have separate integration checks.
+
+Install Python 3.12 dependencies using both scanner lockfiles with
+`--require-hashes` (`--no-build-isolation` for `requirements.lock`), then point
+`REVIEW_ROUTER_SKILL_SCANNER_TEST_PYTHON` at that virtual environment's Python.
+The Linux browser job also preloads both tokenizer encodings in
+`<venv>/share/tiktoken` so checking never needs to download them. The harness
+launches `test_service.py --with-loopback-ai` itself and starts the actual worker;
+do not supply live scanner/model credentials.
+
+```bash
+ACCOUNTS_REFERENCE_E2E_GREP='Catalog real checked import' \
+REVIEW_ROUTER_SKILL_SCANNER_TEST_PYTHON="$PWD/tmp/skill-scanner/venv/bin/python" \
+  node --import ./scripts/accounts-reference-e2e/node_modules/tsx/dist/loader.mjs \
+  scripts/accounts-reference-e2e/src/run.ts \
+  --repo-root "$PWD" \
+  --database-url 'postgresql://fixture_owner@127.0.0.1:55442/review_router_accounts_reference_e2e_test?schema=public' \
+  --work-dir "$PWD/tmp/accounts-reference-e2e/runs/catalog" \
+  --skills-fixture --skill-catalog-fixture
+```
+
+The twelve browser scenarios cover search and source choice, exact text preview,
+native clear/warning/blocked results, separate opt-in AI checks, import into the
+existing repository assignment flow, same-page close/reopen, lost committed scan
+and import replies with exact retry, partial-report refusal and deliberate new
+attempt, independent warning/omission acknowledgement, inert markup, unsupported
+companion references, incomplete discovery, authority loss, real shared rate
+limits, expired historical reports, and late response/focus behavior. A partial
+report is an explicit contract fault applied after real native execution; the
+expired report is an inserted historical receipt, not a fabricated claim of a
+new execution. The warning and blocked cases use actual native findings.
+
+Desktop and 390×844 mobile screenshots include the list, preview, running check,
+clear/warning/blocked results, source failures, and existing assignment dialog.
+`skill-catalog-receipts.json` records authenticated service request paths, job
+identities, mode, native completion, explicit faults, and profile identities;
+it contains no tokens or skill bodies. The dedicated Linux job requires all
+twelve cases, zero skips, exact source revision, fresh migrations, and exactly
+eight completed native static checks plus one native AI check. The existing
+24-case Skills browser job remains separate and retains its original selector.
 
 ## Public model catalogs
 

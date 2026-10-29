@@ -39,6 +39,7 @@ export enum ReviewExecutionAdmissionStatus {
 }
 
 export enum ReviewInvocationLeaseAcquireStatus {
+  InputStale = "input_stale",
   Acquired = "acquired",
   Restored = "restored",
   Busy = "busy",
@@ -86,6 +87,8 @@ export enum ReviewExecutionLifecycleTransitionStatus {
 }
 
 export type PrepareReviewExecutionCommand = {
+  readonly historyRootRequestId?: string | null;
+  readonly historyDispatchAttempt?: number | null;
   readonly scope: ReviewExecutionScope;
   readonly expectedStreamVersion: bigint;
   readonly executionId: string;

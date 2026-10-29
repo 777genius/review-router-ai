@@ -85,6 +85,20 @@ async function fixture(
   const completions: secretSubmission.OAuthComplete[] = [];
   const server = createServer(async (request, response) => {
     response.setHeader("content-type", "application/json");
+    // This fixture qualifies legacy OAuth operations. Its optional capabilities
+    // endpoint is absent, rather than returning an unrelated account as a 200.
+    if (request.url === "/v1/provider-connection-capabilities") {
+      response.statusCode = 404;
+      response.end(
+        JSON.stringify({
+          code: "not_found",
+          traceRef: "fixture-missing-capabilities",
+          effect: "not_dispatched",
+          retry: { kind: "never" },
+        }),
+      );
+      return;
+    }
     if (request.method === "GET") {
       if (request.url === "/v1/profiles") {
         response.end(

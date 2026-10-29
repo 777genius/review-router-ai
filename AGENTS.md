@@ -1,14 +1,19 @@
 # Agent Instructions
 
+- Follow the maintained [Engineering Quality Standard](https://github.com/agent-teams-ai/.github/blob/main/docs/engineering-quality-standard.md), within this repository's explicitly adopted scope and pinned toolchain.
+
 - Repository hygiene: put disposable logs, debug scripts, screenshots, and scratch outputs in `tmp/`, not loose files in the repository root. Keep local worktrees outside this checkout when possible. Preserve existing worktrees and recovery evidence during cleanup. Keep local scratch directories excluded from Git, Docker build contexts, lint, and formatting.
 
 - Release process, `v1` tag handling, and git flow are documented in [`ai-docs/operations/07-environments-and-release-management.md`](./ai-docs/operations/07-environments-and-release-management.md). Use that file as the source of truth instead of duplicating release steps here.
+- Deployment task registry: for each implementation task awaiting rollout, create or update one Markdown file in [`ai-docs/deployments/`](./ai-docs/deployments/README.md) using its template, and update the index. Include ordinary code rollout as well as migrations, configuration, activation, verification, rollback, and related links when applicable.
+- Before every authorized deploy or release, read the deployment registry and inspect unfinished tasks for the target environment and exact shipping version. Execute applicable remaining steps in dependency order as part of that rollout, following the release source of truth. Reconcile partial or previously completed work before retrying. After each attempt, update per-environment status, actual version, evidence, and remaining steps or blockers in the task file and index; a merge or green CI alone is not `deployed`. The registry does not authorize an otherwise unrequested deployment.
 - Do not deploy on every small change. Build, test, and inspect locally first.
 - Deploy only at the end of a coherent batch or when the user explicitly asks for a deploy.
 - Before any deploy, verify the local commit with the relevant checks and summarize what changed.
 - If hosted deployment is blocked by provider quota or infrastructure state, stop deploying and report the blocker instead of retrying repeatedly.
 - UI design: avoid unnecessary nested cards, heavy frames, and stacked background blocks. Prefer clear sections, dividers, tabs, and inline stats; use a bordered card only when it adds real structure.
 - UI implementation: reuse existing shared components and Radix-based primitives before adding bespoke controls; extend the shared component layer when the pattern is reusable.
+- Frontend workflow: read [`ai-docs/design/frontend-workflow.md`](./ai-docs/design/frontend-workflow.md) for the shared product context, pinned Impeccable design guidance, and bounded visual/interaction review. Apply it to the changed surface without expanding the feature scope or replacing existing UI primitives.
 - Data fetching architecture: prefer Next.js Server Components or server-side loaders for first paint, SEO, and authorization-sensitive reads. Use `@tanstack/react-query` for new client-side interactive data flows that need cache reuse, background refetching, polling, optimistic updates, mutations, or invalidation after user actions.
 - React Query usage: create query keys as small typed arrays near the feature, keep query/mutation functions in a server/API adapter layer instead of inline in components, set deliberate `staleTime` values, invalidate or update exact affected queries after mutations, and avoid duplicating the same server-read data in both React Query and local component state.
 - Do not use React Query for static Server Component content, one-off form submissions with no client cache benefit, or secrets/authorization checks that must stay exclusively server-side.

@@ -574,8 +574,7 @@ export function parseLifecycleVerificationCapability(
     !Number.isInteger(value.providerIndex) ||
     Number(value.providerIndex) < 0 ||
     Number(value.providerIndex) > 15 ||
-    typeof value.providerKind !== "string" ||
-    !["ocr", "codex"].includes(value.providerKind) ||
+    (value.providerKind !== "ocr" && value.providerKind !== "codex") ||
     typeof value.model !== "string" ||
     !value.model.trim() ||
     value.model.length > 256 ||
@@ -604,5 +603,19 @@ export function parseLifecycleVerificationCapability(
     lifecycleVerificationContract.minOutputTokensPerTarget
   )
     fail();
-  return Object.freeze({ ...value }) as LifecycleVerificationCapability;
+  return Object.freeze({
+    extensionId: lifecycleVerificationContract.extensionId,
+    descriptorDigest: lifecycleVerificationDescriptorDigest,
+    executor: lifecycleVerificationContract.executor,
+    modelTransport: "account_gateway",
+    providerIndex: Number(value.providerIndex),
+    providerKind: value.providerKind,
+    model: value.model,
+    maxDispatches: 2,
+    maxPromptBytes: Number(value.maxPromptBytes),
+    maxResponseBytes: Number(value.maxResponseBytes),
+    maxOutputTokens: Number(value.maxOutputTokens),
+    deadlineMs: Number(value.deadlineMs),
+    attemptBudget: 1,
+  });
 }

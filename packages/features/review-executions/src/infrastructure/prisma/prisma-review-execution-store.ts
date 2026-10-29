@@ -1,3 +1,4 @@
+import type { ReviewExecutionInputAdmissionPort } from "./review-execution-input-admission-port";
 import { createHash } from "node:crypto";
 import {
   Prisma,
@@ -146,6 +147,8 @@ export class PrismaReviewExecutionStore
     private readonly prisma: PrismaClient,
     private readonly options: Readonly<{
       progressCapture?: ReviewExecutionProgressCapturePort;
+      historyCapture?: ReviewExecutionProgressCapturePort;
+      inputAdmission?: ReviewExecutionInputAdmissionPort;
     }> = {},
   ) {}
 
@@ -153,6 +156,7 @@ export class PrismaReviewExecutionStore
     transaction: Transaction,
     execution: ReviewExecution,
   ): Promise<void> {
+    await this.options.historyCapture?.(transaction, execution);
     await this.options.progressCapture?.(transaction, execution);
   }
 
@@ -625,6 +629,7 @@ export class PrismaReviewExecutionStore
       try {
         return await this.prisma.$transaction(
           async (transaction) => {
+            await this.options.inputAdmission?.lock(transaction, command);
             await lockScopes(transaction, [command.scope]);
             const executionIdentity =
               await transaction.reviewExecutionV2.findUnique({
@@ -683,7 +688,20 @@ export class PrismaReviewExecutionStore
             if (snapshot === null) {
               return { status: ReviewInvocationLeaseAcquireStatus.Missing };
             }
-            const now = await databaseNow(transaction);
+            let now = await databaseNow(transaction);
+            if (
+              this.options.inputAdmission &&
+              !(await this.options.inputAdmission.admit(transaction, {
+                command,
+                execution: snapshot.execution,
+                now,
+              }))
+            ) {
+              return { status: ReviewInvocationLeaseAcquireStatus.InputStale };
+            }
+            // Input admission may wait on current-authority locks. All deadline and
+            // lease-duration decisions use the database clock after those waits.
+            now = await databaseNow(transaction);
             let decision = await decideLeaseAcquireForSnapshot(
               transaction,
               snapshot,
@@ -756,7 +774,7 @@ export class PrismaReviewExecutionStore
                     expiry.lease,
                     incumbentExecution,
                     expiry.execution,
-                    this.options.progressCapture,
+                    (tx, execution) => this.captureProgress(tx, execution),
                   );
                   snapshot = await loadSnapshot(
                     transaction,
@@ -1317,7 +1335,7 @@ export class PrismaReviewExecutionStore
             decision.lease,
             execution,
             decision.execution,
-            this.options.progressCapture,
+            (tx, execution) => this.captureProgress(tx, execution),
           );
           if (decision.status === LeaseTransitionDecisionStatus.Expired) {
             return { status: ReviewInvocationLeaseTransitionStatus.Expired };
@@ -1598,7 +1616,7 @@ export class PrismaReviewExecutionStore
               expiry.lease,
               incumbentExecution,
               expiry.execution,
-              this.options.progressCapture,
+              (tx, execution) => this.captureProgress(tx, execution),
             );
           }
           return true;
@@ -2107,6 +2125,8 @@ async function requiredStreamRecord(
 function executionCreateData(execution: ReviewExecution) {
   return {
     executionId: execution.executionId,
+    historyRootRequestId: execution.historyRootRequestId ?? null,
+    historyDispatchAttempt: execution.historyDispatchAttempt ?? null,
     ...scopeWhere(execution),
     generation: execution.generation,
     version: execution.version,

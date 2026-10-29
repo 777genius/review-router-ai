@@ -107,6 +107,12 @@ importers:
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.3.0(jiti@2.6.1)(supports-color@8.1.1))
+      '@get-modular/conformance':
+        specifier: 0.5.0
+        version: 0.5.0(@get-modular/assembly@0.7.0)(@get-modular/core@0.7.0)(@get-modular/resources@0.2.1)
+      '@get-modular/resources':
+        specifier: 0.2.1
+        version: 0.2.1
       '@prisma/adapter-pg':
         specifier: 7.8.0
         version: 7.8.0
@@ -181,8 +187,8 @@ importers:
   apps/api:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -258,6 +264,9 @@ importers:
       '@reviewrouter/features-review-executions':
         specifier: workspace:*
         version: link:../../packages/features/review-executions
+      '@reviewrouter/features-review-history':
+        specifier: workspace:*
+        version: link:../../packages/features/review-history
       '@reviewrouter/features-review-investigation-operations':
         specifier: workspace:*
         version: link:../../packages/features/review-investigation-operations
@@ -328,8 +337,8 @@ importers:
   apps/web:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -396,6 +405,9 @@ importers:
       '@reviewrouter/features-review-context-tools':
         specifier: workspace:*
         version: link:../../packages/features/review-context-tools
+      '@reviewrouter/features-review-history':
+        specifier: workspace:*
+        version: link:../../packages/features/review-history
       '@reviewrouter/features-review-providers':
         specifier: workspace:*
         version: link:../../packages/features/review-providers
@@ -423,6 +435,9 @@ importers:
       '@reviewrouter/platform-locks':
         specifier: workspace:*
         version: link:../../packages/platform/locks
+      '@reviewrouter/protocol-review-action-v2':
+        specifier: workspace:*
+        version: link:../../packages/protocol-review-action-v2
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -468,9 +483,6 @@ importers:
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
-      yaml:
-        specifier: ^2.9.0
-        version: 2.9.0
       zod:
         specifier: ^4.4.2
         version: 4.4.2
@@ -481,6 +493,9 @@ importers:
       '@electric-sql/pglite':
         specifier: 0.4.1
         version: 0.4.1
+      '@electric-sql/pglite-socket':
+        specifier: 0.1.1
+        version: 0.1.1(@electric-sql/pglite@0.4.1)
 
   apps/worker:
     dependencies:
@@ -526,6 +541,9 @@ importers:
       '@reviewrouter/features-review-executions':
         specifier: workspace:*
         version: link:../../packages/features/review-executions
+      '@reviewrouter/features-review-history':
+        specifier: workspace:*
+        version: link:../../packages/features/review-history
       '@reviewrouter/features-review-investigation-operations':
         specifier: workspace:*
         version: link:../../packages/features/review-investigation-operations
@@ -544,6 +562,9 @@ importers:
       '@reviewrouter/features-review-run-control':
         specifier: workspace:*
         version: link:../../packages/features/review-run-control
+      '@reviewrouter/features-review-skills':
+        specifier: workspace:*
+        version: link:../../packages/features/review-skills
       '@reviewrouter/features-review-snapshots':
         specifier: workspace:*
         version: link:../../packages/features/review-snapshots
@@ -784,9 +805,6 @@ importers:
       '@get-modular/core':
         specifier: 0.7.0
         version: 0.7.0
-      '@infinity-context/sdk':
-        specifier: https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz
-        version: https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz
       '@prisma/client':
         specifier: ^7.8.0
         version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
@@ -799,10 +817,22 @@ importers:
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../shared
+      '@vectorize-io/hindsight-client':
+        specifier: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz
+        version: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz
     devDependencies:
+      '@prisma/adapter-pg':
+        specifier: 7.8.0
+        version: 7.8.0
       '@reviewrouter/platform-db':
         specifier: workspace:*
         version: link:../../platform/db
+      '@types/pg':
+        specifier: 8.23.1
+        version: 8.23.1
+      pg:
+        specifier: 8.23.0
+        version: 8.23.0
       vitest:
         specifier: 4.1.10
         version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.1.5(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.23.1)(yaml@2.9.0))
@@ -1053,6 +1083,40 @@ importers:
         specifier: workspace:*
         version: link:../../platform/db
 
+  packages/features/review-history:
+    dependencies:
+      '@get-modular/assembly':
+        specifier: 0.7.0
+        version: 0.7.0
+      '@get-modular/core':
+        specifier: 0.7.0
+        version: 0.7.0
+      '@prisma/client':
+        specifier: 7.8.0
+        version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
+    devDependencies:
+      '@get-modular/conformance':
+        specifier: 0.5.0
+        version: 0.5.0(@get-modular/assembly@0.7.0)(@get-modular/core@0.7.0)(@get-modular/resources@0.2.1)
+      '@get-modular/resources':
+        specifier: 0.2.1
+        version: 0.2.1
+      '@prisma/adapter-pg':
+        specifier: 7.8.0
+        version: 7.8.0
+      '@reviewrouter/features-review-executions':
+        specifier: workspace:*
+        version: link:../review-executions
+      '@reviewrouter/features-review-processes':
+        specifier: workspace:*
+        version: link:../review-processes
+      pg:
+        specifier: 8.23.0
+        version: 8.23.0
+      vitest:
+        specifier: 4.1.10
+        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.1.5(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.23.1)(yaml@2.9.0))
+
   packages/features/review-investigation-operations:
     dependencies:
       '@prisma/client':
@@ -1157,6 +1221,9 @@ importers:
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../shared
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
     devDependencies:
       '@get-modular/conformance':
         specifier: 0.5.0
@@ -1167,6 +1234,12 @@ importers:
       '@prisma/adapter-pg':
         specifier: 7.8.0
         version: 7.8.0
+      '@reviewrouter/features-outbox':
+        specifier: workspace:*
+        version: link:../outbox
+      '@reviewrouter/features-rate-limits':
+        specifier: workspace:*
+        version: link:../rate-limits
       '@types/pg':
         specifier: 8.23.1
         version: 8.23.1
@@ -1371,8 +1444,8 @@ packages:
   '@actions/io@3.0.2':
     resolution: {integrity: sha512-nRBchcMM+QK1pdjO7/idu86rbJI5YHUKCvKs0KxnSYbVe3F51UfGxuZX4Qy/fWlp6l7gWFwIkrOzN+oUK03kfw==}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz':
-    resolution: {integrity: sha512-GKTPdvYaxHif8Eue93M5Vd17rSMpChvPEvdYl/V8WuIZmDO02/JhojqoVyNujK+fgllwUjUTlga8/ytTh5ezZQ==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz}
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz':
+    resolution: {integrity: sha512-hmZZIk6gvkIagCwBp6buCFmVfrkBcofgnSz7yvUHau+kUtWPMAXnR3Lx0cTyJL3U1H6VFb4vH/84P2KI+fh5NQ==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz}
     version: 0.1.0
     engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
 
@@ -2169,12 +2242,6 @@ packages:
     engines: {node: '>=20.9.0'}
     cpu: [x64]
     os: [win32]
-
-  '@infinity-context/sdk@https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz':
-    resolution: {integrity: sha512-PpLM+eW84DRsNhYDvX02Y+v5hOCuQJMHJoNinyUwclHtizmpDEh4aBcRsCEvgqyQqYh2pD+zsu3VAZdKfbjKAg==, tarball: https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz}
-    version: 0.2.4
-    engines: {node: '>=20'}
-    hasBin: true
 
   '@isaacs/cliui@8.0.2':
     resolution: {integrity: sha512-O8jcjabXaleOG9DQ0+ARXWZBTfnP4WNAqzuiJK7ll44AmxGKv/J2M4TPjxjY3znBCfvBXFzucm1twdyFybFqEA==}
@@ -3849,6 +3916,10 @@ packages:
   '@typespec/ts-http-runtime@0.3.9':
     resolution: {integrity: sha512-edSdeAqkdxBVzA1yL1LrLCml1YjyCVvPMtMqJpbF+6K609tHe8V6sQUzFQSGcYNhcuhOceZtjvN32+mpIth30A==}
     engines: {node: '>=22.0.0'}
+
+  '@vectorize-io/hindsight-client@https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz':
+    resolution: {integrity: sha512-Tqx7SKEbKZnf9L1tnla3vIDNt83eKFCneHe8GsSQJbmAn0rY8U13fT9Jg5ZP8G/phns5Fk5tZWmagaUlVTzpCA==, tarball: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz}
+    version: 1.1.0
 
   '@vioxen/subscription-runtime@https://codeload.github.com/777genius/ar/tar.gz/83a7329f4383b05ac5c39356b79f82f029182d42':
     resolution: {gitHosted: true, integrity: sha512-KdfSyEbRxxOmmSVYbgEpci21m9IlqQFN6DmumgqJ1+ONBnpL+o8RSIjkHT4OAr/UseC03sdxtig4F34ST8rx3A==, tarball: https://codeload.github.com/777genius/ar/tar.gz/83a7329f4383b05ac5c39356b79f82f029182d42}
@@ -6519,7 +6590,7 @@ snapshots:
 
   '@actions/io@3.0.2': {}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz':
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz':
     dependencies:
       '@get-modular/assembly': 0.2.0
       '@get-modular/core': 0.2.0
@@ -7350,8 +7421,6 @@ snapshots:
 
   '@img/sharp-win32-x64@0.35.3':
     optional: true
-
-  '@infinity-context/sdk@https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz': {}
 
   '@isaacs/cliui@8.0.2':
     dependencies:
@@ -8821,6 +8890,8 @@ snapshots:
       tslib: 2.8.1
     transitivePeerDependencies:
       - supports-color
+
+  '@vectorize-io/hindsight-client@https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz': {}
 
   '@vioxen/subscription-runtime@https://codeload.github.com/777genius/ar/tar.gz/83a7329f4383b05ac5c39356b79f82f029182d42(@anthropic-ai/sdk@0.117.1(zod@4.4.2))(supports-color@8.1.1)(vitest@4.1.10(@types/node@22.19.17)(jsdom@29.1.1)(vite@8.1.5(@types/node@22.19.17)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.23.1)(yaml@2.9.0)))':
     dependencies:

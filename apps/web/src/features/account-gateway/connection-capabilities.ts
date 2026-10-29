@@ -32,7 +32,7 @@ export type AccountConnectionView = {
 /** Account-scoped discovery metadata; never contains Gateway identity/fences. */
 export type AccountModelCatalogView = {
   status: "snapshot" | "unsupported" | "unavailable" | "unknown";
-  source: "codex" | "legacy_profile";
+  source: "codex" | "openrouter" | "legacy_profile";
   fetchedAt?: string;
   expiresAt?: string;
   models: readonly string[];

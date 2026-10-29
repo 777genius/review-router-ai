@@ -44,6 +44,16 @@ export function hasCompletedWorkflowSetup(step: SetupStep): boolean {
   return setupStepNumber[step] >= setupStepNumber.provider;
 }
 
+export function repositorySetupScopeKey(
+  repositoryId: string,
+  expectedProviderAuthModes: readonly ProviderAuthMode[],
+): string {
+  return JSON.stringify([
+    repositoryId,
+    [...new Set(expectedProviderAuthModes)].sort(),
+  ]);
+}
+
 export function repositorySetupStepPillClassName(isComplete: boolean): string {
   return [
     "setup-toggle inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-2.5 font-mono text-xs font-semibold uppercase tracking-[0.12em] transition duration-200 ease-out hover:saturate-125",
@@ -150,13 +160,19 @@ function useOptimisticSetupStep({
   readonly gatewayReviewV2Ready: boolean;
   readonly runtimeCompatibility: ReviewRuntimeCompatibility;
 }): SetupStep {
+  const scopeKey = repositorySetupScopeKey(
+    repositoryId,
+    expectedProviderAuthModes,
+  );
+  const [optimisticScopeKey, setOptimisticScopeKey] = useState(scopeKey);
   const [optimisticStep, setOptimisticStep] = useState(currentStep);
   const optimisticProviderAuthModesRef = useRef(new Set<ProviderAuthMode>());
 
   useEffect(() => {
     optimisticProviderAuthModesRef.current = new Set();
+    setOptimisticScopeKey(scopeKey);
     setOptimisticStep(currentStep);
-  }, [currentStep]);
+  }, [currentStep, scopeKey]);
 
   useEffect(() => {
     function handleSetupPullRequestMerged(event: Event): void {
@@ -221,12 +237,15 @@ function useOptimisticSetupStep({
     };
   }, [expectedProviderAuthModes, repositoryId, gatewayReviewV2Ready]);
 
+  // Do not render the old scope's progress while its reset effect is pending.
+  const scopedStep =
+    optimisticScopeKey === scopeKey ? optimisticStep : currentStep;
   const step =
-    optimisticStep === "ready" &&
+    scopedStep === "ready" &&
     expectedProviderAuthModes.includes("codex_account_gateway") &&
     !gatewayReviewV2Ready
       ? "provider"
-      : optimisticStep;
+      : scopedStep;
   return runtimeQualifiedSetupStep(step, currentStep, runtimeCompatibility);
 }
 

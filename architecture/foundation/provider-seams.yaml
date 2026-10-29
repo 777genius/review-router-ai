@@ -3,6 +3,7 @@ workspace:
   kind: pnpm
   manifest: pnpm-workspace.yaml
 governedRoots:
+  - packages/features/review-history/src
   - packages/features/review-statistics/src
   - packages/features/review-providers/src
   - packages/features/provider-usage/src
@@ -289,6 +290,8 @@ boundaries:
     entrypoints:
       - packages/features/review-skills/src/domain/errors.ts
       - packages/features/review-skills/src/domain/author-policy.ts
+      - packages/features/review-skills/src/domain/catalog-security.ts
+      - packages/features/review-skills/src/domain/skill-scan-report.ts
     allow:
       boundaries: []
       packages: []
@@ -300,6 +303,9 @@ boundaries:
     entrypoints:
       - packages/features/review-skills/src/application/contracts.ts
       - packages/features/review-skills/src/application/create-review-skills-service.ts
+      - packages/features/review-skills/src/application/catalog-contracts.ts
+      - packages/features/review-skills/src/application/create-review-skills-catalog-service.ts
+      - packages/features/review-skills/src/application/process-review-skill-scan.ts
     allow:
       boundaries:
         - review-skills.domain
@@ -309,257 +315,192 @@ boundaries:
       runtimeReferences: []
   - id: memory.domain
     roots:
-      - packages/features/memory/src/domain
+      - "packages/features/memory/src/domain"
     entrypoints:
-      - packages/features/memory/src/domain/memory-actor.ts
-      - packages/features/memory/src/domain/memory-body.ts
-      - packages/features/memory/src/domain/memory-bundle-policy.ts
-      - packages/features/memory/src/domain/memory-candidate.ts
-      - packages/features/memory/src/domain/memory-errors.ts
-      - packages/features/memory/src/domain/memory-intent-policy.ts
-      - packages/features/memory/src/domain/memory-item.ts
-      - packages/features/memory/src/domain/memory-safety-policy.ts
-      - packages/features/memory/src/domain/memory-scope-policy.ts
-      - packages/features/memory/src/domain/memory-source.ts
-      - packages/features/memory/src/domain/memory-suggestion.ts
-      - packages/features/memory/src/domain/memory-usage-event.ts
+      - "packages/features/memory/src/domain/memory-actor.ts"
+      - "packages/features/memory/src/domain/memory-body.ts"
+      - "packages/features/memory/src/domain/memory-bundle-policy.ts"
+      - "packages/features/memory/src/domain/memory-knowledge.ts"
+      - "packages/features/memory/src/domain/memory-safety-policy.ts"
+      - "packages/features/memory/src/domain/memory-scope-policy.ts"
     allow:
       boundaries: []
       packages:
         - "@reviewrouter/shared"
       builtins:
-        - node:crypto
+        - "node:crypto"
       runtimeReferences: []
   - id: memory.application
     roots:
-      - packages/features/memory/src/application
+      - "packages/features/memory/src/application"
     entrypoints:
-      - packages/features/memory/src/application/ports/memory-audit-port.ts
-      - packages/features/memory/src/application/ports/memory-id-generator-port.ts
-      - packages/features/memory/src/application/ports/memory-item-repository-port.ts
-      - packages/features/memory/src/application/ports/memory-outbox-port.ts
-      - packages/features/memory/src/application/ports/memory-permission-port.ts
-      - packages/features/memory/src/application/ports/memory-policy-config-port.ts
-      - packages/features/memory/src/application/ports/memory-quota-policy-port.ts
-      - packages/features/memory/src/application/ports/memory-search-index-port.ts
-      - packages/features/memory/src/application/ports/memory-suggestion-repository-port.ts
-      - packages/features/memory/src/application/ports/memory-transaction-port.ts
-      - packages/features/memory/src/application/ports/memory-usage-event-port.ts
-      - packages/features/memory/src/application/ports/memory-usage-event-retention-port.ts
-      - packages/features/memory/src/application/use-cases/build-action-memory-bundle.ts
-      - packages/features/memory/src/application/use-cases/confirm-memory-suggestion.ts
-      - packages/features/memory/src/application/use-cases/delete-memory-item.ts
-      - packages/features/memory/src/application/use-cases/disable-memory-item.ts
-      - packages/features/memory/src/application/use-cases/edit-memory-item.ts
-      - packages/features/memory/src/application/use-cases/enforce-memory-policy.ts
-      - packages/features/memory/src/application/use-cases/enforce-memory-quota.ts
-      - packages/features/memory/src/application/use-cases/expire-active-memory-items.ts
-      - packages/features/memory/src/application/use-cases/expire-pending-memory-suggestions.ts
-      - packages/features/memory/src/application/use-cases/export-memory-items.ts
-      - packages/features/memory/src/application/use-cases/list-memory-items-for-dashboard.ts
-      - packages/features/memory/src/application/use-cases/list-memory-suggestions-for-dashboard.ts
-      - packages/features/memory/src/application/use-cases/memory-dashboard-dtos.ts
-      - packages/features/memory/src/application/use-cases/memory-dashboard-pagination.ts
-      - packages/features/memory/src/application/use-cases/memory-use-case-types.ts
-      - packages/features/memory/src/application/use-cases/propose-memory-from-interaction.ts
-      - packages/features/memory/src/application/use-cases/prune-memory-usage-events.ts
-      - packages/features/memory/src/application/use-cases/prune-terminal-memory-items.ts
-      - packages/features/memory/src/application/use-cases/record-action-memory-bundle-usage.ts
-      - packages/features/memory/src/application/use-cases/reject-memory-suggestion.ts
-      - packages/features/memory/src/application/use-cases/remember-memory-directly.ts
-      - packages/features/memory/src/application/use-cases/simulate-memory-policy.ts
+      - "packages/features/memory/src/application/memory-cleanup-policy.ts"
+      - "packages/features/memory/src/application/ports/memory-cleanup-proof-port.ts"
+      - "packages/features/memory/src/application/ports/memory-knowledge-access-port.ts"
+      - "packages/features/memory/src/application/ports/memory-knowledge-provider-port.ts"
+      - "packages/features/memory/src/application/ports/memory-knowledge-store-port.ts"
+      - "packages/features/memory/src/application/ports/memory-permission-port.ts"
+      - "packages/features/memory/src/application/ports/memory-policy-config-port.ts"
+      - "packages/features/memory/src/application/ports/memory-quota-policy-port.ts"
+      - "packages/features/memory/src/application/ports/memory-usage-event-retention-port.ts"
+      - "packages/features/memory/src/application/use-cases/memory-knowledge-service.ts"
+      - "packages/features/memory/src/application/use-cases/prune-memory-usage-events.ts"
     allow:
       boundaries:
-        - memory.domain
+        - "memory.domain"
       packages:
         - "@reviewrouter/shared"
       builtins:
-        - node:buffer
-        - node:crypto
+        - "node:buffer"
+        - "node:crypto"
       runtimeReferences: []
   - id: memory.config
     roots:
-      - packages/features/memory/src/infrastructure/config/memory-search-config.ts
-      - packages/features/memory/src/infrastructure/config/memory-service-flag.ts
+      - "packages/features/memory/src/infrastructure/config/memory-operator-config.ts"
+      - "packages/features/memory/src/infrastructure/config/memory-provider-config.ts"
+      - "packages/features/memory/src/infrastructure/config/memory-service-flag.ts"
     entrypoints:
-      - packages/features/memory/src/infrastructure/config/memory-search-config.ts
-      - packages/features/memory/src/infrastructure/config/memory-service-flag.ts
+      - "packages/features/memory/src/infrastructure/config/memory-operator-config.ts"
+      - "packages/features/memory/src/infrastructure/config/memory-provider-config.ts"
+      - "packages/features/memory/src/infrastructure/config/memory-service-flag.ts"
     allow:
       boundaries: []
       packages: []
       builtins:
-        - node:crypto
+        - "node:crypto"
       runtimeReferences: []
   - id: memory.infrastructure
     roots:
-      - packages/features/memory/src/infrastructure/crypto-memory-id-generator.ts
-      - packages/features/memory/src/infrastructure/entitlements/entitlement-memory-policy-config.ts
-      - packages/features/memory/src/infrastructure/entitlements/entitlement-memory-quota-policy.ts
-      - packages/features/memory/src/infrastructure/outbox/memory-index-outbox-handlers.ts
-      - packages/features/memory/src/infrastructure/prisma/memory-bundle-where.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-projection-receipt-store.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-audit.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-item-repository.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-mappers.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-outbox.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-permission.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-projection-backfill.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-search-index.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-suggestion-repository.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-transaction.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-usage-event-repository.ts
+      - "packages/features/memory/src/infrastructure/entitlements/entitlement-memory-policy-config.ts"
+      - "packages/features/memory/src/infrastructure/entitlements/entitlement-memory-quota-policy.ts"
+      - "packages/features/memory/src/infrastructure/prisma/approved-memory-source-applicable.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-access.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-store.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-permission.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-repository-maintainers.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-usage-event-repository.ts"
     entrypoints:
-      - packages/features/memory/src/infrastructure/crypto-memory-id-generator.ts
-      - packages/features/memory/src/infrastructure/entitlements/entitlement-memory-policy-config.ts
-      - packages/features/memory/src/infrastructure/entitlements/entitlement-memory-quota-policy.ts
-      - packages/features/memory/src/infrastructure/outbox/memory-index-outbox-handlers.ts
-      - packages/features/memory/src/infrastructure/prisma/memory-bundle-where.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-projection-receipt-store.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-audit.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-item-repository.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-mappers.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-outbox.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-permission.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-projection-backfill.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-search-index.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-suggestion-repository.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-transaction.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-usage-event-repository.ts
+      - "packages/features/memory/src/infrastructure/entitlements/entitlement-memory-policy-config.ts"
+      - "packages/features/memory/src/infrastructure/entitlements/entitlement-memory-quota-policy.ts"
+      - "packages/features/memory/src/infrastructure/prisma/approved-memory-source-applicable.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-access.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-store.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-permission.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-repository-maintainers.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-usage-event-repository.ts"
     allow:
       boundaries:
-        - memory.domain
-        - memory.application
-        - memory.config
-        - memory.projection
+        - "memory.domain"
+        - "memory.application"
+        - "memory.config"
       packages:
         - "@prisma/client"
         - "@reviewrouter/features-entitlements"
         - "@reviewrouter/features-outbox"
       builtins:
-        - node:crypto
+        - "node:crypto"
       runtimeReferences: []
-  - id: memory.projection
+  - id: memory.hindsight
     roots:
-      - packages/features/memory/src/infrastructure/projection
+      - "packages/features/memory/src/infrastructure/hindsight"
     entrypoints:
-      - packages/features/memory/src/infrastructure/projection/memory-projection-receipt-store.ts
+      - "packages/features/memory/src/infrastructure/hindsight/hindsight-cleanup-proof-adapter.ts"
+      - "packages/features/memory/src/infrastructure/hindsight/hindsight-cleanup-receipt.ts"
+      - "packages/features/memory/src/infrastructure/hindsight/hindsight-memory-provider.ts"
+      - "packages/features/memory/src/infrastructure/hindsight/hindsight-scope.ts"
     allow:
       boundaries:
-        - memory.application
-      packages: []
-      builtins: []
-      runtimeReferences: []
-  - id: memory.infinity
-    roots:
-      - packages/features/memory/src/infrastructure/infinity
-    entrypoints:
-      - packages/features/memory/src/infrastructure/infinity/infinity-memory-search-index.ts
-      - packages/features/memory/src/infrastructure/infinity/projection-identity.ts
-    allow:
-      boundaries:
-        - memory.domain
-        - memory.application
-        - memory.config
-        - memory.projection
+        - "memory.domain"
+        - "memory.application"
+        - "memory.config"
       packages:
-        - "@infinity-context/sdk"
+        - "@vectorize-io/hindsight-client"
       builtins:
-        - node:crypto
-      runtimeReferences: []
-  - id: memory.interface
-    roots:
-      - packages/features/memory/src/interface
-    entrypoints:
-      - packages/features/memory/src/interface/interaction/memory-command-parser.ts
-      - packages/features/memory/src/interface/interaction/memory-interaction-event-normalizer.ts
-    allow:
-      boundaries:
-        - memory.domain
-        - memory.application
-      packages: []
-      builtins: []
+        - "node:crypto"
       runtimeReferences: []
   - id: memory.composition
     roots:
-      - packages/features/memory/src/composition/index.ts
+      - "packages/features/memory/src/composition/index.ts"
+      - "packages/features/memory/src/composition/memory-knowledge-runtime.ts"
     entrypoints:
-      - packages/features/memory/src/composition/index.ts
+      - "packages/features/memory/src/composition/index.ts"
+      - "packages/features/memory/src/composition/memory-knowledge-runtime.ts"
     allow:
       boundaries:
-        - memory.application
-        - memory.config
-        - memory.infrastructure
-        - memory.projection
-        - memory.infinity
+        - "memory.domain"
+        - "memory.application"
+        - "memory.config"
+        - "memory.infrastructure"
+        - "memory.hindsight"
       packages:
         - "@get-modular/core"
         - "@get-modular/assembly"
         - "@prisma/client"
+        - "@reviewrouter/features-entitlements"
       builtins: []
       runtimeReferences: []
   - id: memory.public
     roots:
-      - packages/features/memory/src/index.ts
+      - "packages/features/memory/src/index.ts"
     entrypoints:
-      - packages/features/memory/src/index.ts
+      - "packages/features/memory/src/index.ts"
     allow:
       boundaries:
-        - memory.domain
-        - memory.application
-        - memory.interface
+        - "memory.domain"
+        - "memory.application"
       packages: []
       builtins: []
       runtimeReferences: []
   - id: memory.infrastructure-public
     roots:
-      - packages/features/memory/src/infrastructure/index.ts
+      - "packages/features/memory/src/infrastructure/index.ts"
     entrypoints:
-      - packages/features/memory/src/infrastructure/index.ts
+      - "packages/features/memory/src/infrastructure/index.ts"
     allow:
       boundaries:
-        - memory.config
-        - memory.infrastructure
+        - "memory.config"
+        - "memory.infrastructure"
       packages: []
       builtins: []
       runtimeReferences: []
   - id: memory.tests
     roots:
-      - packages/features/memory/src/tests
-      - packages/features/memory/src/infrastructure/config/memory-search-config.test.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-memory-permission.test.ts
-      - packages/features/memory/src/composition/index.test.ts
+      - "packages/features/memory/src/tests"
+      - "packages/features/memory/src/composition/memory-knowledge-runtime.test.ts"
+      - "packages/features/memory/src/infrastructure/prisma/approved-memory-source-applicable.test.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-knowledge-access.test.ts"
+      - "packages/features/memory/src/infrastructure/prisma/prisma-memory-permission.test.ts"
     entrypoints: []
     allow:
       boundaries:
-        - memory.domain
-        - memory.application
-        - memory.config
-        - memory.infrastructure
-        - memory.projection
-        - memory.infrastructure-public
-        - memory.infinity
-        - memory.interface
-        - memory.composition
-        - memory.public
+        - "memory.domain"
+        - "memory.application"
+        - "memory.config"
+        - "memory.infrastructure"
+        - "memory.infrastructure-public"
+        - "memory.hindsight"
+        - "memory.composition"
+        - "memory.public"
       packages:
-        - vitest
+        - "vitest"
         - "@prisma/client"
         - "@prisma/adapter-pg"
         - "@reviewrouter/features-entitlements"
         - "@reviewrouter/features-outbox"
         - "@reviewrouter/platform-db"
         - "@reviewrouter/shared"
-        - pg
+        - "pg"
       builtins:
-        - node:assert/strict
-        - node:buffer
-        - node:crypto
-        - node:fs
-        - node:http
-        - node:net
-        - node:os
-        - node:path
-        - node:url
+        - "node:assert/strict"
+        - "node:buffer"
+        - "node:crypto"
+        - "node:fs"
+        - "node:fs/promises"
+        - "node:http"
+        - "node:net"
+        - "node:os"
+        - "node:path"
+        - "node:url"
       runtimeReferences: []
     dependencyMode: development
   - id: statistics.domain
@@ -673,3 +614,130 @@ boundaries:
       packages: []
       builtins: []
       runtimeReferences: []
+  - id: history.domain
+    roots:
+      - packages/features/review-history/src/domain
+    entrypoints:
+      - packages/features/review-history/src/domain/history.ts
+      - packages/features/review-history/src/domain/history-filters.ts
+      - packages/features/review-history/src/domain/history-events.ts
+      - packages/features/review-history/src/domain/status-policy.ts
+    allow:
+      boundaries: []
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: history.application
+    roots:
+      - packages/features/review-history/src/application
+    entrypoints:
+      - packages/features/review-history/src/application/ports/history-reader.ts
+      - packages/features/review-history/src/application/ports/history-projector.ts
+    allow:
+      boundaries:
+        - "history.domain"
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: history.adapters
+    roots:
+      - packages/features/review-history/src/adapters
+    entrypoints:
+      - packages/features/review-history/src/adapters/outbound/prisma-history-reader.ts
+      - packages/features/review-history/src/adapters/outbound/history-hash.ts
+      - packages/features/review-history/src/adapters/outbound/prisma-history-projector.ts
+      - packages/features/review-history/src/adapters/outbound/prisma-history-writer.ts
+    allow:
+      boundaries:
+        - "history.domain"
+        - "history.application"
+      packages:
+        - "@prisma/client"
+      builtins:
+        - "node:crypto"
+        - "node:buffer"
+      runtimeReferences: []
+  - id: history.composition
+    roots:
+      - packages/features/review-history/src/composition/index.ts
+      - packages/features/review-history/src/composition/review-history.declaration.ts
+      - packages/features/review-history/src/composition/review-history.group.ts
+      - packages/features/review-history/src/composition/review-history.inputs.ts
+      - packages/features/review-history/src/composition/history-database.declaration.ts
+      - packages/features/review-history/src/composition/review-history.root.ts
+      - packages/features/review-history/src/composition/review-history.contracts.ts
+      - packages/features/review-history/src/composition/review-history.module.ts
+    entrypoints:
+      - packages/features/review-history/src/composition/index.ts
+      - packages/features/review-history/src/composition/review-history.root.ts
+      - packages/features/review-history/src/composition/review-history.contracts.ts
+      - packages/features/review-history/src/composition/review-history.inputs.ts
+    allow:
+      boundaries:
+        - "history.domain"
+        - "history.application"
+        - "history.adapters"
+      packages:
+        - "@get-modular/core"
+        - "@get-modular/assembly"
+        - "@prisma/client"
+      builtins: []
+      runtimeReferences: []
+  - id: history.public
+    roots:
+      - packages/features/review-history/src/index.ts
+    entrypoints:
+      - packages/features/review-history/src/index.ts
+    allow:
+      boundaries:
+        - "history.domain"
+        - "history.application"
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: history.testing
+    roots:
+      - packages/features/review-history/src/testing
+    entrypoints:
+      - packages/features/review-history/src/testing/index.ts
+    allow:
+      boundaries:
+        - "history.domain"
+        - "history.application"
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: history.tests
+    roots:
+      - packages/features/review-history/src/tests
+      - packages/features/review-history/src/composition/review-history.root.test.ts
+    entrypoints: []
+    allow:
+      boundaries:
+        - "history.domain"
+        - "history.application"
+        - "history.adapters"
+        - "history.composition"
+        - "history.public"
+        - "history.testing"
+      packages:
+        - "vitest"
+        - "@prisma/client"
+        - "@prisma/adapter-pg"
+        - "@get-modular/core"
+        - "@get-modular/assembly"
+        - "@get-modular/conformance"
+        - "@get-modular/resources"
+        - "pg"
+        - "@reviewrouter/features-review-executions"
+        - "@reviewrouter/features-review-processes"
+      builtins:
+        - "node:crypto"
+        - "node:child_process"
+        - "node:util"
+        - "node:fs/promises"
+        - "node:path"
+        - "node:url"
+        - "node:perf_hooks"
+      runtimeReferences: []
+    dependencyMode: development

@@ -55,6 +55,14 @@ export function parseCliOptions(
     env.ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL ??
     null;
   const isolatedPglite = hasFlag(args, "--isolated-pglite");
+  if (
+    hasFlag(args, "--skill-catalog-fixture") &&
+    (!hasFlag(args, "--skills-fixture") || isolatedPglite)
+  ) {
+    throw new Error(
+      "skill_catalog_fixture_requires_skills_fixture_and_real_postgres",
+    );
+  }
   if (isolatedPglite && databaseUrl) {
     throw new Error("accounts_reference_e2e_choose_one_database_mode_not_both");
   }

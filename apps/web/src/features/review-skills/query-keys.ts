@@ -8,6 +8,7 @@ export const reviewSkillsKeys = {
     workspaceId: string,
     repositoryIds: readonly string[],
     search: string,
+    assignedOnly = false,
   ) =>
     [
       "review-skills",
@@ -16,5 +17,6 @@ export const reviewSkillsKeys = {
       "choices",
       [...repositoryIds].sort(),
       search,
+      assignedOnly,
     ] as const,
 };

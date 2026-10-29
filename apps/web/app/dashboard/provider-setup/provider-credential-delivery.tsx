@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type {
   ProviderSecretScope,
@@ -25,6 +31,7 @@ import {
   useProviderSecretStatus,
   useProviderSetupCompletion,
   type CodexSetupCommand,
+  type ProviderSecretStatus,
 } from "./provider-setup-api";
 
 /**
@@ -79,6 +86,12 @@ function useCredentialConfirmation(
     };
   }, [input.workspaceId, input.repositoryId, input.authMode]);
 
+  const clearVerifiedConfirmation = useCallback(() => {
+    // An older read must not clear a confirmation still finishing its refresh.
+    if (inFlight.current) return;
+    setConfirmed((value) => (value === "verified" ? null : value));
+  }, []);
+
   async function confirm(input2: {
     readonly secretScope: ProviderSecretScope;
     readonly mode: "verified" | "manual";
@@ -87,6 +100,12 @@ function useCredentialConfirmation(
     inFlight.current = true;
     const version = ++requestVersion.current;
     const current = () => mounted.current && requestVersion.current === version;
+    const statusKey = providerSetupQueryKeys.secretStatus(
+      input.workspaceId,
+      input.repositoryId,
+      input.authMode,
+    );
+    let statusRefreshed = false;
     const formData = new FormData();
     formData.set("workspaceId", input.workspaceId);
     formData.set("repositoryId", input.repositoryId);
@@ -101,6 +120,12 @@ function useCredentialConfirmation(
     setConfirmed(null);
     setSubmitting(true);
     try {
+      if (!rotating) {
+        await queryClient.cancelQueries({ queryKey: statusKey, exact: true });
+        if (!current()) return false;
+        // A read started before this explicit check must not restore its result.
+        queryClient.setQueryData<ProviderSecretStatus>(statusKey, "unknown");
+      }
       const { params } = await confirmProviderSecretSetup(formData);
       if (!current()) return false;
       if (
@@ -118,13 +143,10 @@ function useCredentialConfirmation(
       setVerificationError(null);
       setConfirmed(input2.mode);
       await queryClient.invalidateQueries({
-        queryKey: providerSetupQueryKeys.secretStatus(
-          input.workspaceId,
-          input.repositoryId,
-          input.authMode,
-        ),
+        queryKey: statusKey,
         exact: true,
       });
+      statusRefreshed = true;
       if (!current()) return false;
       window.dispatchEvent(
         providerSetupConfirmedEvent({
@@ -145,6 +167,18 @@ function useCredentialConfirmation(
         );
       return false;
     } finally {
+      if (!rotating && !statusRefreshed && current()) {
+        // A failed check can still reveal changed GitHub metadata. Re-read it
+        // without replacing the explicit result or repeating the mutation.
+        try {
+          await queryClient.invalidateQueries({
+            queryKey: statusKey,
+            exact: true,
+          });
+        } catch {
+          // Keep the operation's error visible if the metadata refresh fails.
+        }
+      }
       if (current()) {
         inFlight.current = false;
         setSubmitting(false);
@@ -152,11 +186,7 @@ function useCredentialConfirmation(
         // The server may have completed after the dialog closed. A later open
         // must re-read this target without publishing an event into the new UI.
         await queryClient.invalidateQueries({
-          queryKey: providerSetupQueryKeys.secretStatus(
-            input.workspaceId,
-            input.repositoryId,
-            input.authMode,
-          ),
+          queryKey: statusKey,
           exact: true,
           refetchType: "none",
         });
@@ -170,6 +200,7 @@ function useCredentialConfirmation(
     submitError,
     verificationError,
     confirmed,
+    clearVerifiedConfirmation,
     resetVerification: () => {
       setVerificationError(null);
       setSubmitError(null);
@@ -215,6 +246,7 @@ export function CiSecretDelivery({
     repositoryId,
     authMode,
     enabled: canManage,
+    freshOnOpen: true,
   });
   const scopes = secretScopeOptions({
     organizationLogin,
@@ -228,9 +260,24 @@ export function CiSecretDelivery({
   const secretNames = command?.secretNames.join(", ") ?? "GitHub secret";
   const details = ciSecretDetails(authMode, repositoryFullName);
   const manual = verificationErrorAllowsManual(confirmation.verificationError);
+  const statusCurrent = status.isSuccess && status.fetchStatus === "idle";
   const secretFound =
-    status.data === "available_repository" ||
-    status.data === "available_organization";
+    statusCurrent &&
+    (status.data === "available_repository" ||
+      status.data === "available_organization");
+  const verifiedSecretUnavailable =
+    confirmation.confirmed === "verified" &&
+    !confirmation.submitting &&
+    statusCurrent &&
+    (status.data === "missing" ||
+      status.data === "not_available_to_repository");
+  // Hide the old success in this render, then forget it so an unknown read
+  // cannot restore it. Manual confirmations and inconclusive reads stay intact.
+  const confirmed = verifiedSecretUnavailable ? null : confirmation.confirmed;
+  const { clearVerifiedConfirmation } = confirmation;
+  useEffect(() => {
+    if (verifiedSecretUnavailable) clearVerifiedConfirmation();
+  }, [verifiedSecretUnavailable, clearVerifiedConfirmation]);
 
   return (
     <div className="grid gap-4">
@@ -240,20 +287,23 @@ export function CiSecretDelivery({
         </h3>
         <p className="text-sm leading-6 text-slate-300">{details.body}</p>
       </div>
-      {canManage ? (
+      {canManage &&
+      !confirmation.submitting &&
+      !confirmation.verificationError &&
+      !confirmation.submitError ? (
         <p
           role="status"
           className={
             secretFound ? "text-sm text-emerald-100" : "text-sm text-slate-400"
           }
         >
-          {status.isPending
+          {status.fetchStatus === "fetching"
             ? "Checking the repository secrets on GitHub..."
             : secretFound
               ? `${secretNames} is available to this repository.`
-              : status.data === "not_available_to_repository"
+              : statusCurrent && status.data === "not_available_to_repository"
                 ? `An organization secret ${secretNames} exists, but this repository is not allowed to use it.`
-                : status.data === "missing"
+                : statusCurrent && status.data === "missing"
                   ? `${secretNames} is not set for this repository yet.`
                   : "ReviewRouter cannot read the repository secrets right now; you can still follow the steps."}
         </p>
@@ -270,7 +320,7 @@ export function CiSecretDelivery({
                 key={option.scope}
                 className={[
                   "flex items-start gap-3 rounded-xl border p-3 text-sm leading-5 transition",
-                  option.disabled
+                  option.disabled || confirmation.submitting
                     ? "cursor-not-allowed border-slate-700/60 text-slate-500"
                     : scope === option.scope
                       ? "cursor-pointer border-cyan-300/50 bg-cyan-300/[0.07] text-cyan-50"
@@ -282,7 +332,7 @@ export function CiSecretDelivery({
                   name={`secret-scope-${repositoryId}`}
                   data-testid={`provider-scope-${option.scope}`}
                   checked={scope === option.scope}
-                  disabled={option.disabled}
+                  disabled={option.disabled || confirmation.submitting}
                   onChange={() => {
                     setScope(option.scope);
                     confirmation.resetVerification();
@@ -361,7 +411,7 @@ export function CiSecretDelivery({
               !canManage ||
               !command ||
               confirmation.submitting ||
-              confirmation.confirmed !== null
+              confirmed !== null
             }
             aria-busy={confirmation.submitting}
           >
@@ -371,17 +421,15 @@ export function CiSecretDelivery({
                 : "Checking the secret..."
               : manual
                 ? "Confirm manually"
-                : confirmation.confirmed
+                : confirmed
                   ? "Confirmed"
                   : confirmation.verificationError
                     ? "Check again"
                     : "Check GitHub setup"}
           </Button>
-          {confirmation.confirmed ? (
-            <Badge
-              tone={confirmation.confirmed === "manual" ? "neutral" : "success"}
-            >
-              {confirmation.confirmed === "manual"
+          {confirmed ? (
+            <Badge tone={confirmed === "manual" ? "neutral" : "success"}>
+              {confirmed === "manual"
                 ? "Confirmed manually"
                 : "Secret available"}
             </Badge>
@@ -409,9 +457,9 @@ export function CiSecretDelivery({
             {confirmErrorText(confirmation.submitError)}
           </p>
         ) : null}
-        {confirmation.confirmed ? (
+        {confirmed ? (
           <p role="status" className="text-sm leading-6 text-emerald-50">
-            {confirmation.confirmed === "manual"
+            {confirmed === "manual"
               ? `Marked as done for ${repositoryFullName}. ReviewRouter could not check GitHub itself.`
               : `${secretNames} is set for ${repositoryFullName}.`}
           </p>
@@ -457,8 +505,17 @@ export function ManagedKeyDelivery({
   });
   const name = managedKeyName(authMode);
   const secretName = getProviderAuthModeMetadata(authMode).secretNames[0];
+  const needsReinstall =
+    installed && confirmation.verificationError === "provider_secret_not_found";
 
   async function install(): Promise<void> {
+    if (
+      !canManage ||
+      installDecisionReason !== null ||
+      installing ||
+      confirmation.submitting
+    )
+      return;
     setInstallError(null);
     setInstalling(true);
     try {
@@ -490,23 +547,47 @@ export function ManagedKeyDelivery({
     <div className="grid gap-4">
       <div className="grid gap-1">
         <h3 className="text-base font-semibold text-cyan-50">
-          {installed
-            ? `The ${name} key is installed`
-            : `Install the ${name} key`}
+          {needsReinstall
+            ? `Reinstall the ${name} key`
+            : installed
+              ? `The ${name} key is installed`
+              : `Install the ${name} key`}
         </h3>
         <p className="text-sm leading-6 text-slate-300">
-          {installed
+          {installed && !needsReinstall
             ? `ReviewRouter wrote ${secretName} to the GitHub Actions secrets of ${repositoryFullName}. Check its availability to finish this step.`
             : `ReviewRouter writes its saved key as ${secretName} to the GitHub Actions secrets of ${repositoryFullName}. The key is never shown in the browser.`}
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        {installed ? (
+        {!installed || needsReinstall ? (
           <Button
             type="button"
             size="sm"
             disabled={
               !canManage ||
+              installDecisionReason !== null ||
+              installing ||
+              confirmation.submitting
+            }
+            aria-busy={installing}
+            onClick={() => void install()}
+          >
+            {installing
+              ? "Installing..."
+              : needsReinstall
+                ? "Reinstall key"
+                : "Install key"}
+          </Button>
+        ) : null}
+        {installed ? (
+          <Button
+            type="button"
+            size="sm"
+            variant={needsReinstall ? "outline" : "solid"}
+            disabled={
+              !canManage ||
+              installing ||
               confirmation.submitting ||
               confirmation.confirmed !== null
             }
@@ -524,26 +605,12 @@ export function ManagedKeyDelivery({
                 ? "Checked"
                 : "Check GitHub setup"}
           </Button>
-        ) : (
-          <Button
-            type="button"
-            size="sm"
-            disabled={
-              installDecisionReason !== null ||
-              installing ||
-              confirmation.submitting
-            }
-            aria-busy={installing}
-            onClick={() => void install()}
-          >
-            {installing ? "Installing..." : "Install key"}
-          </Button>
-        )}
+        ) : null}
         {confirmation.confirmed ? (
           <Badge tone="success">Secret available</Badge>
         ) : null}
       </div>
-      {!installed && installDecisionReason ? (
+      {(!installed || needsReinstall) && installDecisionReason ? (
         <p className="text-xs leading-5 text-amber-100/85">
           {installDecisionReason}
         </p>
@@ -555,8 +622,11 @@ export function ManagedKeyDelivery({
       ) : null}
       {confirmation.verificationError ? (
         <p className="text-xs leading-5 text-amber-100/85">
-          GitHub does not show {secretName} for this repository yet. Wait a
-          moment and check again.
+          {managedVerificationErrorText(
+            confirmation.verificationError,
+            secretName ?? "The provider secret",
+            repositoryFullName,
+          )}
         </p>
       ) : null}
       {confirmation.submitError ? (
@@ -1149,6 +1219,23 @@ function verificationErrorText(input: {
       return "ReviewRouter cannot read this repository through its GitHub App. Confirm manually only if GitHub shows the secret.";
     case "provider_secret_check_permission_required":
       return "ReviewRouter cannot read the secret list on GitHub. Confirm manually only if GitHub shows the secret and the repository can use it.";
+  }
+}
+
+function managedVerificationErrorText(
+  error: VerificationFallbackError,
+  secretName: string,
+  repositoryFullName: string,
+): string {
+  switch (error) {
+    case "provider_secret_not_found":
+      return `${secretName} was not found in the GitHub Actions secrets of ${repositoryFullName}. Reinstall the saved key, or check again if you restored it on GitHub.`;
+    case "provider_secret_not_available_to_repository":
+      return `${secretName} exists in the organization, but ${repositoryFullName} is not allowed to use it. Add this repository under the secret's repository access on GitHub, then check again.`;
+    case "repository_not_visible_to_github_app":
+      return "The ReviewRouter GitHub App cannot access this repository. Add it to the app's selected repositories, then try again.";
+    case "provider_secret_check_permission_required":
+      return "ReviewRouter cannot read this repository's GitHub secrets. Check the GitHub App's Secrets permission, then try again.";
   }
 }
 

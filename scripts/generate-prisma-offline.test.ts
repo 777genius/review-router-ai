@@ -426,7 +426,7 @@ describe("offline Prisma generate", () => {
     );
   });
 
-  it("fails the aggregate gate for every unsuccessful required lane", () => {
+  it("checks every required lane when the workflow is not cancelled", () => {
     const workflow = parse(
       readFileSync(".github/workflows/ci.yml", "utf8"),
     ) as {
@@ -451,7 +451,7 @@ describe("offline Prisma generate", () => {
       "managed-migration-pg17",
     ];
     const gate = workflow.jobs["quality-gates"];
-    expect(gate?.if).toBe("${{ always() }}");
+    expect(gate?.if).toBe("${{ always() && !cancelled() }}");
     expect(gate?.needs?.toSorted()).toEqual(required.toSorted());
     const enforcement = gate?.steps?.find(
       (step) => step.name === "Enforce every quality and PG17 lane",

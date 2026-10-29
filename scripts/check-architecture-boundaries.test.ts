@@ -174,11 +174,68 @@ describe("usage producer protocol transport boundary", () => {
       root,
       "packages/features/action-control-plane/package.json",
       JSON.stringify({
-        exports: { ".": {}, "./v2": {}, "./v2/contract-source": {} },
+        exports: {
+          ".": {},
+          "./oidc": {
+            types: "./src/oidc.ts",
+            production: "./dist/oidc.js",
+            default: "./src/oidc.ts",
+          },
+          "./v2": {},
+          "./v2/contract-source": {},
+        },
       }),
     );
     return root;
   }
+  it.each(["./internal", "./*"])(
+    "rejects an unreviewed export %s",
+    (subpath) => {
+      const root = protocolFixture();
+      writeFile(
+        root,
+        "packages/features/action-control-plane/package.json",
+        JSON.stringify({
+          exports: {
+            ".": {},
+            "./oidc": {
+              types: "./src/oidc.ts",
+              production: "./dist/oidc.js",
+              default: "./src/oidc.ts",
+            },
+            "./v2": {},
+            "./v2/contract-source": {},
+            [subpath]: "./src/index.ts",
+          },
+        }),
+      );
+      expect(() => runChecker(root)).toThrow(/reviewed oidc, v2 interface/);
+    },
+  );
+
+  it("rejects redirecting the OIDC seam to the eager root adapter graph", () => {
+    const root = protocolFixture();
+    writeFile(
+      root,
+      "packages/features/action-control-plane/package.json",
+      JSON.stringify({
+        exports: {
+          ".": {},
+          "./oidc": {
+            types: "./src/index.ts",
+            production: "./dist/index.js",
+            default: "./src/index.ts",
+          },
+          "./v2": {},
+          "./v2/contract-source": {},
+        },
+      }),
+    );
+    expect(() => runChecker(root)).toThrow(
+      /isolated reviewed verifier adapter/,
+    );
+  });
+
   it("accepts only the three named usage transport adapters and fixture", () => {
     const root = protocolFixture();
     for (const file of [

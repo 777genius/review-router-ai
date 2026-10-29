@@ -1,7 +1,7 @@
 # Целостная настройка провайдера и репозитория
 
 Дата: 2026-10-26. База: `4c8f2804b5e53795ec8dd51d51d3b3b6c7d28188`.
-Статус: план v3 реализован и прошёл source review; unit/contract и component-browser проверки завершены. Обязательная real-app E2E-квалификация заблокирована памятью среды; merge не выполнен.
+Статус на 2026-10-27: основной план v3 влит пользователем в PR #717; сохранение `TMPDIR` для migration child влито в PR #720. Повторная лёгкая визуальная проверка и исправления описаны в разделе 10. Обязательная real-app E2E-квалификация остаётся незавершённой: 0 accepted passes.
 Продолжение [исправления API-provider UX](2026-10-26-provider-settings-ux.md), PR #712.
 
 ## 1. Цель и критерий простоты
@@ -187,7 +187,7 @@ Component-browser проверка подтвердила: открытие/reop
 
 Локальные receipts сохраняются под `tmp/provider-onboarding/`: `verification-checkpoint.json`, `final-all-tests.json`, `provider-action-tests.json`, `affected-typecheck-final.log`, `tsconfig.affected.json`, `preview/browser-report.json`, `preview/screens/`, `constrained-webpack.patch`. Последняя real-app попытка: `tmp/provider-setup-visual/onboarding-final-b21af24-serial/`; это failed infrastructure evidence, не успешный manifest. SHA-256 финальной affected-typecheck config: `6924ade63c91d61c70e9d17348087065ad8d33400b59d3b77aaa5939732a6c53`.
 
-### 8.4. Остаток до merge
+### 8.4. Незакрытая real-app квалификация
 
 В свободной среде с disposable PostgreSQL 17 и Chromium выполнить существующий harness без изменения application source:
 
@@ -198,7 +198,7 @@ pnpm provider-setup:visual --flows-only --rotating \
   --out tmp/provider-setup-visual/onboarding-acceptance
 ```
 
-`PROVIDER_VISUAL_DATABASE_URL` должен использовать loopback host и точное имя disposable database: `postgresql://<fixture-user>@127.0.0.1:<port>/reviewrouter_provider_setup_visual`. Произвольное имя базы harness отклоняет. `PROVIDER_VISUAL_BROWSER_EXECUTABLE` указывает на установленный Chromium, если он не найден автоматически; проверенный здесь runtime — Node 26.11.1. Все три flow должны быть выполнены и пройти: `flow-step3-create-attach`, `flow-no-default`, `flow-codex-repository-setup`. Далее — просмотр восьми required app screenshots, проверка manifest/provenance/network, исправление реальных замечаний при наличии, fresh main/head check и обычный merge с expected head SHA. Production deploy не входит в этот запрос. Очередь CI не подменяет локальную проверку; статусы checks не фабрикуются.
+`PROVIDER_VISUAL_DATABASE_URL` должен использовать loopback host и точное имя disposable database: `postgresql://<fixture-user>@127.0.0.1:<port>/reviewrouter_provider_setup_visual`. Произвольное имя базы harness отклоняет. `PROVIDER_VISUAL_BROWSER_EXECUTABLE` указывает на установленный Chromium, если он не найден автоматически; проверенный здесь runtime — Node 26.11.1. Все три flow должны быть выполнены и пройти: `flow-step3-create-attach`, `flow-no-default`, `flow-codex-repository-setup`. Далее — просмотр восьми required app screenshots, проверка manifest/provenance/network и исправление реальных замечаний при наличии. Если потребуются изменения, они проходят отдельный review и обычный merge с expected head SHA. PR #717 уже влит пользователем; это не означает прохождение оставшихся flow. Production deploy не входит в этот запрос. Очередь CI не подменяет локальную проверку; статусы checks не фабрикуются.
 
 ## 9. Опорные исходники
 
@@ -210,3 +210,107 @@ pnpm provider-setup:visual --flows-only --rotating \
 - `apps/web/src/server/codex-rotating-setup-manifest.ts`: initial deadline, issued/fetched/consumed reuse, ready → setup_pending, fences.
 - `apps/web/src/server/prisma-codex-rotating-setup-recovery.ts`: recovery ownership и сроки.
 - `scripts/provider-setup-visual/{run,flows,scenarios,github-fixture,seed}.ts`: ограниченная app/browser qualification.
+
+## 10. Лёгкая визуальная проверка 2026-10-27
+
+По запросу пользователя проверка продолжена без Next и PostgreSQL. База — `d3595c2e3e0b21ab539dea0fb7a06d35a4613faf` (`main` после PR #720). Собираются настоящие React-компоненты, shared UI, CSS и шрифты; Next navigation, server actions и API-ответы заменены явно обозначенными синтетическими fixtures. Один Chromium используется последовательно; внешние запросы запрещены.
+
+### Найдено и исправлено
+
+- В однострочном блоке команды кнопка Copy высотой 44 px выступала за рамку на 6 px. Общий `CodeBlock` теперь имеет минимальную высоту 60 px, сохраняя размер кнопки и отступы. Многострочные команды продолжают переноситься по содержимому.
+- При отказе Clipboard API возникал необработанный Promise, а интерфейс не сообщал об ошибке. Отсутствие API и отказ теперь показывают доступное сообщение «Could not copy. Select the code and copy it manually.»; успешная повторная попытка очищает его. Исходный текст команды копируется без изменения пробелов и переводов строк.
+- Во время проверки repository secret можно было выбрать organization scope. Старый ответ затем описывался как результат проверки organization secret. Эта последовательность воспроизведена в браузере. Выбор области теперь заблокирован до завершения запроса; после ответа он снова доступен и смена области очищает предыдущий результат.
+
+Изменения ограничены `CodeBlock`, двумя условиями в `CiSecretDelivery` и четырьмя регрессионными тестами. API, авторизация, схема хранения, Codex issuance/recovery и порядок repository setup не меняются. Независимый source review — GO, без замечаний.
+
+### Подтверждённые проверки
+
+| Проверка                  | Результат                                               | Граница доказательства                                                                                                  |
+| ------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Затронутые unit/UI tests  | 53 passed, 0 failed, 0 skipped; 4 файла                 | CodeBlock, secret delivery, общий provider dialog, Codex rotating delivery                                              |
+| Affected TypeScript       | PASS                                                    | 4 изменённых TS/TSX-файла, их транзитивные импорты и существующие NextAuth declarations; полный web build не запускался |
+| Основной Chromium-прогон  | 28 passed; 24 screenshots просмотрены                   | 1440/390 px, светлая/тёмная темы, настоящие компоненты с fixture-ответами                                               |
+| Длинные мобильные диалоги | 4 passed                                                | Footer полностью доступен после прокрутки и получает фокус; Tab остаётся в modal после штатного переноса фокуса         |
+| Ошибки браузера           | 0 page errors, 0 console errors, 0 неожиданных запросов | На основном прогоне; footer дополнительно без page errors и неожиданных запросов                                        |
+| Real-app E2E              | По-прежнему 0 accepted passes                           | Три сценария из раздела 8.4 этим стендом не подменяются                                                                 |
+
+Визуально сопоставлены MiMo и OpenRouter: одинаковые GitHub Secrets instructions, выбор GitHub Secrets / ReviewRouter, доступный переход Connect account при отсутствии аккаунта и объяснение недоступного хранения. Проверены правильные secret names, сохранение workspace/provider в ссылках, запрет неполного account save, Claude token-before-secret, отдельные verified/manual результаты, длинное имя репозитория и Codex deadline/recovery. Сохранение workspace profile по-прежнему не выдаётся за готовность репозитория.
+
+Нагрузка ограничена короткими последовательными процессами: esbuild около 2.6 s, основной браузерный прогон 10.1 s, дополнительная проверка footer 2.4 s, четыре набора unit tests 12.4 s, affected typecheck 25.5 s. При успешных запусках счётчики cgroup OOM/OOM-kill не выросли. Удалён только собственный воспроизводимый `.next` cache; чужие процессы и каталоги не изменялись. Chromium и локальный сервер закрыты после проверок.
+
+Receipts находятся в `tmp/provider-onboarding/light-20261027/`: `focused-tests.json`, `tsconfig.affected.json`, `final/browser-report.json`, `final/footer-report.json`, `final/screens/`. Основной browser report содержит хеши 78 входных файлов; они проверены до и после запуска. SHA-256 отчётов: browser — `71d96945c8e2b7080574318d04c94091b8ee27236a68cf57dd91543b70aa8f8e`; footer — `ccf589963467eed25964417135fc3f229b189b209f080bf99e5ea97a307e5e73`; unit — `78ca38c482c8dc492d9a1ab8855d2b6043742726f6b9cf4570dc17a2b1262a88`. Скриншоты и временный стенд не добавляются в исходники приложения.
+
+SSH-доступ к Hetzner из этой среды ранее не подтвердился; глобальная инструкция о worker в `/root/.codex/AGENTS.md` удалена по просьбе пользователя. Успешный удалённый запуск, реальное сохранение GitHub Secrets, OAuth и backend persistence этой проверкой не заявляются.
+
+## 11. Повторный аудит состояний и мобильного UX, 2026-10-27
+
+По следующему запросу пользователя выполнен дополнительный ограниченный аудит на базе `818f8c83f69a8c5ec2fc0668b52607133210841a`. Scope: актуальность статуса GitHub secret, тексты ошибок managed key, локальное подтверждение repository setup, feedback Copy и переполнение provider dialog. Новых способов настройки, API, схем хранения и изменений lifecycle Codex нет.
+
+### Подтверждённые дефекты и исправления
+
+1. **Устаревшая доступность секрета.** Direct delivery показывал старое положительное metadata после неудачного повторного чтения; поздний запрос мог вернуть его после explicit missing. Теперь открытие вызывает свежий read, положительная сводка требует успешного завершённого чтения. Перед проверкой отменяется запрос с точным query key, metadata становится `unknown`; после неудачного результата повторяется только чтение. Явный результат проверки остаётся видимым. Настоящее успешное подтверждение не сбрасывается из-за последующей фоновой ошибки.
+2. **Неверная подсказка для managed key.** Ошибки доступа больше не предлагают просто подождать. Отдельно объясняются отсутствующий secret, доступ репозитория к organization secret, список репозиториев GitHub App и Secrets permission. Для managed key не добавляется ручное подтверждение.
+3. **Ready от предыдущего набора провайдеров.** Pill, ReadyGate и progress panel привязывают накопленные подтверждения к repository ID и набору ожидаемых auth modes. Смена набора сбрасывает локальную готовность уже на первом render. Новый массив, перестановка или дубли тех же значений не сбрасывают частичное подтверждение. Существующие workflow/Gateway guards сохранены.
+4. **Старое Copied или сообщение об отказе.** Feedback общего CodeBlock привязан к точному тексту команды. Смена scope сбрасывает его; поздний clipboard result старой команды не меняет новую. Исходный текст для копирования сохраняется.
+5. **Длинное имя ломало мобильный диалог.** Репозиторий `acme/` плюс 100 букв без разделителей давал scrollWidth 1336 px при ширине popup 305/372 px. Переносы ограничены ProviderSetupDialog и его `pre`; отдельное правило для `pre` необходимо, потому что его `break-words` перекрывало наследование. После исправления scrollWidth равен clientWidth на 320, 390 и 1440 px, Copy и footer доступны.
+
+До исправлений воспроизведены 10 падающих regression cases и переполнение в двух мобильных viewport. Дополнительно защищено сохранение успешного explicit confirmation при последующей ошибке background read. После исправлений два независимых cross-review исходников не нашли оставшихся замечаний; отдельный визуальный review охватил мобильные и desktop состояния. Изменения ограничены пятью production-файлами, четырьмя файлами тестов и этим планом.
+
+### Проверки финального изменения
+
+| Проверка                       | Результат                                                   | Граница                                                                                                                                        |
+| ------------------------------ | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Целевые unit/UI tests          | 103 passed, 0 failed, 0 skipped; 6 файлов                   | CodeBlock, direct/managed delivery, dialog, rotating delivery, optimistic status и progress panel                                              |
+| Affected TypeScript            | PASS, native TypeScript 7.0.2                               | 9 изменённых TS/TSX roots, их реальные транзитивные импорты и NextAuth declarations; Prisma client и точный pinned runtime подготовлены штатно |
+| ESLint / Prettier / diff check | PASS                                                        | Изменённые исходники и тесты; план отформатирован отдельно                                                                                     |
+| Component browser              | 24 passed, 0 failed                                         | 6 direct read/race cases, 8 managed errors, 3 clipboard cases, 1 provider-switch flow, 6 geometry/focus cases                                  |
+| Визуальный review              | 21 ключевой снимок просмотрен                               | MiMo/OpenRouter/Claude, светлая и тёмная темы; 320/390/1440 px для длинных диалогов                                                            |
+| Browser errors                 | 0 page/console/server errors, 0 failed/неожиданных запросов | Только разрешённые локальные assets; синтетические server/API ответы                                                                           |
+| Bundle provenance              | 79 исходных inputs проверены до и после                     | Настоящие React-компоненты, shared CSS и шрифты; built assets во время прогона не менялись                                                     |
+| Real-app E2E                   | По-прежнему 0 accepted passes                               | Три сценария раздела 8.4 не подменяются component-browser проверкой                                                                            |
+
+Финальная сборка fixture заняла около 1.8 s, браузерный прогон — 16.1 s, unit/UI tests — 13.6 s. Проверки выполнялись последовательно, один Chromium, без Next/PostgreSQL и без CI-очереди. Native typecheck ограничен одним потоком и GOMEMLIMIT 256 MiB; подготовка pinned runtime потребовала 768 MiB Node heap после недостаточного лимита 384 MiB. Счётчики cgroup OOM/OOM-kill остались нулевыми. Собственный browser/server закрыт, временный профиль удалён; чужие процессы и каталоги не изменялись.
+
+Первый browser run дал 21 PASS и три ошибки самого harness: `innerText` учитывал CSS uppercase (`COPY`), а assertion ожидал `Copy`. Исправлено только чтение feedback через `textContent`; все семантические проверки сохранены. Повторный прогон того же bundle прошёл 24/24. Первый отчёт сохранён отдельно, baseline не перезаписан.
+
+Локальные receipts: `tmp/recovery/final-focused-tests.json`, `tmp/recovery/tsconfig.affected.json`, `tmp/recovery/affected-typecheck-final.log`, `tmp/provider-audit-round2/{baseline,final}/`, `tmp/provider-audit-round2/final-first-report.json`. SHA-256: unit report — `b2c7b6c49c58d22521a27efc9563a40204dd0ecf87aeb6b1380b0b5f65ebf008`; browser report — `4d5a37b23775e30f23e7f3efa09bd09d13a9eca1338ebcb4100caffb85bdee51`; build receipt — `70346808547f97e5fafb9e01ac5ba5422e54f7e28e6a053d8d7851658c8cacc5`; affected config — `84e7a5af9269a3fe2e7966aa573677a8a1a34fdce70cf797c5348612f1140ff6`. Эти scratch-файлы могут быть очищены средой; в Git остаются результаты, границы и хеши, а не временный стенд или скриншоты. Production deploy в scope не входит.
+
+## 12. Два дополнительных ограниченных круга, 2026-10-27
+
+По запросу пользователя выполнены ещё два круга с независимыми критиками на базе `ef93d8956d9372012d1891781fa5d39e825bbf2a` (PR #724). В scope включены только воспроизведённые ошибки существующих действий и обновления данных. Production diff затрагивает три компонента: `ProviderSetupDialog`, credential delivery и общий `CodeBlock`; дополнительно изменены четыре файла тестов и этот план. Новых provider flows, API, схем хранения, auth permissions или изменений Codex issuance/recovery нет.
+
+### Круг 1 — действия в процессе выполнения
+
+- **Повторное сохранение через переход между шагами.** Пока provider save ожидал ответа, переход `2. Add secret` → `1. Provider` позволял повторить mutation. Step buttons теперь используют существующий root lock, как закрытие диалога; после завершения они снова доступны.
+- **Install при запрещённых изменениях.** Managed Install учитывал решение об установке, но пропускал `canManage=false`. Условие добавлено в disabled и в handler; запреты, pending install и pending confirmation соблюдаются до запроса.
+- **Гонки Copy одной команды.** Поздний результат первой попытки мог заменить результат второй, а старый timer сокращал новое Copied. Feedback теперь принадлежит последней попытке, timer отменяется при новой попытке и unmount. Критик дополнительно выявил старый Copied/error во время следующего ожидающего write; новая попытка сразу очищает прежний feedback.
+
+Пять основных regression cases дали **46 PASS / 5 FAIL**, затем прошли; две найденные review проверки feedback дали **10 PASS / 2 FAIL**, затем **12 PASS / 0 FAIL**. Первый круг опубликован коммитом `435d51e02f5723cdf02e1474a93963faaeae3968`.
+
+### Круг 2 — свежие данные и восстановление
+
+- **Исчезнувший workspace default.** Старый выбор больше нельзя сохранить через inherit, когда новый view не содержит default/profile. Показана причина и просьба выбрать провайдера. Перекрёстный review обнаружил связанный случай: исчезает последний профиль, а shortcut первого провайдера скрывает единственный путь восстановления. Одно условие теперь оставляет `Add a new provider` для прежнего default/profile; выбор остаётся явным, автоматической подмены нет. Оба случая default/profile воспроизведены: **2 FAIL → 2 PASS**.
+- **Ошибка фонового обновления сбрасывала несохранённый выбор.** При наличии cached view сохраняется экземпляр формы и draft. Баннер с `Try again` блокирует Save до успешного чтения; начальная ошибка без данных сохраняет прежний error flow. Право `mutationsEnabled` не подменяется состоянием сети.
+- **Удалённый managed secret нельзя было установить заново из окна.** После явного `provider_secret_not_found` появляется `Reinstall key`. Используется существующий apply API, сохранённый ключ и только текущий repository ID, без нового API key. Повторный Check доступен, если secret восстановлен на GitHub извне. Оба действия блокируются на время install/confirm; ограничения владельца/admin сохранены. Source review серверного пути подтвердил повторную запись уже установленного ранее ключа.
+- **Verified оставался зелёным после свежего missing.** Direct delivery убирает прежний успех уже в первом render после успешного завершённого чтения `missing` / `not_available_to_repository`, возвращая действие проверки. Состояние очищается, поэтому последующий `unknown` не возрождает успех. Manual confirmation, pending read, read errors, `unknown` и `permission_required` сохраняют прежний результат; новый confirm защищён от запоздалого effect. Codex этот сброс не вызывает.
+
+Основные проверки второго круга до исправлений дали **44 PASS / 7 FAIL**. Последующий общий прогон сначала дал **119 PASS / 1 FAIL**: старый success-path тест progress panel возвращал успешное подтверждение и одновременно definitive missing при каждом metadata read. Исправлена только противоречивая fixture: initial missing → сохранение токена → available после confirm. Все прежние assertions успешного шага и открытого диалога сохранены, добавлена проверка свежего чтения. Неуспешные receipts сохранены отдельно.
+
+Оба круга прошли независимые cross-review; замечания о pending Copy и исчезновении последнего profile исправлены и повторно рассмотрены. Финальный source review и отдельный визуальный review — GO, открытых замечаний по этому scope нет.
+
+### Финальная проверка
+
+| Проверка                       | Результат                                                   | Граница                                                                                                                                                                                      |
+| ------------------------------ | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Целевые unit/UI tests          | **122 passed, 0 failed, 0 skipped**, 6 файлов               | Включая 19 новых regression cases, существующие rotating, optimistic status и progress panel                                                                                                 |
+| Affected TypeScript            | PASS                                                        | Native TypeScript 7.0.2, 7 изменённых TS/TSX roots, их транзитивные импорты и NextAuth declarations; штатно подготовленные Prisma declarations и точный pinned runtime                       |
+| ESLint / Prettier / diff check | PASS                                                        | Изменённые исходники, тесты и формат плана                                                                                                                                                   |
+| Component browser              | **16 passed, 0 failed**                                     | Save lock, readonly managed install, same-command clipboard races, исчезновение default/последнего profile, сохранение draft после retry, managed reinstall/denial, direct negative metadata |
+| Визуальный review              | **11 фактических снимков просмотрены**                      | 390/1280 px, MiMo/OpenRouter/Claude, pending/error/recovery/success состояния                                                                                                                |
+| Browser errors                 | 0 page/console/server errors, 0 failed/неожиданных запросов | Разрешены только локальные assets; Next navigation, server actions и API-ответы синтетические                                                                                                |
+| Provenance                     | **78 inputs совпадают до и после**                          | Настоящие React-компоненты, QueryClient, shared CSS и шрифты; bundle assets не менялись во время прогона                                                                                     |
+| Real-app E2E                   | **По-прежнему 0 accepted passes**                           | Три сценария раздела 8.4 не заменяются component-browser evidence                                                                                                                            |
+
+Проверки выполнялись последовательно, один Chromium, без Next/PostgreSQL и ожидания CI-очереди. Сборка fixture заняла около 1.7 s, браузер — 12.6 s, финальный unit/UI прогон — 19.2 s. Vitest использовал один worker и Node heap 384 MiB; native compiler — один поток и GOMEMLIMIT 256 MiB. Browser/server закрыты, временный browser profile удалён. Чужие процессы и каталоги не изменялись; в общей среде были ненулевые и меняющиеся OOM-счётчики, поэтому отсутствие OOM для среды в целом не заявляется. Все перечисленные финальные команды завершились успешно.
+
+Receipts находятся в `tmp/provider-audit-two-rounds/`: baseline/green reports обоих кругов, `final-focused-tests-first.json`, `final-focused-tests.json`, `affected-typecheck.log`, `eslint.log`, `build-receipt.json`, `browser-final/report.json` и 11 PNG. SHA-256: unit report — `1345584f73077adea3bf2a1cbe436490a2373a5912884264767967dc3172fdcb`; browser report — `611317b610246f97fbbf3336d0ead4b4af0f9e1da484b3998bc9a9a56a064fb1`; build receipt — `2434bd46667a1dfbe907e169d2537f29cae08aedc5aef70f65d9e2d7a6641ea9`; affected config — `1dd7cd365b387eff67d88f72082021f436d983143649350165571dd564a809b6`. В Git сохраняются результаты, ограничения и хеши; временный стенд и снимки в приложение не добавляются. SSH/реальные GitHub Secrets/OAuth/backend persistence и production deploy этим этапом не подтверждаются.

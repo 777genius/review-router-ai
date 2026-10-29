@@ -17,6 +17,7 @@ on:
       - vendor/account-gateway/**
       - package.json
       - pnpm-lock.yaml
+      - scripts/install-private-dependencies.mjs
       - pnpm-workspace.yaml
       - vitest.config.ts
       - .github/workflows/account-gateway-operator-grants.yml
@@ -37,6 +38,7 @@ on:
       - vendor/account-gateway/**
       - package.json
       - pnpm-lock.yaml
+      - scripts/install-private-dependencies.mjs
       - pnpm-workspace.yaml
       - vitest.config.ts
       - .github/workflows/account-gateway-operator-grants.yml
@@ -45,12 +47,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: account-gateway-operator-grants-s-${{ github.ref }}
-  cancel-in-progress: true
+  # Manual qualification must not cancel branch/PR checks or another manual mode.
+  group: account-gateway-operator-grants-s-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 jobs:
   qualify:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     services:
       postgres:
@@ -92,7 +95,7 @@ jobs:
       - name: Install pinned dependencies
         run: |
           npm install --global pnpm@11.28.7
-          pnpm install --frozen-lockfile --ignore-scripts
+          node scripts/install-private-dependencies.mjs --frozen-lockfile
       - name: Generate actual Prisma client
         run: pnpm --filter @reviewrouter/platform-db db:generate
       - name: Apply all historical migrations to disposable PostgreSQL

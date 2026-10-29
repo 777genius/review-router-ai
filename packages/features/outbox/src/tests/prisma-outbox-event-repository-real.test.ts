@@ -91,6 +91,66 @@ describeWithDatabase("Prisma outbox fenced claims", () => {
     ).resolves.toEqual({ status: "applied" });
   });
 
+  it("recovers only the explicitly selected lane in PostgreSQL", async () => {
+    const outbox = new PrismaOutboxEventRepository(prisma);
+    const definitions = ["scan", "ordinary"].map((name) => ({
+      type: `${prefix}.${name}`,
+      version: 1,
+    }));
+    for (const [index, entry] of definitions.entries()) {
+      await outbox.enqueue({
+        ...entry,
+        idempotencyKey: `${prefix}-scoped-${index}`,
+        payload: {},
+        occurredAt: new Date(),
+      });
+    }
+    const claims = await outbox.claimDue({
+      limit: 2,
+      now: new Date(),
+      claimOwnerHash: "scoped-owner",
+      claimForMs: 60_000,
+      availableHandlers: definitions,
+      knownHandlers: definitions,
+    });
+    expect(claims).toHaveLength(2);
+    for (const claim of claims) {
+      await outbox.renewClaim({
+        claimId: claim.claimId!,
+        claimVersion: claim.claimVersion!,
+        claimOwnerHash: "scoped-owner",
+        claimUntil: new Date(Date.now() - 1000),
+      });
+    }
+    const at = new Date();
+    const input = {
+      now: at,
+      legacyStaleBefore: new Date(0),
+      nextAttemptAt: at,
+      limit: 10,
+      errorCode: "processing_stale",
+      safeErrorSummary: "scoped fixture",
+    };
+    expect(
+      await outbox.recoverStaleProcessing({ ...input, eventTypes: [] }),
+    ).toEqual({ recovered: 0 });
+    expect(
+      await outbox.recoverStaleProcessing({
+        ...input,
+        eventTypes: [definitions[0]!.type],
+      }),
+    ).toEqual({ recovered: 1 });
+    const rows = await prisma.outboxEvent.findMany({
+      where: { idempotencyKey: { startsWith: `${prefix}-scoped-` } },
+      orderBy: { idempotencyKey: "asc" },
+    });
+    expect(rows.map((row) => row.status)).toEqual(["retry_wait", "processing"]);
+    expect(rows[1]!.claimId).not.toBeNull();
+    expect(await outbox.recoverStaleProcessing(input)).toEqual({
+      recovered: 1,
+    });
+  });
+
   it("restores only an identical idempotency envelope", async () => {
     const outbox = new PrismaOutboxEventRepository(prisma);
     const event = {

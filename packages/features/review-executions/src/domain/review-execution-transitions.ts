@@ -80,6 +80,8 @@ export type ExecutionPrepareDecision = {
 };
 
 export type PrepareExecutionTransitionInput = {
+  readonly historyRootRequestId?: string | null;
+  readonly historyDispatchAttempt?: number | null;
   readonly stream: ReviewExecutionStream;
   readonly priorPrepared: ReviewExecution | null;
   readonly scope: ReviewExecutionScope;
@@ -114,6 +116,8 @@ export function decideExecutionPreparation(
   const execution: ReviewExecution = {
     ...input.scope,
     executionId: input.executionId,
+    historyRootRequestId: input.historyRootRequestId ?? null,
+    historyDispatchAttempt: input.historyDispatchAttempt ?? null,
     version: 1n,
     generation,
     revision: { ...input.revision },

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { useEffect, useState } from "react";
+import { Profiler, useEffect, useState } from "react";
 import {
   act,
   cleanup,
@@ -11,9 +11,11 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import type { ProviderSecretSetupGuidance } from "@reviewrouter/features-provider-setup";
+import type { ProviderAuthMode } from "@reviewrouter/features-review-providers";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ProviderSetupDialog } from "./provider-setup/provider-setup-dialog";
 import {
+  checkProviderRepositorySecretClientAction,
   confirmSetupPullRequestMergedClientAction,
   createSetupPullRequestClientAction,
 } from "./actions";
@@ -483,6 +485,14 @@ describe("RepositorySetupProgressPanel", () => {
         .getAttribute("aria-current"),
     ).toBe("step");
     expect(screen.queryByText(/Connect model credentials/)).toBeNull();
+    await screen.findByText(
+      "CLAUDE_CODE_OAUTH_TOKEN is not set for this repository yet.",
+    );
+    // The token has now been stored on GitHub: the successful confirmation
+    // and its subsequent metadata read must describe the same availability.
+    vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValueOnce({
+      status: "available_repository",
+    });
     fireEvent.click(screen.getByRole("button", { name: "Check GitHub setup" }));
 
     expect(
@@ -494,6 +504,7 @@ describe("RepositorySetupProgressPanel", () => {
     expect(
       screen.getByRole("button", { name: "Close provider setup" }),
     ).toBeTruthy();
+    expect(checkProviderRepositorySecretClientAction).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the provider dialog mounted when provider confirmation advances progress", async () => {
@@ -686,6 +697,87 @@ describe("RepositorySetupProgressPanel", () => {
     await waitFor(() => {
       expect(screen.getByText("4 of 4 - complete")).toBeTruthy();
     });
+  });
+
+  it("resets completed progress only when the expected provider set changes", () => {
+    const committedReadyStates: boolean[] = [];
+    const view = (authModes: readonly ProviderAuthMode[]) => (
+      <Profiler
+        id="repository-setup-progress"
+        onRender={() => {
+          committedReadyStates.push(
+            screen.queryByText("4 of 4 - complete") !== null,
+          );
+        }}
+      >
+        <RepositorySetupProgressPanel
+          workspaceId="workspace_1"
+          repositoryId="repo_1"
+          repositoryFullName="777genius/example"
+          selected
+          archived={false}
+          initialSetupStatus="configured"
+          initialSetupPullRequestUrl={null}
+          initialSetupIssue={null}
+          workflowCurrent
+          mutationsEnabled
+          initialStep="provider"
+          expectedProviderAuthModes={authModes}
+          enableReviewAction={<button type="button">Enable review</button>}
+        />
+      </Profiler>
+    );
+    const confirm = (authMode: ProviderAuthMode) =>
+      fireEvent(
+        window,
+        providerSetupConfirmedEvent({
+          repositoryId: "repo_1",
+          repositoryFullName: "777genius/example",
+          authMode,
+        }),
+      );
+    const expectPending = () => {
+      expect(screen.getByText("3 of 4 - enable review")).toBeTruthy();
+      expect(screen.queryByText("4 of 4 - complete")).toBeNull();
+    };
+    const rendered = render(
+      view(["codex_subscription_oauth_rotating", "claude_code_oauth"]),
+    );
+
+    confirm("codex_subscription_oauth_rotating");
+    expectPending();
+    // Fresh arrays, order, and duplicates preserve partial confirmation.
+    rendered.rerender(
+      view(["codex_subscription_oauth_rotating", "claude_code_oauth"]),
+    );
+    rendered.rerender(
+      view([
+        "claude_code_oauth",
+        "codex_subscription_oauth_rotating",
+        "claude_code_oauth",
+      ]),
+    );
+    confirm("claude_code_oauth");
+    expect(screen.getByText("4 of 4 - complete")).toBeTruthy();
+
+    // All authoritative progress props stay the same when providers change.
+    committedReadyStates.length = 0;
+    rendered.rerender(
+      view(["codex_subscription_oauth_rotating", "openrouter_api_key"]),
+    );
+    // The first commit must be pending, before passive reset effects run.
+    expect(committedReadyStates[0]).toBe(false);
+    expectPending();
+    confirm("claude_code_oauth");
+    expectPending();
+    confirm("openrouter_api_key");
+    // The previous setup's Codex confirmation must not complete the new setup.
+    expectPending();
+    rendered.rerender(
+      view(["openrouter_api_key", "codex_subscription_oauth_rotating"]),
+    );
+    confirm("codex_subscription_oauth_rotating");
+    expect(screen.getByText("4 of 4 - complete")).toBeTruthy();
   });
 
   it("keeps the provider action available for rows that are already complete", () => {

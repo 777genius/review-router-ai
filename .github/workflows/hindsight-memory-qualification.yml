@@ -1,0 +1,89 @@
+name: Hindsight native qualification
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/hindsight-memory-v1
+    paths:
+      - deploy/hindsight/**
+      - scripts/hindsight-e2e/**
+      - packages/features/memory/src/infrastructure/hindsight/**
+      - packages/features/memory/src/infrastructure/config/memory-provider-config.ts
+      - packages/features/memory/src/application/ports/memory-knowledge-provider-port.ts
+      - packages/features/memory/src/domain/**
+      - package.json
+      - pnpm-lock.yaml
+      - .github/workflows/hindsight-memory-qualification.yml
+  pull_request:
+    paths:
+      - deploy/hindsight/**
+      - scripts/hindsight-e2e/**
+      - packages/features/memory/src/infrastructure/hindsight/**
+      - packages/features/memory/src/infrastructure/config/memory-provider-config.ts
+      - packages/features/memory/src/application/ports/memory-knowledge-provider-port.ts
+      - packages/features/memory/src/domain/**
+      - package.json
+      - pnpm-lock.yaml
+      - .github/workflows/hindsight-memory-qualification.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hindsight-native-${{ github.event_name }}-${{ (github.event_name == 'pull_request' || github.event_name == 'push') && (github.event.pull_request.number || github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+
+jobs:
+  native:
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24"
+      - name: Install pinned OCI signature verifier
+        shell: bash
+        run: |
+          curl --fail --location https://github.com/sigstore/cosign/releases/download/v3.1.3/cosign-linux-amd64 --output "$RUNNER_TEMP/cosign"
+          echo "4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71  $RUNNER_TEMP/cosign" | sha256sum --check
+          chmod +x "$RUNNER_TEMP/cosign"
+      - name: Read-only source and immutable runtime inputs
+        shell: bash
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/vectorize-io/hindsight.git "$RUNNER_TEMP/hindsight-source"
+          git -C "$RUNNER_TEMP/hindsight-source" checkout --detach a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5
+          docker pull ghcr.io/vectorize-io/hindsight-api:1.1.0
+          docker pull pgvector/pgvector:pg17
+          mkdir -p tmp/hindsight-qualification
+          docker image inspect ghcr.io/vectorize-io/hindsight-api:1.1.0 pgvector/pgvector:pg17 > tmp/hindsight-qualification/runtime-inputs.json
+          native_base="$(docker image inspect --format '{{index .RepoDigests 0}}' ghcr.io/vectorize-io/hindsight-api:1.1.0)"
+          "$RUNNER_TEMP/cosign" verify "$native_base" --certificate-identity https://github.com/vectorize-io/hindsight/.github/workflows/release.yml@refs/tags/v1.1.0 --certificate-oidc-issuer https://token.actions.githubusercontent.com > tmp/hindsight-qualification/base-signature.json
+          curl --fail --location https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz --output "$RUNNER_TEMP/hindsight-sdk.tgz"
+          HINDSIGHT_SDK_ARCHIVE="$RUNNER_TEMP/hindsight-sdk.tgz" node --input-type=module -e 'import {readFileSync} from "node:fs"; import {createHash} from "node:crypto"; if(createHash("sha512").update(readFileSync(process.env.HINDSIGHT_SDK_ARCHIVE)).digest("base64")!=="Tqx7SKEbKZnf9L1tnla3vIDNt83eKFCneHe8GsSQJbmAn0rY8U13fT9Jg5ZP8G/phns5Fk5tZWmagaUlVTzpCA==")process.exit(1)'
+          mkdir -p "$RUNNER_TEMP/hindsight-sdk"
+          tar -xzf "$RUNNER_TEMP/hindsight-sdk.tgz" -C "$RUNNER_TEMP/hindsight-sdk"
+          echo "HINDSIGHT_SDK_ENTRY=$RUNNER_TEMP/hindsight-sdk/package/dist/index.mjs" >> "$GITHUB_ENV"
+      - name: Verify exact bounded hardening and build derivative bytes
+        shell: bash
+        run: |
+          HINDSIGHT_SOURCE_CHECKOUT="$RUNNER_TEMP/hindsight-source" node --experimental-transform-types --import ./scripts/hindsight-e2e/register-native-runtime.ts --test scripts/hindsight-e2e/qualification.test.ts scripts/hindsight-e2e/cleanup-receipt.test.ts scripts/hindsight-e2e/provider-contract.test.ts scripts/hindsight-e2e/operator-safety.test.ts scripts/hindsight-e2e/provider-verification.test.ts
+          node scripts/hindsight-e2e/prepare-hardening.ts "$RUNNER_TEMP/hindsight-source" "$RUNNER_TEMP/hindsight-build"
+          git -C "$RUNNER_TEMP/hindsight-source" apply --check "$GITHUB_WORKSPACE/deploy/hindsight/hardening.patch"
+          native_base="$(docker image inspect --format '{{index .RepoDigests 0}}' ghcr.io/vectorize-io/hindsight-api:1.1.0)"
+          native_revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' ghcr.io/vectorize-io/hindsight-api:1.1.0)"
+          test "$native_revision" = a5a619b5ca59c5c39e0f96be6f7a31fabd136bd5
+          docker buildx build --load --metadata-file tmp/hindsight-qualification/build-metadata.json --build-arg "HINDSIGHT_BASE_IMAGE=$native_base" --file deploy/hindsight/Dockerfile --tag reviewrouter-hindsight:qualification "$RUNNER_TEMP/hindsight-build"
+          echo 'HINDSIGHT_QUALIFICATION_IMAGE=reviewrouter-hindsight:qualification' >> "$GITHUB_ENV"
+          echo "HINDSIGHT_QUALIFICATION_POSTGRES_IMAGE=$(docker image inspect --format '{{index .RepoDigests 0}}' pgvector/pgvector:pg17)" >> "$GITHUB_ENV"
+      - name: Run fresh provenance gate, real API, separate workers, PG17 and exact paused forget
+        run: node --experimental-transform-types --import ./scripts/hindsight-e2e/register-native-runtime.ts scripts/hindsight-e2e/qualify-native.ts
+      - name: Preserve reviewed evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hindsight-native-qualification
+          path: tmp/hindsight-qualification/
+          retention-days: 14
+          if-no-files-found: warn

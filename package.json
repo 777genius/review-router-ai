@@ -70,7 +70,6 @@
     "spike:action:e2e": "tsx spikes/github-oidc/src/action-control-plane-e2e.ts",
     "spike:review-config:e2e": "tsx spikes/github-oidc/src/review-config-override-e2e.ts",
     "spike:support-diagnostics:e2e": "tsx spikes/github-oidc/src/support-diagnostics-e2e.ts",
-    "spike:memory:e2e": "node scripts/run-memory-e2e.mjs",
     "spike:auth-workspace:e2e": "tsx spikes/github-oidc/src/auth-workspace-access-e2e.ts",
     "spike:webhook-lifecycle:e2e": "tsx spikes/github-oidc/src/webhook-lifecycle-e2e.ts",
     "spike:server": "tsx spikes/github-oidc/src/server.ts",
@@ -110,7 +109,6 @@
     "spike:repo-health:e2e": "tsx spikes/github-oidc/src/repo-health-workflow-e2e.ts",
     "spike:rate-limit:e2e": "tsx spikes/github-oidc/src/rate-limit-e2e.ts",
     "spike:distributed-lock:e2e": "tsx spikes/github-oidc/src/distributed-lock-e2e.ts",
-    "spike:github-memory:e2e": "node scripts/run-github-memory-smoke.mjs",
     "api:start": "node --conditions=production apps/api/dist/server.js",
     "release-control:start": "pnpm --filter @reviewrouter/api release-control:start",
     "release-witness:start": "pnpm --filter @reviewrouter/api release-witness:start",
@@ -131,7 +129,7 @@
     "subscription-runtime:check": "node scripts/check-external-subscription-runtime.mjs && pnpm action:artifact:check:smoke && pnpm subscription-runtime:live-e2e:smoke",
     "subscription-runtime:release-gate": "pnpm subscription-runtime:check && pnpm codex-rotating:secret-write-boundary && pnpm action:artifact:check && pnpm exec vitest run packages/features/codex-oauth-rotating/src/tests/codex-oauth-rotating.test.ts packages/features/codex-oauth-rotating/src/tests/github-action.test.ts && pnpm architecture:check && pnpm typecheck && git diff --check",
     "architecture:web-host-cms": "tsx scripts/check-web-host-cms-profile-cli.ts",
-    "architecture:check": "node scripts/check-architecture-boundaries.mjs && pnpm architecture:web-host-cms && pnpm foundation:check && pnpm foundation:assert-dev-only && pnpm foundation:assert-registry && pnpm foundation:qualify-memory && pnpm foundation:qualify-statistics",
+    "architecture:check": "node scripts/check-architecture-boundaries.mjs && pnpm architecture:web-host-cms && pnpm foundation:check && pnpm foundation:assert-dev-only && pnpm foundation:assert-registry && pnpm foundation:qualify-memory && pnpm foundation:qualify-statistics && pnpm history:architecture",
     "github-app:check": "node scripts/run-with-env.mjs node scripts/check-github-app-readiness.mjs",
     "github-app:create": "node scripts/create-github-app-manifest.mjs",
     "github-app:manifest:smoke": "node scripts/check-github-app-manifest-smoke.mjs",
@@ -154,11 +152,11 @@
     "foundation:qualify": "node scripts/provider-foundation/qualify-packed.ts && tsc -p scripts/provider-foundation/tsconfig.json && node --import tsx scripts/provider-foundation/qualify-boundaries.ts",
     "subscription-runtime:prepare": "node scripts/prepare-pinned-subscription-runtime.ts",
     "foundation:qualify-memory": "node --import tsx scripts/memory-foundation/qualify-boundaries.ts",
-    "memory:qualify-browser": "node --import tsx scripts/memory-e2e/browser-qualify.ts",
-    "memory:index": "node --import tsx apps/worker/src/memory-projection-operator.ts",
-    "memory:prepare-test-db": "node --import tsx scripts/memory-e2e/prepare-database.ts",
-    "modular:qualify": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.modular.json && vitest run packages/features/review-providers/src/composition/index.test.ts packages/features/provider-usage/src/tests/composition.test.ts packages/features/provider-accounts/src/account-limits/composition.test.ts packages/features/memory/src/composition/index.test.ts packages/features/review-statistics/src/composition/index.test.ts",
-    "foundation:qualify-statistics": "node --import tsx scripts/statistics-foundation/qualify-boundaries.ts"
+    "modular:qualify": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.modular.json && vitest run packages/features/review-providers/src/composition/index.test.ts packages/features/provider-usage/src/tests/composition.test.ts packages/features/provider-accounts/src/account-limits/composition.test.ts packages/features/memory/src/composition/memory-knowledge-runtime.test.ts packages/features/review-statistics/src/composition/index.test.ts packages/features/review-history/src/composition/review-history.root.test.ts",
+    "foundation:qualify-statistics": "node --import tsx scripts/statistics-foundation/qualify-boundaries.ts",
+    "history:architecture": "node --import tsx scripts/review-history-tooling/check.ts",
+    "history:test:postgres": "vitest run packages/features/review-history/src/tests/history.postgres.test.ts packages/features/review-history/src/tests/history-reader.postgres.test.ts",
+    "history:activate": "node scripts/run-with-env.mjs node --import tsx scripts/activate-review-history.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
@@ -216,6 +214,8 @@
     "oxfmt": "0.72.0",
     "@agent-teams/engineering-foundation": "2.1.0",
     "playwright-core": "1.64.1",
-    "@types/pg": "8.23.1"
+    "@types/pg": "8.23.1",
+    "@get-modular/conformance": "0.5.0",
+    "@get-modular/resources": "0.2.1"
   }
 }

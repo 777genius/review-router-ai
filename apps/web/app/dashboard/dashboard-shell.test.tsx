@@ -88,7 +88,7 @@ describe("persistent dashboard shell", () => {
     ).toBe("page");
     expect(
       screen
-        .getByRole("tab", { name: /Memory\s*In development/ })
+        .getByRole("tab", { name: /Memory\s*Approved review knowledge/ })
         .getAttribute("aria-current"),
     ).toBe("page");
     expect(document.querySelectorAll('[aria-busy="true"]')).toHaveLength(1);
@@ -114,7 +114,7 @@ describe("persistent dashboard shell", () => {
 
     fireEvent.click(
       screen.getByRole("tab", {
-        name: /Memory\s*In development/,
+        name: /Memory\s*Approved review knowledge/,
       }),
     );
 
@@ -126,7 +126,7 @@ describe("persistent dashboard shell", () => {
     expect(screen.getByLabelText("Loading dashboard section")).toBeTruthy();
     expect(
       screen
-        .getByRole("tab", { name: /Memory\s*In development/ })
+        .getByRole("tab", { name: /Memory\s*Approved review knowledge/ })
         .getAttribute("aria-current"),
     ).toBe("page");
     expect(screen.getByRole("progressbar")).toBeTruthy();
@@ -154,7 +154,7 @@ describe("persistent dashboard shell", () => {
     ).toBe("page");
   });
 
-  it("uses fragment-free client links across Accounts and workspace changes", () => {
+  it("keeps Providers active on Connections and preserves its route across workspace changes", () => {
     route.pathname = "/dashboard/setup";
     route.search = "workspace=two&section=memory";
     render(
@@ -166,10 +166,11 @@ describe("persistent dashboard shell", () => {
     expect(workspaceTab.getAttribute("href")).toBe(
       "/dashboard/setup?workspace=one",
     );
-    const accountTab = screen.getByRole("tab", {
-      name: /Accounts\s*Workspace provider accounts/,
+    const providersTab = screen.getByRole("tab", {
+      name: /Providers\s*Connections and models/,
     });
-    expect(accountTab.getAttribute("aria-current")).toBe("page");
+    expect(providersTab.getAttribute("aria-current")).toBe("page");
+    expect(screen.queryByRole("tab", { name: /Accounts/i })).toBeNull();
     for (const link of document.querySelectorAll('a[href^="/dashboard"]')) {
       expect(link.getAttribute("data-next-link")).toBe("true");
     }

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { getEventListeners } from "node:events";
 import type { Logger } from "@reviewrouter/platform-logger";
 import {
   runOutboxWorkerLoop,
   safeWorkerErrorSummary,
+  sleep as actualSleep,
   type SleepPort,
 } from "./outbox-worker-loop";
 
@@ -39,6 +41,20 @@ const result = (claimed: number) => ({
 });
 
 describe("outbox worker loop", () => {
+  it("does not accumulate abort listeners while a long-lived worker polls", async () => {
+    const controller = new AbortController();
+    for (let iteration = 0; iteration < 30; iteration += 1) {
+      await actualSleep(1, controller.signal);
+    }
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+    const pending = actualSleep(60_000, controller.signal);
+    controller.abort();
+    await pending;
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+    await actualSleep(60_000, controller.signal);
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+  });
+
   it("uses busy delay after claimed work and idle delay after empty batches", async () => {
     const logger = new MemoryLogger();
     const sleeps: number[] = [];
