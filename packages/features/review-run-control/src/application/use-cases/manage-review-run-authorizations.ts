@@ -281,8 +281,9 @@ export class ManageReviewRunAuthorizations {
       // snapshot AND lanes; current settings never re-select the engine.
       providerVoteLanes = original.providerVoteLanes;
     } else if (this.dependencies.runtimeSnapshots) {
-      // Signed capabilities encode whole seconds. Select the bounded deadline
-      // before capture so the frozen intent never promises a later instant.
+      // Gateway capabilities encode whole seconds; ordinary direct routes keep
+      // their millisecond maximum. Capture every nested capability with the
+      // same original deadline that the admission fence will recapture.
       const gatewayMaxExpiresAt = new Date(
         Math.floor(maxExpiresAt.getTime() / 1000) * 1000,
       );
@@ -297,7 +298,10 @@ export class ManageReviewRunAuthorizations {
           : {}),
         producerRelease: base.release,
         deadline:
-          gatewayMaxExpiresAt > now ? gatewayMaxExpiresAt : maxExpiresAt,
+          input.modelTransport === "account_gateway" &&
+          gatewayMaxExpiresAt > now
+            ? gatewayMaxExpiresAt
+            : maxExpiresAt,
       });
       if (captured === null)
         return denied(ReviewRunAuthorizationDenialReason.AdmissionFactsChanged);

@@ -8,18 +8,28 @@ import {
   lifecycleVerificationDescriptorDigestV2,
   type ReviewModelDispatchProfileV2,
 } from "@reviewrouter/shared";
+import {
+  canonicalReviewSkillsJson,
+  createCapturedReviewSkills,
+} from "@reviewrouter/shared/review-skills-contract";
 import { lifecycleVerificationDescriptorDigest } from "@reviewrouter/shared";
 import { describe, expect, it } from "vitest";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   canonicalJson,
   parseReviewConfigurationStrict,
 } from "@reviewrouter/features-review-config";
 import {
   parseReviewAgentProfiles,
+  parseReviewRunRuntimeSnapshot,
+  ManageReviewRunAuthorizations,
+  ReviewProviderKind,
+  ReviewRunAuthorizationUseCaseStatus,
   ReviewTrustDomain,
   type VerifiedScmRunIdentity,
 } from "@reviewrouter/features-review-run-control";
+import { createReviewRunControlTestKit } from "../../../packages/features/review-run-control/src/testing/review-run-control-test-kit";
+import { provisionV2AuthorizationContext } from "../../../packages/features/review-run-control/src/tests/fixtures";
 import { storedPolicyForConfiguration } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import {
   readServerApprovedReviewRunGatewayPolicy,
@@ -247,10 +257,16 @@ function captureInput(options?: {
 }
 
 /** The stored documents and profiles that materialize this configuration. */
-function readerFor(policyJson: string) {
+function readerFor(
+  policyJson: string,
+  scope = { workspaceId, repositoryConnectionId },
+) {
   const stored = storedPolicyForConfiguration(
     parseReviewConfigurationStrict(JSON.parse(policyJson)),
-    { workspaceId, repositoryId: repositoryConnectionId },
+    {
+      workspaceId: scope.workspaceId,
+      repositoryId: scope.repositoryConnectionId,
+    },
   );
   return fakeRuntimeReader({
     workspace: stored.workspaceHead,
@@ -560,6 +576,136 @@ describe("one prepared route for discovery and verification", () => {
       expect(captured.configurationCanonicalJson).toBe(
         canonicalJson(configuration),
       );
+    },
+  );
+
+  it.each(
+    providerRows.filter(({ provider }) =>
+      [
+        "openrouter_api_key",
+        "codex_subscription_oauth_rotating",
+        "claude_code_oauth",
+      ].includes(provider.authMode),
+    ),
+  )(
+    "preserves exact millisecond deadlines through admission recapture for $provider.authMode",
+    async ({ mode, provider }) => {
+      const kit = createReviewRunControlTestKit({
+        now: new Date("2026-10-29T12:00:00.123Z"),
+      });
+      const fixture = await provisionV2AuthorizationContext(kit);
+      const configuration = parseReviewConfigurationStrict({
+        ...JSON.parse(gatewayPolicyJson({})),
+        providers: [provider],
+      });
+      const reader = readerFor(
+        canonicalJson(configuration),
+        fixture.verifiedIdentity,
+      );
+      const source = snapshotSource();
+      const approvedProducer = {
+        ...captureInput().producerRelease,
+        agentProfiles: profiles,
+        modelDispatchProfile: profile,
+      };
+      let captureCount = 0;
+      const useCase = new ManageReviewRunAuthorizations({
+        skillsSnapshots: {
+          capture: async ({ identity }) => ({
+            canonicalJson: canonicalReviewSkillsJson(
+              createCapturedReviewSkills({
+                baseSha: identity.baseSha,
+                webSkills: [],
+                gitSources: [],
+              }),
+            ),
+          }),
+        },
+        runtimeSnapshots: {
+          capture: (input) => {
+            captureCount += 1;
+            return source.capture(
+              { ...input, producerRelease: approvedProducer },
+              reader,
+            );
+          },
+          isLive: (input) => source.isLive(input, reader),
+        },
+        clock: kit.clock,
+        identifiers: kit.identifiers,
+        digest: kit.digest,
+        identities: kit.store,
+        authorities: kit.store,
+        releases: kit.store,
+        limits: kit.store,
+        slos: kit.store,
+        safetyDecisions: kit.control.safetyResolver,
+        authorizationQueries: kit.store,
+        authorizationCommands: kit.store,
+        tokens: kit.tokens,
+      });
+      const input: Parameters<
+        ManageReviewRunAuthorizations["authorizeReviewRun"]
+      >[0] = {
+        ...fixture.authorizeInput,
+        modelTransport: "provider_api",
+        ...(mode ? { providerApiAuthMode: mode } : {}),
+        ...(provider.authMode === "claude_code_oauth"
+          ? { subscriptionAuthMode: "claude-oauth" as const }
+          : {}),
+        providerVoteLanes: [
+          {
+            providerKind: ReviewProviderKind.Ocr,
+            providerVoteIdentityHash: "e".repeat(64),
+          },
+        ],
+      };
+      const result = await useCase.authorizeReviewRun(input);
+      expect(result.status).toBe(
+        ReviewRunAuthorizationUseCaseStatus.Authorized,
+      );
+      if (!("authorization" in result))
+        throw new Error("authorization_missing");
+      const authorization = result.authorization;
+      const captured = parseReviewRunRuntimeSnapshot(
+        authorization.runtimeSnapshotCanonicalJson,
+      );
+      expect(authorization.maxExpiresAt.getUTCMilliseconds()).toBe(123);
+      expect(captured).toMatchObject({
+        deadline: authorization.maxExpiresAt.toISOString(),
+        modelDispatchCapability: {
+          deadline: authorization.maxExpiresAt.toISOString(),
+        },
+      });
+      const transaction = {
+        ...reader,
+        $queryRaw: async () => [{ id: authorization.workspaceId }],
+        producerRelease: {
+          findUnique: async () => ({
+            ...approvedProducer,
+            agentProfilesJson: JSON.stringify(profiles),
+          }),
+        },
+      } as unknown as Prisma.TransactionClient;
+      await expect(
+        source.matchesAdmission(transaction, authorization),
+      ).resolves.toBe(true);
+      const restored = await useCase.authorizeReviewRun(input);
+      expect(restored.status).toBe(
+        ReviewRunAuthorizationUseCaseStatus.Restored,
+      );
+      if (!("authorization" in restored))
+        throw new Error("authorization_missing");
+      expect(restored.authorization.authorizationId).toBe(
+        authorization.authorizationId,
+      );
+      expect(restored.authorization.maxExpiresAt).toEqual(
+        authorization.maxExpiresAt,
+      );
+      expect(restored.authorization.runtimeSnapshotCanonicalJson).toBe(
+        authorization.runtimeSnapshotCanonicalJson,
+      );
+      expect(captureCount).toBe(1);
     },
   );
 

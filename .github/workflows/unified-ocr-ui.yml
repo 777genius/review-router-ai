@@ -115,7 +115,20 @@ jobs:
         run: |
           test "$(go env GOOS)/$(go env GOARCH)" = linux/amd64
           tools/ocr/build.sh --out "$RUNNER_TEMP/reviewrouter-paired-ocr"
-          diff -u tools/ocr/qualifications/unified-model-routes-v2.manifest "$RUNNER_TEMP/reviewrouter-paired-ocr/MANIFEST"
+          diff -u tools/ocr/qualifications/unified-model-routes-v3.manifest "$RUNNER_TEMP/reviewrouter-paired-ocr/MANIFEST"
+          node <<'JS'
+          const fs = require('node:fs');
+          const manifest = fs.readFileSync('tools/ocr/qualifications/unified-model-routes-v3.manifest', 'utf8');
+          const profiles = JSON.parse(fs.readFileSync('src/control-plane/review-agent-profiles.json', 'utf8'))
+            .filter((profile) => profile.profileRef === 'ocr-managed-v5');
+          const profile = profiles[0];
+          if (profiles.length !== 1 || profile.agentKind !== 'ocr' ||
+              profile.packageVersion !== manifest.match(/^release_version=(.+)$/m)?.[1] ||
+              profile.binarySha256 !== manifest.match(/^binary_sha256=([a-f0-9]{64})$/m)?.[1] ||
+              [...profile.modelTransports].sort().join(',') !== 'account_gateway,provider_api') {
+            throw new Error('paired_ocr_profile_receipt_mismatch');
+          }
+          JS
       - name: Run the paired review lifecycle and actual production runner
         env:
           REVIEW_ROUTER_REVIEW_INVESTIGATION_PAIRED_E2E: "1"

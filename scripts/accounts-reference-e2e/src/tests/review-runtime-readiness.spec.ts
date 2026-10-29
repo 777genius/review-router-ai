@@ -113,6 +113,15 @@ test.describe("review runtime readiness", () => {
         "true",
         { timeout: 60_000 },
       );
+      const expandRuntimeDetails = async () => {
+        for (const row of [update, unknown]) {
+          if (!(await row.getByRole("status").isVisible()))
+            await row.locator("label.setup-toggle").click();
+          await expect(row.getByRole("status")).toBeVisible();
+        }
+      };
+      await expandRuntimeDetails();
+      await page.evaluate(() => window.scrollTo(0, 0));
       await page.screenshot({
         path: info.outputPath(`review-runtime-${viewport.name}-dark.png`),
         fullPage: true,
@@ -121,7 +130,9 @@ test.describe("review runtime readiness", () => {
         .getByRole("button", { name: "Dark theme", exact: true })
         .click();
       await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+      await expandRuntimeDetails();
       await expectNoHorizontalOverflow(page);
+      await page.evaluate(() => window.scrollTo(0, 0));
       await page.screenshot({
         path: info.outputPath(`review-runtime-${viewport.name}-light.png`),
         fullPage: true,
@@ -132,6 +143,7 @@ test.describe("review runtime readiness", () => {
       await expect(page.getByText("No matches", { exact: true })).toBeVisible();
       await expect(repository(page, "current")).not.toBeVisible();
       await expectNoHorizontalOverflow(page);
+      await page.evaluate(() => window.scrollTo(0, 0));
       await page.screenshot({
         path: info.outputPath(`review-runtime-${viewport.name}-empty.png`),
         fullPage: true,
