@@ -1,3 +1,4 @@
+import { gatewayProfileAcceptsRequestedModel } from "./review-run-gateway-model-qualification";
 import type { UsageIdentity } from "@reviewrouter/features-provider-usage";
 import { gatewayUsageReceipt } from "./provider-usage-gateway-relay-receipt";
 import { createHash, randomUUID } from "node:crypto";
@@ -78,23 +79,7 @@ export function readReviewRunGatewayRelayPolicy(raw: string) {
     throw new Error("review_run_gateway_relay_policy_invalid");
   }
 }
-/** Qualified account models are validated by the compatible Gateway/native.
- * Other profiles retain their configured model allowlist. */
-export function gatewayProfileAcceptsRequestedModel(
-  profile: c.Profile,
-  model: string,
-): boolean {
-  return (
-    profile.authKinds.some(
-      (authKind) =>
-        c.accountModelDiscoverySource({
-          profileId: profile.profileId,
-          protocol: profile.protocol,
-          authKind,
-        }) !== undefined,
-    ) || profile.modelIds.includes(model)
-  );
-}
+export { gatewayProfileAcceptsRequestedModel } from "./review-run-gateway-model-qualification";
 class RelayFailure extends Error {
   constructor(
     readonly code: string,

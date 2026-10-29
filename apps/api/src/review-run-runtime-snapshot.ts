@@ -1,3 +1,7 @@
+import {
+  gatewayProfileAcceptsRequestedModel,
+  type GatewayModelQualificationProfile,
+} from "./review-run-gateway-model-qualification";
 import { providerApiModeForAuthMode } from "@reviewrouter/features-review-providers";
 import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import {
@@ -160,11 +164,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     private readonly preferSkillsProfile = false,
     private readonly qualifiedRelayPolicy?: {
       readonly profiles: readonly {
-        readonly profile: {
-          readonly profileId: string;
-          readonly protocol: string;
-          readonly modelIds: readonly string[];
-        };
+        readonly profile: GatewayModelQualificationProfile;
         readonly outputTokens: number;
       }[];
       readonly ingressBytes: number;
@@ -465,7 +465,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
           (entry) =>
             entry.profile.profileId === gateway!.profileRef &&
             entry.profile.protocol === "openai-responses" &&
-            entry.profile.modelIds.includes(provider.model),
+            gatewayProfileAcceptsRequestedModel(entry.profile, provider.model),
         );
         if (qualified.length > 1)
           throw new Error("verification_configuration_invalid");
