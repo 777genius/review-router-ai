@@ -292,3 +292,29 @@ and reasonparent_changed. The private API already handles normal GitHub
 pending-to-submitted timestamp propagation with validated publishedAt/lastEditedAt
 semantics. A minimal public successor is being prepared with real-edit and
 unknown/order guards retained. No finding status was fabricated or manually closed.
+
+### Public timestamp correction qualification: 2026-10-29
+
+Public [PR353](https://github.com/777genius/review-router/pull/353) now has reviewed
+head `f6cff6f0e12bf0918d7dbf3294e191350a11ee38`, candidate version1.0.220 and runtime
+bundle SHA-256 `b8318960835ae2612ad6d54e0b669021f6b2741dc5f20d3e706a6ca22cd932ab`.
+It requests publishedAt/lastEditedAt, preserves the actual updatedAt witness,
+and shares the existing strict RFC3339 calendar/clock/offset normalizer with
+thread hashing. Real edits, unknown metadata and invalid ordering remain denied.
+All89 targeted tests and27 artifact/release checks passed. Canonical candidate
+manifest/checker passed; compared with219, only public/runtime commit identities
+and the runtime entrypoint digest differ. This candidate is not deployment authority.
+
+Qualification history: the first full CI caught one old witness fixture missing
+the newly requested fields; only two fixture lines were updated, retaining the
+unknown-data guard. That head then passed full CI40802064297. Required conversation
+resolution exposed JavaScript impossible-date normalization; the existing strict
+normalizer was reused and the reviewed conversation resolved after the tested fix.
+Current full CI40803516622 passed4041 tests but one unchanged Codex subprocess
+stream-limit test raced on OS stdout chunk boundaries. Isolated runs pass on both
+current and previous source; no runner/assertion was changed. One unchanged-head
+retry is running. Do not merge/release/register/promote until the required CI passes.
+
+Old PR18 attempt5 remains an unfinished control-plane audit record with execution
+deadline2026-10-29T06:41:46.801Z. Its Gateway binding was never created; it has no
+active model transport. No successful artifact or terminal state was fabricated.
