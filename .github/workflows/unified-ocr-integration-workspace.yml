@@ -1,0 +1,61 @@
+# Temporary read-only integration workspace. Remove after final qualification.
+name: Unified OCR integration workspace
+
+on:
+  push:
+    branches: [feat/unified-ocr-review-20261026]
+    paths: [.github/workflows/unified-ocr-integration-workspace.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      max-parallel: 2
+      matrix:
+        include:
+          - name: control
+            repository: 777genius/review-router-ai
+            feature: 2e946135f0102da18e58824d2efadc80526fd7bc
+            main: 89ce21cccbd5e979baf46450ecb8bb5b1b599e90
+          - name: action
+            repository: 777genius/review-router
+            feature: f0773387f2e4a513e81759ec41aa1302536a92b5
+            main: 2b9b7f8c438b076b6e06c6e14f9ac8e87f1a25b6
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.feature }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bundle immutable feature and main histories
+        shell: bash
+        env:
+          FEATURE_SHA: ${{ matrix.feature }}
+          MAIN_SHA: ${{ matrix.main }}
+          SOURCE_NAME: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$FEATURE_SHA"
+          git cat-file -e "$MAIN_SHA^{commit}"
+          git update-ref refs/heads/integration-feature "$FEATURE_SHA"
+          git update-ref refs/heads/integration-main "$MAIN_SHA"
+          mkdir -p "$RUNNER_TEMP/ocr-source"
+          git bundle create "$RUNNER_TEMP/ocr-source/$SOURCE_NAME.bundle" refs/heads/integration-feature refs/heads/integration-main
+          git bundle verify "$RUNNER_TEMP/ocr-source/$SOURCE_NAME.bundle"
+          git merge-base "$FEATURE_SHA" "$MAIN_SHA" > "$RUNNER_TEMP/ocr-source/merge-base.txt"
+          printf '%s\n' "feature=$FEATURE_SHA" "main=$MAIN_SHA" > "$RUNNER_TEMP/ocr-source/revisions.txt"
+          cd "$RUNNER_TEMP/ocr-source"
+          sha256sum *.bundle > SHA256SUMS
+          du -h *.bundle
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: unified-ocr-source-${{ matrix.name }}-${{ github.sha }}
+          path: ${{ runner.temp }}/ocr-source/
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
