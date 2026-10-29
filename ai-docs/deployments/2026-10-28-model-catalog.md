@@ -176,3 +176,32 @@ occurred during that failed transfer.
 A new canonical semantic rerun, workflow40092003089 attempt3, was requested after
 reconciliation and this diagnostic update. Do not claim successful completion
 until its actual result is verified.
+
+### Completion repairs selected: `b8eac8ec`
+
+Attempt3 completed its model work (1/1), Gateway readback and workflow, but the
+App correctly published an incomplete result for five unverified prior findings.
+Its runtime snapshot showed no lifecycle-verification capability: the API still
+qualified models against the static enrollment list. The repository UI had a
+second static-list check and incorrectly displayed3/4 setup despite the selected
+account/model working. These are concrete follow-ups to dynamic model support.
+
+The selected next application source is
+`b8eac8ec11ec9fe0db5c3a8da2974a30a269a8cc`, combining API checkpoint
+`66ab3f8a1` and Web checkpoint `be7a22f44`. Lifecycle qualification now reuses
+the existing dynamic-profile predicate, while exact account/model/capability
+checks remain at Gateway/native dispatch. Dashboard page and repository search
+use fresh catalogs scoped to the exact selected binding;419repositories sharing
+a binding cause one metadata read, with the existing25-account page bound.
+
+All160focused tests passed on the combined source. API and Web native
+TypeScript7.0.2 typechecks, legacy Web typecheck and targeted lint/format passed
+on the component checkpoints. A broader UI lane has one existing order-sensitive
+focus assertion (69/70); the same assertion failed on its unchanged parent
+(48/49), and passes alone on both. This is retained as a validation limitation.
+
+A single API+Web overlay build is running against the already installed
+`4dd75ecf` base image. No application migration or History reactivation is
+required. Wait for the exact final image, four-role adoption and fresh canary;
+then repeat signed-in readiness and genuine review/lifecycle/publication checks
+before completing either task.
