@@ -295,7 +295,7 @@ export const renderMemoryKnowledgeCheckoutExtension = Object.freeze([
 ]);
 
 // Automatic source lineage and conversational processing are checkout-only.
-// Pin the pair and its complete source inventory before retaining checkout155.
+// Pin the pair and its complete source inventory before retaining checkout155/156.
 export const renderConversationalMemoryCheckoutExtension = Object.freeze([
   Object.freeze({
     migrationName: "000152_memory_automatic_source",
@@ -321,6 +321,9 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  const gatewayAllocationsMigration = catalog.find(
+    (row) => row.migrationName === "000152_review_run_gateway_allocations",
+  );
   const conversationalMemoryMigrations = catalog.filter((row) =>
     renderConversationalMemoryCheckoutExtension.some(
       (extension) => extension.migrationName === row.migrationName,
@@ -338,11 +341,25 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
             renderConversationalMemoryCheckoutExtension[index].checksum,
       ) ||
       manifest(catalog) !==
-        "sha256:142e0ea44ad7c65c9e27e133c2902d35a88c1dcb39c0ea5274059fc81ae2de49"
+        (gatewayAllocationsMigration
+          ? "sha256:b0ce46334153bca9e201a44ccf2b1eecc3a960d7a6fe2465530005099fc490f5"
+          : "sha256:142e0ea44ad7c65c9e27e133c2902d35a88c1dcb39c0ea5274059fc81ae2de49")
     )
       fail("checkout_extension");
     return partitionRenderSchemaHandoffCheckout(
       catalog.filter((row) => !conversationalMemoryMigrations.includes(row)),
+    );
+  }
+  if (gatewayAllocationsMigration) {
+    if (
+      gatewayAllocationsMigration.checksum !==
+        "013e9b1917940ed3a796f8df6fa85a0c9c0cc5a4e76a7b19841911f3ea24bd6d" ||
+      manifest(catalog) !==
+        "sha256:ef2c303008c8edac0df3372f725f374ba417042a6707daf25b69c87897bd1e38"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== gatewayAllocationsMigration),
     );
   }
   // Review history is checkout-only. Pin its SQL and the complete checkout155

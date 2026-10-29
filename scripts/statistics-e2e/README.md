@@ -91,3 +91,39 @@ state and expanded-history captures are additional. Source hashes include the
 changed Reviews surface and helper. Review the saved screenshots before claiming
 visual acceptance. Existing `full` and `authorization-recovery` scenarios retain
 their Statistics behavior.
+
+## Source-to-browser Reviews scenario
+
+Use `STATISTICS_E2E_SCENARIO=history-source` with the same database and browser
+arguments to join the existing production Review Action v2 support harness to
+the real authenticated Reviews page. This bounded scenario creates one PR and
+two genuine manual review requests for the same SHA. It runs real ingress,
+intent dispatch, Action authorization/execution, finalization, publication and
+completion owners, source capture, and the registered History outbox handler.
+The same PostgreSQL rows then feed the actual server-rendered page, protected
+GET adapters, SQL reader, client Refresh and expanded history. It never inserts
+History ledger or projection fixtures directly. GitHub transport, signed OIDC
+minting and provider evidence are synthetic external adapters; this does not
+qualify live GitHub, a live provider, OAuth login or a deployed application.
+
+The scenario asserts queued, running, publishing and receipt-backed completed
+states against persisted source facts, API JSON and the displayed status. A
+duplicate delivery keeps one run. The second genuine request creates a new root,
+keeps one canonical PR row, becomes its latest review, and expands into exactly
+two ordered runs. All three protected GETs enforce private/no-store responses
+and deny a foreign workspace; an authorized different workspace cannot read the
+source PR's runs. Initial and completed SSR use the same source-produced data.
+
+This is a desktop source-continuity check with queued, publishing and expanded
+rerun captures. It adds no UI surface and does not repeat the `history` scenario's
+previously qualified six-viewport/theme matrix, filters, pagination and recovery
+flows. Review the captures separately before claiming visual acceptance.
+`result.json` includes the source/root/execution binding, actual source states,
+processed capture-event counts, and corresponding run API evidence.
+
+The source harness borrows only this run's workspace and cleans only its own
+prefixed resources. It restores global fetch before every browser/server read;
+no database reset or TRUNCATE runs between source and browser phases. The web
+server retains its temporary SELECT-only role. Browser/server shutdown precedes
+source fixture cleanup and the shared identity/workspace/role cleanup. Do not
+run another test process against this disposable database concurrently.

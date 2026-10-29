@@ -96,24 +96,38 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps checkout157 conversational-memory and checkout155 history admission and reviewed checkout154/151/148 separate from historical96 and managed92", () => {
+  it("keeps combined checkout158 and independent checkout157/156/155 admission and reviewed checkout154/151/148 separate from historical96 and managed92", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
-    const checkout157 = names.map((migrationName) => ({
+    const checkout158 = names.map((migrationName) => ({
       migrationName,
       checksum: sha256(
         readFileSync(`${migrationRoot}/${migrationName}/migration.sql`),
       ).slice(7),
     }));
-    expect(checkout157).toHaveLength(157);
-    expect(checkout157.slice(-2)).toEqual(
-      renderConversationalMemoryCheckoutExtension,
+    expect(checkout158).toHaveLength(158);
+    const gatewayAllocationsExtension: Row = {
+      migrationName: "000152_review_run_gateway_allocations",
+      checksum:
+        "013e9b1917940ed3a796f8df6fa85a0c9c0cc5a4e76a7b19841911f3ea24bd6d",
+    };
+    const checkout157 = checkout158.filter(
+      (row) => row.migrationName !== gatewayAllocationsExtension.migrationName,
     );
-    const checkout155 = checkout157.filter(
+    const checkout156 = checkout158.filter(
       (row) =>
         !renderConversationalMemoryCheckoutExtension.some(
           (extension) => extension.migrationName === row.migrationName,
         ),
+    );
+    expect(checkout157).toHaveLength(157);
+    expect(checkout157.slice(-2)).toEqual(
+      renderConversationalMemoryCheckoutExtension,
+    );
+    expect(checkout156).toHaveLength(156);
+    expect(checkout156.at(-1)).toEqual(gatewayAllocationsExtension);
+    const checkout155 = checkout156.filter(
+      (row) => row.migrationName !== gatewayAllocationsExtension.migrationName,
     );
     expect(checkout155).toHaveLength(155);
     const reviewHistoryExtension: Row = {
@@ -202,6 +216,25 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
+    expect(manifest(checkout158)).toBe(
+      "sha256:b0ce46334153bca9e201a44ccf2b1eecc3a960d7a6fe2465530005099fc490f5",
+    );
+    expect(partitionRenderSchemaHandoffCheckout(checkout158)).toEqual(managed);
+    expect(manifest(checkout156)).toBe(
+      "sha256:ef2c303008c8edac0df3372f725f374ba417042a6707daf25b69c87897bd1e38",
+    );
+    expect(partitionRenderSchemaHandoffCheckout(checkout156)).toEqual(managed);
+    for (const catalog of [checkout158, checkout156]) {
+      expect(() =>
+        partitionRenderSchemaHandoffCheckout(
+          catalog.map((row) =>
+            row.migrationName === gatewayAllocationsExtension.migrationName
+              ? { ...row, checksum: "0".repeat(64) }
+              : row,
+          ),
+        ),
+      ).toThrow("checkout_extension");
+    }
     expect(manifest(checkout157)).toBe(
       "sha256:142e0ea44ad7c65c9e27e133c2902d35a88c1dcb39c0ea5274059fc81ae2de49",
     );
@@ -315,7 +348,7 @@ describe("canonical release migration transition", () => {
     expect(manifest(historicalFull)).toBe(
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
-    expect(checkout157).toEqual(readRenderManagedCheckoutInventory());
+    expect(checkout158).toEqual(readRenderManagedCheckoutInventory());
     expect(full.slice(-35).map((row) => row.migrationName)).toEqual([
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",

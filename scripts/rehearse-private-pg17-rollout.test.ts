@@ -1285,6 +1285,7 @@ describe("disposable dual-version rehearsal", () => {
     const currentMigrationNames = migrationNames;
     const legacyMigrationNames = currentMigrationNames.filter(
       (name) =>
+        name !== "000152_review_run_gateway_allocations" &&
         name !== "000152_memory_automatic_source" &&
         name !== "000153_conversation_processing" &&
         name !== "000151_review_history" &&
@@ -1300,7 +1301,7 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000136_review_skills" &&
         name !== "000137_review_skills_capture",
     );
-    expect(currentMigrationNames).toHaveLength(157);
+    expect(currentMigrationNames).toHaveLength(158);
     expect(
       [...currentMigrationNames]
         .sort()
@@ -1337,6 +1338,7 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000144_review_statistics" &&
         name !== "000143_workspace_draft_review_setting" &&
         name !== "000145_workspace_provider_profiles" &&
+        name !== "000152_review_run_gateway_allocations" &&
         name !== "000152_memory_automatic_source" &&
         name !== "000153_conversation_processing" &&
         name !== "000151_review_history" &&
@@ -1405,12 +1407,13 @@ describe("disposable dual-version rehearsal", () => {
     // Strip only the new reviewed tail before comparing the existing published
     // checkout manifests; managed/historical release-policy baselines stay fixed.
     expect(migrationManifestIdentity(currentMigrationNames)).toBe(
-      "sha256:142e0ea44ad7c65c9e27e133c2902d35a88c1dcb39c0ea5274059fc81ae2de49",
+      "sha256:b0ce46334153bca9e201a44ccf2b1eecc3a960d7a6fe2465530005099fc490f5",
     );
     expect(
       migrationManifestIdentity(
         currentMigrationNames.filter(
           (name) =>
+            name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&
             name !== "000153_conversation_processing",
         ),
@@ -1422,6 +1425,7 @@ describe("disposable dual-version rehearsal", () => {
       migrationManifestIdentity(
         currentMigrationNames.filter(
           (name) =>
+            name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&
             name !== "000153_conversation_processing" &&
             name !== "000151_review_history" &&
@@ -1435,6 +1439,7 @@ describe("disposable dual-version rehearsal", () => {
       migrationManifestIdentity(
         currentMigrationNames.filter(
           (name) =>
+            name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&
             name !== "000153_conversation_processing" &&
             name !== "000151_review_history" &&
@@ -1449,6 +1454,7 @@ describe("disposable dual-version rehearsal", () => {
       migrationManifestIdentity(
         currentMigrationNames.filter(
           (name) =>
+            name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&
             name !== "000153_conversation_processing" &&
             name !== "000151_review_history" &&
@@ -1465,6 +1471,7 @@ describe("disposable dual-version rehearsal", () => {
       migrationManifestIdentity(
         currentMigrationNames.filter(
           (name) =>
+            name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&
             name !== "000153_conversation_processing" &&
             name !== "000151_review_history" &&
@@ -1607,6 +1614,7 @@ describe("disposable dual-version rehearsal", () => {
       "000150_skills_catalog_security",
       "000151_review_history",
       "000152_memory_automatic_source",
+      "000152_review_run_gateway_allocations",
       "000153_conversation_processing",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
@@ -1737,6 +1745,7 @@ describe("disposable dual-version rehearsal", () => {
     for (const candidate of [
       names.filter((name) => name !== currentTail),
       names.filter((name) => name !== "000152_memory_automatic_source"),
+      names.filter((name) => name !== "000152_review_run_gateway_allocations"),
       names.filter((name) => name !== "000151_review_history"),
       names.filter(
         (name) => name !== "000149_api_key_repository_secret_profiles",
@@ -1877,6 +1886,7 @@ describe("disposable dual-version rehearsal", () => {
     "000150_skills_catalog_security",
     "000151_review_history",
     "000152_memory_automatic_source",
+    "000152_review_run_gateway_allocations",
     "000153_conversation_processing",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
@@ -1955,6 +1965,7 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000144_review_statistics" &&
                 name !== "000143_workspace_draft_review_setting" &&
                 name !== "000145_workspace_provider_profiles" &&
+                name !== "000152_review_run_gateway_allocations" &&
                 name !== "000152_memory_automatic_source" &&
                 name !== "000153_conversation_processing" &&
                 name !== "000151_review_history" &&

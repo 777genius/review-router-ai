@@ -5,6 +5,11 @@ import {
   type CapturedReviewSkills,
 } from "@reviewrouter/shared/review-skills-contract";
 import {
+  parseReviewReviewerId,
+  reviewerPlanContract,
+} from "@reviewrouter/shared";
+import {
+  getReviewRunReviewer,
   parseReviewRunRuntimeSnapshot,
   type ManageReviewRunAuthorizations,
 } from "@reviewrouter/features-review-run-control";
@@ -12,6 +17,7 @@ import {
 export type ReviewRunSkillsReader = Readonly<{
   read(
     token: string,
+    reviewerId?: string,
   ): Promise<
     | Readonly<{ status: "ready"; capture: CapturedReviewSkills }>
     | Readonly<{ status: "unauthorized" }>
@@ -26,7 +32,7 @@ export function createReviewRunSkillsReader(
   >,
 ): ReviewRunSkillsReader {
   return Object.freeze({
-    async read(token: string) {
+    async read(token: string, reviewerId?: string) {
       const result = await authorizations.resolveReviewRunAuthorizationToken({
         token,
       });
@@ -35,8 +41,17 @@ export function createReviewRunSkillsReader(
       const runtime = parseReviewRunRuntimeSnapshot(
         authorization.runtimeSnapshotCanonicalJson,
       );
+      const agent =
+        runtime?.snapshotVersion === 4
+          ? reviewerId === undefined
+            ? null
+            : getReviewRunReviewer(runtime, reviewerId)?.agentProfile
+          : reviewerId === undefined
+            ? runtime?.agent
+            : null;
       if (
-        runtime?.agent.reviewSkillsVersion !== 1 ||
+        !agent ||
+        agent.reviewSkillsVersion !== 1 ||
         !authorization.skillsSnapshotCanonicalJson
       )
         return { status: "unavailable" as const };
@@ -73,7 +88,17 @@ export async function registerReviewRunSkillsRoute(
       )
         return reply.code(401).send({ error: "authorization_denied" });
       try {
-        const result = await reader.read(header.slice(7));
+        const selector = request.headers[reviewerPlanContract.reviewerIdHeader];
+        let reviewerId: string | undefined;
+        try {
+          reviewerId =
+            selector === undefined
+              ? undefined
+              : parseReviewReviewerId(selector);
+        } catch {
+          return reply.code(400).send({ error: "invalid_request" });
+        }
+        const result = await reader.read(header.slice(7), reviewerId);
         if (result.status === "unauthorized")
           return reply.code(401).send({ error: "authorization_denied" });
         if (result.status === "unavailable")

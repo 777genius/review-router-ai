@@ -1172,6 +1172,7 @@ model ReviewOperationalSloProfileV2 {
 }
 
 model ProducerRelease {
+  reviewerPlanProfile                    Json?
   contextToolsProfile                     Json?
   prDescriptionProfile                    Json?
   lifecycleVerificationProfile            Json?
@@ -1279,6 +1280,7 @@ model ReviewSafetyEmergencyControl {
 }
 
 model ReviewRunAuthorization {
+  gatewayAllocationExecutions ReviewRunGatewayAllocationExecution[]
   authorizationId                                         String                        @id
   version                                                 Int                           @default(1)
   workspaceId                                             String
@@ -1320,6 +1322,18 @@ model ReviewRunAuthorization {
   @@unique([workspaceId, repositoryConnectionId, scmRepositoryIdentityId, sourceRunId, sourceRunAttempt, protocolOfferHash])
   @@index([repositoryConnectionId, pullRequestNumber, state, expiresAt])
   @@index([producerReleaseId, state])
+}
+
+model ReviewRunGatewayAllocationExecution {
+  authorizationId String
+  allocationId String
+  gatewayExecutionCanonicalJson String
+  createdAt DateTime @default(now())
+  cleanupCompletedAt DateTime?
+  authorization ReviewRunAuthorization @relation(fields: [authorizationId], references: [authorizationId], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([authorizationId, allocationId])
+  @@index([cleanupCompletedAt, authorizationId])
 }
 
 model ReviewRunAuthorizationRenewalReceipt {

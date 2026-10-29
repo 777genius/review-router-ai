@@ -22,9 +22,17 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it.each(["unchanged", "binding", "model"] as const)(
-  "checks the actual current selected configuration at publication claim: %s",
-  async (change) => {
+it.each([
+  { change: "unchanged", multiple: false },
+  { change: "binding", multiple: false },
+  { change: "model", multiple: false },
+  { change: "unchanged", multiple: true },
+  { change: "binding", multiple: true },
+  { change: "model", multiple: true },
+  { change: "secondary", multiple: true },
+] as const)(
+  "checks primary companion authority at publication: $change, multiple=$multiple",
+  async ({ change, multiple }) => {
     const boundAt = new Date("2026-10-28T01:00:00.000Z");
     const provider = {
       kind: "codex",
@@ -35,13 +43,27 @@ it.each(["unchanged", "binding", "model"] as const)(
       agenticContext: false,
       fastMode: false,
     };
-    const configuration = (selected: typeof provider) => ({
+    const configuration = (
+      selected: typeof provider,
+      secondaryModel = "secondary-model",
+    ) => ({
       config: parseReviewConfigurationStrict({
         schemaVersion: 3,
-        providers: [selected],
+        providers: [
+          selected,
+          ...(multiple
+            ? [
+                {
+                  ...provider,
+                  gatewayBindingId: "binding_secondary",
+                  model: secondaryModel,
+                },
+              ]
+            : []),
+        ],
         execution: {
-          providerLimit: 1,
-          providerMaxParallel: 1,
+          providerLimit: multiple ? 2 : 1,
+          providerMaxParallel: multiple ? 2 : 1,
           inlineMinAgreement: 1,
         },
         blockingPolicy: { failOnSeverity: "critical" },
@@ -58,14 +80,17 @@ it.each(["unchanged", "binding", "model"] as const)(
       }),
     });
     const captured = configuration(provider);
-    const current = configuration({
-      ...provider,
-      ...(change === "binding"
-        ? { gatewayBindingId: "binding_new" }
-        : change === "model"
-          ? { model: "new-selected-model" }
-          : {}),
-    });
+    const current = configuration(
+      {
+        ...provider,
+        ...(change === "binding"
+          ? { gatewayBindingId: "binding_new" }
+          : change === "model"
+            ? { model: "new-selected-model" }
+            : {}),
+      },
+      change === "secondary" ? "changed-secondary-model" : "secondary-model",
+    );
     const read = vi
       .spyOn(
         PrismaActionControlPlaneRepository.prototype,
@@ -173,6 +198,8 @@ function dynamicModelFixture(
     expiresAt?: string;
     large?: boolean;
     oversized?: boolean;
+    multiple?: boolean;
+    primaryUnavailable?: boolean;
   } = {},
 ) {
   const profileId = "openrouter-openai-responses-apikey-v1";
@@ -212,7 +239,7 @@ function dynamicModelFixture(
       metadataRevision: 1,
     },
   };
-  const config = parseReviewConfigurationStrict({
+  let config = parseReviewConfigurationStrict({
     ...workspacePolicyFixture,
     providers: [
       {
@@ -224,16 +251,33 @@ function dynamicModelFixture(
         agenticContext: false,
         fastMode: false,
       },
+      ...(options.multiple
+        ? [
+            {
+              kind: "codex",
+              authMode: "codex_account_gateway",
+              gatewayBindingId: "binding_secondary",
+              gatewayProfileRef: profileId,
+              model: "vendor/secondary-model",
+              agenticContext: false,
+              fastMode: false,
+            },
+          ]
+        : []),
     ],
+    execution: {
+      ...workspacePolicyFixture.execution,
+      providerLimit: options.multiple ? 2 : 1,
+      providerMaxParallel: options.multiple ? 2 : 1,
+    },
   });
   vi.spyOn(
     PrismaActionControlPlaneRepository.prototype,
     "findRuntimeReviewConfiguration",
-  ).mockResolvedValue({ config } as never);
-  vi.spyOn(
-    PrismaProviderAccountRepository.prototype,
-    "findBinding",
-  ).mockResolvedValue(selection);
+  ).mockImplementation(async () => ({ config }) as never);
+  const bindingReads = vi
+    .spyOn(PrismaProviderAccountRepository.prototype, "findBinding")
+    .mockResolvedValue(options.primaryUnavailable ? null : selection);
   const transaction = {
     $queryRaw: async () => [],
     workspaceAccountBinding: {
@@ -378,6 +422,13 @@ function dynamicModelFixture(
     fetch,
     model,
     catalogBytes: Buffer.byteLength(catalogJson),
+    bindingReads,
+    reorder: () => {
+      config = parseReviewConfigurationStrict({
+        ...config,
+        providers: [...config.providers].reverse(),
+      });
+    },
     capture: () =>
       policy.capture(identity, "processing_probe", {
         deadlineAt: new Date(Date.now() + 30_000),
@@ -449,4 +500,37 @@ it("keeps the SDK account catalog response bounded at 2MiB", async () => {
     { oversized: true },
   );
   await expect(f.capture()).rejects.toThrow("unavailable");
+});
+
+it("uses only the primary reviewer's existing account/model in a multi-reviewer conversation", async () => {
+  const f = dynamicModelFixture(
+    { REVIEW_ROUTER_ACCOUNT_MODEL_CATALOG_ENABLED: "1" },
+    { multiple: true },
+  );
+  const policy = await f.capture();
+  expect(policy.bindingManifest).toMatchObject({
+    bindingId: "binding_probe",
+    model: f.model,
+  });
+  expect(
+    await policy.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
+  ).toBe(true);
+  expect(f.bindingReads.mock.calls.length).toBeGreaterThan(0);
+  for (const [selection] of f.bindingReads.mock.calls)
+    expect(selection.bindingId).toBe("binding_probe");
+  f.reorder();
+  expect(
+    await policy.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
+  ).toBe(false);
+});
+
+it("does not silently spend a secondary account when the primary reviewer is unavailable", async () => {
+  const f = dynamicModelFixture(
+    { REVIEW_ROUTER_ACCOUNT_MODEL_CATALOG_ENABLED: "1" },
+    { multiple: true, primaryUnavailable: true },
+  );
+  await expect(f.capture()).rejects.toThrow();
+  expect(f.bindingReads).toHaveBeenCalledTimes(1);
+  expect(f.bindingReads.mock.calls[0]![0].bindingId).toBe("binding_probe");
+  expect(f.fetch).not.toHaveBeenCalled();
 });

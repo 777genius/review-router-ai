@@ -173,3 +173,27 @@ staging/production status or supplies live activation evidence.
 The [security refinement](../plans/2026-10-29-memory-source-authority.md) is part of the same source delivery. It adds no migration or service. Deploy API/worker/web and the portable package coherently; native selection now sees only the eligible source revision, while replies retain the complete thread. Model-proposed create/update/retire/forget/relearn actions require the exact standalone human maintainer confirmation, binding text, kind, target and revision. Test both the no-effect proposal and actual authored confirmation through the installed App before activation.
 
 Use actual selected models to evaluate source-only quotation/negation fidelity and contextual abstention. Existing full-thread semantic scores are not evidence for this input contract. Keep the existing protected corpus and thresholds unchanged and report any recall or clarification differences rather than fabricating a pass. Physical Forget remains subject to the existing operator cleanup procedure. Staging and production remain pending; this source repair does not provide deployment or live-model evidence.
+
+## Concurrent Gateway integration
+
+The source integration with Gateway multi-reviewers preserves all three exact
+checkout migrations: `000152_memory_automatic_source`,
+`000152_review_run_gateway_allocations` and `000153_conversation_processing`.
+Migration identities are complete directory names, not their numeric prefixes;
+no SQL bytes or previously applied ledger names are rewritten. The combined
+158-file checkout is independently pinned to SHA-256
+`b0ce46334153bca9e201a44ccf2b1eecc3a960d7a6fe2465530005099fc490f5`.
+Existing reviewed 157/156/155 checkout and managed92/historical96 boundaries
+remain admitted only under their original exact manifests.
+
+Conversation inference and publication use the first/primary configured Gateway
+reviewer, matching V4 companion tasks. Every roster revision remains part of the
+captured configuration digest. Reordering, changing any selection, or losing the
+primary account invalidates admission; no silent secondary-account fallback is
+introduced. Verify this with a disposable two-reviewer repository during the
+existing App-first deployment check. Mixed authentication remains outside this
+profile. Both paired CI workflows select the existing integrated Action producer
+`99776cd79a9d783cd3d3ab2ea349dd61096a992e`; candidate verification is not release
+registration. The source-authority confirmation and source-only extraction
+refinements above remain mandatory, as do live qualification and truthful
+per-environment deployment status.

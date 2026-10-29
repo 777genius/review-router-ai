@@ -102,9 +102,9 @@ describe.skipIf(!enabled)(
         const names = (await readdir(migrations))
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
-        // Replay every current migration, including conversational memory.
-        expect(names).toHaveLength(157);
-        expect(names.slice(-20)).toEqual([
+        // Replay every current migration, including memory and Gateway allocations.
+        expect(names).toHaveLength(158);
+        expect(names.slice(-21)).toEqual([
           "000136_review_skills",
           "000137_review_skills_capture",
           "000138_pr_description",
@@ -124,6 +124,7 @@ describe.skipIf(!enabled)(
           "000150_skills_catalog_security",
           "000151_review_history",
           "000152_memory_automatic_source",
+          "000152_review_run_gateway_allocations",
           "000153_conversation_processing",
         ]);
         let legacyBefore: unknown;

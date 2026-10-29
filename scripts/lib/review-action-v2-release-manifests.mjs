@@ -1,4 +1,8 @@
 import {
+  parseProducerReviewerPlanReleaseProfile,
+  bindProducerReviewerPlanReleaseProfile,
+} from "./review-reviewer-plan-release-profile.ts";
+import {
   bindLifecycleVerificationReleaseProfile,
   parseLifecycleVerificationReleaseProfile,
 } from "./review-lifecycle-release-profile.ts";
@@ -280,6 +284,9 @@ export function parseProtocolGenerationManifest(raw) {
       );
     }
   }
+  const reviewerPlanProfile = Object.hasOwn(value, "reviewerPlanProfile")
+    ? parseProducerReviewerPlanReleaseProfile(value.reviewerPlanProfile)
+    : undefined;
   const contextToolsProfile = Object.hasOwn(value, "contextToolsProfile")
     ? parseContextToolsReleaseProfile(
         value.contextToolsProfile,
@@ -299,6 +306,7 @@ export function parseProtocolGenerationManifest(raw) {
       ? {}
       : { lifecycleVerificationProfile }),
     ...(contextToolsProfile === undefined ? {} : { contextToolsProfile }),
+    ...(reviewerPlanProfile === undefined ? {} : { reviewerPlanProfile }),
     ...(prDescriptionProfile === undefined ? {} : { prDescriptionProfile }),
     protocolVersion: value.protocolVersion,
     schemaDigest: value.schemaDigest,
@@ -387,6 +395,14 @@ export function buildReleaseManifest(input) {
       : {
           lifecycleVerificationProfile: bindLifecycleVerificationReleaseProfile(
             input.lifecycleVerificationProfile,
+            handoff.generatedFileDigests,
+          ),
+        }),
+    ...(input.reviewerPlanProfile === undefined
+      ? {}
+      : {
+          reviewerPlanProfile: bindProducerReviewerPlanReleaseProfile(
+            input.reviewerPlanProfile,
             handoff.generatedFileDigests,
           ),
         }),
@@ -494,6 +510,9 @@ export function parseReleaseManifest(raw) {
       ...(Object.hasOwn(value, "lifecycleVerificationProfile")
         ? ["lifecycleVerificationProfile"]
         : []),
+      ...(Object.hasOwn(value, "reviewerPlanProfile")
+        ? ["reviewerPlanProfile"]
+        : []),
       ...(Object.hasOwn(value, "contextToolsProfile")
         ? ["contextToolsProfile"]
         : []),
@@ -561,6 +580,14 @@ export function parseReleaseManifest(raw) {
     );
   }
   const base = {
+    ...(Object.hasOwn(value, "reviewerPlanProfile")
+      ? {
+          reviewerPlanProfile: bindProducerReviewerPlanReleaseProfile(
+            value.reviewerPlanProfile,
+            handoff.generatedFileDigests,
+          ),
+        }
+      : {}),
     ...(Object.hasOwn(value, "lifecycleVerificationProfile")
       ? {
           lifecycleVerificationProfile: bindLifecycleVerificationReleaseProfile(
@@ -669,6 +696,9 @@ export function buildReleaseRegistrationCandidateFields(input) {
       : {
           lifecycleVerificationProfile: manifest.lifecycleVerificationProfile,
         }),
+    ...(manifest.reviewerPlanProfile === undefined
+      ? {}
+      : { reviewerPlanProfile: manifest.reviewerPlanProfile }),
     ...(manifest.contextToolsProfile === undefined
       ? {}
       : { contextToolsProfile: manifest.contextToolsProfile }),

@@ -35,6 +35,23 @@ import { readReviewRunGatewayRelayPolicy } from "./review-run-gateway-relay.js";
 import { readServerApprovedReviewRunGatewayPolicy } from "./review-run-runtime-snapshot.js";
 import { createConversationGatewayInference } from "./action-conversation-inference.js";
 
+/** Companion conversations follow the first/primary reviewer, as other V4 companions do.
+ * Never silently select a later account or reinterpret a mixed-auth roster.
+ */
+function primaryConversationProvider(
+  configuration: ReturnType<typeof parseReviewConfigurationStrict>,
+) {
+  const primary = configuration.providers[0];
+  if (
+    primary?.authMode !== "codex_account_gateway" ||
+    configuration.providers.some(
+      (provider) => provider.authMode !== "codex_account_gateway",
+    )
+  )
+    throw new ConversationError("unavailable");
+  return primary;
+}
+
 /** Completion of the original admitted model request; no recall, model capture or paid grant. */
 export function createConversationPublicationAuthority(input: {
   readonly prisma: PrismaClient;
@@ -125,10 +142,8 @@ export function createConversationPublicationAuthority(input: {
       )
         return false;
       const configuration = parseReviewConfigurationStrict(current.config);
-      const provider = configuration.providers[0];
+      const provider = primaryConversationProvider(configuration);
       if (
-        configuration.providers.length !== 1 ||
-        provider?.authMode !== "codex_account_gateway" ||
         provider.gatewayBindingId !== captured.bindingId ||
         provider.gatewayProfileRef !== captured.profileRef ||
         provider.model !== captured.model
@@ -268,12 +283,7 @@ export function createConversationPolicy(input: {
         );
         if (!before) throw new ConversationError("unavailable");
         const configuration = parseReviewConfigurationStrict(before.config);
-        if (
-          configuration.providers.length !== 1 ||
-          configuration.providers[0]?.authMode !== "codex_account_gateway"
-        )
-          throw new ConversationError("unavailable");
-        const provider = configuration.providers[0];
+        const provider = primaryConversationProvider(configuration);
         await lockProviderAccountBindingUses(
           tx,
           identity.workspaceId,

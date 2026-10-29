@@ -11,6 +11,8 @@ export interface ReviewRunSkillsSnapshotPort {
   capture(input: {
     readonly identity: VerifiedScmRunIdentity;
     readonly agent: ReviewAgentProfile | null;
+    /** Every captured engine must support the selected shared content. */
+    readonly agents?: readonly ReviewAgentProfile[];
   }): Promise<
     | Readonly<{ canonicalJson: string | null }>
     | Readonly<{ captureDenied: ReviewRunSkillsCaptureDenial }>
