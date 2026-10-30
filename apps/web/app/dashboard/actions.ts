@@ -31,7 +31,6 @@ import {
   type RepositoryReviewSettings,
   type ResolvedReviewRuntimeEnv,
   type ReviewConfiguration,
-  type SavedReviewPolicy,
 } from "@reviewrouter/features-review-config";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import { resolveApprovedSecretsRuntimeActionRef } from "../../src/server/workflow-provisioning/approved-secrets-action-ref";
@@ -2943,6 +2942,7 @@ async function saveWorkspaceReviewConfigMutation(
         actor: dashboardProviderActor(actor),
         settings: readWorkspaceReviewSettingsForm(formData),
         expectedVersion: readReviewPolicyExpectedVersion(formData),
+        auditMetadata: dashboardMutationAccessAuditMetadata(actor),
       },
       dashboardSelectionDependencies({
         prisma,
@@ -2955,22 +2955,6 @@ async function saveWorkspaceReviewConfigMutation(
             await assertDashboardMutationAllowed(workspaceId),
           ),
       }),
-    );
-
-    await recordAuditEvent(
-      {
-        workspaceId,
-        actor: actor.actor,
-        action: "review_config.saved",
-        targetType: "workspace",
-        targetId: workspaceId,
-        metadata: {
-          version: saved.version,
-          ...savedReviewConfigAuditMetadata(saved),
-          ...dashboardMutationAccessAuditMetadata(actor),
-        },
-      },
-      { auditLog: new PrismaAuditLogRepository(prisma) },
     );
 
     params = {
@@ -3085,6 +3069,10 @@ async function saveRepositoryReviewSettingsMutation(
         },
         settings,
         expectedVersion: readReviewPolicyExpectedVersion(formData),
+        auditMetadata: {
+          repository: repository.fullName,
+          ...dashboardMutationAccessAuditMetadata(actor),
+        },
       },
       dashboardSelectionDependencies({
         prisma,
@@ -3110,23 +3098,6 @@ async function saveRepositoryReviewSettingsMutation(
     );
     const cleared = Object.keys(settings).length === 0;
 
-    await recordAuditEvent(
-      {
-        workspaceId,
-        actor: actor.actor,
-        action: cleared ? "review_config.cleared" : "review_config.saved",
-        targetType: "repository",
-        targetId: repositoryId,
-        metadata: {
-          repository: repository.fullName,
-          version: saved.version,
-          ...savedReviewConfigAuditMetadata(saved),
-          ...dashboardMutationAccessAuditMetadata(actor),
-        },
-      },
-      { auditLog: new PrismaAuditLogRepository(prisma) },
-    );
-
     params = {
       notice: cleared
         ? "repository_review_config_cleared"
@@ -3139,25 +3110,6 @@ async function saveRepositoryReviewSettingsMutation(
   }
 
   return params;
-}
-
-/** What a settings save reviews with now, without any secret or reference. */
-function savedReviewConfigAuditMetadata(
-  saved: SavedReviewPolicy,
-): Record<string, string | boolean> {
-  const config = saved.configuration?.config;
-  const provider = config?.providers[0];
-  return {
-    providerSelected: provider !== undefined,
-    ...(provider
-      ? {
-          providerKind: provider.kind,
-          authMode: provider.authMode,
-          model: provider.model,
-        }
-      : {}),
-    ...(config ? { failOnSeverity: config.blockingPolicy.failOnSeverity } : {}),
-  };
 }
 
 export async function retryOutboxEventAction(

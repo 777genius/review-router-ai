@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { assertDashboardWorkspaceAdminAllowed } from "../../../../../src/server/dashboard-mutations";
+import { assertDashboardWorkspaceAdminMutationAllowed } from "../../../../../src/server/dashboard-mutations";
 import { installGitLabConnectProjects } from "../../../../../src/server/gitlab-connect";
 
 const bodySchema = z
@@ -15,7 +15,9 @@ const bodySchema = z
 export async function POST(request: Request): Promise<NextResponse> {
   try {
     const body = bodySchema.parse(await request.json());
-    const actor = await assertDashboardWorkspaceAdminAllowed(body.workspaceId);
+    const actor = await assertDashboardWorkspaceAdminMutationAllowed(
+      body.workspaceId,
+    );
     const result = await installGitLabConnectProjects({
       ...body,
       installedByUserId: actor.userId,
