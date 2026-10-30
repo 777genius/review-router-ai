@@ -234,6 +234,10 @@ import {
   isSetupRecoveryIssue,
   orgRulesetErrorText,
   orgRulesetStatusTone,
+  repositoryAccessPresentation,
+  repositoryAccessErrorPresentation,
+  repositoryWorkflowUpdateCopy,
+  repositoryWorkflowVerificationCopy,
 } from "./dashboard-copy";
 import {
   SourceProviderLabel,
@@ -1486,7 +1490,11 @@ function DashboardEmptyAccessState({
   readonly githubAvatarUrl: string | null;
   readonly appInstallUrl: string | null;
 }): React.ReactElement {
-  const copy = dashboardRepositoryAccessEmptyCopy(repositoryAccess.status);
+  const copy = repositoryAccessPresentation(
+    repositoryAccess.status,
+    repositoryAccess.errorCode,
+    "empty",
+  );
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6 md:py-10">
@@ -1508,13 +1516,13 @@ function DashboardEmptyAccessState({
           <p className="text-sm leading-6 text-slate-300 sm:text-base">
             {copy.body}
           </p>
-          {repositoryAccess.errorCode ? (
-            <p className="text-xs leading-5 text-slate-500">
-              Status: <code>{repositoryAccess.errorCode}</code>
-            </p>
-          ) : null}
         </div>
         <div className="mt-6 flex flex-wrap gap-3">
+          {copy.actionUrl ? (
+            <LinkButton href={copy.actionUrl} size="lg" className="rounded-2xl">
+              {copy.actionLabel}
+            </LinkButton>
+          ) : null}
           {copy.reconnect ? (
             <GitHubSignInButton
               callbackUrl="/dashboard"
@@ -1528,15 +1536,19 @@ function DashboardEmptyAccessState({
           <ConnectSourceDialog
             appInstallUrl={appInstallUrl}
             triggerLabel="Connect source"
-            triggerVariant={copy.reconnect ? "outline" : "solid"}
+            triggerVariant={
+              copy.reconnect || copy.actionUrl ? "outline" : "solid"
+            }
             triggerSize="lg"
             triggerClassName="rounded-2xl"
           />
-          <RepositoryAccessRefreshForm
-            triggerLabel="Refresh GitHub access"
-            size="lg"
-            className="rounded-2xl"
-          />
+          {copy.canRefresh ? (
+            <RepositoryAccessRefreshForm
+              triggerLabel="Refresh GitHub access"
+              size="lg"
+              className="rounded-2xl"
+            />
+          ) : null}
         </div>
       </section>
     </main>
@@ -1589,23 +1601,38 @@ function RepositoryAccessRefreshNotice({
   readonly workspaceKey: string;
   readonly selectedSection: DashboardSection;
 }): React.ReactElement {
-  const copy = repositoryAccessNoticeCopy(repositoryAccess.status);
+  const copy = repositoryAccessPresentation(
+    repositoryAccess.status,
+    repositoryAccess.errorCode,
+  );
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-200/10 bg-slate-950/60 p-4">
+    <section
+      aria-label="GitHub repository access"
+      className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-200/10 bg-slate-950/60 p-4"
+    >
       <div className="min-w-0">
         <Badge tone={copy.tone}>{copy.badge}</Badge>
         <p className="mt-2 text-sm font-semibold leading-6 text-cyan-50">
           {copy.title}
         </p>
         <p className="mt-2 text-sm leading-6 text-slate-300">{copy.body}</p>
-        <p className="mt-1 text-xs leading-5 text-slate-500">
-          {repositoryAccess.checkedAt
-            ? `Last checked ${repositoryAccess.checkedAt.toISOString()}`
-            : "Access has not been cached yet."}
-        </p>
+        {repositoryAccess.checkedAt ? (
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            Last checked {repositoryAccess.checkedAt.toISOString()}
+          </p>
+        ) : null}
       </div>
       <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+        {copy.actionUrl ? (
+          <LinkButton
+            href={copy.actionUrl}
+            size="sm"
+            className="w-full sm:w-auto"
+          >
+            {copy.actionLabel}
+          </LinkButton>
+        ) : null}
         {copy.reconnect ? (
           <GitHubSignInButton
             callbackUrl={dashboardSectionHref(selectedSection, workspaceKey)}
@@ -1616,133 +1643,17 @@ function RepositoryAccessRefreshNotice({
             Reconnect GitHub
           </GitHubSignInButton>
         ) : null}
-        <RepositoryAccessRefreshForm
-          workspaceKey={workspaceKey}
-          section={selectedSection}
-          triggerLabel="Refresh GitHub access"
-          className="w-full sm:w-auto"
-        />
+        {copy.canRefresh ? (
+          <RepositoryAccessRefreshForm
+            workspaceKey={workspaceKey}
+            section={selectedSection}
+            triggerLabel="Refresh GitHub access"
+            className="w-full sm:w-auto"
+          />
+        ) : null}
       </div>
-    </div>
+    </section>
   );
-}
-
-function repositoryAccessNoticeCopy(status: GitHubUserRepositoryAccessStatus): {
-  readonly badge: string;
-  readonly title: string;
-  readonly body: string;
-  readonly reconnect: boolean;
-  readonly tone: "accent" | "warning";
-} {
-  if (status === "token_missing") {
-    return {
-      badge: "GitHub reconnect required",
-      title: "Signed in, but repository discovery is not connected yet.",
-      body: "Reconnect GitHub once so ReviewRouter can discover installed organization repositories where your GitHub role has write, maintain, or admin access.",
-      reconnect: true,
-      tone: "warning",
-    };
-  }
-  if (
-    status === "token_revoked" ||
-    status === "token_expired" ||
-    status === "token_refresh_failed" ||
-    status === "token_decryption_failed"
-  ) {
-    return {
-      badge: "GitHub authorization expired",
-      title: "Reconnect GitHub to refresh repository access.",
-      body: "Your GitHub authorization is no longer usable for repository discovery. Reconnecting updates the token without asking for provider secrets.",
-      reconnect: true,
-      tone: "warning",
-    };
-  }
-  if (status === "token_encryption_misconfigured") {
-    return {
-      badge: "Configuration required",
-      title: "Repository discovery is not enabled yet.",
-      body: "Server token encryption is not configured, so repo-scoped discovery cannot store GitHub user tokens safely.",
-      reconnect: false,
-      tone: "warning",
-    };
-  }
-  if (status === "github_error") {
-    return {
-      badge: "GitHub access",
-      title: "GitHub repository access could not be refreshed.",
-      body: "Try refreshing access again shortly. Existing workspace access still works, but repo-scoped organizations may be missing until GitHub discovery succeeds.",
-      reconnect: false,
-      tone: "warning",
-    };
-  }
-
-  return {
-    badge: "GitHub access",
-    title: "Repository access is scoped by GitHub permissions.",
-    body: "Repository visibility comes from your GitHub App authorization and is limited to repos where your GitHub role has write, maintain, or admin access.",
-    reconnect: false,
-    tone: "accent",
-  };
-}
-
-function dashboardRepositoryAccessEmptyCopy(
-  status: GitHubUserRepositoryAccessStatus,
-): {
-  readonly badge: string;
-  readonly title: string;
-  readonly body: string;
-  readonly reconnect: boolean;
-  readonly tone: "accent" | "warning" | "success";
-} {
-  if (status === "token_missing") {
-    return {
-      badge: "GitHub reconnect required",
-      title: "Reconnect GitHub to show repositories you can manage.",
-      body: "ReviewRouter needs the GitHub App user authorization from your sign-in to discover installed repositories where you have write, maintain, or admin access.",
-      reconnect: true,
-      tone: "warning",
-    };
-  }
-  if (
-    status === "token_revoked" ||
-    status === "token_expired" ||
-    status === "token_refresh_failed" ||
-    status === "token_decryption_failed"
-  ) {
-    return {
-      badge: "GitHub authorization expired",
-      title: "Reconnect GitHub to refresh repository access.",
-      body: "Your GitHub authorization is no longer usable for repository discovery. Reconnecting updates the token without asking for provider secrets.",
-      reconnect: true,
-      tone: "warning",
-    };
-  }
-  if (status === "token_encryption_misconfigured") {
-    return {
-      badge: "Configuration required",
-      title: "Repository discovery is not enabled yet.",
-      body: "Set REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY so ReviewRouter can store GitHub user tokens encrypted at rest. Until then, workspace admins can still use the dashboard, but maintainer repository discovery is disabled.",
-      reconnect: false,
-      tone: "warning",
-    };
-  }
-  if (status === "github_error") {
-    return {
-      badge: "GitHub API unavailable",
-      title: "Repository access could not be refreshed.",
-      body: "GitHub did not return the installation repository list. Retry in a moment; ReviewRouter will not expand access while the check is unavailable.",
-      reconnect: false,
-      tone: "warning",
-    };
-  }
-
-  return {
-    badge: "No repositories found",
-    title: "No connected repositories found.",
-    body: "Connect GitHub repositories, then return to the dashboard to finish setup. GitLab is in development and not available yet.",
-    reconnect: false,
-    tone: "accent",
-  };
 }
 
 export function WorkspaceCard({
@@ -2996,6 +2907,10 @@ function RepositoryTable({
                             disclosureId={setupDisclosureId}
                             currentStep={setupProgressStep}
                             runtimeCompatibility={runtimeCompatibility}
+                            runtimeVerificationNeeded={
+                              runtimeCompatibility === "unknown" &&
+                              repository.setupStatus === "configured"
+                            }
                             gatewayReviewV2Ready={isGatewayReviewV2RepositoryReady(
                               gatewayReadiness.get(repository.id),
                             )}
@@ -3016,7 +2931,7 @@ function RepositoryTable({
                               className="mb-3 text-sm leading-6 text-amber-200"
                               role="status"
                             >
-                              Update setup to use the current review runtime.
+                              {repositoryWorkflowUpdateCopy.status}
                             </p>
                           ) : runtimeCompatibility === "unknown" &&
                             repository.setupStatus === "configured" ? (
@@ -3024,8 +2939,7 @@ function RepositoryTable({
                               className="mb-3 text-sm leading-6 text-slate-400"
                               role="status"
                             >
-                              Review runtime support is not confirmed yet.
-                              Verify setup before the next review.
+                              {repositoryWorkflowVerificationCopy.status}
                             </p>
                           ) : null}
                           <RepositorySetupProgressPanel
@@ -3804,11 +3718,14 @@ function DashboardActionToast({
   const prUrl = safeGitHubDashboardLink(readParam(params.pr)) ?? undefined;
 
   if (error) {
+    const access = repositoryAccessErrorPresentation(error);
     return (
       <ActionToast
         tone="danger"
-        title="Action needs attention"
+        title={access?.title ?? "Action needs attention"}
         body={dashboardErrorText(error)}
+        actionUrl={access?.actionUrl}
+        actionLabel={access?.actionLabel}
         clearUrlSearchParams={dashboardErrorToastSearchParams}
         setUrlSearchParams={{ section: selectedSection }}
       />

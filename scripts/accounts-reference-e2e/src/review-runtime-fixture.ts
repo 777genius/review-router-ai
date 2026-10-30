@@ -88,6 +88,26 @@ export async function seedReviewRuntimeFixtures(
     await db.query(
       `UPDATE "GitHubInstallation" SET status='active' WHERE id='rr-e2e-install-personal-viewer'`,
     );
+    // A successful read-only cache observation exercises real discovery reads
+    // without granting the viewer access to this foreign workspace/repository.
+    // Workspace-wide IDs are excluded by the reader, so this observation must
+    // live outside the viewer's existing memberships. No live GitHub call runs.
+    await db.query(
+      `INSERT INTO "GitHubInstallation" (id,"workspaceId","githubInstallationId","accountLogin","accountType","repositorySelection",status,"updatedAt") VALUES ('rr-e2e-runtime-install-foreign',$1,950000000100,$2,'User','selected','active',CURRENT_TIMESTAMP)`,
+      [FIXTURES.workspaces.personalForeign, FIXTURES.identities.foreign.login],
+    );
+    await db.query(
+      `INSERT INTO "RepositoryConnection" (id,"workspaceId",provider,"externalRepositoryId","installationId","githubRepositoryId",owner,name,"fullName","defaultBranch",visibility,selected,archived,"setupStatus","updatedAt") VALUES ('rr-e2e-runtime-foreign',$1,'github','runtime-foreign','rr-e2e-runtime-install-foreign',950000000100,$2,'runtime-foreign',$3,'main','private',true,false,'not_configured',CURRENT_TIMESTAMP)`,
+      [
+        FIXTURES.workspaces.personalForeign,
+        FIXTURES.identities.foreign.login,
+        `${FIXTURES.identities.foreign.login}/runtime-foreign`,
+      ],
+    );
+    await db.query(
+      `INSERT INTO "RepositoryPermissionCache" (id,"userId","repositoryId","githubInstallationId",permission,"roleName","canManage","checkedAt","expiresAt","updatedAt") VALUES ('rr-e2e-runtime-readonly-observation',$1,'rr-e2e-runtime-foreign',950000000100,'read','read',false,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP+interval '15 minutes',CURRENT_TIMESTAMP)`,
+      [FIXTURES.users.viewer],
+    );
     await db.query(
       `INSERT INTO "ReviewProtocolLimitsV2" ("protocolLimitsProfileId","limitsDigest","maxWorkSlots","maxAttemptsPerSlot","maxObservationBytes","maxObservationFindings","maxProjectionBytes","maxProjectionFindings","maxPublicationOperations","maxPublicationChunks","maxPublicationBodyBytes","maxRequestBatchSize","maxLeaseDurationMs","maxResultReportDurationMs","maxReconciliationDurationMs","registeredAt") VALUES ($1,$2,1,1,1024,1,1024,1,1,1,1024,1,1000,2000,3000,CURRENT_TIMESTAMP)`,
       [release.protocolLimitsProfileId, "1".repeat(64)],

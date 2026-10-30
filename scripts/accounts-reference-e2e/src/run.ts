@@ -1,12 +1,3 @@
-import { seedSkillsFixtures } from "./skills-fixtures.ts";
-import { warmNextClientScripts } from "./warm-next-client-scripts.ts";
-import { seedReviewRuntimeFixtures } from "./review-runtime-fixture.ts";
-import { startSkillCatalogFixture } from "./skill-catalog-fixture.ts";
-import { seedSkillsReadinessFixtures } from "./skills-readiness-fixture.ts";
-import {
-  startSkillsGitHubFixture,
-  SKILLS_MANAGER_EXTERNAL_ID,
-} from "./skills-github-fixture.ts";
 import { execFile } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { cpus, freemem, totalmem } from "node:os";
@@ -15,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { parseCliOptions } from "./cli.ts";
+import { readSourceRevision } from "./source-revision.ts";
+import { warmNextClientScripts } from "./warm-next-client-scripts.ts";
 import {
   BASELINE_REVISION,
   REVIEW_RUNTIME_FIXTURE_BOUNDARY,
@@ -29,10 +22,6 @@ import {
   type FixtureSecrets,
   type RuntimeDescriptor,
 } from "./contracts.ts";
-import { createDatabaseFixture } from "./database.ts";
-import { startGatewayFixture } from "./gateway-fixture.ts";
-import { startNextApp } from "./app.ts";
-import { createSessionCookie, otherIdentity, viewerIdentity } from "./auth.ts";
 
 const execFileAsync = promisify(execFile);
 const harnessRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -63,8 +52,32 @@ async function main(): Promise<void> {
                   ? PROBE_FIXTURE_BOUNDARY
                   : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
   const options = parseCliOptions(process.argv);
+  const revision = await readSourceRevision(
+    options.repoRoot,
+    options.expectedRevision,
+  );
+  const [
+    { seedSkillsFixtures },
+    { seedReviewRuntimeFixtures },
+    { startSkillCatalogFixture },
+    { seedSkillsReadinessFixtures },
+    { startSkillsGitHubFixture, SKILLS_MANAGER_EXTERNAL_ID },
+    { createDatabaseFixture },
+    { startGatewayFixture },
+    { startNextApp },
+    { createSessionCookie, otherIdentity, viewerIdentity },
+  ] = await Promise.all([
+    import("./skills-fixtures.ts"),
+    import("./review-runtime-fixture.ts"),
+    import("./skill-catalog-fixture.ts"),
+    import("./skills-readiness-fixture.ts"),
+    import("./skills-github-fixture.ts"),
+    import("./database.ts"),
+    import("./gateway-fixture.ts"),
+    import("./app.ts"),
+    import("./auth.ts"),
+  ]);
   await ensureWorkDir(options.workDir);
-  const revision = await readRevision(options.repoRoot);
   const sourceDelta = await execFileAsync(
     "git",
     [
@@ -567,23 +580,6 @@ async function writeJson(path: string, value: unknown): Promise<void> {
   await (
     await import("node:fs/promises")
   ).writeFile(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-}
-
-async function readRevision(repoRoot: string): Promise<string> {
-  for (const cwd of [repoRoot, process.cwd()]) {
-    try {
-      const { stdout } = await execFileAsync("git", [
-        "-C",
-        cwd,
-        "rev-parse",
-        "HEAD",
-      ]);
-      return stdout.trim();
-    } catch {
-      // A staged copy may not carry .git; retain the baseline in the report.
-    }
-  }
-  return "unknown";
 }
 
 main().catch((error) => {
