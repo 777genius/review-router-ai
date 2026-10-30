@@ -338,3 +338,16 @@ pnpm exec vitest run \
   scripts/check-codex-rotating-prisma-envelope.test.ts \
   scripts/lib/render-retained-exclusion.test.ts
 ```
+
+### Additional opt-in CI catalog assertion
+
+While checking superseded workflow results, the operator-grants S PostgreSQL
+lane on implementation head `700a28d` exposed one more current-checkout assertion
+in `gateway-configuration.postgres.test.ts`: it still expected 159 migrations and
+a 22-entry tail ending at 154. Its real grants stage had already passed; this
+finite inventory assertion was the sole failing test in that job. The correction
+expects 160 entries and the exact 23-entry tail ending with migration 155.
+Historical 159-row fixtures remain unchanged. A repository scan found no other
+stale current-159 assertion, and independent review checks the actual test diff.
+The subsequent exact-head operator-grants CI lane must supply its PostgreSQL
+result; no new local PG run is claimed for this test-expectation correction.
