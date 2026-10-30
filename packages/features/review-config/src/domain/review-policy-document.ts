@@ -88,6 +88,8 @@ export const workspaceReviewPolicySchema = z
     updatePrDescription: z.boolean().optional(),
     investigationRollout: reviewInvestigationRolloutConfigurationSchema,
     contextTools: contextToolsSelectionSchema.optional(),
+    // One workspace-wide setting; absence keeps automatic memory changes.
+    memory: z.object({ requireConfirmation: z.boolean() }).strict().optional(),
   })
   .strict();
 
@@ -118,10 +120,10 @@ export type RepositoryReviewPolicy = z.infer<
 export type ReviewPolicyDocument =
   | WorkspaceReviewPolicy
   | RepositoryReviewPolicy;
-/** The settings of a workspace document besides its provider selection. */
+/** Review execution settings; provider selection and Memory have separate forms. */
 export type WorkspaceReviewSettings = Omit<
   WorkspaceReviewPolicy,
-  "schemaVersion" | "providers"
+  "schemaVersion" | "providers" | "memory"
 >;
 /** The overrides of a repository document besides its provider selection. */
 export type RepositoryReviewSettings = Omit<

@@ -401,6 +401,21 @@ async function saveReviewPolicyWrites(
     : [];
   const draftedWorkspace = (workspaceWrite?.policy ??
     storedWorkspace) as WorkspaceReviewPolicy;
+  // Workspace memory settings require current admin authority even when the
+  // provider selection stays unchanged. The workspace/member locks above hold
+  // this decision through the policy write and its version CAS.
+  if (
+    workspaceWrite &&
+    (draftedWorkspace.memory !== undefined ||
+      storedWorkspace?.memory !== undefined) &&
+    authority &&
+    lockedAuthority
+  )
+    authority.authorize({
+      ...lockedAuthority,
+      target: workspaceWrite.target,
+      profiles: [],
+    });
   // Each write's effective selections, still naming drafts by draft ID.
   const selected = writes.map(
     (write) =>

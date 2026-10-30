@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+import {
+  normalizeMemoryAutomaticContextEvidence,
+  type MemoryAutomaticContextEvidence,
+} from "../../domain/memory-knowledge";
 import type { MemoryAutomaticSourceCurrentPort } from "../../application/ports/memory-automatic-source-port";
 import type { MemoryRequestControls } from "../../application/ports/memory-knowledge-provider-port";
 export type MemorySourceGitHubClient = {
@@ -11,6 +15,92 @@ export type MemorySourceGitHubClient = {
     parameters: Readonly<Record<string, unknown>>,
   ): Promise<unknown>;
 };
+
+async function contextEvidenceCurrent(
+  client: MemorySourceGitHubClient,
+  input: {
+    readonly owner: string;
+    readonly repo: string;
+    readonly pullRequestNumber: number;
+    readonly sourceId: string;
+    readonly evidence: MemoryAutomaticContextEvidence;
+  },
+  controls: MemoryRequestControls,
+): Promise<boolean> {
+  const evidence = normalizeMemoryAutomaticContextEvidence(input.evidence);
+  if (!evidence.messages.some((message) => message.id === input.sourceId))
+    return false;
+  const rootId = evidence.threadId.slice("github-review-thread:".length);
+  const remaining = new Map(
+    evidence.messages.map((message) => [message.id, message]),
+  );
+  const seen = new Set<number>();
+  const expectedPath =
+    `/repos/${input.owner}/${input.repo}/pulls/${input.pullRequestNumber}`.toLowerCase();
+  for (let page = 1; page <= 100; page++) {
+    if (controls.signal?.aborted || Date.now() >= controls.deadlineAt.getTime())
+      return false;
+    const { data } = await client.request(
+      "GET /repos/{owner}/{repo}/pulls/{pull_number}/comments",
+      {
+        owner: input.owner,
+        repo: input.repo,
+        pull_number: input.pullRequestNumber,
+        per_page: 100,
+        page,
+        request: {
+          timeout: Math.max(
+            1,
+            Math.min(1500, controls.deadlineAt.getTime() - Date.now()),
+          ),
+          ...(controls.signal ? { signal: controls.signal } : {}),
+        },
+      },
+    );
+    if (!Array.isArray(data) || data.length > 100) return false;
+    for (const comment of data as {
+      id: number;
+      node_id: string;
+      body: string;
+      updated_at: string;
+      in_reply_to_id?: number;
+      pull_request_url: string;
+    }[]) {
+      if (
+        !Number.isSafeInteger(comment.id) ||
+        comment.id < 1 ||
+        seen.has(comment.id)
+      )
+        return false;
+      seen.add(comment.id);
+      const message = remaining.get(`github-node:${comment.node_id}`);
+      if (!message) continue;
+      if (
+        typeof comment.body !== "string" ||
+        comment.body.length > 131072 ||
+        !Number.isFinite(Date.parse(comment.updated_at)) ||
+        new Date(comment.updated_at).toISOString() !== message.updatedAt ||
+        createHash("sha256").update(comment.body, "utf8").digest("hex") !==
+          message.bodyDigest ||
+        (comment.in_reply_to_id === undefined
+          ? null
+          : String(comment.in_reply_to_id)) !== message.replyTo ||
+        (message.replyTo === null
+          ? String(comment.id) !== rootId
+          : message.replyTo !== rootId) ||
+        new URL(comment.pull_request_url).pathname.toLowerCase() !==
+          expectedPath
+      )
+        return false;
+      remaining.delete(message.id);
+    }
+    // New replies are not part of the frozen derivation. Read every page so a
+    // missing dependency or an incomplete inventory never becomes "current".
+    if (data.length < 100) return remaining.size === 0;
+  }
+  return false;
+}
+
 /** One App source reader reused by conversation, every context consumer and management. */
 export function createGitHubAutomaticMemorySourceCurrent(input: {
   readonly scope: {
@@ -106,12 +196,36 @@ export function createGitHubAutomaticMemorySourceCurrent(input: {
           role_name?: unknown;
           user?: { id?: unknown };
         };
+        if (
+          !(
+            `github-user:${permission.user?.id}` ===
+              value.binding.sourceActorId &&
+            [permission.permission, permission.role_name].some(
+              (role) => role === "admin" || role === "maintain",
+            )
+          )
+        )
+          return false;
+        if (value.binding.contextEvidence !== undefined) {
+          if (
+            !Number.isSafeInteger(node.pullRequest.number) ||
+            node.pullRequest.number < 1 ||
+            node.pullRequest.number !== value.source.pullRequestNumber ||
+            !(await contextEvidenceCurrent(
+              client,
+              {
+                owner,
+                repo,
+                pullRequestNumber: node.pullRequest.number,
+                sourceId: value.source.sourceId,
+                evidence: value.binding.contextEvidence,
+              },
+              controls,
+            ))
+          )
+            return false;
+        }
         return (
-          `github-user:${permission.user?.id}` ===
-            value.binding.sourceActorId &&
-          [permission.permission, permission.role_name].some(
-            (role) => role === "admin" || role === "maintain",
-          ) &&
           !controls.signal?.aborted &&
           Date.now() < controls.deadlineAt.getTime()
         );

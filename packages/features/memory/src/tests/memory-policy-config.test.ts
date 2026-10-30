@@ -30,7 +30,57 @@ describe("memory policy config", () => {
 
     await expect(
       config.getPolicy({ workspaceId: "workspace_1" }),
-    ).resolves.toMatchObject({ memoryEnabled: true });
+    ).resolves.toMatchObject({
+      memoryEnabled: true,
+      requireConfirmation: false,
+      settingsRevision: "0",
+    });
+  });
+
+  it("reads one fresh workspace setting for every repository without re-enabling disabled memory", async () => {
+    let version = 1;
+    let required = true;
+    const workspaceSettings = async (workspaceId: string) => ({
+      requireConfirmation: workspaceId === "workspace_1" && required,
+      version: workspaceId === "workspace_1" ? version : null,
+    });
+    const config = new EntitlementMemoryPolicyConfig(
+      new InMemoryEntitlements(null),
+      {
+        workspaceSettings,
+      },
+    );
+    for (const repositoryId of ["repo_a", "repo_b"])
+      await expect(
+        config.getPolicy({ workspaceId: "workspace_1", repositoryId }),
+      ).resolves.toMatchObject({
+        requireConfirmation: true,
+        settingsRevision: "1",
+      });
+    await expect(
+      config.getPolicy({ workspaceId: "workspace_2" }),
+    ).resolves.toMatchObject({
+      requireConfirmation: false,
+      settingsRevision: "0",
+    });
+    version++;
+    required = false;
+    await expect(
+      config.getPolicy({ workspaceId: "workspace_1" }),
+    ).resolves.toMatchObject({
+      requireConfirmation: false,
+      settingsRevision: "2",
+    });
+    const disabled = new EntitlementMemoryPolicyConfig(
+      new InMemoryEntitlements(null),
+      {
+        workspaceSettings,
+        serviceEnabled: false,
+      },
+    );
+    expect(
+      (await disabled.getPolicy({ workspaceId: "workspace_1" })).memoryEnabled,
+    ).toBe(false);
   });
 
   it("disables memory when the service kill switch is off", async () => {

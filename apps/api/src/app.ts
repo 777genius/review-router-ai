@@ -1,5 +1,6 @@
 import { createReviewHistoryFeature } from "@reviewrouter/features-review-history/composition";
 import { createMemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
+import { PrismaWorkspaceMemorySettings } from "@reviewrouter/features-review-config";
 import {
   registerActionMemoryV2Routes,
   type ActionMemoryV2Dependencies,
@@ -924,6 +925,11 @@ export async function createApiApp(
   const memoryRuntime = prisma
     ? await createMemoryKnowledgeRuntime({
         prisma,
+        workspaceSettings: (workspaceId, transaction) =>
+          new PrismaWorkspaceMemorySettings(prisma).read(
+            workspaceId,
+            transaction,
+          ),
         env: {
           ...reviewActionV2Env,
           ...(options.memoryServiceEnabled === undefined
