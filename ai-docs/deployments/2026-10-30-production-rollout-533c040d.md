@@ -24,24 +24,26 @@ task-specific verification.
    0 unfinished. Canonical runtime grants were re-applied afterwards.
 4. All four roles (web, api, worker, skill-scan-worker) replaced together; old
    containers kept stopped as `*-before-*` for rollback. The schema change is additive.
-5. Action `v1.0.221`, `v1.0.222`, `v1.0.223` released; producers for all three
-   registered. `workflow-v1` points to `v1.0.222`
-   (`2588eeb839d282d7d4c8742244536a6d62a7d3a4`), which carries an explicit
+5. Action `v1.0.221` to `v1.0.224` released; producers for all four
+   registered. `workflow-v1` points to `v1.0.224`
+   (`72634bbcb75a8cc11bc03457ee6d45543a1b459c`), whose producer carries an explicit
    `modelDispatchProfile` with `ocr-managed-v5`. `v1.0.221` has no profile and is
    ambiguous between OCR profiles (`agent_profile_unavailable`); `v1.0.223` uses
-   `ocr-managed-v3`, which fails against the current Gateway. Neither is used.
+   `ocr-managed-v3`, which fails against the current Gateway. Neither is used;
+   `v1.0.222` (same profile as `v1.0.224`) was in use until `v1.0.224` replaced it.
 6. Managed OCR `ocr-v1.13.1-rr.6` built reproducibly with `tools/ocr/build.sh`
    (sha256 `9dd5f115747d24100f0767133a3288d268f3bc399675f5b826e7a867d101ee5c`,
    matches the pin) and published.
-7. Fleet env updated with the overlay tool (producer attestations, Action ref,
+7. Fleet env updated with the overlay tool, see `deploy/hetzner/fleet-overlay/` (producer attestations, Action ref,
    allowed refs, installer tuple).
 
 ## Verification
 
 - `https://api.reviewrouter.org/ready` is `ok`; the site returns 200; no restarts or
   errors in the four roles; no dead-lettered events.
-- Self-hosted end-to-end run `40800168729` (attempt 6) in
-  `777genius/rr-selfhost-direct-v2-e2e-20260730t120036z`: success on `workflow-v1`.
+- Self-hosted end-to-end run `40800168729` (attempt 7) in
+  `777genius/rr-selfhost-direct-v2-e2e-20260730t120036z`: success on `workflow-v1`
+  = `v1.0.224`, with the Gateway origin on `https://api.reviewrouter.org:8443`.
 
 ## Retry and rollback
 
@@ -55,9 +57,11 @@ producers are immutable; revoke instead of deleting.
   head; the real cause is `stale_precondition`, which is outside the operation
   contract and gets masked. Needs a server-side contract fix.
 - Profile `ocr-managed-v4` needs `ocr-v1.13.1-rr.5`, which is not published; not a default.
-- Gateway control origin in the web/api containers is still
-  `https://api.reviewrouter.site:8443`. Caddy already serves `.org:8443` on the same
-  bridge; switching also needs `extra_hosts` for the `.org` host.
+- The Gateway origin env of web/api now points to `https://api.reviewrouter.org:8443`
+  (with an `extra_hosts` entry for the `.org` host on the bridge). The old values still
+  sit in the account-gateway activation env files under
+  `/etc/platform/projects/review-router/account-gateway/`; those files were not
+  changed, so recreating the containers from them restores `.site` until they are updated.
 - Hindsight memory is not configured (reviews log "memory unavailable" and continue).
 
 ## Related tasks
