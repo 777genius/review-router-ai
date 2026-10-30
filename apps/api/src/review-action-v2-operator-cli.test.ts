@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { reviewerPlanDescriptorDigest } from "@reviewrouter/shared";
 import { describe, expect, it, vi } from "vitest";
 
 // These parser/operator-policy tests must not construct production services.
@@ -177,6 +178,67 @@ describe("review action v2 operator CLI", () => {
     const parsed = parseReviewV2ReleaseBundleCandidate(releaseCandidate());
     expect(parsed).toEqual(releaseCandidate());
     expect(Object.hasOwn(parsed, "prDescriptionProfile")).toBe(false);
+  });
+
+  it("preserves exact dispatch and reviewer-plan approval without granting heuristic defaults", () => {
+    const modelDispatchProfile = {
+      extensionId: "review-model-dispatch.v2",
+      descriptorDigest:
+        "sha256:be55241ba86af0788b6a60973ac7c55e6aa33244d18bba52a230cbc195ba4a2d",
+      policyVersion: "model-dispatch-policy.v2",
+      transports: ["account_gateway"],
+      wireProtocols: ["openai-responses"],
+      defaultAgentProfileRefs: { account_gateway: "ocr-managed-v5" },
+      limits: {
+        maxRequests: 32,
+        maxConcurrentRequests: 1,
+        maxRequestBytes: 16 * 1024 * 1024,
+        maxResponseBytes: 8 * 1024 * 1024,
+        maxOutputTokens: 32768,
+      },
+    };
+    const reviewerPlanProfile = {
+      planVersion: 1,
+      descriptorDigest: reviewerPlanDescriptorDigest,
+    };
+    const candidate = {
+      ...releaseCandidate(),
+      modelDispatchProfile,
+      reviewerPlanProfile,
+    };
+    expect(parseReviewV2ReleaseBundleCandidate(candidate)).toEqual(candidate);
+    for (const field of ["modelDispatchProfile", "reviewerPlanProfile"])
+      expect(
+        parseReviewV2ReleaseBundleCandidate(releaseCandidate()),
+      ).not.toHaveProperty(field);
+    for (const value of [
+      null,
+      { ...modelDispatchProfile, defaultAgentProfileRefs: {} },
+      { ...modelDispatchProfile, descriptorDigest: `sha256:${"0".repeat(64)}` },
+      {
+        ...modelDispatchProfile,
+        limits: { ...modelDispatchProfile.limits, maxRequests: 33 },
+      },
+      { ...modelDispatchProfile, endpoint: "https://unapproved.example" },
+    ])
+      expect(() =>
+        parseReviewV2ReleaseBundleCandidate({
+          ...candidate,
+          modelDispatchProfile: value,
+        }),
+      ).toThrow();
+    for (const value of [
+      null,
+      { ...reviewerPlanProfile, planVersion: 2 },
+      { ...reviewerPlanProfile, descriptorDigest: "invalid" },
+      { ...reviewerPlanProfile, enabled: true },
+    ])
+      expect(() =>
+        parseReviewV2ReleaseBundleCandidate({
+          ...candidate,
+          reviewerPlanProfile: value,
+        }),
+      ).toThrow();
   });
 
   it("preserves the approved MCP descriptor in the normal registration bundle", () => {

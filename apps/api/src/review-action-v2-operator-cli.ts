@@ -3,7 +3,9 @@ import {
   parseProducerLifecycleVerificationProfile,
   parseProducerContextToolsProfile,
   parseReviewAgentProfiles,
+  parseProducerReviewerPlanProfile,
 } from "@reviewrouter/features-review-run-control";
+import { parseReviewModelDispatchProfileV2 } from "@reviewrouter/shared";
 import {
   createRepositoryReleaseSelector,
   parseRepositoryReleaseBindings,
@@ -1319,6 +1321,8 @@ const releaseBundleCandidateKeys = Object.freeze([
 export function parseReviewV2ReleaseBundleCandidate(
   input: Record<string, unknown>,
 ): ReviewV2ReleaseBundleCandidate {
+  const hasModelDispatchProfile = Object.hasOwn(input, "modelDispatchProfile");
+  const hasReviewerPlanProfile = Object.hasOwn(input, "reviewerPlanProfile");
   const hasContextToolsProfile = Object.hasOwn(input, "contextToolsProfile");
   const hasPrDescriptionProfile = Object.hasOwn(input, "prDescriptionProfile");
   const hasLifecycleVerificationProfile = Object.hasOwn(
@@ -1329,6 +1333,8 @@ export function parseReviewV2ReleaseBundleCandidate(
     input,
     [
       ...releaseBundleCandidateKeys,
+      ...(hasModelDispatchProfile ? ["modelDispatchProfile"] : []),
+      ...(hasReviewerPlanProfile ? ["reviewerPlanProfile"] : []),
       ...(hasContextToolsProfile ? ["contextToolsProfile"] : []),
       ...(hasPrDescriptionProfile ? ["prDescriptionProfile"] : []),
       ...(hasLifecycleVerificationProfile
@@ -1386,6 +1392,20 @@ export function parseReviewV2ReleaseBundleCandidate(
         };
 
   return {
+    ...(hasModelDispatchProfile
+      ? {
+          modelDispatchProfile: parseReviewModelDispatchProfileV2(
+            input.modelDispatchProfile,
+          ),
+        }
+      : {}),
+    ...(hasReviewerPlanProfile
+      ? {
+          reviewerPlanProfile: parseProducerReviewerPlanProfile(
+            input.reviewerPlanProfile,
+          ),
+        }
+      : {}),
     ...(hasContextToolsProfile
       ? {
           contextToolsProfile: parseProducerContextToolsProfile(
