@@ -275,3 +275,47 @@ dependency certification.
 These are scoped implementation results, not a claim that every repository gate,
 live OAuth/provider flow or deployment has completed. Integrated checks and the
 second batch remain in progress.
+
+### F. Worker phase failure isolation
+
+Selected after independent review of the worker plan. The host currently lets a
+failed SDK recovery prevent all outbox work and lets one maintenance owner stop
+later independent owners.
+
+- Keep existing serial order, phase callbacks and concurrency limits. A small
+  private host helper may capture a named completed/failed phase; no task
+  registry, DAG, retry layer, timer or generic scheduler is introduced.
+- Extract the existing outer pass into a testable host function. SDK recovery,
+  outbox and maintenance remain explicit. Attempt each later independent owner
+  once even if an earlier owner fails.
+- Return actual outbox counters only when its call completed. A failed outbox
+  is unavailable. Preserve successful outbox counters when maintenance fails.
+  The loop and one-shot path must recognize degraded results, report safe named
+  failures, retain existing error pacing and preserve one-shot failure status.
+- Within review-v2 maintenance, isolate recovery, execution recovery, intents,
+  due processing and publication in their current order. Recovery remains before
+  due processing.
+- Successful publication supplies the only settlement evidence. Collect its
+  existing concurrent wakeups independently with allSettled. A failed wakeup
+  cannot suppress successful wakeups or real committed settlements.
+- Configured publication failure blocks both progress stages for that pass.
+  Optional publication absence retains existing optional behavior. Promotion
+  failure still permits the existing progress publisher to attempt already
+  eligible work.
+- Failed/blocked phase metrics remain explicitly unavailable. In particular,
+  advanced cannot present a complete numeric total when the due phase failed.
+  Disabled optional phases may retain zero. Propagate a resolved-but-degraded
+  review-v2 result into the outer pass instead of recording successful health.
+- Use the existing error sanitizer; do not expose raw errors, causes, credentials
+  or tenant payloads in results/logs. Persistence/state machines and the
+  publication feed implementation are unchanged by this lane.
+
+Scope: worker.ts scheduling, a small private worker-batch function/test,
+review-v2-worker-runtime and its existing tests, and the worker loop contract
+only as needed for honest outcomes. Preserve #744 memory runtime wiring.
+
+Verification: parameterized failure of each owner, subsequent independent work,
+exact serial ordering, successful counters after unrelated failure, unavailable
+outbox/error delay/one-shot failure, publication-dependent blocking,
+per-execution wakeup isolation, safe error reporting and unchanged disabled
+behavior. These are scheduling checks; no new PostgreSQL claim is implied.
