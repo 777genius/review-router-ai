@@ -422,18 +422,16 @@ export async function saveRepositoryReviewSettings(
 /** Audit only the provider and policy facts the committed settings review with. */
 function savedReviewSettingsAuditMetadata(
   configuration: SavedReviewPolicy["configuration"],
-): Readonly<Record<string, string>> {
+): Readonly<Record<string, string | undefined>> {
   const config = configuration?.config;
   const provider = config?.providers[0];
   return {
-    ...(provider
-      ? {
-          providerKind: provider.kind,
-          authMode: provider.authMode,
-          model: provider.model,
-        }
-      : {}),
-    ...(config ? { failOnSeverity: config.blockingPolicy.failOnSeverity } : {}),
+    // Shadow caller policy facts even when no provider is selected. The owning
+    // audit sanitizer removes undefined values when producing persisted JSON.
+    providerKind: provider?.kind,
+    authMode: provider?.authMode,
+    model: provider?.model,
+    failOnSeverity: config?.blockingPolicy.failOnSeverity,
   };
 }
 

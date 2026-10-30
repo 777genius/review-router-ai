@@ -233,6 +233,36 @@ databaseTests("review settings and audit atomicity on PostgreSQL", () => {
     expect(events[0]!.metadata).not.toHaveProperty("model");
   });
 
+  it("removes stale caller policy facts when the saved workspace selects no provider", async () => {
+    const { workspaceId } = await fixture(false);
+    const saved = await saveWorkspaceReviewSettings(
+      {
+        workspaceId,
+        actor,
+        settings: workspaceSettings,
+        expectedVersion: null,
+        auditMetadata: {
+          accessSource: "workspace_admin",
+          providerKind: "stale-kind",
+          authMode: "stale-auth",
+          model: "stale-model",
+          failOnSeverity: "stale-severity",
+          version: -1,
+          providerSelected: true,
+        },
+      },
+      dependencies(),
+    );
+    expect(saved.configuration).toBeNull();
+    const events = await settingsEvents(workspaceId);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.metadata).toEqual({
+      accessSource: "workspace_admin",
+      version: 1,
+      providerSelected: false,
+    });
+  });
+
   it("leaves settings and audits unchanged on a version conflict or denied writer", async () => {
     const { workspaceId } = await fixture();
     const before = await versionCount(workspaceId);
