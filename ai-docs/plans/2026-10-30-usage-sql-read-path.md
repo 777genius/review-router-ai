@@ -186,7 +186,9 @@ edge cases so a cast or timestamp reconstruction cannot silently change results.
       resolve their findings and record the accepted revision first.
 - [x] Implement the shared policy contract, SQL path and both reader delegates.
 - [x] Add only the risk seam tests below; inspect the diff for accidental scope.
-- [ ] Verify focused seams, migrated PG17, browser journey and required gates.
+- [x] Verify focused seams, migrated PG17 and the four browser journeys; record
+      failed attempts and precise source/fixture boundaries in the journal.
+- [ ] Obtain required CI and guarded merge verification on the published head.
 - [ ] Record deployment task, measured evidence, independent implementation
       review, remaining limitations and final main/head/CI checks before merge.
 
@@ -213,8 +215,11 @@ The before/after member probe then demonstrated six full scans for roughly
 100 authorized rows. One B-tree on `(workspaceId, actorId, occurredAt)` reduced
 the same report from 275.28 to 17.35 ms and narrowed each stage to those actor
 candidates. Migration `000155_usage_member_report_index` is a single unwrapped
-`CREATE INDEX CONCURRENTLY`; actual pinned Prisma migration rehearsal is a
-remaining release qualification gate. Separate run/model indexes remain outside
+`CREATE INDEX CONCURRENTLY`; actual pinned Prisma 7.8 migration rehearsal has
+passed on fresh PostgreSQL 17 fixtures. The exact migration must also be admitted
+as a checksum-bound checkout-only extension by existing rollout catalogs,
+while historical managed inventories and transaction-wrapped additive windows
+remain unchanged. Separate run/model indexes remain outside
 this task. See the review journal and deployment record for actual evidence,
 index validity/recovery and the remaining full-period/family cardinality limits.
 

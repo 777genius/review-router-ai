@@ -20,7 +20,10 @@ const reader = vi.mocked(readRenderManagedCheckoutInventory);
 // Preserve old immutable-prefix fixtures through 000124 explicitly.
 // The complete current checkout is exercised separately.
 const currentFull = readRenderManagedCheckoutInventory();
-const full = currentFull
+const previousFull = currentFull.filter(
+  (row) => row.migrationName !== "000155_usage_member_report_index",
+);
+const full = previousFull
   .filter(
     (row) =>
       row.migrationName !== "000110_provider_api_key_workspace_management" &&
@@ -171,6 +174,11 @@ describe("trusted historical96 checkout reader", () => {
     const result = readRenderHistorical96CheckoutInventory();
     expect(result).toEqual(historical);
     expect(result).toHaveLength(96);
+    expect(
+      result.some(
+        (row) => row.migrationName === "000155_usage_member_report_index",
+      ),
+    ).toBe(false);
     expect(manifest(result)).toBe(
       "sha256:5faad7059a2f57055086dd1571e87706c261a486e8952334401f1d91cc41c97b",
     );
@@ -180,7 +188,7 @@ describe("trusted historical96 checkout reader", () => {
     expect(reader).toHaveBeenCalledWith();
     reader.mockReturnValue([
       ...currentFull,
-      { migrationName: "000155_unknown", checksum: "0".repeat(64) },
+      { migrationName: "000156_unknown", checksum: "0".repeat(64) },
     ]);
     expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
       "render_historical96_checkout_rejected:count",
@@ -189,20 +197,21 @@ describe("trusted historical96 checkout reader", () => {
 
   it.each([
     { checkout: currentFull },
+    { checkout: previousFull },
     {
-      checkout: currentFull.filter(
+      checkout: previousFull.filter(
         (row) => row.migrationName !== "000154_unified_model_dispatch",
       ),
     },
     {
-      checkout: currentFull.filter(
+      checkout: previousFull.filter(
         (row) =>
           row.migrationName !== "000152_memory_automatic_source" &&
           row.migrationName !== "000153_conversation_processing",
       ),
     },
     {
-      checkout: currentFull.filter(
+      checkout: previousFull.filter(
         (row) =>
           row.migrationName !== "000154_unified_model_dispatch" &&
           row.migrationName !== "000152_review_run_gateway_allocations" &&
@@ -211,7 +220,7 @@ describe("trusted historical96 checkout reader", () => {
       ),
     },
     {
-      checkout: currentFull.filter(
+      checkout: previousFull.filter(
         (row) =>
           row.migrationName !== "000131_personal_canonical_unentered_claim" &&
           row.migrationName !== "000132_review_policy_schema_v3" &&
@@ -245,7 +254,7 @@ describe("trusted historical96 checkout reader", () => {
       ),
     },
     {
-      checkout: currentFull.filter(
+      checkout: previousFull.filter(
         (row) =>
           row.migrationName !== "000130_personal_canonical_operations" &&
           row.migrationName !== "000131_personal_canonical_unentered_claim" &&

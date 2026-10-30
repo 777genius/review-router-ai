@@ -37,6 +37,9 @@ been attempted as part of this implementation task.
    `("workspaceId", "actorId", "occurredAt")` on `"UsageCall"`. Concurrent build
    avoids the ordinary index build's write-blocking lock, but consumes I/O/CPU;
    use the selected release's normal operational window and monitoring.
+   The checkout/rollout catalog admits this exact checksum-bound tail while
+   preserving the managed 92 and historical 96 inventories. It is excluded from
+   historical repair SQL and from the transaction-wrapped additive window.
 3. Deploy the Web build and affected compiled feature consumers coherently.
    Existing ledger records are read directly; there is no backfill or new flag.
 4. Verify authenticated tenant-admin, member and operator report journeys using

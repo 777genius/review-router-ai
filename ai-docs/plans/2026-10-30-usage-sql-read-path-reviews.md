@@ -57,8 +57,8 @@ performance, browser, CI or deployment claims.
 - [x] Architecture critic reviewed actual v2: ACCEPT.
 - [x] Coordinator publishes the accepted plan before production implementation:
       `3b481b00da4104533764c2e033a9925c8b0c82b0`, draft PR #746.
-- [ ] Record implementation review, exact checked revision and actual validation
-      evidence when those actions occur; do not predeclare them passed.
+- [x] Record implementation review, exact checked revision and actual validation
+      evidence below; final merge gates remain separately tracked.
 
 ## Implementation review and measured corrections
 
@@ -160,13 +160,19 @@ Migration155 and the Prisma schema declaration match. The
 index validity checks, migration recovery for an interrupted INVALID concurrent
 build and coherent application rollout. Both environments remain pending.
 
-### Remaining final gates
+### Final gate tracking
 
-- Execute the actual pinned Prisma7.8 migration runner on a fresh disposable DB.
-- Qualify the committed candidate with migration155 and actual Next/Chromium,
-  inspect its screenshots, and record exact revision/receipt boundaries.
-- Obtain final independent acceptance and required CI on the exact reviewed head.
-- Perform the authorized guarded merge and independently verify its result.
+- [x] Execute the pinned Prisma 7.8 migration runner on a fresh disposable DB;
+      migration 155 completed and its exact index is ready/valid.
+- [x] Qualify the committed SQL candidate with migration 155; all six cases and
+      the additional independent cursor passed.
+- [x] Complete the corrected local Usage overview browser scenario and visual
+      review; all four distinct scenarios have successful receipts, and the
+      separate exact-head CI followthrough browser lane passed.
+- [x] Resolve the checkout migration admission failures; independent review and
+      422 focused policy regressions passed.
+- [ ] Obtain required CI on the final reviewed head.
+- [ ] Perform the authorized guarded merge and independently verify its result.
 
 Local positive architecture/Foundation checks passed. The unrelated memory
 negative-fixture qualification encountered reappearing temporary fixture files
@@ -174,3 +180,161 @@ even after successful unlink calls; exact probes and syscall evidence were
 preserved and only declared disposable probes removed. Its rules/source were
 not changed. This local failed lane is not reported passed; the unchanged full
 required architecture lane must pass in CI on the committed candidate.
+
+## Published implementation qualification
+
+The implementation was published as
+`700a28d38c05788dbdc0d5ec284709ffea6e07bd` in
+[PR #746](https://github.com/777genius/review-router-ai/pull/746).
+Both independent GPT-6.1 Sol xhigh source critics accepted the corrected SQL,
+application/domain ownership, authorization/snapshot boundary, disposable probe
+and concurrent-index rollout instructions. Changed-file ESLint, formatting and
+the native feature typecheck passed before publication.
+
+The final normal opt-in PG17 qualification ran once against that exact clean
+commit with migration 155 installed and the actor probe unset. All six cases and
+the extra independent cursor passed under the unchanged five-second report
+transaction budget. Total qualification duration was 42.20 seconds, including
+fixtures, actual statement EXPLAIN plans and cleanup; the other 16 tests were
+intentionally excluded by that test-name filter, not newly counted as passed.
+
+| Case               | Old full-projection JSON bytes | New stage JSON bytes | Hydrated full projections | Report ms |
+| ------------------ | -----------------------------: | -------------------: | ------------------------: | --------: |
+| Full period        |                    150,997,421 |              609,161 |                        25 |  3,728.99 |
+| Member             |                        148,911 |               71,220 |                        25 |     18.87 |
+| Run                |                        149,001 |               60,136 |                        25 |    224.49 |
+| Requested provider |                    150,997,421 |              317,043 |                        10 |    478.17 |
+| Requested model    |                    150,997,421 |              317,043 |                        10 |    607.12 |
+| Family heavy       |                     17,323,161 |            3,353,701 |                        25 |  1,639.73 |
+
+The member aggregate used `UsageCall_workspaceId_actorId_occurredAt_idx`, visited
+100 rows, removed none, recorded 103 buffer hits and executed in 4.251 ms. Full
+aggregation still scans period facts and spills; the earlier cardinality and
+baseline-timing qualifications continue to apply.
+
+The source content manifest covered 194 source/schema/migration files, SHA256
+`808319fc33ea6d4bef8a6bcc93d37b40381e6ac07547acb523456c0c82c28920`.
+The working diff was empty. Local receipts and per-statement plans are retained
+under `tmp/usage-sql-followthrough/qualification-final-indexed/`; earlier attempts
+were preserved before the normal output directory was reused. An explicit admin
+query verified that the suite-owned database was removed after the run.
+
+### Actual migration and browser evidence
+
+The exact-source GitHub
+[Statistics Usage Reviews browser run 41071043620](https://github.com/777genius/review-router-ai/actions/runs/41071043620)
+passed on `700a28d38c05788dbdc0d5ec284709ffea6e07bd`: ordinary Prisma 7.8 migrations
+including 155, native compiler preparation, complete web typecheck, authenticated
+followthrough journeys, receipt assertions and fixture cleanup. Its screenshot
+and receipt artifact is
+[12985131766](https://github.com/777genius/review-router-ai/actions/runs/41071043620/artifacts/12985131766).
+
+The local Accounts harness also applied ordinary migrations to a fresh owned
+PostgreSQL 17.11 database. Direct catalog inspection confirmed migration 155
+finished with one applied step and no rollback, and that the ready/valid index
+is exactly the three-column B-tree declared in the schema. The receipt is
+`tmp/usage-sql-followthrough/browser-migration-155-receipt.json`.
+
+Local attempts are kept distinct: the first selected zero tests because the
+command anchored a title that Playwright prefixes with file information; the
+second encountered Chromium's Unix-socket path-length limit. The corrected
+selector is `ACCOUNTS_REFERENCE_E2E_GREP='provider usage '`. A short task-owned
+`TMPDIR` resolved the confirmed socket issue without changing product or harness
+security controls. The next actual run passed navigation, coverage and operator
+scenarios, but failed the overview test on a stale bare-report API expectation.
+The real API's established `{ scope, report }` response was already correctly
+handled by the product and newer followthrough harness.
+
+The focused test correction independently verifies the expected actor, workspace
+and access in that envelope before unwrapping the report, including the member
+case. It retains all independent arithmetic, cursor, null/zero and foreign-denial
+assertions. The operator endpoint retains its own existing bare-report contract.
+The correction passed harness typecheck, changed-file ESLint, formatting and
+independent critical review; its browser rerun is recorded separately below.
+
+### Required CI found a rollout-catalog integration gap
+
+The implementation's first full CI Quality job stopped at unit tests because
+migration 155 was not yet classified in the maintained checkout/rollout catalogs.
+The feature and API tests in that job passed. This failure was not dismissed as
+unrelated: adding the index requires explicit admission into these safety
+boundaries as part of this implementation.
+
+The bounded correction admits only the exact named migration and checksum as a
+checkout-only tail. It must preserve the managed 92 and historical 96 inventories,
+reject changed or unknown migrations and leave the transaction-wrapped historical
+additive runner untouched. Migration 155 continues through the ordinary pinned
+Prisma path outside an explicit transaction. Independent migration-policy review
+accepted the actual corrected boundary and its negative cases before the next
+publication. Ten focused pure/mocked test files passed, 422 tests in 6.46 seconds.
+The earlier sandbox attempt exposed two historical-fixture assumptions, which
+were corrected, and one native Git subprocess permission error; the exact
+permission-enabled rerun passed. No PostgreSQL/role rehearsal was claimed from
+those pure/mocked tests. No
+required gate or production protection is disabled to obtain a green result.
+
+### Completed local browser qualification and visual review
+
+The four distinct Usage scenarios are qualified by successful actual browser
+receipts, with the failed attempts retained rather than relabeled:
+
+| Scenario                                                                                                                 | Successful evidence                                                             |
+| ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| Full-period overview, arithmetic, independent pages, filters/custom dates, Refresh, member 50-token view and foreign 403 | `usage-sql-browser-overview-final`: 1 passed, 0 failed, 1.5 minutes             |
+| Workspace navigation and stable totals                                                                                   | Passed in both `usage-sql-browser-qualified` and `usage-sql-browser-serialized` |
+| Native lag and partial producer coverage                                                                                 | Passed in both runs above                                                       |
+| Operator admin access, member denial and signed-out denial                                                               | Passed in both runs above                                                       |
+
+All directories above are under `tmp/accounts-reference-e2e/runs/`. The final
+corrected-harness runs used product source
+`700a28d38c05788dbdc0d5ec284709ffea6e07bd` plus captured source diff SHA256
+`28e41a16b1f62223aebd5e494f60a32f86ee256e347204f0ba452d64fb1fabe4`.
+That diff is the reviewed API-envelope test correction; production Usage/Web
+source and schema were unchanged. Those files are published together in the
+follow-up candidate. The final required CI must still run on that published head.
+
+A long initial corrected-harness run lost the Next port after successful API/UI
+checks; the container recorded one OOM kill, without identifying its victim.
+A serialized retry with a 2 GiB local Node heap produced explicit Next development
+server output: its 80% used-heap threshold restarted the worker during a page
+reload. That retry passed the other three scenarios and did not add an OOM kill.
+The remaining overview then passed alone with a 3 GiB local Node heap, preserving
+its 150-second test timeout and every assertion. Cgroup OOM counters stayed at
+one before/after. The captured cgroup limit was 8 GiB; host free-memory reporting
+had overstated usable headroom. This is a local development-server resource
+qualification, not a production capacity measurement or new runtime setting.
+
+The fresh migration proof belongs to `usage-sql-candidate` and the direct catalog
+receipt. Subsequent browser attempts deliberately resumed only the harness's
+three synthetic users/fixtures; their receipts correctly do not claim a new
+fresh migration. No live OAuth/provider/native lifecycle qualification follows
+from these synthetic-session, loopback-controlled UI/read tests.
+
+The coordinator inspected desktop dark/light, mobile token and USD/EUR cost
+captures. An independent critic inspected the 320px, 1024px, 640px/DPR2, mobile
+runs, empty state and expanded Details captures, including readable portions of
+the long Details page. Filters, primary actions, values, long labels, disclosures
+and structural responsiveness were accepted without a product redesign. The
+existing optional 100-run Details page can be long; it is not a new SQL regression.
+Keyboard/focus assertions belong to the successful browser scenario; screenshots
+alone are not a screen-reader or numerical contrast certification.
+
+### Focused migration integration command
+
+The following ten-file selection passed all 422 tests with pinned pnpm 11.28.7.
+The successful stdout is retained in the agent execution result; no local log
+file was saved, so no filesystem log is claimed. The final required CI remains a separate gate on the published head.
+
+```bash
+pnpm exec vitest run \
+  scripts/lib/render-schema-handoff-policy.test.ts \
+  scripts/lib/render-historical96-checkout.test.ts \
+  scripts/lib/provider-key-checkout-admission.test.ts \
+  scripts/lib/render-schema-handoff-transaction.test.ts \
+  scripts/rehearse-private-pg17-rollout.test.ts \
+  scripts/codex-rotating-release-migration-workflow.test.ts \
+  scripts/production-additive-migration-window.test.ts \
+  packages/features/release-rollout/src/domain/release-migration-transition.test.ts \
+  scripts/check-codex-rotating-prisma-envelope.test.ts \
+  scripts/lib/render-retained-exclusion.test.ts
+```

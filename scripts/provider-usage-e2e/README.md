@@ -163,3 +163,35 @@ Follow-up on 2026-10-21 21:19:54 Europe/Kyiv: the same three joined tests passed
 Follow-up2026-10-21 23:04 Europe/Kyiv:3/3 joined tests passed in8.30 seconds against Action `eb763ba12c432e522f3119071a52623f200e3429`. The retained native capture report period now follows original captured event timestamps, preserving source bytes as wall time advances. This is controlled transport/API/PostgreSQL evidence; live provider and installed immutable-pin acceptance remain separate.
 
 Follow-up on 2026-10-22: all three joined tests passed in 12.51 seconds against RR `526a5a00` and public Action `381e32cda151a6e6d72fa1b27fa37dc7c1c47f71`, after integrating the active PR description and context-tools features from main `cd604c9a`. A dedicated disposable PG17.5 cluster applied the current full migrations, including `000138_pr_description` and `000139_review_context_tools`. The retained native capture was replayed unchanged. This is controlled transport/API/database evidence; installed production and live provider acceptance remain separate.
+
+## Usage screen browser regression scope
+
+The existing [Accounts reference harness](../accounts-reference-e2e/README.md)
+drives actual Next/Chromium against a migrated disposable PostgreSQL 17 database.
+`ACCOUNTS_REFERENCE_E2E_GREP='provider usage '` selects its four Usage scenarios:
+full-period overview/pages/filters, workspace isolation, producer coverage and
+operator authorization. Do not anchor that selector at the start: Playwright's
+full test title includes file information before the scenario name. List the
+selection before a resource-intensive run with:
+
+```bash
+pnpm --dir scripts/accounts-reference-e2e exec playwright test   -c playwright.config.ts --list --grep 'provider usage '
+```
+
+The tenant endpoint returns the established `{ scope, report }` envelope; the
+harness verifies the expected actor/workspace/access before inspecting report
+arithmetic and redaction. The operator endpoint retains its separate bare-report
+contract. Keep those expectations distinct.
+
+Use a short, task-owned `TMPDIR` when an absolute checkout path would exceed
+Chromium's Unix-socket path limit. A recorded Next development-worker memory
+restart requires an appropriate local heap budget and serialized heavy checks;
+this qualification used `NODE_OPTIONS=--max-old-space-size=3072` in an 8 GiB
+container for its remaining long overview case. This does not change production
+settings or justify relaxing browser assertions/timeouts. Preserve earlier
+failed receipts. A `--resume-own-fixtures` retry proves its UI scenario against
+existing owned fixtures; its receipt is not fresh migration evidence.
+
+See the [SQL follow-up journal](../../ai-docs/plans/2026-10-30-usage-sql-read-path-reviews.md)
+for exact source/diff hashes, fresh Prisma migration proof, successful individual
+scenario receipts, visual review and actual resource limitations.
