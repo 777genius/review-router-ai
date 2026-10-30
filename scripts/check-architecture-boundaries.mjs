@@ -45,6 +45,16 @@ const forbiddenImports = [
 ];
 
 const allowedLayerSegments = new Set(["domain", "application"]);
+const architecturalLayerSegments = new Set([
+  ...allowedLayerSegments,
+  "infrastructure",
+  "interface",
+  "composition",
+  "adapters",
+  "contract-source",
+  "testing",
+  "tests",
+]);
 const sourceExtensions = new Set([".ts", ".tsx", ".mts", ".cts"]);
 
 const files = (
@@ -192,7 +202,13 @@ function isDomainOrApplicationFile(path, boundaryRoot) {
   if (srcIndex === -1) {
     return false;
   }
-  return allowedLayerSegments.has(segments[srcIndex + 1]);
+  // Subfeatures may precede their layer (v2/domain, account-limits/application).
+  // The first layer owns the file: domain/infrastructure stays core, while
+  // infrastructure/domain stays an adapter.
+  const layer = segments
+    .slice(srcIndex + 1, -1)
+    .find((segment) => architecturalLayerSegments.has(segment));
+  return allowedLayerSegments.has(layer);
 }
 
 function extractImportSpecifiers(source) {
