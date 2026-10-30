@@ -30,6 +30,7 @@ import {
 } from "../application/ports/review-publication-ports";
 
 export { PrismaReviewPublicationRepository } from "../infrastructure/prisma/prisma-review-publication-repository";
+export { PrismaReviewPublicationWorkFeed } from "../infrastructure/prisma/prisma-review-publication-work-feed";
 export * from "../infrastructure/resolution-writer-witness";
 export { createPrismaResolutionWriterQualification } from "../infrastructure/prisma/prisma-resolution-writer-qualification";
 export { HmacReviewCommandLedgerVerifier } from "../infrastructure/hmac-review-command-ledger-verifier";

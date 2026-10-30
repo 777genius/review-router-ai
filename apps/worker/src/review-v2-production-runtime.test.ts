@@ -24,6 +24,7 @@ import {
   productionReviewV2AdjudicationEvidence,
   productionReviewV2PublicationCapabilities,
   progressOutcome,
+  publicationWorkProvider,
   reviewV2CapabilityActiveKeyIdEnv,
   reviewV2CapabilityKeysEnv,
 } from "./review-v2-production-runtime";
@@ -47,6 +48,15 @@ import {
 } from "./review-v2-publication-ports";
 
 describe("review v2 production worker composition", () => {
+  it.each([
+    ["github", ReviewV2ScmProvider.GitHub],
+    ["gitlab", ReviewV2ScmProvider.GitLab],
+  ] as const)(
+    "maps publication work provider %s at the worker boundary",
+    (provider, expected) => {
+      expect(publicationWorkProvider(provider)).toBe(expected);
+    },
+  );
   it("does not turn TerminalUnknown publication into failed progress", () => {
     expect(
       progressOutcome({
