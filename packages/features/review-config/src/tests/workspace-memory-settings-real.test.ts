@@ -13,7 +13,10 @@ import {
   defaultWorkspaceReviewPolicy,
   effectiveReviewSettings,
 } from "../domain/review-policy-document";
-import { PrismaReviewConfigurationRepository } from "../infrastructure/prisma/prisma-review-configuration-repository";
+import {
+  PrismaReviewConfigurationRepository,
+  PrismaReviewConfigurationTransactionRepository,
+} from "../infrastructure/prisma/prisma-review-configuration-repository";
 import { PrismaReviewPolicyHeadReader } from "../infrastructure/prisma/prisma-review-policy-head-reader";
 import { PrismaWorkspaceMemorySettings } from "../infrastructure/prisma/prisma-workspace-memory-settings";
 
@@ -196,11 +199,8 @@ const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
         },
       });
       const reader = new PrismaWorkspaceMemorySettings(prisma);
-      const writerName = `${prefix}-settings-writer`;
-      const writerUrl = new URL(databaseUrl!);
-      writerUrl.searchParams.set("application_name", writerName);
       const writerClient = createPrismaClient({
-        databaseUrl: writerUrl.toString(),
+        databaseUrl: databaseUrl!,
         poolMax: 2,
       });
       let release!: () => void;
@@ -210,6 +210,10 @@ const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
       let ready!: () => void;
       const readerReady = new Promise<void>((resolve) => {
         ready = resolve;
+      });
+      let writerStarted!: (pid: number) => void;
+      const writerReady = new Promise<number>((resolve) => {
+        writerStarted = resolve;
       });
       const admission = prisma.$transaction(
         async (transaction) => {
@@ -232,32 +236,48 @@ const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
             throw new Error("settings_reader_closed_before_barrier");
           }),
         ]);
-        write = saveWorkspaceMemorySettings(
-          {
-            workspaceId: otherWorkspaceId,
-            actor: owner,
-            requireConfirmation: true,
-            expectedVersion: null,
+        write = writerClient.$transaction(
+          async (transaction) => {
+            const [backend] = await transaction.$queryRaw<
+              readonly { pid: number }[]
+            >`SELECT pg_backend_pid() AS pid`;
+            writerStarted(backend!.pid);
+            return saveWorkspaceMemorySettings(
+              {
+                workspaceId: otherWorkspaceId,
+                actor: owner,
+                requireConfirmation: true,
+                expectedVersion: null,
+              },
+              {
+                configurations:
+                  new PrismaReviewConfigurationTransactionRepository(
+                    transaction,
+                    undefined,
+                    false,
+                    owner.userId,
+                  ),
+                policyHeads: new PrismaReviewPolicyHeadReader(transaction),
+              },
+            );
           },
-          {
-            configurations: new PrismaReviewConfigurationRepository(
-              writerClient,
-              undefined,
-              false,
-              owner.userId,
-            ),
-            policyHeads: new PrismaReviewPolicyHeadReader(writerClient),
-          },
+          { isolationLevel: "Serializable" },
         );
         // Attach immediately; preserve the actual result for the assertion below.
         void write.catch(() => {});
+        const writerPid = await Promise.race([
+          writerReady,
+          write.then(() => {
+            throw new Error("settings_writer_closed_before_barrier");
+          }),
+        ]);
         await expect
           .poll(
             async () =>
               (
                 await prisma.$queryRaw<readonly { count: number }[]>`
             SELECT count(*)::int AS count FROM pg_stat_activity
-            WHERE datname = current_database() AND application_name = ${writerName}
+            WHERE datname = current_database() AND pid = ${writerPid}
               AND wait_event_type = 'Lock' AND wait_event = 'advisory'`
               )[0]?.count,
             { timeout: 5_000, interval: 20 },

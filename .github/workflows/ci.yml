@@ -781,7 +781,7 @@ jobs:
           done
           node scripts/self-hosted-e2e/disposable-release-role-fixture.mjs provision-ci
 
-      - name: SDK authority, outbox and memory settings PostgreSQL contracts (zero skips)
+      - name: SDK authority and outbox PostgreSQL contracts (zero skips)
         env:
           REVIEW_ROUTER_REQUIRE_SDK_GROWTH_SCHEMA_PG17: "1"
         run: |
