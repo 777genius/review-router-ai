@@ -15,9 +15,14 @@
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { request } from "node:http";
-import { coherentCutover, requireNoExtraScopedWorkers } from "./cutover.mjs";
+import {
+  coherentCutover,
+  requireNoExtraScopedWorkers,
+  startOrder,
+} from "./cutover.mjs";
 
 const roles = ["api", "worker", "scan", "web"];
+const stabilizeMs = 20_000;
 const envRoot = "/etc/platform/projects/review-router/runtime-env";
 const custodyRoot = "/srv/platform/projects/review-router/releases/";
 const canonicalPath = (role) =>
@@ -174,9 +179,15 @@ export function applyEnvList(list, updates) {
 }
 
 /** Pure: replace exactly one `KEY=old` line per update; old must match the container value (CAS). */
-export function applyCanonical(text, oldEnv, updates) {
+export function applyCanonical(
+  text,
+  oldEnv,
+  updates,
+  containerOnly = new Set(),
+) {
   let out = text;
   for (const [key, value] of updates) {
+    if (containerOnly.has(key)) continue;
     const lines = out.split("\n");
     const hits = lines
       .map((l, i) => (l.startsWith(`${key}=`) ? i : -1))
@@ -211,9 +222,19 @@ const allowedNetworks = (role, network) =>
     ? ["platform-review-router", network]
     : ["platform-review-router"];
 
-function createBody(actual, role, network, env) {
+/** Pure: ExtraHosts for one role after appending the spec entries that apply to it. */
+export function roleExtraHosts(role, current, extraHosts = []) {
+  const list = Array.isArray(current) ? [...current] : [];
+  for (const item of extraHosts) {
+    if (item.roles && !item.roles.includes(role)) continue;
+    if (!list.includes(item.entry)) list.push(item.entry);
+  }
+  return list;
+}
+
+function createBody(actual, role, network, env, extraHosts) {
   const config = row(actual.Config);
-  const host = row(actual.HostConfig);
+  const host = { ...row(actual.HostConfig), ExtraHosts: extraHosts };
   const endpoints = row(row(actual.NetworkSettings).Networks);
   need(
     stable(Object.keys(endpoints).sort()) ===
@@ -251,7 +272,7 @@ function createBody(actual, role, network, env) {
   return {
     ...config,
     Env: env,
-    HostConfig: structuredClone(host),
+    HostConfig: host,
     NetworkingConfig: { EndpointsConfig: next },
   };
 }
@@ -280,13 +301,37 @@ async function loadSpec(path) {
   need(Array.isArray(spec.updates) && spec.updates.length > 0, "spec_updates");
   for (const u of spec.updates) {
     need(
-      /^[A-Z][A-Z0-9_]+$/.test(u.key) && typeof u.value !== "undefined",
+      /^[A-Z][A-Z0-9_]+$/.test(u.key) &&
+        ["set", "appendCsv", "appendJsonArray"].includes(u.op),
       "spec_update_shape",
+    );
+    need(
+      u.op === "appendJsonArray"
+        ? typeof u.value === "object" && u.value !== null
+        : typeof u.value === "string" &&
+            u.value.length > 0 &&
+            ![...u.value].some((ch) => ch.charCodeAt(0) < 32),
+      "spec_update_value",
     );
     need(
       u.roles === undefined ||
         (Array.isArray(u.roles) && u.roles.every((r) => roles.includes(r))),
       "spec_update_roles",
+    );
+    need(
+      u.containerOnly === undefined || typeof u.containerOnly === "boolean",
+      "spec_update_container_only",
+    );
+  }
+  for (const h of spec.extraHosts ?? []) {
+    need(
+      typeof h.entry === "string" && /^[a-z0-9.-]+:[0-9a-f.:]+$/.test(h.entry),
+      "spec_extra_host",
+    );
+    need(
+      h.roles === undefined ||
+        (Array.isArray(h.roles) && h.roles.every((r) => roles.includes(r))),
+      "spec_extra_host_roles",
     );
   }
   return spec;
@@ -351,7 +396,16 @@ async function main() {
       JSON.stringify({
         version: 1,
         specSha: hash(JSON.stringify(spec)),
-        roles: snapshots,
+        roles: Object.fromEntries(
+          Object.entries(snapshots).map(([r, v]) => [
+            r,
+            {
+              pin: v.pin,
+              canonical: v.canonical,
+              canonicalSha: v.canonicalSha,
+            },
+          ]),
+        ),
       }) + "\n",
       true,
     );
@@ -375,6 +429,9 @@ async function main() {
     "snapshot_or_spec_changed",
   );
 
+  const containerOnly = new Set(
+    spec.updates.filter((u) => u.containerOnly).map((u) => u.key),
+  );
   const baselines = {};
   const plans = {};
   for (const role of roles) {
@@ -388,22 +445,32 @@ async function main() {
     const env = envMap(baselines[role]);
     const updates = roleUpdates(role, env, spec.updates);
     const nextList = applyEnvList(row(baselines[role].Config).Env, updates);
-    plans[role] = {
-      env,
-      updates,
+    const extraHosts = roleExtraHosts(
+      role,
+      row(baselines[role].HostConfig).ExtraHosts,
+      spec.extraHosts,
+    );
+    const body = createBody(
+      baselines[role],
+      role,
+      spec.network,
       nextList,
-      body: createBody(baselines[role], role, spec.network, nextList),
-    };
+      extraHosts,
+    );
+    plans[role] = { env, updates, nextList, body, hostConfig: body.HostConfig };
     // the canonical env file must be updatable with the same values
-    applyCanonical(state.roles[role].canonical, env, updates);
+    applyCanonical(state.roles[role].canonical, env, updates, containerOnly);
   }
 
   if (mode === "plan") {
     const summary = {};
     for (const role of roles)
-      summary[role] = [...plans[role].updates].map(
-        ([k, v]) => `${k} sha256:${hash(v).slice(0, 12)} len=${v.length}`,
-      );
+      summary[role] = [
+        ...[...plans[role].updates].map(
+          ([k, v]) => `${k} sha256:${hash(v).slice(0, 12)} len=${v.length}`,
+        ),
+        ...row(plans[role].hostConfig).ExtraHosts.map((h) => `ExtraHosts ${h}`),
+      ];
     console.log(
       JSON.stringify({
         status: "planned",
@@ -424,6 +491,7 @@ async function main() {
   const ids = {};
   const retained = {};
   let phase = "preflight";
+  let cutoverStarted = false;
   const receipt = () =>
     replacePrivate(
       receiptPath,
@@ -435,8 +503,34 @@ async function main() {
         at: new Date().toISOString(),
       }) + "\n",
     );
+  const suffix = new Date().toISOString().replace(/[-:.TZ]/g, "");
+  /** Bring the old fleet back: candidates away from the canonical names, old containers renamed back and started, canonical env restored. */
+  async function rollback() {
+    for (const role of roles) {
+      if (!ids[role]) continue;
+      const c = await inspect(ids[role]);
+      if (row(c.State).Running === true)
+        await docker("POST", `/containers/${ids[role]}/stop?t=30`);
+      if (String(c.Name).replace(/^\//, "") === spec.names[role])
+        await docker(
+          "POST",
+          `/containers/${ids[role]}/rename?name=${encodeURIComponent(`${spec.names[role]}-ovl-failed-${suffix}`)}`,
+        );
+    }
+    for (const role of roles)
+      await replacePrivate(canonicalPath(role), state.roles[role].canonical);
+    for (const role of [...startOrder].filter((r) => roles.includes(r))) {
+      const old = await inspect(String(baselines[role].Id));
+      if (String(old.Name).replace(/^\//, "") !== spec.names[role])
+        await docker(
+          "POST",
+          `/containers/${old.Id}/rename?name=${encodeURIComponent(spec.names[role])}`,
+        );
+      if (row(old.State).Running !== true)
+        await docker("POST", `/containers/${old.Id}/start`);
+    }
+  }
   try {
-    const suffix = new Date().toISOString().replace(/[-:.TZ]/g, "");
     for (const role of roles) {
       const result = row(
         await docker(
@@ -468,7 +562,7 @@ async function main() {
           need(
             stable(c.Config) === stable(expected) &&
               stable(hostCfg(c.HostConfig)) ===
-                stable(hostCfg(baselines[role].HostConfig)),
+                stable(hostCfg(plans[role].hostConfig)),
             "stopped_candidate_config",
           );
         }
@@ -491,6 +585,7 @@ async function main() {
           image,
         ),
       persistCanonical: async () => {
+        cutoverStarted = true;
         for (const role of roles)
           await replacePrivate(
             canonicalPath(role),
@@ -498,6 +593,7 @@ async function main() {
               state.roles[role].canonical,
               plans[role].env,
               plans[role].updates,
+              containerOnly,
             ),
           );
         phase = "canonical_env_updated";
@@ -543,7 +639,7 @@ async function main() {
         need(
           stable(after.Config) === stable(expected) &&
             stable(hostCfg(after.HostConfig)) ===
-              stable(hostCfg(before.HostConfig)),
+              stable(hostCfg(plans[role].hostConfig)),
           "opaque_successor_readback",
         );
         need(
@@ -554,6 +650,18 @@ async function main() {
         await receipt();
       },
     });
+    phase = "stabilizing";
+    await receipt();
+    await new Promise((resolve) => setTimeout(resolve, stabilizeMs));
+    for (const role of roles) {
+      const c = await inspect(ids[role]);
+      need(
+        row(c.State).Running === true &&
+          row(c.State).Restarting !== true &&
+          (c.RestartCount ?? 0) === 0,
+        "successor_unstable",
+      );
+    }
     phase = "applied";
     await receipt();
     console.log(
@@ -566,8 +674,18 @@ async function main() {
       }),
     );
   } catch (e) {
-    phase = `failed:${phase}`;
+    const failedAt = phase;
+    phase = `failed:${failedAt}`;
     await receipt();
+    if (cutoverStarted) {
+      try {
+        await rollback();
+        phase = `rolled_back_after:${failedAt}`;
+      } catch {
+        phase = `rollback_failed_after:${failedAt}`;
+      }
+      await receipt();
+    }
     throw e;
   }
 }

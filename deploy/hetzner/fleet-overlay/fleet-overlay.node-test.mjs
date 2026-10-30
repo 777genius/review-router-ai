@@ -5,6 +5,7 @@ import {
   roleUpdates,
   applyEnvList,
   applyCanonical,
+  roleExtraHosts,
 } from "./fleet-overlay.mjs";
 
 test("appendJsonArray keeps existing bytes and is idempotent", () => {
@@ -60,4 +61,25 @@ test("canonical update requires the file to match the container value", () => {
       ),
     /canonical_line_count:B/,
   );
+});
+test("container-only keys are skipped in the canonical file, extra hosts are appended once per role", () => {
+  const text = "A=1\n";
+  assert.equal(
+    applyCanonical(
+      text,
+      new Map([["G", "x"]]),
+      new Map([["G", "y"]]),
+      new Set(["G"]),
+    ),
+    text,
+  );
+  const spec = [{ entry: "h.example:172.19.0.1", roles: ["web"] }];
+  assert.deepEqual(roleExtraHosts("web", ["a:1.1.1.1"], spec), [
+    "a:1.1.1.1",
+    "h.example:172.19.0.1",
+  ]);
+  assert.deepEqual(roleExtraHosts("web", ["h.example:172.19.0.1"], spec), [
+    "h.example:172.19.0.1",
+  ]);
+  assert.deepEqual(roleExtraHosts("api", ["a:1.1.1.1"], spec), ["a:1.1.1.1"]);
 });
