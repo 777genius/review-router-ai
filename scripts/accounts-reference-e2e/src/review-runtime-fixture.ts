@@ -105,7 +105,7 @@ export async function seedReviewRuntimeFixtures(
       ],
     );
     await db.query(
-      `INSERT INTO "RepositoryPermissionCache" (id,"userId","repositoryId","githubInstallationId",permission,"roleName","canManage","checkedAt","expiresAt","updatedAt") VALUES ('rr-e2e-runtime-readonly-observation',$1,'rr-e2e-runtime-foreign',950000000100,'read','read',false,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP+interval '15 minutes',CURRENT_TIMESTAMP)`,
+      `INSERT INTO "RepositoryPermissionCache" (id,"userId","repositoryId","githubInstallationId",permission,"roleName","canManage","checkedAt","expiresAt","updatedAt") VALUES ('rr-e2e-runtime-readonly-observation',$1,'rr-e2e-runtime-foreign',950000000100,'read','read',false,(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'),(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')+interval '15 minutes',(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'))`,
       [FIXTURES.users.viewer],
     );
     await db.query(

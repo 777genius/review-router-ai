@@ -72,6 +72,10 @@ jobs:
           pnpm --dir scripts/accounts-reference-e2e install --frozen-lockfile
           pnpm --filter @reviewrouter/platform-db db:generate
           pnpm --dir scripts/accounts-reference-e2e run check
+      - name: Build shared release-contract helpers
+        run: |
+          pnpm --filter @reviewrouter/shared build
+          node scripts/rewrite-dist-esm-imports.mjs
       - name: Install Chromium with its supported system libraries
         run: pnpm --dir scripts/accounts-reference-e2e exec playwright install --with-deps chromium
       - name: Migrate fresh PostgreSQL and run actual desktop and mobile Next UI
