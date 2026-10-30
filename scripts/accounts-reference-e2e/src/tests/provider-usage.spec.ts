@@ -157,12 +157,27 @@ test("provider usage overview keeps complete period totals, charts, models and r
       workspace: FIXTURES.workspaces.orgAlpha,
       purpose: "review",
     });
-    const api = async (extra: Record<string, string> = {}) => {
+    const api = async (
+      extra: Record<string, string> = {},
+      expectedScope: {
+        actorId: string;
+        effectiveAccess: "admin" | "member";
+      } = { actorId: FIXTURES.users.viewer, effectiveAccess: "admin" },
+    ) => {
       const response = await context.request.get(
         `/api/dashboard/provider-usage?${new URLSearchParams({ ...Object.fromEntries(query), ...extra })}`,
       );
       expect(response.status()).toBe(200);
-      return response.json();
+      expect(response.headers()["cache-control"]).toBe("private, no-store");
+      const payload = await response.json();
+      expect(payload).toEqual({
+        scope: {
+          ...expectedScope,
+          workspaceId: FIXTURES.workspaces.orgAlpha,
+        },
+        report: expect.any(Object),
+      });
+      return payload.report;
     };
     const payload = await api();
     expect(payload.totals).toMatchObject({
@@ -849,19 +864,24 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await expect(kpi("Known tokens")).toContainText("858");
     await context.clearCookies();
     await useOtherSession(context);
-    const member = await api();
+    const member = await api(
+      {},
+      {
+        actorId: FIXTURES.users.other,
+        effectiveAccess: "member",
+      },
+    );
     expect(member.totals).toMatchObject({
       providerAttempts: 1,
       logicalRuns: 1,
       tokens: { total: 50 },
     });
-    expect(
-      (
-        await context.request.get(
-          `/api/dashboard/provider-usage?workspace=${FIXTURES.workspaces.orgBravo}`,
-        )
-      ).status(),
-    ).toBe(403);
+    const forbidden = await context.request.get(
+      `/api/dashboard/provider-usage?workspace=${FIXTURES.workspaces.orgBravo}`,
+    );
+    expect(forbidden.status()).toBe(403);
+    expect(forbidden.headers()["cache-control"]).toBe("private, no-store");
+    expect(await forbidden.json()).toEqual({ error: "usage_access_denied" });
     await page.reload();
     await expect(kpi("Known tokens")).toContainText("50");
     await page
@@ -1093,6 +1113,7 @@ test("provider usage operator report permits administrators and denies members a
     ).toBeVisible();
     const allowed = await context.request.get("/api/operator/provider-usage");
     expect(allowed.status()).toBe(200);
+    expect(allowed.headers()["cache-control"]).toBe("private, no-store");
     const report = await allowed.json();
     expect(report.totals.providerAttempts).toBe(2);
     expect(report.totals.tokens.total).toBe(96);
