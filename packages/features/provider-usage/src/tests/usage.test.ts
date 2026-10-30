@@ -175,6 +175,81 @@ describe("safe usage invariants", () => {
       ]),
     ).toThrow("usage_authority_conflict");
   });
+  it("preserves duplicate child inputs and their order when a summary remains authoritative", () => {
+    const a = selectProjection([
+      fact({ identity: { ...fact().identity, parentScope: "turn" } }),
+    ]);
+    const b = selectProjection([
+      fact({ identity: { ...a.identity, callId: "b" } }),
+    ]);
+    const summary = selectProjection([
+      fact({
+        identity: { ...a.identity, callId: "summary", granularity: "turn" },
+        childCallIds: [a.identity.callId, b.identity.callId],
+      }),
+    ]);
+    // Exact coverage counts input entries; duplicate observations must not be
+    // silently collapsed into a complete family or reordered by the manifest.
+    const duplicateA = { ...a };
+    const duplicate = selectReportFacts([b, summary, a, duplicateA]);
+    expect(duplicate.selected).toEqual([summary]);
+    expect(duplicate.partialChildren).toEqual([b, a, duplicateA]);
+    expect(duplicate.partialChildren[2]).toBe(duplicateA);
+    const complete = selectReportFacts([b, summary, a]);
+    expect(complete.selected).toEqual([b, a]);
+    expect(complete.partialChildren).toEqual([]);
+  });
+  it("requires both correlation fields and keeps missing or unknown children under the summary", () => {
+    const base = { ...fact().identity, parentScope: "turn" };
+    const child = selectProjection([fact({ identity: base })]);
+    const wrongParent = selectProjection([
+      fact({
+        identity: { ...base, callId: "wrong-parent", parentScope: "other" },
+      }),
+    ]);
+    const wrongInvocation = selectProjection([
+      fact({
+        identity: {
+          ...base,
+          callId: "wrong-invocation",
+          invocationId: "other",
+        },
+      }),
+    ]);
+    const summary = selectProjection([
+      fact({
+        identity: { ...base, callId: "summary", granularity: "turn" },
+        childCallIds: [
+          "missing",
+          "wrong-invocation",
+          "wrong-parent",
+          base.callId,
+        ],
+      }),
+    ]);
+    const selection = selectReportFacts([
+      wrongInvocation,
+      child,
+      summary,
+      wrongParent,
+    ]);
+    expect(selection.selected).toEqual([wrongInvocation, wrongParent, summary]);
+    expect(selection.partialChildren).toEqual([child]);
+    for (const usage of [
+      null,
+      fact({ ...child.usage!, completeness: "unknown" }),
+    ]) {
+      const unknown = { ...child, usage };
+      const bounded = selectProjection([
+        fact({ ...summary.usage!, childCallIds: [base.callId] }),
+      ]);
+      expect(selectReportFacts([unknown, bounded])).toEqual({
+        selected: [bounded],
+        partialChildren: [unknown],
+        unboundedSummaries: [],
+      });
+    }
+  });
   it("aggregates complete period before page and preserves exact decimal currency/basis", () => {
     const a = fact();
     const b = fact({

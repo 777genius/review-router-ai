@@ -5,6 +5,12 @@ import {
   type StatisticsFilter,
 } from "@reviewrouter/features-review-statistics";
 import { createReviewStatisticsFeature } from "@reviewrouter/features-review-statistics/composition";
+import { HistoryAccessError } from "@reviewrouter/features-review-history/contracts";
+import { createReviewHistoryFeature } from "@reviewrouter/features-review-history/composition";
+import type {
+  StatisticsIssuesResponse,
+  StatisticsIssueView,
+} from "../features/review-statistics/application/statistics-model";
 import { getDashboardSignedInActor } from "./dashboard-mutations";
 import { getPrisma } from "./prisma";
 
@@ -41,8 +47,9 @@ export function readStatisticsFilter(
 async function context() {
   const actor = await getDashboardSignedInActor({ readOnly: true });
   if (!actor?.userId) throw new StatisticsSignInRequiredError();
-  const feature = await createReviewStatisticsFeature({ prisma: getPrisma() });
-  return { actorId: actor.userId, reader: feature.reader };
+  const prisma = getPrisma();
+  const feature = await createReviewStatisticsFeature({ prisma });
+  return { actorId: actor.userId, reader: feature.reader, prisma };
 }
 export async function loadStatisticsReport(
   workspaceId: string,
@@ -57,15 +64,15 @@ export async function loadStatisticsReport(
 export async function loadStatisticsIssues(
   workspaceId: string,
   params: URLSearchParams,
-) {
-  const { actorId, reader } = await context();
+): Promise<StatisticsIssuesResponse> {
+  const { actorId, reader, prisma } = await context();
   const { severity } = readStatisticsFilter(params);
   const from = params.get("from");
   const to = params.get("to");
   if (!from || !to) throw new StatisticsValidationError();
   const repositoryId = params.get("repositoryId");
   const cursor = params.get("cursor");
-  return reader.readIssues({
+  const page = await reader.readIssues({
     actorId,
     workspaceId,
     from,
@@ -74,4 +81,56 @@ export async function loadStatisticsIssues(
     ...(repositoryId !== null ? { repositoryId } : {}),
     ...(cursor !== null ? { cursor } : {}),
   });
+  const history = await createReviewHistoryFeature({ prisma });
+  let resolution;
+  try {
+    resolution = await history.reader.resolvePullRequests({
+      actorId,
+      workspaceId,
+      pullRequests: page.items.map((issue) => ({
+        scmRepositoryIdentityId: issue.scmRepositoryIdentityId,
+        pullRequestNumber: issue.pullRequestNumber,
+      })),
+    });
+  } catch (error) {
+    if (error instanceof HistoryAccessError) throw new StatisticsAccessError();
+    throw error;
+  }
+  const targets = new Set(
+    resolution.state === "available"
+      ? resolution.items.map((item) =>
+          JSON.stringify([
+            item.scmRepositoryIdentityId,
+            item.pullRequestNumber,
+          ]),
+        )
+      : [],
+  );
+  const items: StatisticsIssueView[] = page.items.map((issue) => {
+    const linked = targets.has(
+      JSON.stringify([issue.scmRepositoryIdentityId, issue.pullRequestNumber]),
+    );
+    const params = new URLSearchParams({
+      section: "reviews",
+      workspace: workspaceId,
+      reviewRepository: issue.scmRepositoryIdentityId,
+      reviewSearch: String(issue.pullRequestNumber),
+    });
+    return {
+      ...issue,
+      history:
+        resolution.state === "unavailable"
+          ? { status: "temporarily_unavailable" }
+          : linked
+            ? {
+                status: "linked",
+                href: `/dashboard?${params}#dashboard-section-content`,
+              }
+            : { status: "not_recorded" },
+    };
+  });
+  return {
+    scope: { actorId, workspaceId },
+    page: { items, nextCursor: page.nextCursor },
+  };
 }

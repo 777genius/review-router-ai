@@ -72,7 +72,8 @@ const server = createServer((request, response) => {
   if (
     request.url?.startsWith("/dashboard") ||
     request.url?.startsWith("/api/dashboard/review-statistics") ||
-    request.url?.startsWith("/api/dashboard/review-history")
+    request.url?.startsWith("/api/dashboard/review-history") ||
+    request.url?.startsWith("/api/dashboard/provider-usage")
   ) {
     response.once("finish", () => {
       global.gc?.();

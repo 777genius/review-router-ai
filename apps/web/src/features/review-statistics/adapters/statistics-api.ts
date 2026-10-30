@@ -1,8 +1,13 @@
 import type {
   StatisticsFilter,
-  StatisticsIssuePage,
   StatisticsReport,
 } from "@reviewrouter/features-review-statistics";
+import type {
+  StatisticsScope,
+  StatisticsReportResponse,
+  StatisticsIssuesResponse,
+  StatisticsIssueViewPage,
+} from "../application/statistics-model";
 
 export const statisticsScopeKey = (actorId: string, workspaceId: string) =>
   ["review-statistics", actorId, workspaceId] as const;
@@ -45,7 +50,22 @@ export class StatisticsRequestError extends Error {
   }
 }
 export const isStatisticsAccessFailure = (error: unknown): boolean =>
-  error instanceof StatisticsRequestError && [401, 403].includes(error.status);
+  error instanceof StatisticsRequestError &&
+  [401, 403, 409].includes(error.status);
+export const isStatisticsScopeMismatch = (error: unknown): boolean =>
+  error instanceof StatisticsRequestError && error.status === 409;
+
+function checkScope(
+  actual: StatisticsScope | undefined,
+  expected: StatisticsScope,
+): void {
+  if (
+    !actual ||
+    actual.actorId !== expected.actorId ||
+    actual.workspaceId !== expected.workspaceId
+  )
+    throw new StatisticsRequestError(409);
+}
 
 async function read<T>(
   path: string,
@@ -63,8 +83,9 @@ export function fetchStatisticsReport(
   workspaceId: string,
   filter: StatisticsFilter,
   signal: AbortSignal,
+  actorId: string,
 ): Promise<StatisticsReport> {
-  return read(
+  return read<StatisticsReportResponse>(
     "/api/dashboard/review-statistics",
     new URLSearchParams({
       workspaceId,
@@ -72,16 +93,27 @@ export function fetchStatisticsReport(
       severity: filter.severity,
     }),
     signal,
-  );
+  ).then((response) => {
+    checkScope(response?.scope, { actorId, workspaceId });
+    return response.report;
+  });
 }
 export function fetchStatisticsIssues(
   workspaceId: string,
   filter: IssueFilters,
   signal: AbortSignal,
-): Promise<StatisticsIssuePage> {
+  actorId: string,
+): Promise<StatisticsIssueViewPage> {
   const params = new URLSearchParams({ workspaceId });
   for (const [key, value] of Object.entries(filter)) {
     if (value !== undefined) params.set(key, value);
   }
-  return read("/api/dashboard/review-statistics/issues", params, signal);
+  return read<StatisticsIssuesResponse>(
+    "/api/dashboard/review-statistics/issues",
+    params,
+    signal,
+  ).then((response) => {
+    checkScope(response?.scope, { actorId, workspaceId });
+    return response.page;
+  });
 }

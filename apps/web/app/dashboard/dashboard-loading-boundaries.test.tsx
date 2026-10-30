@@ -1281,10 +1281,13 @@ describe("dashboard server loading boundaries", () => {
       },
       selectedWorkspace: workspace,
       selectedSection: "statistics",
-      params: {},
+      params: { statisticsDays: ["7", "30"], statisticsSeverity: "major" },
       workspaceKey: "acme",
     });
-    expect(content.props).toEqual({ workspaceId: "workspace-a" });
+    expect(content.props).toEqual({
+      workspaceId: "workspace-a",
+      params: { statisticsDays: ["7", "30"], statisticsSeverity: "major" },
+    });
     for (const spy of Object.values(spies)) expect(spy).not.toHaveBeenCalled();
   });
 });
